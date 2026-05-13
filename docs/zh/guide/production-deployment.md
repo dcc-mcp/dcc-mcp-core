@@ -77,6 +77,8 @@ cross build --release --bin dcc-mcp-server --target x86_64-unknown-linux-gnu
 | `DCC_MCP_LOG_DIR` | 平台默认 | 滚动日志的输出目录 |
 | `DCC_MCP_NO_ADMIN` | `false` | 禁用获选网关的只读 `/admin` UI |
 | `DCC_MCP_ADMIN_PATH` | `/admin` | Admin UI URL 前缀 |
+| `DCC_MCP_GATEWAY_AUDIT_DIR` | — | 可选 Admin JSONL 持久化目录，保存调用行（`audit.jsonl`）和 dispatch traces（`traces.jsonl`） |
+| `DCC_MCP_GATEWAY_AUDIT_MAX_ROWS` | `5000` | 每个 Admin JSONL 持久化文件最多保留的行数 |
 
 ### 冒烟测试
 

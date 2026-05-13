@@ -123,9 +123,23 @@ let config = GatewayConfig {
 {
   "total": 1,
   "traces": [
-    { "request_id": "req-123", "tool": "maya__open_scene", "status": "ok", "spans": [] }
+    {
+      "request_id": "req-123",
+      "method": "tools/call",
+      "tool_slug": "maya.abcdef01.maya__open_scene",
+      "dcc_type": "maya",
+      "total_ms": 48,
+      "ok": true,
+      "spans": [
+        { "name": "gateway.route", "duration_ns": 1200000, "ok": true, "attributes": {} }
+      ],
+      "input": { "mime_type": "application/json", "truncated": false, "original_size": 42, "content": "{...}" },
+      "output": { "mime_type": "application/json", "truncated": false, "original_size": 96, "content": "{...}" }
+    }
   ]
 }
+
+// GET /admin/api/traces/req-123 返回同一个完整 trace 对象；未命中时返回 404。
 
 // GET /admin/api/stats?range=24h
 {
@@ -178,6 +192,8 @@ HTML 仪表盘包含：
 - **自动刷新**：每个面板每 5 秒轮询对应 JSON 端点
 - **Worker 卡片**：按实例展示状态、心跳与路由元数据
 - **Calls 表格**：展示 request id、错误摘要与 trace detail 链接；DCC 优先从解析后的 backend slug 展示，其次使用调用参数中的 `dcc` / `dcc_type`
+- **Trace 下钻**：`/admin/api/traces/{request_id}` 暴露单次调用的完整 waterfall，以及有界/已脱敏的输入输出 payload
+- **可选持久化**：`DCC_MCP_GATEWAY_AUDIT_DIR` 可让 Calls 与 Traces 面板跨重启保留，且不改变 JSON API 结构
 - **深色主题**：极简内联 CSS，无外部字体
 - **响应式布局**：CSS grid 布局
 

@@ -90,16 +90,21 @@ MiddlewareChain::new()
 
 ## 与 Admin UI 集成
 
-`AuditMiddleware` 会填充 `/admin/api/calls` 数据源。同时开启两者可在仪表盘中查看实时调用历史：
+Admin UI 通过 `AuditMiddleware` 填充 `/admin/api/calls`，并把完成的调用提升为 `/admin/api/traces`。发布的 `dcc-mcp-server` 路径在 admin 启用时会自动接入 `AdminAuditSink`。如果你直接构造 `dcc-mcp-gateway`，请在启动 router 前把 audit middleware/sink 放进 `GatewayConfig`：
 
 ```rust
+let audit = Arc::new(AuditMiddleware::default());
+
 GatewayConfig {
     admin_enabled: true,
     middleware_chain: MiddlewareChain::new()
-        .with_before(Arc::new(AuditMiddleware::default())),
+        .with_before(audit.clone())
+        .with_after(audit),
     ..GatewayConfig::default()
 }
 ```
+
+运维需要跨重启保留记录时，设置 `DCC_MCP_GATEWAY_AUDIT_DIR`，即可获得有界的 `audit.jsonl` 与 `traces.jsonl` 持久化。
 
 ## 参见
 

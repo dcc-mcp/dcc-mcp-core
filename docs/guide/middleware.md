@@ -90,16 +90,21 @@ If any `before_call` returns `Err`, the call is aborted and subsequent middlewar
 
 ## Integration with Admin UI
 
-The `AuditMiddleware` populates the `/admin/api/calls` feed. Enable both together for a live call history in the dashboard:
+The gateway's Admin UI uses `AuditMiddleware` to populate `/admin/api/calls` and to promote completed calls into `/admin/api/traces`. The shipped `dcc-mcp-server` path wires an `AdminAuditSink` automatically when admin is enabled. If you construct `dcc-mcp-gateway` directly, add an audit middleware/sink to your `GatewayConfig` before starting the router:
 
 ```rust
+let audit = Arc::new(AuditMiddleware::default());
+
 GatewayConfig {
     admin_enabled: true,
     middleware_chain: MiddlewareChain::new()
-        .with_before(Arc::new(AuditMiddleware::default())),
+        .with_before(audit.clone())
+        .with_after(audit),
     ..GatewayConfig::default()
 }
 ```
+
+Set `DCC_MCP_GATEWAY_AUDIT_DIR` when operators need bounded `audit.jsonl` and `traces.jsonl` persistence across gateway restarts.
 
 ## See also
 

@@ -197,7 +197,7 @@ Gateway resources/prompts:
 | Bridge stdio MCP server to HTTP/SSE | `dcc-mcp-server translate --stdio "cmd" --app-type foo --port N` |
 | Add audit/quota/redact to all gateway calls | `GatewayConfig::middleware_chain` + `AuditMiddleware` / `QuotaMiddleware` / `RedactionMiddleware` |
 | Mount OpenAPI REST API as MCP tools | `GatewayBuilder::mount_openapi(OpenApiMount::from_url(...).auth(...))` |
-| Enable built-in gateway admin dashboard | Default ON for the elected gateway: open `GET /admin`; JSON APIs include `/admin/api/{instances,tools,calls,traces,stats,workers,logs,health}`; disable with `--no-admin`, `DCC_MCP_NO_ADMIN=true`, or `cfg.admin_enabled = False` |
+| Enable built-in gateway admin dashboard | Default ON for the elected gateway: open `GET /admin`; JSON APIs include `/admin/api/{instances,tools,calls,traces,stats,workers,logs,health}` plus `/admin/api/traces/{request_id}` detail; set `DCC_MCP_GATEWAY_AUDIT_DIR` for durable `audit.jsonl` + `traces.jsonl`; disable with `--no-admin`, `DCC_MCP_NO_ADMIN=true`, or `cfg.admin_enabled = False` |
 | Wire OTLP distributed tracing to Jaeger/Tempo/Grafana | Set `OTEL_EXPORTER_OTLP_ENDPOINT` env var at server startup |
 | Read gateway contention event history | MCP `resources/read` on `resources://gateway/events` |
 | Search public DCC-MCP adapter catalog | MCP `resources/read` on `gateway://catalog?query=...` (or `gateway://catalog/{name}` for a single entry); CLI: `dcc-mcp-server catalog search --query ...` |

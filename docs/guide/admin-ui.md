@@ -123,9 +123,23 @@ When using `dcc-mcp-gateway` directly, compile with the `admin` Cargo feature. `
 {
   "total": 1,
   "traces": [
-    { "request_id": "req-123", "tool": "maya__open_scene", "status": "ok", "spans": [] }
+    {
+      "request_id": "req-123",
+      "method": "tools/call",
+      "tool_slug": "maya.abcdef01.maya__open_scene",
+      "dcc_type": "maya",
+      "total_ms": 48,
+      "ok": true,
+      "spans": [
+        { "name": "gateway.route", "duration_ns": 1200000, "ok": true, "attributes": {} }
+      ],
+      "input": { "mime_type": "application/json", "truncated": false, "original_size": 42, "content": "{...}" },
+      "output": { "mime_type": "application/json", "truncated": false, "original_size": 96, "content": "{...}" }
+    }
   ]
 }
+
+// GET /admin/api/traces/req-123 returns the same full trace object or 404.
 
 // GET /admin/api/stats?range=24h
 {
@@ -178,6 +192,8 @@ The HTML dashboard includes:
 - **Auto-refresh**: Panels poll their JSON endpoints every 5 seconds
 - **Worker cards**: Per-instance status, heartbeat, and routing metadata
 - **Calls table**: request ids, error previews, and trace-detail links; DCC is displayed from the resolved backend slug when available, otherwise from explicit call arguments such as `dcc` / `dcc_type`.
+- **Trace drill-down**: `/admin/api/traces/{request_id}` exposes the full waterfall plus bounded/redacted input/output payloads for one call.
+- **Durable audit option**: `DCC_MCP_GATEWAY_AUDIT_DIR` preserves the Calls and Traces panels across restarts without changing the JSON API shapes.
 - **Dark theme**: Minimal inline CSS, no external fonts
 - **Responsive**: CSS grid layout
 

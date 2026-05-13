@@ -56,6 +56,10 @@ cfg = McpHttpConfig(
 | `bare_tool_names` | `bool` | `True` | Publish unique action names without `<skill>.` prefix in `tools/list` (#307). Collisions fall back to full form; `tools/call` accepts both shapes |
 | `enable_tool_cache` | `bool` | `True` | Connection-scoped `tools/list` cache (#438). Per-session snapshot avoids redundant registry scans on sequential calls. Invalidated on skill load/unload, group activation/deactivation, session eviction, or `_meta.dcc.refresh=true` |
 
+::: tip Admin persistence
+`McpHttpConfig` controls whether the elected gateway serves `/admin`; durable admin storage is intentionally environment-driven. Set `DCC_MCP_GATEWAY_AUDIT_DIR` to persist `/admin/api/calls` rows in `audit.jsonl` and `/admin/api/traces` rows in `traces.jsonl`; `DCC_MCP_GATEWAY_AUDIT_MAX_ROWS` caps each file.
+:::
+
 ## McpServerHandle
 
 Returned by `McpHttpServer.start()`. Use it to get the MCP endpoint URL and shut down gracefully.

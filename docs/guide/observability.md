@@ -1,6 +1,6 @@
 # Observability
 
-dcc-mcp-core provides three complementary observability surfaces for production deployments.
+dcc-mcp-core provides four complementary observability surfaces for production deployments.
 
 ## 1. OTLP Distributed Tracing (#768)
 
@@ -123,7 +123,28 @@ Ring buffer holds the **last 1000 events**.
 
 ---
 
-## 3. Prometheus Metrics (#766)
+## 3. Admin Call Audit and Dispatch Traces
+
+The elected gateway exposes a read-only HTML dashboard at `GET /admin` and machine-readable JSON endpoints for operators and AI agents:
+
+| Endpoint | Use when |
+|----------|----------|
+| `GET /admin/api/calls` | Correlate recent calls by `request_id`, tool slug, DCC type, instance, error preview, and duration. |
+| `GET /admin/api/traces?limit=200` | Inspect recent dispatch waterfalls, bounded input payloads (16 KiB), and bounded output payloads (64 KiB). |
+| `GET /admin/api/traces/{request_id}` | Drill into one call without scanning the whole trace ring. |
+| `GET /admin/api/stats?range=1h\|24h\|7d` | Compute success rate, latency percentiles, and top tools/instances from the trace log. |
+| `GET /admin/api/workers` | Inspect per-instance worker cards from the live registry. |
+
+By default these buffers are in memory only. Set `DCC_MCP_GATEWAY_AUDIT_DIR` to append bounded JSONL files:
+
+- `audit.jsonl` — rows backing `/admin/api/calls`.
+- `traces.jsonl` — rows backing `/admin/api/traces` and stats.
+
+`DCC_MCP_GATEWAY_AUDIT_MAX_ROWS` (default `5000`) caps each file. On restart, the gateway seeds the in-memory admin buffers from those files. The persisted trace payloads use the same bounded/redacted `TracePayload` values as the live API; unbounded raw request bodies are not stored.
+
+---
+
+## 4. Prometheus Metrics (#766)
 
 Under the `prometheus` Cargo feature, gateway contention counters are exposed at `/metrics`:
 

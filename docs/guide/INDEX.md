@@ -47,7 +47,7 @@ document without scanning every file.
 | [production-deployment.md](production-deployment.md) | Production checklist: logging, health probes, monitoring |
 | [protocols.md](protocols.md) | MCP protocol types and versioning |
 | [middleware.md](middleware.md) | Pluggable BeforeCall/AfterCall middleware chain: audit, quota, redaction |
-| [admin-ui.md](admin-ui.md) | Built-in zero-build `/admin` dashboard (instances, tools, calls, logs, health) |
+| [admin-ui.md](admin-ui.md) | Built-in zero-build `/admin` dashboard (instances, tools, calls, traces, stats, workers, logs, health, durable JSONL audit/trace persistence) |
 | [translate.md](translate.md) | `translate` subcommand: bridge any stdio MCP server to HTTP/SSE |
 | [openapi-mount.md](openapi-mount.md) | OpenAPI-to-MCP mount helper: expose any REST API as MCP tools |
 | [catalog.md](catalog.md) | DCC-MCP public adapter catalog: search and describe |
