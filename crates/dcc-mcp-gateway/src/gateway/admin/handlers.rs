@@ -18,6 +18,65 @@ use crate::gateway::event_log::ContendEvent;
 use crate::gateway::resilience::{self as gw_resilience, gateway_limits};
 use crate::gateway::state::entry_to_json;
 
+/// Read `.log` files from `dir` and parse them into admin log rows.
+/// Only keeps the most recent `limit` entries (by timestamp, descending).
+fn read_log_files(dir: &str, limit: usize) -> Vec<Value> {
+    let mut rows: Vec<Value> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().map(|e| e == "log").unwrap_or(false)
+                && let Ok(contents) = std::fs::read_to_string(&path)
+            {
+                for line in contents.lines() {
+                    if let Some(row) = parse_log_line(line) {
+                        rows.push(row);
+                    }
+                }
+            }
+        }
+    }
+    rows.sort_by(|a, b| {
+        let ta = a.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
+        let tb = b.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
+        tb.cmp(ta) // descending
+    });
+    rows.truncate(limit);
+    rows
+}
+
+/// Parse one log line (tracing / log4rs format) into an admin log row.
+fn parse_log_line(line: &str) -> Option<Value> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    // Expected format: "2024-01-01T00:00:00.000000Z  LEVEL  target: message"
+    let mut parts = trimmed.splitn(3, ' ');
+    let ts = parts.next().unwrap_or("");
+    let level = parts.next().unwrap_or("info").to_lowercase();
+    let rest = parts.next().unwrap_or("");
+    let (target, message) = if let Some(idx) = rest.find(':') {
+        (&rest[..idx], rest[idx + 1..].trim())
+    } else {
+        ("", rest)
+    };
+    Some(json!({
+        "timestamp": ts,
+        "level": level,
+        "message": message,
+        "source": "file",
+        "event": null,
+        "dcc_type": if target.is_empty() { None } else { Some(target) },
+        "instance_id": null,
+        "request_id": null,
+        "tool": null,
+        "success": level == "info" || level == "debug",
+        "detail": null,
+        "reason": null,
+    }))
+}
+
 /// `GET /admin` — serve the inline HTML dashboard.
 pub async fn handle_admin_ui() -> impl IntoResponse {
     let mut resp = axum::response::Html(ADMIN_HTML).into_response();
@@ -124,6 +183,14 @@ pub async fn handle_admin_logs(State(s): State<AdminState>) -> impl IntoResponse
         .into_iter()
         .map(contend_event_to_admin_row)
         .collect();
+
+    // Merge on-disk log files (issue #963).
+    // Only when DCC_MCP_LOG_DIR is explicitly set — avoids scanning
+    // unintended directories during tests or on hosts without the path.
+    if let Ok(log_dir) = std::env::var("DCC_MCP_LOG_DIR") {
+        let mut file_logs = read_log_files(&log_dir, 500);
+        logs.append(&mut file_logs);
+    }
 
     if let Some(audit) = &s.audit_log {
         let records = audit.lock().clone();

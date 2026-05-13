@@ -124,6 +124,19 @@ type LogRow = {
   reason?: string | null;
 };
 
+/// DCC-type → icon URL (Simple Icons CDN).
+/// Unknown/missing types fall back to a generic puzzle-piece icon.
+const DCC_ICON_MAP: Record<string, string> = {
+  blender: 'https://simpleicons.org/icons/blender.svg',
+  gimp: 'https://simpleicons.org/icons/gimp.svg',
+  inkscape: 'https://simpleicons.org/icons/inkscape.svg',
+  krita: 'https://simpleicons.org/icons/krita.svg',
+  unity: 'https://simpleicons.org/icons/unity.svg',
+  unreal: 'https://simpleicons.org/icons/unrealengine.svg',
+  substance_painter: 'https://simpleicons.org/icons/photoshop.svg', // fallback
+};
+const DCC_ICON_FALLBACK = 'https://simpleicons.org/icons/puzzle.svg';
+
 const API_BASE = `${location.origin}/admin/api`;
 /** Abort hung admin fetches so the UI does not wait indefinitely on a wedged gateway. */
 const ADMIN_FETCH_TIMEOUT_MS = 25_000;
@@ -714,7 +727,14 @@ function App() {
                   filteredInstances.map((instance) => (
                   <tr key={instance.id}>
                     <td>{instance.id.slice(0, 8)}</td>
-                    <td>{instance.dcc_type}</td>
+                    <td>
+                      <img
+                        src={DCC_ICON_MAP[instance.dcc_type] || DCC_ICON_FALLBACK}
+                        alt={instance.dcc_type}
+                        className="dcc-icon"
+                      />
+                      {instance.dcc_type}
+                    </td>
                     <td><StatusBadge value={instance.status} /></td>
                     <td>{instance.host}:{instance.port}</td>
                     <td>{instance.scene ?? '-'}</td>
