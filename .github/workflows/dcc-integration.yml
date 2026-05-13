@@ -141,7 +141,7 @@ jobs:
   blender:
     name: Blender ${{ matrix.blender-version }}
     needs: [wheel-ready]
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_run' || github.event_name == 'workflow_call' || github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'blender'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'blender'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -199,7 +199,7 @@ jobs:
   openscad:
     name: OpenSCAD
     needs: [wheel-ready]
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_run' || github.event_name == 'workflow_call' || github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'openscad'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'openscad'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -229,7 +229,7 @@ jobs:
   godot:
     name: Godot
     needs: [wheel-ready]
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_run' || github.event_name == 'workflow_call' || github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'godot'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'godot'
     runs-on: ubuntu-latest
     env:
       GODOT_VERSION: "4.4.1"
@@ -265,7 +265,7 @@ jobs:
   cross-dcc:
     name: Cross-DCC Pipeline
     needs: [wheel-ready]
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_run' || github.event_name == 'workflow_call' || github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'cross'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'cross'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
