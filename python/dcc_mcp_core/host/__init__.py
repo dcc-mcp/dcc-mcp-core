@@ -32,6 +32,8 @@ from dcc_mcp_core._core import TickOutcome
 from dcc_mcp_core.host._adapter import HostAdapter
 from dcc_mcp_core.host._adapter import TickableDispatcher
 from dcc_mcp_core.host._standalone import StandaloneHost
+from dcc_mcp_core.host._wire import normalize_tool_arguments
+from dcc_mcp_core.host._wire import normalize_tool_meta
 
 __all__ = [
     "BlockingDispatcher",
@@ -42,4 +44,6 @@ __all__ = [
     "StandaloneHost",
     "TickOutcome",
     "TickableDispatcher",
+    "normalize_tool_arguments",
+    "normalize_tool_meta",
 ]

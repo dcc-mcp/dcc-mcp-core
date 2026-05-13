@@ -13,6 +13,9 @@ tokio = { workspace = true }
 parking_lot = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+serde_json = { workspace = true }
+dcc-mcp-wire = { path = "../dcc-mcp-wire" }
+dcc-mcp-pybridge = { path = "../dcc-mcp-pybridge", optional = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 pyo3 = { workspace = true, optional = true }
@@ -28,5 +31,5 @@ pyo3 = { workspace = true, features = ["auto-initialize"] }
 
 [features]
 default = []
-python-bindings = ["pyo3"]
+python-bindings = ["pyo3", "dep:dcc-mcp-pybridge", "dcc-mcp-pybridge/python-bindings"]
 stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]

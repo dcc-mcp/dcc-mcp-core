@@ -887,10 +887,13 @@ dependencies = [
 name = "dcc-mcp-host"
 version = "0.15.9"
 dependencies = [
+ "dcc-mcp-pybridge",
+ "dcc-mcp-wire",
  "parking_lot",
  "pyo3",
  "pyo3-stub-gen",
  "pyo3-stub-gen-derive",
+ "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

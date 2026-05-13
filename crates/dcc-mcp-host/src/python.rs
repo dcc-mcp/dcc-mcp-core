@@ -33,9 +33,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyTuple};
+
+use dcc_mcp_pybridge::py_json::{json_value_to_pyobject, py_any_to_json_value};
 use tokio::runtime::Runtime;
 
 use crate::{
@@ -223,6 +225,42 @@ fn make_py_job(callable: PyObj) -> impl FnOnce() -> PyResult<PyObj> + Send + 'st
     }
 }
 
+fn wire_error_to_py(err: dcc_mcp_wire::WireError) -> PyErr {
+    PyValueError::new_err(format!("{}: {}", err.kind(), err))
+}
+
+/// Normalise Python `arguments` for MCP `tools/call` / REST `/v1/call`.
+///
+/// This is the Python-facing host adapter seam for real DCC requests: adapters
+/// pass the raw Python object they received, and the same canonical wire logic
+/// used by Rust transports converts `None`, JSON object strings, and dicts into
+/// a plain Python `dict`.
+#[pyfunction]
+#[pyo3(name = "normalize_tool_arguments", signature = (arguments=None))]
+pub fn py_normalize_tool_arguments(
+    py: Python<'_>,
+    arguments: Option<&Bound<'_, PyAny>>,
+) -> PyResult<PyObj> {
+    let value = arguments.map(py_any_to_json_value).transpose()?;
+    let normalized = dcc_mcp_wire::normalize_arguments(value).map_err(wire_error_to_py)?;
+    json_value_to_pyobject(py, &normalized)
+}
+
+/// Normalise Python `_meta` for MCP `tools/call` / REST `/v1/call`.
+///
+/// Returns `None` for omitted/null/empty metadata, or a plain Python `dict` for
+/// object metadata. JSON object strings are accepted for parity with
+/// `normalize_tool_arguments`.
+#[pyfunction]
+#[pyo3(name = "normalize_tool_meta", signature = (meta=None))]
+pub fn py_normalize_tool_meta(py: Python<'_>, meta: Option<&Bound<'_, PyAny>>) -> PyResult<PyObj> {
+    let value = meta.map(py_any_to_json_value).transpose()?;
+    match dcc_mcp_wire::normalize_meta(value).map_err(wire_error_to_py)? {
+        Some(map) => json_value_to_pyobject(py, &serde_json::Value::Object(map)),
+        None => Ok(py.None()),
+    }
+}
+
 // ── PyQueueDispatcher ───────────────────────────────────────────────
 
 /// Python wrapper over [`crate::QueueDispatcher`].
@@ -407,6 +445,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPostHandle>()?;
     m.add_class::<PyQueueDispatcher>()?;
     m.add_class::<PyBlockingDispatcher>()?;
+    m.add_function(wrap_pyfunction!(py_normalize_tool_arguments, m)?)?;
+    m.add_function(wrap_pyfunction!(py_normalize_tool_meta, m)?)?;
     Ok(())
 }
 
