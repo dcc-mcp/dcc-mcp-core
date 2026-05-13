@@ -303,6 +303,7 @@ _LAZY: dict[str, str] = {
     "METADATA_LAYER_KEY": "dcc_mcp_core.constants",
     "METADATA_RECIPES_KEY": "dcc_mcp_core.constants",
     "METADATA_SEARCH_HINT_KEY": "dcc_mcp_core.constants",
+    "METADATA_SKILL_REFERENCE_DOCS_KEY": "dcc_mcp_core.constants",
     "METADATA_TAGS_KEY": "dcc_mcp_core.constants",
     "METADATA_TOOLS_KEY": "dcc_mcp_core.constants",
     "METADATA_VERSION_KEY": "dcc_mcp_core.constants",

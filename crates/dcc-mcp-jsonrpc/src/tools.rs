@@ -1,7 +1,7 @@
 //! `tools/list` + `tools/call` message types.
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 /// Re-export of [`dcc_mcp_protocols::ToolAnnotations`] under the historical
 /// `McpToolAnnotations` name used throughout the wire layer.
@@ -159,9 +159,93 @@ impl CallToolResult {
     }
 }
 
+fn json_value_kind(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
+}
+
+/// Normalise MCP `tools/call` / gateway `call_tool` `arguments` payloads to a JSON **object**.
+///
+/// Some clients double-serialise `arguments` as a JSON string. Serde accepts
+/// that as [`Value::String`], which then breaks backends that expect an object
+/// at the outer `arguments` key.
+///
+/// - `None` / [`Value::Null`] / empty or whitespace-only string → `{}`
+/// - [`Value::Object`] → returned unchanged
+/// - [`Value::String`] → parsed as JSON; decoded value must be an object
+/// - any other top-level kind → [`Err`]
+pub fn coerce_tool_arguments_object(arguments: Option<Value>) -> Result<Value, String> {
+    match arguments {
+        None | Some(Value::Null) => Ok(json!({})),
+        Some(Value::Object(map)) => Ok(Value::Object(map)),
+        Some(Value::String(s)) => {
+            let trimmed = s.trim();
+            if trimmed.is_empty() {
+                return Ok(json!({}));
+            }
+            let parsed: Value = serde_json::from_str(trimmed).map_err(|e| {
+                format!("arguments must be a JSON object; string value is not valid JSON ({e})")
+            })?;
+            if let Value::Object(_) = parsed {
+                Ok(parsed)
+            } else {
+                Err(format!(
+                    "arguments must be a JSON object; decoded string is {} (expected object)",
+                    json_value_kind(&parsed)
+                ))
+            }
+        }
+        Some(other) => Err(format!(
+            "arguments must be a JSON object (got {})",
+            json_value_kind(&other)
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn coerce_tool_arguments_object_accepts_object_and_empty() {
+        assert_eq!(coerce_tool_arguments_object(None).unwrap(), json!({}));
+        assert_eq!(
+            coerce_tool_arguments_object(Some(Value::Null)).unwrap(),
+            json!({})
+        );
+        let obj = json!({"code": "pass"});
+        assert_eq!(
+            coerce_tool_arguments_object(Some(obj.clone())).unwrap(),
+            obj
+        );
+    }
+
+    #[test]
+    fn coerce_tool_arguments_object_parses_json_object_string() {
+        let s = r#"{"code":"print(1)"}"#.to_string();
+        let out = coerce_tool_arguments_object(Some(Value::String(s))).unwrap();
+        assert_eq!(out, json!({"code": "print(1)"}));
+    }
+
+    #[test]
+    fn coerce_tool_arguments_object_rejects_non_object_string() {
+        let err = coerce_tool_arguments_object(Some(Value::String("[1]".into()))).unwrap_err();
+        assert!(err.contains("array"), "err={err}");
+        let err2 = coerce_tool_arguments_object(Some(Value::String("42".into()))).unwrap_err();
+        assert!(err2.contains("number"), "err2={err2}");
+    }
+
+    #[test]
+    fn coerce_tool_arguments_object_rejects_array_at_root() {
+        let err = coerce_tool_arguments_object(Some(json!([1, 2]))).unwrap_err();
+        assert!(err.contains("array"), "err={err}");
+    }
 
     /// Issue #812 part 1: `McpToolAnnotations` is now a re-export of
     /// `dcc_mcp_protocols::ToolAnnotations`. The wire form must remain the

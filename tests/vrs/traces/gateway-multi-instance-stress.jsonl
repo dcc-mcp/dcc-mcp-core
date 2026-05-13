@@ -1,0 +1,9 @@
+{"_vrs": {"version": 1}, "trace_id": "gateway-multi-instance-stress", "title": "Burst REST when 3+ live DCC rows (multi-instance / probe stress)", "skip_preflight": {"http": {"method": "GET", "path": "/v1/instances"}, "skip_when": {"json_pointer": "/total", "less_than": 3}}}
+{"id": "healthz_a", "http": {"method": "GET", "path": "/v1/healthz"}, "expect": {"status": 200, "json_subset": {"ok": true}}}
+{"id": "instances_a", "http": {"method": "GET", "path": "/v1/instances"}, "expect": {"status": 200, "body_contains": "\"instances\""}}
+{"id": "readyz", "http": {"method": "GET", "path": "/v1/readyz"}, "expect": {"status": 200, "json_subset": {"ok": true}}}
+{"id": "search_1", "http": {"method": "POST", "path": "/v1/search", "json": {"query": "sphere", "limit": 8}}, "expect": {"status": 200, "body_contains": "\"hits\""}}
+{"id": "healthz_b", "http": {"method": "GET", "path": "/v1/healthz"}, "expect": {"status": 200}}
+{"id": "context", "http": {"method": "GET", "path": "/v1/context"}, "expect": {"status": 200, "body_contains": "live_instance_count"}}
+{"id": "search_2", "http": {"method": "POST", "path": "/v1/search", "json": {"query": "", "limit": 5}}, "expect": {"status": 200}}
+{"id": "instances_b", "http": {"method": "GET", "path": "/v1/instances"}, "expect": {"status": 200, "body_contains": "\"total\""}}

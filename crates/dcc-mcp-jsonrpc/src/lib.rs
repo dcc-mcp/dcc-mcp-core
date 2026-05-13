@@ -52,7 +52,7 @@ pub use resources::{
 pub use sse::{decode_cursor, encode_cursor, format_sse_event};
 pub use tools::{
     CallToolMeta, CallToolMetaDcc, CallToolParams, CallToolResult, ListToolsResult, McpTool,
-    McpToolAnnotations, ToolContent,
+    McpToolAnnotations, ToolContent, coerce_tool_arguments_object,
 };
 
 // ── Protocol-version negotiation + session/header/method constants ─────────

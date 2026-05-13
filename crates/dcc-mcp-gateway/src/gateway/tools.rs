@@ -3,6 +3,7 @@
 use serde_json::{Value, json};
 
 use super::state::{GatewayState, entry_to_json};
+use dcc_mcp_jsonrpc::coerce_tool_arguments_object;
 use dcc_mcp_transport::discovery::types::ServiceKey;
 
 // ── tools ──────────────────────────────────────────────────────────────────
@@ -298,7 +299,10 @@ pub async fn tool_call_tool(
     let Some(slug) = args.get("tool_slug").and_then(|v| v.as_str()) else {
         return ("missing required argument: tool_slug".to_string(), true);
     };
-    let arguments = args.get("arguments").cloned().unwrap_or_else(|| json!({}));
+    let arguments = match coerce_tool_arguments_object(args.get("arguments").cloned()) {
+        Ok(v) => v,
+        Err(msg) => return (msg, true),
+    };
     let forwarded_meta = args.get("meta").cloned().or_else(|| meta.cloned());
     // No refresh here on purpose: `call_tool` is the hot path and
     // we trust that the caller used `describe_tool` / `search_tools`
@@ -415,7 +419,10 @@ pub async fn gateway_call_batch_inner(
             }
             continue;
         };
-        let arguments = call.get("arguments").cloned().unwrap_or_else(|| json!({}));
+        let arguments = match coerce_tool_arguments_object(call.get("arguments").cloned()) {
+            Ok(v) => v,
+            Err(msg) => return Err(msg),
+        };
         let forwarded_meta = call.get("meta").cloned().or_else(|| mcp_meta.cloned());
 
         let single_outcome = async {

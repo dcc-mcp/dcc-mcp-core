@@ -224,12 +224,23 @@ async fn handle_tools_call(
         .and_then(|params| params.get("name"))
         .and_then(|value| value.as_str())
         .unwrap_or("");
-    let args = req
+    let args_raw = req
         .params
         .as_ref()
         .and_then(|params| params.get("arguments"))
-        .cloned()
-        .unwrap_or(json!({}));
+        .cloned();
+    let args = match dcc_mcp_jsonrpc::coerce_tool_arguments_object(args_raw) {
+        Ok(v) => v,
+        Err(message) => {
+            return json!({
+                "jsonrpc": "2.0", "id": id,
+                "error": {
+                    "code": dcc_mcp_jsonrpc::error_codes::INVALID_PARAMS,
+                    "message": message
+                }
+            });
+        }
+    };
     let meta = req
         .params
         .as_ref()
