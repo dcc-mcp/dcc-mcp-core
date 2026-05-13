@@ -45,6 +45,28 @@ fn read_log_files(dir: &str, limit: usize) -> Vec<Value> {
     rows
 }
 
+/// Return the default log directory for the current platform.
+/// Returns empty string in test builds so disk scanning is skipped.
+fn default_log_dir() -> String {
+    #[cfg(test)]
+    {
+        String::new()
+    }
+    #[cfg(not(test))]
+    {
+        #[cfg(windows)]
+        {
+            let profile = std::env::var("USERPROFILE").unwrap_or_default();
+            format!("{}\\AppData\\Local\\dcc-mcp\\log", profile)
+        }
+        #[cfg(not(windows))]
+        {
+            let home = std::env::var("HOME").unwrap_or_default();
+            format!("{}/.local/share/dcc-mcp/log", home)
+        }
+    }
+}
+
 /// Parse one log line (tracing / log4rs format) into an admin log row.
 fn parse_log_line(line: &str) -> Option<Value> {
     let trimmed = line.trim();
@@ -185,9 +207,11 @@ pub async fn handle_admin_logs(State(s): State<AdminState>) -> impl IntoResponse
         .collect();
 
     // Merge on-disk log files (issue #963).
-    // Only when DCC_MCP_LOG_DIR is explicitly set — avoids scanning
-    // unintended directories during tests or on hosts without the path.
-    if let Ok(log_dir) = std::env::var("DCC_MCP_LOG_DIR") {
+    let log_dir = std::env::var("DCC_MCP_LOG_DIR").unwrap_or_else(|_| default_log_dir());
+    if std::fs::metadata(&log_dir)
+        .map(|m| m.is_dir())
+        .unwrap_or(false)
+    {
         let mut file_logs = read_log_files(&log_dir, 500);
         logs.append(&mut file_logs);
     }

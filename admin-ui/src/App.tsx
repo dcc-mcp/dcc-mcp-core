@@ -138,6 +138,18 @@ const DCC_ICON_MAP: Record<string, string> = {
 };
 const DCC_ICON_FALLBACK = 'https://simpleicons.org/icons/puzzle.svg';
 
+/// Resolve icon URL for a dcc_type, supporting prefix matching
+/// (e.g. "autodesk_maya" → maya icon).
+function resolveDccIcon(dccType: string): string {
+  const key = dccType.toLowerCase();
+  if (DCC_ICON_MAP[key]) return DCC_ICON_MAP[key];
+  // Prefix match: "autodesk_maya" → "maya"
+  for (const [k, url] of Object.entries(DCC_ICON_MAP)) {
+    if (key.includes(k)) return url;
+  }
+  return DCC_ICON_FALLBACK;
+}
+
 const API_BASE = `${location.origin}/admin/api`;
 /** Abort hung admin fetches so the UI does not wait indefinitely on a wedged gateway. */
 const ADMIN_FETCH_TIMEOUT_MS = 25_000;
@@ -730,7 +742,7 @@ function App() {
                     <td>{instance.id.slice(0, 8)}</td>
                     <td>
                       <img
-                        src={DCC_ICON_MAP[instance.dcc_type] || DCC_ICON_FALLBACK}
+                        src={resolveDccIcon(instance.dcc_type)}
                         alt={instance.dcc_type}
                         className="dcc-icon"
                       />
