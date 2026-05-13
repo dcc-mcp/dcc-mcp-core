@@ -13,6 +13,9 @@ metadata:
     tools: tools.yaml
     recipes: references/RECIPES.md
     introspection: references/INTROSPECTION.md
+    # Optional: explicit globs for skill_refs__list/read (defaults also merge introspection + references/*.md)
+    skill-reference-docs:
+      - "references/*.md"
 ---
 
 Execute arbitrary Python inside the live <DCC> session.

@@ -1,0 +1,79 @@
+# DCC-MCP Gateway — agent workflow guide
+
+**Scope:** This text is **platform-agnostic**. It explains how to use the **MCP gateway** well (tools, resources, prompts, REST twins). It does **not** teach a specific DCC SDK.
+
+**Canonical copy:** `resources/read` with `uri=gateway://docs/agent-workflows` (matches the running gateway build).
+
+---
+
+## Use MCP the way the gateway expects
+
+1. **`tools/list`** — Small, stable set: discovery and dispatch (`search_skills`, `load_skill`, `search_tools`, `describe_tool`, `call_tool`, `call_tools`, pooling, diagnostics wrappers as applicable). Treat it as an **index of gateway verbs**, not the full catalog of every backend action.
+2. **Discover backend work** — `search_tools` → **`describe_tool`** (read schema, descriptions, safety hints, **`affinity`**, **`execution`**, timeouts) → **`call_tool`**. On REST, use `/v1/search`, `/v1/describe`, `/v1/call` (or the path-style `POST /v1/dcc/{dcc}/instances/{id}/call` from **REST clients** below). Skipping `describe_tool` wastes retries and breaks validation.
+3. **Chaining** — **`call_tools`** / **`POST /v1/call_batch`** runs up to **25** ordered calls when you have several **different** validated steps. Prefer fewer, well-formed calls over chatty micro-steps.
+4. **Skills vs tools** — `search_skills` / `load_skill` load packaged workflows on a host; `search_tools` resolves a **`tool_slug`** for the dynamic surface. Keep names straight; use `describe_tool` before calling an unfamiliar slug.
+
+### `tool_slug` shape (and why it is not slash-separated yet)
+
+- Every `search_tools` hit includes **`tool_slug`**. Treat it as an opaque **routing token**: copy it **verbatim** into `describe_tool` and `call_tool` (and into REST `POST /v1/describe` / `/v1/call` bodies as the `tool_slug` field).
+- Format: **`<dcc_type>.<instance_prefix_or_uuid>.<backend_tool>`** — three dot-separated segments. Example: `maya.277685a7.maya_primitives__create_sphere`. This encodes the same tuple a path-style URL would use (`/<dcc>/<instance>/<backend_tool>`), but dots keep parsing O(1) and avoid escaping issues because `backend_tool` may contain `.` (e.g. `project.save`) and `__` (skill action names).
+- **Common agent mistake:** calling `call_tool` with only `code` / `python` / `mel` at the **top level**. That shape belongs to **specific backend tools** inside **`arguments`**, only when their schema says so — the gateway wrapper **always** requires **`tool_slug`** plus optional **`arguments`** / **`meta`**.
+
+---
+
+## Resources and prompts (read before guessing)
+
+- **`resources/list`** on the gateway — Merges **gateway-native** pointers with **per-backend** entries. **Copy URIs exactly** (including `dcc://…` or instance-prefixed forms). Do not rewrite or strip prefixes; the gateway routes `resources/read` by URI.
+- **`resources/read`** — Primary way to pull **registry views**, **diagnostics**, **catalog**, **this guide**, and **host-published help** (documentation blobs, scene snapshots, cmd help, etc., when the adapter exposes them).
+- **`prompts/list`** / **`prompts/get`** — Use when the gateway aggregates prompt templates from backends; same rule: use **returned names and URIs as-is**.
+
+**Gateway-native pointers you should know:**
+
+| URI | Purpose |
+|-----|---------|
+| `gateway://instances` | Live DCC rows: `dcc_type`, `mcp_url`, health — use when routing or when the user names a product (Maya, Photoshop, Blender, …): map the name to **`dcc_type`** / a concrete instance, not to extra `tools/list` entries. |
+| `gateway://instances/{id}` | One row (full UUID or unique prefix). |
+| `gateway://diagnostics/*` | Gateway/backend health signals for operators and agents. |
+| `gateway://catalog` | Public package index (optional discovery). |
+| `gateway://docs/agent-workflows` | **This** guide — re-fetch when instructions drift in a long session. |
+
+**Help and documentation from DCC hosts:** Adapters often expose **read-only** resources (e.g. command help, API signatures, scene snapshots). They appear in **`resources/list`** with stable schemes. Always **`resources/read`** the **exact** URI from the list — do not fabricate paths. If a `describe_tool` response points to follow-up resources, prefer those over web search for DCC-accurate text.
+
+---
+
+## Efficiency (without a separate “bulk” playbook)
+
+- One **`describe_tool`** per new slug; cache the schema mentally for the rest of the task.
+- One **`search_tools`** with a tight `query` and correct **`dcc_type`** / **`instance_id`** when the user names a host or you see multiple live rows in `gateway://instances`.
+- Prefer **structured arguments** (paths, flags, IDs) in a single **`call_tool`** when the schema supports it, instead of many tiny speculative calls.
+- Use **`call_tools`** only when you truly have a **short sequence of different** tools—not as a default hammer.
+
+---
+
+## Execution hints: affinity, async, timeouts
+
+`describe_tool` (and tool metadata) may declare **`affinity`** (e.g. main thread vs worker), **`execution`** (sync vs async), and **timeout** hints. **Follow them:** main-thread tools must not be “worked around” from the client; async tools may return job handles—poll or subscribe as the schema says. Ignoring affinity or timeouts produces flaky failures that look like gateway bugs but are contract violations.
+
+---
+
+## REST clients
+
+Where the gateway mounts them, mirror MCP with **`POST /v1/search`**, **`/v1/describe`**, **`/v1/call`**, **`/v1/call_batch`**, and **`/v1/resources*`** / **`/v1/prompts*`**. Same discovery order and same URI hygiene as MCP.
+
+### Path-style invocation (optional; for curl / service accounts)
+
+- **Gateway:** `POST /v1/dcc/{dcc_type}/instances/{instance_id}/call` with JSON `{ "backend_tool": "<name>", "arguments": {...}, "meta": {...} }` (aliases: `tool`, `action` for `backend_tool`). Same routing as `POST /v1/call` after composing the dotted `tool_slug`; use when you already know `dcc_type` + **`instance_id`** from **`GET /v1/instances`** or **`GET /v1/context`** (`instances` array mirrors `/v1/instances`).
+- **Gateway:** `GET /v1/dcc/{dcc_type}/instances/{instance_id}/describe?backend_tool=...` (aliases `tool`, `action` query keys) — same JSON as `GET /v1/tools/{tool_slug}` without assembling the dotted slug.
+- **Per-DCC HTTP server (skill-rest):** `POST /v1/dcc/{dcc_type}/call` with the same body — no instance segment because one process owns one session.
+
+### Long `execute_python` / MEL without giant JSON strings
+
+* **Long `execute_python` payloads** — Prefer `write_temp_file` (skill) or `write_temp_script` then `execute_python(file_path=...)`. The `.py` must exist on the **same machine / filesystem the DCC process reads**; an agent that only writes on its laptop cannot run that path on a remote studio Maya unless a sync or in-host writer places the file.
+
+### After a DCC crash or reconnect
+
+The **`instance_id`** in the registry usually **changes**. Cached **`tool_slug`** values from an earlier `search_tools` run may fail with `unknown-slug` / `instance-offline` / 404-style errors.
+
+1. Refresh **`GET /v1/instances`** or **`resources/read` `gateway://instances`**.
+2. Run **`search_tools`** / **`POST /v1/search`** again (or keep using path-style calls with the **new** `instance_id`).
+3. Re-**`describe_tool`** when you need schemas for tools you have not validated in this session.

@@ -39,7 +39,7 @@
 //! | `GET /admin/api/traces/{id}`       | [`TraceLog`] ring buffer | Phase 2 |
 //! | `GET /admin/api/stats`             | [`StatsAggregator`] | Phase 3 |
 //! | `GET /admin/api/workers`           | `GatewayState` registry | Phase 4 |
-//! | `GET /admin/api/logs`              | [`EventLog`] | base |
+//! | `GET /admin/api/logs`              | [`GatewayState::event_log`] | base |
 //!
 //! See `docs/guide/gateway-admin.md` for screenshots and configuration knobs.
 
@@ -54,9 +54,7 @@ mod handlers;
 #[cfg(feature = "admin")]
 mod router;
 
-pub use state::{
-    AdminAuditRecord, AdminAuditSink, AdminState, AuditLog, DurableAuditStore, EventLog,
-};
+pub use state::{AdminAuditRecord, AdminAuditSink, AdminState, AuditLog, DurableAuditStore};
 pub use stats::{GatewayStats, LatencyStats, StatsAggregator, StatsRange, TopEntry};
 pub use trace::{DispatchTrace, TraceLog, TracePayload, TraceSpan};
 pub use workers::build_workers_payload;

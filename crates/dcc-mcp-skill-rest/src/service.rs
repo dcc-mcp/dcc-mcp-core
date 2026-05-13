@@ -715,6 +715,42 @@ impl SkillRestService {
         Ok(outcome)
     }
 
+    /// Invoke a backend action by bare `backend_tool` name with a DCC-bucket guard.
+    ///
+    /// Intended for `POST /v1/dcc/{dcc_type}/call` on a single-tenant HTTP server so
+    /// non-MCP clients can skip composing the dotted `tool_slug` token.
+    pub fn call_backend_tool_for_dcc(
+        &self,
+        dcc_type: &str,
+        backend_tool: &str,
+        params: Value,
+    ) -> Result<CallOutcome, ServiceError> {
+        let slug = ToolSlug(backend_tool.to_string());
+        let action = self.resolve_slug(&slug)?;
+        if !action.dcc.eq_ignore_ascii_case(dcc_type) {
+            return Err(ServiceError::new(
+                ServiceErrorKind::BadRequest,
+                format!(
+                    "backend tool '{}' is registered under dcc '{}', not '{}'",
+                    backend_tool, action.dcc, dcc_type
+                ),
+            ));
+        }
+        if !action.loaded {
+            return Err(ServiceError::new(
+                ServiceErrorKind::SkillNotLoaded,
+                format!(
+                    "skill '{}' owning action '{}' is not loaded",
+                    action.skill_name, action.action_name,
+                ),
+            )
+            .with_hint("call load_skill first"));
+        }
+        let mut outcome = self.invoker.invoke(&action.action_name, params)?;
+        outcome.slug = ToolSlug::build(&action.dcc, &action.skill_name, &action.action_name);
+        Ok(outcome)
+    }
+
     /// Flat list view, always sorted deterministically.
     pub fn list_skills(&self, loaded_only: bool) -> Vec<SkillListEntry> {
         let mut entries: Vec<SkillListEntry> = self

@@ -164,6 +164,83 @@ Gateway-native diagnostics are always available as MCP **resources**
 Backend diagnostics tools remain available as normal prefixed instance tools
 when a DCC exposes them.
 
+## Operations: ingress limits, `X-Forwarded-For`, resilience, metrics
+
+These knobs apply to the **elected gateway process** (the HTTP listener on
+`McpHttpConfig::gateway_port`). They are read once at process start from the
+environment unless noted otherwise.
+
+### Rate limiting and client IP
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `DCC_MCP_GATEWAY_RATE_LIMIT_PER_MINUTE` | `0` (off) | Max HTTP requests per **client key** per rolling UTC minute. `OPTIONS` is not counted. |
+| `DCC_MCP_GATEWAY_XFF_TRUSTED_DEPTH` | `0` | When `> 0`, the client key for rate limiting prefers **`X-Forwarded-For`**: treat the **rightmost** `depth` comma-separated fields as trusted reverse-proxy hops; the next field to the **left** is the client IP. If the header is missing, malformed, or shorter than `depth + 1`, the TCP peer address is used. |
+
+**Security:** only set `DCC_MCP_GATEWAY_XFF_TRUSTED_DEPTH` when every path to the
+gateway passes through that many trusted proxies that **overwrite** (not
+concatenate untrusted) `X-Forwarded-For`. A client that can reach the gateway
+directly could otherwise spoof the header unless your edge strips or replaces
+it.
+
+### Request body size
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `DCC_MCP_GATEWAY_HTTP_BODY_LIMIT_BYTES` | `16777216` (16 MiB) | Hard cap on non-streaming request bodies (`tower_http::limit::RequestBodyLimitLayer`). Long-lived **`GET /mcp` SSE** streams are not subject to a short global HTTP timeout. |
+
+### Backend retries and circuit breaker
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `DCC_MCP_GATEWAY_READ_RETRY_MAX` | `2` | Extra attempts for **idempotent read** REST hops (`GET` and read-like `POST /v1/search`) after transport / 5xx / 429 failures, with jittered backoff. **Writes** (`POST /v1/call`, JSON-RPC `post`) are not retried. |
+| `DCC_MCP_GATEWAY_CIRCUIT_FAILURE_THRESHOLD` | `5` | Consecutive transport-class failures per backend REST base before the circuit opens. |
+| `DCC_MCP_GATEWAY_CIRCUIT_OPEN_SECS` | `30` | How long to short-circuit new calls to that backend base. |
+
+### Durable admin audit / trace JSONL (optional)
+
+When `DCC_MCP_GATEWAY_AUDIT_DIR` is set, audit rows and dispatch traces append to
+JSONL files under that directory.
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `DCC_MCP_GATEWAY_AUDIT_MAX_ROWS` | `5000` | Trim oldest lines when a file exceeds this row count. |
+| `DCC_MCP_GATEWAY_AUDIT_MAX_BYTES` | `52428800` (~50 MiB) | After row trim, drop oldest lines until each JSONL is under this size. |
+
+### Prometheus (`GET /metrics`)
+
+Build **`dcc-mcp-http`** / **`dcc-mcp-gateway`** with the `prometheus` Cargo
+feature and expose `GET /metrics` on the gateway listener (see
+`attach_gateway_metrics_route` in `crates/dcc-mcp-gateway`).
+
+Gateway → backend hop failures increment:
+
+**`dcc_mcp_gateway_backend_errors_total{kind="…"}`**
+
+`kind` is a **small fixed vocabulary** (low cardinality). Typical values:
+
+| `kind` | When |
+|--------|------|
+| `transport` | TCP/TLS/DNS errors, timeouts on send |
+| `unreachable` | Readiness probe could not reach the backend |
+| `booting` | `/v1/readyz` reports not ready |
+| `http_4xx` / `http_5xx` / `http_other` | Non-success HTTP from the backend REST hop |
+| `read_body` | Failed to read the HTTP response body |
+| `invalid_json` | Response was not valid JSON where expected |
+| `jsonrpc_backend` | JSON-RPC `error` object from the backend |
+| `empty_result` | JSON-RPC success without `result` |
+| `circuit_open` | Local circuit breaker is open for that backend base |
+| `other` | REST string errors that do not match the patterns above |
+
+Other series on the same registry (instance gauges, request histograms, etc.)
+are documented in `crates/dcc-mcp-telemetry/src/prometheus.rs`.
+
+### Admin dashboard
+
+`GET /admin/api/health` includes `rss_bytes`, `limits` (echoing the env-backed
+values above, including `xff_trusted_depth`), and a `circuits` snapshot
+(`tracked_backends`, `circuits_open`).
+
 ## Dynamic Capability Index and Bounded Tool Exposure (#652-#657)
 
 For large multi-DCC deployments, the gateway **never** publishes every backend
@@ -174,7 +251,7 @@ unconditional surface:
 
 | Surface | What appears in `tools/list` | Agent workflow |
 |---------|------------------------------|----------------|
-| Gateway MCP | Fixed discover+dispatch primitives: `search_skills`, `load_skill`, `search_tools`, `describe_tool`, `call_tool`, `call_tools`, and pooling tools. Instance registry, diagnostics, and catalog views are gateway-native resources (`gateway://instances`, `gateway://diagnostics/*`, `gateway://catalog`) read via `resources/read`, not tools | `resources/read uri=gateway://instances` (or skip it and go straight to `search_tools` → `describe_tool` → `call_tool` / `call_tools`) |
+| Gateway MCP | Fixed discover+dispatch primitives: `search_skills`, `load_skill`, `search_tools`, `describe_tool`, `call_tool`, `call_tools`, and pooling tools. Instance registry, diagnostics, catalog, and the **agent workflow guide** are gateway-native resources (`gateway://instances`, `gateway://diagnostics/*`, `gateway://catalog`, `gateway://docs/agent-workflows`) read via `resources/read`, not tools | `resources/read uri=gateway://instances` (or skip it and go straight to `search_tools` → `describe_tool` → `call_tool` / `call_tools`). Optional: `resources/read uri=gateway://docs/agent-workflows` for MCP+resources+efficiency guidance |
 | Gateway REST | `/v1/search`, `/v1/describe`, `/v1/call`, `/v1/call_batch`, `/v1/instances`, plus `/v1/resources*`, `/v1/prompts*`, and `/v1/jobs*` | `POST /v1/search` → `/v1/describe` → `/v1/call` (or `POST /v1/call_batch` for ordered batches); use resources/prompts/jobs routes for non-tool MCP primitives |
 | Direct per-DCC MCP | One DCC server's skills and loaded tools | `search_skills` → `load_skill` → tool call |
 

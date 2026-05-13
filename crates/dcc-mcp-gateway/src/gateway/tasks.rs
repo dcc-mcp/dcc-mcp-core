@@ -69,6 +69,7 @@ pub(crate) async fn start_gateway_tasks(
     // via GatewayState so connection pooling is shared across all consumers.
     // A 30-second timeout is appropriate for regular request/response calls.
     let http_client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(30))
         .build()?;
 
@@ -84,7 +85,9 @@ pub(crate) async fn start_gateway_tasks(
     // (currently 60 s), which correctly keeps the stream alive through
     // normal server-side SSE keep-alive heartbeats while still failing fast
     // when the backend goes genuinely silent.
-    let sse_http_client = reqwest::Client::builder().build()?;
+    let sse_http_client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .build()?;
 
     // ── Contention event log + Prometheus counters (issue #766) ───────────
     let contention_log = Arc::new(crate::gateway::event_log::EventLog::new());
@@ -607,33 +610,41 @@ pub(crate) async fn start_gateway_tasks(
     );
 
     let gw_handle = tokio::spawn(async move {
-        axum::serve(listener, gw_router)
-            .with_graceful_shutdown(async move {
-                loop {
-                    if yield_rx.changed().await.is_err() {
-                        break;
-                    }
-                    if *yield_rx.borrow() {
-                        tracing::info!("Gateway: graceful shutdown triggered — releasing port");
-                        break;
-                    }
+        use std::net::SocketAddr;
+
+        axum::serve(
+            listener,
+            gw_router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .with_graceful_shutdown(async move {
+            loop {
+                if yield_rx.changed().await.is_err() {
+                    break;
                 }
-            })
-            .await
-            .ok();
+                if *yield_rx.borrow() {
+                    tracing::info!("Gateway: graceful shutdown triggered — releasing port");
+                    break;
+                }
+            }
+        })
+        .await
+        .ok();
     });
 
-    // ── Periodic health-check task (issue #556) ───────────────────────────
+    // Periodic health-check task (issue #556)
+    let health_cfg = health::HealthCheckConfig {
+        own_host: own_host.clone(),
+        own_port,
+        health_check_interval_secs,
+        health_check_failures,
+        #[cfg(feature = "prometheus")]
+        metrics: gateway_metrics.clone(),
+    };
     let health_check_handle = health::spawn_health_check_task(
         registry.clone(),
         http_client.clone(),
-        own_host.clone(),
-        own_port,
         contention_log.clone(),
-        #[cfg(feature = "prometheus")]
-        gateway_metrics.clone(),
-        health_check_interval_secs,
-        health_check_failures,
+        health_cfg,
     );
 
     // ── Prometheus metrics updater (issue #559) ───────────────────────────

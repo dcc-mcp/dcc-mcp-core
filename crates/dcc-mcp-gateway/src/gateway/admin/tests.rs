@@ -8,6 +8,7 @@ mod admin_tests {
     use axum::Router;
     use axum::body::to_bytes;
     use axum::http::{Request, StatusCode};
+    use parking_lot::Mutex;
     use serde_json::Value;
     use tokio::sync::{RwLock, broadcast, watch};
     use tower::ServiceExt;
@@ -128,18 +129,19 @@ mod admin_tests {
     #[tokio::test]
     async fn test_admin_html_contains_traces_and_stats_panels() {
         let (_, _, html) = body_html(admin_router(), "/").await;
+        // Vite minifies JSX; assert stable API paths and panel strings from the bundle.
         for needle in [
-            "data-panel=\"traces\"",
-            "data-panel=\"stats\"",
-            "fetchTraces()",
-            "fetchStats()",
-            "fetchCallDetail(",
-            "call-detail",
             "/traces?limit=200",
             "/stats?range=",
+            "trace-row",
+            "No traces recorded.",
         ] {
             assert!(html.contains(needle), "HTML missing {needle}");
         }
+        assert!(
+            html.contains("data-panel"),
+            "HTML missing data-panel attribute hooks"
+        );
     }
 
     #[tokio::test]
@@ -205,6 +207,14 @@ mod admin_tests {
             body.get("instances_ready").is_some(),
             "expected instances_ready field"
         );
+    }
+
+    #[tokio::test]
+    async fn test_admin_health_includes_limits_and_circuits() {
+        let (_, body) = body_json(admin_router(), "/api/health").await;
+        assert!(body.get("limits").is_some(), "expected limits object");
+        assert!(body.get("circuits").is_some(), "expected circuits object");
+        assert!(body.get("rss_bytes").is_some(), "expected rss_bytes field");
     }
 
     // ── /api/tools ────────────────────────────────────────────────────────
@@ -331,11 +341,22 @@ mod admin_tests {
 
     #[tokio::test]
     async fn test_admin_logs_returns_injected_event_entries() {
-        let event_log = Arc::new(parking_lot::Mutex::new(vec![
-            serde_json::json!({"event": "election_won", "dcc_type": "maya"}),
-            serde_json::json!({"event": "ghost_reaped", "dcc_type": "blender"}),
-        ]));
-        let state = AdminState::new(make_gateway_state()).with_event_log(event_log);
+        use crate::gateway::event_log::{ContendEvent, EventKind};
+
+        let gs = make_gateway_state();
+        gs.event_log.push(ContendEvent::new(
+            EventKind::ElectionWon,
+            "maya",
+            "abc",
+            None,
+        ));
+        gs.event_log.push(ContendEvent::new(
+            EventKind::GhostReaped,
+            "blender",
+            "def",
+            None,
+        ));
+        let state = AdminState::new(gs);
         let (status, body) = body_json(build_admin_router(state), "/api/logs").await;
         assert_eq!(status, StatusCode::OK);
         let logs = body["logs"].as_array().unwrap();
@@ -353,6 +374,39 @@ mod admin_tests {
         let dcc_types: Vec<_> = logs.iter().filter_map(|l| l["dcc_type"].as_str()).collect();
         assert!(dcc_types.contains(&"maya"), "missing maya dcc_type");
         assert!(dcc_types.contains(&"blender"), "missing blender dcc_type");
+        for row in logs {
+            assert_eq!(
+                row["source"].as_str(),
+                Some("contention"),
+                "contention rows must carry source=contention"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_admin_logs_merges_audit_tail_when_audit_attached() {
+        use std::time::UNIX_EPOCH;
+
+        let gs = make_gateway_state();
+        let audit: AuditLog = Mutex::new(vec![AdminAuditRecord {
+            timestamp: UNIX_EPOCH,
+            request_id: "req-audit-1".into(),
+            method: Some("tools/call".into()),
+            instance_id: Some("deadbeef".into()),
+            session_id: None,
+            action: "maya.deadbeef.scene__info".into(),
+            dcc_type: Some("maya".into()),
+            success: true,
+            error: None,
+            duration_ms: Some(12),
+        }]);
+        let state = AdminState::new(gs).with_audit_log(Arc::new(audit));
+        let (status, body) = body_json(build_admin_router(state), "/api/logs").await;
+        assert_eq!(status, StatusCode::OK);
+        let logs = body["logs"].as_array().unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0]["source"].as_str(), Some("audit"));
+        assert_eq!(logs[0]["tool"].as_str(), Some("maya.deadbeef.scene__info"));
     }
 
     // ── unknown routes ────────────────────────────────────────────────────

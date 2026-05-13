@@ -103,8 +103,9 @@ Gateway resources/prompts:
 1. List hand-off artefacts with resources/list; gateway-prefixed URIs identify the owning DCC instance.
 2. resources/list includes the gateway://instances root pointer only; do not expect every gateway://instances/{id} URI to be enumerated.
 3. Read/subscribe with the exact URI returned by resources/list; do not strip `dcc://<type>/<id>` or backend-resource prefixes.
-4. Use prompts/list and prompts/get through the gateway when prompt templates are aggregated from multiple DCC instances.
-5. Subscribe only to URIs you plan to react to, and unsubscribe when done.
+4. Agent workflow guide (MCP + resources + efficiency) lives at **`gateway://docs/agent-workflows`** (gateway-native `resources/read`).
+5. Use prompts/list and prompts/get through the gateway when prompt templates are aggregated from multiple DCC instances.
+6. Subscribe only to URIs you plan to react to, and unsubscribe when done.
 
 ```
 

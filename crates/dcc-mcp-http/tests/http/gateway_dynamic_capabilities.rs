@@ -1004,3 +1004,120 @@ async fn search_tools_unloaded_hit_carries_next_step_load_skill() {
         "next_step.skill_name"
     );
 }
+
+/// Path-style gateway REST call composes the same dotted slug as `POST /v1/call`.
+#[tokio::test]
+async fn gateway_rest_dcc_instance_path_call_routes_like_v1_call() {
+    use dcc_mcp_gateway::build_gateway_router;
+
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let state = make_state(registry.clone());
+    let (port, _) = spawn_backend(BackendSpec {
+        tools: vec![("hello", "hello tool")],
+    })
+    .await;
+    let entry = register_backend(&registry, "maya", port).await;
+    refresh_all_live_backends(&state, RefreshReason::InstanceJoined).await;
+
+    let router = build_gateway_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let gw_port = listener.local_addr().unwrap().port();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router)
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .ok();
+    });
+    tokio::time::sleep(Duration::from_millis(80)).await;
+
+    let client = reqwest::Client::new();
+    let iid = entry.instance_id.to_string();
+    let url = format!("http://127.0.0.1:{gw_port}/v1/dcc/maya/instances/{iid}/call");
+    let resp = client
+        .post(&url)
+        .json(&json!({"backend_tool": "hello", "arguments": {"x": 7}}))
+        .send()
+        .await
+        .unwrap();
+    let status = resp.status();
+    let text = resp.text().await.unwrap();
+    assert_eq!(status, 200, "unexpected status; body={text}");
+    let body: Value = serde_json::from_str(&text).unwrap();
+
+    assert_eq!(
+        body["output"]["structuredContent"]["received_tool"].as_str(),
+        Some("hello"),
+        "gateway forwards callable_id (bare backend tool name) to per-DCC POST /v1/call"
+    );
+
+    let _ = shutdown_tx.send(());
+    server.abort();
+}
+
+/// `GET /v1/context` includes `instances`; `GET .../describe?backend_tool=...` matches slug describe.
+#[tokio::test]
+async fn gateway_rest_v1_context_and_dcc_instance_get_describe() {
+    use dcc_mcp_gateway::build_gateway_router;
+
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let state = make_state(registry.clone());
+    let (port, _) = spawn_backend(BackendSpec {
+        tools: vec![("hello", "hello tool")],
+    })
+    .await;
+    let entry = register_backend(&registry, "maya", port).await;
+    refresh_all_live_backends(&state, RefreshReason::InstanceJoined).await;
+
+    let router = build_gateway_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let gw_port = listener.local_addr().unwrap().port();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router)
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .ok();
+    });
+    tokio::time::sleep(Duration::from_millis(80)).await;
+
+    let client = reqwest::Client::new();
+    let iid = entry.instance_id.to_string();
+
+    let ctx = client
+        .get(format!("http://127.0.0.1:{gw_port}/v1/context"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ctx.status(), 200);
+    let ctx_body: Value = ctx.json().await.unwrap();
+    let inst = ctx_body["instances"].as_array().expect("instances array");
+    assert!(
+        inst.iter()
+            .any(|row| row["instance_id"].as_str() == Some(iid.as_str())),
+        "context.instances must list registered instance_id={iid}; got {ctx_body}"
+    );
+
+    let durl =
+        format!("http://127.0.0.1:{gw_port}/v1/dcc/maya/instances/{iid}/describe?tool=hello");
+    let dresp = client.get(&durl).send().await.unwrap();
+    let dst = dresp.status();
+    let dtext = dresp.text().await.unwrap();
+    assert_eq!(dst, 200, "describe GET failed: {dtext}");
+    let dbody: Value = serde_json::from_str(&dtext).unwrap();
+    assert_eq!(dbody["tool"]["name"].as_str(), Some("hello"));
+    assert_eq!(
+        dbody["tool"]["inputSchema"]["type"].as_str(),
+        Some("object"),
+        "describe must include a JSON Schema object for the backend tool: {dbody}"
+    );
+
+    let _ = shutdown_tx.send(());
+    server.abort();
+}

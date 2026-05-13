@@ -39,6 +39,14 @@ pub const SCHEMA_AVAILABLE: &str = "schema:available";
 /// <dcc>.<id8>.<backend_tool>
 /// ```
 ///
+/// **REST mental model:** the three segments are the same routing tuple
+/// you would place in a hypothetical path-style URL
+/// `/<dcc_type>/<instance>/<backend_tool>`; the gateway and MCP clients
+/// still use this dot-separated token everywhere today so instance ids and
+/// backend names that contain punctuation stay unambiguous without extra
+/// escaping. A future revision *could* accept slash-separated aliases in
+/// addition to this canonical form if we add a normalisation layer.
+///
 /// The DCC type and id8 prefix are always cursor-safe (a-z0-9) by
 /// construction; `backend_tool` is copied verbatim (it was already
 /// validated through `dcc_mcp_naming::validate_tool_name` on the
@@ -220,6 +228,40 @@ impl CapabilityRecord {
             has_schema: false, // unknown until loaded
             loaded: false,
         }
+    }
+}
+
+impl dcc_mcp_gateway_search::SearchRecord for CapabilityRecord {
+    fn tool_slug(&self) -> &str {
+        &self.tool_slug
+    }
+
+    fn backend_tool(&self) -> &str {
+        &self.backend_tool
+    }
+
+    fn summary(&self) -> &str {
+        &self.summary
+    }
+
+    fn skill_name(&self) -> Option<&str> {
+        self.skill_name.as_deref()
+    }
+
+    fn tags(&self) -> &[String] {
+        &self.tags
+    }
+
+    fn dcc_type(&self) -> &str {
+        &self.dcc_type
+    }
+
+    fn instance_id(&self) -> Uuid {
+        self.instance_id
+    }
+
+    fn loaded(&self) -> bool {
+        self.loaded
     }
 }
 

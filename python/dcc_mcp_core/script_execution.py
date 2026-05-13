@@ -3,6 +3,13 @@
 DCC adapters expose ad-hoc script execution tools such as ``execute_python``.
 Those tools need the same stdout/stderr capture behaviour and the same
 ``ToolResult``-shaped return contract, independent of the host application.
+
+Additions (2026-05):
+- Temp-file execution API to avoid code-string escaping / size limits.
+- Persistent script namespace so multi-step workflows can share variables
+  (IDE-style execution where later steps see earlier results).
+- ``register_dcc_namespace()`` lets a DCC adapter inject its live
+  ``__main__`` globals so that scripts can call ``cmds``, ``hou``, etc.
 """
 
 from __future__ import annotations
@@ -13,7 +20,10 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass
 import io
 import json
+import os
+from pathlib import Path
 import sys
+import tempfile
 import traceback
 from typing import Any
 from typing import TextIO
@@ -23,6 +33,8 @@ from dcc_mcp_core.result_envelope import ToolResult
 
 class ScriptExecutionSerializationError(TypeError):
     """Raised when a strict script result cannot be JSON-encoded."""
+
+    pass
 
 
 @dataclass(frozen=True)
@@ -38,7 +50,13 @@ def normalize_script_execution_params(
     *,
     default_timeout_secs: int | None = None,
 ) -> ScriptExecutionParams:
-    """Normalize script execution parameters to ``code`` and ``timeout_secs``."""
+    """Normalize **inline** script parameters to ``code`` and ``timeout_secs``.
+
+    This helper is for adapters that execute a **string** body. Callers that
+    support ``file_path`` / ``script_path`` (run a ``.py`` from disk) must read
+    the file first and/or bypass this function — passing only ``file_path`` is
+    invalid here because ``code`` is required.
+    """
     if default_timeout_secs is not None and default_timeout_secs <= 0:
         raise ValueError("default_timeout_secs must be greater than zero")
 
@@ -247,5 +265,141 @@ __all__ = [
     "ScriptExecutionParams",
     "ScriptExecutionResult",
     "ScriptExecutionSerializationError",
+    "cleanup_temp_scripts",
+    "clear_script_namespace",
+    "execute_with_context",
+    "get_script_namespace",
     "normalize_script_execution_params",
+    "register_dcc_namespace",
+    "write_temp_script",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Temp-script file management
+# ---------------------------------------------------------------------------
+# Scripts are written to a single managed directory so that AI agents can
+# call ``write_temp_script(...)`` once and then pass the resulting
+# ``file_path`` to ``execute_python(file_path=...)`` instead of
+# embedding long code strings (with all their escaping pitfalls) inside
+# the MCP tool call.
+#
+# Cleanup happens automatically on interpreter exit; adapters can also
+# call ``cleanup_temp_scripts()`` explicitly when the DCC server shuts down.
+
+_TEMP_SCRIPT_DIR = Path.home() / ".dcc-mcp-core" / "temp_scripts"
+
+
+def write_temp_script(
+    content: str,
+    *,
+    suffix: str = ".py",
+    prefix: str = "dcc_mcp_",
+) -> str:
+    """Write *content* to a managed temp file and return the absolute path.
+
+    The file is created under ``~/.dcc-mcp-core/temp_scripts/`` so that
+    both the AI agent (producer) and the in-process executor (consumer)
+    agree on the location without passing the code over JSON.
+
+    Args:
+        content: Python source to write.
+        suffix: Filename suffix (default ``.py``).
+        prefix: Filename prefix (default ``dcc_mcp_``).
+
+    Returns:
+        Absolute path of the created temp file.
+
+    """
+    _TEMP_SCRIPT_DIR.mkdir(parents=True, exist_ok=True)
+    fd, path = tempfile.mkstemp(suffix=suffix, prefix=prefix, dir=str(_TEMP_SCRIPT_DIR))
+    with os.fdopen(fd, "w", encoding="utf-8") as fp:
+        fp.write(content)
+    return path
+
+
+def cleanup_temp_scripts() -> None:
+    """Delete all files under the managed temp-script directory.
+
+    Safe to call multiple times; missing directory is ignored.
+    Adapters should call this on server shutdown (``register_quit_hook``).
+    """
+    if not _TEMP_SCRIPT_DIR.is_dir():
+        return
+    for p in _TEMP_SCRIPT_DIR.iterdir():
+        with contextlib.suppress(Exception):
+            p.unlink()
+
+
+# ---------------------------------------------------------------------------
+# Persistent script namespace  (IDE-style variable sharing)
+# ---------------------------------------------------------------------------
+# ``_SCRIPT_NAMESPACE`` accumulates variables assigned by executed scripts,
+# so that a later ``execute_python`` call can reference results from an
+# earlier call - the same way an IDE Python console persists state.
+#
+# ``_DCC_NAMESPACE`` holds the DCC application's live globals
+# (``cmds``, ``hou``, ``bpy``, ...).  Adapters populate it once at
+# startup via ``register_dcc_namespace(vars(__main__))``.
+
+_SCRIPT_NAMESPACE: dict[str, Any] = {}
+_DCC_NAMESPACE: dict[str, Any] = {}
+
+
+def register_dcc_namespace(ns: dict[str, Any]) -> None:
+    """Make *ns* available as the DCC globals during script execution.
+
+    Call once at adapter startup so that scripts can call DCC commands
+    without having to ``import pymel as pm`` or
+    ``import maya.cmds as cmds`` in every snippet.
+
+    Example (Maya adapter)::
+
+        import __main__
+        from dcc_mcp_core.script_execution import register_dcc_namespace
+        register_dcc_namespace(vars(__main__))
+
+    """
+    global _DCC_NAMESPACE
+    _DCC_NAMESPACE = ns
+
+
+def get_script_namespace() -> dict[str, Any]:
+    """Return a copy of the persistent script namespace."""
+    return dict(_SCRIPT_NAMESPACE)
+
+
+def clear_script_namespace() -> None:
+    """Reset the persistent script namespace (useful before a fresh workflow)."""
+    global _SCRIPT_NAMESPACE
+    _SCRIPT_NAMESPACE.clear()
+
+
+def _make_exec_namespace() -> dict[str, Any]:
+    """Build the globals dict for ``exec()``.
+
+    Merge order (later wins):
+    1. ``_DCC_NAMESPACE``  - DCC application globals
+    2. ``_SCRIPT_NAMESPACE`` - variables from earlier executions
+    3. ``__builtins__`` - always available
+    """
+    ns: dict[str, Any] = {}
+    ns.update(_DCC_NAMESPACE)
+    ns.update(_SCRIPT_NAMESPACE)
+    return ns
+
+
+def execute_with_context(code: str, *, filename: str = "<execute_python>") -> Any:
+    """Execute *code* with DCC globals + persistent namespace.
+
+    Returns the value of the ``result`` variable if the script assigns one,
+    otherwise ``None``.
+
+    The persistent namespace is **updated in-place** after execution so
+    that newly-assigned variables are visible to the next call.
+    """
+    ns = _make_exec_namespace()
+    local_ns: dict[str, Any] = {}
+    exec(compile(code, filename, "exec"), ns, local_ns)
+    _SCRIPT_NAMESPACE.update(local_ns)
+    return local_ns.get("result")

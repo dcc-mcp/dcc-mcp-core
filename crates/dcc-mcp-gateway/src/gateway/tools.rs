@@ -174,7 +174,7 @@ pub async fn tool_search_tools(gs: &GatewayState, args: &Value) -> Result<String
             v
         })
         .collect();
-    annotated.extend(local_gateway_tool_hits(&query.query));
+    annotated.extend(local_gateway_tool_hits(&query));
 
     serde_json::to_string_pretty(&json!({
         "total": annotated.len(),
@@ -183,38 +183,61 @@ pub async fn tool_search_tools(gs: &GatewayState, args: &Value) -> Result<String
     .map_err(|e| e.to_string())
 }
 
-fn local_gateway_tool_hits(query: &str) -> Vec<Value> {
-    let q = query.trim().to_ascii_lowercase();
+fn local_gateway_tool_hits(query: &crate::gateway::capability::SearchQuery) -> Vec<Value> {
+    let mut clauses: Vec<String> = Vec::new();
+    let q = query.query.trim().to_ascii_lowercase();
+    if !q.is_empty() {
+        clauses.push(q);
+    }
+    for o in &query.or_queries {
+        let t = o.trim().to_ascii_lowercase();
+        if !t.is_empty() && !clauses.contains(&t) {
+            clauses.push(t);
+        }
+    }
+    let exclude: Vec<String> = query
+        .exclude_tags
+        .iter()
+        .map(|t| t.trim().to_ascii_lowercase())
+        .filter(|t| !t.is_empty())
+        .collect();
+
     let tools = [
         (
             "call_tools",
             "Invoke multiple backend DCC capabilities in one ordered batch (max 25); REST POST /v1/call_batch.",
+            vec!["gateway", "batch", "dispatch"],
         ),
         (
             "activate_tool_group",
             "Activate a progressive tool group on a DCC instance after lazy loading.",
+            vec!["gateway", "group", "skill-management"],
         ),
         (
             "deactivate_tool_group",
             "Deactivate a progressive tool group on a DCC instance.",
+            vec!["gateway", "group", "skill-management"],
         ),
     ];
 
     tools
         .into_iter()
-        .filter(|(name, summary)| {
-            q.is_empty()
-                || name.contains(&q)
-                || summary.to_ascii_lowercase().contains(&q)
-                || q == "group"
-                || (q.contains("batch") && *name == "call_tools")
+        .filter(|(_, _, tags)| {
+            !exclude
+                .iter()
+                .any(|ex| tags.iter().any(|t| t.to_ascii_lowercase() == *ex))
         })
-        .map(|(name, summary)| {
-            let tags = if name == "call_tools" {
-                vec!["gateway", "batch", "dispatch"]
-            } else {
-                vec!["gateway", "group", "skill-management"]
-            };
+        .filter(|(name, summary, _)| {
+            clauses.is_empty()
+                || clauses.iter().any(|c| {
+                    c.is_empty()
+                        || name.contains(c)
+                        || summary.to_ascii_lowercase().contains(c)
+                        || c == "group"
+                        || (c.contains("batch") && *name == "call_tools")
+                })
+        })
+        .map(|(name, summary, tags)| {
             json!({
                 "tool_slug": format!("gateway.{name}"),
                 "backend_tool": name,
@@ -526,15 +549,21 @@ pub fn gateway_tool_defs() -> serde_json::Value {
             "name": "search_tools",
             "description": "Search dynamic DCC capabilities by keyword, DCC type, tags, or scene hint. \
                 Returns compact records (not full schemas) so token cost stays bounded even when \
-                many DCC instances are live. Use `describe_tool` to fetch one capability's schema, \
-                then `call_tool` or `call_tools` to invoke. Part of the REST-backed dynamic-capability API (#657).",
+                many DCC instances are live. Each hit includes `tool_slug` — copy that string verbatim \
+                into `describe_tool` and `call_tool`; do not substitute ad-hoc ids or script-style \
+                top-level fields. Use `describe_tool` to fetch one capability's schema, then `call_tool` \
+                or `call_tools` to invoke. REST twins: `POST /v1/search`, `/v1/describe`, `/v1/call` (#657).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "query":      {"type": "string", "description": "Keyword(s) matched against tool name, summary, tags, and skill name."},
                     "dcc_type":   {"type": "string", "description": "Optional DCC bucket filter (e.g. 'maya', 'blender')."},
                     "tags":       {"type": "array", "items": {"type": "string"}, "description": "Require every tag to be present."},
+                    "exclude_tags": {"type": "array", "items": {"type": "string"}, "description": "Drop capabilities that carry any of these tags (case-insensitive exact match)."},
                     "scene_hint": {"type": "string", "description": "Optional scene/document hint used as a soft boost."},
+                    "skill_hint": {"type": "string", "description": "Soft score bonus when the backing skill name contains this substring."},
+                    "or_queries": {"type": "array", "items": {"type": "string"}, "description": "OR search branches: score is the max across `query` and each non-empty string here."},
+                    "min_score":  {"type": "integer", "minimum": 0, "description": "When any search clause is present, drop hits below this final score (browse mode ignores this)."},
                     "limit":      {"type": "integer", "minimum": 0, "description": "Page size cap (default 25, max 100)."}
                 }
             },
@@ -548,12 +577,20 @@ pub fn gateway_tool_defs() -> serde_json::Value {
             "description": "Resolve a single capability slug returned by `search_tools` back to its \
                 compact record (name, skill, summary, tags, whether it has a schema, and the \
                 backing instance id). Use this before `call_tool` when the caller needs the \
-                action's metadata without invoking it.",
+                action's metadata without invoking it. The `tool_slug` argument must match a hit \
+                from `search_tools` exactly (same string as the REST `/v1/describe` body field).",
             "inputSchema": {
                 "type": "object",
+                "additionalProperties": false,
                 "required": ["tool_slug"],
                 "properties": {
-                    "tool_slug": {"type": "string", "description": "Capability slug in the form `<dcc>.<id8>.<tool>`."}
+                    "tool_slug": {
+                        "type": "string",
+                        "description": "Capability id from `search_tools`: `<dcc_type>.<instance_prefix_or_uuid>.<backend_tool>` \
+                            (e.g. `maya.277685a7.maya_primitives__create_sphere`). Copy verbatim; it encodes \
+                            DCC bucket, instance, and backend tool name for gateway routing — analogous to a \
+                            REST path `.../<dcc>/<instance>/<backend_tool>` even though the wire format uses dots."
+                    }
                 }
             },
             "annotations": {
@@ -563,17 +600,30 @@ pub fn gateway_tool_defs() -> serde_json::Value {
         },
         {
             "name": "call_tool",
-            "description": "Invoke a DCC action by capability slug. Routes through the same \
-                backend-forwarding machinery as the legacy prefixed gateway tools, so progress \
-                notifications, cancellation, and job routing all work identically. Arguments are \
-                the backend tool's usual JSON payload; `meta` is optional MCP `_meta` passthrough.",
+            "description": "Invoke one backend DCC action identified by `tool_slug`. REQUIRED: set \
+                `tool_slug` to the exact string from `search_tools` / `describe_tool` (never omit it). \
+                Put **all** tool-specific parameters inside the `arguments` object per that tool's schema — \
+                this wrapper is **not** `execute_python` / arbitrary script execution: do **not** pass \
+                `code`, `python`, `mel`, `script`, or similar keys at the **top** level of this payload. \
+                Routes like REST `POST /v1/call` with the same `tool_slug` + `arguments` shape. Progress \
+                notifications, cancellation, and async job routing match per-backend MCP behaviour.",
             "inputSchema": {
                 "type": "object",
+                "additionalProperties": false,
                 "required": ["tool_slug"],
                 "properties": {
-                    "tool_slug": {"type": "string", "description": "Capability slug from `search_tools` / `describe_tool`."},
-                    "arguments": {"type": "object", "description": "Tool arguments forwarded to the backend."},
-                    "meta":      {"type": "object", "description": "Optional MCP `_meta` passthrough (e.g. `dcc.async`)."}
+                    "tool_slug": {
+                        "type": "string",
+                        "description": "Exact capability id from `search_tools` (same as `POST /v1/call` `tool_slug`)."
+                    },
+                    "arguments": {
+                        "type": "object",
+                        "description": "JSON object forwarded to the backend tool's `tools/call` arguments (may include `code` **only** when that specific backend tool's schema requires it)."
+                    },
+                    "meta": {
+                        "type": "object",
+                        "description": "Optional MCP `_meta` passthrough (e.g. `dcc.async`)."
+                    }
                 }
             },
             "annotations": {
@@ -586,8 +636,9 @@ pub fn gateway_tool_defs() -> serde_json::Value {
             "name": "call_tools",
             "description": "Invoke multiple DCC actions in order within one MCP request. Each element \
                 of `calls` uses the same shape as `call_tool` (`tool_slug`, optional `arguments`, \
-                optional per-item `meta`). Optional `stop_on_error` (default false) aborts the \
-                remainder after the first failed item. Maximum batch size is 25. REST twin: \
+                optional per-item `meta`); never put `code`/`script` at the call-item top level — only \
+                inside `arguments` when the backend schema says so. Optional `stop_on_error` (default false) \
+                aborts the remainder after the first failed item. Maximum batch size is 25. REST twin: \
                 `POST /v1/call_batch`.",
             "inputSchema": {
                 "type": "object",
@@ -599,9 +650,13 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                         "maxItems": 25,
                         "items": {
                             "type": "object",
+                            "additionalProperties": false,
                             "required": ["tool_slug"],
                             "properties": {
-                                "tool_slug": {"type": "string"},
+                                "tool_slug": {
+                                    "type": "string",
+                                    "description": "Same `tool_slug` rules as `call_tool`."
+                                },
                                 "arguments": {"type": "object"},
                                 "meta": {"type": "object"}
                             }
@@ -651,7 +706,11 @@ mod tests {
 
     #[test]
     fn local_gateway_tool_hits_find_group_management_tools() {
-        let hits = local_gateway_tool_hits("group");
+        let q = crate::gateway::capability::SearchQuery {
+            query: "group".into(),
+            ..Default::default()
+        };
+        let hits = local_gateway_tool_hits(&q);
         let names: Vec<&str> = hits
             .iter()
             .filter_map(|hit| hit.get("backend_tool").and_then(Value::as_str))

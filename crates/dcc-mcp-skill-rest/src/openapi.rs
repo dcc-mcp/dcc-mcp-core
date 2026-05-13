@@ -43,6 +43,7 @@ use super::service::{
         super::router::op_describe,
         super::router::op_describe_path,
         super::router::op_call,
+        super::router::op_dcc_backend_call,
         super::router::op_context,
         // #818 phase 1
         super::router::op_list_resources,
@@ -119,6 +120,7 @@ mod tests {
             "/v1/describe",
             "/v1/tools/{slug}",
             "/v1/call",
+            "/v1/dcc/{dcc_type}/call",
             "/v1/context",
             "/v1/healthz",
             "/v1/readyz",

@@ -10,7 +10,7 @@ Each trace is a UTF-8 `.jsonl` file:
 
 1. **Optional header line** — object with `"_vrs": {"version": 1, ...}` and metadata:
    - `trace_id` — short stable id (matches GitHub issue when applicable).
-   - `skip_preflight` — optional object. If present, the replayer runs one HTTP step first; when `skip_when` matches, the whole trace exits **0** (skipped, not failed). Use this when no live Maya is registered.
+   - `skip_preflight` — optional object. If present, the replayer runs one HTTP step first; when `skip_when` matches, the whole trace exits **0** (skipped, not failed). Use this when no suitable DCC instance is registered, or when fewer than *N* live rows are present (see `less_than` below).
 
 2. **Step lines** — each is a JSON object:
    - `id` — optional label for logs.
@@ -25,6 +25,14 @@ Each trace is a UTF-8 `.jsonl` file:
 | `status` | HTTP status int, or list of allowed ints |
 | `body_contains` | Substring that must appear in the raw body |
 | `json_subset` | Recursive partial match on parsed JSON (dict leaves must match) |
+
+### `skip_preflight.skip_when`
+
+| Field | Meaning |
+|-------|---------|
+| `json_pointer` | Value to read from the preflight JSON body (default `/total`). |
+| `equals` | Skip when the resolved value equals this (same types as JSON). |
+| `less_than` | Skip when the resolved value parses as an integer **strictly less than** this (e.g. `less_than: 3` skips when `/total` is 0, 1, or 2). |
 
 ### Substitution
 
@@ -68,6 +76,7 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 | `traces/gateway-rest-call-missing-tool-slug.jsonl` | No | `POST /v1/call` without `tool_slug` → `400`, `bad-request`. |
 | `traces/gateway-rest-call-unknown-slug.jsonl` | No | Unknown slug on call path → `404`, `unknown-slug` (matches refresh-retry semantics). |
 | `traces/maya-215-execute-python-regression.jsonl` | Yes (Maya) | After harmless `execute_python`, triggers `TypeError` via bad `polySphere` arg; follow-up call must still succeed (maya#215 / #199 class). |
+| `traces/gateway-multi-instance-stress.jsonl` | Yes (≥3 live instances) | Skips unless `GET /v1/instances` reports `total >= 3`; then bursts health/instances/readyz/context/search to catch registry/probe regressions under load. |
 
 ## CI policy (recommended)
 

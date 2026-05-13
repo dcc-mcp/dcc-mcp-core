@@ -169,12 +169,13 @@ async fn handle_initialize(gs: &GatewayState, id: Value, req: &JsonRpcRequest) -
                  skill lifecycle, pooling, and dynamic capability wrapper tools; it\n\
                  never fans out every backend action. Instance registry, diagnostics,\n\
                  and catalog views are MCP resources such as gateway://instances,\n\
-                 gateway://diagnostics/*, and gateway://catalog.\n\
+                 gateway://diagnostics/*, gateway://catalog, and gateway://docs/agent-workflows.\n\
                  \n\
                  Workflow:\n\
                  1. Optional: resources/read uri=gateway://instances to inspect live DCCs\n\
+                 1b. Optional: resources/read uri=gateway://docs/agent-workflows (MCP+REST patterns, path /v1/dcc/.../call, re-list instances after DCC restart)\n\
                  2. search_skills(...) then load_skill(..., instance_id=... when needed)\n\
-                 3. search_tools(...) -> describe_tool(tool_slug=...) -> call_tool(tool_slug=..., arguments={...})\n\
+                 3. search_tools(...) -> describe_tool(tool_slug=...) -> call_tool(tool_slug=..., arguments={...}); never put code/python/mel at the call_tool top level\n\
                  4. Optional: call_tools({calls:[{tool_slug, arguments}, ...], stop_on_error?}) for ordered batches (max 25)\n\
                  \n\
                  Subscribe to GET /mcp (SSE) for push notifications."
