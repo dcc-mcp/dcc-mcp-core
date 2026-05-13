@@ -13,6 +13,24 @@
 3. **Chaining** — **`call_tools`** / **`POST /v1/call_batch`** runs up to **25** ordered calls when you have several **different** validated steps. Prefer fewer, well-formed calls over chatty micro-steps.
 4. **Skills vs tools** — `search_skills` / `load_skill` load packaged workflows on a host; `search_tools` resolves a **`tool_slug`** for the dynamic surface. Keep names straight; use `describe_tool` before calling an unfamiliar slug.
 
+### Host / connector wrappers (common mistakes)
+
+If your IDE or orchestration layer exposes **non-standard** tool names (for example `defer_execute_tool`, `get_sessions`, `tool_search`), they **must** map onto the gateway verbs above — those names are **not** part of `dcc-mcp-gateway`’s native `tools/list`.
+
+| Wrong assumption | Use instead |
+|------------------|-------------|
+| `get_sessions` / “list MCP sessions” for routing | **`resources/read`** with `uri=gateway://instances` (MCP), or **`GET /v1/instances`**, **`GET /v1/context`** (REST). Rows carry `instance_id`, `dcc_type`, `mcp_url`. |
+| Wrapper that only accepts `code` at the top level | Gateway **`call_tool`** always needs **`tool_slug`** + optional **`arguments`** (see below). |
+| Guessing `tool_slug` segments | Run **`search_tools`** (or **`POST /v1/search`**) after you know `dcc_type` / `instance_id` from **`gateway://instances`**. |
+
+### Skills-first before `execute_python` / raw MEL (Maya-oriented)
+
+For Maya behind the gateway, prefer **`search_skills`** → **`load_skill`** → a **typed** tool from `tools.yaml` (for example primitives / mesh / **interchange**):
+
+- Many cubes / spheres / transforms → `maya-primitives` (not a giant `execute_python` loop).
+- FBX / OBJ / scene save to disk → `maya-geometry` (`export_fbx`, `import_fbx`, `save_scene`, …) — **avoid** hand-rolled `FBXExport` MEL unless no skill fits.
+- Only when no packaged tool exists: `maya-scripting` → `execute_python` / `execute_mel`, preferably **`file_path`** to a `.py` / `.mel` the **Maya process host** can read (see next section).
+
 ### `tool_slug` shape (and why it is not slash-separated yet)
 
 - Every `search_tools` hit includes **`tool_slug`**. Treat it as an opaque **routing token**: copy it **verbatim** into `describe_tool` and `call_tool` (and into REST `POST /v1/describe` / `/v1/call` bodies as the `tool_slug` field).
@@ -69,6 +87,7 @@ Where the gateway mounts them, mirror MCP with **`POST /v1/search`**, **`/v1/des
 ### Long `execute_python` / MEL without giant JSON strings
 
 * **Long `execute_python` payloads** — Prefer `write_temp_file` (skill) or `write_temp_script` then `execute_python(file_path=...)`. The `.py` must exist on the **same machine / filesystem the DCC process reads**; an agent that only writes on its laptop cannot run that path on a remote studio Maya unless a sync or in-host writer places the file.
+* **Maya adapter auto-spill** — Current `dcc-mcp-maya` may copy very long **inline** `code` strings to a host-local temp file under `~/.dcc-mcp-core/temp_scripts/` before `exec`, and returns `context.host_spilled_inline_script_path` when that happens. You still should prefer explicit `file_path` or typed skills for auditability.
 
 ### After a DCC crash or reconnect
 
