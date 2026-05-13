@@ -51,6 +51,10 @@ cfg = McpHttpConfig(
 | `dcc_version` | `str \| None` | `None` | 注册表中报告的 DCC 版本（如 `"2025"`） |
 | `scene` | `str \| None` | `None` | 当前打开的场景文件 — 改善网关路由 |
 
+::: tip Admin 持久化
+`McpHttpConfig` 控制获选网关是否提供 `/admin`；Admin 持久化刻意通过环境变量配置。设置 `DCC_MCP_GATEWAY_AUDIT_DIR` 后，`/admin/api/calls` 行会保存到 `audit.jsonl`，`/admin/api/traces` 行会保存到 `traces.jsonl`；`DCC_MCP_GATEWAY_AUDIT_MAX_ROWS` 限制每个文件的行数。
+:::
+
 ## McpServerHandle
 
 由 `McpHttpServer.start()` 返回。用于获取 MCP 端点 URL 并优雅关闭。

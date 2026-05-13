@@ -1,6 +1,6 @@
 # 可观测性
 
-dcc-mcp-core 提供三种互补的可观测性接口，适用于生产环境部署。
+dcc-mcp-core 提供四种互补的可观测性接口，适用于生产环境部署。
 
 ## 1. OTLP 分布式追踪（#768）
 
@@ -123,7 +123,28 @@ result = resources.read("resources://gateway/events")
 
 ---
 
-## 3. Prometheus 指标（#766）
+## 3. Admin 调用审计与 Dispatch Traces
+
+获选网关在 `GET /admin` 提供只读 HTML 仪表盘，并向运维与 AI agent 暴露机器可读 JSON 端点：
+
+| 端点 | 使用场景 |
+|------|----------|
+| `GET /admin/api/calls` | 按 `request_id`、工具 slug、DCC 类型、实例、错误摘要和耗时关联最近调用。 |
+| `GET /admin/api/traces?limit=200` | 查看最近 dispatch waterfall、有界输入 payload（16 KiB）和有界输出 payload（64 KiB）。 |
+| `GET /admin/api/traces/{request_id}` | 不扫描整个 trace ring，直接下钻某一次调用。 |
+| `GET /admin/api/stats?range=1h\|24h\|7d` | 基于 trace log 计算成功率、延迟分位数和 top tools/instances。 |
+| `GET /admin/api/workers` | 查看 live registry 中每个实例的 worker 卡片。 |
+
+默认情况下这些缓冲区只保存在内存中。设置 `DCC_MCP_GATEWAY_AUDIT_DIR` 后会追加有界 JSONL 文件：
+
+- `audit.jsonl` —— 支撑 `/admin/api/calls` 的调用行。
+- `traces.jsonl` —— 支撑 `/admin/api/traces` 和 stats 的 trace 行。
+
+`DCC_MCP_GATEWAY_AUDIT_MAX_ROWS`（默认 `5000`）限制每个文件保留行数。网关重启时会用这些文件回填内存中的 admin 缓冲区。持久化的 trace payload 使用与实时 API 相同的有界/已脱敏 `TracePayload`，不会保存无界原始请求体。
+
+---
+
+## 4. Prometheus 指标（#766）
 
 在 `prometheus` Cargo feature 下，网关竞争计数器通过 `/metrics` 端点暴露：
 

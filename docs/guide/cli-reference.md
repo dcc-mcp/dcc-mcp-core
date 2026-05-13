@@ -53,6 +53,8 @@ instances that the winner aggregates.
 | `--scene` | `DCC_MCP_SCENE` | — | Currently-open scene / document; recorded in the registry, used by multi-instance disambiguation. |
 | `--heartbeat-secs` | `DCC_MCP_HEARTBEAT_INTERVAL` | `5` | Heartbeat cadence in seconds. `0` disables. |
 
+Admin audit/trace persistence is configured by environment only: set `DCC_MCP_GATEWAY_AUDIT_DIR` to a writable directory to persist `/admin/api/calls` rows in `audit.jsonl` and dispatch traces in `traces.jsonl`; set `DCC_MCP_GATEWAY_AUDIT_MAX_ROWS` (default `5000`) to cap each file.
+
 > **Removed in PR A** — `--gateway-tool-exposure` /
 > `DCC_MCP_GATEWAY_TOOL_EXPOSURE` are gone. The gateway surface is now
 > unconditionally minimal (see `docs/guide/rest-api-surface.md`).

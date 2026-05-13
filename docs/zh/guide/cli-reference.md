@@ -50,6 +50,8 @@
 | `--scene` | `DCC_MCP_SCENE` | — | 当前打开的场景 / 文档；记入注册表，多实例 disambiguation 使用。 |
 | `--heartbeat-secs` | `DCC_MCP_HEARTBEAT_INTERVAL` | `5` | 心跳周期。`0` 关闭。 |
 
+Admin 审计/trace 持久化只通过环境变量配置：设置 `DCC_MCP_GATEWAY_AUDIT_DIR` 为可写目录后，`/admin/api/calls` 行会写入 `audit.jsonl`，dispatch traces 会写入 `traces.jsonl`；`DCC_MCP_GATEWAY_AUDIT_MAX_ROWS`（默认 `5000`）限制每个文件保留行数。
+
 > **PR A 已移除** —— `--gateway-tool-exposure` /
 > `DCC_MCP_GATEWAY_TOOL_EXPOSURE` 已删除。网关表面现在无条件最小化，详见
 > `docs/zh/guide/rest-api-surface.md`。

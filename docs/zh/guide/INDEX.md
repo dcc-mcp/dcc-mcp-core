@@ -46,7 +46,7 @@
 | [production-deployment.md](production-deployment.md) | 生产部署检查清单：日志、健康探针、监控 |
 | [protocols.md](protocols.md) | MCP 协议类型与版本管理 |
 | [middleware.md](middleware.md) | 可插拔 BeforeCall/AfterCall 中间件链：审计、限流、脱敏 |
-| [admin-ui.md](admin-ui.md) | 内置零构建 `/admin` 仪表盘（实例、工具、调用、日志、健康） |
+| [admin-ui.md](admin-ui.md) | 内置零构建 `/admin` 仪表盘（实例、工具、调用、traces、stats、workers、日志、健康、JSONL 审计/trace 持久化） |
 | [translate.md](translate.md) | `translate` 子命令：将任意 stdio MCP 服务器桥接到 HTTP/SSE |
 | [openapi-mount.md](openapi-mount.md) | OpenAPI → MCP 挂载助手：将任意 REST API 暴露为 MCP 工具 |
 | [catalog.md](catalog.md) | DCC-MCP 公共适配器目录：搜索与描述 |

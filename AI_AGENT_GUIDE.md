@@ -102,7 +102,7 @@ Use MCP resources for files, scene artefacts, thumbnails, diagnostics, and other
 
 ### Gateway Admin Observability
 
-When debugging routing, slow calls, or worker availability, use the elected gateway's read-only admin JSON APIs before guessing from logs: `GET /admin/api/instances`, `/tools`, `/calls`, `/traces`, `/stats?range=24h`, `/workers`, `/logs`, and `/health`. The HTML dashboard remains `GET /admin`; disable it with `--no-admin`, `DCC_MCP_NO_ADMIN=true`, or `cfg.admin_enabled = False`.
+When debugging routing, slow calls, or worker availability, use the elected gateway's read-only admin JSON APIs before guessing from logs: `GET /admin/api/instances`, `/tools`, `/calls`, `/traces`, `/traces/{request_id}`, `/stats?range=24h`, `/workers`, `/logs`, and `/health`. The HTML dashboard remains `GET /admin`; disable it with `--no-admin`, `DCC_MCP_NO_ADMIN=true`, or `cfg.admin_enabled = False`. For restart-stable call/trace history, operators can set `DCC_MCP_GATEWAY_AUDIT_DIR` to persist `audit.jsonl` and `traces.jsonl`.
 
 ## 📚 Key Concepts You Must Understand
 

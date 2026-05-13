@@ -2625,6 +2625,8 @@ config.lazy_actions = True  # default: False
 config.gateway_port = 9765      # first process to bind wins; 0 disables gateway/admin
 config.admin_enabled = True     # default; set False to keep gateway but hide /admin
 config.admin_path = "/admin"    # default
+# Durable admin audit/trace storage is env-only: set DCC_MCP_GATEWAY_AUDIT_DIR
+# to persist audit.jsonl + traces.jsonl; DCC_MCP_GATEWAY_AUDIT_MAX_ROWS caps rows.
 config.dcc_type = "maya"
 config.dcc_version = "2025"
 config.scene = "/proj/shot01.ma"  # optional: helps routing by scene
