@@ -126,12 +126,12 @@ fn main() -> Result<(), String> {
             println!("cargo:warning=reusing pre-built admin UI (DCC_MCP_ADMIN_UI_PREBUILT=1)");
             return Ok(());
         }
-        return Err(format!(
-            "DCC_MCP_ADMIN_UI_PREBUILT is set but {} is missing — run \
-             `vx npm --prefix admin-ui ci && vx npm --prefix admin-ui run build` \
-             on the host before maturin (see .github/actions/build-wheel/action.yml).",
+        // Fall back to building locally when the pre-built file is missing
+        // (e.g. maturin sdist unpacked to a temp directory).
+        println!(
+            "cargo:warning=DCC_MCP_ADMIN_UI_PREBUILT=1 but {} is missing; falling back to local build",
             out.display()
-        ));
+        );
     }
 
     if !admin_ui.join("package.json").is_file() {

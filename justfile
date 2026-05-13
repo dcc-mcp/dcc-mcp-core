@@ -10,7 +10,7 @@ set shell := ["sh", "-cu"]
 # Opt-in Cargo features that must ship in every wheel. Add new features here
 # and every recipe below — as well as CI workflows invoking `just build-*` —
 # will pick them up automatically.
-OPT_FEATURES := "workflow,scheduler,prometheus,job-persist-sqlite"
+OPT_FEATURES := "workflow,scheduler,prometheus,job-persist-sqlite,admin"
 
 # Feature set for `maturin develop` (no abi3, extension-module linkage)
 DEV_FEATURES := "python-bindings,ext-module," + OPT_FEATURES
@@ -88,9 +88,11 @@ test-rust:
     cargo nextest run --workspace
     cargo test --workspace --doc
 
-# Rust test coverage via cargo-tarpaulin (install: cargo install cargo-tarpaulin)
+# Rust test coverage via cargo-llvm-cov (install: cargo install cargo-llvm-cov)
+# Generates lcov.info; CI uploads to Codecov (set `files: coverage/lcov.info`).
 rust-cov:
-    cargo tarpaulin --workspace --out Html --out Xml --output-dir coverage/ --timeout 300
+    mkdir -p coverage
+    cargo llvm-cov --workspace --lcov --output-path coverage/lcov.info
 
 # Run criterion benchmarks for IPC transport
 bench:
