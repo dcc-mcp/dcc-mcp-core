@@ -127,6 +127,7 @@ type LogRow = {
 /// DCC-type → icon URL (Simple Icons CDN).
 /// Unknown/missing types fall back to a generic puzzle-piece icon.
 const DCC_ICON_MAP: Record<string, string> = {
+  maya: 'https://simpleicons.org/icons/autodesk.svg',
   blender: 'https://simpleicons.org/icons/blender.svg',
   gimp: 'https://simpleicons.org/icons/gimp.svg',
   inkscape: 'https://simpleicons.org/icons/inkscape.svg',
