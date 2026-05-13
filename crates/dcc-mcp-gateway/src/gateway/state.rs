@@ -125,7 +125,7 @@ impl fmt::Display for ResolveInstanceError {
 /// / [`EventState`] / [`ServerState`] are *views* constructed on demand via
 /// [`Self::discovery`], [`Self::routing`], [`Self::events`], [`Self::server`]
 /// (issue #839 — backwards-compatible SRP split).
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct GatewayState {
     pub registry: Arc<RwLock<FileRegistry>>,
     pub stale_timeout: Duration,
