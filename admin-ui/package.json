@@ -23,6 +23,6 @@
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "typescript": "latest",
-    "vite": "latest"
+    "vite": ">=6.2.5"
   }
 }
