@@ -97,3 +97,4 @@ memory/
 python/dcc_mcp_core/_core.pyi
 /.show_checks.py
 /.checks.json
+coverage/

@@ -1,4 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import mayaIcon from './assets/icons/autodesk.svg';
+import blenderIcon from './assets/icons/blender.svg';
+import gimpIcon from './assets/icons/gimp.svg';
+import inkscapeIcon from './assets/icons/inkscape.svg';
+import kritaIcon from './assets/icons/krita.svg';
+import unityIcon from './assets/icons/unity.svg';
+import unrealIcon from './assets/icons/unrealengine.svg';
+import substancePainterIcon from './assets/icons/photoshop.svg';
+import puzzleIcon from './assets/icons/puzzle.svg';
 
 type Panel = 'health' | 'instances' | 'tools' | 'calls' | 'traces' | 'stats' | 'workers' | 'logs';
 
@@ -124,19 +133,19 @@ type LogRow = {
   reason?: string | null;
 };
 
-/// DCC-type → icon URL (Simple Icons CDN).
+/// DCC-type → icon URL (local SVGs, bundled by Vite + vite-plugin-singlefile).
 /// Unknown/missing types fall back to a generic puzzle-piece icon.
 const DCC_ICON_MAP: Record<string, string> = {
-  maya: 'https://simpleicons.org/icons/autodesk.svg',
-  blender: 'https://simpleicons.org/icons/blender.svg',
-  gimp: 'https://simpleicons.org/icons/gimp.svg',
-  inkscape: 'https://simpleicons.org/icons/inkscape.svg',
-  krita: 'https://simpleicons.org/icons/krita.svg',
-  unity: 'https://simpleicons.org/icons/unity.svg',
-  unreal: 'https://simpleicons.org/icons/unrealengine.svg',
-  substance_painter: 'https://simpleicons.org/icons/photoshop.svg', // fallback
+  maya: mayaIcon,
+  blender: blenderIcon,
+  gimp: gimpIcon,
+  inkscape: inkscapeIcon,
+  krita: kritaIcon,
+  unity: unityIcon,
+  unreal: unrealIcon,
+  substance_painter: substancePainterIcon,
 };
-const DCC_ICON_FALLBACK = 'https://simpleicons.org/icons/puzzle.svg';
+const DCC_ICON_FALLBACK = puzzleIcon;
 
 /// Resolve icon URL for a dcc_type, supporting prefix matching
 /// (e.g. "autodesk_maya" → maya icon).
