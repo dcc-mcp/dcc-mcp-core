@@ -96,6 +96,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
