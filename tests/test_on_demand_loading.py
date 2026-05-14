@@ -22,6 +22,7 @@ import urllib.request
 
 import pytest
 
+from conftest import McpClient
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
@@ -55,19 +56,9 @@ CORE_TOOLS = frozenset(
 
 
 def _post(url: str, body: dict, headers: dict | None = None) -> dict:
-    data = json.dumps(body).encode()
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            **(headers or {}),
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        return json.loads(resp.read())
+    client = McpClient(url)
+    _, resp = client.post(body, extra_headers=headers)
+    return resp
 
 
 def _tools_list(url: str) -> list[dict]:
@@ -76,30 +67,9 @@ def _tools_list(url: str) -> list[dict]:
 
 
 def _initialize(url: str) -> str:
-    data = json.dumps(
-        {
-            "jsonrpc": "2.0",
-            "id": 0,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2025-03-26",
-                "capabilities": {},
-                "clientInfo": {"name": "ci-test", "version": "0.1"},
-            },
-        }
-    ).encode()
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        header_sid = resp.headers.get("Mcp-Session-Id", "")
-        if header_sid:
-            return header_sid
-        body = json.loads(resp.read())
-        return body.get("result", {}).get("__session_id", "")
+    client = McpClient(url, auto_init=False)
+    client.initialize()
+    return client.session_id or ""
 
 
 @pytest.fixture(scope="module")

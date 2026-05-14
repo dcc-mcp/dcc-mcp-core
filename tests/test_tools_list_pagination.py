@@ -17,6 +17,8 @@ import urllib.request
 # Import third-party modules
 import pytest
 
+from conftest import McpClient
+
 # Import local modules
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
@@ -26,23 +28,10 @@ from dcc_mcp_core import ToolRegistry
 
 
 def _post(url: str, body: Any, headers: dict[str, str] | None = None) -> tuple[int, Any]:
-    """POST JSON and return (status, parsed_body)."""
-    data = json.dumps(body).encode()
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            **(headers or {}),
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            return resp.status, json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        return e.code, {}
+    """POST JSON using McpClient and return (status, parsed_body)."""
+    client = McpClient(url)
+    code, resp = client.post(body, extra_headers=headers)
+    return code, resp
 
 
 def _make_big_registry(n: int = 40) -> ToolRegistry:

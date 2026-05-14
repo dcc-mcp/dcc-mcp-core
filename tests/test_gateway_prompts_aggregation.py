@@ -35,6 +35,7 @@ import urllib.request
 
 import pytest
 
+from conftest import McpClient
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
@@ -57,17 +58,12 @@ def _pick_free_port() -> int:
 
 
 def _post_mcp(url: str, method: str, params: dict | None = None, rpc_id: int = 1, timeout: float = 10.0) -> dict:
+    client = McpClient(url)
     body: dict = {"jsonrpc": "2.0", "id": rpc_id, "method": method}
     if params is not None:
         body["params"] = params
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read())
+    _, resp = client.post(body)
+    return resp
 
 
 def _unescape_cursor_safe(escaped: str) -> str | None:

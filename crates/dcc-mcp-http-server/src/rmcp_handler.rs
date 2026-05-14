@@ -2,28 +2,50 @@
 //!
 //! This module implements rmcp's `ServerHandler` trait by delegating each MCP
 //! method to the appropriate existing subsystem (ToolRegistry, ToolDispatcher,
-//! SkillCatalog). It is the core adapter enabling rmcp's transport to drive our
-//! DCC business logic without modifying the business logic itself.
+//! SkillCatalog, ResourceProvider, PromptProvider). It is the core adapter
+//! enabling rmcp's transport to drive our DCC business logic without modifying
+//! the business logic itself.
 //!
 //! # Gating
 //!
 //! This entire module is compiled only when the `rmcp-transport` feature is
 //! enabled.
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
 
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult as RmcpCallToolResult, Content, Implementation,
-    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool as RmcpTool,
-    ToolsCapability,
+    CallToolRequestParams, CallToolResult as RmcpCallToolResult, Content, GetPromptRequestParams,
+    GetPromptResult as RmcpGetPromptResult, Implementation,
+    ListPromptsResult as RmcpListPromptsResult, ListResourcesResult as RmcpListResourcesResult,
+    ListToolsResult, LoggingLevel, PaginatedRequestParams, ReadResourceRequestParams,
+    ReadResourceResult as RmcpReadResourceResult, ServerCapabilities, ServerInfo,
+    SetLevelRequestParams, SubscribeRequestParams, Tool as RmcpTool, ToolsCapability,
+    UnsubscribeRequestParams,
 };
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData as McpError, RoleServer, ServerHandler};
 use serde_json::Value;
 use tracing::{debug, warn};
 
+use crate::rmcp_adapter;
+use crate::rmcp_providers::{PromptProvider, ProviderError, ResourceProvider};
 use crate::server_state::ServerState;
+use crate::session::SessionLogLevel;
+
+/// Context carrying provider trait objects for resource and prompt access.
+///
+/// This breaks the circular dependency between `dcc-mcp-http` (which owns
+/// `ResourceRegistry` / `PromptRegistry`) and this crate (which implements
+/// `ServerHandler`). The HTTP crate creates concrete implementations and
+/// passes them here as trait objects.
+pub struct RegistryContext {
+    /// Resource provider (list + read). `None` if resources are disabled.
+    pub resource_provider: Option<Arc<dyn ResourceProvider>>,
+    /// Prompt provider (list + get). `None` if prompts are disabled.
+    pub prompt_provider: Option<Arc<dyn PromptProvider>>,
+}
 
 /// Adapter that implements rmcp's [`ServerHandler`] trait by delegating to our
 /// existing [`ServerState`].
@@ -32,15 +54,24 @@ use crate::server_state::ServerState;
 /// `StreamableHttpService::new()`.
 pub struct DccMcpHandler {
     state: ServerState,
+    registry_context: Arc<RegistryContext>,
 }
 
 impl DccMcpHandler {
-    /// Create a new handler instance backed by the given server state.
-    pub fn new(state: ServerState) -> Self {
-        Self { state }
+    /// Create a new handler instance backed by the given server state and
+    /// registry context.
+    #[must_use]
+    pub fn new(state: ServerState, registry_context: Arc<RegistryContext>) -> Self {
+        Self {
+            state,
+            registry_context,
+        }
     }
 }
 
+// The rmcp ServerHandler trait uses `impl Future<...>` return types, so clippy's
+// `manual_async_fn` suggestion doesn't apply — we must match the trait signature.
+#[allow(clippy::manual_async_fn)]
 impl ServerHandler for DccMcpHandler {
     fn get_info(&self) -> ServerInfo {
         let mut capabilities = ServerCapabilities::default();
@@ -73,13 +104,14 @@ impl ServerHandler for DccMcpHandler {
         info
     }
 
+    // ── Tools ───────────────────────────────────────────────────────────────
+
     fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListToolsResult, McpError>> + Send + '_ {
         async {
-            // Gather tools from the registry (all enabled actions)
             let actions = self.state.registry.list_actions_enabled(None);
 
             let tools: Vec<RmcpTool> = actions
@@ -123,17 +155,11 @@ impl ServerHandler for DccMcpHandler {
 
             debug!(tool = %tool_name, "rmcp: dispatching tool call");
 
-            // Dispatch through the existing synchronous dispatcher.
-            // Note: The dispatcher is sync; we call it from the async context.
-            // For main-thread affinity tools, the existing executor pattern would
-            // need to be wired in Phase 2. For the spike, we dispatch directly.
             let result = self.state.dispatcher.dispatch(tool_name, arguments);
 
             match result {
                 Ok(dispatch_result) => {
-                    // Convert the raw Value output to a CallToolResult
                     let content = vec![Content::text(dispatch_result.output.to_string())];
-
                     let mut out = RmcpCallToolResult::default();
                     out.content = content;
                     out.structured_content = Some(dispatch_result.output);
@@ -141,7 +167,6 @@ impl ServerHandler for DccMcpHandler {
                 }
                 Err(e) => {
                     warn!(tool = %tool_name, error = %e, "rmcp: tool dispatch failed");
-                    // Return error as tool result (not an RPC error)
                     let mut out = RmcpCallToolResult::default();
                     out.content = vec![Content::text(e.to_string())];
                     out.is_error = Some(true);
@@ -149,5 +174,187 @@ impl ServerHandler for DccMcpHandler {
                 }
             }
         }
+    }
+
+    // ── Resources ───────────────────────────────────────────────────────────
+
+    fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<RmcpListResourcesResult, McpError>> + Send + '_ {
+        async {
+            let Some(provider) = self.registry_context.resource_provider.as_ref() else {
+                return Ok(RmcpListResourcesResult {
+                    meta: None,
+                    next_cursor: None,
+                    resources: vec![],
+                });
+            };
+
+            let resources = provider.list_resources(&self.state.catalog);
+            let rmcp_resources: Vec<_> = resources
+                .iter()
+                .map(rmcp_adapter::resource_to_rmcp)
+                .collect();
+
+            debug!(count = rmcp_resources.len(), "rmcp: listed resources");
+
+            Ok(RmcpListResourcesResult {
+                meta: None,
+                next_cursor: None,
+                resources: rmcp_resources,
+            })
+        }
+    }
+
+    fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<RmcpReadResourceResult, McpError>> + Send + '_ {
+        async move {
+            let Some(provider) = self.registry_context.resource_provider.as_ref() else {
+                return Err(McpError::invalid_params("Resources not enabled", None));
+            };
+
+            match provider.read_resource(&request.uri, &self.state.catalog) {
+                Ok(result) => Ok(rmcp_adapter::read_result_to_rmcp(&result)),
+                Err(e) => {
+                    warn!(uri = %request.uri, error = %e, "rmcp: resource read failed");
+                    Err(provider_error_to_mcp(&e))
+                }
+            }
+        }
+    }
+
+    fn subscribe(
+        &self,
+        _request: SubscribeRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<(), McpError>> + Send + '_ {
+        async {
+            // Subscriptions require session-ID mapping not yet wired.
+            // Accept silently for now.
+            debug!("rmcp: resources/subscribe acknowledged (no-op)");
+            Ok(())
+        }
+    }
+
+    fn unsubscribe(
+        &self,
+        _request: UnsubscribeRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<(), McpError>> + Send + '_ {
+        async {
+            debug!("rmcp: resources/unsubscribe acknowledged (no-op)");
+            Ok(())
+        }
+    }
+
+    // ── Prompts ─────────────────────────────────────────────────────────────
+
+    fn list_prompts(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<RmcpListPromptsResult, McpError>> + Send + '_ {
+        async {
+            let Some(provider) = self.registry_context.prompt_provider.as_ref() else {
+                return Ok(RmcpListPromptsResult {
+                    meta: None,
+                    next_cursor: None,
+                    prompts: vec![],
+                });
+            };
+
+            let prompts = provider.list_prompts(&self.state.catalog);
+            let rmcp_prompts: Vec<_> = prompts.iter().map(rmcp_adapter::prompt_to_rmcp).collect();
+
+            debug!(count = rmcp_prompts.len(), "rmcp: listed prompts");
+
+            Ok(RmcpListPromptsResult {
+                meta: None,
+                next_cursor: None,
+                prompts: rmcp_prompts,
+            })
+        }
+    }
+
+    fn get_prompt(
+        &self,
+        request: GetPromptRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<RmcpGetPromptResult, McpError>> + Send + '_ {
+        async move {
+            let Some(provider) = self.registry_context.prompt_provider.as_ref() else {
+                return Err(McpError::invalid_params("Prompts not enabled", None));
+            };
+
+            // Convert rmcp arguments (JsonObject) to HashMap<String, String>
+            let args: HashMap<String, String> = request
+                .arguments
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(k, v)| {
+                    let s = v
+                        .as_str()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| v.to_string());
+                    (k, s)
+                })
+                .collect();
+
+            match provider.get_prompt(&request.name, &args, &self.state.catalog) {
+                Ok(result) => Ok(rmcp_adapter::get_prompt_result_to_rmcp(&result)),
+                Err(e) => {
+                    warn!(name = %request.name, error = %e, "rmcp: get_prompt failed");
+                    Err(provider_error_to_mcp(&e))
+                }
+            }
+        }
+    }
+
+    // ── Logging ─────────────────────────────────────────────────────────────
+
+    fn set_level(
+        &self,
+        request: SetLevelRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<(), McpError>> + Send + '_ {
+        async move {
+            let level = logging_level_to_session(request.level);
+            debug!(?level, "rmcp: set_level acknowledged");
+            // Without per-session mapping we cannot route to a specific session.
+            // Accept the request so clients don't error out.
+            Ok(())
+        }
+    }
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+/// Map rmcp [`LoggingLevel`] to our [`SessionLogLevel`].
+fn logging_level_to_session(level: LoggingLevel) -> SessionLogLevel {
+    match level {
+        LoggingLevel::Debug => SessionLogLevel::Debug,
+        LoggingLevel::Info | LoggingLevel::Notice => SessionLogLevel::Info,
+        LoggingLevel::Warning => SessionLogLevel::Warning,
+        LoggingLevel::Error
+        | LoggingLevel::Critical
+        | LoggingLevel::Alert
+        | LoggingLevel::Emergency => SessionLogLevel::Error,
+    }
+}
+
+/// Convert a [`ProviderError`] to an rmcp [`McpError`].
+fn provider_error_to_mcp(e: &ProviderError) -> McpError {
+    match e {
+        ProviderError::NotFound(msg) => McpError::invalid_params(msg.clone(), None),
+        ProviderError::NotEnabled(msg) => McpError::invalid_params(msg.clone(), None),
+        ProviderError::MissingArg(msg) => {
+            McpError::invalid_params(format!("missing required argument: {msg}"), None)
+        }
+        ProviderError::Internal(msg) => McpError::internal_error(msg.clone(), None),
     }
 }

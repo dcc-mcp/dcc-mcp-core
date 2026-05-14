@@ -29,6 +29,7 @@ import urllib.request
 
 import pytest
 
+from conftest import McpClient
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
@@ -90,7 +91,10 @@ pytestmark = pytest.mark.skipif(
 
 
 def _post(url: str, body: dict[str, Any], sid: str | None = None) -> dict[str, Any]:
-    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    """POST a JSON-RPC request with optional session ID."""
+    import urllib.request
+
+    headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
     if sid is not None:
         headers["Mcp-Session-Id"] = sid
     req = urllib.request.Request(
@@ -104,20 +108,9 @@ def _post(url: str, body: dict[str, Any], sid: str | None = None) -> dict[str, A
 
 
 def _initialize_session(url: str) -> str:
-    body = _post(
-        url,
-        {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2025-03-26",
-                "capabilities": {},
-                "clientInfo": {"name": "pytest-328", "version": "1.0"},
-            },
-        },
-    )
-    return body["result"]["__session_id"]
+    client = McpClient(url, auto_init=False)
+    client.initialize()
+    return client.session_id or ""
 
 
 def _make_server(db_path: str, handler):

@@ -617,7 +617,7 @@ class TestMcporterAvailability:
         req = urllib.request.Request(
             url,
             data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}).encode(),
-            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream"},
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
@@ -645,7 +645,7 @@ class TestMultipleServerInstances:
         req = urllib.request.Request(
             url,
             data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}).encode(),
-            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream"},
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
@@ -658,7 +658,7 @@ class TestMultipleServerInstances:
         req = urllib.request.Request(
             url,
             data=json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}).encode(),
-            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream"},
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
@@ -679,7 +679,7 @@ class TestMultipleServerInstances:
                     "params": {"name": tool, "arguments": arguments or {}},
                 }
             ).encode(),
-            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream"},
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=5) as resp:

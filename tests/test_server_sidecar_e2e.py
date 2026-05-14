@@ -30,6 +30,7 @@ import urllib.request
 
 import pytest
 
+from conftest import McpClient
 import dcc_mcp_core
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
@@ -49,7 +50,7 @@ def _post(url: str, body: dict, headers: dict | None = None) -> tuple[int, dict]
         data=data,
         headers={
             "Content-Type": "application/json",
-            "Accept": "application/json",
+            "Accept": "application/json, text/event-stream",
             **(headers or {}),
         },
         method="POST",
@@ -65,7 +66,7 @@ def _get(url: str, headers: dict | None = None) -> tuple[int, dict]:
     """GET a JSON body; return (status, response_dict)."""
     req = urllib.request.Request(
         url,
-        headers={"Accept": "application/json", **(headers or {})},
+        headers={"Accept": "application/json, text/event-stream", **(headers or {})},
         method="GET",
     )
     try:
@@ -85,33 +86,10 @@ def _allocate_port() -> int:
 
 
 def _initialize(url: str) -> str:
-    """Call MCP initialize and return the Mcp-Session-Id header value."""
-    data = json.dumps(
-        {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2025-03-26",
-                "capabilities": {},
-                "clientInfo": {"name": "test-sidecar", "version": "0.1"},
-            },
-        }
-    ).encode()
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        # Mcp-Session-Id may be in the response header or embedded in the JSON
-        # body as __session_id (how dcc-mcp-core currently works).
-        header_sid = resp.headers.get("Mcp-Session-Id", "")
-        if header_sid:
-            return header_sid
-        body = json.loads(resp.read())
-        return body.get("result", {}).get("__session_id", "")
+    """Call MCP initialize and return the session ID."""
+    client = McpClient(url, auto_init=False)
+    client.initialize()
+    return client.session_id or ""
 
 
 def _make_server(ttl_secs: int = 3600, port: int = 0) -> tuple[McpHttpServer, Any]:

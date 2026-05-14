@@ -12,13 +12,19 @@
 use std::sync::Arc;
 
 use rmcp::model::{
-    CallToolResult as RmcpCallToolResult, Content, Meta, RawContent, RawResource, ResourceContents,
-    Tool as RmcpTool, ToolAnnotations as RmcpToolAnnotations,
+    Annotated, CallToolResult as RmcpCallToolResult, Content,
+    GetPromptResult as RmcpGetPromptResult, Meta, Prompt as RmcpPrompt,
+    PromptArgument as RmcpPromptArgument, PromptMessage as RmcpPromptMessage, PromptMessageContent,
+    PromptMessageRole, RawContent, RawResource, ReadResourceResult as RmcpReadResourceResult,
+    Resource as RmcpResource, ResourceContents, Tool as RmcpTool,
+    ToolAnnotations as RmcpToolAnnotations,
 };
 use serde_json::Value;
 
 use dcc_mcp_jsonrpc::{
-    CallToolResult as DccCallToolResult, McpTool, McpToolAnnotations, ToolContent,
+    CallToolResult as DccCallToolResult, GetPromptResult as DccGetPromptResult, McpPrompt,
+    McpPromptContent, McpResource, McpTool, McpToolAnnotations,
+    ReadResourceResult as DccReadResourceResult, ToolContent,
 };
 
 // ── McpTool → rmcp::Tool ─────────────────────────────────────────────────────
@@ -220,6 +226,105 @@ impl ToolBuilderExt for RmcpTool {
     }
 }
 
+// ── McpResource → rmcp::Resource ────────────────────────────────────────────
+
+/// Convert our internal [`McpResource`] to rmcp's [`Resource`](RmcpResource).
+#[must_use]
+pub fn resource_to_rmcp(r: &McpResource) -> RmcpResource {
+    let mut raw = RawResource::new(&r.uri, &r.name);
+    if let Some(d) = &r.description {
+        raw = raw.with_description(d.clone());
+    }
+    if let Some(m) = &r.mime_type {
+        raw = raw.with_mime_type(m.clone());
+    }
+    Annotated::new(raw, None)
+}
+
+// ── ReadResourceResult → rmcp::ReadResourceResult ───────────────────────────
+
+/// Convert our [`ReadResourceResult`](DccReadResourceResult) to rmcp's
+/// [`ReadResourceResult`](RmcpReadResourceResult).
+#[must_use]
+pub fn read_result_to_rmcp(r: &DccReadResourceResult) -> RmcpReadResourceResult {
+    let contents: Vec<ResourceContents> = r
+        .contents
+        .iter()
+        .map(|c| {
+            if let Some(text) = &c.text {
+                let rc = ResourceContents::text(text.clone(), &c.uri);
+                if let Some(mime) = &c.mime_type {
+                    rc.with_mime_type(mime.clone())
+                } else {
+                    rc
+                }
+            } else if let Some(blob) = &c.blob {
+                let rc = ResourceContents::blob(blob.clone(), &c.uri);
+                if let Some(mime) = &c.mime_type {
+                    rc.with_mime_type(mime.clone())
+                } else {
+                    rc
+                }
+            } else {
+                ResourceContents::text("", &c.uri)
+            }
+        })
+        .collect();
+    RmcpReadResourceResult::new(contents)
+}
+
+// ── McpPrompt → rmcp::Prompt ────────────────────────────────────────────────
+
+/// Convert our internal [`McpPrompt`] to rmcp's [`Prompt`](RmcpPrompt).
+#[must_use]
+pub fn prompt_to_rmcp(p: &McpPrompt) -> RmcpPrompt {
+    let arguments: Option<Vec<RmcpPromptArgument>> = if p.arguments.is_empty() {
+        None
+    } else {
+        Some(
+            p.arguments
+                .iter()
+                .map(|a| {
+                    let mut arg = RmcpPromptArgument::new(&a.name);
+                    if let Some(desc) = &a.description {
+                        arg = arg.with_description(desc.clone());
+                    }
+                    if a.required {
+                        arg = arg.with_required(true);
+                    }
+                    arg
+                })
+                .collect(),
+        )
+    };
+    RmcpPrompt::new(&p.name, p.description.as_deref(), arguments)
+}
+
+// ── GetPromptResult → rmcp::GetPromptResult ─────────────────────────────────
+
+/// Convert our [`GetPromptResult`](DccGetPromptResult) to rmcp's
+/// [`GetPromptResult`](RmcpGetPromptResult).
+#[must_use]
+pub fn get_prompt_result_to_rmcp(r: &DccGetPromptResult) -> RmcpGetPromptResult {
+    let messages: Vec<RmcpPromptMessage> = r
+        .messages
+        .iter()
+        .map(|m| {
+            let role = match m.role.as_str() {
+                "assistant" => PromptMessageRole::Assistant,
+                _ => PromptMessageRole::User,
+            };
+            let content = match &m.content {
+                McpPromptContent::Text { text } => PromptMessageContent::text(text.clone()),
+            };
+            RmcpPromptMessage::new(role, content)
+        })
+        .collect();
+    let mut result = RmcpGetPromptResult::new(messages);
+    result.description = r.description.clone();
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,5 +366,108 @@ mod tests {
 
         assert_eq!(rmcp_result.is_error, Some(true));
         assert_eq!(rmcp_result.content.len(), 1);
+    }
+
+    #[test]
+    fn test_resource_conversion() {
+        let resource = McpResource {
+            uri: "scene://current".to_string(),
+            name: "Current Scene".to_string(),
+            description: Some("Current DCC scene state".to_string()),
+            mime_type: Some("application/json".to_string()),
+        };
+
+        let rmcp = resource_to_rmcp(&resource);
+        assert_eq!(rmcp.raw.uri, "scene://current");
+        assert_eq!(rmcp.raw.name, "Current Scene");
+        assert_eq!(
+            rmcp.raw.description.as_deref(),
+            Some("Current DCC scene state")
+        );
+        assert_eq!(rmcp.raw.mime_type.as_deref(), Some("application/json"));
+        assert!(rmcp.annotations.is_none());
+    }
+
+    #[test]
+    fn test_prompt_conversion() {
+        use dcc_mcp_jsonrpc::McpPromptArgument;
+
+        let prompt = McpPrompt {
+            name: "bake_animation".to_string(),
+            description: Some("Bake and export animation".to_string()),
+            arguments: vec![
+                McpPromptArgument {
+                    name: "frame_range".to_string(),
+                    description: Some("Frame range to bake".to_string()),
+                    required: true,
+                },
+                McpPromptArgument {
+                    name: "format".to_string(),
+                    description: None,
+                    required: false,
+                },
+            ],
+        };
+
+        let rmcp = prompt_to_rmcp(&prompt);
+        assert_eq!(rmcp.name, "bake_animation");
+        assert_eq!(
+            rmcp.description.as_deref(),
+            Some("Bake and export animation")
+        );
+        let args = rmcp.arguments.unwrap();
+        assert_eq!(args.len(), 2);
+        assert_eq!(args[0].name, "frame_range");
+        assert_eq!(args[0].required, Some(true));
+        assert_eq!(args[1].name, "format");
+        assert_eq!(args[1].required, None); // false → not set
+    }
+
+    #[test]
+    fn test_get_prompt_result_conversion() {
+        use dcc_mcp_jsonrpc::{McpPromptContent, McpPromptMessage};
+
+        let result = DccGetPromptResult {
+            description: Some("Rendered prompt".to_string()),
+            messages: vec![McpPromptMessage {
+                role: "user".to_string(),
+                content: McpPromptContent::text("Please bake frames 1-100"),
+            }],
+        };
+
+        let rmcp = get_prompt_result_to_rmcp(&result);
+        assert_eq!(rmcp.description.as_deref(), Some("Rendered prompt"));
+        assert_eq!(rmcp.messages.len(), 1);
+        assert_eq!(rmcp.messages[0].role, PromptMessageRole::User);
+    }
+
+    #[test]
+    fn test_read_result_text_conversion() {
+        use dcc_mcp_jsonrpc::ResourceContents as DccResourceContents;
+
+        let result = DccReadResourceResult {
+            contents: vec![DccResourceContents {
+                uri: "scene://current".to_string(),
+                mime_type: Some("application/json".to_string()),
+                text: Some(r#"{"objects": 42}"#.to_string()),
+                blob: None,
+            }],
+        };
+
+        let rmcp = read_result_to_rmcp(&result);
+        assert_eq!(rmcp.contents.len(), 1);
+        match &rmcp.contents[0] {
+            ResourceContents::TextResourceContents {
+                uri,
+                mime_type,
+                text,
+                ..
+            } => {
+                assert_eq!(uri, "scene://current");
+                assert_eq!(mime_type.as_deref(), Some("application/json"));
+                assert_eq!(text, r#"{"objects": 42}"#);
+            }
+            _ => panic!("expected TextResourceContents"),
+        }
     }
 }

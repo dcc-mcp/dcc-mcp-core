@@ -21,6 +21,7 @@ import urllib.request
 
 import pytest
 
+from conftest import McpClient
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
@@ -28,25 +29,12 @@ from dcc_mcp_core import ToolRegistry
 # ── helpers ───────────────────────────────────────────────────────────────
 
 
-def _post(url: str, body: Any) -> tuple[int, dict[str, Any]]:
-    """POST JSON-RPC to ``url`` and return ``(status, parsed_json)``."""
-    data = json.dumps(body).encode()
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=5) as resp:
-        raw = resp.read().decode()
-        return resp.status, json.loads(raw) if raw else {}
-
-
 def _tools_call(
-    url: str, name: str, arguments: dict[str, Any] | None = None, meta: dict[str, Any] | None = None, req_id: int = 1
+    client: McpClient,
+    name: str,
+    arguments: dict[str, Any] | None = None,
+    meta: dict[str, Any] | None = None,
+    req_id: int = 1,
 ) -> dict[str, Any]:
     params: dict[str, Any] = {"name": name}
     if arguments is not None:
@@ -54,7 +42,7 @@ def _tools_call(
     if meta is not None:
         params["_meta"] = meta
     body = {"jsonrpc": "2.0", "id": req_id, "method": "tools/call", "params": params}
-    _, resp = _post(url, body)
+    _, resp = client.post(body)
     return resp
 
 
@@ -100,14 +88,20 @@ def server_url() -> Any:
         handle.shutdown()
 
 
+@pytest.fixture(scope="module")
+def mcp_client(server_url: str) -> McpClient:
+    """Create an McpClient for the server."""
+    return McpClient(server_url)
+
+
 # ── tests ─────────────────────────────────────────────────────────────────
 
 
 class TestAsyncDispatchOptIn:
-    def test_explicit_meta_dcc_async_returns_pending_envelope(self, server_url: str) -> None:
+    def test_explicit_meta_dcc_async_returns_pending_envelope(self, mcp_client: McpClient) -> None:
         t0 = time.perf_counter()
         resp = _tools_call(
-            server_url,
+            mcp_client,
             "echo_sync",
             arguments={"value": "hello"},
             meta={"dcc": {"async": True}},
@@ -128,8 +122,8 @@ class TestAsyncDispatchOptIn:
 
 
 class TestSyncPathUnchanged:
-    def test_plain_tools_call_runs_synchronously(self, server_url: str) -> None:
-        resp = _tools_call(server_url, "echo_sync", arguments={"value": "ping"})
+    def test_plain_tools_call_runs_synchronously(self, mcp_client: McpClient) -> None:
+        resp = _tools_call(mcp_client, "echo_sync", arguments={"value": "ping"})
         assert "result" in resp
         result = resp["result"]
         assert result["isError"] is False
@@ -143,10 +137,10 @@ class TestSyncPathUnchanged:
 
 
 class TestParentJobIdPropagation:
-    def test_parent_job_id_round_trips_in_structured_content(self, server_url: str) -> None:
+    def test_parent_job_id_round_trips_in_structured_content(self, mcp_client: McpClient) -> None:
         parent = "11111111-2222-3333-4444-555555555555"
         resp = _tools_call(
-            server_url,
+            mcp_client,
             "echo_sync",
             arguments={"value": "x"},
             meta={"dcc": {"async": True, "parentJobId": parent}},
@@ -156,11 +150,11 @@ class TestParentJobIdPropagation:
 
 
 class TestExecutionMetadataTriggersAsync:
-    def test_execution_async_tool_auto_routes_to_async_path(self, server_url: str) -> None:
+    def test_execution_async_tool_auto_routes_to_async_path(self, mcp_client: McpClient) -> None:
         # No _meta.dcc.async set — but the registered tool declares
         # `execution: async`, so the handler must return immediately.
         t0 = time.perf_counter()
-        resp = _tools_call(server_url, "slow_async", arguments={})
+        resp = _tools_call(mcp_client, "slow_async", arguments={})
         elapsed = time.perf_counter() - t0
 
         result = resp["result"]

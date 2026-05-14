@@ -64,6 +64,8 @@ import urllib.request
 # Import third-party modules
 import pytest
 
+from conftest import McpClient
+
 # Import local modules
 import dcc_mcp_core
 from dcc_mcp_core import McpHttpConfig
@@ -97,7 +99,7 @@ SKIP_LIVE_REASON = (
 
 
 def _post_json(url: str, payload: Any, timeout: float = 10.0) -> dict[str, Any]:
-    """POST JSON and return the parsed body. Raises on non-200 responses."""
+    """POST JSON to a REST endpoint and return the parsed body. Raises on non-200 responses."""
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode(),
@@ -115,10 +117,12 @@ def _mcp_post(
     rpc_id: int = 1,
 ) -> dict[str, Any]:
     """POST a JSON-RPC 2.0 MCP request and return the parsed body."""
+    client = McpClient(mcp_url)
     body: dict[str, Any] = {"jsonrpc": "2.0", "id": rpc_id, "method": method}
     if params is not None:
         body["params"] = params
-    return _post_json(mcp_url, body)
+    _, resp = client.post(body)
+    return resp
 
 
 def _tool_text(response: dict[str, Any]) -> str:

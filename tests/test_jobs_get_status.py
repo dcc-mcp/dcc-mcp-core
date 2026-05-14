@@ -22,6 +22,7 @@ import time
 from typing import Any
 import urllib.request
 
+from conftest import McpClient
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
@@ -29,16 +30,22 @@ from dcc_mcp_core import validate_tool_name
 
 
 def _post(url: str, body: dict[str, Any], sid: str | None = None) -> dict[str, Any]:
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
+    """POST a JSON-RPC request using McpClient-compatible approach."""
+    headers = {}
     if sid is not None:
         headers["Mcp-Session-Id"] = sid
+    # Use raw urllib since we need to pass custom session headers
+    import urllib.request
+
+    all_headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        **headers,
+    }
     req = urllib.request.Request(
         url,
         data=json.dumps(body).encode(),
-        headers=headers,
+        headers=all_headers,
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=5) as resp:
@@ -46,20 +53,9 @@ def _post(url: str, body: dict[str, Any], sid: str | None = None) -> dict[str, A
 
 
 def _initialize_session(url: str) -> str:
-    body = _post(
-        url,
-        {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2025-03-26",
-                "capabilities": {},
-                "clientInfo": {"name": "pytest-319", "version": "1.0"},
-            },
-        },
-    )
-    return body["result"]["__session_id"]
+    client = McpClient(url, auto_init=False)
+    client.initialize()
+    return client.session_id or ""
 
 
 def _make_server() -> tuple[Any, str]:

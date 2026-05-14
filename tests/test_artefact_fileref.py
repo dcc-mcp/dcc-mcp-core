@@ -17,6 +17,7 @@ import urllib.request
 
 import pytest
 
+from conftest import McpClient
 from dcc_mcp_core import FileRef
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
@@ -25,27 +26,6 @@ from dcc_mcp_core import artefact_get_bytes
 from dcc_mcp_core import artefact_list
 from dcc_mcp_core import artefact_put_bytes
 from dcc_mcp_core import artefact_put_file
-
-
-def _post_json(
-    url: str,
-    body: dict[str, Any],
-) -> tuple[int, dict[str, Any]]:
-    data = json.dumps(body).encode()
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            return resp.status, json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        return e.code, {}
 
 
 class TestFileRefType:
@@ -113,8 +93,8 @@ class TestArtefactResourceScheme:
         # FilesystemArtefactStore root, so the URI is discoverable.
         fr = artefact_put_bytes(b"mcp-visible-artefact", mime="text/plain")
 
-        code, body = _post_json(
-            url,
+        client = McpClient(url)
+        code, body = client.post(
             {"jsonrpc": "2.0", "id": 1, "method": "resources/list"},
         )
         assert code == 200
@@ -127,8 +107,8 @@ class TestArtefactResourceScheme:
         payload = b"round-trip-through-mcp"
         fr = artefact_put_bytes(payload, mime="application/octet-stream")
 
-        code, body = _post_json(
-            url,
+        client = McpClient(url)
+        code, body = client.post(
             {
                 "jsonrpc": "2.0",
                 "id": 2,
@@ -145,8 +125,8 @@ class TestArtefactResourceScheme:
 
     def test_resources_read_unknown_uri_errors(self, artefact_server):
         _, _, url = artefact_server
-        code, body = _post_json(
-            url,
+        client = McpClient(url)
+        code, body = client.post(
             {
                 "jsonrpc": "2.0",
                 "id": 3,

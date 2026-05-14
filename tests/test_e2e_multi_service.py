@@ -35,6 +35,8 @@ from typing import Any
 # Import third-party modules
 import pytest
 
+from conftest import McpClient
+
 # Import local modules
 import dcc_mcp_core
 from dcc_mcp_core import McpHttpConfig
@@ -57,7 +59,7 @@ STARTUP_BUDGET_S = 5.0
 
 
 def _post_json(url: str, body: Any, timeout: float = CALL_TIMEOUT_S) -> tuple[int, Any]:
-    """POST JSON and return (status_code, parsed_body)."""
+    """POST JSON to a REST (non-MCP) endpoint and return (status_code, parsed_body)."""
     import urllib.error
     import urllib.request
 
@@ -80,7 +82,7 @@ def _get_json(url: str, timeout: float = CALL_TIMEOUT_S) -> tuple[int, Any]:
     import urllib.error
     import urllib.request
 
-    req = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
+    req = urllib.request.Request(url, headers={"Accept": "application/json, text/event-stream"}, method="GET")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status, json.loads(resp.read())
@@ -105,24 +107,13 @@ def _pick_free_port() -> int:
 
 def mcp_initialize(mcp_url: str, client_name: str = "e2e-test") -> dict[str, Any]:
     """Send MCP initialize and return the result dict."""
-    _status, body = _post_json(
-        mcp_url,
-        {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2025-03-26",
-                "capabilities": {},
-                "clientInfo": {"name": client_name, "version": "1.0"},
-            },
-        },
-    )
-    return body.get("result", {})
+    client = McpClient(mcp_url, auto_init=False)
+    return client.initialize(client_name=client_name)
 
 
 def mcp_tools_list(mcp_url: str) -> list[dict[str, Any]]:
     """Call tools/list and return the full tool list (paginated)."""
+    client = McpClient(mcp_url)
     tools: list[dict[str, Any]] = []
     cursor: str | None = None
     req_id = 10
@@ -131,7 +122,7 @@ def mcp_tools_list(mcp_url: str) -> list[dict[str, Any]]:
         body_to_send: dict[str, Any] = {"jsonrpc": "2.0", "id": req_id, "method": "tools/list"}
         if params:
             body_to_send["params"] = params
-        _status, body = _post_json(mcp_url, body_to_send)
+        _status, body = client.post(body_to_send)
         result = body.get("result", {})
         tools.extend(result.get("tools", []))
         cursor = result.get("nextCursor")
@@ -142,8 +133,8 @@ def mcp_tools_list(mcp_url: str) -> list[dict[str, Any]]:
 
 def mcp_call_tool(mcp_url: str, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     """Call a tool via MCP tools/call and return the result dict."""
-    _status, body = _post_json(
-        mcp_url,
+    client = McpClient(mcp_url)
+    _status, body = client.post(
         {
             "jsonrpc": "2.0",
             "id": 20,

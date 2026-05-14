@@ -13,7 +13,7 @@ use crate::{
     config::McpHttpConfig,
     error::{HttpError, HttpResult},
     executor::DccExecutorHandle,
-    handler::{AppState, handle_delete, handle_get, handle_post},
+    handler::AppState,
     session::SessionManager,
 };
 use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
@@ -496,26 +496,15 @@ impl McpHttpServer {
             bridge_registry: crate::BridgeRegistry::new(),
             resources,
             prompts,
-            method_router: AppState::default_method_router(),
             readiness,
         };
 
-        // Clone ServerState for the rmcp spike endpoint before `state` is moved.
-        #[cfg(feature = "rmcp-transport")]
-        let rmcp_server_state = state.server.clone();
-
-        let endpoint = self.config.server.endpoint_path.clone();
+        let app_state_for_rmcp = state.clone();
 
         let mut router = Router::new()
             .route(
                 "/health",
                 routing::get(|| async { Json(json!({"ok": true, "service": "dcc-mcp-http"})) }),
-            )
-            .route(
-                &endpoint,
-                routing::post(handle_post)
-                    .get(handle_get)
-                    .delete(handle_delete),
             )
             .with_state(state)
             .merge(rest_router)
@@ -538,12 +527,8 @@ impl McpHttpServer {
             );
         }
 
-        // rmcp spike endpoint at `/mcp-next` (issue #985). Parallel to the
-        // existing `/mcp` — speaks MCP 2025-11-25 via the official rmcp SDK.
-        #[cfg(feature = "rmcp-transport")]
-        {
-            router = crate::handler::rmcp_mount::attach_rmcp_endpoint(router, &rmcp_server_state);
-        }
+        // MCP endpoint — speaks MCP 2025-11-25 via the official rmcp SDK.
+        router = crate::handler::rmcp_mount::attach_rmcp_endpoint(router, &app_state_for_rmcp);
 
         if self.config.server.enable_cors {
             router = router.layer(

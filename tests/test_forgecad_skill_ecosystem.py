@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import urllib.request
 
+from conftest import McpClient
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
@@ -56,6 +57,7 @@ Create new ForgeCAD models in the user's active ForgeCAD project.
 
 
 def _post_json(url: str, payload: dict) -> dict:
+    """POST JSON to a REST endpoint and return parsed body."""
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode(),
@@ -68,10 +70,12 @@ def _post_json(url: str, payload: dict) -> dict:
 
 
 def _mcp_post(mcp_url: str, method: str, params: dict | None = None, rpc_id: int = 1) -> dict:
+    client = McpClient(mcp_url)
     body = {"jsonrpc": "2.0", "id": rpc_id, "method": method}
     if params is not None:
         body["params"] = params
-    return _post_json(mcp_url, body)
+    _, resp = client.post(body)
+    return resp
 
 
 def _tool_text(response: dict) -> str:

@@ -15,6 +15,7 @@ import urllib.request
 
 import pytest
 
+from conftest import McpClient
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
@@ -23,22 +24,10 @@ from dcc_mcp_core import ToolRegistry
 
 
 def _post_json(url: str, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
-    """POST a JSON-RPC message and return (status_code, response_body)."""
-    data = json.dumps(body).encode()
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            return resp.status, json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        return e.code, {}
+    """POST a JSON-RPC message using McpClient and return (status_code, response_body)."""
+    client = McpClient(url, auto_init=False)
+    code, resp = client.post(body)
+    return code, resp
 
 
 def _initialize(url: str, protocol_version: str | None = None) -> dict[str, Any]:
