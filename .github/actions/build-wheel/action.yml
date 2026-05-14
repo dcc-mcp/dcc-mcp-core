@@ -57,13 +57,7 @@ runs:
       uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: ${{ inputs.rust-version }}
-
-    - name: Verify Rust toolchain (cargo in PATH)
-      shell: bash
-      run: |
-        rustc --version
-        cargo --version
-        rustup component add clippy rustfmt
+        components: clippy rustfmt
 
     - name: Install vx
       uses: loonghao/vx@v0.8.36
@@ -88,6 +82,19 @@ runs:
         args="--release --out dist --features ${features} ${{ inputs.maturin-extra-args }}"
         echo "Resolved maturin args: ${args}"
         echo "value=${args}" >> "$GITHUB_OUTPUT"
+
+    - name: Verify cargo is in PATH (macOS maturin fix)
+      shell: bash
+      run: |
+        # maturin calls 'cargo metadata' but on macOS cargo sometimes
+        # resolves to rustup-init. Verify and fix if needed.
+        which cargo
+        cargo --version
+        # Ensure cargo is from the Rust toolchain, not rustup
+        if ! cargo --version | grep -q "cargo"; then
+          echo "::error::cargo is not working correctly"
+          exit 1
+        fi
 
     - name: Generate type stubs
       shell: bash
