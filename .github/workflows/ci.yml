@@ -96,6 +96,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -116,7 +119,7 @@ jobs:
         shell: bash
         run: |
           cargo hakari verify && exit 0
-
+          
           # If we get here, verify failed. Run generate and show the diff.
           echo "::error::workspace-hack is out of date — run 'cargo hakari generate' locally"
           echo ""
