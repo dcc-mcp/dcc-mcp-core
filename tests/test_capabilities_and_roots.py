@@ -154,32 +154,17 @@ def _start_server_with_cap_tool(port: int, declared_caps: list[str], required_ca
 
 
 def _mcp_call(handle, method: str, params: dict | None = None) -> dict:
-    import urllib.request
+    from conftest import McpClient
 
-    body = json.dumps(
-        {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": method,
-            "params": params or {},
-        }
-    ).encode("utf-8")
-    url = handle.mcp_url()
-    req = urllib.request.Request(
-        url,
-        data=body,
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json, text/event-stream",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=5) as resp:
-        data = resp.read().decode("utf-8")
-    # Strip SSE framing if present.
-    for line in data.splitlines():
-        if line.startswith("data:"):
-            return json.loads(line[5:].strip())
-    return json.loads(data)
+    client = McpClient(handle.mcp_url())
+    body = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": method,
+        "params": params or {},
+    }
+    _, resp = client.post(body)
+    return resp
 
 
 def test_tools_call_blocks_when_capability_missing():

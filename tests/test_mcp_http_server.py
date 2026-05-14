@@ -27,6 +27,8 @@ import urllib.request
 # Import third-party modules
 import pytest
 
+from conftest import McpClient
+
 # Import local modules
 import dcc_mcp_core
 from dcc_mcp_core import McpHttpConfig
@@ -36,50 +38,11 @@ from dcc_mcp_core import ToolRegistry
 # ── helpers ───────────────────────────────────────────────────────────────
 
 
-def _post_json(url: str, body: dict[str, Any], headers: dict[str, str] | None = None) -> tuple[int, dict[str, Any]]:
-    """POST a JSON-RPC message and return (status_code, response_body)."""
-    data = json.dumps(body).encode()
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            **(headers or {}),
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            return resp.status, json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        return e.code, {}
-
-
-def _post_raw(url: str, data: bytes, headers: dict[str, str] | None = None) -> tuple[int, str]:
-    """POST raw bytes and return (status_code, response_text), including HTTP errors."""
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            **(headers or {}),
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            return resp.status, resp.read().decode()
-    except urllib.error.HTTPError as e:
-        return e.code, e.read().decode()
-
-
 def _get_json(url: str, headers: dict[str, str] | None = None) -> tuple[int, dict[str, Any]]:
     """GET a JSON endpoint and return (status_code, response_body)."""
     req = urllib.request.Request(
         url,
-        headers={"Accept": "application/json", **(headers or {})},
+        headers={"Accept": "application/json, text/event-stream", **(headers or {})},
         method="GET",
     )
     try:
@@ -92,6 +55,22 @@ def _get_json(url: str, headers: dict[str, str] | None = None) -> tuple[int, dic
 def _rest_base(mcp_url: str) -> str:
     """Return the HTTP listener base URL for /v1 REST routes."""
     return mcp_url.rsplit("/mcp", 1)[0]
+
+
+def _post_json_rest(url: str, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    """POST JSON to a REST endpoint (non-MCP). Used for /v1/* routes."""
+    data = json.dumps(body).encode()
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.status, json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        return e.code, {}
 
 
 def _wait_unreachable(url: str, timeout: float = 2.0) -> None:
@@ -153,7 +132,8 @@ def test_handle_context_manager_shutdowns_server():
     server = McpHttpServer(reg, McpHttpConfig(port=0, server_name="ctx-test"))
     with server.start() as handle:
         url = handle.mcp_url()
-        code, _ = _post_json(url, {"jsonrpc": "2.0", "id": 1, "method": "ping"})
+        client = McpClient(url)
+        code, _ = client.post({"jsonrpc": "2.0", "id": 1, "method": "ping"})
         assert code == 200
     _wait_unreachable(url)
 
@@ -164,7 +144,8 @@ def test_handle_shutdown_on_drop_stops_server():
     server = McpHttpServer(reg, config)
     handle = server.start()
     url = handle.mcp_url()
-    code, _ = _post_json(url, {"jsonrpc": "2.0", "id": 1, "method": "ping"})
+    client = McpClient(url)
+    code, _ = client.post({"jsonrpc": "2.0", "id": 1, "method": "ping"})
     assert code == 200
 
     del handle
@@ -177,37 +158,20 @@ def test_handle_shutdown_on_drop_stops_server():
 
 
 class TestMcpHttpProtocol:
-    """Test the raw MCP Streamable HTTP protocol using stdlib urllib."""
+    """Test the raw MCP Streamable HTTP protocol using McpClient."""
 
     def test_initialize(self, running_server):
         _, _, url = running_server
-        code, body = _post_json(
-            url,
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-03-26",
-                    "capabilities": {},
-                    "clientInfo": {"name": "pytest", "version": "1.0"},
-                },
-            },
-        )
-        assert code == 200
-        assert body["jsonrpc"] == "2.0"
-        assert body["id"] == 1
-        result = body["result"]
-        assert result["protocolVersion"] == "2025-03-26"
-        assert result["serverInfo"]["name"] == "e2e-test-server"
-        assert "tools" in result["capabilities"]
-        # Session ID attached in result
-        assert "__session_id" in result
+        client = McpClient(url, auto_init=False)
+        resp = client.initialize(protocol_version="2025-03-26")
+        assert resp["protocolVersion"] == "2025-03-26"
+        assert resp["serverInfo"]["name"] == "e2e-test-server"
+        assert "tools" in resp["capabilities"]
 
     def test_tools_list(self, running_server):
         _, _, url = running_server
-        code, body = _post_json(
-            url,
+        client = McpClient(url)
+        code, body = client.post(
             {
                 "jsonrpc": "2.0",
                 "id": 2,
@@ -230,8 +194,8 @@ class TestMcpHttpProtocol:
 
     def test_tools_call_known(self, running_server):
         _, _, url = running_server
-        code, body = _post_json(
-            url,
+        client = McpClient(url)
+        code, body = client.post(
             {
                 "jsonrpc": "2.0",
                 "id": 3,
@@ -264,8 +228,8 @@ class TestMcpHttpProtocol:
         server.register_handler("echo_args", lambda params: received.append(params) or params)
         handle = server.start()
         try:
-            code, body = _post_json(
-                handle.mcp_url(),
+            client = McpClient(handle.mcp_url())
+            code, body = client.post(
                 {
                     "jsonrpc": "2.0",
                     "id": 31,
@@ -287,7 +251,7 @@ class TestMcpHttpProtocol:
         assert code == 200
         assert body["ok"] is True
 
-        code, body = _post_json(f"{base}/v1/search", {"query": "scene", "loaded_only": True})
+        code, body = _post_json_rest(f"{base}/v1/search", {"query": "scene", "loaded_only": True})
         assert code == 200
         slugs = {hit["slug"] for hit in body["hits"]}
         assert "test.core.get_scene_info" in slugs
@@ -297,13 +261,13 @@ class TestMcpHttpProtocol:
         base = _rest_base(url)
         slug = "test.core.get_scene_info"
 
-        code, body = _post_json(f"{base}/v1/describe", {"tool_slug": slug, "include_schema": True})
+        code, body = _post_json_rest(f"{base}/v1/describe", {"tool_slug": slug, "include_schema": True})
         assert code == 200
         assert body["entry"]["slug"] == slug
         assert body["entry"]["action"] == "get_scene_info"
         assert "input_schema" in body
 
-        code, body = _post_json(f"{base}/v1/call", {"tool_slug": slug, "params": {}})
+        code, body = _post_json_rest(f"{base}/v1/call", {"tool_slug": slug, "params": {}})
         assert code == 200
         assert body["slug"] == slug
         assert body["output"]["scene"] == "test_scene"
@@ -334,8 +298,8 @@ class TestMcpHttpProtocol:
 
     def test_tools_call_unknown(self, running_server):
         _, _, url = running_server
-        code, body = _post_json(
-            url,
+        client = McpClient(url)
+        code, body = client.post(
             {
                 "jsonrpc": "2.0",
                 "id": 4,
@@ -348,15 +312,16 @@ class TestMcpHttpProtocol:
 
     def test_ping(self, running_server):
         _, _, url = running_server
-        code, body = _post_json(url, {"jsonrpc": "2.0", "id": 5, "method": "ping"})
+        client = McpClient(url)
+        code, body = client.post({"jsonrpc": "2.0", "id": 5, "method": "ping"})
         assert code == 200
         assert body["id"] == 5
         assert body.get("result") is not None
 
     def test_method_not_found(self, running_server):
         _, _, url = running_server
-        code, body = _post_json(
-            url,
+        client = McpClient(url)
+        code, body = client.post(
             {
                 "jsonrpc": "2.0",
                 "id": 6,
@@ -369,7 +334,8 @@ class TestMcpHttpProtocol:
     def test_malformed_json_returns_parse_error(self, running_server):
         """Malformed JSON must fail as JSON-RPC parse error, not hang or 500."""
         _, _, url = running_server
-        code, text = _post_raw(url, b'{"jsonrpc":"2.0","id":7,"method":')
+        client = McpClient(url)
+        code, text = client.post_raw(b'{"jsonrpc":"2.0","id":7,"method":')
         body = json.loads(text)
 
         assert code == 400
@@ -381,8 +347,8 @@ class TestMcpHttpProtocol:
     def test_tools_call_missing_name_returns_invalid_params(self, running_server):
         """A malformed tools/call request is client input error, not server internal error."""
         _, _, url = running_server
-        code, body = _post_json(
-            url,
+        client = McpClient(url)
+        code, body = client.post(
             {
                 "jsonrpc": "2.0",
                 "id": 8,
@@ -400,7 +366,8 @@ class TestMcpHttpProtocol:
     def test_missing_method_returns_invalid_request(self, running_server):
         """A request-like object with id but no method must not be silently accepted."""
         _, _, url = running_server
-        code, body = _post_json(url, {"jsonrpc": "2.0", "id": 9})
+        client = McpClient(url)
+        code, body = client.post({"jsonrpc": "2.0", "id": 9})
 
         assert code == 200
         assert body["jsonrpc"] == "2.0"
@@ -411,7 +378,8 @@ class TestMcpHttpProtocol:
     def test_empty_batch_returns_invalid_request(self, running_server):
         """JSON-RPC empty batches are invalid and should produce a controlled error."""
         _, _, url = running_server
-        code, body = _post_json(url, [])
+        client = McpClient(url)
+        code, body = client.post([])
 
         assert code == 200
         assert body["jsonrpc"] == "2.0"
@@ -422,7 +390,8 @@ class TestMcpHttpProtocol:
     def test_client_response_message_is_accepted_without_response(self, running_server):
         """Client responses to server-initiated requests are acknowledgements, not new requests."""
         _, _, url = running_server
-        code, text = _post_raw(url, b'{"jsonrpc":"2.0","id":"roots-1","result":{"roots":[]}}')
+        client = McpClient(url)
+        code, text = client.post_raw(b'{"jsonrpc":"2.0","id":"roots-1","result":{"roots":[]}}')
 
         assert code == 202
         assert text == ""
@@ -430,21 +399,15 @@ class TestMcpHttpProtocol:
     def test_notification_returns_202(self, running_server):
         """Notifications (no id) must return 202, not 200."""
         _, _, url = running_server
-        data = json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}).encode()
-        req = urllib.request.Request(
-            url,
-            data=data,
-            headers={"Content-Type": "application/json", "Accept": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            assert resp.status == 202
+        client = McpClient(url)
+        code, _text = client.post_raw(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}).encode())
+        assert code == 202
 
     def test_batch_request(self, running_server):
         """Batch of two requests returns array of two responses."""
         _, _, url = running_server
-        code, body = _post_json(
-            url,
+        client = McpClient(url)
+        code, body = client.post(
             [
                 {"jsonrpc": "2.0", "id": 10, "method": "ping"},
                 {"jsonrpc": "2.0", "id": 11, "method": "tools/list"},
@@ -473,30 +436,14 @@ class TestMcpHttpProtocol:
     def test_session_lifecycle(self, running_server):
         """Full lifecycle: initialize → tools/list → delete session."""
         _, _, url = running_server
+        client = McpClient(url)
 
-        # 1. Initialize and get session ID
-        code, body = _post_json(
-            url,
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-03-26",
-                    "capabilities": {},
-                    "clientInfo": {"name": "lifecycle-test", "version": "1.0"},
-                },
-            },
-        )
-        assert code == 200
-        session_id = body["result"]["__session_id"]
-        assert session_id
+        # 1. Initialize already done by McpClient; session_id is stored
+        assert client.session_id
 
-        # 2. tools/list with session
-        code, body = _post_json(
-            url,
+        # 2. tools/list with session (automatically includes session header)
+        code, body = client.post(
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
-            headers={"Mcp-Session-Id": session_id},
         )
         assert code == 200
         # tools/list includes core discovery tools plus registered actions
@@ -505,7 +452,7 @@ class TestMcpHttpProtocol:
         # 3. Delete session
         req = urllib.request.Request(
             url,
-            headers={"Mcp-Session-Id": session_id},
+            headers={"Mcp-Session-Id": client.session_id},
             method="DELETE",
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
@@ -519,8 +466,8 @@ class TestMcpHttpProtocol:
 
         def worker(req_id: int) -> None:
             try:
-                code, body = _post_json(
-                    url,
+                client = McpClient(url)
+                code, body = client.post(
                     {
                         "jsonrpc": "2.0",
                         "id": req_id,
@@ -634,8 +581,8 @@ class TestMcpHttpServerPythonApi:
         handle = server.start()
         try:
             url = handle.mcp_url()
-            code, _body = _post_json(
-                url,
+            client = McpClient(url)
+            code, _body = client.post(
                 {
                     "jsonrpc": "2.0",
                     "id": 1,

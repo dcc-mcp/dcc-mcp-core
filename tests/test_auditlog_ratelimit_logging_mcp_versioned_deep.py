@@ -23,6 +23,8 @@ import urllib.request
 # Import third-party modules
 import pytest
 
+from conftest import McpClient
+
 # Import local modules
 import dcc_mcp_core
 from dcc_mcp_core import AuditLog
@@ -50,21 +52,6 @@ def _make_pipeline_with_dispatcher(
     dispatcher.register_handler(action_name, lambda p: {"ok": True})
     pipeline = ToolPipeline(dispatcher)
     return pipeline, dispatcher, reg
-
-
-def _post_json(url: str, body: Any) -> tuple[int, Any]:
-    data = json.dumps(body).encode()
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            return resp.status, json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        return e.code, {}
 
 
 # ---------------------------------------------------------------------------
@@ -608,7 +595,8 @@ class TestMcpServerHandleDeep:
     def test_server_is_reachable_before_signal_shutdown(self):
         _, handle = self._start_server()
         url = handle.mcp_url()
-        code, _body = _post_json(url, {"jsonrpc": "2.0", "id": 1, "method": "ping"})
+        client = McpClient(url)
+        code, _body = client.post({"jsonrpc": "2.0", "id": 1, "method": "ping"})
         assert code == 200
         handle.shutdown()
 
@@ -643,21 +631,9 @@ class TestMcpServerHandleDeep:
         server = McpHttpServer(reg, cfg)
         handle = server.start()
         url = handle.mcp_url()
-        code, body = _post_json(
-            url,
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-03-26",
-                    "capabilities": {},
-                    "clientInfo": {"name": "test", "version": "1.0"},
-                },
-            },
-        )
-        assert code == 200
-        assert body["result"]["serverInfo"]["name"] == "deep-test-server"
+        client = McpClient(url, auto_init=False)
+        resp = client.initialize(protocol_version="2025-03-26")
+        assert resp["serverInfo"]["name"] == "deep-test-server"
         handle.shutdown()
 
     def test_server_reports_correct_version_in_initialize(self):
@@ -666,21 +642,9 @@ class TestMcpServerHandleDeep:
         server = McpHttpServer(reg, cfg)
         handle = server.start()
         url = handle.mcp_url()
-        code, body = _post_json(
-            url,
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-03-26",
-                    "capabilities": {},
-                    "clientInfo": {"name": "test", "version": "1.0"},
-                },
-            },
-        )
-        assert code == 200
-        assert body["result"]["serverInfo"]["version"] == "9.9.9"
+        client = McpClient(url, auto_init=False)
+        resp = client.initialize(protocol_version="2025-03-26")
+        assert resp["serverInfo"]["version"] == "9.9.9"
         handle.shutdown()
 
     def test_server_with_empty_registry_tools_list_empty(self):
@@ -689,7 +653,8 @@ class TestMcpServerHandleDeep:
         server = McpHttpServer(reg, cfg)
         handle = server.start()
         url = handle.mcp_url()
-        code, body = _post_json(url, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+        client = McpClient(url)
+        code, body = client.post({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
         assert code == 200
         tools = body["result"]["tools"]
         tool_names = {t["name"] for t in tools}
@@ -723,7 +688,8 @@ class TestMcpServerHandleDeep:
         server = McpHttpServer(reg, cfg)
         handle = server.start()
         url = handle.mcp_url()
-        code, body = _post_json(url, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+        client = McpClient(url)
+        code, body = client.post({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
         assert code == 200
         # 5 user tools + core discovery tools (search_skills, list_skills, get_skill_info, load_skill, unload_skill)
         tools = body["result"]["tools"]

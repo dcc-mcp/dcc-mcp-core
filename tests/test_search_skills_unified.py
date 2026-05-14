@@ -14,6 +14,7 @@ import urllib.request
 
 import pytest
 
+from conftest import McpClient
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
@@ -23,15 +24,9 @@ EXAMPLES_SKILLS = REPO_ROOT / "examples" / "skills"
 
 
 def _post(url: str, body: dict) -> dict:
-    data = json.dumps(body).encode()
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        return json.loads(resp.read())
+    client = McpClient(url)
+    _, resp = client.post(body)
+    return resp
 
 
 def _call_tool(url: str, name: str, arguments: dict | None = None, req_id: int = 1) -> dict:

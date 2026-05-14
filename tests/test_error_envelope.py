@@ -22,31 +22,10 @@ import urllib.request
 
 import pytest
 
+from conftest import McpClient
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
-
-
-def _post_json(
-    url: str, body: dict[str, Any] | list, headers: dict[str, str] | None = None
-) -> tuple[int, dict[str, Any]]:
-    """POST a JSON-RPC message and return (status_code, response_body)."""
-    data = json.dumps(body).encode()
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            **(headers or {}),
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            return resp.status, json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        return e.code, {}
 
 
 def _parse_error_envelope(body: dict[str, Any]) -> dict[str, Any]:
@@ -123,8 +102,8 @@ class TestDccMcpErrorEnvelope:
     def test_unknown_tool_returns_action_not_found(self, error_envelope_server):
         """Calling a completely unknown tool returns ACTION_NOT_FOUND."""
         url = error_envelope_server
-        code, body = _post_json(
-            url,
+        client = McpClient(url)
+        code, body = client.post(
             {
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -146,8 +125,8 @@ class TestDccMcpErrorEnvelope:
     def test_skill_stub_returns_skill_not_loaded(self, error_envelope_server):
         """Calling __skill__<name> returns SKILL_NOT_LOADED with load hint."""
         url = error_envelope_server
-        code, body = _post_json(
-            url,
+        client = McpClient(url)
+        code, body = client.post(
             {
                 "jsonrpc": "2.0",
                 "id": 2,
@@ -169,8 +148,8 @@ class TestDccMcpErrorEnvelope:
     def test_group_stub_returns_group_not_activated(self, error_envelope_server):
         """Calling __group__<name> returns GROUP_NOT_ACTIVATED with activation hint."""
         url = error_envelope_server
-        code, body = _post_json(
-            url,
+        client = McpClient(url)
+        code, body = client.post(
             {
                 "jsonrpc": "2.0",
                 "id": 3,
@@ -192,8 +171,8 @@ class TestDccMcpErrorEnvelope:
     def test_no_handler_returns_structured_error(self, error_envelope_server):
         """Calling a tool registered without a handler returns NO_HANDLER."""
         url = error_envelope_server
-        code, body = _post_json(
-            url,
+        client = McpClient(url)
+        code, body = client.post(
             {
                 "jsonrpc": "2.0",
                 "id": 4,
@@ -215,10 +194,10 @@ class TestDccMcpErrorEnvelope:
     def test_trace_id_present_and_unique(self, error_envelope_server):
         """Each error envelope should have a unique trace_id for log correlation."""
         url = error_envelope_server
+        client = McpClient(url)
         trace_ids = []
         for i in range(3):
-            code, body = _post_json(
-                url,
+            code, body = client.post(
                 {
                     "jsonrpc": "2.0",
                     "id": 100 + i,
@@ -240,8 +219,8 @@ class TestDccMcpErrorEnvelope:
     def test_envelope_is_valid_json(self, error_envelope_server):
         """The error text content must be valid JSON parseable as DccMcpError."""
         url = error_envelope_server
-        code, body = _post_json(
-            url,
+        client = McpClient(url)
+        code, body = client.post(
             {
                 "jsonrpc": "2.0",
                 "id": 200,

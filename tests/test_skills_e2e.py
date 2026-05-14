@@ -25,8 +25,10 @@ import time
 from typing import Any
 import urllib.request
 
-# Import local modules
 from conftest import REPO_ROOT
+
+# Import local modules
+from conftest import McpClient
 from conftest import scan_and_find
 import dcc_mcp_core
 
@@ -602,22 +604,15 @@ class TestInProcessExecutor:
             url = handle.mcp_url()
 
             def _call(name: str) -> None:
-                body = json.dumps(
+                client = McpClient(url)
+                _, result = client.post(
                     {
                         "jsonrpc": "2.0",
                         "id": name,
                         "method": "tools/call",
                         "params": {"name": name, "arguments": {"value": 1}},
                     }
-                ).encode()
-                req = urllib.request.Request(
-                    url,
-                    data=body,
-                    headers={"Content-Type": "application/json", "Accept": "application/json"},
-                    method="POST",
                 )
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    result = json.loads(resp.read())
                 assert result["result"]["isError"] is False
 
             _call("affinity_skill__host_scene")
