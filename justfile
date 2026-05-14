@@ -209,12 +209,13 @@ vrs-replay BASE="http://127.0.0.1:9765" TRACE="tests/vrs/traces/gateway-smoke.js
 
 # Generate python/dcc_mcp_core/_core.pyi from annotated Rust code.
 # Also run automatically as part of `build`, `dev`, and `install`.
+# Note: use `vx cargo` to ensure vx's cargo wrapper is used (CI fix).
 stubgen:
-    cargo run --bin stub_gen --features stub-gen
+    vx cargo run --bin stub_gen --features stub-gen
 
 # Check that _core.pyi is in sync with the Rust source (for CI drift detection).
 stubgen-check:
-    cargo run --bin stub_gen --features stub-gen -- --check
+    vx cargo run --bin stub_gen --features stub-gen -- --check
 
 # ── Docs ──────────────────────────────────────────────────────────────────────
 
