@@ -81,6 +81,7 @@ dcc-mcp-tunnel-protocol = { path = "crates/dcc-mcp-tunnel-protocol" }
 dcc-mcp-tunnel-relay = { path = "crates/dcc-mcp-tunnel-relay" }
 dcc-mcp-tunnel-agent = { path = "crates/dcc-mcp-tunnel-agent" }
 dcc-mcp-catalog = { path = "crates/dcc-mcp-catalog" }
+dcc-mcp-gateway = { path = "crates/dcc-mcp-gateway" }
 dcc-mcp-gateway-search = { path = "crates/dcc-mcp-gateway-search" }
 
 # Shared dependencies (single version across workspace)
@@ -179,6 +180,9 @@ dcc-mcp-workflow = { workspace = true, optional = true }
 # Scheduler crate — opt-in via the top-level `scheduler` feature (issue #352).
 dcc-mcp-scheduler = { workspace = true, optional = true }
 
+# Gateway crate — opt-in via the top-level `admin` feature.
+dcc-mcp-gateway = { workspace = true, optional = true }
+
 # PyO3 (optional — only for wheel builds)
 pyo3 = { workspace = true, optional = true }
 
@@ -223,6 +227,10 @@ prometheus = ["dcc-mcp-http/prometheus", "dcc-mcp-telemetry/prometheus"]
 # (issue #328). Forwards to `dcc-mcp-http/job-persist-sqlite`. Off by
 # default — when disabled, zero SQLite code compiles into the wheel.
 job-persist-sqlite = ["dcc-mcp-http/job-persist-sqlite"]
+# Enable the admin UI (Vite bundle in gateway). Forwards to
+# `dcc-mcp-gateway/admin`. Off by default — when disabled, zero admin
+# UI code or front-end assets are compiled into the wheel.
+admin = ["dcc-mcp-gateway/admin"]
 abi3-py38 = ["pyo3/abi3-py38"]
 # Python 3.7 wheel: non-abi3 build, no abi3-py38 feature
 ext-module = ["pyo3/extension-module"]

@@ -34,9 +34,10 @@ dependencies = []
 
 [project.optional-dependencies]
 test = [
-    "pytest>=7.0",
+    "pytest>=8.3.0",  # CVE-2025-71176: fix tmpdir handling vulnerability
     "pytest-cov>=4.0",
     "rez",
+    "zipp>=3.19.1",  # CVE-2024-5569: fix DoS vulnerability in zipfile path handling
 ]
 dev = [
     "dcc-mcp-core[test]",
