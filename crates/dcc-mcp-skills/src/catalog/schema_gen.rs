@@ -348,4 +348,42 @@ def main(file_path: str, namespace: Optional[str] = None, merge_namespaces: bool
             "'file_path' must be required, got {required:?}"
         );
     }
+
+    /// Regression: ``def main(**_)`` (the ubiquitous "no real params, accept
+    /// anything" idiom) used to produce ``{"required": ["_"]}`` because the
+    /// Python helper skipped only the literal name ``kwargs`` instead of
+    /// matching ``param.kind == VAR_KEYWORD``. The dispatcher's
+    /// SchemaValidator then rejected every call with `{value: 1}` as
+    /// "missing required `_`" → `isError: true`. The helper now skips by
+    /// kind; assert that ``_`` does not leak into ``required``/``properties``.
+    #[test]
+    fn test_generate_schema_skips_var_keyword_named_underscore() {
+        set_manifest_dir();
+        if Command::new("python").arg("--version").output().is_err() {
+            eprintln!("Skipping test: Python interpreter not found in PATH");
+            return;
+        }
+        let script = create_test_script("def main(**_): return {'success': True}\n");
+        let Some(schema) = generate_input_schema(script.path(), Some("main")) else {
+            eprintln!("Skipping: generate_input_schema returned None");
+            return;
+        };
+        eprintln!("Generated schema: {schema}");
+        assert_eq!(schema["type"], "object");
+
+        // properties may be `{}` (helper case) or absent (CI fallback). Both
+        // are acceptable; what is NOT acceptable is `_` showing up at all.
+        if let Some(props) = schema.get("properties").and_then(|v| v.as_object()) {
+            assert!(
+                !props.contains_key("_"),
+                "var-keyword `**_` must not surface as a parameter (got {props:?})"
+            );
+        }
+        if let Some(required) = schema.get("required").and_then(|v| v.as_array()) {
+            assert!(
+                !required.contains(&"_".into()),
+                "var-keyword `**_` must not be marked required (got {required:?})"
+            );
+        }
+    }
 }
