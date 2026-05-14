@@ -500,6 +500,10 @@ impl McpHttpServer {
             readiness,
         };
 
+        // Clone ServerState for the rmcp spike endpoint before `state` is moved.
+        #[cfg(feature = "rmcp-transport")]
+        let rmcp_server_state = state.server.clone();
+
         let endpoint = self.config.server.endpoint_path.clone();
 
         let mut router = Router::new()
@@ -532,6 +536,13 @@ impl McpHttpServer {
                 &self.config,
                 prometheus_gauge_ctx.clone(),
             );
+        }
+
+        // rmcp spike endpoint at `/mcp-next` (issue #985). Parallel to the
+        // existing `/mcp` — speaks MCP 2025-11-25 via the official rmcp SDK.
+        #[cfg(feature = "rmcp-transport")]
+        {
+            router = crate::handler::rmcp_mount::attach_rmcp_endpoint(router, &rmcp_server_state);
         }
 
         if self.config.server.enable_cors {

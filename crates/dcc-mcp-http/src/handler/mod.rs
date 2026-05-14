@@ -25,6 +25,10 @@ mod router;
 mod routes;
 mod state;
 
+// rmcp spike endpoint (issue #985) — compiled only with `rmcp-transport`.
+#[cfg(feature = "rmcp-transport")]
+pub mod rmcp_mount;
+
 pub use router::{HandlerFuture, MethodHandler, MethodRouter};
 pub use routes::{handle_delete, handle_get, handle_post};
 pub use state::AppState;
