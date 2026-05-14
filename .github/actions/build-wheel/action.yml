@@ -57,7 +57,13 @@ runs:
       uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: ${{ inputs.rust-version }}
-        components: clippy rustfmt
+
+    - name: Verify Rust toolchain (cargo in PATH)
+      shell: bash
+      run: |
+        rustc --version
+        cargo --version
+        rustup component add clippy rustfmt
 
     - name: Install vx
       uses: loonghao/vx@v0.8.36
