@@ -78,6 +78,27 @@ impl SkillCatalog {
                 ));
             }
 
+            // Generate input_schema: prefer tools.yaml if present, otherwise derive from Python signature
+            let input_schema = if tool_decl.input_schema.is_null() {
+                // Try to generate schema from Python script signature
+                if let Some(ref script_path) = script_path {
+                    crate::catalog::schema_gen::generate_input_schema(script_path, None)
+                        .unwrap_or_else(|| serde_json::json!({"type": "object"}))
+                } else {
+                    serde_json::json!({"type": "object"})
+                }
+            } else {
+                // Validate schema against Python signature if possible
+                if let Some(ref script_path) = script_path {
+                    crate::catalog::schema_gen::validate_schema_drift(
+                        &action_name,
+                        &tool_decl.input_schema,
+                        Some(script_path.as_str()),
+                    );
+                }
+                tool_decl.input_schema.clone()
+            };
+
             let meta = ToolMeta {
                 name: action_name.clone(),
                 description: if tool_decl.description.is_empty() {
@@ -89,11 +110,7 @@ impl SkillCatalog {
                 tags: metadata.tags.clone(),
                 dcc: metadata.dcc.clone(),
                 version: metadata.version.clone(),
-                input_schema: if tool_decl.input_schema.is_null() {
-                    serde_json::json!({"type": "object"})
-                } else {
-                    tool_decl.input_schema.clone()
-                },
+                input_schema,
                 output_schema: tool_decl.output_schema.clone(),
                 source_file: script_path.clone(),
                 skill_name: Some(skill_name.to_string()),
@@ -149,6 +166,11 @@ impl SkillCatalog {
                     .unwrap_or("unknown");
                 let action_name = format!("{}__{}", skill_base, stem.replace('-', "_"));
 
+                // Try to generate schema from Python script signature
+                let input_schema =
+                    crate::catalog::schema_gen::generate_input_schema(script_path, None)
+                        .unwrap_or_else(|| serde_json::json!({"type": "object"}));
+
                 let meta = ToolMeta {
                     name: action_name.clone(),
                     description: format!("[{}] {}", metadata.name, metadata.description),
@@ -156,7 +178,7 @@ impl SkillCatalog {
                     tags: metadata.tags.clone(),
                     dcc: metadata.dcc.clone(),
                     version: metadata.version.clone(),
-                    input_schema: serde_json::json!({"type": "object"}),
+                    input_schema,
                     output_schema: serde_json::Value::Null,
                     source_file: Some(script_path.clone()),
                     skill_name: Some(skill_name.to_string()),
