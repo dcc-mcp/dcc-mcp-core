@@ -801,6 +801,7 @@ dependencies = [
  "dcc-mcp-actions",
  "dcc-mcp-artefact",
  "dcc-mcp-capture",
+ "dcc-mcp-gateway",
  "dcc-mcp-host",
  "dcc-mcp-http",
  "dcc-mcp-http-py",
