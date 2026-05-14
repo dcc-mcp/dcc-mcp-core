@@ -198,7 +198,7 @@ Gateway resources/prompts:
 | Bridge stdio MCP server to HTTP/SSE | `dcc-mcp-server translate --stdio "cmd" --app-type foo --port N` |
 | Add audit/quota/redact to all gateway calls | `GatewayConfig::middleware_chain` + `AuditMiddleware` / `QuotaMiddleware` / `RedactionMiddleware` |
 | Mount OpenAPI REST API as MCP tools | `GatewayBuilder::mount_openapi(OpenApiMount::from_url(...).auth(...))` |
-| Enable built-in gateway admin dashboard | Default ON for the elected gateway: open `GET /admin`; JSON APIs include `/admin/api/{instances,tools,calls,traces,stats,workers,logs,health}` plus `/admin/api/traces/{request_id}` detail; set `DCC_MCP_GATEWAY_AUDIT_DIR` for durable `audit.jsonl` + `traces.jsonl`; disable with `--no-admin`, `DCC_MCP_NO_ADMIN=true`, or `cfg.admin_enabled = False` |
+| Enable built-in gateway admin dashboard | Default ON for the elected gateway: open `GET /admin`; JSON APIs include `/admin/api/{instances,tools,calls,traces,stats,workers,logs,health}` plus `/admin/api/traces/{request_id}` detail; `/logs` merges contention events, `DCC_MCP_LOG_DIR` `*.log` rows, and audit call summaries; set `DCC_MCP_GATEWAY_AUDIT_DIR` for durable `audit.jsonl` + `traces.jsonl`; disable with `--no-admin`, `DCC_MCP_NO_ADMIN=true`, or `cfg.admin_enabled = False` |
 | Wire OTLP distributed tracing to Jaeger/Tempo/Grafana | Set `OTEL_EXPORTER_OTLP_ENDPOINT` env var at server startup |
 | Read gateway contention event history | MCP `resources/read` on `resources://gateway/events` |
 | Search public DCC-MCP adapter catalog | MCP `resources/read` on `gateway://catalog?query=...` (or `gateway://catalog/{name}` for a single entry); CLI: `dcc-mcp-server catalog search --query ...` |
@@ -226,6 +226,7 @@ Gateway resources/prompts:
 | Singleton server factory | `make_start_stop(ServerClass)` → `(start_fn, stop_fn)` |
 | Skill validation | `validate_skill(skill_dir)` → `SkillValidationReport` |
 | Zero-dep JSON/YAML | `json_dumps/loads` / `yaml_dumps/loads` (Rust-powered) |
+| Canonical MCP/REST call envelopes | Rust `dcc-mcp-wire::{decode_call_tool, decode_rest_call, normalize_arguments, normalize_meta}`; Python wrappers `dcc_mcp_core.host.normalize_tool_arguments()` / `normalize_tool_meta()` |
 | Typed handler return envelope | `ToolResult.ok("msg", **ctx).to_dict()` / `ToolResult.fail("msg", error="code").to_dict()` from `dcc_mcp_core.result_envelope` — note the underscored aliases `success_`/`error_`; `success`/`error` are dataclass fields, **not** factories (#487) |
 | Centralised metadata keys | `from dcc_mcp_core import METADATA_*, LAYER_*, CATEGORY_*` — re-exported at top level; also available from `dcc_mcp_core.constants`. Never inline `"dcc-mcp.recipes"` etc. (#487) |
 | Custom JSON-RPC method (Rust) | `MethodRouter::register(method, Arc::new(handler))` — implement `MethodHandler` trait (#492) |
@@ -277,6 +278,7 @@ Gateway resources/prompts:
 5. **SKILL.md extensions use `metadata.dcc-mcp.<feature>`** → sibling files, never top-level keys (v0.15+ / #356)
 6. **Use `dcc_mcp_core.METADATA_*` / `LAYER_*` / `CATEGORY_*`** → re-exported at top level (also in `constants` sub-module); no inline `"dcc-mcp.recipes"` / `"thin-harness"` literals (#487)
 7. **Return `ToolResult` from Python tool handlers** → `ToolResult.ok("...", **ctx).to_dict()` (or `success_(...)`); `success`/`error` are dataclass *fields*, the factories are `success_`/`error_` / `ok`/`fail` (#487)
+8. **Gateway `call_tool` / `call_tools` wrappers accept only `tool_slug`, `arguments`, and `meta`** → put backend fields (`code`, `file_path`, `radius`, …) inside `arguments`; use `dcc-mcp-wire` / `dcc_mcp_core.host.normalize_tool_arguments()` for shared normalization
 
 Full trap list + code examples → [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md)
 
@@ -395,7 +397,7 @@ If a split is genuinely out-of-scope for the current PR:
 ## Repo Layout (What Lives Where)
 
 ```
-crates/          # Rust workspace — 35 members (34 functional crates + workspace-hack); `Cargo.toml` is source of truth
+crates/          # Rust workspace — 37 members (36 functional crates + workspace-hack); `Cargo.toml` is source of truth
 python/dcc_mcp_core/__init__.py  # ← top-level Python public re-exports
 python/dcc_mcp_core/result_envelope.py  # ← typed ToolResult dataclass (#487)
 python/dcc_mcp_core/constants.py        # ← metadata key / layer / category constants (#487)
