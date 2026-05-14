@@ -143,7 +143,16 @@ def generate_schema_from_function(func) -> Dict[str, Any]:
     required = []
 
     for name, param in sig.parameters.items():
-        if name == "kwargs":
+        # Skip *args / **kwargs — they describe arbitrary call-time fan-out,
+        # not declared parameters. Match by ``param.kind`` rather than name:
+        # the previous ``name == "kwargs"`` guard only caught the literal
+        # name ``kwargs`` and let ``def main(**_)`` through as a required
+        # parameter ``_``, which then made `dispatcher.dispatch` reject
+        # every call as `ValidationFailed`.
+        if param.kind in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        ):
             continue
 
         prop = {}
