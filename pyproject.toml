@@ -116,4 +116,5 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 markers = [
     "dcc: marks tests that require a DCC application (e.g., Blender)",
+    "anyio: async test that needs an anyio backend (mcp Python SDK e2e suite)",
 ]
