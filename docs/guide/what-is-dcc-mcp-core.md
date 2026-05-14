@@ -66,7 +66,7 @@ flowchart LR
 
 ## Architecture
 
-35-member Rust workspace (34 functional crates + `workspace-hack`; root `Cargo.toml` is the source of truth), compiled by maturin into a single Python extension `dcc_mcp_core._core`:
+37-member Rust workspace (36 functional crates + `workspace-hack`; root `Cargo.toml` is the source of truth), compiled by maturin into a single Python extension `dcc_mcp_core._core`:
 
 ```
 dcc-mcp-core/
@@ -77,6 +77,7 @@ dcc-mcp-core/
 │   ├── dcc-mcp-skills/              # SkillScanner, SkillCatalog, SkillWatcher
 │   ├── dcc-mcp-protocols/           # MCP type definitions
 │   ├── dcc-mcp-jsonrpc/             # JSON-RPC builders + dispatch (#484 / #492)
+│   ├── dcc-mcp-wire/                # canonical MCP/REST envelopes + normalization
 │   ├── dcc-mcp-transport/           # FileRegistry, IPC, WebSocket bridge
 │   ├── dcc-mcp-process/             # launch / monitor / crash recovery
 │   ├── dcc-mcp-telemetry/           # Prometheus exporter
@@ -95,6 +96,7 @@ dcc-mcp-core/
 │   ├── dcc-mcp-http/                # McpHttpServer facade + compatibility re-exports
 │   ├── dcc-mcp-skill-rest/          # per-DCC REST router (/v1/*)
 │   ├── dcc-mcp-gateway-core/        # pure gateway domain/search/ranking types (#845)
+│   ├── dcc-mcp-gateway-search/      # reusable capability search/ranking engine
 │   ├── dcc-mcp-gateway/             # multi-instance gateway + minimal MCP surface
 │   ├── dcc-mcp-server/              # `dcc-mcp-server` CLI
 │   ├── dcc-mcp-tunnel-protocol/     # tunnel frame format + JWT
@@ -173,6 +175,8 @@ Full symbol listing lives in the [API reference](/api/actions).
 | Change | Impact | Migration |
 |---|---|---|
 | **Gateway MCP surface converged** | `GatewayToolExposure` enum, `tool_exposure` / `publishes_backend_tools` config, `--gateway-tool-exposure` CLI flag all removed | Drop the code/config/env var; the gateway has a single (minimal) surface now |
+| **Gateway wrapper payloads are strict** | `call_tool`, `call_tools`, `/v1/call`, and `/v1/call_batch` normalize through `dcc-mcp-wire`; backend fields at the wrapper top level are ignored/rejected | Send `{tool_slug, arguments?, meta?}` and put tool input inside `arguments`; use `normalize_tool_arguments()` in Python host wrappers |
+| **Gateway prompt names are cursor-safe** | Aggregated prompt names use `i_<id8>__<escaped>` instead of raw backend names | Store the returned prompt name exactly as listed; do not reconstruct it from DCC/tool names |
 | **Flat-form SKILL.md parser dropped** | `metadata: { "dcc-mcp.dcc": ... }` no longer populates typed fields | Use the nested form: `metadata: { dcc-mcp: { dcc: ... } }` |
 | **`register_dcc_api_docs` / `DccApiDoc*` removed** | Related Python API is gone | Use `register_docs_resource()` instead |
 | **Legacy top-level SKILL.md extension keys rejected** | Top-level `recipes:`, `workflows:`, etc. in frontmatter are no longer accepted | Move them under `metadata.dcc-mcp.*` |

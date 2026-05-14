@@ -66,7 +66,7 @@ flowchart LR
 
 ## 架构
 
-仓库是一个 34 个成员的 Rust workspace（33 个功能 crate + `workspace-hack`；根 `Cargo.toml` 是成员列表的唯一来源），由 maturin 编译成单一 Python 扩展 `dcc_mcp_core._core`：
+仓库是一个 37 个成员的 Rust workspace（36 个功能 crate + `workspace-hack`；根 `Cargo.toml` 是成员列表的唯一来源），由 maturin 编译成单一 Python 扩展 `dcc_mcp_core._core`：
 
 ```
 dcc-mcp-core/
@@ -77,6 +77,7 @@ dcc-mcp-core/
 │   ├── dcc-mcp-skills/              # SkillScanner, SkillCatalog, SkillWatcher
 │   ├── dcc-mcp-protocols/           # MCP 类型定义
 │   ├── dcc-mcp-jsonrpc/             # JSON-RPC 构造器与分发（#484 / #492）
+│   ├── dcc-mcp-wire/                # canonical MCP/REST envelope 与参数归一化
 │   ├── dcc-mcp-transport/           # FileRegistry、IPC、WebSocket 桥
 │   ├── dcc-mcp-process/             # 启动 / 监控 / 崩溃恢复
 │   ├── dcc-mcp-telemetry/           # Prometheus exporter
@@ -95,6 +96,7 @@ dcc-mcp-core/
 │   ├── dcc-mcp-http/                # McpHttpServer facade + 兼容 re-export
 │   ├── dcc-mcp-skill-rest/          # per-DCC REST 路由(`/v1/*`)
 │   ├── dcc-mcp-gateway-core/        # 纯 gateway 领域/search/ranking 类型（#845）
+│   ├── dcc-mcp-gateway-search/      # 可复用 capability search/ranking 引擎
 │   ├── dcc-mcp-gateway/             # 多实例网关 + 最小 MCP 表面
 │   ├── dcc-mcp-server/              # `dcc-mcp-server` CLI
 │   ├── dcc-mcp-tunnel-protocol/     # 隧道帧格式 + JWT
@@ -173,6 +175,8 @@ from dcc_mcp_core import (
 | 变更 | 影响 | 迁移 |
 |---|---|---|
 | **网关 MCP 表面收敛** | `GatewayToolExposure` 枚举、`tool_exposure` / `publishes_backend_tools` 配置、`--gateway-tool-exposure` CLI 标志全部移除 | 删掉对应代码/配置/环境变量；网关现在只有一种（最小）表面 |
+| **网关 wrapper payload 更严格** | `call_tool`、`call_tools`、`/v1/call`、`/v1/call_batch` 都经过 `dcc-mcp-wire` 归一化；wrapper 顶层的后端字段会被忽略或拒绝 | 发送 `{tool_slug, arguments?, meta?}`，把工具输入放进 `arguments`；Python host wrapper 使用 `normalize_tool_arguments()` |
+| **网关 prompt 名称对 Cursor 安全** | 聚合 prompt 名称使用 `i_<id8>__<escaped>`，不再暴露原始后端名称 | 原样保存并使用 `prompts/list` 返回的名称，不要从 DCC/tool 名称自行拼接 |
 | **删除 SKILL.md flat-form 解析** | `metadata: { "dcc-mcp.dcc": ... }` 不再填充典型字段 | 改用 nested form：`metadata: { dcc-mcp: { dcc: ... } }` |
 | **删除 `register_dcc_api_docs` / `DccApiDoc*`** | 相关 Python API 不再存在 | 用 `register_docs_resource()` 替代 |
 | **拒绝顶层 SKILL.md 扩展键** | `recipes:`、`workflows:` 等在 frontmatter 顶层不再被接受 | 移到 `metadata.dcc-mcp.*` 命名空间 |

@@ -1,6 +1,6 @@
 # Built-in Admin Dashboard
 
-The gateway ships a zero-build, zero-dependency `/admin` web dashboard (issue #772). No `npm`, no CDN — a single inline HTML file served from the binary.
+The gateway ships an embedded `/admin` web dashboard (issue #772). At runtime it is a single HTML payload served from the binary; contributors edit the Vite/React source in `admin-ui/`, and `crates/dcc-mcp-gateway/build.rs` embeds the built asset during Cargo builds.
 
 ## Activation and Defaults
 
@@ -31,6 +31,8 @@ Equivalent env vars:
 | `DCC_MCP_ADMIN_PATH` | `/admin` | Admin URL prefix. |
 | `DCC_MCP_GATEWAY_AUDIT_DIR` | unset | Optional JSONL directory for durable `audit.jsonl` and `traces.jsonl`; unset keeps zero-disk in-memory behavior. |
 | `DCC_MCP_GATEWAY_AUDIT_MAX_ROWS` | `5000` | Max JSONL rows retained per durable file when persistence is enabled. |
+| `DCC_MCP_GATEWAY_AUDIT_MAX_BYTES` | `52428800` | Approx. 50 MiB byte cap per durable JSONL file; the gateway enforces both row and byte limits. |
+| `DCC_MCP_LOG_DIR` | platform log dir | Directory scanned by `/admin/api/logs` for `*.log` files; defaults to `%USERPROFILE%\\AppData\\Local\\dcc-mcp\\log` on Windows and `~/.local/share/dcc-mcp/log` elsewhere. |
 
 ### Python API
 
@@ -71,7 +73,7 @@ When using `dcc-mcp-gateway` directly, compile with the `admin` Cargo feature. `
 
 | Route | Content-Type | Description |
 |-------|-------------|-------------|
-| `GET /admin` | `text/html` | HTML dashboard (inline CSS + vanilla JS) |
+| `GET /admin` | `text/html` | Embedded React/Vite dashboard served as one HTML asset |
 | `GET /admin/api/instances` | `application/json` | Connected DCC instances |
 | `GET /admin/api/tools` | `application/json` | Registered MCP tools |
 | `GET /admin/api/calls` | `application/json` | Recent tool calls (requires `AuditMiddleware`) |
@@ -79,7 +81,7 @@ When using `dcc-mcp-gateway` directly, compile with the `admin` Cargo feature. `
 | `GET /admin/api/traces/{request_id}` | `application/json` | Full waterfall for one recorded dispatch trace |
 | `GET /admin/api/stats?range=1h\|24h\|7d` | `application/json` | Aggregated call counts, success rate, latency, and top tools/instances |
 | `GET /admin/api/workers` | `application/json` | Per-instance worker cards from the live registry |
-| `GET /admin/api/logs` | `application/json` | Gateway contention events |
+| `GET /admin/api/logs` | `application/json` | Merged gateway contention events, on-disk `*.log` rows, and audited call summaries |
 | `GET /admin/api/health` | `application/json` | Service health summary |
 
 ## API Response Shapes
@@ -161,7 +163,18 @@ When using `dcc-mcp-gateway` directly, compile with the `admin` Cargo feature. `
 {
   "total": 5,
   "logs": [
-    { "event": "election_won", "dcc_type": "maya", "timestamp": "2026-05-05T09:59:00Z" }
+    {
+      "timestamp": "2026-05-05T09:59:00Z",
+      "level": "info",
+      "message": "tools/call ok 12ms — maya__open_scene",
+      "source": "audit",
+      "dcc_type": "maya",
+      "instance_id": "abcdef01-2345-6789-abcd-ef0123456789",
+      "request_id": "req-123",
+      "tool": "maya__open_scene",
+      "success": true,
+      "detail": "instance=abcdef01-2345-6789-abcd-ef0123456789"
+    }
   ]
 }
 ```
@@ -181,20 +194,22 @@ GatewayConfig {
 }
 ```
 
-The `/admin/api/logs` feed is populated automatically from the `EventLog` ring buffer (gateway election/eviction/probe events from issue #766). The `/admin/api/traces`, `/admin/api/stats`, and `/admin/api/workers` endpoints are populated from the dispatch `TraceLog`, `StatsAggregator`, and live gateway registry respectively.
+The `/admin/api/logs` feed is populated automatically from three bounded sources: the `EventLog` ring buffer (gateway election/eviction/probe events from issue #766), `*.log` files under `DCC_MCP_LOG_DIR` or the platform default log directory, and recent `AuditMiddleware` call rows. The `/admin/api/traces`, `/admin/api/stats`, and `/admin/api/workers` endpoints are populated from the dispatch `TraceLog`, `StatsAggregator`, and live gateway registry respectively.
 
-Set `DCC_MCP_GATEWAY_AUDIT_DIR` to enable durable JSONL persistence. The gateway appends bounded admin call rows to `audit.jsonl` and dispatch traces to `traces.jsonl`, trims each file to `DCC_MCP_GATEWAY_AUDIT_MAX_ROWS` rows, and seeds the in-memory admin buffers from those files on restart. Payloads remain the same bounded/redacted `TracePayload` values used by the in-memory trace capture; persistence does not store unbounded raw request bodies.
+Set `DCC_MCP_GATEWAY_AUDIT_DIR` to enable durable JSONL persistence. The gateway appends bounded admin call rows to `audit.jsonl` and dispatch traces to `traces.jsonl`, trims each file to both `DCC_MCP_GATEWAY_AUDIT_MAX_ROWS` and `DCC_MCP_GATEWAY_AUDIT_MAX_BYTES`, and seeds the in-memory admin buffers from those files on restart. Payloads remain the same bounded/redacted `TracePayload` values used by the in-memory trace capture; persistence does not store unbounded raw request bodies.
 
 ## Dashboard Features
 
 The HTML dashboard includes:
 - **Left navigation**: Instances / Tools / Calls / Traces / Stats / Workers / Logs panels
 - **Auto-refresh**: Panels poll their JSON endpoints every 5 seconds
+- **DCC icons**: common hosts such as Maya/Autodesk, Blender, GIMP, Inkscape, Krita, Unity, and Unreal get recognizable icons, with a safe fallback for custom hosts.
 - **Worker cards**: Per-instance status, heartbeat, and routing metadata
 - **Calls table**: request ids, error previews, and trace-detail links; DCC is displayed from the resolved backend slug when available, otherwise from explicit call arguments such as `dcc` / `dcc_type`.
 - **Trace drill-down**: `/admin/api/traces/{request_id}` exposes the full waterfall plus bounded/redacted input/output payloads for one call.
+- **Logs panel**: groups normalized `contention`, `file`, and `audit` rows so operators can correlate routing events, rolling files, and tool calls in one timeline.
 - **Durable audit option**: `DCC_MCP_GATEWAY_AUDIT_DIR` preserves the Calls and Traces panels across restarts without changing the JSON API shapes.
-- **Dark theme**: Minimal inline CSS, no external fonts
+- **Dark theme**: Vite/React source with embedded runtime asset and no required runtime build step
 - **Responsive**: CSS grid layout
 
 ## Security Note

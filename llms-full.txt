@@ -35,7 +35,7 @@
 | Serialize result for transport | `serialize_result()` / `deserialize_result()` with `SerializeFormat` |
 | Wrap values for safe RPyC transport | `wrap_value()` / `unwrap_value()` |
 | Handle multiple versions of an action | `VersionedRegistry` + `VersionConstraint` |
-| Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig(port=8765))` — Skills-First one-call setup; gateway/slim agents use `search_tools` → `describe_tool` → `call_tool`; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
+| Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig(port=8765))` — Skills-First one-call setup; gateway/slim agents use `search_tools` → `describe_tool` → `call_tool` / `call_tools`; wrapper payloads are `{tool_slug, arguments?, meta?}` and backend-specific fields live inside `arguments`; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
 | Discover gateway DCC instances / direct MCP URLs (#813 phase 1) | `resources/read uri="gateway://instances"` or `gateway://instances/{id}` — entries include `mcp_url`; `resources/list` shows the root pointer only; legacy `list_dcc_instances` / `get_dcc_instance` / `connect_to_dcc` and non-standard `instances/list` are removed |
 | Register MCP prompts from Python (issue #792) | `handle = server.prompts(); handle.register_prompt(name, template, description=..., arguments=[{"name": str, "description": str, "required": bool}])` — `server.prompts()` returns `PromptHandle`; registration upserts in-place and appears in the next `prompts/list` / `prompts/get` |
 | Persist and resume DCC project state | `DccProject.open/load(...)` + `register_project_tools(server, ...)` exposing `project.save/load/resume/status` |
@@ -49,6 +49,7 @@
 | Skill warning / exception helpers | `skill_warning()` / `skill_exception()` |
 | Drive a DCC main-thread dispatcher (interactive/headless) | `HostAdapter` (subclass for your DCC) + `StandaloneHost` (pure-Python driver) + `QueueDispatcher` / `BlockingDispatcher` (Rust-backed primitives). Use public `TickableDispatcher` only for structural typing (`tick`, `shutdown`, `is_shutdown`); do not import private host protocols. Wire via `McpHttpServer.attach_dispatcher()`. See [`docs/guide/host-adapter.md`](docs/guide/host-adapter.md) |
 | Disable accumulated/evolved skills | `ENV_DISABLE_ACCUMULATED_SKILLS` |
+| Normalize MCP/REST call payloads | Rust: `dcc-mcp-wire::{normalize_arguments, normalize_meta, decode_call_tool, decode_rest_call}`; Python host wrappers: `dcc_mcp_core.host.normalize_tool_arguments()` / `normalize_tool_meta()` |
 
 ---
 
@@ -59,7 +60,7 @@ sub-crates; the root crate re-exports everything into a single `dcc_mcp_core._co
 extension module. The Python package `dcc_mcp_core` re-exports the supported public APIs from `_core`
 and pure-Python helpers.
 
-**35 workspace members** (34 functional crates + `workspace-hack`; root `Cargo.toml` is source of truth) — **Zero runtime Python dependencies** — install with just `pip install dcc-mcp-core`.
+**37 workspace members** (36 functional crates + `workspace-hack`; root `Cargo.toml` is source of truth) — **Zero runtime Python dependencies** — install with just `pip install dcc-mcp-core`.
 
 ```
 crates/
@@ -68,10 +69,12 @@ crates/
 ├── dcc-mcp-actions/      # ToolRegistry, ToolDispatcher, ToolValidator, EventBus, ToolPipeline
 ├── dcc-mcp-skills/       # SkillScanner, SkillCatalog, SkillWatcher, parse_skill_md, dependency resolver
 ├── dcc-mcp-protocols/    # MCP-facing Tool/Resource/Prompt/DccAdapter models
-├── dcc-mcp-jsonrpc/      # MCP 2025-03-26 JSON-RPC wire types
+├── dcc-mcp-jsonrpc/      # MCP 2025-03-26 JSON-RPC builders
+├── dcc-mcp-wire/         # Canonical MCP/REST call envelopes + normalization
 ├── dcc-mcp-job/          # Async job tracker + optional persistence
 ├── dcc-mcp-skill-rest/   # Per-DCC /v1/* REST skill API
 ├── dcc-mcp-gateway-core/ # Pure gateway domain/search/ranking types
+├── dcc-mcp-gateway-search/ # Reusable capability search/ranking engine
 ├── dcc-mcp-gateway/      # Multi-DCC gateway app + dynamic wrappers
 ├── dcc-mcp-http-types/   # Pure HTTP wire/config/value types
 ├── dcc-mcp-http-server/  # Reusable HTTP runtime support

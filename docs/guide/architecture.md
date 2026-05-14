@@ -43,7 +43,7 @@ DCC-MCP-Core is a Rust workspace with Python bindings via PyO3. It provides:
 
 - **Zero third-party runtime dependencies** in the Rust core
 - **Optional Python bindings** via PyO3 for DCC integration
-- **35 workspace members** (34 functional crates + `workspace-hack`) for selective dependency usage; root `Cargo.toml` is the source of truth
+- **37 workspace members** (36 functional crates + `workspace-hack`) for selective dependency usage; root `Cargo.toml` is the source of truth
 
 ## Crate Structure
 
@@ -54,10 +54,12 @@ dcc-mcp-core (workspace root)
 ├── dcc-mcp-actions       # ToolRegistry, EventBus, ToolDispatcher, validation
 ├── dcc-mcp-skills        # SkillScanner, SkillCatalog, SkillWatcher, resolver
 ├── dcc-mcp-protocols     # MCP-facing Tool/Resource/Prompt/DccAdapter models
-├── dcc-mcp-jsonrpc       # MCP 2025-03-26 JSON-RPC wire types
+├── dcc-mcp-jsonrpc       # MCP 2025-03-26 JSON-RPC builders
+├── dcc-mcp-wire          # Canonical MCP/REST call envelopes, validation, normalization
 ├── dcc-mcp-job           # Async job tracking + optional persistence
 ├── dcc-mcp-skill-rest    # Per-DCC /v1/* REST skill API
 ├── dcc-mcp-gateway-core  # Pure gateway domain/search/ranking types
+├── dcc-mcp-gateway-search # Reusable capability search/query/ranking engine
 ├── dcc-mcp-gateway       # Multi-DCC gateway app + dynamic wrappers
 ├── dcc-mcp-http-types    # Pure HTTP wire/config/value types, McpHttpConfig
 ├── dcc-mcp-http-server   # Reusable HTTP runtime support
@@ -97,11 +99,15 @@ dcc-mcp-skills ← dcc-mcp-actions, dcc-mcp-models
        ↓
 dcc-mcp-protocols ← dcc-mcp-models
        ↓
+dcc-mcp-wire ← dcc-mcp-jsonrpc, serde_json (canonical call envelopes + normalization)
+       ↓
 dcc-mcp-transport ← dcc-mcp-protocols
        ↓
 dcc-mcp-gateway-core ← pure gateway domain/search/ranking types
        ↓
-dcc-mcp-gateway ← dcc-mcp-gateway-core, dcc-mcp-transport
+dcc-mcp-gateway-search ← reusable search/query/ranking engine
+       ↓
+dcc-mcp-gateway ← dcc-mcp-gateway-core, dcc-mcp-gateway-search, dcc-mcp-wire, dcc-mcp-transport
        ↓
 dcc-mcp-http-types ← pure HTTP wire/config/value types
        ↓
@@ -318,6 +324,18 @@ dcc-mcp-server ← dcc-mcp-http
 
 **Dependencies**: `pxr-usd` (thin wrapper, no C++ runtime)
 
+### dcc-mcp-wire
+
+**Purpose**: Canonical MCP/gateway wire contract for `tools/call` and REST `/v1/call` envelopes. Put shared serialization, validation, and normalization here instead of duplicating ad-hoc helpers in JSON-RPC, gateway, host adapters, or Python wrappers.
+
+**Key Components**:
+- `decode_call_tool`, `decode_rest_call`, `encode_call_tool_result` — shared envelope conversion for MCP and REST paths.
+- `normalize_arguments` — accepts missing / `null` / empty string as `{}`, preserves objects, parses object-shaped JSON strings, and rejects arrays / numbers / booleans / non-object strings.
+- `normalize_meta` — optional sidecar normalization for MCP `_meta` / REST `meta` objects.
+- `WireError::kind()` — stable error taxonomy consumed by gateway and REST responses.
+
+**Python host wrappers**: `dcc_mcp_core.host.normalize_tool_arguments()` and `normalize_tool_meta()` expose the same normalization contract for adapters and connectors.
+
 ### dcc-mcp-gateway-core
 
 **Purpose**: Pure gateway domain layer for capability records, slug helpers, search queries/pages/hits, and ranking/scoring. It has no HTTP, async runtime, file-registry, or `dcc-mcp-gateway` dependency.
@@ -330,6 +348,12 @@ dcc-mcp-server ← dcc-mcp-http
 
 **Dependencies**: `serde`, `uuid`, `nucleo-matcher` only where the pure ranking strategy needs it.
 
+### dcc-mcp-gateway-search
+
+**Purpose**: Reusable search/query/ranking engine for the gateway capability index. Keep tokenization, fuzzy/exact matching, pagination, and record projection here so `dcc-mcp-gateway` stays focused on HTTP/MCP orchestration and registry refresh.
+
+**Dependencies**: Pure search dependencies only; no axum, reqwest, registry, or admin UI coupling.
+
 ### dcc-mcp-gateway
 
 **Purpose**: Multi-DCC gateway application/infrastructure: registry probing, dynamic MCP wrappers, `/v1/*` REST facade, routing, diagnostics, and admin surface.
@@ -337,10 +361,10 @@ dcc-mcp-server ← dcc-mcp-http
 **Key Components**:
 - `CapabilityIndex` + refresh tasks — build records from live per-DCC instances and evict stale ones.
 - `search_tools`, `describe_tool`, `call_tool` — fixed gateway MCP wrappers over the dynamic capability index.
-- Gateway REST facade — `POST /v1/search`, `/v1/describe`, `/v1/call`, plus diagnostics/resources/prompts aggregation.
+- Gateway REST facade — `POST /v1/search`, `/v1/describe`, `/v1/call`, `/v1/call_batch`, plus diagnostics/resources/prompts aggregation.
 - Admin/dashboard support — read-only `/admin/api/*` inspection for instances, tools, calls, traces, stats, workers, logs, and health.
 
-**Dependencies**: `dcc-mcp-gateway-core`, `dcc-mcp-transport`, `dcc-mcp-skill-rest`, `reqwest`, `tokio`.
+**Dependencies**: `dcc-mcp-gateway-core`, `dcc-mcp-gateway-search`, `dcc-mcp-wire`, `dcc-mcp-transport`, `dcc-mcp-skill-rest`, `reqwest`, `tokio`.
 
 ### dcc-mcp-http-types
 
