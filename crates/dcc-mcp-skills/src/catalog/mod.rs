@@ -35,6 +35,7 @@
 //! ```
 
 pub mod execute;
+pub mod schema_gen;
 pub mod scoring;
 pub mod types;
 
