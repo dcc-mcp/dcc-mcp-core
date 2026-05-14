@@ -1,146 +1,111 @@
-﻿name: 'Build Wheel'
-description: 'Build dcc-mcp-core wheel with maturin'
-
+description: Build dcc-mcp-core wheel with maturin
 inputs:
-  target:
-    description: 'Target platform'
-    required: false
-    default: ''
-  python-version:
-    description: 'Python version'
-    required: false
-    default: '3.11'
-  rust-version:
-    description: 'Rust toolchain version'
-    required: false
-    default: '1.95.0'
-  maturin-extra-args:
-    description: 'Extra maturin args (e.g. --sdist, -i python3.7). Features
-      and --release/--out are set by this action from the justfile.'
-    required: false
-    default: '--find-interpreter'
-  test-wheel:
-    description: 'Test the built wheel'
-    required: false
-    default: 'true'
   artifact-name:
-    description: 'Artifact name'
+    default: wheels
+    description: Artifact name
     required: false
-    default: 'wheels'
-  use-sccache:
-    description: 'Use sccache'
+  maturin-extra-args:
+    default: --find-interpreter
+    description: Extra maturin args (e.g. --sdist, -i python3.7). Features and --release/--out
+      are set by this action from the justfile.
     required: false
+  python-version:
+    default: '3.11'
+    description: Python version
+    required: false
+  rust-version:
+    default: 1.95.0
+    description: Rust toolchain version
+    required: false
+  target:
+    default: ''
+    description: Target platform
+    required: false
+  test-wheel:
     default: 'true'
-
+    description: Test the built wheel
+    required: false
+  use-sccache:
+    default: 'true'
+    description: Use sccache
+    required: false
+name: Build Wheel
 runs:
-  using: 'composite'
   steps:
-    - name: Setup Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: ${{ inputs.python-version }}
+  - name: Setup Python
+    uses: actions/setup-python@v6
+    with:
+      python-version: ${{ inputs.python-version }}
+  - if: runner.os != 'Windows'
+    name: Remove pre-installed cargo-clippy (conflict workaround)
+    run: rm -f ~/.cargo/bin/cargo-clippy ~/.cargo/bin/cargo-fmt || true
+    shell: bash
+  - name: Setup Rust
+    uses: dtolnay/rust-toolchain@master
+    with:
+      components: ''
+      toolchain: ${{ inputs.rust-version }}
+  - name: Install vx
+    uses: loonghao/vx@v0.8.36
+  - name: Cache Cargo
+    uses: Swatinem/rust-cache@v2
+    with:
+      key: rust-${{ runner.os }}
+      shared-key: rust-${{ runner.os }}
+  - id: resolve-features
+    name: Resolve features from justfile
+    run: "# Single source of truth: the feature list lives in justfile.\n# Python\
+      \ 3.7 cannot use abi3-py38 (PyO3 requires interpreter >= 3.8).\nif [[ \"${{\
+      \ inputs.python-version }}\" == \"3.7\" ]]; then\n  features=$(vx just print-wheel-features-py37)\n\
+      else\n  features=$(vx just print-wheel-features)\nfi\nargs=\"--release --out\
+      \ dist --features ${features} ${{ inputs.maturin-extra-args }}\"\necho \"Resolved\
+      \ maturin args: ${args}\"\necho \"value=${args}\" >> \"$GITHUB_OUTPUT\"\n"
+    shell: bash
+  - name: Generate type stubs
+    run: "# pyo3-stub-gen v0.22.x unconditionally references PyEncodingWarning,\n\
+      # which only exists in pyo3 when targeting Python >= 3.10.\n# For Python 3.7\
+      \ builds we skip regeneration and use the committed stubs.\n# The abi3 (Python\
+      \ 3.11) build regenerates and commits the authoritative stubs.\nif [[ \"${{\
+      \ inputs.python-version }}\" != \"3.7\" ]]; then\n  vx just stubgen\nfi\n"
+    shell: bash
+  - name: Pre-build admin UI for manylinux Docker
+    run: 'set -eux
 
-    - name: Remove pre-installed cargo-clippy (conflict workaround)
-      # GitHub-hosted runners (macOS aarch64 AND ubuntu-latest) pre-install Rust
-      # with cargo-clippy. When rustup installs the pinned toolchain (rust-toolchain.toml
-      # requests the clippy component) it finds 'bin/cargo-clippy' already present and
-      # rolls back the whole install with:
-      #   "detected conflict: 'bin/cargo-clippy'"
-      # Removing the stale binaries before toolchain setup lets rustup install cleanly.
-      # Using 'if: runner.os != Windows' keeps the bash-only rm command off Windows;
-      # on Windows cargo-clippy is installed via dtolnay/rust-toolchain without conflict.
-      if: runner.os != 'Windows'
-      shell: bash
-      run: rm -f ~/.cargo/bin/cargo-clippy ~/.cargo/bin/cargo-fmt || true
+      vx npm --prefix admin-ui ci
 
-    - name: Setup Rust
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: ${{ inputs.rust-version }}
+      vx npm --prefix admin-ui run build
 
-    - name: Install vx
-      uses: loonghao/vx@v0.8.36
+      test -f crates/dcc-mcp-gateway/src/gateway/admin/generated/index.html
 
-    - name: Cache Cargo
-      uses: Swatinem/rust-cache@v2
-      with:
-        key: rust-${{ runner.os }}
-        shared-key: rust-${{ runner.os }}
+      '
+    shell: bash
+  - env:
+      DCC_MCP_ADMIN_UI_PREBUILT: '1'
+    name: Build wheel
+    uses: PyO3/maturin-action@v1
+    with:
+      args: ${{ steps.resolve-features.outputs.value }}
+      docker-options: -e DCC_MCP_ADMIN_UI_PREBUILT=1
+      manylinux: auto
+      rust-toolchain: ${{ inputs.rust-version }}
+      sccache: ${{ inputs.use-sccache == 'true' }}
+      target: ${{ inputs.target }}
+  - name: Check wheel contents
+    run: 'vx uvx --python 3.12 check-wheel-contents --ignore W004 dist/*.whl
 
-    - name: Resolve features from justfile
-      id: resolve-features
-      shell: bash
-      run: |
-        # Single source of truth: the feature list lives in justfile.
-        # Python 3.7 cannot use abi3-py38 (PyO3 requires interpreter >= 3.8).
-        if [[ "${{ inputs.python-version }}" == "3.7" ]]; then
-          features=$(vx just print-wheel-features-py37)
-        else
-          features=$(vx just print-wheel-features)
-        fi
-        args="--release --out dist --features ${features} ${{ inputs.maturin-extra-args }}"
-        echo "Resolved maturin args: ${args}"
-        echo "value=${args}" >> "$GITHUB_OUTPUT"
-
-    - name: Generate type stubs
-      shell: bash
-      run: |
-        # pyo3-stub-gen v0.22.x unconditionally references PyEncodingWarning,
-        # which only exists in pyo3 when targeting Python >= 3.10.
-        # For Python 3.7 builds we skip regeneration and use the committed stubs.
-        # The abi3 (Python 3.11) build regenerates and commits the authoritative stubs.
-        if [[ "${{ inputs.python-version }}" != "3.7" ]]; then
-          vx just stubgen
-        fi
-
-    # manylinux Docker builds do not have `vx` on PATH. Pre-bundle the Vite admin
-    # UI on the GitHub runner (vx + Node from vx.toml), then tell
-    # `crates/dcc-mcp-gateway/build.rs` to skip `vx npm` inside the container.
-    - name: Pre-build admin UI for manylinux Docker
-      shell: bash
-      run: |
-        set -eux
-        vx npm --prefix admin-ui ci
-        vx npm --prefix admin-ui run build
-        test -f crates/dcc-mcp-gateway/src/gateway/admin/generated/index.html
-
-    - name: Build wheel
-      uses: PyO3/maturin-action@v1
-      env:
-        DCC_MCP_ADMIN_UI_PREBUILT: "1"
-      with:
-        target: ${{ inputs.target }}
-        args: ${{ steps.resolve-features.outputs.value }}
-        rust-toolchain: ${{ inputs.rust-version }}
-        sccache: ${{ inputs.use-sccache == 'true' }}
-        manylinux: auto
-        docker-options: -e DCC_MCP_ADMIN_UI_PREBUILT=1
-
-    - name: Check wheel contents
-      shell: bash
-      run: |
-        vx uvx --python 3.12 check-wheel-contents --ignore W004 dist/*.whl
-
-    - name: Test wheel
-      if: inputs.test-wheel == 'true'
-      shell: bash
-      run: |
-        # Use python -m venv for Python 3.7 (uv does not support 3.7)
-        python -m venv test-env
-        if [ "${{ runner.os }}" = "Windows" ]; then
-          source test-env/Scripts/activate
-        else
-          source test-env/bin/activate
-        fi
-
-        pip install --no-index --find-links dist dcc-mcp-core --force-reinstall --no-deps
-        pip check
-
-        python tests/test_imports.py
-
-    - name: Upload wheel
-      uses: actions/upload-artifact@v7
-      with:
-        name: ${{ inputs.artifact-name }}
-        path: dist/
-        retention-days: 30
+      '
+    shell: bash
+  - if: inputs.test-wheel == 'true'
+    name: Test wheel
+    run: "# Use python -m venv for Python 3.7 (uv does not support 3.7)\npython -m\
+      \ venv test-env\nif [ \"${{ runner.os }}\" = \"Windows\" ]; then\n  source test-env/Scripts/activate\n\
+      else\n  source test-env/bin/activate\nfi\n\npip install --no-index --find-links\
+      \ dist dcc-mcp-core --force-reinstall --no-deps\npip check\n\npython tests/test_imports.py\n"
+    shell: bash
+  - name: Upload wheel
+    uses: actions/upload-artifact@v7
+    with:
+      name: ${{ inputs.artifact-name }}
+      path: dist/
+      retention-days: 30
+  using: composite
