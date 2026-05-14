@@ -63,6 +63,9 @@ pin-project-lite = "0.2"
 # PyO3 (optional)
 pyo3 = { workspace = true, optional = true }
 
+# Official MCP SDK (optional, gated behind `rmcp-transport` feature)
+rmcp = { workspace = true, optional = true }
+
 # Type-stub generation (opt-in via `stub-gen` feature).
 pyo3-stub-gen = { workspace = true, optional = true }
 pyo3-stub-gen-derive = { workspace = true, optional = true }
@@ -88,6 +91,10 @@ pyo3 = { workspace = true, features = ["auto-initialize"] }
 
 [features]
 default = []
+# Use the official rmcp SDK for MCP transport (issue #985).
+# Mounts a parallel /mcp-next endpoint that speaks MCP 2025-11-25 via rmcp's
+# StreamableHttpService while the existing /mcp path is unaffected.
+rmcp-transport = ["dep:rmcp", "dcc-mcp-http-server/rmcp-transport"]
 python-bindings = ["pyo3", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings", "dcc-mcp-artefact/python-bindings", "dep:dcc-mcp-pybridge", "dcc-mcp-pybridge/python-bindings", "dcc-mcp-host/python-bindings"]
 # Enable `pyo3-stub-gen` annotations on this crate's PyO3 types.
 stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]
