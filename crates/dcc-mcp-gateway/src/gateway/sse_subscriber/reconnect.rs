@@ -113,7 +113,7 @@ impl SubscriberManager {
             "id": "gw-sub-init",
             "method": "initialize",
             "params": {
-                "protocolVersion": "2025-03-26",
+                "protocolVersion": "2025-11-25",
                 "capabilities": {},
                 "clientInfo": {
                     "name": "dcc-mcp-gateway-subscriber",
@@ -130,7 +130,7 @@ impl SubscriberManager {
             .post(url)
             .timeout(std::time::Duration::from_secs(5))
             .header("content-type", "application/json")
-            .header("accept", "application/json")
+            .header("accept", "application/json, text/event-stream")
             .body(body.to_string())
             .send()
             .await

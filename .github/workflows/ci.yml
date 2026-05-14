@@ -138,26 +138,6 @@ jobs:
       - name: Preflight (check + clippy + fmt + test)
         run: vx just preflight
 
-  # ── rmcp transport feature validation (issue #985) ──
-  # Ensures the rmcp-transport feature flag compiles and its tests pass.
-  # Runs on a single OS (ubuntu) since the feature is platform-independent.
-  rust-rmcp:
-    name: Rust (rmcp-transport)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: rust-rmcp
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-nextest
-      - name: Check (rmcp-transport)
-        run: cargo check --workspace --features rmcp-transport
-      - name: Test (rmcp-transport)
-        run: cargo nextest run -p dcc-mcp-http-server --features rmcp-transport
-
   # ── Build ABI3 wheel (one per OS, reused by python-test) ──
   # Intentionally does NOT `needs: [rust-check]` — maturin runs its own compile
   # and can start in parallel with rust-check. If rust-check fails, the PR merge

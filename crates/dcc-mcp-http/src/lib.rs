@@ -44,7 +44,6 @@ pub mod dynamic_tools;
 pub mod error;
 pub mod executor;
 pub mod handler;
-pub(crate) mod handlers;
 pub mod host_bridge;
 pub mod inflight;
 /// Re-export of [`dcc_mcp_job::job`] under the historical
@@ -100,6 +99,3 @@ pub use resources::{
 pub use server::{McpHttpServer, McpServerHandle};
 pub use session::SessionManager;
 pub use workspace::{WorkspaceResolveError, WorkspaceRoots};
-
-#[cfg(test)]
-mod tests;

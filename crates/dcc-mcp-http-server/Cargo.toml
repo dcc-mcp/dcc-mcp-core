@@ -39,8 +39,8 @@ parking_lot = { workspace = true }
 uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
-# Official MCP SDK (optional, gated behind `rmcp-transport` feature)
-rmcp = { workspace = true, optional = true }
+# Official MCP SDK — provides rmcp ServerHandler transport.
+rmcp = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
@@ -48,5 +48,3 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"
 [features]
 default = []
 prometheus = ["dep:dcc-mcp-telemetry", "dcc-mcp-telemetry/prometheus"]
-# Use the official rmcp SDK for MCP transport (issue #985).
-rmcp-transport = ["dep:rmcp"]

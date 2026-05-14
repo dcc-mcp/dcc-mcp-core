@@ -24,6 +24,7 @@ import urllib.request
 
 import pytest
 
+from conftest import McpClient
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
@@ -53,21 +54,10 @@ def _get(url: str, headers: dict[str, str] | None = None) -> tuple[int, str, dic
 
 
 def _post_jsonrpc(url: str, body: dict[str, Any]) -> int:
-    data = json.dumps(body).encode()
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json, text/event-stream",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            return resp.status
-    except urllib.error.HTTPError as e:
-        return e.code
+    """POST a JSON-RPC message using McpClient. Returns status code only."""
+    client = McpClient(url)
+    code, _ = client.post(body)
+    return code
 
 
 @pytest.fixture

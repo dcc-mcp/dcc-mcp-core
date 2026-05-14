@@ -126,9 +126,8 @@ rusqlite = { version = "0.39", features = ["bundled"] }
 # host without `aws-lc-rs`'s build-time C toolchain requirement).
 jsonwebtoken = { version = "10.3", default-features = false, features = ["rust_crypto"] }
 
-# Official Rust MCP SDK (issue #985). Used behind the `rmcp-transport` feature
-# flag to replace the in-house Streamable HTTP + session management stack with
-# the spec-aligned implementation from modelcontextprotocol/rust-sdk.
+# Official Rust MCP SDK (issue #985). Provides MCP Streamable HTTP transport
+# via modelcontextprotocol/rust-sdk.
 rmcp = { version = "1.6", features = ["transport-streamable-http-server"] }
 
 # Type-stub generation (opt-in via `stub-gen` feature). Used only by the

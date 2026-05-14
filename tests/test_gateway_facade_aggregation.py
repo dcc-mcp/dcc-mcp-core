@@ -33,6 +33,8 @@ import urllib.request
 # Import third-party modules
 import pytest
 
+from conftest import McpClient
+
 # Import local modules
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
@@ -54,18 +56,12 @@ def _pick_free_port() -> int:
 
 
 def _post_mcp(url: str, method: str, params: dict | None = None, rpc_id: int = 1) -> dict:
+    client = McpClient(url)
     body = {"jsonrpc": "2.0", "id": rpc_id, "method": method}
     if params is not None:
         body["params"] = params
-    data = json.dumps(body).encode()
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        return json.loads(resp.read())
+    _, resp = client.post(body)
+    return resp
 
 
 def _list_all_tools(url: str) -> list[dict]:
@@ -272,25 +268,15 @@ class TestFacadeToolsAggregation:
 
     def test_backend_tools_carry_instance_metadata(self, facade_cluster):
         """Backend per-action tools are discoverable via search_tools, carrying instance metadata."""
-        import json as _json
-        import urllib.request as _ur
-
-        body = _json.dumps(
+        client = McpClient(facade_cluster["gateway_url"])
+        _, payload = client.post(
             {
                 "jsonrpc": "2.0",
                 "id": "search",
                 "method": "tools/call",
                 "params": {"name": "search_tools", "arguments": {"query": "create"}},
             }
-        ).encode()
-        req = _ur.Request(
-            facade_cluster["gateway_url"],
-            data=body,
-            headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream"},
-            method="POST",
         )
-        with _ur.urlopen(req, timeout=10) as resp:
-            payload = _json.loads(resp.read())
         # search_tools must return a non-empty hit list that references the
         # colliding maya+blender create_cube tools by instance id.
         content = payload["result"]["content"]

@@ -36,6 +36,8 @@ import urllib.request
 # Import third-party modules
 import pytest
 
+from conftest import McpClient
+
 # Import local modules
 import dcc_mcp_core
 from dcc_mcp_core import McpHttpConfig
@@ -75,6 +77,7 @@ SKILL_DEFS: dict[str, list[tuple[str, list[str]]]] = {
 
 
 def _post_json(url: str, body: Any, timeout: float = CALL_TIMEOUT_S) -> tuple[int, Any]:
+    """POST JSON to a REST (non-MCP) endpoint and return (status_code, parsed_body)."""
     data = json.dumps(body).encode()
     req = urllib.request.Request(
         url,
@@ -93,7 +96,7 @@ def _post_json(url: str, body: Any, timeout: float = CALL_TIMEOUT_S) -> tuple[in
 
 
 def _get_json(url: str, timeout: float = CALL_TIMEOUT_S) -> tuple[int, Any]:
-    req = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
+    req = urllib.request.Request(url, headers={"Accept": "application/json, text/event-stream"}, method="GET")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status, json.loads(resp.read())
@@ -103,11 +106,10 @@ def _get_json(url: str, timeout: float = CALL_TIMEOUT_S) -> tuple[int, Any]:
 
 def _mcp_post(mcp_url: str, method: str, params: dict[str, Any]) -> dict[str, Any]:
     """POST a JSON-RPC request to the MCP endpoint."""
-    _status, body = _post_json(
-        mcp_url,
-        {"jsonrpc": "2.0", "id": method, "method": method, "params": params},
-    )
-    return body
+    client = McpClient(mcp_url)
+    body = {"jsonrpc": "2.0", "id": method, "method": method, "params": params}
+    _status, resp = client.post(body)
+    return resp
 
 
 def _rest_base(mcp_url: str) -> str:

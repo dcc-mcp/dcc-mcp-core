@@ -4,8 +4,13 @@
 from __future__ import annotations
 
 # Import built-in modules
+import json
 import os
 from pathlib import Path
+import typing
+from typing import Any
+import urllib.error
+import urllib.request
 
 # Import third-party modules
 import pytest
@@ -132,3 +137,104 @@ def scanned_metas(examples_dir: str) -> list[dcc_mcp_core.SkillMetadata]:
         assert meta is not None, f"Failed to parse {d}"
         metas.append(meta)
     return metas
+
+
+# ── MCP Streamable HTTP client helper ────────────────────────────────────
+
+
+class McpClient:
+    """Minimal MCP Streamable HTTP client for test use.
+
+    Handles the initialize handshake and session management automatically.
+    All requests after initialization carry the Mcp-Session-Id header.
+    """
+
+    _HEADERS: typing.ClassVar[dict[str, str]] = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+    }
+
+    def __init__(self, url: str, *, auto_init: bool = True):
+        self.url = url
+        self.session_id: str | None = None
+        self.protocol_version: str = "2025-11-25"
+        if auto_init:
+            self.initialize()
+
+    def initialize(
+        self,
+        protocol_version: str = "2025-11-25",
+        client_name: str = "pytest",
+    ) -> dict[str, Any]:
+        """Perform the MCP initialize handshake and store the session ID."""
+        self.protocol_version = protocol_version
+        body = {
+            "jsonrpc": "2.0",
+            "id": "__init__",
+            "method": "initialize",
+            "params": {
+                "protocolVersion": protocol_version,
+                "capabilities": {},
+                "clientInfo": {"name": client_name, "version": "1.0"},
+            },
+        }
+        code, resp, headers = self._raw_post(body)
+        if code != 200:
+            raise RuntimeError(f"initialize failed: HTTP {code}")
+        # Extract session ID from response header
+        if headers and headers.get("Mcp-Session-Id"):
+            self.session_id = headers["Mcp-Session-Id"]
+        return resp
+
+    def post(
+        self,
+        body: dict[str, Any],
+        *,
+        extra_headers: dict[str, str] | None = None,
+    ) -> tuple[int, dict[str, Any]]:
+        """Send a JSON-RPC request with session management."""
+        code, resp, _ = self._raw_post(body, extra_headers=extra_headers)
+        return code, resp
+
+    def post_raw(
+        self,
+        data: bytes,
+        *,
+        extra_headers: dict[str, str] | None = None,
+    ) -> tuple[int, str]:
+        """Send raw bytes and return (status_code, response_text)."""
+        headers = dict(self._HEADERS)
+        if self.session_id:
+            headers["Mcp-Session-Id"] = self.session_id
+        if self.protocol_version:
+            headers["MCP-Protocol-Version"] = self.protocol_version
+        if extra_headers:
+            headers.update(extra_headers)
+        req = urllib.request.Request(self.url, data=data, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return resp.status, resp.read().decode()
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode()
+
+    def _raw_post(
+        self,
+        body: dict[str, Any],
+        *,
+        extra_headers: dict[str, str] | None = None,
+    ) -> tuple[int, dict[str, Any], dict[str, str] | None]:
+        data = json.dumps(body).encode()
+        headers = dict(self._HEADERS)
+        if self.session_id:
+            headers["Mcp-Session-Id"] = self.session_id
+        if self.protocol_version:
+            headers["MCP-Protocol-Version"] = self.protocol_version
+        if extra_headers:
+            headers.update(extra_headers)
+        req = urllib.request.Request(self.url, data=data, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                resp_headers = {k: v for k, v in resp.getheaders()}
+                return resp.status, json.loads(resp.read()), resp_headers
+        except urllib.error.HTTPError as e:
+            return e.code, {}, None

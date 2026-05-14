@@ -28,6 +28,8 @@ import urllib.request
 # Import third-party modules
 import pytest
 
+from conftest import McpClient
+
 # Import local modules
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
@@ -40,20 +42,15 @@ from dcc_mcp_core.host import StandaloneHost
 
 
 def _call_tool(url: str, tool: str, arguments: dict[str, Any] | None = None) -> dict:
+    client = McpClient(url)
     body = {
         "jsonrpc": "2.0",
         "id": 1,
         "method": "tools/call",
         "params": {"name": tool, "arguments": arguments or {}},
     }
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        return json.loads(resp.read())
+    _, resp = client.post(body)
+    return resp
 
 
 def _make_server(server_name: str) -> tuple[McpHttpServer, ToolRegistry]:

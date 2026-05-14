@@ -27,11 +27,10 @@ pub mod server_state;
 pub mod session;
 pub mod workspace;
 
-// rmcp integration modules (issue #985) — compiled only with `rmcp-transport`.
-#[cfg(feature = "rmcp-transport")]
+// rmcp integration modules (issue #985).
 pub mod rmcp_adapter;
-#[cfg(feature = "rmcp-transport")]
 pub mod rmcp_handler;
+pub mod rmcp_providers;
 
 pub use dynamic_tools::{
     DYNAMIC_TOOL_PREFIX, DynamicToolEntry, DynamicToolError, SessionDynamicTools, ToolSpec,

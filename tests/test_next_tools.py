@@ -24,6 +24,7 @@ import urllib.request
 
 import pytest
 
+from conftest import McpClient
 import dcc_mcp_core
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
@@ -109,18 +110,9 @@ def _free_port() -> int:
 
 
 def _post(url: str, body: dict[str, Any]) -> dict[str, Any]:
-    data = json.dumps(body).encode()
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        return json.loads(resp.read())
+    client = McpClient(url)
+    _, resp = client.post(body)
+    return resp
 
 
 def _write_success_skill(root: Path) -> Path:

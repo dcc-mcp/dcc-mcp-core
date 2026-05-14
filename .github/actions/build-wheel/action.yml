@@ -87,13 +87,19 @@ runs:
       shell: bash
       run: |
         # maturin calls 'cargo metadata' but on macOS cargo sometimes
-        # resolves to rustup-init. Verify and fix if needed.
+        # resolves to rustup-init wrapper that hasn't been replaced yet.
+        # Force rustup to install the default toolchain proxy.
+        rustup show active-toolchain || rustup default stable
+        # Rehash to pick up the freshly-installed proxy binaries.
+        hash -r 2>/dev/null || true
         which cargo
-        cargo --version
-        # Ensure cargo is from the Rust toolchain, not rustup
-        if ! cargo --version | grep -q "cargo"; then
-          echo "::error::cargo is not working correctly"
-          exit 1
+        cargo_version=$(cargo --version 2>&1)
+        echo "cargo version: ${cargo_version}"
+        if ! echo "${cargo_version}" | grep -q "^cargo "; then
+          echo "::error::cargo is not working correctly: ${cargo_version}"
+          # Attempt recovery: explicitly set PATH to include cargo bin
+          export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
+          cargo --version || exit 1
         fi
 
     - name: Generate type stubs

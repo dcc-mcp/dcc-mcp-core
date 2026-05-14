@@ -28,6 +28,7 @@ import urllib.request
 
 import pytest
 
+from conftest import McpClient
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
@@ -35,21 +36,8 @@ from dcc_mcp_core import ToolRegistry
 # ── helpers ───────────────────────────────────────────────────────────────
 
 
-def _post(url: str, body: Any) -> tuple[int, dict[str, Any]]:
-    data = json.dumps(body).encode()
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=5) as resp:
-        raw = resp.read().decode()
-        return resp.status, (json.loads(raw) if raw else {})
-
-
 def _tools_call(
-    url: str,
+    client: McpClient,
     name: str,
     arguments: dict[str, Any] | None = None,
     meta: dict[str, Any] | None = None,
@@ -61,7 +49,7 @@ def _tools_call(
     if meta is not None:
         params["_meta"] = meta
     body = {"jsonrpc": "2.0", "id": req_id, "method": "tools/call", "params": params}
-    _, resp = _post(url, body)
+    _, resp = client.post(body)
     return resp
 
 
@@ -150,12 +138,18 @@ def server_url() -> Any:
         handle.shutdown()
 
 
+@pytest.fixture(scope="module")
+def mcp_client(server_url: str) -> McpClient:
+    """Create an McpClient for the server."""
+    return McpClient(server_url)
+
+
 class TestMainAffinityAsyncEnvelope:
-    def test_main_affined_tool_still_returns_pending_immediately(self, server_url: str) -> None:
+    def test_main_affined_tool_still_returns_pending_immediately(self, mcp_client: McpClient) -> None:
         # Acceptance criterion 4: regardless of affinity the async envelope
         # returns immediately.
         t0 = time.perf_counter()
-        resp = _tools_call(server_url, "main_affined", arguments={})
+        resp = _tools_call(mcp_client, "main_affined", arguments={})
         elapsed = time.perf_counter() - t0
 
         assert "result" in resp, resp
@@ -166,8 +160,8 @@ class TestMainAffinityAsyncEnvelope:
         # Envelope must return well before the 300 ms handler sleep.
         assert elapsed < 0.25, f"main-affined async envelope blocked for {elapsed:.3f}s"
 
-    def test_any_affined_tool_also_returns_pending_immediately(self, server_url: str) -> None:
-        resp = _tools_call(server_url, "any_affined", arguments={})
+    def test_any_affined_tool_also_returns_pending_immediately(self, mcp_client: McpClient) -> None:
+        resp = _tools_call(mcp_client, "any_affined", arguments={})
         result = resp["result"]
         assert result["isError"] is False
         assert result["structuredContent"]["status"] == "pending"
