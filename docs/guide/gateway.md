@@ -271,6 +271,28 @@ Use this dynamic-capability flow whenever an agent is connected to the gateway.
 Use the per-DCC Skills-First flow (`search_skills` → `load_skill` → tool call)
 when the agent is connected directly to one DCC server.
 
+### Gateway call wrapper payloads
+
+`call_tool`, `call_tools`, `POST /v1/call`, and `POST /v1/call_batch` all share
+the same wrapper contract:
+
+```json
+{
+  "tool_slug": "maya.a1b2c3d4.maya_scripting__execute_python",
+  "arguments": { "code": "cmds.polySphere()" },
+  "meta": { "progressToken": "session-42" }
+}
+```
+
+Only `tool_slug`, `arguments`, and `meta` belong at the wrapper top level.
+Backend-specific fields (`code`, `script`, `file_path`, `radius`, …) must be
+inside `arguments`. Missing / `null` / empty-string arguments normalize to `{}`;
+object roots pass through; object-shaped JSON strings are accepted for connector
+compatibility; arrays, numbers, booleans, and non-object strings are rejected by
+`dcc-mcp-wire`. Host adapters and connectors should reuse
+`dcc_mcp_core.host.normalize_tool_arguments()` / `normalize_tool_meta()` instead
+of each reimplementing coercion.
+
 ## Resources and Prompts Aggregation (#731, #732, #818)
 
 The gateway also forwards MCP resources and prompts so agents can exchange

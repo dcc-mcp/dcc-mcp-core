@@ -1,6 +1,6 @@
 # 内置 Admin 仪表盘
 
-网关内置一个零构建、零依赖的 `/admin` Web 仪表盘（issue #772）。无需 `npm`，无需 CDN——一个 HTML 文件通过 `include_str!` 打包进二进制。
+网关内置一个嵌入式 `/admin` Web 仪表盘（issue #772）。运行时仍由二进制提供单个 HTML 资产；贡献者在 `admin-ui/` 中维护 Vite/React 源码，`crates/dcc-mcp-gateway/build.rs` 会在 Cargo 构建时生成并嵌入产物。
 
 ## 启用方式与默认值
 
@@ -31,6 +31,8 @@ dcc-mcp-server --admin-path /dcc-admin
 | `DCC_MCP_ADMIN_PATH` | `/admin` | Admin URL 前缀。 |
 | `DCC_MCP_GATEWAY_AUDIT_DIR` | 未设置 | 可选 JSONL 持久化目录，写入 `audit.jsonl` 与 `traces.jsonl`；未设置时保持零落盘的内存行为。 |
 | `DCC_MCP_GATEWAY_AUDIT_MAX_ROWS` | `5000` | 启用持久化时，每个 JSONL 文件保留的最大行数。 |
+| `DCC_MCP_GATEWAY_AUDIT_MAX_BYTES` | `52428800` | 每个持久化 JSONL 文件约 50 MiB 的字节上限；网关同时执行行数和字节数裁剪。 |
+| `DCC_MCP_LOG_DIR` | 平台日志目录 | `/admin/api/logs` 扫描 `*.log` 文件的目录；Windows 默认 `%USERPROFILE%\\AppData\\Local\\dcc-mcp\\log`，其他平台默认 `~/.local/share/dcc-mcp/log`。 |
 
 ### Python API
 
@@ -71,7 +73,7 @@ let config = GatewayConfig {
 
 | 路由 | Content-Type | 说明 |
 |------|-------------|------|
-| `GET /admin` | `text/html` | HTML 仪表盘（内联 CSS + vanilla JS） |
+| `GET /admin` | `text/html` | 以单个 HTML 资产提供的嵌入式 React/Vite 仪表盘 |
 | `GET /admin/api/instances` | `application/json` | 已连接的 DCC 实例 |
 | `GET /admin/api/tools` | `application/json` | 已注册的 MCP 工具 |
 | `GET /admin/api/calls` | `application/json` | 最近的工具调用（需要 `AuditMiddleware`） |
@@ -79,7 +81,7 @@ let config = GatewayConfig {
 | `GET /admin/api/traces/{request_id}` | `application/json` | 某次调用的完整 waterfall trace |
 | `GET /admin/api/stats?range=1h\|24h\|7d` | `application/json` | 聚合调用数、成功率、延迟和 top tools/instances |
 | `GET /admin/api/workers` | `application/json` | 来自 live registry 的实例 worker 卡片 |
-| `GET /admin/api/logs` | `application/json` | 网关竞争事件 |
+| `GET /admin/api/logs` | `application/json` | 合并后的网关竞争事件、磁盘 `*.log` 行和审计调用摘要 |
 | `GET /admin/api/health` | `application/json` | 服务健康摘要 |
 
 ## API 响应格式
@@ -161,7 +163,18 @@ let config = GatewayConfig {
 {
   "total": 5,
   "logs": [
-    { "event": "election_won", "dcc_type": "maya", "timestamp": "2026-05-05T09:59:00Z" }
+    {
+      "timestamp": "2026-05-05T09:59:00Z",
+      "level": "info",
+      "message": "tools/call ok 12ms — maya__open_scene",
+      "source": "audit",
+      "dcc_type": "maya",
+      "instance_id": "abcdef01-2345-6789-abcd-ef0123456789",
+      "request_id": "req-123",
+      "tool": "maya__open_scene",
+      "success": true,
+      "detail": "instance=abcdef01-2345-6789-abcd-ef0123456789"
+    }
   ]
 }
 ```
@@ -181,20 +194,22 @@ GatewayConfig {
 }
 ```
 
-`/admin/api/logs` 数据源由 `EventLog` 环形缓冲区自动填充（网关选举/驱逐/探针事件，来自 issue #766）。`/admin/api/traces`、`/admin/api/stats` 和 `/admin/api/workers` 分别来自 dispatch `TraceLog`、`StatsAggregator` 与 live gateway registry。
+`/admin/api/logs` 数据源由三类有界来源自动合并：`EventLog` 环形缓冲区（网关选举/驱逐/探针事件，来自 issue #766）、`DCC_MCP_LOG_DIR` 或平台默认日志目录下的 `*.log` 文件，以及最近的 `AuditMiddleware` 调用行。`/admin/api/traces`、`/admin/api/stats` 和 `/admin/api/workers` 分别来自 dispatch `TraceLog`、`StatsAggregator` 与 live gateway registry。
 
-设置 `DCC_MCP_GATEWAY_AUDIT_DIR` 后会启用 JSONL 持久化。网关会将有界的 admin 调用行追加到 `audit.jsonl`，将 dispatch traces 追加到 `traces.jsonl`，按 `DCC_MCP_GATEWAY_AUDIT_MAX_ROWS` 裁剪每个文件，并在重启时用这些文件回填内存中的 admin 缓冲区。持久化内容仍使用内存 trace 捕获同一套有界/已脱敏 `TracePayload`，不会写入无界原始请求体。
+设置 `DCC_MCP_GATEWAY_AUDIT_DIR` 后会启用 JSONL 持久化。网关会将有界的 admin 调用行追加到 `audit.jsonl`，将 dispatch traces 追加到 `traces.jsonl`，并同时按 `DCC_MCP_GATEWAY_AUDIT_MAX_ROWS` 和 `DCC_MCP_GATEWAY_AUDIT_MAX_BYTES` 裁剪每个文件，然后在重启时用这些文件回填内存中的 admin 缓冲区。持久化内容仍使用内存 trace 捕获同一套有界/已脱敏 `TracePayload`，不会写入无界原始请求体。
 
 ## 仪表盘功能
 
 HTML 仪表盘包含：
 - **左侧导航**：实例 / 工具 / 调用 / Traces / Stats / Workers / 日志面板
 - **自动刷新**：每个面板每 5 秒轮询对应 JSON 端点
+- **DCC 图标**：Maya/Autodesk、Blender、GIMP、Inkscape、Krita、Unity、Unreal 等常见宿主显示可识别图标，自定义宿主使用安全 fallback
 - **Worker 卡片**：按实例展示状态、心跳与路由元数据
 - **Calls 表格**：展示 request id、错误摘要与 trace detail 链接；DCC 优先从解析后的 backend slug 展示，其次使用调用参数中的 `dcc` / `dcc_type`
 - **Trace 下钻**：`/admin/api/traces/{request_id}` 暴露单次调用的完整 waterfall，以及有界/已脱敏的输入输出 payload
+- **Logs 面板**：将标准化的 `contention`、`file`、`audit` 行分组，方便在一条时间线里关联路由事件、滚动日志和工具调用
 - **可选持久化**：`DCC_MCP_GATEWAY_AUDIT_DIR` 可让 Calls 与 Traces 面板跨重启保留，且不改变 JSON API 结构
-- **深色主题**：极简内联 CSS，无外部字体
+- **深色主题**：Vite/React 源码，运行时嵌入资产，不要求现场构建
 - **响应式布局**：CSS grid 布局
 
 ## 安全注意事项

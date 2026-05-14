@@ -72,9 +72,20 @@ If your MCP connection is the multi-DCC gateway, do not expect backend actions t
 hits = search_tools(query="create sphere", dcc_type="maya", limit=5)
 info = describe_tool(tool_slug=hits["hits"][0]["tool_slug"])
 result = call_tool(tool_slug=info["tool_slug"], arguments={"radius": 2.0})
+
+# Ordered batch flow (max 25 calls)
+batch = call_tools(
+    calls=[
+        {"tool_slug": info["tool_slug"], "arguments": {"radius": 2.0}},
+        {"tool_slug": "maya.a1b2c3d4.assign_material", "arguments": {"name": "mat_blue"}},
+    ],
+    stop_on_error=True,
+)
 ```
 
-Non-MCP clients use the equivalent REST endpoints: `POST /v1/search`, `POST /v1/describe`, and `POST /v1/call`. See `docs/guide/gateway.md` and `docs/guide/dcc-rest-skill-api.md`.
+Wrapper payloads accept only `tool_slug`, `arguments`, and optional `meta`. Put backend-specific inputs such as `code`, `script`, `file_path`, or `radius` inside `arguments`, never at the wrapper top level. `dcc-mcp-wire` normalizes missing / `null` / empty-string arguments to `{}` and rejects non-object roots; Python host wrappers can call `dcc_mcp_core.host.normalize_tool_arguments()` / `normalize_tool_meta()`.
+
+Non-MCP clients use the equivalent REST endpoints: `POST /v1/search`, `POST /v1/describe`, `POST /v1/call`, and gateway `POST /v1/call_batch`. See `docs/guide/gateway.md` and `docs/guide/rest-api-surface.md`.
 
 ### Gateway workflow guide (`gateway://docs/agent-workflows`)
 
@@ -107,7 +118,7 @@ Use MCP resources for files, scene artefacts, thumbnails, diagnostics, and other
 
 ### Gateway Admin Observability
 
-When debugging routing, slow calls, or worker availability, use the elected gateway's read-only admin JSON APIs before guessing from logs: `GET /admin/api/instances`, `/tools`, `/calls`, `/traces`, `/traces/{request_id}`, `/stats?range=24h`, `/workers`, `/logs`, and `/health`. The HTML dashboard remains `GET /admin`; disable it with `--no-admin`, `DCC_MCP_NO_ADMIN=true`, or `cfg.admin_enabled = False`. For restart-stable call/trace history, operators can set `DCC_MCP_GATEWAY_AUDIT_DIR` to persist `audit.jsonl` and `traces.jsonl`.
+When debugging routing, slow calls, or worker availability, use the elected gateway's read-only admin JSON APIs before guessing from logs: `GET /admin/api/instances`, `/tools`, `/calls`, `/traces`, `/traces/{request_id}`, `/stats?range=24h`, `/workers`, `/logs`, and `/health`. The `/logs` feed merges gateway contention events, on-disk `*.log` rows from `DCC_MCP_LOG_DIR` (or the platform default), and audited call summaries. The HTML dashboard remains `GET /admin`; disable it with `--no-admin`, `DCC_MCP_NO_ADMIN=true`, or `cfg.admin_enabled = False`. For restart-stable call/trace history, operators can set `DCC_MCP_GATEWAY_AUDIT_DIR` to persist `audit.jsonl` and `traces.jsonl`.
 
 ## 📚 Key Concepts You Must Understand
 
@@ -227,13 +238,15 @@ tools:
 4. **Register ALL handlers BEFORE `server.start()`**
 5. **SKILL.md extensions use `metadata.dcc-mcp.<feature>`** → sibling files, never top-level extension keys
 6. **Use `dcc_mcp_core.METADATA_*` / `LAYER_*` / `CATEGORY_*`** → re-exported at top level
-7. **Return `ToolResult` from Python tool handlers** → `ToolResult.ok("...", **ctx).to_dict()`
+7. **Gateway wrappers accept only `tool_slug`, `arguments`, `meta`** → backend inputs go inside `arguments`
+8. **Return `ToolResult` from Python tool handlers** → `ToolResult.ok("...", **ctx).to_dict()`
 
 ## 📖 Further Reading
 
 - **Navigation map**: [`AGENTS.md`](AGENTS.md) — start here for detailed rules
 - **API index**: [`llms.txt`](llms.txt) — compressed API reference for AI agents
 - **Skill authoring guide**: [`docs/guide/skills.md`](docs/guide/skills.md) — current SKILL.md + sibling-file pattern
+- **Skill ownership policy**: [`docs/POLICY_SKILL_OWNERSHIP.md`](docs/POLICY_SKILL_OWNERSHIP.md) — avoid duplicating bundled adapter file-operation skills
 - **Bundled templates/examples**: [`skills/README.md`](skills/README.md) and [`examples/skills/`](examples/skills/) — 15 complete SKILL.md packages
 - **Detailed traps**: [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md)
 

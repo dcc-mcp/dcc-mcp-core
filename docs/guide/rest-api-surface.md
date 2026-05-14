@@ -24,6 +24,7 @@ without touching the MCP protocol stack.
 | `POST` | `/v1/describe` | Return the full input schema + annotations for one `tool_slug`. |
 | `GET` | `/v1/tools/{slug}` | Alias of `/v1/describe` (read-only lookup via URL). |
 | `POST` | `/v1/call` | **Invoke** a tool by slug. This is the canonical invocation plane. |
+| `POST` | `/v1/call_batch` | Gateway only: invoke up to 25 ordered tool calls with optional `stop_on_error`. |
 | `GET` | `/v1/context` | Scene / document snapshot (per-DCC or gateway-aggregated). |
 | `GET` | `/v1/resources` | MCP-style resource list. |
 | `GET` | `/v1/resources/{uri}` | Read one percent-encoded resource URI. |
@@ -48,7 +49,7 @@ id prefix.
 ```json
 {
   "tool_slug": "maya.a1b2c3d4.create_sphere",
-  "params": { "radius": 2.0, "segments": 32 },
+  "arguments": { "radius": 2.0, "segments": 32 },
   "meta": { "progressToken": "session-42" }
 }
 ```
@@ -56,18 +57,21 @@ id prefix.
 | Field | Required | Notes |
 |---|---|---|
 | `tool_slug` | ✅ | Gateway: `<dcc>.<id8>.<tool>`. Direct per-DCC REST: `<dcc>.<skill>.<action>`. Get valid slugs from `POST /v1/search` or `GET /v1/skills` — do **not** construct them by hand. |
-| `params` | ❌ | Tool-specific input. Defaults to `{}` so single-arg / no-arg calls stay ergonomic for cURL. The server validates this against the tool's JSON-Schema before dispatch. |
-| `arguments` | ❌ | Alias for `params`, accepted so gateway REST can preserve the MCP `tools/call` naming convention. |
-| `meta` | ❌ | MCP-style sidecar. Honored keys: `progressToken` (binds progress events to a client session), `dcc.async` (opt in to async dispatch), `dcc.wait_for_terminal` (block until terminal status). |
+| `arguments` | ❌ | Canonical tool-specific input, matching MCP `tools/call`. Missing / `null` / empty string normalizes to `{}`; JSON objects are used as-is; JSON strings that parse to objects are accepted for wrapper compatibility; arrays, booleans, numbers, and non-object strings are rejected. |
+| `params` | ❌ | Backward-compatible alias for `arguments`. Prefer `arguments` in new clients so REST and MCP examples stay identical. |
+| `meta` | ❌ | MCP-style sidecar. Missing / `null` normalizes to absent. If provided, it must be an object (or an object-shaped JSON string). Honored keys: `progressToken`, `dcc.async`, `dcc.wait_for_terminal`. |
 
+The canonical normalization rules live in `dcc-mcp-wire`; Python host wrappers can reuse them via `dcc_mcp_core.host.normalize_tool_arguments()` and `normalize_tool_meta()` instead of hand-rolling JSON coercion.
 
 ### Wrapper payloads and object-shaped arguments
 
-When a **host** (Maya, Blender, Houdini…) or a **connector** (Zapier, n8n, a CI runner) wraps the gateway call surface, the inner payload passed to `call_tool` **MUST** remain a single JSON object with:
+When a **host** (Maya, Blender, Houdini…) or a **connector** (Zapier, n8n, a CI runner) wraps the gateway call surface, the inner payload passed to `call_tool` / `call_tools` **MUST** remain a single JSON object with:
 
 1. **`tool_slug`** — a string (e.g. `"maya.a1b2c3d4.create_sphere"`)
-2. **`arguments`** — a JSON **object** `{}`, not a string
+2. **`arguments`** — omitted for no-arg tools, or a JSON **object** `{}`
 3. **`meta`** (optional) — a JSON **object** `{}`
+
+Backend-specific fields such as `code`, `script`, `file_path`, or `radius` belong inside `arguments`, never at the wrapper top level.
 
 #### ✅ Correct payload (object-shaped arguments)
 
@@ -86,13 +90,23 @@ When a **host** (Maya, Blender, Houdini…) or a **connector** (Zapier, n8n, a C
 
 #### ❌ Incorrect payloads (common failure modes)
 
-**1. Stringified JSON blob instead of object**
+**1. Backend fields placed at the wrapper top level**
+
+```json
+{
+  "tool_slug": "maya.a1b2c3d4.execute_python",
+  "code": "cmds.polySphere()"
+}
+```
+
+**Fix:** move tool input under `arguments`: `{ "tool_slug": "...", "arguments": { "code": "..." } }`.
+
+**2. Non-object JSON such as arrays, booleans, or numbers**
 
 ```json
 {
   "tool_slug": "maya.a1b2c3d4.create_sphere",
-  "arguments": "{"radius": 2.0, "segments": 32}",  // ❌ STRING, not object
-  "meta": "{"progressToken": "session-42"}"             // ❌ STRING, not object
+  "arguments": ["radius", 2.0]
 }
 ```
 
@@ -101,24 +115,19 @@ When a **host** (Maya, Blender, Houdini…) or a **connector** (Zapier, n8n, a C
 Validation error: document root must be an object
 ```
 
-**Why?** The server parses `arguments` as a JSON value. If it's a string, the server cannot validate it against the tool's JSON Schema. Always parse your arguments into an object **before** sending.
+**Why?** The server validates `arguments` against the tool's JSON Schema, whose root is an object.
 
-**2. arguments is `null` or missing**
+**3. Missing arguments for no-arg tools**
 
 ```json
 {
-  "tool_slug": "maya.a1b2c3d4.create_sphere"  // ❌ missing `arguments`
+  "tool_slug": "maya.a1b2c3d4.list_scene"
 }
 ```
 
-**Error you'll see:**
-```
-Validation error: missing field `arguments`
-```
+This is now valid and normalizes to `{}`. Explicit `"arguments": {}` is still recommended in examples because it makes wrapper intent obvious.
 
-**Fix:** Always include `"arguments": {}` (empty object) if the tool takes no arguments.
-
-**3. Double-stringified payload (wrapper serializes twice)**
+**4. Double-stringified payload (wrapper serializes twice)**
 
 ```python
 # ❌ WRONG: serializing the entire payload twice
@@ -176,8 +185,7 @@ When calling via MCP (not REST), the same rule applies:
 }
 ```
 
-**Remember:** `params.arguments` is **always** a JSON object `{}`, never a string.
-
+**Remember:** MCP `params.arguments` is omitted or a JSON object `{}`, never an array/number/boolean.
 
 ### Success response — `200 OK`
 
@@ -211,7 +219,7 @@ Error-kind vocabulary (HTTP status in parentheses):
 - `unknown-slug` (404) — no action matched; `candidates` may carry suggested slugs.
 - `ambiguous` (409) — slug matched multiple actions; `candidates` lists all of them.
 - `skill-not-loaded` (409) — slug is valid but the owning skill isn't loaded. Call MCP `load_skill` first; on the gateway you may target a backend with `instance_id` or `dcc`.
-- `invalid-params` (400) — JSON-Schema validation failed against `params`.
+- `invalid-params` (400) — JSON-Schema validation failed against normalized `arguments`.
 - `unauthorized` (401) — the `AuthGate` rejected the request. Defaults to localhost-only on per-DCC servers; install `BearerTokenGate` for remote access.
 - `not-ready` (503) — `/v1/readyz` is red; DCC is still starting up.
 - `affinity-violation` (409) — the caller tried to invoke a main-thread tool from a worker thread.
@@ -227,6 +235,34 @@ Every request gets a `request_id` (client-supplied `X-Request-Id` header wins,
 otherwise the server generates one). The id flows into the audit log, the
 response envelope, and the MCP `_meta.request_id` field on the gateway so
 MCP and REST callers can trace the same unit of work.
+
+---
+
+## `POST /v1/call_batch` — gateway ordered batches
+
+`/v1/call_batch` is the REST twin of the gateway MCP `call_tools` wrapper. Use
+it when an agent must execute several backend tools in a known order without
+paying one HTTP/MCP round-trip per step.
+
+```json
+{
+  "calls": [
+    { "tool_slug": "maya.a1b2c3d4.create_sphere", "arguments": { "radius": 2.0 } },
+    { "tool_slug": "maya.a1b2c3d4.assign_material", "arguments": { "name": "mat_blue" } }
+  ],
+  "stop_on_error": true
+}
+```
+
+Rules:
+
+- `calls` is required and capped at 25 entries.
+- Each entry uses the same `tool_slug` / `arguments` / `meta` wrapper shape as
+  `POST /v1/call`; missing `arguments` normalizes to `{}`.
+- `stop_on_error: true` stops at the first failed call. `false` executes all
+  calls and returns per-call success/error envelopes.
+- Preserve response order to correlate results with the request array; do not
+  infer order from request ids.
 
 ---
 

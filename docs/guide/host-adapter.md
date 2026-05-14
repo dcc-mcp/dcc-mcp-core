@@ -173,6 +173,25 @@ def test_my_host_drives_dispatcher(live_dcc_fixture):
     assert result == 42
 ```
 
+## Gateway wrapper normalization
+
+If your adapter or connector proxies gateway `call_tool` / `call_tools` requests,
+normalize wrapper payloads with the shared helpers instead of reimplementing JSON
+coercion:
+
+```python
+from dcc_mcp_core.host import normalize_tool_arguments, normalize_tool_meta
+
+arguments = normalize_tool_arguments(payload.get("arguments"))
+meta = normalize_tool_meta(payload.get("meta"))
+```
+
+These helpers mirror the Rust `dcc-mcp-wire` contract: missing / `None` /
+empty-string arguments become `{}`, object roots pass through, object-shaped JSON
+strings are accepted, and arrays/numbers/booleans/non-object strings raise a
+validation error. Keep backend-specific values (`code`, `file_path`, `radius`, …)
+inside `arguments`.
+
 ## Checklist when opening a DCC-integration repo
 
 - [ ] Subclass `HostAdapter`, implement the 3 hooks.

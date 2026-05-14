@@ -12,6 +12,14 @@ implementations** live under:
 
 Use those two trees when authoring or reviewing any new skill.
 
+## Ownership before implementation
+
+Before adding or changing bundled adapter skills, read [`docs/POLICY_SKILL_OWNERSHIP.md`](../POLICY_SKILL_OWNERSHIP.md) and the relevant adapter's `SKILL_OWNERSHIP.yml` if it exists.
+
+- Common file operations (`open`, `save`, `import`, `export`, `read_file`, `write_file`, path probes) must have one primary owning skill package for each adapter.
+- Do not copy a file-operation tool into a second skill just to improve discoverability; add aliases, search hints, recipes, or `next-tools` pointing to the primary owner instead.
+- If a duplicate is unavoidable, record the rationale and owner in `SKILL_OWNERSHIP.yml` in the same PR.
+
 ## Frontmatter (SKILL.md)
 
 - Keep `description` as the **primary agent-facing contract** (MCP
