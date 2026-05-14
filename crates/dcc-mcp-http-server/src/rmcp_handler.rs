@@ -25,6 +25,17 @@ use tracing::{debug, warn};
 
 use crate::server_state::ServerState;
 
+/// Registry context carrying type-erased references to ResourceRegistry and PromptRegistry.
+///
+/// Stored as Any to avoid circular dependency on dcc-mcp-http.
+/// rmcp_mount.rs (in dcc-mcp-http) creates these and passes them to the handler factory.
+pub struct RegistryContext {
+    /// Type-erased Arc<ResourceRegistry> or None
+    pub resource_registry: Option<Arc<dyn std::any::Any + Send + Sync>>,
+    /// Type-erased Arc<PromptRegistry> or None
+    pub prompt_registry: Option<Arc<dyn std::any::Any + Send + Sync>>,
+}
+
 /// Adapter that implements rmcp's [`ServerHandler`] trait by delegating to our
 /// existing [`ServerState`].
 ///
@@ -32,12 +43,19 @@ use crate::server_state::ServerState;
 /// `StreamableHttpService::new()`.
 pub struct DccMcpHandler {
     state: ServerState,
+    registry_context: Arc<RegistryContext>,
 }
 
 impl DccMcpHandler {
-    /// Create a new handler instance backed by the given server state.
-    pub fn new(state: ServerState) -> Self {
-        Self { state }
+    /// Create a new handler instance backed by the given server state and registry context.
+    ///
+    /// The registry_context carries type-erased Arc pointers to ResourceRegistry and
+    /// PromptRegistry from dcc-mcp-http to avoid a direct crate dependency.
+    pub fn new(state: ServerState, registry_context: Arc<RegistryContext>) -> Self {
+        Self {
+            state,
+            registry_context,
+        }
     }
 }
 
