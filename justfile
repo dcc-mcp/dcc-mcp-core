@@ -55,6 +55,8 @@ print-wheel-features-py37:
 # recompiling the whole Rust workspace.
 
 # Install admin UI dependencies from the committed lockfile (Node from vx.toml via vx)
+# Note: npm ci skips optional deps by default; use --include=optional to
+# ensure native bindings (rolldown) are installed and the Vite build succeeds.
 admin-install:
     vx npm --prefix admin-ui ci
 

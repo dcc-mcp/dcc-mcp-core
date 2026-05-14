@@ -54,9 +54,10 @@ runs:
       run: rm -f ~/.cargo/bin/cargo-clippy ~/.cargo/bin/cargo-fmt || true
 
     - name: Setup Rust
-      uses: dtolnay/rust-toolchain@master
+      uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: ${{ inputs.rust-version }}
+        components: clippy rustfmt
 
     - name: Install vx
       uses: loonghao/vx@v0.8.36
@@ -96,6 +97,8 @@ runs:
     # manylinux Docker builds do not have `vx` on PATH. Pre-bundle the Vite admin
     # UI on the GitHub runner (vx + Node from vx.toml), then tell
     # `crates/dcc-mcp-gateway/build.rs` to skip `vx npm` inside the container.
+    # Note: admin-ui/.npmrc sets omit=[] so npm ci includes optional deps
+    # (e.g., rolldown native bindings).
     - name: Pre-build admin UI for manylinux Docker
       shell: bash
       run: |
