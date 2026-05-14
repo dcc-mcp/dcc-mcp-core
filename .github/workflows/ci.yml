@@ -118,13 +118,19 @@ jobs:
       - name: Verify workspace-hack is up to date
         shell: bash
         run: |
-          cargo hakari verify && exit 0
+          # Invoke cargo-hakari as a standalone binary instead of `cargo hakari`.
+          # On macOS runners Homebrew installs a `cargo` that is actually a
+          # rustup-init shim, which does NOT dispatch to `cargo-<subcmd>` in
+          # ~/.cargo/bin and instead errors with `unexpected argument 'hakari'`.
+          # Calling cargo-hakari directly bypasses that PATH ordering issue.
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo-hakari hakari verify && exit 0
 
           # If we get here, verify failed. Run generate and show the diff.
           echo "::error::workspace-hack is out of date — run 'cargo hakari generate' locally"
           echo ""
           echo "Expected changes to crates/workspace-hack/Cargo.toml:"
-          cargo hakari generate
+          cargo-hakari hakari generate
           git diff --no-color crates/workspace-hack/Cargo.toml
           echo ""
           echo "::error::Run 'cargo hakari generate' and commit the changes to fix this CI step."
