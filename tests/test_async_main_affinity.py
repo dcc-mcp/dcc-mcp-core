@@ -47,7 +47,7 @@ def _tools_call(
     if arguments is not None:
         params["arguments"] = arguments
     if meta is not None:
-        params["_meta"] = meta
+        params["meta"] = meta
     body = {"jsonrpc": "2.0", "id": req_id, "method": "tools/call", "params": params}
     _, resp = client.post(body)
     return resp
