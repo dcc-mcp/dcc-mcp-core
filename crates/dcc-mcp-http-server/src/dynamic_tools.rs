@@ -42,6 +42,24 @@ const MAX_CODE_BYTES: usize = 256 * 1024;
 /// The name prefix for all dynamic tools, making them easy to identify.
 pub const DYNAMIC_TOOL_PREFIX: &str = "dyn__";
 
+/// Build the Python wrapper script that binds `params` to the call arguments (issue #462).
+#[must_use]
+pub fn build_execution_wrapper(name: &str, code: &str, args: &Value) -> String {
+    let args_json = serde_json::to_string(args).unwrap_or_else(|_| "{}".to_string());
+    let escaped = args_json.replace('\\', "\\\\").replace('\'', "\\'");
+    format!(
+        "import json as _json\n\
+         # Bind call arguments as 'params'\n\
+         params = _json.loads('{escaped}')\n\
+         \n\
+         # -- dynamic tool: {name} --\n\
+         {code}\n",
+        escaped = escaped,
+        name = name,
+        code = code,
+    )
+}
+
 // ── ToolSpec ─────────────────────────────────────────────────────────────────
 
 pub use dcc_mcp_http_types::dynamic_tools::ToolSpec;

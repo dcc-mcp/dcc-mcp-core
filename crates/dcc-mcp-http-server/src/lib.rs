@@ -27,10 +27,15 @@ pub mod server_state;
 pub mod session;
 pub mod workspace;
 
+pub mod mcp_tool_list_builder;
+pub mod tool_list_legacy;
+
 // rmcp integration modules (issue #985).
 pub mod rmcp_adapter;
-pub mod rmcp_handler;
 pub mod rmcp_providers;
+pub mod rmcp_registry_context;
+pub mod rmcp_tool_call_dispatch;
+pub mod rmcp_handler;
 
 pub use dynamic_tools::{
     DYNAMIC_TOOL_PREFIX, DynamicToolEntry, DynamicToolError, SessionDynamicTools, ToolSpec,

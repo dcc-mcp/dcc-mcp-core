@@ -16,7 +16,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult as RmcpCallToolResult, Content, GetPromptRequestParams,
+    CallToolRequestParams, CallToolResult as RmcpCallToolResult, GetPromptRequestParams,
     GetPromptResult as RmcpGetPromptResult, Implementation,
     ListPromptsResult as RmcpListPromptsResult, ListResourcesResult as RmcpListResourcesResult,
     ListToolsResult, LoggingLevel, PaginatedRequestParams, ReadResourceRequestParams,
@@ -29,23 +29,13 @@ use rmcp::{ErrorData as McpError, RoleServer, ServerHandler};
 use serde_json::Value;
 use tracing::{debug, warn};
 
+use crate::mcp_tool_list_builder::{assemble_full_tool_list, slice_tools_page};
 use crate::rmcp_adapter;
-use crate::rmcp_providers::{PromptProvider, ProviderError, ResourceProvider};
+use crate::rmcp_providers::ProviderError;
+pub use crate::rmcp_registry_context::RegistryContext;
+use crate::rmcp_tool_call_dispatch::dispatch_rmcp_tool_call;
 use crate::server_state::ServerState;
 use crate::session::SessionLogLevel;
-
-/// Context carrying provider trait objects for resource and prompt access.
-///
-/// This breaks the circular dependency between `dcc-mcp-http` (which owns
-/// `ResourceRegistry` / `PromptRegistry`) and this crate (which implements
-/// `ServerHandler`). The HTTP crate creates concrete implementations and
-/// passes them here as trait objects.
-pub struct RegistryContext {
-    /// Resource provider (list + read). `None` if resources are disabled.
-    pub resource_provider: Option<Arc<dyn ResourceProvider>>,
-    /// Prompt provider (list + get). `None` if prompts are disabled.
-    pub prompt_provider: Option<Arc<dyn PromptProvider>>,
-}
 
 /// Adapter that implements rmcp's [`ServerHandler`] trait by delegating to our
 /// existing [`ServerState`].
@@ -108,34 +98,23 @@ impl ServerHandler for DccMcpHandler {
 
     fn list_tools(
         &self,
-        _request: Option<PaginatedRequestParams>,
+        request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListToolsResult, McpError>> + Send + '_ {
-        async {
-            let actions = self.state.registry.list_actions_enabled(None);
+        async move {
+            let session_id: Option<&str> = None;
+            let include_output_schema = true;
+            let full = assemble_full_tool_list(&self.state, include_output_schema, session_id);
+            let cursor = request.as_ref().and_then(|p| p.cursor.as_deref());
+            let (page, next_cursor) = slice_tools_page(full, cursor);
+            let tools: Vec<RmcpTool> =
+                page.iter().map(|tool| rmcp_adapter::tool_to_rmcp(tool)).collect();
 
-            let tools: Vec<RmcpTool> = actions
-                .iter()
-                .map(|meta| {
-                    let input_schema: Arc<rmcp::model::JsonObject> = match &meta.input_schema {
-                        Value::Object(map) => Arc::new(map.clone()),
-                        _ => Arc::new(
-                            serde_json::json!({"type": "object", "properties": {}})
-                                .as_object()
-                                .unwrap()
-                                .clone(),
-                        ),
-                    };
-
-                    RmcpTool::new(meta.name.clone(), meta.description.clone(), input_schema)
-                })
-                .collect();
-
-            debug!(count = tools.len(), "rmcp: listed tools from registry");
+            debug!(count = tools.len(), "rmcp: listed assembled tools");
 
             Ok(ListToolsResult {
                 meta: None,
-                next_cursor: None,
+                next_cursor,
                 tools,
             })
         }
@@ -148,33 +127,21 @@ impl ServerHandler for DccMcpHandler {
     ) -> impl Future<Output = Result<RmcpCallToolResult, McpError>> + Send + '_ {
         async move {
             let tool_name = request.name.as_ref();
-            let arguments: Value = request
-                .arguments
-                .map(Value::Object)
-                .unwrap_or(Value::Object(serde_json::Map::new()));
+            let arguments = request.arguments.map(Value::Object);
 
             debug!(tool = %tool_name, "rmcp: dispatching tool call");
 
-            let result = self.state.dispatcher.dispatch(tool_name, arguments);
-
-            match result {
-                Ok(dispatch_result) => {
-                    let content = vec![Content::text(dispatch_result.output.to_string())];
-                    let mut out = RmcpCallToolResult::default();
-                    out.content = content;
-                    out.structured_content = Some(dispatch_result.output);
-                    // Explicitly set isError=false so clients that check the field
-                    // don't get a KeyError (rmcp skips None fields in serialization).
-                    out.is_error = Some(false);
-                    Ok(out)
-                }
-                Err(e) => {
-                    warn!(tool = %tool_name, error = %e, "rmcp: tool dispatch failed");
-                    let mut out = RmcpCallToolResult::default();
-                    out.content = vec![Content::text(e.to_string())];
-                    out.is_error = Some(true);
-                    Ok(out)
-                }
+            match dispatch_rmcp_tool_call(
+                &self.state,
+                &self.registry_context,
+                None,
+                tool_name,
+                arguments,
+            )
+            .await
+            {
+                Ok(result) => Ok(rmcp_adapter::call_result_to_rmcp(&result)),
+                Err(msg) => Err(McpError::invalid_params(msg, None)),
             }
         }
     }
