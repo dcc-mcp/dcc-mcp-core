@@ -14,6 +14,7 @@ proc-macro = true
 syn = { version = "2", features = ["full", "extra-traits"] }
 quote = "1"
 proc-macro2 = "1"
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 # Smoke-tests live in the consumer crate (`dcc-mcp-pybridge`) so that the
