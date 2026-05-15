@@ -107,8 +107,7 @@ impl ServerHandler for DccMcpHandler {
             let full = assemble_full_tool_list(&self.state, include_output_schema, session_id);
             let cursor = request.as_ref().and_then(|p| p.cursor.as_deref());
             let (page, next_cursor) = slice_tools_page(full, cursor);
-            let tools: Vec<RmcpTool> =
-                page.iter().map(|tool| rmcp_adapter::tool_to_rmcp(tool)).collect();
+            let tools: Vec<RmcpTool> = page.iter().map(rmcp_adapter::tool_to_rmcp).collect();
 
             debug!(count = tools.len(), "rmcp: listed assembled tools");
 

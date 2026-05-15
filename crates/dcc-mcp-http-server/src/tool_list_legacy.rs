@@ -11,6 +11,7 @@ use dcc_mcp_jsonrpc::{McpTool, McpToolAnnotations};
 use dcc_mcp_models::SkillScope;
 use dcc_mcp_skills::SkillSummary;
 
+#[must_use]
 pub fn build_lazy_action_tools() -> Vec<McpTool> {
     vec![
         McpTool {
@@ -110,6 +111,7 @@ pub fn build_lazy_action_tools() -> Vec<McpTool> {
     ]
 }
 
+#[must_use]
 pub fn action_meta_to_mcp_tool(
     meta: &ToolMeta,
     include_output_schema: bool,
@@ -166,6 +168,7 @@ pub fn action_meta_to_mcp_tool(
     }
 }
 
+#[must_use]
 pub fn build_tool_meta(
     meta: &ToolMeta,
     declared_capabilities: &[String],
@@ -229,6 +232,7 @@ pub(crate) fn missing_capabilities(required: &[String], declared: &[String]) -> 
         .collect()
 }
 
+#[must_use]
 pub fn build_skill_stub(summary: &SkillSummary) -> McpTool {
     let has_explicit_hint =
         !summary.search_hint.is_empty() && summary.search_hint != summary.description;
@@ -296,6 +300,7 @@ pub fn resolve_action_by_id(registry: &ToolRegistry, id: &str) -> Option<ToolMet
     None
 }
 
+#[must_use]
 pub fn build_group_stub(group: &str, tool_names: &[String]) -> McpTool {
     const PREVIEW_LIMIT: usize = 5;
     let preview = if tool_names.len() <= PREVIEW_LIMIT {
