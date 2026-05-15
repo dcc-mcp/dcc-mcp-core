@@ -1,11 +1,9 @@
-//! `tools/call` routing for rmcp — ported from pre-#985 JSON-RPC
-//! `handlers/tools_call/*` so core tools, stubs, lazy-actions, jobs, and
-//! registry resolution match the historical HTTP server.
+//! `tools/call` routing for rmcp handlers.
 
 use serde_json::{Value, json};
 
 use dcc_mcp_actions::registry::ToolMeta;
-use dcc_mcp_gateway::namespace::{decode_skill_tool_name, extract_bare_tool_name, skill_tool_name};
+use dcc_mcp_gateway::namespace::{decode_skill_tool_name, skill_tool_name};
 use dcc_mcp_job::job::{Job, JobStatus};
 use dcc_mcp_jsonrpc::{
     CallToolMeta, CallToolResult, DELTA_TOOLS_METHOD, NotificationBuilder, ToolContent,
@@ -92,32 +90,14 @@ fn resolve_action_name(state: &ServerState, tool_name: &str) -> String {
             .registry
             .list_actions_by_skill(skill_part)
             .into_iter()
-            .find(|m| extract_bare_tool_name(skill_part, &m.name) == bare_tool);
+            .find(|m| m.name == bare_tool);
         if let Some(m) = matched {
-            if state.bare_tool_names {
-                dcc_mcp_gateway::namespace::warn_legacy_prefixed_once(tool_name);
-            }
             return m.name;
         }
         return tool_name.to_string();
     }
 
-    let matched = state.registry.list_actions(None).into_iter().find(|m| {
-        m.skill_name
-            .as_deref()
-            .map(|skill_name| extract_bare_tool_name(skill_name, &m.name) == tool_name)
-            .unwrap_or(false)
-    });
-    if let Some(meta) = matched {
-        if !state.bare_tool_names {
-            let canonical = skill_tool_name(meta.skill_name.as_deref().unwrap_or(""), &meta.name)
-                .unwrap_or_else(|| meta.name.clone());
-            tracing::warn!(bare_name=%tool_name, "Deprecated bare name -- use {canonical}.");
-        }
-        meta.name
-    } else {
-        tool_name.to_string()
-    }
+    tool_name.to_string()
 }
 
 fn capability_gate_result(
