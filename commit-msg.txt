@@ -1,5 +1,0 @@
-fix(mcp): split async dispatch, emit isError=false, run rustfmt
-
-Extract rmcp async job dispatch into rmcp_tool_call_async.rs (file size
-gate). Serialize isError=false on successful rmcp tool calls so Python
-tests do not KeyError on result["isError"].
