@@ -33,7 +33,7 @@ use crate::mcp_tool_list_builder::{assemble_full_tool_list, slice_tools_page};
 use crate::rmcp_adapter;
 use crate::rmcp_providers::ProviderError;
 pub use crate::rmcp_registry_context::RegistryContext;
-use crate::rmcp_tool_call_dispatch::dispatch_rmcp_tool_call;
+use crate::rmcp_tool_call_dispatch::{call_meta_from_rmcp, dispatch_rmcp_tool_call};
 use crate::server_state::ServerState;
 use crate::session::SessionLogLevel;
 
@@ -130,12 +130,14 @@ impl ServerHandler for DccMcpHandler {
 
             debug!(tool = %tool_name, "rmcp: dispatching tool call");
 
+            let call_meta = call_meta_from_rmcp(request.meta.as_ref());
             match dispatch_rmcp_tool_call(
                 &self.state,
                 &self.registry_context,
                 None,
                 tool_name,
                 arguments,
+                call_meta.as_ref(),
             )
             .await
             {
