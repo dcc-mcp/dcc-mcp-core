@@ -1,16 +1,3 @@
-## v0.10.0 (2026-03-28)
-
-### Feat
-
-- replace pre-commit with vx prek and add justfile
-- add Skills system for zero-code script registration as MCP tools
-
-### Fix
-
-- resolve lint errors in test files (isort, ruff format, D106/F841)
-- add cross-platform shell support to justfile
-- resolve isort issues and migrate CI to vx
-
 ## [0.16.0](https://github.com/loonghao/dcc-mcp-core/compare/v0.15.9...v0.16.0) (2026-05-13)
 
 
@@ -278,7 +265,7 @@
 
 * **skills:** align fixtures with nested metadata.dcc-mcp.* contract
 * **skills:** SKILL.md authors using the flat-form shorthand must migrate to the nested form. The flat-form keys will still parse as YAML (the loader does not reject them) but they stop populating the typed SkillMetadata fields, so meta.dcc, meta.layer, meta.tags, etc. will all fall back to their serde defaults.
-* **gateway:** 
+* **gateway:**
 * **adapter:** `DccApiDocEntry`, `DccApiDocIndex`, and `register_dcc_api_docs` are removed from the public Python API (`dcc_mcp_core.adapter_context` and `dcc_mcp_core.__all__`). No known downstream consumer imports these symbols.
 * **skills:** SKILL.md files that declare dcc-mcp-core extensions (dcc, version, tags, tools, groups, depends, search-hint, next-tools, policy, products, external_deps, allow_implicit_invocation) at the YAML frontmatter root are no longer accepted. Move these keys under `metadata.dcc-mcp.*` (nested or flat form) per agentskills.io 1.0. The PyO3 surface `SkillMetadata.is_spec_compliant()` and `SkillMetadata.legacy_extension_fields` are removed; a successful parse now implies spec compliance, and `validate_skill()` reports any non-spec top-level key as a frontmatter error.
 
@@ -1702,6 +1689,19 @@
 
 * Add comprehensive Sphinx documentation for DCC-MCP-Core ([d49dbaf](https://github.com/loonghao/dcc-mcp-core/commit/d49dbaf463fe2dc56aa3c51284fddb299efdf029))
 * migrate from Sphinx to VitePress with i18n support ([1c4ef9c](https://github.com/loonghao/dcc-mcp-core/commit/1c4ef9cd96ef23d9c6d7c32605e4fd785324d5d7))
+
+## v0.10.0 (2026-03-28)
+
+### Feat
+
+- replace pre-commit with vx prek and add justfile
+- add Skills system for zero-code script registration as MCP tools
+
+### Fix
+
+- resolve lint errors in test files (isort, ruff format, D106/F841)
+- add cross-platform shell support to justfile
+- resolve isort issues and migrate CI to vx
 
 ## v0.9.0 (2026-03-24)
 
