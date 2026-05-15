@@ -28,6 +28,38 @@ pub const ENV_TEAM_SKILL_PATHS: &str = "DCC_MCP_TEAM_SKILL_PATHS";
 /// Template for per-app team skill search paths: `DCC_MCP_TEAM_{APP}_SKILL_PATHS`.
 pub const ENV_TEAM_APP_SKILL_PATHS_TEMPLATE: &str = "DCC_MCP_TEAM_{APP}_SKILL_PATHS";
 
+/// Environment variable to override FileRegistry `dcc_type` when the embedder
+/// did not set an app/DCC name (e.g. standalone `dcc-mcp-server` with no `--app`).
+///
+/// Default when unset: [`DEFAULT_STANDALONE_REGISTRY_DCC_TYPE`]. Use a value
+/// other than `unknown` so the gateway includes this instance in `live_instances`
+/// without enabling `allow_unknown_tools`.
+pub const ENV_STANDALONE_REGISTRY_DCC_TYPE: &str = "DCC_MCP_STANDALONE_REGISTRY_DCC_TYPE";
+
+/// Default registry `dcc_type` for standalone / generic hosts (not `"unknown"`).
+pub const DEFAULT_STANDALONE_REGISTRY_DCC_TYPE: &str = "generic";
+
+/// Resolve the `dcc_type` string stored on a [`ServiceEntry`] for MCP registration.
+#[must_use]
+pub fn resolve_registry_dcc_type(embedder_dcc: Option<&str>) -> String {
+    let from_embedder = embedder_dcc.and_then(|s| {
+        let t = s.trim();
+        if t.is_empty() {
+            None
+        } else {
+            Some(t.to_ascii_lowercase())
+        }
+    });
+    if let Some(v) = from_embedder {
+        return v;
+    }
+    std::env::var(ENV_STANDALONE_REGISTRY_DCC_TYPE)
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.trim().to_ascii_lowercase())
+        .unwrap_or_else(|| DEFAULT_STANDALONE_REGISTRY_DCC_TYPE.to_string())
+}
+
 /// Environment variable to disable automatic discovery of accumulated skills.
 pub const ENV_DISABLE_ACCUMULATED_SKILLS: &str = "DCC_MCP_DISABLE_ACCUMULATED_SKILLS";
 
@@ -235,5 +267,10 @@ mod tests {
             team_skill_paths_env_key("maya"),
             "DCC_MCP_TEAM_MAYA_SKILL_PATHS"
         );
+    }
+
+    #[test]
+    fn test_resolve_registry_dcc_type_prefers_embedder() {
+        assert_eq!(resolve_registry_dcc_type(Some("Maya")), "maya");
     }
 }
