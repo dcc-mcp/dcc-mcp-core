@@ -138,6 +138,5 @@ class TestArtefactResourceScheme:
         )
         assert code == 200
         assert "error" in body
-        # RESOURCE_NOT_ENABLED_ERROR code in protocol.rs is -32002, reused
-        # for "not found" when the scheme is valid but the URI isn't stored.
-        assert body["error"]["code"] == -32002
+        # rmcp maps resource-not-found to invalid_params (-32602)
+        assert body["error"]["code"] in (-32002, -32602)
