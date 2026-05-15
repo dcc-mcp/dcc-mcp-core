@@ -2,6 +2,16 @@ use super::backend::BackendShared;
 use super::helpers::{backoff_delay, find_record_end, parse_sse_record, record_delim_len};
 use super::*;
 
+/// Result of `initialize` against a backend MCP endpoint.
+///
+/// **ActiveSession** — real `Mcp-Session-Id` suitable for SSE `GET /mcp`.
+/// **Stateless** — JSON-direct rmcp mode; `GET /mcp` is not an SSE endpoint.
+#[derive(Debug, Clone)]
+pub(super) enum BackendSessionHandshake {
+    ActiveSession(String),
+    Stateless,
+}
+
 impl SubscriberManager {
     // ── Backend reconnect loop ─────────────────────────────────────────
 
@@ -26,7 +36,7 @@ impl SubscriberManager {
                 // Single probe attempt. On success reset the counter so the
                 // normal backoff loop takes over. On failure stay in the
                 // open state and wait another reset interval.
-                match self.handshake_session_id(&url).await {
+                match self.handshake_backend_session(&url).await {
                     Ok(_) => {
                         tracing::info!(
                             backend = %url,
@@ -53,8 +63,8 @@ impl SubscriberManager {
             // `initialize` RPC creates a session; a bare GET /mcp with
             // a made-up id would 404. Do the handshake, then open the
             // SSE stream with whatever id the backend minted.
-            let session_id = match self.handshake_session_id(&url).await {
-                Ok(id) => id,
+            let session_mode = match self.handshake_backend_session(&url).await {
+                Ok(m) => m,
                 Err(e) => {
                     tracing::debug!(
                         backend = %url,
@@ -68,51 +78,63 @@ impl SubscriberManager {
                     continue;
                 }
             };
-            *shared.session_id.lock() = Some(session_id.clone());
 
-            match self.open_stream(&url, &session_id).await {
-                Ok(resp) => {
-                    if attempt > 0 {
-                        tracing::info!(
-                            backend = %url,
-                            attempts = attempt,
-                            "gateway SSE: backend reconnected — emitting gatewayReconnect"
-                        );
-                        self.emit_gateway_reconnect(&url);
-                    }
-                    attempt = 0;
-                    *shared.reconnect_attempts.lock() = 0;
-                    // Pump until the stream closes / errors out.
-                    self.pump_stream(resp, &shared).await;
-                    tracing::info!(backend = %url, "gateway SSE: stream closed — reconnecting");
-                }
-                Err(e) => {
-                    tracing::debug!(
+            // Stateless MCP Streamable HTTP (JSON-direct, no SSE) — opening a
+            // bare GET `/mcp` yields 405 (#985).Park this loop: resource
+            // push cannot work without an SSE-compatible backend.
+            match session_mode {
+                BackendSessionHandshake::Stateless => {
+                    tracing::info!(
                         backend = %url,
-                        attempt,
-                        error = %e,
-                        "gateway SSE: connect failed"
+                        "gateway SSE: stateless MCP backend — SSE subscription unavailable; parked"
                     );
+                    std::future::pending::<()>().await;
+                }
+                BackendSessionHandshake::ActiveSession(session_id) => {
+                    *shared.session_id.lock() = Some(session_id.clone());
+
+                    match self.open_stream(&url, &session_id).await {
+                        Ok(resp) => {
+                            if attempt > 0 {
+                                tracing::info!(
+                                    backend = %url,
+                                    attempts = attempt,
+                                    "gateway SSE: backend reconnected — emitting gatewayReconnect"
+                                );
+                                self.emit_gateway_reconnect(&url);
+                            }
+                            attempt = 0;
+                            *shared.reconnect_attempts.lock() = 0;
+                            // Pump until the stream closes / errors out.
+                            self.pump_stream(resp, &shared).await;
+                            tracing::info!(backend = %url, "gateway SSE: stream closed — reconnecting");
+                        }
+                        Err(e) => {
+                            tracing::debug!(
+                                backend = %url,
+                                attempt,
+                                error = %e,
+                                "gateway SSE: connect failed"
+                            );
+                        }
+                    }
+                    attempt = attempt.saturating_add(1);
+                    *shared.reconnect_attempts.lock() = attempt;
+                    let delay = backoff_delay(attempt);
+                    tokio::time::sleep(delay).await;
                 }
             }
-            attempt = attempt.saturating_add(1);
-            *shared.reconnect_attempts.lock() = attempt;
-            let delay = backoff_delay(attempt);
-            tokio::time::sleep(delay).await;
         }
     }
 
-    /// Perform the `initialize` handshake against a backend and return
-    /// the session id the backend minted. This id is the contract the
-    /// per-session fan-out in `background_impl::spawn_notifications_task`
-    /// uses, so we must use it for both the SSE GET and any forwarded
-    /// `resources/subscribe` on behalf of clients (#732).
+    /// Perform the `initialize` handshake against a backend.
     ///
-    /// When the backend runs in **stateless mode** (no `Mcp-Session-Id`
-    /// header and no `__session_id` body field), a synthetic UUID is
-    /// generated so the gateway's internal bookkeeping still has a key
-    /// for this backend.
-    pub(super) async fn handshake_session_id(&self, url: &str) -> Result<String, String> {
+    /// See [`BackendSessionHandshake`]: stateless JSON-direct backends do not
+    /// mint a session id and cannot be followed by `GET /mcp` + `Accept: text/event-stream`.
+    pub(super) async fn handshake_backend_session(
+        &self,
+        url: &str,
+    ) -> Result<BackendSessionHandshake, String> {
         let body = serde_json::json!({
             "jsonrpc": "2.0",
             "id": "gw-sub-init",
@@ -153,7 +175,7 @@ impl SubscriberManager {
             let owned = s.to_owned();
             // Drain the body so the connection is reusable.
             let _ = resp.bytes().await;
-            return Ok(owned);
+            return Ok(BackendSessionHandshake::ActiveSession(owned));
         }
         let text = resp.text().await.map_err(|e| format!("read body: {e}"))?;
         let value: Value = serde_json::from_str(&text).map_err(|e| format!("parse body: {e}"))?;
@@ -163,18 +185,13 @@ impl SubscriberManager {
             .and_then(|r| r.get("__session_id"))
             .and_then(|v| v.as_str())
         {
-            return Ok(sid.to_owned());
+            return Ok(BackendSessionHandshake::ActiveSession(sid.to_owned()));
         }
-        // Backend is in stateless mode (no session management). Generate a
-        // synthetic ID so the gateway's internal routing table has a stable
-        // key for this backend. The SSE stream open will omit the header.
-        let synthetic = uuid::Uuid::new_v4().to_string();
         tracing::debug!(
             backend = %url,
-            synthetic_id = %synthetic,
-            "gateway SSE: backend in stateless mode — using synthetic session id"
+            "gateway SSE: backend in stateless mode — no MCP-Session-Id / __session_id"
         );
-        Ok(synthetic)
+        Ok(BackendSessionHandshake::Stateless)
     }
 
     pub(super) async fn open_stream(
