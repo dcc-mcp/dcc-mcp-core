@@ -84,23 +84,22 @@ runs:
         echo "value=${args}" >> "$GITHUB_OUTPUT"
 
     - name: Verify cargo is in PATH (macOS maturin fix)
+      if: runner.os == 'macOS'
       shell: bash
       run: |
         # maturin calls 'cargo metadata' but on macOS cargo sometimes
         # resolves to rustup-init wrapper that hasn't been replaced yet.
         # Force rustup to install the default toolchain proxy.
         rustup show active-toolchain || rustup default stable
-        # Rehash to pick up the freshly-installed proxy binaries.
         hash -r 2>/dev/null || true
-        which cargo
-        cargo_version=$(cargo --version 2>&1)
-        echo "cargo version: ${cargo_version}"
-        if ! echo "${cargo_version}" | grep -q "^cargo "; then
-          echo "::error::cargo is not working correctly: ${cargo_version}"
-          # Attempt recovery: explicitly set PATH to include cargo bin
-          export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
-          cargo --version || exit 1
-        fi
+        # Pin CARGO/RUSTC so maturin's subprocess uses the real binary,
+        # not a Homebrew shim that is actually rustup-init.
+        CARGO_BIN="$(rustup which cargo 2>/dev/null || which cargo)"
+        RUSTC_BIN="$(rustup which rustc 2>/dev/null || which rustc)"
+        echo "CARGO=${CARGO_BIN}" >> "$GITHUB_ENV"
+        echo "RUSTC=${RUSTC_BIN}" >> "$GITHUB_ENV"
+        echo "cargo: ${CARGO_BIN}"
+        "${CARGO_BIN}" --version
 
     # manylinux Docker builds do not have `vx` on PATH. Pre-bundle the Vite admin
     # UI on the GitHub runner (vx + Node from vx.toml), then tell

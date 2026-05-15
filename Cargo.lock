@@ -861,6 +861,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "dcc-mcp-db"
+version = "0.17.0"
+dependencies = [
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+ "workspace-hack",
+]
+
+[[package]]
 name = "dcc-mcp-gateway"
 version = "0.17.0"
 dependencies = [
@@ -869,6 +882,7 @@ dependencies = [
  "criterion",
  "dashmap",
  "dcc-mcp-catalog",
+ "dcc-mcp-db",
  "dcc-mcp-gateway-core",
  "dcc-mcp-jsonrpc",
  "dcc-mcp-naming",

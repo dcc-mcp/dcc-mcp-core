@@ -1,0 +1,261 @@
+//! SQLite-backed admin persistence (traces, audits, custom skill paths).
+//!
+//! When the `admin-persist-sqlite` feature is off, this module exposes no-op
+//! stubs so `admin`-only test builds keep compiling.
+//!
+//! The writer thread and schema live in `dcc-mcp-db` (`gateway-admin-sqlite`);
+//! this module is a thin type-preserving façade over [`DispatchTrace`] /
+//! [`AdminAuditRecord`].
+
+use std::path::PathBuf;
+
+#[cfg(not(feature = "admin-persist-sqlite"))]
+use std::path::Path;
+use std::time::SystemTime;
+
+#[cfg(not(feature = "admin-persist-sqlite"))]
+use super::state::AdminAuditRecord;
+#[cfg(not(feature = "admin-persist-sqlite"))]
+use super::trace::DispatchTrace;
+
+#[cfg(feature = "admin-persist-sqlite")]
+use std::time::{Duration, UNIX_EPOCH};
+
+#[cfg(feature = "admin-persist-sqlite")]
+use super::state::AdminAuditRecord;
+#[cfg(feature = "admin-persist-sqlite")]
+use super::trace::DispatchTrace;
+#[cfg(feature = "admin-persist-sqlite")]
+use dcc_mcp_db::{
+    GatewayAdminAuditPersistedJson, GatewayAdminSqliteLane as InnerLane,
+    GatewayAdminSqliteReader as InnerReader,
+};
+
+#[cfg(feature = "admin-persist-sqlite")]
+#[derive(Clone)]
+pub struct AdminSqliteReader {
+    inner: InnerReader,
+}
+
+#[cfg(feature = "admin-persist-sqlite")]
+impl AdminSqliteReader {
+    #[must_use]
+    pub fn new(path: PathBuf) -> Self {
+        Self {
+            inner: InnerReader::new(path),
+        }
+    }
+
+    pub fn list_traces_since(
+        &self,
+        cutoff: Option<SystemTime>,
+        limit: usize,
+    ) -> Vec<DispatchTrace> {
+        self.inner
+            .list_traces_since_json(cutoff, limit)
+            .into_iter()
+            .filter_map(|s| serde_json::from_str(&s).ok())
+            .collect()
+    }
+
+    pub fn get_trace(&self, request_id: &str) -> Option<DispatchTrace> {
+        let s = self.inner.get_trace_json(request_id)?;
+        serde_json::from_str(&s).ok()
+    }
+
+    pub fn list_audits_recent(&self, limit: usize) -> Vec<AdminAuditRecord> {
+        self.inner
+            .list_audits_recent_json(limit)
+            .into_iter()
+            .filter_map(|s| {
+                let p: GatewayAdminAuditPersistedJson = serde_json::from_str(&s).ok()?;
+                Some(admin_audit_from_persisted(p))
+            })
+            .collect()
+    }
+
+    pub fn list_custom_skill_paths(&self) -> Vec<(i64, String)> {
+        self.inner.list_custom_skill_paths()
+    }
+}
+
+#[cfg(feature = "admin-persist-sqlite")]
+fn admin_audit_from_persisted(p: GatewayAdminAuditPersistedJson) -> AdminAuditRecord {
+    AdminAuditRecord {
+        timestamp: UNIX_EPOCH + Duration::from_millis(p.timestamp_ms),
+        request_id: p.request_id,
+        method: p.method,
+        instance_id: p.instance_id,
+        session_id: p.session_id,
+        action: p.action,
+        dcc_type: p.dcc_type,
+        success: p.success,
+        error: p.error,
+        duration_ms: p.duration_ms,
+    }
+}
+
+#[cfg(feature = "admin-persist-sqlite")]
+#[derive(Clone)]
+pub struct AdminSqliteLane {
+    inner: InnerLane,
+}
+
+#[cfg(feature = "admin-persist-sqlite")]
+impl AdminSqliteLane {
+    pub fn spawn(path: PathBuf, retention_days: u32) -> Result<Self, String> {
+        Ok(Self {
+            inner: InnerLane::spawn(path, retention_days)?,
+        })
+    }
+
+    #[must_use]
+    pub fn reader(&self) -> AdminSqliteReader {
+        AdminSqliteReader {
+            inner: self.inner.reader(),
+        }
+    }
+
+    pub fn try_persist_trace(&self, t: &DispatchTrace) {
+        if let Ok(json) = serde_json::to_string(t) {
+            self.inner.try_persist_trace_json(&json);
+        }
+    }
+
+    pub fn try_persist_audit(&self, r: &AdminAuditRecord) {
+        let row = audit_to_persisted(r);
+        if let Ok(json) = serde_json::to_string(&row) {
+            self.inner.try_persist_audit_json(&json);
+        }
+    }
+
+    pub fn try_add_skill_path(&self, path: String) -> bool {
+        self.inner.try_add_skill_path(path)
+    }
+
+    pub fn try_delete_skill_path(&self, id: i64) -> bool {
+        self.inner.try_delete_skill_path(id)
+    }
+}
+
+#[cfg(feature = "admin-persist-sqlite")]
+fn audit_to_persisted(r: &AdminAuditRecord) -> GatewayAdminAuditPersistedJson {
+    GatewayAdminAuditPersistedJson {
+        timestamp_ms: r
+            .timestamp
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::ZERO)
+            .as_millis() as u64,
+        request_id: r.request_id.clone(),
+        method: r.method.clone(),
+        instance_id: r.instance_id.clone(),
+        session_id: r.session_id.clone(),
+        action: r.action.clone(),
+        dcc_type: r.dcc_type.clone(),
+        success: r.success,
+        error: r.error.clone(),
+        duration_ms: r.duration_ms,
+    }
+}
+
+#[cfg(feature = "admin-persist-sqlite")]
+pub use dcc_mcp_db::read_custom_skill_paths_for_startup;
+
+#[cfg(not(feature = "admin-persist-sqlite"))]
+#[derive(Clone, Default)]
+pub struct AdminSqliteReader;
+
+#[cfg(not(feature = "admin-persist-sqlite"))]
+impl AdminSqliteReader {
+    #[must_use]
+    pub fn new(_path: PathBuf) -> Self {
+        Self
+    }
+
+    pub fn list_traces_since(
+        &self,
+        _cutoff: Option<SystemTime>,
+        _limit: usize,
+    ) -> Vec<DispatchTrace> {
+        vec![]
+    }
+
+    pub fn get_trace(&self, _request_id: &str) -> Option<DispatchTrace> {
+        None
+    }
+
+    pub fn list_audits_recent(&self, _limit: usize) -> Vec<AdminAuditRecord> {
+        vec![]
+    }
+
+    pub fn list_custom_skill_paths(&self) -> Vec<(i64, String)> {
+        vec![]
+    }
+}
+
+#[cfg(not(feature = "admin-persist-sqlite"))]
+#[derive(Clone)]
+pub struct AdminSqliteLane;
+
+#[cfg(not(feature = "admin-persist-sqlite"))]
+impl AdminSqliteLane {
+    pub fn spawn(_path: PathBuf, _retention_days: u32) -> Result<Self, String> {
+        Ok(Self)
+    }
+
+    #[must_use]
+    pub fn reader(&self) -> AdminSqliteReader {
+        AdminSqliteReader::new(PathBuf::new())
+    }
+
+    pub fn try_persist_trace(&self, _: &DispatchTrace) {}
+
+    pub fn try_persist_audit(&self, _: &AdminAuditRecord) {}
+
+    pub fn try_add_skill_path(&self, _: String) -> bool {
+        false
+    }
+
+    pub fn try_delete_skill_path(&self, _: i64) -> bool {
+        false
+    }
+}
+
+#[cfg(not(feature = "admin-persist-sqlite"))]
+pub fn read_custom_skill_paths_for_startup(_: &Path) -> Vec<PathBuf> {
+    Vec::new()
+}
+
+#[cfg(all(test, feature = "admin-persist-sqlite"))]
+mod tests {
+    use super::{AdminSqliteLane, AdminSqliteReader};
+    use crate::gateway::admin::trace::DispatchTrace;
+    use std::time::SystemTime;
+    use tempfile::tempdir;
+
+    #[test]
+    fn roundtrip_trace() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("t.sqlite");
+        let lane = AdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
+        let t = DispatchTrace {
+            request_id: "r1".into(),
+            method: "tools/call".into(),
+            tool_slug: Some("x".into()),
+            instance_id: None,
+            session_id: None,
+            dcc_type: Some("maya".into()),
+            started_at: SystemTime::now(),
+            total_ms: 12,
+            ok: true,
+            spans: vec![],
+            input: None,
+            output: None,
+        };
+        lane.try_persist_trace(&t);
+        drop(lane);
+        let r = AdminSqliteReader::new(db);
+        let list = r.list_traces_since(None, 10);
+        assert!(list.iter().any(|x| x.request_id == "r1"));
+    }
+}

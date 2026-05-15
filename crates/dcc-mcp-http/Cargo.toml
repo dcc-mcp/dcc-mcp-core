@@ -18,7 +18,7 @@ dcc-mcp-protocols = { path = "../dcc-mcp-protocols" }
 dcc-mcp-jsonrpc = { path = "../dcc-mcp-jsonrpc" }
 dcc-mcp-job = { path = "../dcc-mcp-job" }
 dcc-mcp-skill-rest = { path = "../dcc-mcp-skill-rest" }
-dcc-mcp-gateway = { path = "../dcc-mcp-gateway", features = ["admin"] }
+dcc-mcp-gateway = { path = "../dcc-mcp-gateway", features = ["admin", "admin-persist-sqlite"] }
 dcc-mcp-models = { path = "../dcc-mcp-models" }
 dcc-mcp-skills = { path = "../dcc-mcp-skills" }
 dcc-mcp-pybridge = { path = "../dcc-mcp-pybridge", optional = true }

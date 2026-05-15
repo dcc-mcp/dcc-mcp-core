@@ -72,9 +72,13 @@
 //! | `DCC_MCP_GATEWAY_PORT`    | Gateway port to compete for (default 9765, 0=off)  |
 //! | `DCC_MCP_NO_ADMIN`        | Disable read-only `/admin` on the elected gateway  |
 //! | `DCC_MCP_ADMIN_PATH`      | Admin URL prefix (default `/admin`)                |
+//! | `DCC_MCP_GATEWAY_ADMIN_DB` | Override path for admin SQLite (traces / skill paths) |
+//! | `DCC_MCP_GATEWAY_ADMIN_RETENTION_DAYS` | Admin SQLite retention in days (default 30, max 3650) |
+//! | `DCC_MCP_STANDALONE_REGISTRY_DCC_TYPE` | FileRegistry `dcc_type` when `--app` is empty (default `generic`) |
 //! | `DCC_MCP_REGISTRY_DIR`    | Shared FileRegistry directory                      |
 //! | `DCC_MCP_STALE_TIMEOUT`   | Seconds without heartbeat = stale (default 30)     |
 
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -82,13 +86,44 @@ use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
-use dcc_mcp_gateway::{GatewayConfig, GatewayRunner};
+use dcc_mcp_gateway::{AdminPersistConfig, GatewayConfig, GatewayRunner, SkillPathEntry};
 use dcc_mcp_http::{McpHttpConfig, McpHttpServer};
 use dcc_mcp_logging::file_logging::prune_old_logs;
 use dcc_mcp_skills::SkillCatalog;
+use dcc_mcp_skills::constants::{
+    ENV_SKILL_PATHS, app_skill_paths_env_key, resolve_registry_dcc_type,
+};
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 use sysinfo::{Pid, ProcessesToUpdate, System};
 mod translate;
+
+// #region agent log
+/// NDJSON debug ingest (session `ce2112`). Set `DCC_MCP_AGENT_DEBUG_LOG` to a file path to enable.
+fn agent_debug_log(hypothesis_id: &str, location: &str, message: &str, data: serde_json::Value) {
+    let Ok(path) = std::env::var("DCC_MCP_AGENT_DEBUG_LOG") else {
+        return;
+    };
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let payload = serde_json::json!({
+        "sessionId": "ce2112",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": ts,
+    });
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        let _ = writeln!(f, "{}", payload);
+    }
+}
+// #endregion agent log
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
 
@@ -629,23 +664,68 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Collect skill paths ───────────────────────────────────────────────
 
+    let registry_dir_path: Option<PathBuf> = args.registry_dir.as_deref().map(PathBuf::from);
+
+    let mut skill_paths_snapshot: Vec<SkillPathEntry> = Vec::new();
+    for p in &args.skill_paths {
+        skill_paths_snapshot.push(SkillPathEntry {
+            path: p.display().to_string(),
+            source: "cli".into(),
+        });
+    }
+
     let mut skill_paths: Vec<PathBuf> = args.skill_paths.clone();
     skill_paths.extend(
         dcc_mcp_skills::paths::get_skill_paths_from_env()
             .into_iter()
+            .inspect(|s| {
+                skill_paths_snapshot.push(SkillPathEntry {
+                    path: s.clone(),
+                    source: format!("env:{ENV_SKILL_PATHS}"),
+                });
+            })
             .map(PathBuf::from),
     );
     if !args.app.is_empty() {
+        let env_key = app_skill_paths_env_key(&args.app);
         skill_paths.extend(
             dcc_mcp_skills::paths::get_app_skill_paths_from_env(&args.app)
                 .into_iter()
+                .inspect(|s| {
+                    skill_paths_snapshot.push(SkillPathEntry {
+                        path: s.clone(),
+                        source: format!("env:{env_key}"),
+                    });
+                })
                 .map(PathBuf::from),
         );
     }
     if let Ok(bundled) = dcc_mcp_skills::paths::get_skills_dir(None) {
-        let p = PathBuf::from(bundled);
+        let p = PathBuf::from(&bundled);
         if p.exists() {
+            skill_paths_snapshot.push(SkillPathEntry {
+                path: bundled.clone(),
+                source: "bundled".into(),
+            });
             skill_paths.push(p);
+        }
+    }
+
+    let skill_paths_for_catalog_reload = skill_paths.clone();
+
+    let admin_db =
+        dcc_mcp_gateway::gateway::admin::resolve_admin_db_path(None, registry_dir_path.as_ref());
+    for p in
+        dcc_mcp_gateway::gateway::admin::sqlite_lane::read_custom_skill_paths_for_startup(&admin_db)
+    {
+        if p.exists() {
+            skill_paths_snapshot.push(SkillPathEntry {
+                path: p.display().to_string(),
+                source: "admin_custom".into(),
+            });
+            if !skill_paths.iter().any(|x| x == &p) {
+                skill_paths.push(p);
+            }
         }
     }
 
@@ -674,8 +754,67 @@ async fn main() -> anyhow::Result<()> {
                 .collect(),
         )
     };
+
+    // #region agent log
+    let launch_t0 = std::time::Instant::now();
+    agent_debug_log(
+        "H1",
+        "dcc-mcp-server/src/main.rs:pre_discover",
+        "before catalog.discover",
+        serde_json::json!({
+            "skill_path_count": skill_paths.len(),
+            "extra_dir_count": extra_dirs.as_ref().map(|v| v.len()).unwrap_or(0),
+            "app": args.app,
+        }),
+    );
+    // #endregion agent log
+
     let n = catalog.discover(extra_dirs.as_deref(), app_hint);
     tracing::info!("Discovered {} skill(s) in catalog", n);
+
+    // #region agent log
+    agent_debug_log(
+        "H1",
+        "dcc-mcp-server/src/main.rs:post_discover",
+        "after catalog.discover",
+        serde_json::json!({
+            "discovered": n,
+            "discover_ms": launch_t0.elapsed().as_millis(),
+        }),
+    );
+    // #endregion agent log
+
+    let catalog_discover_hook: Arc<dyn Fn() + Send + Sync> = {
+        let catalog = catalog.clone();
+        let base_dirs = skill_paths_for_catalog_reload.clone();
+        let admin_db_path = admin_db.clone();
+        let app_owned = args.app.clone();
+        Arc::new(move || {
+            let mut merged = base_dirs.clone();
+            for p in
+                dcc_mcp_gateway::gateway::admin::read_custom_skill_paths_for_startup(&admin_db_path)
+            {
+                if p.exists() && !merged.iter().any(|x| x == &p) {
+                    merged.push(p);
+                }
+            }
+            let extra: Vec<String> = merged
+                .into_iter()
+                .filter(|p| p.exists())
+                .map(|p| p.display().to_string())
+                .collect();
+            let hint = if app_owned.is_empty() {
+                None
+            } else {
+                Some(app_owned.as_str())
+            };
+            let discovered = catalog.discover(Some(&extra), hint);
+            tracing::info!(
+                discovered,
+                "catalog.discover after admin skill-path change (hook)"
+            );
+        })
+    };
 
     // ── Start MCP HTTP server (DCC-specific tools) ────────────────────────
 
@@ -687,25 +826,69 @@ async fn main() -> anyhow::Result<()> {
         .parse()
         .map_err(|e| anyhow::anyhow!("Invalid --host '{}': {e}", args.host))?;
 
+    // #region agent log
+    agent_debug_log(
+        "H2",
+        "dcc-mcp-server/src/main.rs:pre_mcp_start",
+        "before McpHttpServer::start",
+        serde_json::json!({
+            "spawn_mode": format!("{:?}", config.server.spawn_mode),
+            "self_probe_timeout_ms": config.server.self_probe_timeout_ms,
+            "mcp_port_cli": args.mcp_port,
+            "elapsed_since_launch_ms": launch_t0.elapsed().as_millis(),
+        }),
+    );
+    // #endregion agent log
+
     let mcp_server = McpHttpServer::with_catalog(action_registry.clone(), catalog.clone(), config)
         .with_dispatcher(dispatcher.clone());
 
     let handle = mcp_server.start().await?;
 
+    // #region agent log
+    agent_debug_log(
+        "H2",
+        "dcc-mcp-server/src/main.rs:post_mcp_start",
+        "after McpHttpServer::start",
+        serde_json::json!({
+            "listen_port": handle.port,
+            "bind_addr": handle.bind_addr,
+            "elapsed_since_launch_ms": launch_t0.elapsed().as_millis(),
+        }),
+    );
+    // #endregion agent log
+
+    let registry_dcc =
+        resolve_registry_dcc_type((!args.app.is_empty()).then_some(args.app.as_str()));
+
     tracing::info!(
         "MCP server listening on http://{}:{}/mcp  (app={})",
         args.host,
         handle.port,
-        if args.app.is_empty() {
-            "generic"
-        } else {
-            &args.app
-        }
+        registry_dcc,
     );
 
     // ── Register + gateway competition (via library) ──────────────────────
 
-    let registry_dir_path: Option<PathBuf> = args.registry_dir.as_deref().map(PathBuf::from);
+    // #region agent log
+    agent_debug_log(
+        "H3",
+        "dcc-mcp-server/src/main.rs:pre_gateway_start",
+        "before GatewayRunner::start",
+        serde_json::json!({
+            "gateway_port": args.gateway_port,
+            "registry_dir": registry_dir_path.as_ref().map(|p| p.display().to_string()),
+            "env_registry_dir": std::env::var("DCC_MCP_REGISTRY_DIR").ok(),
+            "elapsed_since_launch_ms": launch_t0.elapsed().as_millis(),
+        }),
+    );
+    // #endregion agent log
+
+    let admin_retention = std::env::var("DCC_MCP_GATEWAY_ADMIN_RETENTION_DAYS")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(30)
+        .clamp(1, 3650);
 
     let gateway_cfg = GatewayConfig {
         host: args.host.clone(),
@@ -725,21 +908,19 @@ async fn main() -> anyhow::Result<()> {
         },
         admin_enabled: !args.no_admin,
         admin_path: args.admin_path.clone(),
+        admin_persist: AdminPersistConfig {
+            sqlite_path: std::env::var_os("DCC_MCP_GATEWAY_ADMIN_DB").map(PathBuf::from),
+            sqlite_retention_days: admin_retention,
+            skill_paths_snapshot,
+            skill_paths_reload: Some(catalog_discover_hook),
+        },
         ..GatewayConfig::default()
     };
 
     let runner = GatewayRunner::new(gateway_cfg)
         .map_err(|e| anyhow::anyhow!("Failed to create GatewayRunner: {e}"))?;
 
-    let mut entry = ServiceEntry::new(
-        if args.app.is_empty() {
-            "unknown"
-        } else {
-            &args.app
-        },
-        &args.host,
-        handle.port,
-    );
+    let mut entry = ServiceEntry::new(registry_dcc.as_str(), &args.host, handle.port);
     entry.version = args.app_version.clone();
     entry.scene = args.scene.clone();
     entry
@@ -756,6 +937,18 @@ async fn main() -> anyhow::Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("Failed to start gateway: {e}"))?;
     let is_gateway = gw_handle.is_gateway;
+
+    // #region agent log
+    agent_debug_log(
+        "H3",
+        "dcc-mcp-server/src/main.rs:post_gateway_start",
+        "after GatewayRunner::start",
+        serde_json::json!({
+            "is_gateway": is_gateway,
+            "elapsed_since_launch_ms": launch_t0.elapsed().as_millis(),
+        }),
+    );
+    // #endregion agent log
 
     // ── Start WebSocket bridge (optional) ─────────────────────────────────
 

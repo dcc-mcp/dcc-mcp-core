@@ -54,6 +54,9 @@ pub use middleware::MiddlewareChain;
 pub mod metrics;
 
 pub mod admin;
+pub mod skill_paths;
+
+pub use skill_paths::SkillPathEntry;
 
 pub use router::{build_gateway_router, build_gateway_router_with_admin};
 pub use state::{GatewayState, ResolveInstanceError, entry_to_json};
@@ -65,7 +68,6 @@ pub use capability::{
 };
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -108,7 +110,7 @@ mod tasks;
 mod version;
 
 pub(crate) use bind::try_bind_port_opt;
-pub use config::GatewayConfig;
+pub use config::{AdminPersistConfig, GatewayConfig};
 pub(crate) use handle::ElectionOutcome;
 pub use handle::GatewayHandle;
 pub use runner::GatewayRunner;
