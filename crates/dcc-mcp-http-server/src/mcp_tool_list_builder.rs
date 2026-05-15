@@ -1,5 +1,4 @@
-//! Build the full MCP `tools/list` surface matching the legacy JSON-RPC-era
-//! server (issue #988 / rmcp parity).
+//! Assemble and paginate the MCP `tools/list` surface for rmcp.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -8,13 +7,11 @@ use dcc_mcp_jsonrpc::{McpTool, TOOLS_LIST_PAGE_SIZE, decode_cursor, encode_curso
 
 use crate::handlers::build_core_tools;
 use crate::server_state::ServerState;
-use crate::tool_list_legacy::{
+use crate::mcp_tool_catalog::{
     action_meta_to_mcp_tool, build_group_stub, build_lazy_action_tools, build_skill_stub,
 };
 
-/// Append session dynamic tools after the canonical list (not part of registry generation).
-///
-/// Mirrors `dcc-mcp-http` `handle_tools_list` step 4.
+/// Build the full tool list: core tools, registry actions, stubs, and session dynamic tools.
 #[must_use]
 pub fn assemble_full_tool_list(
     state: &ServerState,
@@ -78,7 +75,7 @@ pub fn assemble_full_tool_list(
     tools
 }
 
-/// Apply the same pagination rules as legacy `handle_tools_list` (JSON-RPC cursors).
+/// Paginate a tool list using MCP cursor tokens.
 #[must_use]
 pub fn slice_tools_page(
     mut tools: Vec<McpTool>,
