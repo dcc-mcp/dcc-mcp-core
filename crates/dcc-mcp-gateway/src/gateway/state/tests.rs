@@ -408,6 +408,14 @@ async fn test_read_alive_instances_prunes_dead_pid() {
         // `writer` dropped here → its sentinel lock is released.
     };
 
+    // On Windows the filesystem mtime granularity can be ~100ms or coarser.
+    // If the reader's flush and the writer's flush land within the same
+    // mtime quantum, `reload_if_stale()` will skip the reload because it
+    // sees the same mtime it cached. A short sleep ensures the next
+    // `read_alive` triggers a fresh reload.
+    #[cfg(windows)]
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+
     let gs = test_gateway_state(registry.clone());
     let (alive, evicted) = gs
         .read_alive_instances(&*registry.read().await)
