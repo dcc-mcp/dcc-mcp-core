@@ -60,6 +60,35 @@ impl DccMcpHandler {
             registry_context,
         }
     }
+
+    fn merge_call_meta(
+        primary: Option<dcc_mcp_jsonrpc::CallToolMeta>,
+        fallback: Option<dcc_mcp_jsonrpc::CallToolMeta>,
+    ) -> Option<dcc_mcp_jsonrpc::CallToolMeta> {
+        match (primary, fallback) {
+            (None, None) => None,
+            (Some(p), None) => Some(p),
+            (None, Some(f)) => Some(f),
+            (Some(mut p), Some(f)) => {
+                if p.progress_token.is_none() {
+                    p.progress_token = f.progress_token;
+                }
+                match (&mut p.dcc, f.dcc) {
+                    (None, fd) => p.dcc = fd,
+                    (Some(pd), Some(fd)) => {
+                        if !pd.r#async {
+                            pd.r#async = fd.r#async;
+                        }
+                        if pd.parent_job_id.is_none() {
+                            pd.parent_job_id = fd.parent_job_id;
+                        }
+                    }
+                    _ => {}
+                }
+                Some(p)
+            }
+        }
+    }
 }
 
 // The rmcp ServerHandler trait uses `impl Future<...>` return types, so clippy's
@@ -167,14 +196,23 @@ impl ServerHandler for DccMcpHandler {
     ) -> impl Future<Output = Result<RmcpCallToolResult, McpError>> + Send + '_ {
         async move {
             let tool_name = request.name.as_ref();
-            let arguments = request.arguments.map(Value::Object);
+            let mut arguments = request.arguments.map(Value::Object);
 
             debug!(tool = %tool_name, "rmcp: dispatching tool call");
 
             #[cfg(feature = "prometheus")]
             let prom_start = std::time::Instant::now();
 
-            let call_meta = call_meta_from_rmcp(request.meta.as_ref());
+            // Back-compat shim: some JSON-RPC clients still send `_meta`
+            // nested under `arguments` instead of top-level rmcp `meta`.
+            let legacy_meta = match arguments.as_mut() {
+                Some(Value::Object(obj)) => obj
+                    .remove("_meta")
+                    .and_then(|v| serde_json::from_value(v).ok()),
+                _ => None,
+            };
+            let call_meta =
+                Self::merge_call_meta(call_meta_from_rmcp(request.meta.as_ref()), legacy_meta);
             let dispatch_result = dispatch_rmcp_tool_call(
                 &self.state,
                 &self.registry_context,
