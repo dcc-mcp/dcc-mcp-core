@@ -906,6 +906,7 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -916,6 +917,7 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1055,6 +1057,7 @@ dependencies = [
  "serde_json",
  "serde_yaml_ng",
  "thiserror 2.0.18",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1197,6 +1200,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+ "workspace-hack",
 ]
 
 [[package]]

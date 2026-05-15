@@ -17,6 +17,7 @@ workspace = true
 serde = { workspace = true }
 uuid = { workspace = true }
 nucleo-matcher = "0.3"
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 serde_json = { workspace = true }
