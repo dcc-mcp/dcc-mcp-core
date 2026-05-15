@@ -12,8 +12,8 @@
 use std::sync::Arc;
 
 use axum::Router;
-use dcc_mcp_jsonrpc::NotificationBuilder;
 use dcc_mcp_http_server::rmcp_handler::{DccMcpHandler, RegistryContext};
+use dcc_mcp_jsonrpc::NotificationBuilder;
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 use tracing::info;

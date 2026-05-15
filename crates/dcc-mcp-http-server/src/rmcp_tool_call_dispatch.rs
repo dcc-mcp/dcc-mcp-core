@@ -2,9 +2,7 @@
 //! `handlers/tools_call/*` so core tools, stubs, lazy-actions, jobs, and
 //! registry resolution match the historical HTTP server.
 
-use std::sync::Arc;
-
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use dcc_mcp_actions::registry::ToolMeta;
 use dcc_mcp_gateway::namespace::{decode_skill_tool_name, extract_bare_tool_name, skill_tool_name};
@@ -14,13 +12,12 @@ use dcc_mcp_jsonrpc::{
     coerce_tool_arguments_object,
     error_codes::{BACKEND_NOT_READY, CAPABILITY_MISSING},
 };
-use dcc_mcp_models::{ExecutionMode, NextTools, ThreadAffinity};
-use tokio_util::sync::CancellationToken;
+use dcc_mcp_models::{NextTools, ThreadAffinity};
 use dcc_mcp_protocols::error_envelope::DccMcpError;
 
 use crate::dynamic_tools::{
-    DYNAMIC_TOOL_PREFIX, build_execution_wrapper, handle_deregister_tool, handle_list_dynamic_tools,
-    handle_register_tool,
+    DYNAMIC_TOOL_PREFIX, build_execution_wrapper, handle_deregister_tool,
+    handle_list_dynamic_tools, handle_register_tool,
 };
 use crate::executor::DccExecutorHandle;
 use crate::inflight::CANCEL_GRACE_PERIOD;
@@ -29,6 +26,7 @@ use crate::session::SessionManager;
 use crate::tool_list_legacy::{action_meta_to_mcp_tool, parse_scope_label, resolve_action_by_id};
 
 use crate::rmcp_registry_context::RegistryContext;
+use crate::rmcp_tool_call_async::{async_dispatch_config, dispatch_async_registry_tool};
 
 // ── notifications (skill load / unload) ─────────────────────────────────────
 
@@ -39,7 +37,12 @@ fn notify_tools_list_changed(sessions: &SessionManager, session_id: &str) {
     sessions.push_event(session_id, event);
 }
 
-fn notify_tools_changed(sessions: &SessionManager, session_id: &str, added: &[String], removed: &[String]) {
+fn notify_tools_changed(
+    sessions: &SessionManager,
+    session_id: &str,
+    added: &[String],
+    removed: &[String],
+) {
     if sessions.supports_delta_tools(session_id) {
         let event = NotificationBuilder::new(DELTA_TOOLS_METHOD)
             .with_params(json!({ "added": added, "removed": removed }))
@@ -59,11 +62,19 @@ fn attach_next_tools_meta(result: &mut CallToolResult, next_tools: &NextTools) {
     if list.is_empty() {
         return;
     }
-    let key = if result.is_error { "on_failure" } else { "on_success" };
+    let key = if result.is_error {
+        "on_failure"
+    } else {
+        "on_success"
+    };
     let mut next_tools_meta = serde_json::Map::new();
     next_tools_meta.insert(
         key.to_string(),
-        Value::Array(list.iter().map(|name| Value::String(name.clone())).collect()),
+        Value::Array(
+            list.iter()
+                .map(|name| Value::String(name.clone()))
+                .collect(),
+        ),
     );
     let meta = result.meta.get_or_insert_with(serde_json::Map::new);
     meta.insert("dcc.next_tools".to_string(), Value::Object(next_tools_meta));
@@ -129,9 +140,7 @@ fn capability_gate_result(
         missing.join(", ")
     );
     Some(CallToolResult {
-        content: vec![ToolContent::Text {
-            text: msg.clone(),
-        }],
+        content: vec![ToolContent::Text { text: msg.clone() }],
         structured_content: Some(json!({
             "code": CAPABILITY_MISSING,
             "message": msg,
@@ -147,7 +156,11 @@ fn capability_gate_result(
     })
 }
 
-fn readiness_gate_result(_state: &ServerState, ctx: &RegistryContext, tool_name: &str) -> Option<CallToolResult> {
+fn readiness_gate_result(
+    _state: &ServerState,
+    ctx: &RegistryContext,
+    tool_name: &str,
+) -> Option<CallToolResult> {
     let report = ctx.readiness.report();
     if report.is_ready() {
         return None;
@@ -184,11 +197,14 @@ fn readiness_gate_result(_state: &ServerState, ctx: &RegistryContext, tool_name:
     })
 }
 
-fn use_main_thread_route(thread_affinity: ThreadAffinity, executor_present: bool) -> bool {
+pub(crate) fn use_main_thread_route(
+    thread_affinity: ThreadAffinity,
+    executor_present: bool,
+) -> bool {
     matches!(thread_affinity, ThreadAffinity::Main) && executor_present
 }
 
-fn decode_dispatch_output(json_str: &str) -> Result<Value, String> {
+pub(crate) fn decode_dispatch_output(json_str: &str) -> Result<Value, String> {
     let value: Value = serde_json::from_str(json_str).unwrap_or(json!({}));
     if let Some(err) = value.get("__dispatch_error") {
         Err(err.as_str().unwrap_or("dispatch error").to_string())
@@ -204,15 +220,17 @@ async fn run_on_main_thread(
     call_params: Value,
 ) -> Result<Value, String> {
     let json_str = executor
-        .execute(Box::new(move || {
-            match dcc_mcp_actions::with_thread_affinity(ThreadAffinity::Main, || {
+        .execute(Box::new(
+            move || match dcc_mcp_actions::with_thread_affinity(ThreadAffinity::Main, || {
                 dispatcher.dispatch(&resolved_name, call_params)
             }) {
-                Ok(result) => serde_json::to_string(&result.output).unwrap_or_else(|_| "null".to_string()),
+                Ok(result) => {
+                    serde_json::to_string(&result.output).unwrap_or_else(|_| "null".to_string())
+                }
                 Err(err) => serde_json::to_string(&json!({ "__dispatch_error": err.to_string() }))
                     .unwrap_or_default(),
-            }
-        }))
+            },
+        ))
         .await
         .map_err(|e| e.to_string())?;
     decode_dispatch_output(&json_str)
@@ -268,238 +286,10 @@ async fn execute_threaded_dispatch(
             .executor
             .as_ref()
             .expect("executor presence gated by use_main_thread_route");
-        run_on_main_thread(
-            executor,
-            dispatcher,
-            resolved_name.to_string(),
-            call_params,
-        )
-        .await
+        run_on_main_thread(executor, dispatcher, resolved_name.to_string(), call_params).await
     } else {
         run_on_worker(dispatcher, resolved_name.to_string(), call_params).await
     }
-}
-
-struct AsyncDispatchConfig {
-    parent_job_id: Option<String>,
-    progress_token: Option<Value>,
-    thread_affinity: ThreadAffinity,
-}
-
-fn async_dispatch_config(action_meta: &ToolMeta) -> Option<AsyncDispatchConfig> {
-    let action_declares_async = matches!(action_meta.execution, ExecutionMode::Async)
-        || action_meta.timeout_hint_secs.unwrap_or(0) > 0;
-
-    if !action_declares_async {
-        return None;
-    }
-
-    Some(AsyncDispatchConfig {
-        parent_job_id: None,
-        progress_token: None,
-        thread_affinity: action_meta.thread_affinity,
-    })
-}
-
-fn build_pending_envelope(job_id: &str, parent_job_id: Option<String>) -> CallToolResult {
-    let structured = json!({
-        "job_id": job_id,
-        "status": "pending",
-        "parent_job_id": parent_job_id,
-    });
-    let mut meta = serde_json::Map::new();
-    meta.insert("status".to_string(), json!("pending"));
-    let mut dcc_meta = serde_json::Map::new();
-    dcc_meta.insert("jobId".to_string(), json!(job_id));
-    dcc_meta.insert(
-        "parentJobId".to_string(),
-        parent_job_id
-            .as_ref()
-            .map(|parent| json!(parent))
-            .unwrap_or(Value::Null),
-    );
-    meta.insert("dcc".to_string(), Value::Object(dcc_meta));
-
-    let structured_with_meta = {
-        let mut payload = structured.as_object().cloned().unwrap_or_default();
-        payload.insert("_meta".to_string(), Value::Object(meta));
-        Value::Object(payload)
-    };
-
-    CallToolResult {
-        content: vec![ToolContent::Text {
-            text: format!("Job {job_id} queued"),
-        }],
-        structured_content: Some(structured_with_meta),
-        is_error: false,
-        meta: None,
-    }
-}
-
-async fn run_async_execution_lane(
-    state: &ServerState,
-    resolved_name: String,
-    call_params: Value,
-    cancel_token: CancellationToken,
-    thread_affinity: ThreadAffinity,
-) -> Result<Value, String> {
-    let dispatcher = state.dispatcher.as_ref().clone();
-    let use_main_thread = use_main_thread_route(thread_affinity, state.executor.is_some());
-
-    if matches!(thread_affinity, ThreadAffinity::Main) && state.executor.is_none() {
-        tracing::warn!(
-            tool = %resolved_name,
-            "tool declares thread_affinity=main but no DeferredExecutor is wired; \
-             falling back to Tokio worker — scene API calls will be unsafe"
-        );
-    }
-
-    if let Some(executor) = state.executor.as_ref().filter(|_| use_main_thread) {
-        let dispatch_name = resolved_name.clone();
-        let dispatch_params = call_params.clone();
-        let dispatch = dispatcher.clone();
-        let response = executor.submit_deferred(
-            &resolved_name,
-            cancel_token.clone(),
-            Box::new(move || {
-                match dcc_mcp_actions::with_thread_affinity(ThreadAffinity::Main, || {
-                    dispatch.dispatch(&dispatch_name, dispatch_params)
-                }) {
-                    Ok(result) => {
-                        serde_json::to_string(&result.output).unwrap_or_else(|_| "null".into())
-                    }
-                    Err(err) => serde_json::to_string(&json!({"__dispatch_error": err.to_string()}))
-                        .unwrap_or_default(),
-                }
-            }),
-        );
-
-        tokio::select! {
-            outcome = response => match outcome {
-                Ok(json_str) => decode_dispatch_output(&json_str),
-                Err(_) => Err("CANCELLED".to_string()),
-            },
-            _ = cancel_token.cancelled() => Err("CANCELLED".to_string()),
-        }
-    } else {
-        let dispatch = dispatcher;
-        let dispatch_name = resolved_name;
-        let dispatch_params = call_params;
-        let dispatch_cancel = cancel_token.clone();
-        let blocking = tokio::task::spawn_blocking(move || {
-            if dispatch_cancel.is_cancelled() {
-                return Err("CANCELLED".to_string());
-            }
-            dispatch
-                .dispatch(&dispatch_name, dispatch_params)
-                .map(|result| result.output)
-                .map_err(|err| err.to_string())
-        });
-
-        tokio::select! {
-            outcome = blocking => outcome.map_err(|err| err.to_string()).and_then(|inner| inner),
-            _ = cancel_token.cancelled() => Err("CANCELLED".to_string()),
-        }
-    }
-}
-
-fn spawn_async_registry_dispatch(
-    state: &ServerState,
-    job_id: String,
-    cancel_token: CancellationToken,
-    resolved_name: String,
-    call_params: Value,
-    thread_affinity: ThreadAffinity,
-) {
-    let jobs = Arc::clone(&state.jobs);
-    let server = state.clone();
-    let spawn_job_id = job_id.clone();
-    let spawn_name = resolved_name.clone();
-
-    tokio::spawn(async move {
-        if cancel_token.is_cancelled() {
-            tracing::debug!(job_id = %spawn_job_id, "job cancelled before execution");
-            return;
-        }
-        if jobs.start(&spawn_job_id).is_none() {
-            tracing::debug!(job_id = %spawn_job_id, "job could not enter Running state");
-            return;
-        }
-
-        let exec_result = run_async_execution_lane(
-            &server,
-            spawn_name.clone(),
-            call_params,
-            cancel_token.clone(),
-            thread_affinity,
-        )
-        .await;
-
-        match exec_result {
-            Ok(output) => {
-                if jobs.complete(&spawn_job_id, output).is_none() {
-                    tracing::debug!(
-                        job_id = %spawn_job_id,
-                        "job.complete rejected — likely cancelled concurrently"
-                    );
-                }
-            }
-            Err(msg) if msg == "CANCELLED" => {
-                if jobs
-                    .get(&spawn_job_id)
-                    .map(|handle| handle.read().status)
-                    .is_some_and(|status| !status.is_terminal())
-                {
-                    jobs.cancel(&spawn_job_id);
-                }
-            }
-            Err(msg) => {
-                jobs.fail(&spawn_job_id, msg);
-            }
-        }
-    });
-}
-
-async fn dispatch_async_registry_tool(
-    state: &ServerState,
-    session_id: Option<&str>,
-    resolved_name: String,
-    call_params: Value,
-    cfg: AsyncDispatchConfig,
-) -> CallToolResult {
-    let job_handle = state
-        .jobs
-        .create_with_parent(resolved_name.clone(), cfg.parent_job_id.clone());
-    let (job_id, cancel_token) = {
-        let job = job_handle.read();
-        (job.id.clone(), job.cancel_token.clone())
-    };
-
-    if let Some(session) = session_id {
-        state.job_notifier.subscribe_session(session);
-        state
-            .job_notifier
-            .register_job(&job_id, session, cfg.progress_token.clone());
-    }
-
-    tracing::info!(
-        job_id = %job_id,
-        tool = %resolved_name,
-        parent_job_id = ?cfg.parent_job_id,
-        affinity = %cfg.thread_affinity,
-        "async job dispatched"
-    );
-
-    spawn_async_registry_dispatch(
-        state,
-        job_id.clone(),
-        cancel_token,
-        resolved_name,
-        call_params,
-        cfg.thread_affinity,
-    );
-
-    build_pending_envelope(&job_id, cfg.parent_job_id)
 }
 
 fn dispatch_json_result(output: Value) -> CallToolResult {
@@ -573,7 +363,10 @@ fn handle_list_skills(state: &ServerState, arguments: &Value) -> CallToolResult 
 }
 
 fn handle_get_skill_info(state: &ServerState, arguments: &Value) -> CallToolResult {
-    let skill_name = arguments.get("skill_name").and_then(Value::as_str).unwrap_or_default();
+    let skill_name = arguments
+        .get("skill_name")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     if skill_name.is_empty() {
         return CallToolResult::error("Missing required parameter: skill_name");
     }
@@ -741,7 +534,10 @@ fn handle_search_skills(state: &ServerState, arguments: &Value) -> CallToolResul
     const DEFAULT_LIMIT: usize = 20;
     const MAX_LIMIT: usize = 100;
 
-    let query = arguments.get("query").and_then(Value::as_str).unwrap_or_default();
+    let query = arguments
+        .get("query")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
 
     let tags_owned: Vec<String> = arguments
         .get("tags")
@@ -779,7 +575,10 @@ fn handle_search_skills(state: &ServerState, arguments: &Value) -> CallToolResul
             .search_skills(query_opt, &tags, dcc_filter, scope_filter, Some(limit));
 
     if matches.is_empty() {
-        let text = if query.is_empty() && tags.is_empty() && dcc_filter.is_none() && scope_filter.is_none()
+        let text = if query.is_empty()
+            && tags.is_empty()
+            && dcc_filter.is_none()
+            && scope_filter.is_none()
         {
             "No skills discovered. Drop SKILL.md files into the scan paths and rescan.".to_string()
         } else if query.is_empty() {
@@ -1009,7 +808,8 @@ fn handle_search_tools(state: &ServerState, arguments: &Value) -> CallToolResult
         }
 
         if tool_hits.len() < limit {
-            let mut seen_groups: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut seen_groups: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
             for (skill, group, active) in state.catalog.list_groups() {
                 if active {
                     continue;
@@ -1043,10 +843,9 @@ fn handle_search_tools(state: &ServerState, arguments: &Value) -> CallToolResult
 
     let mut skill_candidates: Vec<Value> = Vec::new();
     if include_unloaded_skills {
-        let candidates =
-            state
-                .catalog
-                .search_skills(Some(query_raw), &[], dcc, None, Some(limit));
+        let candidates = state
+            .catalog
+            .search_skills(Some(query_raw), &[], dcc, None, Some(limit));
         for summary in candidates {
             if summary.loaded {
                 continue;
@@ -1093,7 +892,12 @@ fn handle_search_tools(state: &ServerState, arguments: &Value) -> CallToolResult
     CallToolResult::text(serde_json::to_string(&result).unwrap_or_default())
 }
 
-fn compute_job_timestamps(job: &Job) -> (Option<chrono::DateTime<chrono::Utc>>, Option<chrono::DateTime<chrono::Utc>>) {
+fn compute_job_timestamps(
+    job: &Job,
+) -> (
+    Option<chrono::DateTime<chrono::Utc>>,
+    Option<chrono::DateTime<chrono::Utc>>,
+) {
     let started_at = match job.status {
         JobStatus::Pending => None,
         _ => Some(job.updated_at),
@@ -1182,7 +986,10 @@ fn handle_jobs_get_status(state: &ServerState, arguments: &Value) -> CallToolRes
             None => Value::Null,
         },
     );
-    if include_result && job.status.is_terminal() && let Some(ref r) = job.result {
+    if include_result
+        && job.status.is_terminal()
+        && let Some(ref r) = job.result
+    {
         envelope.insert("result".into(), r.clone());
     }
     drop(job);
@@ -1291,7 +1098,7 @@ fn handle_register_tool_dynamic(
         None => {
             return CallToolResult::error(
                 "register_tool requires an active session (send Mcp-Session-Id header)",
-            )
+            );
         }
     };
 
@@ -1329,7 +1136,9 @@ fn handle_deregister_tool_dynamic(
 
     let result_value = state
         .sessions
-        .with_dynamic_tools_mut(sid, |dyn_tools| handle_deregister_tool(dyn_tools, arguments))
+        .with_dynamic_tools_mut(sid, |dyn_tools| {
+            handle_deregister_tool(dyn_tools, arguments)
+        })
         .unwrap_or_else(|| {
             json!({
                 "isError": true,
@@ -1349,7 +1158,10 @@ fn handle_deregister_tool_dynamic(
     }
 }
 
-fn handle_list_dynamic_tools_dynamic(state: &ServerState, session_id: Option<&str>) -> CallToolResult {
+fn handle_list_dynamic_tools_dynamic(
+    state: &ServerState,
+    session_id: Option<&str>,
+) -> CallToolResult {
     let result_value = if let Some(sid) = session_id {
         state
             .sessions
@@ -1402,21 +1214,25 @@ fn route_dynamic_execution(
             "generated_script": wrapper_script,
             "call_args": arguments
         });
-        return Some(CallToolResult::text(serde_json::to_string(&payload).unwrap_or_default()));
+        return Some(CallToolResult::text(
+            serde_json::to_string(&payload).unwrap_or_default(),
+        ));
     }
 
     let payload = json!({
-            "status": "pending_stage2",
-            "message": format!(
-                "Dynamic tool '{}' execution queued. Full in-process Python \
-                    evaluation (Stage 2, issue #462) is not yet implemented. \
-                    The DCC adapter must provide a PythonEvalHandler.",
-                spec.name
-            ),
-            "generated_script": wrapper_script,
-            "call_args": arguments
-        });
-    Some(CallToolResult::text(serde_json::to_string(&payload).unwrap_or_default()))
+        "status": "pending_stage2",
+        "message": format!(
+            "Dynamic tool '{}' execution queued. Full in-process Python \
+                evaluation (Stage 2, issue #462) is not yet implemented. \
+                The DCC adapter must provide a PythonEvalHandler.",
+            spec.name
+        ),
+        "generated_script": wrapper_script,
+        "call_args": arguments
+    });
+    Some(CallToolResult::text(
+        serde_json::to_string(&payload).unwrap_or_default(),
+    ))
 }
 
 /// Central entry — mirrors JSON-RPC [`resolve_tool_call`] + registry dispatch (#727736b-era).
@@ -1437,24 +1253,50 @@ pub async fn dispatch_rmcp_tool_call(
         "list_roots" => Ok(handle_list_roots(state, session_id)),
         "list_skills" => Ok(handle_list_skills(state, &arguments_value)),
         "get_skill_info" => Ok(handle_get_skill_info(state, &arguments_value)),
-        "load_skill" => Ok(handle_load_skill(state, registry_ctx, &arguments_value, session_id)),
-        "unload_skill" => Ok(handle_unload_skill(state, registry_ctx, &arguments_value, session_id)),
+        "load_skill" => Ok(handle_load_skill(
+            state,
+            registry_ctx,
+            &arguments_value,
+            session_id,
+        )),
+        "unload_skill" => Ok(handle_unload_skill(
+            state,
+            registry_ctx,
+            &arguments_value,
+            session_id,
+        )),
         "search_skills" => Ok(handle_search_skills(state, &arguments_value)),
-        "activate_tool_group" => Ok(handle_activate_tool_group(state, &arguments_value, session_id)),
-        "deactivate_tool_group" => {
-            Ok(handle_deactivate_tool_group(state, &arguments_value, session_id))
-        }
+        "activate_tool_group" => Ok(handle_activate_tool_group(
+            state,
+            &arguments_value,
+            session_id,
+        )),
+        "deactivate_tool_group" => Ok(handle_deactivate_tool_group(
+            state,
+            &arguments_value,
+            session_id,
+        )),
         "search_tools" => Ok(handle_search_tools(state, &arguments_value)),
         "jobs.get_status" => Ok(handle_jobs_get_status(state, &arguments_value)),
         "jobs.cleanup" => Ok(handle_jobs_cleanup(state, &arguments_value)),
-        "register_tool" => Ok(handle_register_tool_dynamic(state, session_id, &arguments_value)),
-        "deregister_tool" => Ok(handle_deregister_tool_dynamic(state, session_id, &arguments_value)),
+        "register_tool" => Ok(handle_register_tool_dynamic(
+            state,
+            session_id,
+            &arguments_value,
+        )),
+        "deregister_tool" => Ok(handle_deregister_tool_dynamic(
+            state,
+            session_id,
+            &arguments_value,
+        )),
         "list_dynamic_tools" => Ok(handle_list_dynamic_tools_dynamic(state, session_id)),
         "list_actions" if state.lazy_actions => Ok(handle_list_actions(state, &arguments_value)),
         "describe_action" if state.lazy_actions => {
             Ok(handle_describe_action(state, &arguments_value, session_id))
         }
-        name => dispatch_non_core_tool(state, registry_ctx, session_id, name, arguments_value).await,
+        name => {
+            dispatch_non_core_tool(state, registry_ctx, session_id, name, arguments_value).await
+        }
     }
 }
 
@@ -1546,21 +1388,23 @@ async fn dispatch_registry_tool(
     }
 
     if let Some(cfg) = async_dispatch_config(&action_meta) {
-        return Ok(
-            dispatch_async_registry_tool(
-                state,
-                session_id,
-                resolved_name,
-                call_params,
-                cfg,
-            )
-            .await,
-        );
+        return Ok(dispatch_async_registry_tool(
+            state,
+            session_id,
+            resolved_name,
+            call_params,
+            cfg,
+        )
+        .await);
     }
 
-    let dispatch_out =
-        execute_threaded_dispatch(state, &resolved_name, call_params.clone(), action_meta.thread_affinity)
-            .await;
+    let dispatch_out = execute_threaded_dispatch(
+        state,
+        &resolved_name,
+        call_params.clone(),
+        action_meta.thread_affinity,
+    )
+    .await;
 
     let mut result = match dispatch_out {
         Ok(output) => dispatch_json_result(output),
