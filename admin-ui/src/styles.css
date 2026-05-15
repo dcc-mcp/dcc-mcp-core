@@ -145,6 +145,28 @@ select {
   outline-offset: 2px;
 }
 
+a.nav-link {
+  display: block;
+  text-decoration: none;
+}
+
+.admin-quick-nav-hint {
+  color: var(--slate-light);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  margin-top: 1rem;
+}
+
+.admin-quick-link {
+  color: var(--accent-warm);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.admin-quick-link:hover {
+  text-decoration: underline;
+}
+
 .main-stage {
   background: var(--ivory-light);
   flex: 1;
@@ -660,4 +682,38 @@ pre.empty {
   min-height: 0.75rem;
   text-align: center;
   width: 100%;
+}
+
+.skill-path-add {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.skill-path-add .list-search-input {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.mono-path {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  word-break: break-all;
+}
+
+button.linkish {
+  background: none;
+  border: none;
+  color: var(--ember);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-decoration: underline;
+}
+
+button.linkish:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }

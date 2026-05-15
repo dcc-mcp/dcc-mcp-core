@@ -92,7 +92,9 @@ pub(crate) async fn skill_mgmt_dispatch(
             let targets = targets_for_fanout(gs, dcc_filter).await;
             if targets.is_empty() {
                 return (
-                    "No live DCC instances. Start dcc-mcp-server on the DCC you want to use."
+                    "No live DCC instances. Start dcc-mcp-server (or your DCC adapter) so the gateway can fan out skill tools. \
+Standalone `dcc-mcp-server` without `--app` registers as `dcc_type` from DCC_MCP_STANDALONE_REGISTRY_DCC_TYPE (default `generic`); \
+`unknown` is hidden from fan-out unless gateway `allow_unknown_tools` is enabled."
                         .to_string(),
                     true,
                 );

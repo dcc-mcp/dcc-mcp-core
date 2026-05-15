@@ -1,4 +1,51 @@
-use super::*;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+/// Admin persistence configuration (SQLite + skill-path reload hook).
+///
+/// Grouped to satisfy the Open/Closed Principle: adding new admin-persist
+/// knobs extends this struct without changing `start_gateway_tasks` or
+/// `GatewayRunner` call sites.
+pub struct AdminPersistConfig {
+    /// Optional explicit path for the gateway admin SQLite database
+    /// (traces, audits, custom skill paths). When `None`, uses
+    /// `DCC_MCP_GATEWAY_ADMIN_DB` or `<registry>/gateway_admin.sqlite`.
+    pub sqlite_path: Option<PathBuf>,
+
+    /// Retention window for rows in the admin SQLite database (days).
+    ///
+    /// Default: `30`. Override with `DCC_MCP_GATEWAY_ADMIN_RETENTION_DAYS`.
+    pub sqlite_retention_days: u32,
+
+    /// Snapshot of skill search paths (for the admin UI); populated by embedders.
+    pub skill_paths_snapshot: Vec<super::SkillPathEntry>,
+
+    /// When set, invoked after admin API adds/removes a custom SQLite skill path
+    /// so embedders can re-run `SkillCatalog::discover` without restarting the process.
+    pub skill_paths_reload: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+impl Default for AdminPersistConfig {
+    fn default() -> Self {
+        Self {
+            sqlite_path: None,
+            sqlite_retention_days: 30,
+            skill_paths_snapshot: Vec::new(),
+            skill_paths_reload: None,
+        }
+    }
+}
+
+impl Clone for AdminPersistConfig {
+    fn clone(&self) -> Self {
+        Self {
+            sqlite_path: self.sqlite_path.clone(),
+            sqlite_retention_days: self.sqlite_retention_days,
+            skill_paths_snapshot: self.skill_paths_snapshot.clone(),
+            skill_paths_reload: self.skill_paths_reload.clone(),
+        }
+    }
+}
 
 /// Configuration for the optional gateway.
 pub struct GatewayConfig {
@@ -84,6 +131,9 @@ pub struct GatewayConfig {
     /// Default: `2`. Override at runtime with
     /// `DCC_MCP_GATEWAY_HEALTH_FAILURES`.
     pub health_check_failures: u32,
+
+    /// Admin persistence settings (SQLite, skill-path snapshot, reload hook).
+    pub admin_persist: AdminPersistConfig,
 }
 
 impl Default for GatewayConfig {
@@ -110,6 +160,7 @@ impl Default for GatewayConfig {
             admin_path: "/admin".to_string(),
             health_check_interval_secs: 5,
             health_check_failures: 2,
+            admin_persist: AdminPersistConfig::default(),
         }
     }
 }

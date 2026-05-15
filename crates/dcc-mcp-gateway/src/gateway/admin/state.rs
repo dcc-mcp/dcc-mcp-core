@@ -18,6 +18,9 @@ use crate::gateway::state::GatewayState;
 use super::stats::StatsAggregator;
 use super::trace::{DispatchTrace, TraceLog};
 
+type SqliteTracePersistFn = Arc<dyn Fn(&DispatchTrace) + Send + Sync>;
+type SqliteAuditPersistFn = Arc<dyn Fn(&AdminAuditRecord) + Send + Sync>;
+
 /// Minimal audit record that the admin UI consumes.
 #[derive(Debug, Clone)]
 pub struct AdminAuditRecord {
@@ -242,6 +245,8 @@ pub struct AdminAuditSink {
     capacity: usize,
     trace_log: Option<Arc<TraceLog>>,
     durable_store: Option<DurableAuditStore>,
+    sqlite_trace: Option<SqliteTracePersistFn>,
+    sqlite_audit: Option<SqliteAuditPersistFn>,
 }
 
 impl AdminAuditSink {
@@ -253,6 +258,8 @@ impl AdminAuditSink {
             capacity,
             trace_log: None,
             durable_store: None,
+            sqlite_trace: None,
+            sqlite_audit: None,
         }
     }
 
@@ -265,6 +272,21 @@ impl AdminAuditSink {
     /// Attach a trace log so `record()` also appends a [`DispatchTrace`].
     pub fn with_trace_log(mut self, trace_log: Arc<TraceLog>) -> Self {
         self.trace_log = Some(trace_log);
+        self
+    }
+
+    /// Persist traces / audits to the admin SQLite lane (bounded `try_send`).
+    pub fn with_sqlite_lane(
+        mut self,
+        lane: crate::gateway::admin::sqlite_lane::AdminSqliteLane,
+    ) -> Self {
+        let lt = lane.clone();
+        self.sqlite_trace = Some(Arc::new(move |t: &DispatchTrace| {
+            lt.try_persist_trace(t);
+        }));
+        self.sqlite_audit = Some(Arc::new(move |r: &AdminAuditRecord| {
+            lane.try_persist_audit(r);
+        }));
         self
     }
 }
@@ -293,6 +315,9 @@ impl AuditSink for AdminAuditSink {
         if let Some(store) = &self.durable_store {
             store.append_audit(&record);
         }
+        if let Some(cb) = &self.sqlite_audit {
+            cb(&record);
+        }
         let mut buf = self.log.lock();
         buf.push(record);
         if self.capacity > 0 {
@@ -319,6 +344,9 @@ impl AuditSink for AdminAuditSink {
             };
             if let Some(store) = &self.durable_store {
                 store.append_trace(&trace);
+            }
+            if let Some(cb) = &self.sqlite_trace {
+                cb(&trace);
             }
             tl.push(trace);
         }
@@ -420,6 +448,12 @@ pub struct AdminState {
     pub stats: Option<Arc<StatsAggregator>>,
     /// Wall-clock time the gateway started, used for the Health card uptime.
     pub started_at: SystemTime,
+    /// Skill search path snapshot (CLI / env / bundled) for the admin UI.
+    pub skill_paths_snapshot: Vec<crate::gateway::SkillPathEntry>,
+    /// SQLite lane for custom skill path mutations from the admin API.
+    pub admin_sqlite_lane: Option<crate::gateway::admin::sqlite_lane::AdminSqliteLane>,
+    /// Optional embedder hook: re-run disk skill discovery after admin SQLite path changes.
+    pub skill_paths_reload: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl AdminState {
@@ -433,6 +467,9 @@ impl AdminState {
             trace_log: None,
             stats: None,
             started_at: SystemTime::now(),
+            skill_paths_snapshot: Vec::new(),
+            admin_sqlite_lane: None,
+            skill_paths_reload: None,
         }
     }
 
@@ -445,10 +482,41 @@ impl AdminState {
     /// Attach the Phase 2 [`TraceLog`]. Implicitly bootstraps a
     /// [`StatsAggregator`] (Phase 3) over the same log so the admin
     /// router can serve `GET /admin/api/stats` without extra wiring.
-    pub fn with_trace_log(mut self, log: Arc<TraceLog>) -> Self {
-        // Phase 3: auto-create StatsAggregator when a TraceLog is attached.
-        self.stats = Some(Arc::new(StatsAggregator::new(log.clone())));
+    pub fn with_trace_log(
+        mut self,
+        log: Arc<TraceLog>,
+        sqlite_reader: Option<crate::gateway::admin::sqlite_lane::AdminSqliteReader>,
+    ) -> Self {
+        let mut agg = StatsAggregator::new(log.clone());
+        if let Some(r) = sqlite_reader {
+            agg = agg.with_sqlite_reader(r);
+        }
+        self.stats = Some(Arc::new(agg));
         self.trace_log = Some(log);
+        self
+    }
+
+    /// Attach skill path snapshot rows (from CLI / env / bundled).
+    pub fn with_skill_paths_snapshot(mut self, paths: Vec<crate::gateway::SkillPathEntry>) -> Self {
+        self.skill_paths_snapshot = paths;
+        self
+    }
+
+    /// Attach SQLite lane for admin API skill-path mutations.
+    pub fn with_admin_sqlite_lane(
+        mut self,
+        lane: Option<crate::gateway::admin::sqlite_lane::AdminSqliteLane>,
+    ) -> Self {
+        self.admin_sqlite_lane = lane;
+        self
+    }
+
+    /// Hook invoked after SQLite-backed custom skill paths change (add/delete).
+    pub fn with_skill_paths_reload(
+        mut self,
+        cb: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
+    ) -> Self {
+        self.skill_paths_reload = cb;
         self
     }
 }

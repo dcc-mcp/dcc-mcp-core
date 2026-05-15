@@ -1,6 +1,7 @@
 //! Tests for the admin UI handlers.
 
 #[cfg(all(test, feature = "admin"))]
+#[allow(clippy::await_holding_lock)] // Intentional: parking_lot Mutex for env-var test serialization
 mod admin_tests {
     use std::sync::Arc;
     use std::time::Duration;
@@ -17,6 +18,42 @@ mod admin_tests {
     use crate::gateway::admin::state::{AdminAuditRecord, AdminState, AuditLog};
     use crate::gateway::state::GatewayState;
     use dcc_mcp_transport::discovery::file_registry::FileRegistry;
+
+    /// `handle_admin_logs` merges `DCC_MCP_LOG_DIR` (or the platform default). Parallel
+    /// tests and developer machines with real log files make counts flaky unless we
+    /// point at a non-existent directory for the duration of the request.
+    static API_LOGS_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    struct ScopedNoDiskLogsDir {
+        previous: Option<String>,
+    }
+
+    impl ScopedNoDiskLogsDir {
+        fn new() -> Self {
+            let previous = std::env::var("DCC_MCP_LOG_DIR").ok();
+            let d = tempfile::tempdir().unwrap();
+            let p = d.path().to_string_lossy().to_string();
+            drop(d);
+            // SAFETY: tests are serialized with `API_LOGS_ENV_LOCK`; no concurrent reads
+            // of this env var in other threads during the critical section.
+            unsafe {
+                std::env::set_var("DCC_MCP_LOG_DIR", &p);
+            }
+            Self { previous }
+        }
+    }
+
+    impl Drop for ScopedNoDiskLogsDir {
+        fn drop(&mut self) {
+            // SAFETY: same as `new` — guarded by the test mutex.
+            unsafe {
+                match &self.previous {
+                    Some(v) => std::env::set_var("DCC_MCP_LOG_DIR", v),
+                    None => std::env::remove_var("DCC_MCP_LOG_DIR"),
+                }
+            }
+        }
+    }
 
     fn make_gateway_state() -> GatewayState {
         let dir = tempfile::tempdir().unwrap();
@@ -328,6 +365,8 @@ mod admin_tests {
 
     #[tokio::test]
     async fn test_admin_logs_returns_json_array() {
+        let _env = API_LOGS_ENV_LOCK.lock();
+        let _no_disk = ScopedNoDiskLogsDir::new();
         let (status, body) = body_json(admin_router(), "/api/logs").await;
         assert_eq!(status, StatusCode::OK);
         assert!(body["logs"].is_array(), "expected 'logs' array, got {body}");
@@ -335,12 +374,16 @@ mod admin_tests {
 
     #[tokio::test]
     async fn test_admin_logs_empty_by_default() {
+        let _env = API_LOGS_ENV_LOCK.lock();
+        let _no_disk = ScopedNoDiskLogsDir::new();
         let (_, body) = body_json(admin_router(), "/api/logs").await;
         assert!(body["logs"].as_array().unwrap().is_empty());
     }
 
     #[tokio::test]
     async fn test_admin_logs_returns_injected_event_entries() {
+        let _env = API_LOGS_ENV_LOCK.lock();
+        let _no_disk = ScopedNoDiskLogsDir::new();
         use crate::gateway::event_log::{ContendEvent, EventKind};
 
         let gs = make_gateway_state();
@@ -385,6 +428,8 @@ mod admin_tests {
 
     #[tokio::test]
     async fn test_admin_logs_merges_audit_tail_when_audit_attached() {
+        let _env = API_LOGS_ENV_LOCK.lock();
+        let _no_disk = ScopedNoDiskLogsDir::new();
         use std::time::UNIX_EPOCH;
 
         let gs = make_gateway_state();
@@ -505,7 +550,7 @@ mod admin_tests {
             output: None,
         });
 
-        let state = make_admin_state().with_trace_log(log);
+        let state = make_admin_state().with_trace_log(log, None);
         let router = build_admin_router(state);
         let (status, body) = body_json(router, "/api/stats?range=1h").await;
         assert_eq!(status, StatusCode::OK);
@@ -605,5 +650,152 @@ mod admin_tests {
         assert_eq!(body["total"].as_u64(), Some(1));
         assert_eq!(body["summary"]["live"].as_u64(), Some(1));
         assert_eq!(body["summary"]["stale"].as_u64(), Some(0));
+    }
+
+    // ── /api/skill-paths (CRUD) ─────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_admin_skill_paths_returns_empty_snapshot() {
+        let (status, body) = body_json(admin_router(), "/api/skill-paths").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body["paths"].is_array());
+        assert!(body["paths"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_admin_skill_paths_shows_snapshot_entries() {
+        use crate::gateway::SkillPathEntry;
+        let state = make_admin_state().with_skill_paths_snapshot(vec![
+            SkillPathEntry {
+                path: "/opt/skills/maya".into(),
+                source: "cli".into(),
+            },
+            SkillPathEntry {
+                path: "/opt/skills/blender".into(),
+                source: "env:DCC_MCP_SKILL_PATHS".into(),
+            },
+        ]);
+        let router = build_admin_router(state);
+        let (status, body) = body_json(router, "/api/skill-paths").await;
+        assert_eq!(status, StatusCode::OK);
+        let paths = body["paths"].as_array().unwrap();
+        assert_eq!(paths.len(), 2);
+        assert_eq!(paths[0]["path"], "/opt/skills/maya");
+        assert_eq!(paths[0]["source"], "cli");
+        assert_eq!(paths[1]["path"], "/opt/skills/blender");
+        assert_eq!(paths[1]["source"], "env:DCC_MCP_SKILL_PATHS");
+    }
+
+    #[cfg(feature = "admin-persist-sqlite")]
+    #[tokio::test]
+    async fn test_admin_skill_path_crud_via_api() {
+        use crate::gateway::admin::sqlite_lane::AdminSqliteLane;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test_crud.sqlite");
+        let lane = AdminSqliteLane::spawn(db_path, 30).expect("spawn lane");
+
+        let state = make_admin_state().with_admin_sqlite_lane(Some(lane));
+        let router = build_admin_router(state);
+
+        // POST a new skill path
+        let resp = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/skill-paths")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&serde_json::json!({"path": "/tmp/new-skills"}))
+                            .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // GET should now include the new path
+        let (status, body) = body_json(router.clone(), "/api/skill-paths").await;
+        assert_eq!(status, StatusCode::OK);
+        let paths = body["paths"].as_array().unwrap();
+        let custom: Vec<_> = paths
+            .iter()
+            .filter(|p| p["source"] == "admin_custom")
+            .collect();
+        assert_eq!(custom.len(), 1, "expected 1 custom path, got {paths:?}");
+        assert_eq!(custom[0]["path"], "/tmp/new-skills");
+
+        // DELETE the custom path
+        let id = custom[0]["id"]
+            .as_i64()
+            .expect("custom path should have id");
+        let resp = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/api/skill-paths/{id}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // GET should no longer include the deleted path
+        let (status, body) = body_json(router, "/api/skill-paths").await;
+        assert_eq!(status, StatusCode::OK);
+        let paths = body["paths"].as_array().unwrap();
+        let custom: Vec<_> = paths
+            .iter()
+            .filter(|p| p["source"] == "admin_custom")
+            .collect();
+        assert!(
+            custom.is_empty(),
+            "expected no custom paths after delete, got {custom:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_admin_skill_path_post_empty_returns_400() {
+        let state = make_admin_state();
+        let router = build_admin_router(state);
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/skill-paths")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&serde_json::json!({"path": ""})).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_admin_skill_path_post_without_lane_returns_503() {
+        // AdminState without sqlite lane attached
+        let state = make_admin_state();
+        let router = build_admin_router(state);
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/skill-paths")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&serde_json::json!({"path": "/valid/path"})).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 }

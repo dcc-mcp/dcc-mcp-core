@@ -4,6 +4,7 @@ use axum::{Router, routing};
 
 use super::handlers::{
     handle_admin_calls, handle_admin_health, handle_admin_instances, handle_admin_logs,
+    handle_admin_skill_path_add, handle_admin_skill_path_delete, handle_admin_skill_paths,
     handle_admin_stats, handle_admin_tools, handle_admin_trace_detail, handle_admin_traces,
     handle_admin_ui, handle_admin_workers,
 };
@@ -35,6 +36,15 @@ pub fn build_admin_router(state: AdminState) -> Router {
         .route(
             "/api/traces/{request_id}",
             routing::get(handle_admin_trace_detail),
+        )
+        .route("/api/skill-paths", routing::get(handle_admin_skill_paths))
+        .route(
+            "/api/skill-paths",
+            routing::post(handle_admin_skill_path_add),
+        )
+        .route(
+            "/api/skill-paths/{id}",
+            routing::delete(handle_admin_skill_path_delete),
         )
         .route("/api/logs", routing::get(handle_admin_logs))
         .route("/api/stats", routing::get(handle_admin_stats))

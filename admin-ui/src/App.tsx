@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import mayaIcon from './assets/icons/autodesk.svg';
 import blenderIcon from './assets/icons/blender.svg';
 import gimpIcon from './assets/icons/gimp.svg';
@@ -9,7 +9,7 @@ import unrealIcon from './assets/icons/unrealengine.svg';
 import substancePainterIcon from './assets/icons/photoshop.svg';
 import puzzleIcon from './assets/icons/puzzle.svg';
 
-type Panel = 'health' | 'instances' | 'tools' | 'calls' | 'traces' | 'stats' | 'workers' | 'logs';
+type Panel = 'health' | 'instances' | 'tools' | 'calls' | 'traces' | 'stats' | 'logs' | 'skill-paths';
 
 type HealthPayload = {
   status: string;
@@ -27,15 +27,6 @@ type HealthPayload = {
     circuit_open_secs: number;
   };
   circuits?: { tracked_backends: number; circuits_open: number };
-};
-
-type InstanceRow = {
-  id: string;
-  dcc_type: string;
-  status: string;
-  host: string;
-  port: number;
-  scene: string | null;
 };
 
 type ToolRow = {
@@ -110,6 +101,7 @@ type WorkerRow = {
   cpu_percent: number | null;
   memory_bytes: number | null;
   mcp_url: string;
+  scene?: string | null;
 };
 
 type WorkerSummary = {
@@ -132,6 +124,36 @@ type LogRow = {
   detail?: string;
   reason?: string | null;
 };
+
+type SkillPathRow = {
+  path: string;
+  source: string;
+  id?: number;
+};
+
+function normalizeLogRow(raw: unknown): LogRow {
+  if (!raw || typeof raw !== 'object') {
+    return { timestamp: '', level: '', message: '' };
+  }
+  const o = raw as Record<string, unknown>;
+  return {
+    timestamp: String(o.timestamp ?? ''),
+    level: String(o.level ?? ''),
+    message: String(o.message ?? ''),
+    source: o.source != null ? String(o.source) : undefined,
+    event: o.event != null ? String(o.event) : undefined,
+    dcc_type: o.dcc_type != null ? String(o.dcc_type) : undefined,
+    instance_id:
+      o.instance_id === null || o.instance_id === undefined
+        ? null
+        : String(o.instance_id),
+    request_id: o.request_id != null ? String(o.request_id) : undefined,
+    tool: o.tool != null ? String(o.tool) : undefined,
+    success: typeof o.success === 'boolean' ? o.success : undefined,
+    detail: o.detail != null ? String(o.detail) : undefined,
+    reason: o.reason == null ? null : String(o.reason),
+  };
+}
 
 /// DCC-type → icon URL (local SVGs, bundled by Vite + vite-plugin-singlefile).
 /// Unknown/missing types fall back to a generic puzzle-piece icon.
@@ -159,7 +181,19 @@ function resolveDccIcon(dccType: string): string {
   return DCC_ICON_FALLBACK;
 }
 
-const API_BASE = `${location.origin}/admin/api`;
+/// Resolve JSON API base from the current admin URL so custom `--admin-path`
+/// (e.g. `/gw-admin`) works. A fixed `/admin/api` prefix 404s on non-default mounts.
+function adminApiBase(): string {
+  const { origin, pathname } = window.location;
+  let basePath = pathname.replace(/\/+$/, '');
+  if (!basePath || basePath === '/') {
+    basePath = '/admin';
+  }
+  const prefix = basePath.endsWith('/') ? basePath : `${basePath}/`;
+  return `${origin}${prefix}api`;
+}
+
+const API_BASE = adminApiBase();
 /** Abort hung admin fetches so the UI does not wait indefinitely on a wedged gateway. */
 const ADMIN_FETCH_TIMEOUT_MS = 25_000;
 const PANELS: { id: Panel; label: string }[] = [
@@ -169,9 +203,90 @@ const PANELS: { id: Panel; label: string }[] = [
   { id: 'calls', label: 'Calls' },
   { id: 'traces', label: 'Traces' },
   { id: 'stats', label: 'Stats' },
-  { id: 'workers', label: 'Workers' },
+  { id: 'skill-paths', label: 'Skill paths' },
   { id: 'logs', label: 'Logs' },
 ];
+
+const PANEL_ID_SET = new Set<Panel>(PANELS.map((p) => p.id));
+
+const STATS_RANGE_IDS = new Set(['1h', '24h', '7d', 'all']);
+
+function isPanelId(value: string | null | undefined): value is Panel {
+  return value != null && value !== '' && PANEL_ID_SET.has(value as Panel);
+}
+
+/** Admin HTML path without `/api` (honours custom `--admin-path`). */
+function adminShellPath(): string {
+  const { pathname } = window.location;
+  let base = pathname.replace(/\/+$/, '');
+  if (!base || base === '/') {
+    base = '/admin';
+  }
+  return base.startsWith('/') ? base : `/${base}`;
+}
+
+/** Shareable relative URL: `/admin?panel=stats&range=7d`. */
+function hrefForAdmin(panel: Panel, extra?: Record<string, string | undefined>): string {
+  const u = new URL(`${window.location.origin}${adminShellPath()}`);
+  u.searchParams.set('panel', panel);
+  if (extra) {
+    for (const [k, v] of Object.entries(extra)) {
+      if (v != null && v !== '') {
+        u.searchParams.set(k, v);
+      }
+    }
+  }
+  return `${u.pathname}${u.search}`;
+}
+
+function readPanelFromUrl(): Panel {
+  const u = new URL(window.location.href);
+  const raw = u.searchParams.get('panel') ?? u.searchParams.get('tab');
+  if (raw === 'workers') {
+    return 'instances';
+  }
+  return isPanelId(raw) ? raw : 'health';
+}
+
+function readStatsRangeFromUrl(): string {
+  const u = new URL(window.location.href);
+  const r = u.searchParams.get('range');
+  return r && STATS_RANGE_IDS.has(r) ? r : '24h';
+}
+
+function readTraceIdFromUrl(): string | null {
+  const u = new URL(window.location.href);
+  const t = u.searchParams.get('trace');
+  return t != null && t.trim() !== '' ? t.trim() : null;
+}
+
+type AdminQuickLinkProps = {
+  panel: Panel;
+  traceId?: string;
+  range?: string;
+  className?: string;
+  children: ReactNode;
+  onNavigate: (panel: Panel, opts?: { traceId?: string; range?: string }) => void;
+};
+
+function AdminQuickLink({ panel, traceId, range, className, children, onNavigate }: AdminQuickLinkProps) {
+  const extra: Record<string, string | undefined> = {};
+  if (traceId) extra.trace = traceId;
+  if (range) extra.range = range;
+  const href = hrefForAdmin(panel, extra);
+  return (
+    <a
+      href={href}
+      className={className ?? 'admin-quick-link'}
+      onClick={(e) => {
+        e.preventDefault();
+        onNavigate(panel, { traceId, range });
+      }}
+    >
+      {children}
+    </a>
+  );
+}
 
 function haystack(...parts: (string | number | null | undefined)[]): string {
   return parts
@@ -187,6 +302,26 @@ function matchesListFilter(query: string, hay: string): boolean {
     return true;
   }
   return hay.includes(q);
+}
+
+/** Open host root, MCP endpoint, and `/docs` on the DCC HTTP server (same origin as MCP). */
+function McpBackendLinks({ mcpUrl }: { mcpUrl: string }) {
+  try {
+    const u = new URL(mcpUrl);
+    const origin = u.origin;
+    const docs = `${origin}/docs`;
+    return (
+      <span className="mcp-backend-links">
+        <a href={origin} target="_blank" rel="noopener noreferrer">host</a>
+        {' · '}
+        <a href={mcpUrl} target="_blank" rel="noopener noreferrer">MCP</a>
+        {' · '}
+        <a href={docs} target="_blank" rel="noopener noreferrer">docs</a>
+      </span>
+    );
+  } catch {
+    return <span className="mono-path">{mcpUrl}</span>;
+  }
 }
 
 async function apiJson<T>(path: string): Promise<T> {
@@ -363,17 +498,19 @@ function groupRows<T>(rows: T[], keyFn: (row: T) => string): Map<string, T[]> {
 }
 
 function App() {
-  const [activePanel, setActivePanel] = useState<Panel>('health');
+  const [activePanel, setActivePanel] = useState<Panel>(() => readPanelFromUrl());
   const [health, setHealth] = useState<HealthPayload | null>(null);
-  const [instances, setInstances] = useState<InstanceRow[]>([]);
   const [tools, setTools] = useState<ToolRow[]>([]);
   const [calls, setCalls] = useState<CallRow[]>([]);
   const [traces, setTraces] = useState<TraceRow[]>([]);
   const [stats, setStats] = useState<StatsPayload | null>(null);
-  const [statsRange, setStatsRange] = useState('24h');
+  const [statsRange, setStatsRange] = useState(() => readStatsRangeFromUrl());
   const [workers, setWorkers] = useState<WorkerRow[]>([]);
   const [workerSummary, setWorkerSummary] = useState<WorkerSummary>({ live: 0, stale: 0, unhealthy: 0 });
   const [logs, setLogs] = useState<LogRow[]>([]);
+  const [skillPaths, setSkillPaths] = useState<SkillPathRow[]>([]);
+  const [skillPathInput, setSkillPathInput] = useState('');
+  const [skillPathBusy, setSkillPathBusy] = useState(false);
   const [traceDetail, setTraceDetail] = useState<string>('Select a trace row for detail.');
   const [callDetail, setCallDetail] = useState<string>('Select a call row for trace detail.');
   const [updatedAt, setUpdatedAt] = useState<Record<Panel, string>>({
@@ -383,28 +520,23 @@ function App() {
     calls: 'Loading…',
     traces: 'Loading…',
     stats: 'Loading…',
-    workers: 'Loading…',
     logs: 'Loading…',
+    'skill-paths': 'Loading…',
   });
   const [errors, setErrors] = useState<Partial<Record<Panel, string>>>({});
   const [listSearch, setListSearch] = useState('');
 
   useEffect(() => {
+    const u = new URL(window.location.href);
+    if (u.searchParams.get('panel') === 'workers') {
+      u.searchParams.set('panel', 'instances');
+      window.history.replaceState({}, '', `${u.pathname}${u.search}`);
+    }
+  }, []);
+
+  useEffect(() => {
     setListSearch('');
   }, [activePanel]);
-
-  const filteredInstances = useMemo(() => {
-    const q = listSearch.trim().toLowerCase();
-    if (!q) {
-      return instances;
-    }
-    return instances.filter((i) =>
-      matchesListFilter(
-        q,
-        haystack(i.id, i.dcc_type, i.status, i.host, String(i.port), i.scene ?? ''),
-      ),
-    );
-  }, [instances, listSearch]);
 
   const filteredTools = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
@@ -479,6 +611,7 @@ function App() {
           w.version ?? '',
           w.adapter_version ?? '',
           String(w.pid ?? ''),
+          w.scene ?? '',
         ),
       ),
     );
@@ -508,6 +641,16 @@ function App() {
       ),
     );
   }, [logs, listSearch]);
+
+  const filteredSkillPaths = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    if (!q) {
+      return skillPaths;
+    }
+    return skillPaths.filter((r) =>
+      matchesListFilter(q, haystack(r.path, r.source, r.id != null ? String(r.id) : '')),
+    );
+  }, [skillPaths, listSearch]);
 
   const filteredTopTools = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
@@ -546,11 +689,15 @@ function App() {
     }
   }, [markError, markUpdated]);
 
-  const fetchInstances = useCallback(async () => {
+  const fetchInstanceBackends = useCallback(async () => {
     try {
-      const payload = await apiJson<{ instances: InstanceRow[] }>('/instances');
-      setInstances(payload.instances);
-      markUpdated('instances', `${payload.instances.length} instance(s) — ${new Date().toLocaleTimeString()}`);
+      const payload = await apiJson<{ workers: WorkerRow[]; summary: WorkerSummary }>('/workers');
+      setWorkers(payload.workers);
+      setWorkerSummary(payload.summary);
+      markUpdated(
+        'instances',
+        `${payload.workers.length} instance(s) (live ${payload.summary.live}, stale ${payload.summary.stale}, unhealthy ${payload.summary.unhealthy}) — ${new Date().toLocaleTimeString()}`,
+      );
     } catch (error) {
       markError('instances', error);
     }
@@ -596,29 +743,81 @@ function App() {
     }
   }, [markError, markUpdated, statsRange]);
 
-  const fetchWorkers = useCallback(async () => {
-    try {
-      const payload = await apiJson<{ workers: WorkerRow[]; summary: WorkerSummary }>('/workers');
-      setWorkers(payload.workers);
-      setWorkerSummary(payload.summary);
-      markUpdated(
-        'workers',
-        `${payload.workers.length} worker(s) (live ${payload.summary.live}, stale ${payload.summary.stale}, unhealthy ${payload.summary.unhealthy}) — ${new Date().toLocaleTimeString()}`,
-      );
-    } catch (error) {
-      markError('workers', error);
-    }
-  }, [markError, markUpdated]);
-
   const fetchLogs = useCallback(async () => {
     try {
-      const payload = await apiJson<{ logs: LogRow[] }>('/logs');
-      setLogs(payload.logs);
-      markUpdated('logs', `${payload.logs.length} event(s) — ${new Date().toLocaleTimeString()}`);
+      const payload = await apiJson<{ logs?: unknown[] }>('/logs');
+      const raw = Array.isArray(payload.logs) ? payload.logs : [];
+      setLogs(raw.map(normalizeLogRow));
+      markUpdated('logs', `${raw.length} event(s) — ${new Date().toLocaleTimeString()}`);
     } catch (error) {
       markError('logs', error);
     }
   }, [markError, markUpdated]);
+
+  const fetchSkillPaths = useCallback(async () => {
+    try {
+      const payload = await apiJson<{ paths: SkillPathRow[] }>('/skill-paths');
+      setSkillPaths(Array.isArray(payload.paths) ? payload.paths : []);
+      markUpdated(
+        'skill-paths',
+        `${payload.paths?.length ?? 0} path(s) — ${new Date().toLocaleTimeString()}`,
+      );
+    } catch (error) {
+      markError('skill-paths', error);
+    }
+  }, [markError, markUpdated]);
+
+  const addSkillPath = useCallback(async () => {
+    const path = skillPathInput.trim();
+    if (!path) {
+      return;
+    }
+    setSkillPathBusy(true);
+    try {
+      const ctrl = new AbortController();
+      const tid = window.setTimeout(() => ctrl.abort(), ADMIN_FETCH_TIMEOUT_MS);
+      const res = await fetch(`${API_BASE}/skill-paths`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+        signal: ctrl.signal,
+      });
+      clearTimeout(tid);
+      if (!res.ok) {
+        throw new Error(`${res.status} ${res.statusText}`);
+      }
+      setSkillPathInput('');
+      await fetchSkillPaths();
+    } catch (error) {
+      markError('skill-paths', error);
+    } finally {
+      setSkillPathBusy(false);
+    }
+  }, [fetchSkillPaths, markError, skillPathInput]);
+
+  const deleteSkillPath = useCallback(
+    async (id: number) => {
+      setSkillPathBusy(true);
+      try {
+        const ctrl = new AbortController();
+        const tid = window.setTimeout(() => ctrl.abort(), ADMIN_FETCH_TIMEOUT_MS);
+        const res = await fetch(`${API_BASE}/skill-paths/${encodeURIComponent(String(id))}`, {
+          method: 'DELETE',
+          signal: ctrl.signal,
+        });
+        clearTimeout(tid);
+        if (!res.ok) {
+          throw new Error(`${res.status} ${res.statusText}`);
+        }
+        await fetchSkillPaths();
+      } catch (error) {
+        markError('skill-paths', error);
+      } finally {
+        setSkillPathBusy(false);
+      }
+    },
+    [fetchSkillPaths, markError],
+  );
 
   const fetchTraceInto = useCallback(async (requestId: string, target: 'call' | 'trace') => {
     try {
@@ -639,16 +838,91 @@ function App() {
     }
   }, []);
 
+  const pushAdminUrl = useCallback(
+    (panel: Panel, opts?: { traceId?: string | null; range?: string | null; replace?: boolean }) => {
+      const u = new URL(window.location.href);
+      u.searchParams.set('panel', panel);
+      u.searchParams.delete('range');
+      u.searchParams.delete('trace');
+      if (panel === 'stats') {
+        const r = opts?.range;
+        if (r && STATS_RANGE_IDS.has(r)) {
+          u.searchParams.set('range', r);
+        }
+      }
+      if (panel === 'traces' && opts?.traceId) {
+        u.searchParams.set('trace', opts.traceId);
+      }
+      const next = `${u.pathname}${u.search}`;
+      const cur = `${window.location.pathname}${window.location.search}`;
+      if (next === cur) {
+        return;
+      }
+      if (opts?.replace) {
+        window.history.replaceState({ panel }, '', next);
+      } else {
+        window.history.pushState({ panel }, '', next);
+      }
+    },
+    [],
+  );
+
+  const goToPanel = useCallback(
+    (panel: Panel, opts?: { traceId?: string; range?: string; replace?: boolean }) => {
+      let effectiveRange = statsRange;
+      if (opts?.range && STATS_RANGE_IDS.has(opts.range)) {
+        effectiveRange = opts.range;
+        setStatsRange(opts.range);
+      }
+      setActivePanel(panel);
+      pushAdminUrl(panel, {
+        traceId: opts?.traceId,
+        range: panel === 'stats' ? effectiveRange : null,
+        replace: opts?.replace,
+      });
+      if (panel === 'traces' && opts?.traceId) {
+        void fetchTraceInto(opts.traceId, 'trace');
+      } else if (panel === 'traces' && !opts?.traceId) {
+        setTraceDetail('Select a trace row for detail.');
+      }
+    },
+    [fetchTraceInto, pushAdminUrl, statsRange],
+  );
+
+  useEffect(() => {
+    const onPop = () => {
+      const panel = readPanelFromUrl();
+      setActivePanel(panel);
+      setStatsRange(readStatsRangeFromUrl());
+      const tid = readTraceIdFromUrl();
+      if (panel === 'traces' && tid) {
+        void fetchTraceInto(tid, 'trace');
+      } else if (panel === 'traces') {
+        setTraceDetail('Select a trace row for detail.');
+      }
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [fetchTraceInto]);
+
+  useEffect(() => {
+    const panel = readPanelFromUrl();
+    const tid = readTraceIdFromUrl();
+    if (panel === 'traces' && tid) {
+      void fetchTraceInto(tid, 'trace');
+    }
+  }, [fetchTraceInto]);
+
   const fetchPanel = useCallback((panel: Panel) => {
     if (panel === 'health') void fetchHealth();
-    if (panel === 'instances') void fetchInstances();
+    if (panel === 'instances') void fetchInstanceBackends();
     if (panel === 'tools') void fetchTools();
     if (panel === 'calls') void fetchCalls();
     if (panel === 'traces') void fetchTraces();
     if (panel === 'stats') void fetchStats();
-    if (panel === 'workers') void fetchWorkers();
+    if (panel === 'skill-paths') void fetchSkillPaths();
     if (panel === 'logs') void fetchLogs();
-  }, [fetchCalls, fetchHealth, fetchInstances, fetchLogs, fetchStats, fetchTools, fetchTraces, fetchWorkers]);
+  }, [fetchCalls, fetchHealth, fetchInstanceBackends, fetchLogs, fetchSkillPaths, fetchStats, fetchTools, fetchTraces]);
 
   useEffect(() => {
     fetchPanel(activePanel);
@@ -668,14 +942,18 @@ function App() {
         </div>
         <div className="nav-links">
           {PANELS.map((panel) => (
-            <button
+            <a
               key={panel.id}
+              href={hrefForAdmin(panel.id, panel.id === 'stats' ? { range: statsRange } : undefined)}
               className={panel.id === activePanel ? 'nav-link active' : 'nav-link'}
-              type="button"
-              onClick={() => setActivePanel(panel.id)}
+              aria-current={panel.id === activePanel ? 'page' : undefined}
+              onClick={(e) => {
+                e.preventDefault();
+                goToPanel(panel.id);
+              }}
             >
               {panel.label}
-            </button>
+            </a>
           ))}
         </div>
       </nav>
@@ -692,11 +970,11 @@ function App() {
             />
             {listSearch.trim() ? (
               <span className="list-search-meta">
-                {activePanel === 'instances' ? `${filteredInstances.length} / ${instances.length}` : ''}
+                {activePanel === 'instances' ? `${filteredWorkers.length} / ${workers.length}` : ''}
                 {activePanel === 'tools' ? `${filteredTools.length} / ${tools.length}` : ''}
                 {activePanel === 'calls' ? `${filteredCalls.length} / ${calls.length}` : ''}
                 {activePanel === 'traces' ? `${filteredTraces.length} / ${traces.length}` : ''}
-                {activePanel === 'workers' ? `${filteredWorkers.length} / ${workers.length}` : ''}
+                {activePanel === 'skill-paths' ? `${filteredSkillPaths.length} / ${skillPaths.length}` : ''}
                 {activePanel === 'logs' ? `${filteredLogs.length} / ${logs.length}` : ''}
                 {activePanel === 'stats' ? `charts: ${filteredTopTools.length} tools / ${filteredTopInstances.length} instances` : ''}
               </span>
@@ -731,41 +1009,62 @@ function App() {
               />
             </div>
             <button className="refresh-btn" type="button" onClick={fetchHealth}>Refresh</button>
+            <p className="admin-quick-nav-hint">
+              Quick links (shareable URLs):{' '}
+              <AdminQuickLink panel="instances" onNavigate={goToPanel}>Instances</AdminQuickLink>
+              {' · '}
+              <AdminQuickLink panel="tools" onNavigate={goToPanel}>Tools</AdminQuickLink>
+              {' · '}
+              <AdminQuickLink panel="calls" onNavigate={goToPanel}>Calls</AdminQuickLink>
+              {' · '}
+              <AdminQuickLink panel="traces" onNavigate={goToPanel}>Traces</AdminQuickLink>
+              {' · '}
+              <AdminQuickLink panel="stats" range={statsRange} onNavigate={goToPanel}>Stats</AdminQuickLink>
+              {' · '}
+              <AdminQuickLink panel="logs" onNavigate={goToPanel}>Logs</AdminQuickLink>
+              {' · '}
+              <AdminQuickLink panel="skill-paths" onNavigate={goToPanel}>Skill paths</AdminQuickLink>
+            </p>
           </section>
         )}
 
         {activePanel === 'instances' && (
           <section className="panel active">
             <h2>Instances</h2>
+            <p className="empty log-hint">
+              One row per registered DCC backend (same data as the former Workers tab). Use the links to open the adapter HTTP host, MCP streamable endpoint, or <code>/docs</code> when the host exposes it.
+            </p>
             <StatusLine text={updatedAt.instances} error={errors.instances} />
-            <table>
-              <thead><tr><th>ID</th><th>DCC</th><th>Status</th><th>Address</th><th>Scene</th></tr></thead>
-              <tbody>
-                {instances.length === 0 ? (
-                  <EmptyRow columns={5}>No instances registered.</EmptyRow>
-                ) : filteredInstances.length === 0 ? (
-                  <EmptyRow columns={5}>No rows match your search.</EmptyRow>
-                ) : (
-                  filteredInstances.map((instance) => (
-                  <tr key={instance.id}>
-                    <td>{instance.id.slice(0, 8)}</td>
-                    <td>
-                      <img
-                        src={resolveDccIcon(instance.dcc_type)}
-                        alt={instance.dcc_type}
-                        className="dcc-icon"
-                      />
-                      {instance.dcc_type}
-                    </td>
-                    <td><StatusBadge value={instance.status} /></td>
-                    <td>{instance.host}:{instance.port}</td>
-                    <td>{instance.scene ?? '-'}</td>
-                  </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-            <button className="refresh-btn" type="button" onClick={fetchInstances}>Refresh</button>
+            <div className="workers-grid">
+              {workers.length === 0 ? (
+                <p className="empty">No instances registered.</p>
+              ) : filteredWorkers.length === 0 ? (
+                <p className="empty">No instances match your search.</p>
+              ) : (
+                filteredWorkers.map((worker) => (
+                  <div key={worker.instance_id} className={`worker-card ${worker.stale ? 'stale' : statusClass(worker.status).replace('badge badge-', '')}`}>
+                    <div className="wname">
+                      <img src={resolveDccIcon(worker.dcc_type)} alt="" className="dcc-icon" aria-hidden />
+                      {worker.display_name} <span>{worker.instance_id.slice(0, 8)}</span>
+                    </div>
+                    <div className="wkv">
+                      <span>DCC</span><span>{worker.dcc_type}</span>
+                      <span>Status</span><span><StatusBadge value={worker.status} /></span>
+                      <span>PID</span><span>{worker.pid ?? '-'}</span>
+                      <span>Uptime</span><span>{formatUptime(worker.uptime_secs)}</span>
+                      <span>Version</span><span>{worker.version ?? '-'}</span>
+                      <span>Adapter</span><span>{worker.adapter_version ?? '-'}</span>
+                      <span>Scene</span><span>{worker.scene ?? '-'}</span>
+                      <span>CPU%</span><span>{worker.cpu_percent == null ? '-' : worker.cpu_percent.toFixed(1)}</span>
+                      <span>Memory</span><span>{formatBytes(worker.memory_bytes)}</span>
+                      <span>Endpoints</span><span><McpBackendLinks mcpUrl={worker.mcp_url} /></span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="status-bar">Summary: live {workerSummary.live}, stale {workerSummary.stale}, unhealthy {workerSummary.unhealthy}</div>
+            <button className="refresh-btn" type="button" onClick={fetchInstanceBackends}>Refresh</button>
           </section>
         )}
 
@@ -819,7 +1118,7 @@ function App() {
                         <tr key={call.request_id}>
                           <td>{formatTime(call.timestamp)}</td>
                           <td>
-                            <button className="refresh-btn" type="button" title={call.request_id} onClick={() => { setActivePanel('traces'); void fetchTraceInto(call.request_id, 'trace'); }}>
+                            <button className="refresh-btn" type="button" title={call.request_id} onClick={() => goToPanel('traces', { traceId: call.request_id })}>
                               {call.request_id.slice(0, 12)}
                             </button>
                           </td>
@@ -859,7 +1158,7 @@ function App() {
                         <tr
                           key={trace.request_id}
                           className="trace-row"
-                          onClick={() => void fetchTraceInto(trace.request_id, 'trace')}
+                          onClick={() => goToPanel('traces', { traceId: trace.request_id, replace: true })}
                         >
                           <td>{formatTime(trace.timestamp)}</td>
                           <td>{trace.request_id}</td>
@@ -883,7 +1182,14 @@ function App() {
             <StatusLine text={updatedAt.stats} error={errors.stats} />
             <label className="range-label">
               Range
-              <select value={statsRange} onChange={(event) => setStatsRange(event.target.value)}>
+              <select
+                value={statsRange}
+                onChange={(event) => {
+                  const v = event.target.value;
+                  setStatsRange(v);
+                  pushAdminUrl('stats', { range: v, replace: true });
+                }}
+              >
                 <option value="1h">1h</option>
                 <option value="24h">24h</option>
                 <option value="7d">7d</option>
@@ -906,43 +1212,74 @@ function App() {
           </section>
         )}
 
-        {activePanel === 'workers' && (
+        {activePanel === 'skill-paths' && (
           <section className="panel active">
-            <h2>Workers</h2>
-            <StatusLine text={updatedAt.workers} error={errors.workers} />
-            <div className="workers-grid">
-              {workers.length === 0 ? <p className="empty">No workers registered.</p> : filteredWorkers.length === 0 ? (
-                <p className="empty">No workers match your search.</p>
-              ) : (
-                filteredWorkers.map((worker) => (
-                <div key={worker.instance_id} className={`worker-card ${worker.stale ? 'stale' : statusClass(worker.status).replace('badge badge-', '')}`}>
-                  <div className="wname">{worker.display_name} <span>{worker.instance_id.slice(0, 8)}</span></div>
-                  <div className="wkv">
-                    <span>DCC</span><span>{worker.dcc_type}</span>
-                    <span>Status</span><span><StatusBadge value={worker.status} /></span>
-                    <span>PID</span><span>{worker.pid ?? '-'}</span>
-                    <span>Uptime</span><span>{formatUptime(worker.uptime_secs)}</span>
-                    <span>Version</span><span>{worker.version ?? '-'}</span>
-                    <span>Adapter</span><span>{worker.adapter_version ?? '-'}</span>
-                    <span>CPU%</span><span>{worker.cpu_percent == null ? '-' : worker.cpu_percent.toFixed(1)}</span>
-                    <span>Memory</span><span>{formatBytes(worker.memory_bytes)}</span>
-                    <span>MCP URL</span><span>{worker.mcp_url}</span>
-                  </div>
-                </div>
-                ))
-              )}
+            <h2>Skill search paths</h2>
+            <StatusLine text={updatedAt['skill-paths']} error={errors['skill-paths']} />
+            <p className="empty log-hint">
+              Paths used for skill discovery (CLI, environment variables, bundled data dir, and optional SQLite-backed custom entries). Adding or removing a custom path persists to SQLite, re-runs disk catalog discovery in-process, and refreshes gateway capability data; Event Log records each change.
+            </p>
+            <div className="skill-path-add">
+              <input
+                type="text"
+                className="list-search-input"
+                placeholder="Add directory path…"
+                value={skillPathInput}
+                onChange={(e) => setSkillPathInput(e.target.value)}
+                aria-label="New skill path"
+              />
+              <button className="refresh-btn" type="button" disabled={skillPathBusy} onClick={() => void addSkillPath()}>
+                Add path
+              </button>
             </div>
-            <div className="status-bar">Summary: live {workerSummary.live}, stale {workerSummary.stale}, unhealthy {workerSummary.unhealthy}</div>
-            <button className="refresh-btn" type="button" onClick={fetchWorkers}>Refresh</button>
+            <table>
+              <thead>
+                <tr>
+                  <th>Source</th>
+                  <th>Path</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {skillPaths.length === 0 ? (
+                  <EmptyRow columns={3}>No paths reported.</EmptyRow>
+                ) : filteredSkillPaths.length === 0 ? (
+                  <EmptyRow columns={3}>No rows match your search.</EmptyRow>
+                ) : (
+                  filteredSkillPaths.map((row) => (
+                    <tr key={`${row.source}-${row.path}-${row.id ?? 'x'}`}>
+                      <td>
+                        <span className="source-pill" data-source={row.source}>
+                          {row.source}
+                        </span>
+                      </td>
+                      <td className="mono-path">{row.path}</td>
+                      <td>
+                        {row.id != null ? (
+                          <button type="button" className="linkish" disabled={skillPathBusy} onClick={() => void deleteSkillPath(row.id!)}>
+                            Remove
+                          </button>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+            <button className="refresh-btn" type="button" onClick={fetchSkillPaths}>
+              Refresh
+            </button>
           </section>
         )}
 
         {activePanel === 'logs' && (
-          <section className="panel active">
+          <section className="panel active logs-panel">
             <h2>Event Log</h2>
             <StatusLine text={updatedAt.logs} error={errors.logs} />
             <p className="empty log-hint">
-              Contention events (election, probe, eviction) plus recent audited gateway calls, merged newest-first and grouped by DCC / instance prefix.
+              Merged feed (newest first): in-memory gateway contention events (same ring as MCP resource <code>resources://gateway/events</code> — elections, yields, evictions, ghost reaping, etc.); optional rolling log files under <code>DCC_MCP_LOG_DIR</code> when that directory exists; recent audit rows (in-memory ring and optional SQLite); operator notes when you add/remove custom skill paths. If nothing has happened yet and no log directory is configured, this list stays empty.
             </p>
             {logs.length === 0 ? <p className="empty">No events in buffer yet. Use the gateway (tool calls) or wait for registry / probe activity.</p> : filteredLogs.length === 0 ? (
               <p className="empty">No log lines match your search.</p>

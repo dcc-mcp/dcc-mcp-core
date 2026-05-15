@@ -264,6 +264,8 @@ impl GatewayRunner {
                     self.config.admin_enabled,
                     #[cfg(feature = "admin")]
                     self.config.admin_path.clone(),
+                    #[cfg(feature = "admin")]
+                    self.config.admin_persist.clone(),
                     self.config.health_check_interval_secs,
                     self.config.health_check_failures,
                 )
@@ -419,6 +421,8 @@ impl GatewayRunner {
         let admin_enabled = self.config.admin_enabled;
         #[cfg(feature = "admin")]
         let admin_path = self.config.admin_path.clone();
+        #[cfg(feature = "admin")]
+        let admin_persist = self.config.admin_persist.clone();
         let health_check_interval_secs = self.config.health_check_interval_secs;
         let health_check_failures = self.config.health_check_failures;
 
@@ -496,6 +500,8 @@ impl GatewayRunner {
                         admin_enabled,
                         #[cfg(feature = "admin")]
                         admin_path.clone(),
+                        #[cfg(feature = "admin")]
+                        admin_persist.clone(),
                         health_check_interval_secs,
                         health_check_failures,
                     )
