@@ -1,5 +1,7 @@
 //! Admin UI HTTP handlers.
 
+use std::collections::HashMap;
+use std::time::Duration;
 use std::time::UNIX_EPOCH;
 
 use axum::Json;
@@ -7,97 +9,19 @@ use axum::extract::State;
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::IntoResponse;
 use dcc_mcp_gateway_core::naming::instance_short;
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::html::ADMIN_HTML;
-use super::state::AdminState;
+use super::state::{AdminAuditRecord, AdminState};
 use super::trace::DispatchTrace;
 use crate::gateway::capability::RefreshReason;
 use crate::gateway::capability_service::refresh_all_live_backends;
-use crate::gateway::event_log::ContendEvent;
+use crate::gateway::event_log::{ContendEvent, EventKind};
 use crate::gateway::resilience::{self as gw_resilience, gateway_limits};
 use crate::gateway::state::entry_to_json;
-
-/// Read `.log` files from `dir` and parse them into admin log rows.
-/// Only keeps the most recent `limit` entries (by timestamp, descending).
-fn read_log_files(dir: &str, limit: usize) -> Vec<Value> {
-    let mut rows: Vec<Value> = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().map(|e| e == "log").unwrap_or(false)
-                && let Ok(contents) = std::fs::read_to_string(&path)
-            {
-                for line in contents.lines() {
-                    if let Some(row) = parse_log_line(line) {
-                        rows.push(row);
-                    }
-                }
-            }
-        }
-    }
-    rows.sort_by(|a, b| {
-        let ta = a.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
-        let tb = b.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
-        tb.cmp(ta) // descending
-    });
-    rows.truncate(limit);
-    rows
-}
-
-/// Return the default log directory for the current platform.
-/// Returns empty string in test builds so disk scanning is skipped.
-fn default_log_dir() -> String {
-    #[cfg(test)]
-    {
-        String::new()
-    }
-    #[cfg(not(test))]
-    {
-        #[cfg(windows)]
-        {
-            let profile = std::env::var("USERPROFILE").unwrap_or_default();
-            format!("{}\\AppData\\Local\\dcc-mcp\\log", profile)
-        }
-        #[cfg(not(windows))]
-        {
-            let home = std::env::var("HOME").unwrap_or_default();
-            format!("{}/.local/share/dcc-mcp/log", home)
-        }
-    }
-}
-
-/// Parse one log line (tracing / log4rs format) into an admin log row.
-fn parse_log_line(line: &str) -> Option<Value> {
-    let trimmed = line.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    // Expected format: "2024-01-01T00:00:00.000000Z  LEVEL  target: message"
-    let mut parts = trimmed.splitn(3, ' ');
-    let ts = parts.next().unwrap_or("");
-    let level = parts.next().unwrap_or("info").to_lowercase();
-    let rest = parts.next().unwrap_or("");
-    let (target, message) = if let Some(idx) = rest.find(':') {
-        (&rest[..idx], rest[idx + 1..].trim())
-    } else {
-        ("", rest)
-    };
-    Some(json!({
-        "timestamp": ts,
-        "level": level,
-        "message": message,
-        "source": "file",
-        "event": null,
-        "dcc_type": if target.is_empty() { None } else { Some(target) },
-        "instance_id": null,
-        "request_id": null,
-        "tool": null,
-        "success": level == "info" || level == "debug",
-        "detail": null,
-        "reason": null,
-    }))
-}
+use dcc_mcp_db::env::ENV_DCC_MCP_LOG_DIR;
+use dcc_mcp_db::read_gateway_log_dir_rows_recent;
 
 /// `GET /admin` — serve the inline HTML dashboard.
 pub async fn handle_admin_ui() -> impl IntoResponse {
@@ -149,45 +73,51 @@ pub async fn handle_admin_tools(State(s): State<AdminState>) -> impl IntoRespons
     Json(json!({ "total": tools.len(), "tools": tools }))
 }
 
+fn admin_audit_row_json(r: &AdminAuditRecord) -> Value {
+    let ts = r
+        .timestamp
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|_d| chrono::DateTime::<chrono::Utc>::from(r.timestamp).to_rfc3339())
+        .unwrap_or_default();
+    json!({
+        "timestamp": ts,
+        "request_id": r.request_id,
+        "method": r.method,
+        "instance_id": r.instance_id,
+        "session_id": r.session_id,
+        "tool": r.action,
+        "dcc_type": r.dcc_type,
+        "status": if r.success { "ok" } else { "err" },
+        "success": r.success,
+        "error": r.error,
+        "duration_ms": r.duration_ms,
+    })
+}
+
 /// `GET /admin/api/calls` — recent calls from the AuditLog ring buffer.
 ///
 /// If no `AuditLog` is attached to the state, returns an empty array.
 pub async fn handle_admin_calls(State(s): State<AdminState>) -> impl IntoResponse {
-    let calls = match &s.audit_log {
-        Some(log) => {
-            let records = log.lock().clone();
-            records
-                .iter()
-                .rev()
-                .take(200)
-                .map(|r| {
-                    let ts = r
-                        .timestamp
-                        .duration_since(UNIX_EPOCH)
-                        .ok()
-                        .map(|_d| {
-                            // ISO-8601 via chrono (already a dep).
-                            chrono::DateTime::<chrono::Utc>::from(r.timestamp).to_rfc3339()
-                        })
-                        .unwrap_or_default();
-                    json!({
-                        "timestamp": ts,
-                        "request_id": r.request_id,
-                        "method": r.method,
-                        "instance_id": r.instance_id,
-                        "session_id": r.session_id,
-                        "tool": r.action,
-                        "dcc_type": r.dcc_type,
-                        "status": if r.success { "ok" } else { "err" },
-                        "success": r.success,
-                        "error": r.error,
-                        "duration_ms": r.duration_ms,
-                    })
-                })
-                .collect::<Vec<_>>()
+    let mut by_rid: HashMap<String, Value> = HashMap::new();
+    if let Some(ref lane) = s.admin_sqlite_lane {
+        let r = lane.reader();
+        for rec in r.list_audits_recent(500) {
+            by_rid.insert(rec.request_id.clone(), admin_audit_row_json(&rec));
         }
-        None => vec![],
-    };
+    }
+    if let Some(log) = &s.audit_log {
+        for r in log.lock().iter().rev().take(200) {
+            by_rid.insert(r.request_id.clone(), admin_audit_row_json(r));
+        }
+    }
+    let mut calls: Vec<Value> = by_rid.into_values().collect();
+    calls.sort_by(|a, b| {
+        let ta = a.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
+        let tb = b.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
+        tb.cmp(ta)
+    });
+    calls.truncate(200);
     Json(json!({ "total": calls.len(), "calls": calls }))
 }
 
@@ -207,12 +137,21 @@ pub async fn handle_admin_logs(State(s): State<AdminState>) -> impl IntoResponse
         .collect();
 
     // Merge on-disk log files (issue #963).
-    let log_dir = std::env::var("DCC_MCP_LOG_DIR").unwrap_or_else(|_| default_log_dir());
+    let log_dir = std::env::var(ENV_DCC_MCP_LOG_DIR).unwrap_or_else(|_| {
+        #[cfg(test)]
+        {
+            String::new()
+        }
+        #[cfg(not(test))]
+        {
+            dcc_mcp_db::default_gateway_log_dir()
+        }
+    });
     if std::fs::metadata(&log_dir)
         .map(|m| m.is_dir())
         .unwrap_or(false)
     {
-        let mut file_logs = read_log_files(&log_dir, 500);
+        let mut file_logs = read_gateway_log_dir_rows_recent(&log_dir, 500);
         logs.append(&mut file_logs);
     }
 
@@ -328,34 +267,58 @@ pub async fn handle_admin_traces(
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(200)
         .min(500);
-    let mapped: Vec<Value> = match &s.trace_log {
-        Some(log) => log
-            .recent(limit)
-            .iter()
-            .map(dispatch_trace_to_admin_row)
-            .collect(),
-        None => vec![],
-    };
+    let mut by_id: HashMap<String, DispatchTrace> = HashMap::new();
+    if let Some(ref lane) = s.admin_sqlite_lane {
+        let r = lane.reader();
+        for t in r.list_traces_since(None, limit.saturating_mul(4).max(500)) {
+            by_id.insert(t.request_id.clone(), t);
+        }
+    }
+    if let Some(log) = &s.trace_log {
+        for t in log.recent(limit) {
+            by_id.insert(t.request_id.clone(), t);
+        }
+    }
+    let mut traces: Vec<DispatchTrace> = by_id.into_values().collect();
+    traces.sort_by(|a, b| {
+        let ta = a.started_at.duration_since(UNIX_EPOCH).ok();
+        let tb = b.started_at.duration_since(UNIX_EPOCH).ok();
+        tb.cmp(&ta)
+    });
+    traces.truncate(limit);
+    let mapped: Vec<Value> = traces.iter().map(dispatch_trace_to_admin_row).collect();
     Json(json!({ "total": mapped.len(), "traces": mapped }))
 }
 
 /// `GET /admin/api/traces/{request_id}` — full waterfall for one call.
 ///
-/// Returns 404 when the trace is not in the ring buffer.
+/// Returns 404 when the trace is not in the ring buffer or SQLite store.
 pub async fn handle_admin_trace_detail(
     State(s): State<AdminState>,
     axum::extract::Path(request_id): axum::extract::Path<String>,
 ) -> impl IntoResponse {
-    match s.trace_log.as_ref().and_then(|log| log.get(&request_id)) {
-        Some(trace) => (
+    if let Some(trace) = s.trace_log.as_ref().and_then(|log| log.get(&request_id)) {
+        return (
             StatusCode::OK,
             Json(serde_json::to_value(&trace).unwrap_or(json!({}))),
-        ),
-        None => (
-            StatusCode::NOT_FOUND,
-            Json(json!({ "error": "trace not found", "request_id": request_id })),
-        ),
+        )
+            .into_response();
     }
+    if let Some(ref lane) = s.admin_sqlite_lane {
+        let r = lane.reader();
+        if let Some(trace) = r.get_trace(&request_id) {
+            return (
+                StatusCode::OK,
+                Json(serde_json::to_value(&trace).unwrap_or(json!({}))),
+            )
+                .into_response();
+        }
+    }
+    (
+        StatusCode::NOT_FOUND,
+        Json(json!({ "error": "trace not found", "request_id": request_id })),
+    )
+        .into_response()
 }
 
 /// `GET /admin/api/stats?range=1h|24h|7d` — aggregated call statistics (Phase 3).
@@ -395,6 +358,158 @@ pub async fn handle_admin_stats(
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct SkillPathAddBody {
+    pub path: String,
+}
+
+async fn wait_for_custom_skill_path_visible(
+    lane: &crate::gateway::admin::sqlite_lane::AdminSqliteLane,
+    needle: &str,
+) {
+    for _ in 0..80 {
+        if lane
+            .reader()
+            .list_custom_skill_paths()
+            .iter()
+            .any(|(_, p)| p == needle)
+        {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    tracing::warn!(path = %needle, "skill path not visible after 2 s poll — writer may be lagging");
+}
+
+async fn wait_until_custom_skill_path_id_removed(
+    lane: &crate::gateway::admin::sqlite_lane::AdminSqliteLane,
+    id: i64,
+) {
+    for _ in 0..80 {
+        if !lane
+            .reader()
+            .list_custom_skill_paths()
+            .iter()
+            .any(|(i, _)| *i == id)
+        {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    tracing::warn!(
+        skill_path_id = id,
+        "skill path id not removed after 2 s poll — writer may be lagging"
+    );
+}
+
+fn push_admin_operator_note(state: &AdminState, msg: String) {
+    state.gateway.event_log.push(ContendEvent::new(
+        EventKind::OperatorNote,
+        "admin",
+        "gateway",
+        Some(msg),
+    ));
+}
+
+/// `GET /admin/api/skill-paths` — skill search paths (snapshot + SQLite custom).
+pub async fn handle_admin_skill_paths(State(s): State<AdminState>) -> impl IntoResponse {
+    let mut flat: Vec<Value> = s
+        .skill_paths_snapshot
+        .iter()
+        .map(|e| json!({ "path": e.path, "source": e.source }))
+        .collect();
+    if let Some(ref lane) = s.admin_sqlite_lane {
+        let r = lane.reader();
+        for (id, path) in r.list_custom_skill_paths() {
+            if !flat
+                .iter()
+                .any(|v| v.get("path").and_then(|x| x.as_str()) == Some(path.as_str()))
+            {
+                flat.push(json!({ "path": path, "source": "admin_custom", "id": id }));
+            }
+        }
+    }
+    Json(json!({ "paths": flat }))
+}
+
+/// `POST /admin/api/skill-paths` — enqueue a custom path; embedder hook may reload disk catalog.
+pub async fn handle_admin_skill_path_add(
+    State(s): State<AdminState>,
+    Json(body): Json<SkillPathAddBody>,
+) -> impl IntoResponse {
+    let path = body.path.trim().to_string();
+    if path.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "path is empty" })),
+        )
+            .into_response();
+    }
+    let Some(ref lane) = s.admin_sqlite_lane else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "error": "admin sqlite lane disabled" })),
+        )
+            .into_response();
+    };
+    if lane.try_add_skill_path(path.clone()) {
+        wait_for_custom_skill_path_visible(lane, &path).await;
+        if let Some(cb) = s.skill_paths_reload.clone() {
+            cb();
+        }
+        let gw = s.gateway.clone();
+        tokio::spawn(async move {
+            refresh_all_live_backends(&gw, RefreshReason::ToolsListChanged).await;
+        });
+        push_admin_operator_note(
+            &s,
+            format!("Custom skill path persisted; catalog reload hook ran: {path}"),
+        );
+        (StatusCode::OK, Json(json!({ "ok": true, "path": path }))).into_response()
+    } else {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "error": "persist queue full or sqlite disabled" })),
+        )
+            .into_response()
+    }
+}
+
+/// `DELETE /admin/api/skill-paths/{id}` — remove a custom path row.
+pub async fn handle_admin_skill_path_delete(
+    State(s): State<AdminState>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> impl IntoResponse {
+    let Some(ref lane) = s.admin_sqlite_lane else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "error": "admin sqlite lane disabled" })),
+        )
+            .into_response();
+    };
+    if lane.try_delete_skill_path(id) {
+        wait_until_custom_skill_path_id_removed(lane, id).await;
+        if let Some(cb) = s.skill_paths_reload.clone() {
+            cb();
+        }
+        let gw = s.gateway.clone();
+        tokio::spawn(async move {
+            refresh_all_live_backends(&gw, RefreshReason::ToolsListChanged).await;
+        });
+        push_admin_operator_note(
+            &s,
+            format!("Custom skill path removed (id={id}); catalog reload hook ran."),
+        );
+        (StatusCode::OK, Json(json!({ "ok": true, "id": id }))).into_response()
+    } else {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "error": "persist queue full or sqlite disabled" })),
+        )
+            .into_response()
+    }
+}
+
 /// `GET /admin/api/workers` — per-instance worker cards (Phase 4).
 ///
 /// Returns the live registry view of each known instance plus best-effort
@@ -424,6 +539,22 @@ fn dispatch_trace_to_admin_row(t: &DispatchTrace) -> Value {
 }
 
 fn contend_event_to_admin_row(e: ContendEvent) -> Value {
+    if matches!(e.event, EventKind::OperatorNote) {
+        let message = e
+            .reason
+            .clone()
+            .unwrap_or_else(|| "operator note".to_string());
+        return json!({
+            "timestamp": e.timestamp,
+            "level": "info",
+            "message": message,
+            "source": "admin",
+            "event": e.event,
+            "dcc_type": e.dcc_type,
+            "instance_id": e.instance_id,
+            "reason": e.reason,
+        });
+    }
     let label = e.event.as_label();
     let mut message = format!("{label} dcc_type={} instance={}", e.dcc_type, e.instance_id);
     if let Some(r) = &e.reason {

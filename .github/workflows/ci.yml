@@ -102,6 +102,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+      - name: Fix cargo PATH on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          # macOS runners have a Homebrew `cargo` shim (actually rustup-init)
+          # that shadows ~/.cargo/bin/cargo. Pin CARGO env so all tools
+          # (cargo-hakari, vx just preflight, etc.) use the real binary.
+          CARGO_BIN="$(rustup which cargo)"
+          echo "CARGO=${CARGO_BIN}" >> "$GITHUB_ENV"
+          echo "RUSTC=$(rustup which rustc)" >> "$GITHUB_ENV"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - uses: loonghao/vx@v0.8.36
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -123,7 +134,12 @@ jobs:
           # rustup-init shim, which does NOT dispatch to `cargo-<subcmd>` in
           # ~/.cargo/bin and instead errors with `unexpected argument 'hakari'`.
           # Calling cargo-hakari directly bypasses that PATH ordering issue.
+          # Also pin CARGO env so hakari's internal `cargo metadata` uses the
+          # real binary, not the Homebrew shim.
           export PATH="$HOME/.cargo/bin:$PATH"
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            export CARGO="$(rustup which cargo 2>/dev/null || which cargo)"
+          fi
           cargo-hakari hakari verify && exit 0
 
           # If we get here, verify failed. Run generate and show the diff.
@@ -253,7 +269,7 @@ jobs:
           maturin-extra-args: '-i python3.7'
           test-wheel: 'true'
           artifact-name: wheel-py37-${{ matrix.os }}
-          use-sccache: 'true'
+          use-sccache: 'false'
 
   # ── Lint Python source ──
   lint:

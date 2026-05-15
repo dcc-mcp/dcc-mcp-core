@@ -44,6 +44,7 @@
 //! See `docs/guide/gateway-admin.md` for screenshots and configuration knobs.
 
 mod html;
+pub mod sqlite_lane;
 pub mod state;
 pub mod stats;
 pub mod trace;
@@ -54,6 +55,11 @@ mod handlers;
 #[cfg(feature = "admin")]
 mod router;
 
+pub use dcc_mcp_db::{
+    default_gateway_admin_sqlite_path as default_admin_db_path,
+    resolve_gateway_admin_sqlite_path as resolve_admin_db_path,
+};
+pub use sqlite_lane::{AdminSqliteLane, AdminSqliteReader, read_custom_skill_paths_for_startup};
 pub use state::{AdminAuditRecord, AdminAuditSink, AdminState, AuditLog, DurableAuditStore};
 pub use stats::{GatewayStats, LatencyStats, StatsAggregator, StatsRange, TopEntry};
 pub use trace::{DispatchTrace, TraceLog, TracePayload, TraceSpan};

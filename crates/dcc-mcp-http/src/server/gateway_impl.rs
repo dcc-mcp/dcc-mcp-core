@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::config::McpHttpConfig;
 use crate::server::{LiveMeta, LiveMetaInner};
 use dcc_mcp_gateway::{GatewayConfig, GatewayRunner, LiveSnapshot, MetadataProvider};
+use dcc_mcp_skills::constants::resolve_registry_dcc_type;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 
 pub(crate) async fn start_gateway_runner(
@@ -40,6 +41,7 @@ pub(crate) async fn start_gateway_runner(
         admin_path: config.gateway.admin_path.clone(),
         health_check_interval_secs: 5,
         health_check_failures: 2,
+        admin_persist: dcc_mcp_gateway::AdminPersistConfig::default(),
     };
 
     let runner = match GatewayRunner::new(gateway_config) {
@@ -51,7 +53,7 @@ pub(crate) async fn start_gateway_runner(
     };
 
     let mut entry = ServiceEntry::new(
-        config.instance.dcc_type.as_deref().unwrap_or("unknown"),
+        resolve_registry_dcc_type(config.instance.dcc_type.as_deref()),
         config.server.host.to_string(),
         port,
     );

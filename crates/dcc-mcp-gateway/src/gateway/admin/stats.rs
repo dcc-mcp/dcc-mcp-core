@@ -20,7 +20,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use super::trace::TraceLog;
+use super::sqlite_lane::AdminSqliteReader;
+use super::trace::{DispatchTrace, TraceLog};
 
 /// How far back to consider when computing statistics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,11 +120,20 @@ pub struct TopEntry {
 /// Computes on-demand statistics from the [`TraceLog`] ring buffer.
 pub struct StatsAggregator {
     trace_log: Arc<TraceLog>,
+    sqlite_reader: Option<AdminSqliteReader>,
 }
 
 impl StatsAggregator {
     pub fn new(trace_log: Arc<TraceLog>) -> Self {
-        Self { trace_log }
+        Self {
+            trace_log,
+            sqlite_reader: None,
+        }
+    }
+
+    pub fn with_sqlite_reader(mut self, reader: AdminSqliteReader) -> Self {
+        self.sqlite_reader = Some(reader);
+        self
     }
 
     /// Compute statistics for the given range.
@@ -132,87 +142,97 @@ impl StatsAggregator {
     /// a fully-materialised [`GatewayStats`] struct.
     pub fn compute(&self, range: StatsRange) -> GatewayStats {
         let cutoff = range.cutoff();
-        let traces = self.trace_log.recent(usize::MAX);
-
-        // Filter to the requested time range.
-        let in_range: Vec<_> = traces
-            .iter()
+        let mut by_id: HashMap<String, DispatchTrace> = HashMap::new();
+        if let Some(db) = &self.sqlite_reader {
+            for t in db.list_traces_since(cutoff, 500_000) {
+                by_id.insert(t.request_id.clone(), t);
+            }
+        }
+        for t in self.trace_log.recent(usize::MAX) {
+            by_id.insert(t.request_id.clone(), t);
+        }
+        let mut traces: Vec<DispatchTrace> = by_id
+            .into_values()
             .filter(|t| cutoff.map(|c| t.started_at >= c).unwrap_or(true))
             .collect();
-
-        let total_calls = in_range.len();
-        if total_calls == 0 {
-            return GatewayStats {
-                range: range_label(range),
-                total_calls: 0,
-                successful_calls: 0,
-                failed_calls: 0,
-                success_rate: 0.0,
-                latency_ms: LatencyStats::default(),
-                top_tools: vec![],
-                top_instances: vec![],
-                hourly_distribution: vec![0u32; 24],
-            };
-        }
-
-        let successful_calls = in_range.iter().filter(|t| t.ok).count();
-        let failed_calls = total_calls - successful_calls;
-        let success_rate = successful_calls as f64 / total_calls as f64;
-
-        // Latency — collect, sort, compute percentiles.
-        let mut latencies: Vec<u64> = in_range.iter().map(|t| t.total_ms).collect();
-        latencies.sort_unstable();
-        let latency_ms = compute_latency_stats(&latencies);
-
-        // Top tools.
-        let mut tool_counts: HashMap<String, usize> = HashMap::new();
-        for t in &in_range {
-            if let Some(slug) = &t.tool_slug {
-                *tool_counts.entry(slug.clone()).or_insert(0) += 1;
-            }
-        }
-        let top_tools = top_n(tool_counts, 10);
-
-        // Top instances.
-        let mut instance_counts: HashMap<String, usize> = HashMap::new();
-        for t in &in_range {
-            let key = t
-                .instance_id
-                .clone()
-                .or_else(|| t.dcc_type.clone())
-                .unwrap_or_else(|| "unknown".to_string());
-            *instance_counts.entry(key).or_insert(0) += 1;
-        }
-        let top_instances = top_n(instance_counts, 10);
-
-        // Hour-of-day distribution (UTC).
-        let mut hourly = vec![0u32; 24];
-        for t in &in_range {
-            let hour = t
-                .started_at
-                .duration_since(UNIX_EPOCH)
-                .map(|d| ((d.as_secs() % 86_400) / 3600) as usize)
-                .unwrap_or(0);
-            if hour < 24 {
-                hourly[hour] += 1;
-            }
-        }
-
-        GatewayStats {
-            range: range_label(range),
-            total_calls,
-            successful_calls,
-            failed_calls,
-            success_rate,
-            latency_ms,
-            top_tools,
-            top_instances,
-            hourly_distribution: hourly,
-        }
+        traces.sort_by(|a, b| {
+            let ta = a.started_at.duration_since(UNIX_EPOCH).ok();
+            let tb = b.started_at.duration_since(UNIX_EPOCH).ok();
+            tb.cmp(&ta)
+        });
+        compute_from_traces(&traces, range)
     }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn compute_from_traces(in_range: &[DispatchTrace], range: StatsRange) -> GatewayStats {
+    let total_calls = in_range.len();
+    if total_calls == 0 {
+        return GatewayStats {
+            range: range_label(range),
+            total_calls: 0,
+            successful_calls: 0,
+            failed_calls: 0,
+            success_rate: 0.0,
+            latency_ms: LatencyStats::default(),
+            top_tools: vec![],
+            top_instances: vec![],
+            hourly_distribution: vec![0u32; 24],
+        };
+    }
+
+    let successful_calls = in_range.iter().filter(|t| t.ok).count();
+    let failed_calls = total_calls - successful_calls;
+    let success_rate = successful_calls as f64 / total_calls as f64;
+
+    let mut latencies: Vec<u64> = in_range.iter().map(|t| t.total_ms).collect();
+    latencies.sort_unstable();
+    let latency_ms = compute_latency_stats(&latencies);
+
+    let mut tool_counts: HashMap<String, usize> = HashMap::new();
+    for t in in_range {
+        if let Some(slug) = &t.tool_slug {
+            *tool_counts.entry(slug.clone()).or_insert(0) += 1;
+        }
+    }
+    let top_tools = top_n(tool_counts, 10);
+
+    let mut instance_counts: HashMap<String, usize> = HashMap::new();
+    for t in in_range {
+        let key = t
+            .instance_id
+            .clone()
+            .or_else(|| t.dcc_type.clone())
+            .unwrap_or_else(|| "unknown".to_string());
+        *instance_counts.entry(key).or_insert(0) += 1;
+    }
+    let top_instances = top_n(instance_counts, 10);
+
+    let mut hourly = vec![0u32; 24];
+    for t in in_range {
+        let hour = t
+            .started_at
+            .duration_since(UNIX_EPOCH)
+            .map(|d| ((d.as_secs() % 86_400) / 3600) as usize)
+            .unwrap_or(0);
+        if hour < 24 {
+            hourly[hour] += 1;
+        }
+    }
+
+    GatewayStats {
+        range: range_label(range),
+        total_calls,
+        successful_calls,
+        failed_calls,
+        success_rate,
+        latency_ms,
+        top_tools,
+        top_instances,
+        hourly_distribution: hourly,
+    }
+}
 
 fn range_label(r: StatsRange) -> String {
     match r {

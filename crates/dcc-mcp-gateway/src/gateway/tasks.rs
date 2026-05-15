@@ -22,6 +22,10 @@ pub(crate) struct GatewayTasks {
     pub(crate) yield_tx: Arc<watch::Sender<bool>>,
 }
 
+/// Capacity of the in-memory audit ring buffer and SQLite merge limit.
+#[cfg(feature = "admin")]
+const ADMIN_AUDIT_RING_CAPACITY: usize = 512;
+
 /// Build and run the gateway HTTP server with graceful-yield and live-push support.
 ///
 /// Returns a [`GatewayTasks`] handle holding both the `AbortHandle` and the
@@ -51,6 +55,7 @@ pub(crate) async fn start_gateway_tasks(
     middleware_chain: crate::gateway::middleware::MiddlewareChain,
     #[cfg(feature = "admin")] admin_enabled: bool,
     #[cfg(feature = "admin")] admin_path: String,
+    #[cfg(feature = "admin")] admin_persist: crate::gateway::config::AdminPersistConfig,
     health_check_interval_secs: u64,
     health_check_failures: u32,
 ) -> Result<GatewayTasks, Box<dyn std::error::Error + Send + Sync>> {
@@ -546,11 +551,18 @@ pub(crate) async fn start_gateway_tasks(
 
             // 1. Shared ring buffer — the middleware writes here; the handler reads it.
             let audit_log: std::sync::Arc<crate::gateway::admin::state::AuditLog> =
-                std::sync::Arc::new(parking_lot::Mutex::new(Vec::with_capacity(512)));
+                std::sync::Arc::new(parking_lot::Mutex::new(Vec::with_capacity(
+                    ADMIN_AUDIT_RING_CAPACITY,
+                )));
             if let Some(store) = &durable_store {
-                audit_log
-                    .lock()
-                    .extend(store.load_audit().into_iter().rev().take(512).rev());
+                audit_log.lock().extend(
+                    store
+                        .load_audit()
+                        .into_iter()
+                        .rev()
+                        .take(ADMIN_AUDIT_RING_CAPACITY)
+                        .rev(),
+                );
             }
 
             // 2. Phase 2 trace log — ring buffer for per-call dispatch traces.
@@ -562,12 +574,47 @@ pub(crate) async fn start_gateway_tasks(
                 trace_log.extend(store.load_traces());
             }
 
+            let db_path = dcc_mcp_db::resolve_gateway_admin_sqlite_path(
+                admin_persist.sqlite_path.as_ref(),
+                None,
+            );
+            let sqlite_lane = match crate::gateway::admin::sqlite_lane::AdminSqliteLane::spawn(
+                db_path,
+                admin_persist.sqlite_retention_days.clamp(1, 3650),
+            ) {
+                Ok(l) => Some(l),
+                Err(e) => {
+                    tracing::warn!(error = %e, "gateway admin SQLite unavailable");
+                    None
+                }
+            };
+            if let Some(ref lane) = sqlite_lane {
+                let r = lane.reader();
+                trace_log.extend(r.list_traces_since(None, 10_000));
+                let from_sqlite = r.list_audits_recent(ADMIN_AUDIT_RING_CAPACITY);
+                if !from_sqlite.is_empty() {
+                    let mut buf = audit_log.lock();
+                    let mut merged: Vec<crate::gateway::admin::state::AdminAuditRecord> =
+                        from_sqlite;
+                    merged.extend(buf.drain(..));
+                    merged.sort_by_key(|a| a.timestamp);
+                    let overflow = merged.len().saturating_sub(ADMIN_AUDIT_RING_CAPACITY);
+                    if overflow > 0 {
+                        merged.drain(0..overflow);
+                    }
+                    *buf = merged;
+                }
+            }
+
             // 3. Build the sink that feeds the audit ring buffer and the trace log.
             let mut admin_sink = crate::gateway::admin::state::AdminAuditSink::new(
                 audit_log.clone(),
-                /* capacity = */ 512,
+                ADMIN_AUDIT_RING_CAPACITY,
             )
             .with_trace_log(trace_log.clone());
+            if let Some(ref lane) = sqlite_lane {
+                admin_sink = admin_sink.with_sqlite_lane(lane.clone());
+            }
             if let Some(store) = durable_store.clone() {
                 admin_sink = admin_sink.with_durable_store(store);
             }
@@ -587,10 +634,14 @@ pub(crate) async fn start_gateway_tasks(
             }
 
             // 5. Build AdminState with audit log and trace log attached.
+            let sqlite_reader = sqlite_lane.as_ref().map(|l| l.reader());
             Some(
                 crate::gateway::admin::state::AdminState::new(gw_state.clone())
                     .with_audit_log(audit_log)
-                    .with_trace_log(trace_log),
+                    .with_trace_log(trace_log, sqlite_reader)
+                    .with_skill_paths_snapshot(admin_persist.skill_paths_snapshot)
+                    .with_admin_sqlite_lane(sqlite_lane)
+                    .with_skill_paths_reload(admin_persist.skill_paths_reload.clone()),
             )
         } else {
             None
