@@ -2,6 +2,8 @@
 //! `handlers/tools_call/*` so core tools, stubs, lazy-actions, jobs, and
 //! registry resolution match the historical HTTP server.
 
+use std::sync::Arc;
+
 use serde_json::{json, Value};
 
 use dcc_mcp_actions::registry::ToolMeta;
@@ -12,7 +14,8 @@ use dcc_mcp_jsonrpc::{
     coerce_tool_arguments_object,
     error_codes::{BACKEND_NOT_READY, CAPABILITY_MISSING},
 };
-use dcc_mcp_models::{NextTools, ThreadAffinity};
+use dcc_mcp_models::{ExecutionMode, NextTools, ThreadAffinity};
+use tokio_util::sync::CancellationToken;
 use dcc_mcp_protocols::error_envelope::DccMcpError;
 
 use crate::dynamic_tools::{
@@ -275,6 +278,228 @@ async fn execute_threaded_dispatch(
     } else {
         run_on_worker(dispatcher, resolved_name.to_string(), call_params).await
     }
+}
+
+struct AsyncDispatchConfig {
+    parent_job_id: Option<String>,
+    progress_token: Option<Value>,
+    thread_affinity: ThreadAffinity,
+}
+
+fn async_dispatch_config(action_meta: &ToolMeta) -> Option<AsyncDispatchConfig> {
+    let action_declares_async = matches!(action_meta.execution, ExecutionMode::Async)
+        || action_meta.timeout_hint_secs.unwrap_or(0) > 0;
+
+    if !action_declares_async {
+        return None;
+    }
+
+    Some(AsyncDispatchConfig {
+        parent_job_id: None,
+        progress_token: None,
+        thread_affinity: action_meta.thread_affinity,
+    })
+}
+
+fn build_pending_envelope(job_id: &str, parent_job_id: Option<String>) -> CallToolResult {
+    let structured = json!({
+        "job_id": job_id,
+        "status": "pending",
+        "parent_job_id": parent_job_id,
+    });
+    let mut meta = serde_json::Map::new();
+    meta.insert("status".to_string(), json!("pending"));
+    let mut dcc_meta = serde_json::Map::new();
+    dcc_meta.insert("jobId".to_string(), json!(job_id));
+    dcc_meta.insert(
+        "parentJobId".to_string(),
+        parent_job_id
+            .as_ref()
+            .map(|parent| json!(parent))
+            .unwrap_or(Value::Null),
+    );
+    meta.insert("dcc".to_string(), Value::Object(dcc_meta));
+
+    let structured_with_meta = {
+        let mut payload = structured.as_object().cloned().unwrap_or_default();
+        payload.insert("_meta".to_string(), Value::Object(meta));
+        Value::Object(payload)
+    };
+
+    CallToolResult {
+        content: vec![ToolContent::Text {
+            text: format!("Job {job_id} queued"),
+        }],
+        structured_content: Some(structured_with_meta),
+        is_error: false,
+        meta: None,
+    }
+}
+
+async fn run_async_execution_lane(
+    state: &ServerState,
+    resolved_name: String,
+    call_params: Value,
+    cancel_token: CancellationToken,
+    thread_affinity: ThreadAffinity,
+) -> Result<Value, String> {
+    let dispatcher = state.dispatcher.as_ref().clone();
+    let use_main_thread = use_main_thread_route(thread_affinity, state.executor.is_some());
+
+    if matches!(thread_affinity, ThreadAffinity::Main) && state.executor.is_none() {
+        tracing::warn!(
+            tool = %resolved_name,
+            "tool declares thread_affinity=main but no DeferredExecutor is wired; \
+             falling back to Tokio worker — scene API calls will be unsafe"
+        );
+    }
+
+    if let Some(executor) = state.executor.as_ref().filter(|_| use_main_thread) {
+        let dispatch_name = resolved_name.clone();
+        let dispatch_params = call_params.clone();
+        let dispatch = dispatcher.clone();
+        let response = executor.submit_deferred(
+            &resolved_name,
+            cancel_token.clone(),
+            Box::new(move || {
+                match dcc_mcp_actions::with_thread_affinity(ThreadAffinity::Main, || {
+                    dispatch.dispatch(&dispatch_name, dispatch_params)
+                }) {
+                    Ok(result) => {
+                        serde_json::to_string(&result.output).unwrap_or_else(|_| "null".into())
+                    }
+                    Err(err) => serde_json::to_string(&json!({"__dispatch_error": err.to_string()}))
+                        .unwrap_or_default(),
+                }
+            }),
+        );
+
+        tokio::select! {
+            outcome = response => match outcome {
+                Ok(json_str) => decode_dispatch_output(&json_str),
+                Err(_) => Err("CANCELLED".to_string()),
+            },
+            _ = cancel_token.cancelled() => Err("CANCELLED".to_string()),
+        }
+    } else {
+        let dispatch = dispatcher;
+        let dispatch_name = resolved_name;
+        let dispatch_params = call_params;
+        let dispatch_cancel = cancel_token.clone();
+        let blocking = tokio::task::spawn_blocking(move || {
+            if dispatch_cancel.is_cancelled() {
+                return Err("CANCELLED".to_string());
+            }
+            dispatch
+                .dispatch(&dispatch_name, dispatch_params)
+                .map(|result| result.output)
+                .map_err(|err| err.to_string())
+        });
+
+        tokio::select! {
+            outcome = blocking => outcome.map_err(|err| err.to_string()).and_then(|inner| inner),
+            _ = cancel_token.cancelled() => Err("CANCELLED".to_string()),
+        }
+    }
+}
+
+fn spawn_async_registry_dispatch(
+    state: &ServerState,
+    job_id: String,
+    cancel_token: CancellationToken,
+    resolved_name: String,
+    call_params: Value,
+    thread_affinity: ThreadAffinity,
+) {
+    let jobs = Arc::clone(&state.jobs);
+    let server = state.clone();
+    let spawn_job_id = job_id.clone();
+    let spawn_name = resolved_name.clone();
+
+    tokio::spawn(async move {
+        if cancel_token.is_cancelled() {
+            tracing::debug!(job_id = %spawn_job_id, "job cancelled before execution");
+            return;
+        }
+        if jobs.start(&spawn_job_id).is_none() {
+            tracing::debug!(job_id = %spawn_job_id, "job could not enter Running state");
+            return;
+        }
+
+        let exec_result = run_async_execution_lane(
+            &server,
+            spawn_name.clone(),
+            call_params,
+            cancel_token.clone(),
+            thread_affinity,
+        )
+        .await;
+
+        match exec_result {
+            Ok(output) => {
+                if jobs.complete(&spawn_job_id, output).is_none() {
+                    tracing::debug!(
+                        job_id = %spawn_job_id,
+                        "job.complete rejected — likely cancelled concurrently"
+                    );
+                }
+            }
+            Err(msg) if msg == "CANCELLED" => {
+                if jobs
+                    .get(&spawn_job_id)
+                    .map(|handle| handle.read().status)
+                    .is_some_and(|status| !status.is_terminal())
+                {
+                    jobs.cancel(&spawn_job_id);
+                }
+            }
+            Err(msg) => {
+                jobs.fail(&spawn_job_id, msg);
+            }
+        }
+    });
+}
+
+async fn dispatch_async_registry_tool(
+    state: &ServerState,
+    session_id: Option<&str>,
+    resolved_name: String,
+    call_params: Value,
+    cfg: AsyncDispatchConfig,
+) -> CallToolResult {
+    let job_handle = state
+        .jobs
+        .create_with_parent(resolved_name.clone(), cfg.parent_job_id.clone());
+    let (job_id, cancel_token) = {
+        let job = job_handle.read();
+        (job.id.clone(), job.cancel_token.clone())
+    };
+
+    if let Some(session) = session_id {
+        state.job_notifier.subscribe_session(session);
+        state
+            .job_notifier
+            .register_job(&job_id, session, cfg.progress_token.clone());
+    }
+
+    tracing::info!(
+        job_id = %job_id,
+        tool = %resolved_name,
+        parent_job_id = ?cfg.parent_job_id,
+        affinity = %cfg.thread_affinity,
+        "async job dispatched"
+    );
+
+    spawn_async_registry_dispatch(
+        state,
+        job_id.clone(),
+        cancel_token,
+        resolved_name,
+        call_params,
+        cfg.thread_affinity,
+    );
+
+    build_pending_envelope(&job_id, cfg.parent_job_id)
 }
 
 fn dispatch_json_result(output: Value) -> CallToolResult {
@@ -748,10 +973,10 @@ fn handle_search_tools(state: &ServerState, arguments: &Value) -> CallToolResult
 
     if include_stubs && tool_hits.len() < limit {
         for summary in state.catalog.list_skills(Some("unloaded")) {
-            if let Some(filter) = dcc {
-                if !summary.dcc.eq_ignore_ascii_case(filter) {
-                    continue;
-                }
+            if let Some(filter) = dcc
+                && !summary.dcc.eq_ignore_ascii_case(filter)
+            {
+                continue;
             }
             let haystack = format!(
                 "{} {} {} {} {}",
@@ -1000,10 +1225,10 @@ fn handle_list_actions(state: &ServerState, arguments: &Value) -> CallToolResult
         if !meta.enabled {
             continue;
         }
-        if let Some(want) = skill_filter {
-            if meta.skill_name.as_deref() != Some(want) {
-                continue;
-            }
+        if let Some(want) = skill_filter
+            && meta.skill_name.as_deref() != Some(want)
+        {
+            continue;
         }
         let id = meta
             .skill_name
@@ -1161,10 +1386,7 @@ fn route_dynamic_execution(
     let spec_opt = state.sessions.with_dynamic_tools_mut(sid, |dyn_tools| {
         dyn_tools.get(tool_name).map(|e| e.spec.clone())
     });
-    let spec = match spec_opt.flatten() {
-        Some(s) => s,
-        None => return None,
-    };
+    let spec = spec_opt.flatten()?;
 
     let wrapper_script = build_execution_wrapper(&spec.name, &spec.code, &arguments);
 
@@ -1295,7 +1517,7 @@ async fn handle_call_action_async(
 async fn dispatch_registry_tool(
     state: &ServerState,
     registry_ctx: &RegistryContext,
-    _session_id: Option<&str>,
+    session_id: Option<&str>,
     tool_name: &str,
     call_params: Value,
 ) -> Result<CallToolResult, String> {
@@ -1321,6 +1543,19 @@ async fn dispatch_registry_tool(
     }
     if let Some(r) = readiness_gate_result(state, registry_ctx, tool_name) {
         return Ok(r);
+    }
+
+    if let Some(cfg) = async_dispatch_config(&action_meta) {
+        return Ok(
+            dispatch_async_registry_tool(
+                state,
+                session_id,
+                resolved_name,
+                call_params,
+                cfg,
+            )
+            .await,
+        );
     }
 
     let dispatch_out =

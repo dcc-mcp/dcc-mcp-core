@@ -1,0 +1,5 @@
+fix(mcp): restore async job dispatch and satisfy clippy
+
+Port async tools/call job spawning from the pre-rmcp handler so tools
+declared with execution: async return a pending job_id envelope.
+Fix clippy warnings in tool_list_legacy and rmcp_tool_call_dispatch.
