@@ -24,6 +24,9 @@ dcc-mcp-actions = { path = "../dcc-mcp-actions" }
 dcc-mcp-skills = { path = "../dcc-mcp-skills" }
 dcc-mcp-skill-rest = { path = "../dcc-mcp-skill-rest" }
 dcc-mcp-host = { path = "../dcc-mcp-host" }
+dcc-mcp-gateway = { path = "../dcc-mcp-gateway" }
+dcc-mcp-models = { path = "../dcc-mcp-models" }
+dcc-mcp-protocols = { path = "../dcc-mcp-protocols" }
 dcc-mcp-workflow = { path = "../dcc-mcp-workflow" }
 dcc-mcp-telemetry = { path = "../dcc-mcp-telemetry", optional = true }
 
@@ -32,6 +35,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
 tokio = { workspace = true }
 tokio-util = { version = "0.7", features = ["rt"] }
 dashmap = { workspace = true }

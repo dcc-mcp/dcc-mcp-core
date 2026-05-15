@@ -1017,13 +1017,17 @@ dependencies = [
 name = "dcc-mcp-http-server"
 version = "0.16.0"
 dependencies = [
+ "chrono",
  "dashmap",
  "dcc-mcp-actions",
+ "dcc-mcp-gateway",
  "dcc-mcp-host",
  "dcc-mcp-http-types",
  "dcc-mcp-job",
  "dcc-mcp-jsonrpc",
+ "dcc-mcp-models",
  "dcc-mcp-naming",
+ "dcc-mcp-protocols",
  "dcc-mcp-skill-rest",
  "dcc-mcp-skills",
  "dcc-mcp-telemetry",

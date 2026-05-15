@@ -12,6 +12,7 @@
 use std::sync::Arc;
 
 use axum::Router;
+use dcc_mcp_jsonrpc::NotificationBuilder;
 use dcc_mcp_http_server::rmcp_handler::{DccMcpHandler, RegistryContext};
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
@@ -51,9 +52,28 @@ pub fn attach_rmcp_endpoint(router: Router, app_state: &AppState) -> Router {
             None
         };
 
+    let prompts = app_state.prompts.clone();
+    let server_hook = app_state.server.clone();
+    let enable_prompt_broadcast = app_state.server.enable_prompts;
+
+    let on_skill_catalog_mutated: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+        prompts.invalidate();
+        if !enable_prompt_broadcast {
+            return;
+        }
+        let event = NotificationBuilder::new("notifications/prompts/list_changed")
+            .with_empty_params()
+            .as_sse_event();
+        for sid in server_hook.sessions.all_ids() {
+            server_hook.sessions.push_event(&sid, event.clone());
+        }
+    });
+
     let registry_context = Arc::new(RegistryContext {
         resource_provider,
         prompt_provider,
+        readiness: app_state.readiness.clone(),
+        on_skill_catalog_mutated,
     });
 
     let session_manager = Arc::new(LocalSessionManager::default());

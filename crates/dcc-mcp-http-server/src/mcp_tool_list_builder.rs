@@ -1,0 +1,103 @@
+//! Build the full MCP `tools/list` surface matching the legacy JSON-RPC-era
+//! server (issue #988 / rmcp parity).
+
+use std::collections::{BTreeMap, HashSet};
+
+use dcc_mcp_gateway::namespace::{BareNameInput, resolve_bare_names};
+use dcc_mcp_jsonrpc::{
+    decode_cursor, encode_cursor, McpTool, TOOLS_LIST_PAGE_SIZE,
+};
+
+use crate::handlers::build_core_tools;
+use crate::server_state::ServerState;
+use crate::tool_list_legacy::{
+    action_meta_to_mcp_tool, build_group_stub, build_lazy_action_tools, build_skill_stub,
+};
+
+/// Append session dynamic tools after the canonical list (not part of registry generation).
+///
+/// Mirrors `dcc-mcp-http` `handle_tools_list` step 4.
+#[must_use]
+pub fn assemble_full_tool_list(
+    state: &ServerState,
+    include_output_schema: bool,
+    session_id: Option<&str>,
+) -> Vec<McpTool> {
+    let mut tools: Vec<McpTool> = Vec::with_capacity(64);
+    tools.extend_from_slice(build_core_tools());
+    if state.lazy_actions {
+        tools.extend(build_lazy_action_tools());
+    }
+
+    let actions = state.registry.list_actions(None);
+
+    let bare_eligible: HashSet<(String, String)> = if state.bare_tool_names {
+        let inputs: Vec<BareNameInput<'_>> = actions
+            .iter()
+            .filter(|m| m.enabled)
+            .filter_map(|m| {
+                m.skill_name.as_deref().map(|sn| BareNameInput {
+                    skill_name: sn,
+                    action_name: m.name.as_str(),
+                })
+            })
+            .collect();
+        resolve_bare_names(&inputs)
+    } else {
+        HashSet::new()
+    };
+
+    let mut inactive_groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for meta in &actions {
+        if meta.enabled {
+            tools.push(action_meta_to_mcp_tool(
+                meta,
+                include_output_schema,
+                &bare_eligible,
+                state.declared_capabilities.as_ref(),
+            ));
+        } else if !meta.group.is_empty() {
+            inactive_groups
+                .entry(meta.group.clone())
+                .or_default()
+                .push(meta.name.clone());
+        }
+    }
+
+    for (group, names) in &inactive_groups {
+        tools.push(build_group_stub(group, names));
+    }
+
+    let unloaded = state.catalog.list_skills(Some("unloaded"));
+    for summary in &unloaded {
+        tools.push(build_skill_stub(summary));
+    }
+
+    if let Some(sid) = session_id {
+        tools.extend(state.sessions.dynamic_tools_for_list(sid));
+    }
+
+    tools
+}
+
+/// Apply the same pagination rules as legacy `handle_tools_list` (JSON-RPC cursors).
+#[must_use]
+pub fn slice_tools_page(
+    mut tools: Vec<McpTool>,
+    cursor_str: Option<&str>,
+) -> (Vec<McpTool>, Option<String>) {
+    let total = tools.len();
+    let cursor: usize = cursor_str.and_then(decode_cursor).unwrap_or(0);
+    let page_end = (cursor + TOOLS_LIST_PAGE_SIZE).min(total);
+    let page: Vec<McpTool> = if cursor < total {
+        tools.drain(cursor..page_end).collect()
+    } else {
+        Vec::new()
+    };
+    let next_cursor = if page_end < total {
+        Some(encode_cursor(page_end))
+    } else {
+        None
+    };
+    (page, next_cursor)
+}
