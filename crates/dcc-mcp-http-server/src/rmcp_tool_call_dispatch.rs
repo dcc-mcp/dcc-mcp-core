@@ -3,7 +3,7 @@
 use serde_json::{Value, json};
 
 use dcc_mcp_actions::registry::ToolMeta;
-use dcc_mcp_gateway::namespace::{decode_skill_tool_name, skill_tool_name};
+use dcc_mcp_gateway::namespace::{decode_skill_tool_name, extract_bare_tool_name, skill_tool_name};
 use dcc_mcp_job::job::{Job, JobStatus};
 use dcc_mcp_jsonrpc::{
     CallToolMeta, CallToolResult, DELTA_TOOLS_METHOD, NotificationBuilder, ToolContent,
@@ -95,6 +95,16 @@ fn resolve_action_name(state: &ServerState, tool_name: &str) -> String {
             return m.name;
         }
         return tool_name.to_string();
+    }
+
+    let matched = state.registry.list_actions(None).into_iter().find(|m| {
+        m.skill_name
+            .as_deref()
+            .map(|skill_name| extract_bare_tool_name(skill_name, &m.name) == tool_name)
+            .unwrap_or(false)
+    });
+    if let Some(meta) = matched {
+        return meta.name;
     }
 
     tool_name.to_string()
