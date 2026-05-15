@@ -6,10 +6,10 @@ use dcc_mcp_gateway::namespace::{BareNameInput, resolve_bare_names};
 use dcc_mcp_jsonrpc::{McpTool, TOOLS_LIST_PAGE_SIZE, decode_cursor, encode_cursor};
 
 use crate::handlers::build_core_tools;
-use crate::server_state::ServerState;
 use crate::mcp_tool_catalog::{
     action_meta_to_mcp_tool, build_group_stub, build_lazy_action_tools, build_skill_stub,
 };
+use crate::server_state::ServerState;
 
 /// Build the full tool list: core tools, registry actions, stubs, and session dynamic tools.
 #[must_use]
