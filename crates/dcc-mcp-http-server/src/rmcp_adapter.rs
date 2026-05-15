@@ -11,8 +11,9 @@
 
 use std::sync::Arc;
 
+use rmcp::ErrorData as McpError;
 use rmcp::model::{
-    Annotated, CallToolResult as RmcpCallToolResult, Content,
+    Annotated, CallToolResult as RmcpCallToolResult, Content, ErrorCode,
     GetPromptResult as RmcpGetPromptResult, Meta, Prompt as RmcpPrompt,
     PromptArgument as RmcpPromptArgument, PromptMessage as RmcpPromptMessage, PromptMessageContent,
     PromptMessageRole, RawContent, RawResource, ReadResourceResult as RmcpReadResourceResult,
@@ -25,6 +26,7 @@ use dcc_mcp_jsonrpc::{
     CallToolResult as DccCallToolResult, GetPromptResult as DccGetPromptResult, McpPrompt,
     McpPromptContent, McpResource, McpTool, McpToolAnnotations,
     ReadResourceResult as DccReadResourceResult, ToolContent,
+    error_codes::{BACKEND_NOT_READY, CAPABILITY_MISSING},
 };
 
 // ── McpTool → rmcp::Tool ─────────────────────────────────────────────────────
@@ -92,6 +94,28 @@ pub fn call_result_to_rmcp(result: &DccCallToolResult) -> RmcpCallToolResult {
     out.is_error = Some(result.is_error);
     out.meta = result.meta.as_ref().map(|m| Meta(m.clone()));
     out
+}
+
+/// Map protocol-level tool errors (capability gate, readiness) to JSON-RPC errors.
+#[must_use]
+pub fn protocol_error_from_call_result(result: &DccCallToolResult) -> Option<McpError> {
+    if !result.is_error {
+        return None;
+    }
+    let sc = result.structured_content.as_ref()?;
+    let code = sc.get("code")?.as_i64()?;
+    let message = sc
+        .get("message")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let data = sc.get("data").cloned();
+    match code {
+        CAPABILITY_MISSING | BACKEND_NOT_READY => {
+            Some(McpError::new(ErrorCode(code as i32), message, data))
+        }
+        _ => None,
+    }
 }
 
 /// Convert a single [`ToolContent`] variant to rmcp's [`Content`].
