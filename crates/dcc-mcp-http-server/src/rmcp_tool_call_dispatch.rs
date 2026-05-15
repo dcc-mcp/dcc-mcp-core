@@ -8,7 +8,7 @@ use dcc_mcp_actions::registry::ToolMeta;
 use dcc_mcp_gateway::namespace::{decode_skill_tool_name, extract_bare_tool_name, skill_tool_name};
 use dcc_mcp_job::job::{Job, JobStatus};
 use dcc_mcp_jsonrpc::{
-    CallToolResult, DELTA_TOOLS_METHOD, NotificationBuilder, ToolContent,
+    CallToolMeta, CallToolResult, DELTA_TOOLS_METHOD, NotificationBuilder, ToolContent,
     coerce_tool_arguments_object,
     error_codes::{BACKEND_NOT_READY, CAPABILITY_MISSING},
 };
@@ -1235,6 +1235,11 @@ fn route_dynamic_execution(
     ))
 }
 
+/// Decode rmcp request `_meta` into our JSON-RPC [`CallToolMeta`] shape.
+pub(crate) fn call_meta_from_rmcp(meta: Option<&rmcp::model::Meta>) -> Option<CallToolMeta> {
+    meta.and_then(|m| serde_json::from_value(Value::Object(m.0.clone())).ok())
+}
+
 /// Central entry — mirrors JSON-RPC [`resolve_tool_call`] + registry dispatch (#727736b-era).
 pub async fn dispatch_rmcp_tool_call(
     state: &ServerState,
@@ -1242,11 +1247,19 @@ pub async fn dispatch_rmcp_tool_call(
     session_id: Option<&str>,
     tool_name: &str,
     arguments: Option<Value>,
+    call_meta: Option<&CallToolMeta>,
 ) -> Result<CallToolResult, String> {
     let arguments_value = coerce_tool_arguments_object(arguments)?;
 
     if tool_name == "call_action" && state.lazy_actions {
-        return handle_call_action_async(state, registry_ctx, session_id, arguments_value).await;
+        return handle_call_action_async(
+            state,
+            registry_ctx,
+            session_id,
+            call_meta,
+            arguments_value,
+        )
+        .await;
     }
 
     match tool_name {
@@ -1295,7 +1308,15 @@ pub async fn dispatch_rmcp_tool_call(
             Ok(handle_describe_action(state, &arguments_value, session_id))
         }
         name => {
-            dispatch_non_core_tool(state, registry_ctx, session_id, name, arguments_value).await
+            dispatch_non_core_tool(
+                state,
+                registry_ctx,
+                session_id,
+                call_meta,
+                name,
+                arguments_value,
+            )
+            .await
         }
     }
 }
@@ -1304,6 +1325,7 @@ async fn dispatch_non_core_tool(
     state: &ServerState,
     registry_ctx: &RegistryContext,
     session_id: Option<&str>,
+    call_meta: Option<&CallToolMeta>,
     tool_name: &str,
     arguments_value: Value,
 ) -> Result<CallToolResult, String> {
@@ -1316,13 +1338,22 @@ async fn dispatch_non_core_tool(
     {
         return Ok(r);
     }
-    dispatch_registry_tool(state, registry_ctx, session_id, tool_name, arguments_value).await
+    dispatch_registry_tool(
+        state,
+        registry_ctx,
+        session_id,
+        call_meta,
+        tool_name,
+        arguments_value,
+    )
+    .await
 }
 
 async fn handle_call_action_async(
     state: &ServerState,
     registry_ctx: &RegistryContext,
     session_id: Option<&str>,
+    call_meta: Option<&CallToolMeta>,
     arguments_value: Value,
 ) -> Result<CallToolResult, String> {
     let args = &arguments_value;
@@ -1352,6 +1383,7 @@ async fn handle_call_action_async(
         session_id,
         &id,
         inner_args,
+        call_meta,
     ))
     .await
 }
@@ -1360,6 +1392,7 @@ async fn dispatch_registry_tool(
     state: &ServerState,
     registry_ctx: &RegistryContext,
     session_id: Option<&str>,
+    call_meta: Option<&CallToolMeta>,
     tool_name: &str,
     call_params: Value,
 ) -> Result<CallToolResult, String> {
@@ -1387,7 +1420,7 @@ async fn dispatch_registry_tool(
         return Ok(r);
     }
 
-    if let Some(cfg) = async_dispatch_config(&action_meta) {
+    if let Some(cfg) = async_dispatch_config(call_meta, &action_meta) {
         return Ok(dispatch_async_registry_tool(
             state,
             session_id,

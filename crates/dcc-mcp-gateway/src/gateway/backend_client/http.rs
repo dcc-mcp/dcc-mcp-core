@@ -42,7 +42,7 @@ pub(super) async fn rest_get(
     let resp = client
         .get(url)
         .timeout(timeout)
-        .header("accept", "application/json")
+        .header("accept", "application/json, text/event-stream")
         .send()
         .await
         .map_err(|e| format!("{url}: transport error: {e}"))?;
@@ -70,7 +70,7 @@ pub(super) async fn rest_post(
         .post(url)
         .timeout(timeout)
         .header("content-type", "application/json")
-        .header("accept", "application/json")
+        .header("accept", "application/json, text/event-stream")
         .body(body.to_string())
         .send()
         .await
@@ -108,7 +108,7 @@ pub(super) async fn post_jsonrpc(
         .post(mcp_url)
         .timeout(timeout)
         .header("content-type", "application/json")
-        .header("accept", "application/json")
+        .header("accept", "application/json, text/event-stream")
         .body(req_body.to_string());
     if let Some(session_id) = session_id {
         request = request.header("Mcp-Session-Id", session_id);

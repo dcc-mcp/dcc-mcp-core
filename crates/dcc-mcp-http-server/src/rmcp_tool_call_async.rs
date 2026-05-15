@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use dcc_mcp_actions::registry::ToolMeta;
-use dcc_mcp_jsonrpc::{CallToolResult, ToolContent};
+use dcc_mcp_jsonrpc::{CallToolMeta, CallToolResult, ToolContent};
 use dcc_mcp_models::{ExecutionMode, ThreadAffinity};
 
 use crate::server_state::ServerState;
@@ -19,17 +19,23 @@ pub(super) struct AsyncDispatchConfig {
     pub thread_affinity: ThreadAffinity,
 }
 
-pub(super) fn async_dispatch_config(action_meta: &ToolMeta) -> Option<AsyncDispatchConfig> {
+pub(super) fn async_dispatch_config(
+    call_meta: Option<&CallToolMeta>,
+    action_meta: &ToolMeta,
+) -> Option<AsyncDispatchConfig> {
+    let meta_dcc = call_meta.and_then(|m| m.dcc.as_ref());
+    let async_opt_in = meta_dcc.is_some_and(|dcc| dcc.r#async);
+    let progress_token = call_meta.and_then(|m| m.progress_token.clone());
     let action_declares_async = matches!(action_meta.execution, ExecutionMode::Async)
         || action_meta.timeout_hint_secs.unwrap_or(0) > 0;
 
-    if !action_declares_async {
+    if !(async_opt_in || progress_token.is_some() || action_declares_async) {
         return None;
     }
 
     Some(AsyncDispatchConfig {
-        parent_job_id: None,
-        progress_token: None,
+        parent_job_id: meta_dcc.and_then(|dcc| dcc.parent_job_id.clone()),
+        progress_token,
         thread_affinity: action_meta.thread_affinity,
     })
 }

@@ -59,7 +59,7 @@ pub(crate) async fn probe_readiness(
     let resp = client
         .get(&url)
         .timeout(timeout)
-        .header("accept", "application/json")
+        .header("accept", "application/json, text/event-stream")
         .send()
         .await
         .ok()?;
@@ -109,7 +109,7 @@ pub(crate) async fn probe_mcp_readiness(
     let ok = client
         .get(&health_url)
         .timeout(timeout)
-        .header("accept", "application/json")
+        .header("accept", "application/json, text/event-stream")
         .send()
         .await
         .is_ok_and(|resp| resp.status().is_success());
