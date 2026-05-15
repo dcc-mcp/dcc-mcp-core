@@ -16,10 +16,11 @@ use std::future::Future;
 use std::sync::Arc;
 
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult as RmcpCallToolResult, GetPromptRequestParams,
-    GetPromptResult as RmcpGetPromptResult, Implementation,
-    ListPromptsResult as RmcpListPromptsResult, ListResourcesResult as RmcpListResourcesResult,
-    ListToolsResult, LoggingLevel, PaginatedRequestParams, ReadResourceRequestParams,
+    CallToolRequestParams, CallToolResult as RmcpCallToolResult, CustomRequest, CustomResult,
+    ErrorCode, GetPromptRequestParams, GetPromptResult as RmcpGetPromptResult, Implementation,
+    InitializeRequestParams, InitializeResult, ListPromptsResult as RmcpListPromptsResult,
+    ListResourcesRequestMethod, ListResourcesResult as RmcpListResourcesResult, ListToolsResult,
+    LoggingLevel, PaginatedRequestParams, ReadResourceRequestMethod, ReadResourceRequestParams,
     ReadResourceResult as RmcpReadResourceResult, ServerCapabilities, ServerInfo,
     SetLevelRequestParams, SubscribeRequestParams, Tool as RmcpTool, ToolsCapability,
     UnsubscribeRequestParams,
@@ -31,11 +32,13 @@ use tracing::{debug, warn};
 
 use crate::mcp_tool_list_builder::{assemble_full_tool_list, slice_tools_page};
 use crate::rmcp_adapter;
+use crate::rmcp_initialize::{build_initialize_result, build_initialize_result_from_value};
 use crate::rmcp_providers::ProviderError;
 pub use crate::rmcp_registry_context::RegistryContext;
 use crate::rmcp_tool_call_dispatch::{call_meta_from_rmcp, dispatch_rmcp_tool_call};
 use crate::server_state::ServerState;
 use crate::session::SessionLogLevel;
+use dcc_mcp_jsonrpc::RESOURCE_NOT_ENABLED_ERROR;
 
 /// Adapter that implements rmcp's [`ServerHandler`] trait by delegating to our
 /// existing [`ServerState`].
@@ -70,7 +73,7 @@ impl ServerHandler for DccMcpHandler {
         });
         if self.state.enable_resources {
             capabilities.resources = Some(rmcp::model::ResourcesCapability {
-                subscribe: Some(false),
+                subscribe: Some(true),
                 list_changed: Some(true),
             });
         }
@@ -92,6 +95,44 @@ impl ServerHandler for DccMcpHandler {
                 .to_string(),
         );
         info
+    }
+
+    fn initialize(
+        &self,
+        request: InitializeRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<InitializeResult, McpError>> + Send + '_ {
+        async move {
+            if context.peer.peer_info().is_none() {
+                context.peer.set_peer_info(request.clone());
+            }
+            let sid = self.state.sessions.create();
+            let _ = self.state.sessions.mark_initialized(&sid);
+            Ok(build_initialize_result(&self.state, &sid, &request))
+        }
+    }
+
+    fn on_custom_request(
+        &self,
+        request: CustomRequest,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<CustomResult, McpError>> + Send + '_ {
+        async move {
+            if request.method == "initialize" {
+                let sid = self.state.sessions.create();
+                let _ = self.state.sessions.mark_initialized(&sid);
+                let result =
+                    build_initialize_result_from_value(&self.state, &sid, request.params.as_ref());
+                let value = serde_json::to_value(result)
+                    .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                return Ok(CustomResult(value));
+            }
+            Err(McpError::new(
+                ErrorCode::METHOD_NOT_FOUND,
+                request.method,
+                None,
+            ))
+        }
     }
 
     // ── Tools ───────────────────────────────────────────────────────────────
@@ -130,8 +171,11 @@ impl ServerHandler for DccMcpHandler {
 
             debug!(tool = %tool_name, "rmcp: dispatching tool call");
 
+            #[cfg(feature = "prometheus")]
+            let prom_start = std::time::Instant::now();
+
             let call_meta = call_meta_from_rmcp(request.meta.as_ref());
-            match dispatch_rmcp_tool_call(
+            let dispatch_result = dispatch_rmcp_tool_call(
                 &self.state,
                 &self.registry_context,
                 None,
@@ -139,9 +183,25 @@ impl ServerHandler for DccMcpHandler {
                 arguments,
                 call_meta.as_ref(),
             )
-            .await
-            {
-                Ok(result) => Ok(rmcp_adapter::call_result_to_rmcp(&result)),
+            .await;
+
+            #[cfg(feature = "prometheus")]
+            if let Some(exporter) = self.state.prometheus.as_ref() {
+                let status = match &dispatch_result {
+                    Ok(result) if result.is_error => "error",
+                    Ok(_) => "success",
+                    Err(_) => "error",
+                };
+                exporter.record_tool_call(tool_name, status, prom_start.elapsed());
+            }
+
+            match dispatch_result {
+                Ok(result) => {
+                    if let Some(err) = rmcp_adapter::protocol_error_from_call_result(&result) {
+                        return Err(err);
+                    }
+                    Ok(rmcp_adapter::call_result_to_rmcp(&result))
+                }
                 Err(msg) => Err(McpError::invalid_params(msg, None)),
             }
         }
@@ -155,12 +215,11 @@ impl ServerHandler for DccMcpHandler {
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<RmcpListResourcesResult, McpError>> + Send + '_ {
         async {
+            if self.registry_context.resource_provider.is_none() {
+                return Err(McpError::method_not_found::<ListResourcesRequestMethod>());
+            }
             let Some(provider) = self.registry_context.resource_provider.as_ref() else {
-                return Ok(RmcpListResourcesResult {
-                    meta: None,
-                    next_cursor: None,
-                    resources: vec![],
-                });
+                return Err(McpError::method_not_found::<ListResourcesRequestMethod>());
             };
 
             let resources = provider.list_resources(&self.state.catalog);
@@ -185,8 +244,11 @@ impl ServerHandler for DccMcpHandler {
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<RmcpReadResourceResult, McpError>> + Send + '_ {
         async move {
+            if self.registry_context.resource_provider.is_none() {
+                return Err(McpError::method_not_found::<ReadResourceRequestMethod>());
+            }
             let Some(provider) = self.registry_context.resource_provider.as_ref() else {
-                return Err(McpError::invalid_params("Resources not enabled", None));
+                return Err(McpError::method_not_found::<ReadResourceRequestMethod>());
             };
 
             match provider.read_resource(&request.uri, &self.state.catalog) {
@@ -322,7 +384,11 @@ fn logging_level_to_session(level: LoggingLevel) -> SessionLogLevel {
 fn provider_error_to_mcp(e: &ProviderError) -> McpError {
     match e {
         ProviderError::NotFound(msg) => McpError::invalid_params(msg.clone(), None),
-        ProviderError::NotEnabled(msg) => McpError::invalid_params(msg.clone(), None),
+        ProviderError::NotEnabled(msg) => McpError::new(
+            ErrorCode(RESOURCE_NOT_ENABLED_ERROR as i32),
+            msg.clone(),
+            None,
+        ),
         ProviderError::MissingArg(msg) => {
             McpError::invalid_params(format!("missing required argument: {msg}"), None)
         }
