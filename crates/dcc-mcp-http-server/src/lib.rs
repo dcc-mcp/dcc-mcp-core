@@ -27,8 +27,8 @@ pub mod server_state;
 pub mod session;
 pub mod workspace;
 
+pub mod mcp_tool_catalog;
 pub mod mcp_tool_list_builder;
-pub mod tool_list_legacy;
 
 // rmcp integration modules (issue #985).
 pub mod rmcp_adapter;

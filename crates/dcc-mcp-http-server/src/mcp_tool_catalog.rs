@@ -1,5 +1,4 @@
-//! Tool metadata helpers shared by `tools/list` assembly — extracted from the
-//! pre-rmcp `dcc-mcp-http` crate (same behaviour as MCP 2025-11-25 JSON-RPC era).
+//! MCP tool descriptors: registry actions, lazy-action meta-tools, and progressive stubs.
 
 use std::collections::HashSet;
 
