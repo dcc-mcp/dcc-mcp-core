@@ -21,11 +21,11 @@ use crate::dynamic_tools::{
 };
 use crate::executor::DccExecutorHandle;
 use crate::inflight::CANCEL_GRACE_PERIOD;
-use crate::server_state::ServerState;
-use crate::session::SessionManager;
 use crate::mcp_tool_catalog::{
     action_meta_to_mcp_tool, missing_capabilities, parse_scope_label, resolve_action_by_id,
 };
+use crate::server_state::ServerState;
+use crate::session::SessionManager;
 
 use crate::rmcp_registry_context::RegistryContext;
 use crate::rmcp_tool_call_async::{async_dispatch_config, dispatch_async_registry_tool};
@@ -300,8 +300,18 @@ fn dispatch_json_result(output: Value) -> CallToolResult {
     }
 }
 
-fn dispatch_err_result(msg: impl Into<String>) -> CallToolResult {
-    CallToolResult::error(msg.into())
+fn dispatch_err_result(tool_name: &str, msg: impl Into<String>) -> CallToolResult {
+    let err_msg = msg.into();
+    if err_msg.contains("no handler registered") {
+        let envelope = DccMcpError::new(
+            "instance",
+            "NO_HANDLER",
+            format!("Tool '{tool_name}' is registered but has no handler."),
+        )
+        .with_hint("Register a handler via ToolDispatcher.register_handler().");
+        return CallToolResult::error(envelope.to_json());
+    }
+    CallToolResult::error(err_msg)
 }
 
 // ── Stubs ───────────────────────────────────────────────────────────────────
@@ -1439,7 +1449,7 @@ async fn dispatch_registry_tool(
 
     let mut result = match dispatch_out {
         Ok(output) => dispatch_json_result(output),
-        Err(e) => dispatch_err_result(e),
+        Err(e) => dispatch_err_result(&resolved_name, e),
     };
 
     attach_next_tools_meta(&mut result, &action_meta.next_tools);

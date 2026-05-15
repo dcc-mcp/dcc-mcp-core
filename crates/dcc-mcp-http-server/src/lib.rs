@@ -33,6 +33,7 @@ pub mod mcp_tool_list_builder;
 // rmcp integration modules (issue #985).
 pub mod rmcp_adapter;
 pub mod rmcp_handler;
+pub mod rmcp_initialize;
 pub mod rmcp_providers;
 pub mod rmcp_registry_context;
 pub mod rmcp_tool_call_async;
