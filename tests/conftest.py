@@ -181,9 +181,12 @@ class McpClient:
         code, resp, headers = self._raw_post(body)
         if code != 200:
             raise RuntimeError(f"initialize failed: HTTP {code}")
-        # Extract session ID from response header
+        # Extract session ID from response header (stateful mode)
         if headers and headers.get("Mcp-Session-Id"):
             self.session_id = headers["Mcp-Session-Id"]
+        # Unwrap JSON-RPC response envelope
+        if isinstance(resp, dict) and "result" in resp:
+            return resp["result"]
         return resp
 
     def post(

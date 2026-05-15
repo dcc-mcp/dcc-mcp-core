@@ -208,6 +208,9 @@ jobs:
       - name: Test with coverage
         env:
           MCP_LOG_LEVEL: warn
+          # Prevent Python 3.13's new REPL from crashing on Windows CI when
+          # there's no interactive console (WinError 123 in _pyrepl).
+          PYTHON_BASIC_REPL: "1"
         run: vx just test-cov
       - name: Upload Python coverage to Codecov
         if: matrix.python-version == '3.13' && matrix.os == 'ubuntu-latest'
