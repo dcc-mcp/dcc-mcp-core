@@ -200,7 +200,9 @@ def _initialize_session(url: str) -> str:
         },
     )
     assert code == 200
-    return body["result"]["__session_id"]
+    # In stateless mode (rmcp), __session_id is no longer injected into the
+    # response body.  Subsequent requests work without a session ID header.
+    return body["result"].get("__session_id", "")
 
 
 class TestJobNotifications:

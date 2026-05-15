@@ -215,5 +215,7 @@ class TestDeltaNotificationCapability:
             },
         )
         assert code == 200
-        session_id = body["result"].get("__session_id")
-        assert session_id and len(session_id) > 0
+        # In stateless mode (rmcp), __session_id is no longer injected into the
+        # response body.  The server processes each request independently.
+        # Just verify the response is valid JSON-RPC.
+        assert "capabilities" in body["result"]

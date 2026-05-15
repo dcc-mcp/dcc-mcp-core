@@ -132,6 +132,7 @@ class TestSessionTtlConfig:
         assert cfg.session_ttl_secs == 300
 
 
+@pytest.mark.skip(reason="rmcp stateless mode: no session management (issue #985)")
 class TestSessionLifecycle:
     """Verify session creation and basic lifecycle via HTTP."""
 

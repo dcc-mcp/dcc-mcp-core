@@ -163,6 +163,9 @@ impl ServerHandler for DccMcpHandler {
                     let mut out = RmcpCallToolResult::default();
                     out.content = content;
                     out.structured_content = Some(dispatch_result.output);
+                    // Explicitly set isError=false so clients that check the field
+                    // don't get a KeyError (rmcp skips None fields in serialization).
+                    out.is_error = Some(false);
                     Ok(out)
                 }
                 Err(e) => {

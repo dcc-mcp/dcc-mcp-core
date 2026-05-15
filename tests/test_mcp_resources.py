@@ -161,7 +161,9 @@ class TestResourcesCapability:
             },
         )
         assert code == 200
-        session_id = body["result"]["__session_id"]
+        # In stateless mode (rmcp), __session_id is no longer injected into the
+        # response body.  Subsequent requests work without a session ID header.
+        session_id = body["result"].get("__session_id", "")
 
         code, body = _post_json(
             url,

@@ -107,6 +107,11 @@ impl SubscriberManager {
     /// per-session fan-out in `background_impl::spawn_notifications_task`
     /// uses, so we must use it for both the SSE GET and any forwarded
     /// `resources/subscribe` on behalf of clients (#732).
+    ///
+    /// When the backend runs in **stateless mode** (no `Mcp-Session-Id`
+    /// header and no `__session_id` body field), a synthetic UUID is
+    /// generated so the gateway's internal bookkeeping still has a key
+    /// for this backend.
     pub(super) async fn handshake_session_id(&self, url: &str) -> Result<String, String> {
         let body = serde_json::json!({
             "jsonrpc": "2.0",
@@ -152,12 +157,24 @@ impl SubscriberManager {
         }
         let text = resp.text().await.map_err(|e| format!("read body: {e}"))?;
         let value: Value = serde_json::from_str(&text).map_err(|e| format!("parse body: {e}"))?;
-        value
+        // Try legacy `__session_id` in the result body.
+        if let Some(sid) = value
             .get("result")
             .and_then(|r| r.get("__session_id"))
             .and_then(|v| v.as_str())
-            .map(str::to_owned)
-            .ok_or_else(|| "initialize response lacked session id".to_string())
+        {
+            return Ok(sid.to_owned());
+        }
+        // Backend is in stateless mode (no session management). Generate a
+        // synthetic ID so the gateway's internal routing table has a stable
+        // key for this backend. The SSE stream open will omit the header.
+        let synthetic = uuid::Uuid::new_v4().to_string();
+        tracing::debug!(
+            backend = %url,
+            synthetic_id = %synthetic,
+            "gateway SSE: backend in stateless mode — using synthetic session id"
+        );
+        Ok(synthetic)
     }
 
     pub(super) async fn open_stream(

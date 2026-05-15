@@ -394,7 +394,7 @@ class TestMultiServiceE2E:
         """Each service identifies itself correctly via MCP initialize."""
         svc = five_services[display_name]
         result = mcp_initialize(svc.mcp_url, client_name=f"e2e-{display_name}")
-        assert result.get("protocolVersion") == "2025-03-26"
+        assert result.get("protocolVersion") in ("2025-03-26", "2025-06-18", "2025-11-25")
         assert result.get("serverInfo", {}).get("name") == display_name, (
             f"{display_name}: serverInfo.name mismatch: {result.get('serverInfo')}"
         )
