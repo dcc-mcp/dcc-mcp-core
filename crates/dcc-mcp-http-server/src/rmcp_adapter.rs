@@ -87,7 +87,9 @@ pub fn call_result_to_rmcp(result: &DccCallToolResult) -> RmcpCallToolResult {
     let mut out = RmcpCallToolResult::default();
     out.content = content;
     out.structured_content = result.structured_content.clone();
-    out.is_error = if result.is_error { Some(true) } else { None };
+    // Always set is_error so rmcp serialization includes isError=false on success
+    // (clients that use result["isError"] otherwise get KeyError).
+    out.is_error = Some(result.is_error);
     out.meta = result.meta.as_ref().map(|m| Meta(m.clone()));
     out
 }
