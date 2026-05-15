@@ -23,7 +23,9 @@ use crate::executor::DccExecutorHandle;
 use crate::inflight::CANCEL_GRACE_PERIOD;
 use crate::server_state::ServerState;
 use crate::session::SessionManager;
-use crate::tool_list_legacy::{action_meta_to_mcp_tool, parse_scope_label, resolve_action_by_id};
+use crate::mcp_tool_catalog::{
+    action_meta_to_mcp_tool, missing_capabilities, parse_scope_label, resolve_action_by_id,
+};
 
 use crate::rmcp_registry_context::RegistryContext;
 use crate::rmcp_tool_call_async::{async_dispatch_config, dispatch_async_registry_tool};
@@ -78,10 +80,6 @@ fn attach_next_tools_meta(result: &mut CallToolResult, next_tools: &NextTools) {
     );
     let meta = result.meta.get_or_insert_with(serde_json::Map::new);
     meta.insert("dcc.next_tools".to_string(), Value::Object(next_tools_meta));
-}
-
-fn missing_capabilities(required: &[String], declared: &[String]) -> Vec<String> {
-    crate::tool_list_legacy::missing_capabilities(required, declared)
 }
 
 fn resolve_action_name(state: &ServerState, tool_name: &str) -> String {
