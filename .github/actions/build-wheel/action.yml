@@ -102,8 +102,26 @@ runs:
           cargo --version || exit 1
         fi
 
+    # manylinux Docker builds do not have `vx` on PATH. Pre-bundle the Vite admin
+    # UI on the GitHub runner (vx + Node from vx.toml), then tell
+    # `crates/dcc-mcp-gateway/build.rs` to skip `vx npm` inside the container.
+    # This must run *before* stubgen: stubgen triggers `cargo` which compiles
+    # `dcc-mcp-gateway` with the `admin` feature; without a pre-built bundle,
+    # build.rs would invoke npm during stubgen (Windows CI failed on invalid
+    # npm config / npm crashes). `DCC_MCP_ADMIN_UI_PREBUILT` in the stubgen step
+    # makes build.rs reuse `generated/index.html` from this step.
+    - name: Pre-build admin UI for manylinux Docker
+      shell: bash
+      run: |
+        set -eux
+        vx npm --prefix admin-ui ci
+        vx npm --prefix admin-ui run build
+        test -f crates/dcc-mcp-gateway/src/gateway/admin/generated/index.html
+
     - name: Generate type stubs
       shell: bash
+      env:
+        DCC_MCP_ADMIN_UI_PREBUILT: "1"
       run: |
         # pyo3-stub-gen v0.22.x unconditionally references PyEncodingWarning,
         # which only exists in pyo3 when targeting Python >= 3.10.
@@ -112,19 +130,6 @@ runs:
         if [[ "${{ inputs.python-version }}" != "3.7" ]]; then
           vx just stubgen
         fi
-
-    # manylinux Docker builds do not have `vx` on PATH. Pre-bundle the Vite admin
-    # UI on the GitHub runner (vx + Node from vx.toml), then tell
-    # `crates/dcc-mcp-gateway/build.rs` to skip `vx npm` inside the container.
-    # Note: admin-ui/.npmrc sets omit=[] so npm ci includes optional deps
-    # (e.g., rolldown native bindings).
-    - name: Pre-build admin UI for manylinux Docker
-      shell: bash
-      run: |
-        set -eux
-        vx npm --prefix admin-ui ci
-        vx npm --prefix admin-ui run build
-        test -f crates/dcc-mcp-gateway/src/gateway/admin/generated/index.html
 
     - name: Build wheel
       uses: PyO3/maturin-action@v1
