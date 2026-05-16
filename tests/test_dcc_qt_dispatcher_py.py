@@ -342,6 +342,10 @@ def test_bootstrap_returns_failure_envelope_on_syntax_error() -> None:
         sys.modules.pop("_dcc_qt_dispatcher", None)
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 10),
+    reason="Python 3.8/3.9 feature_version=(3, 7) does not reject walrus operator; fixed in 3.10+",
+)
 def test_python_3_7_guard_catches_walrus() -> None:
     """Self-test for the ``feature_version=(3, 7)`` guard.
 
