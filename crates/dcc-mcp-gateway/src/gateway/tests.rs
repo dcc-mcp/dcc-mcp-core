@@ -536,6 +536,117 @@ async fn test_run_election_prunes_dead_gateway_sentinel_before_resident_lookup()
     }
 }
 
+/// Plant a ``__gateway__`` sentinel owned by the CURRENT process (so
+/// ``is_pid_alive`` returns ``true``, ``sentinel_is_dead`` returns
+/// ``false`` — exactly the path a live peer that previously held the
+/// gateway role takes). This row will SURVIVE ``prune_dead_entries``
+/// and must be cleaned up by the WIN-path sentinel sweep.
+fn write_live_sentinel(
+    registry_dir: &std::path::Path,
+    host: &str,
+    port: u16,
+    version: &str,
+) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let mut entry = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, host, port);
+    entry.version = Some(version.to_string());
+    // Current process PID — guaranteed alive for the duration of the
+    // test, so ``prune_dead_entries`` will NOT remove this row.
+    entry.pid = Some(std::process::id());
+    entry.sentinel_path = None;
+
+    let path = registry_dir.join("services.json");
+    let mut f = std::fs::File::create(&path)?;
+    f.write_all(
+        serde_json::to_string_pretty(&vec![entry])
+            .unwrap()
+            .as_bytes(),
+    )?;
+    f.sync_all()?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_run_election_win_clears_stale_live_owner_sentinels() {
+    // Reproduces the "3 Mayas, 3 __gateway__ rows, nobody on 9765"
+    // pollution observed in a live session on 2026-05-16. A live peer
+    // that previously held the gateway role left its sentinel behind
+    // when it lost the role (process is still alive → prune_dead
+    // doesn't touch it). The winner of the next election MUST replace
+    // those rows instead of co-existing with them, otherwise peers'
+    // ``list_instances(__gateway__).next()`` picks up a phantom version
+    // and the registry grows one stale row per role rotation.
+    let dir = tempfile::tempdir().unwrap();
+    let gw_port = ephemeral_port();
+
+    // Plant TWO stale sentinels (versions "1.0" and "2.0") owned by
+    // our PID, which is unambiguously alive.
+    write_live_sentinel(dir.path(), "127.0.0.1", gw_port, "1.0").unwrap();
+    {
+        // Append a second row by re-writing services.json directly.
+        use std::io::Write;
+        let mut e1 = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", gw_port);
+        e1.version = Some("1.0".to_string());
+        e1.pid = Some(std::process::id());
+        e1.sentinel_path = None;
+        let mut e2 = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", gw_port);
+        e2.version = Some("2.0".to_string());
+        e2.pid = Some(std::process::id());
+        e2.sentinel_path = None;
+        let path = dir.path().join("services.json");
+        let mut f = std::fs::File::create(&path).unwrap();
+        f.write_all(
+            serde_json::to_string_pretty(&vec![e1, e2])
+                .unwrap()
+                .as_bytes(),
+        )
+        .unwrap();
+        f.sync_all().unwrap();
+    }
+
+    let runner = make_runner_in(dir.path(), gw_port);
+
+    let outcome = runner.run_election().await.unwrap();
+
+    // Election must have won the free port (no other process is bound).
+    assert!(
+        outcome.is_gateway,
+        "free port + clean registry must produce a winner"
+    );
+
+    // Critical assertion: exactly ONE __gateway__ sentinel survives.
+    // Pre-fix this was 3 (both ghosts + ours). The winner's sweep
+    // (RFC #998 follow-up) drops the two ghosts before registering.
+    let reg = runner.registry.read().await;
+    let surviving: Vec<_> = reg.list_instances(GATEWAY_SENTINEL_DCC_TYPE);
+    assert_eq!(
+        surviving.len(),
+        1,
+        "winner must have left exactly one __gateway__ sentinel, found {} (versions: {:?})",
+        surviving.len(),
+        surviving
+            .iter()
+            .map(|e| e.version.as_deref().unwrap_or("None"))
+            .collect::<Vec<_>>()
+    );
+    // The survivor must be ours, not one of the ghosts.
+    assert_ne!(
+        surviving[0].version.as_deref(),
+        Some("1.0"),
+        "ghost sentinel v1.0 should have been swept"
+    );
+    assert_ne!(
+        surviving[0].version.as_deref(),
+        Some("2.0"),
+        "ghost sentinel v2.0 should have been swept"
+    );
+
+    if let Some(abort) = outcome.gateway_abort {
+        abort.abort();
+    }
+}
+
 #[tokio::test]
 async fn test_run_election_spawns_challenger_when_bind_fails_with_no_resident() {
     // The TIME_WAIT recovery case: bind fails AND after pruning there
