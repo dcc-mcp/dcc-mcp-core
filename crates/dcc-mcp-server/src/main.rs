@@ -96,6 +96,7 @@ use dcc_mcp_skills::constants::{
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 use sysinfo::{Pid, ProcessesToUpdate, System};
 mod sidecar;
+mod sidecar_mcp;
 mod translate;
 
 // #region agent log
