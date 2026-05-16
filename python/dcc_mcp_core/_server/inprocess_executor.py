@@ -58,6 +58,49 @@ else:  # pragma: no cover - py3.7 only
 
 logger = logging.getLogger(__name__)
 
+#: Upper bound when converting ``timeout_hint_secs`` → ``timeout_ms`` (1 hour).
+_MAX_TIMEOUT_MS = 3_600_000
+
+
+def timeout_hint_secs_to_ms(
+    timeout_hint_secs: int | None,
+    *,
+    action_name: str = "",
+    skill_name: str | None = None,
+    thread_affinity: str = "main",
+    execution: str = "sync",
+    warn_if_missing: bool = True,
+) -> int | None:
+    """Convert a tools.yaml ``timeout_hint_secs`` value to dispatcher ``timeout_ms``.
+
+    Returns ``None`` when the hint is absent so the host dispatcher keeps its
+    own default. Logs a structured warning for async main-affinity actions
+    that omit the hint (issue #999).
+    """
+    if timeout_hint_secs is None:
+        if (
+            warn_if_missing
+            and (thread_affinity or "any").lower() == "main"
+            and (execution or "sync").lower() == "async"
+        ):
+            logger.warning(
+                "timeout_hint_secs missing for async main-affinity action; dispatcher will use its default ceiling",
+                extra={
+                    "action_name": action_name,
+                    "skill_name": skill_name,
+                    "thread_affinity": thread_affinity,
+                    "execution": execution,
+                },
+            )
+        return None
+    if timeout_hint_secs <= 0:
+        return None
+    ms = int(timeout_hint_secs) * 1000
+    if ms > _MAX_TIMEOUT_MS:
+        return _MAX_TIMEOUT_MS
+    return ms
+
+
 __all__ = [
     "BaseDccCallableDispatcher",
     "DeferredToolResult",
@@ -66,6 +109,7 @@ __all__ = [
     "build_inprocess_executor",
     "exception_to_error_envelope",
     "run_skill_script",
+    "timeout_hint_secs_to_ms",
 ]
 
 
