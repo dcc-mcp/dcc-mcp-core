@@ -22,6 +22,15 @@
           "jsonpath": "$.project.version"
         },
         {
+          "type": "toml",
+          "path": "pkg/dcc-mcp-server-bin/pyproject.toml",
+          "jsonpath": "$.project.version"
+        },
+        {
+          "type": "generic",
+          "path": "pkg/dcc-mcp-server-bin/python/dcc_mcp_server/__init__.py"
+        },
+        {
           "type": "json",
           "path": "admin-ui/package.json",
           "jsonpath": "$.version"

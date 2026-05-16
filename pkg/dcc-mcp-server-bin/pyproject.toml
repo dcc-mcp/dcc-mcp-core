@@ -63,5 +63,9 @@ manifest-path = "../../crates/dcc-mcp-server/Cargo.toml"
 python-source = "python"
 module-name = "dcc_mcp_server"
 
-# strip debug symbols to keep wheels small
-strip = true
+# Stripping is configured at the workspace level in Cargo.toml
+# (`[profile.release] strip = true`) so the same target/ cache is reused
+# whether the binary is built directly via `cargo build --release` (the
+# release.yml raw-binary step) or via maturin (the release.yml wheel
+# step). Setting `strip = true` here would NOT change the binary but
+# would force maturin to pass `--strip` to cargo, busting that cache.
