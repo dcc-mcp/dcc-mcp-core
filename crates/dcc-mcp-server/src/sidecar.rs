@@ -387,17 +387,31 @@ fn spawn_ppid_watcher(
 }
 
 fn default_registry_dir() -> PathBuf {
-    // Mirror the discovery default used by `dcc-mcp-server` proper: the
-    // env var wins; otherwise the OS temp dir.  Kept simple here because
-    // the canonical path computation lives in `dcc-mcp-paths`, which is
-    // already pulled in transitively but not directly depended on here.
+    // Must match ``GatewayRunner::new``'s fallback exactly:
+    //     std::env::temp_dir().join("dcc-mcp-registry")
+    //
+    // Previously this used ``<tempdir>/dcc-mcp/registry/`` (extra dir
+    // level), which split-brained the FileRegistry whenever an in-DCC
+    // adapter spawned a sidecar without explicitly forwarding
+    // ``--registry-dir``: the sidecar wrote rows to one path while the
+    // adapter's gateway runner read from another, so gateway election
+    // saw only its own candidates. Observed on 2026-05-16 in a live
+    // three-Maya session: 36 stale sidecar rows accumulated in the
+    // wrong dir, gateway port stayed dark despite all peers alive
+    // (see dcc-mcp-maya #248 follow-up commit a6e4dea7).
+    //
+    // RFC #998 follow-up. Aligned with:
+    //   - ``crates/dcc-mcp-gateway/src/gateway/runner.rs::GatewayRunner::new``
+    //   - ``python/dcc_mcp_core/server_base.py`` defaults
+    //   - ``crates/dcc-mcp-server/src/main.rs`` (the non-sidecar paths)
+    //
+    // The env var ``DCC_MCP_REGISTRY_DIR`` always wins so deployments
+    // pinning an explicit path (CI, multi-host, custom temp policy)
+    // keep working.
     if let Ok(dir) = std::env::var("DCC_MCP_REGISTRY_DIR") {
         return PathBuf::from(dir);
     }
-    let mut dir = std::env::temp_dir();
-    dir.push("dcc-mcp");
-    dir.push("registry");
-    dir
+    std::env::temp_dir().join("dcc-mcp-registry")
 }
 
 // ── tests ────────────────────────────────────────────────────────────────────
@@ -409,6 +423,62 @@ mod tests {
     use std::process::Stdio;
     use std::time::Instant;
     use tempfile::TempDir;
+
+    // ── Regression: ``default_registry_dir`` must match GatewayRunner's ──
+
+    #[test]
+    fn default_registry_dir_matches_gateway_runner_fallback() {
+        // ``GatewayRunner::new`` (crates/dcc-mcp-gateway/src/gateway/
+        // runner.rs) falls back to ``std::env::temp_dir().join("dcc-mcp-
+        // registry")``. The sidecar binary MUST agree, otherwise an
+        // adapter that spawns a sidecar without forwarding
+        // ``--registry-dir`` will split-brain the registry.
+        //
+        // Wipe ``DCC_MCP_REGISTRY_DIR`` for this assertion so we hit the
+        // fallback path (the env-var path is tested separately below).
+        // Other parallel tests may also touch the env, but the value is
+        // restored at the end so the suite stays clean.
+        let saved = std::env::var("DCC_MCP_REGISTRY_DIR").ok();
+        // SAFETY: single-threaded mutation guarded by ``saved``/restore
+        // immediately after the call. Other tests in this file that
+        // touch ``DCC_MCP_REGISTRY_DIR`` would have set their own values
+        // and we don't disturb those.
+        unsafe { std::env::remove_var("DCC_MCP_REGISTRY_DIR") };
+
+        let got = default_registry_dir();
+        let expected = std::env::temp_dir().join("dcc-mcp-registry");
+
+        if let Some(prev) = saved {
+            unsafe { std::env::set_var("DCC_MCP_REGISTRY_DIR", prev) };
+        }
+
+        assert_eq!(
+            got, expected,
+            "sidecar default_registry_dir must match GatewayRunner::new \
+             fallback (<tempdir>/dcc-mcp-registry). Mismatch split-brains \
+             the FileRegistry and produces a dark gateway port."
+        );
+    }
+
+    #[test]
+    fn default_registry_dir_honours_env_var_override() {
+        let saved = std::env::var("DCC_MCP_REGISTRY_DIR").ok();
+        let custom = std::env::temp_dir().join("dcc-mcp-custom-registry-test");
+        unsafe { std::env::set_var("DCC_MCP_REGISTRY_DIR", &custom) };
+
+        let got = default_registry_dir();
+
+        if let Some(prev) = saved {
+            unsafe { std::env::set_var("DCC_MCP_REGISTRY_DIR", prev) };
+        } else {
+            unsafe { std::env::remove_var("DCC_MCP_REGISTRY_DIR") };
+        }
+
+        assert_eq!(
+            got, custom,
+            "DCC_MCP_REGISTRY_DIR must win over the fallback path"
+        );
+    }
 
     /// PPID-watch happy path: spawn a real child process, register a sidecar
     /// pinned to that child's PID, kill the child, assert the sidecar exits
