@@ -427,12 +427,13 @@ mod tests {
 
     /// End-to-end commandport happy path: spawn a fake TCP server,
     /// spawn the sidecar with ``commandport://127.0.0.1:<port>``,
-    /// assert the fake server observes an inbound connection from
-    /// the sidecar (proving the URI router picked CommandPortClient
-    /// and called connect()), then kill the parent surrogate and
-    /// assert clean exit.
+    /// assert the fake server observes the bootstrap line (proving
+    /// the URI router picked CommandPortClient AND that connect()'s
+    /// bootstrap-injection step ran), then kill the parent surrogate
+    /// and assert clean exit.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn commandport_connects_to_fake_server() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
         use tokio::net::TcpListener;
         use tokio::sync::oneshot;
 
@@ -443,16 +444,20 @@ mod tests {
         let port = listener.local_addr().expect("local_addr").port();
         let (connect_tx, connect_rx) = oneshot::channel::<()>();
         tokio::spawn(async move {
-            // Accept exactly one connection and signal the test.
-            // The connection is held open by `_stream` until the
-            // accept task is dropped, which happens when this future
-            // completes — so we hold it for the duration of the test.
-            if let Ok((stream, _)) = listener.accept().await {
+            // Accept one connection, reply to the bootstrap line, then
+            // hold the socket open until teardown.
+            if let Ok((mut stream, _)) = listener.accept().await {
                 let _ = connect_tx.send(());
+                let (read_half, mut write_half) = stream.split();
+                let mut reader = BufReader::new(read_half);
+                let mut bootstrap_line = String::new();
+                let _ = reader.read_line(&mut bootstrap_line).await;
+                // `exec()` evaluates to None in commandPort's reply path.
+                let _ = write_half.write_all(b"None\n").await;
+                let _ = write_half.flush().await;
                 // Keep the socket alive until the sidecar tears down.
                 // 5s is more than enough for this test's lifetime.
                 tokio::time::sleep(Duration::from_secs(5)).await;
-                drop(stream);
             }
         });
 
