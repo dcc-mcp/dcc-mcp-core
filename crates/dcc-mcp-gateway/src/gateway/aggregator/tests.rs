@@ -524,6 +524,133 @@ async fn gateway_mcp_initialize_advertises_prompts_capability() {
 }
 
 #[tokio::test]
+async fn gateway_mcp_concurrent_initialize_completes_within_one_second() {
+    // Issue #1009 — N concurrent initialize handshakes must not queue past 1s
+    // on an idle gateway (no DCC backends, no lock contention).
+    use std::time::{Duration, Instant};
+
+    let dir = tempfile::tempdir().unwrap();
+    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+        dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
+    ));
+    let gs = make_gateway_state(registry).await;
+    let router = crate::gateway::build_gateway_router(gs);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router)
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let client = reqwest::Client::new();
+    let url = format!("http://127.0.0.1:{port}/mcp");
+    let concurrent = 16usize;
+    let started = Instant::now();
+    let responses = futures::future::join_all((0..concurrent).map(|id| {
+        let client = client.clone();
+        let url = url.clone();
+        async move {
+            client
+                .post(&url)
+                .json(&json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "method": "initialize",
+                    "params": {"protocolVersion": "2025-03-26"}
+                }))
+                .send()
+                .await
+                .unwrap()
+                .json::<Value>()
+                .await
+                .unwrap()
+        }
+    }))
+    .await;
+
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "concurrent initialize took {:?}",
+        started.elapsed()
+    );
+    for (idx, resp) in responses.iter().enumerate() {
+        assert!(
+            resp.get("result").is_some(),
+            "initialize[{idx}] failed: {resp}"
+        );
+    }
+
+    let _ = shutdown_tx.send(());
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn gateway_mcp_initialize_timeout_returns_gateway_busy() {
+    // Issue #1009 — server-side 5s cap returns structured gateway-busy instead
+    // of hanging until the MCP client's own init timeout fires.
+    use dcc_mcp_jsonrpc::error_codes::GATEWAY_BUSY;
+    use std::time::Duration;
+
+    let dir = tempfile::tempdir().unwrap();
+    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+        dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
+    ));
+    let gs = make_gateway_state(registry).await;
+    let lock = gs.protocol_version.clone();
+    let hold = tokio::spawn(async move {
+        let _guard = lock.write().await;
+        tokio::time::sleep(Duration::from_secs(6)).await;
+    });
+    tokio::time::sleep(Duration::from_millis(20)).await;
+
+    let router = crate::gateway::build_gateway_router(gs);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router)
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .unwrap();
+    let resp: Value = client
+        .post(format!("http://127.0.0.1:{port}/mcp"))
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": 99,
+            "method": "initialize",
+            "params": {"protocolVersion": "2025-03-26"}
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    assert_eq!(resp["error"]["code"], json!(GATEWAY_BUSY));
+    assert_eq!(resp["error"]["data"]["reason"], json!("gateway-busy"));
+
+    hold.abort();
+    let _ = shutdown_tx.send(());
+    server.await.unwrap();
+}
+
+#[tokio::test]
 async fn compute_prompts_fingerprint_changes_when_backend_prompt_set_mutates() {
     // The prompts watcher task broadcasts
     // `notifications/prompts/list_changed` iff this fingerprint

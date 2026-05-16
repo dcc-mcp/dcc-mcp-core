@@ -79,6 +79,11 @@ pub mod error_codes {
     /// (`process`, `dispatcher`, `dcc`) plus the requested `tool` name so
     /// clients can surface context in their back-off messaging.
     pub const BACKEND_NOT_READY: i64 = -32002;
+
+    /// Issue #1009 — gateway `initialize` did not complete within the server-side
+    /// deadline (typically because the embedded runtime is starved by a busy DCC
+    /// host). Clients should back off and retry with fewer concurrent sessions.
+    pub const GATEWAY_BUSY: i64 = -32003;
 }
 
 impl JsonRpcResponse {
