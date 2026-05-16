@@ -251,6 +251,38 @@ impl GatewayRunner {
         match try_bind_port_opt(&self.config.host, self.config.gateway_port).await {
             // ── We won the port ───────────────────────────────────────────
             Some(listener) => {
+                // Sweep any leftover ``__gateway__`` sentinels before
+                // writing our own. Only one process can actually own the
+                // port we just bound — the OS guarantees that — so any
+                // pre-existing sentinel row is stale. Rows belonging to
+                // dead PIDs would already have been removed by the
+                // ``prune_dead_entries`` call above, but rows owned by
+                // LIVE peers that previously held the gateway role
+                // (then lost it in a restart / failover) survive that
+                // prune. Leaving them in the registry would let peers'
+                // resident-sentinel lookups pick up a phantom version
+                // and run challenger logic against it, or worse fall
+                // into the "same-or-stronger" plain-instance branch
+                // when our own sentinel happens to sort second.
+                //
+                // We are about to register the authoritative sentinel
+                // for this port — replacement, not co-existence. RFC
+                // #998 follow-up (sentinel-rotation pollution observed
+                // in three-Maya live session, 2026-05-16).
+                {
+                    let reg = self.registry.read().await;
+                    let existing = reg.list_instances(GATEWAY_SENTINEL_DCC_TYPE);
+                    for entry in &existing {
+                        let _ = reg.deregister(&entry.key());
+                    }
+                    if !existing.is_empty() {
+                        tracing::info!(
+                            cleared = existing.len(),
+                            "Cleared stale __gateway__ sentinels before writing our own"
+                        );
+                    }
+                }
+
                 // Write a sentinel entry so challengers can read our version.
                 // `ServiceEntry::new` auto-populates `pid` with our process id,
                 // so a crash of *this* process makes the sentinel prunable by
@@ -525,6 +557,31 @@ impl GatewayRunner {
                         version = %own_ver,
                         "Challenger: won gateway port — starting gateway tasks"
                     );
+
+                    // Sweep leftover ``__gateway__`` sentinels before
+                    // writing ours. The old gateway's Drop should have
+                    // deregistered its sentinel on clean shutdown, but
+                    // unclean exits (crash, SIGKILL, Task Manager kill)
+                    // leave a row whose owning PID is alive again on a
+                    // subsequent process start with a recycled PID, or
+                    // simply outlives the bind contest because the
+                    // peer-side ``prune_dead_entries`` won't drop a row
+                    // whose PID is alive. The challenger path used to
+                    // ``register`` next to those rows, leaving N stale
+                    // sentinels per port. RFC #998 follow-up.
+                    {
+                        let reg = registry.read().await;
+                        let existing = reg.list_instances(GATEWAY_SENTINEL_DCC_TYPE);
+                        for entry in &existing {
+                            let _ = reg.deregister(&entry.key());
+                        }
+                        if !existing.is_empty() {
+                            tracing::info!(
+                                cleared = existing.len(),
+                                "Challenger: cleared stale __gateway__ sentinels before writing our own"
+                            );
+                        }
+                    }
 
                     // Update sentinel with our version + adapter info so
                     // peers see the same election profile we used to win.
