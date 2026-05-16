@@ -141,6 +141,18 @@ pub struct SidecarArgs {
     /// Override the polling interval for PPID watch (test hook).
     #[arg(long, value_name = "MS", hide = true)]
     pub ppid_poll_ms: Option<u64>,
+
+    /// Well-known gateway port to compete for (first-wins). ``0`` disables
+    /// gateway election in this sidecar process.
+    ///
+    /// Defaults to ``DCC_MCP_GATEWAY_PORT`` (9765). Sidecar mode should set
+    /// the in-DCC adapter's gateway port to ``0`` so only the sidecar competes.
+    #[arg(long, default_value = "9765", env = "DCC_MCP_GATEWAY_PORT")]
+    pub gateway_port: u16,
+
+    /// Host interface for the gateway listener (default ``127.0.0.1``).
+    #[arg(long, default_value = "127.0.0.1")]
+    pub host: String,
 }
 
 /// Run the sidecar lifecycle until the parent DCC dies or a signal arrives.
@@ -217,6 +229,8 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
     // failed, we still start the listener — it returns structured
     // `transport-error` envelopes per call, which is much friendlier
     // than the gateway seeing a registered-but-unreachable backend.
+    let mut gateway_control: Option<crate::sidecar_gateway::SidecarGatewayControl> = None;
+
     let mcp_handle = match host_rpc_client {
         Some(client) => {
             let state = crate::sidecar_mcp::SidecarMcpState::new(client, env!("CARGO_PKG_VERSION"));
@@ -233,6 +247,25 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
                             error = %err,
                             "FileRegistry republish with mcp_url failed; gateway will route via stub"
                         );
+                    }
+                    if args.gateway_port > 0
+                        && let Some(entry) = registry.get(&key)
+                    {
+                        match crate::sidecar_gateway::start_sidecar_gateway(
+                            &args,
+                            registry.clone(),
+                            entry,
+                        )
+                        .await
+                        {
+                            Ok(ctrl) => gateway_control = ctrl,
+                            Err(err) => {
+                                tracing::error!(
+                                    error = %err,
+                                    "sidecar gateway election failed; MCP listener still up"
+                                );
+                            }
+                        }
                     }
                     Some(handle)
                 }
@@ -273,6 +306,10 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
     };
 
     tracing::info!(reason = ?reason, "sidecar shutting down");
+
+    if let Some(ctrl) = gateway_control.take() {
+        ctrl.shutdown().await;
+    }
 
     // Stop the HTTP listener first so the gateway sees the URL
     // disappear before we start tearing down the inner client. This
@@ -515,6 +552,8 @@ mod tests {
             adapter_version: Some("0.0.0-test".to_string()),
             connect_timeout_secs: 2,
             ppid_poll_ms: Some(50),
+            gateway_port: 0,
+            host: "127.0.0.1".to_string(),
         };
         let pinned_uuid = args.instance_id.unwrap();
 
@@ -618,6 +657,8 @@ mod tests {
             adapter_version: Some("0.0.0-test".to_string()),
             connect_timeout_secs: 2,
             ppid_poll_ms: Some(50),
+            gateway_port: 0,
+            host: "127.0.0.1".to_string(),
         };
 
         let sidecar_handle = tokio::spawn(async move { run(args).await });
@@ -703,6 +744,8 @@ mod tests {
             // test snappy in the common case.
             connect_timeout_secs: 1,
             ppid_poll_ms: Some(50),
+            gateway_port: 0,
+            host: "127.0.0.1".to_string(),
         };
 
         let sidecar_handle = tokio::spawn(async move { run(args).await });
