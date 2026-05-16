@@ -302,6 +302,15 @@ impl Scorer for FuzzyScorer {
                 }
             }
             score += best_schema;
+
+            // Issue #994: demote meta-tools so domain actions rank higher.
+            if score > 0 && is_meta_tool(r.backend_tool()) {
+                score /= META_TOOL_DIVISOR;
+                // Ensure meta-tools still score > 0 so they remain discoverable.
+                if score == 0 {
+                    score = 1;
+                }
+            }
         }
 
         if let Some(hint) = scene_hint
@@ -314,6 +323,37 @@ impl Scorer for FuzzyScorer {
         score
     }
 }
+
+/// Return `true` when the tool name matches a "meta-tool" pattern.
+///
+/// Meta-tools are gateway / infrastructure actions whose verbose
+/// descriptions tend to out-rank domain-specific DCC tools in fuzzy
+/// search. Issue #994: demote these so domain actions surface first.
+fn is_meta_tool(backend_tool: &str) -> bool {
+    let lower = backend_tool.to_ascii_lowercase();
+    // project.* meta-tools (project.resume, project.checkpoint, etc.)
+    if lower.starts_with("project.") || lower.starts_with("project__") {
+        return true;
+    }
+    // recipes__* batch automation tools
+    if lower.starts_with("recipes__") || lower.starts_with("recipes.") {
+        return true;
+    }
+    // diagnostics__* diagnostic/screenshot tools
+    if lower.starts_with("diagnostics__") || lower.starts_with("diagnostics.") {
+        return true;
+    }
+    // dcc_capability_manifest infrastructure tool
+    if lower == "dcc_capability_manifest" {
+        return true;
+    }
+    false
+}
+
+/// Demotion divisor applied to meta-tool scores. A factor of 3 means
+/// a meta-tool needs 3× the raw relevance of a domain tool to rank
+/// above it.
+const META_TOOL_DIVISOR: u32 = 3;
 
 /// `SubstringScorer` alias from issue #765 acceptance text.
 pub type ExactScorer = SubstringScorer;
@@ -648,5 +688,72 @@ mod tests {
     fn scorer_factory_from_mode() {
         let f = ScorerFactory::from_mode(SearchMode::Fuzzy);
         assert!(f.score("sphere", "create_sphere") > 0.0);
+    }
+
+    // ── Issue #994: meta-tool demotion ──────────────────────────────────
+
+    #[test]
+    fn is_meta_tool_recognises_known_patterns() {
+        assert!(super::is_meta_tool("project.resume"));
+        assert!(super::is_meta_tool("project.checkpoint"));
+        assert!(super::is_meta_tool("project__resume"));
+        assert!(super::is_meta_tool("recipes__list"));
+        assert!(super::is_meta_tool("recipes.validate"));
+        assert!(super::is_meta_tool("diagnostics__screenshot"));
+        assert!(super::is_meta_tool("diagnostics.ping"));
+        assert!(super::is_meta_tool("dcc_capability_manifest"));
+
+        // Domain tools must NOT be classified as meta.
+        assert!(!super::is_meta_tool("maya_primitives__create_cube"));
+        assert!(!super::is_meta_tool(
+            "maya_light_rig__create_three_point_rig"
+        ));
+        assert!(!super::is_meta_tool("create_sphere"));
+    }
+
+    #[test]
+    fn fuzzy_scorer_demotes_meta_tools_below_domain_hits() {
+        // Issue #994: `project.resume` must NOT out-rank a real lighting tool
+        // for a query like "light rig three point".
+        let mut s = FuzzyScorer::new();
+        let domain_tool = rec(
+            "maya_light_rig__create_three_point_rig",
+            "Create a three-point lighting rig with key, fill, and rim lights.",
+            Some("maya-lighting"),
+            &["lighting", "rig"],
+            true,
+        );
+        let meta_tool = rec(
+            "project.resume",
+            "Resume from last checkpoint: active_tool_groups, checkpoint_ids, three-point references, light rig state",
+            Some("project"),
+            &["meta"],
+            true,
+        );
+
+        let domain_score = s.score(&domain_tool, "light rig three point", None);
+        let meta_score = s.score(&meta_tool, "light rig three point", None);
+        assert!(
+            domain_score > meta_score,
+            "domain tool ({domain_score}) must outrank meta-tool ({meta_score}) for 'light rig three point'"
+        );
+    }
+
+    #[test]
+    fn fuzzy_scorer_meta_tool_still_discoverable() {
+        // Meta-tools should still be discoverable when queried by their exact name.
+        let mut s = FuzzyScorer::new();
+        let meta_tool = rec(
+            "project.resume",
+            "Resume a project from its last checkpoint.",
+            Some("project"),
+            &["meta"],
+            true,
+        );
+        let score = s.score(&meta_tool, "project resume", None);
+        assert!(
+            score > 0,
+            "meta-tool must still surface for exact-name query; got {score}"
+        );
     }
 }

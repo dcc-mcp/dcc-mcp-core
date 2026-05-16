@@ -92,6 +92,11 @@ pub struct SkillListEntry {
     /// `true` if the owning skill is currently loaded. Dispatching an
     /// unloaded slug returns `SkillNotLoaded`.
     pub loaded: bool,
+    /// `true` when the action has a non-trivial `input_schema` (with
+    /// `properties` or `required`). Agents should call `describe_tool`
+    /// to fetch the full schema before invoking.
+    #[serde(default)]
+    pub has_schema: bool,
     /// Human-readable scope label (`"repo"`, `"user"`, ...).
     pub scope: String,
 }
@@ -838,6 +843,21 @@ impl SkillRestService {
 
 fn action_to_entry(a: CatalogAction) -> SkillListEntry {
     let summary = truncate(&a.description, 180);
+    let has_schema = a
+        .input_schema
+        .as_object()
+        .map(|obj| {
+            let props_ok = obj
+                .get("properties")
+                .and_then(Value::as_object)
+                .is_some_and(|p| !p.is_empty());
+            let required_ok = obj
+                .get("required")
+                .and_then(Value::as_array)
+                .is_some_and(|r| !r.is_empty());
+            props_ok || required_ok
+        })
+        .unwrap_or(false);
     SkillListEntry {
         slug: ToolSlug::build(&a.dcc, &a.skill_name, &a.action_name),
         skill: a.skill_name,
@@ -845,6 +865,7 @@ fn action_to_entry(a: CatalogAction) -> SkillListEntry {
         dcc: a.dcc,
         summary,
         loaded: a.loaded,
+        has_schema,
         scope: a.scope,
     }
 }
