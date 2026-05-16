@@ -140,6 +140,157 @@ pub async fn tool_release_instance(gs: &GatewayState, args: &Value) -> Result<St
     .map_err(|e| e.to_string())
 }
 
+// ── Consolidated gateway MCP tools (6-tool surface) ─────────────────────
+
+/// Unified search: backend capabilities (`kind=tool`, default) or skills (`kind=skill`).
+pub async fn tool_search(gs: &GatewayState, args: &Value) -> Result<String, String> {
+    let kind = args
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or("tool")
+        .to_ascii_lowercase();
+    match kind.as_str() {
+        "skill" | "skills" => {
+            let has_query = args
+                .get("query")
+                .and_then(Value::as_str)
+                .is_some_and(|q| !q.trim().is_empty());
+            let legacy = if has_query {
+                "search_skills"
+            } else {
+                "list_skills"
+            };
+            let (text, is_error) =
+                crate::gateway::aggregator::skill_mgmt_dispatch(gs, legacy, args).await;
+            if is_error { Err(text) } else { Ok(text) }
+        }
+        "all" => {
+            let tools_json = tool_search_tools(gs, args).await?;
+            let (skills_text, skills_err) =
+                crate::gateway::aggregator::skill_mgmt_dispatch(gs, "list_skills", args).await;
+            if skills_err {
+                return Err(skills_text);
+            }
+            Ok(serde_json::to_string_pretty(&json!({
+                "tools": serde_json::from_str::<Value>(&tools_json).unwrap_or(Value::Null),
+                "skills": serde_json::from_str::<Value>(&skills_text).unwrap_or(Value::Null),
+            }))
+            .map_err(|e| e.to_string())?)
+        }
+        _ => tool_search_tools(gs, args).await,
+    }
+}
+
+/// Unified describe: `tool_slug` for backend schema, or `skill_name` for skill detail.
+pub async fn tool_describe(gs: &GatewayState, args: &Value) -> Result<String, String> {
+    if args.get("tool_slug").and_then(Value::as_str).is_some() {
+        return tool_describe_tool(gs, args).await;
+    }
+    if args.get("skill_name").and_then(Value::as_str).is_some() {
+        let (text, is_error) =
+            crate::gateway::aggregator::skill_mgmt_dispatch(gs, "get_skill_info", args).await;
+        if is_error { Err(text) } else { Ok(text) }
+    } else {
+        Err("describe requires `tool_slug` (from search) or `skill_name`".to_string())
+    }
+}
+
+/// Unified call: single `tool_slug` or ordered `calls` batch (same shape as legacy wrappers).
+pub async fn tool_call(gs: &GatewayState, args: &Value, meta: Option<&Value>) -> (String, bool) {
+    if args.get("calls").and_then(Value::as_array).is_some() {
+        tool_call_tools(gs, args, meta).await
+    } else {
+        tool_call_tool(gs, args, meta).await
+    }
+}
+
+/// Instance pooling: `action` = `acquire` (default) or `release`.
+pub async fn tool_lease(gs: &GatewayState, args: &Value) -> Result<String, String> {
+    let action = args
+        .get("action")
+        .and_then(Value::as_str)
+        .unwrap_or("acquire");
+    if action.eq_ignore_ascii_case("release") {
+        tool_release_instance(gs, args).await
+    } else {
+        tool_acquire_instance(gs, args).await
+    }
+}
+
+/// Load a skill and optionally activate/deactivate a progressive tool group.
+pub async fn tool_load_skill(gs: &GatewayState, args: &Value) -> (String, bool) {
+    let group_action = args
+        .get("group_action")
+        .and_then(Value::as_str)
+        .map(|s| s.to_ascii_lowercase());
+    let tool_group = args
+        .get("tool_group")
+        .or_else(|| args.get("group_name"))
+        .cloned();
+
+    if matches!(group_action.as_deref(), Some("deactivate")) {
+        let mut forward = args.clone();
+        if let Some(obj) = forward.as_object_mut() {
+            if let Some(g) = tool_group {
+                obj.insert("group_name".to_string(), g);
+            }
+            obj.remove("tool_group");
+            obj.remove("group_action");
+        }
+        return crate::gateway::aggregator::skill_mgmt_dispatch(
+            gs,
+            "deactivate_tool_group",
+            &forward,
+        )
+        .await;
+    }
+
+    if tool_group.is_some() && matches!(group_action.as_deref(), Some("activate") | None) {
+        if args.get("skill_name").and_then(Value::as_str).is_some() {
+            let (load_text, load_err) =
+                crate::gateway::aggregator::skill_mgmt_dispatch(gs, "load_skill", args).await;
+            if load_err {
+                return (load_text, true);
+            }
+            let mut group_args = args.clone();
+            if let Some(obj) = group_args.as_object_mut() {
+                if let Some(g) = tool_group {
+                    obj.insert("group_name".to_string(), g);
+                }
+                obj.remove("tool_group");
+                obj.remove("group_action");
+            }
+            let (group_text, group_err) = crate::gateway::aggregator::skill_mgmt_dispatch(
+                gs,
+                "activate_tool_group",
+                &group_args,
+            )
+            .await;
+            if group_err {
+                return (group_text, true);
+            }
+            let combined = format!("{load_text}\n{group_text}");
+            return (combined, false);
+        }
+        let mut forward = args.clone();
+        if let Some(obj) = forward.as_object_mut() {
+            if let Some(g) = tool_group {
+                obj.insert("group_name".to_string(), g);
+            }
+            obj.remove("tool_group");
+            obj.remove("group_action");
+        }
+        return crate::gateway::aggregator::skill_mgmt_dispatch(
+            gs,
+            "activate_tool_group",
+            &forward,
+        )
+        .await;
+    }
+
+    crate::gateway::aggregator::skill_mgmt_dispatch(gs, "load_skill", args).await
+}
+
 // ── #655 dynamic-capability MCP wrappers ──────────────────────────────────
 
 /// `search_tools` — MCP wrapper that routes to
@@ -203,26 +354,24 @@ fn local_gateway_tool_hits(query: &crate::gateway::capability::SearchQuery) -> V
         .filter(|t| !t.is_empty())
         .collect();
 
-    let tools = [
-        (
-            "call_tools",
-            "Invoke multiple backend DCC capabilities in one ordered batch (max 25); REST POST /v1/call_batch.",
-            vec!["gateway", "batch", "dispatch"],
-        ),
-        (
-            "activate_tool_group",
-            "Activate a progressive tool group on a DCC instance after lazy loading.",
-            vec!["gateway", "group", "skill-management"],
-        ),
-        (
-            "deactivate_tool_group",
-            "Deactivate a progressive tool group on a DCC instance.",
-            vec!["gateway", "group", "skill-management"],
-        ),
-    ];
-
-    tools
+    gateway_tool_defs()
+        .as_array()
         .into_iter()
+        .flatten()
+        .filter_map(|tool| {
+            let name = tool.get("name")?.as_str()?;
+            let summary = tool
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or(name);
+            let tags: Vec<&str> = match name {
+                "load_skill" | "unload_skill" => vec!["gateway", "skill-management"],
+                "call" => vec!["gateway", "batch", "dispatch"],
+                "lease" => vec!["gateway", "pool"],
+                _ => vec!["gateway"],
+            };
+            Some((name, summary, tags))
+        })
         .filter(|(_, _, tags)| {
             !exclude
                 .iter()
@@ -234,8 +383,8 @@ fn local_gateway_tool_hits(query: &crate::gateway::capability::SearchQuery) -> V
                     c.is_empty()
                         || name.contains(c)
                         || summary.to_ascii_lowercase().contains(c)
-                        || c == "group"
-                        || (c.contains("batch") && *name == "call_tools")
+                        || (c == "group" && (*name == "load_skill" || *name == "unload_skill"))
+                        || (c.contains("batch") && *name == "call")
                 })
         })
         .map(|(name, summary, tags)| {
@@ -274,11 +423,23 @@ pub async fn tool_describe_tool(gs: &GatewayState, args: &Value) -> Result<Strin
     )
     .await;
     match crate::gateway::capability_service::describe_tool_full(gs, slug).await {
-        Ok((record, tool)) => serde_json::to_string_pretty(&json!({
-            "record": record,
-            "tool":   tool,
-        }))
-        .map_err(|e| e.to_string()),
+        Ok((record, tool)) => {
+            let input_schema = tool.input_schema.clone();
+            let required = input_schema
+                .get("required")
+                .cloned()
+                .unwrap_or_else(|| json!([]));
+            let properties = input_schema.get("properties").cloned();
+            serde_json::to_string_pretty(&json!({
+                "record": record,
+                "tool": tool,
+                "input_schema": input_schema,
+                "required": required,
+                "properties": properties,
+                "hint": "Copy parameter names from `properties` / `required` into call_tool.arguments (e.g. export_fbx uses `path`, not `destination`).",
+            }))
+            .map_err(|e| e.to_string())
+        }
         Err(err) => {
             let payload = crate::gateway::capability_service::service_error_to_json(&err);
             Err(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| err.message.clone()))
@@ -510,178 +671,122 @@ pub async fn tool_call_tools(
 
 // ── private helpers ────────────────────────────────────────────────────────
 
-/// Return the JSON schema for gateway discovery, pooling, and dynamic-capability tools.
+/// Return the JSON schema for the consolidated six-tool gateway MCP surface.
 pub fn gateway_tool_defs() -> serde_json::Value {
     json!([
         {
-            "name": "acquire_dcc_instance",
-            "description": "Reserve an idle DCC instance for a workflow or long-running job. \
-                This marks the instance busy and stores lease metadata in the shared registry. \
-                Pooling is optional; simple single-instance adapters can ignore this tool.",
+            "name": "search",
+            "description": "Discover backend capabilities and/or skills. Default `kind=tool` runs the \
+                capability index (`search_tools` semantics): compact hits with `tool_slug` — always \
+                follow with `describe` before `call` to fetch `input_schema` / required parameter names. \
+                `kind=skill` lists or searches skills (`list_skills` / `search_skills`). `kind=all` returns both.",
             "inputSchema": {
                 "type": "object",
-                "required": ["dcc_type"],
                 "properties": {
-                    "dcc_type":       {"type": "string", "description": "DCC type to lease (e.g. 'maya')"},
-                    "instance_id":    {"type": "string", "description": "Optional UUID or unique prefix to lease a specific instance"},
-                    "lease_owner":    {"type": "string", "description": "Client/workflow owner label for the lease"},
-                    "current_job_id": {"type": "string", "description": "Optional job id associated with the lease"},
-                    "ttl_secs":       {"type": "integer", "minimum": 1, "description": "Lease TTL in seconds (default: 3600)"}
+                    "kind": {"type": "string", "enum": ["tool", "skill", "all"], "default": "tool"},
+                    "query": {"type": "string"},
+                    "dcc_type": {"type": "string"},
+                    "dcc": {"type": "string", "description": "Alias of dcc_type for skill search"},
+                    "tags": {"type": "array", "items": {"type": "string"}},
+                    "limit": {"type": "integer", "minimum": 0}
                 }
             },
-            "annotations": {
-                "destructiveHint": false,
-                "openWorldHint": true
-            }
+            "annotations": {"readOnlyHint": true, "openWorldHint": true}
         },
         {
-            "name": "release_dcc_instance",
-            "description": "Clear a pool lease previously created by acquire_dcc_instance in the shared FileRegistry (services.json). \
-                Does not terminate the DCC process or disconnect MCP clients — it only flips registry metadata so another workflow can acquire the slot. \
-                Must match the same lease_owner string passed to acquire when that optional argument is used.",
+            "name": "describe",
+            "description": "Fetch full metadata. Pass `tool_slug` from `search` to get `input_schema`, \
+                `properties`, and `required` (e.g. maya_geometry export uses `path`, not `destination`). \
+                Pass `skill_name` for skill-level detail (tools list, dependencies).",
             "inputSchema": {
                 "type": "object",
-                "required": ["instance_id"],
                 "properties": {
-                    "instance_id": {"type": "string", "description": "UUID or unique prefix from list_dcc_instances"},
-                    "lease_owner": {"type": "string", "description": "Optional owner guard; when provided it must match the active lease owner"}
+                    "tool_slug": {"type": "string"},
+                    "skill_name": {"type": "string"},
+                    "dcc": {"type": "string"}
                 }
             },
-            "annotations": {
-                "destructiveHint": false,
-                "openWorldHint": true
-            }
+            "annotations": {"readOnlyHint": true, "openWorldHint": true}
         },
         {
-            "name": "search_tools",
-            "description": "Search dynamic DCC capabilities by keyword, DCC type, tags, or scene hint. \
-                Returns compact records (not full schemas) so token cost stays bounded even when \
-                many DCC instances are live. Each hit includes `tool_slug` — copy that string verbatim \
-                into `describe_tool` and `call_tool`; do not substitute ad-hoc ids or script-style \
-                top-level fields. Use `describe_tool` to fetch one capability's schema, then `call_tool` \
-                or `call_tools` to invoke. REST twins: `POST /v1/search`, `/v1/describe`, `/v1/call` (#657).",
+            "name": "call",
+            "description": "Invoke backend work. Single call: `tool_slug` + `arguments` object (all backend \
+                fields inside `arguments`). Batch: `calls` array (max 25) with optional `stop_on_error`. \
+                Never put `code`/`python` at the top level unless the described schema says so.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "query":      {"type": "string", "description": "Keyword(s) matched against tool name, summary, tags, and skill name."},
-                    "dcc_type":   {"type": "string", "description": "Optional DCC bucket filter (e.g. 'maya', 'blender')."},
-                    "tags":       {"type": "array", "items": {"type": "string"}, "description": "Require every tag to be present."},
-                    "exclude_tags": {"type": "array", "items": {"type": "string"}, "description": "Drop capabilities that carry any of these tags (case-insensitive exact match)."},
-                    "scene_hint": {"type": "string", "description": "Optional scene/document hint used as a soft boost."},
-                    "skill_hint": {"type": "string", "description": "Soft score bonus when the backing skill name contains this substring."},
-                    "or_queries": {"type": "array", "items": {"type": "string"}, "description": "OR search branches: score is the max across `query` and each non-empty string here."},
-                    "min_score":  {"type": "integer", "minimum": 0, "description": "When any search clause is present, drop hits below this final score (browse mode ignores this)."},
-                    "limit":      {"type": "integer", "minimum": 0, "description": "Page size cap (default 25, max 100)."}
-                }
-            },
-            "annotations": {
-                "readOnlyHint": true,
-                "openWorldHint": true
-            }
-        },
-        {
-            "name": "describe_tool",
-            "description": "Resolve a single capability slug returned by `search_tools` back to its \
-                compact record (name, skill, summary, tags, whether it has a schema, and the \
-                backing instance id). Use this before `call_tool` when the caller needs the \
-                action's metadata without invoking it. The `tool_slug` argument must match a hit \
-                from `search_tools` exactly (same string as the REST `/v1/describe` body field).",
-            "inputSchema": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["tool_slug"],
-                "properties": {
-                    "tool_slug": {
-                        "type": "string",
-                        "description": "Capability id from `search_tools`: `<dcc_type>.<instance_prefix_or_uuid>.<backend_tool>` \
-                            (e.g. `maya.277685a7.maya_primitives__create_sphere`). Copy verbatim; it encodes \
-                            DCC bucket, instance, and backend tool name for gateway routing — analogous to a \
-                            REST path `.../<dcc>/<instance>/<backend_tool>` even though the wire format uses dots."
-                    }
-                }
-            },
-            "annotations": {
-                "readOnlyHint": true,
-                "openWorldHint": true
-            }
-        },
-        {
-            "name": "call_tool",
-            "description": "Invoke one backend DCC action identified by `tool_slug`. REQUIRED: set \
-                `tool_slug` to the exact string from `search_tools` / `describe_tool` (never omit it). \
-                Put **all** tool-specific parameters inside the `arguments` object per that tool's schema — \
-                this wrapper is **not** `execute_python` / arbitrary script execution: do **not** pass \
-                `code`, `python`, `mel`, `script`, or similar keys at the **top** level of this payload. \
-                Routes like REST `POST /v1/call` with the same `tool_slug` + `arguments` shape. Progress \
-                notifications, cancellation, and async job routing match per-backend MCP behaviour.",
-            "inputSchema": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["tool_slug"],
-                "properties": {
-                    "tool_slug": {
-                        "type": "string",
-                        "description": "Exact capability id from `search_tools` (same as `POST /v1/call` `tool_slug`)."
-                    },
-                    "arguments": {
-                        "type": "object",
-                        "description": "JSON object forwarded to the backend tool's `tools/call` arguments (may include `code` **only** when that specific backend tool's schema requires it)."
-                    },
-                    "meta": {
-                        "type": "object",
-                        "description": "Optional MCP `_meta` passthrough (e.g. `dcc.async`)."
-                    }
-                }
-            },
-            "annotations": {
-                "destructiveHint": true,
-                "openWorldHint": true,
-                "idempotentHint": false
-            }
-        },
-        {
-            "name": "call_tools",
-            "description": "Invoke multiple DCC actions in order within one MCP request. Each element \
-                of `calls` uses the same shape as `call_tool` (`tool_slug`, optional `arguments`, \
-                optional per-item `meta`); never put `code`/`script` at the call-item top level — only \
-                inside `arguments` when the backend schema says so. Optional `stop_on_error` (default false) \
-                aborts the remainder after the first failed item. Maximum batch size is 25. REST twin: \
-                `POST /v1/call_batch`.",
-            "inputSchema": {
-                "type": "object",
-                "required": ["calls"],
-                "properties": {
+                    "tool_slug": {"type": "string"},
+                    "arguments": {"type": "object"},
+                    "meta": {"type": "object"},
                     "calls": {
                         "type": "array",
-                        "minItems": 1,
                         "maxItems": 25,
                         "items": {
                             "type": "object",
-                            "additionalProperties": false,
                             "required": ["tool_slug"],
                             "properties": {
-                                "tool_slug": {
-                                    "type": "string",
-                                    "description": "Same `tool_slug` rules as `call_tool`."
-                                },
+                                "tool_slug": {"type": "string"},
                                 "arguments": {"type": "object"},
                                 "meta": {"type": "object"}
                             }
-                        },
-                        "description": "Ordered backend invocations (same routing as call_tool)."
+                        }
                     },
-                    "stop_on_error": {
-                        "type": "boolean",
-                        "default": false,
-                        "description": "When true, stop after the first failed invocation."
-                    }
+                    "stop_on_error": {"type": "boolean", "default": false}
                 }
             },
-            "annotations": {
-                "destructiveHint": true,
-                "openWorldHint": true,
-                "idempotentHint": false
-            }
+            "annotations": {"destructiveHint": true, "openWorldHint": true, "idempotentHint": false}
+        },
+        {
+            "name": "lease",
+            "description": "Acquire or release a DCC instance pool lease (`action=acquire` default, \
+                `action=release` clears registry metadata only — does not kill the DCC process).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["acquire", "release"], "default": "acquire"},
+                    "dcc_type": {"type": "string"},
+                    "instance_id": {"type": "string"},
+                    "lease_owner": {"type": "string"},
+                    "current_job_id": {"type": "string"},
+                    "ttl_secs": {"type": "integer", "minimum": 1}
+                }
+            },
+            "annotations": {"destructiveHint": false, "openWorldHint": true}
+        },
+        {
+            "name": "load_skill",
+            "description": "Load a skill on a target instance. Optional `tool_group` + `group_action` \
+                (`activate` default, `deactivate` to drop a progressive group) replace activate_tool_group / \
+                deactivate_tool_group. Pass `instance_id` or `dcc` when multiple instances are live.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "skill_name": {"type": "string"},
+                    "skill_names": {"type": "array", "items": {"type": "string"}},
+                    "activate_groups": {"type": "boolean", "default": true},
+                    "tool_group": {"type": "string"},
+                    "group_action": {"type": "string", "enum": ["activate", "deactivate"]},
+                    "instance_id": {"type": "string"},
+                    "dcc": {"type": "string"}
+                },
+                "required": ["skill_name"]
+            },
+            "annotations": {"destructiveHint": false, "openWorldHint": true}
+        },
+        {
+            "name": "unload_skill",
+            "description": "Unload a skill on a target instance (same routing as load_skill).",
+            "inputSchema": {
+                "type": "object",
+                "required": ["skill_name"],
+                "properties": {
+                    "skill_name": {"type": "string"},
+                    "instance_id": {"type": "string"},
+                    "dcc": {"type": "string"}
+                }
+            },
+            "annotations": {"destructiveHint": false, "openWorldHint": true}
         }
     ])
 }
@@ -712,9 +817,9 @@ mod tests {
     }
 
     #[test]
-    fn local_gateway_tool_hits_find_group_management_tools() {
+    fn local_gateway_tool_hits_find_load_skill() {
         let q = crate::gateway::capability::SearchQuery {
-            query: "group".into(),
+            query: "load".into(),
             ..Default::default()
         };
         let hits = local_gateway_tool_hits(&q);
@@ -723,8 +828,7 @@ mod tests {
             .filter_map(|hit| hit.get("backend_tool").and_then(Value::as_str))
             .collect();
 
-        assert!(names.contains(&"activate_tool_group"));
-        assert!(names.contains(&"deactivate_tool_group"));
+        assert!(names.contains(&"load_skill"));
     }
 
     #[test]
@@ -755,31 +859,19 @@ mod tests {
         let annotations = annotations_by_tool();
 
         assert_eq!(
-            annotations.get("acquire_dcc_instance"),
+            annotations.get("lease"),
             Some(&json!({"destructiveHint": false, "openWorldHint": true}))
         );
         assert_eq!(
-            annotations.get("release_dcc_instance"),
-            Some(&json!({"destructiveHint": false, "openWorldHint": true}))
-        );
-        assert_eq!(
-            annotations.get("search_tools"),
+            annotations.get("search"),
             Some(&json!({"readOnlyHint": true, "openWorldHint": true}))
         );
         assert_eq!(
-            annotations.get("describe_tool"),
+            annotations.get("describe"),
             Some(&json!({"readOnlyHint": true, "openWorldHint": true}))
         );
         assert_eq!(
-            annotations.get("call_tool"),
-            Some(&json!({
-                "destructiveHint": true,
-                "openWorldHint": true,
-                "idempotentHint": false,
-            }))
-        );
-        assert_eq!(
-            annotations.get("call_tools"),
+            annotations.get("call"),
             Some(&json!({
                 "destructiveHint": true,
                 "openWorldHint": true,

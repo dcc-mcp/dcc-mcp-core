@@ -33,7 +33,6 @@ pub async fn aggregate_tools_list(gs: &GatewayState, cursor: Option<&str>) -> Va
     if let Value::Array(local) = gateway_tool_defs() {
         tools.extend(local);
     }
-    tools.extend(skill_management_tool_defs());
 
     // ── Pagination ───────────────────────────────────────────────────────
     let offset = cursor.and_then(decode_cursor).unwrap_or(0);

@@ -243,9 +243,9 @@ fn call_tool_text(value: &Value) -> Option<&str> {
         .and_then(Value::as_str)
 }
 
-/// JSON-Schema definitions for the skill-management tools the gateway
-/// exposes (matching the per-DCC server schemas but with gateway-specific
-/// routing parameters like `instance_id` and `dcc`).
+/// JSON-Schema definitions for legacy skill-management tools still routed
+/// via `tools/call` aliases (not published on `tools/list` after RFC #998).
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn skill_management_tool_defs() -> Vec<Value> {
     vec![
         json!({
