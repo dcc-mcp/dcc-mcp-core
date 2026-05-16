@@ -370,6 +370,48 @@ fn test_entry_to_json_includes_pool_state() {
     assert!(json["pool"]["lease_expires_at"].as_u64().is_some());
 }
 
+// ── display_id (RFC #998 Addendum B) ───────────────────────────────────
+
+/// `gateway://instances` carries the derived `{dcc}@{version}-{short8}`
+/// label so MCP clients can render a single human-readable
+/// disambiguation hint instead of stitching three fields together.
+/// The full `instance_id` UUID stays the canonical machine handle and
+/// is unaffected.
+#[test]
+fn test_entry_to_json_includes_display_id_with_version() {
+    let mut e = ServiceEntry::new("maya", "127.0.0.1", 18812);
+    e.version = Some("2026".to_string());
+    let json = entry_to_json(&e, Duration::from_secs(30));
+
+    let display = json["display_id"]
+        .as_str()
+        .expect("display_id must be present in entry_to_json output");
+    assert!(
+        display.starts_with("maya@2026-"),
+        "display_id should start with dcc@version-, got {display}"
+    );
+    // The full UUID is still surfaced verbatim for machine paths.
+    assert_eq!(
+        json["instance_id"].as_str().unwrap(),
+        e.instance_id.to_string()
+    );
+}
+
+#[test]
+fn test_entry_to_json_display_id_falls_back_to_unknown_version() {
+    let mut e = ServiceEntry::new("figma", "127.0.0.1", 8765);
+    e.version = None;
+    let json = entry_to_json(&e, Duration::from_secs(30));
+
+    let display = json["display_id"]
+        .as_str()
+        .expect("display_id must be present even when version is None");
+    assert!(
+        display.starts_with("figma@unknown-"),
+        "display_id should fall back to 'unknown' when version is None, got {display}"
+    );
+}
+
 // ── Issue #719: read_alive_instances ───────────────────────────────────
 
 /// A row whose PID points at a live process survives the prune; a row

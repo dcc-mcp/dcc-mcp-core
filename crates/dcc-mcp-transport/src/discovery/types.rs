@@ -299,6 +299,41 @@ impl ServiceEntry {
         self
     }
 
+    /// Human-readable identifier of the form `{dcc}@{version}-{short8}`.
+    ///
+    /// Examples (RFC #998 Addendum B): `maya@2026-abc12345`,
+    /// `houdini@20.5-deadbeef`, `figma@unknown-cafef00d`.
+    ///
+    /// Derived from `dcc_type`, `version`, and the first 8 hex chars of
+    /// `instance_id`. Used by agent-facing surfaces (gateway resources,
+    /// admin UI, structured logs, instance-disambiguation prompts) so a
+    /// user reading a registry row sees DCC + version + short ID
+    /// without having to cross-reference three separate fields.
+    ///
+    /// When `version` is `None`, the literal `unknown` substitutes.
+    ///
+    /// # Stability
+    ///
+    /// The 8-char hex short ID must match
+    /// `dcc_mcp_gateway_core::naming::instance_short` byte-for-byte
+    /// so a `display_id` and the cursor-safe tool slug for the same
+    /// instance always reference the same 8 hex characters. Tests
+    /// pin this in [`tests::display_id_short_matches_gateway_naming`].
+    ///
+    /// # Not serialised
+    ///
+    /// `display_id` is **derived** rather than stored — `services.json`
+    /// shapes round-trip unchanged. Callers that need the value on a
+    /// remote surface should embed it explicitly in the response JSON
+    /// (e.g. `gateway://instances` does so via [`crate`]-side helpers).
+    #[must_use]
+    pub fn display_id(&self) -> String {
+        let version = self.version.as_deref().unwrap_or("unknown");
+        let mut short = self.instance_id.simple().to_string();
+        short.truncate(8);
+        format!("{}@{}-{}", self.dcc_type, version, short)
+    }
+
     /// Get the effective transport address.
     ///
     /// Returns the `transport_address` if set, otherwise constructs a TCP address
@@ -624,6 +659,77 @@ mod tests {
             .as_millis() as u64;
         // Should be within 1 second of now
         assert!(now_ms.abs_diff(heartbeat_ms) < 1000);
+    }
+
+    // ── display_id (RFC #998 Addendum B) ───────────────────────────────
+
+    #[test]
+    fn display_id_renders_dcc_at_version_dash_short() {
+        let mut entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        entry.instance_id = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        entry.version = Some("2026".to_string());
+        assert_eq!(entry.display_id(), "maya@2026-abcdef01");
+    }
+
+    #[test]
+    fn display_id_falls_back_to_unknown_when_version_missing() {
+        let mut entry = ServiceEntry::new("houdini", "127.0.0.1", 9100);
+        entry.instance_id = Uuid::parse_str("ffeeddccbbaa99887766554433221100").unwrap();
+        entry.version = None;
+        assert_eq!(entry.display_id(), "houdini@unknown-ffeeddcc");
+    }
+
+    #[test]
+    fn display_id_short_matches_gateway_naming() {
+        // Pinning the 8-char prefix contract — must stay byte-for-byte
+        // aligned with `dcc_mcp_gateway_core::naming::instance_short`
+        // (8 leading hex chars of the simple-form UUID). If
+        // `instance_short` ever changes its length or alphabet, this
+        // test fails loudly so both surfaces get re-aligned in lock
+        // step rather than silently drifting.
+        let entry = ServiceEntry::new("blender", "127.0.0.1", 18765);
+        let id_simple = entry.instance_id.simple().to_string();
+        let derived = entry.display_id();
+        let short_segment = derived.split('-').next_back().expect("dash present");
+        assert_eq!(short_segment.len(), 8);
+        assert_eq!(short_segment, &id_simple[..8]);
+        assert!(
+            short_segment.chars().all(|c| c.is_ascii_hexdigit()),
+            "short segment must be ASCII hex, got {short_segment}",
+        );
+    }
+
+    #[test]
+    fn display_id_includes_at_sign_and_dash_separators() {
+        let mut entry = ServiceEntry::new("photoshop", "127.0.0.1", 7777);
+        entry.version = Some("25.0.0".to_string());
+        let display = entry.display_id();
+        // Exactly one `@` and exactly one `-` between dcc / version /
+        // short. Pin so future refactors don't introduce a third
+        // separator (e.g. for prefix), which would break agent UI
+        // parsers downstream.
+        assert_eq!(display.matches('@').count(), 1);
+        assert_eq!(display.matches('-').count(), 1);
+        let at_pos = display.find('@').unwrap();
+        let dash_pos = display.find('-').unwrap();
+        assert!(at_pos < dash_pos, "@ must precede dash: {display}");
+    }
+
+    #[test]
+    fn display_id_round_trips_through_json_without_being_serialised() {
+        // `display_id` is **derived**, not stored. Round-tripping a
+        // ServiceEntry through JSON must not contain a `display_id`
+        // field — keeps services.json shapes backward-compatible.
+        let mut entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        entry.version = Some("2024".to_string());
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(
+            !json.contains("\"display_id\""),
+            "display_id must NOT be serialised; raw JSON: {json}"
+        );
+        let parsed: ServiceEntry = serde_json::from_str(&json).unwrap();
+        // The method still works on the deserialised entry.
+        assert!(parsed.display_id().starts_with("maya@2024-"));
     }
 
     #[test]
