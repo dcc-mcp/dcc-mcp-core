@@ -129,6 +129,15 @@ pub struct SidecarArgs {
     #[arg(long, value_name = "SEMVER")]
     pub adapter_version: Option<String>,
 
+    /// Seconds to wait for the initial ``HostRpcClient::connect`` to the
+    /// DCC. Failure to connect within this budget is logged but does
+    /// **not** abort the sidecar — the process keeps running so its
+    /// FileRegistry row is visible and the PPID-watch can still detect
+    /// parent death. The gateway sees a registered-but-disconnected
+    /// backend and routes around it.
+    #[arg(long, value_name = "SECS", default_value = "10")]
+    pub connect_timeout_secs: u64,
+
     /// Override the polling interval for PPID watch (test hook).
     #[arg(long, value_name = "MS", hide = true)]
     pub ppid_poll_ms: Option<u64>,
@@ -167,6 +176,42 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
         "sidecar registered"
     );
 
+    // Instantiate the HostRpcClient impl for the URI's scheme and try
+    // to dial the DCC. Failure to connect is logged but non-fatal —
+    // the sidecar keeps running so PPID-watch / FileRegistry still
+    // serve their purpose, and a future PR will add a reconnect loop
+    // for transient DCC unavailability.
+    let mut host_rpc_client = match dcc_mcp_host_rpc::client_for_uri(&args.host_rpc) {
+        Ok(client) => {
+            let connect_timeout = Duration::from_secs(args.connect_timeout_secs);
+            match client_connect(client, &args.host_rpc, connect_timeout).await {
+                Ok(connected) => {
+                    tracing::info!(
+                        host_rpc = %args.host_rpc,
+                        "HostRpcClient connected"
+                    );
+                    Some(connected)
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        host_rpc = %args.host_rpc,
+                        error = %err,
+                        "HostRpcClient connect failed; sidecar keeps running disconnected"
+                    );
+                    None
+                }
+            }
+        }
+        Err(err) => {
+            tracing::error!(
+                host_rpc = %args.host_rpc,
+                error = %err,
+                "unsupported --host-rpc scheme; sidecar keeps running but cannot dispatch"
+            );
+            None
+        }
+    };
+
     // PPID-watch lives on its own task; on parent-death it flips the
     // `exit_tx` watch channel.  Same channel is used by the ctrl-c branch
     // below, so both paths converge on the same deregister flow.
@@ -193,6 +238,13 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
 
     tracing::info!(reason = ?reason, "sidecar shutting down");
 
+    // Close the HostRpcClient before deregistering so the DCC sees a
+    // clean disconnect rather than a TCP reset from process exit.
+    if let Some(client) = host_rpc_client.as_ref() {
+        client.close().await;
+    }
+    host_rpc_client.take();
+
     // Deregister is best-effort: a failure here would only leak a row that
     // will be reaped by the next stale-cleanup sweep, so we log and move on.
     if let Err(err) = registry.deregister(&key) {
@@ -200,6 +252,20 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Connect the freshly-instantiated [`HostRpcClient`] to the DCC.
+///
+/// Wrapped as a separate helper so the caller can keep the `match`
+/// arms in `run()` shallow and so the timeout / log surface is in
+/// one place.
+async fn client_connect(
+    mut client: Box<dyn dcc_mcp_host_rpc::HostRpcClient>,
+    endpoint: &str,
+    timeout: Duration,
+) -> Result<Box<dyn dcc_mcp_host_rpc::HostRpcClient>, dcc_mcp_host_rpc::HostRpcError> {
+    client.connect(endpoint, timeout).await?;
+    Ok(client)
 }
 
 fn build_service_entry(args: &SidecarArgs) -> ServiceEntry {
@@ -301,12 +367,17 @@ mod tests {
         let key_dcc = "test-dcc".to_string();
         let args = SidecarArgs {
             dcc: key_dcc.clone(),
-            host_rpc: "test://localhost:0".to_string(),
+            // Use the `stub` scheme so the HostRpcClient connects
+            // immediately (no I/O) and the focus of this test stays
+            // on the PPID-watch path. The commandport scheme is
+            // exercised separately by `commandport_connects_to_fake_server`.
+            host_rpc: "stub://localhost:0".to_string(),
             watch_pid: parent_pid,
             registry_dir: Some(registry_dir.path().to_path_buf()),
             instance_id: Some(Uuid::new_v4()),
             display_name: Some("test-sidecar".to_string()),
             adapter_version: Some("0.0.0-test".to_string()),
+            connect_timeout_secs: 2,
             ppid_poll_ms: Some(50),
         };
         let pinned_uuid = args.instance_id.unwrap();
@@ -352,6 +423,168 @@ mod tests {
             registry.get(&key).is_none(),
             "sidecar should have deregistered itself; row still present"
         );
+    }
+
+    /// End-to-end commandport happy path: spawn a fake TCP server,
+    /// spawn the sidecar with ``commandport://127.0.0.1:<port>``,
+    /// assert the fake server observes an inbound connection from
+    /// the sidecar (proving the URI router picked CommandPortClient
+    /// and called connect()), then kill the parent surrogate and
+    /// assert clean exit.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn commandport_connects_to_fake_server() {
+        use tokio::net::TcpListener;
+        use tokio::sync::oneshot;
+
+        let registry_dir = TempDir::new().expect("tempdir");
+
+        // Bind a fake "Maya commandPort" on an OS-assigned port.
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind 0");
+        let port = listener.local_addr().expect("local_addr").port();
+        let (connect_tx, connect_rx) = oneshot::channel::<()>();
+        tokio::spawn(async move {
+            // Accept exactly one connection and signal the test.
+            // The connection is held open by `_stream` until the
+            // accept task is dropped, which happens when this future
+            // completes — so we hold it for the duration of the test.
+            if let Ok((stream, _)) = listener.accept().await {
+                let _ = connect_tx.send(());
+                // Keep the socket alive until the sidecar tears down.
+                // 5s is more than enough for this test's lifetime.
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                drop(stream);
+            }
+        });
+
+        let mut child = std::process::Command::new(sleep_cmd())
+            .args(sleep_args())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn sleep child");
+
+        let parent_pid = child.id();
+        let key_dcc = "maya".to_string();
+        let pinned_uuid = Uuid::new_v4();
+        let args = SidecarArgs {
+            dcc: key_dcc.clone(),
+            host_rpc: format!("commandport://127.0.0.1:{port}"),
+            watch_pid: parent_pid,
+            registry_dir: Some(registry_dir.path().to_path_buf()),
+            instance_id: Some(pinned_uuid),
+            display_name: Some("test-maya".to_string()),
+            adapter_version: Some("0.0.0-test".to_string()),
+            connect_timeout_secs: 2,
+            ppid_poll_ms: Some(50),
+        };
+
+        let sidecar_handle = tokio::spawn(async move { run(args).await });
+
+        // Confirm the sidecar's CommandPortClient actually connected
+        // — this proves the URI router picked the right impl AND
+        // that the connect() path is wired through end-to-end.
+        tokio::time::timeout(Duration::from_secs(3), connect_rx)
+            .await
+            .expect("sidecar must connect to fake commandPort within 3s")
+            .expect("connect channel closed without firing");
+
+        // Confirm the registry row landed too (orthogonal to the
+        // connect — the row is written before connect attempts).
+        wait_for_registration(
+            registry_dir.path(),
+            &key_dcc,
+            pinned_uuid,
+            Duration::from_secs(2),
+        )
+        .await
+        .expect("sidecar registered itself within 2s");
+
+        // Kill the parent and assert clean shutdown.
+        child.kill().expect("kill sleep child");
+        let _ = child.wait();
+
+        let result = tokio::time::timeout(Duration::from_secs(3), sidecar_handle)
+            .await
+            .expect("sidecar exited within 3s of parent death")
+            .expect("sidecar task did not panic");
+        result.expect("sidecar run returned ok");
+
+        let registry = FileRegistry::new(registry_dir.path()).expect("reopen");
+        let key = ServiceKey {
+            dcc_type: key_dcc,
+            instance_id: pinned_uuid,
+        };
+        assert!(
+            registry.get(&key).is_none(),
+            "sidecar must have deregistered itself"
+        );
+    }
+
+    /// Soft-failure path: when the URI's host:port is dead, the sidecar
+    /// logs a warning but **keeps running** so its FileRegistry row
+    /// stays visible and PPID-watch can still detect parent death.
+    /// The gateway sees a registered-but-disconnected backend and
+    /// routes around it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn sidecar_survives_failed_initial_connect() {
+        use tokio::net::TcpListener;
+
+        let registry_dir = TempDir::new().expect("tempdir");
+
+        // Allocate a port and immediately drop the listener so any
+        // connect attempt sees ECONNREFUSED quickly.
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let dead_port = listener.local_addr().expect("local_addr").port();
+        drop(listener);
+
+        let mut child = std::process::Command::new(sleep_cmd())
+            .args(sleep_args())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn sleep child");
+
+        let parent_pid = child.id();
+        let key_dcc = "maya".to_string();
+        let pinned_uuid = Uuid::new_v4();
+        let args = SidecarArgs {
+            dcc: key_dcc.clone(),
+            host_rpc: format!("commandport://127.0.0.1:{dead_port}"),
+            watch_pid: parent_pid,
+            registry_dir: Some(registry_dir.path().to_path_buf()),
+            instance_id: Some(pinned_uuid),
+            display_name: None,
+            adapter_version: None,
+            // 300ms is plenty for ECONNREFUSED on Windows; bumps any
+            // slow CI well above the noise floor while keeping the
+            // test snappy in the common case.
+            connect_timeout_secs: 1,
+            ppid_poll_ms: Some(50),
+        };
+
+        let sidecar_handle = tokio::spawn(async move { run(args).await });
+
+        // Even with connect failed, the sidecar must register itself
+        // — that's the whole point of the soft-failure contract.
+        wait_for_registration(
+            registry_dir.path(),
+            &key_dcc,
+            pinned_uuid,
+            Duration::from_secs(3),
+        )
+        .await
+        .expect("sidecar must register even when connect fails");
+
+        child.kill().expect("kill sleep child");
+        let _ = child.wait();
+
+        let result = tokio::time::timeout(Duration::from_secs(4), sidecar_handle)
+            .await
+            .expect("sidecar exited after parent death")
+            .expect("no panic");
+        result.expect("run() returned ok");
     }
 
     fn sleep_cmd() -> &'static str {
