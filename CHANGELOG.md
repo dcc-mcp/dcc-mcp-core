@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.1](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.0...v0.17.1) (2026-05-16)
+
+
+### Features
+
+* **admin:** add SQLite persistence, skill-path CRUD, and AdminPersistConfig refactor ([3735162](https://github.com/loonghao/dcc-mcp-core/commit/37351624137f01492b3b5181521a612a2313f3f6))
+* **host-rpc:** new crate `dcc-mcp-host-rpc` — HostRpcClient trait + HostDied envelope (RFC [#998](https://github.com/loonghao/dcc-mcp-core/issues/998)) ([8e66787](https://github.com/loonghao/dcc-mcp-core/commit/8e667874690ee2766522ae31f816c26c027d188f))
+* **models:** add `risk_class` to ToolDeclaration (RFC [#998](https://github.com/loonghao/dcc-mcp-core/issues/998) Phase 1, schema only) ([c71cab7](https://github.com/loonghao/dcc-mcp-core/commit/c71cab78858a19111f9e558d3f558e4f030eaed6))
+* **server:** add `sidecar` subcommand + PyPI binary distribution ([#998](https://github.com/loonghao/dcc-mcp-core/issues/998), [#1002](https://github.com/loonghao/dcc-mcp-core/issues/1002)) ([7ed63a3](https://github.com/loonghao/dcc-mcp-core/commit/7ed63a3e770d99a28f31c84075b804c913b8f4a1))
+
+
+### Bug Fixes
+
+* **gateway:** preserve full inputSchema, index unloaded skills, demote meta-tools ([#992](https://github.com/loonghao/dcc-mcp-core/issues/992), [#993](https://github.com/loonghao/dcc-mcp-core/issues/993), [#994](https://github.com/loonghao/dcc-mcp-core/issues/994)) ([7eb72ef](https://github.com/loonghao/dcc-mcp-core/commit/7eb72ef94c6aac040ff8a3dce3d92120f1a13fc4))
+* **search:** strengthen meta-tool exclusion — zero score when query doesn't target tool name ([c14657b](https://github.com/loonghao/dcc-mcp-core/commit/c14657b948fc175d0a06fdc7b1bdb03347d5a445))
+* **test:** mark regression tests as xfail for [#992](https://github.com/loonghao/dcc-mcp-core/issues/992)/[#993](https://github.com/loonghao/dcc-mcp-core/issues/993)/[#995](https://github.com/loonghao/dcc-mcp-core/issues/995)/[#996](https://github.com/loonghao/dcc-mcp-core/issues/996) ([2a8b403](https://github.com/loonghao/dcc-mcp-core/commit/2a8b4035822a49f656308c717bbc01b14d9aee33))
+
+
+### Code Refactoring
+
+* **release:** fold dcc-mcp-server wheel build into release.yml (no second cargo build) ([695fd03](https://github.com/loonghao/dcc-mcp-core/commit/695fd0329647944e2b3e2ecfb589e8348133a702))
+
 ## [0.17.0](https://github.com/loonghao/dcc-mcp-core/compare/v0.16.0...v0.17.0) (2026-05-15)
 
 
@@ -49,28 +71,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 
 * refresh AI agent gateway references ([69b57e8](https://github.com/loonghao/dcc-mcp-core/commit/69b57e83e3c73d2e61a567aabc86a6c65aa860e0))
-
-## [0.17.1](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.0...v0.17.1) (2026-05-16)
-
-
-### Features
-
-* **admin:** add SQLite persistence, skill-path CRUD, and AdminPersistConfig refactor ([3735162](https://github.com/loonghao/dcc-mcp-core/commit/37351624137f01492b3b5181521a612a2313f3f6))
-* **host-rpc:** new crate `dcc-mcp-host-rpc` — HostRpcClient trait + HostDied envelope (RFC [#998](https://github.com/loonghao/dcc-mcp-core/issues/998)) ([8e66787](https://github.com/loonghao/dcc-mcp-core/commit/8e667874690ee2766522ae31f816c26c027d188f))
-* **models:** add `risk_class` to ToolDeclaration (RFC [#998](https://github.com/loonghao/dcc-mcp-core/issues/998) Phase 1, schema only) ([c71cab7](https://github.com/loonghao/dcc-mcp-core/commit/c71cab78858a19111f9e558d3f558e4f030eaed6))
-* **server:** add `sidecar` subcommand + PyPI binary distribution ([#998](https://github.com/loonghao/dcc-mcp-core/issues/998), [#1002](https://github.com/loonghao/dcc-mcp-core/issues/1002)) ([7ed63a3](https://github.com/loonghao/dcc-mcp-core/commit/7ed63a3e770d99a28f31c84075b804c913b8f4a1))
-
-
-### Bug Fixes
-
-* **gateway:** preserve full inputSchema, index unloaded skills, demote meta-tools ([#992](https://github.com/loonghao/dcc-mcp-core/issues/992), [#993](https://github.com/loonghao/dcc-mcp-core/issues/993), [#994](https://github.com/loonghao/dcc-mcp-core/issues/994)) ([7eb72ef](https://github.com/loonghao/dcc-mcp-core/commit/7eb72ef94c6aac040ff8a3dce3d92120f1a13fc4))
-* **search:** strengthen meta-tool exclusion — zero score when query doesn't target tool name ([c14657b](https://github.com/loonghao/dcc-mcp-core/commit/c14657b948fc175d0a06fdc7b1bdb03347d5a445))
-* **test:** mark regression tests as xfail for [#992](https://github.com/loonghao/dcc-mcp-core/issues/992)/[#993](https://github.com/loonghao/dcc-mcp-core/issues/993)/[#995](https://github.com/loonghao/dcc-mcp-core/issues/995)/[#996](https://github.com/loonghao/dcc-mcp-core/issues/996) ([2a8b403](https://github.com/loonghao/dcc-mcp-core/commit/2a8b4035822a49f656308c717bbc01b14d9aee33))
-
-
-### Code Refactoring
-
-* **release:** fold dcc-mcp-server wheel build into release.yml (no second cargo build) ([695fd03](https://github.com/loonghao/dcc-mcp-core/commit/695fd0329647944e2b3e2ecfb589e8348133a702))
 
 ## [0.16.0](https://github.com/loonghao/dcc-mcp-core/compare/v0.15.9...v0.16.0) (2026-05-13)
 
