@@ -22,9 +22,9 @@ that has a ``dcc_mcp_maya.sidecar._dispatcher`` module on
 # Import future modules
 from __future__ import annotations
 
-from pathlib import Path
-
 # Import built-in modules
+import ast
+from pathlib import Path
 import sys
 import types
 from typing import Iterator
@@ -226,3 +226,26 @@ def test_bootstrap_source_pins_known_contract():
     assert "_BOOTSTRAP_VERSION" in src
     assert "types.ModuleType" in src
     assert "sys.modules" in src
+
+
+def test_bootstrap_source_parses_under_python_3_7_feature_version():
+    """Pin :file:`maya_sidecar_bootstrap.py` to **Python 3.7 syntax**.
+
+    Maya 2020 and 2022 ship Python 3.7. The bootstrap is
+    ``include_str!``-ed into the Rust binary and shipped verbatim
+    over Maya's ``commandPort`` to the embedded interpreter — any
+    3.8+ syntax (walrus ``:=``, ``match/case``, positional-only ``/``,
+    f-string ``=`` debug, PEP 604 ``int | None`` at runtime, …) would
+    raise ``SyntaxError`` inside Maya and break sidecar mode entirely.
+
+    ``ast.parse(feature_version=(3, 7))`` rejects every grammar
+    feature added after Python 3.7, so the test fails loudly the
+    moment a contributor introduces a 3.8+ construct.
+    """
+    src = _read_bootstrap_source()
+    try:
+        ast.parse(src, filename=str(BOOTSTRAP_PATH), feature_version=(3, 7))
+    except SyntaxError as exc:
+        pytest.fail(
+            f"{BOOTSTRAP_PATH} contains Python 3.8+ syntax that would break on Maya 2020/2022 (Python 3.7): {exc}"
+        )
