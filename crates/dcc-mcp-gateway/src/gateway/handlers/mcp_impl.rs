@@ -1,5 +1,23 @@
 use super::*;
 use crate::gateway::capability::parse_slug;
+use std::time::{Duration, Instant};
+
+/// Log when gateway `/mcp` dispatch exceeds this threshold (issue #1009).
+const GATEWAY_MCP_SLOW_DISPATCH_MS: u128 = 250;
+
+/// Server-side deadline for `initialize` before returning `gateway-busy` (#1009).
+const GATEWAY_INITIALIZE_TIMEOUT: Duration = Duration::from_secs(5);
+
+fn log_gateway_mcp_slow_dispatch(started: Instant, method: &str) {
+    let elapsed_ms = started.elapsed().as_millis();
+    if elapsed_ms > GATEWAY_MCP_SLOW_DISPATCH_MS {
+        tracing::warn!(
+            elapsed_ms = elapsed_ms as u64,
+            method = method,
+            "gateway MCP dispatch slow"
+        );
+    }
+}
 
 /// Minimal JSON-RPC 2.0 request shape accepted by the gateway `/mcp` endpoint.
 #[derive(Debug, Deserialize)]
@@ -17,6 +35,7 @@ pub async fn handle_gateway_mcp(
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Response {
+    let dispatch_started = Instant::now();
     let client_session_id = headers
         .get("Mcp-Session-Id")
         .and_then(|v| v.to_str().ok())
@@ -25,30 +44,47 @@ pub async fn handle_gateway_mcp(
 
     let body_value: Value = match serde_json::from_slice(&body) {
         Ok(value) => value,
-        Err(err) => return parse_error_response(&client_session_id, format!("Parse error: {err}")),
+        Err(err) => {
+            let response = parse_error_response(&client_session_id, format!("Parse error: {err}"));
+            log_gateway_mcp_slow_dispatch(dispatch_started, "parse_error");
+            return response;
+        }
     };
 
     if let Some(batch) = body_value.as_array() {
-        return handle_batch_request(&gs, &client_session_id, batch).await;
+        let label = format!("batch[{}]", batch.len());
+        let response = handle_batch_request(&gs, &client_session_id, batch).await;
+        log_gateway_mcp_slow_dispatch(dispatch_started, &label);
+        return response;
     }
 
     let req = match serde_json::from_value::<JsonRpcRequest>(body_value) {
         Ok(req) => req,
-        Err(err) => return parse_error_response(&client_session_id, format!("Parse error: {err}")),
+        Err(err) => {
+            let response = parse_error_response(&client_session_id, format!("Parse error: {err}"));
+            log_gateway_mcp_slow_dispatch(dispatch_started, "parse_error");
+            return response;
+        }
     };
+
+    let method_label = req.method.clone();
 
     if req.id.is_none() {
         handle_notification(&gs, &req, &client_session_id).await;
+        log_gateway_mcp_slow_dispatch(dispatch_started, &method_label);
         return StatusCode::ACCEPTED.into_response();
     }
 
-    if let Some(response) = dispatch_single_request(&gs, &req, &client_session_id).await {
-        let mut response = Json(response).into_response();
-        attach_session_header(&mut response, &client_session_id);
-        response
-    } else {
-        StatusCode::ACCEPTED.into_response()
-    }
+    let response =
+        if let Some(response) = dispatch_single_request(&gs, &req, &client_session_id).await {
+            let mut response = Json(response).into_response();
+            attach_session_header(&mut response, &client_session_id);
+            response
+        } else {
+            StatusCode::ACCEPTED.into_response()
+        };
+    log_gateway_mcp_slow_dispatch(dispatch_started, &method_label);
+    response
 }
 
 async fn handle_batch_request(
@@ -118,7 +154,7 @@ pub(crate) async fn dispatch_single_request(
     let id_str = serde_json::to_string(&id).unwrap_or_default();
 
     match req.method.as_str() {
-        "initialize" => Some(handle_initialize(gs, id, req).await),
+        "initialize" => Some(handle_initialize_with_timeout(gs, id, req).await),
         "ping" => Some(json!({"jsonrpc":"2.0","id":id,"result":{}})),
         "notifications/initialized" => Some(json!({"jsonrpc":"2.0","id":id,"result":{}})),
         "tools/list" => Some(handle_tools_list(gs, id, req).await),
@@ -138,6 +174,39 @@ pub(crate) async fn dispatch_single_request(
             "error": {"code": -32601, "message": format!("Method not found: {other}")}
         })),
     }
+}
+
+async fn handle_initialize_with_timeout(
+    gs: &GatewayState,
+    id: Value,
+    req: &JsonRpcRequest,
+) -> Value {
+    match tokio::time::timeout(
+        GATEWAY_INITIALIZE_TIMEOUT,
+        handle_initialize(gs, id.clone(), req),
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(_) => gateway_busy_initialize_response(id),
+    }
+}
+
+fn gateway_busy_initialize_response(id: Value) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": {
+            "code": dcc_mcp_jsonrpc::error_codes::GATEWAY_BUSY,
+            "message": "gateway-busy: initialize did not complete within 5s; \
+                the gateway may be starved by a busy DCC host — retry with fewer \
+                concurrent MCP clients or connect directly to a per-instance port",
+            "data": {
+                "reason": "gateway-busy",
+                "timeout_secs": GATEWAY_INITIALIZE_TIMEOUT.as_secs()
+            }
+        }
+    })
 }
 
 async fn handle_initialize(gs: &GatewayState, id: Value, req: &JsonRpcRequest) -> Value {
