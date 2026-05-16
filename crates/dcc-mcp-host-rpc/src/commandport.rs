@@ -64,6 +64,21 @@ use crate::{HostRpcClient, HostRpcError};
 /// scheme registry and tests both reference the same string.
 pub const URI_SCHEME: &str = "commandport";
 
+/// Python bootstrap shipped over the wire on every ``connect``.
+///
+/// The bootstrap installs ``dcc_mcp_maya._sidecar`` as a virtual
+/// module by ``types.ModuleType`` + ``compile`` + ``exec``, wiring it
+/// to the dispatcher in ``dcc_mcp_maya.sidecar._dispatcher``. This
+/// means the wire-format entry point name is owned by **this binary**
+/// rather than by a static ``.py`` shim file inside the Maya install
+/// — sidecar protocol upgrades are atomic with the binary upgrade.
+///
+/// The source is embedded at build time via ``include_str!`` so the
+/// bootstrap version cannot drift away from the rest of the client.
+/// Idempotent on re-entry: each connect re-runs ``_install()`` but a
+/// matching ``__dcc_mcp_bootstrap__`` returns immediately.
+const SIDECAR_BOOTSTRAP_PY: &str = include_str!("../python/maya_sidecar_bootstrap.py");
+
 /// `HostRpcClient` over Maya's `commandPort`.
 ///
 /// Instantiate via [`CommandPortClient::new`], then call
@@ -88,6 +103,80 @@ impl CommandPortClient {
     pub fn new() -> Self {
         Self {
             state: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// Ship the [`SIDECAR_BOOTSTRAP_PY`] payload over the live socket.
+    ///
+    /// Called once per [`HostRpcClient::connect`] right after the TCP
+    /// handshake completes. The wire line is a self-contained Python
+    /// expression — Rust's ``{:?}`` debug format produces a
+    /// Python-compatible string literal (matching the escape rules
+    /// for ``\n`` / ``\"`` / ``\\``), so we can wrap the source in
+    /// a single ``exec(compile(<lit>, '<x>', 'exec'))`` invocation
+    /// without any extra encoding step.
+    ///
+    /// Maya's ``commandPort`` with ``sourceType='python'`` always
+    /// replies with **one** line per request — the ``str()``/``repr()``
+    /// of the eval result. ``exec`` returns ``None``, so the bootstrap
+    /// reply is the literal ``None`` on most Maya versions (or empty
+    /// on some 2024 builds). We accept any non-traceback content;
+    /// Python-level failures in the bootstrap body would otherwise
+    /// only surface during the first real ``dispatch()`` call.
+    async fn send_bootstrap(&self) -> Result<(), HostRpcError> {
+        let line = format!(
+            "__import__('builtins').exec(__import__('builtins').compile({src:?}, \
+             '<dcc-mcp-sidecar-bootstrap>', 'exec'))\n",
+            src = SIDECAR_BOOTSTRAP_PY,
+        );
+
+        let mut guard = self.state.lock().await;
+        let conn = guard.as_mut().ok_or_else(|| {
+            HostRpcError::transport("CommandPortClient::send_bootstrap before connect")
+        })?;
+
+        if let Err(e) = conn.writer.write_all(line.as_bytes()).await {
+            return Err(io_error_to_host_rpc(
+                e,
+                "commandport bootstrap write",
+                "<bootstrap>",
+                Value::Null,
+                guard,
+            ));
+        }
+        if let Err(e) = conn.writer.flush().await {
+            return Err(io_error_to_host_rpc(
+                e,
+                "commandport bootstrap flush",
+                "<bootstrap>",
+                Value::Null,
+                guard,
+            ));
+        }
+
+        let mut buf = String::new();
+        match conn.reader.read_line(&mut buf).await {
+            Ok(0) => {
+                *guard = None;
+                Err(HostRpcError::host_died("<bootstrap>", None))
+            }
+            Ok(_) => {
+                let trimmed = buf.trim_end_matches(['\r', '\n']);
+                if trimmed.contains("Traceback") || trimmed.contains("SyntaxError:") {
+                    Err(HostRpcError::transport(format!(
+                        "commandport bootstrap raised inside Maya: {trimmed}",
+                    )))
+                } else {
+                    Ok(())
+                }
+            }
+            Err(e) => Err(io_error_to_host_rpc(
+                e,
+                "commandport bootstrap read",
+                "<bootstrap>",
+                Value::Null,
+                guard,
+            )),
         }
     }
 }
@@ -127,6 +216,14 @@ impl HostRpcClient for CommandPortClient {
             writer: write_half,
             reader: BufReader::new(read_half),
         });
+
+        // TCP handshake done; install the wire-frame entry point
+        // inside Maya by shipping the Python bootstrap. Bounded by
+        // the same timeout the caller passed to `connect` so the
+        // "connection is live AND usable" deadline stays predictable.
+        tokio::time::timeout(timeout, self.send_bootstrap())
+            .await
+            .map_err(|_| HostRpcError::Timeout {})??;
         Ok(())
     }
 
@@ -365,30 +462,43 @@ mod tests {
 
     // ── connect / call roundtrip against a fake commandPort ────────────
 
-    /// Spawn an in-process TCP server that mimics Maya's commandPort:
-    /// accept one connection, read one line, write a JSON response,
-    /// and either close or keep the connection open for more rounds.
+    /// Spawn an in-process TCP server that mimics Maya's commandPort.
     ///
-    /// Returns the bound port and a one-shot the test can use to wait
-    /// for the server to observe the request.
-    async fn spawn_fake_command_port(
-        response: String,
+    /// Reads one line at a time, sends back the next pre-staged
+    /// response line, and repeats until the client drops or the
+    /// caller's response queue is empty. Each request line is
+    /// forwarded over `requests` so tests can assert on the exact
+    /// wire bytes.
+    ///
+    /// The first response **must** correspond to the bootstrap line
+    /// the client sends right after TCP connect — typically `None`
+    /// (Maya's `exec()` eval result). Subsequent responses are the
+    /// per-`call()` payloads.
+    async fn spawn_fake_command_port_multi(
+        responses: Vec<String>,
         keep_alive: bool,
-    ) -> (u16, oneshot::Receiver<String>) {
+    ) -> (u16, tokio::sync::mpsc::UnboundedReceiver<String>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind 0");
         let port = listener.local_addr().expect("local_addr").port();
-        let (request_tx, request_rx) = oneshot::channel();
+        let (request_tx, request_rx) = tokio::sync::mpsc::unbounded_channel();
 
         tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.expect("accept");
             let (read_half, mut write_half) = stream.split();
             let mut reader = BufReader::new(read_half);
-            let mut line = String::new();
-            let _ = reader.read_line(&mut line).await;
-            let _ = request_tx.send(line);
-            let payload = format!("{response}\n");
-            let _ = write_half.write_all(payload.as_bytes()).await;
-            let _ = write_half.flush().await;
+            for response in responses {
+                let mut line = String::new();
+                match reader.read_line(&mut line).await {
+                    Ok(0) | Err(_) => return,
+                    Ok(_) => {}
+                }
+                let _ = request_tx.send(line);
+                let payload = format!("{response}\n");
+                if write_half.write_all(payload.as_bytes()).await.is_err() {
+                    return;
+                }
+                let _ = write_half.flush().await;
+            }
             if keep_alive {
                 // Hold the connection open so the client's `close()`
                 // gets to drive the TCP shutdown handshake. The halves
@@ -399,6 +509,29 @@ mod tests {
         });
 
         (port, request_rx)
+    }
+
+    /// Backwards-friendly single-call wrapper used by tests that
+    /// only want to verify the call path. Pre-stages two responses:
+    /// one for the bootstrap (always `None`) and one for the real
+    /// per-test response.
+    async fn spawn_fake_command_port(
+        response: String,
+        keep_alive: bool,
+    ) -> (u16, oneshot::Receiver<String>) {
+        let (port, mut requests) =
+            spawn_fake_command_port_multi(vec!["None".to_string(), response], keep_alive).await;
+        let (tx, rx) = oneshot::channel();
+
+        // Drop the bootstrap line; surface the real call line.
+        tokio::spawn(async move {
+            let _bootstrap = requests.recv().await;
+            if let Some(call_line) = requests.recv().await {
+                let _ = tx.send(call_line);
+            }
+        });
+
+        (port, rx)
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -451,17 +584,11 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn host_died_when_connection_closes_during_call() {
-        // Server closes the connection immediately after accept,
-        // simulating Maya crashing mid-call.
-        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
-        let port = listener.local_addr().expect("local_addr").port();
-        tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.expect("accept");
-            // Half-close the write side so the client's read_line
-            // returns Ok(0) — that's the "EOF mid-call" signal that
-            // tells us Maya died.
-            drop(stream);
-        });
+        // Server replies to the bootstrap normally, then drops the
+        // connection before the first real call — simulating Maya
+        // crashing AFTER its commandPort was wired but mid-call.
+        let (port, mut requests) =
+            spawn_fake_command_port_multi(vec!["None".to_string()], false).await;
 
         let mut client = CommandPortClient::new();
         client
@@ -471,6 +598,9 @@ mod tests {
             )
             .await
             .expect("connect");
+
+        // Drain the bootstrap line so the channel does not retain it.
+        let _bootstrap = requests.recv().await;
 
         let result = client
             .call(
@@ -597,5 +727,143 @@ mod tests {
         // same constant without typo drift between modules.
         assert_eq!(URI_SCHEME, "commandport");
         assert_eq!(CommandPortClient::new().uri_scheme(), "commandport");
+    }
+
+    // ── bootstrap injection (Stage 1 of dynamic-module-install) ───
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn connect_ships_bootstrap_as_first_wire_line() {
+        // Fake commandPort: capture the FIRST line the client sends
+        // and verify it carries the embedded bootstrap source.
+        let (port, mut requests) =
+            spawn_fake_command_port_multi(vec!["None".to_string()], true).await;
+
+        let mut client = CommandPortClient::new();
+        client
+            .connect(
+                &format!("commandport://127.0.0.1:{port}"),
+                Duration::from_secs(2),
+            )
+            .await
+            .expect("connect (with bootstrap)");
+
+        let bootstrap_line = requests
+            .recv()
+            .await
+            .expect("bootstrap line should be observed by the server");
+
+        // The wire is `exec(compile(<src_lit>, '<bootstrap>', 'exec'))`.
+        assert!(
+            bootstrap_line.contains("__import__('builtins').exec"),
+            "bootstrap line must wrap exec(): {bootstrap_line:?}"
+        );
+        assert!(
+            bootstrap_line.contains("<dcc-mcp-sidecar-bootstrap>"),
+            "bootstrap line must tag its compiled filename: {bootstrap_line:?}"
+        );
+        // The dispatcher entry-point name MUST appear in the embedded
+        // source — that's the contract every later call relies on.
+        assert!(
+            bootstrap_line.contains("dcc_mcp_maya._sidecar"),
+            "bootstrap source must reference the wire-frame entry-point name"
+        );
+        assert!(
+            bootstrap_line.contains("dcc_mcp_maya.sidecar._dispatcher"),
+            "bootstrap source must reference the dispatcher import path"
+        );
+
+        client.close().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn connect_surfaces_bootstrap_traceback_as_transport_error() {
+        // Fake commandPort returns a Python traceback for the
+        // bootstrap line — emulates a syntax error or import storm
+        // inside Maya. The client must surface this as a transport
+        // error so operators see it during connect rather than at
+        // the first real call.
+        let (port, _requests) = spawn_fake_command_port_multi(
+            vec!["Traceback (most recent call last): SyntaxError: bogus".to_string()],
+            true,
+        )
+        .await;
+
+        let mut client = CommandPortClient::new();
+        let result = client
+            .connect(
+                &format!("commandport://127.0.0.1:{port}"),
+                Duration::from_secs(2),
+            )
+            .await;
+
+        match result {
+            Err(HostRpcError::TransportError { message }) => {
+                assert!(
+                    message.contains("bootstrap raised"),
+                    "transport error should explain bootstrap context: {message}"
+                );
+                assert!(
+                    message.contains("Traceback") || message.contains("SyntaxError"),
+                    "transport error should echo the Maya-side error: {message}"
+                );
+            }
+            other => panic!("expected TransportError, got {other:?}"),
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn bootstrap_payload_is_python_string_literal_safe() {
+        // The bootstrap line uses Rust's `{:?}` Debug format to embed
+        // the source as a Python string literal. Pin that the
+        // literal round-trips: every backslash / quote / newline in
+        // the bootstrap source must show up correctly escaped in the
+        // wire bytes.
+        let (port, mut requests) =
+            spawn_fake_command_port_multi(vec!["None".to_string()], true).await;
+        let mut client = CommandPortClient::new();
+        client
+            .connect(
+                &format!("commandport://127.0.0.1:{port}"),
+                Duration::from_secs(2),
+            )
+            .await
+            .expect("connect");
+        let bootstrap_line = requests.recv().await.expect("bootstrap line");
+
+        // Newlines in the source must NOT appear literally — they
+        // should be `\n` two-byte sequences inside the Python string
+        // literal Maya's `compile()` will parse.
+        let body = bootstrap_line.trim_end_matches('\n');
+        let inner_newlines = body.matches('\n').count();
+        assert_eq!(
+            inner_newlines, 0,
+            "wire line must be a single Python line (`{body:?}` has embedded newlines)"
+        );
+        // Double-quote pairs inside the literal must be escaped.
+        // If the source had un-escaped quotes the literal would close
+        // prematurely and the rest of the source would land as Python
+        // tokens — Maya would syntax-error.
+        // Counting `\"` occurrences is a heuristic, but `repr(SRC)`
+        // guarantees at least one (the literal's opening) — the test
+        // mainly guards against future regressions where someone
+        // switches to `{}` formatting.
+        assert!(
+            body.contains('"'),
+            "literal opening/closing quotes must reach the wire"
+        );
+        client.close().await;
+    }
+
+    #[test]
+    fn embedded_bootstrap_source_pins_known_contract() {
+        // Static pin: bootstrap source MUST contain the canonical
+        // module name + dispatcher import + bootstrap version
+        // marker. Refactors that move the dispatcher or rename the
+        // wire entry must update the bootstrap deliberately.
+        assert!(SIDECAR_BOOTSTRAP_PY.contains("dcc_mcp_maya._sidecar"));
+        assert!(SIDECAR_BOOTSTRAP_PY.contains("dcc_mcp_maya.sidecar._dispatcher"));
+        assert!(SIDECAR_BOOTSTRAP_PY.contains("_BOOTSTRAP_VERSION"));
+        assert!(SIDECAR_BOOTSTRAP_PY.contains("types.ModuleType"));
+        assert!(SIDECAR_BOOTSTRAP_PY.contains("sys.modules"));
     }
 }
