@@ -6,7 +6,8 @@ use pyo3::types::{PyAnyMethods, PyDictMethods};
 use pyo3_stub_gen_derive::gen_stub_pymethods;
 
 use crate::skill_metadata::{
-    ExecutionMode, NextTools, SkillGroup, ThreadAffinity, ToolAnnotations, ToolDeclaration,
+    ExecutionMode, NextTools, RiskClass, SkillGroup, ThreadAffinity, ToolAnnotations,
+    ToolDeclaration,
 };
 
 #[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
@@ -40,7 +41,7 @@ impl SkillGroup {
 #[pymethods]
 impl ToolDeclaration {
     #[new]
-    #[pyo3(signature = (name, description="".to_string(), input_schema=None, output_schema=None, read_only=false, destructive=false, idempotent=false, defer_loading=false, source_file="".to_string(), group="".to_string(), execution="sync".to_string(), timeout_hint_secs=None, thread_affinity="any".to_string(), enforce_thread_affinity=false))]
+    #[pyo3(signature = (name, description="".to_string(), input_schema=None, output_schema=None, read_only=false, destructive=false, idempotent=false, defer_loading=false, source_file="".to_string(), group="".to_string(), execution="sync".to_string(), timeout_hint_secs=None, thread_affinity="any".to_string(), enforce_thread_affinity=false, risk_class="low".to_string()))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         name: String,
@@ -57,6 +58,7 @@ impl ToolDeclaration {
         timeout_hint_secs: Option<u32>,
         thread_affinity: String,
         enforce_thread_affinity: bool,
+        risk_class: String,
     ) -> pyo3::PyResult<Self> {
         let input_schema = input_schema
             .and_then(|schema| serde_json::from_str(&schema).ok())
@@ -66,6 +68,7 @@ impl ToolDeclaration {
             .unwrap_or(serde_json::Value::Null);
         let execution = parse_execution_mode(&execution)?;
         let thread_affinity = parse_thread_affinity(&thread_affinity)?;
+        let risk_class = parse_risk_class(&risk_class)?;
         Ok(Self {
             name,
             description,
@@ -82,10 +85,22 @@ impl ToolDeclaration {
             timeout_hint_secs,
             thread_affinity,
             enforce_thread_affinity,
+            risk_class,
             _deferred_guard: None,
             annotations: ToolAnnotations::default(),
             required_capabilities: Vec::new(),
         })
+    }
+
+    #[getter]
+    fn risk_class(&self) -> &'static str {
+        self.risk_class.as_str()
+    }
+
+    #[setter]
+    fn set_risk_class(&mut self, value: String) -> pyo3::PyResult<()> {
+        self.risk_class = parse_risk_class(&value)?;
+        Ok(())
     }
 
     // ── Trivial accessors emitted by `#[derive(PyWrapper)]` (#528 M3.4) ─
@@ -267,6 +282,14 @@ fn parse_thread_affinity(value: &str) -> pyo3::PyResult<ThreadAffinity> {
     ThreadAffinity::parse(value).ok_or_else(|| {
         pyo3::exceptions::PyValueError::new_err(format!(
             "thread_affinity must be 'any' or 'main' (got {value:?})"
+        ))
+    })
+}
+
+fn parse_risk_class(value: &str) -> pyo3::PyResult<RiskClass> {
+    RiskClass::parse(value).ok_or_else(|| {
+        pyo3::exceptions::PyValueError::new_err(format!(
+            "risk_class must be 'low' or 'high-crash' (got {value:?})"
         ))
     })
 }
