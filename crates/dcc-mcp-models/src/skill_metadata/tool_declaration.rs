@@ -2,13 +2,9 @@ fn is_default_affinity(affinity: &ThreadAffinity) -> bool {
     matches!(affinity, ThreadAffinity::Any)
 }
 
-fn is_default_risk_class(risk: &RiskClass) -> bool {
-    matches!(risk, RiskClass::Low)
-}
-
 use serde::{Deserialize, Serialize};
 
-use super::{ExecutionMode, RiskClass, ThreadAffinity};
+use super::{ExecutionMode, ThreadAffinity};
 
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::gen_stub_pyclass;
@@ -282,34 +278,6 @@ pub struct ToolDeclaration {
     )]
     pub enforce_thread_affinity: bool,
 
-    /// Crash-risk classification (RFC #998 Phase 1 — schema only).
-    ///
-    /// Authors opt high-risk actions into out-of-process sidecar routing
-    /// by declaring `risk_class: high-crash` in `tools.yaml`. Phase 1
-    /// (this release) parses and surfaces the field but still routes
-    /// every call through the in-process dispatcher; Phase 2 wires the
-    /// gateway router to honour it once the sidecar substrate (issue
-    /// #1002) is available.
-    ///
-    /// ```yaml
-    /// tools:
-    ///   - name: playblast
-    ///     execution: async
-    ///     affinity: main
-    ///     timeout_hint_secs: 600
-    ///     risk_class: high-crash
-    /// ```
-    ///
-    /// Default is `low` — no behaviour change for existing skills.
-    #[serde(
-        default,
-        rename = "risk_class",
-        alias = "risk-class",
-        alias = "riskClass",
-        skip_serializing_if = "is_default_risk_class"
-    )]
-    pub risk_class: RiskClass,
-
     /// Reject the legacy user-level `deferred: true` flag with a clear error.
     ///
     /// `deferredHint` is server-set per MCP 2025-03-26; skill authors must
@@ -417,17 +385,6 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
             #[serde(rename = "enforce_thread_affinity", alias = "enforce-thread-affinity")]
             enforce_thread_affinity: bool,
 
-            /// Crash-risk classification — see [`RiskClass`].  Accepts
-            /// kebab-case (`risk-class`), snake_case (`risk_class`), and
-            /// camelCase (`riskClass`) for cross-tool compatibility.
-            #[serde(
-                default,
-                rename = "risk_class",
-                alias = "risk-class",
-                alias = "riskClass"
-            )]
-            risk_class: RiskClass,
-
             /// Legacy user-level `deferred:` flag — rejected below.
             #[serde(rename = "deferred")]
             deferred: Option<serde_json::Value>,
@@ -523,7 +480,6 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
             timeout_hint_secs: w.timeout_hint_secs,
             thread_affinity: w.thread_affinity,
             enforce_thread_affinity: w.enforce_thread_affinity,
-            risk_class: w.risk_class,
             _deferred_guard: None,
             annotations,
             required_capabilities: w.required_capabilities,
