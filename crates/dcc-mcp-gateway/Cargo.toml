@@ -18,6 +18,7 @@ dcc-mcp-naming = { path = "../dcc-mcp-naming" }
 dcc-mcp-transport = { path = "../dcc-mcp-transport" }
 dcc-mcp-telemetry = { path = "../dcc-mcp-telemetry", optional = true }
 dcc-mcp-skill-rest = { path = "../dcc-mcp-skill-rest" }
+dcc-mcp-skills = { path = "../dcc-mcp-skills", default-features = false }
 dcc-mcp-catalog = { path = "../dcc-mcp-catalog" }
 prometheus = { version = "0.14", default-features = false, optional = true }
 

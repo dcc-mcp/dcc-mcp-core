@@ -352,11 +352,9 @@ fn handle_list_roots(state: &ServerState, session_id: Option<&str>) -> CallToolR
 fn handle_list_skills(state: &ServerState, arguments: &Value) -> CallToolResult {
     let status = arguments.get("status").and_then(Value::as_str);
     let results = state.catalog.list_skills(status);
-    let text = serde_json::to_string_pretty(&json!({
-        "skills": results,
-        "total": results.len()
-    }))
-    .unwrap_or_default();
+    let payload =
+        dcc_mcp_skills::catalog::list_projection::build_list_skills_response(results, arguments);
+    let text = serde_json::to_string_pretty(&payload).unwrap_or_default();
     CallToolResult::text(text)
 }
 

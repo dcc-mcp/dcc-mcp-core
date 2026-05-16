@@ -9,11 +9,23 @@ use super::*;
 /// * Target-instance (`load_skill`, `unload_skill`): require `instance_id` /
 ///   `dcc` in the arguments; if a single backend is live these default
 ///   automatically.
+fn normalize_skill_mgmt_args(args: &Value) -> Value {
+    let mut out = args.clone();
+    if let Some(obj) = out.as_object_mut()
+        && !obj.contains_key("dcc")
+        && let Some(dcc) = obj.get("dcc_type").and_then(Value::as_str)
+    {
+        obj.insert("dcc".into(), json!(dcc));
+    }
+    out
+}
+
 pub(crate) async fn skill_mgmt_dispatch(
     gs: &GatewayState,
     tool: &str,
     args: &Value,
 ) -> (String, bool) {
+    let args = normalize_skill_mgmt_args(args);
     let dcc_filter = args.get("dcc").and_then(Value::as_str);
     let target_instance = args.get("instance_id").and_then(Value::as_str);
 
@@ -121,8 +133,11 @@ Standalone `dcc-mcp-server` without `--app` registers as `dcc_type` from DCC_MCP
             });
             let results = join_all(futs).await;
 
-            if matches!(tool, "list_skills" | "search_skills") {
-                return flatten_skill_list_results(results);
+            if tool == "list_skills" {
+                return flatten_skill_list_results(results, &args, true);
+            }
+            if tool == "search_skills" {
+                return flatten_skill_list_results(results, &args, false);
             }
 
             let merged: Vec<Value> = results
@@ -168,6 +183,8 @@ Standalone `dcc-mcp-server` without `--app` registers as `dcc_type` from DCC_MCP
 
 fn flatten_skill_list_results(
     results: Vec<(Uuid, String, Result<Value, String>)>,
+    args: &Value,
+    apply_projection: bool,
 ) -> (String, bool) {
     let mut skills: Vec<Value> = Vec::new();
     let mut instances: Vec<Value> = Vec::new();
@@ -223,11 +240,15 @@ fn flatten_skill_list_results(
     }
 
     let total = skills.len();
-    let payload = json!({
+    let mut payload = json!({
         "skills": skills,
         "total": total,
         "instances": instances,
     });
+    if apply_projection {
+        payload =
+            dcc_mcp_skills::catalog::list_projection::project_list_skills_payload(payload, args);
+    }
     (
         serde_json::to_string_pretty(&payload).unwrap_or_default(),
         ok_count == 0,
@@ -255,7 +276,11 @@ pub(crate) fn skill_management_tool_defs() -> Vec<Value> {
                 "type": "object",
                 "properties": {
                     "status": {"type": "string", "enum": ["all", "loaded", "unloaded", "error"], "default": "all"},
-                    "dcc":    {"type": "string", "description": "Restrict to one DCC type (maya, blender, …)"}
+                    "dcc":    {"type": "string", "description": "Restrict to one DCC type (maya, blender, …)"},
+                    "dcc_type": {"type": "string", "description": "Alias for dcc (REST callers)."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+                    "offset": {"type": "integer", "minimum": 0, "default": 0},
+                    "fields": {"type": "array", "items": {"type": "string"}, "description": "Strict per-skill field allow-list; omit for compact mode."}
                 }
             }
         }),
