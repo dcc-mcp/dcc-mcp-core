@@ -22,7 +22,6 @@ use serde_json::Value;
 use utoipa::ToSchema;
 
 use dcc_mcp_actions::dispatcher::{DispatchError, ToolDispatcher};
-use dcc_mcp_models::SkillMetadata;
 use dcc_mcp_skills::SkillCatalog;
 
 use super::errors::{ServiceError, ServiceErrorKind};
@@ -392,26 +391,30 @@ impl CatalogSource {
     }
 }
 
+/// Build the dispatcher action name for a skill tool declaration.
+///
+/// Mirrors [`SkillCatalog::load_skill`] naming so `/v1/search` and
+/// `/v1/describe` stay aligned with the name used after `load_skill`.
+fn catalog_action_name(skill_name: &str, tool_decl: &dcc_mcp_models::ToolDeclaration) -> String {
+    if tool_decl.name.contains("__") {
+        return tool_decl.name.clone();
+    }
+    let skill_base = skill_name.replace('-', "_");
+    format!("{}__{}", skill_base, tool_decl.name.replace('-', "_"))
+}
+
 impl SkillCatalogSource for CatalogSource {
     fn list_actions(&self) -> Vec<CatalogAction> {
         let mut out: Vec<CatalogAction> = Vec::new();
         let registry = self.catalog.registry();
-
-        // Index loaded-state by skill name so we don't re-query per
-        // action.
-        let mut loaded_skills: std::collections::HashMap<String, (bool, String)> =
-            std::collections::HashMap::new();
-        self.catalog
-            .for_each_loaded_metadata(|meta: &SkillMetadata| {
-                loaded_skills.insert(meta.name.clone(), (true, String::new()));
-            });
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         // Merge with the catalog summary so non-loaded skills show up
-        // too (their actions simply won't dispatch).
+        // too (their actions simply won't dispatch until `load_skill`).
         let summaries = self.catalog.list_skills(None);
         let mut skill_info: std::collections::HashMap<String, (bool, String, String)> =
             std::collections::HashMap::new();
-        for s in summaries {
+        for s in &summaries {
             skill_info.insert(s.name.clone(), (s.loaded, s.scope.clone(), s.dcc.clone()));
         }
 
@@ -432,6 +435,7 @@ impl SkillCatalogSource for CatalogSource {
                     // `registry.register(...)` + `server.register_handler(...)` users.
                     (true, "core".to_string(), meta.dcc.clone())
                 });
+            seen.insert(meta.name.clone());
             out.push(CatalogAction {
                 action_name: meta.name,
                 skill_name,
@@ -442,6 +446,44 @@ impl SkillCatalogSource for CatalogSource {
                 loaded,
                 scope,
             });
+        }
+
+        // Discovered-but-unloaded skills: expose every tools.yaml declaration
+        // with its full input_schema so gateway `describe_tool` / POST
+        // `/v1/describe` work before `load_skill` (issue #992 class).
+        for summary in summaries {
+            if self.catalog.is_loaded(&summary.name) {
+                continue;
+            }
+            let Some(detail) = self.catalog.get_skill_info(&summary.name) else {
+                continue;
+            };
+            for tool_decl in &detail.tools {
+                let action_name = catalog_action_name(&detail.name, tool_decl);
+                if !seen.insert(action_name.clone()) {
+                    continue;
+                }
+                let description = if tool_decl.description.is_empty() {
+                    format!("[{}] {}", detail.name, detail.description)
+                } else {
+                    tool_decl.description.clone()
+                };
+                let input_schema = if tool_decl.input_schema.is_null() {
+                    serde_json::json!({"type": "object"})
+                } else {
+                    tool_decl.input_schema.clone()
+                };
+                out.push(CatalogAction {
+                    action_name,
+                    skill_name: detail.name.clone(),
+                    dcc: detail.dcc.clone(),
+                    description,
+                    tags: detail.tags.clone(),
+                    input_schema,
+                    loaded: false,
+                    scope: detail.scope.clone(),
+                });
+            }
         }
         out
     }
@@ -1175,6 +1217,72 @@ mod tests {
             })
             .unwrap();
         assert!(d.input_schema.is_none());
+    }
+
+    #[test]
+    fn catalog_source_lists_discovered_tools_with_input_schema() {
+        use dcc_mcp_actions::ToolRegistry;
+        use dcc_mcp_skills::SkillCatalog;
+        use std::sync::Arc;
+
+        let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let skill_dir = repo_root.join("examples/skills/multi-script");
+        if !skill_dir.is_dir() {
+            return;
+        }
+
+        let registry = Arc::new(ToolRegistry::new());
+        let catalog = Arc::new(SkillCatalog::new(registry));
+        let path = skill_dir.to_string_lossy().into_owned();
+        assert!(catalog.discover(Some(&[path]), Some("python")) > 0);
+        assert!(!catalog.is_loaded("multi-script"));
+
+        let catalog_src = Arc::new(CatalogSource::new(catalog.clone()));
+        let actions = catalog_src.list_actions();
+        let action = actions
+            .iter()
+            .find(|a| a.action_name == "multi_script__action_python")
+            .expect("discovered tool should be indexed before load_skill");
+        assert!(!action.loaded);
+        assert!(
+            action
+                .input_schema
+                .get("properties")
+                .and_then(|p| p.get("message"))
+                .is_some(),
+            "tools.yaml properties must survive on discovered tools"
+        );
+
+        let svc = SkillRestService::new(catalog_src, Arc::new(FakeInvoker::default()));
+        let slug = ToolSlug::build("python", "multi-script", "multi_script__action_python");
+        let hit = svc
+            .search(&SearchRequest {
+                query: Some("action_python".into()),
+                loaded_only: false,
+                ..Default::default()
+            })
+            .hits
+            .into_iter()
+            .find(|h| h.action == "multi_script__action_python")
+            .expect("search should surface discovered tool");
+        assert!(hit.has_schema);
+
+        let described = svc
+            .describe(&DescribeRequest {
+                tool_slug: slug,
+                include_schema: true,
+            })
+            .unwrap();
+        let schema = described.input_schema.expect("describe must return schema");
+        assert!(
+            schema
+                .get("properties")
+                .and_then(|p| p.get("message"))
+                .is_some()
+        );
     }
 
     #[test]
