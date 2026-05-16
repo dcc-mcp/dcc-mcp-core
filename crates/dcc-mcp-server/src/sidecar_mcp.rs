@@ -1,9 +1,9 @@
 //! Minimal MCP Streamable-HTTP listener inside the sidecar process.
 //!
-//! The gateway routes ``risk_class: high-crash`` ``tools/call``
-//! requests to a sidecar's MCP URL instead of the per-Maya in-process
-//! URL. Sidecar mode (RFC #998) only matters when the gateway has a
-//! reachable endpoint to send those calls to — that's this module.
+//! The gateway routes ``tools/call`` requests to a sidecar's MCP URL
+//! instead of the per-DCC in-process URL whenever the sidecar is the
+//! reachable endpoint for a given DCC instance (RFC #998 Phase 2).
+//! This module is the listener that fronts the dispatch path.
 //!
 //! ## Scope (intentionally minimal)
 //!
@@ -254,7 +254,7 @@ fn initialize_response(id: Value, server_version: &str) -> Value {
                 "name": SIDECAR_SERVER_NAME,
                 "version": server_version
             },
-            "instructions": "dcc-mcp-server sidecar — dispatches risk_class:high-crash actions to a single DCC via its native RPC channel. Discovery happens at the gateway."
+            "instructions": "dcc-mcp-server sidecar — dispatches tools/call to a single DCC instance via its native RPC channel. Discovery happens at the gateway."
         }
     })
 }
