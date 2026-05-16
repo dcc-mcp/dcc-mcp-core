@@ -458,6 +458,10 @@ pub fn entry_to_json(e: &ServiceEntry, stale_timeout: Duration) -> Value {
     };
     json!({
         "instance_id":     e.instance_id.to_string(),
+        // Derived `{dcc}@{version}-{short8}` (RFC #998 Addendum B).
+        // Agents reading gateway://instances see DCC + version + short
+        // ID inline without cross-referencing three separate fields.
+        "display_id":      e.display_id(),
         "dcc_type":        e.dcc_type,
         "host":            e.host,
         "port":            e.port,
