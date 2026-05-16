@@ -216,6 +216,38 @@ impl GatewayRunner {
         let own_adapter_version = self.config.adapter_version.clone();
         let own_adapter_dcc = self.config.adapter_dcc.clone();
 
+        // Prune dead FileRegistry entries BEFORE election so:
+        //
+        //   1. The win path writes its sentinel into a clean registry —
+        //      no zombie ``__gateway__`` row from a previously-crashed
+        //      gateway lingering alongside ours. Otherwise peers'
+        //      ``list_instances(__gateway__).next()`` could pick up the
+        //      ghost and run challenger logic against a phantom version.
+        //
+        //   2. The loss path's resident-sentinel lookup is honest: when
+        //      bind fails because the kernel still holds the port in
+        //      TIME_WAIT (Windows: up to 2 min after a gateway crash),
+        //      ``resident`` correctly reports "no live gateway" instead
+        //      of returning the dead one. Without this prune, peers
+        //      running the same crate version as the dead gateway would
+        //      stay as plain instances forever — never even spawning
+        //      the challenger loop that would eventually take over.
+        //
+        // The prune is cheap on a healthy registry (no rows to evict,
+        // no I/O). The flush only happens when at least one row is
+        // dropped. RFC #998 follow-up (2026-05-16).
+        let pruned = {
+            let reg = self.registry.read().await;
+            reg.prune_dead_entries().unwrap_or(0)
+        };
+        if pruned > 0 {
+            tracing::info!(
+                port = self.config.gateway_port,
+                pruned,
+                "Pruned dead FileRegistry entries before election"
+            );
+        }
+
         match try_bind_port_opt(&self.config.host, self.config.gateway_port).await {
             // ── We won the port ───────────────────────────────────────────
             Some(listener) => {
@@ -349,7 +381,34 @@ impl GatewayRunner {
                     gw_adapter_dcc.as_deref(),
                 );
 
-                if !gw_version.is_empty() && is_newer_election(own_info, gw_info) {
+                // Three cases reach this branch:
+                //   A. Resident exists AND we outrank it     -> challenger
+                //   B. Resident is gone (TIME_WAIT / race    -> challenger
+                //      with no live sentinel; the OS still
+                //      holds the address but no peer is the
+                //      authoritative owner)
+                //   C. Resident exists and same-or-stronger  -> plain
+                //
+                // (B) is the post-crash recovery case: the previous
+                // gateway died, ``prune_dead_entries`` cleared the stale
+                // sentinel, but the kernel still keeps the port in
+                // TIME_WAIT so our first bind attempt failed. Without
+                // spawning a challenger here, peers running the same
+                // crate version as the dead gateway would never poll
+                // for the port to free up — they would stay as plain
+                // instances forever, leaving 9765 dark until someone
+                // restarts a DCC. The challenger loop polls every 10 s
+                // (up to ``challenger_timeout_secs``) and wins the bind
+                // the moment TIME_WAIT releases (#893 follow-up).
+                let challenger_reason = if gw_version.is_empty() {
+                    "Bind failed but no resident sentinel (TIME_WAIT / race) — entering challenger mode"
+                } else if is_newer_election(own_info, gw_info) {
+                    "We outrank the current gateway — entering challenger mode"
+                } else {
+                    ""
+                };
+
+                if !challenger_reason.is_empty() {
                     tracing::info!(
                         own = %own_version,
                         own_adapter_version = ?own_adapter_version,
@@ -357,7 +416,8 @@ impl GatewayRunner {
                         gateway = %gw_version,
                         gateway_adapter_version = ?gw_adapter_version,
                         gateway_adapter_dcc = ?gw_adapter_dcc,
-                        "We outrank the current gateway — entering challenger mode"
+                        "{}",
+                        challenger_reason,
                     );
                     let challenger_abort = self.spawn_challenger_loop(&own_version, &gw_version);
                     // Return as non-gateway for now; challenger loop will promote us later.
