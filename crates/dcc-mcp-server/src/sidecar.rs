@@ -181,7 +181,7 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
     // the sidecar keeps running so PPID-watch / FileRegistry still
     // serve their purpose, and a future PR will add a reconnect loop
     // for transient DCC unavailability.
-    let mut host_rpc_client = match dcc_mcp_host_rpc::client_for_uri(&args.host_rpc) {
+    let host_rpc_client = match dcc_mcp_host_rpc::client_for_uri(&args.host_rpc) {
         Ok(client) => {
             let connect_timeout = Duration::from_secs(args.connect_timeout_secs);
             match client_connect(client, &args.host_rpc, connect_timeout).await {
@@ -212,6 +212,42 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
         }
     };
 
+    // Spin up the sidecar's own MCP HTTP listener so the gateway can
+    // POST `tools/call` requests to us. If HostRpcClient connect
+    // failed, we still start the listener — it returns structured
+    // `transport-error` envelopes per call, which is much friendlier
+    // than the gateway seeing a registered-but-unreachable backend.
+    let mcp_handle = match host_rpc_client {
+        Some(client) => {
+            let state = crate::sidecar_mcp::SidecarMcpState::new(client, env!("CARGO_PKG_VERSION"));
+            match crate::sidecar_mcp::spawn_listener(state, "127.0.0.1", 0).await {
+                Ok(handle) => {
+                    tracing::info!(
+                        mcp_url = %handle.mcp_url,
+                        "sidecar MCP listener up"
+                    );
+                    // Re-register the FileRegistry row so the gateway
+                    // discovery surface includes our actual URL.
+                    if let Err(err) = republish_mcp_url(&registry, &key, &handle) {
+                        tracing::warn!(
+                            error = %err,
+                            "FileRegistry republish with mcp_url failed; gateway will route via stub"
+                        );
+                    }
+                    Some(handle)
+                }
+                Err(err) => {
+                    tracing::error!(error = %err, "sidecar MCP listener bind failed");
+                    None
+                }
+            }
+        }
+        None => {
+            tracing::warn!("skipping sidecar MCP listener — no HostRpcClient to dispatch through");
+            None
+        }
+    };
+
     // PPID-watch lives on its own task; on parent-death it flips the
     // `exit_tx` watch channel.  Same channel is used by the ctrl-c branch
     // below, so both paths converge on the same deregister flow.
@@ -238,12 +274,15 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
 
     tracing::info!(reason = ?reason, "sidecar shutting down");
 
-    // Close the HostRpcClient before deregistering so the DCC sees a
-    // clean disconnect rather than a TCP reset from process exit.
-    if let Some(client) = host_rpc_client.as_ref() {
-        client.close().await;
+    // Stop the HTTP listener first so the gateway sees the URL
+    // disappear before we start tearing down the inner client. This
+    // ordering also closes the HostRpcClient inside the listener's
+    // state, so the DCC sees a clean disconnect.
+    if let Some(handle) = mcp_handle {
+        let state_close_url = handle.mcp_url.clone();
+        handle.shutdown().await;
+        tracing::info!(mcp_url = %state_close_url, "sidecar MCP listener stopped");
     }
-    host_rpc_client.take();
 
     // Deregister is best-effort: a failure here would only leak a row that
     // will be reaped by the next stale-cleanup sweep, so we log and move on.
@@ -251,6 +290,33 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
         tracing::warn!(error = %err, "FileRegistry deregister failed");
     }
 
+    Ok(())
+}
+
+/// Re-write the FileRegistry row with the live MCP URL once the
+/// listener is bound. The original `register()` call happens before
+/// the listener exists so the row carries a placeholder
+/// `127.0.0.1:0` until this step runs — gateway discovery treats a
+/// zero port as "registered but not yet routable" and avoids
+/// dispatching to us during the brief startup window.
+fn republish_mcp_url(
+    registry: &Arc<FileRegistry>,
+    key: &dcc_mcp_transport::discovery::types::ServiceKey,
+    handle: &crate::sidecar_mcp::SidecarMcpListenerHandle,
+) -> anyhow::Result<()> {
+    let Some(mut entry) = registry.get(key) else {
+        anyhow::bail!("registry row vanished before mcp_url republish")
+    };
+    entry.host = handle.bind_addr.ip().to_string();
+    entry.port = handle.bind_addr.port();
+    entry
+        .metadata
+        .insert("mcp_url".to_string(), handle.mcp_url.clone());
+    // Deregister + register is atomic enough for our needs — the
+    // FileRegistry only flushes after register() returns, so the
+    // on-disk snapshot transitions in one step.
+    registry.deregister(key)?;
+    registry.register(entry)?;
     Ok(())
 }
 
