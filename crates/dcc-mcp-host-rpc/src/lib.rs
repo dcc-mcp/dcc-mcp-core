@@ -29,10 +29,9 @@
 //!
 //! # Phase 2 status
 //!
-//! This crate is **schema-only** in the same sense as PR #1004
-//! (`risk_class` enum): the trait is defined, the error envelope is
-//! defined, and tests round-trip both. **No real `HostRpcClient` impl
-//! ships in this PR** — those land in:
+//! This crate landed initially as a **schema-only** scaffold: the trait
+//! is defined, the error envelope is defined, and tests round-trip
+//! both. Concrete impls land in:
 //!
 //! * `dcc-mcp-maya` — `MayaHostRpcClient` over `commandport://`
 //! * `dcc-mcp-blender` — `BlenderHostRpcClient` over `http://` (addon
