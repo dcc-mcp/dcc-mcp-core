@@ -95,6 +95,7 @@ use dcc_mcp_skills::constants::{
 };
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 use sysinfo::{Pid, ProcessesToUpdate, System};
+mod sidecar;
 mod translate;
 
 // #region agent log
@@ -137,6 +138,12 @@ enum SubCmd {
         #[command(subcommand)]
         action: CatalogAction,
     },
+    /// Out-of-process worker for crash-isolated DCC actions (RFC #998).
+    ///
+    /// Spawned by a DCC plugin/addon (`dcc-mcp-maya`, `dcc-mcp-blender`, …)
+    /// and supervised via `--watch-pid`.  Exits cleanly when its parent
+    /// DCC dies so we never leak stale workers.
+    Sidecar(sidecar::SidecarArgs),
 }
 
 /// DCC-MCP server with integrated auto-gateway.
@@ -585,6 +592,7 @@ async fn main() -> anyhow::Result<()> {
     match args.command {
         Some(SubCmd::Translate(translate_args)) => return translate::run(translate_args).await,
         Some(SubCmd::Catalog { action }) => return run_catalog_cmd(&action),
+        Some(SubCmd::Sidecar(sidecar_args)) => return sidecar::run(sidecar_args).await,
         None => {}
     }
 

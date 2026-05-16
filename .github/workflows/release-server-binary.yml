@@ -1,0 +1,156 @@
+name: Release dcc-mcp-server binary wheel
+
+# Builds the standalone `dcc-mcp-server` binary as a platform-specific PyPI
+# wheel (modelled on ruff / uv). Independent from the main `dcc-mcp-core`
+# release cycle so the binary can iterate without dragging the PyO3 lib.
+#
+# Triggers:
+#   - tags matching `dcc-mcp-server-v*` → build + upload to PyPI
+#   - manual workflow_dispatch          → build only (no upload), for smoke
+#                                         testing the matrix locally
+#
+# Status: blueprint — kept gated behind a tag pattern that does not yet
+# exist on the repo, so this workflow is INERT until someone cuts a
+# `dcc-mcp-server-v0.17.0` tag.  See issue #1002.
+
+on:
+  push:
+    tags:
+      - "dcc-mcp-server-v*"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Upload to PyPI (true) or dry-run build only (false)"
+        required: true
+        default: "false"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build-wheels:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            wheel-platform: manylinux_2_28_x86_64
+
+          # Linux aarch64 (cross-compiled via maturin's docker integration)
+          - os: ubuntu-22.04
+            target: aarch64-unknown-linux-gnu
+            wheel-platform: manylinux_2_28_aarch64
+
+          # Windows x86_64
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+            wheel-platform: win_amd64
+
+          # Windows arm64
+          - os: windows-2022
+            target: aarch64-pc-windows-msvc
+            wheel-platform: win_arm64
+
+          # macOS x86_64
+          - os: macos-13
+            target: x86_64-apple-darwin
+            wheel-platform: macosx_11_0_x86_64
+
+          # macOS arm64
+          - os: macos-14
+            target: aarch64-apple-darwin
+            wheel-platform: macosx_11_0_arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build wheel (maturin)
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: pkg/dcc-mcp-server-bin
+          target: ${{ matrix.target }}
+          # `--strip` is already configured in pyproject.toml; this just
+          # forwards the release profile + sets manylinux for Linux jobs.
+          args: --release --out dist
+          manylinux: auto
+
+      - name: Smoke-test the wheel
+        if: matrix.target == 'x86_64-unknown-linux-gnu' || startsWith(matrix.os, 'windows') || startsWith(matrix.os, 'macos')
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pkg/dcc-mcp-server-bin/dist/*.whl
+          dcc-mcp-server --version
+          dcc-mcp-server sidecar --help
+          python -c "from dcc_mcp_server import binary_path; print(binary_path())"
+
+      - name: Upload artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.wheel-platform }}
+          path: pkg/dcc-mcp-server-bin/dist/*.whl
+
+  build-sdist:
+    name: Build sdist
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: pkg/dcc-mcp-server-bin
+          command: sdist
+          args: --out dist
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: pkg/dcc-mcp-server-bin/dist/*.tar.gz
+
+  publish:
+    name: Publish to PyPI
+    needs: [build-wheels, build-sdist]
+    runs-on: ubuntu-22.04
+    # Only auto-publish on tag push; workflow_dispatch with publish=true
+    # also opts in explicitly.
+    if: startsWith(github.ref, 'refs/tags/dcc-mcp-server-v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
+    environment:
+      name: pypi
+      url: https://pypi.org/p/dcc-mcp-server
+    permissions:
+      # Trusted publishing — no API token in repo secrets, configure PyPI
+      # to trust this workflow under
+      # https://pypi.org/manage/account/publishing/
+      id-token: write
+    steps:
+      - name: Download all artefacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          # Fail loudly if a wheel matrix entry is missing from the bundle
+          skip-existing: false
