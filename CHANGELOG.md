@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.2](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.1...v0.17.2) (2026-05-16)
+
+
+### Features
+
+* **commandport:** dynamic Python-module bootstrap on connect (RFC [#998](https://github.com/loonghao/dcc-mcp-core/issues/998)) ([#1008](https://github.com/loonghao/dcc-mcp-core/issues/1008)) ([8bfcca3](https://github.com/loonghao/dcc-mcp-core/commit/8bfcca3018fb6cfca2369a69a7562bca109783f2))
+* **gateway:** progressive list_skills and instance-offline provenance ([88b6b5f](https://github.com/loonghao/dcc-mcp-core/commit/88b6b5fd6d7f88f6abaf1a85f35342f4b3defb8f))
+* **host-rpc:** CommandPortClient + URI scheme registry, sidecar wires HostRpcClient on startup (RFC [#998](https://github.com/loonghao/dcc-mcp-core/issues/998) Phase 2) ([30411c6](https://github.com/loonghao/dcc-mcp-core/commit/30411c6b181b4c596b6b80cb0b34e80308f9f186))
+* **host-rpc:** qtserver:// scheme + universal dcc_qt_dispatcher (RFC [#998](https://github.com/loonghao/dcc-mcp-core/issues/998)) ([a930e23](https://github.com/loonghao/dcc-mcp-core/commit/a930e236c574e4df51842f9c7316085176f13848))
+* **sidecar:** MCP HTTP listener inside the sidecar process (RFC [#998](https://github.com/loonghao/dcc-mcp-core/issues/998) Phase 2, closes the dispatch loop) ([#1010](https://github.com/loonghao/dcc-mcp-core/issues/1010)) ([ff3dd84](https://github.com/loonghao/dcc-mcp-core/commit/ff3dd848de89d69654e4f82bb0ef5e4d8d91e489))
+* **transport:** ServiceEntry::display_id() + expose on gateway://instances (RFC [#998](https://github.com/loonghao/dcc-mcp-core/issues/998)) ([2616546](https://github.com/loonghao/dcc-mcp-core/commit/2616546d868d5f49076ad59ca2d568f54a08b1d6))
+
+
+### Bug Fixes
+
+* **gateway:** cap initialize latency and log slow MCP dispatch ([#1009](https://github.com/loonghao/dcc-mcp-core/issues/1009)) ([40d8d88](https://github.com/loonghao/dcc-mcp-core/commit/40d8d889ec8b736a56d3745a8bc1ce386ce94ab5))
+* **gateway:** consolidate MCP meta-tools to 6 verbs and preserve describe schemas ([e7e3c7e](https://github.com/loonghao/dcc-mcp-core/commit/e7e3c7ec5f36a174a6eeb8d24ff13fd32197d649))
+* **gateway:** make failover work after a gateway crashes (TIME_WAIT recovery) ([1226ce3](https://github.com/loonghao/dcc-mcp-core/commit/1226ce391c962ec4f8c1319cfb126d4d83d540b7))
+* **gateway:** sweep stale __gateway__ sentinels on every win (rotation pollution) ([e52ba8f](https://github.com/loonghao/dcc-mcp-core/commit/e52ba8f3624abd50db0223c99ec4f1ae8ce75b22))
+* **inprocess:** plumb timeout_hint_secs into dispatcher timeout_ms ([ed9f52e](https://github.com/loonghao/dcc-mcp-core/commit/ed9f52e7f4a3de9c23d787119808a8c8f63c7672))
+* **sidecar:** align `default_registry_dir` with `GatewayRunner::new` ([ed49194](https://github.com/loonghao/dcc-mcp-core/commit/ed49194648be51c2d98f74994060e5dae407b60c))
+
 ## [Unreleased]
 
 ## [0.17.1](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.0...v0.17.1) (2026-05-16)
