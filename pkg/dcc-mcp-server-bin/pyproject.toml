@@ -1,0 +1,67 @@
+# Binary-only PyPI distribution for the `dcc-mcp-server` Rust crate.
+#
+# Modelled on ruff / uv / pyright: a platform-specific wheel that bundles the
+# compiled binary into `<dist>/bin/dcc-mcp-server[.exe]`, which `pip install`
+# automatically places on PATH.
+#
+# The Rust source is NOT duplicated here — `[tool.maturin] manifest-path`
+# points back at the existing workspace crate.
+
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "dcc-mcp-server"
+version = "0.17.0"  # x-release-please-version
+description = "Standalone dcc-mcp-server CLI binary — gateway, sidecar, stdio bridge (Rust)"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+keywords = ["dcc", "mcp", "gateway", "sidecar", "maya", "blender", "houdini"]
+authors = [
+    {name = "Hal Long", email = "hal.long@outlook.com"},
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
+    "Programming Language :: Rust",
+    "Topic :: Software Development",
+    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+    "Topic :: System :: Networking",
+]
+# Pure-binary distribution: the wheel ships the compiled CLI binary and a
+# 5-line Python locator helper. No runtime Python deps because the binary
+# is self-contained.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["maturin>=1.5"]
+
+[project.urls]
+Homepage = "https://github.com/loonghao/dcc-mcp-core"
+Repository = "https://github.com/loonghao/dcc-mcp-core"
+Issues = "https://github.com/loonghao/dcc-mcp-core/issues"
+
+# ── maturin ──────────────────────────────────────────────────────────────────
+[tool.maturin]
+# Package the binary, not a Python extension module.  This makes maturin
+# put `dcc-mcp-server[.exe]` into the wheel's data/scripts/ location so
+# pip drops it onto PATH automatically.
+bindings = "bin"
+
+# Point maturin at the existing workspace crate so the Rust source is not
+# duplicated under pkg/.
+manifest-path = "../../crates/dcc-mcp-server/Cargo.toml"
+
+# A small Python wrapper exposes `from dcc_mcp_server import binary_path`
+# so DCC plugins can spawn the binary via subprocess without needing to
+# locate it on PATH themselves.
+python-source = "python"
+module-name = "dcc_mcp_server"
+
+# strip debug symbols to keep wheels small
+strip = true
