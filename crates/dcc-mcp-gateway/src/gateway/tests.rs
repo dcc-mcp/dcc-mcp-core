@@ -438,3 +438,140 @@ async fn test_gateway_winner_drop_deregisters_instance_and_sentinel() {
         assert!(reg.get(&instance_key).is_none());
     }
 }
+
+// ── Regression tests for issue #998 follow-up (2026-05-16) ────────────
+//
+// Maya gateway crashes leave a stale ``__gateway__`` sentinel in the
+// FileRegistry. When peers fail to bind the port (TIME_WAIT) the
+// election used to read the dead sentinel, decide "same-or-stronger",
+// and stay as plain instances forever — even after TIME_WAIT cleared.
+// The fix prunes dead entries before reading the sentinel.
+
+/// Inject a ghost ``__gateway__`` sentinel into the registry directory
+/// the way an external (now-dead) process would have left it. We bypass
+/// ``FileRegistry::register`` deliberately: ``register`` would attach a
+/// sentinel file owned by the current process, and ``sentinel_is_dead``
+/// short-circuits on locally-held sentinels (returns ``false`` even
+/// when the PID lookup says otherwise). Writing ``services.json``
+/// directly with ``sentinel_path = None`` and a dead PID falls through
+/// to the ``is_pid_alive`` check, which is the path real cross-process
+/// ghost rows take after a gateway crash.
+fn write_dead_sentinel(
+    registry_dir: &std::path::Path,
+    host: &str,
+    port: u16,
+    version: &str,
+) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let mut entry = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, host, port);
+    entry.version = Some(version.to_string());
+    // ``u32::MAX`` is guaranteed unused on every platform we ship —
+    // ``sysinfo``'s ``System::process(...)`` will report ``None``,
+    // ``is_pid_alive`` will return ``false``, and ``prune_dead_entries``
+    // will sweep the row.
+    entry.pid = Some(u32::MAX);
+    entry.sentinel_path = None; // Force the PID path in sentinel_is_dead.
+
+    // services.json schema: a JSON array of ServiceEntry rows at the
+    // top level (see ``FileRegistry::reload_from_file``).
+    let path = registry_dir.join("services.json");
+    let mut f = std::fs::File::create(&path)?;
+    f.write_all(
+        serde_json::to_string_pretty(&vec![entry])
+            .unwrap()
+            .as_bytes(),
+    )?;
+    f.sync_all()?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_run_election_prunes_dead_gateway_sentinel_before_resident_lookup() {
+    // Set-up: a stale __gateway__ sentinel pointing at our test port,
+    // owned by a non-existent PID, written directly to services.json
+    // the way an external dead gateway would have left it. The port is
+    // NOT bound by anyone, so ``try_bind_port_opt`` will succeed — the
+    // assertion is that the ghost row is gone afterwards regardless of
+    // which branch ``run_election`` takes.
+    let dir = tempfile::tempdir().unwrap();
+    let gw_port = ephemeral_port();
+    write_dead_sentinel(dir.path(), "127.0.0.1", gw_port, "0.99.99").unwrap();
+
+    let runner = make_runner_in(dir.path(), gw_port);
+
+    let outcome = runner.run_election().await.unwrap();
+
+    // After election: the ghost sentinel MUST be gone. The win branch
+    // would have written its own sentinel beside it without pruning;
+    // the loss branch's resident lookup would have returned the ghost
+    // and refused to challenge. Either way, "0.99.99" must not survive.
+    let reg = runner.registry.read().await;
+    let surviving: Vec<_> = reg.list_instances(GATEWAY_SENTINEL_DCC_TYPE);
+    assert!(
+        surviving
+            .iter()
+            .all(|e| e.version.as_deref() != Some("0.99.99")),
+        "ghost sentinel from dead PID u32::MAX must have been pruned, \
+         survivors: {:?}",
+        surviving
+            .iter()
+            .map(|e| e.version.as_deref().unwrap_or("None"))
+            .collect::<Vec<_>>()
+    );
+    if outcome.is_gateway {
+        assert_eq!(
+            surviving.len(),
+            1,
+            "winner must have left exactly one sentinel (its own)"
+        );
+    }
+
+    // Clean up the abort handles so the test exits cleanly.
+    if let Some(abort) = outcome.gateway_abort {
+        abort.abort();
+    }
+    if let Some(abort) = outcome.challenger_abort {
+        abort.abort();
+    }
+}
+
+#[tokio::test]
+async fn test_run_election_spawns_challenger_when_bind_fails_with_no_resident() {
+    // The TIME_WAIT recovery case: bind fails AND after pruning there
+    // is no resident sentinel (the dead gateway's sentinel was just
+    // dropped because its PID isn't alive). The old code would fall
+    // into the "same-or-stronger" branch and return as a plain
+    // instance — leaving 9765 dark forever. The fix spawns the
+    // challenger loop so we keep polling for the port to free up.
+    let dir = tempfile::tempdir().unwrap();
+    let gw_port = ephemeral_port();
+
+    // Simulate the kernel holding the port (TIME_WAIT or active LISTEN
+    // we don't own) by occupying it with a sibling listener.
+    let occupier = std::net::TcpListener::bind(("127.0.0.1", gw_port)).unwrap();
+
+    // Plant a ghost sentinel from a "previous gateway crash" that the
+    // election must prune. After pruning there must be no resident.
+    write_dead_sentinel(dir.path(), "127.0.0.1", gw_port, "0.1.0").unwrap();
+
+    let runner = make_runner_in(dir.path(), gw_port);
+
+    let outcome = runner.run_election().await.unwrap();
+
+    assert!(
+        !outcome.is_gateway,
+        "port is held by `occupier` — must not win"
+    );
+    assert!(
+        outcome.challenger_abort.is_some(),
+        "bind failed + no resident-after-prune must spawn the challenger loop \
+         (regression for #998 follow-up: previously stayed as plain instance forever)"
+    );
+
+    // Cleanup so the challenger task does not outlive the test.
+    if let Some(abort) = outcome.challenger_abort {
+        abort.abort();
+    }
+    drop(occupier);
+}
