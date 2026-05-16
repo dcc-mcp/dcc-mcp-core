@@ -303,10 +303,20 @@ impl Scorer for FuzzyScorer {
             }
             score += best_schema;
 
-            // Issue #994: demote meta-tools so domain actions rank higher.
+            // Issue #994: meta-tools are excluded from results unless the
+            // query directly targets the tool by name. This prevents verbose
+            // meta-tool descriptions from leaking into the top-N for domain
+            // queries. A "direct target" means `token_match_score` on the
+            // backend_tool name returned a non-zero value.
             if score > 0 && is_meta_tool(r.backend_tool()) {
+                let tool_name_score = token_match_score(q, r.backend_tool(), 18, 12, 8);
+                if tool_name_score == 0 {
+                    // Query doesn't reference the meta-tool's name at all —
+                    // all score came from description/tag token noise. Drop it.
+                    return 0;
+                }
+                // Query does reference the tool name — keep it but demoted.
                 score /= META_TOOL_DIVISOR;
-                // Ensure meta-tools still score > 0 so they remain discoverable.
                 if score == 0 {
                     score = 1;
                 }
@@ -329,10 +339,18 @@ impl Scorer for FuzzyScorer {
 /// Meta-tools are gateway / infrastructure actions whose verbose
 /// descriptions tend to out-rank domain-specific DCC tools in fuzzy
 /// search. Issue #994: demote these so domain actions surface first.
+///
+/// Only targets **known gateway-level meta-tools** — not arbitrary
+/// DCC actions that happen to share a prefix (e.g. `project.save` in
+/// a maya-scene skill is NOT a meta-tool).
 fn is_meta_tool(backend_tool: &str) -> bool {
     let lower = backend_tool.to_ascii_lowercase();
-    // project.* meta-tools (project.resume, project.checkpoint, etc.)
-    if lower.starts_with("project.") || lower.starts_with("project__") {
+    // Specific known project meta-tools (NOT `project.save`, `project.open`, etc.)
+    if lower == "project.resume"
+        || lower == "project.checkpoint"
+        || lower == "project__resume"
+        || lower == "project__checkpoint"
+    {
         return true;
     }
     // recipes__* batch automation tools
@@ -697,6 +715,7 @@ mod tests {
         assert!(super::is_meta_tool("project.resume"));
         assert!(super::is_meta_tool("project.checkpoint"));
         assert!(super::is_meta_tool("project__resume"));
+        assert!(super::is_meta_tool("project__checkpoint"));
         assert!(super::is_meta_tool("recipes__list"));
         assert!(super::is_meta_tool("recipes.validate"));
         assert!(super::is_meta_tool("diagnostics__screenshot"));
@@ -709,6 +728,9 @@ mod tests {
             "maya_light_rig__create_three_point_rig"
         ));
         assert!(!super::is_meta_tool("create_sphere"));
+        // DCC actions that happen to start with "project." are NOT meta.
+        assert!(!super::is_meta_tool("project.save"));
+        assert!(!super::is_meta_tool("project.open"));
     }
 
     #[test]
