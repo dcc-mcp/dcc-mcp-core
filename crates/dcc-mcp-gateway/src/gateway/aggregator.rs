@@ -41,7 +41,7 @@ pub use prompts::{
 };
 pub use resources::aggregate_resources_list;
 pub(crate) use resources::compute_resources_fingerprint_with_own;
-pub(crate) use skill_mgmt::{skill_management_tool_defs, skill_mgmt_dispatch};
+pub(crate) use skill_mgmt::skill_mgmt_dispatch;
 
 use std::time::Duration;
 
@@ -53,8 +53,9 @@ use super::backend_client::{call_backend, fetch_tools};
 use super::namespace::instance_short;
 use super::state::GatewayState;
 use super::tools::{
-    gateway_tool_defs, tool_acquire_instance, tool_call_tool, tool_call_tools, tool_describe_tool,
-    tool_release_instance, tool_search_tools,
+    gateway_tool_defs, tool_acquire_instance, tool_call, tool_call_tool, tool_call_tools,
+    tool_describe, tool_describe_tool, tool_lease, tool_load_skill, tool_release_instance,
+    tool_search, tool_search_tools,
 };
 use dcc_mcp_jsonrpc::{TOOLS_LIST_PAGE_SIZE, decode_cursor, encode_cursor};
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};

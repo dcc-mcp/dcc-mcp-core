@@ -19,11 +19,21 @@ pub async fn route_tools_call(
     _request_id: Option<String>,
     _client_session_id: Option<&str>,
 ) -> (String, bool) {
-    // ── Local meta-tools ────────────────────────────────────────────────
+    // ── Consolidated gateway surface (6 tools) ───────────────────────
+    match tool {
+        "lease" => return to_text_result(tool_lease(gs, args).await),
+        "search" => return to_text_result(tool_search(gs, args).await),
+        "describe" => return to_text_result(tool_describe(gs, args).await),
+        "call" => return tool_call(gs, args, meta).await,
+        "load_skill" => return tool_load_skill(gs, args).await,
+        "unload_skill" => return skill_mgmt_dispatch(gs, "unload_skill", args).await,
+        _ => {}
+    }
+
+    // ── Legacy aliases (hidden from tools/list; keeps old clients working) ─
     match tool {
         "acquire_dcc_instance" => return to_text_result(tool_acquire_instance(gs, args).await),
         "release_dcc_instance" => return to_text_result(tool_release_instance(gs, args).await),
-        // ── #655 dynamic-capability MCP wrappers ────────────────────
         "search_tools" => return to_text_result(tool_search_tools(gs, args).await),
         "describe_tool" => return to_text_result(tool_describe_tool(gs, args).await),
         "call_tool" => return tool_call_tool(gs, args, meta).await,
@@ -31,14 +41,11 @@ pub async fn route_tools_call(
         _ => {}
     }
 
-    // ── Skill-management tools ──────────────────────────────────────────
     if matches!(
         tool,
         "list_skills"
             | "search_skills"
             | "get_skill_info"
-            | "load_skill"
-            | "unload_skill"
             | "activate_tool_group"
             | "deactivate_tool_group"
     ) {
@@ -51,13 +58,11 @@ pub async fn route_tools_call(
     // redirect the caller to the dynamic-capability wrappers that own
     // that namespace.
     let hint = format!(
-        "Unknown gateway tool '{tool}'. The gateway MCP surface is intentionally \
-         minimal — it only exposes discovery + dispatch primitives. Use \
-         `search_tools` to find backend capabilities, `describe_tool` to get a \
-         schema, and `call_tool` (or `call_tools` for ordered batches) to invoke \
-         by slug. For direct HTTP: each per-DCC server exposes `POST /v1/call` and \
-         `POST /v1/dcc/{{dcc_type}}/call`; the gateway adds `POST /v1/dcc/{{dcc_type}}/instances/{{instance_id}}/call` \
-         plus `POST /v1/call_batch`."
+        "Unknown gateway tool '{tool}'. The gateway MCP surface exposes six tools: \
+         `search` (tools and/or skills), `describe` (tool schema or skill detail), \
+         `call` (single slug or ordered `calls` batch), `load_skill` / `unload_skill`, \
+         and `lease` (acquire/release instance pooling). Use `search` → `describe` → \
+         `call`; put backend parameters inside `call.arguments` (e.g. export_fbx uses `path`)."
     );
     (hint, true)
 }

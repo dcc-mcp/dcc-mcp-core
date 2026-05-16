@@ -1,3 +1,4 @@
+use super::skill_mgmt::skill_management_tool_defs;
 use super::*;
 
 #[test]
@@ -177,24 +178,25 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
         !names.contains(&"create_sphere"),
         "bare backend tool name must not appear on the gateway surface: {names:?}"
     );
-    // Positive assertion: the primitives we DO expect must all be there.
+    // Positive assertion: consolidated gateway MCP surface (RFC #998).
     for expected in [
-        "acquire_dcc_instance",
-        "release_dcc_instance",
-        "search_tools",
-        "describe_tool",
-        "call_tool",
-        "call_tools",
-        "search_skills",
+        "search",
+        "describe",
+        "call",
+        "lease",
         "load_skill",
-        "activate_tool_group",
-        "deactivate_tool_group",
+        "unload_skill",
     ] {
         assert!(
             names.contains(&expected),
             "missing core gateway tool {expected} in: {names:?}",
         );
     }
+    assert_eq!(
+        names.len(),
+        6,
+        "gateway tools/list must expose exactly the six consolidated tools: {names:?}"
+    );
 
     let _ = shutdown_tx.send(());
     server.await.unwrap();
