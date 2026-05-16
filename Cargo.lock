@@ -887,6 +887,7 @@ dependencies = [
  "dcc-mcp-jsonrpc",
  "dcc-mcp-naming",
  "dcc-mcp-skill-rest",
+ "dcc-mcp-skills",
  "dcc-mcp-telemetry",
  "dcc-mcp-transport",
  "futures",

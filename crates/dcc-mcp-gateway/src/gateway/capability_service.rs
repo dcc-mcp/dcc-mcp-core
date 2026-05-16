@@ -44,6 +44,13 @@ pub struct ServiceError {
     /// Candidate slugs for `ambiguous` errors, empty otherwise.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub candidates: Vec<CapabilityRecord>,
+    /// Why a prior instance is no longer routable (`deregistered`,
+    /// `heartbeat-timeout`, `never-registered`) — issue #996.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_status: Option<String>,
+    /// Last known instance UUID when `kind = instance-offline`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_instance_id: Option<String>,
 }
 
 impl ServiceError {
@@ -53,12 +60,25 @@ impl ServiceError {
             kind: kind.into(),
             message: message.into(),
             candidates: Vec::new(),
+            previous_status: None,
+            previous_instance_id: None,
         }
     }
 
     /// Attach disambiguation candidates (for `kind = "ambiguous"`).
     pub fn with_candidates(mut self, candidates: Vec<CapabilityRecord>) -> Self {
         self.candidates = candidates;
+        self
+    }
+
+    /// Attach instance lifecycle provenance (issue #996).
+    pub fn with_instance_provenance(
+        mut self,
+        previous_status: impl Into<String>,
+        previous_instance_id: Option<Uuid>,
+    ) -> Self {
+        self.previous_status = Some(previous_status.into());
+        self.previous_instance_id = previous_instance_id.map(|id| id.to_string());
         self
     }
 }
@@ -92,9 +112,10 @@ pub fn describe_service(
         .collect();
     match matches.as_slice() {
         [] => Err(ServiceError::new(
-            "unknown-slug",
+            "instance-offline",
             format!("no capability registered with slug {slug:?}"),
-        )),
+        )
+        .with_instance_provenance("never-registered", parse_instance_uuid(instance_hint))),
         [one] => Ok((*one).clone()),
         many => {
             let candidates: Vec<CapabilityRecord> = many.iter().map(|r| (*r).clone()).collect();
@@ -149,7 +170,8 @@ pub async fn describe_tool_full(
                 "instance {} ({}) is no longer live; refresh and retry",
                 record.instance_id, record.dcc_type,
             ),
-        ));
+        )
+        .with_instance_provenance("deregistered", Some(record.instance_id)));
     };
     let url = format!("http://{}:{}/mcp", entry.host, entry.port);
     drop(reg);
@@ -196,7 +218,8 @@ pub async fn call_service(
                 "instance {} ({}) is no longer live; refresh and retry",
                 record.instance_id, record.dcc_type,
             ),
-        ));
+        )
+        .with_instance_provenance("deregistered", Some(record.instance_id)));
     };
     let url = format!("http://{}:{}/mcp", entry.host, entry.port);
 
@@ -290,8 +313,14 @@ pub fn service_error_to_json(err: &ServiceError) -> Value {
             "kind": err.kind,
             "message": err.message,
             "candidates": err.candidates,
+            "previous_status": err.previous_status,
+            "previous_instance_id": err.previous_instance_id,
         }
     })
+}
+
+fn parse_instance_uuid(instance_hint: &str) -> Option<Uuid> {
+    Uuid::parse_str(instance_hint).ok()
 }
 
 #[cfg(test)]
@@ -355,7 +384,8 @@ mod unit_tests {
         let idx = CapabilityIndex::new();
         // Shape is valid but nothing is indexed.
         let err = describe_service(&idx, "maya.abcdef01.create_sphere").unwrap_err();
-        assert_eq!(err.kind, "unknown-slug");
+        assert_eq!(err.kind, "instance-offline");
+        assert_eq!(err.previous_status.as_deref(), Some("never-registered"));
     }
 
     #[test]
