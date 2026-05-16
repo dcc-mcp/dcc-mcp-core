@@ -20,34 +20,42 @@ pub use dcc_mcp_gateway_core::naming::ID_PREFIX_LEN;
 /// (`search_tools`, `describe_tool`, `call_tool`). The dispatch
 /// handler short-circuits on these names so the fan-out path can
 /// stay free of carve-outs.
+/// Minimal gateway MCP surface (RFC #998 follow-up — consolidated meta-tools).
+///
+/// Replaces the previous 13-tool split (`search_tools` + `search_skills` +
+/// `call_tool` + `call_tools` + pooling + group helpers, …). Agents discover
+/// backend work through [`search`] → [`describe`] → [`call`]; skill lifecycle
+/// uses [`load_skill`] / [`unload_skill`]; multi-instance pooling uses [`lease`].
 pub const GATEWAY_LOCAL_TOOLS: &[&str] = &[
-    "acquire_dcc_instance",
-    "release_dcc_instance",
-    "list_skills",
-    "search_skills",
-    "get_skill_info",
+    "lease",
+    "search",
+    "describe",
+    "call",
     "load_skill",
     "unload_skill",
-    // #655 dynamic-capability wrappers (shared service with the REST
-    // API). Registered as local so the fan-out path never tries to
-    // forward them to a backend — the wrappers route through the
-    // gateway's capability index instead.
-    "search_tools",
-    "describe_tool",
-    "call_tool",
-    "call_tools",
 ];
 
 /// Core per-DCC tools that keep bare names (no skill prefix).
 pub const CORE_TOOL_NAMES: &[&str] = &[
-    "list_skills",
-    "get_skill_info",
+    // Consolidated gateway surface (also in GATEWAY_LOCAL_TOOLS).
+    "search",
+    "describe",
+    "call",
+    "lease",
     "load_skill",
     "unload_skill",
+    // Legacy per-DCC / gateway aliases still echoed by some backends.
+    "list_skills",
+    "get_skill_info",
     "search_skills",
     "activate_tool_group",
     "deactivate_tool_group",
     "search_tools",
+    "describe_tool",
+    "call_tool",
+    "call_tools",
+    "acquire_dcc_instance",
+    "release_dcc_instance",
 ];
 
 /// SEP-986 gateway instance separator for dotted slugs (REST / capability
