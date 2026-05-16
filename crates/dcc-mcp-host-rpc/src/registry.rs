@@ -5,7 +5,8 @@
 //! impl and dispatching on the URI scheme:
 //!
 //! ```text
-//! commandport://127.0.0.1:6042  → CommandPortClient   (Maya)
+//! qtserver://127.0.0.1:18765    → QtServerClient      (Maya, Houdini, 3ds Max, Nuke, …)
+//! commandport://127.0.0.1:6042  → CommandPortClient   (Maya — legacy / bootstrap only)
 //! stub://anything               → StubHostRpcClient   (tests / placeholder)
 //! ```
 //!
@@ -19,6 +20,7 @@
 //! binary so the caller can pass a `--connect-timeout-secs` flag.
 
 use crate::commandport::{CommandPortClient, URI_SCHEME as COMMANDPORT_SCHEME};
+use crate::qtserver::{QtServerClient, URI_SCHEME as QTSERVER_SCHEME};
 use crate::{HostRpcClient, HostRpcError, StubHostRpcClient};
 
 /// URI scheme reserved for the placeholder client. Pinned as a const
@@ -40,6 +42,7 @@ pub const STUB_SCHEME: &str = "stub";
 pub fn client_for_uri(endpoint: &str) -> Result<Box<dyn HostRpcClient>, HostRpcError> {
     let scheme = parse_scheme(endpoint)?;
     match scheme.as_str() {
+        QTSERVER_SCHEME => Ok(Box::new(QtServerClient::new())),
         COMMANDPORT_SCHEME => Ok(Box::new(CommandPortClient::new())),
         STUB_SCHEME => Ok(Box::new(StubHostRpcClient::new())),
         other => Err(HostRpcError::transport(format!(
@@ -56,7 +59,7 @@ pub fn client_for_uri(endpoint: &str) -> Result<Box<dyn HostRpcClient>, HostRpcE
 /// can enumerate them without duplicating the list.
 #[must_use]
 pub fn registered_schemes() -> Vec<&'static str> {
-    vec![COMMANDPORT_SCHEME, STUB_SCHEME]
+    vec![QTSERVER_SCHEME, COMMANDPORT_SCHEME, STUB_SCHEME]
 }
 
 /// Lowercase scheme component of a `<scheme>://<rest>` URI.
@@ -83,6 +86,8 @@ mod tests {
     fn parse_scheme_lowercases_and_strips() {
         assert_eq!(parse_scheme("commandport://x:1").unwrap(), "commandport");
         assert_eq!(parse_scheme("CommandPort://x:1").unwrap(), "commandport");
+        assert_eq!(parse_scheme("qtserver://x:1").unwrap(), "qtserver");
+        assert_eq!(parse_scheme("QtServer://x:1").unwrap(), "qtserver");
         assert_eq!(parse_scheme("STUB://anything").unwrap(), "stub");
     }
 
@@ -102,6 +107,12 @@ mod tests {
     fn client_for_uri_dispatches_commandport() {
         let client = client_for_uri("commandport://127.0.0.1:6042").unwrap();
         assert_eq!(client.uri_scheme(), "commandport");
+    }
+
+    #[test]
+    fn client_for_uri_dispatches_qtserver() {
+        let client = client_for_uri("qtserver://127.0.0.1:18765").unwrap();
+        assert_eq!(client.uri_scheme(), "qtserver");
     }
 
     #[test]
@@ -125,6 +136,10 @@ mod tests {
                     message.contains("commandport"),
                     "error should list the supported schemes: {message}"
                 );
+                assert!(
+                    message.contains("qtserver"),
+                    "error should list the supported schemes: {message}"
+                );
             }
             other => panic!("expected TransportError, got {other:?}"),
         }
@@ -134,10 +149,11 @@ mod tests {
     fn registered_schemes_pins_the_set() {
         let schemes = registered_schemes();
         assert!(schemes.contains(&"commandport"));
+        assert!(schemes.contains(&"qtserver"));
         assert!(schemes.contains(&"stub"));
         // If anyone adds a new scheme here, they MUST also update
         // the match in `client_for_uri`. This test fails loudly so
         // the two stay in sync.
-        assert_eq!(schemes.len(), 2);
+        assert_eq!(schemes.len(), 3);
     }
 }

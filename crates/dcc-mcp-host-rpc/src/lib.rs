@@ -83,9 +83,11 @@
 #![deny(missing_docs)]
 
 pub mod commandport;
+pub mod qtserver;
 pub mod registry;
 
 pub use commandport::CommandPortClient;
+pub use qtserver::QtServerClient;
 pub use registry::{client_for_uri, parse_scheme, registered_schemes};
 
 use async_trait::async_trait;
