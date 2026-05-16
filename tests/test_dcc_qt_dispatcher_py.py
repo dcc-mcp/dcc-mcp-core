@@ -25,6 +25,7 @@ dcc-mcp-core CI suite.
 from __future__ import annotations
 
 # Import built-in modules
+import ast
 import json
 from pathlib import Path
 import sys
@@ -339,6 +340,63 @@ def test_bootstrap_returns_failure_envelope_on_syntax_error() -> None:
         assert "_dcc_qt_dispatcher" not in sys.modules, "broken dispatcher must not pollute sys.modules"
     finally:
         sys.modules.pop("_dcc_qt_dispatcher", None)
+
+
+def test_python_3_7_guard_catches_walrus() -> None:
+    """Self-test for the ``feature_version=(3, 7)`` guard.
+
+    If a future CPython release silently weakens ``feature_version``
+    (or pytest is run on an interpreter old enough to lack it), the
+    guard tests below would silently pass without doing any work and
+    a 3.8+ regression in the dispatcher source could slip through.
+    This negative-path test feeds a known walrus operator and
+    asserts ``SyntaxError`` is raised — if it ever stops raising,
+    the rest of the 3.7 pinning machinery cannot be trusted and
+    this test fails the build.
+    """
+    walrus_src = "(n := 1)\n"
+    with pytest.raises(SyntaxError):
+        ast.parse(walrus_src, feature_version=(3, 7))
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param(DISPATCHER_PATH, id="dispatcher"),
+        pytest.param(BOOTSTRAP_PATH, id="bootstrap"),
+    ],
+)
+def test_source_parses_under_python_3_7_feature_version(path: Path) -> None:
+    """Pin the dispatcher and bootstrap to **Python 3.7 syntax**.
+
+    Maya 2020/2022, Blender 2.83 LTS, and several legacy DCC hosts
+    still ship Python 3.7. The dispatcher source is ``include_str!``-ed
+    into the Rust binary and ships **verbatim** to those hosts — any
+    3.8+ syntax (walrus ``:=``, ``match/case``, positional-only ``/``,
+    f-string ``=`` debug, PEP 604 ``int | None`` at runtime, …) would
+    raise ``SyntaxError`` inside the DCC and break the entire qtserver
+    handoff.
+
+    ``ast.parse(feature_version=(3, 7))`` rejects every grammar feature
+    added after Python 3.7, so the test fails loudly the moment a
+    contributor introduces a 3.8+ construct into either file.
+
+    Note: this only catches **syntax-level** drift. Runtime usage of
+    3.8+ stdlib APIs (e.g. ``ast.Module(type_ignores=...)``,
+    ``functools.cache``) is covered by the dedicated semantic tests
+    above — they exec the source against a real interpreter, so
+    failures surface as ``AttributeError`` / ``TypeError`` rather than
+    syntax errors. The two layers together prevent every flavour of
+    3.7-incompat regression we've actually hit in production.
+    """
+    src = _read(path)
+    try:
+        ast.parse(src, filename=str(path), feature_version=(3, 7))
+    except SyntaxError as exc:
+        pytest.fail(
+            f"{path} contains Python 3.8+ syntax that would break on Maya 2020/2022 "
+            f"and Blender 2.83 LTS (Python 3.7): {exc}"
+        )
 
 
 def test_dispatcher_source_compiles_without_qt() -> None:
