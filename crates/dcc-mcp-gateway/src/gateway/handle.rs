@@ -65,6 +65,11 @@ pub struct GatewayHandle {
 }
 
 impl GatewayHandle {
+    /// Shared registry handle (for sidecar failover cleanup).
+    pub fn registry(&self) -> Arc<RwLock<FileRegistry>> {
+        self.registry.clone()
+    }
+
     /// Deregister every pending `ServiceKey` from the `FileRegistry` and
     /// clear the queue. Idempotent and cheap — safe to call from both
     /// async shutdown paths and `Drop`.
@@ -141,14 +146,14 @@ impl Drop for GatewayHandle {
 /// handle and optional OS-thread handle that must be kept alive for
 /// the lifetime of the gateway role (issue #303).
 #[allow(dead_code)]
-pub(crate) struct ElectionOutcome {
-    pub(crate) is_gateway: bool,
-    pub(crate) gateway_abort: Option<AbortHandle>,
-    pub(crate) challenger_abort: Option<AbortHandle>,
-    pub(crate) gateway_supervisor: Option<tokio::task::JoinHandle<()>>,
-    pub(crate) gateway_thread: Option<std::thread::JoinHandle<()>>,
+pub struct ElectionOutcome {
+    pub is_gateway: bool,
+    pub gateway_abort: Option<AbortHandle>,
+    pub challenger_abort: Option<AbortHandle>,
+    pub gateway_supervisor: Option<tokio::task::JoinHandle<()>>,
+    pub gateway_thread: Option<std::thread::JoinHandle<()>>,
     /// `__gateway__` sentinel key registered by the winner path; carried
     /// back to the `GatewayHandle` so `Drop` can deregister it on clean
     /// shutdown (issue #718).
-    pub(crate) sentinel_key: Option<ServiceKey>,
+    pub sentinel_key: Option<ServiceKey>,
 }

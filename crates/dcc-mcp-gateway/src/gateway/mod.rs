@@ -111,7 +111,7 @@ mod version;
 
 pub(crate) use bind::try_bind_port_opt;
 pub use config::{AdminPersistConfig, GatewayConfig};
-pub(crate) use handle::ElectionOutcome;
+pub use handle::ElectionOutcome;
 pub use handle::GatewayHandle;
 pub use runner::GatewayRunner;
 pub(crate) use sentinel::{has_newer_sentinel, is_own_instance};
