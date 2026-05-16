@@ -62,6 +62,7 @@ use crate::loader;
 mod catalog;
 mod groups;
 pub(crate) mod helpers;
+pub mod list_projection;
 
 // PyO3 bindings live in `crate::python::catalog`.
 

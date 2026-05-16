@@ -171,6 +171,27 @@ pub async fn handle_v1_context(State(gs): State<GatewayState>) -> impl IntoRespo
     )
 }
 
+/// `POST /v1/list_skills` — progressive skill listing across live backends.
+pub async fn handle_v1_list_skills(
+    State(gs): State<GatewayState>,
+    Json(body): Json<Value>,
+) -> Response {
+    let (text, is_error) =
+        crate::gateway::aggregator::skill_mgmt_dispatch(&gs, "list_skills", &body).await;
+    if is_error {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"success": false, "error": {"kind": "backend-error", "message": text}})),
+        )
+            .into_response()
+    } else {
+        match serde_json::from_str::<Value>(&text) {
+            Ok(value) => (StatusCode::OK, Json(value)).into_response(),
+            Err(_) => (StatusCode::OK, Json(json!({"raw": text}))).into_response(),
+        }
+    }
+}
+
 /// `POST /v1/search` — keyword + filter search over the capability
 /// index.
 ///
@@ -452,10 +473,10 @@ fn resolve_instance_http_response(err: ResolveInstanceError) -> impl IntoRespons
         ),
         ResolveInstanceError::NoMatch { .. } => (
             StatusCode::NOT_FOUND,
-            Json(service_error_to_json(&ServiceError::new(
-                "instance-offline",
-                format!("{err}.{refresh_hint}"),
-            ))),
+            Json(service_error_to_json(
+                &ServiceError::new("instance-offline", format!("{err}.{refresh_hint}"))
+                    .with_instance_provenance("never-registered", None),
+            )),
         ),
         ResolveInstanceError::MultipleMatches { .. } => (
             StatusCode::CONFLICT,
