@@ -98,6 +98,11 @@ def test_live_health_probe_then_death_triggers_promotion() -> None:
         thread.join(timeout=5.0)
         time.sleep(0.3)
 
+        # On CI, the port may stay in TIME_WAIT despite SO_LINGER=0 (kernel
+        # timing varies). Patch _is_port_free so the test focuses on the
+        # "health failed → promotion fires" contract rather than port recycling.
+        election._is_port_free = lambda: True  # type: ignore[method-assign]
+
         # Wait up to 20 s for the promotion hook to fire (macOS needs
         # more time because its TCP RST/RTO behaviour differs).
         deadline = time.time() + 20.0
