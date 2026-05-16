@@ -252,7 +252,9 @@ class TestFacadeToolsAggregation:
             )
 
         # Tier 2 — skill-management tools (one canonical set gateway-side).
-        for mgmt in ("list_skills", "search_skills", "get_skill_info", "load_skill", "unload_skill"):
+        # After #813 refactor, the canonical set is: search, describe, call,
+        # lease, load_skill, unload_skill.
+        for mgmt in ("search", "describe", "call", "lease", "load_skill", "unload_skill"):
             assert mgmt in names, f"missing skill-management tool {mgmt!r}"
 
         # Tier 3 — discover+dispatch wrappers (replaces per-action fan-out).
