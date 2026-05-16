@@ -203,7 +203,10 @@ impl GatewayRunner {
     }
 
     /// Core version-aware election logic, extracted for clarity.
-    pub(crate) async fn run_election(
+    ///
+    /// Public so out-of-process sidecars can re-run election after the
+    /// incumbent gateway dies without restarting the whole DCC host.
+    pub async fn run_election(
         &self,
     ) -> Result<ElectionOutcome, Box<dyn std::error::Error + Send + Sync>> {
         let stale_timeout = Duration::from_secs(self.config.stale_timeout_secs);
