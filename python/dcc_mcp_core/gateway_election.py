@@ -281,37 +281,48 @@ class DccGatewayElection:
             return False
 
     def _is_port_free(self) -> bool:
-        """Return ``True`` if nothing is currently listening on the gateway port.
+        """Return ``True`` only when ``GatewayRunner`` would also succeed at binding.
 
-        Uses a real ``SO_REUSEADDR`` bind attempt rather than ``connect_ex``
-        to avoid the Windows TIME_WAIT false-negative (issue #855 Bug 3).
+        Honesty matters here because :meth:`_attempt_election` calls
+        :meth:`_upgrade_to_gateway` immediately after we return ``True``, and
+        promotion tears down the current MCP handle before re-running the
+        Rust ``GatewayRunner`` bind. If the Python probe says ``True`` but
+        the Rust bind then fails (e.g. the port is in TIME_WAIT after a
+        crash), the instance loses its working random-port handle for a
+        new random-port handle every single election iteration — burning
+        handles roughly every second until TIME_WAIT clears (~2 minutes
+        on Windows).
 
-        On Windows, after a process that owned the gateway port dies, the OS
-        keeps the socket in TIME_WAIT state for up to 4 minutes
-        (``TcpTimedWaitDelay``). A ``connect_ex`` call against that address
-        **succeeds** (the kernel still has the entry) even though nothing is
-        actively listening — ``connect_ex`` returns 0 which was previously
-        interpreted as "port busy → skip election".
+        The Rust ``try_bind_port`` uses ``SO_REUSEADDR = false`` for
+        first-wins semantics. We mirror that here so the probe answers
+        exactly the question "would Rust's bind succeed right now?":
 
-        Replacing it with a ``bind()`` attempt (with ``SO_REUSEADDR``) is the
-        canonical way to answer "is anyone else using this port right now?":
+        * ``bind()`` succeeds → port is genuinely free → ``True``
+        * ``bind()`` raises ``OSError(EADDRINUSE)`` → port held by an
+          active listener OR a TIME_WAIT remnant → ``False``
 
-        * ``bind()`` succeeds → port is genuinely free → return ``True``
-        * ``bind()`` raises ``OSError(EADDRINUSE)`` → something still holds
-          it → return ``False``
+        On Linux this is identical to the old probe (``SO_REUSEADDR``
+        does not bypass ``EADDRINUSE`` for listeners). On Windows, this
+        is the corrected behaviour: TIME_WAIT addresses now report
+        "busy" until the kernel releases them, matching what Rust will
+        observe a millisecond later.
 
-        We close the socket immediately after the check so the promotion path
-        can do its own bind via the Rust ``GatewayRunner``.
+        We close the socket immediately so the real promotion path can
+        do its own bind via the Rust ``GatewayRunner``.
+
+        Note on ``SO_EXCLUSIVEADDRUSE`` (Windows-only): we deliberately
+        do NOT set it on the probe. The probe is a transient socket we
+        close immediately; the exclusivity guarantee only matters for
+        the real listener, which lives in Rust.
         """
         probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            # ``SO_REUSEADDR = 0`` matches Rust ``socket.set_reuse_address(false)``
+            # in ``crates/dcc-mcp-gateway/src/gateway/bind.rs::try_bind_port``.
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
             probe.bind((self._gateway_host, self._gateway_port))
-            # Port is free — close immediately so the real promotion path
-            # can bind it via GatewayRunner without EADDRINUSE.
             return True
         except OSError:
-            # EADDRINUSE (or any bind error): something holds the port.
             return False
         finally:
             with contextlib.suppress(Exception):
