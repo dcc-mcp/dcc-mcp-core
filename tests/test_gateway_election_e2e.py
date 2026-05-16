@@ -15,6 +15,8 @@ from __future__ import annotations
 from contextlib import suppress
 from http.server import BaseHTTPRequestHandler
 from http.server import HTTPServer
+import socket
+import struct
 import threading
 import time
 from typing import Any
@@ -22,6 +24,21 @@ from typing import Any
 
 class _ReuseHTTPServer(HTTPServer):
     allow_reuse_address = True
+
+    def server_close(self) -> None:
+        """Force-close the listening socket with SO_LINGER=0 to skip TIME_WAIT.
+
+        Without this, macOS CI keeps the port in TIME_WAIT for ~30-60 s after
+        shutdown which prevents the election probe's ``bind()`` (SO_REUSEADDR=0)
+        from succeeding — causing flaky promotion-timeout failures.
+        """
+        with suppress(OSError):
+            self.socket.setsockopt(
+                socket.SOL_SOCKET,
+                socket.SO_LINGER,
+                struct.pack("ii", 1, 0),
+            )
+        super().server_close()
 
 
 class _HealthHandler(BaseHTTPRequestHandler):
@@ -75,10 +92,11 @@ def test_live_health_probe_then_death_triggers_promotion() -> None:
 
         # Give macOS network stack time to release the socket so
         # subsequent probes see ConnectionRefusedError quickly.
+        # SO_LINGER=0 in server_close() forces RST (skips TIME_WAIT).
         httpd.shutdown()
         httpd.server_close()
         thread.join(timeout=5.0)
-        time.sleep(1.0)
+        time.sleep(0.3)
 
         # Wait up to 20 s for the promotion hook to fire (macOS needs
         # more time because its TCP RST/RTO behaviour differs).
