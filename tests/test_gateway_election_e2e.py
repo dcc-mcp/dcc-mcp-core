@@ -73,11 +73,16 @@ def test_live_health_probe_then_death_triggers_promotion() -> None:
         time.sleep(0.12)
         assert election._probe_gateway() is True
 
+        # Give macOS network stack time to release the socket so
+        # subsequent probes see ConnectionRefusedError quickly.
         httpd.shutdown()
         httpd.server_close()
         thread.join(timeout=5.0)
+        time.sleep(1.0)
 
-        deadline = time.time() + 8.0
+        # Wait up to 20 s for the promotion hook to fire (macOS needs
+        # more time because its TCP RST/RTO behaviour differs).
+        deadline = time.time() + 20.0
         while time.time() < deadline and not promoted.is_set():
             time.sleep(0.05)
 
