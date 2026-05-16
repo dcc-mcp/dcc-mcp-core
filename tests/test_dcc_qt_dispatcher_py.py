@@ -1,0 +1,399 @@
+"""Semantic tests for the universal Qt dispatcher Python source.
+
+The Rust :mod:`dcc_mcp_host_rpc::qtserver` module ships two embedded
+sources:
+
+* ``crates/dcc-mcp-host-rpc/python/dcc_qt_dispatcher.py``
+  — the actual ``QtCommandServer`` + ``_DispatchRegistry``.
+* ``crates/dcc-mcp-host-rpc/python/dcc_qt_dispatcher_bootstrap.py``
+  — the installer wrapping the above into ``sys.modules``.
+
+The Rust unit tests in ``qtserver.rs`` cover **wire framing** (request
+serialisation, envelope interpretation, host-died classification) and
+the **bootstrap helpers** that build the commandPort eval lines. They
+cannot verify the *Python semantics* of the embedded sources
+themselves — typos in attribute access, drift between the dispatcher
+methods and what callers send over the wire, etc.
+
+This test exercises both files in a stock Python interpreter (no Qt
+required for the pure-Python parts; PySide2/PySide6 optional for the
+server smoke test) so any regression in those bodies fails the
+dcc-mcp-core CI suite.
+"""
+
+# Import future modules
+from __future__ import annotations
+
+# Import built-in modules
+import json
+from pathlib import Path
+import sys
+import types
+from typing import Iterator
+
+# Import third-party modules
+import pytest
+
+DISPATCHER_PATH = Path(__file__).parent.parent / "crates" / "dcc-mcp-host-rpc" / "python" / "dcc_qt_dispatcher.py"
+BOOTSTRAP_PATH = (
+    Path(__file__).parent.parent / "crates" / "dcc-mcp-host-rpc" / "python" / "dcc_qt_dispatcher_bootstrap.py"
+)
+
+
+def _read(path: Path) -> str:
+    assert path.is_file(), f"source missing at {path}; the Rust binary `include_str!`s this exact file at build time."
+    return path.read_text(encoding="utf-8")
+
+
+@pytest.fixture
+def dispatcher_module() -> Iterator[types.ModuleType]:
+    """Exec ``dcc_qt_dispatcher.py`` into a fresh module-style namespace
+    and yield it. The module mimics what the bootstrap installs under
+    ``sys.modules['_dcc_qt_dispatcher']`` inside a real DCC.
+    """
+    source = _read(DISPATCHER_PATH)
+    module = types.ModuleType("_dcc_qt_dispatcher")
+    module.__file__ = str(DISPATCHER_PATH)
+    exec(
+        compile(source, module.__file__, "exec"),
+        module.__dict__,
+    )
+    yield module
+
+
+def test_dispatcher_exports_public_api(dispatcher_module: types.ModuleType) -> None:
+    """The Rust `QtServerClient` and per-DCC plug-ins both rely on a
+    stable public surface — pin it here so refactors of the source
+    fail loudly instead of silently breaking the wire path.
+    """
+    for name in (
+        "QtCommandServer",
+        "start_qt_server",
+        "stop_qt_server",
+        "current_server",
+        "DISPATCHER_VERSION",
+    ):
+        assert hasattr(dispatcher_module, name), f"public symbol missing: {name}"
+
+
+def test_dispatch_registry_ping(dispatcher_module: types.ModuleType) -> None:
+    registry = dispatcher_module._DispatchRegistry()
+    envelope = registry.dispatch("ping", {})
+    assert envelope == {
+        "result": {"pong": True, "version": dispatcher_module.DISPATCHER_VERSION},
+    }
+
+
+def test_dispatch_registry_unknown_method(dispatcher_module: types.ModuleType) -> None:
+    registry = dispatcher_module._DispatchRegistry()
+    envelope = registry.dispatch("does_not_exist", {})
+    assert "error" in envelope
+    assert envelope["error"]["code"] == "unknown-method"
+    assert "does_not_exist" in envelope["error"]["message"]
+
+
+def test_dispatch_registry_execute_returns_value(dispatcher_module: types.ModuleType) -> None:
+    registry = dispatcher_module._DispatchRegistry()
+    envelope = registry.dispatch("execute", {"code": "1 + 2"})
+    assert envelope == {"result": {"value": 3, "result_type": "value"}}
+
+
+def test_dispatch_registry_execute_mixed_body_and_expression(
+    dispatcher_module: types.ModuleType,
+) -> None:
+    """Statements before the trailing expression run as side effects;
+    the expression's value is returned.
+    """
+    registry = dispatcher_module._DispatchRegistry()
+    envelope = registry.dispatch(
+        "execute",
+        {"code": "x = 10\ny = 20\nx + y"},
+    )
+    assert envelope == {"result": {"value": 30, "result_type": "value"}}
+
+
+def test_dispatch_registry_execute_void_returns_none(
+    dispatcher_module: types.ModuleType,
+) -> None:
+    """Code that ends in a statement (no trailing expression) returns
+    a ``{"value": None, "result_type": "void"}`` envelope so the wire
+    can never get stuck on a "no result" ambiguity.
+    """
+    registry = dispatcher_module._DispatchRegistry()
+    envelope = registry.dispatch("execute", {"code": "import sys"})
+    assert envelope == {"result": {"value": None, "result_type": "void"}}
+
+
+def test_dispatch_registry_execute_repr_mode(dispatcher_module: types.ModuleType) -> None:
+    """``result_type='repr'`` returns ``repr(value)`` so the caller can
+    see objects that aren't JSON-serialisable.
+    """
+    registry = dispatcher_module._DispatchRegistry()
+    envelope = registry.dispatch(
+        "execute",
+        {"code": "object()", "result_type": "repr"},
+    )
+    assert envelope["result"]["result_type"] == "repr"
+    assert envelope["result"]["value"].startswith("<object object at ")
+
+
+def test_dispatch_registry_execute_falls_back_to_repr_for_non_json(
+    dispatcher_module: types.ModuleType,
+) -> None:
+    """``result_type='value'`` should never raise a serialisation
+    error — non-JSON objects get repr'd transparently.
+    """
+    registry = dispatcher_module._DispatchRegistry()
+    envelope = registry.dispatch("execute", {"code": "object()"})
+    assert envelope["result"]["result_type"] == "value"
+    assert isinstance(envelope["result"]["value"], str)
+
+
+def test_dispatch_registry_execute_surfaces_exception(
+    dispatcher_module: types.ModuleType,
+) -> None:
+    registry = dispatcher_module._DispatchRegistry()
+    envelope = registry.dispatch("execute", {"code": "1/0"})
+    assert "error" in envelope
+    assert envelope["error"]["code"] == "handler-exception"
+    assert "ZeroDivisionError" in envelope["error"]["message"]
+    assert "Traceback" in envelope["error"]["traceback"]
+
+
+def test_dispatch_registry_get_session_info(dispatcher_module: types.ModuleType) -> None:
+    registry = dispatcher_module._DispatchRegistry()
+    envelope = registry.dispatch("get_session_info", {})
+    info = envelope["result"]
+    assert info["dispatcher_version"] == dispatcher_module.DISPATCHER_VERSION
+    assert isinstance(info["python_version"], str)
+    assert isinstance(info["platform"], str)
+
+
+def test_dispatch_registry_stream_capture_install_and_drain(
+    dispatcher_module: types.ModuleType,
+) -> None:
+    registry = dispatcher_module._DispatchRegistry()
+    try:
+        installed = registry.dispatch("install_stream_capture", {})
+        assert installed == {"result": {"installed": True}}
+        # idempotent
+        installed_again = registry.dispatch("install_stream_capture", {})
+        assert installed_again == {"result": {"installed": False, "reused": True}}
+        # Print something via the captured stdout (which is the tee)
+        print("hello from captured stdout")
+        drained = registry.dispatch("get_buffered_output", {})
+        assert "hello from captured stdout" in drained["result"]["output"]
+        # Drain default is True — second call returns empty unless
+        # something else was printed between.
+        drained_again = registry.dispatch("get_buffered_output", {})
+        assert drained_again["result"]["output"] == ""
+    finally:
+        # Restore — leaving _Tee installed would poison subsequent
+        # tests and pytest's own output.
+        sys.stdout = registry._stdout_orig
+        sys.stderr = registry._stderr_orig
+
+
+def test_dispatch_registry_create_module_installs_into_sys_modules(
+    dispatcher_module: types.ModuleType,
+) -> None:
+    registry = dispatcher_module._DispatchRegistry()
+    name = "_dcc_qt_dispatcher_test_install"
+    try:
+        envelope = registry.dispatch(
+            "create_module",
+            {"name": name, "source": "value = 42\n", "version": "v1"},
+        )
+        assert envelope == {
+            "result": {"installed": True, "name": name, "version": "v1"},
+        }
+        assert sys.modules[name].value == 42
+        # Re-install at same version is a no-op.
+        again = registry.dispatch(
+            "create_module",
+            {"name": name, "source": "value = 999\n", "version": "v1"},
+        )
+        assert again == {
+            "result": {"installed": False, "reused": True, "name": name, "version": "v1"},
+        }
+        # Still the original value — the no-op didn't re-exec.
+        assert sys.modules[name].value == 42
+    finally:
+        sys.modules.pop(name, None)
+
+
+def test_dispatch_registry_create_module_validates_inputs(
+    dispatcher_module: types.ModuleType,
+) -> None:
+    registry = dispatcher_module._DispatchRegistry()
+    for bad_params, expected in (
+        ({"name": "", "source": "x = 1"}, "non-empty string"),
+        ({"name": "ok", "source": 123}, "must be a string"),
+    ):
+        envelope = registry.dispatch("create_module", bad_params)
+        assert "error" in envelope, f"should reject {bad_params}"
+        assert expected in envelope["error"]["message"], envelope["error"]["message"]
+
+
+def test_tee_tolerates_broken_sink(dispatcher_module: types.ModuleType) -> None:
+    """A closed/broken downstream sink must not propagate to the
+    caller — the DCC's console may close at any time during a long
+    session and the dispatcher must keep working.
+    """
+
+    class Broken:
+        def write(self, _data):
+            raise OSError("sink is gone")
+
+        def flush(self):
+            raise OSError("sink is gone")
+
+    sink = dispatcher_module._Tee(Broken(), Broken())
+    sink.write("hello")  # must not raise
+    sink.flush()
+
+
+def test_bootstrap_installs_dispatcher_from_source() -> None:
+    """The bootstrap orchestrator must install
+    ``sys.modules['_dcc_qt_dispatcher']`` from a string source and
+    leave the module in a state where ``start_qt_server`` is
+    callable (we don't actually start it here — that needs Qt).
+    """
+    dispatcher_source = _read(DISPATCHER_PATH)
+    bootstrap_source = _read(BOOTSTRAP_PATH)
+
+    namespace: dict = {
+        "_DISPATCHER_SOURCE": dispatcher_source,
+        "_REQUESTED_PORT": 0,
+    }
+    try:
+        exec(
+            compile(bootstrap_source, str(BOOTSTRAP_PATH), "exec"),
+            namespace,
+        )
+        # The install_result should be the installed module itself,
+        # not a failure dict.
+        installed = namespace["_install_result"]
+        assert isinstance(installed, types.ModuleType), f"expected module, got {installed!r}"
+        assert installed.__name__ == "_dcc_qt_dispatcher"
+        assert hasattr(installed, "start_qt_server")
+        assert hasattr(installed, "stop_qt_server")
+        assert sys.modules["_dcc_qt_dispatcher"] is installed
+    finally:
+        sys.modules.pop("_dcc_qt_dispatcher", None)
+
+
+def test_bootstrap_idempotent_on_same_version() -> None:
+    """A second exec of the bootstrap with the same version must
+    reuse the already-installed module (no re-exec of the source).
+    """
+    dispatcher_source = _read(DISPATCHER_PATH)
+    bootstrap_source = _read(BOOTSTRAP_PATH)
+
+    try:
+        # First install
+        ns_a: dict = {
+            "_DISPATCHER_SOURCE": dispatcher_source,
+            "_REQUESTED_PORT": 0,
+        }
+        exec(compile(bootstrap_source, str(BOOTSTRAP_PATH), "exec"), ns_a)
+        first = ns_a["_install_result"]
+        # Mark the module so we can detect a re-exec
+        first._dcc_qt_test_marker = "first-install"
+
+        # Second install in a fresh namespace
+        ns_b: dict = {
+            "_DISPATCHER_SOURCE": dispatcher_source,
+            "_REQUESTED_PORT": 0,
+        }
+        exec(compile(bootstrap_source, str(BOOTSTRAP_PATH), "exec"), ns_b)
+        second = ns_b["_install_result"]
+        # Same module object — and the marker survives, proving no
+        # re-exec.
+        assert second is first
+        assert getattr(second, "_dcc_qt_test_marker", None) == "first-install"
+    finally:
+        sys.modules.pop("_dcc_qt_dispatcher", None)
+
+
+def test_bootstrap_returns_failure_envelope_on_syntax_error() -> None:
+    """If the dispatcher source has a syntax error, the bootstrap
+    must NOT register the broken module in ``sys.modules`` and
+    must surface a structured failure dict so the Rust client
+    can map it to a transport error.
+    """
+    bootstrap_source = _read(BOOTSTRAP_PATH)
+    broken_source = "def x(:::\n"  # syntactically invalid
+
+    try:
+        namespace: dict = {
+            "_DISPATCHER_SOURCE": broken_source,
+            "_REQUESTED_PORT": 0,
+        }
+        exec(compile(bootstrap_source, str(BOOTSTRAP_PATH), "exec"), namespace)
+        result = namespace["_install_result"]
+        assert isinstance(result, dict)
+        assert result["ok"] is False
+        assert result["stage"] == "compile"
+        assert "SyntaxError" in result["error"]
+        assert "_dcc_qt_dispatcher" not in sys.modules, "broken dispatcher must not pollute sys.modules"
+    finally:
+        sys.modules.pop("_dcc_qt_dispatcher", None)
+
+
+def test_dispatcher_source_compiles_without_qt() -> None:
+    """``dc_qt_dispatcher.py`` must be importable up to the point of
+    ``_import_qt`` being called. Calling :func:`start_qt_server` is
+    what triggers the Qt import — module-load itself must work
+    headless so CI without PySide passes.
+    """
+    source = _read(DISPATCHER_PATH)
+    namespace: dict = {}
+    exec(compile(source, str(DISPATCHER_PATH), "exec"), namespace)
+    assert "QtCommandServer" in namespace
+    assert "start_qt_server" in namespace
+    assert namespace["_singleton"]["server"] is None
+
+
+def test_dispatcher_source_is_valid_python_when_inlined_in_bootstrap_wire() -> None:
+    """The Rust ``build_bootstrap_command_line`` inlines both files'
+    sources into a single Python eval expression. Verify the
+    composition is syntactically valid by reproducing the same
+    composition here.
+    """
+    dispatcher_source = _read(DISPATCHER_PATH)
+    bootstrap_source = _read(BOOTSTRAP_PATH)
+    composed = "_DISPATCHER_SOURCE = " + repr(dispatcher_source) + "\n_REQUESTED_PORT = 0\n" + bootstrap_source
+    # Compile must succeed — runtime semantics covered by the
+    # dedicated bootstrap tests above.
+    compile(composed, "<wire-bootstrap>", "exec")
+
+
+@pytest.mark.skipif(
+    "PySide2" not in sys.modules
+    and "PySide6" not in sys.modules
+    and not any(
+        __import__("importlib.util", fromlist=["find_spec"]).find_spec(name)
+        for name in ("PySide6", "PySide2", "PyQt6", "PyQt5")
+    ),
+    reason="no Qt binding available — skip live QTcpServer smoke test",
+)
+def test_start_qt_server_returns_bound_port_and_is_idempotent(
+    dispatcher_module: types.ModuleType,
+) -> None:
+    """End-to-end smoke against a real Qt binding when one is
+    installed in the CI image. Verifies the server actually binds
+    and ``start_qt_server`` is idempotent.
+    """
+    info = dispatcher_module.start_qt_server(port=0, host="127.0.0.1")
+    try:
+        assert info["host"] == "127.0.0.1"
+        assert 1024 < info["port"] < 65536
+        assert info["dispatcher_version"] == dispatcher_module.DISPATCHER_VERSION
+        assert info["reused"] is False
+        # Second call must reuse the same server.
+        again = dispatcher_module.start_qt_server(port=0)
+        assert again["port"] == info["port"]
+        assert again["reused"] is True
+    finally:
+        dispatcher_module.stop_qt_server()
