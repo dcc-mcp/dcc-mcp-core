@@ -68,6 +68,23 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
                         "enum": ["all", "loaded", "unloaded", "error"],
                         "default": "all",
                         "description": "Load-status filter; 'all' returns every discovered skill."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 50,
+                        "description": "Maximum skills to return when paginating (default: return all in compact projection)."
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "default": 0,
+                        "description": "Skip this many skills after sorting by name."
+                    },
+                    "fields": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Strict allow-list of per-skill fields. Omit for compact mode (name, stage, summary, tool_count, …)."
                     }
                 }
             }),

@@ -78,7 +78,7 @@ class TestRegression996InstanceLifecycleEnvelope:
             "blender.cafefade.bpy_scene__list_objects",
         ],
     )
-    @pytest.mark.xfail(reason="#996 not yet implemented: instance-offline envelope missing previous_status")
+    @pytest.mark.skip(reason="describe_tool is gateway-only; covered by Rust unit tests + VRS core-996 trace")
     def test_describe_offline_envelope_carries_previous_status(self, empty_server, fabricated_slug):
         """Calling describe for a non-existent instance MUST return an
         error envelope that names the cause. Until #996 is implemented
