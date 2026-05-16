@@ -76,6 +76,13 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 | `traces/gateway-rest-call-missing-tool-slug.jsonl` | No | `POST /v1/call` without `tool_slug` → `400`, `bad-request`. |
 | `traces/gateway-rest-call-unknown-slug.jsonl` | No | Unknown slug on call path → `404`, `unknown-slug` (matches refresh-retry semantics). |
 | `traces/maya-215-execute-python-regression.jsonl` | Yes (Maya) | After harmless `execute_python`, triggers `TypeError` via bad `polySphere` arg; follow-up call must still succeed (maya#215 / #199 class). |
+| `traces/maya-235-capture-then-playblast-survives.jsonl` | Yes (Maya) | `capture_viewport` → `playblast` → `capture_viewport`; the third call MUST still return a JSON envelope (not transport error / instance-offline) — generalises the maya#215 watchdog to any `affinity:main` async action (maya#235). |
+| `traces/core-992-describe-tool-preserves-input-schema.jsonl` | Yes (any DCC) | `describe_tool` MUST round-trip `inputSchema.properties` and report `record.has_schema: true` for tools that declared properties (regression of core#857 / #992). |
+| `traces/core-992-call-tool-validates-arguments.jsonl` | Yes (any DCC) | `call_tool` against a typed tool MUST NOT report `validation_skipped: true` — paired with the describe trace above (core#992). |
+| `traces/core-993-search-tools-includes-unloaded.jsonl` | Yes (live Maya in default minimal mode) | `POST /v1/search` MUST return hits for actions belonging to **unloaded** skills (core#993 / #858). |
+| `traces/core-994-meta-tools-do-not-dominate-ranking.jsonl` | Yes (any DCC) | Domain queries top-1 MUST be a domain tool, never `project.*` / `dcc_capability_manifest` / `recipes__*` / `diagnostics__*` (core#994). |
+| `traces/core-995-list-skills-respects-limit.jsonl` | Yes (any DCC) | `POST /v1/list_skills` MUST honour `limit` and `fields` and report a `truncated` flag (core#995). |
+| `traces/core-996-instance-offline-carries-previous-status.jsonl` | No | `instance-offline` (or `unknown-slug`) error envelope MUST carry `previous_status` so agents can distinguish manual restart from crash (core#996). |
 | `traces/gateway-multi-instance-stress.jsonl` | Yes (≥3 live instances) | Skips unless `GET /v1/instances` reports `total >= 3`; then bursts health/instances/readyz/context/search to catch registry/probe regressions under load. |
 
 ## CI policy (recommended)
@@ -88,3 +95,9 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 
 - maya [#215](https://github.com/loonghao/dcc-mcp-maya/issues/215) — execute_python crash regression
 - maya [#199](https://github.com/loonghao/dcc-mcp-maya/issues/199) — prior crash report
+- maya [#235](https://github.com/loonghao/dcc-mcp-maya/issues/235) — playblast / capture_viewport stops MCP HTTP server
+- core [#992](https://github.com/loonghao/dcc-mcp-core/issues/992) — schema stripped between backend and gateway
+- core [#993](https://github.com/loonghao/dcc-mcp-core/issues/993) — search_tools excludes unloaded skill actions
+- core [#994](https://github.com/loonghao/dcc-mcp-core/issues/994) — search ranking dominated by meta-tools
+- core [#995](https://github.com/loonghao/dcc-mcp-core/issues/995) — list_skills returns full metadata for every skill
+- core [#996](https://github.com/loonghao/dcc-mcp-core/issues/996) — instance-offline envelope must carry restart cause

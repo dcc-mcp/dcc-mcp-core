@@ -236,6 +236,66 @@ pub async fn try_fetch_tools(
     Ok((loaded_tools, unloaded_hints))
 }
 
+/// Fetch the full tool definition (including `input_schema` with properties)
+/// for a single backend action via `POST /v1/describe`.
+///
+/// Unlike `try_fetch_tools` (which uses `/v1/search` and intentionally omits
+/// schemas for token-efficiency), this endpoint returns the complete
+/// `input_schema` so the gateway's `describe_tool` surface can expose it to
+/// agents.
+///
+/// `backend_tool_slug` is the slug in the backend's own format (e.g.
+/// `maya.maya-primitives.create_sphere`).  The backend resolves it via its
+/// `SkillRestService::describe` method.
+pub async fn try_describe_tool(
+    client: &reqwest::Client,
+    mcp_url: &str,
+    backend_tool_slug: &str,
+    timeout: Duration,
+) -> Result<McpTool, String> {
+    let base = rest_base_from_mcp_url(mcp_url);
+    let key = base.as_str();
+    let url = format!("{base}/v1/describe");
+    let val = rest_post_idempotent(
+        client,
+        &url,
+        json!({"tool_slug": backend_tool_slug, "include_schema": true}),
+        timeout,
+        key,
+    )
+    .await?;
+
+    // The /v1/describe response shape (DescribeResponse):
+    //   { "entry": { "slug", "skill", "action", "dcc", "summary", "loaded", "scope" },
+    //     "description": "...",
+    //     "input_schema": { ... } | null,
+    //     "annotations": { ... } }
+    let name = val
+        .get("entry")
+        .and_then(|e| e.get("action"))
+        .and_then(Value::as_str)
+        .unwrap_or(backend_tool_slug)
+        .to_owned();
+    let description = val
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned();
+    let input_schema = val
+        .get("input_schema")
+        .cloned()
+        .unwrap_or_else(|| json!({"type": "object"}));
+
+    Ok(McpTool {
+        name,
+        description,
+        input_schema,
+        output_schema: None,
+        annotations: None,
+        meta: None,
+    })
+}
+
 /// Fetch tool list from a backend; fail-soft on errors.
 ///
 /// On any failure returns an empty vector and logs a warning — callers
