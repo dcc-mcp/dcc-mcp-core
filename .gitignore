@@ -8,6 +8,7 @@ __pycache__/
 # Rust / Cargo
 /target/
 /target2/
+target/
 **/*.rs.bk
 
 # PyCharm project files
@@ -38,6 +39,7 @@ run-ide.bat
 
 # Virtual environments
 /.venv/
+.venv/
 dist/
 
 # Python cache

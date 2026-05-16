@@ -22,7 +22,7 @@ use uuid::Uuid;
 
 use dcc_mcp_jsonrpc::McpTool;
 
-use super::backend_client::{forward_tools_call, try_fetch_tools};
+use super::backend_client::{forward_tools_call, try_describe_tool};
 use super::capability::{
     CapabilityIndex, CapabilityRecord, RefreshReason, SearchHit, SearchQuery, parse_slug,
     refresh_instance, remove_instance, search,
@@ -131,6 +131,10 @@ fn record_matches_slug(
 
 /// Resolve `slug` and return the exact backend tool definition for that
 /// capability. This is the schema-bearing describe path shared by REST and MCP.
+///
+/// Uses `POST /v1/describe` on the backend to fetch the **full** `input_schema`
+/// (including `properties`), rather than the schema-free `/v1/search` response.
+/// This fixes issue #992 where schemas were stripped.
 pub async fn describe_tool_full(
     gs: &GatewayState,
     slug: &str,
@@ -150,26 +154,22 @@ pub async fn describe_tool_full(
     let url = format!("http://{}:{}/mcp", entry.host, entry.port);
     drop(reg);
 
-    let (tools, _unloaded) = try_fetch_tools(&gs.http_client, &url, gs.backend_timeout)
-        .await
-        .map_err(|e| {
-            ServiceError::new(
-                "schema-unavailable",
-                format!("backend tools/list failed: {e}"),
-            )
-        })?;
-    let Some(tool) = tools
-        .into_iter()
-        .find(|tool| tool.name == record.callable_id)
-    else {
-        return Err(ServiceError::new(
+    // Use /v1/describe to get the full input_schema (issue #992).
+    // The backend's resolve_slug accepts bare action names as well as
+    // full <dcc>.<skill>.<action> slugs, so we can pass callable_id directly.
+    let tool = try_describe_tool(
+        &gs.http_client,
+        &url,
+        &record.callable_id,
+        gs.backend_timeout,
+    )
+    .await
+    .map_err(|e| {
+        ServiceError::new(
             "schema-unavailable",
-            format!(
-                "backend tool {:?} is no longer available on instance {}",
-                record.callable_id, record.instance_id,
-            ),
-        ));
-    };
+            format!("backend /v1/describe failed: {e}"),
+        )
+    })?;
     Ok((record, tool))
 }
 
