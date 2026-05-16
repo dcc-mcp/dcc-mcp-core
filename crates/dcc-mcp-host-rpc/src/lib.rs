@@ -83,6 +83,12 @@
 
 #![deny(missing_docs)]
 
+pub mod commandport;
+pub mod registry;
+
+pub use commandport::CommandPortClient;
+pub use registry::{client_for_uri, parse_scheme, registered_schemes};
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;

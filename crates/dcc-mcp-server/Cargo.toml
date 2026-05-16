@@ -22,6 +22,7 @@ dcc-mcp-transport.workspace = true
 dcc-mcp-telemetry = { path = "../dcc-mcp-telemetry", optional = true }
 dcc-mcp-catalog.workspace = true
 dcc-mcp-jsonrpc = { path = "../dcc-mcp-jsonrpc" }
+dcc-mcp-host-rpc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
