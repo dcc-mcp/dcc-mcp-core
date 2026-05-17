@@ -6,11 +6,26 @@ Official skills and starter templates for the dcc-mcp-core ecosystem.
 (in-repo reference packages: `python/dcc_mcp_core/skills/dcc-diagnostics`,
 `python/dcc_mcp_core/skills/workflow`).
 
+## Official Skills (ClawHub-ready)
+
+| Skill | Description | Location |
+|-------|-------------|----------|
+| [`dcc-rest-gateway`](dcc-rest-gateway/) | Control any DCC via gateway REST only (no MCP); instance inventory and zero-instance setup | `skills/dcc-rest-gateway/` |
+| [`dcc-skills-creator`](dcc-skills-creator/) | Create, validate, and scaffold DCC skills | `skills/dcc-skills-creator/` |
+
+Publish `dcc-rest-gateway` to [ClawHub](https://clawhub.ai/):
+
+```bash
+cd skills/dcc-rest-gateway
+clawhub publish . --slug dcc-rest-gateway --version 1.0.0
+```
+
 ## Bundled Skills
 
 | Skill | Description | Location |
 |-------|-------------|----------|
-| [`dcc-skills-creator`](dcc-skills-creator/) | Create, validate, and scaffold DCC skills | `skills/dcc-skills-creator/` |
+| `dcc-diagnostics` | Screenshot, audit log, metrics | `python/dcc_mcp_core/skills/` |
+| `workflow` | Multi-step orchestration | `python/dcc_mcp_core/skills/` |
 
 ## Quick Start
 
@@ -258,6 +273,7 @@ skills shipped in `examples/skills/`, or browse them directly:
 | [async-render-example](../examples/skills/async-render-example/) | example | python | Async/deferred tools |
 | [cancellable-loop](../examples/skills/cancellable-loop/) | example | python | Cooperative cancellation |
 | [clawhub-compat](../examples/skills/clawhub-compat/) | example | python | Full OpenClaw format |
+| [dcc-rest-gateway](dcc-rest-gateway/) | infrastructure | python | REST-only gateway control; ClawHub publishable |
 | [dcc-diagnostics](../examples/skills/dcc-diagnostics/) | infrastructure | python | Also bundled |
 | [workflow](../examples/skills/workflow/) | infrastructure | python | Also bundled |
 | [usd-tools](../examples/skills/usd-tools/) | infrastructure | python | Read-only USD tools |
