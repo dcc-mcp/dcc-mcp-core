@@ -240,6 +240,7 @@ jobs:
           fail_ci_if_error: false
 
   # ── Python 3.7 build + test (non-abi3 wheel) ──
+  # Syntax is also gated earlier in the ``lint`` job (``check_py37_syntax.py``).
   # Independent from rust-check: the composite action performs its own build
   # and test, so waiting for the Rust matrix only lengthens the critical path.
   # Uses the same composite action as the release workflow so CI mirrors the
@@ -272,25 +273,40 @@ jobs:
           use-sccache: 'false'
 
   # ── Lint Python source ──
+  # ubuntu-22.04: setup-python still offers 3.7 for the cp37 syntax gate.
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
+
       - uses: actions/setup-python@v6
+        id: py314
         with:
           python-version: "3.14"
+
       - uses: loonghao/vx@v0.8.36
+
       - name: Install dev deps
         run: vx just install-dev-deps
-      - name: Lint
+
+      - name: Lint (ruff)
         run: vx just lint-py
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.7"
+
+      - name: Lint (Python 3.7 syntax — cp37 wheel parity)
+        run: python scripts/check_py37_syntax.py
+
       - name: VRS replayer (dry-run trace validation)
         shell: bash
         run: |
           set -euo pipefail
           for f in tests/vrs/traces/*.jsonl; do
-            python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace "$f"
+            "${{ steps.py314.outputs.python-path }}" scripts/vrs_replay.py \
+              --base-url http://127.0.0.1:1 --dry-run --trace "$f"
           done
 
   # -- mcporter e2e: real MCP client (npx mcporter) vs live McpHttpServer --
