@@ -1,0 +1,96 @@
+name: Sync ClawHub Skills
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "skills/**"
+      - "scripts/package_openclaw_skill.py"
+      - "scripts/clawhub_sync.py"
+      - ".github/clawhub-skills.json"
+      - ".github/workflows/clawhub.yml"
+      - "justfile"
+  push:
+    branches:
+      - main
+    paths:
+      - "skills/**"
+      - "scripts/package_openclaw_skill.py"
+      - "scripts/clawhub_sync.py"
+      - ".github/clawhub-skills.json"
+      - ".github/workflows/clawhub.yml"
+      - "justfile"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clawhub-skills-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CLAWHUB_CLI_PACKAGE: clawhub@0.7.0
+  CLAWHUB_CONFIG_PATH: .clawhub/config.json
+  CLAWHUB_DISABLE_TELEMETRY: "1"
+
+jobs:
+  sync-skills:
+    name: Package and sync skills to ClawHub
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dcc-mcp-core (for validate_skill / parse_skill_md)
+        run: pip install -e .
+
+      - name: Package ClawHub skill archives
+        run: |
+          mkdir -p dist/skills
+          python scripts/package_openclaw_skill.py skills/dcc-rest-gateway dist/skills
+
+      - name: Upload packaged skill artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: clawhub-skill-packages
+          path: dist/skills/*.zip
+          if-no-files-found: error
+
+      - name: Skip ClawHub sync for external pull requests
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
+        run: echo "Skipping ClawHub publish for fork PRs (secrets unavailable)."
+
+      - name: Require ClawHub token
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+        shell: bash
+        env:
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+        run: |
+          if [[ -z "${CLAWHUB_TOKEN}" ]]; then
+            echo "Missing CLAWHUB_TOKEN repository secret" >&2
+            exit 1
+          fi
+
+      - name: Login to ClawHub
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+        shell: bash
+        env:
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+        run: |
+          mkdir -p "$(dirname "$CLAWHUB_CONFIG_PATH")"
+          npx "$CLAWHUB_CLI_PACKAGE" login --token "$CLAWHUB_TOKEN" --no-browser --no-input
+
+      - name: Dry-run ClawHub publish (pull requests)
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+        run: python scripts/clawhub_sync.py --dry-run
+
+      - name: Publish skills to ClawHub (main)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: python scripts/clawhub_sync.py

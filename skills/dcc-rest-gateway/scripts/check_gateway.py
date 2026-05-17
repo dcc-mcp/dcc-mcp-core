@@ -1,7 +1,16 @@
-"""Probe gateway health and instances; print one-line JSON to stdout."""
+r"""Probe DCC-MCP gateway health and instances; print one-line JSON to stdout.
+
+Cross-platform: run with any Python 3.7+ on Windows, macOS, or Linux:
+
+    python scripts/check_gateway.py
+    py -3 scripts\check_gateway.py
+
+Optional: bash scripts/check_gateway.sh  |  pwsh scripts/check_gateway.ps1
+"""
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import urllib.error
@@ -45,10 +54,33 @@ def probe(gateway: str | None = None) -> dict[str, object]:
     return out
 
 
-def main() -> None:
-    """Print probe result as a single JSON line on stdout."""
-    print(json.dumps(probe(), separators=(",", ":")))
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Build CLI argument parser for gateway probe."""
+    parser = argparse.ArgumentParser(description="Probe DCC-MCP gateway and print JSON summary.")
+    parser.add_argument(
+        "--gateway",
+        "-g",
+        default=None,
+        help="Gateway base URL (default: DCC_MCP_GATEWAY_URL or http://127.0.0.1:9765)",
+    )
+    parser.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON instead of a single line",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Print probe result as JSON on stdout; return 0 on success."""
+    args = parse_args(argv)
+    payload = probe(args.gateway)
+    if args.pretty:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(json.dumps(payload, separators=(",", ":")))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
