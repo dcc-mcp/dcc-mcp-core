@@ -683,10 +683,7 @@ fn handle_deactivate_tool_group(
 }
 
 fn is_progressive_stub(name: &str) -> bool {
-    name.starts_with("__skill__")
-        || name.starts_with("__group__")
-        || name.contains(".__skill__")
-        || name.contains(".__group__")
+    crate::mcp_tool_catalog::is_progressive_tool_stub(name)
 }
 
 fn schema_property_names(schema: &Value) -> Vec<String> {

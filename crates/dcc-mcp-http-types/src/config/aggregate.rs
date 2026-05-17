@@ -292,6 +292,23 @@ impl McpHttpConfig {
     pub fn set_enable_prompts(&mut self, v: bool) {
         self.features.enable_prompts = v;
     }
+    pub fn exclude_skill_stubs_from_tools_list(&self) -> bool {
+        self.features.exclude_skill_stubs_from_tools_list
+    }
+    pub fn set_exclude_skill_stubs_from_tools_list(&mut self, v: bool) {
+        self.features.exclude_skill_stubs_from_tools_list = v;
+    }
+    pub fn exclude_group_stubs_from_tools_list(&self) -> bool {
+        self.features.exclude_group_stubs_from_tools_list
+    }
+    pub fn set_exclude_group_stubs_from_tools_list(&mut self, v: bool) {
+        self.features.exclude_group_stubs_from_tools_list = v;
+    }
+    /// Set both skill and group stub exclusion flags together (issue #174 / #238).
+    pub fn set_exclude_progressive_stubs_from_tools_list(&mut self, v: bool) {
+        self.features.exclude_skill_stubs_from_tools_list = v;
+        self.features.exclude_group_stubs_from_tools_list = v;
+    }
     pub fn enable_artefact_resources(&self) -> bool {
         self.features.enable_artefact_resources
     }

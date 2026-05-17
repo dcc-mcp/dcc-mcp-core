@@ -52,6 +52,8 @@ fn all_mcp_http_config_fields_have_py_getters() {
     let _ = cfg.shutdown_on_drop();
     let _ = cfg.enable_job_notifications();
     let _ = cfg.bare_tool_names();
+    let _ = cfg.exclude_skill_stubs_from_tools_list();
+    let _ = cfg.exclude_group_stubs_from_tools_list();
     let _ = cfg.enable_resources();
     let _ = cfg.enable_artefact_resources();
     let _ = cfg.enable_prompts();

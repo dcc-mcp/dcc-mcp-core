@@ -233,6 +233,8 @@ fn feature_flags_default_matches_documented_pre_852_surface() {
     assert!(!f.enable_artefact_resources);
     assert!(f.enable_job_notifications);
     assert!(!f.shutdown_on_drop);
+    assert!(!f.exclude_skill_stubs_from_tools_list);
+    assert!(!f.exclude_group_stubs_from_tools_list);
 }
 
 #[test]
@@ -247,6 +249,14 @@ fn feature_flags_round_trip() {
     assert_eq!(back.enable_artefact_resources, f.enable_artefact_resources);
     assert_eq!(back.enable_job_notifications, f.enable_job_notifications);
     assert_eq!(back.shutdown_on_drop, f.shutdown_on_drop);
+    assert_eq!(
+        back.exclude_skill_stubs_from_tools_list,
+        f.exclude_skill_stubs_from_tools_list
+    );
+    assert_eq!(
+        back.exclude_group_stubs_from_tools_list,
+        f.exclude_group_stubs_from_tools_list
+    );
 }
 
 /// Critical contract: an empty `{}` body must deserialise into
@@ -265,6 +275,14 @@ fn feature_flags_minimal_body_uses_per_field_defaults() {
     assert_eq!(f.enable_artefact_resources, d.enable_artefact_resources);
     assert_eq!(f.enable_job_notifications, d.enable_job_notifications);
     assert_eq!(f.shutdown_on_drop, d.shutdown_on_drop);
+    assert_eq!(
+        f.exclude_skill_stubs_from_tools_list,
+        d.exclude_skill_stubs_from_tools_list
+    );
+    assert_eq!(
+        f.exclude_group_stubs_from_tools_list,
+        d.exclude_group_stubs_from_tools_list
+    );
 }
 
 #[test]

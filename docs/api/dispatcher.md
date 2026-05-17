@@ -11,16 +11,20 @@ into reusable contracts so each adapter only supplies host-specific glue.
 
 **Exported symbols:** `BaseDccCallableDispatcher`, `InProcessExecutionContext`,
 `BaseDccCallableDispatcherFull`, `BaseDccPump`, `AdaptivePumpPolicy`,
-`AdaptivePumpStats`, `InProcessCallableDispatcher`, `JobEntry`, `JobOutcome`,
-`PendingEnvelope`, `DrainStats`, `PumpStats`, `current_callable_job`,
-`MinimalModeConfig`, `build_inprocess_executor`, `run_skill_script`.
+`AdaptivePumpStats`, `HostUiDispatcherBase`, `HostUiJobEntry`,
+`DispatcherErrorCode`, `host_ui_outcome`, `InProcessCallableDispatcher`,
+`JobEntry`, `JobOutcome`, `PendingEnvelope`, `DrainStats`, `PumpStats`,
+`current_callable_job`, `current_host_ui_job`, `MinimalModeConfig`,
+`build_inprocess_executor`, `run_skill_script`.
 
 ## When to use what
 
 | Need | Use this |
 |------|----------|
+| Interactive DCC (Maya UI, Blender UI, Houdini desktop) | `HostUiDispatcherBase` — subclass + `poke_host_pump()` + host timer/`BaseDccPump` |
 | Wire a single `dispatch_callable(func, *args, **kwargs)` shim | `BaseDccCallableDispatcher` (#521) |
 | Full submit / cancel / shutdown contract | `BaseDccCallableDispatcherFull` (#520) |
+| Batch / `mayapy` / pytest (no UI thread) | `InProcessCallableDispatcher` only — **do not** subclass `HostUiDispatcherBase` |
 | Cooperative idle-tick that drains a queue (Maya `scriptJob(event=['idle', …])`) | `BaseDccPump` (#520) |
 | Shared active/idle timer backoff for host pump callbacks | `AdaptivePumpPolicy` (#606) |
 | Reference single-thread implementation for `mayapy` / pytest / batch | `InProcessCallableDispatcher` |
@@ -216,3 +220,24 @@ Resolution order, executed by `DccServerBase.register_builtin_actions`:
 
 See [Server Factory API](./factory.md) for wiring `MinimalModeConfig` and the
 in-process executor into `register_builtin_actions`.
+
+## Host UI dispatcher checklist (adapter authors)
+
+Use this path for **every embedded interactive host** so each adapter only
+implements host-specific pump glue:
+
+1. **Subclass** `HostUiDispatcherBase` and implement `poke_host_pump()` (Maya:
+   `maya.utils.executeDeferred`; Blender: `bpy.app.timers.register`; …).
+2. **Install a pump** that calls `drain_queue(budget_ms)` on idle ticks
+   (`BaseDccPump` + `AdaptivePumpPolicy` optional but recommended).
+3. **Register** the dispatcher on `HostExecutionBridge` /
+   `DccServerBase.register_inprocess_executor` before `server.start()`.
+4. **Skill scripts** call `check_dcc_cancelled()` in long loops — the base
+   publishes `HostUiJobEntry` through `set_current_job` during `execute()`.
+5. **Outcomes** use the dict envelope from `host_ui_outcome()` /
+   `DispatcherErrorCode` (`Cancelled`, `Interrupted`, `host-busy`, …).
+6. **Optional** `fail_fast_on_main_queue_busy=True` when the host must reject
+   sync main-thread work while the queue is non-empty (orchestrator back-pressure).
+
+Do **not** fork a second queue/cancel protocol per DCC — extend the base and
+keep Maya-specific code in `poke_host_pump` and logging only.

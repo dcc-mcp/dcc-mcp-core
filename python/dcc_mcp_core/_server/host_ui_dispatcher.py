@@ -1,0 +1,462 @@
+"""Shared UI-thread dispatcher for embedded interactive DCC hosts.
+
+Maya, Blender (UI mode), Houdini desktop, Photoshop, etc. all need the same
+shape: enqueue callables onto the host main thread, cooperative cancel,
+shutdown that unblocks waiters, and dict outcomes compatible with the MCP
+HTTP worker. Subclass :class:`HostUiDispatcherBase` and implement
+:meth:`~HostUiDispatcherBase.poke_host_pump` only.
+
+For ``mayapy`` / batch / pytest use :class:`InProcessCallableDispatcher`
+instead — it runs inline on the calling thread and does not need a pump.
+
+See ``docs/api/dispatcher.md`` (Host UI dispatcher checklist).
+"""
+
+from __future__ import annotations
+
+from collections import deque
+import contextvars
+import logging
+import threading
+import time
+from typing import Any
+from typing import Callable
+
+from dcc_mcp_core.cancellation import CancelledError
+from dcc_mcp_core.cancellation import reset_current_job
+from dcc_mcp_core.cancellation import set_current_job
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "DEFAULT_UI_JOB_TIMEOUT_MS",
+    "DispatcherErrorCode",
+    "HostUiDispatcherBase",
+    "HostUiJobEntry",
+    "current_host_ui_job",
+    "host_ui_outcome",
+    "normalize_affinity",
+]
+
+#: Default soft timeout when callers omit ``timeout_ms`` (milliseconds).
+DEFAULT_UI_JOB_TIMEOUT_MS = 30_000
+
+
+class DispatcherErrorCode:
+    """Stable ``error`` string values on dict outcomes (wire-compatible)."""
+
+    CANCELLED = "Cancelled"
+    INTERRUPTED = "Interrupted"
+    TIMEOUT = "Timeout"
+    HOST_BUSY = "host-busy"
+    UNSUPPORTED_AFFINITY = "unsupported-affinity"
+
+
+def normalize_affinity(affinity: str) -> str:
+    """Return lower-case affinity or raise ``ValueError``."""
+    value = (affinity or "main").lower()
+    if value not in ("any", "main"):
+        raise ValueError(f"Unsupported affinity '{affinity}'; expected 'any' or 'main'")
+    return value
+
+
+def host_ui_outcome(
+    request_id: str,
+    affinity: str,
+    *,
+    success: bool,
+    output: Any = None,
+    error: str | None = None,
+    job_id: str | None = None,
+) -> dict[str, Any]:
+    """Build the standard dict envelope returned by UI dispatchers."""
+    payload: dict[str, Any] = {
+        "request_id": request_id,
+        "affinity": affinity,
+        "success": success,
+        "output": output,
+        "error": error,
+    }
+    if job_id is not None:
+        payload["job_id"] = job_id
+    return payload
+
+
+# Back-compat alias for adapters that already import ``current_host_ui_job``.
+current_host_ui_job: contextvars.ContextVar[HostUiJobEntry | None] = contextvars.ContextVar(
+    "dcc_mcp_core_current_host_ui_job",
+    default=None,
+)
+
+
+class HostUiJobEntry:
+    """Per-submission state for a main-thread (or async) UI job."""
+
+    __slots__ = (
+        "affinity",
+        "cancel_flag",
+        "event",
+        "job_id",
+        "on_complete",
+        "outcome",
+        "progress_token",
+        "request_id",
+        "task",
+        "timeout_ms",
+    )
+
+    def __init__(
+        self,
+        request_id: str,
+        affinity: str,
+        task: Callable[[], Any],
+        timeout_ms: int | None = None,
+        *,
+        job_id: str | None = None,
+        progress_token: str | None = None,
+        on_complete: Callable[[dict[str, Any]], None] | None = None,
+    ) -> None:
+        self.request_id = request_id
+        self.affinity = affinity
+        self.task = task
+        self.timeout_ms = timeout_ms or DEFAULT_UI_JOB_TIMEOUT_MS
+        self.event = threading.Event()
+        self.outcome: dict[str, Any] | None = None
+        self.cancel_flag = threading.Event()
+        self.job_id = job_id
+        self.progress_token = progress_token
+        self.on_complete = on_complete
+
+    def cancel(self) -> None:
+        """Signal cooperative cancellation — idempotent."""
+        self.cancel_flag.set()
+
+    @property
+    def cancelled(self) -> bool:
+        return self.cancel_flag.is_set()
+
+    def execute(self) -> dict[str, Any]:
+        """Run ``task`` on the host thread and populate ``outcome``."""
+        token_job = set_current_job(self)
+        token_ui = current_host_ui_job.set(self)
+        try:
+            output = self.task()
+            self.outcome = host_ui_outcome(
+                self.request_id,
+                self.affinity,
+                success=True,
+                output=output,
+                job_id=self.job_id,
+            )
+        except CancelledError:
+            raise
+        except Exception as exc:
+            self.outcome = host_ui_outcome(
+                self.request_id,
+                self.affinity,
+                success=False,
+                error=str(exc),
+                job_id=self.job_id,
+            )
+        finally:
+            reset_current_job(token_job)
+            current_host_ui_job.reset(token_ui)
+        self.event.set()
+        if self.on_complete is not None:
+            try:
+                self.on_complete(self.outcome)
+            except Exception as cb_exc:  # pragma: no cover
+                logger.warning("HostUiJobEntry.on_complete raised: %s", cb_exc)
+        return self.outcome or host_ui_outcome(
+            self.request_id,
+            self.affinity,
+            success=False,
+            error="Job completed but outcome was not set",
+            job_id=self.job_id,
+        )
+
+
+class HostUiDispatcherBase:
+    """Base class for interactive DCC UI-thread dispatchers.
+
+    Subclasses must implement :meth:`poke_host_pump` to nudge the host event
+    loop (Maya ``executeDeferred``, Blender ``bpy.app.timers``, …).
+    """
+
+    def __init__(self, *, fail_fast_on_main_queue_busy: bool = False) -> None:
+        self._main_queue: deque[HostUiJobEntry] = deque()
+        self._lock = threading.Lock()
+        self._cancelled: set = set()
+        self._active: dict[str, HostUiJobEntry] = {}
+        self._shutdown = False
+        self._fail_fast_on_main_queue_busy = fail_fast_on_main_queue_busy
+
+    # ── Host hook ─────────────────────────────────────────────────────────
+
+    def poke_host_pump(self) -> None:
+        """Nudge the host to drain :meth:`drain_queue` soon."""
+        raise NotImplementedError
+
+    # ── Public API (shared across DCC adapters) ─────────────────────────────
+
+    def submit(
+        self,
+        action_name: str,
+        payload: str | None = None,
+        affinity: str = "any",
+        timeout_ms: int | None = None,
+    ) -> dict[str, Any]:
+        """Submit a static payload job (legacy IPC-style surface)."""
+
+        def _task():
+            return payload
+
+        return self.submit_callable(action_name, _task, affinity=affinity, timeout_ms=timeout_ms)
+
+    def submit_callable(
+        self,
+        request_id: str,
+        task: Callable[[], Any],
+        affinity: str = "main",
+        timeout_ms: int | None = None,
+    ) -> dict[str, Any]:
+        try:
+            affinity_norm = normalize_affinity(affinity)
+        except ValueError as exc:
+            return host_ui_outcome(
+                request_id,
+                affinity,
+                success=False,
+                error=str(exc),
+            )
+        if affinity_norm == "any":
+            return self.run_on_any_thread(request_id, task, affinity_norm)
+        return self._submit_main_sync(request_id, task, affinity_norm, timeout_ms)
+
+    def submit_async_callable(
+        self,
+        request_id: str,
+        task: Callable[[], Any],
+        *,
+        job_id: str | None = None,
+        progress_token: str | None = None,
+        on_complete: Callable[[dict[str, Any]], None] | None = None,
+        affinity: str = "main",
+        timeout_ms: int | None = None,
+    ) -> dict[str, Any]:
+        try:
+            affinity_norm = normalize_affinity(affinity)
+        except ValueError as exc:
+            return {
+                "request_id": request_id,
+                "job_id": job_id,
+                "status": "failed",
+                "success": False,
+                "error": str(exc),
+            }
+
+        if self._shutdown:
+            return {
+                "request_id": request_id,
+                "job_id": job_id,
+                "status": "interrupted",
+                "success": False,
+                "error": DispatcherErrorCode.INTERRUPTED,
+            }
+
+        if affinity_norm == "any":
+
+            def _bg() -> None:
+                result = self.run_on_any_thread(request_id, task, affinity_norm)
+                result["job_id"] = job_id
+                if on_complete is not None:
+                    try:
+                        on_complete(result)
+                    except Exception as exc:  # pragma: no cover
+                        logger.warning("submit_async_callable on_complete raised: %s", exc)
+
+            threading.Thread(target=_bg, daemon=True, name=f"host-ui-async-{request_id}").start()
+        else:
+            job = HostUiJobEntry(
+                request_id,
+                affinity_norm,
+                task,
+                timeout_ms,
+                job_id=job_id,
+                progress_token=progress_token,
+                on_complete=on_complete,
+            )
+            with self._lock:
+                self._main_queue.append(job)
+            self.poke_host_pump()
+
+        return {
+            "request_id": request_id,
+            "job_id": job_id,
+            "status": "pending",
+            "success": True,
+            "error": None,
+        }
+
+    def cancel(self, request_id: str) -> bool:
+        with self._lock:
+            self._cancelled.add(request_id)
+            for job in self._main_queue:
+                if job.request_id == request_id:
+                    job.cancel()
+                    job.outcome = host_ui_outcome(
+                        request_id,
+                        job.affinity,
+                        success=False,
+                        error=DispatcherErrorCode.CANCELLED,
+                        job_id=job.job_id,
+                    )
+                    job.event.set()
+                    return True
+            active_job = self._active.get(request_id)
+            if active_job is not None:
+                active_job.cancel()
+                return True
+        return False
+
+    def pending_count(self) -> int:
+        return len(self._main_queue)
+
+    def has_pending(self) -> bool:
+        return self.pending_count() > 0
+
+    def shutdown(self, reason: str = DispatcherErrorCode.INTERRUPTED) -> int:
+        signalled = 0
+        with self._lock:
+            self._shutdown = True
+            while self._main_queue:
+                job = self._main_queue.popleft()
+                job.cancel()
+                if job.outcome is None:
+                    job.outcome = host_ui_outcome(
+                        job.request_id,
+                        job.affinity,
+                        success=False,
+                        error=reason,
+                        job_id=job.job_id,
+                    )
+                job.event.set()
+                signalled += 1
+            for job in list(self._active.values()):
+                job.cancel()
+                signalled += 1
+        if signalled:
+            logger.info(
+                "%s.shutdown: signalled %d job(s) with reason=%r",
+                type(self).__name__,
+                signalled,
+                reason,
+            )
+        return signalled
+
+    @property
+    def is_shutdown(self) -> bool:
+        return self._shutdown
+
+    def supported(self) -> list[str]:
+        return ["any", "main"]
+
+    def capabilities(self) -> dict[str, bool]:
+        return {
+            "supports_main_thread": True,
+            "supports_named_threads": False,
+            "supports_any_thread": True,
+            "supports_time_slicing": True,
+        }
+
+    def drain_queue(self, budget_ms: float) -> tuple[int, int]:
+        """Drain the main-thread queue for up to *budget_ms* milliseconds."""
+        executed = 0
+        start = time.monotonic()
+        deadline = start + (budget_ms / 1000.0)
+
+        while time.monotonic() < deadline:
+            job = self._dequeue()
+            if job is None:
+                break
+
+            with self._lock:
+                if job.request_id in self._cancelled:
+                    self._cancelled.discard(job.request_id)
+                    if not job.event.is_set():
+                        job.outcome = host_ui_outcome(
+                            job.request_id,
+                            job.affinity,
+                            success=False,
+                            error=DispatcherErrorCode.CANCELLED,
+                            job_id=job.job_id,
+                        )
+                        job.event.set()
+                    continue
+                self._active[job.request_id] = job
+
+            try:
+                job.execute()
+            finally:
+                with self._lock:
+                    self._active.pop(job.request_id, None)
+            executed += 1
+
+        return executed, len(self._main_queue)
+
+    @staticmethod
+    def run_on_any_thread(request_id: str, task: Callable[[], Any], affinity: str) -> dict[str, Any]:
+        try:
+            return host_ui_outcome(request_id, affinity, success=True, output=task())
+        except Exception as exc:
+            return host_ui_outcome(request_id, affinity, success=False, error=str(exc))
+
+    # ── Internal ────────────────────────────────────────────────────────────
+
+    def _submit_main_sync(
+        self,
+        request_id: str,
+        task: Callable[[], Any],
+        affinity: str,
+        timeout_ms: int | None,
+    ) -> dict[str, Any]:
+        with self._lock:
+            if self._shutdown:
+                return host_ui_outcome(
+                    request_id,
+                    affinity,
+                    success=False,
+                    error=DispatcherErrorCode.INTERRUPTED,
+                )
+            if self._fail_fast_on_main_queue_busy and len(self._main_queue) > 0:
+                return host_ui_outcome(
+                    request_id,
+                    affinity,
+                    success=False,
+                    error=DispatcherErrorCode.HOST_BUSY,
+                )
+            job = HostUiJobEntry(request_id, affinity, task, timeout_ms)
+            self._main_queue.append(job)
+
+        self.poke_host_pump()
+
+        timeout_sec = (timeout_ms or DEFAULT_UI_JOB_TIMEOUT_MS) / 1000.0
+        if not job.event.wait(timeout=timeout_sec):
+            return host_ui_outcome(
+                request_id,
+                affinity,
+                success=False,
+                error=f"Timeout ({timeout_sec:.1f}s) waiting for main-thread execution",
+            )
+        return job.outcome or host_ui_outcome(
+            request_id,
+            affinity,
+            success=False,
+            error="Job completed but outcome was not set",
+        )
+
+    def _dequeue(self) -> HostUiJobEntry | None:
+        with self._lock:
+            if self._main_queue:
+                return self._main_queue.popleft()
+        return None
