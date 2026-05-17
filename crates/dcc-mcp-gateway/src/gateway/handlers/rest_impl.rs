@@ -26,7 +26,7 @@ pub async fn handle_gateway_yield(
 ) -> Response {
     #[derive(Deserialize)]
     struct YieldRequest {
-        challenger_version: String,
+        challenger_version: Option<String>,
     }
 
     let request: YieldRequest = match serde_json::from_slice(&body) {
@@ -40,9 +40,18 @@ pub async fn handle_gateway_yield(
         }
     };
 
-    if is_newer_version(&request.challenger_version, &gs.server_version) {
+    let challenger_version = request.challenger_version.unwrap_or_default();
+    if challenger_version.trim().is_empty() {
+        return gateway_yield_unavailable_response(
+            &gs.server_version,
+            None,
+            "missing challenger_version; cooperative gateway yield requires a newer challenger",
+        );
+    }
+
+    if is_newer_version(&challenger_version, &gs.server_version) {
         tracing::info!(
-            challenger = %request.challenger_version,
+            challenger = %challenger_version,
             current = %gs.server_version,
             "Gateway yield requested — initiating graceful handoff"
         );
@@ -51,23 +60,47 @@ pub async fn handle_gateway_yield(
             "ok": true,
             "message": format!(
                 "Gateway v{} yielding to challenger v{}. Port will be free shortly.",
-                gs.server_version, request.challenger_version
+                gs.server_version, challenger_version
             )
         }))
         .into_response()
     } else {
-        (
-            StatusCode::CONFLICT,
-            Json(json!({
-                "ok": false,
-                "error": format!(
-                    "Challenger version {} is not newer than gateway {}. Yield refused.",
-                    request.challenger_version, gs.server_version
-                )
-            })),
+        gateway_yield_unavailable_response(
+            &gs.server_version,
+            Some(&challenger_version),
+            &format!(
+                "challenger version {challenger_version} is not newer than gateway {}",
+                gs.server_version
+            ),
         )
-            .into_response()
     }
+}
+
+fn gateway_yield_unavailable_response(
+    current_version: &str,
+    challenger_version: Option<&str>,
+    reason: &str,
+) -> Response {
+    (
+        StatusCode::CONFLICT,
+        Json(json!({
+            "ok": false,
+            "success": false,
+            "capability": "cooperative_yield",
+            "fallback": "polling",
+            "current_version": current_version,
+            "challenger_version": challenger_version,
+            "error": {
+                "kind": "optional-capability-unsupported",
+                "capability": "cooperative_yield",
+                "message": format!(
+                    "Cooperative gateway yield is unavailable for this request: {reason}. \
+                     This is non-fatal; callers should poll for gateway availability."
+                ),
+            },
+        })),
+    )
+        .into_response()
 }
 
 /// `GET /instances` — return all live instances as JSON.
@@ -162,6 +195,9 @@ pub async fn handle_v1_context(State(gs): State<GatewayState>) -> impl IntoRespo
             "version": gs.server_version,
             "dcc": "gateway",
             "display_name": gs.server_name,
+            "capabilities": {
+                "cooperative_yield": true,
+            },
             "documents": [],
             "loaded_skill_count": loaded_skill_count,
             "action_count": records.len(),
@@ -519,4 +555,105 @@ fn error_response(err: &ServiceError) -> (StatusCode, Json<Value>) {
         _ => StatusCode::BAD_REQUEST,
     };
     (status, Json(service_error_to_json(err)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::to_bytes;
+    use dcc_mcp_transport::discovery::file_registry::FileRegistry;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::{RwLock, broadcast, watch};
+
+    fn test_gateway_state(server_version: &str) -> GatewayState {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+        let (yield_tx, _) = watch::channel(false);
+        let (events_tx, _) = broadcast::channel::<String>(8);
+        GatewayState {
+            registry,
+            stale_timeout: Duration::from_secs(30),
+            backend_timeout: Duration::from_secs(10),
+            async_dispatch_timeout: Duration::from_secs(60),
+            wait_terminal_timeout: Duration::from_secs(600),
+            server_name: "test".into(),
+            server_version: server_version.into(),
+            own_host: "127.0.0.1".into(),
+            own_port: 9765,
+            http_client: reqwest::Client::new(),
+            yield_tx: Arc::new(yield_tx),
+            events_tx: Arc::new(events_tx),
+            protocol_version: Arc::new(RwLock::new(None)),
+            resource_subscriptions: Arc::new(RwLock::new(HashMap::new())),
+            pending_calls: Arc::new(RwLock::new(HashMap::new())),
+            subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
+            allow_unknown_tools: false,
+            adapter_version: None,
+            adapter_dcc: None,
+            capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
+            event_log: Arc::new(crate::gateway::event_log::EventLog::new()),
+            middleware_chain: Arc::new(crate::gateway::middleware::MiddlewareChain::new()),
+            #[cfg(feature = "prometheus")]
+            gateway_metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
+        }
+    }
+
+    async fn response_json(resp: Response) -> (StatusCode, Value) {
+        let status = resp.status();
+        let bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let body = serde_json::from_slice(&bytes).unwrap();
+        (status, body)
+    }
+
+    #[tokio::test]
+    async fn gateway_yield_missing_challenger_is_structured_optional_capability() {
+        let (status, body) = response_json(
+            handle_gateway_yield(
+                State(test_gateway_state("1.2.3")),
+                axum::body::Bytes::from_static(b"{}"),
+            )
+            .await,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body["success"], false);
+        assert_eq!(body["fallback"], "polling");
+        assert_eq!(body["error"]["kind"], "optional-capability-unsupported");
+        assert_eq!(body["error"]["capability"], "cooperative_yield");
+    }
+
+    #[tokio::test]
+    async fn gateway_yield_same_version_is_structured_optional_capability() {
+        let (status, body) = response_json(
+            handle_gateway_yield(
+                State(test_gateway_state("1.2.3")),
+                axum::body::Bytes::from_static(br#"{"challenger_version":"1.2.3"}"#),
+            )
+            .await,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body["current_version"], "1.2.3");
+        assert_eq!(body["challenger_version"], "1.2.3");
+        assert_eq!(body["error"]["kind"], "optional-capability-unsupported");
+    }
+
+    #[tokio::test]
+    async fn gateway_yield_newer_challenger_still_accepts() {
+        let (status, body) = response_json(
+            handle_gateway_yield(
+                State(test_gateway_state("1.2.3")),
+                axum::body::Bytes::from_static(br#"{"challenger_version":"1.2.4"}"#),
+            )
+            .await,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["ok"], true);
+    }
 }

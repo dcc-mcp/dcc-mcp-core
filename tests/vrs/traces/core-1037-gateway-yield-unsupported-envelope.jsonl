@@ -1,0 +1,2 @@
+{"_vrs": {"version": 1}, "trace_id": "core-1037", "title": "Gateway yield unsupported path returns structured optional-capability envelope"}
+{"id": "yield_missing_challenger_version", "http": {"method": "POST", "path": "/gateway/yield", "json": {}}, "expect": {"status": 409, "json_subset": {"success": false, "capability": "cooperative_yield", "fallback": "polling", "error": {"kind": "optional-capability-unsupported", "capability": "cooperative_yield"}}}}
