@@ -6,30 +6,36 @@ Aligned with [rest-api-surface.md](https://github.com/loonghao/dcc-mcp-core/blob
 
 ## Discovery and health
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `/v1/healthz` | Liveness |
-| GET | `/v1/readyz` | Readiness (503 while booting) |
-| GET | `/v1/instances` | **Instance inventory** (`total`, `instances[]`) |
-| GET | `/v1/context` | Aggregated context + `instances` + counts |
-| GET | `/v1/openapi.json` | OpenAPI document |
+
+| Method | Path               | Purpose                                         |
+| ------ | ------------------ | ----------------------------------------------- |
+| GET    | `/v1/healthz`      | Liveness                                        |
+| GET    | `/v1/readyz`       | Readiness (503 while booting)                   |
+| GET    | `/v1/instances`    | **Instance inventory** (`total`, `instances[]`) |
+| GET    | `/v1/context`      | Aggregated context + `instances` + counts       |
+| GET    | `/v1/openapi.json` | OpenAPI document                                |
+
 
 ## Capability workflow
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| POST | `/v1/search` | Find tools; returns `hits[].tool_slug` |
-| POST | `/v1/describe` | Full schema for one slug |
-| GET | `/v1/tools/{slug}` | Describe alias (URL-encoded slug) |
-| POST | `/v1/call` | Invoke one tool |
-| POST | `/v1/call_batch` | Up to 25 ordered calls (`stop_on_error` optional) |
+
+| Method | Path               | Purpose                                           |
+| ------ | ------------------ | ------------------------------------------------- |
+| POST   | `/v1/search`       | Find tools; returns `hits[].tool_slug`            |
+| POST   | `/v1/describe`     | Full schema for one slug                          |
+| GET    | `/v1/tools/{slug}` | Describe alias (URL-encoded slug)                 |
+| POST   | `/v1/call`         | Invoke one tool                                   |
+| POST   | `/v1/call_batch`   | Up to 25 ordered calls (`stop_on_error` optional) |
+
 
 ## Path-style call (optional)
 
-| Method | Path | Body |
-|--------|------|------|
-| POST | `/v1/dcc/{dcc}/instances/{id}/call` | `{"backend_tool","arguments",...}` |
-| GET | `/v1/dcc/{dcc}/instances/{id}/describe?backend_tool=...` | — |
+
+| Method | Path                                                     | Body                               |
+| ------ | -------------------------------------------------------- | ---------------------------------- |
+| POST   | `/v1/dcc/{dcc}/instances/{id}/call`                      | `{"backend_tool","arguments",...}` |
+| GET    | `/v1/dcc/{dcc}/instances/{id}/describe?backend_tool=...` | —                                  |
+
 
 ## Example: inventory
 
@@ -86,9 +92,10 @@ curl -s -X POST "$GATEWAY/v1/call_batch" \
 
 ## Common errors
 
-| kind | HTTP | Action |
-|------|------|--------|
-| `unknown-slug` | 404 | Re-search; instance may have restarted |
-| `instance-offline` | 503 | Re-run `/v1/instances` |
-| `skill-not-loaded` | 409 | Load skill on backend or pick another tool |
-| `invalid-params` | 400 | Fix `arguments` per describe schema |
+
+| kind               | HTTP | Action                                     |
+| ------------------ | ---- | ------------------------------------------ |
+| `unknown-slug`     | 404  | Re-search; instance may have restarted     |
+| `instance-offline` | 503  | Re-run `/v1/instances`                     |
+| `skill-not-loaded` | 409  | Load skill on backend or pick another tool |
+| `invalid-params`   | 400  | Fix `arguments` per describe schema        |
