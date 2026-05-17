@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: DCC-MCP-Core
-  text: 面向 DCC 的 MCP + Skills
-  tagline: 生产级 MCP 与零代码 Skills 系统的结合。解决上下文爆炸，将 AI 与 Maya、Blender、Houdini、Photoshop 高性能对接。
+  text: 面向 DCC AI 的 Gateway-first MCP + Skills
+  tagline: 生产级 MCP、零代码 Skills、动态能力路由，以及可随 Release 直接安装的 CLI/server 二进制；面向 Maya、Blender、Houdini、Photoshop 与自定义工作室宿主。
   image:
     src: /logo.svg
     alt: DCC-MCP-Core
@@ -21,14 +21,14 @@ hero:
 
 features:
   - icon: 🎯
-    title: 解决 MCP 上下文爆炸
-    details: 会话隔离将每个 AI 会话绑定到单一 DCC 实例。tools/list 返回 150 个工具而非 750 个。按 DCC 类型、作用域和产品进行渐进式发现。
+    title: 动态能力路由
+    details: Agent 通过一个 gateway search、describe、call 工具，不再把所有后端工具塞进上下文。
   - icon: 🔌
     title: 零代码 Skill 注册
     details: 编写 SKILL.md + scripts/ 即获得 MCP 工具。无需 Python 胶水代码。支持 Python、MEL、MaxScript、Bash、PowerShell 等。
   - icon: 🏆
     title: 版本感知网关选举
-    details: 多 DCC 实例竞争网关角色，最新版本自动接管。无需手动故障转移——语义版本比较自动完成。
+    details: 多 DCC 实例竞争网关角色，新版本 adapter 可干净接管，已有实例仍可被发现和路由。
   - icon: 🦀
     title: Rust 驱动核心
     details: 零运行时 Python 依赖。通过 Named Pipe 和 Unix Socket 实现零拷贝 IPC。rmp-serde 序列化。LZ4 共享内存。毫秒级工具调用。
@@ -42,8 +42,8 @@ features:
     title: 沙箱与审计日志
     details: 基于策略的访问控制与内存审计日志。定义 AI 在每个 DCC 类型下能做什么，不能做什么。
   - icon: 🌐
-    title: MCP Streamable HTTP
-    details: 内置服务器（2025-03-26 规范）。Claude Desktop、Cursor 等 MCP 客户端直接通过 HTTP 连接。后台线程，从不阻塞 DCC。
+    title: MCP Streamable HTTP + REST
+    details: 内置 MCP server、REST /v1/* 动态能力面、Admin UI、审计日志、trace 与 gateway diagnostics。
   - icon: 📊
     title: 结构化结果
     details: 每个工具返回（success, message, context, next_steps）。AI 智能体能清晰推理执行结果。无需脆弱的文本解析。
