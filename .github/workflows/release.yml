@@ -92,9 +92,11 @@ jobs:
   #      attached to the GitHub Release. Backward-compat artefact for
   #      ops / docker users who don't want to `pip install`.
   #   2. PyPI wheel `dcc_mcp_server-<ver>-py3-none-<plat>.whl` built from
-  #      pkg/dcc-mcp-server-bin/ via maturin's `bindings = "bin"`. maturin
-  #      reuses the just-built binary from `target/release/` so we do NOT
-  #      compile twice (#1003 review feedback).
+  #      pkg/dcc-mcp-server-bin/ via maturin's `bindings = "bin"`. It has
+  #      no Python extension ABI and declares Python 3.7+ compatibility so
+  #      Maya 2022's embedded Python can install it. maturin reuses the
+  #      just-built binary from `target/release/` so we do NOT compile twice
+  #      (#1003 review feedback).
   #
   # Both artefacts ride the same release-please tag — there is exactly
   # one release lifecycle for the workspace, and `dcc-mcp-server` ships
@@ -202,6 +204,38 @@ jobs:
           "$PY" -c "from dcc_mcp_server import binary_path; print('binary_path =', binary_path())"
           "$PY" -m dcc_mcp_server --help 2>/dev/null || true  # module entry not required
 
+      - name: Check server wheel Python compatibility metadata
+        shell: bash
+        run: |
+          python - <<'PY'
+          import sys
+          import zipfile
+          from pathlib import Path
+
+          wheels = sorted(Path("pkg/dcc-mcp-server-bin/wheels").glob("*.whl"))
+          if not wheels:
+              print("::error::No dcc-mcp-server wheel was built", file=sys.stderr)
+              sys.exit(1)
+
+          for wheel in wheels:
+              with zipfile.ZipFile(wheel) as zf:
+                  metadata_name = next(
+                      name for name in zf.namelist()
+                      if name.endswith(".dist-info/METADATA")
+                  )
+                  metadata = zf.read(metadata_name).decode("utf-8")
+
+              if "Requires-Python: >=3.7" not in metadata:
+                  print(
+                      f"::error::{wheel.name} must declare Requires-Python: >=3.7 "
+                      "so Maya 2022 / Python 3.7 can install dcc-mcp-server",
+                      file=sys.stderr,
+                  )
+                  sys.exit(1)
+
+              print(f"{wheel.name}: Python 3.7+ metadata OK")
+          PY
+
       - name: Upload raw binary artefact (for cross-job collection)
         uses: actions/upload-artifact@v4
         with:
@@ -228,15 +262,16 @@ jobs:
     if: needs.release-please.outputs.release_created == 'true'
     uses: ./.github/workflows/build-wheels.yml
     with:
-      test-wheel: 'true'
+      test-wheel: ${{ 'true' }}
       checkout-ref: ${{ needs.release-please.outputs.tag_name }}
 
   # ── Publish to PyPI ──
   publish:
-    needs: [release-please, build-wheels]
+    needs: [release-please, build-wheels, build-binaries]
     if: |
       needs.release-please.outputs.release_created == 'true' &&
-      needs.build-wheels.result == 'success'
+      needs.build-wheels.result == 'success' &&
+      needs.build-binaries.result == 'success'
     runs-on: ubuntu-latest
     environment:
       name: pypi
