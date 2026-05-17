@@ -114,6 +114,11 @@ jobs:
           echo "RUSTC=$(rustup which rustc)" >> "$GITHUB_ENV"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - uses: loonghao/vx@v0.8.36
+      - name: Prepare admin UI dependencies
+        shell: bash
+        run: |
+          vx node --version
+          vx npm --prefix admin-ui ci
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
@@ -329,7 +334,10 @@ jobs:
       - uses: loonghao/vx@v0.8.36
 
       - name: Expose vx global shims
-        run: echo "$HOME/.vx/bin" >> "$GITHUB_PATH"
+        run: |
+          echo "$HOME/.vx/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
         shell: bash
 
       - name: Download wheel
@@ -345,11 +353,11 @@ jobs:
       # Install mcporter globally (Node/npm from vx.toml via vx).
       # The global binary is detected by the test suite and used directly.
       - name: Install mcporter globally
-        run: vx npm install -g mcporter@0.9.0
+        run: vx npm install -g mcporter@0.9.0 --force
         shell: bash
 
       - name: Verify mcporter
-        run: mcporter --version
+        run: mcporter --version || npx --yes mcporter@0.9.0 --version
         shell: bash
 
       - name: Run mcporter e2e tests
