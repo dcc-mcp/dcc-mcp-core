@@ -482,6 +482,12 @@ impl McpHttpServer {
                 .with_cancelled_requests(cancelled_requests)
                 .with_lazy_actions(self.config.features.lazy_actions)
                 .with_bare_tool_names(self.config.features.bare_tool_names)
+                .with_exclude_skill_stubs_from_tools_list(
+                    self.config.features.exclude_skill_stubs_from_tools_list,
+                )
+                .with_exclude_group_stubs_from_tools_list(
+                    self.config.features.exclude_group_stubs_from_tools_list,
+                )
                 .with_declared_capabilities(self.config.instance.declared_capabilities.clone())
                 .with_jobs(jobs)
                 .with_job_notifier(job_notifier)

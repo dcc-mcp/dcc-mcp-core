@@ -59,13 +59,17 @@ pub fn assemble_full_tool_list(
         }
     }
 
-    for (group, names) in &inactive_groups {
-        tools.push(build_group_stub(group, names));
+    if !state.exclude_group_stubs_from_tools_list {
+        for (group, names) in &inactive_groups {
+            tools.push(build_group_stub(group, names));
+        }
     }
 
-    let unloaded = state.catalog.list_skills(Some("unloaded"));
-    for summary in &unloaded {
-        tools.push(build_skill_stub(summary));
+    if !state.exclude_skill_stubs_from_tools_list {
+        let unloaded = state.catalog.list_skills(Some("unloaded"));
+        for summary in &unloaded {
+            tools.push(build_skill_stub(summary));
+        }
     }
 
     if let Some(sid) = session_id {

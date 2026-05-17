@@ -18,6 +18,13 @@ from dcc_mcp_core._server.callable_dispatcher import JobOutcome
 from dcc_mcp_core._server.callable_dispatcher import PendingEnvelope
 from dcc_mcp_core._server.callable_dispatcher import PumpStats
 from dcc_mcp_core._server.callable_dispatcher import current_callable_job
+from dcc_mcp_core._server.host_ui_dispatcher import DEFAULT_UI_JOB_TIMEOUT_MS
+from dcc_mcp_core._server.host_ui_dispatcher import DispatcherErrorCode
+from dcc_mcp_core._server.host_ui_dispatcher import HostUiDispatcherBase
+from dcc_mcp_core._server.host_ui_dispatcher import HostUiJobEntry
+from dcc_mcp_core._server.host_ui_dispatcher import current_host_ui_job
+from dcc_mcp_core._server.host_ui_dispatcher import host_ui_outcome
+from dcc_mcp_core._server.host_ui_dispatcher import normalize_affinity
 from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher
 from dcc_mcp_core._server.inprocess_executor import DeferredToolResult
 from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
@@ -39,9 +46,17 @@ from dcc_mcp_core._server.options import GatewayOptions
 from dcc_mcp_core._server.options import InlineExecution
 from dcc_mcp_core._server.options import ObservabilityOptions
 from dcc_mcp_core._server.skill_query import SkillQueryClient
+from dcc_mcp_core._server.tools_list_policy import ENV_EXCLUDE_STUBS_FROM_TOOLS_LIST
+from dcc_mcp_core._server.tools_list_policy import ToolsListStubPolicy
+from dcc_mcp_core._server.tools_list_policy import apply_tools_list_stub_policy
+from dcc_mcp_core._server.tools_list_policy import dcc_exclude_stubs_env_name
+from dcc_mcp_core._server.tools_list_policy import env_truthy
+from dcc_mcp_core._server.tools_list_policy import resolve_tools_list_stub_policy
 from dcc_mcp_core._server.window_resolver import WindowResolver
 
 __all__ = [
+    "DEFAULT_UI_JOB_TIMEOUT_MS",
+    "ENV_EXCLUDE_STUBS_FROM_TOOLS_LIST",
     "AdaptivePumpPolicy",
     "AdaptivePumpStats",
     "Affinity",
@@ -52,6 +67,7 @@ __all__ = [
     "DccServerOptions",
     "DeferredToolResult",
     "DiagnosticsOptions",
+    "DispatcherErrorCode",
     "DispatcherExecution",
     "DrainStats",
     "ExecutionMode",
@@ -59,6 +75,8 @@ __all__ = [
     "FileLoggingManager",
     "GatewayOptions",
     "HostExecutionBridge",
+    "HostUiDispatcherBase",
+    "HostUiJobEntry",
     "InProcessCallableDispatcher",
     "InProcessExecutionContext",
     "InlineExecution",
@@ -71,9 +89,17 @@ __all__ = [
     "PumpStats",
     "SkillQueryClient",
     "TelemetryManager",
+    "ToolsListStubPolicy",
     "WindowResolver",
+    "apply_tools_list_stub_policy",
     "build_inprocess_executor",
     "current_callable_job",
+    "current_host_ui_job",
+    "dcc_exclude_stubs_env_name",
+    "env_truthy",
     "exception_to_error_envelope",
+    "host_ui_outcome",
+    "normalize_affinity",
+    "resolve_tools_list_stub_policy",
     "run_skill_script",
 ]

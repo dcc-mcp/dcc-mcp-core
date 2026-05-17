@@ -186,6 +186,10 @@ class DccServerBase:
         self._config.dcc_type = options.dcc_name
         self._config.instance_metadata = self._context_metadata_from_env(options.dcc_name)
 
+        from dcc_mcp_core._server.tools_list_policy import apply_tools_list_stub_policy
+
+        apply_tools_list_stub_policy(self._config, options.dcc_name)
+
         # ── Job persistence ───────────────────────────────────────────────────
         self._init_job_persistence(options.dcc_name)
 
