@@ -69,12 +69,21 @@ export DCC_MCP_GATEWAY_URL="${DCC_MCP_GATEWAY_URL:-http://127.0.0.1:9765}"
 GATEWAY="$DCC_MCP_GATEWAY_URL"
 ```
 
-Quick probe (optional helper script):
+Quick probe (cross-platform helper — stdlib only, no curl required):
 
 ```bash
+# Linux / macOS
 python3 scripts/check_gateway.py
-# or: bash scripts/check_gateway.sh
+
+# Windows (cmd or PowerShell)
+py -3 scripts\check_gateway.py
+# PowerShell wrapper:
+pwsh scripts/check_gateway.ps1
+
+# Optional: bash scripts/check_gateway.sh
 ```
+
+Flags: `--gateway URL`, `--pretty` for indented JSON.
 
 ---
 
