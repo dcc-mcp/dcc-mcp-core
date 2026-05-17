@@ -17,6 +17,7 @@ from dataclasses import dataclass
 import os
 import re
 from typing import Any
+from typing import Optional
 
 __all__ = [
     "ENV_EXCLUDE_STUBS_FROM_TOOLS_LIST",
@@ -75,8 +76,8 @@ class ToolsListStubPolicy:
 def resolve_tools_list_stub_policy(
     dcc_name: str,
     *,
-    config: Any | None = None,
-    explicit: ToolsListStubPolicy | None = None,
+    config: Optional[Any] = None,
+    explicit: Optional[ToolsListStubPolicy] = None,
 ) -> ToolsListStubPolicy:
     """Resolve stub visibility for *dcc_name*.
 
@@ -115,7 +116,7 @@ def apply_tools_list_stub_policy(
     config: Any,
     dcc_name: str,
     *,
-    explicit: ToolsListStubPolicy | None = None,
+    explicit: Optional[ToolsListStubPolicy] = None,
 ) -> ToolsListStubPolicy:
     """Resolve and apply stub policy to *config*; return the policy used."""
     policy = resolve_tools_list_stub_policy(dcc_name, config=config, explicit=explicit)
