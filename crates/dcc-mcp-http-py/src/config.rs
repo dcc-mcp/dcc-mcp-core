@@ -277,6 +277,30 @@ impl PyMcpHttpConfig {
         self.inner.features.bare_tool_names = v;
     }
 
+    /// Omit unloaded-skill ``__skill__*`` stubs from ``tools/list`` (#174).
+    #[getter]
+    fn exclude_skill_stubs_from_tools_list(&self) -> bool {
+        self.inner.features.exclude_skill_stubs_from_tools_list
+    }
+
+    /// Omit unloaded-skill ``__skill__*`` stubs from ``tools/list`` (#174).
+    #[setter]
+    fn set_exclude_skill_stubs_from_tools_list(&mut self, v: bool) {
+        self.inner.features.exclude_skill_stubs_from_tools_list = v;
+    }
+
+    /// Omit inactive-group ``__group__*`` stubs from ``tools/list``.
+    #[getter]
+    fn exclude_group_stubs_from_tools_list(&self) -> bool {
+        self.inner.features.exclude_group_stubs_from_tools_list
+    }
+
+    /// Omit inactive-group ``__group__*`` stubs from ``tools/list``.
+    #[setter]
+    fn set_exclude_group_stubs_from_tools_list(&mut self, v: bool) {
+        self.inner.features.exclude_group_stubs_from_tools_list = v;
+    }
+
     /// Advertise the MCP Resources primitive (issue #350).
     #[getter]
     fn enable_resources(&self) -> bool {

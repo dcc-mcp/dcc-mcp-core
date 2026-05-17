@@ -96,6 +96,10 @@ pub struct ServerState {
     pub lazy_actions: bool,
     /// Enables bare tool names when unique.
     pub bare_tool_names: bool,
+    /// Omit ``__skill__*`` stubs from ``tools/list`` when true.
+    pub exclude_skill_stubs_from_tools_list: bool,
+    /// Omit ``__group__*`` stubs from ``tools/list`` when true.
+    pub exclude_group_stubs_from_tools_list: bool,
     /// Capabilities declared by the hosting adapter.
     pub declared_capabilities: Arc<Vec<String>>,
     /// Async job manager.
@@ -138,6 +142,8 @@ impl ServerState {
                 pending_elicitations: Arc::new(DashMap::new()),
                 lazy_actions: false,
                 bare_tool_names: true,
+                exclude_skill_stubs_from_tools_list: false,
+                exclude_group_stubs_from_tools_list: false,
                 declared_capabilities: Arc::new(Vec::new()),
                 jobs: Arc::new(JobManager::new()),
                 job_notifier: JobNotifier::new(sessions, true),
@@ -225,6 +231,20 @@ impl ServerStateBuilder {
     #[must_use]
     pub fn with_bare_tool_names(mut self, bare_tool_names: bool) -> Self {
         self.state.bare_tool_names = bare_tool_names;
+        self
+    }
+
+    /// Omit unloaded-skill ``__skill__*`` stubs from ``tools/list``.
+    #[must_use]
+    pub fn with_exclude_skill_stubs_from_tools_list(mut self, exclude: bool) -> Self {
+        self.state.exclude_skill_stubs_from_tools_list = exclude;
+        self
+    }
+
+    /// Omit inactive-group ``__group__*`` stubs from ``tools/list``.
+    #[must_use]
+    pub fn with_exclude_group_stubs_from_tools_list(mut self, exclude: bool) -> Self {
+        self.state.exclude_group_stubs_from_tools_list = exclude;
         self
     }
 
