@@ -228,15 +228,20 @@ docs-check:
 
 # Lint Python source (ruff check only)
 lint-py:
-    ruff check python/dcc_mcp_core/ tests/ examples/ scripts/vrs_replay.py
+    ruff check python/dcc_mcp_core/ tests/ examples/ scripts/
+    ruff format --check python/dcc_mcp_core/ tests/ examples/ scripts/
+
+# Verify pure-Python sources parse on Python 3.7 (cp37 wheel parity).
+lint-py37-syntax:
+    python scripts/run_with_py37.py scripts/check_py37_syntax.py
 
 # Auto-fix Python lint issues and format
 lint-py-fix:
-    ruff check --fix python/dcc_mcp_core/ tests/ examples/ scripts/vrs_replay.py
-    ruff format python/dcc_mcp_core/ tests/ examples/ scripts/vrs_replay.py
+    ruff check --fix python/dcc_mcp_core/ tests/ examples/ scripts/
+    ruff format python/dcc_mcp_core/ tests/ examples/ scripts/
 
-# Lint everything: Rust (clippy + fmt-check) + Python (ruff)
-lint: clippy fmt-check lint-py
+# Lint everything: Rust (clippy + fmt-check) + Python (ruff + py37 parse gate)
+lint: clippy fmt-check lint-py lint-py37-syntax
 
 # Fix all fixable lint issues (Rust fmt + Python ruff)
 lint-fix: fmt lint-py-fix
