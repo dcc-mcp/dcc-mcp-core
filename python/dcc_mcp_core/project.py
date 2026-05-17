@@ -430,14 +430,25 @@ def register_project_tools(
         return
 
     tools: list[tuple[str, str, dict[str, Any], Any]] = [
-        ("project.save", _PROJECT_SAVE_DESCRIPTION, _PROJECT_SAVE_SCHEMA,
-         lambda params: _project_handle_save(project, params)),
-        ("project.load", _PROJECT_LOAD_DESCRIPTION, _PROJECT_LOAD_SCHEMA,
-         _project_handle_load),
-        ("project.resume", _PROJECT_RESUME_DESCRIPTION, _PROJECT_RESUME_SCHEMA,
-         lambda params: _project_handle_resume(project, params)),
-        ("project.status", _PROJECT_STATUS_DESCRIPTION, _PROJECT_STATUS_SCHEMA,
-         lambda params: _project_handle_status(project, params)),
+        (
+            "project.save",
+            _PROJECT_SAVE_DESCRIPTION,
+            _PROJECT_SAVE_SCHEMA,
+            lambda params: _project_handle_save(project, params),
+        ),
+        ("project.load", _PROJECT_LOAD_DESCRIPTION, _PROJECT_LOAD_SCHEMA, _project_handle_load),
+        (
+            "project.resume",
+            _PROJECT_RESUME_DESCRIPTION,
+            _PROJECT_RESUME_SCHEMA,
+            lambda params: _project_handle_resume(project, params),
+        ),
+        (
+            "project.status",
+            _PROJECT_STATUS_DESCRIPTION,
+            _PROJECT_STATUS_SCHEMA,
+            lambda params: _project_handle_status(project, params),
+        ),
     ]
 
     for name, desc, schema, handler in tools:
