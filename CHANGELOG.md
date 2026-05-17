@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.4](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.3...v0.17.4) (2026-05-17)
+
+
+### Bug Fixes
+
+* **dispatcher:** use typing aliases for Python 3.7 wheel import ([222aee3](https://github.com/loonghao/dcc-mcp-core/commit/222aee36254326a2fbd24925bb11c86b867f6287))
+
 ## [0.17.3](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.2...v0.17.3) (2026-05-17)
 
 
