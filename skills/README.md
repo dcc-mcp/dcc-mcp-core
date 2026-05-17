@@ -11,21 +11,17 @@ Official skills and starter templates for the dcc-mcp-core ecosystem.
 | Skill | Description | Location |
 |-------|-------------|----------|
 | [`dcc-rest-gateway`](dcc-rest-gateway/) | Control any DCC via gateway REST only (no MCP); instance inventory and zero-instance setup | `skills/dcc-rest-gateway/` |
+| [`dcc-cli-gateway`](dcc-cli-gateway/) | Control any DCC through `dcc-mcp-cli`; instance inventory, search, describe, and call workflow | `skills/dcc-cli-gateway/` |
 | [`dcc-skills-creator`](dcc-skills-creator/) | Create, validate, and scaffold DCC skills | `skills/dcc-skills-creator/` |
 
-### ClawHub publish
+### Install and validate
 
-Manifest: [`.github/clawhub-skills.json`](../.github/clawhub-skills.json). Merging to
-`main` runs [`.github/workflows/clawhub.yml`](../.github/workflows/clawhub.yml) (requires
-repository secret `CLAWHUB_TOKEN`).
+Users can install these skills from OpenClaw/ClawHub, or reference the checked-out
+skill directories directly.
 
 ```bash
-# Local dry-run (validate SKILL.md, print publish command)
-just clawhub-sync-dry-run
-
-# Manual publish
-cd skills/dcc-rest-gateway
-npx clawhub@0.7.0 publish . --slug dcc-rest-gateway --version 1.0.0 --no-input
+# Local validation
+python -c "from dcc_mcp_core import validate_skill; print(validate_skill('skills/dcc-cli-gateway').is_clean)"
 ```
 
 ## Bundled Skills
@@ -282,6 +278,7 @@ skills shipped in `examples/skills/`, or browse them directly:
 | [cancellable-loop](../examples/skills/cancellable-loop/) | example | python | Cooperative cancellation |
 | [clawhub-compat](../examples/skills/clawhub-compat/) | example | python | Full OpenClaw format |
 | [dcc-rest-gateway](dcc-rest-gateway/) | infrastructure | python | REST-only gateway control; ClawHub publishable |
+| [dcc-cli-gateway](dcc-cli-gateway/) | infrastructure | python | CLI gateway control with `dcc-mcp-cli`; ClawHub publishable |
 | [dcc-diagnostics](../examples/skills/dcc-diagnostics/) | infrastructure | python | Also bundled |
 | [workflow](../examples/skills/workflow/) | infrastructure | python | Also bundled |
 | [usd-tools](../examples/skills/usd-tools/) | infrastructure | python | Read-only USD tools |

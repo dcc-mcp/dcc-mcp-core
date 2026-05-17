@@ -284,7 +284,7 @@ vx just lint
 - Check out the [Skills System](/guide/skills) for zero-code script registration
 - Expose tools with [MCP HTTP Server](/api/http)
 - See the [Transport Layer](/guide/transport) for DCC communication
-- Understand the [Architecture](/guide/architecture) of the 15-crate Rust workspace
+- Understand the [Architecture](/guide/architecture) of the 38-member Rust workspace
 - Learn [Skill Scopes & Policies](/guide/skill-scopes-policies) for trust-based skill management
 - Validate tool names with [SEP-986 Naming Rules](/guide/naming)
 
@@ -323,12 +323,12 @@ When building tools for AI agents to consume:
 1. **Design around user workflows**, not raw API calls. A tool called `create_character` is better than three separate calls to `create_joint`, `bind_skin`, `apply_animation`.
 2. **Use `ToolAnnotations`** to signal safety properties — `read_only_hint=True`, `destructive_hint=False`, `idempotent_hint=True` — so AI clients make informed choices.
 3. **Return human-readable errors** via `error_result("msg", "specific error")` with actionable suggestions in `prompt`.
-4. **Use `next-tools`** in SKILL.md to guide AI agents to follow-up tools (e.g. `on-failure: [dcc_diagnostics__screenshot]`).
+4. **Use `next-tools`** inside sibling `tools.yaml` declarations to guide AI agents to follow-up tools (e.g. `on-failure: [dcc_diagnostics__screenshot]`).
 5. **Keep `tools/list` small** by using tool groups with `default_active=false` for power-user features. Agents activate groups on demand.
 6. **Validate all AI-provided inputs** with `ToolValidator.from_schema_json()` before execution — never trust LLM output blindly.
 7. **Write action-oriented descriptions** — describe *what the tool does* and *when to use it* in the first sentence. Include specific keywords so `search_skills()` can match. Bad: "Helper for geometry." Good: "Create a polygon sphere with configurable radius and subdivisions. Use when the user asks to create a sphere, ball, or round 3D object in Maya."
 8. **Always provide `on-failure` chains** for domain skills — point to `dcc_diagnostics__screenshot` and `dcc_diagnostics__audit_log` so agents can debug failures automatically.
-9. **Declare `depends: [dcc-diagnostics]`** in every domain skill — ensures diagnostics are loaded before the skill's tools become available.
+9. **Declare dependencies under `metadata.dcc-mcp.depends`** in every domain skill — ensures diagnostics are loaded before the skill's tools become available.
 10. **Tag every skill with `metadata.dcc-mcp.layer`** — infrastructure, domain, thin-harness, or example. Untagged skills cause routing ambiguity as the catalog grows.
 
 ### MCP Tool Design Checklist

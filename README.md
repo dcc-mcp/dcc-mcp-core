@@ -1,13 +1,20 @@
 # dcc-mcp-core
 
-[![PyPI](https://img.shields.io/pypi/v/dcc-mcp-core)](https://pypi.org/project/dcc-mcp-core/)
-[![Python](https://img.shields.io/pypi/pyversions/dcc-mcp-core)](https://www.python.org/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Downloads](https://static.pepy.tech/badge/dcc-mcp-core)](https://pepy.tech/project/dcc-mcp-core)
-[![Coverage](https://img.shields.io/codecov/c/github/loonghao/dcc-mcp-core)](https://codecov.io/gh/loonghao/dcc-mcp-core)
-[![Tests](https://img.shields.io/github/actions/workflow/status/loonghao/dcc-mcp-core/ci.yml?branch=main&label=Tests)](https://github.com/loonghao/dcc-mcp-core/actions)
+[![Core PyPI](https://img.shields.io/pypi/v/dcc-mcp-core?label=core%20PyPI)](https://pypi.org/project/dcc-mcp-core/)
+[![Server PyPI](https://img.shields.io/pypi/v/dcc-mcp-server?label=server%20PyPI)](https://pypi.org/project/dcc-mcp-server/)
+[![Python](https://img.shields.io/pypi/pyversions/dcc-mcp-core?label=Python)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![CI](https://img.shields.io/github/actions/workflow/status/loonghao/dcc-mcp-core/ci.yml?branch=main&label=CI)](https://github.com/loonghao/dcc-mcp-core/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/codecov/c/github/loonghao/dcc-mcp-core?label=coverage)](https://codecov.io/gh/loonghao/dcc-mcp-core)
+[![GitHub Release](https://img.shields.io/github/v/release/loonghao/dcc-mcp-core?label=GitHub%20release)](https://github.com/loonghao/dcc-mcp-core/releases)
+[![Release Downloads](https://img.shields.io/github/downloads/loonghao/dcc-mcp-core/total?label=release%20downloads)](https://github.com/loonghao/dcc-mcp-core/releases)
+[![Core Downloads](https://img.shields.io/pypi/dm/dcc-mcp-core?label=core%20PyPI%20downloads)](https://pypistats.org/packages/dcc-mcp-core)
+[![Core Pepy](https://static.pepy.tech/badge/dcc-mcp-core)](https://pepy.tech/project/dcc-mcp-core)
+[![Server Downloads](https://img.shields.io/pypi/dm/dcc-mcp-server?label=server%20PyPI%20downloads)](https://pypistats.org/packages/dcc-mcp-server)
+[![CLI Linux](https://img.shields.io/github/downloads/loonghao/dcc-mcp-core/latest/dcc-mcp-cli-linux-x86_64?label=cli%20linux)](https://github.com/loonghao/dcc-mcp-core/releases/latest)
+[![CLI Windows](https://img.shields.io/github/downloads/loonghao/dcc-mcp-core/latest/dcc-mcp-cli-windows-x86_64.exe?label=cli%20windows)](https://github.com/loonghao/dcc-mcp-core/releases/latest)
+[![CLI macOS](https://img.shields.io/github/downloads/loonghao/dcc-mcp-core/latest/dcc-mcp-cli-macos-universal2?label=cli%20macOS)](https://github.com/loonghao/dcc-mcp-core/releases/latest)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
-[![Latest Version](https://img.shields.io/github/v/tag/loonghao/dcc-mcp-core?label=Latest%20Version)](https://github.com/loonghao/dcc-mcp-core/releases)
 
 [中文](README_zh.md) | English
 
@@ -80,37 +87,42 @@ AI-friendly docs: [AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](d
 ## Architecture: The Current Stack
 
 ```
-+-----------------------------------------------------------------+
-|  AI Agent (Claude, GPT, etc.)                                   |
-|  Uses MCP tools or REST /v1/* through one gateway endpoint       |
-+-------------------------------+---------------------------------+
-                                |
-                        MCP Streamable HTTP + REST
-                                |
-+-------------------------------v---------------------------------+
-|  Elected Gateway (Rust / HTTP)                                  |
-|  +-- Dynamic capability search / describe / call                |
-|  +-- Instance registry, admin UI, audit logs, traces            |
-|  +-- Version-aware election and failover                        |
-|  +-- Job lifecycle, workflows, artefacts, resources             |
-+-------------------------------+---------------------------------+
-                                |
-                 Per-DCC MCP servers, IPC, or WebSocket bridges
-                                |
-          +---------------------+---------------------+
-          |                     |                     |
-  +-------v-------+     +-------v-------+     +-------v-------+
-  |  Maya Adapter  |     | Blender Adapter|     | Houdini Adapter|
-  |  (_core.pyd)   |     |  (_core.so)    |     |  (_core.so)   |
-  +-------+--------+     +-------+--------+     +-------+-------+
-          |                      |                      |
-    Python 3.7+             Python 3.7+            Python 3.7+
-    (zero deps)             (zero deps)            (zero deps)
++--------------------------------------------------------------------------------+
+| Agent / operator surfaces                                                       |
+| - MCP clients: search_tools -> describe_tool -> call_tool                       |
+| - CLI users: dcc-mcp-cli list/search/describe/call                              |
+| - ClawHub/OpenClaw skills: dcc-cli-gateway or dcc-rest-gateway                  |
+| - CI and custom clients: REST /v1/*                                             |
++----------------------------------------+---------------------------------------+
+                                         |
+                       MCP Streamable HTTP + REST /v1/*
+                                         |
++----------------------------------------v---------------------------------------+
+| Elected gateway (Rust HTTP control plane)                                       |
+| - Minimal MCP tools/list: discovery and dispatch primitives only                |
+| - Dynamic capability search, schema describe, single/batch call routing         |
+| - Instance registry, TCP liveness probes, version-aware election, failover      |
+| - Admin UI, OpenAPI, audit logs, traces, metrics, jobs, workflows, artefacts    |
++----------------------------------------+---------------------------------------+
+                                         |
+                    Gateway-routed calls to owning per-DCC server
+                                         |
+        +-------------------------------+-------------------------------+
+        |                               |                               |
++-------v--------+              +-------v--------+              +-------v--------+
+| Maya adapter   |              | Blender adapter|              | Custom host    |
+| MCP + REST     |              | MCP + REST     |              | MCP + REST     |
+| Skills catalog |              | Skills catalog |              | Skills catalog |
++-------+--------+              +-------+--------+              +-------+--------+
+        |                               |                               |
+  Host bridge / UI-thread pump    Host bridge / add-on           Host RPC / IPC
+        |                               |                               |
+   Maya Python APIs                 Blender Python APIs           Studio APIs
 ```
 
-- **Agent surface**: MCP clients use `search_tools` -> `describe_tool` -> `call_tool`; non-MCP clients use the matching `/v1/search`, `/v1/describe`, `/v1/call`, and `/v1/call_batch` endpoints.
-- **Gateway surface**: One elected gateway aggregates per-DCC servers, exposes the admin UI, records audit/trace data, and keeps the public tool list small.
-- **DCC surface**: Embedded Python adapters, standalone `dcc-mcp-server`, and WebSocket bridges all register the same structured Skills-derived capabilities.
+- **Agent surface**: MCP clients use a bounded discovery/dispatch tool set; CLI and skill users can reach the same gateway through `dcc-mcp-cli` or `/v1/*`.
+- **Gateway surface**: One elected gateway aggregates per-DCC servers, keeps `tools/list` small, exposes OpenAPI/Admin UI, records audit/trace data, and routes by tool slug.
+- **DCC surface**: Embedded adapters, standalone `dcc-mcp-server`, and bridge-based hosts all expose the same Skills-derived capabilities over MCP + REST.
 
 ---
 
@@ -120,10 +132,10 @@ AI-friendly docs: [AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](d
 
 ```bash
 # One-command CLI install from GitHub Releases
-curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | sh
+curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | bash
 
 # Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+powershell -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
 
 # From PyPI (pre-built wheels for Python 3.7+)
 pip install dcc-mcp-core
@@ -369,7 +381,7 @@ That's it — no Python glue code, just `SKILL.md` + `tools.yaml` + scripts.
 | `.mel` | MEL (Maya) | Via DCC adapter |
 | `.ms` | MaxScript | Via DCC adapter |
 | `.bat`, `.cmd` | Batch | `cmd /c` |
-| `.sh`, `.bash` | Shell | `bash` |
+| `.sh`, `.bash` | bashell | `bash` |
 | `.ps1` | PowerShell | `powershell -File` |
 | `.js`, `.jsx` | JavaScript | `node` |
 | `.ts` | TypeScript | `node` (via ts-node or tsx) |
@@ -450,9 +462,9 @@ tools/list response (Maya session, nothing loaded yet):
 
 ---
 
-## Architecture Overview — 35 Workspace Members
+## Architecture Overview — 38 Workspace Members
 
-`dcc-mcp-core` is organised as a **Rust workspace of 35 members** (34 functional crates + `workspace-hack`), compiled into a single native Python extension (`_core`) via PyO3 / maturin. The root `Cargo.toml` is the source of truth for membership. Selected crates:
+`dcc-mcp-core` is organised as a **Rust workspace of 38 members** (37 functional crates + `workspace-hack`). Most library crates compile into the native Python extension (`_core`) via PyO3 / maturin, while operator-facing crates such as `dcc-mcp-cli`, `dcc-mcp-server`, and tunnel binaries also ship as release assets. The root `Cargo.toml` is the source of truth for membership. Selected crates:
 
 | Crate | Responsibility | Key Types |
 |---|---|---|
@@ -477,6 +489,7 @@ tools/list response (Maya session, nothing loaded yet):
 | `dcc-mcp-telemetry` | Observability | `TelemetryConfig`, `ToolRecorder`, `ToolMetrics`, optional Prometheus |
 | `dcc-mcp-usd` | USD integration | `UsdStage`, `UsdPrim`, `scene_info_json_to_stage` |
 | `dcc-mcp-http` | MCP Streamable HTTP facade | `McpHttpServer`, `McpHttpConfig`, `McpServerHandle`, PyO3 bindings, compatibility re-exports |
+| `dcc-mcp-cli` | Client control-plane CLI | `dcc-mcp-cli list/search/describe/call/install` |
 | `dcc-mcp-server` | Binary entry point | `dcc-mcp-server` CLI, gateway runner |
 | `dcc-mcp-workflow` | Workflow engine (opt-in) | `WorkflowSpec`, `WorkflowExecutor`, `WorkflowHost`, `StepPolicy`, `RetryPolicy` |
 | `dcc-mcp-scheduler` | Cron + webhook scheduler (opt-in) | `ScheduleSpec`, `TriggerSpec`, `SchedulerService`, HMAC verification |
