@@ -93,8 +93,9 @@ def test_host_ui_job_honours_check_dcc_cancelled():
         check_dcc_cancelled()
 
     entry.task = _task
-    with pytest.raises(CancelledError):
-        entry.execute()
+    outcome = entry.execute()
+    assert outcome["success"] is False
+    assert outcome["error"] == DispatcherErrorCode.CANCELLED
 
 
 def test_async_any_affinity_completes():
