@@ -1,10 +1,44 @@
 # 架构设计
 
-DCC-MCP-Core 是一个 Rust workspace，通过 PyO3 提供 Python 绑定。核心特点：
+DCC-MCP-Core 是一个 Rust workspace，通过 PyO3 提供 Python 绑定。当前架构是 gateway-first：MCP 客户端、CLI 用户、ClawHub/OpenClaw skills、CI 和自定义 HTTP 客户端都汇聚到一套小型发现/调度控制面，而不是把所有后端工具塞进 `tools/list`。
 
 - **零运行时第三方依赖** — Rust 核心无第三方运行时依赖
 - **可选 Python 绑定** — 通过 PyO3 实现 DCC 集成
-- **35 个 workspace 成员**（34 个功能 crate + `workspace-hack`）— 以根目录 `Cargo.toml` 为准，按需选择性依赖
+- **38 个 workspace 成员**（37 个功能 crate + `workspace-hack`）— 以根目录 `Cargo.toml` 为准，按需选择性依赖
+
+## 当前 Gateway-first 栈
+
+```
++--------------------------------------------------------------------------------+
+| Agent / operator surfaces                                                       |
+| - MCP clients: search_tools -> describe_tool -> call_tool                       |
+| - CLI users: dcc-mcp-cli list/search/describe/call                              |
+| - ClawHub/OpenClaw skills: dcc-cli-gateway or dcc-rest-gateway                  |
+| - CI and custom clients: REST /v1/*                                             |
++----------------------------------------+---------------------------------------+
+                                         |
+                       MCP Streamable HTTP + REST /v1/*
+                                         |
++----------------------------------------v---------------------------------------+
+| Elected gateway (Rust HTTP control plane)                                       |
+| - Minimal MCP tools/list: discovery and dispatch primitives only                |
+| - Dynamic capability search, schema describe, single/batch call routing         |
+| - Instance registry, TCP liveness probes, version-aware election, failover      |
+| - Admin UI, OpenAPI, audit logs, traces, metrics, jobs, workflows, artefacts    |
++----------------------------------------+---------------------------------------+
+                                         |
+                    Gateway-routed calls to owning per-DCC server
+                                         |
+        +-------------------------------+-------------------------------+
+        |                               |                               |
++-------v--------+              +-------v--------+              +-------v--------+
+| Maya adapter   |              | Blender adapter|              | Custom host    |
+| MCP + REST     |              | MCP + REST     |              | MCP + REST     |
+| Skills catalog |              | Skills catalog |              | Skills catalog |
++-------+--------+              +-------+--------+              +-------+--------+
+        |                               |                               |
+  Host bridge / UI-thread pump    Host bridge / add-on           Host RPC / IPC
+```
 
 ## Crate 结构
 
@@ -15,9 +49,11 @@ dcc-mcp-core (workspace 根目录)
 ├── dcc-mcp-skills       # SkillScanner, SkillCatalog, SkillWatcher, Resolver
 ├── dcc-mcp-protocols    # MCP 类型: ToolDefinition, ResourceDefinition, Prompt, BridgeKind
 ├── dcc-mcp-jsonrpc      # MCP 2025-03-26 JSON-RPC 线协议类型
+├── dcc-mcp-wire         # MCP/REST call envelope 规范化
 ├── dcc-mcp-job          # 异步 job 追踪和可选持久化
 ├── dcc-mcp-skill-rest   # Per-DCC /v1/* REST Skill API
 ├── dcc-mcp-gateway-core # 纯 gateway 领域/search/ranking 类型
+├── dcc-mcp-gateway-search # 能力搜索/排序引擎
 ├── dcc-mcp-gateway      # Multi-DCC 网关应用层和动态 wrappers
 ├── dcc-mcp-http-types   # 纯 HTTP 线协议/配置/值类型、McpHttpConfig
 ├── dcc-mcp-http-server  # 可复用 HTTP runtime 支撑层
@@ -29,7 +65,11 @@ dcc-mcp-core (workspace 根目录)
 ├── dcc-mcp-shm          # Shared memory: PySharedBuffer, PyBufferPool
 ├── dcc-mcp-capture      # Screen capture: Capturer, CaptureFrame
 ├── dcc-mcp-usd          # USD scene description: UsdStage, SdfPath, VtValue
+├── dcc-mcp-workflow     # YAML 工作流与恢复
+├── dcc-mcp-scheduler    # cron/webhook 调度
+├── dcc-mcp-artefact     # FileRef 与内容寻址交接
 ├── dcc-mcp-http         # Embedded MCP HTTP facade + 兼容 re-export
+├── dcc-mcp-cli          # 客户端控制面 CLI
 ├── dcc-mcp-server       # 二进制入口点: dcc-mcp-server, gateway runner
 ├── dcc-mcp-logging      # 滚动文件日志
 ├── dcc-mcp-paths        # 平台路径辅助
@@ -51,11 +91,15 @@ dcc-mcp-skills ← dcc-mcp-actions, dcc-mcp-models
        ↓
 dcc-mcp-protocols ← dcc-mcp-models
        ↓
+dcc-mcp-wire ← dcc-mcp-jsonrpc, serde_json（规范化 MCP/REST call envelope）
+       ↓
 dcc-mcp-transport ← dcc-mcp-protocols
        ↓
 dcc-mcp-gateway-core ← 纯 gateway 领域/search/ranking 类型
        ↓
-dcc-mcp-gateway ← dcc-mcp-gateway-core, dcc-mcp-transport
+dcc-mcp-gateway-search ← 可复用能力搜索/排序引擎
+       ↓
+dcc-mcp-gateway ← dcc-mcp-gateway-core, dcc-mcp-gateway-search, dcc-mcp-wire, dcc-mcp-transport
        ↓
 dcc-mcp-http-types ← 纯 HTTP 线协议/配置/值类型
        ↓
@@ -64,6 +108,8 @@ dcc-mcp-http-server ← dcc-mcp-http-types, dcc-mcp-jsonrpc, dcc-mcp-job, dcc-mc
 dcc-mcp-http ← dcc-mcp-http-types, dcc-mcp-http-server, dcc-mcp-gateway, dcc-mcp-skill-rest
        ↓
 dcc-mcp-server ← dcc-mcp-http
+
+dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 ```
 
 ## 各 Crate 职责
@@ -108,7 +154,7 @@ dcc-mcp-server ← dcc-mcp-http
 - `SkillMetadata` — 从 agentskills.io `SKILL.md` 以及 `metadata.dcc-mcp.*` 指向的同级文件解析的元数据
 - 依赖解析：`resolve_dependencies`、`expand_transitive_dependencies`、`validate_dependencies`
 
-**技能包格式**：`SKILL.md` 含 YAML frontmatter（`name`、`version`、`description`、`tools`、`dcc`、`tags`、`depends`、`search-hint`）
+**技能包格式**：`SKILL.md` 使用 agentskills.io frontmatter（`name`、`description`、可选 `license` / `compatibility` / `allowed-tools`），dcc-mcp-core 扩展放在 `metadata.dcc-mcp.*` 下，并指向同级文件（例如 `tools.yaml`、`groups.yaml`、workflow、prompt、resource 和外部依赖声明）。严格 loader 会拒绝旧的顶层 dcc-mcp 扩展键。
 
 **依赖**：`dcc-mcp-actions`、`dcc-mcp-models`
 
