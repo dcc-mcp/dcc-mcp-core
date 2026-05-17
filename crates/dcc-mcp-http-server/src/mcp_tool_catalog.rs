@@ -231,6 +231,15 @@ pub(crate) fn missing_capabilities(required: &[String], declared: &[String]) -> 
         .collect()
 }
 
+/// Whether *name* is a progressive-loading stub surfaced in ``tools/list``.
+#[must_use]
+pub fn is_progressive_tool_stub(name: &str) -> bool {
+    name.starts_with("__skill__")
+        || name.starts_with("__group__")
+        || name.contains(".__skill__")
+        || name.contains(".__group__")
+}
+
 #[must_use]
 pub fn build_skill_stub(summary: &SkillSummary) -> McpTool {
     let has_explicit_hint =
