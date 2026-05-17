@@ -11,9 +11,7 @@
 
 [中文](README_zh.md) | English
 
-**Production-grade foundation for AI-assisted DCC workflows** — combining the **Model Context Protocol (MCP 2025-03-26 Streamable HTTP)** with a **zero-code Skills system** built on [agentskills.io 1.0](https://agentskills.io/specification). A **Rust-powered core with Python bindings (PyO3)** delivering enterprise-grade performance, security, and scalability — all with **zero runtime Python dependencies**. Supports Python 3.7–3.13.
-
-> **Note**: This project is in active development (v0.15+). APIs may evolve; see `CHANGELOG.md` for version history.
+**Production-grade foundation for AI-assisted DCC workflows** — a new gateway-first architecture that combines **MCP 2025-03-26 Streamable HTTP**, a **zero-code Skills system** built on [agentskills.io 1.0](https://agentskills.io/specification), and a Rust control plane for discovery, routing, installation, and operations. The Python package keeps **zero runtime Python dependencies** for embedded DCC hosts, while the standalone `dcc-mcp-cli` and `dcc-mcp-server` binaries ship through GitHub Releases for workstation-style installs. Supports Python 3.7–3.13.
 
 ---
 
@@ -79,26 +77,25 @@ AI-friendly docs: [AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](d
 
 ---
 
-## Architecture: The Three-Layer Stack
+## Architecture: The Current Stack
 
 ```
 +-----------------------------------------------------------------+
 |  AI Agent (Claude, GPT, etc.)                                   |
-|  Calls tools via MCP protocol (tools/list, tools/call)          |
+|  Uses MCP tools or REST /v1/* through one gateway endpoint       |
 +-------------------------------+---------------------------------+
                                 |
-                        MCP Streamable HTTP
+                        MCP Streamable HTTP + REST
                                 |
 +-------------------------------v---------------------------------+
-|  Gateway Server (Rust / HTTP)                                   |
-|  +-- Version-aware instance election                            |
-|  +-- Session isolation & routing                                |
-|  +-- Tool discovery (skills-derived)                            |
-|  +-- Job lifecycle + SSE notifications                          |
-|  +-- Workflow execution engine                                  |
+|  Elected Gateway (Rust / HTTP)                                  |
+|  +-- Dynamic capability search / describe / call                |
+|  +-- Instance registry, admin UI, audit logs, traces            |
+|  +-- Version-aware election and failover                        |
+|  +-- Job lifecycle, workflows, artefacts, resources             |
 +-------------------------------+---------------------------------+
                                 |
-                 IPC (Named Pipe / Unix Socket) via DccLink
+                 Per-DCC MCP servers, IPC, or WebSocket bridges
                                 |
           +---------------------+---------------------+
           |                     |                     |
@@ -111,9 +108,9 @@ AI-friendly docs: [AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](d
     (zero deps)             (zero deps)            (zero deps)
 ```
 
-- **Layer 1 — AI Agent**: Calls tools via standard MCP protocol (`tools/list`, `tools/call`, notifications).
-- **Layer 2 — Gateway**: Orchestrates discovery, session isolation, request routing, job lifecycle, and workflow execution. Maintains a `__gateway__` sentinel for version-aware election.
-- **Layer 3 — DCC Adapters**: DCC-side Python packages (Maya, Blender, Photoshop, Houdini…) that embed the `_core` native extension plus the Skills system. WebView-host adapters (AuroraView, Electron panels) and WebSocket bridges (Photoshop, ZBrush) use narrower capability surfaces.
+- **Agent surface**: MCP clients use `search_tools` -> `describe_tool` -> `call_tool`; non-MCP clients use the matching `/v1/search`, `/v1/describe`, `/v1/call`, and `/v1/call_batch` endpoints.
+- **Gateway surface**: One elected gateway aggregates per-DCC servers, exposes the admin UI, records audit/trace data, and keeps the public tool list small.
+- **DCC surface**: Embedded Python adapters, standalone `dcc-mcp-server`, and WebSocket bridges all register the same structured Skills-derived capabilities.
 
 ---
 
@@ -122,6 +119,12 @@ AI-friendly docs: [AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](d
 ### Installation
 
 ```bash
+# One-command CLI install from GitHub Releases
+curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | sh
+
+# Windows PowerShell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+
 # From PyPI (pre-built wheels for Python 3.7+)
 pip install dcc-mcp-core
 
@@ -131,6 +134,8 @@ cd dcc-mcp-core
 vx just dev           # recommended — uses the project's canonical feature set
 # or: pip install -e .
 ```
+
+Every release attaches raw `dcc-mcp-cli` and `dcc-mcp-server` binaries for Linux, Windows, and macOS universal2. `dcc-mcp-server` also ships as the `dcc-mcp-server` Python wheel for hosts that prefer `pip install`.
 
 ### Serve a DCC over MCP — Skills-First (recommended)
 
@@ -609,7 +614,7 @@ This project uses [Release Please](https://github.com/googleapis/release-please)
 1. **Develop**: Create a branch from `main` and commit using [Conventional Commits](https://www.conventionalcommits.org/).
 2. **Merge**: Open a PR and merge to `main`.
 3. **Release PR**: Release Please automatically creates / updates a release PR that bumps the version and updates `CHANGELOG.md`.
-4. **Publish**: When the release PR merges, a GitHub Release is created and the wheel is published to PyPI.
+4. **Publish**: When the release PR merges, a GitHub Release is created with `dcc-mcp-cli` and `dcc-mcp-server` binaries, `dcc-mcp-core` wheels are published to PyPI, and `dcc-mcp-server` wheels are uploaded when its trusted publisher is configured.
 
 ### Commit Message Format
 

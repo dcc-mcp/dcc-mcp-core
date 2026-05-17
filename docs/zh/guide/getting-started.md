@@ -2,6 +2,18 @@
 
 ## 安装
 
+### 从 GitHub Release 安装 CLI
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | sh
+
+# Windows PowerShell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+```
+
+这会从最新 GitHub Release 安装独立的 `dcc-mcp-cli` 控制面二进制。
+需要固定版本时设置 `DCC_MCP_VERSION=v0.17.4`。
+
 ### 从 PyPI 安装
 
 ```bash
@@ -24,13 +36,13 @@ pip install -e .
 ## 环境要求
 
 - **Python**: >= 3.7（CI 测试 3.7、3.8、3.9、3.10、3.11、3.12、3.13）
-- **Rust**: >= 1.85（从源代码构建时需要）
+- **Rust**: >= 1.95（从源代码构建时需要）
 - **许可证**: MIT
 - **Python 依赖**: 零 — 所有功能都在编译的 Rust 扩展中
 
 ## 快速上手
 
-### Skills-First：`create_skill_server`（v0.12.12+ 推荐）
+### Skills-First：`create_skill_server`（推荐）
 
 将脚本暴露为 MCP 工具最快捷的方式。在脚本目录创建 `SKILL.md`，然后一键完成所有配置：
 
