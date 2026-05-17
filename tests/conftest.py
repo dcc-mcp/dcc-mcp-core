@@ -21,6 +21,7 @@ import dcc_mcp_core
 # Resolve examples/skills relative to repo root
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES_SKILLS_DIR = str(REPO_ROOT / "examples" / "skills")
+SKILLS_DIR = str(REPO_ROOT / "skills")
 
 #: Environment variable read by the Rust GatewayRunner / McpHttpConfig to
 #: override the default shared registry directory (issue #793).
@@ -121,6 +122,14 @@ def examples_dir() -> str:
     if not Path(EXAMPLES_SKILLS_DIR).is_dir():
         pytest.skip("examples/skills directory not found")
     return EXAMPLES_SKILLS_DIR
+
+
+@pytest.fixture()
+def skills_dir() -> str:
+    """Return the path to the top-level skills/ directory, skipping if absent."""
+    if not Path(SKILLS_DIR).is_dir():
+        pytest.skip("skills directory not found")
+    return SKILLS_DIR
 
 
 @pytest.fixture()
