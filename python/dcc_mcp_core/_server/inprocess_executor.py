@@ -109,6 +109,7 @@ __all__ = [
     "build_inprocess_executor",
     "exception_to_error_envelope",
     "run_skill_script",
+    "sandbox_denied_envelope",
     "timeout_hint_secs_to_ms",
 ]
 
@@ -164,6 +165,27 @@ def _context_from_kwargs(
         execution=execution or "sync",
         timeout_hint_secs=timeout_hint_secs,
     )
+
+
+def sandbox_denied_envelope(exc: BaseException, *, action_name: str = "") -> dict[str, Any]:
+    """Structured denial envelope when :class:`SandboxContext` rejects an action."""
+    msg = str(exc)
+    detail = f"Sandbox denied action '{action_name}': {msg}" if action_name else f"Sandbox denied action: {msg}"
+    return {
+        "success": False,
+        "message": detail,
+        "error": {
+            "type": "SandboxDenied",
+            "message": msg,
+            "action": action_name or None,
+        },
+    }
+
+
+def _resolve_sandbox_action_name(action_name: str, script_path: str) -> str:
+    if action_name:
+        return action_name
+    return Path(script_path).stem
 
 
 def exception_to_error_envelope(exc: BaseException, *, message: str | None = None) -> dict[str, Any]:
@@ -258,6 +280,7 @@ class HostExecutionBridge:
 
     dispatcher: BaseDccCallableDispatcher | None = None
     runner: Callable[[str, Mapping[str, Any]], Any] | None = None
+    sandbox_context: Any | None = None
     default_thread_affinity: str = "any"
     default_execution: str = "sync"
     default_timeout_hint_secs: int | None = None
@@ -389,6 +412,17 @@ class HostExecutionBridge:
         timeout_hint_secs: int | None = None,
     ) -> Any:
         """Execute a skill script using the same bridge as direct callables."""
+        resolved_action = _resolve_sandbox_action_name(action_name, script_path)
+        if self.sandbox_context is not None:
+            return self._execute_script_sandboxed(
+                script_path,
+                params,
+                action_name=resolved_action,
+                skill_name=skill_name,
+                thread_affinity=thread_affinity,
+                execution=execution,
+                timeout_hint_secs=timeout_hint_secs,
+            )
         return self.dispatch_callable(
             self.runner or run_skill_script,
             script_path,
@@ -399,6 +433,45 @@ class HostExecutionBridge:
             execution=execution,
             timeout_hint_secs=timeout_hint_secs,
         )
+
+    def _execute_script_sandboxed(
+        self,
+        script_path: str,
+        params: Mapping[str, Any],
+        *,
+        action_name: str,
+        skill_name: str | None,
+        thread_affinity: str | None,
+        execution: str | None,
+        timeout_hint_secs: int | None,
+    ) -> Any:
+        """Run a skill script inside :class:`SandboxContext` when configured."""
+        context = self.execution_context(
+            action_name=action_name,
+            skill_name=skill_name,
+            thread_affinity=thread_affinity,
+            execution=execution,
+            timeout_hint_secs=timeout_hint_secs,
+        )
+        params_json = json.dumps(dict(params))
+
+        def _sandbox_handler(_params: Mapping[str, Any]) -> Any:
+            return self._dispatch_raw(
+                self.runner or run_skill_script,
+                (script_path, _params),
+                {},
+                context,
+            )
+
+        try:
+            result = self.sandbox_context.execute_with_handler(
+                action_name,
+                params_json,
+                _sandbox_handler,
+            )
+        except RuntimeError as exc:
+            return sandbox_denied_envelope(exc, action_name=action_name)
+        return self._resolve_deferred_result(result, context)
 
     def as_inprocess_executor(self) -> Callable[..., Any]:
         """Return the callable expected by ``set_in_process_executor``."""
@@ -472,6 +545,7 @@ def build_inprocess_executor(
     dispatcher: BaseDccCallableDispatcher | None,
     *,
     runner: Callable[[str, Mapping[str, Any]], Any] = run_skill_script,
+    sandbox_context: Any | None = None,
 ) -> Callable[..., Any]:
     """Return an executor callable suitable for ``set_in_process_executor``.
 
@@ -490,6 +564,8 @@ def build_inprocess_executor(
             execution.
         runner: Override the inner script runner (defaults to
             :func:`run_skill_script`). Mostly useful for tests.
+        sandbox_context: Optional :class:`SandboxContext` that enforces
+            policy and records audit entries before running scripts.
 
     Returns:
         A callable accepting ``(script_path, params, *, action_name,
@@ -497,4 +573,8 @@ def build_inprocess_executor(
         two-argument callers remain supported because all metadata is optional.
 
     """
-    return HostExecutionBridge(dispatcher=dispatcher, runner=runner).as_inprocess_executor()
+    return HostExecutionBridge(
+        dispatcher=dispatcher,
+        runner=runner,
+        sandbox_context=sandbox_context,
+    ).as_inprocess_executor()
