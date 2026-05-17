@@ -16,6 +16,7 @@ use dcc_mcp_http_types::config::McpHttpConfig;
 fn default_cfg() -> PyMcpHttpConfig {
     PyMcpHttpConfig {
         inner: McpHttpConfig::default(),
+        sandbox_policy: None,
     }
 }
 
@@ -89,12 +90,16 @@ fn all_mcp_http_config_fields_have_py_getters() {
     // ── JobConfig ───────────────────────────────────────────────
     let _ = cfg.job_storage_path();
     let _ = cfg.job_recovery();
+
+    // ── In-process sandbox (issue #1001) ──────────────────────────
+    let _ = pyo3::Python::try_attach(|py| cfg.sandbox_policy(py));
 }
 
 #[test]
 fn repr_contains_port() {
     let cfg = PyMcpHttpConfig {
         inner: McpHttpConfig::default().with_port(1234),
+        sandbox_policy: None,
     };
     assert!(cfg.__repr__().contains("1234"));
 }

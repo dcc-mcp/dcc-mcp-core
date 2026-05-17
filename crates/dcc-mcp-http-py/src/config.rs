@@ -21,14 +21,34 @@ mod build;
 /// Non-trivial conversions (enum/path/map/repr) stay explicit in the
 /// `#[pymethods]` block so Python errors remain precise.
 #[pyclass(name = "McpHttpConfig", skip_from_py_object)]
-#[derive(Clone)]
 pub struct PyMcpHttpConfig {
     pub(crate) inner: McpHttpConfig,
+    /// Optional :class:`SandboxPolicy` forwarded to the in-process executor (issue #1001).
+    sandbox_policy: Option<Py<PyAny>>,
+}
+
+impl Clone for PyMcpHttpConfig {
+    fn clone(&self) -> Self {
+        Python::try_attach(|py| Self {
+            inner: self.inner.clone(),
+            sandbox_policy: self
+                .sandbox_policy
+                .as_ref()
+                .map(|policy| policy.clone_ref(py)),
+        })
+        .unwrap_or_else(|| Self {
+            inner: self.inner.clone(),
+            sandbox_policy: None,
+        })
+    }
 }
 
 impl From<McpHttpConfig> for PyMcpHttpConfig {
     fn from(inner: McpHttpConfig) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            sandbox_policy: None,
+        }
     }
 }
 
@@ -69,7 +89,19 @@ impl PyMcpHttpConfig {
                 gateway_max_routes_per_session,
                 shutdown_on_drop,
             ),
+            sandbox_policy: None,
         }
+    }
+
+    /// Optional sandbox policy applied to in-process skill execution (issue #1001).
+    #[getter]
+    fn sandbox_policy(&self, py: Python<'_>) -> Option<Py<PyAny>> {
+        self.sandbox_policy.as_ref().map(|p| p.clone_ref(py))
+    }
+
+    #[setter]
+    fn set_sandbox_policy(&mut self, policy: Option<Py<PyAny>>) {
+        self.sandbox_policy = policy;
     }
 
     // ── ServerConfig getters (read-only) ─────────────────────────────

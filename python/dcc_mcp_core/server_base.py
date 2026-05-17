@@ -61,6 +61,7 @@ import weakref
 # this module never depends on the lazy ``dcc_mcp_core`` package facade during import.
 from dcc_mcp_core import _core
 from dcc_mcp_core._core import McpHttpConfig
+from dcc_mcp_core._core import SandboxContext
 from dcc_mcp_core._core import create_skill_server
 from dcc_mcp_core._core import get_app_skill_paths_from_env
 from dcc_mcp_core._core import get_skill_paths_from_env
@@ -72,7 +73,6 @@ from dcc_mcp_core._server import TelemetryManager
 from dcc_mcp_core._server import WindowResolver
 from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher
 from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
-from dcc_mcp_core._server.inprocess_executor import build_inprocess_executor
 from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
 from dcc_mcp_core._server.minimal_mode import apply_minimal_mode
 from dcc_mcp_core._server.options import DccServerOptions
@@ -439,6 +439,12 @@ class DccServerBase:
 
     # ── host execution bridge / in-process executor wiring (#599, #521) ───────
 
+    def _attach_sandbox_to_bridge(self, bridge: HostExecutionBridge) -> None:
+        """Forward ``McpHttpConfig.sandbox_policy`` to the execution bridge (#1001)."""
+        policy = getattr(self._config, "sandbox_policy", None)
+        if policy is not None:
+            bridge.sandbox_context = SandboxContext(policy)
+
     def register_host_execution_bridge(self, bridge: HostExecutionBridge) -> None:
         """Wire the adapter-facing host execution bridge.
 
@@ -447,6 +453,7 @@ class DccServerBase:
         bridge still registers through ``McpHttpServer.set_in_process_executor``
         so the existing Rust server path remains unchanged.
         """
+        self._attach_sandbox_to_bridge(bridge)
         self._execution_bridge = bridge
         self._dcc_dispatcher = bridge.dispatcher
         try:
@@ -490,8 +497,10 @@ class DccServerBase:
 
         """
         self._dcc_dispatcher = dispatcher
-        self._execution_bridge = HostExecutionBridge(dispatcher=dispatcher)
-        executor = build_inprocess_executor(dispatcher)
+        bridge = HostExecutionBridge(dispatcher=dispatcher)
+        self._attach_sandbox_to_bridge(bridge)
+        self._execution_bridge = bridge
+        executor = bridge.as_inprocess_executor()
         try:
             self._server.set_in_process_executor(executor)
             self._inprocess_executor_registered = True

@@ -1234,6 +1234,7 @@ dependencies = [
 name = "dcc-mcp-sandbox"
 version = "0.17.2"
 dependencies = [
+ "dcc-mcp-pybridge",
  "parking_lot",
  "pyo3",
  "pyo3-stub-gen",
