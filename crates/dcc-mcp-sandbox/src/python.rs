@@ -13,7 +13,7 @@ use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 use serde_json::Value;
 
 use crate::audit::{AuditEntry, AuditLog, AuditOutcome};
-use crate::context::SandboxContext;
+use crate::context::{ActionHandler, SandboxContext};
 use crate::error::SandboxError;
 use crate::policy::{ExecutionMode, SandboxPolicy};
 use crate::validator::{FieldSchema, InputValidator, ValidationRule};
@@ -318,6 +318,46 @@ impl PySandboxContext {
         let val = result.value.unwrap_or(Value::Null);
         serde_json::to_string(&val)
             .map_err(|e| PyRuntimeError::new_err(format!("result serialization failed: {e}")))
+    }
+
+    /// Execute an action through the full sandbox pipeline with a Python handler.
+    ///
+    /// *handler* receives the validated parameter dict and must return a
+    /// JSON-serialisable object. Policy denials and validation failures raise
+    /// :class:`RuntimeError` with the sandbox error message (issue #1001).
+    fn execute_with_handler(
+        &mut self,
+        py: Python<'_>,
+        action: &str,
+        params_json: &str,
+        handler: Py<PyAny>,
+    ) -> PyResult<Py<PyAny>> {
+        use dcc_mcp_pybridge::py_json::{json_value_to_pyobject, py_any_to_json_value};
+
+        let params: Value = serde_json::from_str(params_json)
+            .map_err(|e| PyRuntimeError::new_err(format!("invalid JSON params: {e}")))?;
+
+        let py_handler = handler;
+        let rust_handler: ActionHandler = Box::new(move |params_map| {
+            Python::attach(|py| -> Result<Value, SandboxError> {
+                let params_value = Value::Object(params_map.clone());
+                let py_params = json_value_to_pyobject(py, &params_value)
+                    .map_err(|e| SandboxError::Internal(e.to_string()))?;
+                let result = py_handler
+                    .call1(py, (py_params,))
+                    .map_err(|e| SandboxError::Internal(e.to_string()))?;
+                let bound = result.bind(py);
+                py_any_to_json_value(&bound).map_err(|e| SandboxError::Internal(e.to_string()))
+            })
+        });
+
+        let exec_result = self
+            .inner
+            .execute(action, &params, None, Some(&rust_handler))
+            .map_err(sandbox_err_to_py)?;
+
+        let val = exec_result.value.unwrap_or(Value::Null);
+        json_value_to_pyobject(py, &val)
     }
 
     /// Return the number of actions executed in this session.

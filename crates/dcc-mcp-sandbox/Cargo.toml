@@ -19,6 +19,7 @@ tokio = { workspace = true, features = ["rt", "time", "sync"] }
 
 # PyO3 (optional)
 pyo3 = { workspace = true, optional = true }
+dcc-mcp-pybridge = { workspace = true, optional = true }
 
 # Type-stub generation (opt-in via `stub-gen` feature).
 pyo3-stub-gen = { workspace = true, optional = true }
@@ -31,6 +32,6 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 [features]
 default = []
-python-bindings = ["pyo3"]
+python-bindings = ["pyo3", "dep:dcc-mcp-pybridge", "dcc-mcp-pybridge/python-bindings"]
 # Enable `pyo3-stub-gen` annotations on this crate's PyO3 types.
 stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]
