@@ -108,7 +108,24 @@ hakari-generate:
 hakari-verify:
     cargo hakari verify
 
-# ── Standalone binary (dcc-mcp-server) ───────────────────────────────────────
+# ── Standalone binaries ─────────────────────────────────────────────────────
+
+# Build dcc-mcp-cli for the current platform
+build-cli:
+    cargo build --release -p dcc-mcp-cli
+
+# Build dcc-mcp-cli universal2 binary for macOS (requires both targets installed)
+[unix]
+build-cli-universal:
+    #!/usr/bin/env sh
+    set -eu
+    rustup target add x86_64-apple-darwin aarch64-apple-darwin 2>/dev/null || true
+    cargo build --release -p dcc-mcp-cli --target x86_64-apple-darwin
+    cargo build --release -p dcc-mcp-cli --target aarch64-apple-darwin
+    lipo -create -output dcc-mcp-cli-macos-universal2 \
+        target/x86_64-apple-darwin/release/dcc-mcp-cli \
+        target/aarch64-apple-darwin/release/dcc-mcp-cli
+    echo "Built: dcc-mcp-cli-macos-universal2"
 
 # Build dcc-mcp-server for the current platform
 build-server:

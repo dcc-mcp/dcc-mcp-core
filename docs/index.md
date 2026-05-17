@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: DCC-MCP-Core
-  text: MCP + Skills for DCC AI
-  tagline: Production-grade foundation combining Model Context Protocol (MCP) and a zero-code Skills system. Connect AI to Maya, Blender, Houdini, Photoshop — without context explosion.
+  text: Gateway-first MCP + Skills for DCC AI
+  tagline: Production-grade foundation combining MCP, zero-code Skills, dynamic capability routing, and release-ready CLI/server binaries for Maya, Blender, Houdini, Photoshop, and custom studio hosts.
   image:
     src: /logo.svg
     alt: DCC-MCP-Core
@@ -21,14 +21,14 @@ hero:
 
 features:
   - icon: 🎯
-    title: Solves MCP Context Explosion
-    details: Session isolation pins each AI session to one DCC instance. tools/list returns 150 tools instead of 750. Progressive discovery by DCC type, scope, and product.
+    title: Dynamic Capability Routing
+    details: Agents search, describe, and call tools through one gateway instead of carrying every backend tool in context.
   - icon: 🔌
     title: Zero-Code Skill Registration
     details: Write SKILL.md + scripts/ → instant MCP tools. No Python glue code needed. Supports Python, MEL, MaxScript, Bash, PowerShell, and more.
   - icon: 🏆
     title: Version-Aware Gateway Election
-    details: Multiple DCC instances compete for gateway role. Newest version automatically takes over. No manual failover — just semantic version comparison.
+    details: Multiple DCC instances compete for the gateway role. Newer adapters can take over cleanly while existing instances stay discoverable.
   - icon: 🦀
     title: Rust-Powered Core
     details: Zero runtime Python dependencies. Zero-copy IPC via Named Pipes and Unix Sockets. rmp-serde serialization. LZ4 shared memory. Sub-millisecond tool calls.
@@ -42,8 +42,8 @@ features:
     title: Sandbox & Audit Log
     details: Policy-based access control with in-memory audit logging. Define what AI can and cannot do per DCC type.
   - icon: 🌐
-    title: MCP Streamable HTTP
-    details: Built-in server (2025-03-26 spec). Claude Desktop, Cursor, and other MCP clients connect directly over HTTP. Background thread, never blocks DCC.
+    title: MCP Streamable HTTP + REST
+    details: Built-in MCP server, REST /v1/* dynamic-capability surface, Admin UI, audit logs, traces, and gateway diagnostics.
   - icon: 📊
     title: Structured Results
     details: Every tool returns (success, message, context, next_steps). AI agents reason clearly about outcomes. No fragile text parsing.

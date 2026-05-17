@@ -1,17 +1,79 @@
 # CLI 参考
 
-仓库提供三个面向运维的二进制文件。本页是所有旗标、所有环境变量、以及五个
+仓库提供四个面向运维的二进制文件。本页是所有旗标、所有环境变量、以及五个
 典型部署场景的**唯一信息源**。每个二进制的旗标都一对一映射到一个
 `DCC_MCP_*` 环境变量，所以任何部署清单都能驱动同一套配置面板。
 
+`dcc-mcp-cli` 与 `dcc-mcp-server` 会在每个 Release 作为原生 GitHub
+Release 资产发布。CLI 可以通过 URL 直接安装：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | sh
+
+# Windows PowerShell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+```
+
+需要固定版本时，设置 `DCC_MCP_VERSION=v0.17.4`，或给安装脚本传
+`--version v0.17.4`。
+
 | 二进制 | 角色 | 源码位置 |
 |---|---|---|
+| [`dcc-mcp-cli`](#dcc-mcp-cli) | 面向用户/CI 的控制面 CLI，用来访问本地或远程 DCC-MCP REST 端点。 | `crates/dcc-mcp-cli/` |
 | [`dcc-mcp-server`](#dcc-mcp-server) | per-DCC MCP + REST 服务器，内置自动网关。 | `crates/dcc-mcp-server/` |
 | [`dcc-mcp-tunnel-relay`](#dcc-mcp-tunnel-relay) | 面向公网的 WebSocket 隧道中继（零配置远程访问，#504）。 | `crates/dcc-mcp-tunnel-relay/` |
 | [`dcc-mcp-tunnel-agent`](#dcc-mcp-tunnel-agent) | 在工作站上注册到中继、转发 MCP 流量的本地 sidecar。 | `crates/dcc-mcp-tunnel-agent/` |
 
 开发辅助二进制（`stub_gen`）在
 [`AGENTS.md`](https://github.com/loonghao/dcc-mcp-core/blob/main/AGENTS.md) 里。
+
+---
+
+## `dcc-mcp-cli`
+
+DCC-MCP 的客户端控制面。它不托管 skills，也不替代 `dcc-mcp-server`；
+它负责访问本地或远程 gateway / per-DCC REST 端点，并生成可审计的安装计划。
+
+默认端点是 `http://127.0.0.1:9765`，可用 `--base-url` 或
+`DCC_MCP_BASE_URL` 覆盖。
+
+```bash
+dcc-mcp-cli list
+dcc-mcp-cli health
+dcc-mcp-cli search --query sphere --dcc-type maya
+dcc-mcp-cli describe maya.abc12345.create_sphere
+dcc-mcp-cli call maya.abc12345.create_sphere --json '{"radius":2}'
+dcc-mcp-cli install --dcc-type maya --version 2026
+```
+
+### 命令
+
+| 命令 | REST/API 契约 | 说明 |
+|---|---|---|
+| `health` | `GET /v1/healthz` | 检查配置的端点。 |
+| `list` | `GET /v1/instances` | 从 gateway 列出在线 DCC 实例。 |
+| `search` | `POST /v1/search` | 搜索可调用能力。 |
+| `describe <tool-slug>` | `POST /v1/describe` | 调用前检查能力 schema。 |
+| `call <tool-slug> --json <object>` | `POST /v1/call` | 调用一个能力。 |
+| `install --dcc-type <dcc> [--version <v>]` | catalog-backed local plan | 解析匹配的 adapter 并输出可审计安装计划。 |
+
+`install` 目前是规划契约：它解析 catalog entry，并列出 runtime、adapter、
+验证步骤，不会静默修改 DCC 插件目录。DCC-specific installer 后续可增量接入
+这份契约。
+
+### CLI 安装资产
+
+安装脚本会下载以下 GitHub Release 资产之一：
+
+| 平台 | 资产 |
+|---|---|
+| Linux x86_64 | `dcc-mcp-cli-linux-x86_64` |
+| Windows x86_64 | `dcc-mcp-cli-windows-x86_64.exe` |
+| macOS universal2 | `dcc-mcp-cli-macos-universal2` |
+
+默认安装位置：Linux/macOS 为 `~/.local/bin`，Windows 为
+`%LOCALAPPDATA%\dcc-mcp\bin`。可用 `DCC_MCP_INSTALL_DIR` 或
+`--install-dir` 覆盖。
 
 ---
 
@@ -51,7 +113,7 @@
 
 Admin 审计/trace 持久化只通过环境变量配置：设置 `DCC_MCP_GATEWAY_AUDIT_DIR` 为可写目录后，`/admin/api/calls` 行会写入 `audit.jsonl`，dispatch traces 会写入 `traces.jsonl`；`DCC_MCP_GATEWAY_AUDIT_MAX_ROWS`（默认 `5000`）限制每个文件保留行数。
 
-> **PR A 已移除** —— `--gateway-tool-exposure` /
+> **已移除** —— `--gateway-tool-exposure` /
 > `DCC_MCP_GATEWAY_TOOL_EXPOSURE` 已删除。网关表面现在无条件最小化，详见
 > `docs/zh/guide/rest-api-surface.md`。
 >

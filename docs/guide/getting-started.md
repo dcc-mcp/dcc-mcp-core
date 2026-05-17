@@ -2,6 +2,18 @@
 
 ## Installation
 
+### CLI from GitHub Releases
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | sh
+
+# Windows PowerShell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+```
+
+This installs the standalone `dcc-mcp-cli` control-plane binary from the
+latest GitHub Release. Pin a release with `DCC_MCP_VERSION=v0.17.4`.
+
 ### From PyPI
 
 ```bash
@@ -24,13 +36,13 @@ The build is handled by [maturin](https://www.maturin.rs/) which compiles the Ru
 ## Requirements
 
 - **Python**: >= 3.7 (CI tests 3.7, 3.8, 3.9, 3.10, 3.11, 3.12, 3.13)
-- **Rust**: >= 1.85 (for building from source)
+- **Rust**: >= 1.95 (for building from source)
 - **License**: MIT
 - **Python Dependencies**: Zero — everything is in the compiled Rust extension
 
 ## Quick Start
 
-### Skills-First: `create_skill_server` (recommended since v0.12.12)
+### Skills-First: `create_skill_server` (recommended)
 
 The fastest way to expose scripts as MCP tools. Create a `SKILL.md` in your script folder, then use `create_skill_server` to wire everything in one call:
 
