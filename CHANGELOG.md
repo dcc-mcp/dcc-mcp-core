@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.5](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.4...v0.17.5) (2026-05-17)
+
+
+### Features
+
+* **cli:** add dcc-mcp control plane ([605ae03](https://github.com/loonghao/dcc-mcp-core/commit/605ae0371fbb88e8483c0f4a33c79f76d5ef5763))
+* **cli:** add one-click install and release assets ([edc5a90](https://github.com/loonghao/dcc-mcp-core/commit/edc5a9079c48f366dd68561afb8b05d7ced0394e))
+* **skills:** add dcc-rest-gateway ClawHub skill for REST-only DCC control ([8c9c39f](https://github.com/loonghao/dcc-mcp-core/commit/8c9c39ff6dc47ad84eb2ffaae81341e3d11bfd27))
+
+
+### Bug Fixes
+
+* **release:** support Python 3.7 server wheels ([6540efb](https://github.com/loonghao/dcc-mcp-core/commit/6540efb1827f3805bcb45421b30ede40d7becaf3))
+* **transport:** force registry reload before ghost pruning ([6af8160](https://github.com/loonghao/dcc-mcp-core/commit/6af8160d113c0233617c381959f87585e0585001))
+
 ## [0.17.4](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.3...v0.17.4) (2026-05-17)
 
 
