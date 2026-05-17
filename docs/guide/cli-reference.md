@@ -1,6 +1,6 @@
 # CLI Reference
 
-This repository ships three operator-facing binaries. This page is the
+This repository ships four operator-facing binaries. This page is the
 single source of truth for every flag, every environment variable, and the
 five deployment scenarios they cover. Flags on each binary map 1:1 onto an
 `DCC_MCP_*` environment variable, so any deployment manifest can drive the
@@ -8,12 +8,49 @@ same configuration surface.
 
 | Binary | Role | Source |
 |---|---|---|
+| [`dcc-mcp-cli`](#dcc-mcp-cli) | User/CI control plane for local or remote DCC-MCP REST endpoints. | `crates/dcc-mcp-cli/` |
 | [`dcc-mcp-server`](#dcc-mcp-server) | Per-DCC MCP + REST server, with an integrated auto-gateway. | `crates/dcc-mcp-server/` |
 | [`dcc-mcp-tunnel-relay`](#dcc-mcp-tunnel-relay) | Public-facing WebSocket relay for the zero-config remote tunnel (#504). | `crates/dcc-mcp-tunnel-relay/` |
 | [`dcc-mcp-tunnel-agent`](#dcc-mcp-tunnel-agent) | Local sidecar that registers with the relay and forwards MCP traffic. | `crates/dcc-mcp-tunnel-agent/` |
 
 Development helper binaries (`stub_gen`) are documented in
 [`AGENTS.md`](https://github.com/loonghao/dcc-mcp-core/blob/main/AGENTS.md).
+
+---
+
+## `dcc-mcp-cli`
+
+Client-side control plane for DCC-MCP. It does not host skills and does not
+replace `dcc-mcp-server`; it knows how to talk to a local or remote gateway /
+per-DCC REST endpoint and how to build auditable installation plans.
+
+The default endpoint is `http://127.0.0.1:9765`, override it with
+`--base-url` or `DCC_MCP_BASE_URL`.
+
+```bash
+dcc-mcp-cli list
+dcc-mcp-cli health
+dcc-mcp-cli search --query sphere --dcc-type maya
+dcc-mcp-cli describe maya.abc12345.create_sphere
+dcc-mcp-cli call maya.abc12345.create_sphere --json '{"radius":2}'
+dcc-mcp-cli install --dcc-type maya --version 2026
+```
+
+### Commands
+
+| Command | REST/API contract | Meaning |
+|---|---|---|
+| `health` | `GET /v1/healthz` | Check the configured endpoint. |
+| `list` | `GET /v1/instances` | List live DCC instances from the gateway. |
+| `search` | `POST /v1/search` | Search callable capabilities. |
+| `describe <tool-slug>` | `POST /v1/describe` | Inspect a capability before calling it. |
+| `call <tool-slug> --json <object>` | `POST /v1/call` | Invoke one capability. |
+| `install --dcc-type <dcc> [--version <v>]` | catalog-backed local plan | Resolve the matching adapter and emit an auditable install plan. |
+
+`install` intentionally starts as a planning contract: it resolves catalog
+entries and spells out the runtime / adapter / verification steps without
+silently modifying DCC plugin folders. DCC-specific installers can attach to
+that contract incrementally.
 
 ---
 
