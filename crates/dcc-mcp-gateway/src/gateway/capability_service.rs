@@ -21,6 +21,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use dcc_mcp_jsonrpc::McpTool;
+use dcc_mcp_transport::discovery::types::ServiceEntry;
 
 use super::backend_client::{forward_tools_call, try_describe_tool};
 use super::capability::{
@@ -28,6 +29,7 @@ use super::capability::{
     refresh_instance, remove_instance, search,
 };
 use super::state::GatewayState;
+use dcc_mcp_gateway_core::naming::instance_short;
 
 /// Shape of a structured error emitted by the call / describe paths.
 ///
@@ -222,6 +224,8 @@ pub async fn call_service(
         .with_instance_provenance("deregistered", Some(record.instance_id)));
     };
     let url = format!("http://{}:{}/mcp", entry.host, entry.port);
+    let entry = entry.clone();
+    drop(reg);
 
     match forward_tools_call(
         &gs.http_client,
@@ -234,11 +238,23 @@ pub async fn call_service(
     )
     .await
     {
-        Ok(result) => Ok(result),
-        Err(e) => Err(ServiceError::new(
-            "backend-error",
-            format!("backend call failed: {e}"),
-        )),
+        Ok(mut result) => {
+            inject_call_instance_meta(&mut result, &entry);
+            Ok(result)
+        }
+        Err(e) => {
+            if is_host_died_backend_error(&e) {
+                record_host_died(gs, &entry, &record, &e);
+                return Err(ServiceError::new(
+                    "host-died",
+                    format!("backend host died during {}: {e}", record.callable_id),
+                ));
+            }
+            Err(ServiceError::new(
+                "backend-error",
+                format!("backend call failed: {e}"),
+            ))
+        }
     }
 }
 
@@ -317,6 +333,79 @@ pub fn service_error_to_json(err: &ServiceError) -> Value {
             "previous_instance_id": err.previous_instance_id,
         }
     })
+}
+
+fn inject_call_instance_meta(result: &mut Value, entry: &ServiceEntry) {
+    let Some(obj) = result.as_object_mut() else {
+        return;
+    };
+
+    let meta = obj.entry("_meta".to_string()).or_insert_with(|| json!({}));
+    if !meta.is_object() {
+        *meta = json!({});
+    }
+    let meta_obj = meta.as_object_mut().expect("_meta just normalised");
+    let dcc = meta_obj
+        .entry("dcc".to_string())
+        .or_insert_with(|| json!({}));
+    if !dcc.is_object() {
+        *dcc = json!({});
+    }
+    let dcc_obj = dcc.as_object_mut().expect("_meta.dcc just normalised");
+    dcc_obj.insert("dcc_type".to_string(), json!(entry.dcc_type));
+    dcc_obj.insert(
+        "instance_id".to_string(),
+        json!(entry.instance_id.to_string()),
+    );
+    dcc_obj.insert(
+        "instance_short".to_string(),
+        json!(instance_short(&entry.instance_id)),
+    );
+    dcc_obj.insert("display_id".to_string(), json!(entry.display_id()));
+}
+
+fn is_host_died_backend_error(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("host-died") || lower.contains("host_died")
+}
+
+fn record_host_died(
+    gs: &GatewayState,
+    entry: &ServiceEntry,
+    record: &CapabilityRecord,
+    backend_error: &str,
+) {
+    let mut reason = format!(
+        "call={} display_id={} error={}",
+        record.callable_id,
+        entry.display_id(),
+        backend_error
+    );
+    const MAX_REASON_CHARS: usize = 512;
+    if reason.chars().count() > MAX_REASON_CHARS {
+        reason = reason.chars().take(MAX_REASON_CHARS).collect();
+        reason.push_str("...");
+    }
+
+    crate::gateway::event_log::record_event(
+        &gs.event_log,
+        #[cfg(feature = "prometheus")]
+        &gs.gateway_metrics,
+        crate::gateway::event_log::EventKind::HostDied,
+        entry.dcc_type.clone(),
+        instance_short(&entry.instance_id),
+        Some(reason),
+    );
+
+    if gs.events_tx.receiver_count() > 0 {
+        let notif = serde_json::to_string(&json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/resources/updated",
+            "params": {"uri": crate::gateway::handlers::resources::GATEWAY_EVENTS_URI}
+        }))
+        .unwrap_or_default();
+        let _ = gs.events_tx.send(notif);
+    }
 }
 
 fn parse_instance_uuid(instance_hint: &str) -> Option<Uuid> {
@@ -428,6 +517,36 @@ mod unit_tests {
         assert_eq!(j["error"]["kind"], "unknown-slug");
         assert_eq!(j["error"]["message"], "x");
         assert_eq!(j["error"]["candidates"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn call_result_meta_includes_display_id() {
+        let mut entry =
+            dcc_mcp_transport::discovery::types::ServiceEntry::new("maya", "127.0.0.1", 8765);
+        entry.instance_id = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        entry.version = Some("2026".to_string());
+        let mut result = json!({"slug": "maya.test.tool", "output": {"ok": true}});
+
+        inject_call_instance_meta(&mut result, &entry);
+
+        assert_eq!(result["_meta"]["dcc"]["dcc_type"], "maya");
+        assert_eq!(
+            result["_meta"]["dcc"]["instance_id"],
+            "abcdef01-2345-6789-abcd-ef0123456789"
+        );
+        assert_eq!(result["_meta"]["dcc"]["instance_short"], "abcdef01");
+        assert_eq!(result["_meta"]["dcc"]["display_id"], "maya@2026-abcdef01");
+    }
+
+    #[test]
+    fn host_died_classifier_matches_kebab_and_snake_case() {
+        assert!(is_host_died_backend_error(
+            r#"HTTP 502: {"error":{"kind":"host-died"}}"#
+        ));
+        assert!(is_host_died_backend_error("event=host_died"));
+        assert!(!is_host_died_backend_error(
+            "transport error: connection refused"
+        ));
     }
 
     #[test]

@@ -23,6 +23,8 @@ pub enum EventKind {
     ProbeUnreachable,
     /// A backend instance was auto-deregistered after consecutive probe failures.
     AutoDeregister,
+    /// A backend DCC host died while a gateway-routed call was in flight.
+    HostDied,
     /// Operator-facing admin action (skill paths, etc.) — no Prometheus counter.
     OperatorNote,
 }
@@ -38,6 +40,7 @@ impl EventKind {
             EventKind::ProbeBooting => "booting",
             EventKind::ProbeUnreachable => "unreachable",
             EventKind::AutoDeregister => "probe_fail",
+            EventKind::HostDied => "host_died",
             EventKind::OperatorNote => "operator",
         }
     }
@@ -92,6 +95,7 @@ mod tests {
         assert_eq!(EventKind::ProbeBooting.as_label(), "booting");
         assert_eq!(EventKind::ProbeUnreachable.as_label(), "unreachable");
         assert_eq!(EventKind::AutoDeregister.as_label(), "probe_fail");
+        assert_eq!(EventKind::HostDied.as_label(), "host_died");
         assert_eq!(EventKind::OperatorNote.as_label(), "operator");
     }
 
