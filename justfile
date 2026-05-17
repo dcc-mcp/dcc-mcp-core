@@ -254,6 +254,20 @@ preflight: check clippy fmt-check test-rust
 # Full local CI pipeline: preflight → build wheel → Python tests → lint
 ci: preflight install test lint-py
 
+# ── ClawHub (https://clawhub.ai/) ─────────────────────────────────────────────
+
+# Package skills from .github/clawhub-skills.json (zip under dist/skills/).
+package-clawhub-skills:
+    python scripts/package_openclaw_skill.py skills/dcc-rest-gateway dist/skills
+
+# Validate publish commands without uploading (PR / local).
+clawhub-sync-dry-run:
+    python scripts/clawhub_sync.py --dry-run
+
+# Publish manifest skills to ClawHub (requires CLAWHUB_TOKEN + login).
+clawhub-sync:
+    python scripts/clawhub_sync.py
+
 # ── Clean ─────────────────────────────────────────────────────────────────────
 
 [unix]

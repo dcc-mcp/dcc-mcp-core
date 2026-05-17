@@ -13,11 +13,19 @@ Official skills and starter templates for the dcc-mcp-core ecosystem.
 | [`dcc-rest-gateway`](dcc-rest-gateway/) | Control any DCC via gateway REST only (no MCP); instance inventory and zero-instance setup | `skills/dcc-rest-gateway/` |
 | [`dcc-skills-creator`](dcc-skills-creator/) | Create, validate, and scaffold DCC skills | `skills/dcc-skills-creator/` |
 
-Publish `dcc-rest-gateway` to [ClawHub](https://clawhub.ai/):
+### ClawHub publish
+
+Manifest: [`.github/clawhub-skills.json`](../.github/clawhub-skills.json). Merging to
+`main` runs [`.github/workflows/clawhub.yml`](../.github/workflows/clawhub.yml) (requires
+repository secret `CLAWHUB_TOKEN`).
 
 ```bash
+# Local dry-run (validate SKILL.md, print publish command)
+just clawhub-sync-dry-run
+
+# Manual publish
 cd skills/dcc-rest-gateway
-clawhub publish . --slug dcc-rest-gateway --version 1.0.0
+npx clawhub@0.7.0 publish . --slug dcc-rest-gateway --version 1.0.0 --no-input
 ```
 
 ## Bundled Skills
