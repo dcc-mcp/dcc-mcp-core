@@ -328,6 +328,10 @@ jobs:
 
       - uses: loonghao/vx@v0.8.36
 
+      - name: Expose vx global shims
+        run: echo "$HOME/.vx/bin" >> "$GITHUB_PATH"
+        shell: bash
+
       - name: Download wheel
         uses: actions/download-artifact@v8
         with:
