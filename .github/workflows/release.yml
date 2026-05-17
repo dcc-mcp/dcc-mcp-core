@@ -85,13 +85,15 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Release decision: created=$release_created tag=$tag_name version=$version"
 
-  # ── Build standalone dcc-mcp-server (raw binary + PyPI wheel) ──
+  # ── Build standalone binaries (raw Release assets + server PyPI wheel) ──
   #
-  # One job, one cargo target/, two outputs:
+  # One job, one cargo target/, three outputs:
   #   1. Raw binary `dcc-mcp-server[-linux-x86_64|-windows-x86_64.exe|-macos-universal2]`
   #      attached to the GitHub Release. Backward-compat artefact for
   #      ops / docker users who don't want to `pip install`.
-  #   2. PyPI wheel `dcc_mcp_server-<ver>-py3-none-<plat>.whl` built from
+  #   2. Raw binary `dcc-mcp-cli[-linux-x86_64|-windows-x86_64.exe|-macos-universal2]`
+  #      attached to the same GitHub Release and consumed by scripts/install-cli.*.
+  #   3. PyPI wheel `dcc_mcp_server-<ver>-py3-none-<plat>.whl` built from
   #      pkg/dcc-mcp-server-bin/ via maturin's `bindings = "bin"`. It has
   #      no Python extension ABI and declares Python 3.7+ compatibility so
   #      Maya 2022's embedded Python can install it. maturin reuses the
@@ -110,13 +112,19 @@ jobs:
         include:
           - os: ubuntu-latest
             artifact_name: dcc-mcp-server-linux-x86_64
+            cli_artifact_name: dcc-mcp-cli-linux-x86_64
             binary: dcc-mcp-server
+            cli_binary: dcc-mcp-cli
           - os: windows-latest
             artifact_name: dcc-mcp-server-windows-x86_64.exe
+            cli_artifact_name: dcc-mcp-cli-windows-x86_64.exe
             binary: dcc-mcp-server.exe
+            cli_binary: dcc-mcp-cli.exe
           - os: macos-latest
             artifact_name: dcc-mcp-server-macos-universal2
+            cli_artifact_name: dcc-mcp-cli-macos-universal2
             binary: dcc-mcp-server
+            cli_binary: dcc-mcp-cli
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
@@ -151,16 +159,22 @@ jobs:
       # ── Raw binary build ──────────────────────────────────────────
       - name: Build raw binary (macOS universal2)
         if: matrix.os == 'macos-latest'
-        run: vx just build-server-universal
+        run: |
+          vx just build-server-universal
+          vx just build-cli-universal
 
       - name: Build raw binary (Linux / Windows)
         if: matrix.os != 'macos-latest'
-        run: vx just build-server
+        run: |
+          vx just build-server
+          vx just build-cli
         shell: bash
 
       - name: Stage raw binary (Linux / Windows)
         if: matrix.os != 'macos-latest'
-        run: cp target/release/${{ matrix.binary }} ${{ matrix.artifact_name }}
+        run: |
+          cp target/release/${{ matrix.binary }} ${{ matrix.artifact_name }}
+          cp target/release/${{ matrix.cli_binary }} ${{ matrix.cli_artifact_name }}
         shell: bash
 
       # ── PyPI wheel build ──────────────────────────────────────────
@@ -240,7 +254,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: server-binary-${{ matrix.os }}
-          path: ${{ matrix.artifact_name }}
+          path: |
+            ${{ matrix.artifact_name }}
+            ${{ matrix.cli_artifact_name }}
 
       - name: Upload server wheel artefact (for cross-job collection)
         uses: actions/upload-artifact@v4
@@ -254,6 +270,7 @@ jobs:
           tag_name: ${{ needs.release-please.outputs.tag_name }}
           files: |
             ${{ matrix.artifact_name }}
+            ${{ matrix.cli_artifact_name }}
             pkg/dcc-mcp-server-bin/wheels/*.whl
 
   # ── Build wheels only when release-please creates a release ──

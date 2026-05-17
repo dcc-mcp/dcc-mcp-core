@@ -11,9 +11,7 @@
 
 [English](README.md) | 中文
 
-**面向 AI 辅助 DCC 工作流的生产级基础库** —— 结合 **模型上下文协议（MCP 2025-03-26 Streamable HTTP）** 与 **零代码 Skills 系统**，后者遵循 [agentskills.io 1.0](https://agentskills.io/specification) 规范。**Rust 核心 + PyO3 Python 绑定**，交付企业级性能、安全性与可扩展性；**运行时零 Python 依赖**。支持 Python 3.7–3.13。
-
-> **注意**：本项目处于积极开发中（v0.15+），API 可能演进；版本历史参见 `CHANGELOG.md`。
+**面向 AI 辅助 DCC 工作流的生产级基础库** —— 当前采用新的 gateway-first 架构，结合 **MCP 2025-03-26 Streamable HTTP**、遵循 [agentskills.io 1.0](https://agentskills.io/specification) 的 **零代码 Skills 系统**，以及负责发现、路由、安装和运维的 Rust 控制面。Python 包面向嵌入式 DCC 宿主保持**运行时零 Python 依赖**；独立的 `dcc-mcp-cli` 与 `dcc-mcp-server` 二进制则随 GitHub Release 发布，适合像传统软件一样下载安装到工作站。支持 Python 3.7–3.13。
 
 ---
 
@@ -71,26 +69,25 @@ AI 友好文档：[AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](d
 
 ---
 
-## 架构：三层栈
+## 架构：当前栈
 
 ```
 +-----------------------------------------------------------------+
 |  AI Agent (Claude, GPT, 等)                                     |
-|  通过 MCP 协议调用工具 (tools/list, tools/call)                 |
+|  通过 MCP tools 或 REST /v1/* 访问统一网关端点                  |
 +-------------------------------+---------------------------------+
                                 |
-                        MCP Streamable HTTP
+                        MCP Streamable HTTP + REST
                                 |
 +-------------------------------v---------------------------------+
-|  Gateway Server (Rust / HTTP)                                   |
-|  +-- 版本感知实例选举                                            |
-|  +-- 会话隔离与路由                                              |
-|  +-- 工具发现 (从 Skills 派生)                                   |
-|  +-- Job 生命周期 + SSE 通知                                     |
-|  +-- 工作流执行引擎                                              |
+|  Elected Gateway (Rust / HTTP)                                  |
+|  +-- 动态能力 search / describe / call                           |
+|  +-- 实例注册表、Admin UI、审计日志、trace                       |
+|  +-- 版本感知选举与故障切换                                      |
+|  +-- Job 生命周期、workflow、artefact、resource                  |
 +-------------------------------+---------------------------------+
                                 |
-                 IPC (Named Pipe / Unix Socket) via DccLink
+                 Per-DCC MCP server、IPC 或 WebSocket bridge
                                 |
           +---------------------+---------------------+
           |                     |                     |
@@ -103,9 +100,9 @@ AI 友好文档：[AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](d
     (零依赖)                (零依赖)                (零依赖)
 ```
 
-- **第一层 —— AI Agent**：通过标准 MCP 协议（`tools/list` / `tools/call` / notifications）调用工具。
-- **第二层 —— 网关**：编排工具发现、会话隔离、请求路由、Job 生命周期与工作流执行；维护 `__gateway__` sentinel 做版本感知选举。
-- **第三层 —— DCC 适配器**：DCC 侧的 Python 包（Maya / Blender / Photoshop / Houdini…）内嵌 `_core` 原生扩展和 Skills 系统。WebView 宿主适配器（AuroraView、Electron 面板）和 WebSocket 桥接器（Photoshop、ZBrush）使用更窄的能力面。
+- **Agent 表面**：MCP 客户端使用 `search_tools` -> `describe_tool` -> `call_tool`；非 MCP 客户端使用等价的 `/v1/search`、`/v1/describe`、`/v1/call`、`/v1/call_batch`。
+- **Gateway 表面**：一个获选网关汇聚 per-DCC servers，暴露 Admin UI，记录 audit/trace，并让公开工具列表保持很小。
+- **DCC 表面**：嵌入式 Python 适配器、独立 `dcc-mcp-server`、WebSocket bridge 都注册同一套结构化、由 Skills 派生的能力。
 
 ---
 
@@ -114,6 +111,12 @@ AI 友好文档：[AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](d
 ### 安装
 
 ```bash
+# 从 GitHub Release 一键安装 CLI
+curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | sh
+
+# Windows PowerShell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+
 # 从 PyPI 安装（Python 3.7+ 预构建 wheel）
 pip install dcc-mcp-core
 
@@ -123,6 +126,8 @@ cd dcc-mcp-core
 vx just dev           # 推荐 —— 使用项目标准 feature 集合
 # 或：pip install -e .
 ```
+
+每个 Release 都会附带 Linux、Windows、macOS universal2 的原生 `dcc-mcp-cli` 与 `dcc-mcp-server` 二进制。`dcc-mcp-server` 还会发布 `dcc-mcp-server` Python wheel，方便偏好 `pip install` 的宿主环境。
 
 ### 将 DCC 暴露为 MCP 服务 —— Skills-First（推荐）
 
@@ -601,7 +606,7 @@ feature 列表的**唯一真实源在 `justfile`**（`OPT_FEATURES`、`DEV_FEATU
 1. **开发**：从 `main` 拉分支，使用 [Conventional Commits](https://www.conventionalcommits.org/) 提交。
 2. **合并**：开 PR，合入 `main`。
 3. **发布 PR**：Release Please 自动创建 / 更新一个发布 PR，升版本并更新 `CHANGELOG.md`。
-4. **发布**：发布 PR 合入后，自动创建 GitHub Release 并发布 wheel 到 PyPI。
+4. **发布**：发布 PR 合入后，自动创建 GitHub Release，附带 `dcc-mcp-cli` 与 `dcc-mcp-server` 二进制；`dcc-mcp-core` wheels 发布到 PyPI；`dcc-mcp-server` wheels 在 trusted publisher 配好后同步上传。
 
 ### 提交信息格式
 

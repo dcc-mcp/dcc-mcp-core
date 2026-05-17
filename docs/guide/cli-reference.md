@@ -6,6 +6,19 @@ five deployment scenarios they cover. Flags on each binary map 1:1 onto an
 `DCC_MCP_*` environment variable, so any deployment manifest can drive the
 same configuration surface.
 
+`dcc-mcp-cli` and `dcc-mcp-server` are published as raw GitHub Release
+assets on every release. The CLI can be installed directly from a URL:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | sh
+
+# Windows PowerShell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+```
+
+Pin a release by setting `DCC_MCP_VERSION=v0.17.4` or passing
+`--version v0.17.4` to the install script.
+
 | Binary | Role | Source |
 |---|---|---|
 | [`dcc-mcp-cli`](#dcc-mcp-cli) | User/CI control plane for local or remote DCC-MCP REST endpoints. | `crates/dcc-mcp-cli/` |
@@ -52,6 +65,20 @@ entries and spells out the runtime / adapter / verification steps without
 silently modifying DCC plugin folders. DCC-specific installers can attach to
 that contract incrementally.
 
+### CLI installation assets
+
+The installer scripts download one of these GitHub Release assets:
+
+| Platform | Asset |
+|---|---|
+| Linux x86_64 | `dcc-mcp-cli-linux-x86_64` |
+| Windows x86_64 | `dcc-mcp-cli-windows-x86_64.exe` |
+| macOS universal2 | `dcc-mcp-cli-macos-universal2` |
+
+Default install locations are `~/.local/bin` on Linux/macOS and
+`%LOCALAPPDATA%\dcc-mcp\bin` on Windows. Override with
+`DCC_MCP_INSTALL_DIR` or `--install-dir`.
+
 ---
 
 ## `dcc-mcp-server`
@@ -91,7 +118,7 @@ instances that the winner aggregates.
 
 Admin audit/trace persistence is configured by environment only: set `DCC_MCP_GATEWAY_AUDIT_DIR` to a writable directory to persist `/admin/api/calls` rows in `audit.jsonl` and dispatch traces in `traces.jsonl`; set `DCC_MCP_GATEWAY_AUDIT_MAX_ROWS` (default `5000`) to cap each file.
 
-> **Removed in PR A** — `--gateway-tool-exposure` /
+> **Removed** — `--gateway-tool-exposure` /
 > `DCC_MCP_GATEWAY_TOOL_EXPOSURE` are gone. The gateway surface is now
 > unconditionally minimal (see `docs/guide/rest-api-surface.md`).
 >
