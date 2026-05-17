@@ -10,10 +10,10 @@ same configuration surface.
 assets on every release. The CLI can be installed directly from a URL:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | sh
+curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | bash
 
 # Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+powershell -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
 ```
 
 Pin a release by setting `DCC_MCP_VERSION=v0.17.4` or passing
@@ -110,7 +110,7 @@ instances that the winner aggregates.
 | `--gateway-port` | `DCC_MCP_GATEWAY_PORT` | `9765` | Well-known port to compete for. `0` disables the gateway role entirely and therefore disables admin too. |
 | `--no-admin` | `DCC_MCP_NO_ADMIN` | `false` | Disable the read-only Admin UI on the elected gateway. Admin is enabled by default when a process wins the gateway role. |
 | `--admin-path` | `DCC_MCP_ADMIN_PATH` | `/admin` | URL prefix for the read-only Admin UI and its JSON APIs. |
-| `--registry-dir` | `DCC_MCP_REGISTRY_DIR` | platform temp dir | Shared `FileRegistry` directory. |
+| `--registry-dir` | `DCC_MCP_REGISTRY_DIR` | platform temp dir | shared `FileRegistry` directory. |
 | `--stale-timeout-secs` | `DCC_MCP_STALE_TIMEOUT` | `30` | Seconds without heartbeat before an instance is considered stale. |
 | `--app-version` | `DCC_MCP_APP_VERSION` | — | App version (e.g., `"2024.2"`); recorded in the registry. |
 | `--scene` | `DCC_MCP_SCENE` | — | Currently-open scene / document; recorded in the registry, used by multi-instance disambiguation. |

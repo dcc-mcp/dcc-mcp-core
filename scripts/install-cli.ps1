@@ -4,6 +4,9 @@ param(
     [string] $Repo = $env:DCC_MCP_REPO
 )
 
+# One-line install:
+# powershell -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+
 $ErrorActionPreference = "Stop"
 
 if ([string]::IsNullOrWhiteSpace($Version)) {

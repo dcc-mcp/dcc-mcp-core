@@ -12,6 +12,9 @@ Install dcc-mcp-cli from GitHub Releases.
 Usage:
   install-cli.sh [--version v0.17.4] [--install-dir ~/.local/bin]
 
+One-line install:
+  curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | bash
+
 Environment:
   DCC_MCP_REPO         GitHub repo, default loonghao/dcc-mcp-core
   DCC_MCP_VERSION      Release tag, default latest

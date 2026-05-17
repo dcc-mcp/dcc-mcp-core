@@ -1,13 +1,20 @@
 # dcc-mcp-core
 
-[![PyPI](https://img.shields.io/pypi/v/dcc-mcp-core)](https://pypi.org/project/dcc-mcp-core/)
-[![Python](https://img.shields.io/pypi/pyversions/dcc-mcp-core)](https://www.python.org/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Downloads](https://static.pepy.tech/badge/dcc-mcp-core)](https://pepy.tech/project/dcc-mcp-core)
-[![Coverage](https://img.shields.io/codecov/c/github/loonghao/dcc-mcp-core)](https://codecov.io/gh/loonghao/dcc-mcp-core)
-[![Tests](https://img.shields.io/github/actions/workflow/status/loonghao/dcc-mcp-core/ci.yml?branch=main&label=Tests)](https://github.com/loonghao/dcc-mcp-core/actions)
+[![Core PyPI](https://img.shields.io/pypi/v/dcc-mcp-core?label=core%20PyPI)](https://pypi.org/project/dcc-mcp-core/)
+[![Server PyPI](https://img.shields.io/pypi/v/dcc-mcp-server?label=server%20PyPI)](https://pypi.org/project/dcc-mcp-server/)
+[![Python](https://img.shields.io/pypi/pyversions/dcc-mcp-core?label=Python)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![CI](https://img.shields.io/github/actions/workflow/status/loonghao/dcc-mcp-core/ci.yml?branch=main&label=CI)](https://github.com/loonghao/dcc-mcp-core/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/codecov/c/github/loonghao/dcc-mcp-core?label=coverage)](https://codecov.io/gh/loonghao/dcc-mcp-core)
+[![GitHub Release](https://img.shields.io/github/v/release/loonghao/dcc-mcp-core?label=GitHub%20release)](https://github.com/loonghao/dcc-mcp-core/releases)
+[![Release Downloads](https://img.shields.io/github/downloads/loonghao/dcc-mcp-core/total?label=release%20downloads)](https://github.com/loonghao/dcc-mcp-core/releases)
+[![Core Downloads](https://img.shields.io/pypi/dm/dcc-mcp-core?label=core%20PyPI%20downloads)](https://pypistats.org/packages/dcc-mcp-core)
+[![Core Pepy](https://static.pepy.tech/badge/dcc-mcp-core)](https://pepy.tech/project/dcc-mcp-core)
+[![Server Downloads](https://img.shields.io/pypi/dm/dcc-mcp-server?label=server%20PyPI%20downloads)](https://pypistats.org/packages/dcc-mcp-server)
+[![CLI Linux](https://img.shields.io/github/downloads/loonghao/dcc-mcp-core/latest/dcc-mcp-cli-linux-x86_64?label=cli%20linux)](https://github.com/loonghao/dcc-mcp-core/releases/latest)
+[![CLI Windows](https://img.shields.io/github/downloads/loonghao/dcc-mcp-core/latest/dcc-mcp-cli-windows-x86_64.exe?label=cli%20windows)](https://github.com/loonghao/dcc-mcp-core/releases/latest)
+[![CLI macOS](https://img.shields.io/github/downloads/loonghao/dcc-mcp-core/latest/dcc-mcp-cli-macos-universal2?label=cli%20macOS)](https://github.com/loonghao/dcc-mcp-core/releases/latest)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
-[![Latest Version](https://img.shields.io/github/v/tag/loonghao/dcc-mcp-core?label=Latest%20Version)](https://github.com/loonghao/dcc-mcp-core/releases)
 
 [English](README.md) | 中文
 
@@ -72,37 +79,42 @@ AI 友好文档：[AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](d
 ## 架构：当前栈
 
 ```
-+-----------------------------------------------------------------+
-|  AI Agent (Claude, GPT, 等)                                     |
-|  通过 MCP tools 或 REST /v1/* 访问统一网关端点                  |
-+-------------------------------+---------------------------------+
-                                |
-                        MCP Streamable HTTP + REST
-                                |
-+-------------------------------v---------------------------------+
-|  Elected Gateway (Rust / HTTP)                                  |
-|  +-- 动态能力 search / describe / call                           |
-|  +-- 实例注册表、Admin UI、审计日志、trace                       |
-|  +-- 版本感知选举与故障切换                                      |
-|  +-- Job 生命周期、workflow、artefact、resource                  |
-+-------------------------------+---------------------------------+
-                                |
-                 Per-DCC MCP server、IPC 或 WebSocket bridge
-                                |
-          +---------------------+---------------------+
-          |                     |                     |
-  +-------v-------+     +-------v-------+     +-------v-------+
-  |  Maya 适配器   |     | Blender 适配器 |     | Houdini 适配器|
-  |  (_core.pyd)   |     |  (_core.so)    |     |  (_core.so)   |
-  +-------+--------+     +-------+--------+     +-------+-------+
-          |                      |                      |
-    Python 3.7+             Python 3.7+            Python 3.7+
-    (零依赖)                (零依赖)                (零依赖)
++--------------------------------------------------------------------------------+
+| Agent / operator surfaces                                                       |
+| - MCP clients: search_tools -> describe_tool -> call_tool                       |
+| - CLI users: dcc-mcp-cli list/search/describe/call                              |
+| - ClawHub/OpenClaw skills: dcc-cli-gateway or dcc-rest-gateway                  |
+| - CI and custom clients: REST /v1/*                                             |
++----------------------------------------+---------------------------------------+
+                                         |
+                       MCP Streamable HTTP + REST /v1/*
+                                         |
++----------------------------------------v---------------------------------------+
+| Elected gateway (Rust HTTP control plane)                                       |
+| - Minimal MCP tools/list: discovery and dispatch primitives only                |
+| - Dynamic capability search, schema describe, single/batch call routing         |
+| - Instance registry, TCP liveness probes, version-aware election, failover      |
+| - Admin UI, OpenAPI, audit logs, traces, metrics, jobs, workflows, artefacts    |
++----------------------------------------+---------------------------------------+
+                                         |
+                    Gateway-routed calls to owning per-DCC server
+                                         |
+        +-------------------------------+-------------------------------+
+        |                               |                               |
++-------v--------+              +-------v--------+              +-------v--------+
+| Maya adapter   |              | Blender adapter|              | Custom host    |
+| MCP + REST     |              | MCP + REST     |              | MCP + REST     |
+| Skills catalog |              | Skills catalog |              | Skills catalog |
++-------+--------+              +-------+--------+              +-------+--------+
+        |                               |                               |
+  Host bridge / UI-thread pump    Host bridge / add-on           Host RPC / IPC
+        |                               |                               |
+   Maya Python APIs                 Blender Python APIs           Studio APIs
 ```
 
-- **Agent 表面**：MCP 客户端使用 `search_tools` -> `describe_tool` -> `call_tool`；非 MCP 客户端使用等价的 `/v1/search`、`/v1/describe`、`/v1/call`、`/v1/call_batch`。
-- **Gateway 表面**：一个获选网关汇聚 per-DCC servers，暴露 Admin UI，记录 audit/trace，并让公开工具列表保持很小。
-- **DCC 表面**：嵌入式 Python 适配器、独立 `dcc-mcp-server`、WebSocket bridge 都注册同一套结构化、由 Skills 派生的能力。
+- **Agent 表面**：MCP 客户端使用有界的发现/调度工具集；CLI 与 skill 用户通过 `dcc-mcp-cli` 或 `/v1/*` 访问同一网关。
+- **Gateway 表面**：一个获选网关汇聚 per-DCC servers，让 `tools/list` 保持很小，暴露 OpenAPI/Admin UI，记录 audit/trace，并按 tool slug 路由。
+- **DCC 表面**：嵌入式适配器、独立 `dcc-mcp-server`、bridge 型宿主都通过 MCP + REST 暴露同一套 Skills 派生能力。
 
 ---
 
@@ -112,10 +124,10 @@ AI 友好文档：[AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](d
 
 ```bash
 # 从 GitHub Release 一键安装 CLI
-curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | sh
+curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | bash
 
 # Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+powershell -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
 
 # 从 PyPI 安装（Python 3.7+ 预构建 wheel）
 pip install dcc-mcp-core
@@ -361,7 +373,7 @@ handle = server.start()
 | `.mel` | MEL (Maya) | 通过 DCC 适配器 |
 | `.ms` | MaxScript | 通过 DCC 适配器 |
 | `.bat`, `.cmd` | Batch | `cmd /c` |
-| `.sh`, `.bash` | Shell | `bash` |
+| `.sh`, `.bash` | bashell | `bash` |
 | `.ps1` | PowerShell | `powershell -File` |
 | `.js`, `.jsx` | JavaScript | `node` |
 | `.ts` | TypeScript | `node`（通过 ts-node 或 tsx） |
@@ -442,9 +454,9 @@ tools/list 响应（Maya 会话、尚未加载任何 skill）：
 
 ---
 
-## 架构总览 —— 35 个 Workspace 成员
+## 架构总览 —— 38 个 Workspace 成员
 
-`dcc-mcp-core` 组织为 **35 个成员的 Rust workspace**（34 个功能 crate + `workspace-hack`），通过 PyO3 / maturin 编译为单个原生 Python 扩展（`_core`）。根 `Cargo.toml` 是 workspace 成员列表的唯一来源。精选 crate：
+`dcc-mcp-core` 组织为 **38 个成员的 Rust workspace**（37 个功能 crate + `workspace-hack`）。大多数库 crate 通过 PyO3 / maturin 编译进原生 Python 扩展（`_core`），`dcc-mcp-cli`、`dcc-mcp-server` 与 tunnel 二进制也会作为面向用户的 release assets 发布。根 `Cargo.toml` 是 workspace 成员列表的唯一来源。精选 crate：
 
 | Crate | 职责 | 关键类型 |
 |---|---|---|
@@ -469,6 +481,7 @@ tools/list 响应（Maya 会话、尚未加载任何 skill）：
 | `dcc-mcp-telemetry` | 可观测性 | `TelemetryConfig`、`ToolRecorder`、`ToolMetrics`、可选 Prometheus |
 | `dcc-mcp-usd` | USD 集成 | `UsdStage`、`UsdPrim`、`scene_info_json_to_stage` |
 | `dcc-mcp-http` | MCP Streamable HTTP facade | `McpHttpServer`、`McpHttpConfig`、`McpServerHandle`、PyO3 bindings、兼容重导出 |
+| `dcc-mcp-cli` | 客户端控制面 CLI | `dcc-mcp-cli list/search/describe/call/install` |
 | `dcc-mcp-server` | 二进制入口 | `dcc-mcp-server` CLI、网关 runner |
 | `dcc-mcp-workflow` | 工作流引擎（可选） | `WorkflowSpec`、`WorkflowExecutor`、`WorkflowHost`、`StepPolicy`、`RetryPolicy` |
 | `dcc-mcp-scheduler` | Cron + Webhook 调度器（可选） | `ScheduleSpec`、`TriggerSpec`、`SchedulerService`、HMAC 校验 |

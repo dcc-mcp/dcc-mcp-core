@@ -1,41 +1,50 @@
 # Architecture
 
-DCC-MCP-Core is a **Rust-powered DCC automation framework** with Python bindings via PyO3, designed for AI-assisted workflows. It solves MCP's context explosion and provides zero-code skill registration.
+DCC-MCP-Core is a **Rust-powered DCC automation framework** with Python bindings via PyO3, designed for AI-assisted workflows. The current architecture is gateway-first: MCP clients, CLI users, ClawHub/OpenClaw skills, CI, and custom HTTP clients all converge on a small discovery/dispatch control plane instead of receiving every backend tool in `tools/list`.
 
 ## High-Level Design
 
-### Three-Layer Stack
+### Current Gateway-First Stack
 
 ```
-┌──────────────────────────────┐
-│ AI Agent (Claude, GPT, etc.) │ ← talks MCP via HTTP
-└──────────────┬───────────────┘
-               │ MCP Streamable HTTP
-               ▼
-┌──────────────────────────────┐
-│ Gateway Server (Rust core)   │ ← coordinates tool discovery
-│ - Version-aware election     │   and session routing
-│ - Session isolation          │
-│ - Tool scoping               │
-└──────────┬──────────────────┘
-           │ IPC (fast, zero-copy)
-           │
-     ┌─────┴──────┬────────┬────────┐
-     ▼            ▼        ▼        ▼
-  ┌──────┐   ┌──────┐  ┌──────┐  ┌──────┐
-  │ Maya │   │Blend │  │Houd  │  │Photo │
-  │ (v25)│   │ (3.9)│  │(21)  │  │(2025)│
-  └──────┘   └──────┘  └──────┘  └──────┘
-   Instances with embedded Skills system
++--------------------------------------------------------------------------------+
+| Agent / operator surfaces                                                       |
+| - MCP clients: search_tools -> describe_tool -> call_tool                       |
+| - CLI users: dcc-mcp-cli list/search/describe/call                              |
+| - ClawHub/OpenClaw skills: dcc-cli-gateway or dcc-rest-gateway                  |
+| - CI and custom clients: REST /v1/*                                             |
++----------------------------------------+---------------------------------------+
+                                         |
+                       MCP Streamable HTTP + REST /v1/*
+                                         |
++----------------------------------------v---------------------------------------+
+| Elected gateway (Rust HTTP control plane)                                       |
+| - Minimal MCP tools/list: discovery and dispatch primitives only                |
+| - Dynamic capability search, schema describe, single/batch call routing         |
+| - Instance registry, TCP liveness probes, version-aware election, failover      |
+| - Admin UI, OpenAPI, audit logs, traces, metrics, jobs, workflows, artefacts    |
++----------------------------------------+---------------------------------------+
+                                         |
+                    Gateway-routed calls to owning per-DCC server
+                                         |
+        +-------------------------------+-------------------------------+
+        |                               |                               |
++-------v--------+              +-------v--------+              +-------v--------+
+| Maya adapter   |              | Blender adapter|              | Custom host    |
+| MCP + REST     |              | MCP + REST     |              | MCP + REST     |
+| Skills catalog |              | Skills catalog |              | Skills catalog |
++-------+--------+              +-------+--------+              +-------+--------+
+        |                               |                               |
+  Host bridge / UI-thread pump    Host bridge / add-on           Host RPC / IPC
 ```
 
 ### Core Principles
 
-1. **Session Isolation** — Each AI session pinned to one DCC instance (prevents context explosion)
-2. **Version-Aware Election** — Newest DCC automatically becomes gateway (no manual failover)
-3. **Zero-Code Skills** — SKILL.md + scripts/ = instant MCP tools (no Python glue)
-4. **Structured Results** — Every tool returns `{success, message, context, next_steps}` (AI-friendly)
-5. **Progressive Discovery** — Tools scoped by DCC/scope/product (71% context reduction)
+1. **Minimal MCP surface** — `tools/list` exposes discovery and dispatch primitives; backend tools are found through search/describe/call.
+2. **Version-aware election** — The gateway is elected and can fail over without hard-coding a single DCC host.
+3. **Zero-code skills** — `SKILL.md` + sibling YAML/scripts become MCP tools and REST-callable capabilities.
+4. **Structured results** — Every tool returns AI-friendly success/error, message, context, and follow-up hints.
+5. **Progressive discovery** — Capabilities are scoped by DCC, instance, scene, product, and skill state.
 
 ## The Library
 
@@ -65,6 +74,7 @@ dcc-mcp-core (workspace root)
 ├── dcc-mcp-http-server   # Reusable HTTP runtime support
 ├── dcc-mcp-http-py       # PyO3 binding boundary for HTTP APIs
 ├── dcc-mcp-http          # Embedded MCP HTTP facade + compatibility re-exports
+├── dcc-mcp-cli           # Client control-plane CLI for gateway REST
 ├── dcc-mcp-server        # Binary entry point and gateway runner
 ├── dcc-mcp-logging       # Rolling file logging
 ├── dcc-mcp-paths         # Platform path helpers
@@ -116,6 +126,8 @@ dcc-mcp-http-server ← dcc-mcp-http-types, dcc-mcp-jsonrpc, dcc-mcp-job, dcc-mc
 dcc-mcp-http ← dcc-mcp-http-types, dcc-mcp-http-server, dcc-mcp-gateway, dcc-mcp-skill-rest
        ↓
 dcc-mcp-server ← dcc-mcp-http
+
+dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 ```
 
 ## Crate Responsibilities
@@ -412,6 +424,10 @@ dcc-mcp-server ← dcc-mcp-http
 ### dcc-mcp-server
 
 **Purpose**: Binary entry point (`dcc-mcp-server` CLI) that assembles and runs the full MCP server with gateway support.
+
+### dcc-mcp-cli
+
+**Purpose**: Client-side control-plane CLI for users, CI, and shell-capable skills. It talks to the gateway REST surface for `health`, `list`, `search`, `describe`, `call`, and adapter install planning; it does not host skills or replace per-DCC servers.
 
 **Key Components**:
 - `main.rs` — CLI entry point using `GatewayRunner` and `McpHttpServer` library APIs
