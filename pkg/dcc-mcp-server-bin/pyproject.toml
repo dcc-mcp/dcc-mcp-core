@@ -17,7 +17,7 @@ version = "0.17.4"  # x-release-please-version
 description = "Standalone dcc-mcp-server CLI binary — gateway, sidecar, stdio bridge (Rust)"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.8"
+requires-python = ">=3.7"
 keywords = ["dcc", "mcp", "gateway", "sidecar", "maya", "blender", "houdini"]
 authors = [
     {name = "Hal Long", email = "hal.long@outlook.com"},
@@ -28,6 +28,14 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Rust",
     "Topic :: Software Development",
     "Topic :: Multimedia :: Graphics :: 3D Modeling",
