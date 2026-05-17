@@ -84,6 +84,7 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 | `traces/core-994-meta-tools-do-not-dominate-ranking.jsonl` | Yes (any DCC) | Domain queries top-1 MUST be a domain tool, never `project.*` / `dcc_capability_manifest` / `recipes__*` / `diagnostics__*` (core#994). |
 | `traces/core-995-list-skills-respects-limit.jsonl` | Yes (any DCC) | `POST /v1/list_skills` MUST honour `limit` and `fields` and report a `truncated` flag (core#995). |
 | `traces/core-996-instance-offline-carries-previous-status.jsonl` | No | `instance-offline` (or `unknown-slug`) error envelope MUST carry `previous_status` so agents can distinguish manual restart from crash (core#996). |
+| `traces/core-1037-gateway-yield-unsupported-envelope.jsonl` | No | `POST /gateway/yield` unsupported/invalid optional-capability path MUST return a structured envelope that tells runners to poll instead of treating it as a crash. |
 | `traces/gateway-multi-instance-stress.jsonl` | Yes (≥3 live instances) | Skips unless `GET /v1/instances` reports `total >= 3`; then bursts health/instances/readyz/context/search to catch registry/probe regressions under load. |
 
 ## CI policy (recommended)
@@ -102,3 +103,4 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 - core [#994](https://github.com/loonghao/dcc-mcp-core/issues/994) — search ranking dominated by meta-tools
 - core [#995](https://github.com/loonghao/dcc-mcp-core/issues/995) — list_skills returns full metadata for every skill
 - core [#996](https://github.com/loonghao/dcc-mcp-core/issues/996) — instance-offline envelope must carry restart cause
+- core [#1037](https://github.com/loonghao/dcc-mcp-core/issues/1037) — cooperative gateway yield fallback should be structured and non-alarming

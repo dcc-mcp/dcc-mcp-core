@@ -541,10 +541,16 @@ impl GatewayRunner {
                         "Cooperative yield accepted — waiting for port to free up"
                     );
                 } else {
+                    let status = resp.status();
+                    let body_text = resp.text().await.unwrap_or_default();
+                    let detail = cooperative_yield_fallback_detail(status, &body_text);
                     tracing::info!(
-                        status = %resp.status(),
-                        "Cooperative yield not supported by gateway v{gw_ver} \
-                         (normal for older versions) — polling for port"
+                        status = %status,
+                        gateway = %gw_ver,
+                        error_kind = detail.error_kind.as_deref().unwrap_or("unknown"),
+                        fallback = "polling",
+                        "Cooperative yield unavailable or refused ({}) — polling for port",
+                        detail.message
                     );
                 }
             }
@@ -643,5 +649,78 @@ impl GatewayRunner {
         });
 
         handle.abort_handle()
+    }
+}
+
+struct CooperativeYieldFallbackDetail {
+    error_kind: Option<String>,
+    message: String,
+}
+
+fn cooperative_yield_fallback_detail(
+    status: reqwest::StatusCode,
+    body: &str,
+) -> CooperativeYieldFallbackDetail {
+    let parsed = serde_json::from_str::<serde_json::Value>(body).ok();
+    let error_kind = parsed
+        .as_ref()
+        .and_then(|value| value.pointer("/error/kind"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned);
+    let message = parsed
+        .as_ref()
+        .and_then(|value| value.pointer("/error/message"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| {
+            parsed
+                .as_ref()
+                .and_then(|value| value.get("error"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| match status {
+            reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::METHOD_NOT_ALLOWED => {
+                "gateway does not expose /gateway/yield; this is a non-fatal optional capability miss".to_string()
+            }
+            _ => {
+                "gateway returned a non-success response to the optional yield probe".to_string()
+            }
+        });
+
+    CooperativeYieldFallbackDetail {
+        error_kind,
+        message,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cooperative_yield_fallback_reads_structured_optional_capability() {
+        let detail = cooperative_yield_fallback_detail(
+            reqwest::StatusCode::CONFLICT,
+            r#"{"error":{"kind":"optional-capability-unsupported","message":"poll instead"}}"#,
+        );
+
+        assert_eq!(
+            detail.error_kind.as_deref(),
+            Some("optional-capability-unsupported")
+        );
+        assert_eq!(detail.message, "poll instead");
+    }
+
+    #[test]
+    fn cooperative_yield_fallback_legacy_404_is_non_fatal() {
+        let detail = cooperative_yield_fallback_detail(reqwest::StatusCode::NOT_FOUND, "");
+
+        assert_eq!(detail.error_kind, None);
+        assert!(
+            detail.message.contains("optional capability miss"),
+            "legacy detail should mark the fallback as optional: {}",
+            detail.message
+        );
     }
 }
