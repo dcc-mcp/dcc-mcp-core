@@ -1,0 +1,28 @@
+[package]
+name = "dcc-mcp-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Client-side control plane CLI for discovering, calling, and planning DCC-MCP installations"
+
+[[bin]]
+name = "dcc-mcp-cli"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap = { version = "4", features = ["derive", "env"] }
+dcc-mcp-catalog.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+axum = { version = "0.8", features = ["http1", "tokio"] }
+tempfile = "3"
