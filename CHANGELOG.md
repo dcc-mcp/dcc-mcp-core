@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.7](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.6...v0.17.7) (2026-05-17)
+
+
+### Features
+
+* add cli gateway clawhub skill ([d6446be](https://github.com/loonghao/dcc-mcp-core/commit/d6446be710fec202354585836fbadcfee5ac64ef))
+* structure gateway yield fallback ([e026dca](https://github.com/loonghao/dcc-mcp-core/commit/e026dcad95487a7999d14ed4135c02d4b9ba1387))
+
 ## [0.17.6](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.5...v0.17.6) (2026-05-17)
 
 
