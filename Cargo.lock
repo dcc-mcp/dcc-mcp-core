@@ -829,6 +829,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "dcc-mcp-cli"
+version = "0.17.4"
+dependencies = [
+ "anyhow",
+ "axum",
+ "clap",
+ "dcc-mcp-catalog",
+ "reqwest 0.13.3",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "workspace-hack",
+]
+
+[[package]]
 name = "dcc-mcp-core"
 version = "0.17.4"
 dependencies = [
@@ -6367,7 +6384,9 @@ dependencies = [
  "digest 0.11.2",
  "either",
  "errno",
+ "form_urlencoded",
  "futures-channel",
+ "futures-core",
  "futures-executor",
  "futures-sink",
  "futures-task",
@@ -6388,6 +6407,7 @@ dependencies = [
  "num-iter",
  "num-traits",
  "once_cell",
+ "percent-encoding",
  "phf 0.11.3",
  "phf_shared 0.11.3",
  "ppv-lite86",
