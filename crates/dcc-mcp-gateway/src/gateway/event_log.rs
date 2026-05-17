@@ -218,6 +218,9 @@ pub fn record_event(
             EventKind::AutoDeregister => {
                 metrics.inc_eviction(event.as_label());
             }
+            EventKind::HostDied => {
+                metrics.inc_eviction(event.as_label());
+            }
             EventKind::OperatorNote => {}
         }
     }
