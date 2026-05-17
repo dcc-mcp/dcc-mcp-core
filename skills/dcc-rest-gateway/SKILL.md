@@ -3,10 +3,9 @@ name: dcc-rest-gateway
 description: >-
   Control live DCC hosts (Maya, Blender, Houdini, Photoshop, 3ds Max, and
   others) through the DCC-MCP gateway REST API only — no MCP client required.
-  For any agent host (OpenClaw, Cursor, Claude, custom HTTP clients): inventory
+  For any agent host (OpenClaw, ClawHub, Cursor, Claude, custom HTTP clients): inventory
   online instances, obtain user consent before setup when none are registered,
-  then search, describe, and call tools via POST /v1/*. Publish target: ClawHub
-  (https://clawhub.ai).
+  then search, describe, and call tools via POST /v1/*.
 license: MIT
 compatibility: Requires curl on PATH; DCC-MCP gateway reachable at DCC_MCP_GATEWAY_URL (default http://127.0.0.1:9765)
 allowed-tools: Bash Read
@@ -35,8 +34,7 @@ gateway HTTP API** only. You do **not** need MCP `tools/list`, `call_tool`,
 `resources/read`, or Streamable HTTP — only `curl` (or any HTTP client) against
 the elected gateway (default port **9765**).
 
-**Publish target:** [ClawHub](https://clawhub.ai/) — install via OpenClaw/ClawHub
-or point your agent at this `SKILL.md` after cloning
+Install via OpenClaw/ClawHub, or point your agent at this `SKILL.md` after cloning
 [`dcc-mcp-core/skills/dcc-rest-gateway/`](https://github.com/loonghao/dcc-mcp-core/tree/main/skills/dcc-rest-gateway).
 
 Full contract: [`docs/guide/rest-api-surface.md`](https://github.com/loonghao/dcc-mcp-core/blob/main/docs/guide/rest-api-surface.md).
@@ -201,23 +199,3 @@ See [`references/REST_CHEATSHEET.md`](references/REST_CHEATSHEET.md) for the ful
 - Gateway MCP wrappers (`search_tools`, `call_tool`) unless your host maps them to REST internally
 
 REST and MCP share the same backend; this skill is for agents that only have HTTP.
-
----
-
-## Publishing to ClawHub
-
-From the skill directory (repository root `skills/dcc-rest-gateway/`):
-
-```bash
-clawhub publish ./skills/dcc-rest-gateway \
-  --slug dcc-rest-gateway \
-  --version 1.0.0
-```
-
-Or after `cd skills/dcc-rest-gateway`:
-
-```bash
-clawhub publish . --slug dcc-rest-gateway --version 1.0.0
-```
-
-Install in OpenClaw: skills under `~/.openclaw/skills` or via ClawHub UI at https://clawhub.ai .

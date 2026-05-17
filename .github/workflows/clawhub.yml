@@ -55,6 +55,7 @@ jobs:
         run: |
           mkdir -p dist/skills
           python scripts/package_openclaw_skill.py skills/dcc-rest-gateway dist/skills
+          python scripts/package_openclaw_skill.py skills/dcc-cli-gateway dist/skills
 
       - name: Upload packaged skill artifacts
         uses: actions/upload-artifact@v4
