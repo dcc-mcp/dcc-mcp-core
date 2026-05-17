@@ -8,8 +8,7 @@ This directory packages the `crates/dcc-mcp-server` Rust binary as a
 platform-specific **binary-only** PyPI wheel, following the same pattern as
 `ruff`, `uv`, `cmake`, and `pyright`. The result is a single
 `pip install dcc-mcp-server` that drops the gateway / sidecar / translate
-CLI onto `PATH` regardless of the user's Python version or which DCC they
-run.
+CLI onto `PATH` for Python 3.7+ regardless of which DCC the user runs.
 
 ## Why a separate PyPI package?
 
@@ -22,7 +21,7 @@ cadences and ABI matrices. Splitting them is the standard pattern.
 | Package | Distributes | Audience |
 |---|---|---|
 | `dcc-mcp-core` (existing) | PyO3 wheel (`_core.so` + Python facade) | Skill authors, plugin/addon code running *inside* a DCC interpreter |
-| `dcc-mcp-server` (this dir) | platform-specific binary wheels | Operators, sidecar spawners, anyone who wants a standalone gateway |
+| `dcc-mcp-server` (this dir) | platform-specific Python 3.7+ binary wheels | Operators, sidecar spawners, anyone who wants a standalone gateway |
 | `dcc-mcp-<dcc>` (each repo) | pure-Python plugin/addon glue | DCC plugin loaders (`userSetup.py`, addon `register()`, …) |
 
 ## Layout
@@ -52,6 +51,11 @@ vx maturin build --release
 vx pip install ../../target/wheels/dcc_mcp_server-*.whl
 dcc-mcp-server --help
 ```
+
+The wheel uses maturin `bindings = "bin"`, so it does not load a Python
+extension module and has no CPython ABI dependency. Its metadata deliberately
+declares `Requires-Python: >=3.7` so embedded Python 3.7 hosts such as Maya
+2022 can install it directly.
 
 ## Cross-platform CI release
 
