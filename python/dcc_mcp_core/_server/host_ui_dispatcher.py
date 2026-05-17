@@ -149,7 +149,13 @@ class HostUiJobEntry:
                 job_id=self.job_id,
             )
         except CancelledError:
-            raise
+            self.outcome = host_ui_outcome(
+                self.request_id,
+                self.affinity,
+                success=False,
+                error=DispatcherErrorCode.CANCELLED,
+                job_id=self.job_id,
+            )
         except Exception as exc:
             self.outcome = host_ui_outcome(
                 self.request_id,
