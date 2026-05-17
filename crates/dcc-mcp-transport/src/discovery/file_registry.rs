@@ -161,6 +161,11 @@ impl FileRegistry {
         Ok(())
     }
 
+    fn force_reload_from_file(&self) -> TransportResult<()> {
+        self.load_from_file()?;
+        self.update_mtime()
+    }
+
     fn locks_dir(&self) -> PathBuf {
         self.registry_dir.join(LOCKS_DIR)
     }
@@ -555,7 +560,7 @@ impl FileRegistry {
     /// that crashed after registering itself in a different
     /// `FileRegistry` instance.
     pub fn prune_dead_entries(&self) -> TransportResult<usize> {
-        let _ = self.reload_if_stale();
+        self.force_reload_from_file()?;
 
         let dead_keys: Vec<ServiceKey> = self
             .services

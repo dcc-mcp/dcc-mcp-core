@@ -257,6 +257,34 @@ fn test_prune_dead_entries_reloads_before_iterating() {
 }
 
 #[test]
+fn test_prune_dead_entries_ignores_cached_mtime_when_pruning() {
+    let dir = tempfile::tempdir().unwrap();
+    let reader = FileRegistry::new(dir.path()).unwrap();
+
+    let live = ServiceEntry::new("maya", "127.0.0.1", 18812);
+    reader.register(live).unwrap();
+
+    {
+        let writer = FileRegistry::new(dir.path()).unwrap();
+        let ghost = ServiceEntry::new("blender", "127.0.0.1", 18813);
+        writer.register(ghost).unwrap();
+    }
+
+    let registry_path = reader.registry_file_path();
+    let current_mtime = std::fs::metadata(registry_path)
+        .unwrap()
+        .modified()
+        .unwrap();
+    *reader.last_mtime.lock().unwrap() = Some(current_mtime);
+
+    let pruned = reader.prune_dead_entries().unwrap();
+    assert_eq!(
+        pruned, 1,
+        "prune must reload even when cached mtime matches the registry file"
+    );
+}
+
+#[test]
 fn test_file_registry_multiple_instances_same_dcc() {
     let dir = tempfile::tempdir().unwrap();
     let registry = FileRegistry::new(dir.path()).unwrap();
