@@ -10,6 +10,9 @@ For ``mayapy`` / batch / pytest use :class:`InProcessCallableDispatcher`
 instead — it runs inline on the calling thread and does not need a pump.
 
 See ``docs/api/dispatcher.md`` (Host UI dispatcher checklist).
+
+Type annotations use ``typing.Optional`` / ``Dict`` / … so the separate cp37
+wheel imports cleanly (PEP 604 ``|`` and ``dict[...]`` are invalid on 3.7).
 """
 
 from __future__ import annotations
@@ -21,6 +24,12 @@ import threading
 import time
 from typing import Any
 from typing import Callable
+from typing import Deque
+from typing import Dict
+from typing import List
+from typing import Optional
+from typing import Set
+from typing import Tuple
 
 from dcc_mcp_core.cancellation import CancelledError
 from dcc_mcp_core.cancellation import reset_current_job
@@ -66,11 +75,11 @@ def host_ui_outcome(
     *,
     success: bool,
     output: Any = None,
-    error: str | None = None,
-    job_id: str | None = None,
-) -> dict[str, Any]:
+    error: Optional[str] = None,
+    job_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """Build the standard dict envelope returned by UI dispatchers."""
-    payload: dict[str, Any] = {
+    payload: Dict[str, Any] = {
         "request_id": request_id,
         "affinity": affinity,
         "success": success,
@@ -83,7 +92,7 @@ def host_ui_outcome(
 
 
 # Back-compat alias for adapters that already import ``current_host_ui_job``.
-current_host_ui_job: contextvars.ContextVar[HostUiJobEntry | None] = contextvars.ContextVar(
+current_host_ui_job: contextvars.ContextVar[Optional[HostUiJobEntry]] = contextvars.ContextVar(
     "dcc_mcp_core_current_host_ui_job",
     default=None,
 )
@@ -110,18 +119,18 @@ class HostUiJobEntry:
         request_id: str,
         affinity: str,
         task: Callable[[], Any],
-        timeout_ms: int | None = None,
+        timeout_ms: Optional[int] = None,
         *,
-        job_id: str | None = None,
-        progress_token: str | None = None,
-        on_complete: Callable[[dict[str, Any]], None] | None = None,
+        job_id: Optional[str] = None,
+        progress_token: Optional[str] = None,
+        on_complete: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> None:
         self.request_id = request_id
         self.affinity = affinity
         self.task = task
         self.timeout_ms = timeout_ms or DEFAULT_UI_JOB_TIMEOUT_MS
         self.event = threading.Event()
-        self.outcome: dict[str, Any] | None = None
+        self.outcome: Optional[Dict[str, Any]] = None
         self.cancel_flag = threading.Event()
         self.job_id = job_id
         self.progress_token = progress_token
@@ -135,7 +144,7 @@ class HostUiJobEntry:
     def cancelled(self) -> bool:
         return self.cancel_flag.is_set()
 
-    def execute(self) -> dict[str, Any]:
+    def execute(self) -> Dict[str, Any]:
         """Run ``task`` on the host thread and populate ``outcome``."""
         token_job = set_current_job(self)
         token_ui = current_host_ui_job.set(self)
@@ -190,10 +199,10 @@ class HostUiDispatcherBase:
     """
 
     def __init__(self, *, fail_fast_on_main_queue_busy: bool = False) -> None:
-        self._main_queue: deque[HostUiJobEntry] = deque()
+        self._main_queue: Deque[HostUiJobEntry] = deque()
         self._lock = threading.Lock()
-        self._cancelled: set = set()
-        self._active: dict[str, HostUiJobEntry] = {}
+        self._cancelled: Set[str] = set()
+        self._active: Dict[str, HostUiJobEntry] = {}
         self._shutdown = False
         self._fail_fast_on_main_queue_busy = fail_fast_on_main_queue_busy
 
@@ -208,10 +217,10 @@ class HostUiDispatcherBase:
     def submit(
         self,
         action_name: str,
-        payload: str | None = None,
+        payload: Optional[str] = None,
         affinity: str = "any",
-        timeout_ms: int | None = None,
-    ) -> dict[str, Any]:
+        timeout_ms: Optional[int] = None,
+    ) -> Dict[str, Any]:
         """Submit a static payload job (legacy IPC-style surface)."""
 
         def _task():
@@ -224,8 +233,8 @@ class HostUiDispatcherBase:
         request_id: str,
         task: Callable[[], Any],
         affinity: str = "main",
-        timeout_ms: int | None = None,
-    ) -> dict[str, Any]:
+        timeout_ms: Optional[int] = None,
+    ) -> Dict[str, Any]:
         try:
             affinity_norm = normalize_affinity(affinity)
         except ValueError as exc:
@@ -244,12 +253,12 @@ class HostUiDispatcherBase:
         request_id: str,
         task: Callable[[], Any],
         *,
-        job_id: str | None = None,
-        progress_token: str | None = None,
-        on_complete: Callable[[dict[str, Any]], None] | None = None,
+        job_id: Optional[str] = None,
+        progress_token: Optional[str] = None,
+        on_complete: Optional[Callable[[Dict[str, Any]], None]] = None,
         affinity: str = "main",
-        timeout_ms: int | None = None,
-    ) -> dict[str, Any]:
+        timeout_ms: Optional[int] = None,
+    ) -> Dict[str, Any]:
         try:
             affinity_norm = normalize_affinity(affinity)
         except ValueError as exc:
@@ -364,10 +373,10 @@ class HostUiDispatcherBase:
     def is_shutdown(self) -> bool:
         return self._shutdown
 
-    def supported(self) -> list[str]:
+    def supported(self) -> List[str]:
         return ["any", "main"]
 
-    def capabilities(self) -> dict[str, bool]:
+    def capabilities(self) -> Dict[str, bool]:
         return {
             "supports_main_thread": True,
             "supports_named_threads": False,
@@ -375,7 +384,7 @@ class HostUiDispatcherBase:
             "supports_time_slicing": True,
         }
 
-    def drain_queue(self, budget_ms: float) -> tuple[int, int]:
+    def drain_queue(self, budget_ms: float) -> Tuple[int, int]:
         """Drain the main-thread queue for up to *budget_ms* milliseconds."""
         executed = 0
         start = time.monotonic()
@@ -411,7 +420,7 @@ class HostUiDispatcherBase:
         return executed, len(self._main_queue)
 
     @staticmethod
-    def run_on_any_thread(request_id: str, task: Callable[[], Any], affinity: str) -> dict[str, Any]:
+    def run_on_any_thread(request_id: str, task: Callable[[], Any], affinity: str) -> Dict[str, Any]:
         try:
             return host_ui_outcome(request_id, affinity, success=True, output=task())
         except Exception as exc:
@@ -424,8 +433,8 @@ class HostUiDispatcherBase:
         request_id: str,
         task: Callable[[], Any],
         affinity: str,
-        timeout_ms: int | None,
-    ) -> dict[str, Any]:
+        timeout_ms: Optional[int],
+    ) -> Dict[str, Any]:
         with self._lock:
             if self._shutdown:
                 return host_ui_outcome(
@@ -461,7 +470,7 @@ class HostUiDispatcherBase:
             error="Job completed but outcome was not set",
         )
 
-    def _dequeue(self) -> HostUiJobEntry | None:
+    def _dequeue(self) -> Optional[HostUiJobEntry]:
         with self._lock:
             if self._main_queue:
                 return self._main_queue.popleft()
