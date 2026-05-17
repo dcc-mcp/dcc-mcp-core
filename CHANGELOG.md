@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.3](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.2...v0.17.3) (2026-05-17)
+
+
+### Features
+
+* **dispatcher:** add HostUiDispatcherBase and tools/list stub policy ([11a1251](https://github.com/loonghao/dcc-mcp-core/commit/11a1251b662973e966dcc156b67939b664f34c7a))
+* **sandbox:** wire SandboxPolicy into in-process executor ([70bc970](https://github.com/loonghao/dcc-mcp-core/commit/70bc970731acdd5b87f86cc3ebc0bd4968e4dc26))
+* **sidecar:** gateway health probe and election failover ([1b996a1](https://github.com/loonghao/dcc-mcp-core/commit/1b996a1d492919a7669ca1bc5b74488efdc14b62))
+
+
+### Bug Fixes
+
+* **test:** patch _is_port_free in election e2e to avoid TIME_WAIT flake ([4ca228a](https://github.com/loonghao/dcc-mcp-core/commit/4ca228a3685b34fb85d5d720ec7b8f9482ff2bd4))
+
 ## [0.17.2](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.1...v0.17.2) (2026-05-16)
 
 
