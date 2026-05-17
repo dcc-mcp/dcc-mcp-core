@@ -45,7 +45,12 @@ fn run_npm_or_vx(
     match vx_result {
         Ok(status) if status.success() => return Ok(()),
         Ok(status) => {
-            return Err(format!("`vx {}` exited with {status}", vx_argv.join(" ")));
+            println!(
+                "cargo:warning=`vx {}` exited with {status}; trying `npm {}` in {}",
+                vx_argv.join(" "),
+                npm_args.join(" "),
+                admin_ui.display()
+            );
         }
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             println!(
