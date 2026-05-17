@@ -66,7 +66,7 @@ flowchart LR
 
 ## Architecture
 
-37-member Rust workspace (36 functional crates + `workspace-hack`; root `Cargo.toml` is the source of truth), compiled by maturin into a single Python extension `dcc_mcp_core._core`:
+38-member Rust workspace (37 functional crates + `workspace-hack`; root `Cargo.toml` is the source of truth), compiled by maturin into a single Python extension `dcc_mcp_core._core`:
 
 ```
 dcc-mcp-core/
@@ -98,6 +98,7 @@ dcc-mcp-core/
 │   ├── dcc-mcp-gateway-core/        # pure gateway domain/search/ranking types (#845)
 │   ├── dcc-mcp-gateway-search/      # reusable capability search/ranking engine
 │   ├── dcc-mcp-gateway/             # multi-instance gateway + minimal MCP surface
+│   ├── dcc-mcp-cli/                 # `dcc-mcp-cli` client/control-plane CLI
 │   ├── dcc-mcp-server/              # `dcc-mcp-server` CLI
 │   ├── dcc-mcp-tunnel-protocol/     # tunnel frame format + JWT
 │   ├── dcc-mcp-tunnel-relay/        # `dcc-mcp-tunnel-relay` CLI + library

@@ -1,0 +1,70 @@
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SearchRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dcc_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DescribeRequest {
+    pub tool_slug: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CallRequest {
+    pub tool_slug: String,
+    pub arguments: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meta: Option<Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Endpoint {
+    pub base_url: String,
+}
+
+impl Endpoint {
+    #[must_use]
+    pub fn new(base_url: impl Into<String>) -> Self {
+        let base_url = base_url.into().trim_end_matches('/').to_string();
+        Self { base_url }
+    }
+
+    #[must_use]
+    pub fn path(&self, path: &str) -> String {
+        format!("{}/{}", self.base_url, path.trim_start_matches('/'))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn endpoint_normalizes_trailing_slashes() {
+        let endpoint = Endpoint::new("http://127.0.0.1:9765/");
+        assert_eq!(
+            endpoint.path("/v1/instances"),
+            "http://127.0.0.1:9765/v1/instances"
+        );
+    }
+
+    #[test]
+    fn search_request_omits_empty_filters() {
+        let body = serde_json::to_value(SearchRequest {
+            query: Some("sphere".into()),
+            dcc_type: None,
+            limit: Some(10),
+        })
+        .unwrap();
+        assert_eq!(body["query"], "sphere");
+        assert_eq!(body["limit"], 10);
+        assert!(body.get("dcc_type").is_none());
+    }
+}

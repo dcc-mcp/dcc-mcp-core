@@ -23,7 +23,9 @@ crossbeam-utils = { version = "0.8.21" }
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10.7", features = ["mac", "oid", "std"] }
 digest-a6292c17cd707f01 = { package = "digest", version = "0.11.2", features = ["alloc", "mac", "oid"] }
 either = { version = "1.15.0", features = ["use_std"] }
+form_urlencoded = { version = "1.2.2" }
 futures-channel = { version = "0.3.32", features = ["sink"] }
+futures-core = { version = "0.3.32" }
 futures-executor = { version = "0.3.32" }
 futures-sink = { version = "0.3.32" }
 futures-task = { version = "0.3.32", default-features = false, features = ["std"] }
@@ -41,6 +43,7 @@ num-integer = { version = "0.1.46", features = ["i128"] }
 num-iter = { version = "0.1.45", default-features = false, features = ["i128", "std"] }
 num-traits = { version = "0.2.19", features = ["i128", "libm"] }
 once_cell = { version = "1.21.4" }
+percent-encoding = { version = "2.3.2" }
 phf = { version = "0.11.3", features = ["macros"] }
 phf_shared = { version = "0.11.3" }
 ppv-lite86 = { version = "0.2.21", default-features = false, features = ["simd", "std"] }
@@ -81,7 +84,9 @@ crossbeam-utils = { version = "0.8.21" }
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10.7", features = ["mac", "oid", "std"] }
 digest-a6292c17cd707f01 = { package = "digest", version = "0.11.2", features = ["alloc", "mac", "oid"] }
 either = { version = "1.15.0", features = ["use_std"] }
+form_urlencoded = { version = "1.2.2" }
 futures-channel = { version = "0.3.32", features = ["sink"] }
+futures-core = { version = "0.3.32" }
 futures-executor = { version = "0.3.32" }
 futures-sink = { version = "0.3.32" }
 futures-task = { version = "0.3.32", default-features = false, features = ["std"] }
@@ -99,6 +104,7 @@ num-integer = { version = "0.1.46", features = ["i128"] }
 num-iter = { version = "0.1.45", default-features = false, features = ["i128", "std"] }
 num-traits = { version = "0.2.19", features = ["i128", "libm"] }
 once_cell = { version = "1.21.4" }
+percent-encoding = { version = "2.3.2" }
 phf = { version = "0.11.3", features = ["macros"] }
 phf_shared = { version = "0.11.3" }
 ppv-lite86 = { version = "0.2.21", default-features = false, features = ["simd", "std"] }
