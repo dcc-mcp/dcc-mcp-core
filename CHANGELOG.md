@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.9](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.8...v0.17.9) (2026-05-18)
+
+
+### Features
+
+* add gateway smoke command ([27bbecd](https://github.com/loonghao/dcc-mcp-core/commit/27bbecd1527e0bc503056286d4e8ef28b89345a3))
+* add remote gateway listener ([14e989d](https://github.com/loonghao/dcc-mcp-core/commit/14e989d6d625c3e226f251b18751b6b15c258503))
+* complete rest progressive loading ([bfb8e11](https://github.com/loonghao/dcc-mcp-core/commit/bfb8e11bc3327e639f4efdf1de18ccbce8a04987))
+
+
+### Bug Fixes
+
+* harden gateway initialization ([67d11f3](https://github.com/loonghao/dcc-mcp-core/commit/67d11f3c1a3943549e89b2c2dc153e97e05be56d))
+* keep unloaded capabilities instance scoped ([3126347](https://github.com/loonghao/dcc-mcp-core/commit/3126347807196fead7cbbfe79baca41014e8c358))
+* publish challenger sentinel during gateway takeover ([0df3adf](https://github.com/loonghao/dcc-mcp-core/commit/0df3adf6059b6f144ac4fe0f7f51636188c7a4fa))
+* retry gateway cooperative yield ([ef6fccb](https://github.com/loonghao/dcc-mcp-core/commit/ef6fccb0566af44da827c9fe224a2396f06f5434))
+
+
+### Code Refactoring
+
+* split skill rest service tests ([62f0b48](https://github.com/loonghao/dcc-mcp-core/commit/62f0b4895200bb1be04ea636204efe6259f24bcc))
+
 ## [0.17.8](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.7...v0.17.8) (2026-05-18)
 
 
