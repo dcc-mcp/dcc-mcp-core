@@ -150,12 +150,13 @@ pub async fn call_backend(
 /// field is ignored here — the builder recomputes the gateway-level
 /// slug itself via `tool_slug(dcc_type, instance_id, callable_id)`.
 ///
-/// Returns `(loaded_tools, unloaded_hints)`.  `loaded_tools` feeds
-/// [`build_records_from_backend`] as before.  `unloaded_hints` contains
+/// Returns `(loaded_tools, unloaded_hints)`. `loaded_tools` feeds
+/// [`build_records_from_backend`] as before. `unloaded_hints` contains
 /// `(skill_name, tool_name, summary)` triples for every hit where the
-/// backend returned `"loaded": false` — they become `CapabilityRecord`
-/// sentinel rows (instance `Uuid::nil()`) so `search_tools` can surface
-/// them with a `next_step: load_skill` hint even before the skill is loaded.
+/// backend returned `"loaded": false`; the gateway refresh layer folds
+/// them into that backend instance's capability slice so `search_tools`
+/// and REST `/v1/search` can surface a routable `next_step: load_skill`
+/// hint even before the skill is loaded.
 pub async fn try_fetch_tools(
     client: &reqwest::Client,
     mcp_url: &str,

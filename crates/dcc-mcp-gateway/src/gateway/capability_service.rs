@@ -92,6 +92,41 @@ pub fn search_service(index: &CapabilityIndex, query: &SearchQuery) -> Vec<Searc
     search(&snap, query)
 }
 
+/// Search and materialise transport-neutral JSON rows. Unloaded
+/// capability hits include a machine-executable `next_step` that both
+/// MCP wrappers and REST clients can call directly.
+pub fn search_service_rows(index: &CapabilityIndex, query: &SearchQuery) -> Vec<Value> {
+    search_service(index, query)
+        .into_iter()
+        .map(search_hit_to_value)
+        .collect()
+}
+
+pub fn search_hit_to_value(hit: SearchHit) -> Value {
+    let mut value = serde_json::to_value(&hit).unwrap_or(Value::Null);
+    if !hit.record.loaded
+        && let Some(skill_name) = &hit.record.skill_name
+    {
+        value["next_step"] = json!({
+            "action": "load_skill",
+            "arguments": {
+                "skill_name": skill_name,
+                "dcc": &hit.record.dcc_type,
+                "dcc_type": &hit.record.dcc_type,
+                "instance_id": hit.record.instance_id.to_string(),
+            },
+            "rest": {
+                "method": "POST",
+                "path": "/v1/load_skill",
+            },
+            "mcp": {
+                "name": "load_skill",
+            },
+        });
+    }
+    value
+}
+
 /// Resolve `slug` to its record. Returns a structured error when the
 /// slug is malformed, unknown, or matches more than one row (the
 /// ambiguous case can happen if callers pass a record that has since
@@ -505,6 +540,47 @@ mod unit_tests {
             .map(|h| h.record.tool_slug.as_str())
             .collect();
         assert_eq!(service_slugs, raw_slugs);
+    }
+
+    #[test]
+    fn search_service_rows_adds_executable_load_skill_next_step() {
+        let idx = CapabilityIndex::new();
+        let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        let rec = CapabilityRecord::new(
+            tool_slug("maya", &iid, "maya_primitives__create_sphere"),
+            "maya_primitives__create_sphere".to_string(),
+            "maya_primitives__create_sphere".to_string(),
+            Some("maya-primitives".to_string()),
+            "Create a sphere",
+            Vec::new(),
+            "maya".to_string(),
+            iid,
+            true,
+            false,
+        );
+        idx.upsert_instance(iid, vec![rec], InstanceFingerprint(1));
+
+        let rows = search_service_rows(
+            &idx,
+            &SearchQuery {
+                query: "sphere".into(),
+                loaded_only: Some(false),
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["next_step"]["action"], "load_skill");
+        assert_eq!(
+            rows[0]["next_step"]["arguments"]["skill_name"],
+            "maya-primitives"
+        );
+        assert_eq!(rows[0]["next_step"]["arguments"]["dcc"], "maya");
+        assert_eq!(
+            rows[0]["next_step"]["arguments"]["instance_id"],
+            iid.to_string()
+        );
+        assert_eq!(rows[0]["next_step"]["rest"]["path"], "/v1/load_skill");
     }
 
     #[test]
