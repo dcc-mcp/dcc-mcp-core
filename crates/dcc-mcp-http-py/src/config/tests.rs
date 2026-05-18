@@ -60,6 +60,8 @@ fn all_mcp_http_config_fields_have_py_getters() {
 
     // ── GatewayConfig ────────────────────────────────────────────
     let _ = cfg.gateway_port();
+    let _ = cfg.gateway_remote_host();
+    let _ = cfg.gateway_remote_port();
     let _ = cfg.registry_dir();
     let _ = cfg.stale_timeout_secs();
     let _ = cfg.heartbeat_secs();

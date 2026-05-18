@@ -11,6 +11,15 @@ pub struct GatewayConfig {
     /// `0` disables the gateway entirely. Default: 0 (disabled).
     pub gateway_port: u16,
 
+    /// Optional second gateway listener for remote/LAN clients.
+    ///
+    /// This listener does not participate in gateway election; it is opened
+    /// only by the process that wins `gateway_port`.
+    pub remote_host: Option<String>,
+
+    /// Optional second gateway port for remote/LAN clients. `0` disables it.
+    pub remote_gateway_port: u16,
+
     /// Shared `FileRegistry` directory. `None` uses a system temp dir.
     pub registry_dir: Option<PathBuf>,
 
@@ -88,6 +97,8 @@ impl Default for GatewayConfig {
     fn default() -> Self {
         Self {
             gateway_port: 0,
+            remote_host: None,
+            remote_gateway_port: 0,
             registry_dir: None,
             stale_timeout_secs: 30,
             heartbeat_secs: 5,

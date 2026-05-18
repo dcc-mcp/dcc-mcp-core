@@ -28,6 +28,8 @@ pub(crate) fn build_config(
     cfg.server.enable_cors = enable_cors;
     cfg.server.request_timeout_ms = request_timeout_ms;
     cfg.gateway.gateway_port = 9765;
+    cfg.gateway.remote_host = Some("0.0.0.0".to_string());
+    cfg.gateway.remote_gateway_port = 19765;
     cfg.gateway.backend_timeout_ms = backend_timeout_ms;
     cfg.telemetry.enable_prometheus = enable_prometheus;
     cfg.telemetry.prometheus_basic_auth = prometheus_basic_auth;

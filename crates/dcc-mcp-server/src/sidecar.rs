@@ -159,6 +159,14 @@ pub struct SidecarArgs {
     /// Gateway host/interface to bind. Use ``0.0.0.0`` to accept LAN clients.
     #[arg(long, env = "DCC_MCP_GATEWAY_HOST")]
     pub gateway_host: Option<String>,
+
+    /// Remote/LAN gateway host/interface to bind.
+    #[arg(long, env = "DCC_MCP_GATEWAY_REMOTE_HOST", default_value = "0.0.0.0")]
+    pub gateway_remote_host: String,
+
+    /// Remote/LAN gateway port. ``0`` disables the remote listener.
+    #[arg(long, env = "DCC_MCP_GATEWAY_REMOTE_PORT", default_value = "19765")]
+    pub gateway_remote_port: u16,
 }
 
 /// Run the sidecar lifecycle until the parent DCC dies or a signal arrives.
@@ -566,6 +574,8 @@ mod tests {
             gateway_port: 0,
             host: "127.0.0.1".to_string(),
             gateway_host: None,
+            gateway_remote_host: "0.0.0.0".to_string(),
+            gateway_remote_port: 19765,
         };
         let pinned_uuid = args.instance_id.unwrap();
 
@@ -672,6 +682,8 @@ mod tests {
             gateway_port: 0,
             host: "127.0.0.1".to_string(),
             gateway_host: None,
+            gateway_remote_host: "0.0.0.0".to_string(),
+            gateway_remote_port: 19765,
         };
 
         let sidecar_handle = tokio::spawn(async move { run(args).await });
@@ -760,6 +772,8 @@ mod tests {
             gateway_port: 0,
             host: "127.0.0.1".to_string(),
             gateway_host: None,
+            gateway_remote_host: "0.0.0.0".to_string(),
+            gateway_remote_port: 19765,
         };
 
         let sidecar_handle = tokio::spawn(async move { run(args).await });
