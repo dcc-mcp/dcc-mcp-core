@@ -114,6 +114,16 @@ def server_url() -> Any:
         thread_affinity="main",
     )
     reg.register(
+        "main_affined_enforced",
+        description="Tool that requires a DeferredExecutor",
+        dcc="test",
+        version="1.0.0",
+        execution="async",
+        timeout_hint_secs=30,
+        thread_affinity="main",
+        enforce_thread_affinity=True,
+    )
+    reg.register(
         "any_affined",
         description="Tool with no thread constraint",
         dcc="test",
@@ -126,6 +136,10 @@ def server_url() -> Any:
     server.register_handler(
         "main_affined",
         lambda params: (time.sleep(0.3), {"ok": True})[1],
+    )
+    server.register_handler(
+        "main_affined_enforced",
+        lambda params: {"ok": True},
     )
     server.register_handler(
         "any_affined",
@@ -165,3 +179,28 @@ class TestMainAffinityAsyncEnvelope:
         result = resp["result"]
         assert result["isError"] is False
         assert result["structuredContent"]["status"] == "pending"
+
+    def test_enforced_main_affinity_without_executor_fails_clearly(self, mcp_client: McpClient) -> None:
+        resp = _tools_call(mcp_client, "main_affined_enforced", arguments={})
+        result = resp["result"]
+        assert result["isError"] is False
+        job_id = result["structuredContent"]["job_id"]
+
+        deadline = time.monotonic() + 5.0
+        final: dict[str, Any] | None = None
+        while time.monotonic() < deadline:
+            poll = _tools_call(
+                mcp_client,
+                "jobs.get_status",
+                arguments={"job_id": job_id, "include_result": True},
+                req_id=2,
+            )
+            env = poll["result"]["structuredContent"]
+            if env["status"] in {"completed", "failed", "cancelled", "interrupted"}:
+                final = env
+                break
+            time.sleep(0.05)
+
+        assert final is not None, f"job {job_id} did not reach a terminal state"
+        assert final["status"] == "failed"
+        assert "THREAD_AFFINITY_UNAVAILABLE" in final["error"]

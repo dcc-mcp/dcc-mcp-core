@@ -17,6 +17,7 @@ pub(super) struct AsyncDispatchConfig {
     pub parent_job_id: Option<String>,
     pub progress_token: Option<Value>,
     pub thread_affinity: ThreadAffinity,
+    pub enforce_thread_affinity: bool,
 }
 
 pub(super) fn async_dispatch_config(
@@ -37,6 +38,7 @@ pub(super) fn async_dispatch_config(
         parent_job_id: meta_dcc.and_then(|dcc| dcc.parent_job_id.clone()),
         progress_token,
         thread_affinity: action_meta.thread_affinity,
+        enforce_thread_affinity: action_meta.enforce_thread_affinity,
     })
 }
 
@@ -81,11 +83,19 @@ async fn run_async_execution_lane(
     call_params: Value,
     cancel_token: CancellationToken,
     thread_affinity: ThreadAffinity,
+    enforce_thread_affinity: bool,
 ) -> Result<Value, String> {
     let dispatcher = state.dispatcher.as_ref().clone();
     let use_main_thread = use_main_thread_route(thread_affinity, state.executor.is_some());
 
     if matches!(thread_affinity, ThreadAffinity::Main) && state.executor.is_none() {
+        if enforce_thread_affinity {
+            return Err(
+                "THREAD_AFFINITY_UNAVAILABLE: tool declares thread_affinity=main, \
+                 but no DeferredExecutor is wired"
+                    .to_string(),
+            );
+        }
         tracing::warn!(
             tool = %resolved_name,
             "tool declares thread_affinity=main but no DeferredExecutor is wired; \
@@ -151,6 +161,7 @@ fn spawn_async_registry_dispatch(
     resolved_name: String,
     call_params: Value,
     thread_affinity: ThreadAffinity,
+    enforce_thread_affinity: bool,
 ) {
     let jobs = Arc::clone(&state.jobs);
     let server = state.clone();
@@ -172,6 +183,7 @@ fn spawn_async_registry_dispatch(
             call_params,
             cancel_token.clone(),
             thread_affinity,
+            enforce_thread_affinity,
         )
         .await;
 
@@ -237,6 +249,7 @@ pub(super) async fn dispatch_async_registry_tool(
         resolved_name,
         call_params,
         cfg.thread_affinity,
+        cfg.enforce_thread_affinity,
     );
 
     build_pending_envelope(&job_id, cfg.parent_job_id)

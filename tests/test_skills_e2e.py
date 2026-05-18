@@ -571,6 +571,7 @@ class TestInProcessExecutor:
             "    description: Host scene tool\n"
             "    source_file: scripts/host_scene.py\n"
             "    thread_affinity: main\n"
+            "    enforce_thread_affinity: false\n"
             "    execution: async\n"
             "    timeout_hint_secs: 45\n"
             "  - name: pure_file\n"
@@ -592,6 +593,15 @@ class TestInProcessExecutor:
             seen.append({"script": Path(script_path).name, "params": params, **kwargs})
             return {"success": True, "message": kwargs["action_name"]}
 
+        def wait_for_seen(action_name: str) -> dict[str, Any]:
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline:
+                for entry in seen:
+                    if entry.get("action_name") == action_name:
+                        return entry
+                time.sleep(0.02)
+            raise AssertionError(f"executor did not observe {action_name}; seen={seen!r}")
+
         server = dcc_mcp_core.create_skill_server("python", dcc_mcp_core.McpHttpConfig(port=0))
         server.set_in_process_executor(capture_exec)
         server.discover(extra_paths=[str(tmp_path)])
@@ -602,9 +612,9 @@ class TestInProcessExecutor:
         time.sleep(0.25)
         try:
             url = handle.mcp_url()
+            client = McpClient(url)
 
-            def _call(name: str) -> None:
-                client = McpClient(url)
+            def _call(name: str) -> dict[str, Any]:
                 _, result = client.post(
                     {
                         "jsonrpc": "2.0",
@@ -614,9 +624,40 @@ class TestInProcessExecutor:
                     }
                 )
                 assert result["result"]["isError"] is False
+                return result
 
-            _call("affinity_skill__host_scene")
+            def _wait_job(result: dict[str, Any]) -> None:
+                structured = result["result"].get("structuredContent")
+                if not structured or "job_id" not in structured:
+                    return
+                job_id = structured["job_id"]
+                deadline = time.monotonic() + 5.0
+                final: dict[str, Any] | None = None
+                while time.monotonic() < deadline:
+                    _, poll = client.post(
+                        {
+                            "jsonrpc": "2.0",
+                            "id": f"jobs.get_status:{job_id}",
+                            "method": "tools/call",
+                            "params": {
+                                "name": "jobs.get_status",
+                                "arguments": {"job_id": job_id, "include_result": True},
+                            },
+                        }
+                    )
+                    assert poll["result"]["isError"] is False, poll
+                    env = poll["result"]["structuredContent"]
+                    if env["status"] in {"completed", "failed", "cancelled", "interrupted"}:
+                        final = env
+                        break
+                    time.sleep(0.05)
+                assert final is not None, f"job {job_id} did not complete"
+                assert final["status"] == "completed", final
+
+            _wait_job(_call("affinity_skill__host_scene"))
             _call("affinity_skill__pure_file")
+            wait_for_seen("affinity_skill__host_scene")
+            wait_for_seen("affinity_skill__pure_file")
         finally:
             handle.shutdown()
 
