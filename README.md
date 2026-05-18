@@ -142,6 +142,22 @@ AI-friendly docs: [AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](d
 - **Gateway surface**: One elected gateway aggregates per-DCC servers, keeps `tools/list` small, exposes OpenAPI/Admin UI, records audit/trace data, and routes by tool slug.
 - **DCC surface**: Embedded adapters, standalone `dcc-mcp-server`, and bridge-based hosts all expose the same Skills-derived capabilities over MCP + REST.
 
+### Gateway Admin UI
+
+The elected gateway ships with a built-in admin console for operators who need
+to inspect live DCC sessions, routing health, audit calls, traces, logs, skill
+paths, and latency trends without leaving the browser. The examples below use
+representative demo data to show the range of panels available in a busy
+multi-DCC workstation.
+
+![Gateway admin health panel](docs/assets/admin-ui/admin-health.png)
+
+![Gateway admin instances panel](docs/assets/admin-ui/admin-instances.png)
+
+![Gateway admin stats panel](docs/assets/admin-ui/admin-stats.png)
+
+![Gateway admin traces panel](docs/assets/admin-ui/admin-traces.png)
+
 ---
 
 ## Quick Start
