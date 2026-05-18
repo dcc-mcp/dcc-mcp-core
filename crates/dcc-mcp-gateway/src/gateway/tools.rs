@@ -307,25 +307,8 @@ pub async fn tool_search_tools(gs: &GatewayState, args: &Value) -> Result<String
     )
     .await;
     let query = crate::gateway::capability_service::parse_search_payload(args);
-    let hits = crate::gateway::capability_service::search_service(&gs.capability_index, &query);
-
-    // Annotate unloaded hits with a structured `next_step` so agents
-    // know they must call `load_skill` before invoking the tool.
-    let mut annotated: Vec<Value> = hits
-        .into_iter()
-        .map(|h| {
-            let mut v = serde_json::to_value(&h).unwrap_or(Value::Null);
-            if !h.record.loaded
-                && let Some(skill_name) = &h.record.skill_name
-            {
-                v["next_step"] = json!({
-                    "action": "load_skill",
-                    "skill_name": skill_name,
-                });
-            }
-            v
-        })
-        .collect();
+    let mut annotated =
+        crate::gateway::capability_service::search_service_rows(&gs.capability_index, &query);
     annotated.extend(local_gateway_tool_hits(&query));
 
     serde_json::to_string_pretty(&json!({

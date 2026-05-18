@@ -252,7 +252,7 @@ unconditional surface:
 | Surface | What appears in `tools/list` | Agent workflow |
 |---------|------------------------------|----------------|
 | Gateway MCP | Fixed discover+dispatch primitives: `search_skills`, `load_skill`, `search_tools`, `describe_tool`, `call_tool`, `call_tools`, and pooling tools. Instance registry, diagnostics, catalog, and the **agent workflow guide** are gateway-native resources (`gateway://instances`, `gateway://diagnostics/*`, `gateway://catalog`, `gateway://docs/agent-workflows`) read via `resources/read`, not tools | `resources/read uri=gateway://instances` (or skip it and go straight to `search_tools` → `describe_tool` → `call_tool` / `call_tools`). Optional: `resources/read uri=gateway://docs/agent-workflows` for MCP+resources+efficiency guidance |
-| Gateway REST | `/v1/search`, `/v1/describe`, `/v1/call`, `/v1/call_batch`, `/v1/instances`, plus `/v1/resources*`, `/v1/prompts*`, and `/v1/jobs*` | `POST /v1/search` → `/v1/describe` → `/v1/call` (or `POST /v1/call_batch` for ordered batches); use resources/prompts/jobs routes for non-tool MCP primitives |
+| Gateway REST | `/v1/search`, `/v1/load_skill`, `/v1/unload_skill`, `/v1/describe`, `/v1/call`, `/v1/call_batch`, `/v1/instances`, plus `/v1/resources*`, `/v1/prompts*`, and `/v1/jobs*` | `POST /v1/search` → optional `/v1/load_skill` from `next_step.arguments` → `/v1/describe` → `/v1/call` (or `POST /v1/call_batch` for ordered batches); use resources/prompts/jobs routes for non-tool MCP primitives |
 | Direct per-DCC MCP | One DCC server's skills and loaded tools | `search_skills` → `load_skill` → tool call |
 
 The gateway capability index stores compact records keyed by
@@ -270,6 +270,12 @@ MCP wrappers are cursor-safe and stable:
 Use this dynamic-capability flow whenever an agent is connected to the gateway.
 Use the per-DCC Skills-First flow (`search_skills` → `load_skill` → tool call)
 when the agent is connected directly to one DCC server.
+
+For REST-only clients, `POST /v1/search` with `loaded_only=false` returns
+unloaded hits with a machine-executable `next_step`. POST that
+`next_step.arguments` object to `/v1/load_skill`, then search or describe again.
+The same shape is included in MCP `search_tools` results, so REST and MCP agents
+can share the same progressive-loading planner.
 
 ### Gateway call wrapper payloads
 
