@@ -309,8 +309,11 @@ impl GatewayRunner {
                     let _ = reg.register(sentinel);
                 }
 
+                let remote_listener = self.bind_remote_gateway_listener().await;
+
                 match start_gateway_tasks(
                     listener,
+                    remote_listener,
                     self.registry.clone(),
                     stale_timeout,
                     backend_timeout,
@@ -509,6 +512,8 @@ impl GatewayRunner {
         let server_name = self.config.server_name.clone();
         let timeout_secs = self.config.challenger_timeout_secs;
         let allow_unknown_tools = self.config.allow_unknown_tools;
+        let remote_host = self.config.remote_host.clone();
+        let remote_gateway_port = self.config.remote_gateway_port;
         let adapter_version = self.config.adapter_version.clone();
         let adapter_dcc = self.config.adapter_dcc.clone();
         let middleware_chain = self.config.middleware_chain.clone();
@@ -604,8 +609,13 @@ impl GatewayRunner {
                         let _ = reg.register(sentinel);
                     }
 
+                    let remote_listener =
+                        bind_remote_gateway_listener(remote_host.clone(), remote_gateway_port)
+                            .await;
+
                     if let Err(e) = start_gateway_tasks(
                         listener,
+                        remote_listener,
                         registry.clone(),
                         stale_timeout,
                         backend_timeout,
@@ -649,6 +659,42 @@ impl GatewayRunner {
         });
 
         handle.abort_handle()
+    }
+
+    async fn bind_remote_gateway_listener(&self) -> Option<tokio::net::TcpListener> {
+        bind_remote_gateway_listener(
+            self.config.remote_host.clone(),
+            self.config.remote_gateway_port,
+        )
+        .await
+    }
+}
+
+async fn bind_remote_gateway_listener(
+    remote_host: Option<String>,
+    remote_gateway_port: u16,
+) -> Option<tokio::net::TcpListener> {
+    if remote_gateway_port == 0 {
+        return None;
+    }
+    let host = remote_host.unwrap_or_else(|| "0.0.0.0".to_string());
+    match try_bind_port_opt(&host, remote_gateway_port).await {
+        Some(listener) => {
+            tracing::info!(
+                host = %host,
+                port = remote_gateway_port,
+                "Gateway remote listener enabled"
+            );
+            Some(listener)
+        }
+        None => {
+            tracing::warn!(
+                host = %host,
+                port = remote_gateway_port,
+                "Gateway remote listener unavailable; continuing with local gateway only"
+            );
+            None
+        }
     }
 }
 

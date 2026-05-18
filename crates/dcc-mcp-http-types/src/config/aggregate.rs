@@ -148,6 +148,18 @@ impl McpHttpConfig {
     pub fn set_gateway_port(&mut self, v: u16) {
         self.gateway.gateway_port = v;
     }
+    pub fn remote_host(&self) -> Option<String> {
+        self.gateway.remote_host.clone()
+    }
+    pub fn set_remote_host(&mut self, v: Option<String>) {
+        self.gateway.remote_host = v;
+    }
+    pub fn remote_gateway_port(&self) -> u16 {
+        self.gateway.remote_gateway_port
+    }
+    pub fn set_remote_gateway_port(&mut self, v: u16) {
+        self.gateway.remote_gateway_port = v;
+    }
     pub fn admin_enabled(&self) -> bool {
         self.gateway.admin_enabled
     }

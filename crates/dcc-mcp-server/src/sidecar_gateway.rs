@@ -118,6 +118,8 @@ fn build_gateway_config(args: &SidecarArgs) -> GatewayConfig {
     GatewayConfig {
         host: gateway_host,
         gateway_port: args.gateway_port,
+        remote_host: Some(args.gateway_remote_host.clone()),
+        remote_gateway_port: args.gateway_remote_port,
         registry_dir: args.registry_dir.clone(),
         server_name: format!("dcc-mcp-gateway-{}", args.dcc),
         server_version: env!("CARGO_PKG_VERSION").to_string(),
