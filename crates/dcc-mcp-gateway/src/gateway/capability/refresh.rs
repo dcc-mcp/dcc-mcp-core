@@ -17,6 +17,8 @@
 //! `crate::gateway::capability::refresh::RefreshReason` path working
 //! unchanged.
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -25,7 +27,8 @@ use uuid::Uuid;
 use crate::gateway::backend_client::fetch_tools;
 
 use super::builder::{BuildInput, build_records_from_backend};
-use super::index::CapabilityIndex;
+use super::index::{CapabilityIndex, InstanceFingerprint};
+use super::record::{CapabilityRecord, tool_slug};
 
 pub use dcc_mcp_gateway_core::capability::refresh::RefreshReason;
 
@@ -39,12 +42,11 @@ pub use dcc_mcp_gateway_core::capability::refresh::RefreshReason;
 ///
 /// **Unloaded skills**: the backend's `POST /v1/search?loaded_only=false`
 /// response carries two groups of hits — tools from *loaded* skills and
-/// metadata stubs for *unloaded* skills (with `"loaded": false`).  The
-/// unloaded group is forwarded to [`CapabilityIndex::set_unloaded_records`]
-/// so that `search_tools` on the gateway side can surface them with a
-/// `loaded: false` flag and a `next_step: load_skill` hint, enabling the
-/// documented "discover → load → call" flow even when a skill has not been
-/// activated on the backend yet.
+/// metadata stubs for *unloaded* skills (with `"loaded": false`). The
+/// unloaded group is stored in this instance's own slice with the real
+/// instance UUID in both `instance_id` and `tool_slug`, so same-DCC
+/// multi-instance gateways do not collapse every hint into one global
+/// `dcc.00000000.*` row.
 pub async fn refresh_instance(
     index: &CapabilityIndex,
     http_client: &reqwest::Client,
@@ -60,80 +62,78 @@ pub async fn refresh_instance(
         dcc_type,
         backend_tools: &tools,
     });
+    let mut records = outcome.records;
+    let loaded_records_len = records.len();
+    let mut unloaded_records = build_unloaded_records(unloaded_hints, instance_id, dcc_type);
+    let unloaded_count = unloaded_records.len();
+    records.append(&mut unloaded_records);
+    records.sort_by(|a, b| a.tool_slug.cmp(&b.tool_slug));
+    let fingerprint = compute_fingerprint(&records);
 
     // Short-circuit when nothing changed. This is the common path —
     // most periodic refreshes find an identical tool list.
     if let Some(prev) = index.fingerprint_for(instance_id)
-        && prev == outcome.fingerprint
-        && !outcome.records.is_empty()
+        && prev == fingerprint
+        && !records.is_empty()
     {
         tracing::trace!(
             instance = %instance_id,
             reason = reason.as_str(),
-            records = outcome.records.len(),
+            records = records.len(),
             "capability index: no-op refresh (fingerprint unchanged)",
         );
         return false;
     }
 
-    let records_len = outcome.records.len();
-    let prev = index.upsert_instance(instance_id, outcome.records, outcome.fingerprint);
-
-    // Populate the unloaded-skill sentinel records so `search_tools`
-    // surfaces tools from skills that are known to this backend but have
-    // not been loaded yet.  Each hint triple is `(skill_name, tool_name,
-    // summary)`.  The DCC type is the same as the refreshed instance's.
-    //
-    // Note: this call *replaces* the entire unloaded slice for every
-    // refresh cycle.  That is intentional — after a `load_skill` the
-    // backend no longer returns the newly-loaded tools with
-    // `loaded=false`, so the stale sentinel rows are evicted naturally
-    // on the next periodic or triggered refresh.
-    if !unloaded_hints.is_empty() {
-        let unloaded_records: Vec<super::record::CapabilityRecord> = unloaded_hints
-            .into_iter()
-            .filter_map(|(skill_name, tool_name, summary)| {
-                if tool_name.is_empty() {
-                    return None;
-                }
-                let mut rec = super::record::CapabilityRecord::from_skill_tool(
-                    &skill_name,
-                    &tool_name,
-                    &summary,
-                    dcc_type,
-                );
-                // Override the default nil instance_id with the real
-                // instance so the gateway can route `load_skill` to the
-                // correct backend when the agent acts on the hint.
-                rec.instance_id = instance_id;
-                Some(rec)
-            })
-            .collect();
-        let unloaded_count = unloaded_records.len();
-        index.set_unloaded_records(unloaded_records);
-        tracing::debug!(
-            instance = %instance_id,
-            dcc = dcc_type,
-            unloaded = unloaded_count,
-            "capability index: populated unloaded-skill sentinel records",
-        );
-    } else {
-        // No unloaded hints: clear any stale sentinel records that may
-        // have been left from a previous refresh cycle when all skills
-        // on this backend are now loaded.
-        index.set_unloaded_records(Vec::new());
-    }
+    let records_len = records.len();
+    let prev = index.upsert_instance(instance_id, records, fingerprint);
 
     tracing::info!(
         instance = %instance_id,
         dcc = dcc_type,
         reason = reason.as_str(),
         records = records_len,
+        loaded = loaded_records_len,
+        unloaded = unloaded_count,
         skipped = outcome.skipped,
-        fingerprint_changed = ?prev.map(|f| f != outcome.fingerprint),
+        fingerprint_changed = ?prev.map(|f| f != fingerprint),
         "capability index: refreshed",
     );
     true
+}
+
+fn build_unloaded_records(
+    unloaded_hints: Vec<(String, String, String)>,
+    instance_id: Uuid,
+    dcc_type: &str,
+) -> Vec<CapabilityRecord> {
+    unloaded_hints
+        .into_iter()
+        .filter_map(|(skill_name, tool_name, summary)| {
+            if tool_name.is_empty() {
+                return None;
+            }
+            let mut rec =
+                CapabilityRecord::from_skill_tool(&skill_name, &tool_name, &summary, dcc_type);
+            rec.instance_id = instance_id;
+            rec.tool_slug = tool_slug(dcc_type, &instance_id, &tool_name);
+            Some(rec)
+        })
+        .collect()
+}
+
+fn compute_fingerprint(records: &[CapabilityRecord]) -> InstanceFingerprint {
+    let mut hasher = DefaultHasher::new();
+    for r in records {
+        r.tool_slug.hash(&mut hasher);
+        r.has_schema.hash(&mut hasher);
+        r.summary.hash(&mut hasher);
+        r.loaded.hash(&mut hasher);
+        for t in &r.tags {
+            t.hash(&mut hasher);
+        }
+    }
+    InstanceFingerprint(hasher.finish())
 }
 
 /// Drop every record for `instance_id`. Safe to call even if the
@@ -151,7 +151,6 @@ pub fn remove_instance(index: &Arc<CapabilityIndex>, instance_id: Uuid) -> bool 
 
 #[cfg(test)]
 mod unit_tests {
-    use super::super::index::InstanceFingerprint;
     use super::*;
 
     #[test]
@@ -197,19 +196,19 @@ mod unit_tests {
 
     // ── unloaded record propagation (#858) ────────────────────────────────
 
-    /// Verify that the unloaded hints from `fetch_tools` are forwarded to
-    /// `CapabilityIndex::set_unloaded_records` so that `search_tools` on
-    /// the gateway surfaces tools from skills that have not been loaded yet.
+    /// Verify that unloaded hints are stored with the owning instance's
+    /// routing slug so same-DCC multi-instance search does not collapse
+    /// to a single `dcc.00000000.*` row.
     ///
     /// This is a synchronous unit test that bypasses the async HTTP layer by
     /// exercising only the index-update logic directly — the async path is
     /// covered by the integration tests in `crates/dcc-mcp-http/tests/http/`.
     #[test]
-    fn unloaded_hints_populate_index_unloaded_slot() {
+    fn unloaded_hints_use_instance_scoped_slugs() {
         use crate::gateway::capability::{CapabilityRecord, search, search::SearchQuery};
 
         let idx = CapabilityIndex::new();
-        let iid = Uuid::from_u128(99);
+        let iid = Uuid::from_u128(0x0000_0063_0000_0000_0000_0000_0000_0001);
 
         // Simulate the loaded-tool slice being upserted (one loaded tool).
         idx.upsert_instance(
@@ -229,26 +228,34 @@ mod unit_tests {
             InstanceFingerprint(42),
         );
 
-        // Simulate what refresh_instance does with the unloaded hints.
-        let unloaded_records: Vec<CapabilityRecord> = vec![(
-            "maya-primitives",
-            "maya-primitives.create_sphere",
-            "Create a primitive sphere",
-        )]
-        .into_iter()
-        .map(|(skill, tool, summary)| {
-            let mut rec = CapabilityRecord::from_skill_tool(skill, tool, summary, "maya");
-            rec.instance_id = iid; // override nil with real instance
-            rec
-        })
-        .collect();
-        idx.set_unloaded_records(unloaded_records);
+        let mut records = idx.snapshot().records.to_vec();
+        records.extend(build_unloaded_records(
+            vec![(
+                "maya-primitives".to_string(),
+                "maya-primitives.create_sphere".to_string(),
+                "Create a primitive sphere".to_string(),
+            )],
+            iid,
+            "maya",
+        ));
+        let fp = compute_fingerprint(&records);
+        idx.upsert_instance(iid, records, fp);
 
         let snap = idx.snapshot();
         assert_eq!(
             snap.records.len(),
             2,
             "snapshot must include both loaded and unloaded records"
+        );
+        assert!(
+            snap.records
+                .iter()
+                .all(|r| r.tool_slug.contains(".00000063.")),
+            "instance-scoped records must use the real UUID prefix; got {:?}",
+            snap.records
+                .iter()
+                .map(|r| r.tool_slug.as_str())
+                .collect::<Vec<_>>()
         );
 
         // search_tools with no filters must surface the unloaded tool.
@@ -285,6 +292,38 @@ mod unit_tests {
         assert!(
             save_hits.iter().any(|h| h.record.loaded),
             "loaded tools must still appear in results"
+        );
+    }
+
+    #[test]
+    fn unloaded_hints_from_two_maya_instances_remain_distinct() {
+        let a = Uuid::from_u128(0xaaaa_0000_0000_0000_0000_0000_0000_0001);
+        let b = Uuid::from_u128(0xbbbb_0000_0000_0000_0000_0000_0000_0001);
+        let idx = CapabilityIndex::new();
+
+        for iid in [a, b] {
+            let records = build_unloaded_records(
+                vec![(
+                    "maya-primitives".to_string(),
+                    "maya-primitives.create_sphere".to_string(),
+                    "Create a primitive sphere".to_string(),
+                )],
+                iid,
+                "maya",
+            );
+            let fp = compute_fingerprint(&records);
+            idx.upsert_instance(iid, records, fp);
+        }
+
+        let snap = idx.snapshot();
+        assert_eq!(snap.records.len(), 2);
+        let slugs: Vec<&str> = snap.records.iter().map(|r| r.tool_slug.as_str()).collect();
+        assert_eq!(
+            slugs,
+            vec![
+                "maya.aaaa0000.maya-primitives.create_sphere",
+                "maya.bbbb0000.maya-primitives.create_sphere",
+            ]
         );
     }
 }
