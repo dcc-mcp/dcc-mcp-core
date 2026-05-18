@@ -214,6 +214,29 @@ fn test_empty_dependency_entry() {
 }
 
 #[test]
+fn test_nested_dcc_mcp_depends_satisfies_depends_docs_warning() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = make_skill_dir(
+        &tmp,
+        "dep-skill",
+        "---\nname: dep-skill\ndescription: test\nmetadata:\n  dcc-mcp:\n    depends: base-skill\n---\n",
+    );
+    std::fs::create_dir_all(dir.join("metadata")).unwrap();
+    std::fs::write(dir.join("metadata").join("depends.md"), "- base-skill\n").unwrap();
+
+    let report = validate_skill_dir(&dir);
+
+    assert!(
+        !report
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("no depends declared")),
+        "expected nested metadata.dcc-mcp.depends to count as a dependency declaration, got: {:?}",
+        report.issues
+    );
+}
+
+#[test]
 fn test_unsupported_script_extension() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = make_skill_dir(
