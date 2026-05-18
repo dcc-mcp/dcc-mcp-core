@@ -1,59 +1,263 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+
+const now = '2026-05-18T08:00:00.000Z';
+
+async function mockAdminApi(page: Page) {
+  const state = {
+    skillPaths: [
+      { source: 'env:DCC_MCP_SKILL_PATHS', path: 'G:/studio/skills' },
+      { id: 7, source: 'admin_custom', path: 'G:/custom/admin-skills' },
+    ],
+  };
+
+  await page.route('**/admin/api/**', async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname.replace(/^\/admin\/api/, '');
+    const method = route.request().method();
+    let body: unknown;
+    let status = 200;
+
+    if (path === '/health') {
+      body = {
+        status: 'ok',
+        instances_ready: 1,
+        instances_total: 2,
+        uptime_secs: 3723,
+        version: '0.17.7',
+        rss_bytes: 2097152,
+        limits: {
+          body_max_bytes: 1048576,
+          rate_limit_per_minute_per_ip: 60,
+          xff_trusted_depth: 1,
+          read_retry_max: 2,
+          circuit_failure_threshold: 3,
+          circuit_open_secs: 30,
+        },
+        circuits: { tracked_backends: 2, circuits_open: 0 },
+      };
+    } else if (path === '/workers') {
+      body = {
+        total: 2,
+        summary: { live: 1, stale: 1, unhealthy: 0 },
+        workers: [
+          {
+            instance_id: 'maya-1234567890',
+            display_name: 'Maya Layout',
+            dcc_type: 'maya',
+            status: 'ready',
+            stale: false,
+            pid: 4242,
+            uptime_secs: 120,
+            version: '2026',
+            adapter_version: '0.5.0',
+            cpu_percent: 3.5,
+            memory_bytes: 734003200,
+            mcp_url: 'http://127.0.0.1:8765/mcp',
+            scene: 'shot010.ma',
+          },
+          {
+            instance_id: 'blender-abcdef1234',
+            display_name: 'Blender Lookdev',
+            dcc_type: 'blender',
+            status: 'stale',
+            stale: true,
+            pid: null,
+            uptime_secs: null,
+            version: null,
+            adapter_version: null,
+            cpu_percent: null,
+            memory_bytes: null,
+            mcp_url: 'http://127.0.0.1:8766/mcp',
+            scene: null,
+          },
+        ],
+      };
+    } else if (path === '/tools') {
+      body = {
+        total: 2,
+        tools: [
+          {
+            slug: 'maya-1234__create_sphere',
+            dcc_type: 'maya',
+            summary: 'Create a polygon sphere.',
+            skill_name: 'modeling',
+            name: 'create_sphere',
+            instance_id: 'maya-1234567890',
+            instance_prefix: 'maya-123',
+          },
+          {
+            slug: 'blender-abcd__render_preview',
+            dcc_type: 'blender',
+            summary: 'Render a viewport preview.',
+            skill_name: 'rendering',
+            name: 'render_preview',
+            instance_id: 'blender-abcdef1234',
+            instance_prefix: 'blender-',
+          },
+        ],
+      };
+    } else if (path === '/calls') {
+      body = {
+        total: 1,
+        calls: [
+          {
+            timestamp: now,
+            request_id: 'req-123',
+            tool: 'maya-1234__create_sphere',
+            dcc_type: 'maya',
+            status: 'ok',
+            success: true,
+            error: null,
+            duration_ms: 42,
+            instance_id: 'maya-1234567890',
+          },
+        ],
+      };
+    } else if (path === '/traces') {
+      body = {
+        total: 1,
+        traces: [
+          {
+            timestamp: now,
+            request_id: 'req-123',
+            tool: 'maya-1234__create_sphere',
+            dcc_type: 'maya',
+            status: 'ok',
+            success: true,
+            total_ms: 42,
+            instance_id: 'maya-1234567890',
+          },
+        ],
+      };
+    } else if (path === '/traces/req-123') {
+      body = {
+        request_id: 'req-123',
+        method: 'tools/call',
+        spans: [{ name: 'dispatch', duration_ms: 42 }],
+      };
+    } else if (path === '/stats') {
+      body = {
+        range: url.searchParams.get('range') ?? '24h',
+        total_calls: 4,
+        successful_calls: 3,
+        failed_calls: 1,
+        success_rate: 75,
+        latency_ms: { p50_ms: 20, p95_ms: 90 },
+        top_tools: [{ name: 'maya-1234__create_sphere', count: 3 }],
+        top_instances: [{ name: 'maya-1234567890', count: 3 }],
+        hourly_distribution: Array.from({ length: 24 }, (_, i) => (i === 8 ? 4 : 0)),
+      };
+    } else if (path === '/logs') {
+      body = {
+        total: 1,
+        logs: [
+          {
+            timestamp: now,
+            level: 'info',
+            source: 'audit',
+            message: 'tools/call ok 42ms — maya-1234__create_sphere',
+            dcc_type: 'maya',
+            instance_id: 'maya-1234567890',
+            request_id: 'req-123',
+            tool: 'maya-1234__create_sphere',
+            success: true,
+          },
+          {
+            timestamp: '2026-05-18T08:00:01.000Z',
+            level: 'info',
+            source: 'contention',
+            event: 'gateway_elected',
+            message: 'gateway elected dcc_type=gateway instance=local',
+            dcc_type: 'gateway',
+            instance_id: 'local',
+          },
+        ],
+      };
+    } else if (path === '/skill-paths' && method === 'GET') {
+      body = { paths: state.skillPaths };
+    } else if (path === '/skill-paths' && method === 'POST') {
+      const payload = route.request().postDataJSON() as { path?: string };
+      state.skillPaths.push({ id: 8, source: 'admin_custom', path: payload.path ?? '' });
+      body = { ok: true, path: payload.path };
+    } else if (path === '/skill-paths/7' && method === 'DELETE') {
+      state.skillPaths = state.skillPaths.filter((row) => row.id !== 7);
+      body = { ok: true, id: 7 };
+    } else {
+      status = 404;
+      body = { error: `Unhandled test route: ${method} ${path}` };
+    }
+
+    await route.fulfill({
+      status,
+      contentType: 'application/json',
+      body: JSON.stringify(body),
+    });
+  });
+}
+
+test.beforeEach(async ({ page }) => {
+  await mockAdminApi(page);
+});
 
 test.describe('Admin Page', () => {
-  test('should load admin page and display health panel', async ({ page }) => {
+  test('loads the health panel and navigation', async ({ page }) => {
     await page.goto('/admin/');
     await expect(page.locator('h1')).toContainText('DCC-MCP Gateway');
-    await expect(page.locator('.nav button', { hasText: 'Health' })).toBeVisible();
-  });
-
-  test('should display all navigation panels', async ({ page }) => {
-    await page.goto('/admin/');
-    const panels = ['Health', 'Instances', 'Tools', 'Calls', 'Traces', 'Stats', 'Workers', 'Logs'];
-    for (const label of panels) {
-      await expect(page.locator('.nav button', { hasText: label })).toBeVisible();
+    await expect(page.getByRole('navigation').getByRole('link', { name: 'Health' })).toHaveClass(/active/);
+    for (const label of ['Health', 'Instances', 'Tools', 'Calls', 'Traces', 'Stats', 'Skill paths', 'Logs']) {
+      await expect(page.getByRole('navigation').getByRole('link', { name: label })).toBeVisible();
     }
+    await expect(page.locator('.health-panel')).toContainText('0.17.7');
   });
 
-  test('should switch to Instances panel and show icons', async ({ page }) => {
+  test('switches to instances, renders DCC cards, and filters rows', async ({ page }) => {
     await page.goto('/admin/');
-    await page.click('button:has-text("Instances")');
-    await page.waitForSelector('.instances-panel');
-    // Check that DCC icons are rendered (img with data:image/svg+xml)
-    const icons = await page.locator('.dcc-icon').count();
-    if (icons > 0) {
-      await expect(page.locator('.dcc-icon').first()).toHaveAttribute('src', /data:image\/svg\+xml/);
-    }
+    await page.getByRole('navigation').getByRole('link', { name: 'Instances' }).click();
+    await expect(page.locator('.instances-panel')).toBeVisible();
+    await expect(page.locator('.dcc-icon')).toHaveCount(2);
+    await page.getByLabel('Filter current panel').fill('blender');
+    await expect(page.locator('.worker-card')).toHaveCount(1);
+    await expect(page.locator('.worker-card')).toContainText('Blender Lookdev');
   });
 
-  test('should switch to Logs panel and display log rows', async ({ page }) => {
+  test('opens trace detail from the calls panel and keeps the URL shareable', async ({ page }) => {
     await page.goto('/admin/');
-    await page.click('button:has-text("Logs")');
-    await page.waitForSelector('.logs-panel');
-    // Logs panel should either show rows or "no data" message
-    const hasRows = await page.locator('.log-row').count();
-    expect(hasRows).toBeGreaterThanOrEqual(0);
+    await page.getByRole('navigation').getByRole('link', { name: 'Calls' }).click();
+    await page.getByRole('button', { name: 'req-123' }).click();
+    await expect(page).toHaveURL(/panel=traces/);
+    await expect(page).toHaveURL(/trace=req-123/);
+    await expect(page.locator('.traces-panel pre')).toContainText('"request_id": "req-123"');
+    await expect(page.locator('.traces-panel pre')).toContainText('"dispatch"');
   });
 
-  test('should switch to Stats panel and display stats cards', async ({ page }) => {
-    await page.goto('/admin/');
-    await page.click('button:has-text("Stats")');
-    await page.waitForSelector('.stats-panel');
-    await expect(page.locator('.health-card')).toHaveCount(4); // total, success rate, p50, p95
+  test('updates stats when the range selector changes', async ({ page }) => {
+    await page.goto('/admin/?panel=stats&range=1h');
+    await expect(page.locator('.stats-panel')).toBeVisible();
+    await expect(page.getByLabel('Range')).toHaveValue('1h');
+    await page.getByLabel('Range').selectOption('7d');
+    await expect(page).toHaveURL(/range=7d/);
+    await expect(page.locator('.stats-panel')).toContainText('Range 7d');
   });
 
-  test('should switch to Traces panel and display trace rows', async ({ page }) => {
-    await page.goto('/admin/');
-    await page.click('button:has-text("Traces")');
-    await page.waitForSelector('.traces-panel');
-    const hasRows = await page.locator('.trace-row').count();
-    expect(hasRows).toBeGreaterThanOrEqual(0);
+  test('adds and removes SQLite-backed skill paths', async ({ page }) => {
+    await page.goto('/admin/?panel=skill-paths');
+    await expect(page.locator('.skill-paths-panel')).toContainText('G:/custom/admin-skills');
+    await page.getByLabel('New skill path').fill('G:/new/team-skills');
+    await page.getByRole('button', { name: 'Add path' }).click();
+    await expect(page.locator('.skill-paths-panel')).toContainText('G:/new/team-skills');
+    await page.getByRole('button', { name: 'Remove' }).first().click();
+    await expect(page.locator('.skill-paths-panel')).not.toContainText('G:/custom/admin-skills');
   });
 
-  test('should display search filter in Instances panel', async ({ page }) => {
+  test('shows logs and panel search metadata', async ({ page }) => {
     await page.goto('/admin/');
-    await page.click('button:has-text("Instances")');
-    await page.waitForSelector('.search-input');
-    await expect(page.locator('.search-input')).toBeVisible();
+    await page.getByRole('navigation').getByRole('link', { name: 'Logs' }).click();
+    await expect(page.locator('.logs-panel')).toContainText('Request req-123');
+    await expect(page.locator('.logs-panel')).toContainText('Step 1: maya-1234__create_sphere');
+    await expect(page.locator('.logs-panel')).toContainText('Gateway events');
+    await expect(page.locator('.logs-panel')).toContainText('tools/call ok');
+    await page.getByLabel('Filter current panel').fill('missing');
+    await expect(page.locator('.list-search-meta')).toHaveText('0 / 2');
+    await expect(page.locator('.logs-panel')).toContainText('No log lines match your search.');
   });
 });
