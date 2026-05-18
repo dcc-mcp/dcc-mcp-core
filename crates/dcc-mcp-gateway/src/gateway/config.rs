@@ -53,6 +53,13 @@ pub struct GatewayConfig {
     pub host: String,
     /// Well-known port to compete for. `0` disables the gateway.
     pub gateway_port: u16,
+    /// Optional second gateway listener for remote/LAN clients.
+    ///
+    /// This listener does not participate in gateway election; the local
+    /// `host:gateway_port` bind remains the single authority.
+    pub remote_host: Option<String>,
+    /// Optional second gateway port for remote/LAN clients. `0` disables it.
+    pub remote_gateway_port: u16,
     /// Seconds without heartbeat before an instance is considered stale.
     pub stale_timeout_secs: u64,
     /// Heartbeat interval in seconds. `0` disables the heartbeat task.
@@ -141,6 +148,8 @@ impl Default for GatewayConfig {
         Self {
             host: "127.0.0.1".to_string(),
             gateway_port: 9765,
+            remote_host: None,
+            remote_gateway_port: 0,
             stale_timeout_secs: 30,
             heartbeat_secs: 5,
             server_name: "dcc-mcp-gateway".to_string(),

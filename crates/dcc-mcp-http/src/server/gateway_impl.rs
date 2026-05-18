@@ -18,6 +18,8 @@ pub(crate) async fn start_gateway_runner(
     let gateway_config = GatewayConfig {
         host: config.server.host.to_string(),
         gateway_port: config.gateway.gateway_port,
+        remote_host: config.gateway.remote_host.clone(),
+        remote_gateway_port: config.gateway.remote_gateway_port,
         stale_timeout_secs: config.gateway.stale_timeout_secs,
         heartbeat_secs: config.gateway.heartbeat_secs,
         server_name: config.server.server_name.clone(),

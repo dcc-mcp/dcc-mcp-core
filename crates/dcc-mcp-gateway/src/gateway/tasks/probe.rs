@@ -80,6 +80,7 @@ pub(crate) async fn probe_and_evict_dead_instances(
 /// PyO3-embedded hosts where workers are slow to pick up newly spawned tasks
 /// (issue #303).
 pub(crate) async fn self_probe_listener(addr: std::net::SocketAddr) -> Result<(), std::io::Error> {
+    let addr = probe_addr(addr);
     const MAX_ATTEMPTS: u32 = 10;
     const ATTEMPT_TIMEOUT: Duration = Duration::from_millis(200);
     const BACKOFF: Duration = Duration::from_millis(100);
@@ -107,4 +108,20 @@ pub(crate) async fn self_probe_listener(addr: std::net::SocketAddr) -> Result<()
     }
 
     Err(last_err.unwrap_or_else(|| std::io::Error::other("self-probe failed with no error")))
+}
+
+fn probe_addr(addr: std::net::SocketAddr) -> std::net::SocketAddr {
+    if !addr.ip().is_unspecified() {
+        return addr;
+    }
+    match addr {
+        std::net::SocketAddr::V4(addr) => std::net::SocketAddr::new(
+            std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+            addr.port(),
+        ),
+        std::net::SocketAddr::V6(addr) => std::net::SocketAddr::new(
+            std::net::IpAddr::V6(std::net::Ipv6Addr::LOCALHOST),
+            addr.port(),
+        ),
+    }
 }
