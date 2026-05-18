@@ -836,6 +836,7 @@ dependencies = [
  "axum",
  "clap",
  "dcc-mcp-catalog",
+ "dcc-mcp-skills",
  "reqwest 0.13.3",
  "serde",
  "serde_json",

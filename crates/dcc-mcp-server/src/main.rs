@@ -78,7 +78,6 @@
 //! | `DCC_MCP_REGISTRY_DIR`    | Shared FileRegistry directory                      |
 //! | `DCC_MCP_STALE_TIMEOUT`   | Seconds without heartbeat = stale (default 30)     |
 
-use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -99,34 +98,6 @@ mod sidecar;
 mod sidecar_gateway;
 mod sidecar_mcp;
 mod translate;
-
-// #region agent log
-/// NDJSON debug ingest (session `ce2112`). Set `DCC_MCP_AGENT_DEBUG_LOG` to a file path to enable.
-fn agent_debug_log(hypothesis_id: &str, location: &str, message: &str, data: serde_json::Value) {
-    let Ok(path) = std::env::var("DCC_MCP_AGENT_DEBUG_LOG") else {
-        return;
-    };
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let payload = serde_json::json!({
-        "sessionId": "ce2112",
-        "hypothesisId": hypothesis_id,
-        "location": location,
-        "message": message,
-        "data": data,
-        "timestamp": ts,
-    });
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-    {
-        let _ = writeln!(f, "{}", payload);
-    }
-}
-// #endregion agent log
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
 
@@ -765,34 +736,8 @@ async fn main() -> anyhow::Result<()> {
         )
     };
 
-    // #region agent log
-    let launch_t0 = std::time::Instant::now();
-    agent_debug_log(
-        "H1",
-        "dcc-mcp-server/src/main.rs:pre_discover",
-        "before catalog.discover",
-        serde_json::json!({
-            "skill_path_count": skill_paths.len(),
-            "extra_dir_count": extra_dirs.as_ref().map(|v| v.len()).unwrap_or(0),
-            "app": args.app,
-        }),
-    );
-    // #endregion agent log
-
     let n = catalog.discover(extra_dirs.as_deref(), app_hint);
     tracing::info!("Discovered {} skill(s) in catalog", n);
-
-    // #region agent log
-    agent_debug_log(
-        "H1",
-        "dcc-mcp-server/src/main.rs:post_discover",
-        "after catalog.discover",
-        serde_json::json!({
-            "discovered": n,
-            "discover_ms": launch_t0.elapsed().as_millis(),
-        }),
-    );
-    // #endregion agent log
 
     let catalog_discover_hook: Arc<dyn Fn() + Send + Sync> = {
         let catalog = catalog.clone();
@@ -836,37 +781,10 @@ async fn main() -> anyhow::Result<()> {
         .parse()
         .map_err(|e| anyhow::anyhow!("Invalid --host '{}': {e}", args.host))?;
 
-    // #region agent log
-    agent_debug_log(
-        "H2",
-        "dcc-mcp-server/src/main.rs:pre_mcp_start",
-        "before McpHttpServer::start",
-        serde_json::json!({
-            "spawn_mode": format!("{:?}", config.server.spawn_mode),
-            "self_probe_timeout_ms": config.server.self_probe_timeout_ms,
-            "mcp_port_cli": args.mcp_port,
-            "elapsed_since_launch_ms": launch_t0.elapsed().as_millis(),
-        }),
-    );
-    // #endregion agent log
-
     let mcp_server = McpHttpServer::with_catalog(action_registry.clone(), catalog.clone(), config)
         .with_dispatcher(dispatcher.clone());
 
     let handle = mcp_server.start().await?;
-
-    // #region agent log
-    agent_debug_log(
-        "H2",
-        "dcc-mcp-server/src/main.rs:post_mcp_start",
-        "after McpHttpServer::start",
-        serde_json::json!({
-            "listen_port": handle.port,
-            "bind_addr": handle.bind_addr,
-            "elapsed_since_launch_ms": launch_t0.elapsed().as_millis(),
-        }),
-    );
-    // #endregion agent log
 
     let registry_dcc =
         resolve_registry_dcc_type((!args.app.is_empty()).then_some(args.app.as_str()));
@@ -879,20 +797,6 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // ── Register + gateway competition (via library) ──────────────────────
-
-    // #region agent log
-    agent_debug_log(
-        "H3",
-        "dcc-mcp-server/src/main.rs:pre_gateway_start",
-        "before GatewayRunner::start",
-        serde_json::json!({
-            "gateway_port": args.gateway_port,
-            "registry_dir": registry_dir_path.as_ref().map(|p| p.display().to_string()),
-            "env_registry_dir": std::env::var("DCC_MCP_REGISTRY_DIR").ok(),
-            "elapsed_since_launch_ms": launch_t0.elapsed().as_millis(),
-        }),
-    );
-    // #endregion agent log
 
     let admin_retention = std::env::var("DCC_MCP_GATEWAY_ADMIN_RETENTION_DAYS")
         .ok()
@@ -947,18 +851,6 @@ async fn main() -> anyhow::Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("Failed to start gateway: {e}"))?;
     let is_gateway = gw_handle.is_gateway;
-
-    // #region agent log
-    agent_debug_log(
-        "H3",
-        "dcc-mcp-server/src/main.rs:post_gateway_start",
-        "after GatewayRunner::start",
-        serde_json::json!({
-            "is_gateway": is_gateway,
-            "elapsed_since_launch_ms": launch_t0.elapsed().as_millis(),
-        }),
-    );
-    // #endregion agent log
 
     // ── Start WebSocket bridge (optional) ─────────────────────────────────
 

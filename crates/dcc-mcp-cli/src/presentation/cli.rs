@@ -1,7 +1,10 @@
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand, ValueEnum};
+use dcc_mcp_skills::validator::IssueSeverity;
+use dcc_mcp_skills::{SkillValidationReport, validate_skill_dir};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -63,6 +66,23 @@ enum Command {
         #[arg(long, env = "DCC_MCP_CATALOG_PATH")]
         catalog: Option<PathBuf>,
     },
+    /// Validate local SKILL.md packages before loading them at runtime.
+    Lint(LintArgs),
+}
+
+#[derive(Debug, clap::Args)]
+struct LintArgs {
+    /// Skill directory or directory tree to scan.
+    #[arg(value_name = "PATH", required = true)]
+    paths: Vec<PathBuf>,
+
+    /// Maximum recursion depth below each PATH.
+    #[arg(long, default_value = "2")]
+    max_depth: usize,
+
+    /// Exit non-zero when warnings are present.
+    #[arg(long, default_value = "false")]
+    warnings_as_errors: bool,
 }
 
 pub async fn run() -> anyhow::Result<()> {
@@ -70,13 +90,20 @@ pub async fn run() -> anyhow::Result<()> {
 }
 
 async fn run_with_args(args: Args) -> anyhow::Result<()> {
-    let value = match args.command {
+    let Args {
+        base_url,
+        output,
+        command,
+    } = args;
+
+    let mut failed = false;
+    let value = match command {
         Command::Health => {
-            let client = DccMcpClient::new(Endpoint::new(args.base_url));
+            let client = DccMcpClient::new(Endpoint::new(base_url));
             client.health().await?
         }
         Command::List => {
-            let client = DccMcpClient::new(Endpoint::new(args.base_url));
+            let client = DccMcpClient::new(Endpoint::new(base_url));
             client.list_instances().await?
         }
         Command::Search {
@@ -84,7 +111,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             dcc_type,
             limit,
         } => {
-            let client = DccMcpClient::new(Endpoint::new(args.base_url));
+            let client = DccMcpClient::new(Endpoint::new(base_url));
             client
                 .search(SearchRequest {
                     query,
@@ -94,7 +121,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 .await?
         }
         Command::Describe { tool_slug } => {
-            let client = DccMcpClient::new(Endpoint::new(args.base_url));
+            let client = DccMcpClient::new(Endpoint::new(base_url));
             client.describe(DescribeRequest { tool_slug }).await?
         }
         Command::Call {
@@ -107,7 +134,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 .as_deref()
                 .map(|raw| parse_json_object(raw, "--meta-json"))
                 .transpose()?;
-            let client = DccMcpClient::new(Endpoint::new(args.base_url));
+            let client = DccMcpClient::new(Endpoint::new(base_url));
             client
                 .call(CallRequest {
                     tool_slug,
@@ -128,9 +155,126 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 catalog_path: catalog,
             })?)?
         }
+        Command::Lint(lint_args) => {
+            let result = run_lint_cmd(&lint_args)?;
+            failed = result.failed;
+            result.value
+        }
     };
 
-    print_value(&value, args.output)
+    print_value(&value, output)?;
+    if failed {
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+struct LintCommandResult {
+    value: Value,
+    failed: bool,
+}
+
+fn collect_skill_dirs(
+    root: &std::path::Path,
+    out: &mut BTreeSet<PathBuf>,
+    max_depth: usize,
+) -> anyhow::Result<()> {
+    collect_skill_dirs_at(root, out, max_depth, 0)
+}
+
+fn collect_skill_dirs_at(
+    root: &std::path::Path,
+    out: &mut BTreeSet<PathBuf>,
+    max_depth: usize,
+    depth: usize,
+) -> anyhow::Result<()> {
+    if root.join("SKILL.md").is_file() {
+        out.insert(root.to_path_buf());
+        return Ok(());
+    }
+
+    if !root.is_dir() {
+        anyhow::bail!(
+            "skill lint path does not exist or is not a directory: {}",
+            root.display()
+        );
+    }
+    if depth >= max_depth {
+        return Ok(());
+    }
+
+    let entries = std::fs::read_dir(root).map_err(|err| {
+        anyhow::anyhow!("cannot read skill lint path '{}': {err}", root.display())
+    })?;
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with('.') || name == "node_modules" || name == "target" {
+            continue;
+        }
+        collect_skill_dirs_at(&path, out, max_depth, depth + 1)?;
+    }
+    Ok(())
+}
+
+fn issue_severity_label(severity: IssueSeverity) -> &'static str {
+    match severity {
+        IssueSeverity::Error => "error",
+        IssueSeverity::Warning => "warning",
+    }
+}
+
+fn lint_report_to_json(report: &SkillValidationReport) -> Value {
+    let (errors, warnings) = report.counts();
+    let issues: Vec<_> = report
+        .issues
+        .iter()
+        .map(|issue| {
+            serde_json::json!({
+                "severity": issue_severity_label(issue.severity),
+                "category": format!("{:?}", issue.category),
+                "message": issue.message,
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "skill_dir": report.skill_dir.display().to_string(),
+        "errors": errors,
+        "warnings": warnings,
+        "issues": issues,
+    })
+}
+
+fn run_lint_cmd(args: &LintArgs) -> anyhow::Result<LintCommandResult> {
+    let mut skill_dirs = BTreeSet::new();
+    for root in &args.paths {
+        collect_skill_dirs(root, &mut skill_dirs, args.max_depth)?;
+    }
+
+    let reports: Vec<_> = skill_dirs
+        .iter()
+        .map(|skill_dir| validate_skill_dir(skill_dir))
+        .collect();
+    let (errors, warnings) = reports.iter().fold((0, 0), |(e_acc, w_acc), report| {
+        let (errors, warnings) = report.counts();
+        (e_acc + errors, w_acc + warnings)
+    });
+    let failed = errors > 0 || (args.warnings_as_errors && warnings > 0);
+    let reports_json: Vec<_> = reports.iter().map(lint_report_to_json).collect();
+    let value = serde_json::json!({
+        "checked": reports.len(),
+        "errors": errors,
+        "warnings": warnings,
+        "failed": failed,
+        "reports": reports_json,
+    });
+
+    Ok(LintCommandResult { value, failed })
 }
 
 fn parse_json_object(raw: &str, flag_name: &str) -> anyhow::Result<Value> {
