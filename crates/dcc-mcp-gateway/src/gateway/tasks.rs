@@ -37,6 +37,7 @@ const ADMIN_AUDIT_RING_CAPACITY: usize = 512;
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn start_gateway_tasks(
     listener: tokio::net::TcpListener,
+    remote_listener: Option<tokio::net::TcpListener>,
     registry: Arc<RwLock<FileRegistry>>,
     stale_timeout: Duration,
     backend_timeout: Duration,
@@ -60,7 +61,7 @@ pub(crate) async fn start_gateway_tasks(
     health_check_failures: u32,
 ) -> Result<GatewayTasks, Box<dyn std::error::Error + Send + Sync>> {
     // ── Yield channel ─────────────────────────────────────────────────────
-    let (yield_tx, mut yield_rx) = watch::channel(false);
+    let (yield_tx, yield_rx) = watch::channel(false);
     let yield_tx = Arc::new(yield_tx);
 
     // ── SSE broadcast channel ──────────────────────────────────────────────
@@ -655,19 +656,31 @@ pub(crate) async fn start_gateway_tasks(
     let gw_router = super::metrics::attach_gateway_metrics_route(gw_router);
 
     let actual = listener.local_addr()?;
+    let remote_actual = remote_listener
+        .as_ref()
+        .and_then(|listener| listener.local_addr().ok());
     tracing::info!(
         "Gateway listening on http://{}  (GET /mcp = SSE stream, POST /mcp = MCP endpoint)",
         actual
     );
+    if let Some(addr) = remote_actual {
+        tracing::info!(
+            "Gateway remote listener on http://{}  (LAN clients should use the machine IP, not 0.0.0.0)",
+            addr
+        );
+    }
 
+    let local_yield_rx = yield_rx.clone();
+    let local_router = gw_router.clone();
     let gw_handle = tokio::spawn(async move {
         use std::net::SocketAddr;
 
         axum::serve(
             listener,
-            gw_router.into_make_service_with_connect_info::<SocketAddr>(),
+            local_router.into_make_service_with_connect_info::<SocketAddr>(),
         )
         .with_graceful_shutdown(async move {
+            let mut yield_rx = local_yield_rx;
             loop {
                 if yield_rx.changed().await.is_err() {
                     break;
@@ -681,6 +694,36 @@ pub(crate) async fn start_gateway_tasks(
         .await
         .ok();
     });
+
+    let remote_handle = remote_listener
+        .map(|remote_listener| {
+            let mut remote_yield_rx = yield_rx.clone();
+            let remote_router = gw_router.clone();
+            tokio::spawn(async move {
+                use std::net::SocketAddr;
+
+                axum::serve(
+                    remote_listener,
+                    remote_router.into_make_service_with_connect_info::<SocketAddr>(),
+                )
+                .with_graceful_shutdown(async move {
+                    loop {
+                        if remote_yield_rx.changed().await.is_err() {
+                            break;
+                        }
+                        if *remote_yield_rx.borrow() {
+                            tracing::info!(
+                                "Gateway remote listener: graceful shutdown triggered — releasing port"
+                            );
+                            break;
+                        }
+                    }
+                })
+                .await
+                .ok();
+            })
+        })
+        .unwrap_or_else(|| tokio::spawn(async {}));
 
     // Periodic health-check task (issue #556)
     let health_cfg = health::HealthCheckConfig {
@@ -715,6 +758,7 @@ pub(crate) async fn start_gateway_tasks(
             route_gc_handle,
             health_check_handle,
             gw_handle,
+            remote_handle,
             metrics_handle
         );
     });
@@ -729,7 +773,8 @@ pub(crate) async fn start_gateway_tasks(
             backend_sub_handle,
             route_gc_handle,
             health_check_handle,
-            gw_handle
+            gw_handle,
+            remote_handle
         );
     });
 
@@ -759,6 +804,15 @@ pub(crate) async fn start_gateway_tasks(
         // rely on `combined.abort_handle()` / `yield_tx` for cleanup.
         tokio::time::sleep(Duration::from_millis(50)).await;
         return Err(format!("gateway listener self-probe failed at {actual}: {e}").into());
+    }
+    if let Some(addr) = remote_actual
+        && let Err(e) = self_probe_listener(addr).await
+    {
+        tracing::warn!(
+            addr = %addr,
+            error = %e,
+            "Gateway remote listener self-probe failed — local gateway remains active"
+        );
     }
 
     Ok(GatewayTasks {

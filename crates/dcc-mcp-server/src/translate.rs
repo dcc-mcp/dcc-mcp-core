@@ -111,6 +111,14 @@ pub struct TranslateArgs {
     #[arg(long, env = "DCC_MCP_GATEWAY_HOST")]
     pub gateway_host: Option<String>,
 
+    /// Remote/LAN gateway host/interface to bind.
+    #[arg(long, env = "DCC_MCP_GATEWAY_REMOTE_HOST", default_value = "0.0.0.0")]
+    pub gateway_remote_host: String,
+
+    /// Remote/LAN gateway port. 0 disables the remote listener.
+    #[arg(long, env = "DCC_MCP_GATEWAY_REMOTE_PORT", default_value = "19765")]
+    pub gateway_remote_port: u16,
+
     /// Disable the read-only Admin UI on the elected gateway.
     #[arg(long, env = "DCC_MCP_NO_ADMIN", default_value = "false")]
     pub no_admin: bool,
@@ -591,6 +599,8 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
         let gateway_cfg = GatewayConfig {
             host: gateway_host,
             gateway_port: args.gateway_port,
+            remote_host: Some(args.gateway_remote_host.clone()),
+            remote_gateway_port: args.gateway_remote_port,
             stale_timeout_secs: args.stale_timeout_secs,
             heartbeat_secs: args.heartbeat_secs,
             server_name: server_name.clone(),

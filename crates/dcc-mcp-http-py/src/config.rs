@@ -351,6 +351,30 @@ impl PyMcpHttpConfig {
         self.inner.gateway.gateway_port = v;
     }
 
+    /// Optional remote/LAN gateway bind host.
+    #[getter]
+    fn gateway_remote_host(&self) -> Option<String> {
+        self.inner.gateway.remote_host.clone()
+    }
+
+    /// Optional remote/LAN gateway bind host.
+    #[setter]
+    fn set_gateway_remote_host(&mut self, v: Option<String>) {
+        self.inner.gateway.remote_host = v;
+    }
+
+    /// Optional remote/LAN gateway port. ``0`` disables the remote listener.
+    #[getter]
+    fn gateway_remote_port(&self) -> u16 {
+        self.inner.gateway.remote_gateway_port
+    }
+
+    /// Optional remote/LAN gateway port. ``0`` disables the remote listener.
+    #[setter]
+    fn set_gateway_remote_port(&mut self, v: u16) {
+        self.inner.gateway.remote_gateway_port = v;
+    }
+
     /// Whether the elected gateway serves the read-only Admin UI.
     #[getter]
     fn admin_enabled(&self) -> bool {

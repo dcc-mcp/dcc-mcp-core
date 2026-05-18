@@ -304,6 +304,35 @@ fn ephemeral_port() -> u16 {
 }
 
 #[tokio::test]
+async fn test_gateway_winner_serves_optional_remote_listener() {
+    let dir = tempfile::tempdir().unwrap();
+    let gw_port = ephemeral_port();
+    let remote_port = ephemeral_port();
+    let cfg = GatewayConfig {
+        host: "127.0.0.1".to_string(),
+        gateway_port: gw_port,
+        remote_host: Some("127.0.0.1".to_string()),
+        remote_gateway_port: remote_port,
+        heartbeat_secs: 0,
+        registry_dir: Some(dir.path().to_path_buf()),
+        ..GatewayConfig::default()
+    };
+    let runner = GatewayRunner::new(cfg).unwrap();
+
+    let outcome = runner.run_election().await.unwrap();
+
+    assert!(outcome.is_gateway, "free local port must win election");
+    let resp = reqwest::get(format!("http://127.0.0.1:{remote_port}/health"))
+        .await
+        .expect("remote gateway listener should accept connections");
+    assert!(resp.status().is_success());
+
+    if let Some(abort) = outcome.gateway_abort {
+        abort.abort();
+    }
+}
+
+#[tokio::test]
 async fn test_gateway_handle_drop_deregisters_instance_row() {
     // Point gateway_port at something that is already bound so we land
     // on the `port taken` branch and the handle holds only the instance
