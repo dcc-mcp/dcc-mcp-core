@@ -18,7 +18,25 @@
 
 [中文](README_zh.md) | English
 
-**Production-grade foundation for AI-assisted DCC workflows** — a new gateway-first architecture that combines **MCP 2025-03-26 Streamable HTTP**, a **zero-code Skills system** built on [agentskills.io 1.0](https://agentskills.io/specification), and a Rust control plane for discovery, routing, installation, and operations. The Python package keeps **zero runtime Python dependencies** for embedded DCC hosts, while the standalone `dcc-mcp-cli` and `dcc-mcp-server` binaries ship through GitHub Releases for workstation-style installs. Supports Python 3.7–3.13.
+**Give AI agents a real control plane for Maya, Blender, Houdini, Photoshop, and custom studio tools.**
+
+`dcc-mcp-core` turns DCC applications into discoverable, routable MCP endpoints. Agents stop guessing from shell output and start working with live scene state, scoped tool catalogs, structured results, viewport diagnostics, audit logs, and workflows that can survive real production constraints.
+
+It combines **MCP 2025-03-26 Streamable HTTP**, a **zero-code Skills system** built on [agentskills.io 1.0](https://agentskills.io/specification), and a Rust gateway for discovery, routing, installation, linting, and operations. The Python package keeps **zero runtime Python dependencies** for embedded DCC hosts, while standalone `dcc-mcp-cli` and `dcc-mcp-server` binaries ship through GitHub Releases for workstation-style installs. Supports Python 3.7–3.13.
+
+```bash
+# Install the standalone CLI on Linux/macOS
+curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | bash
+
+# Install the standalone CLI on Windows PowerShell
+powershell -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+
+# Then inspect a gateway or lint local Skills before they ever reach runtime
+dcc-mcp-cli list
+dcc-mcp-cli lint path/to/skills
+```
+
+Use it when you want agents to operate production DCC sessions without flooding the context window, hand-writing Python glue for every tool, or shipping fragile one-off shell scripts.
 
 ---
 
@@ -128,15 +146,52 @@ AI-friendly docs: [AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](d
 
 ## Quick Start
 
-### Installation
+### Install the standalone CLI
+
+Use the release binary when you want the operator/CI control plane without a Python environment:
 
 ```bash
-# One-command CLI install from GitHub Releases
+# Linux/macOS
 curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | bash
 
 # Windows PowerShell
 powershell -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+```
 
+By default, the installers download the latest GitHub Release asset:
+
+| Platform | Asset |
+|---|---|
+| Linux x86_64 | `dcc-mcp-cli-linux-x86_64` |
+| Windows x86_64 | `dcc-mcp-cli-windows-x86_64.exe` |
+| macOS universal2 | `dcc-mcp-cli-macos-universal2` |
+
+Pin a release or install somewhere custom:
+
+```bash
+export DCC_MCP_VERSION=v0.17.7
+export DCC_MCP_INSTALL_DIR="$HOME/bin"
+curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | bash
+```
+
+```powershell
+$env:DCC_MCP_VERSION = "v0.17.7"
+$env:DCC_MCP_INSTALL_DIR = "$env:USERPROFILE\bin"
+irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex
+```
+
+After install:
+
+```bash
+dcc-mcp-cli health
+dcc-mcp-cli list
+dcc-mcp-cli search --query sphere --dcc-type maya
+dcc-mcp-cli lint path/to/skills
+```
+
+### Install the Python core
+
+```bash
 # From PyPI (pre-built wheels for Python 3.7+)
 pip install dcc-mcp-core
 

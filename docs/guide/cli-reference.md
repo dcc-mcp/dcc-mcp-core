@@ -47,6 +47,7 @@ dcc-mcp-cli search --query sphere --dcc-type maya
 dcc-mcp-cli describe maya.abc12345.create_sphere
 dcc-mcp-cli call maya.abc12345.create_sphere --json '{"radius":2}'
 dcc-mcp-cli install --dcc-type maya --version 2026
+dcc-mcp-cli lint path/to/skills
 ```
 
 ### Commands
@@ -59,11 +60,16 @@ dcc-mcp-cli install --dcc-type maya --version 2026
 | `describe <tool-slug>` | `POST /v1/describe` | Inspect a capability before calling it. |
 | `call <tool-slug> --json <object>` | `POST /v1/call` | Invoke one capability. |
 | `install --dcc-type <dcc> [--version <v>]` | catalog-backed local plan | Resolve the matching adapter and emit an auditable install plan. |
+| `lint [PATH ...]` | local filesystem validator | Recursively validate SKILL.md packages two levels below each path by default. |
 
 `install` intentionally starts as a planning contract: it resolves catalog
 entries and spells out the runtime / adapter / verification steps without
 silently modifying DCC plugin folders. DCC-specific installers can attach to
 that contract incrementally.
+
+`lint` reuses the production `dcc-mcp-skills` validator, so local checks and
+runtime loading fail for the same structural problems. CI runs the same command
+with explicit repository skill roots via `just lint-skills`.
 
 ### CLI installation assets
 

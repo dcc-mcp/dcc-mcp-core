@@ -44,6 +44,7 @@ dcc-mcp-cli search --query sphere --dcc-type maya
 dcc-mcp-cli describe maya.abc12345.create_sphere
 dcc-mcp-cli call maya.abc12345.create_sphere --json '{"radius":2}'
 dcc-mcp-cli install --dcc-type maya --version 2026
+dcc-mcp-cli lint path/to/skills
 ```
 
 ### 命令
@@ -56,10 +57,15 @@ dcc-mcp-cli install --dcc-type maya --version 2026
 | `describe <tool-slug>` | `POST /v1/describe` | 调用前检查能力 schema。 |
 | `call <tool-slug> --json <object>` | `POST /v1/call` | 调用一个能力。 |
 | `install --dcc-type <dcc> [--version <v>]` | catalog-backed local plan | 解析匹配的 adapter 并输出可审计安装计划。 |
+| `lint [PATH ...]` | local filesystem validator | 默认递归校验每个路径下两层内的 SKILL.md 包。 |
 
 `install` 目前是规划契约：它解析 catalog entry，并列出 runtime、adapter、
 验证步骤，不会静默修改 DCC 插件目录。DCC-specific installer 后续可增量接入
 这份契约。
+
+`lint` 复用生产 `dcc-mcp-skills` validator，因此本地检查与运行时加载会因同一类
+结构问题失败。CI 也通过 `just lint-skills` 显式传入仓库 skill roots，跑同一条
+`dcc-mcp-cli lint <PATH...>` 路径。
 
 ### CLI 安装资产
 
