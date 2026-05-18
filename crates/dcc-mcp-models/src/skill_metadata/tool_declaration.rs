@@ -268,8 +268,11 @@ pub struct ToolDeclaration {
 
     /// Enforce that runtime execution happens on the declared affinity thread.
     ///
-    /// Defaults to `false` for compatibility. Studio skills can opt in once
-    /// their `thread_affinity` declarations have been audited.
+    /// Defaults to `true` whenever the declaration explicitly provides
+    /// `thread_affinity` / `affinity`. Legacy tools that omit an affinity
+    /// contract keep the compatibility default (`false`), and explicit
+    /// `enforce_thread_affinity: false` remains an escape hatch for adapters
+    /// that intentionally flatten routing in a standalone context.
     #[serde(
         default,
         rename = "enforce_thread_affinity",
@@ -381,9 +384,9 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
                 alias = "thread_affinity",
                 alias = "affinity"
             )]
-            thread_affinity: ThreadAffinity,
+            thread_affinity: Option<ThreadAffinity>,
             #[serde(rename = "enforce_thread_affinity", alias = "enforce-thread-affinity")]
-            enforce_thread_affinity: bool,
+            enforce_thread_affinity: Option<bool>,
 
             /// Legacy user-level `deferred:` flag — rejected below.
             #[serde(rename = "deferred")]
@@ -464,6 +467,10 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
             }
         };
 
+        let affinity_was_declared = w.thread_affinity.is_some();
+        let thread_affinity = w.thread_affinity.unwrap_or_default();
+        let enforce_thread_affinity = w.enforce_thread_affinity.unwrap_or(affinity_was_declared);
+
         Ok(Self {
             name: w.name,
             description: w.description,
@@ -478,8 +485,8 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
             group: w.group,
             execution: w.execution,
             timeout_hint_secs: w.timeout_hint_secs,
-            thread_affinity: w.thread_affinity,
-            enforce_thread_affinity: w.enforce_thread_affinity,
+            thread_affinity,
+            enforce_thread_affinity,
             _deferred_guard: None,
             annotations,
             required_capabilities: w.required_capabilities,
