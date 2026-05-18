@@ -255,11 +255,19 @@ async fn execute_threaded_dispatch(
     resolved_name: &str,
     call_params: Value,
     thread_affinity: ThreadAffinity,
+    enforce_thread_affinity: bool,
 ) -> Result<Value, String> {
     let executor_present = state.executor.is_some();
     let on_main = use_main_thread_route(thread_affinity, executor_present);
 
     if matches!(thread_affinity, ThreadAffinity::Main) && !executor_present {
+        if enforce_thread_affinity {
+            return Err(
+                "THREAD_AFFINITY_UNAVAILABLE: tool declares thread_affinity=main, \
+                 but no DeferredExecutor is wired"
+                    .to_string(),
+            );
+        }
         tracing::warn!(
             tool = %resolved_name,
             "sync tool declares thread_affinity=main but no DeferredExecutor is wired; \
@@ -1429,6 +1437,7 @@ async fn dispatch_registry_tool(
         &resolved_name,
         call_params.clone(),
         action_meta.thread_affinity,
+        action_meta.enforce_thread_affinity,
     )
     .await;
 
