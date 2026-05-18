@@ -40,6 +40,19 @@ impl Endpoint {
     pub fn path(&self, path: &str) -> String {
         format!("{}/{}", self.base_url, path.trim_start_matches('/'))
     }
+
+    #[must_use]
+    pub fn mcp_url(&self) -> String {
+        self.path("/mcp")
+    }
+
+    #[must_use]
+    pub fn from_mcp_url(url: impl Into<String>) -> Self {
+        let url = url.into();
+        let trimmed = url.trim_end_matches('/');
+        let base_url = trimmed.strip_suffix("/mcp").unwrap_or(trimmed).to_string();
+        Self { base_url }
+    }
 }
 
 #[cfg(test)]
@@ -53,6 +66,13 @@ mod tests {
             endpoint.path("/v1/instances"),
             "http://127.0.0.1:9765/v1/instances"
         );
+    }
+
+    #[test]
+    fn endpoint_accepts_mcp_url_for_base() {
+        let endpoint = Endpoint::from_mcp_url("http://127.0.0.1:9765/mcp");
+        assert_eq!(endpoint.base_url, "http://127.0.0.1:9765");
+        assert_eq!(endpoint.mcp_url(), "http://127.0.0.1:9765/mcp");
     }
 
     #[test]
