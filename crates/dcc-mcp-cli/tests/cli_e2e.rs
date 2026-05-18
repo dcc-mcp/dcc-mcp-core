@@ -26,6 +26,51 @@ impl Drop for GatewayFixture {
 
 fn spawn_gateway_fixture() -> GatewayFixture {
     let app = Router::new()
+        .route(
+            "/health",
+            get(|| async { Json(json!({"ok": true, "service": "dcc-mcp-gateway"})) }),
+        )
+        .route(
+            "/mcp",
+            post(|Json(body): Json<Value>| async move {
+                let method = body.get("method").and_then(Value::as_str).unwrap_or("");
+                match method {
+                    "initialize" => Json(json!({
+                        "jsonrpc": "2.0",
+                        "id": body.get("id").cloned().unwrap_or(json!(null)),
+                        "result": {
+                            "protocolVersion": "2025-03-26",
+                            "capabilities": {
+                                "tools": {"listChanged": true}
+                            },
+                            "serverInfo": {
+                                "name": "fixture-gateway",
+                                "version": "0.0.0-test"
+                            }
+                        }
+                    })),
+                    "tools/list" => Json(json!({
+                        "jsonrpc": "2.0",
+                        "id": body.get("id").cloned().unwrap_or(json!(null)),
+                        "result": {
+                            "tools": [{
+                                "name": "search_tools",
+                                "description": "Search tools",
+                                "inputSchema": {"type": "object"}
+                            }]
+                        }
+                    })),
+                    _ => Json(json!({
+                        "jsonrpc": "2.0",
+                        "id": body.get("id").cloned().unwrap_or(json!(null)),
+                        "error": {
+                            "code": -32601,
+                            "message": "method not found"
+                        }
+                    })),
+                }
+            }),
+        )
         .route("/v1/healthz", get(|| async { Json(json!({"ok": true})) }))
         .route(
             "/v1/instances",
@@ -164,6 +209,30 @@ fn list_search_describe_and_call_gateway_rest_surface() {
     ]);
     assert_eq!(call["success"], true);
     assert_eq!(call["arguments"]["radius"], 2);
+}
+
+#[test]
+fn smoke_checks_gateway_mcp_and_rest_surfaces() {
+    let fixture = spawn_gateway_fixture();
+    let value = run_json(&[
+        "--base-url",
+        &fixture.base_url,
+        "smoke",
+        "--url",
+        &format!("{}/mcp", fixture.base_url),
+    ]);
+
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["mcp_url"], format!("{}/mcp", fixture.base_url));
+    let checks = value["checks"].as_array().unwrap();
+    for expected in ["health", "mcp_initialize", "mcp_tools_list", "rest_search"] {
+        assert!(
+            checks
+                .iter()
+                .any(|check| check["name"] == expected && check["ok"] == true),
+            "missing successful smoke check {expected}: {checks:#?}"
+        );
+    }
 }
 
 #[test]

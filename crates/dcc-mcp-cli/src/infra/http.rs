@@ -21,16 +21,21 @@ pub struct HttpGateway {
 
 impl Default for HttpGateway {
     fn default() -> Self {
-        Self {
-            client: reqwest::Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()
-                .unwrap_or_else(|_| reqwest::Client::new()),
-        }
+        Self::with_timeout(Duration::from_secs(30))
     }
 }
 
 impl HttpGateway {
+    #[must_use]
+    pub fn with_timeout(timeout: Duration) -> Self {
+        Self {
+            client: reqwest::Client::builder()
+                .timeout(timeout)
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
+        }
+    }
+
     pub async fn get_json(&self, url: &str) -> Result<Value, HttpError> {
         let response = self.client.get(url).send().await?;
         Self::json_response(response).await
@@ -38,6 +43,20 @@ impl HttpGateway {
 
     pub async fn post_json(&self, url: &str, body: &Value) -> Result<Value, HttpError> {
         let response = self.client.post(url).json(body).send().await?;
+        Self::json_response(response).await
+    }
+
+    pub async fn post_json_with_headers(
+        &self,
+        url: &str,
+        body: &Value,
+        headers: &[(&str, &str)],
+    ) -> Result<Value, HttpError> {
+        let mut request = self.client.post(url).json(body);
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+        let response = request.send().await?;
         Self::json_response(response).await
     }
 
