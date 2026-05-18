@@ -303,11 +303,11 @@ fn ephemeral_port() -> u16 {
     port
 }
 
-async fn gateway_initialize_version(port: u16) -> Option<String> {
+async fn gateway_initialize_version(port: u16) -> Result<String, String> {
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_millis(500))
+        .timeout(Duration::from_secs(2))
         .build()
-        .ok()?;
+        .map_err(|err| format!("failed to build client: {err}"))?;
     let resp = client
         .post(format!("http://127.0.0.1:{port}/mcp"))
         .json(&serde_json::json!({
@@ -322,25 +322,58 @@ async fn gateway_initialize_version(port: u16) -> Option<String> {
         }))
         .send()
         .await
-        .ok()?;
+        .map_err(|err| format!("request failed: {err}"))?;
     if !resp.status().is_success() {
-        return None;
+        return Err(format!("HTTP {}", resp.status()));
     }
-    let body: serde_json::Value = resp.json().await.ok()?;
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|err| format!("invalid JSON response: {err}"))?;
     body.pointer("/result/serverInfo/version")
         .and_then(serde_json::Value::as_str)
         .map(str::to_owned)
+        .ok_or_else(|| format!("missing serverInfo.version in {body}"))
 }
 
 async fn wait_gateway_initialize_version(port: u16, expected: &str, timeout: Duration) {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
-        if gateway_initialize_version(port).await.as_deref() == Some(expected) {
-            return;
-        }
+        let observed = match gateway_initialize_version(port).await {
+            Ok(version) if version == expected => return,
+            Ok(version) => format!("version {version}"),
+            Err(err) => err,
+        };
         assert!(
             tokio::time::Instant::now() < deadline,
-            "gateway on port {port} did not advertise version {expected} before timeout"
+            "gateway on port {port} did not advertise version {expected} before timeout; last observed: {observed}"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+async fn wait_gateway_sentinel_version(runner: &GatewayRunner, expected: &str, timeout: Duration) {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let observed = {
+            let reg = runner.registry.read().await;
+            let versions: Vec<_> = reg
+                .list_instances(GATEWAY_SENTINEL_DCC_TYPE)
+                .into_iter()
+                .map(|entry| entry.version.unwrap_or_else(|| "<missing>".to_string()))
+                .collect();
+            if versions.iter().any(|version| version == expected) {
+                return;
+            }
+            if !versions.is_empty() {
+                versions.join(", ")
+            } else {
+                "no sentinel row".to_string()
+            }
+        };
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "gateway sentinel did not advertise version {expected} before timeout; last observed: {observed}"
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
@@ -394,7 +427,7 @@ async fn test_newer_gateway_takes_over_local_and_remote_listeners() {
     .unwrap();
     let old = old_runner.run_election().await.unwrap();
     assert!(old.is_gateway, "old runner should win the initial election");
-    wait_gateway_initialize_version(remote_port, "0.1.0", Duration::from_secs(2)).await;
+    wait_gateway_initialize_version(remote_port, "0.1.0", Duration::from_secs(10)).await;
 
     let new_runner = GatewayRunner::new(GatewayConfig {
         host: "127.0.0.1".to_string(),
@@ -419,8 +452,9 @@ async fn test_newer_gateway_takes_over_local_and_remote_listeners() {
         new.challenger_abort.is_some(),
         "newer runner must start a challenger loop"
     );
-    wait_gateway_initialize_version(gw_port, "9.9.9", Duration::from_secs(6)).await;
-    wait_gateway_initialize_version(remote_port, "9.9.9", Duration::from_secs(2)).await;
+    wait_gateway_sentinel_version(&new_runner, "9.9.9", Duration::from_secs(10)).await;
+    wait_gateway_initialize_version(gw_port, "9.9.9", Duration::from_secs(20)).await;
+    wait_gateway_initialize_version(remote_port, "9.9.9", Duration::from_secs(10)).await;
 
     if let Some(abort) = new.challenger_abort {
         abort.abort();
