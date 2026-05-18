@@ -26,6 +26,7 @@ pub(crate) async fn start_gateway_runner(
         server_version: config.server.server_version.clone(),
         registry_dir: config.gateway.registry_dir.clone(),
         challenger_timeout_secs: 120,
+        challenger_poll_interval_secs: 10,
         backend_timeout_ms: config.gateway.backend_timeout_ms,
         async_dispatch_timeout_ms: config.gateway.gateway_async_dispatch_timeout_ms,
         wait_terminal_timeout_ms: config.gateway.gateway_wait_terminal_timeout_ms,

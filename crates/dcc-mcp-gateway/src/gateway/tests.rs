@@ -303,6 +303,49 @@ fn ephemeral_port() -> u16 {
     port
 }
 
+async fn gateway_initialize_version(port: u16) -> Option<String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(500))
+        .build()
+        .ok()?;
+    let resp = client
+        .post(format!("http://127.0.0.1:{port}/mcp"))
+        .json(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "clientInfo": {"name": "gateway-test", "version": "0.0.0"}
+            }
+        }))
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let body: serde_json::Value = resp.json().await.ok()?;
+    body.pointer("/result/serverInfo/version")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+}
+
+async fn wait_gateway_initialize_version(port: u16, expected: &str, timeout: Duration) {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        if gateway_initialize_version(port).await.as_deref() == Some(expected) {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "gateway on port {port} did not advertise version {expected} before timeout"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
 #[tokio::test]
 async fn test_gateway_winner_serves_optional_remote_listener() {
     let dir = tempfile::tempdir().unwrap();
@@ -328,6 +371,61 @@ async fn test_gateway_winner_serves_optional_remote_listener() {
     assert!(resp.status().is_success());
 
     if let Some(abort) = outcome.gateway_abort {
+        abort.abort();
+    }
+}
+
+#[tokio::test]
+async fn test_newer_gateway_takes_over_local_and_remote_listeners() {
+    let dir = tempfile::tempdir().unwrap();
+    let gw_port = ephemeral_port();
+    let remote_port = ephemeral_port();
+
+    let old_runner = GatewayRunner::new(GatewayConfig {
+        host: "127.0.0.1".to_string(),
+        gateway_port: gw_port,
+        remote_host: Some("127.0.0.1".to_string()),
+        remote_gateway_port: remote_port,
+        server_version: "0.1.0".to_string(),
+        heartbeat_secs: 0,
+        registry_dir: Some(dir.path().to_path_buf()),
+        ..GatewayConfig::default()
+    })
+    .unwrap();
+    let old = old_runner.run_election().await.unwrap();
+    assert!(old.is_gateway, "old runner should win the initial election");
+    wait_gateway_initialize_version(remote_port, "0.1.0", Duration::from_secs(2)).await;
+
+    let new_runner = GatewayRunner::new(GatewayConfig {
+        host: "127.0.0.1".to_string(),
+        gateway_port: gw_port,
+        remote_host: Some("127.0.0.1".to_string()),
+        remote_gateway_port: remote_port,
+        server_version: "9.9.9".to_string(),
+        heartbeat_secs: 0,
+        challenger_timeout_secs: 5,
+        challenger_poll_interval_secs: 1,
+        registry_dir: Some(dir.path().to_path_buf()),
+        ..GatewayConfig::default()
+    })
+    .unwrap();
+    let new = new_runner.run_election().await.unwrap();
+
+    assert!(
+        !new.is_gateway,
+        "new runner starts as challenger while old owns the port"
+    );
+    assert!(
+        new.challenger_abort.is_some(),
+        "newer runner must start a challenger loop"
+    );
+    wait_gateway_initialize_version(gw_port, "9.9.9", Duration::from_secs(6)).await;
+    wait_gateway_initialize_version(remote_port, "9.9.9", Duration::from_secs(2)).await;
+
+    if let Some(abort) = new.challenger_abort {
+        abort.abort();
+    }
+    if let Some(abort) = old.gateway_abort {
         abort.abort();
     }
 }
