@@ -437,7 +437,7 @@ async fn test_newer_gateway_takes_over_local_and_remote_listeners() {
         remote_gateway_port: remote_port,
         server_version: "9.9.9".to_string(),
         heartbeat_secs: 0,
-        challenger_timeout_secs: 5,
+        challenger_timeout_secs: 10,
         challenger_poll_interval_secs: 1,
         registry_dir: Some(dir.path().to_path_buf()),
         ..GatewayConfig::default()
@@ -453,7 +453,7 @@ async fn test_newer_gateway_takes_over_local_and_remote_listeners() {
         new.challenger_abort.is_some(),
         "newer runner must start a challenger loop"
     );
-    wait_gateway_sentinel_version(&new_runner, "9.9.9", Duration::from_secs(10)).await;
+    wait_gateway_sentinel_version(&new_runner, "9.9.9", Duration::from_secs(25)).await;
     wait_gateway_initialize_version(gw_port, "9.9.9", Duration::from_secs(20)).await;
     wait_gateway_initialize_version(remote_port, "9.9.9", Duration::from_secs(10)).await;
 

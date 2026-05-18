@@ -533,34 +533,13 @@ impl GatewayRunner {
             // If the old gateway also speaks our protocol it will shut down
             // gracefully; if not (e.g. v0.12.6) this is a no-op 404 — fine.
             let yield_url = format!("http://{}:{}/gateway/yield", host, port);
-            let body = serde_json::json!({ "challenger_version": own_ver }).to_string();
-            if let Ok(resp) = reqwest::Client::new()
-                .post(&yield_url)
-                .header("content-type", "application/json")
-                .body(body)
-                .timeout(Duration::from_secs(5))
-                .send()
-                .await
-            {
-                if resp.status().is_success() {
-                    tracing::info!(
-                        gateway = %gw_ver,
-                        "Cooperative yield accepted — waiting for port to free up"
-                    );
-                } else {
-                    let status = resp.status();
-                    let body_text = resp.text().await.unwrap_or_default();
-                    let detail = cooperative_yield_fallback_detail(status, &body_text);
-                    tracing::info!(
-                        status = %status,
-                        gateway = %gw_ver,
-                        error_kind = detail.error_kind.as_deref().unwrap_or("unknown"),
-                        fallback = "polling",
-                        "Cooperative yield unavailable or refused ({}) — polling for port",
-                        detail.message
-                    );
-                }
-            }
+            let yield_timeout = Duration::from_secs(poll_interval_secs.clamp(1, 5));
+            let yield_client = reqwest::Client::builder()
+                .connect_timeout(yield_timeout)
+                .timeout(yield_timeout)
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new());
+            request_cooperative_yield(&yield_client, &yield_url, &own_ver, &gw_ver).await;
 
             // ── Retry loop ────────────────────────────────────────────────
             let max_retries = (timeout_secs / poll_interval_secs).max(1);
@@ -667,6 +646,7 @@ impl GatewayRunner {
                 }
 
                 tracing::debug!("Challenger: port still taken (attempt {attempt}/{max_retries})");
+                request_cooperative_yield(&yield_client, &yield_url, &own_ver, &gw_ver).await;
             }
 
             tracing::warn!(
@@ -738,6 +718,50 @@ async fn bind_remote_gateway_listener(
 struct CooperativeYieldFallbackDetail {
     error_kind: Option<String>,
     message: String,
+}
+
+async fn request_cooperative_yield(
+    client: &reqwest::Client,
+    yield_url: &str,
+    own_ver: &str,
+    gw_ver: &str,
+) {
+    let body = serde_json::json!({ "challenger_version": own_ver }).to_string();
+    match client
+        .post(yield_url)
+        .header("content-type", "application/json")
+        .body(body)
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            tracing::info!(
+                gateway = %gw_ver,
+                "Cooperative yield accepted — waiting for port to free up"
+            );
+        }
+        Ok(resp) => {
+            let status = resp.status();
+            let body_text = resp.text().await.unwrap_or_default();
+            let detail = cooperative_yield_fallback_detail(status, &body_text);
+            tracing::info!(
+                status = %status,
+                gateway = %gw_ver,
+                error_kind = detail.error_kind.as_deref().unwrap_or("unknown"),
+                fallback = "polling",
+                "Cooperative yield unavailable or refused ({}) — polling for port",
+                detail.message
+            );
+        }
+        Err(err) => {
+            tracing::debug!(
+                gateway = %gw_ver,
+                error = %err,
+                fallback = "polling",
+                "Cooperative yield request failed — polling for port"
+            );
+        }
+    }
 }
 
 fn cooperative_yield_fallback_detail(
