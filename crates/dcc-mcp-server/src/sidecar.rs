@@ -150,9 +150,15 @@ pub struct SidecarArgs {
     #[arg(long, default_value = "9765", env = "DCC_MCP_GATEWAY_PORT")]
     pub gateway_port: u16,
 
-    /// Host interface for the gateway listener (default ``127.0.0.1``).
+    /// Legacy host/interface for the gateway listener (default ``127.0.0.1``).
+    ///
+    /// Prefer ``--gateway-host`` / ``DCC_MCP_GATEWAY_HOST`` for new launchers.
     #[arg(long, default_value = "127.0.0.1")]
     pub host: String,
+
+    /// Gateway host/interface to bind. Use ``0.0.0.0`` to accept LAN clients.
+    #[arg(long, env = "DCC_MCP_GATEWAY_HOST")]
+    pub gateway_host: Option<String>,
 }
 
 /// Run the sidecar lifecycle until the parent DCC dies or a signal arrives.
@@ -458,13 +464,17 @@ mod tests {
     use super::*;
     use dcc_mcp_transport::discovery::types::ServiceKey;
     use std::process::Stdio;
+    use std::sync::Mutex;
     use std::time::Instant;
     use tempfile::TempDir;
 
     // ── Regression: ``default_registry_dir`` must match GatewayRunner's ──
 
+    static REGISTRY_ENV_LOCK: Mutex<()> = Mutex::new(());
+
     #[test]
     fn default_registry_dir_matches_gateway_runner_fallback() {
+        let _guard = REGISTRY_ENV_LOCK.lock().expect("registry env lock");
         // ``GatewayRunner::new`` (crates/dcc-mcp-gateway/src/gateway/
         // runner.rs) falls back to ``std::env::temp_dir().join("dcc-mcp-
         // registry")``. The sidecar binary MUST agree, otherwise an
@@ -499,6 +509,7 @@ mod tests {
 
     #[test]
     fn default_registry_dir_honours_env_var_override() {
+        let _guard = REGISTRY_ENV_LOCK.lock().expect("registry env lock");
         let saved = std::env::var("DCC_MCP_REGISTRY_DIR").ok();
         let custom = std::env::temp_dir().join("dcc-mcp-custom-registry-test");
         unsafe { std::env::set_var("DCC_MCP_REGISTRY_DIR", &custom) };
@@ -554,6 +565,7 @@ mod tests {
             ppid_poll_ms: Some(50),
             gateway_port: 0,
             host: "127.0.0.1".to_string(),
+            gateway_host: None,
         };
         let pinned_uuid = args.instance_id.unwrap();
 
@@ -659,6 +671,7 @@ mod tests {
             ppid_poll_ms: Some(50),
             gateway_port: 0,
             host: "127.0.0.1".to_string(),
+            gateway_host: None,
         };
 
         let sidecar_handle = tokio::spawn(async move { run(args).await });
@@ -746,6 +759,7 @@ mod tests {
             ppid_poll_ms: Some(50),
             gateway_port: 0,
             host: "127.0.0.1".to_string(),
+            gateway_host: None,
         };
 
         let sidecar_handle = tokio::spawn(async move { run(args).await });

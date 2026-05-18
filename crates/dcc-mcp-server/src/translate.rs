@@ -107,6 +107,10 @@ pub struct TranslateArgs {
     #[arg(long, env = "DCC_MCP_GATEWAY_PORT", default_value = "9765")]
     pub gateway_port: u16,
 
+    /// Gateway host/interface to bind. Defaults to the HTTP `--host`.
+    #[arg(long, env = "DCC_MCP_GATEWAY_HOST")]
+    pub gateway_host: Option<String>,
+
     /// Disable the read-only Admin UI on the elected gateway.
     #[arg(long, env = "DCC_MCP_NO_ADMIN", default_value = "false")]
     pub no_admin: bool,
@@ -579,8 +583,13 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
 
         let registry_dir_path: Option<PathBuf> = args.registry_dir.as_deref().map(PathBuf::from);
 
+        let gateway_host = args
+            .gateway_host
+            .clone()
+            .unwrap_or_else(|| args.host.clone());
+
         let gateway_cfg = GatewayConfig {
-            host: args.host.clone(),
+            host: gateway_host,
             gateway_port: args.gateway_port,
             stale_timeout_secs: args.stale_timeout_secs,
             heartbeat_secs: args.heartbeat_secs,
