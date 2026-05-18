@@ -75,6 +75,11 @@ pub struct GatewayConfig {
     ///
     /// Default: `120` seconds (12 × 10-second retry intervals).
     pub challenger_timeout_secs: u64,
+    /// Seconds between challenger bind attempts after an incumbent yields.
+    ///
+    /// Default: `10` seconds. Tests and embedded adapters may lower this
+    /// when they need faster failover without changing the overall timeout.
+    pub challenger_poll_interval_secs: u64,
     /// Per-backend request timeout (milliseconds) used for fan-out calls
     /// from the gateway to each live DCC instance. Default: `10_000`.
     /// Issue #314.
@@ -156,6 +161,7 @@ impl Default for GatewayConfig {
             server_version: env!("CARGO_PKG_VERSION").to_string(),
             registry_dir: None,
             challenger_timeout_secs: 120,
+            challenger_poll_interval_secs: 10,
             backend_timeout_ms: 10_000,
             async_dispatch_timeout_ms: 60_000,
             wait_terminal_timeout_ms: 600_000,

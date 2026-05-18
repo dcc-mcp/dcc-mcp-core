@@ -59,7 +59,8 @@ impl GatewayRunner {
     ///    - First tries a cooperative [`POST /gateway/yield`] to the existing
     ///      gateway (works if the gateway supports it, i.e. is also `≥ 0.12.29`).
     ///    - Regardless of the response, enters a **challenger retry loop** that
-    ///      polls the port every 10 s for up to `challenger_timeout_secs`.
+    ///      polls the port every `challenger_poll_interval_secs` for up to
+    ///      `challenger_timeout_secs`.
     ///    - When the port becomes free (old gateway yielded or crashed),
     ///      the challenger binds it and becomes the new gateway.
     ///
@@ -435,9 +436,9 @@ impl GatewayRunner {
                 // crate version as the dead gateway would never poll
                 // for the port to free up — they would stay as plain
                 // instances forever, leaving 9765 dark until someone
-                // restarts a DCC. The challenger loop polls every 10 s
-                // (up to ``challenger_timeout_secs``) and wins the bind
-                // the moment TIME_WAIT releases (#893 follow-up).
+                // restarts a DCC. The challenger loop polls up to
+                // ``challenger_timeout_secs`` and wins the bind the
+                // moment TIME_WAIT releases (#893 follow-up).
                 let challenger_reason = if gw_version.is_empty() {
                     "Bind failed but no resident sentinel (TIME_WAIT / race) — entering challenger mode"
                 } else if is_newer_election(own_info, gw_info) {
@@ -511,6 +512,7 @@ impl GatewayRunner {
         let max_routes_per_session = self.config.max_routes_per_session as usize;
         let server_name = self.config.server_name.clone();
         let timeout_secs = self.config.challenger_timeout_secs;
+        let poll_interval_secs = self.config.challenger_poll_interval_secs.max(1);
         let allow_unknown_tools = self.config.allow_unknown_tools;
         let remote_host = self.config.remote_host.clone();
         let remote_gateway_port = self.config.remote_gateway_port;
@@ -561,9 +563,9 @@ impl GatewayRunner {
             }
 
             // ── Retry loop ────────────────────────────────────────────────
-            let max_retries = (timeout_secs / 10).max(1);
+            let max_retries = (timeout_secs / poll_interval_secs).max(1);
             for attempt in 1..=max_retries {
-                tokio::time::sleep(Duration::from_secs(10)).await;
+                tokio::time::sleep(Duration::from_secs(poll_interval_secs)).await;
 
                 if let Some(listener) = try_bind_port_opt(&host, port).await {
                     tracing::info!(
@@ -613,7 +615,7 @@ impl GatewayRunner {
                         bind_remote_gateway_listener(remote_host.clone(), remote_gateway_port)
                             .await;
 
-                    if let Err(e) = start_gateway_tasks(
+                    match start_gateway_tasks(
                         listener,
                         remote_listener,
                         registry.clone(),
@@ -625,7 +627,7 @@ impl GatewayRunner {
                         max_routes_per_session,
                         format!("{server_name} (gateway)"),
                         own_ver.clone(),
-                        sentinel_key,
+                        sentinel_key.clone(),
                         host.clone(),
                         port,
                         allow_unknown_tools,
@@ -643,7 +645,23 @@ impl GatewayRunner {
                     )
                     .await
                     {
-                        tracing::error!("Challenger: failed to start gateway tasks: {e}");
+                        Ok(tasks) => {
+                            tracing::info!(
+                                version = %own_ver,
+                                "Challenger: promoted to gateway"
+                            );
+                            let _guard = PromotedGatewayGuard {
+                                abort: Some(tasks.abort),
+                                registry: registry.clone(),
+                                sentinel_key: Some(sentinel_key),
+                            };
+                            let _ = tasks.supervisor.await;
+                        }
+                        Err(e) => {
+                            tracing::error!("Challenger: failed to start gateway tasks: {e}");
+                            let reg = registry.read().await;
+                            let _ = reg.deregister(&sentinel_key);
+                        }
                     }
                     return;
                 }
@@ -667,6 +685,25 @@ impl GatewayRunner {
             self.config.remote_gateway_port,
         )
         .await
+    }
+}
+
+struct PromotedGatewayGuard {
+    abort: Option<AbortHandle>,
+    registry: Arc<RwLock<FileRegistry>>,
+    sentinel_key: Option<ServiceKey>,
+}
+
+impl Drop for PromotedGatewayGuard {
+    fn drop(&mut self) {
+        if let Some(abort) = self.abort.take() {
+            abort.abort();
+        }
+        if let Some(key) = self.sentinel_key.take()
+            && let Ok(registry) = self.registry.try_read()
+        {
+            let _ = registry.deregister(&key);
+        }
     }
 }
 

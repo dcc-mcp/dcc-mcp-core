@@ -165,7 +165,7 @@ pub struct SidecarArgs {
     pub gateway_remote_host: String,
 
     /// Remote/LAN gateway port. ``0`` disables the remote listener.
-    #[arg(long, env = "DCC_MCP_GATEWAY_REMOTE_PORT", default_value = "19765")]
+    #[arg(long, env = "DCC_MCP_GATEWAY_REMOTE_PORT", default_value = "59765")]
     pub gateway_remote_port: u16,
 }
 
@@ -575,7 +575,7 @@ mod tests {
             host: "127.0.0.1".to_string(),
             gateway_host: None,
             gateway_remote_host: "0.0.0.0".to_string(),
-            gateway_remote_port: 19765,
+            gateway_remote_port: 59765,
         };
         let pinned_uuid = args.instance_id.unwrap();
 
@@ -683,7 +683,7 @@ mod tests {
             host: "127.0.0.1".to_string(),
             gateway_host: None,
             gateway_remote_host: "0.0.0.0".to_string(),
-            gateway_remote_port: 19765,
+            gateway_remote_port: 59765,
         };
 
         let sidecar_handle = tokio::spawn(async move { run(args).await });
@@ -773,7 +773,7 @@ mod tests {
             host: "127.0.0.1".to_string(),
             gateway_host: None,
             gateway_remote_host: "0.0.0.0".to_string(),
-            gateway_remote_port: 19765,
+            gateway_remote_port: 59765,
         };
 
         let sidecar_handle = tokio::spawn(async move { run(args).await });
