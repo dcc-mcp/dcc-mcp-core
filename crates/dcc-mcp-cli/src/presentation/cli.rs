@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -12,6 +13,7 @@ use crate::application::client::DccMcpClient;
 use crate::application::install::InstallService;
 use crate::domain::install::InstallRequest;
 use crate::domain::rest::{CallRequest, DescribeRequest, Endpoint, SearchRequest};
+use crate::infra::http::HttpGateway;
 
 const DEFAULT_BASE_URL: &str = "http://127.0.0.1:9765";
 
@@ -34,6 +36,21 @@ enum OutputFormat {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Run health + MCP + REST smoke checks against a service.
+    Smoke {
+        /// MCP URL or base URL. Accepts either http://host:port or http://host:port/mcp.
+        #[arg(long)]
+        url: Option<String>,
+        /// Query used for the REST dynamic-capability search check.
+        #[arg(long, default_value = "sphere")]
+        query: String,
+        /// Result limit used for the REST dynamic-capability search check.
+        #[arg(long, default_value = "5")]
+        limit: usize,
+        /// Per-request timeout for smoke checks.
+        #[arg(long, default_value = "5")]
+        timeout_secs: u64,
+    },
     /// Check the configured gateway or per-DCC REST endpoint.
     Health,
     /// List live DCC instances from the gateway.
@@ -98,6 +115,25 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
 
     let mut failed = false;
     let value = match command {
+        Command::Smoke {
+            url,
+            query,
+            limit,
+            timeout_secs,
+        } => {
+            let endpoint = url
+                .as_deref()
+                .map(Endpoint::from_mcp_url)
+                .unwrap_or_else(|| Endpoint::new(base_url));
+            let mcp_url = url.as_ref().map(|raw| endpoint_for_mcp(raw));
+            let client = DccMcpClient::with_gateway(
+                endpoint,
+                HttpGateway::with_timeout(Duration::from_secs(timeout_secs.max(1))),
+            );
+            let result = client.smoke(mcp_url, query, limit).await;
+            failed = !result.get("ok").and_then(Value::as_bool).unwrap_or(false);
+            result
+        }
         Command::Health => {
             let client = DccMcpClient::new(Endpoint::new(base_url));
             client.health().await?
@@ -284,6 +320,15 @@ fn parse_json_object(raw: &str, flag_name: &str) -> anyhow::Result<Value> {
         Ok(value)
     } else {
         anyhow::bail!("{flag_name} must be a JSON object")
+    }
+}
+
+fn endpoint_for_mcp(raw: &str) -> String {
+    let trimmed = raw.trim_end_matches('/');
+    if trimmed.ends_with("/mcp") {
+        trimmed.to_string()
+    } else {
+        format!("{trimmed}/mcp")
     }
 }
 

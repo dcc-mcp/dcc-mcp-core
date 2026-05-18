@@ -69,4 +69,91 @@ impl DccMcpClient {
             .await
             .map_err(Into::into)
     }
+
+    pub async fn smoke(&self, mcp_url: Option<String>, query: String, limit: usize) -> Value {
+        let mcp_url = mcp_url.unwrap_or_else(|| self.endpoint.mcp_url());
+        let mut checks = Vec::new();
+
+        let health = self.gateway.get_json(&self.endpoint.path("/health")).await;
+        checks.push(check_json("health", &self.endpoint.path("/health"), health));
+
+        let initialize = self
+            .gateway
+            .post_json_with_headers(
+                &mcp_url,
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": "smoke-initialize",
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-03-26",
+                        "capabilities": {},
+                        "clientInfo": {
+                            "name": "dcc-mcp-cli",
+                            "version": env!("CARGO_PKG_VERSION")
+                        }
+                    }
+                }),
+                &[("Mcp-Protocol-Version", "2025-03-26")],
+            )
+            .await;
+        checks.push(check_json("mcp_initialize", &mcp_url, initialize));
+
+        let tools_list = self
+            .gateway
+            .post_json_with_headers(
+                &mcp_url,
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": "smoke-tools-list",
+                    "method": "tools/list",
+                    "params": {}
+                }),
+                &[("Mcp-Protocol-Version", "2025-03-26")],
+            )
+            .await;
+        checks.push(check_json("mcp_tools_list", &mcp_url, tools_list));
+
+        let search_body = json!({
+            "query": query,
+            "limit": limit,
+        });
+        let search = self
+            .gateway
+            .post_json(&self.endpoint.path("/v1/search"), &search_body)
+            .await;
+        checks.push(check_json(
+            "rest_search",
+            &self.endpoint.path("/v1/search"),
+            search,
+        ));
+
+        let ok = checks
+            .iter()
+            .all(|check| check.get("ok").and_then(Value::as_bool).unwrap_or(false));
+
+        json!({
+            "ok": ok,
+            "base_url": self.endpoint.base_url.clone(),
+            "mcp_url": mcp_url,
+            "checks": checks,
+        })
+    }
+}
+
+fn check_json(name: &str, url: &str, result: Result<Value, HttpError>) -> Value {
+    match result {
+        Ok(value) => json!({
+            "name": name,
+            "url": url,
+            "ok": value.get("error").is_none(),
+            "response": value,
+        }),
+        Err(error) => json!({
+            "name": name,
+            "url": url,
+            "ok": false,
+            "error": error.to_string(),
+        }),
+    }
 }
