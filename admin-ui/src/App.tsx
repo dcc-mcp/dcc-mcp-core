@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import mayaIcon from './assets/icons/autodesk.svg';
 import blenderIcon from './assets/icons/blender.svg';
 import gimpIcon from './assets/icons/gimp.svg';
@@ -125,6 +125,16 @@ type LogRow = {
   reason?: string | null;
 };
 
+type RequestLogGroup = {
+  requestId: string;
+  timestamp: string;
+  tool: string;
+  dccType: string;
+  status: string;
+  success?: boolean;
+  steps: LogRow[];
+};
+
 type SkillPathRow = {
   path: string;
   source: string;
@@ -186,6 +196,9 @@ function resolveDccIcon(dccType: string): string {
 function adminApiBase(): string {
   const { origin, pathname } = window.location;
   let basePath = pathname.replace(/\/+$/, '');
+  if (basePath.endsWith('/index.html')) {
+    basePath = basePath.slice(0, -'/index.html'.length);
+  }
   if (!basePath || basePath === '/') {
     basePath = '/admin';
   }
@@ -219,6 +232,9 @@ function isPanelId(value: string | null | undefined): value is Panel {
 function adminShellPath(): string {
   const { pathname } = window.location;
   let base = pathname.replace(/\/+$/, '');
+  if (base.endsWith('/index.html')) {
+    base = base.slice(0, -'/index.html'.length);
+  }
   if (!base || base === '/') {
     base = '/admin';
   }
@@ -258,34 +274,6 @@ function readTraceIdFromUrl(): string | null {
   const u = new URL(window.location.href);
   const t = u.searchParams.get('trace');
   return t != null && t.trim() !== '' ? t.trim() : null;
-}
-
-type AdminQuickLinkProps = {
-  panel: Panel;
-  traceId?: string;
-  range?: string;
-  className?: string;
-  children: ReactNode;
-  onNavigate: (panel: Panel, opts?: { traceId?: string; range?: string }) => void;
-};
-
-function AdminQuickLink({ panel, traceId, range, className, children, onNavigate }: AdminQuickLinkProps) {
-  const extra: Record<string, string | undefined> = {};
-  if (traceId) extra.trace = traceId;
-  if (range) extra.range = range;
-  const href = hrefForAdmin(panel, extra);
-  return (
-    <a
-      href={href}
-      className={className ?? 'admin-quick-link'}
-      onClick={(e) => {
-        e.preventDefault();
-        onNavigate(panel, { traceId, range });
-      }}
-    >
-      {children}
-    </a>
-  );
 }
 
 function haystack(...parts: (string | number | null | undefined)[]): string {
@@ -432,13 +420,57 @@ function traceGroupLabel(trace: TraceRow): string {
   return `${trace.dcc_type ?? '?'} · unrouted`;
 }
 
-function logGroupLabel(log: LogRow): string {
+function gatewayLogGroupLabel(log: LogRow): string {
   const dcc = log.dcc_type ?? '?';
   const raw = log.instance_id;
   if (typeof raw === 'string' && raw.length > 0) {
     return `${dcc} · ${raw.length > 8 ? raw.slice(0, 8) : raw}`;
   }
   return `${dcc} · gateway`;
+}
+
+function logStepTitle(log: LogRow): string {
+  if (log.event) {
+    return String(log.event);
+  }
+  if (log.tool) {
+    return log.tool;
+  }
+  return log.source ?? 'event';
+}
+
+function logStepDetail(log: LogRow): string {
+  const parts = [log.message];
+  if (log.detail) parts.push(log.detail);
+  if (log.reason) parts.push(log.reason);
+  return parts.filter(Boolean).join(' — ');
+}
+
+function buildRequestLogGroups(rows: LogRow[]): RequestLogGroup[] {
+  const map = new Map<string, LogRow[]>();
+  for (const row of rows) {
+    if (!row.request_id) {
+      continue;
+    }
+    const bucket = map.get(row.request_id) ?? [];
+    bucket.push(row);
+    map.set(row.request_id, bucket);
+  }
+  return Array.from(map.entries())
+    .map(([requestId, steps]) => {
+      const sorted = [...steps].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+      const newest = sorted[sorted.length - 1] ?? steps[0];
+      return {
+        requestId,
+        timestamp: newest?.timestamp ?? '',
+        tool: newest?.tool ?? newest?.message ?? 'unknown tool',
+        dccType: newest?.dcc_type ?? '?',
+        status: newest?.success === false ? 'failed' : 'ok',
+        success: newest?.success,
+        steps: sorted,
+      };
+    })
+    .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
 }
 
 function maxTopCount(items: TopEntry[]): number {
@@ -642,6 +674,13 @@ function App() {
     );
   }, [logs, listSearch]);
 
+  const requestLogGroups = useMemo(() => buildRequestLogGroups(filteredLogs), [filteredLogs]);
+
+  const gatewayLogs = useMemo(
+    () => filteredLogs.filter((log) => !log.request_id),
+    [filteredLogs],
+  );
+
   const filteredSkillPaths = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
     if (!q) {
@@ -776,15 +815,23 @@ function App() {
     try {
       const ctrl = new AbortController();
       const tid = window.setTimeout(() => ctrl.abort(), ADMIN_FETCH_TIMEOUT_MS);
-      const res = await fetch(`${API_BASE}/skill-paths`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path }),
-        signal: ctrl.signal,
-      });
-      clearTimeout(tid);
-      if (!res.ok) {
-        throw new Error(`${res.status} ${res.statusText}`);
+      try {
+        const res = await fetch(`${API_BASE}/skill-paths`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path }),
+          signal: ctrl.signal,
+        });
+        if (!res.ok) {
+          throw new Error(`${res.status} ${res.statusText}`);
+        }
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          throw new Error(`Request timed out after ${ADMIN_FETCH_TIMEOUT_MS / 1000}s`);
+        }
+        throw err;
+      } finally {
+        clearTimeout(tid);
       }
       setSkillPathInput('');
       await fetchSkillPaths();
@@ -801,13 +848,21 @@ function App() {
       try {
         const ctrl = new AbortController();
         const tid = window.setTimeout(() => ctrl.abort(), ADMIN_FETCH_TIMEOUT_MS);
-        const res = await fetch(`${API_BASE}/skill-paths/${encodeURIComponent(String(id))}`, {
-          method: 'DELETE',
-          signal: ctrl.signal,
-        });
-        clearTimeout(tid);
-        if (!res.ok) {
-          throw new Error(`${res.status} ${res.statusText}`);
+        try {
+          const res = await fetch(`${API_BASE}/skill-paths/${encodeURIComponent(String(id))}`, {
+            method: 'DELETE',
+            signal: ctrl.signal,
+          });
+          if (!res.ok) {
+            throw new Error(`${res.status} ${res.statusText}`);
+          }
+        } catch (err) {
+          if (err instanceof DOMException && err.name === 'AbortError') {
+            throw new Error(`Request timed out after ${ADMIN_FETCH_TIMEOUT_MS / 1000}s`);
+          }
+          throw err;
+        } finally {
+          clearTimeout(tid);
         }
         await fetchSkillPaths();
       } catch (error) {
@@ -982,7 +1037,7 @@ function App() {
           </div>
         )}
         {activePanel === 'health' && (
-          <section className="panel active">
+          <section className="panel active health-panel">
             <h2>Health</h2>
             <StatusLine text={updatedAt.health} error={errors.health} />
             <div className="health-grid">
@@ -1001,35 +1056,19 @@ function App() {
                 value={health?.limits ? String(health.limits.xff_trusted_depth) : '?'}
               />
               <HealthCard label="Read retries (max)" value={health?.limits ? String(health.limits.read_retry_max) : '?'} />
-              <HealthCard label="Circuit thr / open s" value={health?.limits ? `${health.limits.circuit_failure_threshold} / ${health.limits.circuit_open_secs}s` : '?'} />
+              <HealthCard label="Circuit limit / open" value={health?.limits ? `${health.limits.circuit_failure_threshold} / ${health.limits.circuit_open_secs}s` : '?'} />
               <HealthCard
                 tone={health?.circuits && health.circuits.circuits_open > 0 ? 'warn' : undefined}
-                label="Circuits (open / tracked)"
+                label="Circuits open / tracked"
                 value={health?.circuits ? `${health.circuits.circuits_open} / ${health.circuits.tracked_backends}` : '?'}
               />
             </div>
             <button className="refresh-btn" type="button" onClick={fetchHealth}>Refresh</button>
-            <p className="admin-quick-nav-hint">
-              Quick links (shareable URLs):{' '}
-              <AdminQuickLink panel="instances" onNavigate={goToPanel}>Instances</AdminQuickLink>
-              {' · '}
-              <AdminQuickLink panel="tools" onNavigate={goToPanel}>Tools</AdminQuickLink>
-              {' · '}
-              <AdminQuickLink panel="calls" onNavigate={goToPanel}>Calls</AdminQuickLink>
-              {' · '}
-              <AdminQuickLink panel="traces" onNavigate={goToPanel}>Traces</AdminQuickLink>
-              {' · '}
-              <AdminQuickLink panel="stats" range={statsRange} onNavigate={goToPanel}>Stats</AdminQuickLink>
-              {' · '}
-              <AdminQuickLink panel="logs" onNavigate={goToPanel}>Logs</AdminQuickLink>
-              {' · '}
-              <AdminQuickLink panel="skill-paths" onNavigate={goToPanel}>Skill paths</AdminQuickLink>
-            </p>
           </section>
         )}
 
         {activePanel === 'instances' && (
-          <section className="panel active">
+          <section className="panel active instances-panel">
             <h2>Instances</h2>
             <p className="empty log-hint">
               One row per registered DCC backend (same data as the former Workers tab). Use the links to open the adapter HTTP host, MCP streamable endpoint, or <code>/docs</code> when the host exposes it.
@@ -1069,7 +1108,7 @@ function App() {
         )}
 
         {activePanel === 'tools' && (
-          <section className="panel active">
+          <section className="panel active tools-panel">
             <h2>Tools</h2>
             <StatusLine text={updatedAt.tools} error={errors.tools} />
             {tools.length === 0 ? <p className="empty">No tools registered.</p> : filteredTools.length === 0 ? (
@@ -1100,7 +1139,7 @@ function App() {
         )}
 
         {activePanel === 'calls' && (
-          <section className="panel active">
+          <section className="panel active calls-panel">
             <h2>Recent Calls</h2>
             <StatusLine text={updatedAt.calls} error={errors.calls} />
             {calls.length === 0 ? <p className="empty">No recent calls. AuditMiddleware may not be active.</p> : filteredCalls.length === 0 ? (
@@ -1140,7 +1179,7 @@ function App() {
         )}
 
         {activePanel === 'traces' && (
-          <section className="panel active" data-panel="traces">
+          <section className="panel active traces-panel" data-panel="traces">
             <h2>Traces</h2>
             <StatusLine text={updatedAt.traces} error={errors.traces} />
             {traces.length === 0 ? <p className="empty">No traces recorded.</p> : filteredTraces.length === 0 ? (
@@ -1177,12 +1216,14 @@ function App() {
         )}
 
         {activePanel === 'stats' && (
-          <section className="panel active" data-panel="stats">
+          <section className="panel active stats-panel" data-panel="stats">
             <h2>Stats</h2>
             <StatusLine text={updatedAt.stats} error={errors.stats} />
-            <label className="range-label">
+            <label className="range-label" htmlFor="stats-range-select">
               Range
               <select
+                id="stats-range-select"
+                aria-label="Range"
                 value={statsRange}
                 onChange={(event) => {
                   const v = event.target.value;
@@ -1213,7 +1254,7 @@ function App() {
         )}
 
         {activePanel === 'skill-paths' && (
-          <section className="panel active">
+          <section className="panel active skill-paths-panel">
             <h2>Skill search paths</h2>
             <StatusLine text={updatedAt['skill-paths']} error={errors['skill-paths']} />
             <p className="empty log-hint">
@@ -1279,32 +1320,70 @@ function App() {
             <h2>Event Log</h2>
             <StatusLine text={updatedAt.logs} error={errors.logs} />
             <p className="empty log-hint">
-              Merged feed (newest first): in-memory gateway contention events (same ring as MCP resource <code>resources://gateway/events</code> — elections, yields, evictions, ghost reaping, etc.); optional rolling log files under <code>DCC_MCP_LOG_DIR</code> when that directory exists; recent audit rows (in-memory ring and optional SQLite); operator notes when you add/remove custom skill paths. If nothing has happened yet and no log directory is configured, this list stays empty.
+              Live request stream, refreshed every 5s. Rows with a request id are grouped like a run with ordered steps; gateway events without a request id stay in their own event lane.
             </p>
             {logs.length === 0 ? <p className="empty">No events in buffer yet. Use the gateway (tool calls) or wait for registry / probe activity.</p> : filteredLogs.length === 0 ? (
               <p className="empty">No log lines match your search.</p>
             ) : (
-              Array.from(groupRows(filteredLogs, logGroupLabel).entries())
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([group, groupLogs]) => (
-                <div key={group} className="group-block">
-                  <h3 className="group-title">{group}</h3>
-                  {groupLogs.map((log, idx) => (
-                    <div key={`${log.timestamp}-${log.request_id ?? ''}-${idx}`} className="log-line">
-                      <span className="source-pill" data-source={log.source ?? 'contention'}>{log.source ?? 'contention'}</span>
-                      {' '}
-                      <span className="muted">{formatTime(log.timestamp)}</span>
-                      {' '}
-                      <span className="warn-text">[{log.level}]</span>
-                      {' '}
-                      {log.event ? <span className="log-event">{String(log.event)}</span> : null}
-                      {' '}
-                      {log.message}
-                      {log.detail ? <span className="muted"> — {log.detail}</span> : null}
+              <div className="live-log-board">
+                {requestLogGroups.map((run) => (
+                  <div key={run.requestId} className="request-run">
+                    <div className="run-header">
+                      <div>
+                        <div className="run-title">
+                          Request <span className="mono-path">{run.requestId}</span>
+                        </div>
+                        <div className="run-meta">
+                          {formatTime(run.timestamp)} · {run.dccType} · {run.tool}
+                        </div>
+                      </div>
+                      <StatusBadge value={run.status} />
                     </div>
-                  ))}
-                </div>
-              )))}
+                    <div className="run-steps">
+                      {run.steps.map((log, idx) => (
+                        <div key={`${log.timestamp}-${log.source ?? ''}-${idx}`} className="run-step">
+                          <span className={`step-dot ${log.success === false ? 'err' : 'ok'}`} aria-hidden="true" />
+                          <div className="step-body">
+                            <div className="step-head">
+                              <span className="step-name">Step {idx + 1}: {logStepTitle(log)}</span>
+                              <span className="muted">{formatTime(log.timestamp)}</span>
+                              <span className="source-pill" data-source={log.source ?? 'contention'}>{log.source ?? 'contention'}</span>
+                            </div>
+                            <div className="step-detail">{logStepDetail(log)}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {gatewayLogs.length > 0 ? (
+                  <div className="group-block">
+                    <h3 className="group-title">Gateway events</h3>
+                    {Array.from(groupRows(gatewayLogs, gatewayLogGroupLabel).entries())
+                      .sort(([a], [b]) => a.localeCompare(b))
+                      .map(([group, groupLogs]) => (
+                        <div key={group} className="gateway-event-group">
+                          <p className="group-meta">{group}</p>
+                          {groupLogs.map((log, idx) => (
+                            <div key={`${log.timestamp}-${log.request_id ?? ''}-${idx}`} className="log-line">
+                              <span className="source-pill" data-source={log.source ?? 'contention'}>{log.source ?? 'contention'}</span>
+                              {' '}
+                              <span className="muted">{formatTime(log.timestamp)}</span>
+                              {' '}
+                              <span className="warn-text">[{log.level}]</span>
+                              {' '}
+                              {log.event ? <span className="log-event">{String(log.event)}</span> : null}
+                              {' '}
+                              {log.message}
+                              {log.detail ? <span className="muted"> — {log.detail}</span> : null}
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                  </div>
+                ) : null}
+              </div>
+            )}
             <button className="refresh-btn" type="button" onClick={fetchLogs}>Refresh</button>
           </section>
         )}
