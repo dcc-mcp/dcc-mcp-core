@@ -110,8 +110,13 @@ pub async fn start_sidecar_gateway(
 }
 
 fn build_gateway_config(args: &SidecarArgs) -> GatewayConfig {
+    let gateway_host = args
+        .gateway_host
+        .clone()
+        .unwrap_or_else(|| args.host.clone());
+
     GatewayConfig {
-        host: args.host.clone(),
+        host: gateway_host,
         gateway_port: args.gateway_port,
         registry_dir: args.registry_dir.clone(),
         server_name: format!("dcc-mcp-gateway-{}", args.dcc),

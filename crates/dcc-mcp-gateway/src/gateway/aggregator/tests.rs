@@ -591,10 +591,10 @@ async fn gateway_mcp_concurrent_initialize_completes_within_one_second() {
 }
 
 #[tokio::test]
-async fn gateway_mcp_initialize_timeout_returns_gateway_busy() {
-    // Issue #1009 — server-side 5s cap returns structured gateway-busy instead
-    // of hanging until the MCP client's own init timeout fires.
-    use dcc_mcp_jsonrpc::error_codes::GATEWAY_BUSY;
+async fn gateway_mcp_initialize_does_not_wait_for_protocol_cache_lock() {
+    // The protocol-version cache is diagnostic state, not a handshake
+    // dependency. If another task holds the lock, initialize must still
+    // complete normally so multiple MCP clients do not queue behind it.
     use std::time::Duration;
 
     let dir = tempfile::tempdir().unwrap();
@@ -624,7 +624,7 @@ async fn gateway_mcp_initialize_timeout_returns_gateway_busy() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(8))
+        .timeout(Duration::from_secs(2))
         .build()
         .unwrap();
     let resp: Value = client
@@ -642,8 +642,8 @@ async fn gateway_mcp_initialize_timeout_returns_gateway_busy() {
         .await
         .unwrap();
 
-    assert_eq!(resp["error"]["code"], json!(GATEWAY_BUSY));
-    assert_eq!(resp["error"]["data"]["reason"], json!("gateway-busy"));
+    assert_eq!(resp["result"]["protocolVersion"], json!("2025-03-26"));
+    assert!(resp.get("error").is_none(), "initialize failed: {resp}");
 
     hold.abort();
     let _ = shutdown_tx.send(());
