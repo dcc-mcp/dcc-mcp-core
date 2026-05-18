@@ -21,6 +21,8 @@ without touching the MCP protocol stack.
 | `GET` | `/v1/readyz` | Three-state readiness: `200 Ready` / `503 Booting` / body omitted `Unreachable` (see below). |
 | `GET` | `/v1/skills` | Flat listing of loaded tools, deterministically sorted. |
 | `POST` | `/v1/search` | Fuzzy / exact search across loaded + unloaded skills. |
+| `POST` | `/v1/load_skill` | Load a discovered skill without using MCP `tools/call`. |
+| `POST` | `/v1/unload_skill` | Unload a skill without using MCP `tools/call`. |
 | `POST` | `/v1/describe` | Return the full input schema + annotations for one `tool_slug`. |
 | `GET` | `/v1/tools/{slug}` | Alias of `/v1/describe` (read-only lookup via URL). |
 | `POST` | `/v1/call` | **Invoke** a tool by slug. This is the canonical invocation plane. |
@@ -295,11 +297,38 @@ Response shape (gateway + per-DCC are identical):
       "action_name": "render_frame",
       "dcc": "maya",
       "tags": ["batch"],
-      "loaded": true
+      "loaded": false,
+      "next_step": {
+        "action": "load_skill",
+        "arguments": {
+          "skill_name": "maya-render",
+          "dcc": "maya",
+          "dcc_type": "maya",
+          "instance_id": "a1b2c3d4-0000-0000-0000-000000000001"
+        },
+        "rest": {"method": "POST", "path": "/v1/load_skill"},
+        "mcp": {"name": "load_skill"}
+      }
     }
   ]
 }
 ```
+
+When `loaded=false`, clients may POST `next_step.arguments` directly to
+`/v1/load_skill`, then repeat `/v1/search` or call `/v1/describe` for the same
+tool. Per-DCC REST omits `instance_id` because there is only one owning server;
+the gateway includes it so same-DCC multi-instance calls stay routed.
+
+## `POST /v1/load_skill` and `/v1/unload_skill`
+
+```json
+{ "skill_name": "maya-render", "dcc": "maya", "instance_id": "a1b2c3d4" }
+```
+
+`skill_name` is required. Gateway callers should pass the `dcc` / `dcc_type`
+and `instance_id` returned in `/v1/search.next_step.arguments` when more than
+one DCC instance is live. A successful load refreshes the gateway capability
+index, so the next `/v1/search` sees the newly callable actions.
 
 ---
 

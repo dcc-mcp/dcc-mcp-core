@@ -690,7 +690,49 @@ async fn search_loaded_only_false_surfaces_unloaded_skills() {
     for h in &unloaded {
         assert_eq!(h["skill"], "rigging");
         assert_eq!(h["dcc"], "blender");
+        assert_eq!(h["next_step"]["action"], "load_skill");
+        assert_eq!(h["next_step"]["arguments"]["skill_name"], "rigging");
+        assert_eq!(h["next_step"]["arguments"]["dcc"], "blender");
     }
+}
+
+/// REST-only progressive loading: discover an unloaded skill, POST the
+/// returned `next_step.arguments` to `/v1/load_skill`, then search again
+/// and see the action become loaded without any MCP `tools/call`.
+#[tokio::test]
+async fn rest_load_skill_endpoint_completes_progressive_loading_loop() {
+    let (svc, _) = fixture_multi_skill();
+    let (server, _) = build_server(svc);
+
+    let search = server
+        .post("/v1/search")
+        .json(&json!({"query": "bone", "loaded_only": false}))
+        .await;
+    search.assert_status_ok();
+    let body: Value = search.json();
+    let next_args = body["hits"][0]["next_step"]["arguments"].clone();
+    assert_eq!(next_args["skill_name"], "rigging");
+
+    let loaded = server.post("/v1/load_skill").json(&next_args).await;
+    loaded.assert_status_ok();
+    let loaded_body: Value = loaded.json();
+    assert_eq!(loaded_body["success"], true);
+    assert_eq!(loaded_body["skill_name"], "rigging");
+
+    let search = server
+        .post("/v1/search")
+        .json(&json!({"query": "bone"}))
+        .await;
+    search.assert_status_ok();
+    let after: Value = search.json();
+    assert!(
+        after["hits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|h| h["loaded"] == true),
+        "default search should only return loaded rigging actions after /v1/load_skill: {after}"
+    );
 }
 
 /// The whole `/v1/search` response — not just one hit — must stay

@@ -98,6 +98,19 @@ pub struct SkillListEntry {
     pub has_schema: bool,
     /// Human-readable scope label (`"repo"`, `"user"`, ...).
     pub scope: String,
+    /// Machine-executable remediation for progressive loading. Present
+    /// when `loaded=false` so REST clients can load the owning skill
+    /// without needing MCP tool metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_step: Option<ProgressiveNextStep>,
+}
+
+/// One suggested follow-up operation for progressive loading.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ToSchema)]
+pub struct ProgressiveNextStep {
+    pub action: String,
+    #[schema(value_type = Object)]
+    pub arguments: Value,
 }
 
 /// Stable tool slug format used across REST and MCP.
@@ -134,6 +147,28 @@ impl ToolSlug {
 pub struct SearchResponse {
     pub total: usize,
     pub hits: Vec<SkillListEntry>,
+}
+
+/// Payload for `POST /v1/load_skill`.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct LoadSkillRequest {
+    pub skill_name: String,
+}
+
+/// Payload for `POST /v1/unload_skill`.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct UnloadSkillRequest {
+    pub skill_name: String,
+}
+
+/// Response body for skill lifecycle operations.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct SkillLifecycleResponse {
+    pub skill_name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub removed: Option<usize>,
 }
 
 /// Payload for `POST /v1/describe`.
@@ -207,6 +242,20 @@ pub trait SkillCatalogSource: Send + Sync {
     fn list_actions(&self) -> Vec<CatalogAction>;
     /// `true` if the named skill is currently loaded.
     fn is_loaded(&self, skill_name: &str) -> bool;
+    /// Load one discovered skill and return the registered action names.
+    fn load_skill(&self, skill_name: &str) -> Result<Vec<String>, ServiceError> {
+        Err(ServiceError::new(
+            ServiceErrorKind::BadRequest,
+            format!("skill loading is not supported by this catalog source: {skill_name}"),
+        ))
+    }
+    /// Unload one loaded skill and return the number of removed actions.
+    fn unload_skill(&self, skill_name: &str) -> Result<usize, ServiceError> {
+        Err(ServiceError::new(
+            ServiceErrorKind::BadRequest,
+            format!("skill unloading is not supported by this catalog source: {skill_name}"),
+        ))
+    }
 }
 
 /// One flattened (action, skill) pair. Everything the service layer
@@ -491,6 +540,20 @@ impl SkillCatalogSource for CatalogSource {
     fn is_loaded(&self, skill_name: &str) -> bool {
         self.catalog.is_loaded(skill_name)
     }
+
+    fn load_skill(&self, skill_name: &str) -> Result<Vec<String>, ServiceError> {
+        self.catalog.load_skill(skill_name).map_err(|message| {
+            ServiceError::new(ServiceErrorKind::NotFound, message)
+                .with_hint("call /v1/search with loaded_only=false to discover loadable skills")
+        })
+    }
+
+    fn unload_skill(&self, skill_name: &str) -> Result<usize, ServiceError> {
+        self.catalog.unload_skill(skill_name).map_err(|message| {
+            ServiceError::new(ServiceErrorKind::NotFound, message)
+                .with_hint("call /v1/skills to list currently loaded skills")
+        })
+    }
 }
 
 /// Dispatches through [`ToolDispatcher::dispatch`]. Synchronous —
@@ -717,6 +780,47 @@ impl SkillRestService {
         }
     }
 
+    /// Load a discovered skill through REST without requiring an MCP
+    /// `tools/call` wrapper.
+    pub fn load_skill(
+        &self,
+        req: &LoadSkillRequest,
+    ) -> Result<SkillLifecycleResponse, ServiceError> {
+        let skill_name = req.skill_name.trim();
+        if skill_name.is_empty() {
+            return Err(ServiceError::new(
+                ServiceErrorKind::BadRequest,
+                "skill_name must be a non-empty string",
+            ));
+        }
+        let actions = self.catalog.load_skill(skill_name)?;
+        Ok(SkillLifecycleResponse {
+            skill_name: skill_name.to_string(),
+            actions,
+            removed: None,
+        })
+    }
+
+    /// Unload a skill through REST without requiring an MCP wrapper.
+    pub fn unload_skill(
+        &self,
+        req: &UnloadSkillRequest,
+    ) -> Result<SkillLifecycleResponse, ServiceError> {
+        let skill_name = req.skill_name.trim();
+        if skill_name.is_empty() {
+            return Err(ServiceError::new(
+                ServiceErrorKind::BadRequest,
+                "skill_name must be a non-empty string",
+            ));
+        }
+        let removed = self.catalog.unload_skill(skill_name)?;
+        Ok(SkillLifecycleResponse {
+            skill_name: skill_name.to_string(),
+            actions: Vec::new(),
+            removed: Some(removed),
+        })
+    }
+
     /// Resolve a slug to the full action record, including schema.
     pub fn describe(&self, req: &DescribeRequest) -> Result<DescribeResponse, ServiceError> {
         let action = self.resolve_slug(&req.tool_slug)?;
@@ -885,6 +989,17 @@ impl SkillRestService {
 
 fn action_to_entry(a: CatalogAction) -> SkillListEntry {
     let summary = truncate(&a.description, 180);
+    let next_step = if a.loaded {
+        None
+    } else {
+        Some(ProgressiveNextStep {
+            action: "load_skill".to_string(),
+            arguments: serde_json::json!({
+                "skill_name": a.skill_name.clone(),
+                "dcc": a.dcc.clone(),
+            }),
+        })
+    };
     let has_schema = a
         .input_schema
         .as_object()
@@ -909,6 +1024,7 @@ fn action_to_entry(a: CatalogAction) -> SkillListEntry {
         loaded: a.loaded,
         has_schema,
         scope: a.scope,
+        next_step,
     }
 }
 
@@ -1061,6 +1177,38 @@ mod tests {
                 .iter()
                 .any(|a| a.skill_name == name && a.loaded)
         }
+        fn load_skill(&self, skill_name: &str) -> Result<Vec<String>, ServiceError> {
+            let mut actions = self.actions.lock().unwrap();
+            let mut loaded = Vec::new();
+            for action in actions.iter_mut().filter(|a| a.skill_name == skill_name) {
+                action.loaded = true;
+                loaded.push(action.action_name.clone());
+            }
+            if loaded.is_empty() {
+                Err(ServiceError::new(
+                    ServiceErrorKind::NotFound,
+                    format!("skill not found: {skill_name}"),
+                ))
+            } else {
+                Ok(loaded)
+            }
+        }
+        fn unload_skill(&self, skill_name: &str) -> Result<usize, ServiceError> {
+            let mut actions = self.actions.lock().unwrap();
+            let mut removed = 0usize;
+            for action in actions.iter_mut().filter(|a| a.skill_name == skill_name) {
+                action.loaded = false;
+                removed += 1;
+            }
+            if removed == 0 {
+                Err(ServiceError::new(
+                    ServiceErrorKind::NotFound,
+                    format!("skill not found: {skill_name}"),
+                ))
+            } else {
+                Ok(removed)
+            }
+        }
     }
 
     #[derive(Default)]
@@ -1141,6 +1289,38 @@ mod tests {
         let resp = svc.search(&SearchRequest::default());
         assert_eq!(resp.total, 1);
         assert_eq!(resp.hits[0].action, "create_sphere");
+    }
+
+    #[test]
+    fn search_loaded_only_false_returns_executable_next_step() {
+        let (svc, _) = build_service(vec![sphere_action(false)]);
+        let resp = svc.search(&SearchRequest {
+            loaded_only: false,
+            ..Default::default()
+        });
+
+        assert_eq!(resp.total, 1);
+        let next = resp.hits[0].next_step.as_ref().expect("next_step");
+        assert_eq!(next.action, "load_skill");
+        assert_eq!(next.arguments["skill_name"], "spheres");
+        assert_eq!(next.arguments["dcc"], "maya");
+    }
+
+    #[test]
+    fn load_skill_then_search_makes_action_callable() {
+        let (svc, _) = build_service(vec![sphere_action(false)]);
+
+        let loaded = svc
+            .load_skill(&LoadSkillRequest {
+                skill_name: "spheres".into(),
+            })
+            .unwrap();
+        assert_eq!(loaded.actions, vec!["create_sphere"]);
+
+        let resp = svc.search(&SearchRequest::default());
+        assert_eq!(resp.total, 1);
+        assert!(resp.hits[0].loaded);
+        assert!(resp.hits[0].next_step.is_none());
     }
 
     #[test]

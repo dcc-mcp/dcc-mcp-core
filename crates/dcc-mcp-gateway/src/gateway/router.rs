@@ -10,7 +10,8 @@ use super::handlers::{
     handle_proxy_dcc, handle_proxy_instance, handle_v1_call, handle_v1_call_batch,
     handle_v1_context, handle_v1_dcc_instance_call, handle_v1_dcc_instance_describe,
     handle_v1_describe, handle_v1_describe_path, handle_v1_healthz, handle_v1_list_skills,
-    handle_v1_openapi, handle_v1_readyz, handle_v1_search, handle_v1_skills,
+    handle_v1_load_skill, handle_v1_openapi, handle_v1_readyz, handle_v1_search, handle_v1_skills,
+    handle_v1_unload_skill,
 };
 use super::http_limits::rate_limit_middleware;
 use super::resilience::gateway_limits;
@@ -115,6 +116,8 @@ fn build_base_router(state: GatewayState) -> Router {
         .route("/v1/skills", routing::get(handle_v1_skills))
         .route("/v1/list_skills", routing::post(handle_v1_list_skills))
         .route("/v1/search", routing::post(handle_v1_search))
+        .route("/v1/load_skill", routing::post(handle_v1_load_skill))
+        .route("/v1/unload_skill", routing::post(handle_v1_unload_skill))
         .route("/v1/describe", routing::post(handle_v1_describe))
         .route("/v1/tools/{slug}", routing::get(handle_v1_describe_path))
         .route(
