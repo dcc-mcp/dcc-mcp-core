@@ -92,6 +92,50 @@ fn test_tool_declaration_parses_thread_affinity_enforcement() {
 }
 
 #[test]
+fn test_tool_declaration_defaults_enforcement_when_affinity_is_declared() {
+    let json = r#"{
+            "name": "bake_simulation",
+            "affinity": "main"
+        }"#;
+    let decl: ToolDeclaration = serde_json::from_str(json).unwrap();
+    assert_eq!(decl.thread_affinity, ThreadAffinity::Main);
+    assert!(decl.enforce_thread_affinity);
+}
+
+#[test]
+fn test_tool_declaration_defaults_enforcement_when_any_affinity_is_declared() {
+    let json = r#"{
+            "name": "read_manifest",
+            "thread_affinity": "any"
+        }"#;
+    let decl: ToolDeclaration = serde_json::from_str(json).unwrap();
+    assert_eq!(decl.thread_affinity, ThreadAffinity::Any);
+    assert!(decl.enforce_thread_affinity);
+}
+
+#[test]
+fn test_tool_declaration_keeps_legacy_enforcement_default_without_affinity() {
+    let json = r#"{
+            "name": "legacy_tool"
+        }"#;
+    let decl: ToolDeclaration = serde_json::from_str(json).unwrap();
+    assert_eq!(decl.thread_affinity, ThreadAffinity::Any);
+    assert!(!decl.enforce_thread_affinity);
+}
+
+#[test]
+fn test_tool_declaration_allows_explicit_affinity_enforcement_opt_out() {
+    let json = r#"{
+            "name": "standalone_compat",
+            "affinity": "main",
+            "enforce_thread_affinity": false
+        }"#;
+    let decl: ToolDeclaration = serde_json::from_str(json).unwrap();
+    assert_eq!(decl.thread_affinity, ThreadAffinity::Main);
+    assert!(!decl.enforce_thread_affinity);
+}
+
+#[test]
 fn test_agentskills_standard_fields() {
     let json = r#"{
             "name": "pdf-tools",
