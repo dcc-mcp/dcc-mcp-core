@@ -11,6 +11,7 @@ set shell := ["sh", "-cu"]
 # and every recipe below — as well as CI workflows invoking `just build-*` —
 # will pick them up automatically.
 OPT_FEATURES := "workflow,scheduler,prometheus,job-persist-sqlite,admin"
+CLI_BIN := if os_family() == "windows" { ".\\target\\release\\dcc-mcp-cli.exe" } else { "./target/release/dcc-mcp-cli" }
 
 # Feature set for `maturin develop` (no abi3, extension-module linkage)
 DEV_FEATURES := "python-bindings,ext-module," + OPT_FEATURES
@@ -248,6 +249,10 @@ lint-py:
     ruff check python/dcc_mcp_core/ tests/ examples/ scripts/
     ruff format --check python/dcc_mcp_core/ tests/ examples/ scripts/
 
+# Lint bundled, example, and fixture skills with the built production CLI
+lint-skills: build-cli
+    {{CLI_BIN}} lint --max-depth 4 skills/core skills/dcc-skills-creator python/dcc_mcp_core/skills examples/skills examples/remote-server/skills examples/rez-skills tests/fixtures/skills tests/fixtures/prompts_skills
+
 # Verify pure-Python sources parse on Python 3.7 (cp37 wheel parity).
 lint-py37-syntax:
     python scripts/run_with_py37.py scripts/check_py37_syntax.py
@@ -257,8 +262,8 @@ lint-py-fix:
     ruff check --fix python/dcc_mcp_core/ tests/ examples/ scripts/
     ruff format python/dcc_mcp_core/ tests/ examples/ scripts/
 
-# Lint everything: Rust (clippy + fmt-check) + Python (ruff + py37 parse gate)
-lint: clippy fmt-check lint-py lint-py37-syntax
+# Lint everything: Rust (clippy + fmt-check) + Python (ruff + py37 parse gate) + skills
+lint: clippy fmt-check lint-py lint-py37-syntax lint-skills
 
 # Fix all fixable lint issues (Rust fmt + Python ruff)
 lint-fix: fmt lint-py-fix

@@ -72,7 +72,7 @@ pub fn validate_skill_dir(skill_dir: &Path) -> SkillValidationReport {
     validate_tools(&meta, &mut report);
     validate_scripts(skill_dir, &meta, &mut report);
     validate_sidecars(skill_dir, &raw_value, &mut report);
-    validate_dependencies(skill_dir, &meta, &mut report);
+    validate_dependencies(skill_dir, &meta, &raw_value, &mut report);
 
     let non_spec = detect_non_spec_top_level_fields(&raw_value);
     if !non_spec.is_empty() {
@@ -374,6 +374,7 @@ fn validate_sidecar_file(
 fn validate_dependencies(
     skill_dir: &Path,
     meta: &SkillMetadata,
+    raw_value: &serde_yaml_ng::Value,
     report: &mut SkillValidationReport,
 ) {
     for (idx, dep) in meta.depends.iter().enumerate() {
@@ -385,7 +386,10 @@ fn validate_dependencies(
         }
     }
 
-    if !meta.depends.is_empty() {
+    let declares_depends =
+        !meta.depends.is_empty() || nested_dcc_mcp_key(raw_value, "depends").is_some();
+
+    if declares_depends {
         let depends_md = skill_dir.join("metadata").join("depends.md");
         if !depends_md.is_file() {
             report.issues.push(SkillValidationIssue::warn(
@@ -396,12 +400,25 @@ fn validate_dependencies(
     }
 
     let depends_md = skill_dir.join("metadata").join("depends.md");
-    if depends_md.is_file() && meta.depends.is_empty() {
+    if depends_md.is_file() && !declares_depends {
         report.issues.push(SkillValidationIssue::warn(
             IssueCategory::Dependencies,
             "metadata/depends.md exists but no depends declared in frontmatter",
         ));
     }
+}
+
+fn nested_dcc_mcp_key<'a>(
+    raw_value: &'a serde_yaml_ng::Value,
+    key: &str,
+) -> Option<&'a serde_yaml_ng::Value> {
+    raw_value
+        .as_mapping()
+        .and_then(|mapping| mapping.get(serde_yaml_ng::Value::String("metadata".into())))
+        .and_then(|metadata| metadata.as_mapping())
+        .and_then(|metadata| metadata.get(serde_yaml_ng::Value::String("dcc-mcp".into())))
+        .and_then(|dcc_mcp| dcc_mcp.as_mapping())
+        .and_then(|dcc_mcp| dcc_mcp.get(serde_yaml_ng::Value::String(key.into())))
 }
 
 fn detect_non_spec_top_level_fields(root: &serde_yaml_ng::Value) -> Vec<String> {

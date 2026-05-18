@@ -18,7 +18,25 @@
 
 [English](README.md) | 中文
 
-**面向 AI 辅助 DCC 工作流的生产级基础库** —— 当前采用新的 gateway-first 架构，结合 **MCP 2025-03-26 Streamable HTTP**、遵循 [agentskills.io 1.0](https://agentskills.io/specification) 的 **零代码 Skills 系统**，以及负责发现、路由、安装和运维的 Rust 控制面。Python 包面向嵌入式 DCC 宿主保持**运行时零 Python 依赖**；独立的 `dcc-mcp-cli` 与 `dcc-mcp-server` 二进制则随 GitHub Release 发布，适合像传统软件一样下载安装到工作站。支持 Python 3.7–3.13。
+**给 Maya、Blender、Houdini、Photoshop 和自定义工作室工具一套真正的 AI 控制面。**
+
+`dcc-mcp-core` 把 DCC 应用变成可发现、可路由的 MCP 端点。Agent 不再只能猜测 shell 输出，而是可以面对实时场景状态、受作用域约束的工具目录、结构化结果、视口诊断、审计日志，以及能适应真实生产约束的工作流。
+
+它结合 **MCP 2025-03-26 Streamable HTTP**、遵循 [agentskills.io 1.0](https://agentskills.io/specification) 的 **零代码 Skills 系统**，以及负责发现、路由、安装、lint 和运维的 Rust gateway。Python 包面向嵌入式 DCC 宿主保持**运行时零 Python 依赖**；独立的 `dcc-mcp-cli` 与 `dcc-mcp-server` 二进制随 GitHub Release 发布，适合像传统软件一样下载安装到工作站。支持 Python 3.7–3.13。
+
+```bash
+# Linux/macOS 安装独立 CLI
+curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | bash
+
+# Windows PowerShell 安装独立 CLI
+powershell -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+
+# 然后检查 gateway，或在运行时加载前 lint 本地 Skills
+dcc-mcp-cli list
+dcc-mcp-cli lint path/to/skills
+```
+
+当你希望 Agent 操作真实 DCC 会话，同时避免上下文爆炸、为每个工具手写 Python 胶水、或者维护脆弱的一次性 shell 脚本时，它就是这层基础设施。
 
 ---
 
@@ -120,15 +138,52 @@ AI 友好文档：[AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](d
 
 ## 快速开始
 
-### 安装
+### 安装独立 CLI
+
+如果你只需要 operator/CI 控制面，不想先准备 Python 环境，直接安装 release 二进制：
 
 ```bash
-# 从 GitHub Release 一键安装 CLI
+# Linux/macOS
 curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | bash
 
 # Windows PowerShell
 powershell -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+```
 
+默认会下载最新 GitHub Release 里的对应资产：
+
+| 平台 | Asset |
+|---|---|
+| Linux x86_64 | `dcc-mcp-cli-linux-x86_64` |
+| Windows x86_64 | `dcc-mcp-cli-windows-x86_64.exe` |
+| macOS universal2 | `dcc-mcp-cli-macos-universal2` |
+
+也可以固定版本或自定义安装目录：
+
+```bash
+export DCC_MCP_VERSION=v0.17.7
+export DCC_MCP_INSTALL_DIR="$HOME/bin"
+curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | bash
+```
+
+```powershell
+$env:DCC_MCP_VERSION = "v0.17.7"
+$env:DCC_MCP_INSTALL_DIR = "$env:USERPROFILE\bin"
+irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex
+```
+
+安装后：
+
+```bash
+dcc-mcp-cli health
+dcc-mcp-cli list
+dcc-mcp-cli search --query sphere --dcc-type maya
+dcc-mcp-cli lint path/to/skills
+```
+
+### 安装 Python core
+
+```bash
 # 从 PyPI 安装（Python 3.7+ 预构建 wheel）
 pip install dcc-mcp-core
 

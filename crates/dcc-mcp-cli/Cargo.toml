@@ -16,6 +16,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
 dcc-mcp-catalog.workspace = true
+dcc-mcp-skills.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -4,7 +4,7 @@ use axum::Router;
 use axum::extract::Json;
 use axum::routing::{get, post};
 use serde_json::{Value, json};
-use tempfile::NamedTempFile;
+use tempfile::{NamedTempFile, TempDir};
 use tokio::sync::oneshot;
 
 struct GatewayFixture {
@@ -117,6 +117,13 @@ fn run_json(args: &[&str]) -> Value {
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
+fn write_skill(root: &std::path::Path, relative: &str, content: &str) -> std::path::PathBuf {
+    let dir = root.join(relative);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("SKILL.md"), content).unwrap();
+    dir
+}
+
 #[test]
 fn list_search_describe_and_call_gateway_rest_surface() {
     let fixture = spawn_gateway_fixture();
@@ -191,4 +198,78 @@ entries:
     assert_eq!(plan["version"], "2026");
     assert_eq!(plan["adapter"]["name"], "dcc-mcp-maya");
     assert_eq!(plan["steps"].as_array().unwrap().len(), 4);
+}
+
+#[test]
+fn lint_recurses_two_levels_and_reports_validation_errors() {
+    let tmp = TempDir::new().unwrap();
+    write_skill(
+        tmp.path(),
+        "studio/maya-tools",
+        "---\nname: maya-tools\ndescription: Valid test skill\n---\n",
+    );
+    write_skill(tmp.path(), "studio/bad-skill", "no frontmatter\n");
+    write_skill(tmp.path(), "too/deep/ignored-skill", "no frontmatter\n");
+
+    let output = cli_command().arg("lint").arg(tmp.path()).output().unwrap();
+
+    assert!(!output.status.success());
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["checked"], 2);
+    assert_eq!(value["errors"], 1);
+    let reports = value["reports"].as_array().unwrap();
+    assert!(reports.iter().any(|report| {
+        report["skill_dir"]
+            .as_str()
+            .is_some_and(|path| path.contains("bad-skill"))
+    }));
+    assert!(!reports.iter().any(|report| {
+        report["skill_dir"]
+            .as_str()
+            .is_some_and(|path| path.contains("ignored-skill"))
+    }));
+}
+
+#[test]
+fn lint_bundled_skills_are_present_and_clean() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = manifest_dir
+        .parent()
+        .and_then(std::path::Path::parent)
+        .unwrap();
+    let builtin_skill_roots = [
+        workspace_root.join("skills/core"),
+        workspace_root.join("skills/dcc-skills-creator"),
+        workspace_root.join("python/dcc_mcp_core/skills"),
+    ];
+
+    for root in &builtin_skill_roots {
+        assert!(
+            root.is_dir(),
+            "missing bundled skill root: {}",
+            root.display()
+        );
+    }
+
+    let output = cli_command()
+        .arg("lint")
+        .arg("--max-depth")
+        .arg("4")
+        .args(&builtin_skill_roots)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(
+        value["checked"].as_u64().unwrap() > 0,
+        "expected bundled skills to be linted"
+    );
+    assert_eq!(value["errors"], 0);
+    assert_eq!(value["warnings"], 0);
 }
