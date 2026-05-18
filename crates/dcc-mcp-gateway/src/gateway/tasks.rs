@@ -22,6 +22,41 @@ pub(crate) struct GatewayTasks {
     pub(crate) yield_tx: Arc<watch::Sender<bool>>,
 }
 
+struct GatewayTaskGroup {
+    handles: Vec<tokio::task::JoinHandle<()>>,
+}
+
+impl GatewayTaskGroup {
+    fn new(handles: Vec<tokio::task::JoinHandle<()>>) -> Self {
+        Self { handles }
+    }
+
+    async fn wait_all(mut self) {
+        while let Some(handle) = self.handles.pop() {
+            let _ = handle.await;
+        }
+    }
+}
+
+impl Drop for GatewayTaskGroup {
+    fn drop(&mut self) {
+        for handle in &self.handles {
+            handle.abort();
+        }
+    }
+}
+
+async fn wait_for_gateway_yield(mut yield_rx: watch::Receiver<bool>) {
+    loop {
+        if yield_rx.changed().await.is_err() {
+            break;
+        }
+        if *yield_rx.borrow() {
+            break;
+        }
+    }
+}
+
 /// Capacity of the in-memory audit ring buffer and SQLite merge limit.
 #[cfg(feature = "admin")]
 const ADMIN_AUDIT_RING_CAPACITY: usize = 512;
@@ -745,37 +780,32 @@ pub(crate) async fn start_gateway_tasks(
     #[cfg(feature = "prometheus")]
     let metrics_handle = metrics::spawn_metrics_updater(registry.clone(), stale_timeout);
 
-    // Combine all tasks under one abort handle.
+    // Combine all tasks under one abort handle. The task group owns every
+    // spawned gateway child; when the supervisor is aborted or a cooperative
+    // yield is requested, dropping the group aborts the children instead of
+    // detaching them as leaked background work.
+    let supervisor_yield_rx = yield_rx.clone();
+    let mut task_handles = vec![
+        cleanup_handle,
+        watcher_handle,
+        tools_watcher_handle,
+        prompts_watcher_handle,
+        resources_watcher_handle,
+        backend_sub_handle,
+        route_gc_handle,
+        health_check_handle,
+        gw_handle,
+        remote_handle,
+    ];
     #[cfg(feature = "prometheus")]
+    task_handles.push(metrics_handle);
+
     let combined = tokio::spawn(async move {
-        let _ = tokio::join!(
-            cleanup_handle,
-            watcher_handle,
-            tools_watcher_handle,
-            prompts_watcher_handle,
-            resources_watcher_handle,
-            backend_sub_handle,
-            route_gc_handle,
-            health_check_handle,
-            gw_handle,
-            remote_handle,
-            metrics_handle
-        );
-    });
-    #[cfg(not(feature = "prometheus"))]
-    let combined = tokio::spawn(async move {
-        let _ = tokio::join!(
-            cleanup_handle,
-            watcher_handle,
-            tools_watcher_handle,
-            prompts_watcher_handle,
-            resources_watcher_handle,
-            backend_sub_handle,
-            route_gc_handle,
-            health_check_handle,
-            gw_handle,
-            remote_handle
-        );
+        let task_group = GatewayTaskGroup::new(task_handles);
+        tokio::select! {
+            _ = wait_for_gateway_yield(supervisor_yield_rx) => {}
+            _ = task_group.wait_all() => {}
+        }
     });
 
     // ── Post-spawn self-probe (issue #303) ────────────────────────────────

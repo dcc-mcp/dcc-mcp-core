@@ -529,6 +529,27 @@ impl GatewayRunner {
         let health_check_failures = self.config.health_check_failures;
 
         let handle = tokio::spawn(async move {
+            // Publish a short-lived challenger sentinel before asking the
+            // resident gateway to yield. This gives newer gateways a second
+            // takeover path: the cooperative HTTP yield is the fast path,
+            // while the resident gateway's existing newer-sentinel sweep is
+            // the fallback if the HTTP request is delayed or dropped under
+            // heavy scheduler load.
+            let mut challenge_sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, &host, port);
+            challenge_sentinel.version = Some(own_ver.clone());
+            challenge_sentinel.adapter_version = adapter_version.clone();
+            challenge_sentinel.adapter_dcc = adapter_dcc.clone();
+            let challenge_sentinel_key = challenge_sentinel.key();
+            {
+                let reg = registry.read().await;
+                let _ = reg.register(challenge_sentinel);
+            }
+            let _challenge_guard = PromotedGatewayGuard {
+                abort: None,
+                registry: registry.clone(),
+                sentinel_key: Some(challenge_sentinel_key),
+            };
+
             // ── Cooperative yield request ─────────────────────────────────
             // If the old gateway also speaks our protocol it will shut down
             // gracefully; if not (e.g. v0.12.6) this is a no-op 404 — fine.
