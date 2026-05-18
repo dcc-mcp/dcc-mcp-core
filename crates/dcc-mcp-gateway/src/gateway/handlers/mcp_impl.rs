@@ -216,9 +216,16 @@ async fn handle_initialize(gs: &GatewayState, id: Value, req: &JsonRpcRequest) -
         .and_then(|params| params.get("protocolVersion"))
         .and_then(|value| value.as_str());
     let negotiated = negotiate_protocol_version(client_version);
-    {
-        let mut protocol_version = gs.protocol_version.write().await;
-        *protocol_version = Some(negotiated.to_string());
+    match gs.protocol_version.try_write() {
+        Ok(mut protocol_version) => {
+            *protocol_version = Some(negotiated.to_string());
+        }
+        Err(_) => {
+            tracing::warn!(
+                protocol_version = negotiated,
+                "gateway initialize: protocol version lock busy; continuing without updating cached value"
+            );
+        }
     }
 
     json!({

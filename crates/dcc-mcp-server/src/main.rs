@@ -70,6 +70,7 @@
 //! | `DCC_MCP_APP`             | App name hint (e.g. "maya", "photoshop")           |
 //! | `DCC_MCP_SERVER_NAME`     | Server name advertised to MCP clients              |
 //! | `DCC_MCP_GATEWAY_PORT`    | Gateway port to compete for (default 9765, 0=off)  |
+//! | `DCC_MCP_GATEWAY_HOST`    | Gateway bind host (default follows `--host`)       |
 //! | `DCC_MCP_NO_ADMIN`        | Disable read-only `/admin` on the elected gateway  |
 //! | `DCC_MCP_ADMIN_PATH`      | Admin URL prefix (default `/admin`)                |
 //! | `DCC_MCP_GATEWAY_ADMIN_DB` | Override path for admin SQLite (traces / skill paths) |
@@ -171,6 +172,10 @@ struct Args {
     /// 0 = gateway disabled entirely (and therefore disables admin too).
     #[arg(long, env = "DCC_MCP_GATEWAY_PORT", default_value = "9765")]
     gateway_port: u16,
+
+    /// Gateway host/interface to bind. Defaults to the MCP `--host`.
+    #[arg(long, env = "DCC_MCP_GATEWAY_HOST")]
+    gateway_host: Option<String>,
 
     /// Disable the read-only Admin UI on the elected gateway.
     #[arg(long, env = "DCC_MCP_NO_ADMIN", default_value = "false")]
@@ -804,8 +809,13 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or(30)
         .clamp(1, 3650);
 
+    let gateway_host = args
+        .gateway_host
+        .clone()
+        .unwrap_or_else(|| args.host.clone());
+
     let gateway_cfg = GatewayConfig {
-        host: args.host.clone(),
+        host: gateway_host,
         gateway_port: args.gateway_port,
         stale_timeout_secs: args.stale_timeout_secs,
         heartbeat_secs: args.heartbeat_secs,
