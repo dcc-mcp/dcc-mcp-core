@@ -427,6 +427,7 @@ async fn test_newer_gateway_takes_over_local_and_remote_listeners() {
     .unwrap();
     let old = old_runner.run_election().await.unwrap();
     assert!(old.is_gateway, "old runner should win the initial election");
+    wait_gateway_initialize_version(gw_port, "0.1.0", Duration::from_secs(10)).await;
     wait_gateway_initialize_version(remote_port, "0.1.0", Duration::from_secs(10)).await;
 
     let new_runner = GatewayRunner::new(GatewayConfig {
