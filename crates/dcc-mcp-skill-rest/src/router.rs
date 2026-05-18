@@ -28,9 +28,9 @@ use super::errors::{ServiceError, ServiceErrorKind};
 use super::openapi::build_openapi_document;
 use super::readiness::{ReadinessProbe, StaticReadiness};
 use super::service::{
-    CallOutcome, CallRequest, ContextSnapshot, DescribeRequest, DescribeResponse,
-    PromptGetResponse, ResourceReadResponse, SearchRequest, SearchResponse, SkillListEntry,
-    SkillRestService, ToolSlug,
+    CallOutcome, CallRequest, ContextSnapshot, DescribeRequest, DescribeResponse, LoadSkillRequest,
+    PromptGetResponse, ResourceReadResponse, SearchRequest, SearchResponse, SkillLifecycleResponse,
+    SkillListEntry, SkillRestService, ToolSlug, UnloadSkillRequest,
 };
 
 /// Runtime configuration for the REST surface.
@@ -83,6 +83,8 @@ pub fn build_skill_rest_router(config: SkillRestConfig) -> Router {
         .route("/docs", get(handle_docs))
         .route("/v1/skills", get(handle_list_skills))
         .route("/v1/search", post(handle_search))
+        .route("/v1/load_skill", post(handle_load_skill))
+        .route("/v1/unload_skill", post(handle_unload_skill))
         .route("/v1/describe", post(handle_describe))
         .route("/v1/tools/{slug}", get(handle_describe_path))
         .route("/v1/call", post(handle_call))
@@ -266,6 +268,112 @@ async fn handle_search(
         })),
     )
         .into_response()
+}
+
+async fn handle_load_skill(
+    State(cfg): State<SkillRestConfig>,
+    headers: HeaderMap,
+    Json(req): Json<LoadSkillRequest>,
+) -> Response {
+    let rid = request_id(&headers);
+    let principal = match principal_or_error(&cfg, peer(&headers), &headers, &rid) {
+        Ok(p) => p,
+        Err(r) => return *r,
+    };
+    let started = std::time::Instant::now();
+    match cfg.service.load_skill(&req) {
+        Ok(resp) => {
+            emit_audit(
+                &cfg,
+                &rid,
+                &req.skill_name,
+                "POST /v1/load_skill",
+                &principal.subject,
+                AuditOutcome::Success,
+                started,
+            );
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "success": true,
+                    "skill_name": resp.skill_name,
+                    "actions": resp.actions,
+                    "request_id": rid,
+                })),
+            )
+                .into_response()
+        }
+        Err(err) => {
+            emit_audit(
+                &cfg,
+                &rid,
+                &req.skill_name,
+                "POST /v1/load_skill",
+                &principal.subject,
+                AuditOutcome::Failure(
+                    serde_json::to_value(err.kind)
+                        .ok()
+                        .and_then(|v| v.as_str().map(ToOwned::to_owned))
+                        .unwrap_or_else(|| "internal".into()),
+                ),
+                started,
+            );
+            service_error_to_response(err.with_request_id(rid))
+        }
+    }
+}
+
+async fn handle_unload_skill(
+    State(cfg): State<SkillRestConfig>,
+    headers: HeaderMap,
+    Json(req): Json<UnloadSkillRequest>,
+) -> Response {
+    let rid = request_id(&headers);
+    let principal = match principal_or_error(&cfg, peer(&headers), &headers, &rid) {
+        Ok(p) => p,
+        Err(r) => return *r,
+    };
+    let started = std::time::Instant::now();
+    match cfg.service.unload_skill(&req) {
+        Ok(resp) => {
+            emit_audit(
+                &cfg,
+                &rid,
+                &req.skill_name,
+                "POST /v1/unload_skill",
+                &principal.subject,
+                AuditOutcome::Success,
+                started,
+            );
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "success": true,
+                    "skill_name": resp.skill_name,
+                    "removed": resp.removed.unwrap_or(0),
+                    "request_id": rid,
+                })),
+            )
+                .into_response()
+        }
+        Err(err) => {
+            emit_audit(
+                &cfg,
+                &rid,
+                &req.skill_name,
+                "POST /v1/unload_skill",
+                &principal.subject,
+                AuditOutcome::Failure(
+                    serde_json::to_value(err.kind)
+                        .ok()
+                        .and_then(|v| v.as_str().map(ToOwned::to_owned))
+                        .unwrap_or_else(|| "internal".into()),
+                ),
+                started,
+            );
+            service_error_to_response(err.with_request_id(rid))
+        }
+    }
 }
 
 async fn handle_describe(
@@ -874,6 +982,36 @@ pub fn op_list_skills() {}
 )]
 #[allow(dead_code)]
 pub fn op_search() {}
+
+#[utoipa::path(
+    post,
+    path = "/v1/load_skill",
+    tag = "skills",
+    request_body = super::service::LoadSkillRequest,
+    responses(
+        (status = 200, description = "skill loaded", body = SkillLifecycleResponse),
+        (status = 400, description = "bad request", body = ServiceError),
+        (status = 401, description = "unauthorized", body = ServiceError),
+        (status = 404, description = "unknown skill", body = ServiceError),
+    )
+)]
+#[allow(dead_code)]
+pub fn op_load_skill() {}
+
+#[utoipa::path(
+    post,
+    path = "/v1/unload_skill",
+    tag = "skills",
+    request_body = super::service::UnloadSkillRequest,
+    responses(
+        (status = 200, description = "skill unloaded", body = SkillLifecycleResponse),
+        (status = 400, description = "bad request", body = ServiceError),
+        (status = 401, description = "unauthorized", body = ServiceError),
+        (status = 404, description = "unknown skill", body = ServiceError),
+    )
+)]
+#[allow(dead_code)]
+pub fn op_unload_skill() {}
 
 #[utoipa::path(
     post,

@@ -17,9 +17,10 @@ use super::errors::{ServiceError, ServiceErrorKind};
 use super::readiness::ReadinessReport;
 use super::service::{
     CallOutcome, CallRequest, ContextSnapshot, DescribeRequest, DescribeResponse, JobEvent,
-    PromptArgumentSpec, PromptContent, PromptGetResponse, PromptListEntry, PromptMessage,
-    ResourceContent, ResourceEvent, ResourceListEntry, ResourceReadResponse, SearchRequest,
-    SearchResponse, SkillListEntry, ToolSlug,
+    LoadSkillRequest, ProgressiveNextStep, PromptArgumentSpec, PromptContent, PromptGetResponse,
+    PromptListEntry, PromptMessage, ResourceContent, ResourceEvent, ResourceListEntry,
+    ResourceReadResponse, SearchRequest, SearchResponse, SkillLifecycleResponse, SkillListEntry,
+    ToolSlug, UnloadSkillRequest,
 };
 
 /// Compile-time `ToSchema` registry for the REST skill API surface.
@@ -40,6 +41,8 @@ use super::service::{
         super::router::op_openapi,
         super::router::op_list_skills,
         super::router::op_search,
+        super::router::op_load_skill,
+        super::router::op_unload_skill,
         super::router::op_describe,
         super::router::op_describe_path,
         super::router::op_call,
@@ -61,8 +64,12 @@ use super::service::{
         ReadinessReport,
         ToolSlug,
         SkillListEntry,
+        ProgressiveNextStep,
         SearchRequest,
         SearchResponse,
+        LoadSkillRequest,
+        UnloadSkillRequest,
+        SkillLifecycleResponse,
         DescribeRequest,
         DescribeResponse,
         CallRequest,

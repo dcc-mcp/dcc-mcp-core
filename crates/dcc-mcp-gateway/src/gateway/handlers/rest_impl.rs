@@ -4,7 +4,7 @@ use crate::gateway::capability::RefreshReason;
 use crate::gateway::capability::tool_slug;
 use crate::gateway::capability_service::{
     ServiceError, call_service, describe_tool_full, parse_search_payload,
-    refresh_all_live_backends, search_service, service_error_to_json,
+    refresh_all_live_backends, search_service_rows, service_error_to_json,
 };
 
 #[derive(Debug, Deserialize)]
@@ -247,7 +247,7 @@ pub async fn handle_v1_search(
     // load sees fresh capabilities without waiting for a watcher tick.
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
     let query = parse_search_payload(&body);
-    let hits = search_service(&gs.capability_index, &query);
+    let hits = search_service_rows(&gs.capability_index, &query);
     (
         StatusCode::OK,
         Json(json!({
@@ -255,6 +255,39 @@ pub async fn handle_v1_search(
             "hits": hits,
         })),
     )
+}
+
+/// `POST /v1/load_skill` — load a skill on a target backend instance
+/// using the same routing arguments surfaced by `/v1/search.next_step`.
+pub async fn handle_v1_load_skill(
+    State(gs): State<GatewayState>,
+    Json(body): Json<Value>,
+) -> Response {
+    skill_lifecycle_response(&gs, "load_skill", body).await
+}
+
+/// `POST /v1/unload_skill` — unload a skill on a target backend instance.
+pub async fn handle_v1_unload_skill(
+    State(gs): State<GatewayState>,
+    Json(body): Json<Value>,
+) -> Response {
+    skill_lifecycle_response(&gs, "unload_skill", body).await
+}
+
+async fn skill_lifecycle_response(gs: &GatewayState, tool: &str, body: Value) -> Response {
+    let (text, is_error) = crate::gateway::aggregator::skill_mgmt_dispatch(gs, tool, &body).await;
+    if is_error {
+        return (
+            StatusCode::BAD_GATEWAY,
+            Json(service_error_to_json(&ServiceError::new(
+                "backend-error",
+                text,
+            ))),
+        )
+            .into_response();
+    }
+    let parsed = serde_json::from_str::<Value>(&text).unwrap_or_else(|_| json!({"message": text}));
+    (StatusCode::OK, Json(parsed)).into_response()
 }
 
 /// `POST /v1/describe` — return the compact record and (optionally)
