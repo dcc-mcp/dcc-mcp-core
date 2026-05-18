@@ -104,6 +104,8 @@ AI-friendly docs: [AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](d
 
 ## Architecture: The Current Stack
 
+![dcc-mcp-core architecture diagram](docs/assets/architecture/current-stack.svg)
+
 ```
 +--------------------------------------------------------------------------------+
 | Agent / operator surfaces                                                       |
