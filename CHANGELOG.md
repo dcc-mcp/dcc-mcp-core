@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.8](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.7...v0.17.8) (2026-05-18)
+
+
+### Features
+
+* add skill lint command ([aa71cab](https://github.com/loonghao/dcc-mcp-core/commit/aa71cab6e6518ad78fee53588c1f831759ab1e93))
+* **admin-ui:** improve gateway dashboard interactions ([67ce886](https://github.com/loonghao/dcc-mcp-core/commit/67ce886d8202d809ef7e61f4ea27dc7110ec41e0))
+
+
+### Bug Fixes
+
+* default affinity enforcement from declarations ([0f1d2e9](https://github.com/loonghao/dcc-mcp-core/commit/0f1d2e93cf0dad52534b921bcfcf7f6fd6f6eab4))
+
 ## [0.17.7](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.6...v0.17.7) (2026-05-17)
 
 
