@@ -50,6 +50,8 @@ jobs:
           cargo hakari generate
 
       - name: Commit and push changes
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           if git diff --quiet -- Cargo.lock crates/workspace-hack/Cargo.toml; then
             echo "Cargo metadata is already in sync."
@@ -60,4 +62,4 @@ jobs:
           git config user.email "hal.long@outlook.com"
           git add Cargo.lock crates/workspace-hack/Cargo.toml
           git commit -m "chore(ci): sync generated Cargo metadata"
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          git push origin "HEAD:${HEAD_REF}"
