@@ -4,7 +4,7 @@
 >
 > **[English](../../api/auth.md)**
 
-远程 MCP 服务器的声明式认证配置。提供面向工作室/内网的 Bearer-token（API Key）认证，以及面向公网 SaaS 部署的 OAuth 2.1 + [CIMD（Client ID Metadata Documents）](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#client-id-metadata-documents) 动态客户端注册。
+远程 MCP 服务器的声明式认证 helper。提供面向工作室/内网的 Bearer-token（API Key）校验工具，以及面向公网 SaaS 部署的 OAuth 2.1 + [CIMD（Client ID Metadata Documents）](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#client-id-metadata-documents) 动态客户端注册对象。
 
 **如何选择**
 
@@ -37,7 +37,6 @@ Bearer Token 认证配置数据类。
 ```python
 cfg = ApiKeyConfig(env_var="MY_MCP_SECRET")
 token = cfg.resolve()   # 字段 → 环境变量 → None
-mcp_cfg.api_key = token
 ```
 
 ## `OAuthConfig`
@@ -106,12 +105,16 @@ def secure_handler(params, *, request_headers=None):
 
 ## 落地现状
 
-目前这些类型是**声明式配置对象**，服务于：(a) Python 工具处理器直接调用 `validate_bearer_token`；(b) `McpHttpConfig.api_key` 字段（Bearer Token 路径，当前已可用）。
+目前这些类型是**声明式配置对象**，服务于 Python 工具处理器直接调用
+`validate_bearer_token`，或由部署代码拿来配置边界代理。
 
-Rust 侧对 `/.well-known/oauth-client-metadata` 端点以及 `/mcp` 请求 Bearer 检查的完整支持，跟踪于 issue [#408](https://github.com/loonghao/dcc-mcp-core/issues/408)。API Key 路径立即可用；OAuth 路径在 Rust 层落地后通过 `McpHttpConfig(enable_oauth=True)` 开启。
+Rust 侧对 `/.well-known/oauth-client-metadata` 端点以及 `/mcp` 请求 Bearer
+检查的完整支持，跟踪于 issue [#408](https://github.com/loonghao/dcc-mcp-core/issues/408)。
+在它落地前，不要把 `McpHttpConfig` 当作认证边界；API key 或 OAuth 应在
+反向代理 / 专用 MCP OAuth 网关中 enforcement。
 
 ## 参见
 
 - [远程服务器指南](../guide/remote-server.md)
-- [`McpHttpConfig.api_key`](./http.md)
+- [远程服务器指南](../guide/remote-server.md#auth)
 - [MCP 认证规范](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)

@@ -56,17 +56,15 @@ print(handle.mcp_url())        # "http://0.0.0.0:8765/mcp"
 | `host` | `"0.0.0.0"` | 绑定到所有接口（默认 `"127.0.0.1"` = 仅 localhost） |
 | `port` | `8765` | 必须可通过防火墙 / NAT 访问 |
 | `enable_cors` | `True` | 浏览器和 Claude.ai Web 客户端必需 |
-| `allowed_origins` | `["*"]` | 生产环境限制为特定客户端来源 |
 | `spawn_mode` | `"dedicated"` | PyO3 嵌入宿主始终使用 `"dedicated"` |
-| `api_key` | 环境变量 | 可选 Bearer token 认证（见 [Auth](#auth)） |
-| `enable_oauth` | `False` | OAuth 2.1 + CIMD 认证（见 [OAuth](#oauth--cimd)） |
+| 边界认证 | 反向代理 | 在流量到达 `/mcp` 前终止 TLS 并执行认证 |
+| OAuth | 外部网关 | 原生 MCP OAuth 落地前使用符合标准的 OAuth 代理 |
 
 ```python
 cfg = McpHttpConfig(
     host="0.0.0.0",
     port=8765,
     enable_cors=True,
-    allowed_origins=["https://claude.ai", "https://cursor.sh"],
     spawn_mode="dedicated",    # DCC 嵌入宿主始终使用
 )
 ```
@@ -75,22 +73,55 @@ cfg = McpHttpConfig(
 
 ## Auth
 
-### API Key（最简单）
+当前原生 `McpHttpServer` / gateway 尚未实现请求级认证 enforcement。
+Python 的 `ApiKeyConfig` 和 `OAuthConfig` 是给工具作者与未来服务器接线
+使用的声明式 helper；设置 `cfg.api_key` 或 `cfg.enable_oauth` 目前不是
+可依赖的运行时安全边界。
+
+面向互联网部署时，把 MCP 端点放在反向代理或专用 OAuth 网关后面，并让
+DCC 进程自身只绑定 localhost。避免在 `/mcp` 上使用 HTTP Basic Auth：
+浏览器类客户端通常会把它显示成通用“需要登录”，也容易和 MCP OAuth 混淆。
+如果观测端点需要 Basic Auth，请只作用于 `/metrics`。
+
+### 边界 Bearer Token
 
 对于 OAuth 不实用的工作室环境：
 
-```python
-import os
-cfg = McpHttpConfig(port=8765, host="0.0.0.0")
-cfg.api_key = os.environ.get("DCC_MCP_API_KEY")  # Bearer token
+```nginx
+map $http_authorization $mcp_authorized {
+    default 0;
+    "Bearer change-me" 1;
+}
+
+server {
+    listen 443 ssl;
+    server_name mcp.example.com;
+
+    location /mcp {
+        # 生产环境建议使用 njs/lua/auth_request；这里仅展示契约。
+        if ($mcp_authorized = 0) { return 401; }
+        proxy_pass http://127.0.0.1:8765;
+        proxy_http_version 1.1;
+        proxy_buffering off;
+        proxy_cache off;
+    }
+
+    # 单独保护 metrics，避免 Basic auth challenge 影响 /mcp。
+    location /metrics {
+        auth_basic "dcc-mcp metrics";
+        auth_basic_user_file /etc/nginx/.htpasswd;
+        proxy_pass http://127.0.0.1:8765;
+    }
+}
 ```
 
 客户端在每次请求中携带 `Authorization: Bearer <key>`。
 
-### OAuth 2.1 + CIMD（生产环境推荐）
+### OAuth 2.1
 
-见下方的 [CIMD OAuth 指南](remote-server.md#oauth--cimd) 和 issue #408。
-使用 `McpHttpConfig(enable_oauth=True)` 启用。
+生产环境 OAuth 目前请使用外部 MCP-aware OAuth 代理/网关。原生 OAuth
+protected-resource metadata、`WWW-Authenticate: Bearer resource_metadata=...`
+以及 `/mcp` token 校验仍在 issue #408 中跟踪。
 
 ---
 
@@ -102,17 +133,11 @@ cfg.api_key = os.environ.get("DCC_MCP_API_KEY")  # Bearer token
 ```python
 cfg = McpHttpConfig(enable_cors=True)
 
-# 生产环境：限制为已知来源
-cfg.allowed_origins = [
-    "https://claude.ai",
-    "https://cursor.sh",
-    "https://vscode.dev",
-]
+# 生产环境：在反向代理限制来源，直到 McpHttpConfig 提供原生 allow-list。
 ```
 
-当 `enable_cors=True` 且 `allowed_origins` 为空（默认）时，服务器
-发送 `Access-Control-Allow-Origin: *` —— 开发方便但
-**不推荐用于生产环境**。
+当 `enable_cors=True` 时，服务器会为浏览器客户端发送宽松的 CORS 头。
+生产环境请在反向代理限制允许来源。
 
 ---
 
@@ -125,13 +150,11 @@ FROM python:3.14-slim
 RUN pip install dcc-mcp-core
 COPY skills/ /opt/skills/
 ENV DCC_MCP_SKILL_PATHS=/opt/skills
-ENV DCC_MCP_API_KEY=change-me
 EXPOSE 8765
 CMD ["python", "-c", "
 from dcc_mcp_core import create_skill_server, McpHttpConfig
 import os, time
 cfg = McpHttpConfig(host='0.0.0.0', port=8765, enable_cors=True)
-cfg.api_key = os.environ.get('DCC_MCP_API_KEY')
 server = create_skill_server('generic', cfg)
 handle = server.start()
 print(handle.mcp_url())
@@ -143,7 +166,7 @@ while True: time.sleep(60)
 
 ```bash
 docker build -t my-mcp-server .
-docker run -p 8765:8765 -e DCC_MCP_API_KEY=secret my-mcp-server
+docker run -p 127.0.0.1:8765:8765 my-mcp-server
 ```
 
 ---
@@ -154,7 +177,7 @@ docker run -p 8765:8765 -e DCC_MCP_API_KEY=secret my-mcp-server
 完整的、可部署的示例，包含：
 
 - 在 `0.0.0.0:8765` 启动可公开访问的 MCP 服务器
-- 从环境变量启用 CORS 和 API-key 认证
+- 启用 CORS，并预期放在边界认证代理后
 - 包含一个最小的 `hello-world` skill
 - 提供 `Dockerfile` 和 `docker-compose.yml`
 
@@ -165,30 +188,31 @@ docker run -p 8765:8765 -e DCC_MCP_API_KEY=secret my-mcp-server
 为 DCC 适配器部署远程访问时使用此检查清单：
 
 - [ ] 服务器绑定到 `0.0.0.0`（而非仅 `127.0.0.1`）
-- [ ] 认证已配置：API key (`cfg.api_key`) 或 OAuth (`cfg.enable_oauth = True`)
-- [ ] CORS 已启用 (`cfg.enable_cors = True`)，且生产环境限制 `allowed_origins`
+- [ ] 认证已在边界配置：Bearer-token 代理或 OAuth 网关
+- [ ] CORS 已启用 (`cfg.enable_cors = True`)，且生产环境在反向代理限制来源
 - [ ] Tool 描述遵循 3 层行为结构（issue #341）
 - [ ] Tools 按用户意图分组，而非 1:1 对应 API 端点
 - [ ] DCC 嵌入宿主（Maya、Blender…）使用 `McpHttpConfig.spawn_mode = "dedicated"`
 - [ ] 防火墙 / 安全组中端口 8765 已开放
 - [ ] TLS 在反向代理（nginx、Caddy、AWS ALB）处终止，面向互联网的部署
-- [ ] `DCC_MCP_API_KEY` 设置为环境变量 —— 切勿硬编码
+- [ ] 密钥存放在反向代理 / secret manager 中 —— 切勿硬编码
 - [ ] 文件日志已启用（`enable_file_logging=True`，默认值）用于审计追踪
 
 ---
 
 ## OAuth / CIMD
 
-> 完整指南：issue #408 —— CIMD OAuth 支持计划在未来版本中推出。
+> 完整指南：issue #408 —— 原生 MCP OAuth 支持计划在未来版本中推出。
 
-当 `McpHttpConfig.enable_oauth = True` 时，服务器将暴露：
+原生支持将暴露：
 
 ```
+GET /.well-known/oauth-protected-resource
 GET /.well-known/oauth-client-metadata
 ```
 
-返回 CIMD 文档，实现无需手动客户端 ID 设置的自动客户端注册。
-这是生产环境云端部署的推荐方案。
+并在 `/mcp` 校验 `Authorization: Bearer <token>`。在此之前，如果云端
+客户端要求 MCP OAuth，请在 dcc-mcp-core 前部署符合标准的 OAuth 代理。
 
 通过 Claude Managed Agents Vaults 注入 Token：在 Vault 中注册一次 OAuth token；
 平台会为每个 MCP 连接自动注入和刷新凭证。
