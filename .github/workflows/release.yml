@@ -251,20 +251,6 @@ jobs:
           PY
           python -m wheel tags --remove --python-tag=py3 --abi-tag=none pkg/dcc-mcp-server-bin/wheels/*.whl
 
-      - name: Smoke-test the wheel
-        if: matrix.os != 'macos-latest'
-        shell: bash
-        run: |
-          python -m venv .venv-smoke
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            PY=".venv-smoke/Scripts/python.exe"
-          else
-            PY=".venv-smoke/bin/python"
-          fi
-          "$PY" -m pip install --quiet pkg/dcc-mcp-server-bin/wheels/*.whl
-          "$PY" -c "from dcc_mcp_server import binary_path; print('binary_path =', binary_path())"
-          "$PY" -m dcc_mcp_server --help 2>/dev/null || true  # module entry not required
-
       - name: Check server wheel Python compatibility metadata
         shell: bash
         run: |
@@ -358,7 +344,10 @@ jobs:
     if: needs.release-please.outputs.release_created == 'true'
     uses: ./.github/workflows/build-wheels.yml
     with:
-      test-wheel: ${{ 'true' }}
+      # Release runs publish artefacts after PR CI has already enforced the
+      # test gates. Keep this path build-only so a tag can publish as soon as
+      # every wheel/binary is produced successfully.
+      test-wheel: ${{ 'false' }}
       checkout-ref: ${{ needs.release-please.outputs.tag_name }}
 
   # ── Publish to PyPI ──
