@@ -85,6 +85,27 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Release decision: created=$release_created tag=$tag_name version=$version"
 
+  build-admin-ui:
+    needs: [release-please]
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - uses: loonghao/vx@v0.8.36
+
+      - name: Build admin UI bundle
+        shell: bash
+        run: scripts/release/prebuild_admin_ui.sh
+
+      - name: Upload admin UI bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-ui-bundle
+          path: crates/dcc-mcp-gateway/src/gateway/admin/generated/index.html
+
   # ── Build standalone binaries (raw Release assets + server PyPI wheel) ──
   #
   # One job, one native cargo target/ (plus an isolated manylinux target/), three outputs:
@@ -106,7 +127,7 @@ jobs:
   # one release lifecycle for the workspace, and `dcc-mcp-server` ships
   # at the same workspace.package.version as `dcc-mcp-core`.
   build-binaries:
-    needs: [release-please]
+    needs: [release-please, build-admin-ui]
     if: needs.release-please.outputs.release_created == 'true'
     strategy:
       fail-fast: false
@@ -159,6 +180,18 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-binary-
 
       # ── Raw binary build ──────────────────────────────────────────
+      - name: Download admin UI bundle for Linux builds
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/download-artifact@v8
+        with:
+          name: admin-ui-bundle
+          path: crates/dcc-mcp-gateway/src/gateway/admin/generated
+
+      - name: Use pre-built admin UI for Linux builds
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: echo "DCC_MCP_ADMIN_UI_PREBUILT=1" >> "$GITHUB_ENV"
+
       - name: Build raw binary (macOS universal2)
         if: matrix.os == 'macos-latest'
         run: |
@@ -200,11 +233,6 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install "maturin>=1.5,<2.0" "wheel>=0.46"
           maturin build --release --target universal2-apple-darwin --out wheels
-
-      - name: Pre-build admin UI for Linux manylinux wheel
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: scripts/release/prebuild_admin_ui.sh
 
       - name: Build PyPI wheel (Linux manylinux2014)
         if: matrix.os == 'ubuntu-latest'
