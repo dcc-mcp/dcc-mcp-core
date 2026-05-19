@@ -25,10 +25,9 @@ Usage
 
     from dcc_mcp_core.auth import OAuthConfig, ApiKeyConfig, validate_bearer_token
 
-    # API key auth (simplest — no OAuth needed)
+    # API key helper (use at the edge today, or validate manually in a tool)
     import os
-    cfg = McpHttpConfig(port=8765)
-    cfg.api_key = os.environ.get("DCC_MCP_API_KEY")
+    api_key = ApiKeyConfig(env_var="DCC_MCP_API_KEY").resolve()
 
     # OAuth 2.1 + CIMD (recommended for production)
     oauth_cfg = OAuthConfig(
@@ -76,7 +75,7 @@ class TokenValidationError(Exception):
 
 @dataclasses.dataclass
 class ApiKeyConfig:
-    """Configuration for API-key (Bearer token) auth.
+    """Configuration for API-key (Bearer token) auth helpers.
 
     Args:
         api_key: The expected Bearer token.  ``None`` disables auth
@@ -90,7 +89,8 @@ class ApiKeyConfig:
     Example::
 
         cfg = ApiKeyConfig(env_var="MY_MCP_SECRET")
-        # In practice: set McpHttpConfig.api_key = cfg.resolve()
+        # In practice today: use cfg.resolve() in a reverse proxy config
+        # or pass the token to validate_bearer_token() in a tool handler.
 
     """
 

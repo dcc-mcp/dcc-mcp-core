@@ -56,17 +56,15 @@ print(handle.mcp_url())        # "http://0.0.0.0:8765/mcp"
 | `host` | `"0.0.0.0"` | Bind to all interfaces (default `"127.0.0.1"` = localhost only) |
 | `port` | `8765` | Must be accessible through firewall / NAT |
 | `enable_cors` | `True` | Required for browser and Claude.ai web clients |
-| `allowed_origins` | `["*"]` | Restrict to specific client origins in production |
 | `spawn_mode` | `"dedicated"` | Always use `"dedicated"` for PyO3-embedded hosts |
-| `api_key` | env var | Optional Bearer token auth (see [Auth](#auth)) |
-| `enable_oauth` | `False` | OAuth 2.1 + CIMD auth (see [OAuth](#oauth--cimd)) |
+| Edge auth | reverse proxy | Terminate TLS and enforce auth before traffic reaches `/mcp` |
+| OAuth | external gateway | Use a standards-compliant OAuth proxy until native MCP OAuth lands |
 
 ```python
 cfg = McpHttpConfig(
     host="0.0.0.0",
     port=8765,
     enable_cors=True,
-    allowed_origins=["https://claude.ai", "https://cursor.sh"],
     spawn_mode="dedicated",    # always for DCC-embedded hosts
 )
 ```
@@ -75,22 +73,58 @@ cfg = McpHttpConfig(
 
 ## Auth
 
-### API Key (simplest)
+Native `McpHttpServer` / gateway auth enforcement is not implemented yet.
+The Python `ApiKeyConfig` and `OAuthConfig` helpers are declarative helpers for
+tool authors and future server wiring; setting `cfg.api_key` or
+`cfg.enable_oauth` is not a supported runtime security boundary today.
+
+For internet-facing deployments, put the MCP endpoint behind a reverse proxy
+or a dedicated OAuth gateway and keep the DCC process itself bound to
+localhost. Avoid HTTP Basic Auth on `/mcp`: browser-based clients often render
+that as a generic "login required" prompt, and it is easy to confuse with MCP
+OAuth. If Basic Auth is needed for observability, scope it to `/metrics` only.
+
+### Bearer Token at the Edge
 
 For studio environments where OAuth is impractical:
 
-```python
-import os
-cfg = McpHttpConfig(port=8765, host="0.0.0.0")
-cfg.api_key = os.environ.get("DCC_MCP_API_KEY")  # Bearer token
+```nginx
+map $http_authorization $mcp_authorized {
+    default 0;
+    "Bearer change-me" 1;
+}
+
+server {
+    listen 443 ssl;
+    server_name mcp.example.com;
+
+    location /mcp {
+        # Prefer njs/lua/auth_request for production; this compact example
+        # shows the contract only.
+        if ($mcp_authorized = 0) { return 401; }
+        proxy_pass http://127.0.0.1:8765;
+        proxy_http_version 1.1;
+        proxy_buffering off;
+        proxy_cache off;
+    }
+
+    # Keep metrics separate so Basic auth challenges never apply to /mcp.
+    location /metrics {
+        auth_basic "dcc-mcp metrics";
+        auth_basic_user_file /etc/nginx/.htpasswd;
+        proxy_pass http://127.0.0.1:8765;
+    }
+}
 ```
 
 Clients include `Authorization: Bearer <key>` in every request.
 
-### OAuth 2.1 + CIMD (recommended for production)
+### OAuth 2.1
 
-See [CIMD OAuth guide](remote-server.md#oauth--cimd) below and issue #408.
-Enable with `McpHttpConfig(enable_oauth=True)`.
+Use an external MCP-aware OAuth proxy/gateway for production OAuth today. Native
+OAuth protected-resource metadata, `WWW-Authenticate: Bearer
+resource_metadata=...`, and token validation for `/mcp` are tracked as future
+work in issue #408.
 
 ---
 
@@ -102,17 +136,13 @@ CORS headers are required whenever the MCP client runs in a browser
 ```python
 cfg = McpHttpConfig(enable_cors=True)
 
-# Production: restrict to known origins
-cfg.allowed_origins = [
-    "https://claude.ai",
-    "https://cursor.sh",
-    "https://vscode.dev",
-]
+# Production: restrict origins at the reverse proxy until native allow-list
+# configuration is available on McpHttpConfig.
 ```
 
-When `enable_cors=True` and `allowed_origins` is empty (default), the server
-sends `Access-Control-Allow-Origin: *` — convenient for development but
-**not recommended for production**.
+When `enable_cors=True`, the server sends permissive CORS headers for browser
+clients. Restrict allowed origins in the reverse proxy for production
+deployments.
 
 ---
 
@@ -125,13 +155,11 @@ FROM python:3.14-slim
 RUN pip install dcc-mcp-core
 COPY skills/ /opt/skills/
 ENV DCC_MCP_SKILL_PATHS=/opt/skills
-ENV DCC_MCP_API_KEY=change-me
 EXPOSE 8765
 CMD ["python", "-c", "
 from dcc_mcp_core import create_skill_server, McpHttpConfig
 import os, time
 cfg = McpHttpConfig(host='0.0.0.0', port=8765, enable_cors=True)
-cfg.api_key = os.environ.get('DCC_MCP_API_KEY')
 server = create_skill_server('generic', cfg)
 handle = server.start()
 print(handle.mcp_url())
@@ -143,7 +171,7 @@ Build and run:
 
 ```bash
 docker build -t my-mcp-server .
-docker run -p 8765:8765 -e DCC_MCP_API_KEY=secret my-mcp-server
+docker run -p 127.0.0.1:8765:8765 my-mcp-server
 ```
 
 ---
@@ -154,7 +182,7 @@ See [`examples/remote-server/`](https://github.com/loonghao/dcc-mcp-core/tree/ma
 complete, deployable example that:
 
 - Starts a publicly reachable MCP server on `0.0.0.0:8765`
-- Enables CORS and API-key auth from environment variables
+- Enables CORS and is intended to sit behind an edge auth proxy
 - Includes a minimal `hello-world` skill
 - Ships a `Dockerfile` and `docker-compose.yml`
 
@@ -165,31 +193,33 @@ complete, deployable example that:
 Use this checklist when deploying a DCC adapter for remote access:
 
 - [ ] Server is bound to `0.0.0.0` (not just `127.0.0.1`)
-- [ ] Auth is configured: API key (`cfg.api_key`) or OAuth (`cfg.enable_oauth = True`)
-- [ ] CORS is enabled (`cfg.enable_cors = True`) with restricted `allowed_origins` in production
+- [ ] Auth is configured at the edge: Bearer-token proxy or OAuth gateway
+- [ ] CORS is enabled (`cfg.enable_cors = True`), with origins restricted at the reverse proxy in production
 - [ ] Tool descriptions follow the 3-layer behavioral structure (issue #341)
 - [ ] Tools are grouped by user intent, not 1:1 with API endpoints
 - [ ] `McpHttpConfig.spawn_mode = "dedicated"` for DCC-embedded hosts (Maya, Blender…)
 - [ ] Port 8765 is open in firewall / security group
 - [ ] TLS is terminated at a reverse proxy (nginx, Caddy, AWS ALB) for internet-facing deployments
-- [ ] `DCC_MCP_API_KEY` is set as an environment variable — never hardcoded
+- [ ] Secrets live in the reverse proxy / secret manager — never hardcoded
 - [ ] File logging is enabled (`enable_file_logging=True`, the default) for audit trails
 
 ---
 
 ## OAuth / CIMD
 
-> Full guide: issue #408 — CIMD OAuth support is planned for a future release.
+> Full guide: issue #408 — native MCP OAuth support is planned for a future
+> release.
 
-When `McpHttpConfig.enable_oauth = True`, the server will expose:
+Native support will expose:
 
 ```
+GET /.well-known/oauth-protected-resource
 GET /.well-known/oauth-client-metadata
 ```
 
-returning a CIMD document that enables automatic client registration with
-no manual client ID setup. This is the recommended approach for
-production cloud deployments.
+and validate `Authorization: Bearer <token>` on `/mcp`. Until then, deploy a
+standards-compliant OAuth proxy in front of dcc-mcp-core when cloud clients
+require MCP OAuth.
 
 Token injection via Claude Managed Agents Vaults: register OAuth tokens
 once in a Vault; the platform injects and refreshes credentials

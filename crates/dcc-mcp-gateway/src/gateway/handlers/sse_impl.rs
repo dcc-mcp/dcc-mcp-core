@@ -50,8 +50,12 @@ pub async fn handle_gateway_get(State(gs): State<GatewayState>, headers: HeaderM
 
     if !accepts_sse {
         return (
-            StatusCode::METHOD_NOT_ALLOWED,
-            Json(json!({"error": "This endpoint streams SSE. Set Accept: text/event-stream"})),
+            StatusCode::NOT_ACCEPTABLE,
+            Json(json!({
+                "error": "This endpoint streams SSE. Set Accept: text/event-stream",
+                "auth_required": false,
+                "hint": "Use POST /mcp with Accept: application/json, text/event-stream for JSON-RPC requests."
+            })),
         )
             .into_response();
     }
@@ -134,4 +138,82 @@ fn make_session_stream(
             .to_owned();
         Some(Ok::<Event, Infallible>(Event::default().data(payload)))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::to_bytes;
+    use axum::http::{Request, header};
+    use axum::routing::get;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::{RwLock, broadcast, watch};
+    use tower::ServiceExt;
+
+    fn make_gateway_state() -> GatewayState {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(RwLock::new(
+            dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
+        ));
+        let (yield_tx, _) = watch::channel(false);
+        let (events_tx, _) = broadcast::channel::<String>(8);
+        GatewayState {
+            registry,
+            stale_timeout: Duration::from_secs(30),
+            backend_timeout: Duration::from_secs(10),
+            async_dispatch_timeout: Duration::from_secs(60),
+            wait_terminal_timeout: Duration::from_secs(600),
+            server_name: "test-gateway".into(),
+            server_version: "0.0.0-test".into(),
+            own_host: "127.0.0.1".into(),
+            own_port: 9765,
+            http_client: reqwest::Client::new(),
+            yield_tx: Arc::new(yield_tx),
+            events_tx: Arc::new(events_tx),
+            protocol_version: Arc::new(RwLock::new(None)),
+            resource_subscriptions: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            pending_calls: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
+            allow_unknown_tools: false,
+            adapter_version: None,
+            adapter_dcc: None,
+            capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
+            event_log: Arc::new(crate::gateway::event_log::EventLog::new()),
+            #[cfg(feature = "prometheus")]
+            gateway_metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
+            middleware_chain: Arc::new(crate::gateway::middleware::MiddlewareChain::new()),
+        }
+    }
+
+    #[tokio::test]
+    async fn get_mcp_without_sse_accept_is_protocol_hint_not_auth_challenge() {
+        let app = axum::Router::new()
+            .route("/mcp", get(handle_gateway_get))
+            .with_state(make_gateway_state());
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/mcp")
+                    .header(header::ACCEPT, "application/json")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_ACCEPTABLE);
+        assert!(
+            response.headers().get(header::WWW_AUTHENTICATE).is_none(),
+            "Accept negotiation failures must not trigger browser/client login flows"
+        );
+        let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["auth_required"], false);
+        assert!(
+            body["hint"].as_str().unwrap().contains("POST /mcp"),
+            "expected actionable POST /mcp hint, got {body}"
+        );
+    }
 }
