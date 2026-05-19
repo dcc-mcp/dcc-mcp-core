@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.14](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.13...v0.17.14) (2026-05-19)
+
+
+### Bug Fixes
+
+* **ci:** disable vx cache in wheel action ([276ca42](https://github.com/loonghao/dcc-mcp-core/commit/276ca420ab437d83048ce6c7f733da195653ee03))
+* **ci:** restore manylinux wheel ownership ([0a1a001](https://github.com/loonghao/dcc-mcp-core/commit/0a1a00139634fb58ae1139e32b814e75c025948a))
+
 ## [0.17.13](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.12...v0.17.13) (2026-05-19)
 
 
