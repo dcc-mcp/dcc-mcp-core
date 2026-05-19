@@ -5,6 +5,12 @@ Verifies the cross-DCC main-thread dispatcher from
 whenever an :class:`McpHttpServer` has one attached. No DCC binary
 required — :class:`StandaloneHost` stands in as the driver.
 
+**Build requirement:** run ``maturin develop --release`` (or ``vx just dev``)
+in this repo before ``pytest`` so the native extension includes REST
+``POST /v1/call`` thread routing (``ThreadRoutedInvoker``). Without a
+fresh wheel, ``/v1/call`` falls back to direct dispatch and returns HTTP 409
+``THREAD_AFFINITY_VIOLATION`` for ``thread_affinity=main`` tools.
+
 Contract covered:
 
 * Attaching before ``start()`` makes every subsequent ``tools/call``
