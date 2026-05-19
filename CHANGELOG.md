@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.15](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.14...v0.17.15) (2026-05-19)
+
+
+### Bug Fixes
+
+* **ci:** prebuild admin ui before release binaries ([4887c75](https://github.com/loonghao/dcc-mcp-core/commit/4887c754d479d6501a7a951c601cbb58ef21be4b))
+
 ## [0.17.14](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.13...v0.17.14) (2026-05-19)
 
 
