@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.16](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.15...v0.17.16) (2026-05-19)
+
+
+### Features
+
+* add standalone gateway diagnostics ([508e043](https://github.com/loonghao/dcc-mcp-core/commit/508e043823d0f153f5f39306da4c8f15202c170a))
+* add websocket host rpc client ([cebd688](https://github.com/loonghao/dcc-mcp-core/commit/cebd68890c32796df2a15188359fbb41da90d6a1))
+
 ## [0.17.15](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.14...v0.17.15) (2026-05-19)
 
 
