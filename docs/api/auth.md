@@ -4,8 +4,8 @@
 >
 > **[中文版](../zh/api/auth.md)**
 
-Declarative authentication configuration for remote MCP servers. Provides
-Bearer-token ("API key") auth for studio environments and OAuth 2.1 +
+Declarative authentication helpers for remote MCP servers. Provides
+Bearer-token ("API key") validation helpers for studio environments and OAuth 2.1 +
 [CIMD (Client ID Metadata Documents)](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#client-id-metadata-documents)
 for production cloud deployments.
 
@@ -40,7 +40,6 @@ Configuration dataclass for Bearer-token auth.
 ```python
 cfg = ApiKeyConfig(env_var="MY_MCP_SECRET")
 token = cfg.resolve()   # field → env var → None
-mcp_cfg.api_key = token
 ```
 
 ## `OAuthConfig`
@@ -118,18 +117,18 @@ token = generate_api_key()            # "xZ3qB2..." — use as DCC_MCP_API_KEY
 
 ## Integration path
 
-Today these types are **declarative configuration objects** consumed either
-by (a) Python tool handlers calling `validate_bearer_token` directly, or
-(b) the `McpHttpConfig.api_key` field (Bearer-token path, supported now).
+Today these types are **declarative configuration objects** consumed by Python
+tool handlers calling `validate_bearer_token` directly, or by deployment code
+that configures an edge proxy.
 
 Full Rust-side enforcement of the `/.well-known/oauth-client-metadata`
 endpoint and the `/mcp` Bearer check is tracked in issue
-[#408](https://github.com/loonghao/dcc-mcp-core/issues/408). API keys work
-today; OAuth is opt-in via `McpHttpConfig(enable_oauth=True)` once the
-Rust layer lands.
+[#408](https://github.com/loonghao/dcc-mcp-core/issues/408). Until that lands,
+do not treat `McpHttpConfig` as an auth boundary; enforce API keys or OAuth in
+a reverse proxy / dedicated MCP OAuth gateway.
 
 ## See also
 
 - [Remote Server guide](../guide/remote-server.md) — end-to-end deployment
-- [`McpHttpConfig.api_key`](./http.md) — how the server consumes the token
+- [Remote Server guide](../guide/remote-server.md#auth) — edge-auth deployment guidance
 - [MCP authorization spec](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)
