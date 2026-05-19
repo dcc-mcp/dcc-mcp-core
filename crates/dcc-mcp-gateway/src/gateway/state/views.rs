@@ -16,6 +16,9 @@ use dcc_mcp_gateway_core::PendingCall;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus};
 
+const ROLE_METADATA_KEY: &str = "dcc_mcp_role";
+const ROLE_PER_DCC_SIDECAR: &str = "per-dcc-sidecar";
+
 // ─── Sub-state structs (issue #839) ─────────────────────────────────────────
 //
 // Each sub-state is a *typed view* over the subset of [`GatewayState`] that a
@@ -113,7 +116,7 @@ pub struct ServerState<'a> {
 impl<'a> DiscoveryState<'a> {
     /// See [`GatewayState::live_instances`].
     pub fn live_instances(&self, registry: &FileRegistry) -> Vec<ServiceEntry> {
-        registry
+        let filtered: Vec<ServiceEntry> = registry
             .list_all()
             .into_iter()
             .filter(|e| {
@@ -129,7 +132,9 @@ impl<'a> DiscoveryState<'a> {
                     && !crate::gateway::is_own_instance(e, self.own_host, self.own_port)
                     && (self.allow_unknown_tools || !e.dcc_type.eq_ignore_ascii_case("unknown"))
             })
-            .collect()
+            .collect();
+
+        prefer_live_sidecars(filtered)
     }
 
     /// See [`GatewayState::all_instances`].
@@ -159,4 +164,37 @@ impl<'a> DiscoveryState<'a> {
             .collect();
         Ok((filtered, evicted))
     }
+}
+
+fn is_per_dcc_sidecar(entry: &ServiceEntry) -> bool {
+    entry
+        .metadata
+        .get(ROLE_METADATA_KEY)
+        .is_some_and(|role| role == ROLE_PER_DCC_SIDECAR)
+}
+
+fn sidecar_owner_key(entry: &ServiceEntry) -> Option<(String, u32)> {
+    entry
+        .pid
+        .map(|pid| (entry.dcc_type.to_ascii_lowercase(), pid))
+}
+
+fn prefer_live_sidecars(entries: Vec<ServiceEntry>) -> Vec<ServiceEntry> {
+    let sidecar_owners: HashSet<(String, u32)> = entries
+        .iter()
+        .filter(|entry| is_per_dcc_sidecar(entry))
+        .filter_map(sidecar_owner_key)
+        .collect();
+
+    if sidecar_owners.is_empty() {
+        return entries;
+    }
+
+    entries
+        .into_iter()
+        .filter(|entry| {
+            is_per_dcc_sidecar(entry)
+                || sidecar_owner_key(entry).is_none_or(|owner| !sidecar_owners.contains(&owner))
+        })
+        .collect()
 }

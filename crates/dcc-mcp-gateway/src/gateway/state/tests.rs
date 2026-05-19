@@ -165,6 +165,66 @@ async fn test_live_instances_excludes_status_stale_immediately() {
 }
 
 #[tokio::test]
+async fn test_live_instances_prefers_sidecar_for_same_dcc_pid() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+
+    {
+        let r = registry.read().await;
+        let mut in_process = ServiceEntry::new("maya", "127.0.0.1", 18812).with_pid(4242);
+        in_process.version = Some("2026".into());
+        r.register(in_process).unwrap();
+
+        let mut sidecar = ServiceEntry::new("maya", "127.0.0.1", 28812).with_pid(4242);
+        sidecar.adapter_version = Some("0.3.3".into());
+        sidecar
+            .metadata
+            .insert("dcc_mcp_role".into(), "per-dcc-sidecar".into());
+        r.register(sidecar).unwrap();
+    }
+
+    let gs = test_gateway_state(registry.clone());
+    let live = gs.live_instances(&*registry.read().await);
+
+    assert_eq!(live.len(), 1, "sidecar should replace same-pid adapter row");
+    assert_eq!(live[0].port, 28812);
+    assert_eq!(
+        live[0].metadata.get("dcc_mcp_role").map(String::as_str),
+        Some("per-dcc-sidecar")
+    );
+}
+
+#[tokio::test]
+async fn test_live_instances_stale_sidecar_does_not_hide_live_adapter() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+
+    {
+        let r = registry.read().await;
+        let in_process = ServiceEntry::new("maya", "127.0.0.1", 18812).with_pid(4242);
+        r.register(in_process).unwrap();
+
+        let mut sidecar = ServiceEntry::new("maya", "127.0.0.1", 28812).with_pid(4242);
+        sidecar.last_heartbeat = std::time::SystemTime::now() - Duration::from_secs(600);
+        sidecar
+            .metadata
+            .insert("dcc_mcp_role".into(), "per-dcc-sidecar".into());
+        r.register(sidecar).unwrap();
+    }
+
+    let gs = test_gateway_state(registry.clone());
+    let live = gs.live_instances(&*registry.read().await);
+
+    assert_eq!(
+        live.len(),
+        1,
+        "stale sidecar must not mask a live in-process adapter"
+    );
+    assert_eq!(live[0].port, 18812);
+    assert!(!live[0].metadata.contains_key("dcc_mcp_role"));
+}
+
+#[tokio::test]
 async fn test_resolve_instance_accepts_short_and_unique_prefix() {
     let dir = tempfile::tempdir().unwrap();
     let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));

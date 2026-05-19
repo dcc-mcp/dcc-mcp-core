@@ -74,11 +74,14 @@ When using `dcc-mcp-gateway` directly, compile with the `admin` Cargo feature. `
 | Route | Content-Type | Description |
 |-------|-------------|-------------|
 | `GET /admin` | `text/html` | Embedded React/Vite dashboard served as one HTML asset |
+| `GET /admin/api/activity?limit=300` | `application/json` | Unified activity timeline built from audits, traces, and gateway events |
 | `GET /admin/api/instances` | `application/json` | Connected DCC instances |
 | `GET /admin/api/tools` | `application/json` | Registered MCP tools |
+| `GET /admin/api/tasks?limit=300` | `application/json` | Task-like snapshots reconstructed from dispatch traces |
 | `GET /admin/api/calls` | `application/json` | Recent tool calls (requires `AuditMiddleware`) |
 | `GET /admin/api/traces` | `application/json` | Recent per-call dispatch traces; accepts `?limit=200` |
 | `GET /admin/api/traces/{request_id}` | `application/json` | Full waterfall for one recorded dispatch trace |
+| `GET /admin/api/debug-bundle/{request_id}` | `application/json` | One-stop debug bundle containing the trace, matching audit row, related activity, and hints |
 | `GET /admin/api/stats?range=1h\|24h\|7d` | `application/json` | Aggregated call counts, success rate, latency, and top tools/instances |
 | `GET /admin/api/workers` | `application/json` | Per-instance worker cards from the live registry |
 | `GET /admin/api/logs` | `application/json` | Merged gateway contention events, on-disk `*.log` rows, and audited call summaries |
@@ -100,6 +103,49 @@ When using `dcc-mcp-gateway` directly, compile with the `admin` Cargo feature. `
   "total": 3,
   "instances": [
     { "id": "a1b2c3d4-...", "dcc_type": "maya", "status": "ready", "address": "127.0.0.1:9001" }
+  ]
+}
+
+// GET /admin/api/activity?limit=300
+{
+  "total": 2,
+  "events": [
+    {
+      "event_id": "audit:req-123",
+      "timestamp": "2026-05-05T10:00:00Z",
+      "kind": "tool_call",
+      "severity": "info",
+      "status": "ok",
+      "message": "tools/call maya__open_scene",
+      "tool": "maya__open_scene",
+      "duration_ms": 48,
+      "correlation": {
+        "request_id": "req-123",
+        "session_id": "session-1",
+        "instance_id": "abcdef01-2345-6789-abcd-ef0123456789",
+        "dcc_type": "maya"
+      }
+    }
+  ]
+}
+
+// GET /admin/api/tasks?limit=300
+{
+  "total": 1,
+  "tasks": [
+    {
+      "task_id": "req-123",
+      "task_type": "tool_call",
+      "status": "completed",
+      "title": "maya__open_scene",
+      "started_at": "2026-05-05T10:00:00Z",
+      "duration_ms": 48,
+      "correlation": {
+        "request_id": "req-123",
+        "instance_id": "abcdef01-2345-6789-abcd-ef0123456789",
+        "dcc_type": "maya"
+      }
+    }
   ]
 }
 
@@ -142,6 +188,15 @@ When using `dcc-mcp-gateway` directly, compile with the `admin` Cargo feature. `
 }
 
 // GET /admin/api/traces/req-123 returns the same full trace object or 404.
+
+// GET /admin/api/debug-bundle/req-123
+{
+  "request_id": "req-123",
+  "trace": { "request_id": "req-123", "spans": [] },
+  "audit": { "request_id": "req-123", "success": true },
+  "related_activity": [],
+  "hints": []
+}
 
 // GET /admin/api/stats?range=24h
 {

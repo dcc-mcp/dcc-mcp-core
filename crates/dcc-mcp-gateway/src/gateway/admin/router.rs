@@ -3,9 +3,10 @@
 use axum::{Router, routing};
 
 use super::handlers::{
-    handle_admin_calls, handle_admin_health, handle_admin_instances, handle_admin_logs,
-    handle_admin_skill_path_add, handle_admin_skill_path_delete, handle_admin_skill_paths,
-    handle_admin_stats, handle_admin_tools, handle_admin_trace_detail, handle_admin_traces,
+    handle_admin_activity, handle_admin_calls, handle_admin_debug_bundle, handle_admin_health,
+    handle_admin_instances, handle_admin_logs, handle_admin_skill_path_add,
+    handle_admin_skill_path_delete, handle_admin_skill_paths, handle_admin_stats,
+    handle_admin_tasks, handle_admin_tools, handle_admin_trace_detail, handle_admin_traces,
     handle_admin_ui, handle_admin_workers,
 };
 use super::state::AdminState;
@@ -29,6 +30,7 @@ use super::state::AdminState;
 pub fn build_admin_router(state: AdminState) -> Router {
     Router::new()
         .route("/", routing::get(handle_admin_ui))
+        .route("/api/activity", routing::get(handle_admin_activity))
         .route("/api/instances", routing::get(handle_admin_instances))
         .route("/api/tools", routing::get(handle_admin_tools))
         .route("/api/calls", routing::get(handle_admin_calls))
@@ -36,6 +38,11 @@ pub fn build_admin_router(state: AdminState) -> Router {
         .route(
             "/api/traces/{request_id}",
             routing::get(handle_admin_trace_detail),
+        )
+        .route("/api/tasks", routing::get(handle_admin_tasks))
+        .route(
+            "/api/debug-bundle/{request_id}",
+            routing::get(handle_admin_debug_bundle),
         )
         .route("/api/skill-paths", routing::get(handle_admin_skill_paths))
         .route(
