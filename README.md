@@ -157,44 +157,6 @@ AI-friendly docs: [AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](d
 
 ![dcc-mcp-core architecture diagram](docs/assets/architecture/current-stack.svg)
 
-```
-+--------------------------------------------------------------------------------+
-| Agent / operator surfaces                                                       |
-| - MCP clients: search_tools -> describe_tool -> call_tool                       |
-| - CLI users: dcc-mcp-cli list/search/describe/call                              |
-| - ClawHub/OpenClaw skills: dcc-cli-gateway or dcc-rest-gateway                  |
-| - CI and custom clients: REST /v1/*                                             |
-+----------------------------------------+---------------------------------------+
-                                         |
-                       MCP Streamable HTTP + REST /v1/*
-                                         |
-+----------------------------------------v---------------------------------------+
-| Elected gateway (Rust HTTP control plane)                                       |
-| - Minimal MCP tools/list: discovery and dispatch primitives only                |
-| - Dynamic capability search, schema describe, single/batch call routing         |
-| - Instance registry, TCP liveness probes, version-aware election, failover      |
-| - Admin UI, OpenAPI, audit logs, traces, metrics, jobs, workflows, artefacts    |
-+----------------------------------------+---------------------------------------+
-                                         |
-                    Gateway-routed calls to owning per-DCC server
-                                         |
-        +-------------------------------+-------------------------------+
-        |                               |                               |
-+-------v--------+              +-------v--------+              +-------v--------+
-| Maya adapter   |              | Blender adapter|              | Custom host    |
-| MCP + REST     |              | MCP + REST     |              | MCP + REST     |
-| Skills catalog |              | Skills catalog |              | Skills catalog |
-+-------+--------+              +-------+--------+              +-------+--------+
-        |                               |                               |
-  Host bridge / UI-thread pump    Host bridge / add-on           Host RPC / IPC
-        |                               |                               |
-   Maya Python APIs                 Blender Python APIs           Studio APIs
-```
-
-- **Agent surface**: MCP clients use a bounded discovery/dispatch tool set; CLI and skill users can reach the same gateway through `dcc-mcp-cli` or `/v1/*`.
-- **Gateway surface**: One elected gateway aggregates per-DCC servers, keeps `tools/list` small, exposes OpenAPI/Admin UI, records audit/trace data, and routes by tool slug.
-- **DCC surface**: Embedded adapters, standalone `dcc-mcp-server`, and bridge-based hosts all expose the same Skills-derived capabilities over MCP + REST.
-
 ### Gateway Admin UI
 
 The elected gateway ships with a built-in admin console for operators who need
