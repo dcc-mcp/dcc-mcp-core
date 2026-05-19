@@ -709,6 +709,64 @@ mod admin_tests {
     }
 
     #[tokio::test]
+    async fn test_admin_instances_defaults_to_live_rows() {
+        use dcc_mcp_transport::discovery::types::ServiceStatus;
+
+        let gs = make_gateway_state();
+        {
+            let reg = gs.registry.write().await;
+            reg.register(make_service_entry("maya", "127.0.0.1", 18813, Some(4242)))
+                .unwrap();
+
+            let mut stale = make_service_entry("maya", "127.0.0.1", 18814, Some(4243));
+            stale.last_heartbeat = std::time::SystemTime::now() - Duration::from_secs(120);
+            reg.register(stale).unwrap();
+
+            let mut unreachable = make_service_entry("3dsmax", "127.0.0.1", 18815, Some(4244));
+            unreachable.status = ServiceStatus::Unreachable;
+            reg.register(unreachable).unwrap();
+        }
+
+        let state = AdminState::new(gs);
+        let router = build_admin_router(state);
+        let (status, body) = body_json(router, "/api/instances").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["view"], "live");
+        assert_eq!(body["total"].as_u64(), Some(1));
+        assert_eq!(body["summary"]["live"].as_u64(), Some(1));
+        let rows = body["instances"].as_array().unwrap();
+        assert_eq!(rows[0]["dcc_type"], "maya");
+        assert_eq!(rows[0]["port"], 18813);
+    }
+
+    #[tokio::test]
+    async fn test_admin_instances_all_view_keeps_diagnostic_rows() {
+        use dcc_mcp_transport::discovery::types::ServiceStatus;
+
+        let gs = make_gateway_state();
+        {
+            let reg = gs.registry.write().await;
+            reg.register(make_service_entry("maya", "127.0.0.1", 18813, Some(4242)))
+                .unwrap();
+
+            let mut unreachable = make_service_entry("3dsmax", "127.0.0.1", 18815, Some(4244));
+            unreachable.status = ServiceStatus::Unreachable;
+            reg.register(unreachable).unwrap();
+        }
+
+        let state = AdminState::new(gs);
+        let router = build_admin_router(state);
+        let (status, body) = body_json(router, "/api/instances?view=all").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["view"], "all");
+        assert_eq!(body["total"].as_u64(), Some(2));
+        assert_eq!(body["summary"]["live"].as_u64(), Some(1));
+        assert_eq!(body["summary"]["unhealthy"].as_u64(), Some(1));
+    }
+
+    #[tokio::test]
     async fn test_admin_workers_with_registered_instance() {
         let gs = make_gateway_state();
         // Inject one ServiceEntry into the registry.

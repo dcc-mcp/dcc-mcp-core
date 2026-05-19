@@ -145,6 +145,12 @@ pub async fn handle_v1_openapi(State(gs): State<GatewayState>) -> impl IntoRespo
     (StatusCode::OK, Json(doc))
 }
 
+/// `GET /docs` — gateway REST API reference.
+pub async fn handle_v1_docs(State(gs): State<GatewayState>) -> Response {
+    let html = dcc_mcp_skill_rest::openapi::build_docs_html("dcc-mcp-gateway", &gs.server_version);
+    (StatusCode::OK, Html(html)).into_response()
+}
+
 /// `GET /v1/skills` — aggregate gateway capability index as skill entries.
 pub async fn handle_v1_skills(State(gs): State<GatewayState>) -> impl IntoResponse {
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
@@ -638,6 +644,23 @@ mod tests {
         let bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let body = serde_json::from_slice(&bytes).unwrap();
         (status, body)
+    }
+
+    async fn response_text(resp: Response) -> (StatusCode, String) {
+        let status = resp.status();
+        let bytes = to_bytes(resp.into_body(), 4 * 1024 * 1024).await.unwrap();
+        (status, String::from_utf8_lossy(&bytes).to_string())
+    }
+
+    #[tokio::test]
+    async fn gateway_docs_serves_scalar_openapi_ui() {
+        let (status, body) =
+            response_text(handle_v1_docs(State(test_gateway_state("1.2.3"))).await).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("scalar") || body.contains("Scalar"));
+        assert!(body.contains("dcc-mcp-gateway"));
+        assert!(body.contains("/v1/search"));
     }
 
     #[tokio::test]
