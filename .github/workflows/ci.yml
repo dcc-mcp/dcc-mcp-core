@@ -22,6 +22,7 @@ on:
       - "rust-toolchain.toml"
       - ".github/workflows/ci.yml"
       - ".github/workflows/dcc-integration.yml"
+      - ".github/workflows/release.yml"
       - ".github/actions/build-wheel/**"
   push:
     branches: [main]
@@ -41,6 +42,7 @@ on:
       - "rust-toolchain.toml"
       - ".github/workflows/ci.yml"
       - ".github/workflows/dcc-integration.yml"
+      - ".github/workflows/release.yml"
       - ".github/actions/build-wheel/**"
 
 permissions:
@@ -85,6 +87,21 @@ jobs:
                   print(f"{source} has {version}, expected {pyproject_version}", file=sys.stderr)
               sys.exit(1)
           PY
+
+  admin-ui-bundle:
+    name: Admin UI bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: loonghao/vx@v0.8.36
+      - name: Build admin UI bundle
+        shell: bash
+        run: scripts/release/prebuild_admin_ui.sh
+      - name: Upload admin UI bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-ui-bundle
+          path: crates/dcc-mcp-gateway/src/gateway/admin/generated/index.html
 
   # ── Rust checks (check + clippy + fmt + cargo test) ──
   rust-check:
