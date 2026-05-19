@@ -454,16 +454,29 @@ impl McpHttpServer {
             .clone()
             .unwrap_or_else(AppState::default_readiness);
 
-        let rest_service = dcc_mcp_skill_rest::SkillRestService::from_catalog_and_dispatcher(
-            catalog.clone(),
-            self.dispatcher.clone(),
-        )
-        .with_resources(std::sync::Arc::new(
-            crate::rest_providers::ResourceRegistryAdapter::new(resources.clone(), catalog.clone()),
-        ))
-        .with_prompts(std::sync::Arc::new(
-            crate::rest_providers::PromptRegistryAdapter::new(prompts.clone(), catalog.clone()),
-        ));
+        let catalog_source =
+            std::sync::Arc::new(dcc_mcp_skill_rest::CatalogSource::new(catalog.clone()));
+        let invoker: std::sync::Arc<dyn dcc_mcp_skill_rest::ToolInvoker> =
+            if let Some(executor) = self.executor.clone() {
+                std::sync::Arc::new(dcc_mcp_http_server::ThreadRoutedInvoker::new(
+                    self.dispatcher.clone(),
+                    executor,
+                ))
+            } else {
+                std::sync::Arc::new(dcc_mcp_skill_rest::DispatcherInvoker::new(
+                    self.dispatcher.clone(),
+                ))
+            };
+        let rest_service = dcc_mcp_skill_rest::SkillRestService::new(catalog_source, invoker)
+            .with_resources(std::sync::Arc::new(
+                crate::rest_providers::ResourceRegistryAdapter::new(
+                    resources.clone(),
+                    catalog.clone(),
+                ),
+            ))
+            .with_prompts(std::sync::Arc::new(
+                crate::rest_providers::PromptRegistryAdapter::new(prompts.clone(), catalog.clone()),
+            ));
 
         let mut rest_config = dcc_mcp_skill_rest::SkillRestConfig::new(rest_service)
             .with_readiness(readiness.clone());

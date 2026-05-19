@@ -38,6 +38,7 @@ pub mod rmcp_providers;
 pub mod rmcp_registry_context;
 pub mod rmcp_tool_call_async;
 pub mod rmcp_tool_call_dispatch;
+pub mod thread_routed_invoker;
 
 pub use dynamic_tools::{
     DYNAMIC_TOOL_PREFIX, DynamicToolEntry, DynamicToolError, SessionDynamicTools, ToolSpec,
@@ -62,4 +63,5 @@ pub use server_state::{
 pub use session::{
     McpSession, SessionLogLevel, SessionLogMessage, SessionManager, ToolListSnapshot,
 };
+pub use thread_routed_invoker::ThreadRoutedInvoker;
 pub use workspace::{WorkspaceResolveError, WorkspaceRoots};
