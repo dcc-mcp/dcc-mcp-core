@@ -85,6 +85,7 @@ pub use service::{
     PromptContent, PromptGetResponse, PromptListEntry, PromptMessage, PromptProvider,
     ResourceContent, ResourceListEntry, ResourceProvider, ResourceReadResponse, SearchRequest,
     SearchResponse, SkillCatalogSource, SkillListEntry, SkillRestService, ToolInvoker, ToolSlug,
+    dispatch_error_to_service_error,
 };
 
 /// Upper bound on per-hit serialised bytes produced by `/v1/search` —
