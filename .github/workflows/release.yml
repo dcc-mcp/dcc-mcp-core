@@ -204,23 +204,12 @@ jobs:
       - name: Pre-build admin UI for Linux manylinux wheel
         if: matrix.os == 'ubuntu-latest'
         shell: bash
-        run: |
-          set -eux
-          vx npm --prefix admin-ui ci
-          vx npm --prefix admin-ui run build
-          test -f crates/dcc-mcp-gateway/src/gateway/admin/generated/index.html
+        run: scripts/release/prebuild_admin_ui.sh
 
       - name: Build PyPI wheel (Linux manylinux2014)
         if: matrix.os == 'ubuntu-latest'
         shell: bash
-        run: |
-          docker run --rm \
-            -v "$PWD:/io" \
-            -e DCC_MCP_ADMIN_UI_PREBUILT=1 \
-            -e CARGO_TARGET_DIR=/io/target-manylinux2014 \
-            -w /io/pkg/dcc-mcp-server-bin \
-            ghcr.io/pyo3/maturin:v1.13.3 \
-            build --release --manylinux 2014 --out wheels
+        run: scripts/release/build_manylinux_server_wheel.sh
 
       - name: Build PyPI wheel (Windows)
         if: matrix.os == 'windows-latest'
@@ -234,96 +223,12 @@ jobs:
       - name: Retag server binary wheel as Python-version independent
         shell: bash
         run: |
-          python - <<'PY'
-          import sys
-          import zipfile
-          from pathlib import Path
-
-          wheels = sorted(Path("pkg/dcc-mcp-server-bin/wheels").glob("dcc_mcp_server-*.whl"))
-          if not wheels:
-              print("::error::No dcc-mcp-server wheel was built", file=sys.stderr)
-              sys.exit(1)
-
-          for wheel in wheels:
-              with zipfile.ZipFile(wheel) as zf:
-                  python_extensions = [
-                      name for name in zf.namelist()
-                      if name.lower().endswith((".pyd", ".abi3.so"))
-                      or (".cpython-" in name.lower() and name.lower().endswith(".so"))
-                  ]
-              if python_extensions:
-                  print(
-                      f"::error::{wheel.name} contains CPython extension files "
-                      f"and cannot be tagged py3-none: {python_extensions}",
-                      file=sys.stderr,
-                  )
-                  sys.exit(1)
-          PY
-          python -m wheel tags --remove --python-tag=py3 --abi-tag=none pkg/dcc-mcp-server-bin/wheels/*.whl
+          python -m pip install --upgrade "wheel>=0.46"
+          python scripts/release/server_wheel_tags.py retag
 
       - name: Check server wheel Python compatibility metadata
         shell: bash
-        run: |
-          python - <<'PY'
-          import sys
-          import zipfile
-          from pathlib import Path
-
-          wheels = sorted(Path("pkg/dcc-mcp-server-bin/wheels").glob("*.whl"))
-          if not wheels:
-              print("::error::No dcc-mcp-server wheel was built", file=sys.stderr)
-              sys.exit(1)
-
-          for wheel in wheels:
-              with zipfile.ZipFile(wheel) as zf:
-                  wheel_name = next(
-                      name for name in zf.namelist()
-                      if name.endswith(".dist-info/WHEEL")
-                  )
-                  wheel_metadata = zf.read(wheel_name).decode("utf-8")
-                  metadata_name = next(
-                      name for name in zf.namelist()
-                      if name.endswith(".dist-info/METADATA")
-                  )
-                  metadata = zf.read(metadata_name).decode("utf-8")
-
-              if "Requires-Python: >=3.7" not in metadata:
-                  print(
-                      f"::error::{wheel.name} must declare Requires-Python: >=3.7 "
-                      "so Maya 2022 / Python 3.7 can install dcc-mcp-server",
-                      file=sys.stderr,
-                  )
-                  sys.exit(1)
-
-              if "-py3-none-" not in wheel.name or "Tag: py3-none-" not in wheel_metadata:
-                  print(
-                      f"::error::{wheel.name} must use py3-none platform tags "
-                      "because dcc-mcp-server ships a standalone binary, not a CPython extension",
-                      file=sys.stderr,
-                  )
-                  sys.exit(1)
-
-              if "manylinux_2_39" in wheel.name:
-                  print(
-                      f"::error::{wheel.name} was built against the GitHub runner glibc. "
-                      "Build Linux server wheels in manylinux2014 so Maya 2022 / Python 3.7 "
-                      "can resolve dcc-mcp-server.",
-                      file=sys.stderr,
-                  )
-                  sys.exit(1)
-
-              if "manylinux" in wheel.name and not (
-                  "manylinux_2_17" in wheel.name or "manylinux2014" in wheel.name
-              ):
-                  print(
-                      f"::error::{wheel.name} must target manylinux2014 / manylinux_2_17 "
-                      "for older DCC-hosted Python environments.",
-                      file=sys.stderr,
-                  )
-                  sys.exit(1)
-
-              print(f"{wheel.name}: Python 3.7+ metadata OK")
-          PY
+        run: python scripts/release/server_wheel_tags.py validate
 
       - name: Upload raw binary artefact (for cross-job collection)
         uses: actions/upload-artifact@v4

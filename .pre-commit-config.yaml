@@ -22,6 +22,12 @@ repos:
   # Rust checks
   - repo: local
     hooks:
+      - id: actionlint
+        name: actionlint
+        entry: vx uvx --from actionlint-py==1.7.12.24 actionlint
+        language: system
+        files: ^\.github/workflows/.*\.ya?ml$
+        pass_filenames: true
       - id: cargo-fmt
         name: cargo fmt
         entry: cargo fmt --all -- --check
