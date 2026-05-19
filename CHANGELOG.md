@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.10](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.9...v0.17.10) (2026-05-19)
+
+
+### Features
+
+* add admin activity ledger ([d327e15](https://github.com/loonghao/dcc-mcp-core/commit/d327e1546b56fadfc19c5681a3b7cad0578634bc))
+
+
+### Bug Fixes
+
+* align async host busy handling ([5780fa0](https://github.com/loonghao/dcc-mcp-core/commit/5780fa074b116f137750e4c10a8fa50b477d7ea9))
+* build server linux wheel for manylinux2014 ([35560fc](https://github.com/loonghao/dcc-mcp-core/commit/35560fc49294429dfa1cdd7053f7378c31c897b1))
+* **http-server:** block REST dispatch on host-bridge runtime from OS thread ([c1f34cd](https://github.com/loonghao/dcc-mcp-core/commit/c1f34cd1c0dd885a1adfd6eb406a22199a4a4370))
+* **http-server:** preserve REST dispatch errors and validation_skipped ([004d781](https://github.com/loonghao/dcc-mcp-core/commit/004d78175d2f1ef0269538d356249cf5121d8781))
+* **http-server:** safe REST routing on current_thread Tokio runtime ([c10c046](https://github.com/loonghao/dcc-mcp-core/commit/c10c0469fc23159d29fe014b471f0d052a929ca0))
+* **http:** keep with_executor() startable without host_bridge_runtime ([cd9631a](https://github.com/loonghao/dcc-mcp-core/commit/cd9631abf6b264357153b1097eacd54b429aaf63))
+* **http:** route REST /v1/call through main-thread executor ([99085b1](https://github.com/loonghao/dcc-mcp-core/commit/99085b1bd60beb2e36550b1eb39827844722ed5a))
+* reject unavailable main affinity dispatch ([b156044](https://github.com/loonghao/dcc-mcp-core/commit/b15604427e60835b943f6bfe16d750464ec612ec))
+
+
+### Code Refactoring
+
+* **http-server:** split rmcp_tool_call_dispatch for file-size limit ([5e49e9d](https://github.com/loonghao/dcc-mcp-core/commit/5e49e9d160fd87eddc060fad8ca2649e3efef396))
+
+
+### Documentation
+
+* add admin ui screenshots ([af5dd7b](https://github.com/loonghao/dcc-mcp-core/commit/af5dd7b0b90ac3c9174041388ea17a070024d8e8))
+* add architecture diagram ([16bcdb3](https://github.com/loonghao/dcc-mcp-core/commit/16bcdb38b6092939ed0994ee7cefab7574b50d2e))
+* improve readme onboarding flow ([691b242](https://github.com/loonghao/dcc-mcp-core/commit/691b242591d8f5f5828523cd7148a57d6a2620db))
+* simplify architecture readme section ([2dbd4d1](https://github.com/loonghao/dcc-mcp-core/commit/2dbd4d1657286df152af6933988cef339c2795ad))
+
 ## [0.17.9](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.8...v0.17.9) (2026-05-18)
 
 
