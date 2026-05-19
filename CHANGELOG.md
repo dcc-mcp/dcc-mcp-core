@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.17](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.16...v0.17.17) (2026-05-19)
+
+
+### Bug Fixes
+
+* clarify gateway mcp auth hints ([5b94b4b](https://github.com/loonghao/dcc-mcp-core/commit/5b94b4b189a59b20ad5341e5737e4734b4a7113e))
+
 ## [0.17.16](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.15...v0.17.16) (2026-05-19)
 
 
