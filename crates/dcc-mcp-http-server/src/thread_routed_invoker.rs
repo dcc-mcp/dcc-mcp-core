@@ -9,7 +9,10 @@
 use std::sync::Arc;
 
 use dcc_mcp_actions::ToolDispatcher;
-use dcc_mcp_skill_rest::{CallOutcome, ServiceError, ServiceErrorKind, ToolInvoker, ToolSlug};
+use dcc_mcp_skill_rest::{
+    CallOutcome, ServiceError, ServiceErrorKind, ToolInvoker, ToolSlug,
+    dispatch_error_to_service_error,
+};
 use serde_json::Value;
 
 use crate::executor::DccExecutorHandle;
@@ -55,7 +58,7 @@ impl ToolInvoker for ThreadRoutedInvoker {
         // `Handle::block_on` there (deadlock / panic). A nested
         // `current_thread` runtime on a helper OS thread can `.await` the same
         // `dispatch_action_with_thread_routing` path MCP `tools/call` uses.
-        let output = std::thread::scope(|scope| {
+        let dispatch_result = std::thread::scope(|scope| {
             let join = scope.spawn(move || {
                 let rt = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
@@ -74,7 +77,7 @@ impl ToolInvoker for ThreadRoutedInvoker {
                     affinity,
                     enforce,
                 ))
-                .map_err(|err| dispatch_err_to_service_error(&err))
+                .map_err(dispatch_error_to_service_error)
             });
             join.join().map_err(|_| {
                 ServiceError::new(
@@ -86,25 +89,8 @@ impl ToolInvoker for ThreadRoutedInvoker {
 
         Ok(CallOutcome {
             slug: ToolSlug(action_name.to_string()),
-            output,
-            validation_skipped: false,
+            output: dispatch_result.output,
+            validation_skipped: dispatch_result.validation_skipped,
         })
     }
-}
-
-fn dispatch_err_to_service_error(err: &str) -> ServiceError {
-    if err.starts_with("THREAD_AFFINITY_UNAVAILABLE:") {
-        return ServiceError::new(ServiceErrorKind::ThreadAffinityViolation, err.to_string())
-            .with_hint("attach a host QueueDispatcher/BlockingDispatcher before start()");
-    }
-    if err.starts_with("THREAD_AFFINITY_VIOLATION:") {
-        return ServiceError::new(ServiceErrorKind::ThreadAffinityViolation, err.to_string())
-            .with_hint(
-                "check the action tools.yaml thread_affinity, or marshal through the host main-thread dispatcher",
-            );
-    }
-    if err == "CANCELLED" {
-        return ServiceError::new(ServiceErrorKind::BackendError, err.to_string());
-    }
-    ServiceError::new(ServiceErrorKind::BackendError, err.to_string())
 }

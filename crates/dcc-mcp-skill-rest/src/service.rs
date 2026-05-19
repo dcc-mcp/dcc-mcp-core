@@ -569,6 +569,48 @@ impl DispatcherInvoker {
     }
 }
 
+/// Map [`DispatchError`] to REST [`ServiceError`] — shared by [`DispatcherInvoker`]
+/// and thread-routed HTTP invoke so `/v1/call` status codes stay aligned.
+#[must_use]
+pub fn dispatch_error_to_service_error(err: DispatchError) -> ServiceError {
+    match err {
+        DispatchError::HandlerNotFound(n) => ServiceError::new(
+            ServiceErrorKind::UnknownSlug,
+            format!("no handler registered for '{n}'"),
+        ),
+        DispatchError::ActionDisabled { action, group } => ServiceError::new(
+            ServiceErrorKind::SkillNotLoaded,
+            format!("action '{action}' is disabled (group '{group}')"),
+        )
+        .with_hint("call load_skill / activate the owning tool group first"),
+        DispatchError::ThreadAffinityViolation {
+            action,
+            declared,
+            actual,
+        } => ServiceError::new(
+            ServiceErrorKind::ThreadAffinityViolation,
+            format!(
+                "THREAD_AFFINITY_VIOLATION: action '{action}' declared thread_affinity={declared} but ran on {actual}"
+            ),
+        )
+        .with_hint(
+            "check the action tools.yaml thread_affinity, or marshal through the host main-thread dispatcher",
+        ),
+        DispatchError::ValidationFailed(m) => {
+            ServiceError::new(ServiceErrorKind::InvalidParams, m)
+        }
+        DispatchError::HandlerError(m) if m.starts_with("THREAD_AFFINITY_UNAVAILABLE:") => {
+            ServiceError::new(ServiceErrorKind::ThreadAffinityViolation, m)
+                .with_hint("attach a host QueueDispatcher/BlockingDispatcher before start()")
+        }
+        DispatchError::HandlerError(m) if m == "CANCELLED" => {
+            ServiceError::new(ServiceErrorKind::BackendError, m)
+        }
+        DispatchError::HandlerError(m) => ServiceError::new(ServiceErrorKind::BackendError, m),
+        DispatchError::MetadataNotFound(m) => ServiceError::new(ServiceErrorKind::Internal, m),
+    }
+}
+
 impl ToolInvoker for DispatcherInvoker {
     fn invoke(&self, action_name: &str, params: Value) -> Result<CallOutcome, ServiceError> {
         match self.dispatcher.dispatch(action_name, params) {
@@ -577,35 +619,7 @@ impl ToolInvoker for DispatcherInvoker {
                 output: r.output,
                 validation_skipped: r.validation_skipped,
             }),
-            Err(DispatchError::HandlerNotFound(n)) => Err(ServiceError::new(
-                ServiceErrorKind::UnknownSlug,
-                format!("no handler registered for '{n}'"),
-            )),
-            Err(DispatchError::ActionDisabled { action, group }) => Err(ServiceError::new(
-                ServiceErrorKind::SkillNotLoaded,
-                format!("action '{action}' is disabled (group '{group}')"),
-            )
-            .with_hint("call load_skill / activate the owning tool group first")),
-            Err(DispatchError::ThreadAffinityViolation {
-                action,
-                declared,
-                actual,
-            }) => Err(ServiceError::new(
-                ServiceErrorKind::ThreadAffinityViolation,
-                format!(
-                    "THREAD_AFFINITY_VIOLATION: action '{action}' declared thread_affinity={declared} but ran on {actual}"
-                ),
-            )
-            .with_hint("check the action tools.yaml thread_affinity, or marshal through the host main-thread dispatcher")),
-            Err(DispatchError::ValidationFailed(m)) => {
-                Err(ServiceError::new(ServiceErrorKind::InvalidParams, m))
-            }
-            Err(DispatchError::HandlerError(m)) => {
-                Err(ServiceError::new(ServiceErrorKind::BackendError, m))
-            }
-            Err(DispatchError::MetadataNotFound(m)) => {
-                Err(ServiceError::new(ServiceErrorKind::Internal, m))
-            }
+            Err(err) => Err(dispatch_error_to_service_error(err)),
         }
     }
 }
