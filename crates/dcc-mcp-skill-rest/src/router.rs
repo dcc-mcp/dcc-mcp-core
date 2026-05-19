@@ -186,8 +186,7 @@ async fn handle_docs(State(cfg): State<SkillRestConfig>) -> Response {
     if std::env::var("DCC_MCP_DOCS_UI").is_ok_and(|value| value == "0") {
         return StatusCode::NOT_FOUND.into_response();
     }
-    let doc = build_openapi_document(&cfg.server_title, &cfg.server_version);
-    let html = utoipa_scalar::Scalar::new(doc).to_html();
+    let html = super::openapi::build_docs_html(&cfg.server_title, &cfg.server_version);
     (StatusCode::OK, Html(html)).into_response()
 }
 

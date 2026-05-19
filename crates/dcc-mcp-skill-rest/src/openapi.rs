@@ -112,6 +112,13 @@ pub fn build_openapi_document(server_title: &str, server_version: &str) -> Value
     serde_json::to_value(&doc).unwrap_or_else(|_| serde_json::json!({}))
 }
 
+/// Build the Scalar HTML API reference for the generated OpenAPI document.
+#[must_use]
+pub fn build_docs_html(server_title: &str, server_version: &str) -> String {
+    let doc = build_openapi_document(server_title, server_version);
+    utoipa_scalar::Scalar::new(doc).to_html()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

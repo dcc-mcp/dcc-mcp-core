@@ -129,7 +129,7 @@ async function mockAdminApi(page: Page) {
       };
     } else if (path === '/tasks') {
       body = {
-        total: 1,
+        total: 2,
         tasks: [
           {
             task_id: 'req-123',
@@ -142,6 +142,19 @@ async function mockAdminApi(page: Page) {
               request_id: 'req-123',
               instance_id: 'maya-1234567890',
               dcc_type: 'maya',
+            },
+          },
+          {
+            task_id: 'req-err',
+            task_type: 'tool_call',
+            status: 'failed',
+            title: 'blender-abcd__render_preview',
+            started_at: '2026-05-18T08:01:00.000Z',
+            duration_ms: 87,
+            correlation: {
+              request_id: 'req-err',
+              instance_id: 'blender-abcdef1234',
+              dcc_type: 'blender',
             },
           },
         ],
@@ -165,7 +178,7 @@ async function mockAdminApi(page: Page) {
       };
     } else if (path === '/traces') {
       body = {
-        total: 1,
+        total: 2,
         traces: [
           {
             timestamp: now,
@@ -176,6 +189,16 @@ async function mockAdminApi(page: Page) {
             success: true,
             total_ms: 42,
             instance_id: 'maya-1234567890',
+          },
+          {
+            timestamp: '2026-05-18T08:01:00.000Z',
+            request_id: 'req-err',
+            tool: 'blender-abcd__render_preview',
+            dcc_type: 'blender',
+            status: 'failed',
+            success: false,
+            total_ms: 87,
+            instance_id: 'blender-abcdef1234',
           },
         ],
       };
@@ -254,9 +277,10 @@ test.describe('Admin Page', () => {
     await page.goto('/admin/');
     await expect(page.locator('h1')).toContainText('DCC-MCP Gateway');
     await expect(page.getByRole('navigation').getByRole('link', { name: 'Debug' })).toHaveClass(/active/);
-    for (const label of ['Debug', 'Activity', 'Health', 'Instances', 'Tools', 'Tasks', 'Calls', 'Traces', 'Stats', 'Skill paths', 'Logs']) {
+    for (const label of ['Debug', 'Activity', 'Health', 'Instances', 'Tools', 'Tasks', 'Calls', 'Traces', 'Stats', 'Skill paths', 'Logs', 'Docs']) {
       await expect(page.getByRole('navigation').getByRole('link', { name: label })).toBeVisible();
     }
+    await expect(page.getByRole('navigation').getByRole('link', { name: 'Docs' })).toHaveAttribute('href', 'http://127.0.0.1:3721/docs');
     await expect(page.locator('.debug-panel')).toContainText('Debug Workbench');
     await expect(page.locator('.debug-panel')).toContainText('Traffic Shape');
     await page.getByRole('navigation').getByRole('link', { name: 'Health' }).click();
@@ -270,7 +294,7 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.dcc-icon')).toHaveCount(2);
     await expect(page.locator('.instances-panel')).toContainText('Access URL');
     await expect(page.locator('.instances-panel')).toContainText('http://127.0.0.1:8765');
-    await expect(page.getByRole('link', { name: 'docs' }).first()).toHaveAttribute('href', 'http://127.0.0.1:8765/docs');
+    await expect(page.locator('.instances-panel').getByRole('link', { name: 'docs' }).first()).toHaveAttribute('href', 'http://127.0.0.1:8765/docs');
     await page.getByLabel('Filter current panel').fill('blender');
     await expect(page.locator('.worker-card')).toHaveCount(1);
     await expect(page.locator('.worker-card')).toContainText('Blender Lookdev');
@@ -289,6 +313,8 @@ test.describe('Admin Page', () => {
   test('shows reconstructed tasks and links them to traces', async ({ page }) => {
     await page.goto('/admin/?panel=tasks');
     await expect(page.locator('.tasks-panel')).toContainText('maya-1234__create_sphere');
+    await expect(page.locator('.tasks-panel .badge-ok')).toContainText('completed');
+    await expect(page.locator('.tasks-panel .badge-err')).toContainText('failed');
     await page.getByRole('button', { name: 'req-123' }).click();
     await expect(page).toHaveURL(/panel=traces/);
     await expect(page).toHaveURL(/trace=req-123/);
