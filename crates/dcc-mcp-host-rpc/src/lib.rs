@@ -85,10 +85,12 @@
 pub mod commandport;
 pub mod qtserver;
 pub mod registry;
+pub mod websocket;
 
 pub use commandport::CommandPortClient;
 pub use qtserver::QtServerClient;
 pub use registry::{client_for_uri, parse_scheme, registered_schemes};
+pub use websocket::WebSocketHostRpcClient;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};

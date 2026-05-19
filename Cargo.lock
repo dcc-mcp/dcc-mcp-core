@@ -975,10 +975,12 @@ name = "dcc-mcp-host-rpc"
 version = "0.17.15"
 dependencies = [
  "async-trait",
+ "futures-util",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-tungstenite",
  "workspace-hack",
 ]
 
