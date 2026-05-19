@@ -8,6 +8,24 @@ Gateway（`McpHttpConfig::gateway_port > 0`）是一个 first-wins HTTP
 `search_tools` / `describe_tool` / `call_tool`（或 REST `/v1/*`）
 路由到正确的后端，同时将服务器推送的通知多路复用回原始客户端会话。
 
+可以在每个候选进程上设置 `gateway_name`、`--gateway-name` 或
+`DCC_MCP_GATEWAY_NAME` 来显式声明身份。赢得选举的进程会把这个标签写入
+`__gateway__` sentinel，并暴露在 `/admin/api/health.gateway.current`；
+challenger 会以 `gateway_role=challenger` 写入同类标签，因此排障时能同时
+看到当前网关和正在尝试接班的下一个候选。
+
+生产环境推荐机器级独立 gateway：
+
+```bash
+dcc-mcp-server gateway --port 9765 --name studio-gateway
+```
+
+Per-DCC sidecar 现在会在 `GET /health` 不可达时自动拉起这个进程。它们会
+在 registry 目录里使用单飞 `gateway-launch.lock`，因此三个 DCC 同时启动也
+最多只会 spawn 一个 gateway。使用 `dcc-mcp-server sidecar --no-ensure-gateway`
+可以关闭自动拉起；使用 `--legacy-gateway-election` 可以恢复旧的 per-DCC
+first-wins 选举。
+
 ## 拓扑
 
 ```

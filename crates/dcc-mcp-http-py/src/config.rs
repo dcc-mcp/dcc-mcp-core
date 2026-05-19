@@ -507,6 +507,18 @@ impl PyMcpHttpConfig {
         self.inner.gateway.adapter_dcc = v;
     }
 
+    /// Human-readable gateway candidate name written to the gateway sentinel.
+    #[getter]
+    fn gateway_name(&self) -> Option<String> {
+        self.inner.gateway.gateway_name.clone()
+    }
+
+    /// Human-readable gateway candidate name written to the gateway sentinel.
+    #[setter]
+    fn set_gateway_name(&mut self, v: Option<String>) {
+        self.inner.gateway.gateway_name = v;
+    }
+
     /// Allow instances with ``dcc_type == "unknown"`` to expose tools (#555).
     #[getter]
     fn allow_unknown_tools(&self) -> bool {

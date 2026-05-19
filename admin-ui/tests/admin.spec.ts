@@ -250,14 +250,15 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.describe('Admin Page', () => {
-  test('loads the health panel and navigation', async ({ page }) => {
+  test('loads the debug panel and navigation', async ({ page }) => {
     await page.goto('/admin/');
     await expect(page.locator('h1')).toContainText('DCC-MCP Gateway');
-    await expect(page.getByRole('navigation').getByRole('link', { name: 'Activity' })).toHaveClass(/active/);
-    for (const label of ['Activity', 'Health', 'Instances', 'Tools', 'Tasks', 'Calls', 'Traces', 'Stats', 'Skill paths', 'Logs']) {
+    await expect(page.getByRole('navigation').getByRole('link', { name: 'Debug' })).toHaveClass(/active/);
+    for (const label of ['Debug', 'Activity', 'Health', 'Instances', 'Tools', 'Tasks', 'Calls', 'Traces', 'Stats', 'Skill paths', 'Logs']) {
       await expect(page.getByRole('navigation').getByRole('link', { name: label })).toBeVisible();
     }
-    await expect(page.locator('.activity-panel')).toContainText('maya-1234__create_sphere');
+    await expect(page.locator('.debug-panel')).toContainText('Debug Workbench');
+    await expect(page.locator('.debug-panel')).toContainText('Traffic Shape');
     await page.getByRole('navigation').getByRole('link', { name: 'Health' }).click();
     await expect(page.locator('.health-panel')).toContainText('0.17.7');
   });

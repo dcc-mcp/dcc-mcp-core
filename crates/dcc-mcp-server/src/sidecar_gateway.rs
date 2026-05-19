@@ -122,11 +122,21 @@ fn build_gateway_config(args: &SidecarArgs) -> GatewayConfig {
         remote_gateway_port: args.gateway_remote_port,
         registry_dir: args.registry_dir.clone(),
         server_name: format!("dcc-mcp-gateway-{}", args.dcc),
+        gateway_name: Some(resolve_sidecar_gateway_name(args)),
         server_version: env!("CARGO_PKG_VERSION").to_string(),
         adapter_version: args.adapter_version.clone(),
         adapter_dcc: Some(args.dcc.clone()),
         ..GatewayConfig::default()
     }
+}
+
+fn resolve_sidecar_gateway_name(args: &SidecarArgs) -> String {
+    args.gateway_name
+        .as_ref()
+        .filter(|name| !name.trim().is_empty())
+        .cloned()
+        .or_else(|| args.display_name.clone())
+        .unwrap_or_else(|| format!("{}-pid{}", args.dcc, args.watch_pid))
 }
 
 fn spawn_failover_probe(

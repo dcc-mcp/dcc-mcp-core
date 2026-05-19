@@ -409,6 +409,43 @@ async fn test_gateway_winner_serves_optional_remote_listener() {
 }
 
 #[tokio::test]
+async fn test_gateway_winner_stamps_human_readable_name_on_sentinel() {
+    let dir = tempfile::tempdir().unwrap();
+    let gw_port = ephemeral_port();
+    let cfg = GatewayConfig {
+        host: "127.0.0.1".to_string(),
+        gateway_port: gw_port,
+        gateway_name: Some("maya-main-window".to_string()),
+        heartbeat_secs: 0,
+        registry_dir: Some(dir.path().to_path_buf()),
+        ..GatewayConfig::default()
+    };
+    let runner = GatewayRunner::new(cfg).unwrap();
+
+    let outcome = runner.run_election().await.unwrap();
+
+    assert!(outcome.is_gateway, "free local port must win election");
+    let reg = runner.registry.read().await;
+    let sentinels = reg.list_instances(GATEWAY_SENTINEL_DCC_TYPE);
+    assert_eq!(sentinels.len(), 1);
+    let sentinel = &sentinels[0];
+    assert_eq!(sentinel.display_name.as_deref(), Some("maya-main-window"));
+    assert_eq!(
+        sentinel.metadata.get("gateway_name").map(String::as_str),
+        Some("maya-main-window")
+    );
+    assert_eq!(
+        sentinel.metadata.get("gateway_role").map(String::as_str),
+        Some("active")
+    );
+    drop(reg);
+
+    if let Some(abort) = outcome.gateway_abort {
+        abort.abort();
+    }
+}
+
+#[tokio::test]
 async fn test_newer_gateway_takes_over_local_and_remote_listeners() {
     let dir = tempfile::tempdir().unwrap();
     let gw_port = ephemeral_port();

@@ -66,6 +66,10 @@ pub struct GatewayConfig {
     pub heartbeat_secs: u64,
     /// Server name advertised in gateway `initialize` responses.
     pub server_name: String,
+    /// Human-readable identity for the process currently competing for or
+    /// serving the gateway role. Written to the `__gateway__` sentinel so
+    /// operators can tell which peer owns the well-known port.
+    pub gateway_name: Option<String>,
     /// Server version advertised in gateway `initialize` responses.
     pub server_version: String,
     /// Shared `FileRegistry` directory. `None` falls back to a temp dir.
@@ -158,6 +162,7 @@ impl Default for GatewayConfig {
             stale_timeout_secs: 30,
             heartbeat_secs: 5,
             server_name: "dcc-mcp-gateway".to_string(),
+            gateway_name: None,
             server_version: env!("CARGO_PKG_VERSION").to_string(),
             registry_dir: None,
             challenger_timeout_secs: 120,
