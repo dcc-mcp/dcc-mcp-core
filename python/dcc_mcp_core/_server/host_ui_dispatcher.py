@@ -302,6 +302,14 @@ class HostUiDispatcherBase:
                 on_complete=on_complete,
             )
             with self._lock:
+                if self._fail_fast_on_main_queue_busy and len(self._main_queue) > 0:
+                    return {
+                        "request_id": request_id,
+                        "job_id": job_id,
+                        "status": "failed",
+                        "success": False,
+                        "error": DispatcherErrorCode.HOST_BUSY,
+                    }
                 self._main_queue.append(job)
             self.poke_host_pump()
 
