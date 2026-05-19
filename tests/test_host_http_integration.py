@@ -23,6 +23,7 @@ import json
 import threading
 import time
 from typing import Any
+import urllib.error
 import urllib.request
 
 # Import third-party modules
@@ -72,8 +73,35 @@ def _rest_call(
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return resp.status, json.loads(resp.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.status, json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8")
+        return exc.code, json.loads(body) if body else {}
+
+
+def _start_routed_server(
+    server_name: str,
+) -> tuple[McpHttpServer, ToolRegistry, StandaloneHost, Any]:
+    """Server with ``QueueDispatcher`` + ``StandaloneHost`` (thread-routed REST)."""
+    server, reg = _make_server(server_name)
+    reg.register(
+        "thread_probe",
+        description="Return the thread id handling the call.",
+        category="test",
+        dcc="test",
+        version="1.0.0",
+        thread_affinity="main",
+        enforce_thread_affinity=True,
+    )
+    dispatcher = QueueDispatcher()
+    server.attach_dispatcher(dispatcher)
+    host = StandaloneHost(dispatcher, tick_interval=0.005)
+    host.start()
+    handle = server.start()
+    time.sleep(0.2)
+    return server, reg, host, handle
 
 
 def _make_server(server_name: str) -> tuple[McpHttpServer, ToolRegistry]:
@@ -84,8 +112,6 @@ def _make_server(server_name: str) -> tuple[McpHttpServer, ToolRegistry]:
         category="test",
         dcc="test",
         version="1.0.0",
-        thread_affinity="main",
-        enforce_thread_affinity=True,
     )
     cfg = McpHttpConfig(port=0, server_name=server_name)
     return McpHttpServer(reg, cfg), reg
@@ -98,7 +124,7 @@ def test_tools_call_routes_through_dispatcher() -> None:
     """Main-thread affinity: the handler runs on the dispatcher tick
     thread, never on a tokio worker or the poster thread.
     """
-    server, _reg = _make_server("p2b-routing")
+    server, reg = _make_server("p2b-routing")
 
     # Record the thread that runs the handler.
     captured: dict[str, int | None] = {"tid": None}
@@ -108,6 +134,15 @@ def test_tools_call_routes_through_dispatcher() -> None:
         return {"tid": captured["tid"]}
 
     server.register_handler("thread_probe", _probe, thread_affinity="main")
+    reg.register(
+        "thread_probe",
+        description="Return the thread id handling the call.",
+        category="test",
+        dcc="test",
+        version="1.0.0",
+        thread_affinity="main",
+        enforce_thread_affinity=True,
+    )
 
     dispatcher = QueueDispatcher()
     server.attach_dispatcher(dispatcher)
@@ -267,6 +302,65 @@ def test_register_handler_rejects_bad_affinity() -> None:
         server.register_handler("thread_probe", lambda _params: {"ok": True}, thread_affinity="sometimes")
 
 
+def test_v1_call_rejects_invalid_params_with_400() -> None:
+    """Thread-routed REST must map ``ValidationFailed`` to HTTP 400, not 502."""
+    server, reg, host, handle = _start_routed_server("rest-invalid-params")
+    schema = {
+        "type": "object",
+        "required": ["radius"],
+        "properties": {"radius": {"type": "number"}},
+    }
+    reg.register(
+        "typed_probe",
+        description="Requires radius",
+        category="test",
+        dcc="test",
+        version="1.0.0",
+        thread_affinity="main",
+        enforce_thread_affinity=True,
+        input_schema=json.dumps(schema),
+    )
+    server.register_handler(
+        "typed_probe",
+        lambda params: {"radius": params.get("radius")},
+        thread_affinity="main",
+    )
+    try:
+        status, body = _rest_call(handle.mcp_url(), "typed_probe", {})
+        assert status == 400, body
+        assert body.get("kind") == "invalid-params", body
+    finally:
+        handle.shutdown()
+        host.stop()
+
+
+def test_v1_call_reports_validation_skipped_for_empty_schema() -> None:
+    """Thread-routed REST must preserve ``validation_skipped`` in the response."""
+    server, reg, host, handle = _start_routed_server("rest-validation-skipped")
+    reg.register(
+        "loose_probe",
+        description="No schema constraints",
+        category="test",
+        dcc="test",
+        version="1.0.0",
+        thread_affinity="main",
+        enforce_thread_affinity=True,
+        input_schema=json.dumps({}),
+    )
+    server.register_handler(
+        "loose_probe",
+        lambda _params: {"ok": True},
+        thread_affinity="main",
+    )
+    try:
+        status, body = _rest_call(handle.mcp_url(), "loose_probe", {"anything": "goes"})
+        assert status == 200, body
+        assert body.get("validation_skipped") is True, body
+    finally:
+        handle.shutdown()
+        host.stop()
+
+
 def test_v1_call_routes_through_dispatcher() -> None:
     """REST ``POST /v1/call`` must honour ``thread_affinity=main`` like MCP ``tools/call``.
 
@@ -274,7 +368,7 @@ def test_v1_call_routes_through_dispatcher() -> None:
     :class:`~dcc_mcp_http_server.ThreadRoutedInvoker`, handlers run on a Tokio
     worker and ``enforce_thread_affinity`` rejects the call with HTTP 409.
     """
-    server, _reg = _make_server("rest-thread-routing")
+    server, reg = _make_server("rest-thread-routing")
     captured: dict[str, int | None] = {"tid": None}
 
     def _probe(_params: dict) -> dict:
@@ -282,6 +376,15 @@ def test_v1_call_routes_through_dispatcher() -> None:
         return {"tid": captured["tid"]}
 
     server.register_handler("thread_probe", _probe, thread_affinity="main")
+    reg.register(
+        "thread_probe",
+        description="Return the thread id handling the call.",
+        category="test",
+        dcc="test",
+        version="1.0.0",
+        thread_affinity="main",
+        enforce_thread_affinity=True,
+    )
 
     dispatcher = QueueDispatcher()
     server.attach_dispatcher(dispatcher)
