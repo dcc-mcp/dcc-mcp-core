@@ -44,32 +44,45 @@ impl ToolInvoker for ThreadRoutedInvoker {
                 )
             })?;
 
-        let handle = tokio::runtime::Handle::try_current().map_err(|_| {
-            ServiceError::new(
-                ServiceErrorKind::Internal,
-                "thread-routed REST invoke requires a Tokio runtime",
-            )
-        })?;
-
         let dispatcher = Arc::clone(&self.dispatcher);
         let executor = self.executor.clone();
         let action = action_name.to_string();
         let affinity = meta.thread_affinity;
         let enforce = meta.enforce_thread_affinity;
 
-        let output = handle
-            .block_on(async move {
-                dispatch_action_with_thread_routing(
+        // `SkillRestService::call` is synchronous and runs on the dedicated
+        // HTTP thread's `current_thread` Tokio runtime. We cannot
+        // `Handle::block_on` there (deadlock / panic). A nested
+        // `current_thread` runtime on a helper OS thread can `.await` the same
+        // `dispatch_action_with_thread_routing` path MCP `tools/call` uses.
+        let output = std::thread::scope(|scope| {
+            let join = scope.spawn(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|e| {
+                        ServiceError::new(
+                            ServiceErrorKind::Internal,
+                            format!("thread-routed REST runtime: {e}"),
+                        )
+                    })?;
+                rt.block_on(dispatch_action_with_thread_routing(
                     dispatcher.as_ref().clone(),
                     Some(&executor),
                     &action,
                     params,
                     affinity,
                     enforce,
+                ))
+                .map_err(|err| dispatch_err_to_service_error(&err))
+            });
+            join.join().map_err(|_| {
+                ServiceError::new(
+                    ServiceErrorKind::Internal,
+                    "thread-routed REST invoke panicked",
                 )
-                .await
-            })
-            .map_err(|err| dispatch_err_to_service_error(&err))?;
+            })?
+        })?;
 
         Ok(CallOutcome {
             slug: ToolSlug(action_name.to_string()),
