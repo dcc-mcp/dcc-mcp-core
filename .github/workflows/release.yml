@@ -87,7 +87,7 @@ jobs:
 
   # ── Build standalone binaries (raw Release assets + server PyPI wheel) ──
   #
-  # One job, one cargo target/, three outputs:
+  # One job, one native cargo target/ (plus an isolated manylinux target/), three outputs:
   #   1. Raw binary `dcc-mcp-server[-linux-x86_64|-windows-x86_64.exe|-macos-universal2]`
   #      attached to the GitHub Release. Backward-compat artefact for
   #      ops / docker users who don't want to `pip install`.
@@ -97,8 +97,10 @@ jobs:
   #      pkg/dcc-mcp-server-bin/ via maturin's `bindings = "bin"`. It has
   #      no Python extension ABI and declares Python 3.7+ compatibility so
   #      Maya 2022's embedded Python can install it. maturin reuses the
-  #      just-built binary from `target/release/` so we do NOT compile twice
-  #      (#1003 review feedback).
+  #      just-built binary from `target/release/` on macOS/Windows so we do
+  #      NOT compile twice (#1003 review feedback). Linux manylinux wheels use
+  #      an isolated `target-manylinux2014/` because host-built Cargo build
+  #      scripts cannot run inside the older manylinux2014 glibc environment.
   #
   # Both artefacts ride the same release-please tag — there is exactly
   # one release lifecycle for the workspace, and `dcc-mcp-server` ships
@@ -182,7 +184,9 @@ jobs:
       # step just populated; maturin sees the binary as already-compiled
       # and does only the wheel-pack step. Linux intentionally builds
       # inside a manylinux2014 container so the uploaded wheel is accepted
-      # by older embedded hosts such as Maya 2022 / Python 3.7.
+      # by older embedded hosts such as Maya 2022 / Python 3.7. Keep that
+      # container build on its own Cargo target dir: reusing host-built
+      # build scripts from target/ can fail with GLIBC_* symbol errors.
       # NOTE: maturin's `--strip` is intentionally OMITTED — the workspace
       # already has `strip = true` in `[profile.release]` (Cargo.toml:214),
       # so the binary is stripped at the cargo level. Adding `--strip` here
@@ -203,6 +207,7 @@ jobs:
         run: |
           docker run --rm \
             -v "$PWD:/io" \
+            -e CARGO_TARGET_DIR=/io/target-manylinux2014 \
             -w /io/pkg/dcc-mcp-server-bin \
             ghcr.io/pyo3/maturin:v1.13.3 \
             build --release --manylinux 2014 --out wheels
