@@ -9,7 +9,7 @@ import unrealIcon from './assets/icons/unrealengine.svg';
 import substancePainterIcon from './assets/icons/photoshop.svg';
 import puzzleIcon from './assets/icons/puzzle.svg';
 
-type Panel = 'health' | 'instances' | 'tools' | 'calls' | 'traces' | 'stats' | 'logs' | 'skill-paths';
+type Panel = 'activity' | 'health' | 'instances' | 'tools' | 'tasks' | 'calls' | 'traces' | 'stats' | 'logs' | 'skill-paths';
 
 type HealthPayload = {
   status: string;
@@ -60,6 +60,37 @@ type TraceRow = {
   total_ms: number | null;
   instance_id?: string | null;
   dcc_type?: string | null;
+};
+
+type ActivityEvent = {
+  event_id: string;
+  timestamp: string;
+  kind: string;
+  severity: string;
+  status: string;
+  message: string;
+  tool?: string | null;
+  duration_ms?: number | null;
+  correlation?: {
+    request_id?: string;
+    session_id?: string;
+    instance_id?: string;
+    dcc_type?: string;
+    workflow_id?: string;
+    job_id?: string;
+    agent_id?: string;
+    parent_request_id?: string;
+  };
+};
+
+type TaskRow = {
+  task_id: string;
+  task_type: string;
+  status: string;
+  title: string;
+  started_at: string;
+  duration_ms?: number | null;
+  correlation?: ActivityEvent['correlation'];
 };
 
 type LatencyBlock = {
@@ -210,9 +241,11 @@ const API_BASE = adminApiBase();
 /** Abort hung admin fetches so the UI does not wait indefinitely on a wedged gateway. */
 const ADMIN_FETCH_TIMEOUT_MS = 25_000;
 const PANELS: { id: Panel; label: string }[] = [
+  { id: 'activity', label: 'Activity' },
   { id: 'health', label: 'Health' },
   { id: 'instances', label: 'Instances' },
   { id: 'tools', label: 'Tools' },
+  { id: 'tasks', label: 'Tasks' },
   { id: 'calls', label: 'Calls' },
   { id: 'traces', label: 'Traces' },
   { id: 'stats', label: 'Stats' },
@@ -261,7 +294,7 @@ function readPanelFromUrl(): Panel {
   if (raw === 'workers') {
     return 'instances';
   }
-  return isPanelId(raw) ? raw : 'health';
+  return isPanelId(raw) ? raw : 'activity';
 }
 
 function readStatsRangeFromUrl(): string {
@@ -292,19 +325,44 @@ function matchesListFilter(query: string, hay: string): boolean {
   return hay.includes(q);
 }
 
+function isLoopbackHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]';
+}
+
+function backendAccessUrls(mcpUrl: string): { origin: string; mcp: string; docs: string } {
+  const u = new URL(mcpUrl);
+  if (isLoopbackHost(u.hostname)) {
+    u.hostname = window.location.hostname;
+  }
+  const origin = u.origin;
+  return { origin, mcp: u.toString(), docs: `${origin}/docs` };
+}
+
+function BackendAccessUrl({ mcpUrl }: { mcpUrl: string }) {
+  try {
+    const urls = backendAccessUrls(mcpUrl);
+    return (
+      <a className="mono-path" href={urls.origin} target="_blank" rel="noopener noreferrer">
+        {urls.origin}
+      </a>
+    );
+  } catch {
+    return <span className="mono-path">{mcpUrl}</span>;
+  }
+}
+
 /** Open host root, MCP endpoint, and `/docs` on the DCC HTTP server (same origin as MCP). */
 function McpBackendLinks({ mcpUrl }: { mcpUrl: string }) {
   try {
-    const u = new URL(mcpUrl);
-    const origin = u.origin;
-    const docs = `${origin}/docs`;
+    const urls = backendAccessUrls(mcpUrl);
     return (
       <span className="mcp-backend-links">
-        <a href={origin} target="_blank" rel="noopener noreferrer">host</a>
+        <a href={urls.origin} target="_blank" rel="noopener noreferrer">host</a>
         {' · '}
-        <a href={mcpUrl} target="_blank" rel="noopener noreferrer">MCP</a>
+        <a href={urls.mcp} target="_blank" rel="noopener noreferrer">MCP</a>
         {' · '}
-        <a href={docs} target="_blank" rel="noopener noreferrer">docs</a>
+        <a href={urls.docs} target="_blank" rel="noopener noreferrer">docs</a>
       </span>
     );
   } catch {
@@ -532,7 +590,9 @@ function groupRows<T>(rows: T[], keyFn: (row: T) => string): Map<string, T[]> {
 function App() {
   const [activePanel, setActivePanel] = useState<Panel>(() => readPanelFromUrl());
   const [health, setHealth] = useState<HealthPayload | null>(null);
+  const [activity, setActivity] = useState<ActivityEvent[]>([]);
   const [tools, setTools] = useState<ToolRow[]>([]);
+  const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [calls, setCalls] = useState<CallRow[]>([]);
   const [traces, setTraces] = useState<TraceRow[]>([]);
   const [stats, setStats] = useState<StatsPayload | null>(null);
@@ -546,9 +606,11 @@ function App() {
   const [traceDetail, setTraceDetail] = useState<string>('Select a trace row for detail.');
   const [callDetail, setCallDetail] = useState<string>('Select a call row for trace detail.');
   const [updatedAt, setUpdatedAt] = useState<Record<Panel, string>>({
+    activity: 'Loading…',
     health: 'Loading…',
     instances: 'Loading…',
     tools: 'Loading…',
+    tasks: 'Loading…',
     calls: 'Loading…',
     traces: 'Loading…',
     stats: 'Loading…',
@@ -569,6 +631,33 @@ function App() {
   useEffect(() => {
     setListSearch('');
   }, [activePanel]);
+
+  const filteredActivity = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    if (!q) {
+      return activity;
+    }
+    return activity.filter((event) =>
+      matchesListFilter(
+        q,
+        haystack(
+          event.timestamp,
+          event.kind,
+          event.severity,
+          event.status,
+          event.message,
+          event.tool ?? '',
+          event.correlation?.request_id ?? '',
+          event.correlation?.session_id ?? '',
+          event.correlation?.instance_id ?? '',
+          event.correlation?.dcc_type ?? '',
+          event.correlation?.workflow_id ?? '',
+          event.correlation?.job_id ?? '',
+          event.correlation?.agent_id ?? '',
+        ),
+      ),
+    );
+  }, [activity, listSearch]);
 
   const filteredTools = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
@@ -625,6 +714,31 @@ function App() {
       ),
     );
   }, [traces, listSearch]);
+
+  const filteredTasks = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    if (!q) {
+      return tasks;
+    }
+    return tasks.filter((task) =>
+      matchesListFilter(
+        q,
+        haystack(
+          task.task_id,
+          task.task_type,
+          task.status,
+          task.title,
+          task.started_at,
+          String(task.duration_ms ?? ''),
+          task.correlation?.request_id ?? '',
+          task.correlation?.instance_id ?? '',
+          task.correlation?.dcc_type ?? '',
+          task.correlation?.workflow_id ?? '',
+          task.correlation?.job_id ?? '',
+        ),
+      ),
+    );
+  }, [tasks, listSearch]);
 
   const filteredWorkers = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
@@ -718,6 +832,16 @@ function App() {
     setErrors((current) => ({ ...current, [panel]: error instanceof Error ? error.message : String(error) }));
   }, []);
 
+  const fetchActivity = useCallback(async () => {
+    try {
+      const payload = await apiJson<{ events: ActivityEvent[] }>('/activity?limit=300');
+      setActivity(Array.isArray(payload.events) ? payload.events : []);
+      markUpdated('activity', `${payload.events?.length ?? 0} event(s) — ${new Date().toLocaleTimeString()}`);
+    } catch (error) {
+      markError('activity', error);
+    }
+  }, [markError, markUpdated]);
+
   const fetchHealth = useCallback(async () => {
     try {
       const payload = await apiJson<HealthPayload>('/health');
@@ -769,6 +893,16 @@ function App() {
       markUpdated('traces', `${payload.traces.length} trace(s) — ${new Date().toLocaleTimeString()}`);
     } catch (error) {
       markError('traces', error);
+    }
+  }, [markError, markUpdated]);
+
+  const fetchTasks = useCallback(async () => {
+    try {
+      const payload = await apiJson<{ tasks: TaskRow[] }>('/tasks?limit=300');
+      setTasks(Array.isArray(payload.tasks) ? payload.tasks : []);
+      markUpdated('tasks', `${payload.tasks?.length ?? 0} task(s) — ${new Date().toLocaleTimeString()}`);
+    } catch (error) {
+      markError('tasks', error);
     }
   }, [markError, markUpdated]);
 
@@ -969,15 +1103,17 @@ function App() {
   }, [fetchTraceInto]);
 
   const fetchPanel = useCallback((panel: Panel) => {
+    if (panel === 'activity') void fetchActivity();
     if (panel === 'health') void fetchHealth();
     if (panel === 'instances') void fetchInstanceBackends();
     if (panel === 'tools') void fetchTools();
+    if (panel === 'tasks') void fetchTasks();
     if (panel === 'calls') void fetchCalls();
     if (panel === 'traces') void fetchTraces();
     if (panel === 'stats') void fetchStats();
     if (panel === 'skill-paths') void fetchSkillPaths();
     if (panel === 'logs') void fetchLogs();
-  }, [fetchCalls, fetchHealth, fetchInstanceBackends, fetchLogs, fetchSkillPaths, fetchStats, fetchTools, fetchTraces]);
+  }, [fetchActivity, fetchCalls, fetchHealth, fetchInstanceBackends, fetchLogs, fetchSkillPaths, fetchStats, fetchTasks, fetchTools, fetchTraces]);
 
   useEffect(() => {
     fetchPanel(activePanel);
@@ -1025,8 +1161,10 @@ function App() {
             />
             {listSearch.trim() ? (
               <span className="list-search-meta">
+                {activePanel === 'activity' ? `${filteredActivity.length} / ${activity.length}` : ''}
                 {activePanel === 'instances' ? `${filteredWorkers.length} / ${workers.length}` : ''}
                 {activePanel === 'tools' ? `${filteredTools.length} / ${tools.length}` : ''}
+                {activePanel === 'tasks' ? `${filteredTasks.length} / ${tasks.length}` : ''}
                 {activePanel === 'calls' ? `${filteredCalls.length} / ${calls.length}` : ''}
                 {activePanel === 'traces' ? `${filteredTraces.length} / ${traces.length}` : ''}
                 {activePanel === 'skill-paths' ? `${filteredSkillPaths.length} / ${skillPaths.length}` : ''}
@@ -1036,6 +1174,45 @@ function App() {
             ) : null}
           </div>
         )}
+        {activePanel === 'activity' && (
+          <section className="panel active activity-panel">
+            <h2>Activity</h2>
+            <StatusLine text={updatedAt.activity} error={errors.activity} />
+            {activity.length === 0 ? <p className="empty">No activity recorded yet.</p> : filteredActivity.length === 0 ? (
+              <p className="empty">No activity events match your search.</p>
+            ) : (
+              <table>
+                <thead><tr><th>Time</th><th>Status</th><th>Kind</th><th>Message</th><th>DCC</th><th>Request</th><th>ms</th></tr></thead>
+                <tbody>
+                  {filteredActivity.map((event) => {
+                    const requestId = event.correlation?.request_id;
+                    return (
+                      <tr key={event.event_id}>
+                        <td>{formatTime(event.timestamp)}</td>
+                        <td><StatusBadge value={event.status} /></td>
+                        <td>{event.kind}</td>
+                        <td title={event.message}>{event.message}</td>
+                        <td>{event.correlation?.dcc_type ?? '-'}</td>
+                        <td>
+                          {requestId ? (
+                            <button className="refresh-btn" type="button" title={requestId} onClick={() => goToPanel('traces', { traceId: requestId })}>
+                              {requestId.slice(0, 12)}
+                            </button>
+                          ) : (
+                            '-'
+                          )}
+                        </td>
+                        <td>{event.duration_ms ?? '-'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+            <button className="refresh-btn" type="button" onClick={fetchActivity}>Refresh</button>
+          </section>
+        )}
+
         {activePanel === 'health' && (
           <section className="panel active health-panel">
             <h2>Health</h2>
@@ -1096,6 +1273,7 @@ function App() {
                       <span>Scene</span><span>{worker.scene ?? '-'}</span>
                       <span>CPU%</span><span>{worker.cpu_percent == null ? '-' : worker.cpu_percent.toFixed(1)}</span>
                       <span>Memory</span><span>{formatBytes(worker.memory_bytes)}</span>
+                      <span>Access URL</span><span><BackendAccessUrl mcpUrl={worker.mcp_url} /></span>
                       <span>Endpoints</span><span><McpBackendLinks mcpUrl={worker.mcp_url} /></span>
                     </div>
                   </div>
@@ -1135,6 +1313,45 @@ function App() {
                 </div>
               )))}
             <button className="refresh-btn" type="button" onClick={fetchTools}>Refresh</button>
+          </section>
+        )}
+
+        {activePanel === 'tasks' && (
+          <section className="panel active tasks-panel">
+            <h2>Tasks</h2>
+            <StatusLine text={updatedAt.tasks} error={errors.tasks} />
+            {tasks.length === 0 ? <p className="empty">No tasks reconstructed from traces yet.</p> : filteredTasks.length === 0 ? (
+              <p className="empty">No tasks match your search.</p>
+            ) : (
+              <table>
+                <thead><tr><th>Started</th><th>Status</th><th>Type</th><th>Title</th><th>DCC</th><th>Task</th><th>ms</th></tr></thead>
+                <tbody>
+                  {filteredTasks.map((task) => {
+                    const requestId = task.correlation?.request_id;
+                    return (
+                      <tr key={task.task_id}>
+                        <td>{formatTime(task.started_at)}</td>
+                        <td><StatusBadge value={task.status} /></td>
+                        <td>{task.task_type}</td>
+                        <td title={task.title}>{task.title}</td>
+                        <td>{task.correlation?.dcc_type ?? '-'}</td>
+                        <td>
+                          {requestId ? (
+                            <button className="refresh-btn" type="button" title={requestId} onClick={() => goToPanel('traces', { traceId: requestId })}>
+                              {requestId.slice(0, 12)}
+                            </button>
+                          ) : (
+                            task.task_id.slice(0, 12)
+                          )}
+                        </td>
+                        <td>{task.duration_ms ?? '-'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+            <button className="refresh-btn" type="button" onClick={fetchTasks}>Refresh</button>
           </section>
         )}
 

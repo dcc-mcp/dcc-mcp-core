@@ -1,0 +1,312 @@
+//! Unified admin activity projection.
+//!
+//! The dashboard has several raw observability lanes: audit rows, dispatch
+//! traces, gateway events, and eventually workflow/job updates.  This module
+//! gives both humans and agents a single timeline-shaped interface over those
+//! lanes without changing the hot-path writers.
+
+use std::cmp::Reverse;
+use std::collections::HashMap;
+use std::time::UNIX_EPOCH;
+
+use serde::Serialize;
+use serde_json::{Value, json};
+
+use super::state::{AdminAuditRecord, AdminState};
+use super::trace::DispatchTrace;
+use crate::gateway::event_log::ContendEvent;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ActivityCorrelation {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dcc_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workflow_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_request_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ActivityEvent {
+    pub event_id: String,
+    pub timestamp: String,
+    pub kind: String,
+    pub severity: String,
+    pub status: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    pub correlation: ActivityCorrelation,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskSnapshot {
+    pub task_id: String,
+    pub task_type: String,
+    pub status: String,
+    pub title: String,
+    pub started_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    pub correlation: ActivityCorrelation,
+}
+
+pub async fn build_activity_payload(state: &AdminState, limit: usize) -> Value {
+    let events = collect_activity_events(state, limit).await;
+    json!({ "total": events.len(), "events": events })
+}
+
+pub async fn build_tasks_payload(state: &AdminState, limit: usize) -> Value {
+    let mut tasks = Vec::new();
+    for trace in collect_traces(state, limit).await {
+        tasks.push(TaskSnapshot {
+            task_id: trace.request_id.clone(),
+            task_type: "tool_call".to_string(),
+            status: if trace.ok { "completed" } else { "failed" }.to_string(),
+            title: trace
+                .tool_slug
+                .clone()
+                .unwrap_or_else(|| trace.method.clone()),
+            started_at: rfc3339(trace.started_at),
+            duration_ms: Some(trace.total_ms),
+            correlation: trace_correlation(&trace),
+        });
+    }
+    json!({ "total": tasks.len(), "tasks": tasks })
+}
+
+pub async fn build_debug_bundle(state: &AdminState, request_id: &str) -> Option<Value> {
+    let audits = collect_audits(state, 1_000).await;
+    let audit = audits.into_iter().find(|r| r.request_id == request_id);
+    let trace = find_trace(state, request_id).await;
+    if audit.is_none() && trace.is_none() {
+        return None;
+    }
+    let related_activity: Vec<Value> = state
+        .gateway
+        .event_log
+        .recent_events(500)
+        .into_iter()
+        .filter(|event| {
+            event
+                .reason
+                .as_deref()
+                .is_some_and(|r| r.contains(request_id))
+        })
+        .map(gateway_event_json)
+        .collect();
+    Some(json!({
+        "request_id": request_id,
+        "audit": audit.map(|r| audit_event(&r)),
+        "trace": trace,
+        "related_activity": related_activity,
+        "hints": debug_hints(trace.as_ref()),
+    }))
+}
+
+async fn collect_activity_events(state: &AdminState, limit: usize) -> Vec<ActivityEvent> {
+    let mut events = Vec::new();
+    for record in collect_audits(state, limit.saturating_mul(2).max(200)).await {
+        events.push(audit_event(&record));
+    }
+    for trace in collect_traces(state, limit.saturating_mul(2).max(200)).await {
+        events.push(trace_event(&trace));
+    }
+    for event in state.gateway.event_log.recent_events(limit.min(500)) {
+        events.push(gateway_event(&event));
+    }
+    events.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    events.truncate(limit);
+    events
+}
+
+async fn collect_audits(state: &AdminState, limit: usize) -> Vec<AdminAuditRecord> {
+    let mut by_id: HashMap<String, AdminAuditRecord> = HashMap::new();
+    if let Some(lane) = &state.admin_sqlite_lane {
+        for rec in lane
+            .reader()
+            .list_audits_recent(limit.saturating_mul(4).max(500))
+        {
+            by_id.insert(rec.request_id.clone(), rec);
+        }
+    }
+    if let Some(log) = &state.audit_log {
+        for rec in log.lock().iter().rev().take(limit) {
+            by_id.insert(rec.request_id.clone(), rec.clone());
+        }
+    }
+    let mut rows: Vec<_> = by_id.into_values().collect();
+    rows.sort_by_key(|row| Reverse(row.timestamp));
+    rows.truncate(limit);
+    rows
+}
+
+async fn collect_traces(state: &AdminState, limit: usize) -> Vec<DispatchTrace> {
+    let mut by_id: HashMap<String, DispatchTrace> = HashMap::new();
+    if let Some(lane) = &state.admin_sqlite_lane {
+        for trace in lane
+            .reader()
+            .list_traces_since(None, limit.saturating_mul(4).max(500))
+        {
+            by_id.insert(trace.request_id.clone(), trace);
+        }
+    }
+    if let Some(log) = &state.trace_log {
+        for trace in log.recent(limit) {
+            by_id.insert(trace.request_id.clone(), trace);
+        }
+    }
+    let mut rows: Vec<_> = by_id.into_values().collect();
+    rows.sort_by_key(|row| Reverse(row.started_at));
+    rows.truncate(limit);
+    rows
+}
+
+async fn find_trace(state: &AdminState, request_id: &str) -> Option<DispatchTrace> {
+    if let Some(trace) = state.trace_log.as_ref().and_then(|log| log.get(request_id)) {
+        return Some(trace);
+    }
+    state
+        .admin_sqlite_lane
+        .as_ref()
+        .and_then(|lane| lane.reader().get_trace(request_id))
+}
+
+fn audit_event(record: &AdminAuditRecord) -> ActivityEvent {
+    ActivityEvent {
+        event_id: format!("audit:{}", record.request_id),
+        timestamp: rfc3339(record.timestamp),
+        kind: "tool_call".to_string(),
+        severity: if record.success { "info" } else { "error" }.to_string(),
+        status: if record.success { "ok" } else { "err" }.to_string(),
+        message: format!(
+            "{} {}",
+            record.method.as_deref().unwrap_or("call"),
+            record.action
+        ),
+        tool: Some(record.action.clone()),
+        duration_ms: record.duration_ms,
+        correlation: ActivityCorrelation {
+            request_id: Some(record.request_id.clone()),
+            session_id: record.session_id.clone(),
+            instance_id: record.instance_id.clone(),
+            dcc_type: record.dcc_type.clone(),
+            workflow_id: None,
+            job_id: None,
+            agent_id: None,
+            parent_request_id: None,
+        },
+    }
+}
+
+fn trace_event(trace: &DispatchTrace) -> ActivityEvent {
+    let tool = trace
+        .tool_slug
+        .clone()
+        .unwrap_or_else(|| trace.method.clone());
+    ActivityEvent {
+        event_id: format!("trace:{}", trace.request_id),
+        timestamp: rfc3339(trace.started_at),
+        kind: "dispatch_trace".to_string(),
+        severity: if trace.ok { "debug" } else { "error" }.to_string(),
+        status: if trace.ok { "ok" } else { "err" }.to_string(),
+        message: format!("{} completed in {}ms", tool, trace.total_ms),
+        tool: Some(tool),
+        duration_ms: Some(trace.total_ms),
+        correlation: trace_correlation(trace),
+    }
+}
+
+fn gateway_event(event: &ContendEvent) -> ActivityEvent {
+    let label = event.event.as_label();
+    ActivityEvent {
+        event_id: format!(
+            "gateway:{}:{}:{}",
+            event.timestamp, event.dcc_type, event.instance_id
+        ),
+        timestamp: event.timestamp.clone(),
+        kind: "gateway_event".to_string(),
+        severity: "info".to_string(),
+        status: label.to_string(),
+        message: event.reason.clone().unwrap_or_else(|| {
+            format!(
+                "{label} dcc_type={} instance={}",
+                event.dcc_type, event.instance_id
+            )
+        }),
+        tool: None,
+        duration_ms: None,
+        correlation: ActivityCorrelation {
+            request_id: None,
+            session_id: None,
+            instance_id: Some(event.instance_id.clone()),
+            dcc_type: Some(event.dcc_type.clone()),
+            workflow_id: None,
+            job_id: None,
+            agent_id: None,
+            parent_request_id: None,
+        },
+    }
+}
+
+fn gateway_event_json(event: ContendEvent) -> Value {
+    serde_json::to_value(gateway_event(&event)).unwrap_or_else(|_| json!({}))
+}
+
+fn trace_correlation(trace: &DispatchTrace) -> ActivityCorrelation {
+    ActivityCorrelation {
+        request_id: Some(trace.request_id.clone()),
+        session_id: trace.session_id.clone(),
+        instance_id: trace.instance_id.clone(),
+        dcc_type: trace.dcc_type.clone(),
+        workflow_id: None,
+        job_id: None,
+        agent_id: None,
+        parent_request_id: None,
+    }
+}
+
+fn debug_hints(trace: Option<&DispatchTrace>) -> Vec<String> {
+    let Some(trace) = trace else {
+        return vec!["No dispatch trace was retained for this request.".to_string()];
+    };
+    if trace.ok {
+        return vec![
+            "Request completed successfully; inspect spans for slow segments.".to_string(),
+        ];
+    }
+    let mut hints =
+        vec!["Request failed; inspect the last error span and output payload.".to_string()];
+    if trace
+        .spans
+        .iter()
+        .any(|span| span.name.contains("backend") && !span.ok)
+    {
+        hints.push(
+            "A backend span failed; check instance reachability and sidecar/DCC logs.".to_string(),
+        );
+    }
+    hints
+}
+
+fn rfc3339(t: std::time::SystemTime) -> String {
+    t.duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|_| {
+            chrono::DateTime::<chrono::Utc>::from(t)
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+        })
+        .unwrap_or_default()
+}
