@@ -24,19 +24,70 @@
 
 It combines **MCP 2025-03-26 Streamable HTTP**, a **zero-code Skills system** built on [agentskills.io 1.0](https://agentskills.io/specification), and a Rust gateway for discovery, routing, installation, linting, and operations. The Python package keeps **zero runtime Python dependencies** for embedded DCC hosts, while standalone `dcc-mcp-cli` and `dcc-mcp-server` binaries ship through GitHub Releases for workstation-style installs. Supports Python 3.7–3.13.
 
+Use it when you want agents to operate production DCC sessions without flooding the context window, hand-writing Python glue for every tool, or shipping fragile one-off shell scripts. Start with the CLI in two commands, or embed the Python core directly in a DCC adapter.
+
+---
+
+## What You Get
+
+| Need | dcc-mcp-core gives you |
+|---|---|
+| Let agents operate real DCC sessions | MCP + REST endpoints for Maya, Blender, Houdini, Photoshop, and custom hosts |
+| Keep tool context small | Gateway discovery: `search_tools` -> `describe_tool` -> `call_tool` |
+| Add tools without framework glue | `SKILL.md` + sibling YAML/scripts, aligned with agentskills.io |
+| Debug live workstation state | Admin UI, viewport diagnostics, audit logs, traces, metrics |
+| Survive production constraints | Main-thread dispatch, async jobs, sidecar/server binaries, workflow and artefact primitives |
+
+## Quick Start
+
+### Install the standalone CLI
+
+Use the release binary when you want the operator/CI control plane without a Python environment:
+
 ```bash
-# Install the standalone CLI on Linux/macOS
+# Linux/macOS
 curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | bash
 
-# Install the standalone CLI on Windows PowerShell
+# Windows PowerShell
 powershell -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+```
 
-# Then inspect a gateway or lint local Skills before they ever reach runtime
+After install:
+
+```bash
+dcc-mcp-cli health
 dcc-mcp-cli list
+dcc-mcp-cli search --query sphere --dcc-type maya
 dcc-mcp-cli lint path/to/skills
 ```
 
-Use it when you want agents to operate production DCC sessions without flooding the context window, hand-writing Python glue for every tool, or shipping fragile one-off shell scripts.
+### Install the Python core
+
+```bash
+pip install dcc-mcp-core
+```
+
+Or build from source with the repo's canonical feature set:
+
+```bash
+git clone https://github.com/loonghao/dcc-mcp-core.git
+cd dcc-mcp-core
+vx just dev
+```
+
+### Serve a DCC over MCP — Skills-First
+
+`create_skill_server` wires up progressive discovery, skill loading, routing, and structured results:
+
+```python
+from dcc_mcp_core import create_skill_server, McpHttpConfig
+
+server = create_skill_server("maya", McpHttpConfig(port=8765))
+handle = server.start()
+print(handle.mcp_url())   # "http://127.0.0.1:8765/mcp"
+```
+
+Agents then use `search_skills` -> `load_skill` on a per-DCC server, or `search_tools` -> `describe_tool` -> `call_tool` through the gateway.
 
 ---
 
@@ -162,7 +213,7 @@ multi-DCC workstation.
 
 ---
 
-## Quick Start
+## Installation Details & Manual API Example
 
 ### Install the standalone CLI
 
