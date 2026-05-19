@@ -151,9 +151,12 @@ pub struct McpHttpServer {
     catalog: Option<Arc<SkillCatalog>>,
     config: McpHttpConfig,
     executor: Option<DccExecutorHandle>,
-    /// Tokio runtime that drains the host-bridge mpsc when
-    /// [`Self::with_executor`] is used (PyO3 embed path). Required for
-    /// REST [`dcc_mcp_http_server::ThreadRoutedInvoker`] — see issue #1055.
+    /// Tokio runtime that drains the host-bridge mpsc (PyO3 / `dispatcher_to_executor_handle`).
+    ///
+    /// When set together with [`Self::with_executor`], REST `POST /v1/call` uses
+    /// [`dcc_mcp_http_server::ThreadRoutedInvoker`]. Without it, the server still
+    /// starts and MCP `tools/call` keeps executor routing; REST falls back to
+    /// direct dispatch (issue #1055).
     host_bridge_runtime: Option<tokio::runtime::Handle>,
     resources: crate::resources::ResourceRegistry,
     prompts: crate::prompts::PromptRegistry,
@@ -284,18 +287,21 @@ impl McpHttpServer {
         self.catalog.as_ref()
     }
 
-    /// Attach a DCC main-thread executor for thread-safe DCC API calls.
+    /// Attach a DCC main-thread executor for thread-safe DCC API calls (MCP `tools/call`).
+    ///
+    /// Does not require [`Self::with_host_bridge_runtime`]; that handle is only
+    /// needed when REST `POST /v1/call` should use the same host-bridge path.
     pub fn with_executor(mut self, executor: DccExecutorHandle) -> Self {
         self.executor = Some(executor);
         self
     }
 
-    /// Tokio runtime that services the host-bridge mpsc for [`Self::with_executor`].
+    /// Tokio runtime that services the host-bridge mpsc paired with
+    /// [`dcc_mcp_http_server::dispatcher_to_executor_handle`].
     ///
-    /// Pass the same [`Handle`] given to
-    /// [`dcc_mcp_http_server::dispatcher_to_executor_handle`]. Without this,
-    /// REST `POST /v1/call` cannot await main-thread dispatch while the
-    /// dedicated HTTP thread is blocked.
+    /// Pass the same [`Handle`] given to `dispatcher_to_executor_handle`. When
+    /// combined with [`Self::with_executor`], REST `POST /v1/call` honours
+    /// `thread_affinity=main` like MCP `tools/call`.
     pub fn with_host_bridge_runtime(mut self, runtime: tokio::runtime::Handle) -> Self {
         self.host_bridge_runtime = Some(runtime);
         self
@@ -474,24 +480,29 @@ impl McpHttpServer {
         let catalog_source =
             std::sync::Arc::new(dcc_mcp_skill_rest::CatalogSource::new(catalog.clone()));
         let invoker: std::sync::Arc<dyn dcc_mcp_skill_rest::ToolInvoker> =
-            if let Some(executor) = self.executor.clone() {
-                let bridge_runtime = self.host_bridge_runtime.clone().ok_or_else(|| {
-                    HttpError::Internal(
-                        "host_bridge_runtime is required when executor is set — \
-                         call McpHttpServer::with_host_bridge_runtime with the same \
-                         Handle passed to dispatcher_to_executor_handle"
-                            .to_string(),
-                    )
-                })?;
-                std::sync::Arc::new(dcc_mcp_http_server::ThreadRoutedInvoker::new(
+            match (self.executor.clone(), self.host_bridge_runtime.clone()) {
+                (Some(executor), Some(bridge_runtime)) => {
+                    std::sync::Arc::new(dcc_mcp_http_server::ThreadRoutedInvoker::new(
+                        self.dispatcher.clone(),
+                        executor,
+                        bridge_runtime,
+                    ))
+                }
+                (Some(_), None) => {
+                    tracing::warn!(
+                        issue = "loonghao/dcc-mcp-core#1055",
+                        "McpHttpServer: executor without host_bridge_runtime — MCP tools/call \
+                     keeps main-thread routing; REST POST /v1/call uses direct dispatch. \
+                     Call with_host_bridge_runtime(Handle) when the executor comes from \
+                     dispatcher_to_executor_handle"
+                    );
+                    std::sync::Arc::new(dcc_mcp_skill_rest::DispatcherInvoker::new(
+                        self.dispatcher.clone(),
+                    ))
+                }
+                _ => std::sync::Arc::new(dcc_mcp_skill_rest::DispatcherInvoker::new(
                     self.dispatcher.clone(),
-                    executor,
-                    bridge_runtime,
-                ))
-            } else {
-                std::sync::Arc::new(dcc_mcp_skill_rest::DispatcherInvoker::new(
-                    self.dispatcher.clone(),
-                ))
+                )),
             };
         let rest_service = dcc_mcp_skill_rest::SkillRestService::new(catalog_source, invoker)
             .with_resources(std::sync::Arc::new(
