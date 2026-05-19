@@ -88,6 +88,31 @@ class TestScanAndLoad:
         skills, _ = dcc_mcp_core.scan_and_load(extra_paths=["/this/path/does/not/exist"])
         assert skills == []
 
+    def test_missing_dependency_raises_with_skill_and_dependency_names(self, tmp_path: Path) -> None:
+        """scan_and_load fails loudly when a skill depends on a missing skill."""
+        _write_skill(tmp_path, "app", deps=["missing-lib"])
+
+        with pytest.raises(ValueError) as exc_info:
+            dcc_mcp_core.scan_and_load(extra_paths=[str(tmp_path)])
+
+        message = str(exc_info.value)
+        assert "app" in message
+        assert "missing-lib" in message
+        assert "skill search paths" in message
+
+    def test_cyclic_dependency_raises_with_cycle_members(self, tmp_path: Path) -> None:
+        """scan_and_load reports dependency cycles instead of returning an arbitrary order."""
+        _write_skill(tmp_path, "asset-publish", deps=["review-cache"])
+        _write_skill(tmp_path, "review-cache", deps=["asset-publish"])
+
+        with pytest.raises(ValueError) as exc_info:
+            dcc_mcp_core.scan_and_load(extra_paths=[str(tmp_path)])
+
+        message = str(exc_info.value)
+        assert "Circular dependency detected" in message
+        assert "asset-publish" in message
+        assert "review-cache" in message
+
     def test_dependency_order_respected(self, tmp_path: Path) -> None:
         """skill-b depends on skill-a; skill-a must appear first in the result."""
         _write_skill(tmp_path, "skill-a")
@@ -142,6 +167,39 @@ class TestScanAndLoadLenient:
             _write_skill(tmp_path, f"s{i}")
         skills, _ = dcc_mcp_core.scan_and_load_lenient(extra_paths=[str(tmp_path)])
         assert len(skills) == 4
+
+    def test_missing_dependency_reports_skipped_skill_path_not_exception(self, tmp_path: Path) -> None:
+        """Lenient scans keep valid skills and report dependency failures as skipped paths."""
+        _write_skill(tmp_path, "orphan-skill", deps=["missing-dep"])
+        _write_skill(tmp_path, "good-skill")
+
+        skills, skipped = dcc_mcp_core.scan_and_load_lenient(extra_paths=[str(tmp_path)])
+
+        assert {skill.name for skill in skills} == {"good-skill"}
+        assert len(skipped) == 1
+        assert Path(skipped[0]).name == "orphan-skill"
+
+
+# ---------------------------------------------------------------------------
+# scan_and_load_strict — skipped directories become actionable errors
+# ---------------------------------------------------------------------------
+
+
+class TestScanAndLoadStrict:
+    def test_invalid_skill_raises_with_bad_directory_and_remediation(self, tmp_path: Path) -> None:
+        """Strict scans turn skipped directories into a startup-time error contract."""
+        _write_skill(tmp_path, "good-skill")
+        bad_dir = tmp_path / "bad-skill"
+        bad_dir.mkdir()
+        (bad_dir / "SKILL.md").write_text("# missing frontmatter\n", encoding="utf-8")
+
+        with pytest.raises(ValueError) as exc_info:
+            dcc_mcp_core.scan_and_load_strict(extra_paths=[str(tmp_path)])
+
+        message = str(exc_info.value)
+        assert "Strict scan rejected 1 directory" in message
+        assert "bad-skill" in message
+        assert "scan_and_load_lenient" in message
 
 
 # ---------------------------------------------------------------------------
@@ -253,21 +311,23 @@ class TestValidateDependencies:
 
     def test_missing_dep_reported_as_error(self, tmp_path: Path) -> None:
         """A skill referencing a non-existent dependency produces an error entry."""
-        _write_skill(tmp_path, "broken", deps=["ghost-skill"])
-        _, _ = dcc_mcp_core.scan_and_load_lenient(extra_paths=[str(tmp_path)])
-        # lenient load skips broken, so validate on a manually-constructed list
-        broken_meta = dcc_mcp_core.SkillMetadata(name="broken")
-        # validate_dependencies on a list where dependency is missing
+        broken_meta = dcc_mcp_core.SkillMetadata(name="broken", depends=["ghost-skill"])
+
         errors = dcc_mcp_core.validate_dependencies([broken_meta])
-        # With no deps declared on the SkillMetadata (default), no errors
-        assert isinstance(errors, list)
+
+        assert errors == [
+            "Skill 'broken' depends on 'ghost-skill', but it was not found. "
+            "Ensure 'ghost-skill' is available in one of the skill search paths."
+        ]
 
     def test_missing_dep_skill_meta_with_depends(self, tmp_path: Path) -> None:
         """validate_dependencies reports error when dep listed in SkillMetadata.depends is absent."""
         missing_dep = dcc_mcp_core.SkillMetadata(name="app", depends=["missing-lib"])
         errors = dcc_mcp_core.validate_dependencies([missing_dep])
-        # Should report at least one error for the missing dependency
-        assert len(errors) > 0
+        assert len(errors) == 1
+        assert "app" in errors[0]
+        assert "missing-lib" in errors[0]
+        assert "skill search paths" in errors[0]
 
     def test_multiple_satisfied_deps_no_errors(self, tmp_path: Path) -> None:
         """Multiple satisfied dependencies in the skill list produce no errors."""
