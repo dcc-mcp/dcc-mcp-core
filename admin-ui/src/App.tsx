@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import mayaIcon from './assets/icons/autodesk.svg';
 import blenderIcon from './assets/icons/blender.svg';
 import gimpIcon from './assets/icons/gimp.svg';
@@ -256,23 +256,27 @@ function adminApiBase(): string {
 const API_BASE = adminApiBase();
 /** Abort hung admin fetches so the UI does not wait indefinitely on a wedged gateway. */
 const ADMIN_FETCH_TIMEOUT_MS = 25_000;
-const PANELS: { id: Panel; label: string }[] = [
-  { id: 'debug', label: 'Debug' },
-  { id: 'activity', label: 'Activity' },
-  { id: 'health', label: 'Health' },
-  { id: 'instances', label: 'Instances' },
-  { id: 'tools', label: 'Tools' },
-  { id: 'tasks', label: 'Tasks' },
-  { id: 'calls', label: 'Calls' },
-  { id: 'traces', label: 'Traces' },
-  { id: 'stats', label: 'Stats' },
-  { id: 'skill-paths', label: 'Skill paths' },
-  { id: 'logs', label: 'Logs' },
+const PANELS: { id: Panel; label: string; group: string }[] = [
+  { id: 'debug', label: 'Debug', group: 'Operations' },
+  { id: 'instances', label: 'Instances', group: 'Operations' },
+  { id: 'activity', label: 'Activity', group: 'Operations' },
+  { id: 'health', label: 'Health', group: 'Operations' },
+  { id: 'tasks', label: 'Tasks', group: 'Workspace' },
+  { id: 'tools', label: 'Tools', group: 'Workspace' },
+  { id: 'stats', label: 'Stats', group: 'Observability' },
+  { id: 'traces', label: 'Traces', group: 'Observability' },
+  { id: 'calls', label: 'Calls', group: 'Observability' },
+  { id: 'logs', label: 'Logs', group: 'Observability' },
+  { id: 'skill-paths', label: 'Skill paths', group: 'Configuration' },
 ];
 
 const PANEL_ID_SET = new Set<Panel>(PANELS.map((p) => p.id));
 
 const STATS_RANGE_IDS = new Set(['1h', '24h', '7d', 'all']);
+
+function gatewayDocsHref(): string {
+  return `${window.location.origin}/docs`;
+}
 
 function isPanelId(value: string | null | undefined): value is Panel {
   return value != null && value !== '' && PANEL_ID_SET.has(value as Panel);
@@ -439,13 +443,28 @@ function formatBytes(value: number | null | undefined): string {
 
 function statusClass(value: string): string {
   const status = value.toLowerCase();
-  if (status.includes('ok') || status.includes('success') || status.includes('ready') || status.includes('available') || status.includes('busy')) {
+  if (status.includes('fail') || status.includes('error') || status.includes('err') || status.includes('rejected') || status.includes('cancel')) {
+    return 'badge badge-err';
+  }
+  if (status.includes('ok') || status.includes('success') || status.includes('complete') || status.includes('completed') || status.includes('done') || status.includes('ready') || status.includes('available')) {
     return 'badge badge-ok';
   }
-  if (status.includes('stale') || status.includes('booting') || status.includes('warn')) {
+  if (status.includes('stale') || status.includes('booting') || status.includes('warn') || status.includes('pending') || status.includes('running') || status.includes('busy') || status.includes('queued')) {
     return 'badge badge-warn';
   }
-  return 'badge badge-err';
+  return 'badge badge-muted';
+}
+
+function isOkStatus(value: string | null | undefined): boolean {
+  return statusClass(value ?? '').includes('badge-ok');
+}
+
+function isErrStatus(value: string | null | undefined): boolean {
+  return statusClass(value ?? '').includes('badge-err');
+}
+
+function isWarnStatus(value: string | null | undefined): boolean {
+  return statusClass(value ?? '').includes('badge-warn');
 }
 
 function StatusBadge({ value }: { value: string }) {
@@ -462,6 +481,60 @@ function HealthCard({ tone, label, value }: { tone?: 'ok' | 'warn'; label: strin
       <div className="label">{label}</div>
       <div className="value">{value}</div>
     </div>
+  );
+}
+
+function MetricTile({ tone, label, value, detail }: { tone?: 'ok' | 'warn' | 'err'; label: string; value: string | number; detail?: string }) {
+  return (
+    <div className={`metric-tile ${tone ?? ''}`}>
+      <div className="metric-label">{label}</div>
+      <div className="metric-value">{value}</div>
+      {detail ? <div className="metric-detail">{detail}</div> : null}
+    </div>
+  );
+}
+
+function PanelHeader({ title, meta, action }: { title: string; meta?: string; action?: ReactNode }) {
+  return (
+    <div className="panel-header">
+      <div>
+        <h2>{title}</h2>
+        {meta ? <p className="panel-meta">{meta}</p> : null}
+      </div>
+      {action ? <div className="panel-actions">{action}</div> : null}
+    </div>
+  );
+}
+
+function NavIcon({ panel }: { panel: Panel }) {
+  const icons: Record<Panel, string[]> = {
+    debug: ['M6 6h12v12H6z', 'M9 9h6v6H9z'],
+    activity: ['M4 14h4l2-5 4 9 2-4h4'],
+    health: ['M12 4l7 4v5c0 4-3 7-7 8-4-1-7-4-7-8V8z'],
+    instances: ['M6 7h12v10H6z', 'M9 4h6', 'M9 20h6'],
+    tools: ['M5 19l5-5', 'M14 5l5 5', 'M12 7l5 5-5 5-5-5z'],
+    tasks: ['M6 7h12', 'M6 12h12', 'M6 17h12', 'M4 7h.01', 'M4 12h.01', 'M4 17h.01'],
+    calls: ['M7 7h10v10H7z', 'M10 10h4v4h-4z'],
+    traces: ['M5 7h4v4H5z', 'M15 13h4v4h-4z', 'M9 9l6 6'],
+    stats: ['M5 18V9', 'M12 18V5', 'M19 18v-6', 'M4 18h16'],
+    logs: ['M7 5h8l3 3v11H7z', 'M15 5v4h4', 'M10 13h6', 'M10 16h5'],
+    'skill-paths': ['M5 12h14', 'M12 5v14', 'M7 7l10 10', 'M17 7L7 17'],
+  };
+  return (
+    <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+      {icons[panel].map((d) => <path key={d} d={d} />)}
+    </svg>
+  );
+}
+
+function DocsIcon() {
+  return (
+    <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M6 4h9l3 3v13H6z" />
+      <path d="M15 4v4h4" />
+      <path d="M9 13h6" />
+      <path d="M9 16h5" />
+    </svg>
   );
 }
 
@@ -571,6 +644,16 @@ function errorRateTone(stats: StatsPayload | null): 'ok' | 'warn' | undefined {
 
 function traceLatency(trace: TraceRow): number {
   return trace.total_ms ?? -1;
+}
+
+function formatDurationMs(value: number | null | undefined): string {
+  if (value == null) {
+    return '-';
+  }
+  if (value < 1_000) {
+    return `${value} ms`;
+  }
+  return `${(value / 1_000).toFixed(2)} s`;
 }
 
 function compactId(value: string | null | undefined): string {
@@ -924,6 +1007,26 @@ function App() {
     return rows.filter((r) => r.name.toLowerCase().includes(q));
   }, [stats, listSearch]);
 
+  const taskSummary = useMemo(() => {
+    const completed = tasks.filter((task) => isOkStatus(task.status)).length;
+    const failed = tasks.filter((task) => isErrStatus(task.status)).length;
+    const active = tasks.filter((task) => isWarnStatus(task.status)).length;
+    return { completed, failed, active };
+  }, [tasks]);
+
+  const traceSummary = useMemo(() => {
+    const ok = traces.filter((trace) => isOkStatus(trace.status)).length;
+    const failed = traces.filter((trace) => isErrStatus(trace.status)).length;
+    const p95 = stats?.latency_ms?.p95_ms ?? stats?.p95_ms ?? null;
+    return { ok, failed, p95 };
+  }, [stats, traces]);
+
+  const statsSummary = useMemo(() => {
+    const failed = stats?.failed_calls ?? Math.max(0, (stats?.total_calls ?? 0) - (stats?.successful_calls ?? 0));
+    const success = stats?.successful_calls ?? Math.max(0, (stats?.total_calls ?? 0) - failed);
+    return { success, failed };
+  }, [stats]);
+
   const markUpdated = useCallback((panel: Panel, text: string) => {
     setUpdatedAt((current) => ({ ...current, [panel]: text }));
     setErrors((current) => ({ ...current, [panel]: undefined }));
@@ -1247,20 +1350,38 @@ function App() {
           </div>
         </div>
         <div className="nav-links">
-          {PANELS.map((panel) => (
+          {PANELS.map((panel, index) => {
+            const showGroup = index === 0 || PANELS[index - 1].group !== panel.group;
+            return (
+              <div className="nav-entry" key={panel.id}>
+                {showGroup ? <div className="nav-section-title">{panel.group}</div> : null}
+                <a
+                  href={hrefForAdmin(panel.id, panel.id === 'stats' ? { range: statsRange } : undefined)}
+                  className={panel.id === activePanel ? 'nav-link active' : 'nav-link'}
+                  aria-current={panel.id === activePanel ? 'page' : undefined}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    goToPanel(panel.id);
+                  }}
+                >
+                  <NavIcon panel={panel.id} />
+                  <span>{panel.label}</span>
+                </a>
+              </div>
+            );
+          })}
+          <div className="nav-entry">
             <a
-              key={panel.id}
-              href={hrefForAdmin(panel.id, panel.id === 'stats' ? { range: statsRange } : undefined)}
-              className={panel.id === activePanel ? 'nav-link active' : 'nav-link'}
-              aria-current={panel.id === activePanel ? 'page' : undefined}
-              onClick={(e) => {
-                e.preventDefault();
-                goToPanel(panel.id);
-              }}
+              href={gatewayDocsHref()}
+              className="nav-link"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open gateway OpenAPI docs"
             >
-              {panel.label}
+              <DocsIcon />
+              <span>Docs</span>
             </a>
-          ))}
+          </div>
         </div>
       </nav>
       <main className="main-stage">
@@ -1539,40 +1660,54 @@ function App() {
 
         {activePanel === 'tasks' && (
           <section className="panel active tasks-panel">
-            <h2>Tasks</h2>
+            <PanelHeader
+              title="Tasks"
+              meta="Trace-derived work items, grouped for quick operator scanning."
+              action={<button className="refresh-btn" type="button" onClick={fetchTasks}>Refresh</button>}
+            />
             <StatusLine text={updatedAt.tasks} error={errors.tasks} />
+            <div className="metric-grid compact">
+              <MetricTile tone="ok" label="Completed" value={taskSummary.completed} />
+              <MetricTile tone={taskSummary.failed > 0 ? 'err' : undefined} label="Failed" value={taskSummary.failed} />
+              <MetricTile tone={taskSummary.active > 0 ? 'warn' : undefined} label="Active / waiting" value={taskSummary.active} />
+              <MetricTile label="Visible" value={`${filteredTasks.length} / ${tasks.length}`} />
+            </div>
             {tasks.length === 0 ? <p className="empty">No tasks reconstructed from traces yet.</p> : filteredTasks.length === 0 ? (
               <p className="empty">No tasks match your search.</p>
             ) : (
-              <table>
-                <thead><tr><th>Started</th><th>Status</th><th>Type</th><th>Title</th><th>DCC</th><th>Task</th><th>ms</th></tr></thead>
-                <tbody>
-                  {filteredTasks.map((task) => {
-                    const requestId = task.correlation?.request_id;
-                    return (
-                      <tr key={task.task_id}>
-                        <td>{formatTime(task.started_at)}</td>
-                        <td><StatusBadge value={task.status} /></td>
-                        <td>{task.task_type}</td>
-                        <td title={task.title}>{task.title}</td>
-                        <td>{task.correlation?.dcc_type ?? '-'}</td>
-                        <td>
-                          {requestId ? (
-                            <button className="refresh-btn" type="button" title={requestId} onClick={() => goToPanel('traces', { traceId: requestId })}>
-                              {requestId.slice(0, 12)}
-                            </button>
-                          ) : (
-                            task.task_id.slice(0, 12)
-                          )}
-                        </td>
-                        <td>{task.duration_ms ?? '-'}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <div className="task-board">
+                {filteredTasks.map((task) => {
+                  const requestId = task.correlation?.request_id;
+                  const tone = isErrStatus(task.status) ? 'err' : isWarnStatus(task.status) ? 'warn' : isOkStatus(task.status) ? 'ok' : 'muted';
+                  return (
+                    <article key={task.task_id} className={`task-card ${tone}`}>
+                      <div className="task-main">
+                        <div className="task-title-row">
+                          <StatusBadge value={task.status} />
+                          <span className="task-type">{task.task_type}</span>
+                          <span className="task-time">{formatTime(task.started_at)}</span>
+                        </div>
+                        <h3 title={task.title}>{task.title}</h3>
+                        <div className="task-meta">
+                          <span>{task.correlation?.dcc_type ?? 'gateway'}</span>
+                          <span>{formatDurationMs(task.duration_ms)}</span>
+                          <span>{compactId(task.correlation?.instance_id)}</span>
+                        </div>
+                      </div>
+                      <div className="task-side">
+                        {requestId ? (
+                          <button className="link-chip" type="button" title={requestId} onClick={() => goToPanel('traces', { traceId: requestId })}>
+                            trace {requestId.slice(0, 12)}
+                          </button>
+                        ) : (
+                          <span className="mono-path">{task.task_id.slice(0, 12)}</span>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
             )}
-            <button className="refresh-btn" type="button" onClick={fetchTasks}>Refresh</button>
           </section>
         )}
 
@@ -1618,76 +1753,99 @@ function App() {
 
         {activePanel === 'traces' && (
           <section className="panel active traces-panel" data-panel="traces">
-            <h2>Traces</h2>
+            <PanelHeader
+              title="Traces"
+              meta="Request timeline and latency drill-down for gateway fan-out."
+              action={<button className="refresh-btn" type="button" onClick={fetchTraces}>Refresh</button>}
+            />
             <StatusLine text={updatedAt.traces} error={errors.traces} />
+            <div className="metric-grid compact">
+              <MetricTile tone="ok" label="OK" value={traceSummary.ok} />
+              <MetricTile tone={traceSummary.failed > 0 ? 'err' : undefined} label="Failed" value={traceSummary.failed} />
+              <MetricTile tone={latencyTone(traceSummary.p95)} label="p95 latency" value={formatDurationMs(traceSummary.p95)} />
+              <MetricTile label="Visible" value={`${filteredTraces.length} / ${traces.length}`} />
+            </div>
             {traces.length === 0 ? <p className="empty">No traces recorded.</p> : filteredTraces.length === 0 ? (
               <p className="empty">No traces match your search.</p>
             ) : (
-              Array.from(groupRows(filteredTraces, traceGroupLabel).entries())
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([group, groupTraces]) => (
-                <div key={group} className="group-block">
-                  <h3 className="group-title">{group}</h3>
-                  <table>
-                    <thead><tr><th>Time</th><th>Request</th><th>Tool</th><th>Status</th><th>Total ms</th></tr></thead>
-                    <tbody>
+              <div className="trace-layout">
+                <div className="trace-list">
+                  {Array.from(groupRows(filteredTraces, traceGroupLabel).entries())
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([group, groupTraces]) => (
+                    <div key={group} className="trace-group">
+                      <div className="trace-group-head">
+                        <h3>{group}</h3>
+                        <span>{groupTraces.length}</span>
+                      </div>
                       {groupTraces.map((trace) => (
-                        <tr
+                        <button
                           key={trace.request_id}
-                          className="trace-row"
+                          className={`trace-item ${isErrStatus(trace.status) ? 'err' : isWarnStatus(trace.status) ? 'warn' : isOkStatus(trace.status) ? 'ok' : ''}`}
+                          type="button"
                           onClick={() => goToPanel('traces', { traceId: trace.request_id, replace: true })}
                         >
-                          <td>{formatTime(trace.timestamp)}</td>
-                          <td>{trace.request_id}</td>
-                          <td>{trace.tool}</td>
-                          <td><StatusBadge value={trace.status} /></td>
-                          <td>{trace.total_ms ?? '-'}</td>
-                        </tr>
+                          <span className="trace-item-main">
+                            <strong>{trace.tool}</strong>
+                            <span>{compactId(trace.request_id)} - {formatTime(trace.timestamp)}</span>
+                          </span>
+                          <span className="trace-item-side">
+                            <StatusBadge value={trace.status} />
+                            <span>{formatDurationMs(trace.total_ms)}</span>
+                          </span>
+                        </button>
                       ))}
-                    </tbody>
-                  </table>
+                    </div>
+                  ))}
                 </div>
-              )))}
-            <pre className="empty">{traceDetail}</pre>
-            <button className="refresh-btn" type="button" onClick={fetchTraces}>Refresh</button>
+                <pre className="trace-detail">{traceDetail}</pre>
+              </div>
+            )}
           </section>
         )}
 
         {activePanel === 'stats' && (
           <section className="panel active stats-panel" data-panel="stats">
-            <h2>Stats</h2>
+            <PanelHeader
+              title="Stats"
+              meta="Gateway call volume, success rate, latency, and hot paths."
+              action={(
+                <div className="stats-actions">
+                  <label className="range-label" htmlFor="stats-range-select">
+                    Range
+                    <select
+                      id="stats-range-select"
+                      aria-label="Range"
+                      value={statsRange}
+                      onChange={(event) => {
+                        const v = event.target.value;
+                        setStatsRange(v);
+                        pushAdminUrl('stats', { range: v, replace: true });
+                      }}
+                    >
+                      <option value="1h">1h</option>
+                      <option value="24h">24h</option>
+                      <option value="7d">7d</option>
+                      <option value="all">All</option>
+                    </select>
+                  </label>
+                  <button className="refresh-btn" type="button" onClick={fetchStats}>Refresh</button>
+                </div>
+              )}
+            />
             <StatusLine text={updatedAt.stats} error={errors.stats} />
-            <label className="range-label" htmlFor="stats-range-select">
-              Range
-              <select
-                id="stats-range-select"
-                aria-label="Range"
-                value={statsRange}
-                onChange={(event) => {
-                  const v = event.target.value;
-                  setStatsRange(v);
-                  pushAdminUrl('stats', { range: v, replace: true });
-                }}
-              >
-                <option value="1h">1h</option>
-                <option value="24h">24h</option>
-                <option value="7d">7d</option>
-                <option value="all">All (ring buffer)</option>
-              </select>
-            </label>
             {stats?.error ? <p className="empty">{stats.error}</p> : null}
-            <div className="health-grid">
-              <HealthCard label="Calls" value={stats?.total_calls ?? 0} />
-              <HealthCard label="Success %" value={stats ? stats.success_rate.toFixed(1) : '0.0'} />
-              <HealthCard label="p50 ms" value={stats?.latency_ms?.p50_ms ?? stats?.p50_ms ?? '-'} />
-              <HealthCard label="p95 ms" value={stats?.latency_ms?.p95_ms ?? stats?.p95_ms ?? '-'} />
+            <div className="metric-grid">
+              <MetricTile label="Calls" value={stats?.total_calls ?? 0} detail={`${statsRange} window`} />
+              <MetricTile tone={errorRateTone(stats)} label="Success" value={stats ? `${stats.success_rate.toFixed(1)}%` : '0.0%'} detail={`${statsSummary.success} ok / ${statsSummary.failed} failed`} />
+              <MetricTile tone={latencyTone(stats?.latency_ms?.p50_ms ?? stats?.p50_ms)} label="p50 latency" value={formatDurationMs(stats?.latency_ms?.p50_ms ?? stats?.p50_ms)} />
+              <MetricTile tone={latencyTone(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} label="p95 latency" value={formatDurationMs(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} />
             </div>
             <div className="stats-charts">
               <StatBarList title="Top tools" items={filteredTopTools} />
               <StatBarList title="Top instances" items={filteredTopInstances} />
+              {stats?.hourly_distribution?.length ? <HourlyChart buckets={stats.hourly_distribution} /> : null}
             </div>
-            {stats?.hourly_distribution?.length ? <HourlyChart buckets={stats.hourly_distribution} /> : null}
-            <button className="refresh-btn" type="button" onClick={fetchStats}>Refresh</button>
           </section>
         )}
 

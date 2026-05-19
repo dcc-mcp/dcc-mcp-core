@@ -72,6 +72,9 @@ pub const ROLE_PER_DCC_SIDECAR: &str = "per-dcc-sidecar";
 /// 250 ms balances "detect crash quickly" against "don't burn CPU polling".
 const PPID_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
+/// Keep the per-DCC sidecar registry row fresh while the parent DCC is alive.
+const SIDECAR_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
+
 /// Reason the sidecar exited; used by the integration test and structured
 /// logging.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,6 +238,8 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
         dcc = %key.dcc_type,
         "sidecar registered"
     );
+    let heartbeat_handle =
+        spawn_sidecar_heartbeat(registry.clone(), key.clone(), SIDECAR_HEARTBEAT_INTERVAL);
 
     // Instantiate the HostRpcClient impl for the URI's scheme and try
     // to dial the DCC. Failure to connect is logged but non-fatal —
@@ -370,6 +375,8 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
         tracing::info!(mcp_url = %state_close_url, "sidecar MCP listener stopped");
     }
 
+    heartbeat_handle.abort();
+
     // Deregister is best-effort: a failure here would only leak a row that
     // will be reaped by the next stale-cleanup sweep, so we log and move on.
     if let Err(err) = registry.deregister(&key) {
@@ -472,6 +479,36 @@ fn spawn_ppid_watcher(
     });
 }
 
+fn spawn_sidecar_heartbeat(
+    registry: Arc<FileRegistry>,
+    key: dcc_mcp_transport::discovery::types::ServiceKey,
+    interval: Duration,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(interval).await;
+            match registry.heartbeat(&key) {
+                Ok(true) => {}
+                Ok(false) => {
+                    tracing::warn!(
+                        dcc = %key.dcc_type,
+                        instance_id = %key.instance_id,
+                        "sidecar heartbeat skipped because registry row is missing"
+                    );
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        dcc = %key.dcc_type,
+                        instance_id = %key.instance_id,
+                        error = %err,
+                        "sidecar heartbeat failed"
+                    );
+                }
+            }
+        }
+    })
+}
+
 fn default_registry_dir() -> PathBuf {
     // Must match ``GatewayRunner::new``'s fallback exactly:
     //     std::env::temp_dir().join("dcc-mcp-registry")
@@ -568,6 +605,27 @@ mod tests {
         assert_eq!(
             got, custom,
             "DCC_MCP_REGISTRY_DIR must win over the fallback path"
+        );
+    }
+
+    #[tokio::test]
+    async fn sidecar_heartbeat_keeps_registry_row_fresh() {
+        let registry_dir = TempDir::new().expect("tempdir");
+        let registry = Arc::new(FileRegistry::new(registry_dir.path()).expect("registry"));
+        let entry = ServiceEntry::new("3dsmax", "127.0.0.1", 55201).with_pid(std::process::id());
+        let key = entry.key();
+        registry.register(entry).expect("register sidecar row");
+        let before = registry.get(&key).expect("registered row").last_heartbeat;
+
+        let handle =
+            spawn_sidecar_heartbeat(registry.clone(), key.clone(), Duration::from_millis(10));
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        handle.abort();
+
+        let after = registry.get(&key).expect("heartbeat row").last_heartbeat;
+        assert!(
+            after > before,
+            "sidecar heartbeat must advance while the sidecar process is alive"
         );
     }
 
