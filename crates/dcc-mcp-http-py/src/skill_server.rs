@@ -180,12 +180,15 @@ impl PyMcpHttpServer {
         // `with_executor` — the previous handle dropped the old bridge task.
         if let Some(dispatcher) = self.attached_dispatcher.lock().as_ref().cloned() {
             let depth = self.config.bridge_queue_depth();
+            let bridge_runtime = self.runtime.handle();
             let executor = dcc_mcp_http::host_bridge::dispatcher_to_executor_handle_with_capacity(
                 dispatcher,
-                self.runtime.handle(),
+                &bridge_runtime,
                 depth,
             );
-            server = server.with_executor(executor);
+            server = server
+                .with_executor(executor)
+                .with_host_bridge_runtime(bridge_runtime.clone());
         }
         // Issue #714 — propagate the shared readiness probe into the
         // Rust server so both `/mcp` and `/v1/call` consult it.
