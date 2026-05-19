@@ -24,19 +24,70 @@
 
 它结合 **MCP 2025-03-26 Streamable HTTP**、遵循 [agentskills.io 1.0](https://agentskills.io/specification) 的 **零代码 Skills 系统**，以及负责发现、路由、安装、lint 和运维的 Rust gateway。Python 包面向嵌入式 DCC 宿主保持**运行时零 Python 依赖**；独立的 `dcc-mcp-cli` 与 `dcc-mcp-server` 二进制随 GitHub Release 发布，适合像传统软件一样下载安装到工作站。支持 Python 3.7–3.13。
 
+当你希望 Agent 操作真实 DCC 会话，同时避免上下文爆炸、为每个工具手写 Python 胶水、或者维护脆弱的一次性 shell 脚本时，它就是这层基础设施。你可以用两条命令从 CLI 开始，也可以把 Python core 直接嵌进 DCC adapter。
+
+---
+
+## 你能得到什么
+
+| 需求 | dcc-mcp-core 提供 |
+|---|---|
+| 让 Agent 操作真实 DCC 会话 | 面向 Maya、Blender、Houdini、Photoshop 和自定义宿主的 MCP + REST 端点 |
+| 控制工具上下文大小 | Gateway 发现流程：`search_tools` -> `describe_tool` -> `call_tool` |
+| 不写框架胶水也能加工具 | `SKILL.md` + 同级 YAML / 脚本，遵循 agentskills.io |
+| 调试真实工作站状态 | Admin UI、视口诊断、审计日志、trace、metrics |
+| 扛住生产约束 | 主线程调度、异步 job、sidecar/server 二进制、workflow 与 artefact 原语 |
+
+## 快速开始
+
+### 安装独立 CLI
+
+如果你只需要 operator/CI 控制面，不想先准备 Python 环境，直接安装 release 二进制：
+
 ```bash
-# Linux/macOS 安装独立 CLI
+# Linux/macOS
 curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | bash
 
-# Windows PowerShell 安装独立 CLI
+# Windows PowerShell
 powershell -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+```
 
-# 然后检查 gateway，或在运行时加载前 lint 本地 Skills
+安装后：
+
+```bash
+dcc-mcp-cli health
 dcc-mcp-cli list
+dcc-mcp-cli search --query sphere --dcc-type maya
 dcc-mcp-cli lint path/to/skills
 ```
 
-当你希望 Agent 操作真实 DCC 会话，同时避免上下文爆炸、为每个工具手写 Python 胶水、或者维护脆弱的一次性 shell 脚本时，它就是这层基础设施。
+### 安装 Python core
+
+```bash
+pip install dcc-mcp-core
+```
+
+也可以用仓库的标准 feature set 从源码构建：
+
+```bash
+git clone https://github.com/loonghao/dcc-mcp-core.git
+cd dcc-mcp-core
+vx just dev
+```
+
+### 以 Skills-First 方式暴露 DCC
+
+`create_skill_server` 会接好渐进式发现、skill 加载、路由和结构化结果：
+
+```python
+from dcc_mcp_core import create_skill_server, McpHttpConfig
+
+server = create_skill_server("maya", McpHttpConfig(port=8765))
+handle = server.start()
+print(handle.mcp_url())   # "http://127.0.0.1:8765/mcp"
+```
+
+Agent 可以在 per-DCC server 上使用 `search_skills` -> `load_skill`，也可以通过 gateway 使用 `search_tools` -> `describe_tool` -> `call_tool`。
 
 ---
 
@@ -136,7 +187,7 @@ AI 友好文档：[AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](d
 
 ---
 
-## 快速开始
+## 安装详情与手动 API 示例
 
 ### 安装独立 CLI
 
