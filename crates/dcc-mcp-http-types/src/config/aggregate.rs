@@ -226,6 +226,12 @@ impl McpHttpConfig {
     pub fn set_adapter_dcc(&mut self, v: Option<String>) {
         self.gateway.adapter_dcc = v;
     }
+    pub fn gateway_name(&self) -> Option<String> {
+        self.gateway.gateway_name.clone()
+    }
+    pub fn set_gateway_name(&mut self, v: Option<String>) {
+        self.gateway.gateway_name = v;
+    }
     pub fn allow_unknown_tools(&self) -> bool {
         self.gateway.allow_unknown_tools
     }
@@ -417,6 +423,13 @@ impl McpHttpConfig {
     /// servers (issue maya#137).
     pub fn with_adapter_dcc(mut self, dcc: impl Into<String>) -> Self {
         self.gateway.adapter_dcc = Some(dcc.into());
+        self
+    }
+
+    /// Builder: give this gateway candidate a human-readable identity for
+    /// admin diagnostics and the `__gateway__` sentinel row.
+    pub fn with_gateway_name(mut self, name: impl Into<String>) -> Self {
+        self.gateway.gateway_name = Some(name.into());
         self
     }
 

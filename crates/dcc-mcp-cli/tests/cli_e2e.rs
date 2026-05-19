@@ -73,6 +73,38 @@ fn spawn_gateway_fixture() -> GatewayFixture {
         )
         .route("/v1/healthz", get(|| async { Json(json!({"ok": true})) }))
         .route(
+            "/admin/api/health",
+            get(|| async {
+                Json(json!({
+                    "status": "ok",
+                    "gateway": {
+                        "current": {
+                            "name": "Maya-main-15084",
+                            "role": "active",
+                            "pid": 15084,
+                            "host": "127.0.0.1",
+                            "port": 9765,
+                            "instance_id": "11111111-0000-0000-0000-000000000000",
+                            "version": "0.17.9",
+                            "adapter_version": "0.3.4",
+                            "adapter_dcc": "maya"
+                        },
+                        "candidates": [{
+                            "name": "Maya-layout-120920",
+                            "role": "challenger",
+                            "pid": 120920,
+                            "host": "127.0.0.1",
+                            "port": 9765,
+                            "instance_id": "22222222-0000-0000-0000-000000000000",
+                            "version": "0.17.9",
+                            "adapter_version": "0.3.4",
+                            "adapter_dcc": "maya"
+                        }]
+                    }
+                }))
+            }),
+        )
+        .route(
             "/v1/instances",
             get(|| async {
                 Json(json!({
@@ -162,6 +194,16 @@ fn run_json(args: &[&str]) -> Value {
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
+fn run_text(args: &[&str]) -> String {
+    let output = cli_command().args(args).output().unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
 fn write_skill(root: &std::path::Path, relative: &str, content: &str) -> std::path::PathBuf {
     let dir = root.join(relative);
     std::fs::create_dir_all(&dir).unwrap();
@@ -176,6 +218,11 @@ fn list_search_describe_and_call_gateway_rest_surface() {
     let list = run_json(&["--base-url", &fixture.base_url, "list"]);
     assert_eq!(list["total"], 1);
     assert_eq!(list["instances"][0]["dcc_type"], "maya");
+    assert_eq!(list["gateway"]["current"]["name"], "Maya-main-15084");
+    assert_eq!(
+        list["gateway"]["candidates"][0]["name"],
+        "Maya-layout-120920"
+    );
 
     let search = run_json(&[
         "--base-url",
@@ -209,6 +256,25 @@ fn list_search_describe_and_call_gateway_rest_surface() {
     ]);
     assert_eq!(call["success"], true);
     assert_eq!(call["arguments"]["radius"], 2);
+}
+
+#[test]
+fn pretty_list_shows_gateway_owner_and_candidates() {
+    let fixture = spawn_gateway_fixture();
+
+    let output = run_text(&[
+        "--base-url",
+        &fixture.base_url,
+        "--output",
+        "pretty",
+        "list",
+    ]);
+
+    assert!(output.contains("Gateway"));
+    assert!(output.contains("owner      Maya-main-15084"));
+    assert!(output.contains("Maya-layout-120920"));
+    assert!(output.contains("Instances"));
+    assert!(output.contains("maya"));
 }
 
 #[test]

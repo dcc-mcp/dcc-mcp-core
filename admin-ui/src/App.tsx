@@ -9,7 +9,7 @@ import unrealIcon from './assets/icons/unrealengine.svg';
 import substancePainterIcon from './assets/icons/photoshop.svg';
 import puzzleIcon from './assets/icons/puzzle.svg';
 
-type Panel = 'activity' | 'health' | 'instances' | 'tools' | 'tasks' | 'calls' | 'traces' | 'stats' | 'logs' | 'skill-paths';
+type Panel = 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'tasks' | 'calls' | 'traces' | 'stats' | 'logs' | 'skill-paths';
 
 type HealthPayload = {
   status: string;
@@ -18,6 +18,10 @@ type HealthPayload = {
   uptime_secs: number;
   version: string;
   rss_bytes?: number | null;
+  gateway?: {
+    current?: GatewaySentinel | null;
+    candidates?: GatewaySentinel[];
+  };
   limits?: {
     body_max_bytes: number;
     rate_limit_per_minute_per_ip: number;
@@ -27,6 +31,18 @@ type HealthPayload = {
     circuit_open_secs: number;
   };
   circuits?: { tracked_backends: number; circuits_open: number };
+};
+
+type GatewaySentinel = {
+  name: string;
+  role: string;
+  pid?: number | null;
+  host: string;
+  port: number;
+  instance_id: string;
+  version?: string | null;
+  adapter_version?: string | null;
+  adapter_dcc?: string | null;
 };
 
 type ToolRow = {
@@ -241,6 +257,7 @@ const API_BASE = adminApiBase();
 /** Abort hung admin fetches so the UI does not wait indefinitely on a wedged gateway. */
 const ADMIN_FETCH_TIMEOUT_MS = 25_000;
 const PANELS: { id: Panel; label: string }[] = [
+  { id: 'debug', label: 'Debug' },
   { id: 'activity', label: 'Activity' },
   { id: 'health', label: 'Health' },
   { id: 'instances', label: 'Instances' },
@@ -294,7 +311,7 @@ function readPanelFromUrl(): Panel {
   if (raw === 'workers') {
     return 'instances';
   }
-  return isPanelId(raw) ? raw : 'activity';
+  return isPanelId(raw) ? raw : 'debug';
 }
 
 function readStatsRangeFromUrl(): string {
@@ -538,6 +555,62 @@ function maxTopCount(items: TopEntry[]): number {
   return Math.max(1, ...items.map((i) => i.count));
 }
 
+function latencyTone(value: number | null | undefined): 'ok' | 'warn' | undefined {
+  if (value == null) {
+    return undefined;
+  }
+  return value > 5_000 ? 'warn' : 'ok';
+}
+
+function errorRateTone(stats: StatsPayload | null): 'ok' | 'warn' | undefined {
+  if (!stats || stats.total_calls === 0) {
+    return undefined;
+  }
+  return stats.success_rate < 95 ? 'warn' : 'ok';
+}
+
+function traceLatency(trace: TraceRow): number {
+  return trace.total_ms ?? -1;
+}
+
+function compactId(value: string | null | undefined): string {
+  if (!value) {
+    return '-';
+  }
+  return value.length > 12 ? value.slice(0, 12) : value;
+}
+
+function gatewayLabel(health: HealthPayload | null): string {
+  const current = health?.gateway?.current;
+  if (!current) {
+    return health?.status ?? '?';
+  }
+  const pid = current.pid ? ` pid ${current.pid}` : '';
+  return `${current.name}${pid}`;
+}
+
+function isProblemActivity(event: ActivityEvent): boolean {
+  const text = haystack(event.status, event.severity, event.kind, event.message);
+  return text.includes('err') || text.includes('fail') || text.includes('warn') || text.includes('timeout') || text.includes('stale');
+}
+
+function isProblemLog(log: LogRow): boolean {
+  const text = haystack(log.level, log.message, log.event ?? '', log.reason ?? '', log.detail ?? '');
+  return log.success === false || text.includes('error') || text.includes('warn') || text.includes('timeout') || text.includes('failed') || text.includes('stale');
+}
+
+function MiniSparkline({ buckets }: { buckets: number[] }) {
+  const values = buckets.length ? buckets : Array.from({ length: 24 }, () => 0);
+  const max = Math.max(1, ...values);
+  return (
+    <div className="mini-sparkline" role="img" aria-label="Call distribution sparkline">
+      {values.map((value, index) => (
+        <span key={index} style={{ height: `${Math.max(5, (value / max) * 100)}%` }} title={`${index}:00 UTC — ${value} call(s)`} />
+      ))}
+    </div>
+  );
+}
+
 function StatBarList({ title, items }: { title: string; items: TopEntry[] }) {
   const max = maxTopCount(items);
   return (
@@ -606,6 +679,7 @@ function App() {
   const [traceDetail, setTraceDetail] = useState<string>('Select a trace row for detail.');
   const [callDetail, setCallDetail] = useState<string>('Select a call row for trace detail.');
   const [updatedAt, setUpdatedAt] = useState<Record<Panel, string>>({
+    debug: 'Loading…',
     activity: 'Loading…',
     health: 'Loading…',
     instances: 'Loading…',
@@ -805,6 +879,33 @@ function App() {
     );
   }, [skillPaths, listSearch]);
 
+  const failedCalls = useMemo(
+    () => calls.filter((call) => call.success === false || call.status.toLowerCase().includes('err') || call.status.toLowerCase().includes('fail')).slice(0, 8),
+    [calls],
+  );
+
+  const slowTraces = useMemo(
+    () => [...traces].filter((trace) => trace.total_ms != null).sort((a, b) => traceLatency(b) - traceLatency(a)).slice(0, 8),
+    [traces],
+  );
+
+  const problemActivity = useMemo(
+    () => activity.filter(isProblemActivity).slice(0, 8),
+    [activity],
+  );
+
+  const problemLogs = useMemo(
+    () => logs.filter(isProblemLog).slice(0, 10),
+    [logs],
+  );
+
+  const unhealthyWorkers = useMemo(
+    () => workers.filter((worker) => worker.stale || !statusClass(worker.status).includes('ok')),
+    [workers],
+  );
+
+  const debugIssues = failedCalls.length + problemActivity.length + problemLogs.length + unhealthyWorkers.length;
+
   const filteredTopTools = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
     const rows = stats?.top_tools ?? [];
@@ -939,6 +1040,19 @@ function App() {
       markError('skill-paths', error);
     }
   }, [markError, markUpdated]);
+
+  const fetchDebug = useCallback(async () => {
+    await Promise.allSettled([
+      fetchHealth(),
+      fetchInstanceBackends(),
+      fetchActivity(),
+      fetchCalls(),
+      fetchTraces(),
+      fetchStats(),
+      fetchLogs(),
+    ]);
+    markUpdated('debug', `Debug snapshot — ${new Date().toLocaleTimeString()}`);
+  }, [fetchActivity, fetchCalls, fetchHealth, fetchInstanceBackends, fetchLogs, fetchStats, fetchTraces, markUpdated]);
 
   const addSkillPath = useCallback(async () => {
     const path = skillPathInput.trim();
@@ -1103,6 +1217,7 @@ function App() {
   }, [fetchTraceInto]);
 
   const fetchPanel = useCallback((panel: Panel) => {
+    if (panel === 'debug') void fetchDebug();
     if (panel === 'activity') void fetchActivity();
     if (panel === 'health') void fetchHealth();
     if (panel === 'instances') void fetchInstanceBackends();
@@ -1113,7 +1228,7 @@ function App() {
     if (panel === 'stats') void fetchStats();
     if (panel === 'skill-paths') void fetchSkillPaths();
     if (panel === 'logs') void fetchLogs();
-  }, [fetchActivity, fetchCalls, fetchHealth, fetchInstanceBackends, fetchLogs, fetchSkillPaths, fetchStats, fetchTasks, fetchTools, fetchTraces]);
+  }, [fetchActivity, fetchCalls, fetchDebug, fetchHealth, fetchInstanceBackends, fetchLogs, fetchSkillPaths, fetchStats, fetchTasks, fetchTools, fetchTraces]);
 
   useEffect(() => {
     fetchPanel(activePanel);
@@ -1149,7 +1264,7 @@ function App() {
         </div>
       </nav>
       <main className="main-stage">
-        {activePanel !== 'health' && (
+        {activePanel !== 'health' && activePanel !== 'debug' && (
           <div className="list-search-wrap">
             <input
               type="search"
@@ -1173,6 +1288,110 @@ function App() {
               </span>
             ) : null}
           </div>
+        )}
+        {activePanel === 'debug' && (
+          <section className="panel active debug-panel">
+            <div className="debug-hero">
+              <div>
+                <h2>Debug Workbench</h2>
+                <StatusLine text={updatedAt.debug} error={errors.debug} />
+              </div>
+              <div className="debug-pulse">
+                <span className={debugIssues > 0 ? 'pulse-dot warn' : 'pulse-dot ok'} />
+                {debugIssues > 0 ? `${debugIssues} signals need attention` : 'No active warning signals'}
+              </div>
+            </div>
+            <div className="debug-grid">
+              <HealthCard tone={health?.status === 'ok' ? 'ok' : 'warn'} label="Gateway" value={gatewayLabel(health)} />
+              <HealthCard tone={unhealthyWorkers.length ? 'warn' : 'ok'} label="Instances" value={`${workerSummary.live} live / ${unhealthyWorkers.length} flagged`} />
+              <HealthCard tone={errorRateTone(stats)} label="Success" value={stats ? `${stats.success_rate.toFixed(1)}%` : '?'} />
+              <HealthCard tone={latencyTone(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} label="p95 latency" value={stats?.latency_ms?.p95_ms ?? stats?.p95_ms ?? '-'} />
+            </div>
+            <div className="debug-map">
+              <div className="debug-card debug-wide">
+                <div className="debug-card-head">
+                  <h3>Traffic Shape</h3>
+                  <button className="linkish" type="button" onClick={() => goToPanel('stats')}>Open stats</button>
+                </div>
+                <MiniSparkline buckets={stats?.hourly_distribution ?? []} />
+                <div className="debug-metrics">
+                  <span>{stats?.total_calls ?? 0} calls</span>
+                  <span>{stats?.latency_ms?.p50_ms ?? stats?.p50_ms ?? '-'} ms p50</span>
+                  <span>{stats?.latency_ms?.p99_ms ?? '-'} ms p99</span>
+                </div>
+              </div>
+
+              <div className="debug-card">
+                <div className="debug-card-head">
+                  <h3>Failed Calls</h3>
+                  <button className="linkish" type="button" onClick={() => goToPanel('calls')}>Open calls</button>
+                </div>
+                {failedCalls.length === 0 ? <p className="empty">No failed calls in the retained window.</p> : failedCalls.map((call) => (
+                  <button key={call.request_id} className="debug-row" type="button" onClick={() => goToPanel('traces', { traceId: call.request_id })}>
+                    <span><StatusBadge value={call.status} /></span>
+                    <span>{compactId(call.request_id)}</span>
+                    <span title={call.error ?? call.tool}>{call.error ?? call.tool}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="debug-card">
+                <div className="debug-card-head">
+                  <h3>Slowest Traces</h3>
+                  <button className="linkish" type="button" onClick={() => goToPanel('traces')}>Open traces</button>
+                </div>
+                {slowTraces.length === 0 ? <p className="empty">No latency samples yet.</p> : slowTraces.map((trace) => (
+                  <button key={trace.request_id} className="debug-row" type="button" onClick={() => goToPanel('traces', { traceId: trace.request_id })}>
+                    <span>{trace.total_ms ?? '-'} ms</span>
+                    <span>{compactId(trace.request_id)}</span>
+                    <span title={trace.tool}>{trace.tool}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="debug-card">
+                <div className="debug-card-head">
+                  <h3>Instance Signals</h3>
+                  <button className="linkish" type="button" onClick={() => goToPanel('instances')}>Open instances</button>
+                </div>
+                {unhealthyWorkers.length === 0 ? <p className="empty">All retained instances look healthy.</p> : unhealthyWorkers.slice(0, 8).map((worker) => (
+                  <div key={worker.instance_id} className="debug-row static">
+                    <span><StatusBadge value={worker.stale ? 'stale' : worker.status} /></span>
+                    <span>{worker.dcc_type}</span>
+                    <span>{worker.display_name} · {compactId(worker.instance_id)}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="debug-card">
+                <div className="debug-card-head">
+                  <h3>Event Warnings</h3>
+                  <button className="linkish" type="button" onClick={() => goToPanel('logs')}>Open logs</button>
+                </div>
+                {[...problemLogs, ...problemActivity.map((event) => ({
+                  timestamp: event.timestamp,
+                  level: event.severity,
+                  message: event.message,
+                  source: event.kind,
+                  request_id: event.correlation?.request_id,
+                  dcc_type: event.correlation?.dcc_type,
+                } as LogRow))].slice(0, 10).map((row, index) => (
+                  <button
+                    key={`${row.timestamp}-${row.message}-${index}`}
+                    className="debug-row"
+                    type="button"
+                    onClick={() => row.request_id ? goToPanel('traces', { traceId: row.request_id }) : goToPanel('logs')}
+                  >
+                    <span>{formatTime(row.timestamp)}</span>
+                    <span>{row.source ?? row.level}</span>
+                    <span title={row.message}>{row.message}</span>
+                  </button>
+                ))}
+                {problemLogs.length === 0 && problemActivity.length === 0 ? <p className="empty">No warning events in the retained window.</p> : null}
+              </div>
+            </div>
+            <button className="refresh-btn" type="button" onClick={fetchDebug}>Refresh snapshot</button>
+          </section>
         )}
         {activePanel === 'activity' && (
           <section className="panel active activity-panel">
@@ -1222,6 +1441,8 @@ function App() {
               <HealthCard label="Uptime" value={formatUptime(health?.uptime_secs)} />
               <HealthCard tone={health && health.instances_ready > 0 ? 'ok' : 'warn'} label="Ready" value={`${health?.instances_ready ?? 0} / ${health?.instances_total ?? 0}`} />
               <HealthCard label="Version" value={health?.version ?? '?'} />
+              <HealthCard label="Gateway owner" value={gatewayLabel(health)} />
+              <HealthCard label="Gateway candidates" value={String(health?.gateway?.candidates?.length ?? 0)} />
               <HealthCard label="RSS" value={formatBytes(health?.rss_bytes ?? undefined)} />
               <HealthCard label="Body limit" value={health?.limits ? formatBytes(health.limits.body_max_bytes) : '?'} />
               <HealthCard

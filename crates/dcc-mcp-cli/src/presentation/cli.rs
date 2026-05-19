@@ -339,7 +339,121 @@ fn to_json(value: impl Serialize) -> anyhow::Result<Value> {
 fn print_value(value: &Value, output: OutputFormat) -> anyhow::Result<()> {
     match output {
         OutputFormat::Json => println!("{}", serde_json::to_string(value)?),
+        OutputFormat::Pretty if is_list_payload(value) => print_list_pretty(value),
         OutputFormat::Pretty => println!("{}", serde_json::to_string_pretty(value)?),
     }
     Ok(())
+}
+
+fn is_list_payload(value: &Value) -> bool {
+    value.get("instances").is_some() && value.get("gateway").is_some()
+}
+
+fn print_list_pretty(value: &Value) {
+    let gateway = value.get("gateway").unwrap_or(&Value::Null);
+    println!("Gateway");
+    if let Some(current) = gateway.get("current").filter(|v| !v.is_null()) {
+        println!(
+            "  owner      {}",
+            gateway_summary(
+                current,
+                current
+                    .get("role")
+                    .and_then(Value::as_str)
+                    .unwrap_or("active")
+            )
+        );
+    } else if let Some(error) = gateway.get("error").and_then(Value::as_str) {
+        println!("  owner      unknown ({error})");
+    } else {
+        println!("  owner      unknown");
+    }
+
+    let candidates = gateway
+        .get("candidates")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if candidates.is_empty() {
+        println!("  candidates none");
+    } else {
+        println!("  candidates");
+        for candidate in candidates {
+            println!("    {}", gateway_summary(&candidate, "challenger"));
+        }
+    }
+
+    println!();
+    println!("Instances");
+    let instances = value
+        .get("instances")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if instances.is_empty() {
+        println!("  none");
+        return;
+    }
+    for instance in instances {
+        let dcc = instance
+            .get("dcc_type")
+            .and_then(Value::as_str)
+            .unwrap_or("-");
+        let short = instance
+            .get("instance_short")
+            .or_else(|| instance.get("instance_id"))
+            .and_then(Value::as_str)
+            .unwrap_or("-");
+        let name = instance
+            .get("display_name")
+            .and_then(Value::as_str)
+            .unwrap_or("-");
+        let pid = instance
+            .get("pid")
+            .and_then(Value::as_u64)
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        let status = instance
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("available");
+        let mcp_url = instance
+            .get("mcp_url")
+            .and_then(Value::as_str)
+            .unwrap_or("-");
+        println!("  {dcc:<12} {short:<12} {status:<12} pid={pid:<8} name={name} mcp={mcp_url}");
+    }
+}
+
+fn gateway_summary(value: &Value, fallback_role: &str) -> String {
+    let name = value
+        .get("name")
+        .or_else(|| value.get("display_name"))
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let role = value
+        .get("role")
+        .and_then(Value::as_str)
+        .unwrap_or(fallback_role);
+    let pid = value
+        .get("pid")
+        .and_then(Value::as_u64)
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let dcc = value
+        .get("adapter_dcc")
+        .and_then(Value::as_str)
+        .unwrap_or("-");
+    let version = value
+        .get("adapter_version")
+        .or_else(|| value.get("version"))
+        .and_then(Value::as_str)
+        .unwrap_or("-");
+    let host = value.get("host").and_then(Value::as_str).unwrap_or("-");
+    let port = value
+        .get("port")
+        .and_then(Value::as_u64)
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    format!("{name} role={role} pid={pid} dcc={dcc} version={version} addr={host}:{port}")
 }

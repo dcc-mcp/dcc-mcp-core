@@ -36,10 +36,36 @@ impl DccMcpClient {
     }
 
     pub async fn list_instances(&self) -> Result<Value, ClientError> {
-        self.gateway
+        let mut payload = self
+            .gateway
             .get_json(&self.endpoint.path("/v1/instances"))
             .await
-            .map_err(Into::into)
+            .map_err(ClientError::from)?;
+
+        let gateway = match self
+            .gateway
+            .get_json(&self.endpoint.path("/admin/api/health"))
+            .await
+        {
+            Ok(health) => health.get("gateway").cloned().unwrap_or_else(|| {
+                json!({
+                    "current": null,
+                    "candidates": [],
+                    "source": "/admin/api/health"
+                })
+            }),
+            Err(err) => json!({
+                "current": null,
+                "candidates": [],
+                "error": err.to_string(),
+                "source": "/admin/api/health"
+            }),
+        };
+
+        if let Some(obj) = payload.as_object_mut() {
+            obj.insert("gateway".to_string(), gateway);
+        }
+        Ok(payload)
     }
 
     pub async fn search(&self, request: SearchRequest) -> Result<Value, ClientError> {
