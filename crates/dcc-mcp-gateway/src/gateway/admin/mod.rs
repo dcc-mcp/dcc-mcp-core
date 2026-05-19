@@ -43,6 +43,7 @@
 //!
 //! See `docs/guide/gateway-admin.md` for screenshots and configuration knobs.
 
+pub mod activity;
 mod html;
 pub mod sqlite_lane;
 pub mod state;
@@ -55,6 +56,7 @@ mod handlers;
 #[cfg(feature = "admin")]
 mod router;
 
+pub use activity::{ActivityCorrelation, ActivityEvent, TaskSnapshot};
 pub use dcc_mcp_db::{
     default_gateway_admin_sqlite_path as default_admin_db_path,
     resolve_gateway_admin_sqlite_path as resolve_admin_db_path,

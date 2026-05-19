@@ -73,21 +73,21 @@ fn entry_to_worker_json(e: &ServiceEntry, gs: &GatewayState) -> Value {
     })
 }
 
-/// Snapshot every known instance into a Workers payload.
+/// Snapshot every live instance into a Workers payload.
 ///
-/// `summary.total` / `summary.live` / `summary.stale` mirror the counters in
-/// `gateway://diagnostics/process` so the Workers tab agrees with the
-/// Health tab on identical data.
+/// The admin Instances panel is an operator view of currently routable DCC
+/// backends. Stale registry rows are useful for diagnostics, but rendering
+/// them as instance cards makes closed/restarted DCC sessions look alive.
 pub async fn build_workers_payload(gs: &GatewayState) -> Value {
     use dcc_mcp_transport::discovery::types::ServiceStatus;
 
     let reg = gs.registry.read().await;
-    let all = gs.all_instances(&reg);
+    let live_instances = gs.live_instances(&reg);
 
     let mut live = 0usize;
     let mut stale_count = 0usize;
     let mut unhealthy = 0usize;
-    let workers: Vec<Value> = all
+    let workers: Vec<Value> = live_instances
         .iter()
         .map(|e| {
             let stale = e.is_stale(gs.stale_timeout);

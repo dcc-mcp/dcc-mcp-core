@@ -33,6 +33,19 @@ pub async fn handle_admin_ui() -> impl IntoResponse {
     resp
 }
 
+/// `GET /admin/api/activity` — unified operator / agent activity timeline.
+pub async fn handle_admin_activity(
+    State(s): State<AdminState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(200)
+        .clamp(1, 1_000);
+    Json(crate::gateway::admin::activity::build_activity_payload(&s, limit).await)
+}
+
 /// `GET /admin/api/instances` — list all instances known to the registry.
 pub async fn handle_admin_instances(State(s): State<AdminState>) -> impl IntoResponse {
     let registry = s.gateway.registry.read().await;
@@ -319,6 +332,34 @@ pub async fn handle_admin_trace_detail(
         Json(json!({ "error": "trace not found", "request_id": request_id })),
     )
         .into_response()
+}
+
+/// `GET /admin/api/tasks` — task-like projection over retained gateway work.
+pub async fn handle_admin_tasks(
+    State(s): State<AdminState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(200)
+        .clamp(1, 1_000);
+    Json(crate::gateway::admin::activity::build_tasks_payload(&s, limit).await)
+}
+
+/// `GET /admin/api/debug-bundle/{request_id}` — correlated material for one request.
+pub async fn handle_admin_debug_bundle(
+    State(s): State<AdminState>,
+    axum::extract::Path(request_id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    match crate::gateway::admin::activity::build_debug_bundle(&s, &request_id).await {
+        Some(bundle) => (StatusCode::OK, Json(bundle)).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "debug bundle not found", "request_id": request_id })),
+        )
+            .into_response(),
+    }
 }
 
 /// `GET /admin/api/stats?range=1h|24h|7d` — aggregated call statistics (Phase 3).
