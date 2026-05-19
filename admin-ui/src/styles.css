@@ -331,6 +331,156 @@ td .refresh-btn:hover {
   border-color: rgba(217, 119, 87, 0.45);
 }
 
+.debug-hero {
+  align-items: flex-start;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.debug-hero h2 {
+  margin-bottom: 0.6rem;
+}
+
+.debug-pulse {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-lg);
+  color: var(--slate-medium);
+  display: inline-flex;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+  padding: 0.65rem 0.85rem;
+}
+
+.pulse-dot {
+  border-radius: 50%;
+  display: inline-block;
+  height: 0.65rem;
+  width: 0.65rem;
+}
+
+.pulse-dot.ok {
+  background: #788c5d;
+  box-shadow: 0 0 0 5px rgba(120, 140, 93, 0.12);
+}
+
+.pulse-dot.warn {
+  background: var(--accent-warm);
+  box-shadow: 0 0 0 5px rgba(198, 97, 63, 0.14);
+}
+
+.debug-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin-bottom: 1rem;
+}
+
+.debug-map {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 1rem;
+}
+
+.debug-card {
+  background: #fff;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-lg);
+  min-width: 0;
+  padding: 1rem;
+}
+
+.debug-card.debug-wide {
+  grid-column: 1 / -1;
+}
+
+.debug-card-head {
+  align-items: center;
+  border-bottom: 1px solid var(--border-faint);
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  margin-bottom: 0.8rem;
+  padding-bottom: 0.65rem;
+}
+
+.debug-card-head h3 {
+  color: var(--slate-dark);
+  font-family: var(--font-serif);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.debug-row {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border-faint);
+  color: var(--slate-medium);
+  cursor: pointer;
+  display: grid;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  gap: 0.6rem;
+  grid-template-columns: minmax(4.5rem, auto) minmax(5.5rem, auto) minmax(0, 1fr);
+  padding: 0.5rem 0;
+  text-align: left;
+  width: 100%;
+}
+
+.debug-row:last-child {
+  border-bottom: 0;
+}
+
+.debug-row:hover {
+  color: var(--slate-dark);
+}
+
+.debug-row.static {
+  cursor: default;
+}
+
+.debug-row span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.debug-metrics {
+  color: var(--cloud-dark);
+  display: flex;
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  gap: 0.45rem 1rem;
+  margin-top: 0.75rem;
+}
+
+.mini-sparkline {
+  align-items: flex-end;
+  background: var(--ivory-medium);
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius);
+  display: flex;
+  gap: 3px;
+  height: 132px;
+  padding: 0.75rem;
+}
+
+.mini-sparkline span {
+  background: linear-gradient(180deg, var(--clay), var(--accent-warm));
+  border-radius: 2px 2px 0 0;
+  flex: 1;
+  min-height: 5px;
+}
+
 table {
   border-collapse: collapse;
   font-family: var(--font-mono);
@@ -803,4 +953,77 @@ button.linkish {
 button.linkish:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+@media (max-width: 720px) {
+  body {
+    height: auto;
+    min-height: 100vh;
+    overflow: auto;
+  }
+
+  .app-shell {
+    display: block;
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .side-rail {
+    border-bottom: 1px solid var(--border-faint);
+    border-right: 0;
+    padding: 1rem 0 0.8rem;
+    position: sticky;
+    top: 0;
+    width: 100%;
+    z-index: 5;
+  }
+
+  .brand-lockup {
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.75rem;
+  }
+
+  .nav-links {
+    flex-direction: row;
+    gap: 0.4rem;
+    overflow-x: auto;
+    padding: 0 1rem 0.1rem;
+  }
+
+  .nav-link {
+    flex: 0 0 auto;
+    padding: 0.48rem 0.75rem;
+    white-space: nowrap;
+  }
+
+  .main-stage {
+    padding: 1rem;
+  }
+
+  .debug-hero {
+    display: block;
+  }
+
+  .debug-pulse {
+    margin-bottom: 1rem;
+    margin-top: 0;
+    width: 100%;
+  }
+
+  .debug-map {
+    grid-template-columns: 1fr;
+  }
+
+  .debug-row {
+    grid-template-columns: minmax(3.8rem, auto) minmax(4.6rem, auto) minmax(0, 1fr);
+  }
+
+  .mini-sparkline {
+    height: 112px;
+  }
+
+  .workers-grid,
+  .stats-charts {
+    grid-template-columns: 1fr;
+  }
 }

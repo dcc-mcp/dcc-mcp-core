@@ -22,6 +22,9 @@ use crate::gateway::resilience::{self as gw_resilience, gateway_limits};
 use crate::gateway::state::entry_to_json;
 use dcc_mcp_db::env::ENV_DCC_MCP_LOG_DIR;
 use dcc_mcp_db::read_gateway_log_dir_rows_recent;
+use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};
+
+const ADMIN_FILE_LOG_READ_TIMEOUT: Duration = Duration::from_millis(750);
 
 /// `GET /admin` — serve the inline HTML dashboard.
 pub async fn handle_admin_ui() -> impl IntoResponse {
@@ -160,12 +163,26 @@ pub async fn handle_admin_logs(State(s): State<AdminState>) -> impl IntoResponse
             dcc_mcp_db::default_gateway_log_dir()
         }
     });
-    if std::fs::metadata(&log_dir)
-        .map(|m| m.is_dir())
-        .unwrap_or(false)
-    {
-        let mut file_logs = read_gateway_log_dir_rows_recent(&log_dir, 500);
-        logs.append(&mut file_logs);
+    let file_log_task = tokio::task::spawn_blocking(move || {
+        if !std::fs::metadata(&log_dir)
+            .map(|m| m.is_dir())
+            .unwrap_or(false)
+        {
+            return Vec::new();
+        }
+        read_gateway_log_dir_rows_recent(&log_dir, 500)
+    });
+    match tokio::time::timeout(ADMIN_FILE_LOG_READ_TIMEOUT, file_log_task).await {
+        Ok(Ok(mut file_logs)) => logs.append(&mut file_logs),
+        Ok(Err(err)) => {
+            tracing::warn!(error = %err, "admin file log read task failed");
+        }
+        Err(_) => {
+            tracing::warn!(
+                timeout_ms = ADMIN_FILE_LOG_READ_TIMEOUT.as_millis() as u64,
+                "admin file log read timed out"
+            );
+        }
     }
 
     if let Some(audit) = &s.audit_log {
@@ -221,6 +238,7 @@ pub async fn handle_admin_health(State(s): State<AdminState>) -> impl IntoRespon
     let registry = s.gateway.registry.read().await;
     let all = s.gateway.all_instances(&registry);
     let ready = s.gateway.live_instances(&registry).len();
+    let gateway_sentinels = registry.list_instances(GATEWAY_SENTINEL_DCC_TYPE);
     let total = all.len();
     drop(registry);
 
@@ -245,6 +263,7 @@ pub async fn handle_admin_health(State(s): State<AdminState>) -> impl IntoRespon
             "uptime_secs": uptime_secs,
             "version": s.gateway.server_version,
             "rss_bytes": rss_bytes,
+            "gateway": gateway_health_snapshot(&gateway_sentinels),
             "limits": {
                 "body_max_bytes": limits.body_max_bytes,
                 "rate_limit_per_minute_per_ip": limits.rate_limit_per_minute_per_ip,
@@ -256,6 +275,72 @@ pub async fn handle_admin_health(State(s): State<AdminState>) -> impl IntoRespon
             "circuits": circuits,
         })),
     )
+}
+
+fn gateway_health_snapshot(sentinels: &[ServiceEntry]) -> Value {
+    let mut rows: Vec<Value> = sentinels.iter().map(gateway_sentinel_json).collect();
+    rows.sort_by(|a, b| {
+        let role_a = a.get("role").and_then(Value::as_str).unwrap_or("");
+        let role_b = b.get("role").and_then(Value::as_str).unwrap_or("");
+        let rank_a = if role_a == "active" { 0 } else { 1 };
+        let rank_b = if role_b == "active" { 0 } else { 1 };
+        rank_a.cmp(&rank_b).then_with(|| {
+            let ta = a
+                .get("last_heartbeat_unix")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            let tb = b
+                .get("last_heartbeat_unix")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            tb.cmp(&ta)
+        })
+    });
+    let current = rows
+        .iter()
+        .find(|row| row.get("role").and_then(Value::as_str) == Some("active"))
+        .cloned()
+        .or_else(|| rows.first().cloned());
+    let candidates: Vec<Value> = rows
+        .into_iter()
+        .filter(|row| row.get("role").and_then(Value::as_str) != Some("active"))
+        .collect();
+    json!({
+        "current": current,
+        "candidates": candidates,
+    })
+}
+
+fn gateway_sentinel_json(entry: &ServiceEntry) -> Value {
+    let last_heartbeat_secs = entry
+        .last_heartbeat
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_secs());
+    let role = entry
+        .metadata
+        .get("gateway_role")
+        .cloned()
+        .unwrap_or_else(|| "active".to_string());
+    let name = entry
+        .metadata
+        .get("gateway_name")
+        .cloned()
+        .or_else(|| entry.display_name.clone())
+        .unwrap_or_else(|| format!("gateway-pid{}", entry.pid.unwrap_or_default()));
+    json!({
+        "name": name,
+        "role": role,
+        "pid": entry.pid,
+        "host": entry.host,
+        "port": entry.port,
+        "instance_id": entry.instance_id.to_string(),
+        "version": entry.version,
+        "adapter_version": entry.adapter_version,
+        "adapter_dcc": entry.adapter_dcc,
+        "last_heartbeat_unix": last_heartbeat_secs,
+        "metadata": entry.metadata,
+    })
 }
 
 fn gateway_self_rss_bytes() -> Option<u64> {

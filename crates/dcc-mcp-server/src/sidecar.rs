@@ -22,10 +22,9 @@
 //! * **per-DCC sidecar**: one per DCC, lifetime bound to DCC's PID.  This
 //!   subcommand is the per-DCC sidecar.  The `--watch-pid` flag is the
 //!   parent-DCC PID; this process is **not** detached.
-//! * **gateway sidecar**: machine-wide singleton, lives in the same binary
-//!   but runs *without* `sidecar` subcommand (i.e. the default
-//!   `dcc-mcp-server` invocation that wins the `bind(9765)` race).  Existing
-//!   gateway logic is unchanged.
+//! * **gateway daemon**: machine-wide singleton, lives in the same binary
+//!   under the `gateway` subcommand. Per-DCC sidecars auto-launch it when
+//!   needed and do not participate in gateway election by default.
 //!
 //! # Example
 //!
@@ -142,13 +141,20 @@ pub struct SidecarArgs {
     #[arg(long, value_name = "MS", hide = true)]
     pub ppid_poll_ms: Option<u64>,
 
-    /// Well-known gateway port to compete for (first-wins). ``0`` disables
-    /// gateway election in this sidecar process.
+    /// Well-known gateway port to ensure. ``0`` disables gateway auto-launch.
     ///
-    /// Defaults to ``DCC_MCP_GATEWAY_PORT`` (9765). Sidecar mode should set
-    /// the in-DCC adapter's gateway port to ``0`` so only the sidecar competes.
+    /// Defaults to ``DCC_MCP_GATEWAY_PORT`` (9765). Per-DCC sidecars no longer
+    /// compete for this port unless ``--legacy-gateway-election`` is set.
     #[arg(long, default_value = "9765", env = "DCC_MCP_GATEWAY_PORT")]
     pub gateway_port: u16,
+
+    /// Disable auto-launching the machine-wide standalone gateway.
+    #[arg(long, default_value = "false")]
+    pub no_ensure_gateway: bool,
+
+    /// Legacy mode: let this per-DCC sidecar compete for the gateway role.
+    #[arg(long, env = "DCC_MCP_LEGACY_GATEWAY_ELECTION", default_value = "false")]
+    pub legacy_gateway_election: bool,
 
     /// Legacy host/interface for the gateway listener (default ``127.0.0.1``).
     ///
@@ -159,6 +165,11 @@ pub struct SidecarArgs {
     /// Gateway host/interface to bind. Use ``0.0.0.0`` to accept LAN clients.
     #[arg(long, env = "DCC_MCP_GATEWAY_HOST")]
     pub gateway_host: Option<String>,
+
+    /// Human-readable gateway candidate name written to the `__gateway__`
+    /// sentinel when this sidecar wins or challenges the gateway role.
+    #[arg(long, env = "DCC_MCP_GATEWAY_NAME")]
+    pub gateway_name: Option<String>,
 
     /// Remote/LAN gateway host/interface to bind.
     #[arg(long, env = "DCC_MCP_GATEWAY_REMOTE_HOST", default_value = "0.0.0.0")]
@@ -189,6 +200,29 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
         FileRegistry::new(&registry_dir)
             .with_context(|| format!("opening FileRegistry at {}", registry_dir.display()))?,
     );
+
+    if args.gateway_port > 0 && !args.no_ensure_gateway {
+        let gateway_host = args
+            .gateway_host
+            .clone()
+            .unwrap_or_else(|| args.host.clone());
+        crate::gateway_daemon::ensure_gateway_running(
+            &crate::gateway_daemon::EnsureGatewayOptions {
+                host: gateway_host,
+                port: args.gateway_port,
+                name: args.gateway_name.clone().or_else(|| {
+                    args.display_name
+                        .as_ref()
+                        .map(|name| format!("gateway-for-{name}"))
+                }),
+                registry_dir: registry_dir.clone(),
+                remote_host: args.gateway_remote_host.clone(),
+                remote_port: args.gateway_remote_port,
+            },
+        )
+        .await
+        .with_context(|| "ensuring standalone gateway is running")?;
+    }
 
     let entry = build_service_entry(&args);
     let key = entry.key();
@@ -262,7 +296,8 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
                             "FileRegistry republish with mcp_url failed; gateway will route via stub"
                         );
                     }
-                    if args.gateway_port > 0
+                    if args.legacy_gateway_election
+                        && args.gateway_port > 0
                         && let Some(entry) = registry.get(&key)
                     {
                         match crate::sidecar_gateway::start_sidecar_gateway(
@@ -572,8 +607,11 @@ mod tests {
             connect_timeout_secs: 2,
             ppid_poll_ms: Some(50),
             gateway_port: 0,
+            no_ensure_gateway: false,
+            legacy_gateway_election: false,
             host: "127.0.0.1".to_string(),
             gateway_host: None,
+            gateway_name: None,
             gateway_remote_host: "0.0.0.0".to_string(),
             gateway_remote_port: 59765,
         };
@@ -680,8 +718,11 @@ mod tests {
             connect_timeout_secs: 2,
             ppid_poll_ms: Some(50),
             gateway_port: 0,
+            no_ensure_gateway: false,
+            legacy_gateway_election: false,
             host: "127.0.0.1".to_string(),
             gateway_host: None,
+            gateway_name: None,
             gateway_remote_host: "0.0.0.0".to_string(),
             gateway_remote_port: 59765,
         };
@@ -770,8 +811,11 @@ mod tests {
             connect_timeout_secs: 1,
             ppid_poll_ms: Some(50),
             gateway_port: 0,
+            no_ensure_gateway: false,
+            legacy_gateway_election: false,
             host: "127.0.0.1".to_string(),
             gateway_host: None,
+            gateway_name: None,
             gateway_remote_host: "0.0.0.0".to_string(),
             gateway_remote_port: 59765,
         };

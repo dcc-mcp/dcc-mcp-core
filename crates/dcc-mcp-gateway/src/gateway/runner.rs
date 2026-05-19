@@ -219,6 +219,7 @@ impl GatewayRunner {
         let own_version = self.config.server_version.clone();
         let own_adapter_version = self.config.adapter_version.clone();
         let own_adapter_dcc = self.config.adapter_dcc.clone();
+        let gateway_name = self.effective_gateway_name();
 
         // Prune dead FileRegistry entries BEFORE election so:
         //
@@ -304,6 +305,7 @@ impl GatewayRunner {
                 sentinel.version = Some(own_version.clone());
                 sentinel.adapter_version = own_adapter_version.clone();
                 sentinel.adapter_dcc = own_adapter_dcc.clone();
+                stamp_gateway_sentinel(&mut sentinel, &gateway_name, "active");
                 let sentinel_key = sentinel.key();
                 {
                     let reg = self.registry.read().await;
@@ -322,7 +324,7 @@ impl GatewayRunner {
                     wait_terminal_timeout,
                     route_ttl,
                     max_routes_per_session,
-                    format!("{} (gateway)", self.config.server_name),
+                    format!("{} ({gateway_name})", self.config.server_name),
                     own_version.clone(),
                     sentinel_key.clone(),
                     self.config.host.clone(),
@@ -511,6 +513,7 @@ impl GatewayRunner {
         let route_ttl = Duration::from_secs(self.config.route_ttl_secs);
         let max_routes_per_session = self.config.max_routes_per_session as usize;
         let server_name = self.config.server_name.clone();
+        let gateway_name = self.effective_gateway_name();
         let timeout_secs = self.config.challenger_timeout_secs;
         let poll_interval_secs = self.config.challenger_poll_interval_secs.max(1);
         let allow_unknown_tools = self.config.allow_unknown_tools;
@@ -539,6 +542,7 @@ impl GatewayRunner {
             challenge_sentinel.version = Some(own_ver.clone());
             challenge_sentinel.adapter_version = adapter_version.clone();
             challenge_sentinel.adapter_dcc = adapter_dcc.clone();
+            stamp_gateway_sentinel(&mut challenge_sentinel, &gateway_name, "challenger");
             let challenge_sentinel_key = challenge_sentinel.key();
             {
                 let reg = registry.read().await;
@@ -605,6 +609,7 @@ impl GatewayRunner {
                     sentinel.version = Some(own_ver.clone());
                     sentinel.adapter_version = adapter_version.clone();
                     sentinel.adapter_dcc = adapter_dcc.clone();
+                    stamp_gateway_sentinel(&mut sentinel, &gateway_name, "active");
                     let sentinel_key = sentinel.key();
                     {
                         let reg = registry.read().await;
@@ -625,7 +630,7 @@ impl GatewayRunner {
                         wait_terminal_timeout,
                         route_ttl,
                         max_routes_per_session,
-                        format!("{server_name} (gateway)"),
+                        format!("{server_name} ({gateway_name})"),
                         own_ver.clone(),
                         sentinel_key.clone(),
                         host.clone(),
@@ -687,6 +692,35 @@ impl GatewayRunner {
         )
         .await
     }
+
+    fn effective_gateway_name(&self) -> String {
+        self.config
+            .gateway_name
+            .as_ref()
+            .filter(|name| !name.trim().is_empty())
+            .cloned()
+            .unwrap_or_else(|| {
+                let dcc = self.config.adapter_dcc.as_deref().unwrap_or("standalone");
+                format!("{dcc}-gateway-pid{}", std::process::id())
+            })
+    }
+}
+
+fn stamp_gateway_sentinel(entry: &mut ServiceEntry, gateway_name: &str, role: &str) {
+    entry.display_name = Some(gateway_name.to_string());
+    entry
+        .metadata
+        .insert("dcc_mcp_role".to_string(), "gateway-sentinel".to_string());
+    entry
+        .metadata
+        .insert("gateway_name".to_string(), gateway_name.to_string());
+    entry
+        .metadata
+        .insert("gateway_role".to_string(), role.to_string());
+    entry.metadata.insert(
+        "gateway_process_pid".to_string(),
+        std::process::id().to_string(),
+    );
 }
 
 struct PromotedGatewayGuard {

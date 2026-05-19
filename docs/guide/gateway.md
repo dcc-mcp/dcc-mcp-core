@@ -10,6 +10,24 @@ indexes backend capabilities on demand, routes `search_tools` /
 and multiplexes server-pushed notifications back to the originating
 client session.
 
+Set `gateway_name`, `--gateway-name`, or `DCC_MCP_GATEWAY_NAME` on each
+candidate to make ownership explicit. The elected process writes this label
+to the `__gateway__` sentinel and `/admin/api/health.gateway.current`; a
+challenger writes the same label with `gateway_role=challenger`, so operators
+can see both the current owner and the next peer trying to take over.
+
+For production, prefer the machine-wide standalone gateway:
+
+```bash
+dcc-mcp-server gateway --port 9765 --name studio-gateway
+```
+
+Per-DCC sidecars now auto-launch that process when `GET /health` is not
+reachable. They use a single-flight `gateway-launch.lock` in the registry
+directory so three DCCs starting at once still spawn at most one gateway.
+Use `dcc-mcp-server sidecar --no-ensure-gateway` to disable auto-launch, or
+`--legacy-gateway-election` to restore the old per-DCC first-wins election.
+
 ## Topology
 
 ```

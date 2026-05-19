@@ -69,8 +69,9 @@
 //! | `DCC_MCP_WS_PORT`         | WebSocket bridge port (default 9001)               |
 //! | `DCC_MCP_APP`             | App name hint (e.g. "maya", "photoshop")           |
 //! | `DCC_MCP_SERVER_NAME`     | Server name advertised to MCP clients              |
-//! | `DCC_MCP_GATEWAY_PORT`    | Gateway port to compete for (default 9765, 0=off)  |
+//! | `DCC_MCP_GATEWAY_PORT`    | Gateway port to run/ensure (default 9765, 0=off)   |
 //! | `DCC_MCP_GATEWAY_HOST`    | Gateway bind host (default follows `--host`)       |
+//! | `DCC_MCP_GATEWAY_NAME`    | Human-readable gateway candidate/owner label       |
 //! | `DCC_MCP_GATEWAY_REMOTE_HOST` | Optional remote gateway bind host (default 0.0.0.0) |
 //! | `DCC_MCP_GATEWAY_REMOTE_PORT` | Optional remote gateway port (default 59765, 0=off) |
 //! | `DCC_MCP_NO_ADMIN`        | Disable read-only `/admin` on the elected gateway  |
@@ -97,6 +98,7 @@ use dcc_mcp_skills::constants::{
 };
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 use sysinfo::{Pid, ProcessesToUpdate, System};
+mod gateway_daemon;
 mod sidecar;
 mod sidecar_gateway;
 mod sidecar_mcp;
@@ -120,6 +122,8 @@ enum SubCmd {
     /// and supervised via `--watch-pid`.  Exits cleanly when its parent
     /// DCC dies so we never leak stale workers.
     Sidecar(sidecar::SidecarArgs),
+    /// Machine-wide gateway daemon. Per-DCC sidecars auto-launch this when needed.
+    Gateway(gateway_daemon::GatewayArgs),
 }
 
 /// DCC-MCP server with integrated auto-gateway.
@@ -178,6 +182,11 @@ struct Args {
     /// Gateway host/interface to bind. Defaults to the MCP `--host`.
     #[arg(long, env = "DCC_MCP_GATEWAY_HOST")]
     gateway_host: Option<String>,
+
+    /// Human-readable gateway candidate name written to the `__gateway__`
+    /// sentinel when this process wins or challenges the gateway role.
+    #[arg(long, env = "DCC_MCP_GATEWAY_NAME")]
+    gateway_name: Option<String>,
 
     /// Remote/LAN gateway host/interface to bind.
     #[arg(long, env = "DCC_MCP_GATEWAY_REMOTE_HOST", default_value = "0.0.0.0")]
@@ -581,6 +590,7 @@ async fn main() -> anyhow::Result<()> {
         Some(SubCmd::Translate(translate_args)) => return translate::run(translate_args).await,
         Some(SubCmd::Catalog { action }) => return run_catalog_cmd(&action),
         Some(SubCmd::Sidecar(sidecar_args)) => return sidecar::run(sidecar_args).await,
+        Some(SubCmd::Gateway(gateway_args)) => return gateway_daemon::run(gateway_args).await,
         None => {}
     }
 
@@ -832,6 +842,7 @@ async fn main() -> anyhow::Result<()> {
         stale_timeout_secs: args.stale_timeout_secs,
         heartbeat_secs: args.heartbeat_secs,
         server_name: args.server_name.clone(),
+        gateway_name: args.gateway_name.clone(),
         server_version: env!("CARGO_PKG_VERSION").to_string(),
         registry_dir: registry_dir_path,
         // Issue maya#137: standalone server has no adapter package, so the

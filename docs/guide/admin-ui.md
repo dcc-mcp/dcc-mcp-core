@@ -256,16 +256,18 @@ Set `DCC_MCP_GATEWAY_AUDIT_DIR` to enable durable JSONL persistence. The gateway
 ## Dashboard Features
 
 The HTML dashboard includes:
-- **Left navigation**: Instances / Tools / Calls / Traces / Stats / Workers / Logs panels
+- **Debug Workbench**: the default first screen combines health, instances, calls, traces, stats, and warning logs so operators can triage gateway failures without jumping between panels.
+- **Gateway owner identity**: the Health and Debug panels show the current `__gateway__` sentinel label from `gateway_name` / `DCC_MCP_GATEWAY_NAME`, plus any challenger candidates.
+- **Left navigation**: Debug / Activity / Health / Instances / Tools / Tasks / Calls / Traces / Stats / Skill paths / Logs panels
 - **Auto-refresh**: Panels poll their JSON endpoints every 5 seconds
 - **DCC icons**: common hosts such as Maya/Autodesk, Blender, GIMP, Inkscape, Krita, Unity, and Unreal get recognizable icons, with a safe fallback for custom hosts.
 - **Worker cards**: Per-instance status, heartbeat, and routing metadata
 - **Calls table**: request ids, error previews, and trace-detail links; DCC is displayed from the resolved backend slug when available, otherwise from explicit call arguments such as `dcc` / `dcc_type`.
 - **Trace drill-down**: `/admin/api/traces/{request_id}` exposes the full waterfall plus bounded/redacted input/output payloads for one call.
-- **Logs panel**: groups normalized `contention`, `file`, and `audit` rows so operators can correlate routing events, rolling files, and tool calls in one timeline.
+- **Logs panel**: groups normalized `contention`, `file`, and `audit` rows so operators can correlate routing events, rolling files, and tool calls in one timeline. File log reads are bounded to recent files and tail slices so the admin API does not scan unbounded historical logs.
 - **Durable audit option**: `DCC_MCP_GATEWAY_AUDIT_DIR` preserves the Calls and Traces panels across restarts without changing the JSON API shapes.
 - **Dark theme**: Vite/React source with embedded runtime asset and no required runtime build step
-- **Responsive**: CSS grid layout
+- **Responsive**: narrow screens switch to a top navigation rail, and debug cards/charts keep a usable single-column width.
 
 ## Security Note
 

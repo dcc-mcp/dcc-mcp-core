@@ -1,6 +1,13 @@
 //! Parse tracing-style `.log` files for gateway admin log merge (`GET /admin/api/logs`).
 
+use std::io::{Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
+
 use serde_json::{Value, json};
+
+const MAX_LOG_FILES_TO_SCAN: usize = 32;
+const LOG_TAIL_BYTES: u64 = 256 * 1024;
 
 /// Parse one log line (tracing / log4rs style) into an admin log row JSON object.
 ///
@@ -69,16 +76,11 @@ pub fn read_gateway_log_dir_rows_recent(dir: &str, limit: usize) -> Vec<Value> {
         return Vec::new();
     }
     let mut rows: Vec<Value> = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().map(|e| e == "log").unwrap_or(false)
-                && let Ok(contents) = std::fs::read_to_string(&path)
-            {
-                for line in contents.lines() {
-                    if let Some(row) = parse_gateway_file_log_line(line) {
-                        rows.push(row);
-                    }
+    for path in recent_log_files(dir) {
+        if let Ok(contents) = read_log_tail(&path, LOG_TAIL_BYTES) {
+            for line in contents.lines() {
+                if let Some(row) = parse_gateway_file_log_line(line) {
+                    rows.push(row);
                 }
             }
         }
@@ -90,6 +92,45 @@ pub fn read_gateway_log_dir_rows_recent(dir: &str, limit: usize) -> Vec<Value> {
     });
     rows.truncate(limit);
     rows
+}
+
+fn recent_log_files(dir: &str) -> Vec<PathBuf> {
+    let mut files: Vec<(SystemTime, PathBuf)> = std::fs::read_dir(dir)
+        .into_iter()
+        .flat_map(|entries| entries.flatten())
+        .filter_map(|entry| {
+            let path = entry.path();
+            if !path.extension().map(|e| e == "log").unwrap_or(false) {
+                return None;
+            }
+            let modified = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(SystemTime::UNIX_EPOCH);
+            Some((modified, path))
+        })
+        .collect();
+    files.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
+    files
+        .into_iter()
+        .take(MAX_LOG_FILES_TO_SCAN)
+        .map(|(_, path)| path)
+        .collect()
+}
+
+fn read_log_tail(path: &Path, max_bytes: u64) -> std::io::Result<String> {
+    let mut file = std::fs::File::open(path)?;
+    let len = file.metadata()?.len();
+    let start = len.saturating_sub(max_bytes);
+    file.seek(SeekFrom::Start(start))?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    if start > 0
+        && let Some(pos) = bytes.iter().position(|b| *b == b'\n')
+    {
+        bytes.drain(..=pos);
+    }
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 #[cfg(test)]
@@ -163,5 +204,40 @@ mod tests {
         let v = parse_gateway_file_log_line(line).expect("parsable");
         assert!(v["dcc_type"].is_null());
         assert_eq!(v["message"], "message without colon target");
+    }
+
+    #[test]
+    fn read_dir_uses_tail_instead_of_full_file() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let p = dir.path().join("large.log");
+        let mut contents = String::from("2026-05-16T12:00:00.000000Z INFO t: old\n");
+        contents.push_str(&"x".repeat((super::LOG_TAIL_BYTES as usize) + 1024));
+        contents.push('\n');
+        contents.push_str("2026-05-16T13:00:00.000000Z WARN t: newest\n");
+        std::fs::write(&p, contents).unwrap();
+
+        let rows = super::read_gateway_log_dir_rows_recent(&dir.path().to_string_lossy(), 10);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["message"], "newest");
+    }
+
+    #[test]
+    fn read_dir_scans_bounded_recent_file_set() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        for i in 0..(super::MAX_LOG_FILES_TO_SCAN + 4) {
+            let p = dir.path().join(format!("{i:02}.log"));
+            std::fs::write(
+                &p,
+                format!("2026-05-16T12:00:{i:02}.000000Z INFO t: row-{i}\n"),
+            )
+            .unwrap();
+        }
+
+        let rows = super::read_gateway_log_dir_rows_recent(&dir.path().to_string_lossy(), 100);
+
+        assert!(rows.len() <= super::MAX_LOG_FILES_TO_SCAN);
     }
 }
