@@ -361,6 +361,94 @@ mod admin_tests {
         );
     }
 
+    #[tokio::test]
+    async fn test_admin_activity_merges_audit_and_trace_rows() {
+        use crate::gateway::admin::trace::{DispatchTrace, TraceLog};
+        use std::time::SystemTime;
+
+        let audit_log: Arc<AuditLog> = Arc::new(parking_lot::Mutex::new(vec![AdminAuditRecord {
+            timestamp: SystemTime::now(),
+            request_id: "req-activity".to_string(),
+            method: Some("tools/call".to_string()),
+            instance_id: Some("inst-1".to_string()),
+            session_id: Some("session-1".to_string()),
+            action: "maya.inst.tool".to_string(),
+            dcc_type: Some("maya".to_string()),
+            success: true,
+            error: None,
+            duration_ms: Some(11),
+        }]));
+        let traces = Arc::new(TraceLog::new(10));
+        traces.push(DispatchTrace {
+            request_id: "req-activity".into(),
+            method: "tools/call".into(),
+            tool_slug: Some("maya.inst.tool".into()),
+            instance_id: Some("inst-1".into()),
+            session_id: Some("session-1".into()),
+            dcc_type: Some("maya".into()),
+            started_at: SystemTime::now(),
+            total_ms: 11,
+            ok: true,
+            spans: vec![],
+            input: None,
+            output: None,
+        });
+        let state = AdminState::new(make_gateway_state())
+            .with_audit_log(audit_log)
+            .with_trace_log(traces, None);
+
+        let (status, body) = body_json(build_admin_router(state), "/api/activity").await;
+
+        assert_eq!(status, StatusCode::OK);
+        let events = body["events"].as_array().unwrap();
+        assert!(
+            events.iter().any(|e| e["kind"] == "tool_call"),
+            "expected audit event in activity payload"
+        );
+        assert!(
+            events.iter().any(|e| e["kind"] == "dispatch_trace"),
+            "expected trace event in activity payload"
+        );
+        assert_eq!(body["total"].as_u64(), Some(events.len() as u64));
+    }
+
+    #[tokio::test]
+    async fn test_admin_tasks_and_debug_bundle_from_trace() {
+        use crate::gateway::admin::trace::{DispatchTrace, TraceLog};
+        use std::time::SystemTime;
+
+        let traces = Arc::new(TraceLog::new(10));
+        traces.push(DispatchTrace {
+            request_id: "req-task".into(),
+            method: "tools/call".into(),
+            tool_slug: Some("maya.inst.long_task".into()),
+            instance_id: Some("inst-1".into()),
+            session_id: Some("session-1".into()),
+            dcc_type: Some("maya".into()),
+            started_at: SystemTime::now(),
+            total_ms: 25,
+            ok: false,
+            spans: vec![],
+            input: None,
+            output: None,
+        });
+        let state = AdminState::new(make_gateway_state()).with_trace_log(traces, None);
+        let router = build_admin_router(state);
+
+        let (tasks_status, tasks_body) = body_json(router.clone(), "/api/tasks").await;
+        assert_eq!(tasks_status, StatusCode::OK);
+        assert_eq!(tasks_body["tasks"][0]["task_id"], "req-task");
+        assert_eq!(tasks_body["tasks"][0]["status"], "failed");
+
+        let (bundle_status, bundle_body) = body_json(router, "/api/debug-bundle/req-task").await;
+        assert_eq!(bundle_status, StatusCode::OK);
+        assert_eq!(bundle_body["request_id"], "req-task");
+        assert!(bundle_body["trace"].is_object());
+        assert!(bundle_body["related_activity"].is_array());
+        assert!(bundle_body.get("related_logs").is_none());
+        assert!(bundle_body["hints"].is_array());
+    }
+
     // ── /api/logs ─────────────────────────────────────────────────────────
 
     #[tokio::test]
@@ -647,6 +735,36 @@ mod admin_tests {
         assert!(w["memory_bytes"].is_null());
         assert!(w["uptime_secs"].as_u64().is_some());
         // summary should reflect 1 live, 0 stale.
+        assert_eq!(body["total"].as_u64(), Some(1));
+        assert_eq!(body["summary"]["live"].as_u64(), Some(1));
+        assert_eq!(body["summary"]["stale"].as_u64(), Some(0));
+    }
+
+    #[tokio::test]
+    async fn test_admin_workers_hides_stale_registry_rows() {
+        let gs = make_gateway_state();
+        {
+            let reg = gs.registry.write().await;
+            reg.register(make_service_entry("maya", "127.0.0.1", 18813, Some(4242)))
+                .unwrap();
+
+            let mut stale = make_service_entry("maya", "127.0.0.1", 18814, Some(4243));
+            stale.last_heartbeat = std::time::SystemTime::now() - Duration::from_secs(120);
+            reg.register(stale).unwrap();
+        }
+
+        let state = AdminState::new(gs);
+        let router = build_admin_router(state);
+        let (status, body) = body_json(router, "/api/workers").await;
+
+        assert_eq!(status, StatusCode::OK);
+        let workers = body["workers"].as_array().unwrap();
+        assert_eq!(
+            workers.len(),
+            1,
+            "expected only live workers, got {workers:?}"
+        );
+        assert_eq!(workers[0]["port"], 18813);
         assert_eq!(body["total"].as_u64(), Some(1));
         assert_eq!(body["summary"]["live"].as_u64(), Some(1));
         assert_eq!(body["summary"]["stale"].as_u64(), Some(0));

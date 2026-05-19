@@ -74,11 +74,14 @@ let config = GatewayConfig {
 | 路由 | Content-Type | 说明 |
 |------|-------------|------|
 | `GET /admin` | `text/html` | 以单个 HTML 资产提供的嵌入式 React/Vite 仪表盘 |
+| `GET /admin/api/activity?limit=300` | `application/json` | 由审计、trace 和 gateway 事件合并得到的统一活动时间线 |
 | `GET /admin/api/instances` | `application/json` | 已连接的 DCC 实例 |
 | `GET /admin/api/tools` | `application/json` | 已注册的 MCP 工具 |
+| `GET /admin/api/tasks?limit=300` | `application/json` | 从 dispatch traces 重建出的任务视图 |
 | `GET /admin/api/calls` | `application/json` | 最近的工具调用（需要 `AuditMiddleware`） |
 | `GET /admin/api/traces` | `application/json` | 最近的逐调用 dispatch traces；支持 `?limit=200` |
 | `GET /admin/api/traces/{request_id}` | `application/json` | 某次调用的完整 waterfall trace |
+| `GET /admin/api/debug-bundle/{request_id}` | `application/json` | 单次请求的一站式 debug bundle，包含 trace、匹配审计行、相关活动和提示 |
 | `GET /admin/api/stats?range=1h\|24h\|7d` | `application/json` | 聚合调用数、成功率、延迟和 top tools/instances |
 | `GET /admin/api/workers` | `application/json` | 来自 live registry 的实例 worker 卡片 |
 | `GET /admin/api/logs` | `application/json` | 合并后的网关竞争事件、磁盘 `*.log` 行和审计调用摘要 |
@@ -100,6 +103,49 @@ let config = GatewayConfig {
   "total": 3,
   "instances": [
     { "id": "a1b2c3d4-...", "dcc_type": "maya", "status": "ready", "address": "127.0.0.1:9001" }
+  ]
+}
+
+// GET /admin/api/activity?limit=300
+{
+  "total": 2,
+  "events": [
+    {
+      "event_id": "audit:req-123",
+      "timestamp": "2026-05-05T10:00:00Z",
+      "kind": "tool_call",
+      "severity": "info",
+      "status": "ok",
+      "message": "tools/call maya__open_scene",
+      "tool": "maya__open_scene",
+      "duration_ms": 48,
+      "correlation": {
+        "request_id": "req-123",
+        "session_id": "session-1",
+        "instance_id": "abcdef01-2345-6789-abcd-ef0123456789",
+        "dcc_type": "maya"
+      }
+    }
+  ]
+}
+
+// GET /admin/api/tasks?limit=300
+{
+  "total": 1,
+  "tasks": [
+    {
+      "task_id": "req-123",
+      "task_type": "tool_call",
+      "status": "completed",
+      "title": "maya__open_scene",
+      "started_at": "2026-05-05T10:00:00Z",
+      "duration_ms": 48,
+      "correlation": {
+        "request_id": "req-123",
+        "instance_id": "abcdef01-2345-6789-abcd-ef0123456789",
+        "dcc_type": "maya"
+      }
+    }
   ]
 }
 
@@ -142,6 +188,15 @@ let config = GatewayConfig {
 }
 
 // GET /admin/api/traces/req-123 返回同一个完整 trace 对象；未命中时返回 404。
+
+// GET /admin/api/debug-bundle/req-123
+{
+  "request_id": "req-123",
+  "trace": { "request_id": "req-123", "spans": [] },
+  "audit": { "request_id": "req-123", "success": true },
+  "related_activity": [],
+  "hints": []
+}
 
 // GET /admin/api/stats?range=24h
 {

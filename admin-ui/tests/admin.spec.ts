@@ -35,6 +35,37 @@ async function mockAdminApi(page: Page) {
         },
         circuits: { tracked_backends: 2, circuits_open: 0 },
       };
+    } else if (path === '/activity') {
+      body = {
+        total: 2,
+        events: [
+          {
+            event_id: 'audit:req-123',
+            timestamp: now,
+            kind: 'tool_call',
+            severity: 'info',
+            status: 'ok',
+            message: 'tools/call maya-1234__create_sphere',
+            tool: 'maya-1234__create_sphere',
+            duration_ms: 42,
+            correlation: {
+              request_id: 'req-123',
+              session_id: 'session-1',
+              instance_id: 'maya-1234567890',
+              dcc_type: 'maya',
+            },
+          },
+          {
+            event_id: 'gateway:1',
+            timestamp: '2026-05-18T08:00:01.000Z',
+            kind: 'gateway_elected',
+            severity: 'info',
+            status: 'ok',
+            message: 'gateway elected dcc_type=gateway instance=local',
+            correlation: { instance_id: 'local', dcc_type: 'gateway' },
+          },
+        ],
+      };
     } else if (path === '/workers') {
       body = {
         total: 2,
@@ -52,7 +83,7 @@ async function mockAdminApi(page: Page) {
             adapter_version: '0.5.0',
             cpu_percent: 3.5,
             memory_bytes: 734003200,
-            mcp_url: 'http://127.0.0.1:8765/mcp',
+            mcp_url: 'http://localhost:8765/mcp',
             scene: 'shot010.ma',
           },
           {
@@ -93,6 +124,25 @@ async function mockAdminApi(page: Page) {
             name: 'render_preview',
             instance_id: 'blender-abcdef1234',
             instance_prefix: 'blender-',
+          },
+        ],
+      };
+    } else if (path === '/tasks') {
+      body = {
+        total: 1,
+        tasks: [
+          {
+            task_id: 'req-123',
+            task_type: 'tool_call',
+            status: 'completed',
+            title: 'maya-1234__create_sphere',
+            started_at: now,
+            duration_ms: 42,
+            correlation: {
+              request_id: 'req-123',
+              instance_id: 'maya-1234567890',
+              dcc_type: 'maya',
+            },
           },
         ],
       };
@@ -203,10 +253,12 @@ test.describe('Admin Page', () => {
   test('loads the health panel and navigation', async ({ page }) => {
     await page.goto('/admin/');
     await expect(page.locator('h1')).toContainText('DCC-MCP Gateway');
-    await expect(page.getByRole('navigation').getByRole('link', { name: 'Health' })).toHaveClass(/active/);
-    for (const label of ['Health', 'Instances', 'Tools', 'Calls', 'Traces', 'Stats', 'Skill paths', 'Logs']) {
+    await expect(page.getByRole('navigation').getByRole('link', { name: 'Activity' })).toHaveClass(/active/);
+    for (const label of ['Activity', 'Health', 'Instances', 'Tools', 'Tasks', 'Calls', 'Traces', 'Stats', 'Skill paths', 'Logs']) {
       await expect(page.getByRole('navigation').getByRole('link', { name: label })).toBeVisible();
     }
+    await expect(page.locator('.activity-panel')).toContainText('maya-1234__create_sphere');
+    await page.getByRole('navigation').getByRole('link', { name: 'Health' }).click();
     await expect(page.locator('.health-panel')).toContainText('0.17.7');
   });
 
@@ -215,6 +267,9 @@ test.describe('Admin Page', () => {
     await page.getByRole('navigation').getByRole('link', { name: 'Instances' }).click();
     await expect(page.locator('.instances-panel')).toBeVisible();
     await expect(page.locator('.dcc-icon')).toHaveCount(2);
+    await expect(page.locator('.instances-panel')).toContainText('Access URL');
+    await expect(page.locator('.instances-panel')).toContainText('http://127.0.0.1:8765');
+    await expect(page.getByRole('link', { name: 'docs' }).first()).toHaveAttribute('href', 'http://127.0.0.1:8765/docs');
     await page.getByLabel('Filter current panel').fill('blender');
     await expect(page.locator('.worker-card')).toHaveCount(1);
     await expect(page.locator('.worker-card')).toContainText('Blender Lookdev');
@@ -228,6 +283,15 @@ test.describe('Admin Page', () => {
     await expect(page).toHaveURL(/trace=req-123/);
     await expect(page.locator('.traces-panel pre')).toContainText('"request_id": "req-123"');
     await expect(page.locator('.traces-panel pre')).toContainText('"dispatch"');
+  });
+
+  test('shows reconstructed tasks and links them to traces', async ({ page }) => {
+    await page.goto('/admin/?panel=tasks');
+    await expect(page.locator('.tasks-panel')).toContainText('maya-1234__create_sphere');
+    await page.getByRole('button', { name: 'req-123' }).click();
+    await expect(page).toHaveURL(/panel=traces/);
+    await expect(page).toHaveURL(/trace=req-123/);
+    await expect(page.locator('.traces-panel pre')).toContainText('"request_id": "req-123"');
   });
 
   test('updates stats when the range selector changes', async ({ page }) => {
