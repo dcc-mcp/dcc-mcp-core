@@ -23,6 +23,7 @@ pub(crate) async fn start_gateway_runner(
         stale_timeout_secs: config.gateway.stale_timeout_secs,
         heartbeat_secs: config.gateway.heartbeat_secs,
         server_name: config.server.server_name.clone(),
+        gateway_name: config.gateway.gateway_name.clone(),
         server_version: config.server.server_version.clone(),
         registry_dir: config.gateway.registry_dir.clone(),
         challenger_timeout_secs: 120,

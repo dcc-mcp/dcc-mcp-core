@@ -256,16 +256,18 @@ GatewayConfig {
 ## 仪表盘功能
 
 HTML 仪表盘包含：
-- **左侧导航**：实例 / 工具 / 调用 / Traces / Stats / Workers / 日志面板
+- **Debug Workbench**：默认首屏会组合 health、instances、calls、traces、stats 和 warning logs，方便排查 gateway 故障时不用在多个面板之间来回跳转
+- **Gateway owner identity**：Health 和 Debug 面板会展示来自 `gateway_name` / `DCC_MCP_GATEWAY_NAME` 的当前 `__gateway__` sentinel 标签，以及 challenger 候选
+- **左侧导航**：Debug / Activity / Health / 实例 / 工具 / Tasks / Calls / Traces / Stats / Skill paths / 日志面板
 - **自动刷新**：每个面板每 5 秒轮询对应 JSON 端点
 - **DCC 图标**：Maya/Autodesk、Blender、GIMP、Inkscape、Krita、Unity、Unreal 等常见宿主显示可识别图标，自定义宿主使用安全 fallback
 - **Worker 卡片**：按实例展示状态、心跳与路由元数据
 - **Calls 表格**：展示 request id、错误摘要与 trace detail 链接；DCC 优先从解析后的 backend slug 展示，其次使用调用参数中的 `dcc` / `dcc_type`
 - **Trace 下钻**：`/admin/api/traces/{request_id}` 暴露单次调用的完整 waterfall，以及有界/已脱敏的输入输出 payload
-- **Logs 面板**：将标准化的 `contention`、`file`、`audit` 行分组，方便在一条时间线里关联路由事件、滚动日志和工具调用
+- **Logs 面板**：将标准化的 `contention`、`file`、`audit` 行分组，方便在一条时间线里关联路由事件、滚动日志和工具调用。文件日志读取会限制为最近文件与尾部片段，避免 admin API 扫描无界历史日志
 - **可选持久化**：`DCC_MCP_GATEWAY_AUDIT_DIR` 可让 Calls 与 Traces 面板跨重启保留，且不改变 JSON API 结构
 - **深色主题**：Vite/React 源码，运行时嵌入资产，不要求现场构建
-- **响应式布局**：CSS grid 布局
+- **响应式布局**：窄屏会切换为顶部导航，debug 卡片和图表保持可用的单列宽度
 
 ## 安全注意事项
 

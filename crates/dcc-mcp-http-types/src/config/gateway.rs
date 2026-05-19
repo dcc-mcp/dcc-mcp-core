@@ -74,6 +74,11 @@ pub struct GatewayConfig {
     /// gateway election (issue maya#137).
     pub adapter_dcc: Option<String>,
 
+    /// Human-readable identity for this gateway candidate. The elected
+    /// gateway writes it to the `__gateway__` sentinel so operators can see
+    /// which process owns the gateway port.
+    pub gateway_name: Option<String>,
+
     /// Allow instances with `dcc_type == "unknown"` to expose their tools
     /// via the gateway (issue #555).
     ///
@@ -109,6 +114,7 @@ impl Default for GatewayConfig {
             gateway_max_routes_per_session: 1_000,
             adapter_version: None,
             adapter_dcc: None,
+            gateway_name: None,
             allow_unknown_tools: false,
             admin_enabled: true,
             admin_path: "/admin".to_string(),
