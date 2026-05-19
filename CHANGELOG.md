@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.13](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.12...v0.17.13) (2026-05-19)
+
+
+### Bug Fixes
+
+* **ci:** extract release wheel scripts ([893df3a](https://github.com/loonghao/dcc-mcp-core/commit/893df3a74c6e23600c104c6a67b75d3387b1b023))
+
 ## [0.17.12](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.11...v0.17.12) (2026-05-19)
 
 
