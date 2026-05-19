@@ -250,14 +250,17 @@ async fn run_on_worker(
     }
 }
 
-async fn execute_threaded_dispatch(
-    state: &ServerState,
+/// Route a tool dispatch through the same main-thread executor path as MCP
+/// `tools/call`. Used by REST `POST /v1/call` via [`crate::ThreadRoutedInvoker`].
+pub async fn dispatch_action_with_thread_routing(
+    dispatcher: dcc_mcp_actions::ToolDispatcher,
+    executor: Option<&DccExecutorHandle>,
     resolved_name: &str,
     call_params: Value,
     thread_affinity: ThreadAffinity,
     enforce_thread_affinity: bool,
 ) -> Result<Value, String> {
-    let executor_present = state.executor.is_some();
+    let executor_present = executor.is_some();
     let on_main = use_main_thread_route(thread_affinity, executor_present);
 
     if matches!(thread_affinity, ThreadAffinity::Main) && !executor_present {
@@ -275,17 +278,30 @@ async fn execute_threaded_dispatch(
         );
     }
 
-    let dispatcher: dcc_mcp_actions::ToolDispatcher = state.dispatcher.as_ref().clone();
-
     if on_main {
-        let executor = state
-            .executor
-            .as_ref()
-            .expect("executor presence gated by use_main_thread_route");
+        let executor = executor.expect("executor presence gated by use_main_thread_route");
         run_on_main_thread(executor, dispatcher, resolved_name.to_string(), call_params).await
     } else {
         run_on_worker(dispatcher, resolved_name.to_string(), call_params).await
     }
+}
+
+async fn execute_threaded_dispatch(
+    state: &ServerState,
+    resolved_name: &str,
+    call_params: Value,
+    thread_affinity: ThreadAffinity,
+    enforce_thread_affinity: bool,
+) -> Result<Value, String> {
+    dispatch_action_with_thread_routing(
+        state.dispatcher.as_ref().clone(),
+        state.executor.as_ref(),
+        resolved_name,
+        call_params,
+        thread_affinity,
+        enforce_thread_affinity,
+    )
+    .await
 }
 
 fn dispatch_json_result(output: Value) -> CallToolResult {
