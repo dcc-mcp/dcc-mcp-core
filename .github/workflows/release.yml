@@ -178,9 +178,11 @@ jobs:
         shell: bash
 
       # ── PyPI wheel build ──────────────────────────────────────────
-      # Reuses the same target/ directory the raw-binary step just
-      # populated; maturin sees the binary as already-compiled and does
-      # only the wheel-pack step. No second cargo build.
+      # macOS / Windows reuse the same target/ directory the raw-binary
+      # step just populated; maturin sees the binary as already-compiled
+      # and does only the wheel-pack step. Linux intentionally builds
+      # inside a manylinux2014 container so the uploaded wheel is accepted
+      # by older embedded hosts such as Maya 2022 / Python 3.7.
       # NOTE: maturin's `--strip` is intentionally OMITTED — the workspace
       # already has `strip = true` in `[profile.release]` (Cargo.toml:214),
       # so the binary is stripped at the cargo level. Adding `--strip` here
@@ -195,8 +197,18 @@ jobs:
           python -m pip install "maturin>=1.5,<2.0" "wheel>=0.46"
           maturin build --release --target universal2-apple-darwin --out wheels
 
-      - name: Build PyPI wheel (Linux / Windows)
-        if: matrix.os != 'macos-latest'
+      - name: Build PyPI wheel (Linux manylinux2014)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          docker run --rm \
+            -v "$PWD:/io" \
+            -w /io/pkg/dcc-mcp-server-bin \
+            ghcr.io/pyo3/maturin:v1.13.3 \
+            build --release --manylinux 2014 --out wheels
+
+      - name: Build PyPI wheel (Windows)
+        if: matrix.os == 'windows-latest'
         shell: bash
         working-directory: pkg/dcc-mcp-server-bin
         run: |
@@ -286,6 +298,25 @@ jobs:
                   print(
                       f"::error::{wheel.name} must use py3-none platform tags "
                       "because dcc-mcp-server ships a standalone binary, not a CPython extension",
+                      file=sys.stderr,
+                  )
+                  sys.exit(1)
+
+              if "manylinux_2_39" in wheel.name:
+                  print(
+                      f"::error::{wheel.name} was built against the GitHub runner glibc. "
+                      "Build Linux server wheels in manylinux2014 so Maya 2022 / Python 3.7 "
+                      "can resolve dcc-mcp-server.",
+                      file=sys.stderr,
+                  )
+                  sys.exit(1)
+
+              if "manylinux" in wheel.name and not (
+                  "manylinux_2_17" in wheel.name or "manylinux2014" in wheel.name
+              ):
+                  print(
+                      f"::error::{wheel.name} must target manylinux2014 / manylinux_2_17 "
+                      "for older DCC-hosted Python environments.",
                       file=sys.stderr,
                   )
                   sys.exit(1)
