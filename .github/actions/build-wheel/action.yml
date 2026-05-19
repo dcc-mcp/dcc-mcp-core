@@ -61,6 +61,8 @@ runs:
 
     - name: Install vx
       uses: loonghao/vx@v0.8.36
+      with:
+        cache: "false"
 
     - name: Cache Cargo
       uses: Swatinem/rust-cache@v2
