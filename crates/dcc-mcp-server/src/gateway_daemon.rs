@@ -1,5 +1,6 @@
 //! Machine-wide standalone gateway daemon and auto-launch helper.
 
+use std::ffi::OsString;
 use std::fs::{File, OpenOptions};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -205,23 +206,11 @@ fn acquire_launch_lock(path: &std::path::Path) -> std::io::Result<LaunchLock> {
 fn spawn_detached_gateway(opts: &EnsureGatewayOptions) -> anyhow::Result<()> {
     let exe = std::env::current_exe().context("resolving current executable")?;
     let mut cmd = Command::new(exe);
-    cmd.arg("gateway")
-        .arg("--host")
-        .arg(&opts.host)
-        .arg("--port")
-        .arg(opts.port.to_string())
-        .arg("--remote-host")
-        .arg(&opts.remote_host)
-        .arg("--remote-port")
-        .arg(opts.remote_port.to_string())
-        .arg("--registry-dir")
-        .arg(&opts.registry_dir)
+    cmd.args(gateway_command_args(opts))
+        .env("DCC_MCP_REGISTRY_DIR", &opts.registry_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    if let Some(name) = opts.name.as_ref().filter(|name| !name.trim().is_empty()) {
-        cmd.arg("--name").arg(name);
-    }
 
     #[cfg(windows)]
     {
@@ -236,9 +225,57 @@ fn spawn_detached_gateway(opts: &EnsureGatewayOptions) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn gateway_command_args(opts: &EnsureGatewayOptions) -> Vec<OsString> {
+    let mut args = vec![
+        OsString::from("gateway"),
+        OsString::from("--host"),
+        OsString::from(&opts.host),
+        OsString::from("--port"),
+        OsString::from(opts.port.to_string()),
+        OsString::from("--remote-host"),
+        OsString::from(&opts.remote_host),
+        OsString::from("--remote-port"),
+        OsString::from(opts.remote_port.to_string()),
+    ];
+    if let Some(name) = opts.name.as_ref().filter(|name| !name.trim().is_empty()) {
+        args.push(OsString::from("--name"));
+        args.push(OsString::from(name));
+    }
+    args
+}
+
 fn default_gateway_name() -> String {
     let host = std::env::var("COMPUTERNAME")
         .or_else(|_| std::env::var("HOSTNAME"))
         .unwrap_or_else(|_| "local".to_string());
     format!("gateway-{host}-pid{}", std::process::id())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auto_launch_gateway_args_do_not_include_registry_dir_flag() {
+        let opts = EnsureGatewayOptions {
+            host: "127.0.0.1".to_string(),
+            port: 9765,
+            name: Some("gateway-for-test".to_string()),
+            registry_dir: PathBuf::from(r"C:\tmp\dcc-mcp-registry"),
+            remote_host: "0.0.0.0".to_string(),
+            remote_port: 59765,
+        };
+
+        let args: Vec<String> = gateway_command_args(&opts)
+            .into_iter()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+
+        assert!(
+            !args.iter().any(|arg| arg == "--registry-dir"),
+            "auto-launched gateway should inherit DCC_MCP_REGISTRY_DIR instead of exposing --registry-dir in the command line"
+        );
+        assert!(args.iter().any(|arg| arg == "gateway"));
+        assert!(args.iter().any(|arg| arg == "--name"));
+    }
 }

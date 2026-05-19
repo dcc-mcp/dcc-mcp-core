@@ -149,6 +149,18 @@ AI 友好文档：[AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](d
 
 ![dcc-mcp-core 架构图](docs/assets/architecture/current-stack.svg)
 
+### Gateway Admin UI
+
+获选的 gateway 内置一套浏览器 admin 控制台，方便运维在不离开浏览器的情况下查看实时 DCC 会话、路由健康、审计调用、traces、日志、skill 路径和延迟趋势。下面的示例使用代表性演示数据，展示繁忙多 DCC 工作站上的主要面板。
+
+![Gateway admin health panel](docs/assets/admin-ui/admin-health.png)
+
+![Gateway admin instances panel](docs/assets/admin-ui/admin-instances.png)
+
+![Gateway admin stats panel](docs/assets/admin-ui/admin-stats.png)
+
+![Gateway admin traces panel](docs/assets/admin-ui/admin-traces.png)
+
 ---
 
 ## 安装详情与手动 API 示例

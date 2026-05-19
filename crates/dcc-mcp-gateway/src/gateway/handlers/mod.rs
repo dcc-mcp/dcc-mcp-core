@@ -8,7 +8,7 @@ pub(crate) use axum::Json;
 pub(crate) use axum::extract::{Path, Query, State};
 pub(crate) use axum::http::{HeaderMap, StatusCode};
 pub(crate) use axum::response::sse::{Event, KeepAlive, Sse};
-pub(crate) use axum::response::{IntoResponse, Response};
+pub(crate) use axum::response::{Html, IntoResponse, Response};
 pub(crate) use futures::stream;
 pub(crate) use serde::Deserialize;
 pub(crate) use serde_json::{Value, json};
@@ -34,9 +34,9 @@ pub use proxy_impl::{handle_proxy_dcc, handle_proxy_instance};
 pub use rest_impl::{
     handle_gateway_yield, handle_health, handle_instances, handle_v1_call, handle_v1_call_batch,
     handle_v1_context, handle_v1_dcc_instance_call, handle_v1_dcc_instance_describe,
-    handle_v1_describe, handle_v1_describe_path, handle_v1_healthz, handle_v1_list_skills,
-    handle_v1_load_skill, handle_v1_openapi, handle_v1_readyz, handle_v1_search, handle_v1_skills,
-    handle_v1_unload_skill,
+    handle_v1_describe, handle_v1_describe_path, handle_v1_docs, handle_v1_healthz,
+    handle_v1_list_skills, handle_v1_load_skill, handle_v1_openapi, handle_v1_readyz,
+    handle_v1_search, handle_v1_skills, handle_v1_unload_skill,
 };
 pub use sse_impl::handle_gateway_get;
 

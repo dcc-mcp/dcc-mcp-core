@@ -49,22 +49,93 @@ pub async fn handle_admin_activity(
     Json(crate::gateway::admin::activity::build_activity_payload(&s, limit).await)
 }
 
-/// `GET /admin/api/instances` — list all instances known to the registry.
-pub async fn handle_admin_instances(State(s): State<AdminState>) -> impl IntoResponse {
+#[derive(Debug, Default, Deserialize)]
+pub struct AdminInstancesQuery {
+    /// Default: current routable instances. `all` exposes the registry view.
+    view: Option<String>,
+    /// Compatibility flag for callers that want stale diagnostic rows.
+    include_stale: Option<bool>,
+    /// Include rows whose owner process is gone. Diagnostic use only.
+    include_dead: Option<bool>,
+}
+
+/// `GET /admin/api/instances` — list current routable instances by default.
+pub async fn handle_admin_instances(
+    State(s): State<AdminState>,
+    axum::extract::Query(params): axum::extract::Query<AdminInstancesQuery>,
+) -> impl IntoResponse {
+    let include_dead = params.include_dead.unwrap_or(false);
+    let include_stale = params.include_stale.unwrap_or(false);
+    let registry_view = params
+        .view
+        .as_deref()
+        .is_some_and(|v| v.eq_ignore_ascii_case("all") || v.eq_ignore_ascii_case("registry"))
+        || include_stale
+        || include_dead;
+
     let registry = s.gateway.registry.read().await;
-    let instances: Vec<Value> = s
-        .gateway
-        .all_instances(&registry)
+    let (entries, evicted_dead) = if registry_view {
+        if include_dead {
+            (s.gateway.all_instances(&registry), 0usize)
+        } else {
+            match s.gateway.read_alive_instances(&registry) {
+                Ok((entries, evicted)) => (entries, evicted),
+                Err(err) => {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({
+                            "error": "registry-read-failed",
+                            "message": err.to_string(),
+                        })),
+                    )
+                        .into_response();
+                }
+            }
+        }
+    } else {
+        (s.gateway.live_instances(&registry), 0usize)
+    };
+
+    let known_total = entries.len();
+    let mut live_count = 0usize;
+    let mut stale_count = 0usize;
+    let mut unhealthy_count = 0usize;
+    let instances: Vec<Value> = entries
         .into_iter()
+        .filter(|e| {
+            let stale = e.is_stale(s.gateway.stale_timeout);
+            if stale {
+                stale_count += 1;
+            }
+            registry_view || !stale
+        })
         .map(|e| {
             let mut v = entry_to_json(&e, s.gateway.stale_timeout);
+            match v["status"].as_str() {
+                Some("available" | "busy") => live_count += 1,
+                Some("stale") => {}
+                _ => unhealthy_count += 1,
+            }
             // Alias `instance_id` → `id` for the UI convenience.
             let id = v["instance_id"].clone();
             v.as_object_mut().map(|m| m.insert("id".into(), id));
             v
         })
         .collect();
-    Json(json!({ "total": instances.len(), "instances": instances }))
+
+    Json(json!({
+        "total": instances.len(),
+        "known_total": known_total,
+        "evicted_dead": evicted_dead,
+        "view": if registry_view { "all" } else { "live" },
+        "summary": {
+            "live": live_count,
+            "stale": stale_count,
+            "unhealthy": unhealthy_count,
+        },
+        "instances": instances,
+    }))
+    .into_response()
 }
 
 /// `GET /admin/api/tools` — list all registered capability records.
