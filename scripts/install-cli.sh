@@ -4,6 +4,7 @@ set -eu
 REPO="${DCC_MCP_REPO:-loonghao/dcc-mcp-core}"
 VERSION="${DCC_MCP_VERSION:-latest}"
 INSTALL_DIR="${DCC_MCP_INSTALL_DIR:-$HOME/.local/bin}"
+RELEASE_FALLBACK="${DCC_MCP_RELEASE_FALLBACK:-1}"
 
 usage() {
     cat <<'EOF'
@@ -19,6 +20,10 @@ Environment:
   DCC_MCP_REPO         GitHub repo, default loonghao/dcc-mcp-core
   DCC_MCP_VERSION      Release tag, default latest
   DCC_MCP_INSTALL_DIR  Install directory, default ~/.local/bin
+  DCC_MCP_RELEASE_FALLBACK
+                       When latest asset is missing, download the newest
+                       release that includes the asset. Set to 0/false/no to
+                       disable. Default enabled.
 EOF
 }
 
@@ -84,15 +89,75 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+download_url() {
+    url="$1"
+    echo "Downloading $url"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fL "$url" -o "$TMP_DIR/dcc-mcp-cli"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -O "$TMP_DIR/dcc-mcp-cli" "$url"
+    else
+        echo "curl or wget is required to download release assets" >&2
+        return 1
+    fi
+}
+
+release_fallback_enabled() {
+    case "$RELEASE_FALLBACK" in
+        0|false|FALSE|no|NO)
+            return 1
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}
+
+latest_release_asset_url() {
+    releases_json="$TMP_DIR/releases.json"
+    api_url="https://api.github.com/repos/$REPO/releases?per_page=30"
+    echo "Looking for the newest release containing $ASSET" >&2
+    if command -v curl >/dev/null 2>&1; then
+        if [ -n "${GITHUB_TOKEN:-}" ]; then
+            curl -fsSL \
+                -H "Authorization: Bearer $GITHUB_TOKEN" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "$api_url" -o "$releases_json"
+        else
+            curl -fsSL "$api_url" -o "$releases_json"
+        fi
+    elif command -v wget >/dev/null 2>&1; then
+        if [ -n "${GITHUB_TOKEN:-}" ]; then
+            wget -q \
+                --header="Authorization: Bearer $GITHUB_TOKEN" \
+                --header="X-GitHub-Api-Version: 2022-11-28" \
+                -O "$releases_json" "$api_url"
+        else
+            wget -q -O "$releases_json" "$api_url"
+        fi
+    else
+        return 1
+    fi
+    tr ',' '\n' < "$releases_json" \
+        | sed -n 's/.*"browser_download_url":[[:space:]]*"\([^"]*\/'"$ASSET"'\)".*/\1/p' \
+        | head -n 1
+}
+
 mkdir -p "$INSTALL_DIR"
-echo "Downloading $URL"
-if command -v curl >/dev/null 2>&1; then
-    curl -fL "$URL" -o "$TMP_DIR/dcc-mcp-cli"
-elif command -v wget >/dev/null 2>&1; then
-    wget -O "$TMP_DIR/dcc-mcp-cli" "$URL"
-else
-    echo "curl or wget is required" >&2
-    exit 1
+if ! download_url "$URL"; then
+    if [ "$VERSION" = "latest" ] && release_fallback_enabled; then
+        fallback_url="$(latest_release_asset_url || true)"
+        if [ -n "$fallback_url" ]; then
+            echo "Latest release did not provide $ASSET; falling back to $fallback_url"
+            download_url "$fallback_url"
+        else
+            echo "No release asset named $ASSET was found in recent releases." >&2
+            exit 1
+        fi
+    else
+        echo "Release asset download failed." >&2
+        exit 1
+    fi
 fi
 
 chmod 0755 "$TMP_DIR/dcc-mcp-cli"
