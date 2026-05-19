@@ -24,6 +24,13 @@ class _SyncPumpDispatcher(HostUiDispatcherBase):
         self.drain_queue(budget_ms=DEFAULT_UI_JOB_TIMEOUT_MS)
 
 
+class _NoopPumpDispatcher(HostUiDispatcherBase):
+    """Test double: leave queued jobs pending until tests inspect them."""
+
+    def poke_host_pump(self) -> None:
+        return None
+
+
 def test_normalize_affinity_rejects_unknown():
     with pytest.raises(ValueError):
         normalize_affinity("worker")
@@ -83,6 +90,27 @@ def test_fail_fast_host_busy():
     out = disp.submit_callable("behind", lambda: None, affinity="main")
     assert out["success"] is False
     assert out["error"] == DispatcherErrorCode.HOST_BUSY
+
+
+def test_async_main_fail_fast_host_busy():
+    disp = _NoopPumpDispatcher(fail_fast_on_main_queue_busy=True)
+    with disp._lock:
+        disp._main_queue.append(
+            HostUiJobEntry("ahead", "main", lambda: None),
+        )
+
+    out = disp.submit_async_callable(
+        "behind",
+        lambda: None,
+        affinity="main",
+        job_id="job-2",
+    )
+
+    assert out["success"] is False
+    assert out["status"] == "failed"
+    assert out["error"] == DispatcherErrorCode.HOST_BUSY
+    assert out["job_id"] == "job-2"
+    assert disp.pending_count() == 1
 
 
 def test_host_ui_job_honours_check_dcc_cancelled():
