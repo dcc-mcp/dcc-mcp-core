@@ -11,3 +11,7 @@ docker run --rm \
   -w /io/pkg/dcc-mcp-server-bin \
   ghcr.io/pyo3/maturin:v1.13.3 \
   build --release --manylinux 2014 --out wheels
+
+if command -v sudo >/dev/null 2>&1; then
+  sudo chown -R "$(id -u):$(id -g)" pkg/dcc-mcp-server-bin/wheels
+fi
