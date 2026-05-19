@@ -53,6 +53,29 @@ def _call_tool(url: str, tool: str, arguments: dict[str, Any] | None = None) -> 
     return resp
 
 
+def _rest_base_url(mcp_url: str) -> str:
+    return mcp_url.rsplit("/mcp", 1)[0]
+
+
+def _rest_call(
+    mcp_url: str,
+    tool_slug: str,
+    arguments: dict[str, Any] | None = None,
+) -> tuple[int, dict[str, Any]]:
+    """POST ``/v1/call`` — same path the gateway and ``dcc-mcp-cli call`` use."""
+    payload = json.dumps(
+        {"tool_slug": tool_slug, "arguments": arguments or {}},
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        f"{_rest_base_url(mcp_url)}/v1/call",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return resp.status, json.loads(resp.read().decode("utf-8"))
+
+
 def _make_server(server_name: str) -> tuple[McpHttpServer, ToolRegistry]:
     reg = ToolRegistry()
     reg.register(
@@ -61,6 +84,8 @@ def _make_server(server_name: str) -> tuple[McpHttpServer, ToolRegistry]:
         category="test",
         dcc="test",
         version="1.0.0",
+        thread_affinity="main",
+        enforce_thread_affinity=True,
     )
     cfg = McpHttpConfig(port=0, server_name=server_name)
     return McpHttpServer(reg, cfg), reg
@@ -240,3 +265,46 @@ def test_register_handler_rejects_bad_affinity() -> None:
     server, _reg = _make_server("p2b-bad-affinity")
     with pytest.raises(ValueError, match="thread_affinity must be"):
         server.register_handler("thread_probe", lambda _params: {"ok": True}, thread_affinity="sometimes")
+
+
+def test_v1_call_routes_through_dispatcher() -> None:
+    """REST ``POST /v1/call`` must honour ``thread_affinity=main`` like MCP ``tools/call``.
+
+    Gateway and ``dcc-mcp-cli call`` fan out through per-DCC ``/v1/call``. Without
+    :class:`~dcc_mcp_http_server.ThreadRoutedInvoker`, handlers run on a Tokio
+    worker and ``enforce_thread_affinity`` rejects the call with HTTP 409.
+    """
+    server, _reg = _make_server("rest-thread-routing")
+    captured: dict[str, int | None] = {"tid": None}
+
+    def _probe(_params: dict) -> dict:
+        captured["tid"] = threading.get_ident()
+        return {"tid": captured["tid"]}
+
+    server.register_handler("thread_probe", _probe, thread_affinity="main")
+
+    dispatcher = QueueDispatcher()
+    server.attach_dispatcher(dispatcher)
+    host = StandaloneHost(dispatcher, tick_interval=0.005)
+    host.start()
+    handle = server.start()
+    try:
+        time.sleep(0.2)
+        tick_tid = host._thread.ident  # type: ignore[union-attr]
+
+        status, body = _rest_call(handle.mcp_url(), "thread_probe", {})
+        assert status == 200, body
+        assert "thread-affinity-violation" not in json.dumps(body).lower(), body
+        output = body.get("output", body)
+        assert output.get("tid") == captured["tid"]
+        assert captured["tid"] == tick_tid, (
+            f"REST handler ran on {captured['tid']}, expected dispatcher tick {tick_tid}"
+        )
+
+        captured["tid"] = None
+        resp = _call_tool(handle.mcp_url(), "thread_probe")
+        assert resp.get("error") is None, resp
+        assert captured["tid"] == tick_tid
+    finally:
+        handle.shutdown()
+        host.stop()
