@@ -16,6 +16,9 @@ use super::state::{AdminAuditRecord, AdminState};
 use super::trace::DispatchTrace;
 use crate::gateway::event_log::ContendEvent;
 
+const POSTMORTEM_PREVIOUS_CALL_LIMIT: usize = 5;
+const POSTMORTEM_EVENT_LIMIT: usize = 10;
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ActivityCorrelation {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -94,24 +97,19 @@ pub async fn build_debug_bundle(state: &AdminState, request_id: &str) -> Option<
     if audit.is_none() && trace.is_none() {
         return None;
     }
-    let related_activity: Vec<Value> = state
-        .gateway
-        .event_log
-        .recent_events(500)
+    let gateway_events = related_gateway_events(state, request_id, trace.as_ref());
+    let related_activity: Vec<Value> = gateway_events
+        .clone()
         .into_iter()
-        .filter(|event| {
-            event
-                .reason
-                .as_deref()
-                .is_some_and(|r| r.contains(request_id))
-        })
         .map(gateway_event_json)
         .collect();
+    let postmortem = build_postmortem(state, trace.as_ref(), gateway_events).await;
     Some(json!({
         "request_id": request_id,
         "audit": audit.map(|r| audit_event(&r)),
         "trace": trace,
         "related_activity": related_activity,
+        "postmortem": postmortem,
         "hints": debug_hints(trace.as_ref()),
     }))
 }
@@ -263,6 +261,130 @@ fn gateway_event(event: &ContendEvent) -> ActivityEvent {
 
 fn gateway_event_json(event: ContendEvent) -> Value {
     serde_json::to_value(gateway_event(&event)).unwrap_or_else(|_| json!({}))
+}
+
+fn related_gateway_events(
+    state: &AdminState,
+    request_id: &str,
+    trace: Option<&DispatchTrace>,
+) -> Vec<ContendEvent> {
+    state
+        .gateway
+        .event_log
+        .recent_events(500)
+        .into_iter()
+        .filter(|event| gateway_event_matches(event, request_id, trace))
+        .take(POSTMORTEM_EVENT_LIMIT)
+        .collect()
+}
+
+fn gateway_event_matches(
+    event: &ContendEvent,
+    request_id: &str,
+    trace: Option<&DispatchTrace>,
+) -> bool {
+    if event
+        .reason
+        .as_deref()
+        .is_some_and(|reason| reason.contains(request_id))
+    {
+        return true;
+    }
+    let Some(trace) = trace else {
+        return false;
+    };
+    if let Some(instance_id) = trace.instance_id.as_deref()
+        && instance_hint_matches(&event.instance_id, instance_id)
+    {
+        return true;
+    }
+    trace
+        .dcc_type
+        .as_deref()
+        .is_some_and(|dcc| event.dcc_type.eq_ignore_ascii_case(dcc))
+        && event.event.as_label() == "host_died"
+}
+
+async fn build_postmortem(
+    state: &AdminState,
+    trace: Option<&DispatchTrace>,
+    gateway_events: Vec<ContendEvent>,
+) -> Value {
+    let Some(trace) = trace else {
+        return json!({
+            "previous_calls": [],
+            "gateway_events": gateway_events.into_iter().map(gateway_event_json).collect::<Vec<_>>(),
+        });
+    };
+
+    let previous_calls: Vec<Value> = collect_traces(state, 1_000)
+        .await
+        .into_iter()
+        .filter(|candidate| candidate.request_id != trace.request_id)
+        .filter(|candidate| candidate.started_at <= trace.started_at)
+        .filter(|candidate| trace_matches_postmortem_scope(candidate, trace))
+        .take(POSTMORTEM_PREVIOUS_CALL_LIMIT)
+        .map(postmortem_trace_row)
+        .collect();
+
+    json!({
+        "target": postmortem_trace_row(trace.clone()),
+        "previous_calls": previous_calls,
+        "gateway_events": gateway_events.into_iter().map(gateway_event_json).collect::<Vec<_>>(),
+    })
+}
+
+fn trace_matches_postmortem_scope(candidate: &DispatchTrace, target: &DispatchTrace) -> bool {
+    if let (Some(a), Some(b)) = (
+        candidate.instance_id.as_deref(),
+        target.instance_id.as_deref(),
+    ) {
+        return instance_hint_matches(a, b);
+    }
+    if let (Some(a), Some(b)) = (
+        candidate.session_id.as_deref(),
+        target.session_id.as_deref(),
+    ) {
+        return a == b;
+    }
+    if let (Some(a), Some(b)) = (candidate.dcc_type.as_deref(), target.dcc_type.as_deref()) {
+        return a.eq_ignore_ascii_case(b);
+    }
+    false
+}
+
+fn postmortem_trace_row(trace: DispatchTrace) -> Value {
+    json!({
+        "request_id": trace.request_id,
+        "started_at": rfc3339(trace.started_at),
+        "tool": trace.tool_slug.unwrap_or(trace.method),
+        "dcc_type": trace.dcc_type,
+        "instance_id": trace.instance_id,
+        "session_id": trace.session_id,
+        "transport": trace.transport,
+        "agent_context": trace.agent_context,
+        "ok": trace.ok,
+        "total_ms": trace.total_ms,
+        "input": trace.input,
+        "output": trace.output,
+    })
+}
+
+fn instance_hint_matches(a: &str, b: &str) -> bool {
+    let a = normalise_instance_hint(a);
+    let b = normalise_instance_hint(b);
+    if a.is_empty() || b.is_empty() {
+        return false;
+    }
+    a == b || (a.len() >= 4 && b.starts_with(&a)) || (b.len() >= 4 && a.starts_with(&b))
+}
+
+fn normalise_instance_hint(value: &str) -> String {
+    value
+        .chars()
+        .filter(|c| c.is_ascii_hexdigit())
+        .flat_map(|c| c.to_lowercase())
+        .collect()
 }
 
 fn trace_correlation(trace: &DispatchTrace) -> ActivityCorrelation {

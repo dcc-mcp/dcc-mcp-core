@@ -10,7 +10,7 @@ mod admin_tests {
     use axum::body::to_bytes;
     use axum::http::{Request, StatusCode};
     use parking_lot::Mutex;
-    use serde_json::Value;
+    use serde_json::{Value, json};
     use tokio::sync::{RwLock, broadcast, watch};
     use tower::ServiceExt;
 
@@ -447,27 +447,55 @@ mod admin_tests {
 
     #[tokio::test]
     async fn test_admin_tasks_and_debug_bundle_from_trace() {
-        use crate::gateway::admin::trace::{DispatchTrace, TraceLog};
+        use crate::gateway::admin::trace::{DispatchTrace, TraceLog, TracePayload};
+        use crate::gateway::event_log::{ContendEvent, EventKind};
         use std::time::SystemTime;
 
         let traces = Arc::new(TraceLog::new(10));
+        let instance_id = "abcdef01-2345-6789-abcd-ef0123456789";
         traces.push(DispatchTrace {
-            request_id: "req-task".into(),
+            request_id: "req-prev".into(),
             method: "tools/call".into(),
-            tool_slug: Some("maya.inst.long_task".into()),
-            instance_id: Some("inst-1".into()),
+            tool_slug: Some("maya.abcdef01.save_scene".into()),
+            instance_id: Some(instance_id.into()),
             session_id: Some("session-1".into()),
             dcc_type: Some("maya".into()),
             transport: None,
             agent_context: None,
-            started_at: SystemTime::now(),
+            started_at: SystemTime::UNIX_EPOCH + Duration::from_millis(1_000),
+            total_ms: 12,
+            ok: true,
+            spans: vec![],
+            input: Some(TracePayload::from_value(
+                &json!({"file": "scene.ma", "token": "[REDACTED]"}),
+                1024,
+            )),
+            output: None,
+        });
+        traces.push(DispatchTrace {
+            request_id: "req-task".into(),
+            method: "tools/call".into(),
+            tool_slug: Some("maya.inst.long_task".into()),
+            instance_id: Some(instance_id.into()),
+            session_id: Some("session-1".into()),
+            dcc_type: Some("maya".into()),
+            transport: None,
+            agent_context: None,
+            started_at: SystemTime::UNIX_EPOCH + Duration::from_millis(2_000),
             total_ms: 25,
             ok: false,
             spans: vec![],
             input: None,
             output: None,
         });
-        let state = AdminState::new(make_gateway_state()).with_trace_log(traces, None);
+        let gateway = make_gateway_state();
+        gateway.event_log.push(ContendEvent::new(
+            EventKind::HostDied,
+            "maya",
+            "abcdef01",
+            Some("call=long_task display_id=maya@2026-abcdef01".into()),
+        ));
+        let state = AdminState::new(gateway).with_trace_log(traces, None);
         let router = build_admin_router(state);
 
         let (tasks_status, tasks_body) = body_json(router.clone(), "/api/tasks").await;
@@ -481,6 +509,19 @@ mod admin_tests {
         assert_eq!(bundle_body["request_id"], "req-task");
         assert!(bundle_body["trace"].is_object());
         assert!(bundle_body["related_activity"].is_array());
+        assert_eq!(
+            bundle_body["postmortem"]["previous_calls"][0]["request_id"],
+            "req-prev"
+        );
+        assert!(
+            bundle_body["postmortem"]["previous_calls"][0]["input"]["content"]
+                .as_str()
+                .is_some_and(|content| content.contains("[REDACTED]"))
+        );
+        assert_eq!(
+            bundle_body["postmortem"]["gateway_events"][0]["status"],
+            "host_died"
+        );
         assert!(bundle_body.get("related_logs").is_none());
         assert!(bundle_body["hints"].is_array());
         assert!(
@@ -507,6 +548,14 @@ mod admin_tests {
         );
         assert_eq!(report_body["request_id"], "req-task");
         assert_eq!(report_body["summary"]["status"], "failed");
+        assert_eq!(
+            report_body["summary"]["postmortem"]["previous_call_count"],
+            1
+        );
+        assert_eq!(
+            report_body["summary"]["postmortem"]["gateway_event_count"],
+            1
+        );
         assert_eq!(report_body["debug_bundle"]["request_id"], "req-task");
         assert!(
             report_body["github_issue"]["body_template"]
