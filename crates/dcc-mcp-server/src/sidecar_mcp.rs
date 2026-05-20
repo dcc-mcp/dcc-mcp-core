@@ -136,7 +136,10 @@ pub async fn spawn_listener(
 
     let router = Router::new()
         .route("/mcp", post(handle_mcp_post))
+        .route("/health", get(handle_health))
         .route("/healthz", get(handle_healthz))
+        .route("/v1/healthz", get(handle_v1_healthz))
+        .route("/v1/readyz", get(handle_v1_readyz))
         .with_state(state);
 
     let (shutdown_tx, shutdown_rx) = watch::channel(());
@@ -184,8 +187,28 @@ struct ToolsCallParams {
 
 // ── handlers ────────────────────────────────────────────────────────
 
+async fn handle_health() -> Response {
+    (StatusCode::OK, axum::Json(json!({"ok": true}))).into_response()
+}
+
 async fn handle_healthz() -> Response {
     (StatusCode::OK, "ok").into_response()
+}
+
+async fn handle_v1_healthz() -> Response {
+    (StatusCode::OK, axum::Json(json!({"ok": true}))).into_response()
+}
+
+async fn handle_v1_readyz() -> Response {
+    (
+        StatusCode::OK,
+        axum::Json(json!({
+            "process": true,
+            "dispatcher": true,
+            "dcc": true,
+        })),
+    )
+        .into_response()
 }
 
 async fn handle_mcp_post(
@@ -399,6 +422,55 @@ mod tests {
             .expect("GET /healthz");
         assert_eq!(response.status(), 200);
         assert_eq!(response.text().await.unwrap(), "ok");
+        handle.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn health_aliases_support_gateway_probes() {
+        let handle = fresh_listener().await;
+        let client = reqwest::Client::new();
+
+        let health: Value = client
+            .get(format!("http://{}/health", handle.bind_addr))
+            .timeout(Duration::from_secs(2))
+            .send()
+            .await
+            .expect("GET /health")
+            .json()
+            .await
+            .expect("parse /health");
+        assert_eq!(health["ok"], true);
+
+        let healthz: Value = client
+            .get(format!("http://{}/v1/healthz", handle.bind_addr))
+            .timeout(Duration::from_secs(2))
+            .send()
+            .await
+            .expect("GET /v1/healthz")
+            .json()
+            .await
+            .expect("parse /v1/healthz");
+        assert_eq!(healthz["ok"], true);
+
+        handle.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn readyz_reports_fully_ready() {
+        let handle = fresh_listener().await;
+        let body: Value = reqwest::Client::new()
+            .get(format!("http://{}/v1/readyz", handle.bind_addr))
+            .timeout(Duration::from_secs(2))
+            .send()
+            .await
+            .expect("GET /v1/readyz")
+            .json()
+            .await
+            .expect("parse /v1/readyz");
+
+        assert_eq!(body["process"], true);
+        assert_eq!(body["dispatcher"], true);
+        assert_eq!(body["dcc"], true);
         handle.shutdown().await;
     }
 

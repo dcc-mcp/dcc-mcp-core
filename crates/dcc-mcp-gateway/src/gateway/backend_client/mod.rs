@@ -16,7 +16,7 @@
 //! | render a prompt      | `prompts/get`           | `GET  /v1/prompts/{n}`  |
 //! | list resources       | `resources/list`        | `GET  /v1/resources`    |
 //! | read a resource      | `resources/read`        | `GET  /v1/resources/{u}`|
-//! | liveness             | `GET /health`           | `GET /health` (unchanged)|
+//! | liveness             | `GET /health`           | `GET /health` + legacy `/healthz` fallback |
 //! | readiness            | `GET /v1/readyz`        | `GET /v1/readyz` (unchanged)|
 //!
 //! The gateway MCP client face (`/mcp`) is **unchanged** — this file

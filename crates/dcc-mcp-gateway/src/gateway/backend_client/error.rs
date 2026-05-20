@@ -44,7 +44,7 @@ impl fmt::Display for BackendCallError {
             ),
             Self::Unreachable { mcp_url } => write!(
                 f,
-                "{mcp_url}: not a DCC MCP HTTP endpoint (GET /v1/readyz and /health both failed)"
+                "{mcp_url}: not a DCC MCP HTTP endpoint (GET /v1/readyz and legacy health probes failed)"
             ),
             Self::Transport { mcp_url, reason } => {
                 write!(f, "{mcp_url}: transport error: {reason}")

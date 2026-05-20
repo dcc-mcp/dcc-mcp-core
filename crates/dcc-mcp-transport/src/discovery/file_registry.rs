@@ -3,11 +3,12 @@
 //! Stores service entries as JSON in a registry directory.
 //! Uses `(dcc_type, instance_id)` as key to support multiple instances per DCC type.
 
+use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::time::{Duration, SystemTime};
+use std::sync::{Mutex, MutexGuard};
+use std::time::{Duration, Instant, SystemTime};
 
 use dashmap::DashMap;
 use fs4::{FileExt, TryLockError};
@@ -31,7 +32,68 @@ fn is_pid_alive(pid: u32) -> bool {
 
 /// File name for the registry JSON.
 const REGISTRY_FILE: &str = "services.json";
+const REGISTRY_LOCK_FILE: &str = "services.lock";
 const LOCKS_DIR: &str = "locks";
+const REGISTRY_LOCK_TIMEOUT_ENV: &str = "DCC_MCP_REGISTRY_LOCK_TIMEOUT_MS";
+const REGISTRY_LOCK_BACKOFF_ENV: &str = "DCC_MCP_REGISTRY_LOCK_BACKOFF_MS";
+const DEFAULT_REGISTRY_LOCK_TIMEOUT_MS: u64 = 2_000;
+const DEFAULT_REGISTRY_LOCK_BACKOFF_MS: u64 = 10;
+const REGISTRY_LOCK_SLOW_WARN_MS: u64 = 250;
+
+type EntryMap = HashMap<ServiceKey, ServiceEntry>;
+
+fn env_duration_ms(name: &str, default_ms: u64) -> Duration {
+    let ms = std::env::var(name)
+        .ok()
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default_ms);
+    Duration::from_millis(ms)
+}
+
+fn entries_to_map(entries: impl IntoIterator<Item = ServiceEntry>) -> EntryMap {
+    entries
+        .into_iter()
+        .map(|entry| (entry.key(), entry))
+        .collect()
+}
+
+fn maps_equal(left: &EntryMap, right: &EntryMap) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .all(|(key, entry)| right.get(key) == Some(entry))
+}
+
+#[cfg(test)]
+type BeforeFlushHook = Box<dyn FnOnce() + Send + 'static>;
+
+#[cfg(test)]
+static BEFORE_TRANSACTION_FLUSH_HOOK: Mutex<Option<(PathBuf, BeforeFlushHook)>> = Mutex::new(None);
+
+#[cfg(test)]
+fn set_before_transaction_flush_hook(registry_dir: &Path, hook: impl FnOnce() + Send + 'static) {
+    let mut slot = BEFORE_TRANSACTION_FLUSH_HOOK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    *slot = Some((registry_dir.to_path_buf(), Box::new(hook)));
+}
+
+#[cfg(test)]
+fn run_before_transaction_flush_hook(registry_dir: &Path) {
+    let hook = {
+        let mut slot = BEFORE_TRANSACTION_FLUSH_HOOK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let should_run = slot
+            .as_ref()
+            .is_some_and(|(dir, _)| dir.as_path() == registry_dir);
+        if should_run { slot.take() } else { None }
+    };
+    if let Some((_, hook)) = hook {
+        hook();
+    }
+}
 
 /// File-based service registry with instance-level keying.
 ///
@@ -52,7 +114,7 @@ pub struct FileRegistry {
     /// Last-seen modification time of services.json.
     /// Used to detect external writes (hot-reload).
     last_mtime: Mutex<Option<SystemTime>>,
-    /// Serialises concurrent in-process writers so they share a single
+    /// Serialises concurrent in-process write transactions so they share a single
     /// stable temp filename (`.tmp.<pid>.services.json`) instead of
     /// generating a fresh `(pid, tid, seq)` path per write.
     ///
@@ -60,15 +122,31 @@ pub struct FileRegistry {
     /// every new filename triggers a full minifilter altitude walk
     /// (content scan + cloud reputation lookup on enterprise hosts),
     /// causing multi-second stalls on the calling thread (issue #853).
-    /// Serialising writers within this process eliminates the need for
-    /// uniqueness in the temp path — cross-process races on the *target*
-    /// path are still handled by the rename retry loop.
+    /// uniqueness in the temp path. Cross-process writers are serialized by
+    /// `services.lock`.
     write_lock: Mutex<()>,
+    /// Maximum time a write transaction may wait for the in-process mutex and
+    /// cross-process `services.lock` before returning an observable error.
+    write_lock_timeout: Duration,
+    /// Sleep interval between bounded try-lock attempts.
+    write_lock_backoff: Duration,
 }
 
 impl FileRegistry {
     /// Create a new file registry at the given directory.
     pub fn new(registry_dir: impl Into<PathBuf>) -> TransportResult<Self> {
+        Self::new_with_lock_policy(
+            registry_dir,
+            env_duration_ms(REGISTRY_LOCK_TIMEOUT_ENV, DEFAULT_REGISTRY_LOCK_TIMEOUT_MS),
+            env_duration_ms(REGISTRY_LOCK_BACKOFF_ENV, DEFAULT_REGISTRY_LOCK_BACKOFF_MS),
+        )
+    }
+
+    fn new_with_lock_policy(
+        registry_dir: impl Into<PathBuf>,
+        write_lock_timeout: Duration,
+        write_lock_backoff: Duration,
+    ) -> TransportResult<Self> {
         let registry_dir = registry_dir.into();
         fs::create_dir_all(&registry_dir).map_err(|e| {
             TransportError::RegistryFile(format!(
@@ -84,6 +162,8 @@ impl FileRegistry {
             sentinel_handles: DashMap::new(),
             last_mtime: Mutex::new(None),
             write_lock: Mutex::new(()),
+            write_lock_timeout,
+            write_lock_backoff: write_lock_backoff.max(Duration::from_millis(1)),
         };
 
         // Load existing entries
@@ -108,9 +188,25 @@ impl FileRegistry {
         let path = self.registry_file_path();
 
         // Quick stat to get current mtime
-        let Ok(meta) = fs::metadata(&path) else {
-            // File doesn't exist yet, nothing to reload
-            return Ok(());
+        let meta = match fs::metadata(&path) {
+            Ok(meta) => meta,
+            Err(err) if err.kind() == ErrorKind::NotFound => {
+                let had_cached_file = {
+                    let mut cached = self.last_mtime.lock().unwrap_or_else(|e| e.into_inner());
+                    let had_cached_file = cached.is_some();
+                    *cached = None;
+                    had_cached_file
+                };
+                if had_cached_file || !self.services.is_empty() {
+                    tracing::warn!(
+                        path = %path.display(),
+                        "FileRegistry registry file missing during hot-reload; clearing in-memory snapshot"
+                    );
+                    self.services.clear();
+                }
+                return Ok(());
+            }
+            Err(_) => return Ok(()),
         };
         let Ok(current_mtime) = meta.modified() else {
             // Can't get mtime, skip reload
@@ -146,6 +242,8 @@ impl FileRegistry {
     fn update_mtime(&self) -> TransportResult<()> {
         let path = self.registry_file_path();
         if !path.exists() {
+            let mut cached = self.last_mtime.lock().unwrap_or_else(|e| e.into_inner());
+            *cached = None;
             return Ok(());
         }
 
@@ -161,13 +259,139 @@ impl FileRegistry {
         Ok(())
     }
 
-    fn force_reload_from_file(&self) -> TransportResult<()> {
+    fn force_reload_from_file(&self) -> TransportResult<Vec<ServiceEntry>> {
         self.load_from_file()?;
-        self.update_mtime()
+        self.update_mtime()?;
+        Ok(self.list_all_in_memory())
     }
 
     fn locks_dir(&self) -> PathBuf {
         self.registry_dir.join(LOCKS_DIR)
+    }
+
+    fn registry_lock_path(&self) -> PathBuf {
+        self.registry_dir.join(REGISTRY_LOCK_FILE)
+    }
+
+    fn with_write_transaction<T>(
+        &self,
+        op: impl FnOnce() -> TransportResult<(T, bool)>,
+    ) -> TransportResult<T> {
+        let started = Instant::now();
+        let _guard = self.acquire_process_write_lock(started)?;
+        let path = self.registry_lock_path();
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(&path)
+            .map_err(|e| {
+                TransportError::RegistryFile(format!(
+                    "failed to open registry lock {}: {}",
+                    path.display(),
+                    e
+                ))
+            })?;
+        self.acquire_registry_file_lock(&file, &path, started)?;
+        self.log_lock_wait(started.elapsed(), &path);
+
+        let result = (|| {
+            let baseline = self.force_reload_from_file()?;
+            let (value, changed) = op()?;
+            if changed {
+                #[cfg(test)]
+                run_before_transaction_flush_hook(&self.registry_dir);
+                self.flush_to_file_after_transaction(&baseline)?;
+            }
+            Ok(value)
+        })();
+        let unlock_result = file.unlock().map_err(|e| {
+            TransportError::RegistryFile(format!(
+                "failed to unlock registry {}: {}",
+                path.display(),
+                e
+            ))
+        });
+
+        match (result, unlock_result) {
+            (Ok(value), Ok(())) => Ok(value),
+            (Err(err), _) => Err(err),
+            (Ok(_), Err(err)) => Err(err),
+        }
+    }
+
+    fn acquire_process_write_lock(&self, started: Instant) -> TransportResult<MutexGuard<'_, ()>> {
+        loop {
+            match self.write_lock.try_lock() {
+                Ok(guard) => return Ok(guard),
+                Err(std::sync::TryLockError::Poisoned(err)) => return Ok(err.into_inner()),
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    self.sleep_or_timeout(started, "in-process registry mutex")?;
+                }
+            }
+        }
+    }
+
+    fn acquire_registry_file_lock(
+        &self,
+        file: &File,
+        path: &Path,
+        started: Instant,
+    ) -> TransportResult<()> {
+        loop {
+            match FileExt::try_lock(file) {
+                Ok(()) => return Ok(()),
+                Err(TryLockError::WouldBlock) => {
+                    self.sleep_or_timeout(started, "registry lock file")?;
+                }
+                Err(TryLockError::Error(err)) => {
+                    return Err(TransportError::RegistryFile(format!(
+                        "failed to lock registry {}: {}",
+                        path.display(),
+                        err
+                    )));
+                }
+            }
+        }
+    }
+
+    fn sleep_or_timeout(&self, started: Instant, target: &str) -> TransportResult<()> {
+        let elapsed = started.elapsed();
+        if elapsed >= self.write_lock_timeout {
+            tracing::warn!(
+                waited_ms = elapsed.as_millis() as u64,
+                timeout_ms = self.write_lock_timeout.as_millis() as u64,
+                target,
+                "FileRegistry write transaction timed out waiting for lock"
+            );
+            return Err(TransportError::RegistryFile(format!(
+                "timed out waiting for {target} after {}ms",
+                self.write_lock_timeout.as_millis()
+            )));
+        }
+
+        let remaining = self.write_lock_timeout.saturating_sub(elapsed);
+        std::thread::sleep(self.write_lock_backoff.min(remaining));
+        Ok(())
+    }
+
+    fn log_lock_wait(&self, elapsed: Duration, path: &Path) {
+        if elapsed >= Duration::from_millis(REGISTRY_LOCK_SLOW_WARN_MS) {
+            tracing::warn!(
+                waited_ms = elapsed.as_millis() as u64,
+                timeout_ms = self.write_lock_timeout.as_millis() as u64,
+                lock = %path.display(),
+                "FileRegistry write transaction acquired registry lock after slow wait"
+            );
+        } else if elapsed >= self.write_lock_backoff {
+            tracing::debug!(
+                waited_ms = elapsed.as_millis() as u64,
+                timeout_ms = self.write_lock_timeout.as_millis() as u64,
+                lock = %path.display(),
+                "FileRegistry write transaction acquired registry lock after retry"
+            );
+        }
     }
 
     fn sentinel_path_for(&self, key: &ServiceKey) -> PathBuf {
@@ -235,41 +459,45 @@ impl FileRegistry {
 
     /// Register a service.
     pub fn register(&self, mut entry: ServiceEntry) -> TransportResult<()> {
-        let key = entry.key();
-        tracing::info!(
-            dcc_type = %entry.dcc_type,
-            instance_id = %entry.instance_id,
-            host = %entry.host,
-            port = entry.port,
-            "registering service"
-        );
-        let (sentinel_path, sentinel_file) = self.create_sentinel(&key)?;
-        entry.sentinel_path = Some(sentinel_path);
-        self.sentinel_handles.insert(key.clone(), sentinel_file);
-        self.services.insert(key, entry);
-        self.flush_to_file()
+        self.with_write_transaction(|| {
+            let key = entry.key();
+            tracing::info!(
+                dcc_type = %entry.dcc_type,
+                instance_id = %entry.instance_id,
+                host = %entry.host,
+                port = entry.port,
+                "registering service"
+            );
+            let (sentinel_path, sentinel_file) = self.create_sentinel(&key)?;
+            entry.sentinel_path = Some(sentinel_path);
+            self.sentinel_handles.insert(key.clone(), sentinel_file);
+            self.services.insert(key, entry);
+            Ok(((), true))
+        })
     }
 
     /// Deregister a service by key.
     pub fn deregister(&self, key: &ServiceKey) -> TransportResult<Option<ServiceEntry>> {
-        let removed = self.services.remove(key).map(|(_, entry)| entry);
-        if let Some((_, file)) = self.sentinel_handles.remove(key) {
-            let _ = file.unlock();
-        }
-        if let Some(entry) = &removed
-            && let Some(path) = &entry.sentinel_path
-        {
-            let _ = fs::remove_file(path);
-        }
-        if removed.is_some() {
-            tracing::info!(
-                dcc_type = %key.dcc_type,
-                instance_id = %key.instance_id,
-                "deregistered service"
-            );
-            self.flush_to_file()?;
-        }
-        Ok(removed)
+        self.with_write_transaction(|| {
+            let removed = self.services.remove(key).map(|(_, entry)| entry);
+            if let Some((_, file)) = self.sentinel_handles.remove(key) {
+                let _ = file.unlock();
+            }
+            if let Some(entry) = &removed
+                && let Some(path) = &entry.sentinel_path
+            {
+                let _ = fs::remove_file(path);
+            }
+            if removed.is_some() {
+                tracing::info!(
+                    dcc_type = %key.dcc_type,
+                    instance_id = %key.instance_id,
+                    "deregistered service"
+                );
+            }
+            let changed = removed.is_some();
+            Ok((removed, changed))
+        })
     }
 
     /// Get a service entry by key.
@@ -290,37 +518,37 @@ impl FileRegistry {
     /// List all registered services.
     pub fn list_all(&self) -> Vec<ServiceEntry> {
         let _ = self.reload_if_stale();
+        self.list_all_in_memory()
+    }
+
+    fn list_all_in_memory(&self) -> Vec<ServiceEntry> {
         self.services.iter().map(|r| r.value().clone()).collect()
     }
 
     /// Update heartbeat for a service.
     pub fn heartbeat(&self, key: &ServiceKey) -> TransportResult<bool> {
-        let found = if let Some(mut entry) = self.services.get_mut(key) {
-            entry.value_mut().touch();
-            true
-        } else {
-            false
-        };
-        // flush_to_file calls list_all which iterates the DashMap;
-        // the write guard from get_mut must be dropped first to avoid deadlock.
-        if found {
-            self.flush_to_file()?;
-        }
-        Ok(found)
+        self.with_write_transaction(|| {
+            let found = if let Some(mut entry) = self.services.get_mut(key) {
+                entry.value_mut().touch();
+                true
+            } else {
+                false
+            };
+            Ok((found, found))
+        })
     }
 
     /// Update status for a service.
     pub fn update_status(&self, key: &ServiceKey, status: ServiceStatus) -> TransportResult<bool> {
-        let found = if let Some(mut entry) = self.services.get_mut(key) {
-            entry.value_mut().status = status;
-            true
-        } else {
-            false
-        };
-        if found {
-            self.flush_to_file()?;
-        }
-        Ok(found)
+        self.with_write_transaction(|| {
+            let found = if let Some(mut entry) = self.services.get_mut(key) {
+                entry.value_mut().status = status;
+                true
+            } else {
+                false
+            };
+            Ok((found, found))
+        })
     }
 
     /// Acquire an optional pool lease for an idle instance.
@@ -335,39 +563,37 @@ impl FileRegistry {
         current_job_id: Option<String>,
         ttl: Option<Duration>,
     ) -> TransportResult<Option<ServiceEntry>> {
-        let _ = self.reload_if_stale();
         let owner = owner.into();
-        let now = SystemTime::now();
-        let expires_at = ttl.map(|duration| now + duration);
-        let mut selected: Option<ServiceEntry> = None;
-        let mut changed = false;
+        self.with_write_transaction(|| {
+            let now = SystemTime::now();
+            let expires_at = ttl.map(|duration| now + duration);
+            let mut selected: Option<ServiceEntry> = None;
+            let mut changed = false;
 
-        for mut item in self.services.iter_mut() {
-            let entry = item.value_mut();
-            if entry.lease_expired(now) {
-                entry.clear_lease();
-                changed = true;
-            }
-            if selected.is_some() || !entry.dcc_type.eq_ignore_ascii_case(dcc_type) {
-                continue;
-            }
-            if let Some(id) = instance_id {
-                let full = entry.instance_id.to_string();
-                if full != id && !full.starts_with(id) {
+            for mut item in self.services.iter_mut() {
+                let entry = item.value_mut();
+                if entry.lease_expired(now) {
+                    entry.clear_lease();
+                    changed = true;
+                }
+                if selected.is_some() || !entry.dcc_type.eq_ignore_ascii_case(dcc_type) {
                     continue;
                 }
+                if let Some(id) = instance_id {
+                    let full = entry.instance_id.to_string();
+                    if full != id && !full.starts_with(id) {
+                        continue;
+                    }
+                }
+                if entry.status == ServiceStatus::Available && entry.lease_owner.is_none() {
+                    entry.acquire_lease(owner.clone(), current_job_id.clone(), expires_at);
+                    selected = Some(entry.clone());
+                    changed = true;
+                }
             }
-            if entry.status == ServiceStatus::Available && entry.lease_owner.is_none() {
-                entry.acquire_lease(owner.clone(), current_job_id.clone(), expires_at);
-                selected = Some(entry.clone());
-                changed = true;
-            }
-        }
 
-        if changed {
-            self.flush_to_file()?;
-        }
-        Ok(selected)
+            Ok((selected, changed))
+        })
     }
 
     /// Release a pool lease. When `owner` is supplied it must match the holder.
@@ -376,23 +602,22 @@ impl FileRegistry {
         key: &ServiceKey,
         owner: Option<&str>,
     ) -> TransportResult<Option<ServiceEntry>> {
-        let _ = self.reload_if_stale();
-        let released = if let Some(mut entry) = self.services.get_mut(key) {
-            let owner_matches =
-                owner.is_none_or(|expected| entry.value().lease_owner.as_deref() == Some(expected));
-            if owner_matches && entry.value().lease_owner.is_some() {
-                entry.value_mut().clear_lease();
-                Some(entry.value().clone())
+        self.with_write_transaction(|| {
+            let released = if let Some(mut entry) = self.services.get_mut(key) {
+                let owner_matches = owner
+                    .is_none_or(|expected| entry.value().lease_owner.as_deref() == Some(expected));
+                if owner_matches && entry.value().lease_owner.is_some() {
+                    entry.value_mut().clear_lease();
+                    Some(entry.value().clone())
+                } else {
+                    None
+                }
             } else {
                 None
-            }
-        } else {
-            None
-        };
-        if released.is_some() {
-            self.flush_to_file()?;
-        }
-        Ok(released)
+            };
+            let changed = released.is_some();
+            Ok((released, changed))
+        })
     }
 
     /// Update scene and/or version metadata for a service, and refresh heartbeat.
@@ -406,31 +631,30 @@ impl FileRegistry {
         scene: Option<&str>,
         version: Option<&str>,
     ) -> TransportResult<bool> {
-        let found = if let Some(mut entry) = self.services.get_mut(key) {
-            let e = entry.value_mut();
-            if let Some(s) = scene {
-                e.scene = if s.is_empty() {
-                    None
-                } else {
-                    Some(s.to_string())
-                };
-            }
-            if let Some(v) = version {
-                e.version = if v.is_empty() {
-                    None
-                } else {
-                    Some(v.to_string())
-                };
-            }
-            e.touch(); // also refresh heartbeat
-            true
-        } else {
-            false
-        };
-        if found {
-            self.flush_to_file()?;
-        }
-        Ok(found)
+        self.with_write_transaction(|| {
+            let found = if let Some(mut entry) = self.services.get_mut(key) {
+                let e = entry.value_mut();
+                if let Some(s) = scene {
+                    e.scene = if s.is_empty() {
+                        None
+                    } else {
+                        Some(s.to_string())
+                    };
+                }
+                if let Some(v) = version {
+                    e.version = if v.is_empty() {
+                        None
+                    } else {
+                        Some(v.to_string())
+                    };
+                }
+                e.touch(); // also refresh heartbeat
+                true
+            } else {
+                false
+            };
+            Ok((found, found))
+        })
     }
 
     /// Update the active document, full document list, and optional display name.
@@ -456,42 +680,41 @@ impl FileRegistry {
         documents: &[String],
         display_name: Option<&str>,
     ) -> TransportResult<bool> {
-        let found = if let Some(mut entry) = self.services.get_mut(key) {
-            let e = entry.value_mut();
+        self.with_write_transaction(|| {
+            let found = if let Some(mut entry) = self.services.get_mut(key) {
+                let e = entry.value_mut();
 
-            if let Some(doc) = active_document {
-                e.scene = if doc.is_empty() {
-                    None
-                } else {
-                    Some(doc.to_string())
-                };
-            }
+                if let Some(doc) = active_document {
+                    e.scene = if doc.is_empty() {
+                        None
+                    } else {
+                        Some(doc.to_string())
+                    };
+                }
 
-            // Always replace the documents list (caller owns the authoritative set).
-            e.documents = documents
-                .iter()
-                .filter(|d| !d.is_empty())
-                .cloned()
-                .collect();
+                // Always replace the documents list (caller owns the authoritative set).
+                e.documents = documents
+                    .iter()
+                    .filter(|d| !d.is_empty())
+                    .cloned()
+                    .collect();
 
-            if let Some(name) = display_name {
-                e.display_name = if name.is_empty() {
-                    None
-                } else {
-                    Some(name.to_string())
-                };
-            }
+                if let Some(name) = display_name {
+                    e.display_name = if name.is_empty() {
+                        None
+                    } else {
+                        Some(name.to_string())
+                    };
+                }
 
-            e.touch();
-            true
-        } else {
-            false
-        };
+                e.touch();
+                true
+            } else {
+                false
+            };
 
-        if found {
-            self.flush_to_file()?;
-        }
-        Ok(found)
+            Ok((found, found))
+        })
     }
 
     /// Set the OS process ID for a registered service.
@@ -500,17 +723,16 @@ impl FileRegistry {
     /// bridge plugins can set it after the initial [`register`] call if the PID
     /// was not known at startup.
     pub fn set_pid(&self, key: &ServiceKey, pid: u32) -> TransportResult<bool> {
-        let found = if let Some(mut entry) = self.services.get_mut(key) {
-            entry.value_mut().pid = Some(pid);
-            entry.value_mut().touch();
-            true
-        } else {
-            false
-        };
-        if found {
-            self.flush_to_file()?;
-        }
-        Ok(found)
+        self.with_write_transaction(|| {
+            let found = if let Some(mut entry) = self.services.get_mut(key) {
+                entry.value_mut().pid = Some(pid);
+                entry.value_mut().touch();
+                true
+            } else {
+                false
+            };
+            Ok((found, found))
+        })
     }
 
     /// Remove stale services (no heartbeat within timeout).
@@ -520,30 +742,29 @@ impl FileRegistry {
     /// gateway process itself is dead, which [`Self::prune_dead_pids`] handles
     /// via PID liveness probe. See issue #230.
     pub fn cleanup_stale(&self, timeout: Duration) -> TransportResult<usize> {
-        let stale_keys: Vec<ServiceKey> = self
-            .services
-            .iter()
-            .filter(|r| {
-                let e = r.value();
-                e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE && e.is_stale(timeout)
-            })
-            .map(|r| r.key().clone())
-            .collect();
+        self.with_write_transaction(|| {
+            let stale_keys: Vec<ServiceKey> = self
+                .services
+                .iter()
+                .filter(|r| {
+                    let e = r.value();
+                    e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE && e.is_stale(timeout)
+                })
+                .map(|r| r.key().clone())
+                .collect();
 
-        let count = stale_keys.len();
-        for key in &stale_keys {
-            self.services.remove(key);
-            tracing::info!(
-                dcc_type = %key.dcc_type,
-                instance_id = %key.instance_id,
-                "removed stale service"
-            );
-        }
+            let count = stale_keys.len();
+            for key in &stale_keys {
+                self.services.remove(key);
+                tracing::info!(
+                    dcc_type = %key.dcc_type,
+                    instance_id = %key.instance_id,
+                    "removed stale service"
+                );
+            }
 
-        if count > 0 {
-            self.flush_to_file()?;
-        }
-        Ok(count)
+            Ok((count, count > 0))
+        })
     }
 
     /// Remove entries whose owning OS process is no longer running.
@@ -560,42 +781,39 @@ impl FileRegistry {
     /// that crashed after registering itself in a different
     /// `FileRegistry` instance.
     pub fn prune_dead_entries(&self) -> TransportResult<usize> {
-        self.force_reload_from_file()?;
+        self.with_write_transaction(|| {
+            let dead_keys: Vec<ServiceKey> = self
+                .services
+                .iter()
+                .filter(|r| {
+                    let entry = r.value();
+                    if let Some(path) = entry.sentinel_path.as_deref() {
+                        self.sentinel_is_dead(r.key(), path)
+                    } else {
+                        entry.pid.is_some_and(|p| !is_pid_alive(p))
+                    }
+                })
+                .map(|r| r.key().clone())
+                .collect();
 
-        let dead_keys: Vec<ServiceKey> = self
-            .services
-            .iter()
-            .filter(|r| {
-                let entry = r.value();
-                if let Some(path) = entry.sentinel_path.as_deref() {
-                    self.sentinel_is_dead(r.key(), path)
-                } else {
-                    entry.pid.is_some_and(|p| !is_pid_alive(p))
+            let count = dead_keys.len();
+            for key in &dead_keys {
+                let removed = self.services.remove(key).map(|(_, entry)| entry);
+                self.sentinel_handles.remove(key);
+                if let Some(entry) = removed
+                    && let Some(path) = entry.sentinel_path
+                {
+                    let _ = fs::remove_file(path);
                 }
-            })
-            .map(|r| r.key().clone())
-            .collect();
-
-        let count = dead_keys.len();
-        for key in &dead_keys {
-            let removed = self.services.remove(key).map(|(_, entry)| entry);
-            self.sentinel_handles.remove(key);
-            if let Some(entry) = removed
-                && let Some(path) = entry.sentinel_path
-            {
-                let _ = fs::remove_file(path);
+                tracing::info!(
+                    dcc_type = %key.dcc_type,
+                    instance_id = %key.instance_id,
+                    "removed ghost entry (owner sentinel/PID is dead)"
+                );
             }
-            tracing::info!(
-                dcc_type = %key.dcc_type,
-                instance_id = %key.instance_id,
-                "removed ghost entry (owner sentinel/PID is dead)"
-            );
-        }
 
-        if count > 0 {
-            self.flush_to_file()?;
-        }
-        Ok(count)
+            Ok((count, count > 0))
+        })
     }
 
     /// Backward-compatible name for [`Self::prune_dead_entries`].
@@ -665,22 +883,99 @@ impl FileRegistry {
     /// Flush the in-memory services to the JSON file atomically.
     ///
     /// Uses a temp-file + rename pattern so readers never see a partially-
-    /// written file. On Windows an OS-level advisory lock is taken for the
-    /// duration of the write to prevent competing processes from clobbering
-    /// each other (issue #554).
-    fn flush_to_file(&self) -> TransportResult<()> {
-        let entries: Vec<ServiceEntry> = self.list_all();
+    /// written file. Callers must already be inside [`Self::with_write_transaction`],
+    /// which serializes cross-process read-modify-write cycles.
+    fn flush_to_file_after_transaction(&self, baseline: &[ServiceEntry]) -> TransportResult<()> {
+        // Mutation paths reload before applying their in-memory change. Do
+        // not hot-reload again here: doing so can overwrite the just-mutated
+        // row with the stale on-disk snapshot (#1088).
+        let local_entries: Vec<ServiceEntry> = self.list_all_in_memory();
+        let entries = self.reconcile_unlocked_writer_changes(baseline, local_entries)?;
         let content = serde_json::to_string_pretty(&entries).map_err(|e| {
             TransportError::Serialization(format!("failed to serialize registry: {}", e))
         })?;
 
         let path = self.registry_file_path();
+        self.replace_services(&entries);
         self.write_atomic(&path, content)?;
 
         // Update cached mtime after write
         let _ = self.update_mtime();
+        self.warn_if_post_write_clobbered(&entries);
 
         Ok(())
+    }
+
+    fn reconcile_unlocked_writer_changes(
+        &self,
+        baseline: &[ServiceEntry],
+        local_entries: Vec<ServiceEntry>,
+    ) -> TransportResult<Vec<ServiceEntry>> {
+        let disk_entries = self.read_entries_from_file()?;
+        let baseline_map = entries_to_map(baseline.iter().cloned());
+        let disk_map = entries_to_map(disk_entries);
+        if maps_equal(&baseline_map, &disk_map) {
+            return Ok(local_entries);
+        }
+
+        tracing::warn!(
+            path = %self.registry_file_path().display(),
+            baseline_count = baseline_map.len(),
+            disk_count = disk_map.len(),
+            local_count = local_entries.len(),
+            "legacy unlocked writer detected while FileRegistry held services.lock; merging registry snapshots"
+        );
+
+        let local_map = entries_to_map(local_entries);
+        let mut merged = baseline_map.clone();
+        for (key, disk_entry) in disk_map {
+            merged.insert(key, disk_entry);
+        }
+
+        for (key, local_entry) in &local_map {
+            if baseline_map.get(key) != Some(local_entry) {
+                merged.insert(key.clone(), local_entry.clone());
+            }
+        }
+
+        for key in baseline_map.keys() {
+            if !local_map.contains_key(key) {
+                merged.remove(key);
+            }
+        }
+
+        Ok(merged.into_values().collect())
+    }
+
+    fn warn_if_post_write_clobbered(&self, intended_entries: &[ServiceEntry]) {
+        match self.read_entries_from_file() {
+            Ok(entries) => {
+                if maps_equal(
+                    &entries_to_map(entries.iter().cloned()),
+                    &entries_to_map(intended_entries.iter().cloned()),
+                ) {
+                    return;
+                }
+                tracing::warn!(
+                    path = %self.registry_file_path().display(),
+                    intended_count = intended_entries.len(),
+                    disk_count = entries.len(),
+                    "legacy unlocked writer detected after FileRegistry write; services.json no longer matches committed snapshot"
+                );
+            }
+            Err(err) => tracing::warn!(
+                error = %err,
+                path = %self.registry_file_path().display(),
+                "FileRegistry could not verify services.json after write"
+            ),
+        }
+    }
+
+    fn replace_services(&self, entries: &[ServiceEntry]) {
+        self.services.clear();
+        for entry in entries {
+            self.services.insert(entry.key(), entry.clone());
+        }
     }
 
     /// Atomically write `content` to `path` using a temp file + rename.
@@ -697,20 +992,16 @@ impl FileRegistry {
     /// stalls on the calling thread — observable as a frozen host UI during
     /// plugin load.
     ///
-    /// The fix serialises in-process writers via `write_lock` so only one
-    /// writer touches the temp file at a time, allowing the temp filename to
-    /// be stable (`.tmp.<pid>.services.json`) across writes. AV/EDR
+    /// The write transaction serialises in-process writers via `write_lock`
+    /// so only one writer touches the temp file at a time, allowing the temp
+    /// filename to be stable (`.tmp.<pid>.services.json`) across writes. AV/EDR
     /// minifilters fast-path the `CreateFile` on the second and subsequent
     /// writes because they see the same file being modified, not a new one.
     ///
-    /// Cross-process races on the *target* path are unchanged — the bounded
-    /// `fs::rename` retry loop handles those as before.
+    /// Cross-process read-modify-write cycles are serialized by
+    /// `services.lock`; the bounded `fs::rename` retry loop still handles
+    /// transient reader races on the target path.
     fn write_atomic(&self, path: &Path, content: String) -> TransportResult<()> {
-        // Serialise all in-process writers.  The lock is never held across
-        // an `await` (this is a sync fn) and is always released at the end
-        // of this scope, so poison recovery is all we need.
-        let _guard = self.write_lock.lock().unwrap_or_else(|e| e.into_inner());
-
         let dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
         let pid = std::process::id();
         // Stable per-process temp name — AV/EDR minifilters see the same
@@ -762,40 +1053,45 @@ impl FileRegistry {
     /// `read_to_string` we also tolerate the narrow Windows window where a
     /// concurrent `rename` returns `PermissionDenied` to the reader.
     fn load_from_file(&self) -> TransportResult<()> {
-        let path = self.registry_file_path();
-        if !path.exists() {
-            return Ok(());
+        let entries = self.read_entries_from_file()?;
+        if entries.is_empty() && !self.services.is_empty() {
+            tracing::warn!(
+                path = %self.registry_file_path().display(),
+                "FileRegistry registry file missing or empty; clearing in-memory snapshot"
+            );
         }
-
-        let content = Self::read_with_retry(&path)?;
-
-        if content.trim().is_empty() {
-            return Ok(());
-        }
-
-        let entries: Vec<ServiceEntry> = serde_json::from_str(&content).map_err(|e| {
-            TransportError::RegistryFile(format!("failed to parse {}: {}", path.display(), e))
-        })?;
-
-        for entry in entries {
-            let key = entry.key();
-            self.services.insert(key, entry);
-        }
+        self.replace_services(&entries);
 
         tracing::debug!(count = self.services.len(), "loaded services from file");
         Ok(())
     }
 
+    fn read_entries_from_file(&self) -> TransportResult<Vec<ServiceEntry>> {
+        let path = self.registry_file_path();
+        let Some(content) = Self::read_with_retry(&path)? else {
+            return Ok(Vec::new());
+        };
+
+        if content.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+
+        serde_json::from_str(&content).map_err(|e| {
+            TransportError::RegistryFile(format!("failed to parse {}: {}", path.display(), e))
+        })
+    }
+
     /// Read the registry file with a short bounded retry to tolerate the
     /// Windows "file briefly held by another process" `PermissionDenied`
     /// race that can happen during a concurrent `rename`.
-    fn read_with_retry(path: &PathBuf) -> TransportResult<String> {
+    fn read_with_retry(path: &PathBuf) -> TransportResult<Option<String>> {
         const MAX_ATTEMPTS: u32 = 5;
         const BACKOFF_MS: u64 = 5;
         let mut last_err: Option<std::io::Error> = None;
         for attempt in 0..MAX_ATTEMPTS {
             match fs::read_to_string(path) {
-                Ok(s) => return Ok(s),
+                Ok(s) => return Ok(Some(s)),
+                Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
                 Err(e) => {
                     last_err = Some(e);
                     std::thread::sleep(Duration::from_millis(BACKOFF_MS * (attempt as u64 + 1)));
