@@ -98,6 +98,7 @@ type AdminLinks = {
   admin_trace_url?: string;
   trace_api_url?: string;
   debug_bundle_url?: string;
+  issue_report_url?: string;
   stats_url?: string;
   admin_traces_url?: string;
 };
@@ -393,6 +394,7 @@ function traceLinks(requestId: string, provided?: AdminLinks): AdminLinks {
     admin_trace_url: provided?.admin_trace_url ?? fullHrefForAdmin('traces', { trace: requestId }),
     trace_api_url: provided?.trace_api_url ?? `${API_BASE}/traces/${encoded}`,
     debug_bundle_url: provided?.debug_bundle_url ?? `${API_BASE}/debug-bundle/${encoded}`,
+    issue_report_url: provided?.issue_report_url ?? `${API_BASE}/issue-report/${encoded}`,
     stats_url: provided?.stats_url ?? fullHrefForAdmin('stats', { range: readStatsRangeFromUrl() }),
     admin_traces_url: provided?.admin_traces_url ?? fullHrefForAdmin('traces'),
   };
@@ -497,6 +499,28 @@ async function apiJson<T>(path: string): Promise<T> {
   } finally {
     clearTimeout(tid);
   }
+}
+
+async function issueReportJsonText(requestId: string): Promise<string> {
+  const payload = await apiJson<unknown>(`/issue-report/${encodeURIComponent(requestId)}`);
+  return JSON.stringify(payload, null, 2);
+}
+
+function issueReportFilename(requestId: string): string {
+  const safe = requestId.replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '') || 'request';
+  return `dcc-mcp-issue-report-${safe}.json`;
+}
+
+function downloadJsonText(filename: string, text: string): void {
+  const blob = new Blob([text], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function formatTime(value: string | null | undefined): string {
@@ -881,6 +905,7 @@ function TraceLinks({ links }: { links: AdminLinks }) {
     ['Admin trace', links.admin_trace_url],
     ['Trace API', links.trace_api_url],
     ['Debug bundle', links.debug_bundle_url],
+    ['Issue report JSON', links.issue_report_url],
     ['Stats', links.stats_url],
   ].filter(([, url]) => typeof url === 'string' && url.length > 0) as [string, string][];
   return (
@@ -899,10 +924,14 @@ function TraceDetailPanel({
   trace,
   fallback,
   onCopy,
+  onCopyIssueReport,
+  onDownloadIssueReport,
 }: {
   trace: TraceDetailPayload | null;
   fallback: string;
   onCopy: (text: string, label: string) => void;
+  onCopyIssueReport: (requestId: string) => void;
+  onDownloadIssueReport: (requestId: string) => void;
 }) {
   if (!trace) {
     return <pre className="trace-detail">{fallback}</pre>;
@@ -932,6 +961,12 @@ function TraceDetailPanel({
           </button>
           <button className="refresh-btn" type="button" onClick={() => onCopy(buildAgentPacket(trace), 'agent packet')}>
             Copy agent packet
+          </button>
+          <button className="refresh-btn" type="button" onClick={() => onCopyIssueReport(trace.request_id)}>
+            Copy issue JSON
+          </button>
+          <button className="refresh-btn" type="button" onClick={() => onDownloadIssueReport(trace.request_id)}>
+            Download JSON
           </button>
         </div>
         <div className="trace-summary-grid">
@@ -1370,6 +1405,28 @@ function App() {
       window.setTimeout(() => setCopiedNotice(''), 1800);
     } catch (error) {
       setCopiedNotice(`Copy failed: ${error instanceof Error ? error.message : String(error)}`);
+      window.setTimeout(() => setCopiedNotice(''), 2400);
+    }
+  }, []);
+
+  const copyIssueReport = useCallback(async (requestId: string) => {
+    try {
+      const text = await issueReportJsonText(requestId);
+      await copyText(text, 'issue report JSON');
+    } catch (error) {
+      setCopiedNotice(`Issue report export failed: ${error instanceof Error ? error.message : String(error)}`);
+      window.setTimeout(() => setCopiedNotice(''), 2400);
+    }
+  }, [copyText]);
+
+  const downloadIssueReport = useCallback(async (requestId: string) => {
+    try {
+      const text = await issueReportJsonText(requestId);
+      downloadJsonText(issueReportFilename(requestId), text);
+      setCopiedNotice(`Downloaded issue report JSON`);
+      window.setTimeout(() => setCopiedNotice(''), 1800);
+    } catch (error) {
+      setCopiedNotice(`Issue report export failed: ${error instanceof Error ? error.message : String(error)}`);
       window.setTimeout(() => setCopiedNotice(''), 2400);
     }
   }, []);
@@ -2089,6 +2146,7 @@ function App() {
                             <div className="table-actions">
                               <button className="refresh-btn" type="button" onClick={() => void fetchTraceInto(call.request_id, 'call')}>Expand</button>
                               <button className="refresh-btn" type="button" onClick={() => void copyText(traceLinks(call.request_id, call.links).admin_trace_url ?? '', 'trace URL')}>Copy URL</button>
+                              <button className="refresh-btn" type="button" onClick={() => void copyIssueReport(call.request_id)}>Copy issue JSON</button>
                             </div>
                           </td>
                         </tr>
@@ -2153,7 +2211,13 @@ function App() {
                     </div>
                   ))}
                 </div>
-                <TraceDetailPanel trace={traceDetailPayload} fallback={traceDetail} onCopy={copyText} />
+                <TraceDetailPanel
+                  trace={traceDetailPayload}
+                  fallback={traceDetail}
+                  onCopy={copyText}
+                  onCopyIssueReport={(requestId) => void copyIssueReport(requestId)}
+                  onDownloadIssueReport={(requestId) => void downloadIssueReport(requestId)}
+                />
               </div>
             )}
           </section>

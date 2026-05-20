@@ -4,10 +4,10 @@ use axum::{Router, routing};
 
 use super::handlers::{
     handle_admin_activity, handle_admin_calls, handle_admin_debug_bundle, handle_admin_health,
-    handle_admin_instances, handle_admin_logs, handle_admin_skill_path_add,
-    handle_admin_skill_path_delete, handle_admin_skill_paths, handle_admin_stats,
-    handle_admin_tasks, handle_admin_tools, handle_admin_trace_detail, handle_admin_traces,
-    handle_admin_ui, handle_admin_workers,
+    handle_admin_instances, handle_admin_issue_report, handle_admin_logs,
+    handle_admin_skill_path_add, handle_admin_skill_path_delete, handle_admin_skill_paths,
+    handle_admin_stats, handle_admin_tasks, handle_admin_tools, handle_admin_trace_detail,
+    handle_admin_traces, handle_admin_ui, handle_admin_workers,
 };
 use super::state::AdminState;
 
@@ -23,6 +23,7 @@ use super::state::AdminState;
 /// - `GET  /api/calls`              → JSON recent calls
 /// - `GET  /api/traces`             → JSON recent dispatch traces (Phase 2)
 /// - `GET  /api/traces/{request_id}` → full trace waterfall for one call
+/// - `GET  /api/issue-report/{request_id}` → downloadable JSON issue report
 /// - `GET  /api/stats?range=1h|24h|7d` → aggregated call statistics (Phase 3)
 /// - `GET  /api/workers`            → per-instance worker cards (Phase 4)
 /// - `GET  /api/logs`               → JSON event log
@@ -43,6 +44,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
         .route(
             "/api/debug-bundle/{request_id}",
             routing::get(handle_admin_debug_bundle),
+        )
+        .route(
+            "/api/issue-report/{request_id}",
+            routing::get(handle_admin_issue_report),
         )
         .route("/api/skill-paths", routing::get(handle_admin_skill_paths))
         .route(
