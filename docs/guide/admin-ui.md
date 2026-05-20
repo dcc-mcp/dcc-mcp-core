@@ -127,10 +127,17 @@ Example REST request:
 
 Admin list rows expose `transport`, `agent_id`, `agent_name`, `agent_model`,
 span counts, payload byte counts, slowest span summaries, and a `links` object
-with absolute URLs for the Admin trace page, trace API, and debug bundle. Full
-trace rows include `agent_context`, request/response payload previews, a span
-waterfall, and the same copyable links. These URLs are designed to be pasted
-directly into an LLM evaluation prompt or another agent's debugging task.
+with absolute URLs for the Admin trace page, trace API, debug bundle, issue
+report JSON, and stats page. Full trace rows include `agent_context`,
+request/response payload previews, a span waterfall, and the same copyable
+links. These URLs are designed to be pasted directly into an LLM evaluation
+prompt or another agent's debugging task.
+
+The Admin UI also exposes a standalone `GET /admin/api/issue-report/{request_id}`
+export. It returns a GitHub-attachable JSON report with a summary,
+`github_issue` title/body template, absolute links, and the correlated debug
+bundle. Review request/response payloads for secrets or proprietary scene paths
+before uploading the JSON to a public issue.
 
 ## API Response Shapes
 
@@ -212,7 +219,9 @@ directly into an LLM evaluation prompt or another agent's debugging task.
       "links": {
         "admin_trace_url": "http://127.0.0.1:9765/admin?panel=traces&trace=req-123",
         "trace_api_url": "http://127.0.0.1:9765/admin/api/traces/req-123",
-        "debug_bundle_url": "http://127.0.0.1:9765/admin/api/debug-bundle/req-123"
+        "debug_bundle_url": "http://127.0.0.1:9765/admin/api/debug-bundle/req-123",
+        "issue_report_url": "http://127.0.0.1:9765/admin/api/issue-report/req-123",
+        "stats_url": "http://127.0.0.1:9765/admin?panel=stats"
       },
       "success": false,
       "error": "backend timeout",
@@ -239,7 +248,9 @@ directly into an LLM evaluation prompt or another agent's debugging task.
       "links": {
         "admin_trace_url": "http://127.0.0.1:9765/admin?panel=traces&trace=req-123",
         "trace_api_url": "http://127.0.0.1:9765/admin/api/traces/req-123",
-        "debug_bundle_url": "http://127.0.0.1:9765/admin/api/debug-bundle/req-123"
+        "debug_bundle_url": "http://127.0.0.1:9765/admin/api/debug-bundle/req-123",
+        "issue_report_url": "http://127.0.0.1:9765/admin/api/issue-report/req-123",
+        "stats_url": "http://127.0.0.1:9765/admin?panel=stats"
       },
       "total_ms": 48,
       "success": true,
@@ -264,7 +275,9 @@ directly into an LLM evaluation prompt or another agent's debugging task.
   "links": {
     "admin_trace_url": "http://127.0.0.1:9765/admin?panel=traces&trace=req-123",
     "trace_api_url": "http://127.0.0.1:9765/admin/api/traces/req-123",
-    "debug_bundle_url": "http://127.0.0.1:9765/admin/api/debug-bundle/req-123"
+    "debug_bundle_url": "http://127.0.0.1:9765/admin/api/debug-bundle/req-123",
+    "issue_report_url": "http://127.0.0.1:9765/admin/api/issue-report/req-123",
+    "stats_url": "http://127.0.0.1:9765/admin?panel=stats"
   },
   "total_ms": 48,
   "ok": true,
@@ -281,7 +294,35 @@ directly into an LLM evaluation prompt or another agent's debugging task.
   "trace": { "request_id": "req-123", "spans": [] },
   "audit": { "request_id": "req-123", "success": true },
   "related_activity": [],
+  "links": {
+    "debug_bundle_url": "http://127.0.0.1:9765/admin/api/debug-bundle/req-123",
+    "issue_report_url": "http://127.0.0.1:9765/admin/api/issue-report/req-123"
+  },
   "hints": []
+}
+
+// GET /admin/api/issue-report/req-123
+{
+  "schema_version": "dcc-mcp.admin.issue-report.v1",
+  "report_type": "github_issue_debug_json",
+  "request_id": "req-123",
+  "summary": {
+    "title": "DCC-MCP request req-123 failed: maya.abcdef01.maya__open_scene",
+    "status": "failed",
+    "tool": "maya.abcdef01.maya__open_scene",
+    "dcc_type": "maya",
+    "total_ms": 48
+  },
+  "github_issue": {
+    "title": "DCC-MCP request req-123 failed: maya.abcdef01.maya__open_scene",
+    "body_template": "## Summary\n\nRequest `req-123` returned `failed`...",
+    "suggested_labels": ["bug", "admin-telemetry"]
+  },
+  "links": {
+    "admin_trace_url": "http://127.0.0.1:9765/admin?panel=traces&trace=req-123",
+    "issue_report_url": "http://127.0.0.1:9765/admin/api/issue-report/req-123"
+  },
+  "debug_bundle": { "request_id": "req-123" }
 }
 
 // GET /admin/api/stats?range=24h
