@@ -309,6 +309,18 @@ matching Scalar reference.
   "trace": { "request_id": "req-123", "spans": [] },
   "audit": { "request_id": "req-123", "success": true },
   "related_activity": [],
+  "postmortem": {
+    "target": { "request_id": "req-123", "tool": "maya.abcdef01.maya__open_scene" },
+    "previous_calls": [
+      {
+        "request_id": "req-122",
+        "tool": "maya.abcdef01.maya__save_scene",
+        "ok": true,
+        "input": { "mime_type": "application/json", "truncated": false, "content": "{...}" }
+      }
+    ],
+    "gateway_events": []
+  },
   "links": {
     "debug_bundle_url": "http://127.0.0.1:9765/admin/api/debug-bundle/req-123",
     "issue_report_url": "http://127.0.0.1:9765/admin/api/issue-report/req-123",
@@ -329,7 +341,11 @@ matching Scalar reference.
     "status": "failed",
     "tool": "maya.abcdef01.maya__open_scene",
     "dcc_type": "maya",
-    "total_ms": 48
+    "total_ms": 48,
+    "postmortem": {
+      "previous_call_count": 1,
+      "gateway_event_count": 0
+    }
   },
   "github_issue": {
     "title": "DCC-MCP request req-123 failed: maya.abcdef01.maya__open_scene",
