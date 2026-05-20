@@ -331,6 +331,16 @@ h2 {
   border-color: #9bc0ff;
 }
 
+a.refresh-btn {
+  display: inline-flex;
+  text-decoration: none;
+}
+
+.refresh-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .refresh-btn:focus-visible {
   outline: 2px solid var(--accent-warm);
   outline-offset: 2px;
@@ -731,6 +741,114 @@ tbody tr:hover td {
 .link-chip:hover {
   background: rgba(112, 165, 255, 0.2);
   border-color: rgba(112, 165, 255, 0.45);
+}
+
+.openapi-inspector {
+  display: grid;
+  gap: 1rem;
+}
+
+.openapi-layout {
+  align-items: start;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(20rem, 1fr) minmax(18rem, 0.72fr);
+}
+
+.openapi-operation-list {
+  background: var(--panel);
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.openapi-operation-card {
+  border-bottom: 1px solid var(--border-faint);
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.8rem 0.9rem;
+}
+
+.openapi-operation-card:last-child {
+  border-bottom: 0;
+}
+
+.openapi-operation-card h3 {
+  color: var(--slate-dark);
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.openapi-operation-card p {
+  color: var(--slate-medium);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.openapi-operation-head,
+.openapi-meta-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.method-pill,
+.openapi-meta-row span {
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 0.18rem 0.5rem;
+  text-transform: uppercase;
+}
+
+.method-pill {
+  background: rgba(112, 165, 255, 0.14);
+  border: 1px solid rgba(112, 165, 255, 0.28);
+  color: #b8d2ff;
+}
+
+.method-pill.post,
+.method-pill.patch,
+.method-pill.put {
+  background: rgba(242, 184, 75, 0.14);
+  border-color: rgba(242, 184, 75, 0.28);
+  color: #ffd98f;
+}
+
+.method-pill.delete {
+  background: rgba(239, 91, 99, 0.14);
+  border-color: rgba(239, 91, 99, 0.28);
+  color: #ffabb0;
+}
+
+.openapi-path {
+  color: var(--slate-light);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.openapi-meta-row span {
+  background: var(--panel-soft);
+  border: 1px solid var(--border-faint);
+  color: var(--cloud-dark);
+  text-transform: none;
+}
+
+.openapi-spec-card {
+  min-width: 0;
+  position: sticky;
+  top: 1rem;
+}
+
+.openapi-spec-pre {
+  max-height: 32rem;
 }
 
 .trace-layout {
@@ -1609,6 +1727,7 @@ button.linkish:disabled {
   }
 
   .workers-grid,
+  .openapi-layout,
   .stats-charts {
     grid-template-columns: 1fr;
   }
@@ -1626,9 +1745,14 @@ button.linkish:disabled {
   }
 
   .task-card,
+  .openapi-layout,
   .trace-layout,
   .trace-item {
     grid-template-columns: 1fr;
+  }
+
+  .openapi-spec-card {
+    position: static;
   }
 
   .task-side,
