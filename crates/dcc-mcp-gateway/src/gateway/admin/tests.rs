@@ -475,13 +475,39 @@ mod admin_tests {
         assert_eq!(tasks_body["tasks"][0]["task_id"], "req-task");
         assert_eq!(tasks_body["tasks"][0]["status"], "failed");
 
-        let (bundle_status, bundle_body) = body_json(router, "/api/debug-bundle/req-task").await;
+        let (bundle_status, bundle_body) =
+            body_json(router.clone(), "/api/debug-bundle/req-task").await;
         assert_eq!(bundle_status, StatusCode::OK);
         assert_eq!(bundle_body["request_id"], "req-task");
         assert!(bundle_body["trace"].is_object());
         assert!(bundle_body["related_activity"].is_array());
         assert!(bundle_body.get("related_logs").is_none());
         assert!(bundle_body["hints"].is_array());
+        assert!(
+            bundle_body["links"]["issue_report_url"]
+                .as_str()
+                .is_some_and(|url| url.ends_with("/admin/api/issue-report/req-task"))
+        );
+
+        let (report_status, report_body) = body_json(router, "/api/issue-report/req-task").await;
+        assert_eq!(report_status, StatusCode::OK);
+        assert_eq!(
+            report_body["schema_version"],
+            "dcc-mcp.admin.issue-report.v1"
+        );
+        assert_eq!(report_body["request_id"], "req-task");
+        assert_eq!(report_body["summary"]["status"], "failed");
+        assert_eq!(report_body["debug_bundle"]["request_id"], "req-task");
+        assert!(
+            report_body["github_issue"]["body_template"]
+                .as_str()
+                .is_some_and(|body| body.contains("Upload this JSON export"))
+        );
+        assert!(
+            report_body["links"]["issue_report_url"]
+                .as_str()
+                .is_some_and(|url| url.ends_with("/admin/api/issue-report/req-task"))
+        );
     }
 
     // ── /api/logs ─────────────────────────────────────────────────────────
