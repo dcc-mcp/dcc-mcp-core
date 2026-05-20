@@ -76,6 +76,47 @@ pub(crate) async fn probe_readiness(
     resp.json::<ReadinessReport>().await.ok()
 }
 
+/// Map a parsed `/v1/readyz` body to a [`ProbeOutcome`] without another HTTP hop.
+#[must_use]
+pub(crate) fn probe_outcome_from_report(report: &ReadinessReport) -> ProbeOutcome {
+    if report.is_ready() {
+        ProbeOutcome::Ready
+    } else {
+        ProbeOutcome::Booting
+    }
+}
+
+/// Classify liveness with at most one `/v1/readyz` request.
+///
+/// When readyz is present, both the cached [`ReadinessReport`] and the
+/// [`ProbeOutcome`] are derived from that single response. Legacy backends
+/// without readyz fall back to `GET /health` only.
+pub(crate) async fn probe_mcp_readiness_once(
+    client: &reqwest::Client,
+    mcp_url: &str,
+    timeout: Duration,
+) -> (Option<ReadinessReport>, ProbeOutcome) {
+    if let Some(report) = probe_readiness(client, mcp_url, timeout).await {
+        let outcome = probe_outcome_from_report(&report);
+        return (Some(report), outcome);
+    }
+
+    let health_url = health_url_from_mcp_url(mcp_url);
+    let ok = client
+        .get(&health_url)
+        .timeout(timeout)
+        .header("accept", "application/json, text/event-stream")
+        .send()
+        .await
+        .is_ok_and(|resp| resp.status().is_success());
+    let outcome = if ok {
+        ProbeOutcome::Ready
+    } else {
+        ProbeOutcome::Unreachable
+    };
+    (None, outcome)
+}
+
 /// Classify a backend as [`Ready`] / [`Booting`] / [`Unreachable`] using
 /// the three-state probe introduced in #713.
 ///
@@ -97,27 +138,7 @@ pub(crate) async fn probe_mcp_readiness(
     mcp_url: &str,
     timeout: Duration,
 ) -> ProbeOutcome {
-    if let Some(report) = probe_readiness(client, mcp_url, timeout).await {
-        return if report.is_ready() {
-            ProbeOutcome::Ready
-        } else {
-            ProbeOutcome::Booting
-        };
-    }
-
-    let health_url = health_url_from_mcp_url(mcp_url);
-    let ok = client
-        .get(&health_url)
-        .timeout(timeout)
-        .header("accept", "application/json, text/event-stream")
-        .send()
-        .await
-        .is_ok_and(|resp| resp.status().is_success());
-    if ok {
-        ProbeOutcome::Ready
-    } else {
-        ProbeOutcome::Unreachable
-    }
+    probe_mcp_readiness_once(client, mcp_url, timeout).await.1
 }
 
 /// Return true when the target looks like a DCC MCP HTTP server.
