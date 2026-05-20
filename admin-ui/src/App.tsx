@@ -70,6 +70,7 @@ type CallRow = {
   agent_name?: string | null;
   agent_model?: string | null;
   parent_request_id?: string | null;
+  links?: AdminLinks;
 };
 
 type TraceRow = {
@@ -90,6 +91,15 @@ type TraceRow = {
   output_bytes?: number | null;
   slowest_span_name?: string | null;
   slowest_span_ms?: number | null;
+  links?: AdminLinks;
+};
+
+type AdminLinks = {
+  admin_trace_url?: string;
+  trace_api_url?: string;
+  debug_bundle_url?: string;
+  stats_url?: string;
+  admin_traces_url?: string;
 };
 
 type AgentContext = {
@@ -138,6 +148,7 @@ type TraceDetailPayload = {
   spans: TraceSpan[];
   input?: TracePayload | null;
   output?: TracePayload | null;
+  links?: AdminLinks;
 };
 
 type ActivityEvent = {
@@ -370,6 +381,21 @@ function hrefForAdmin(panel: Panel, extra?: Record<string, string | undefined>):
     }
   }
   return `${u.pathname}${u.search}`;
+}
+
+function fullHrefForAdmin(panel: Panel, extra?: Record<string, string | undefined>): string {
+  return new URL(hrefForAdmin(panel, extra), window.location.origin).toString();
+}
+
+function traceLinks(requestId: string, provided?: AdminLinks): AdminLinks {
+  const encoded = encodeURIComponent(requestId);
+  return {
+    admin_trace_url: provided?.admin_trace_url ?? fullHrefForAdmin('traces', { trace: requestId }),
+    trace_api_url: provided?.trace_api_url ?? `${API_BASE}/traces/${encoded}`,
+    debug_bundle_url: provided?.debug_bundle_url ?? `${API_BASE}/debug-bundle/${encoded}`,
+    stats_url: provided?.stats_url ?? fullHrefForAdmin('stats', { range: readStatsRangeFromUrl() }),
+    admin_traces_url: provided?.admin_traces_url ?? fullHrefForAdmin('traces'),
+  };
 }
 
 function readPanelFromUrl(): Panel {
@@ -817,7 +843,67 @@ function payloadPreview(payload: TracePayload | null | undefined): string {
   return `${payload.content}${suffix}`;
 }
 
-function TraceDetailPanel({ trace, fallback }: { trace: TraceDetailPayload | null; fallback: string }) {
+function buildAgentPacket(trace: TraceDetailPayload): string {
+  const links = traceLinks(trace.request_id, trace.links);
+  const agent = trace.agent_context;
+  return JSON.stringify({
+    purpose: 'dcc-mcp admin trace packet for LLM evaluation and code optimization',
+    request_id: trace.request_id,
+    method: trace.method,
+    tool: trace.tool_slug ?? trace.method,
+    dcc_type: trace.dcc_type,
+    instance_id: trace.instance_id,
+    transport: trace.transport,
+    status: trace.ok ? 'ok' : 'err',
+    total_ms: trace.total_ms,
+    agent_context: agent ? {
+      agent_id: agent.agent_id,
+      agent_name: agent.agent_name,
+      model: agent.model,
+      task: agent.task,
+      reasoning_summary: agent.reasoning_summary,
+      plan: agent.plan ?? [],
+      observations: agent.observations ?? [],
+      parent_request_id: agent.parent_request_id,
+      tags: agent.tags ?? [],
+    } : null,
+    slowest_span: [...(trace.spans ?? [])]
+      .sort((a, b) => (b.duration_ns ?? 0) - (a.duration_ns ?? 0))
+      .slice(0, 1)
+      .map((span) => ({ name: span.name, duration_ms: Math.round((span.duration_ns ?? 0) / 1_000_000), ok: span.ok, attributes: span.attributes }))
+      [0] ?? null,
+    links,
+  }, null, 2);
+}
+
+function TraceLinks({ links }: { links: AdminLinks }) {
+  const rows = [
+    ['Admin trace', links.admin_trace_url],
+    ['Trace API', links.trace_api_url],
+    ['Debug bundle', links.debug_bundle_url],
+    ['Stats', links.stats_url],
+  ].filter(([, url]) => typeof url === 'string' && url.length > 0) as [string, string][];
+  return (
+    <div className="trace-links">
+      {rows.map(([label, url]) => (
+        <a key={label} href={url} target="_blank" rel="noopener noreferrer" title={url}>
+          <strong>{label}</strong>
+          <span>{url}</span>
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function TraceDetailPanel({
+  trace,
+  fallback,
+  onCopy,
+}: {
+  trace: TraceDetailPayload | null;
+  fallback: string;
+  onCopy: (text: string, label: string) => void;
+}) {
   if (!trace) {
     return <pre className="trace-detail">{fallback}</pre>;
   }
@@ -825,6 +911,7 @@ function TraceDetailPanel({ trace, fallback }: { trace: TraceDetailPayload | nul
   const maxNs = Math.max(1, ...spans.map((span) => span.duration_ns ?? 0));
   const agent = trace.agent_context ?? null;
   const agentTitle = agent?.agent_name || agent?.agent_id || agent?.agent_kind || 'Caller context';
+  const links = traceLinks(trace.request_id, trace.links);
   const attrsPreview = (attrs?: Record<string, unknown>) => {
     if (!attrs || Object.keys(attrs).length === 0) {
       return '';
@@ -839,6 +926,14 @@ function TraceDetailPanel({ trace, fallback }: { trace: TraceDetailPayload | nul
           <span className="trace-kicker">Request</span>
           <h3 title={trace.request_id}>{compactId(trace.request_id)}</h3>
         </div>
+        <div className="trace-copy-actions">
+          <button className="refresh-btn" type="button" onClick={() => onCopy(links.admin_trace_url ?? '', 'trace URL')}>
+            Copy URL
+          </button>
+          <button className="refresh-btn" type="button" onClick={() => onCopy(buildAgentPacket(trace), 'agent packet')}>
+            Copy agent packet
+          </button>
+        </div>
         <div className="trace-summary-grid">
           <span><strong>Tool</strong>{trace.tool_slug ?? trace.method}</span>
           <span><strong>Status</strong>{trace.ok ? 'ok' : 'err'}</span>
@@ -847,6 +942,7 @@ function TraceDetailPanel({ trace, fallback }: { trace: TraceDetailPayload | nul
           <span><strong>Started</strong>{formatTraceDate(trace.started_at)}</span>
           <span><strong>Spans</strong>{spans.length}</span>
         </div>
+        <TraceLinks links={links} />
       </div>
 
       {agent ? (
@@ -948,6 +1044,7 @@ function App() {
   const [traceDetail, setTraceDetail] = useState<string>('Select a trace row for detail.');
   const [traceDetailPayload, setTraceDetailPayload] = useState<TraceDetailPayload | null>(null);
   const [callDetail, setCallDetail] = useState<string>('Select a call row for trace detail.');
+  const [copiedNotice, setCopiedNotice] = useState<string>('');
   const [updatedAt, setUpdatedAt] = useState<Record<Panel, string>>({
     debug: 'Loading…',
     activity: 'Loading…',
@@ -1242,6 +1339,39 @@ function App() {
 
   const markError = useCallback((panel: Panel, error: unknown) => {
     setErrors((current) => ({ ...current, [panel]: error instanceof Error ? error.message : String(error) }));
+  }, []);
+
+  const copyText = useCallback(async (text: string, label: string) => {
+    if (!text) {
+      return;
+    }
+    try {
+      let copied = false;
+      if (navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(text);
+          copied = true;
+        } catch {
+          copied = false;
+        }
+      }
+      if (!copied) {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', 'true');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopiedNotice(`Copied ${label}`);
+      window.setTimeout(() => setCopiedNotice(''), 1800);
+    } catch (error) {
+      setCopiedNotice(`Copy failed: ${error instanceof Error ? error.message : String(error)}`);
+      window.setTimeout(() => setCopiedNotice(''), 2400);
+    }
   }, []);
 
   const fetchActivity = useCallback(async () => {
@@ -1955,7 +2085,12 @@ function App() {
                           <td><StatusBadge value={call.status} /></td>
                           <td title={call.error ?? ''}>{call.error ? call.error.slice(0, 80) : '-'}</td>
                           <td>{call.duration_ms ?? '-'}</td>
-                          <td><button className="refresh-btn" type="button" onClick={() => void fetchTraceInto(call.request_id, 'call')}>Expand</button></td>
+                          <td>
+                            <div className="table-actions">
+                              <button className="refresh-btn" type="button" onClick={() => void fetchTraceInto(call.request_id, 'call')}>Expand</button>
+                              <button className="refresh-btn" type="button" onClick={() => void copyText(traceLinks(call.request_id, call.links).admin_trace_url ?? '', 'trace URL')}>Copy URL</button>
+                            </div>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1974,7 +2109,7 @@ function App() {
               meta="Request timeline and latency drill-down for gateway fan-out."
               action={<button className="refresh-btn" type="button" onClick={fetchTraces}>Refresh</button>}
             />
-            <StatusLine text={updatedAt.traces} error={errors.traces} />
+            <StatusLine text={copiedNotice || updatedAt.traces} error={errors.traces} />
             <div className="metric-grid compact">
               <MetricTile tone="ok" label="OK" value={traceSummary.ok} />
               <MetricTile tone={traceSummary.failed > 0 ? 'err' : undefined} label="Failed" value={traceSummary.failed} />
@@ -2018,7 +2153,7 @@ function App() {
                     </div>
                   ))}
                 </div>
-                <TraceDetailPanel trace={traceDetailPayload} fallback={traceDetail} />
+                <TraceDetailPanel trace={traceDetailPayload} fallback={traceDetail} onCopy={copyText} />
               </div>
             )}
           </section>
