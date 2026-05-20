@@ -1,6 +1,6 @@
 use super::error::BackendCallError;
 use super::http::{post_jsonrpc, uuid_like_id};
-use super::urls::rest_base_from_mcp_url;
+use super::urls::{healthz_url_from_mcp_url, rest_base_from_mcp_url};
 use super::*;
 
 use dcc_mcp_jsonrpc::McpTool;
@@ -88,6 +88,18 @@ fn builds_health_url_from_mcp_url() {
     assert_eq!(
         health_url_from_mcp_url("http://127.0.0.1:64954/mcp/"),
         "http://127.0.0.1:64954/health"
+    );
+}
+
+#[test]
+fn builds_healthz_url_from_mcp_url() {
+    assert_eq!(
+        healthz_url_from_mcp_url("http://127.0.0.1:64954/mcp"),
+        "http://127.0.0.1:64954/healthz"
+    );
+    assert_eq!(
+        healthz_url_from_mcp_url("http://127.0.0.1:64954/mcp/"),
+        "http://127.0.0.1:64954/healthz"
     );
 }
 
@@ -453,6 +465,19 @@ async fn probe_mcp_readiness_falls_back_to_health_when_readyz_missing() {
         ProbeOutcome::Ready
     );
     assert!(probe_mcp_health(&client, &mcp_url, Duration::from_secs(2)).await);
+    let _ = stop.send(());
+}
+
+#[tokio::test]
+async fn probe_mcp_readiness_falls_back_to_sidecar_healthz() {
+    let app = axum::Router::new().route("/healthz", axum::routing::get(|| async { "ok" }));
+    let (mcp_url, stop) = spawn_fake_backend(app).await;
+
+    let client = reqwest::Client::new();
+    assert_eq!(
+        probe_mcp_readiness(&client, &mcp_url, Duration::from_secs(2)).await,
+        ProbeOutcome::Ready
+    );
     let _ = stop.send(());
 }
 

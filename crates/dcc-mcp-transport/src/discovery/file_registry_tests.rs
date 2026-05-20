@@ -426,6 +426,187 @@ fn test_file_registry_hot_reload_is_lazy() {
 }
 
 #[test]
+fn test_heartbeat_survives_external_write_between_register_and_flush() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry_a = FileRegistry::new(dir.path()).unwrap();
+
+    let sidecar = ServiceEntry::new("3dsmax", "127.0.0.1", 57677);
+    let sidecar_key = sidecar.key();
+    registry_a.register(sidecar).unwrap();
+    let registered_heartbeat = registry_a.get(&sidecar_key).unwrap().last_heartbeat;
+
+    std::thread::sleep(Duration::from_millis(100));
+
+    {
+        let registry_b = FileRegistry::new(dir.path()).unwrap();
+        let maya = ServiceEntry::new("maya", "127.0.0.1", 50492);
+        registry_b.register(maya).unwrap();
+    }
+
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(registry_a.heartbeat(&sidecar_key).unwrap());
+
+    let reread = FileRegistry::new(dir.path()).unwrap();
+    let sidecar_after = reread
+        .get(&sidecar_key)
+        .expect("sidecar row must survive heartbeat");
+    assert!(
+        sidecar_after.last_heartbeat > registered_heartbeat,
+        "heartbeat must persist the touched timestamp after another registry handle wrote services.json"
+    );
+    assert_eq!(
+        reread.list_instances("maya").len(),
+        1,
+        "heartbeat flush must preserve rows written by other registry handles"
+    );
+}
+
+#[test]
+fn test_heartbeat_does_not_resurrect_externally_deregistered_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry_a = FileRegistry::new(dir.path()).unwrap();
+
+    let sidecar = ServiceEntry::new("3dsmax", "127.0.0.1", 57677);
+    let sidecar_key = sidecar.key();
+    registry_a.register(sidecar).unwrap();
+
+    let maya_key = {
+        let registry_b = FileRegistry::new(dir.path()).unwrap();
+        let maya = ServiceEntry::new("maya", "127.0.0.1", 50492);
+        let maya_key = maya.key();
+        registry_b.register(maya).unwrap();
+        registry_a.list_all();
+        registry_b.deregister(&maya_key).unwrap();
+        maya_key
+    };
+
+    assert!(
+        registry_a.heartbeat(&sidecar_key).unwrap(),
+        "sidecar heartbeat should still succeed"
+    );
+
+    let reread = FileRegistry::new(dir.path()).unwrap();
+    assert!(
+        reread.get(&maya_key).is_none(),
+        "heartbeat flush must not resurrect a row removed by another registry handle"
+    );
+}
+
+#[test]
+fn test_write_transaction_times_out_when_in_process_lock_is_held() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new_with_lock_policy(
+        dir.path(),
+        Duration::from_millis(40),
+        Duration::from_millis(5),
+    )
+    .unwrap();
+
+    let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+    let key = entry.key();
+    registry.register(entry).unwrap();
+
+    let _held = registry.write_lock.lock().unwrap();
+    let started = std::time::Instant::now();
+    let err = registry.heartbeat(&key).unwrap_err();
+
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "bounded write lock wait must not hang the caller"
+    );
+    assert!(
+        err.to_string()
+            .contains("timed out waiting for in-process registry mutex"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn test_heartbeat_merges_legacy_unlocked_writer_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+
+    let sidecar = ServiceEntry::new("3dsmax", "127.0.0.1", 57677);
+    let sidecar_key = sidecar.key();
+    registry.register(sidecar).unwrap();
+    let photoshop = ServiceEntry::new("photoshop", "127.0.0.1", 18080);
+    let photoshop_key = photoshop.key();
+    registry.register(photoshop).unwrap();
+    let before = registry.get(&sidecar_key).unwrap().last_heartbeat;
+    std::thread::sleep(Duration::from_millis(20));
+
+    let legacy = ServiceEntry::new("maya", "127.0.0.1", 50492);
+    let legacy_key = legacy.key();
+    let legacy_path = dir.path().join("services.json");
+    set_before_transaction_flush_hook(dir.path(), move || {
+        let content = serde_json::to_string_pretty(&vec![legacy]).unwrap();
+        std::fs::write(&legacy_path, content).unwrap();
+    });
+
+    assert!(
+        registry.heartbeat(&sidecar_key).unwrap(),
+        "sidecar heartbeat should still succeed"
+    );
+
+    let reread = FileRegistry::new(dir.path()).unwrap();
+    let sidecar_after = reread
+        .get(&sidecar_key)
+        .expect("new writer row must survive legacy unlocked overwrite");
+    assert!(
+        sidecar_after.last_heartbeat > before,
+        "new writer's heartbeat update must win for its own row"
+    );
+    assert!(
+        reread.get(&legacy_key).is_some(),
+        "legacy unlocked writer row must be merged instead of being lost"
+    );
+    assert!(
+        reread.get(&photoshop_key).is_some(),
+        "unchanged baseline rows must survive a legacy stale snapshot"
+    );
+}
+
+#[test]
+fn test_missing_registry_file_during_transaction_clears_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+
+    let sidecar = ServiceEntry::new("3dsmax", "127.0.0.1", 57677);
+    let sidecar_key = sidecar.key();
+    registry.register(sidecar).unwrap();
+    std::fs::remove_file(registry.registry_file_path()).unwrap();
+
+    assert!(
+        !registry.heartbeat(&sidecar_key).unwrap(),
+        "deleted services.json is authoritative during a transaction"
+    );
+    assert!(
+        FileRegistry::new(dir.path()).unwrap().is_empty(),
+        "missing services.json must not be repopulated from stale memory"
+    );
+}
+
+#[test]
+fn test_empty_registry_file_during_transaction_clears_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+
+    let sidecar = ServiceEntry::new("3dsmax", "127.0.0.1", 57677);
+    let sidecar_key = sidecar.key();
+    registry.register(sidecar).unwrap();
+    std::fs::write(registry.registry_file_path(), "").unwrap();
+
+    assert!(
+        !registry.heartbeat(&sidecar_key).unwrap(),
+        "empty services.json is authoritative during a transaction"
+    );
+    assert!(
+        FileRegistry::new(dir.path()).unwrap().is_empty(),
+        "empty services.json must not be repopulated from stale memory"
+    );
+}
+
+#[test]
 fn test_file_registry_update_metadata() {
     let dir = tempfile::tempdir().unwrap();
     let registry = FileRegistry::new(dir.path()).unwrap();
@@ -590,11 +771,12 @@ fn test_read_alive_handles_multiple_ghosts_for_dcc_maya_126() {
 /// `ServiceEntry` rows at the same time must both succeed and the resulting
 /// `services.json` must contain *both* entries, not just one.
 ///
-/// The original #554 implementation used a single shared `services.lock`
-/// file with `share_mode(0)` (exclusive) — concurrent writers would fail
-/// the lock open with `PermissionDenied` and silently drop their entry,
-/// which manifested as the gateway facade only seeing one of two backends
-/// in `tests/test_gateway_facade_aggregation.py` on Windows.
+/// One broken #554-era implementation opened a shared lock file with
+/// `share_mode(0)` (exclusive) — concurrent writers would fail the lock open
+/// with `PermissionDenied` and silently drop their entry, which manifested as
+/// the gateway facade only seeing one of two backends in
+/// `tests/test_gateway_facade_aggregation.py` on Windows. The current path
+/// uses a shared `services.lock` with bounded try-lock/backoff.
 #[test]
 fn test_concurrent_heartbeat_does_not_drop_entries() {
     use std::sync::Arc;
