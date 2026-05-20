@@ -7,7 +7,7 @@
 
 use serde_json::{Value, json};
 
-use super::super::state::{GatewayState, entry_to_json};
+use super::super::state::GatewayState;
 use super::util::{parse_bool, parse_query, split_uri};
 
 /// Root URI for the gateway-native instance list.
@@ -111,7 +111,7 @@ pub async fn build_payload(gs: &GatewayState, query: &Query) -> Result<Value, St
                     }
                     *include_stale || !stale
                 })
-                .map(|e| entry_to_json(e, gs.stale_timeout))
+                .map(|e| gs.instance_json(e))
                 .collect();
 
             instances.sort_by(|a, b| {
@@ -138,7 +138,7 @@ pub async fn build_payload(gs: &GatewayState, query: &Query) -> Result<Value, St
                     s == *instance_id || s.starts_with(instance_id.as_str())
                 })
                 .ok_or_else(|| format!("Instance '{instance_id}' not found"))?;
-            Ok(entry_to_json(entry, gs.stale_timeout))
+            Ok(gs.instance_json(entry))
         }
     }
 }

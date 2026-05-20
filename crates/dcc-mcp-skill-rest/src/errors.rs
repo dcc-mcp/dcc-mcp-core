@@ -6,6 +6,7 @@
 //! it is surfaced straight to end users.
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use utoipa::ToSchema;
 
 /// Machine-readable error class. Kebab-case so new variants can be
@@ -83,6 +84,9 @@ pub struct ServiceError {
     /// Candidate slugs for `ambiguous` errors.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub candidates: Vec<String>,
+    /// Structured diagnostics (e.g. thread-affinity remediation, #1075).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<Box<Value>>,
 }
 
 impl ServiceError {
@@ -94,6 +98,7 @@ impl ServiceError {
             hint: None,
             request_id: None,
             candidates: Vec::new(),
+            context: None,
         }
     }
 
@@ -115,6 +120,13 @@ impl ServiceError {
     #[must_use]
     pub fn with_candidates(mut self, candidates: Vec<String>) -> Self {
         self.candidates = candidates;
+        self
+    }
+
+    /// Attach structured diagnostics (affinity remediation, etc.).
+    #[must_use]
+    pub fn with_context(mut self, context: Value) -> Self {
+        self.context = Some(Box::new(context));
         self
     }
 
@@ -140,6 +152,7 @@ mod tests {
             ServiceErrorKind::BadRequest,
             ServiceErrorKind::BackendError,
             ServiceErrorKind::AffinityViolation,
+            ServiceErrorKind::ThreadAffinityViolation,
             ServiceErrorKind::NotReady,
             ServiceErrorKind::Internal,
         ] {
@@ -166,6 +179,7 @@ mod tests {
         assert!(v.get("hint").is_none());
         assert!(v.get("candidates").is_none());
         assert!(v.get("request_id").is_none());
+        assert!(v.get("context").is_none());
     }
 
     #[test]

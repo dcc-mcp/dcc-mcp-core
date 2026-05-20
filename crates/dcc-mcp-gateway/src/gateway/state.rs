@@ -50,6 +50,7 @@ use tokio::sync::{RwLock, broadcast, watch};
 use uuid::Uuid;
 
 use super::event_log::EventLog;
+use super::instance_diagnostics::{InstanceDiagnostics, InstanceDiagnosticsStore};
 
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
@@ -237,6 +238,9 @@ pub struct GatewayState {
     /// (issue #770). Empty by default; operators register middlewares via
     /// [`GatewayConfig::middleware_chain`] or the builder API.
     pub middleware_chain: Arc<MiddlewareChain>,
+
+    /// Cached per-instance readiness + last call error (#1076).
+    pub instance_diagnostics: Arc<InstanceDiagnosticsStore>,
 }
 
 impl GatewayState {
@@ -280,6 +284,19 @@ impl GatewayState {
             capability_index: &self.capability_index,
             event_log: &self.event_log,
         }
+    }
+
+    /// MCP URL for this gateway process.
+    #[must_use]
+    pub fn gateway_mcp_url(&self) -> String {
+        format!("http://{}:{}/mcp", self.own_host, self.own_port)
+    }
+
+    /// Serialize a registry row with optional cached diagnostics (#1076).
+    #[must_use]
+    pub fn instance_json(&self, e: &ServiceEntry) -> Value {
+        let diag = self.instance_diagnostics.get(&e.instance_id);
+        entry_to_json(e, self.stale_timeout, diag.as_ref())
     }
 
     /// Typed server-identity view (server/adapter metadata, protocol
@@ -449,14 +466,18 @@ fn entry_to_short(instance_id: &Uuid) -> String {
 /// longer routable.  The original `ServiceStatus` is preserved verbatim
 /// when the row is still live, and the redundant `stale: bool` field is
 /// kept for clients that prefer to branch on a boolean.
-pub fn entry_to_json(e: &ServiceEntry, stale_timeout: Duration) -> Value {
+pub fn entry_to_json(
+    e: &ServiceEntry,
+    stale_timeout: Duration,
+    diagnostics: Option<&InstanceDiagnostics>,
+) -> Value {
     let stale = e.is_stale(stale_timeout) || e.status == ServiceStatus::Stale;
     let status = if stale {
         "stale".to_string()
     } else {
         e.status.to_string()
     };
-    json!({
+    let mut row = json!({
         "instance_id":     e.instance_id.to_string(),
         // Derived `{dcc}@{version}-{short8}` (RFC #998 Addendum B).
         // Agents reading gateway://instances see DCC + version + short
@@ -492,7 +513,14 @@ pub fn entry_to_json(e: &ServiceEntry, stale_timeout: Duration) -> Value {
             "available": !stale && e.status == ServiceStatus::Available && e.lease_owner.is_none(),
         },
         "stale":           stale,
-    })
+    });
+    if let Some(diag) = diagnostics.filter(|d| {
+        d.readiness.is_some() || d.last_error.is_some() || d.probed_at_unix_secs.is_some()
+    }) {
+        row["diagnostics"] =
+            super::instance_diagnostics::InstanceDiagnosticsStore::to_json_value(diag);
+    }
+    row
 }
 
 #[cfg(test)]

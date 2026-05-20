@@ -48,6 +48,9 @@ fn test_gateway_state_with_own_and_unknown(
         #[cfg(feature = "prometheus")]
         gateway_metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
         middleware_chain: Arc::new(MiddlewareChain::new()),
+        instance_diagnostics: Arc::new(
+            crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new(),
+        ),
     }
 }
 
@@ -396,7 +399,7 @@ async fn test_all_instances_keeps_stale_and_unknown() {
 fn test_entry_to_json_status_stale_for_aged_row() {
     let mut e = ServiceEntry::new("maya", "127.0.0.1", 18812);
     e.last_heartbeat = std::time::SystemTime::now() - Duration::from_secs(600);
-    let json = entry_to_json(&e, Duration::from_secs(30));
+    let json = entry_to_json(&e, Duration::from_secs(30), None);
     assert_eq!(json["status"].as_str(), Some("stale"));
     assert_eq!(json["stale"].as_bool(), Some(true));
 }
@@ -405,7 +408,7 @@ fn test_entry_to_json_status_stale_for_aged_row() {
 fn test_entry_to_json_status_stale_for_marked_row() {
     let mut e = ServiceEntry::new("maya", "127.0.0.1", 18812);
     e.status = ServiceStatus::Stale;
-    let json = entry_to_json(&e, Duration::from_secs(30));
+    let json = entry_to_json(&e, Duration::from_secs(30), None);
     assert_eq!(json["status"].as_str(), Some("stale"));
     assert_eq!(json["stale"].as_bool(), Some(true));
     assert_eq!(json["pool"]["available"].as_bool(), Some(false));
@@ -420,7 +423,7 @@ fn test_entry_to_json_includes_pool_state() {
         Some(std::time::SystemTime::now() + Duration::from_secs(60)),
     );
 
-    let json = entry_to_json(&e, Duration::from_secs(30));
+    let json = entry_to_json(&e, Duration::from_secs(30), None);
 
     assert_eq!(json["status"].as_str(), Some("busy"));
     assert_eq!(json["pool"]["capacity"].as_u64(), Some(2));
@@ -441,7 +444,7 @@ fn test_entry_to_json_includes_pool_state() {
 fn test_entry_to_json_includes_display_id_with_version() {
     let mut e = ServiceEntry::new("maya", "127.0.0.1", 18812);
     e.version = Some("2026".to_string());
-    let json = entry_to_json(&e, Duration::from_secs(30));
+    let json = entry_to_json(&e, Duration::from_secs(30), None);
 
     let display = json["display_id"]
         .as_str()
@@ -461,7 +464,7 @@ fn test_entry_to_json_includes_display_id_with_version() {
 fn test_entry_to_json_display_id_falls_back_to_unknown_version() {
     let mut e = ServiceEntry::new("figma", "127.0.0.1", 8765);
     e.version = None;
-    let json = entry_to_json(&e, Duration::from_secs(30));
+    let json = entry_to_json(&e, Duration::from_secs(30), None);
 
     let display = json["display_id"]
         .as_str()

@@ -1095,3 +1095,41 @@ async fn job_events_with_real_controller_streams_and_cancels() {
     let resp = server.delete("/v1/jobs/known").await;
     resp.assert_status(axum::http::StatusCode::NO_CONTENT);
 }
+
+/// Thread-affinity violations must return structured remediation context (#1075).
+#[tokio::test]
+async fn call_thread_affinity_violation_includes_context() {
+    use dcc_mcp_models::ThreadAffinity;
+
+    let registry = Arc::new(ToolRegistry::new());
+    registry.register_action(ToolMeta {
+        name: "main_only".into(),
+        dcc: "maya".into(),
+        skill_name: Some("rig".into()),
+        enabled: true,
+        thread_affinity: ThreadAffinity::Main,
+        enforce_thread_affinity: true,
+        ..Default::default()
+    });
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
+    dispatcher.register_handler("main_only", |_| Ok(json!({"ok": true})));
+    let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+        registry.clone(),
+        dispatcher.clone(),
+    ));
+    let _ = catalog.load_skill("rig");
+    let svc = SkillRestService::from_catalog_and_dispatcher(catalog, dispatcher);
+    let (server, _) = build_server(svc);
+
+    let resp = server
+        .post("/v1/call")
+        .json(&json!({"tool_slug": "maya.rig.main_only", "arguments": {}}))
+        .await;
+    assert_eq!(resp.status_code().as_u16(), 409);
+    let body: Value = resp.json();
+    assert_eq!(body["kind"], "thread-affinity-violation");
+    assert!(body["hint"].as_str().is_some());
+    let ctx = body["context"].as_object().expect("context object");
+    assert_eq!(ctx["declared_affinity"], "main");
+    assert_eq!(ctx["observed_affinity"], "any");
+}

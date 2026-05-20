@@ -70,6 +70,7 @@ pub mod openapi;
 mod readiness;
 mod router;
 mod service;
+mod thread_affinity_diagnostics;
 
 #[cfg(test)]
 mod tests;

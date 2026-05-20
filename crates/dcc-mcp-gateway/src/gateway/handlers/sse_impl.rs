@@ -183,6 +183,9 @@ mod tests {
             #[cfg(feature = "prometheus")]
             gateway_metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
             middleware_chain: Arc::new(crate::gateway::middleware::MiddlewareChain::new()),
+            instance_diagnostics: Arc::new(
+                crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new(),
+            ),
         }
     }
 

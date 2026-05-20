@@ -6,6 +6,8 @@ use tokio::sync::RwLock;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceStatus};
 
+use crate::gateway::instance_diagnostics::InstanceDiagnosticsStore;
+
 /// Configuration for the health-check task.
 pub(crate) struct HealthCheckConfig {
     pub own_host: String,
@@ -21,6 +23,7 @@ pub(crate) fn spawn_health_check_task(
     registry: Arc<RwLock<FileRegistry>>,
     http_client: reqwest::Client,
     event_log: Arc<crate::gateway::event_log::EventLog>,
+    instance_diagnostics: Arc<InstanceDiagnosticsStore>,
     cfg: HealthCheckConfig,
 ) -> tokio::task::JoinHandle<()> {
     let effective_interval_secs = std::env::var("DCC_MCP_GATEWAY_HEALTH_INTERVAL_SECS")
@@ -55,18 +58,28 @@ pub(crate) fn spawn_health_check_task(
                 futures::future::join_all(entries.iter().map(|e| {
                     let url = format!("http://{}:{}/mcp", e.host, e.port);
                     async move {
-                        crate::gateway::backend_client::probe_mcp_readiness(
+                        let report = crate::gateway::backend_client::probe_readiness(
                             client,
                             &url,
                             Duration::from_secs(5),
                         )
-                        .await
+                        .await;
+                        let outcome = crate::gateway::backend_client::probe_mcp_readiness(
+                            client,
+                            &url,
+                            Duration::from_secs(5),
+                        )
+                        .await;
+                        (report, outcome)
                     }
                 }))
                 .await
             };
 
-            for (entry, outcome) in entries.iter().zip(probe_results) {
+            for (entry, (readiness_report, outcome)) in entries.iter().zip(probe_results) {
+                if let Some(report) = readiness_report {
+                    instance_diagnostics.record_readiness(entry.instance_id, report);
+                }
                 let key = format!("{}:{}", entry.dcc_type, entry.instance_id);
                 let id8 = entry.instance_id.to_string()[..8].to_string();
 

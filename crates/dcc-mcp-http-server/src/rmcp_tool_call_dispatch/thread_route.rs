@@ -2,7 +2,9 @@
 
 use serde_json::Value;
 
-use dcc_mcp_actions::{DispatchError, DispatchResult};
+use dcc_mcp_actions::{
+    DispatchError, DispatchExecutionContext, DispatchResult, with_execution_context,
+};
 use dcc_mcp_models::ThreadAffinity;
 
 use crate::executor::DccExecutorHandle;
@@ -16,13 +18,16 @@ async fn run_on_main_thread(
     dispatcher: dcc_mcp_actions::ToolDispatcher,
     resolved_name: String,
     call_params: Value,
+    exec_ctx: DispatchExecutionContext,
 ) -> Result<DispatchResult, DispatchError> {
     let json_str = executor
         .execute(Box::new(move || {
-            encode_dispatch_wire(dcc_mcp_actions::with_thread_affinity(
-                ThreadAffinity::Main,
-                || dispatcher.dispatch(&resolved_name, call_params),
-            ))
+            with_execution_context(exec_ctx, || {
+                encode_dispatch_wire(dcc_mcp_actions::with_thread_affinity(
+                    ThreadAffinity::Main,
+                    || dispatcher.dispatch(&resolved_name, call_params),
+                ))
+            })
         }))
         .await
         .map_err(|e| DispatchError::HandlerError(e.to_string()))?;
@@ -33,9 +38,13 @@ async fn run_on_worker(
     dispatcher: dcc_mcp_actions::ToolDispatcher,
     resolved_name: String,
     call_params: Value,
+    exec_ctx: DispatchExecutionContext,
 ) -> Result<DispatchResult, DispatchError> {
-    let dispatch_fut =
-        tokio::task::spawn_blocking(move || dispatcher.dispatch(&resolved_name, call_params));
+    let dispatch_fut = tokio::task::spawn_blocking(move || {
+        with_execution_context(exec_ctx, || {
+            dispatcher.dispatch(&resolved_name, call_params)
+        })
+    });
     let cancel_wait = async {
         let deadline = tokio::time::Instant::now() + CANCEL_GRACE_PERIOD;
         loop {
@@ -65,14 +74,16 @@ pub async fn dispatch_action_with_thread_routing(
 ) -> Result<DispatchResult, DispatchError> {
     let executor_present = executor.is_some();
     let on_main = use_main_thread_route(thread_affinity, executor_present);
+    let exec_ctx = DispatchExecutionContext {
+        host_dispatcher_attached: Some(executor_present),
+    };
 
     if matches!(thread_affinity, ThreadAffinity::Main) && !executor_present {
         if enforce_thread_affinity {
-            return Err(DispatchError::HandlerError(
-                "THREAD_AFFINITY_UNAVAILABLE: tool declares thread_affinity=main, \
+            return Err(DispatchError::HandlerError(format!(
+                "THREAD_AFFINITY_UNAVAILABLE: action '{resolved_name}' declares thread_affinity=main, \
                  but no DeferredExecutor is wired"
-                    .to_string(),
-            ));
+            )));
         }
         tracing::warn!(
             tool = %resolved_name,
@@ -83,9 +94,16 @@ pub async fn dispatch_action_with_thread_routing(
 
     if on_main {
         let executor = executor.expect("executor presence gated by use_main_thread_route");
-        run_on_main_thread(executor, dispatcher, resolved_name.to_string(), call_params).await
+        run_on_main_thread(
+            executor,
+            dispatcher,
+            resolved_name.to_string(),
+            call_params,
+            exec_ctx,
+        )
+        .await
     } else {
-        run_on_worker(dispatcher, resolved_name.to_string(), call_params).await
+        run_on_worker(dispatcher, resolved_name.to_string(), call_params, exec_ctx).await
     }
 }
 
