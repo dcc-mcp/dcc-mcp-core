@@ -649,14 +649,26 @@ def _serialize_result(result: ResultDict) -> str:
     except ImportError:
         pass  # _core not available — fall back to pure Python
 
-    # Pure-Python fallback: handles any extra keys in context gracefully.
+    dumps = _json_dumps_for_fallback()
+
+    # Fallback path: handles any extra keys in context gracefully.
     try:
-        return json.dumps(result, ensure_ascii=False)
+        return dumps(result, ensure_ascii=False)
     except (TypeError, ValueError) as exc:
-        return json.dumps(
+        return dumps(
             skill_error("Failed to serialize result", repr(exc)),
             ensure_ascii=False,
         )
+
+
+def _json_dumps_for_fallback() -> Callable[..., str]:
+    """Return the fastest JSON dumper available without a top-level _core dependency."""
+    try:
+        # Lazy import: source-only DCC environments may not have the compiled extension.
+        from dcc_mcp_core import json_dumps
+    except (AttributeError, ImportError):
+        return json.dumps
+    return json_dumps
 
 
 _DCC_IMPORT_LABELS = {
