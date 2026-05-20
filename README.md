@@ -552,7 +552,7 @@ tools/list response (Maya session, nothing loaded yet):
 
 ---
 
-## Architecture Overview — 38 Workspace Members
+## Architecture Overview — 41 Workspace Packages
 
 `dcc-mcp-core` is organised as a **Rust workspace of 41 packages** (40 functional packages + `workspace-hack`). Most library crates compile into the native Python extension (`_core`) via PyO3 / maturin, while operator-facing crates such as `dcc-mcp-cli`, `dcc-mcp-server`, and tunnel binaries also ship as release assets. The root `Cargo.toml` is the source of truth for membership. Selected crates:
 

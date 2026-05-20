@@ -79,11 +79,11 @@ TODO: Write skill instructions here.
         '"""Example tool implementation."""\n'
         "from dcc_mcp_core.skill import run_main, skill_entry, skill_success\n\n\n"
         "@skill_entry\n"
-        "def example_tool():\n"
+        "def main(**params):\n"
         "    # TODO: implement tool logic\n"
         '    return skill_success("Hello from example_tool!")\n\n\n'
         'if __name__ == "__main__":\n'
-        "    run_main(example_tool)\n",
+        "    run_main(main)\n",
         encoding="utf-8",
     )
 
