@@ -54,7 +54,9 @@ into a faster authoring loop.
    correlation ids; never ask tools to expose hidden chain-of-thought. Preserve
    Admin `links` fields in examples so every trace/debug bundle, OpenAPI
    Inspector/spec link, or issue-report JSON export can be copied as a complete
-   URL into a follow-up agent, LLM evaluation prompt, or GitHub issue.
+   URL into a follow-up agent, LLM evaluation prompt, or GitHub issue. When an
+   adapter example surfaces an `mcp_url`, make sure the Admin Dashboard can
+   derive per-instance OpenAPI Inspector, spec JSON, and docs links from it.
 7. Add tests at the lowest executable layer, then one discovery/load/call or
    gateway REST path when behavior crosses MCP or REST boundaries.
 

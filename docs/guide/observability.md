@@ -155,6 +155,10 @@ complete, replayable investigation target into an LLM evaluation or
 code-optimization prompt. The same link set includes `issue_report_url`, a
 standalone JSON export shaped for GitHub issue attachments with summary
 metadata, a suggested issue title/body, and the correlated debug bundle.
+When a live worker exposes an `mcp_url`, the Admin Dashboard also derives that
+worker's `/v1/openapi.json`, `/docs`, and instance-scoped OpenAPI Inspector
+links, making it possible to follow a gateway trace down to the exact backend
+REST contract that served the request.
 
 ---
 
