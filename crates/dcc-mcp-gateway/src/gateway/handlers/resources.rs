@@ -99,7 +99,7 @@ pub(super) async fn handle_resources_read(
 
     match found {
         Some(entry) => {
-            let detail = entry_to_json(&entry, gs.stale_timeout);
+            let detail = gs.instance_json(&entry);
             json!({
                 "jsonrpc": "2.0", "id": id,
                 "result": {
@@ -284,6 +284,9 @@ mod tests {
             event_log: log,
             middleware_chain: std::sync::Arc::new(
                 crate::gateway::middleware::MiddlewareChain::new(),
+            ),
+            instance_diagnostics: Arc::new(
+                crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new(),
             ),
             #[cfg(feature = "prometheus")]
             gateway_metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),

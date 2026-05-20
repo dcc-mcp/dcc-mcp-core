@@ -112,7 +112,7 @@ pub async fn handle_instances(State(gs): State<GatewayState>) -> impl IntoRespon
     let instances: Vec<Value> = gs
         .live_instances(&registry)
         .into_iter()
-        .map(|entry| entry_to_json(&entry, gs.stale_timeout))
+        .map(|entry| gs.instance_json(&entry))
         .collect();
     Json(json!({ "total": instances.len(), "instances": instances }))
 }
@@ -183,10 +183,7 @@ pub async fn handle_v1_context(State(gs): State<GatewayState>) -> impl IntoRespo
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
     let registry = gs.registry.read().await;
     let live_instances = gs.live_instances(&registry);
-    let instances: Vec<Value> = live_instances
-        .iter()
-        .map(|e| entry_to_json(e, gs.stale_timeout))
-        .collect();
+    let instances: Vec<Value> = live_instances.iter().map(|e| gs.instance_json(e)).collect();
     drop(registry);
     let records = gs.capability_index.snapshot().records;
     let loaded_skill_count = records
@@ -634,6 +631,9 @@ mod tests {
             capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
             event_log: Arc::new(crate::gateway::event_log::EventLog::new()),
             middleware_chain: Arc::new(crate::gateway::middleware::MiddlewareChain::new()),
+            instance_diagnostics: Arc::new(
+                crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new(),
+            ),
             #[cfg(feature = "prometheus")]
             gateway_metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
         }

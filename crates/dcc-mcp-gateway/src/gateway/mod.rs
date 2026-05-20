@@ -34,10 +34,13 @@
 pub mod aggregator;
 pub mod backend_client;
 pub mod capability;
+#[allow(clippy::result_large_err)]
+// ServiceError carries disambiguation candidates (#1076 backend attachment)
 pub mod capability_service;
 pub mod event_log;
 pub mod handlers;
 pub mod http_limits;
+pub mod instance_diagnostics;
 pub mod middleware;
 pub mod namespace;
 pub mod native_resources;

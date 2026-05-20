@@ -53,6 +53,9 @@ pub struct ServiceError {
     /// Last known instance UUID when `kind = instance-offline`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub previous_instance_id: Option<String>,
+    /// Backend identity + readiness/dispatcher diagnostics (#1076).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend: Option<Box<Value>>,
 }
 
 impl ServiceError {
@@ -64,7 +67,14 @@ impl ServiceError {
             candidates: Vec::new(),
             previous_status: None,
             previous_instance_id: None,
+            backend: None,
         }
+    }
+
+    /// Attach backend routing/diagnostics context (#1076).
+    pub fn with_backend(mut self, backend: Value) -> Self {
+        self.backend = Some(Box::new(backend));
+        self
     }
 
     /// Attach disambiguation candidates (for `kind = "ambiguous"`).
@@ -278,17 +288,39 @@ pub async fn call_service(
             Ok(result)
         }
         Err(e) => {
+            let backend_body = super::instance_diagnostics::parse_rest_error_json(&e);
+            let error_kind = backend_body
+                .as_ref()
+                .and_then(|b| b.get("kind"))
+                .and_then(|k| k.as_str())
+                .unwrap_or("backend-error");
+            gs.instance_diagnostics.record_call_error(
+                entry.instance_id,
+                error_kind,
+                e.chars().take(512).collect::<String>(),
+            );
+            let diag = gs.instance_diagnostics.get(&entry.instance_id);
+            let backend_attachment = super::instance_diagnostics::backend_error_attachment(
+                &entry,
+                &gs.gateway_mcp_url(),
+                diag.as_ref(),
+                backend_body.as_ref(),
+            );
             if is_host_died_backend_error(&e) {
                 record_host_died(gs, &entry, &record, &e);
                 return Err(ServiceError::new(
                     "host-died",
                     format!("backend host died during {}: {e}", record.callable_id),
-                ));
+                )
+                .with_backend(backend_attachment));
             }
-            Err(ServiceError::new(
-                "backend-error",
-                format!("backend call failed: {e}"),
-            ))
+            let kind = if error_kind == "thread-affinity-violation" {
+                "thread-affinity-violation"
+            } else {
+                "backend-error"
+            };
+            Err(ServiceError::new(kind, format!("backend call failed: {e}"))
+                .with_backend(backend_attachment))
         }
     }
 }
@@ -359,15 +391,17 @@ pub async fn refresh_all_live_backends(gs: &GatewayState, reason: RefreshReason)
 /// `to_text_result` envelope shape so MCP wrappers return the same
 /// error format as every other gateway meta-tool.
 pub fn service_error_to_json(err: &ServiceError) -> Value {
-    json!({
-        "error": {
-            "kind": err.kind,
-            "message": err.message,
-            "candidates": err.candidates,
-            "previous_status": err.previous_status,
-            "previous_instance_id": err.previous_instance_id,
-        }
-    })
+    let mut error = json!({
+        "kind": err.kind,
+        "message": err.message,
+        "candidates": err.candidates,
+        "previous_status": err.previous_status,
+        "previous_instance_id": err.previous_instance_id,
+    });
+    if let Some(backend) = &err.backend {
+        error["backend"] = (**backend).clone();
+    }
+    json!({ "error": error })
 }
 
 fn inject_call_instance_meta(result: &mut Value, entry: &ServiceEntry) {
@@ -612,6 +646,34 @@ mod unit_tests {
         );
         assert_eq!(result["_meta"]["dcc"]["instance_short"], "abcdef01");
         assert_eq!(result["_meta"]["dcc"]["display_id"], "maya@2026-abcdef01");
+    }
+
+    #[test]
+    fn backend_error_attachment_includes_readiness() {
+        let mut entry =
+            dcc_mcp_transport::discovery::types::ServiceEntry::new("maya", "127.0.0.1", 8765);
+        entry.display_name = Some("Maya-Rig".into());
+        let diag = crate::gateway::instance_diagnostics::InstanceDiagnostics {
+            readiness: Some(dcc_mcp_skill_rest::ReadinessReport {
+                process: true,
+                dispatcher: false,
+                dcc: true,
+            }),
+            ..Default::default()
+        };
+        let backend = crate::gateway::instance_diagnostics::backend_error_attachment(
+            &entry,
+            "http://127.0.0.1:9765/mcp",
+            Some(&diag),
+            None,
+        );
+        assert_eq!(backend["dcc_type"], "maya");
+        assert_eq!(backend["gateway_mcp_url"], "http://127.0.0.1:9765/mcp");
+        assert!(
+            !backend["diagnostics"]["readiness"]["dispatcher"]
+                .as_bool()
+                .unwrap()
+        );
     }
 
     #[test]

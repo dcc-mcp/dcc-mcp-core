@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
 
+use dcc_mcp_actions::current_execution_context;
 use dcc_mcp_actions::dispatcher::{DispatchError, ToolDispatcher};
 use dcc_mcp_skills::SkillCatalog;
 
@@ -587,21 +588,36 @@ pub fn dispatch_error_to_service_error(err: DispatchError) -> ServiceError {
             action,
             declared,
             actual,
-        } => ServiceError::new(
-            ServiceErrorKind::ThreadAffinityViolation,
-            format!(
-                "THREAD_AFFINITY_VIOLATION: action '{action}' declared thread_affinity={declared} but ran on {actual}"
-            ),
-        )
-        .with_hint(
-            "check the action tools.yaml thread_affinity, or marshal through the host main-thread dispatcher",
-        ),
-        DispatchError::ValidationFailed(m) => {
-            ServiceError::new(ServiceErrorKind::InvalidParams, m)
+        } => {
+            let execution = current_execution_context();
+            let hint = crate::thread_affinity_diagnostics::thread_affinity_hint(
+                declared,
+                actual,
+                execution.and_then(|c| c.host_dispatcher_attached),
+            );
+            ServiceError::new(
+                ServiceErrorKind::ThreadAffinityViolation,
+                format!(
+                    "THREAD_AFFINITY_VIOLATION: action '{action}' declared thread_affinity={declared} but ran on {actual}"
+                ),
+            )
+            .with_hint(hint)
+            .with_context(crate::thread_affinity_diagnostics::build_thread_affinity_context(
+                &action, declared, actual, execution,
+            ))
         }
+        DispatchError::ValidationFailed(m) => ServiceError::new(ServiceErrorKind::InvalidParams, m),
         DispatchError::HandlerError(m) if m.starts_with("THREAD_AFFINITY_UNAVAILABLE:") => {
-            ServiceError::new(ServiceErrorKind::ThreadAffinityViolation, m)
-                .with_hint("attach a host QueueDispatcher/BlockingDispatcher before start()")
+            let action = m
+                .split('\'')
+                .nth(1)
+                .filter(|s| !s.is_empty())
+                .unwrap_or("unknown");
+            ServiceError::new(ServiceErrorKind::ThreadAffinityViolation, m.clone())
+                .with_hint(crate::thread_affinity_diagnostics::affinity_unavailable_hint())
+                .with_context(
+                    crate::thread_affinity_diagnostics::build_affinity_unavailable_context(action),
+                )
         }
         DispatchError::HandlerError(m) if m == "CANCELLED" => {
             ServiceError::new(ServiceErrorKind::BackendError, m)
