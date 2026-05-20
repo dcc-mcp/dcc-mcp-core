@@ -11,15 +11,19 @@
 use std::collections::HashMap;
 use std::time::SystemTime;
 
+use axum::http::HeaderMap;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 // ── Payload capture ───────────────────────────────────────────────────────────
 
 /// Hard limits for payload capture (bytes, not tokens).
 pub const MAX_INPUT_BYTES: usize = 16 * 1024; // 16 KB
 pub const MAX_OUTPUT_BYTES: usize = 64 * 1024; // 64 KB
+pub const MAX_AGENT_CONTEXT_STRING_BYTES: usize = 2 * 1024; // 2 KB per field
+pub const MAX_AGENT_CONTEXT_METADATA_BYTES: usize = 8 * 1024; // 8 KB JSON preview
+pub const MAX_AGENT_CONTEXT_LIST_ITEMS: usize = 16;
 
 /// Captured payload (input arguments or output content), optionally truncated.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,6 +86,208 @@ impl TracePayload {
             original_size,
         }
     }
+}
+
+// ── Agent / caller context ───────────────────────────────────────────────────
+
+/// Optional client-supplied context that explains why a request was made.
+///
+/// This is deliberately a telemetry contract, not an instruction to capture a
+/// model's hidden chain-of-thought. Agents may provide concise summaries,
+/// plans, observations, and correlation IDs; non-agent clients can use the same
+/// fields as ordinary caller context.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AgentContext {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plan: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub observations: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_request_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_index: Option<u64>,
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub metadata: Value,
+}
+
+impl AgentContext {
+    pub fn from_request_parts(
+        headers: &HeaderMap,
+        body: Option<&Value>,
+        meta: Option<&Value>,
+    ) -> Option<Self> {
+        let mut ctx = body
+            .and_then(agent_context_from_value)
+            .or_else(|| meta.and_then(agent_context_from_value))
+            .or_else(|| agent_context_from_header(headers))
+            .unwrap_or_default();
+
+        merge_header_agent_context(&mut ctx, headers);
+        if ctx.is_empty() { None } else { Some(ctx) }
+    }
+
+    pub fn display_name(&self) -> Option<&str> {
+        self.agent_name
+            .as_deref()
+            .or(self.agent_id.as_deref())
+            .or(self.agent_kind.as_deref())
+    }
+
+    fn is_empty(&self) -> bool {
+        self.agent_id.is_none()
+            && self.agent_name.is_none()
+            && self.agent_kind.is_none()
+            && self.model.is_none()
+            && self.task.is_none()
+            && self.reasoning_summary.is_none()
+            && self.plan.is_empty()
+            && self.observations.is_empty()
+            && self.tags.is_empty()
+            && self.parent_request_id.is_none()
+            && self.trace_id.is_none()
+            && self.turn_index.is_none()
+            && self.metadata.is_null()
+    }
+
+    fn normalise(mut self) -> Self {
+        self.agent_id = self.agent_id.map(bound_context_string);
+        self.agent_name = self.agent_name.map(bound_context_string);
+        self.agent_kind = self.agent_kind.map(bound_context_string);
+        self.model = self.model.map(bound_context_string);
+        self.task = self.task.map(bound_context_string);
+        self.reasoning_summary = self.reasoning_summary.map(bound_context_string);
+        self.parent_request_id = self.parent_request_id.map(bound_context_string);
+        self.trace_id = self.trace_id.map(bound_context_string);
+        self.plan = bound_context_list(self.plan);
+        self.observations = bound_context_list(self.observations);
+        self.tags = bound_context_list(self.tags);
+        self.metadata = bound_context_metadata(self.metadata);
+        self
+    }
+}
+
+fn agent_context_from_value(value: &Value) -> Option<AgentContext> {
+    let raw = value
+        .get("agent_context")
+        .or_else(|| value.get("agentContext"))
+        .or_else(|| value.get("agent"))
+        .or_else(|| value.get("caller_context"))
+        .or_else(|| value.get("callerContext"))
+        .or_else(|| {
+            value
+                .get("dcc_mcp")
+                .and_then(|v| v.get("agent_context").or_else(|| v.get("agentContext")))
+        })?;
+    match raw {
+        Value::String(s) => Some(AgentContext {
+            reasoning_summary: Some(bound_context_string(s.clone())),
+            ..AgentContext::default()
+        }),
+        Value::Object(_) => serde_json::from_value::<AgentContext>(raw.clone())
+            .ok()
+            .map(AgentContext::normalise),
+        _ => None,
+    }
+}
+
+fn agent_context_from_header(headers: &HeaderMap) -> Option<AgentContext> {
+    let raw = header_str(headers, "x-dcc-mcp-agent-context")?;
+    serde_json::from_str::<Value>(&raw)
+        .ok()
+        .and_then(|v| match v {
+            Value::String(s) => Some(AgentContext {
+                reasoning_summary: Some(bound_context_string(s)),
+                ..AgentContext::default()
+            }),
+            Value::Object(_) => serde_json::from_value::<AgentContext>(v)
+                .ok()
+                .map(AgentContext::normalise),
+            _ => None,
+        })
+}
+
+fn merge_header_agent_context(ctx: &mut AgentContext, headers: &HeaderMap) {
+    if ctx.agent_id.is_none() {
+        ctx.agent_id = header_str(headers, "x-dcc-mcp-agent-id").map(bound_context_string);
+    }
+    if ctx.agent_name.is_none() {
+        ctx.agent_name = header_str(headers, "x-dcc-mcp-agent-name").map(bound_context_string);
+    }
+    if ctx.agent_kind.is_none() {
+        ctx.agent_kind = header_str(headers, "x-dcc-mcp-agent-kind").map(bound_context_string);
+    }
+    if ctx.model.is_none() {
+        ctx.model = header_str(headers, "x-dcc-mcp-agent-model").map(bound_context_string);
+    }
+    if ctx.task.is_none() {
+        ctx.task = header_str(headers, "x-dcc-mcp-agent-task").map(bound_context_string);
+    }
+    if ctx.reasoning_summary.is_none() {
+        ctx.reasoning_summary =
+            header_str(headers, "x-dcc-mcp-reasoning-summary").map(bound_context_string);
+    }
+    if ctx.parent_request_id.is_none() {
+        ctx.parent_request_id =
+            header_str(headers, "x-dcc-mcp-parent-request-id").map(bound_context_string);
+    }
+    if ctx.trace_id.is_none() {
+        ctx.trace_id = header_str(headers, "traceparent")
+            .or_else(|| header_str(headers, "x-trace-id"))
+            .map(bound_context_string);
+    }
+}
+
+fn header_str(headers: &HeaderMap, name: &str) -> Option<String> {
+    headers
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn bound_context_string(value: String) -> String {
+    truncate_utf8(value, MAX_AGENT_CONTEXT_STRING_BYTES).0
+}
+
+fn bound_context_list(values: Vec<String>) -> Vec<String> {
+    values
+        .into_iter()
+        .take(MAX_AGENT_CONTEXT_LIST_ITEMS)
+        .map(bound_context_string)
+        .collect()
+}
+
+fn bound_context_metadata(value: Value) -> Value {
+    if value.is_null() {
+        return Value::Null;
+    }
+    let raw = serde_json::to_string(&value).unwrap_or_default();
+    if raw.len() <= MAX_AGENT_CONTEXT_METADATA_BYTES {
+        return value;
+    }
+    let (preview, _) = truncate_utf8(raw.clone(), MAX_AGENT_CONTEXT_METADATA_BYTES);
+    json!({
+        "truncated": true,
+        "original_size": raw.len(),
+        "preview": preview,
+    })
 }
 
 // ── Span ──────────────────────────────────────────────────────────────────────
@@ -150,6 +356,12 @@ pub struct DispatchTrace {
     /// DCC type of the target backend (e.g. `"maya"`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dcc_type: Option<String>,
+    /// Transport surface that produced this trace, such as `"mcp"` or `"rest"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport: Option<String>,
+    /// Optional agent/caller context supplied by the client.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_context: Option<AgentContext>,
     /// Wall-clock time when the call entered the gateway handler.
     #[serde(with = "timestamp_serde")]
     pub started_at: SystemTime,
@@ -165,6 +377,39 @@ pub struct DispatchTrace {
     /// Captured response content (pre-redacted, bounded to [`MAX_OUTPUT_BYTES`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<TracePayload>,
+}
+
+impl DispatchTrace {
+    pub fn span_count(&self) -> usize {
+        self.spans.len()
+    }
+
+    pub fn input_bytes(&self) -> Option<usize> {
+        self.input.as_ref().map(|p| p.original_size)
+    }
+
+    pub fn output_bytes(&self) -> Option<usize> {
+        self.output.as_ref().map(|p| p.original_size)
+    }
+
+    pub fn slowest_span(&self) -> Option<(&TraceSpan, u64)> {
+        self.spans
+            .iter()
+            .max_by_key(|span| span.duration_ns)
+            .map(|span| (span, span.duration_ns / 1_000_000))
+    }
+}
+
+fn truncate_utf8(value: String, cap: usize) -> (String, bool) {
+    let original_size = value.len();
+    if original_size <= cap {
+        return (value, false);
+    }
+    let mut end = cap;
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    (value[..end].to_owned(), true)
 }
 
 mod timestamp_serde {
@@ -260,6 +505,39 @@ mod tests {
     }
 
     #[test]
+    fn agent_context_reads_meta_and_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-dcc-mcp-agent-id", "agent-7".parse().unwrap());
+        headers.insert("x-dcc-mcp-agent-model", "gpt-test".parse().unwrap());
+        let meta = json!({
+            "agent_context": {
+                "agent_name": "Scene Planner",
+                "task": "inspect material bindings",
+                "reasoning_summary": "Need a lightweight scene read before edit.",
+                "plan": ["describe scene", "choose material patch"]
+            }
+        });
+
+        let ctx = AgentContext::from_request_parts(&headers, None, Some(&meta)).unwrap();
+
+        assert_eq!(ctx.agent_id.as_deref(), Some("agent-7"));
+        assert_eq!(ctx.agent_name.as_deref(), Some("Scene Planner"));
+        assert_eq!(ctx.model.as_deref(), Some("gpt-test"));
+        assert_eq!(ctx.plan.len(), 2);
+    }
+
+    #[test]
+    fn agent_context_accepts_plain_summary() {
+        let headers = HeaderMap::new();
+        let body = json!({"caller_context": "manual smoke test"});
+
+        let ctx = AgentContext::from_request_parts(&headers, Some(&body), None).unwrap();
+
+        assert_eq!(ctx.reasoning_summary.as_deref(), Some("manual smoke test"));
+        assert_eq!(ctx.display_name(), None);
+    }
+
+    #[test]
     fn trace_log_evicts_oldest_at_capacity() {
         let log = TraceLog::new(3);
         for i in 0u32..5 {
@@ -270,6 +548,8 @@ mod tests {
                 instance_id: None,
                 session_id: None,
                 dcc_type: None,
+                transport: None,
+                agent_context: None,
                 started_at: SystemTime::now(),
                 total_ms: i as u64,
                 ok: true,
@@ -295,6 +575,8 @@ mod tests {
             instance_id: None,
             session_id: None,
             dcc_type: Some("maya".into()),
+            transport: None,
+            agent_context: None,
             started_at: SystemTime::now(),
             total_ms: 42,
             ok: true,
@@ -323,6 +605,8 @@ mod tests {
             instance_id: None,
             session_id: None,
             dcc_type: None,
+            transport: None,
+            agent_context: None,
             started_at: SystemTime::now(),
             total_ms: idx as u64,
             ok: true,

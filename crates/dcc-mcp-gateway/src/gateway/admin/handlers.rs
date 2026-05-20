@@ -172,6 +172,11 @@ fn admin_audit_row_json(r: &AdminAuditRecord) -> Value {
         "method": r.method,
         "instance_id": r.instance_id,
         "session_id": r.session_id,
+        "transport": r.transport,
+        "agent_id": r.agent_id,
+        "agent_name": r.agent_name,
+        "agent_model": r.agent_model,
+        "parent_request_id": r.parent_request_id,
         "tool": r.action,
         "dcc_type": r.dcc_type,
         "status": if r.success { "ok" } else { "err" },
@@ -722,6 +727,19 @@ fn dispatch_trace_to_admin_row(t: &DispatchTrace) -> Value {
         .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let tool = t.tool_slug.clone().unwrap_or_else(|| t.method.clone());
     let status = if t.ok { "ok" } else { "err" };
+    let (slowest_span_name, slowest_span_ms) = t
+        .slowest_span()
+        .map(|(span, ms)| (Some(span.name.clone()), Some(ms)))
+        .unwrap_or((None, None));
+    let agent_id = t
+        .agent_context
+        .as_ref()
+        .and_then(|ctx| ctx.agent_id.clone());
+    let agent_name = t
+        .agent_context
+        .as_ref()
+        .and_then(|ctx| ctx.agent_name.clone());
+    let agent_model = t.agent_context.as_ref().and_then(|ctx| ctx.model.clone());
     json!({
         "timestamp": ts,
         "request_id": t.request_id,
@@ -731,6 +749,15 @@ fn dispatch_trace_to_admin_row(t: &DispatchTrace) -> Value {
         "total_ms": t.total_ms,
         "instance_id": t.instance_id,
         "dcc_type": t.dcc_type,
+        "transport": t.transport,
+        "agent_id": agent_id,
+        "agent_name": agent_name,
+        "agent_model": agent_model,
+        "span_count": t.span_count(),
+        "input_bytes": t.input_bytes(),
+        "output_bytes": t.output_bytes(),
+        "slowest_span_name": slowest_span_name,
+        "slowest_span_ms": slowest_span_ms,
     })
 }
 

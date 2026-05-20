@@ -205,8 +205,8 @@ fn audit_event(record: &AdminAuditRecord) -> ActivityEvent {
             dcc_type: record.dcc_type.clone(),
             workflow_id: None,
             job_id: None,
-            agent_id: None,
-            parent_request_id: None,
+            agent_id: record.agent_id.clone(),
+            parent_request_id: record.parent_request_id.clone(),
         },
     }
 }
@@ -273,8 +273,14 @@ fn trace_correlation(trace: &DispatchTrace) -> ActivityCorrelation {
         dcc_type: trace.dcc_type.clone(),
         workflow_id: None,
         job_id: None,
-        agent_id: None,
-        parent_request_id: None,
+        agent_id: trace
+            .agent_context
+            .as_ref()
+            .and_then(|ctx| ctx.agent_id.clone()),
+        parent_request_id: trace
+            .agent_context
+            .as_ref()
+            .and_then(|ctx| ctx.parent_request_id.clone()),
     }
 }
 
