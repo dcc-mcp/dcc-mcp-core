@@ -148,7 +148,10 @@ operator-visible request with the caller's explicit plan and observations. Use
 `caller_context` fields, or `x-dcc-mcp-agent-*` headers. Fields are bounded and
 intended for concise telemetry such as `agent_id`, `agent_name`, `model`,
 `task`, `reasoning_summary`, `plan`, `observations`, `parent_request_id`, and
-tags; do not send hidden chain-of-thought or secrets.
+tags; do not send hidden chain-of-thought or secrets. Admin call and trace rows
+also include absolute `links` for the trace page, trace API, and debug bundle so
+operators can paste a complete, replayable investigation target into an LLM
+evaluation or code-optimization prompt.
 
 ---
 
