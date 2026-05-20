@@ -7,6 +7,19 @@ pub(crate) fn health_url_from_mcp_url(mcp_url: &str) -> String {
         .unwrap_or_else(|| format!("{}/health", mcp_url.trim_end_matches('/')))
 }
 
+/// Build the legacy sidecar health URL.
+///
+/// Early sidecar listeners exposed `/healthz` rather than `/health` or
+/// `/v1/readyz`. Keep probing it as a final fallback so a new gateway can
+/// supervise already-running sidecars during mixed-version rollouts.
+pub(crate) fn healthz_url_from_mcp_url(mcp_url: &str) -> String {
+    mcp_url
+        .trim_end_matches('/')
+        .strip_suffix("/mcp")
+        .map(|base| format!("{base}/healthz"))
+        .unwrap_or_else(|| format!("{}/healthz", mcp_url.trim_end_matches('/')))
+}
+
 /// Build the three-state readiness URL exposed by `dcc-mcp-skill-rest`
 /// (issue #660 — `GET /v1/readyz`).
 ///

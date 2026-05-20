@@ -2,18 +2,19 @@ use std::time::Duration;
 
 use dcc_mcp_skill_rest::ReadinessReport;
 
-use super::urls::{health_url_from_mcp_url, readyz_url_from_mcp_url};
+use super::urls::{health_url_from_mcp_url, healthz_url_from_mcp_url, readyz_url_from_mcp_url};
 
 /// Outcome of the gateway's three-state readiness probe (#713).
 ///
 /// * [`Ready`] — `/v1/readyz` answered `200` with all three bits
-///   green, or a pre-#660 backend answered `/health`.
+///   green, or a pre-#660 backend answered `/health` or `/healthz`.
 ///   Safe to forward `tools/call`.
 /// * [`Booting`] — `/v1/readyz` answered (typically `503`) with at
 ///   least one bit red. The process is alive, just not done
 ///   initialising — keep the registry row, but do **not** route
 ///   traffic to it.
-/// * [`Unreachable`] — Neither `/v1/readyz` nor `/health` answered.
+/// * [`Unreachable`] — Neither `/v1/readyz` nor a legacy health
+///   endpoint answered.
 ///   Eligible for the existing stale-cleanup pipeline.
 ///
 /// [`Ready`]: ProbeOutcome::Ready
@@ -25,7 +26,7 @@ pub(crate) enum ProbeOutcome {
     Ready,
     /// Backend is alive but some readiness bit is red (still booting).
     Booting,
-    /// Backend answered neither `/v1/readyz` nor `/health`.
+    /// Backend answered neither `/v1/readyz` nor a legacy health endpoint.
     Unreachable,
 }
 
@@ -49,7 +50,7 @@ impl ProbeOutcome {
 /// Returns a [`ReadinessReport`] when the backend answered `/v1/readyz`
 /// with a parseable JSON body (on either `200` or `503`), and `None`
 /// when the REST surface is absent — callers should then fall back to
-/// the legacy `/health` check.
+/// the legacy `/health` / `/healthz` checks.
 pub(crate) async fn probe_readiness(
     client: &reqwest::Client,
     mcp_url: &str,
@@ -90,7 +91,7 @@ pub(crate) fn probe_outcome_from_report(report: &ReadinessReport) -> ProbeOutcom
 ///
 /// When readyz is present, both the cached [`ReadinessReport`] and the
 /// [`ProbeOutcome`] are derived from that single response. Legacy backends
-/// without readyz fall back to `GET /health` only.
+/// without readyz fall back to legacy health endpoints only.
 pub(crate) async fn probe_mcp_readiness_once(
     client: &reqwest::Client,
     mcp_url: &str,
@@ -101,20 +102,24 @@ pub(crate) async fn probe_mcp_readiness_once(
         return (Some(report), outcome);
     }
 
-    let health_url = health_url_from_mcp_url(mcp_url);
-    let ok = client
-        .get(&health_url)
-        .timeout(timeout)
-        .header("accept", "application/json, text/event-stream")
-        .send()
-        .await
-        .is_ok_and(|resp| resp.status().is_success());
+    let ok = legacy_health_ok(client, &health_url_from_mcp_url(mcp_url), timeout).await
+        || legacy_health_ok(client, &healthz_url_from_mcp_url(mcp_url), timeout).await;
     let outcome = if ok {
         ProbeOutcome::Ready
     } else {
         ProbeOutcome::Unreachable
     };
     (None, outcome)
+}
+
+async fn legacy_health_ok(client: &reqwest::Client, url: &str, timeout: Duration) -> bool {
+    client
+        .get(url)
+        .timeout(timeout)
+        .header("accept", "application/json, text/event-stream")
+        .send()
+        .await
+        .is_ok_and(|resp| resp.status().is_success())
 }
 
 /// Classify a backend as [`Ready`] / [`Booting`] / [`Unreachable`] using
@@ -125,8 +130,8 @@ pub(crate) async fn probe_mcp_readiness_once(
 ///    parseable body) we trust it:
 ///    * `is_ready() == true`  ⇒ [`Ready`]
 ///    * `is_ready() == false` ⇒ [`Booting`]
-/// 2. Otherwise fall back to `GET /health` for pre-#660 backends that
-///    never mounted the REST surface:
+/// 2. Otherwise fall back to `GET /health`, then `GET /healthz`, for
+///    pre-#660 backends that never mounted the REST surface:
 ///    * `200 OK`  ⇒ [`Ready`]
 ///    * otherwise ⇒ [`Unreachable`]
 ///
@@ -150,7 +155,8 @@ pub(crate) async fn probe_mcp_readiness(
 ///
 /// Behaviour change under #713: the underlying check first tries
 /// `/v1/readyz` and treats a non-ready (`503`) report as *not* healthy,
-/// falling back to `/health` only when the readiness surface is missing.
+/// falling back to legacy health endpoints only when the readiness surface
+/// is missing.
 /// A backend whose host DCC is still initialising now reports `false`
 /// instead of silently routing traffic.
 #[cfg(test)]
