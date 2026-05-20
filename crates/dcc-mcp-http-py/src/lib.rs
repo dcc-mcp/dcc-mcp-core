@@ -30,6 +30,8 @@ pub mod resources_handle;
 #[cfg(feature = "python-bindings")]
 pub mod server;
 #[cfg(feature = "python-bindings")]
+pub mod session_events;
+#[cfg(feature = "python-bindings")]
 pub mod skill_server;
 #[cfg(feature = "python-bindings")]
 pub mod workspace;
@@ -51,6 +53,8 @@ pub use readiness::PyReadinessProbe;
 pub use resources_handle::PyResourceHandle;
 #[cfg(feature = "python-bindings")]
 pub use server::PyServerHandle;
+#[cfg(feature = "python-bindings")]
+pub use session_events::PySessionEventBuffer;
 #[cfg(feature = "python-bindings")]
 pub use skill_server::PyMcpHttpServer;
 #[cfg(feature = "python-bindings")]

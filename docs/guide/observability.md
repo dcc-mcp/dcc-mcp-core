@@ -1,6 +1,6 @@
 # Observability
 
-dcc-mcp-core provides four complementary observability surfaces for production deployments.
+dcc-mcp-core provides complementary observability surfaces for production deployments.
 
 ## 1. OTLP Distributed Tracing (#768)
 
@@ -144,7 +144,41 @@ By default these buffers are in memory only. Set `DCC_MCP_GATEWAY_AUDIT_DIR` to 
 
 ---
 
-## 4. Prometheus Metrics (#766)
+## 4. Adapter Session/Job Events (#1078)
+
+DCC adapters can expose runtime output without inventing adapter-specific
+diagnostics tools by registering a bounded `SessionEventBuffer`:
+
+```python
+from dcc_mcp_core import SessionEventBuffer
+
+events = SessionEventBuffer("houdini-001")
+server.resources().register_session_event_buffer(events)
+events.append(
+    source="python",
+    stream="stderr",
+    level="warning",
+    message="Cook produced warnings",
+    tool_call_id="req-18",
+    job_id="job-18",
+)
+```
+
+Clients poll the resource by cursor:
+
+```text
+events://session/houdini-001?cursor=0&limit=100
+```
+
+Each event carries a monotonic cursor id, timestamp, source, stream, level,
+message, optional truncation metadata, structured metadata, and optional
+`session_id` / `tool_call_id` / `job_id` / `correlation_id`. Buffers are
+memory bounded and deterministic: old events drop from the front, and long
+messages are truncated at UTF-8 boundaries with original/returned sizes.
+
+---
+
+## 5. Prometheus Metrics (#766)
 
 Under the `prometheus` Cargo feature, gateway contention counters are exposed at `/metrics`:
 
@@ -192,6 +226,7 @@ rate(dcc_mcp_gateway_probes_total{outcome="ready"}[5m])
 ## See also
 
 - [telemetry.md](telemetry.md) — `ToolMetrics`, `ToolRecorder`, legacy Python telemetry
+- [adapter-runtime-contracts.md](adapter-runtime-contracts.md) — session events, artefacts, debug descriptors, UI automation contracts
 - [gateway-diagnostics.md](gateway-diagnostics.md) — log templates for election/eviction events
 - [production-deployment.md](production-deployment.md) — production monitoring checklist
 - [middleware.md](middleware.md) — `AuditMiddleware` for per-call audit logging

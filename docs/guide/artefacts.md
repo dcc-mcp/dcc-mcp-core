@@ -18,9 +18,10 @@ file hand-off by URI.
 
 - **`FileRef`** — a serializable reference to a stored file:
   - `uri` — canonical, e.g. `artefact://sha256/<hex>`
-  - `mime`, `size_bytes`, `digest` (`sha256:<hex>`)
-  - `producer_job_id` (optional, for workflow step outputs)
-  - `created_at` (RFC-3339)
+  - `mime`, `size_bytes`, `display_name`, `digest` (`sha256:<hex>`)
+  - `producer_job_id`, `tool_call_id`, `session_id`, `correlation_id`
+    (optional, for workflow/job/tool correlation)
+  - `created_at`, `expires_at` (RFC-3339)
   - `metadata` (tool-defined JSON — width/height, frame number, etc.)
 
 - **`ArtefactStore`** — trait with `put` / `get` / `head` / `delete` /
@@ -73,8 +74,15 @@ print(ref.uri)           # artefact://sha256/<hex>
 print(ref.digest)        # sha256:<hex>
 print(ref.size_bytes)    # 1024
 
-# Round-trip a byte buffer.
-bref = artefact_put_bytes(b"hello", mime="text/plain")
+# Round-trip a byte buffer and keep tool/session correlation on the FileRef.
+bref = artefact_put_bytes(
+    b"hello",
+    mime="text/plain",
+    display_name="tool-output.txt",
+    tool_call_id="req-42",
+    session_id="session-a",
+    ttl_secs=3600,
+)
 assert artefact_get_bytes(bref.uri) == b"hello"
 
 # Inventory.
@@ -90,14 +98,30 @@ The helpers target a process-global default store
 
 ```rust
 use dcc_mcp_artefact::{
-    ArtefactBody, ArtefactFilter, ArtefactStore,
+    ArtefactBody, ArtefactFilter, ArtefactPutOptions, ArtefactStore, ArtefactStoreLimits,
     FilesystemArtefactStore, InMemoryArtefactStore,
-    put_bytes, put_file,
+    put_bytes, put_bytes_with_options, put_file,
 };
 
 // Persistent store — default for real servers.
-let store = FilesystemArtefactStore::new_in("/var/cache/dcc/artefacts")?;
-let fr = put_bytes(&store, b"payload".to_vec(), Some("text/plain".into()))?;
+let store = FilesystemArtefactStore::new_bounded_in(
+    "/var/cache/dcc/artefacts",
+    ArtefactStoreLimits {
+        max_body_bytes: Some(32 * 1024 * 1024),
+        max_entries: Some(1_000),
+        max_total_bytes: Some(4 * 1024 * 1024 * 1024),
+        default_ttl_secs: Some(24 * 60 * 60),
+    },
+)?;
+let fr = put_bytes_with_options(
+    &store,
+    b"payload".to_vec(),
+    ArtefactPutOptions {
+        mime: Some("text/plain".into()),
+        tool_call_id: Some("req-42".into()),
+        ..Default::default()
+    },
+)?;
 assert!(fr.uri.starts_with("artefact://sha256/"));
 
 // Look up by URI.
@@ -110,6 +134,11 @@ let refs = store.list(ArtefactFilter {
     ..Default::default()
 })?;
 ```
+
+`FilesystemArtefactStore::new_in` and `InMemoryArtefactStore::new` remain
+unbounded for compatibility. Use `new_bounded_in` / `with_limits` when a
+server or adapter should enforce max payload size, max entries, max total
+bytes, or default TTL.
 
 ## Workflow Integration
 
@@ -136,8 +165,9 @@ integration is out of scope.
 - **Sidecar is authoritative for metadata.** Editing the JSON sidecar
   by hand is supported; editing the `.bin` file is not (the digest
   would mismatch).
-- **No GC yet.** Stores never auto-delete. TTL / reference-count GC is
-  tracked in a future issue.
+- **Bounded stores clean up predictably.** Expired entries are hidden and
+  removed on read/list/put. Entry and byte-count retention removes the
+  oldest sidecars first.
 - **No remote backends yet.** S3 / SFTP / HTTP pointers are declared
   in the roadmap but not implemented — a future issue.
 
