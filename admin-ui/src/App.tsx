@@ -65,6 +65,11 @@ type CallRow = {
   error: string | null;
   duration_ms: number | null;
   instance_id?: string | null;
+  transport?: string | null;
+  agent_id?: string | null;
+  agent_name?: string | null;
+  agent_model?: string | null;
+  parent_request_id?: string | null;
 };
 
 type TraceRow = {
@@ -76,6 +81,63 @@ type TraceRow = {
   total_ms: number | null;
   instance_id?: string | null;
   dcc_type?: string | null;
+  transport?: string | null;
+  agent_id?: string | null;
+  agent_name?: string | null;
+  agent_model?: string | null;
+  span_count?: number | null;
+  input_bytes?: number | null;
+  output_bytes?: number | null;
+  slowest_span_name?: string | null;
+  slowest_span_ms?: number | null;
+};
+
+type AgentContext = {
+  agent_id?: string | null;
+  agent_name?: string | null;
+  agent_kind?: string | null;
+  model?: string | null;
+  task?: string | null;
+  reasoning_summary?: string | null;
+  plan?: string[];
+  observations?: string[];
+  tags?: string[];
+  parent_request_id?: string | null;
+  trace_id?: string | null;
+  turn_index?: number | null;
+  metadata?: unknown;
+};
+
+type TracePayload = {
+  content: string;
+  mime_type: string;
+  truncated: boolean;
+  original_size: number;
+};
+
+type TraceSpan = {
+  name: string;
+  started_ns: number;
+  duration_ns: number;
+  ok: boolean;
+  attributes?: Record<string, unknown>;
+};
+
+type TraceDetailPayload = {
+  request_id: string;
+  method: string;
+  tool_slug?: string | null;
+  instance_id?: string | null;
+  session_id?: string | null;
+  dcc_type?: string | null;
+  transport?: string | null;
+  agent_context?: AgentContext | null;
+  started_at?: number | string;
+  total_ms: number;
+  ok: boolean;
+  spans: TraceSpan[];
+  input?: TracePayload | null;
+  output?: TracePayload | null;
 };
 
 type ActivityEvent = {
@@ -131,6 +193,7 @@ type StatsPayload = {
   latency_ms?: LatencyBlock;
   top_tools?: TopEntry[];
   top_instances?: TopEntry[];
+  top_agents?: TopEntry[];
   hourly_distribution?: number[];
   error?: string;
 };
@@ -646,6 +709,10 @@ function traceLatency(trace: TraceRow): number {
   return trace.total_ms ?? -1;
 }
 
+function agentLabel(row: { agent_name?: string | null; agent_id?: string | null; agent_model?: string | null }): string {
+  return row.agent_name || row.agent_id || row.agent_model || '-';
+}
+
 function formatDurationMs(value: number | null | undefined): string {
   if (value == null) {
     return '-';
@@ -732,6 +799,125 @@ function HourlyChart({ buckets }: { buckets: number[] }) {
   );
 }
 
+function formatTraceDate(value: number | string | undefined): string {
+  if (typeof value === 'number') {
+    return new Date(value).toLocaleString();
+  }
+  if (typeof value === 'string' && value) {
+    return new Date(value).toLocaleString();
+  }
+  return '-';
+}
+
+function payloadPreview(payload: TracePayload | null | undefined): string {
+  if (!payload) {
+    return 'No payload captured.';
+  }
+  const suffix = payload.truncated ? `\n\n[truncated from ${formatBytes(payload.original_size)}]` : '';
+  return `${payload.content}${suffix}`;
+}
+
+function TraceDetailPanel({ trace, fallback }: { trace: TraceDetailPayload | null; fallback: string }) {
+  if (!trace) {
+    return <pre className="trace-detail">{fallback}</pre>;
+  }
+  const spans = Array.isArray(trace.spans) ? trace.spans : [];
+  const maxNs = Math.max(1, ...spans.map((span) => span.duration_ns ?? 0));
+  const agent = trace.agent_context ?? null;
+  const agentTitle = agent?.agent_name || agent?.agent_id || agent?.agent_kind || 'Caller context';
+  const attrsPreview = (attrs?: Record<string, unknown>) => {
+    if (!attrs || Object.keys(attrs).length === 0) {
+      return '';
+    }
+    return JSON.stringify(attrs);
+  };
+
+  return (
+    <div className="trace-detail-panel">
+      <div className="trace-detail-card trace-summary-card">
+        <div>
+          <span className="trace-kicker">Request</span>
+          <h3 title={trace.request_id}>{compactId(trace.request_id)}</h3>
+        </div>
+        <div className="trace-summary-grid">
+          <span><strong>Tool</strong>{trace.tool_slug ?? trace.method}</span>
+          <span><strong>Status</strong>{trace.ok ? 'ok' : 'err'}</span>
+          <span><strong>Latency</strong>{formatDurationMs(trace.total_ms)}</span>
+          <span><strong>Transport</strong>{trace.transport ?? '-'}</span>
+          <span><strong>Started</strong>{formatTraceDate(trace.started_at)}</span>
+          <span><strong>Spans</strong>{spans.length}</span>
+        </div>
+      </div>
+
+      {agent ? (
+        <div className="trace-detail-card agent-context-card">
+          <div className="trace-card-head">
+            <h3>{agentTitle}</h3>
+            {agent.model ? <span>{agent.model}</span> : null}
+          </div>
+          {agent.task ? <p className="agent-task">{agent.task}</p> : null}
+          {agent.reasoning_summary ? <p className="agent-summary">{agent.reasoning_summary}</p> : null}
+          {agent.plan?.length ? (
+            <div className="agent-list">
+              <strong>Plan</strong>
+              {agent.plan.map((step, index) => <span key={`${step}-${index}`}>{step}</span>)}
+            </div>
+          ) : null}
+          {agent.observations?.length ? (
+            <div className="agent-list">
+              <strong>Observations</strong>
+              {agent.observations.map((step, index) => <span key={`${step}-${index}`}>{step}</span>)}
+            </div>
+          ) : null}
+          <div className="agent-meta">
+            {agent.parent_request_id ? <span>parent {compactId(agent.parent_request_id)}</span> : null}
+            {agent.trace_id ? <span>trace {compactId(agent.trace_id)}</span> : null}
+            {agent.tags?.map((tag) => <span key={tag}>{tag}</span>)}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="trace-detail-card">
+        <div className="trace-card-head">
+          <h3>Span waterfall</h3>
+          <span>{formatDurationMs(trace.total_ms)}</span>
+        </div>
+        <div className="span-waterfall">
+          {spans.length === 0 ? <p className="empty">No spans captured.</p> : spans.map((span, index) => (
+            <div className={`span-row ${span.ok ? 'ok' : 'err'}`} key={`${span.name}-${index}`}>
+              <div className="span-row-label">
+                <strong>{span.name}</strong>
+                <span>{formatDurationMs(Math.round((span.duration_ns ?? 0) / 1_000_000))}</span>
+              </div>
+              <div className="span-track">
+                <div className="span-fill" style={{ width: `${Math.max(2, ((span.duration_ns ?? 0) / maxNs) * 100)}%` }} />
+              </div>
+              {attrsPreview(span.attributes) ? <code title={attrsPreview(span.attributes)}>{attrsPreview(span.attributes)}</code> : null}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="payload-grid">
+        <div className="trace-detail-card">
+          <div className="trace-card-head">
+            <h3>Input</h3>
+            <span>{formatBytes(trace.input?.original_size)}</span>
+          </div>
+          <pre className="payload-pre">{payloadPreview(trace.input)}</pre>
+        </div>
+        <div className="trace-detail-card">
+          <div className="trace-card-head">
+            <h3>Output</h3>
+            <span>{formatBytes(trace.output?.original_size)}</span>
+          </div>
+          <pre className="payload-pre">{payloadPreview(trace.output)}</pre>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function groupRows<T>(rows: T[], keyFn: (row: T) => string): Map<string, T[]> {
   const map = new Map<string, T[]>();
   for (const row of rows) {
@@ -760,6 +946,7 @@ function App() {
   const [skillPathInput, setSkillPathInput] = useState('');
   const [skillPathBusy, setSkillPathBusy] = useState(false);
   const [traceDetail, setTraceDetail] = useState<string>('Select a trace row for detail.');
+  const [traceDetailPayload, setTraceDetailPayload] = useState<TraceDetailPayload | null>(null);
   const [callDetail, setCallDetail] = useState<string>('Select a call row for trace detail.');
   const [updatedAt, setUpdatedAt] = useState<Record<Panel, string>>({
     debug: 'Loading…',
@@ -846,6 +1033,11 @@ function App() {
           c.error ?? '',
           String(c.duration_ms ?? ''),
           c.instance_id ?? '',
+          c.transport ?? '',
+          c.agent_id ?? '',
+          c.agent_name ?? '',
+          c.agent_model ?? '',
+          c.parent_request_id ?? '',
         ),
       ),
     );
@@ -867,6 +1059,11 @@ function App() {
           String(t.total_ms ?? ''),
           t.instance_id ?? '',
           t.dcc_type ?? '',
+          t.transport ?? '',
+          t.agent_id ?? '',
+          t.agent_name ?? '',
+          t.agent_model ?? '',
+          t.slowest_span_name ?? '',
         ),
       ),
     );
@@ -1007,6 +1204,15 @@ function App() {
     return rows.filter((r) => r.name.toLowerCase().includes(q));
   }, [stats, listSearch]);
 
+  const filteredTopAgents = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    const rows = stats?.top_agents ?? [];
+    if (!q) {
+      return rows;
+    }
+    return rows.filter((r) => r.name.toLowerCase().includes(q));
+  }, [stats, listSearch]);
+
   const taskSummary = useMemo(() => {
     const completed = tasks.filter((task) => isOkStatus(task.status)).length;
     const failed = tasks.filter((task) => isErrStatus(task.status)).length;
@@ -1018,7 +1224,9 @@ function App() {
     const ok = traces.filter((trace) => isOkStatus(trace.status)).length;
     const failed = traces.filter((trace) => isErrStatus(trace.status)).length;
     const p95 = stats?.latency_ms?.p95_ms ?? stats?.p95_ms ?? null;
-    return { ok, failed, p95 };
+    const agentContext = traces.filter((trace) => agentLabel(trace) !== '-').length;
+    const spans = traces.reduce((sum, trace) => sum + (trace.span_count ?? 0), 0);
+    return { ok, failed, p95, agentContext, spans };
   }, [stats, traces]);
 
   const statsSummary = useMemo(() => {
@@ -1083,8 +1291,9 @@ function App() {
   const fetchCalls = useCallback(async () => {
     try {
       const payload = await apiJson<{ calls: CallRow[] }>('/calls');
-      setCalls(payload.calls);
-      markUpdated('calls', `${payload.calls.length} call(s) — ${new Date().toLocaleTimeString()}`);
+      const rows = Array.isArray(payload.calls) ? payload.calls : [];
+      setCalls(rows);
+      markUpdated('calls', `${rows.length} call(s) — ${new Date().toLocaleTimeString()}`);
     } catch (error) {
       markError('calls', error);
     }
@@ -1093,8 +1302,9 @@ function App() {
   const fetchTraces = useCallback(async () => {
     try {
       const payload = await apiJson<{ traces: TraceRow[] }>('/traces?limit=200');
-      setTraces(payload.traces);
-      markUpdated('traces', `${payload.traces.length} trace(s) — ${new Date().toLocaleTimeString()}`);
+      const rows = Array.isArray(payload.traces) ? payload.traces : [];
+      setTraces(rows);
+      markUpdated('traces', `${rows.length} trace(s) — ${new Date().toLocaleTimeString()}`);
     } catch (error) {
       markError('traces', error);
     }
@@ -1233,6 +1443,7 @@ function App() {
         setCallDetail(detail);
       } else {
         setTraceDetail(detail);
+        setTraceDetailPayload(payload as TraceDetailPayload);
       }
     } catch (error) {
       const detail = `Error: ${error instanceof Error ? error.message : String(error)}`;
@@ -1240,6 +1451,7 @@ function App() {
         setCallDetail(detail);
       } else {
         setTraceDetail(detail);
+        setTraceDetailPayload(null);
       }
     }
   }, []);
@@ -1290,6 +1502,7 @@ function App() {
         void fetchTraceInto(opts.traceId, 'trace');
       } else if (panel === 'traces' && !opts?.traceId) {
         setTraceDetail('Select a trace row for detail.');
+        setTraceDetailPayload(null);
       }
     },
     [fetchTraceInto, pushAdminUrl, statsRange],
@@ -1305,6 +1518,7 @@ function App() {
         void fetchTraceInto(tid, 'trace');
       } else if (panel === 'traces') {
         setTraceDetail('Select a trace row for detail.');
+        setTraceDetailPayload(null);
       }
     };
     window.addEventListener('popstate', onPop);
@@ -1405,7 +1619,7 @@ function App() {
                 {activePanel === 'traces' ? `${filteredTraces.length} / ${traces.length}` : ''}
                 {activePanel === 'skill-paths' ? `${filteredSkillPaths.length} / ${skillPaths.length}` : ''}
                 {activePanel === 'logs' ? `${filteredLogs.length} / ${logs.length}` : ''}
-                {activePanel === 'stats' ? `charts: ${filteredTopTools.length} tools / ${filteredTopInstances.length} instances` : ''}
+                {activePanel === 'stats' ? `charts: ${filteredTopTools.length} tools / ${filteredTopInstances.length} instances / ${filteredTopAgents.length} agents` : ''}
               </span>
             ) : null}
           </div>
@@ -1724,7 +1938,7 @@ function App() {
                 <div key={group} className="group-block">
                   <h3 className="group-title">{group}</h3>
                   <table>
-                    <thead><tr><th>Time</th><th>Request</th><th>Tool</th><th>DCC</th><th>Status</th><th>Error</th><th>ms</th><th>Detail</th></tr></thead>
+                    <thead><tr><th>Time</th><th>Request</th><th>Tool</th><th>DCC</th><th>Agent</th><th>Transport</th><th>Status</th><th>Error</th><th>ms</th><th>Detail</th></tr></thead>
                     <tbody>
                       {groupCalls.map((call) => (
                         <tr key={call.request_id}>
@@ -1736,6 +1950,8 @@ function App() {
                           </td>
                           <td>{call.tool}</td>
                           <td>{call.dcc_type}</td>
+                          <td title={call.agent_id ?? call.agent_name ?? ''}>{agentLabel(call)}</td>
+                          <td>{call.transport ?? '-'}</td>
                           <td><StatusBadge value={call.status} /></td>
                           <td title={call.error ?? ''}>{call.error ? call.error.slice(0, 80) : '-'}</td>
                           <td>{call.duration_ms ?? '-'}</td>
@@ -1763,6 +1979,8 @@ function App() {
               <MetricTile tone="ok" label="OK" value={traceSummary.ok} />
               <MetricTile tone={traceSummary.failed > 0 ? 'err' : undefined} label="Failed" value={traceSummary.failed} />
               <MetricTile tone={latencyTone(traceSummary.p95)} label="p95 latency" value={formatDurationMs(traceSummary.p95)} />
+              <MetricTile label="Agent ctx" value={traceSummary.agentContext} />
+              <MetricTile label="Spans" value={traceSummary.spans} />
               <MetricTile label="Visible" value={`${filteredTraces.length} / ${traces.length}`} />
             </div>
             {traces.length === 0 ? <p className="empty">No traces recorded.</p> : filteredTraces.length === 0 ? (
@@ -1787,18 +2005,20 @@ function App() {
                         >
                           <span className="trace-item-main">
                             <strong>{trace.tool}</strong>
-                            <span>{compactId(trace.request_id)} - {formatTime(trace.timestamp)}</span>
+                            <span>{compactId(trace.request_id)} - {formatTime(trace.timestamp)} - {trace.transport ?? '?'}</span>
+                            <span>{agentLabel(trace)}{trace.slowest_span_name ? ` - slowest ${trace.slowest_span_name} ${formatDurationMs(trace.slowest_span_ms)}` : ''}</span>
                           </span>
                           <span className="trace-item-side">
                             <StatusBadge value={trace.status} />
                             <span>{formatDurationMs(trace.total_ms)}</span>
+                            <span>{trace.span_count ?? 0} spans</span>
                           </span>
                         </button>
                       ))}
                     </div>
                   ))}
                 </div>
-                <pre className="trace-detail">{traceDetail}</pre>
+                <TraceDetailPanel trace={traceDetailPayload} fallback={traceDetail} />
               </div>
             )}
           </section>
@@ -1844,6 +2064,7 @@ function App() {
             <div className="stats-charts">
               <StatBarList title="Top tools" items={filteredTopTools} />
               <StatBarList title="Top instances" items={filteredTopInstances} />
+              <StatBarList title="Top agents" items={filteredTopAgents} />
               {stats?.hourly_distribution?.length ? <HourlyChart buckets={stats.hourly_distribution} /> : null}
             </div>
           </section>

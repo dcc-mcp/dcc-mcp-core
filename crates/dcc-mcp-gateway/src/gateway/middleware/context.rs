@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::time::SystemTime;
 
-use crate::gateway::admin::trace::{TracePayload, TraceSpan};
+use crate::gateway::admin::trace::{AgentContext, TracePayload, TraceSpan};
 
 /// Context for one gateway `tools/call` invocation.
 ///
@@ -58,6 +58,10 @@ pub struct CallContext {
     pub output_payload: Option<TracePayload>,
     /// Phase 2: wall-clock timestamp when the call entered the handler.
     pub started_at: SystemTime,
+    /// Optional client-supplied agent/caller context for admin telemetry.
+    pub agent_context: Option<AgentContext>,
+    /// Transport surface that produced this call (`mcp`, `rest`, ...).
+    pub transport: Option<String>,
 }
 
 impl CallContext {
@@ -82,6 +86,8 @@ impl CallContext {
             input_payload: None,
             output_payload: None,
             started_at: SystemTime::now(),
+            agent_context: None,
+            transport: None,
         }
     }
 
@@ -105,6 +111,18 @@ impl CallContext {
     /// Builder: attach the originating MCP session id.
     pub fn with_session_id(mut self, id: impl Into<String>) -> Self {
         self.session_id = Some(id.into());
+        self
+    }
+
+    /// Builder: attach optional agent/caller telemetry context.
+    pub fn with_agent_context(mut self, context: Option<AgentContext>) -> Self {
+        self.agent_context = context;
+        self
+    }
+
+    /// Builder: attach the transport surface.
+    pub fn with_transport(mut self, transport: impl Into<String>) -> Self {
+        self.transport = Some(transport.into());
         self
     }
 

@@ -82,10 +82,52 @@ When using `dcc-mcp-gateway` directly, compile with the `admin` Cargo feature. `
 | `GET /admin/api/traces` | `application/json` | Recent per-call dispatch traces; accepts `?limit=200` |
 | `GET /admin/api/traces/{request_id}` | `application/json` | Full waterfall for one recorded dispatch trace |
 | `GET /admin/api/debug-bundle/{request_id}` | `application/json` | One-stop debug bundle containing the trace, matching audit row, related activity, and hints |
-| `GET /admin/api/stats?range=1h\|24h\|7d` | `application/json` | Aggregated call counts, success rate, latency, and top tools/instances |
+| `GET /admin/api/stats?range=1h\|24h\|7d` | `application/json` | Aggregated call counts, success rate, latency, and top tools/instances/agents |
 | `GET /admin/api/workers` | `application/json` | Per-instance worker cards from the live registry |
 | `GET /admin/api/logs` | `application/json` | Merged gateway contention events, on-disk `*.log` rows, and audited call summaries |
 | `GET /admin/api/health` | `application/json` | Service health summary |
+
+## Optional Agent / Caller Context
+
+MCP and REST callers may attach optional context so the Admin UI can correlate
+why a request was made with the request waterfall. This is a telemetry contract:
+callers should send concise summaries, plans, observations, tags, and correlation
+ids. The gateway does not attempt to capture hidden model chain-of-thought.
+
+Supported carriers:
+
+- MCP `tools/call` `params._meta.agent_context`
+- REST body `agent_context`, `agentContext`, `caller_context`, or
+  `meta.agent_context`
+- Headers such as `x-dcc-mcp-agent-id`, `x-dcc-mcp-agent-name`,
+  `x-dcc-mcp-agent-model`, `x-dcc-mcp-agent-task`,
+  `x-dcc-mcp-reasoning-summary`, `x-dcc-mcp-parent-request-id`, and
+  `x-dcc-mcp-agent-context` (JSON object)
+
+Example REST request:
+
+```json
+{
+  "tool_slug": "maya.abcdef01.scene__inspect",
+  "arguments": { "include_materials": true },
+  "meta": {
+    "agent_context": {
+      "agent_id": "agent-42",
+      "agent_name": "Layout Inspector",
+      "model": "gpt-5.4",
+      "task": "Find the cheapest scene inspection path before editing",
+      "reasoning_summary": "Need scene topology and material counts before selecting an edit tool.",
+      "plan": ["inspect scene", "choose edit target"],
+      "observations": ["user asked for non-destructive update"],
+      "parent_request_id": "req-parent"
+    }
+  }
+}
+```
+
+Admin list rows expose `transport`, `agent_id`, `agent_name`, `agent_model`,
+span counts, payload byte counts, and the slowest span summary. Full trace rows
+include `agent_context`, request/response payload previews, and a span waterfall.
 
 ## API Response Shapes
 
@@ -160,6 +202,10 @@ When using `dcc-mcp-gateway` directly, compile with the `admin` Cargo feature. `
       "dcc_type": "maya",
       "instance_id": "abcdef01-2345-6789-abcd-ef0123456789",
       "session_id": "session-1",
+      "transport": "mcp",
+      "agent_id": "agent-42",
+      "agent_name": "Layout Inspector",
+      "agent_model": "gpt-5.4",
       "success": false,
       "error": "backend timeout",
       "timestamp": "2026-05-05T10:00:00Z"
@@ -173,21 +219,43 @@ When using `dcc-mcp-gateway` directly, compile with the `admin` Cargo feature. `
   "traces": [
     {
       "request_id": "req-123",
-      "method": "tools/call",
-      "tool_slug": "maya.abcdef01.maya__open_scene",
+      "tool": "maya.abcdef01.maya__open_scene",
       "dcc_type": "maya",
+      "transport": "mcp",
+      "agent_id": "agent-42",
+      "span_count": 3,
+      "slowest_span_name": "backend.execute",
+      "slowest_span_ms": 45,
+      "input_bytes": 42,
+      "output_bytes": 96,
       "total_ms": 48,
-      "ok": true,
-      "spans": [
-        { "name": "gateway.route", "duration_ns": 1200000, "ok": true, "attributes": {} }
-      ],
-      "input": { "mime_type": "application/json", "truncated": false, "original_size": 42, "content": "{...}" },
-      "output": { "mime_type": "application/json", "truncated": false, "original_size": 96, "content": "{...}" }
+      "success": true,
+      "status": "ok"
     }
   ]
 }
 
-// GET /admin/api/traces/req-123 returns the same full trace object or 404.
+// GET /admin/api/traces/req-123
+{
+  "request_id": "req-123",
+  "method": "tools/call",
+  "tool_slug": "maya.abcdef01.maya__open_scene",
+  "dcc_type": "maya",
+  "transport": "mcp",
+  "agent_context": {
+    "agent_id": "agent-42",
+    "agent_name": "Layout Inspector",
+    "model": "gpt-5.4",
+    "reasoning_summary": "Need scene topology before editing."
+  },
+  "total_ms": 48,
+  "ok": true,
+  "spans": [
+    { "name": "backend.execute", "duration_ns": 45000000, "ok": true, "attributes": {} }
+  ],
+  "input": { "mime_type": "application/json", "truncated": false, "original_size": 42, "content": "{...}" },
+  "output": { "mime_type": "application/json", "truncated": false, "original_size": 96, "content": "{...}" }
+}
 
 // GET /admin/api/debug-bundle/req-123
 {
@@ -203,7 +271,8 @@ When using `dcc-mcp-gateway` directly, compile with the `admin` Cargo feature. `
   "range": "24h",
   "total_calls": 42,
   "success_rate": 0.98,
-  "latency": { "p50_ms": 12, "p95_ms": 48 }
+  "latency_ms": { "p50_ms": 12, "p95_ms": 48 },
+  "top_agents": [{ "name": "Layout Inspector", "count": 12 }]
 }
 
 // GET /admin/api/workers
@@ -263,7 +332,7 @@ The HTML dashboard includes:
 - **DCC icons**: common hosts such as Maya/Autodesk, Blender, GIMP, Inkscape, Krita, Unity, and Unreal get recognizable icons, with a safe fallback for custom hosts.
 - **Worker cards**: Per-instance status, heartbeat, and routing metadata
 - **Calls table**: request ids, error previews, and trace-detail links; DCC is displayed from the resolved backend slug when available, otherwise from explicit call arguments such as `dcc` / `dcc_type`.
-- **Trace drill-down**: `/admin/api/traces/{request_id}` exposes the full waterfall plus bounded/redacted input/output payloads for one call.
+- **Trace drill-down**: `/admin/api/traces/{request_id}` exposes the full waterfall, optional agent/caller context, and bounded/redacted input/output payloads for one call.
 - **Logs panel**: groups normalized `contention`, `file`, and `audit` rows so operators can correlate routing events, rolling files, and tool calls in one timeline. File log reads are bounded to recent files and tail slices so the admin API does not scan unbounded historical logs.
 - **Durable audit option**: `DCC_MCP_GATEWAY_AUDIT_DIR` preserves the Calls and Traces panels across restarts without changing the JSON API shapes.
 - **Dark theme**: Vite/React source with embedded runtime asset and no required runtime build step
