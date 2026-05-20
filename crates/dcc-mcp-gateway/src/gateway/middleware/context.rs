@@ -52,7 +52,7 @@ pub struct CallContext {
     pub metadata: HashMap<String, String>,
     /// Phase 2: per-call dispatch trace spans, populated by the handler.
     pub trace_spans: Vec<TraceSpan>,
-    /// Phase 2: captured input payload (args, bounded and pre-redacted).
+    /// Phase 2: captured input payload after before-middleware redaction.
     pub input_payload: Option<TracePayload>,
     /// Phase 2: captured output payload (response content).
     pub output_payload: Option<TracePayload>,

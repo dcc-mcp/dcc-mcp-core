@@ -2,8 +2,9 @@
 //!
 //! Every `tools/call` routed through the gateway produces one [`DispatchTrace`]
 //! that records a waterfall of [`TraceSpan`]s (gateway → middleware → backend →
-//! response) plus optionally the raw request/response payloads (bounded and
-//! pre-redacted by [`RedactionMiddleware`]).
+//! response) plus optionally the request/response payloads. Input payloads are
+//! captured after [`RedactionMiddleware`] and other before-call middleware have
+//! run, then bounded before storage.
 //!
 //! The ring buffer (`TraceLog`) lives in [`AdminState`] and is populated by
 //! [`TraceSink`] which is called from `AuditMiddleware::after_call`.
@@ -371,10 +372,10 @@ pub struct DispatchTrace {
     pub ok: bool,
     /// Waterfall of timing segments.
     pub spans: Vec<TraceSpan>,
-    /// Captured `params.arguments` (pre-redacted, bounded to [`MAX_INPUT_BYTES`]).
+    /// Captured `params.arguments` (redacted, bounded to [`MAX_INPUT_BYTES`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input: Option<TracePayload>,
-    /// Captured response content (pre-redacted, bounded to [`MAX_OUTPUT_BYTES`]).
+    /// Captured response content (bounded to [`MAX_OUTPUT_BYTES`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<TracePayload>,
 }

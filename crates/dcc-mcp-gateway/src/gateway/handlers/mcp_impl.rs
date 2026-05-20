@@ -371,12 +371,6 @@ async fn handle_tools_call(
         ctx.dcc_type = Some(dcc_type.to_string());
     }
 
-    // Phase 2: capture input payload before middlewares may redact args.
-    {
-        use crate::gateway::admin::trace::{MAX_INPUT_BYTES, TracePayload};
-        ctx.input_payload = Some(TracePayload::from_value(&args, MAX_INPUT_BYTES));
-    }
-
     // Run before-middlewares; abort the call if any rejects.
     if !gs.middleware_chain.is_empty()
         && let Err(e) = gs.middleware_chain.run_before(&mut ctx).await
@@ -388,6 +382,12 @@ async fn handle_tools_call(
             "jsonrpc": "2.0", "id": id,
             "result": {"content": [{"type": "text", "text": msg}], "isError": true}
         });
+    }
+
+    // Capture input after before-middlewares so trace storage sees redacted args.
+    {
+        use crate::gateway::admin::trace::{MAX_INPUT_BYTES, TracePayload};
+        ctx.input_payload = Some(TracePayload::from_value(&ctx.args, MAX_INPUT_BYTES));
     }
 
     // Use potentially-redacted args from context.
