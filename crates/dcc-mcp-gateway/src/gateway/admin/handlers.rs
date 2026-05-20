@@ -63,6 +63,9 @@ impl AdminLinkBuilder {
                 "{}{}/api/issue-report/{}",
                 self.origin, self.admin_base, encoded
             ),
+            "openapi_inspector_url": self.panel_url("openapi"),
+            "openapi_spec_url": format!("{}/v1/openapi.json", self.origin),
+            "openapi_docs_url": format!("{}/docs", self.origin),
             "stats_url": self.panel_url("stats"),
         })
     }

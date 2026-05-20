@@ -149,12 +149,12 @@ operator-visible request with the caller's explicit plan and observations. Use
 intended for concise telemetry such as `agent_id`, `agent_name`, `model`,
 `task`, `reasoning_summary`, `plan`, `observations`, `parent_request_id`, and
 tags; do not send hidden chain-of-thought or secrets. Admin call and trace rows
-also include absolute `links` for the trace page, trace API, and debug bundle so
-operators can paste a complete, replayable investigation target into an LLM
-evaluation or code-optimization prompt. The same link set includes
-`issue_report_url`, a standalone JSON export shaped for GitHub issue
-attachments with summary metadata, a suggested issue title/body, and the
-correlated debug bundle.
+also include absolute `links` for the trace page, trace API, debug bundle,
+OpenAPI Inspector, OpenAPI spec/docs, and stats page so operators can paste a
+complete, replayable investigation target into an LLM evaluation or
+code-optimization prompt. The same link set includes `issue_report_url`, a
+standalone JSON export shaped for GitHub issue attachments with summary
+metadata, a suggested issue title/body, and the correlated debug bundle.
 
 ---
 
