@@ -94,7 +94,7 @@ impl std::fmt::Display for ServiceStatus {
 /// maya @ 127.0.0.1:18812  pid=1234  scene=character.ma  display_name="Maya-Rig"
 /// maya @ 127.0.0.1:18813  pid=5678  scene=character.ma  display_name="Maya-Anim"
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServiceEntry {
     /// DCC application type (e.g. "maya", "houdini", "blender").
     pub dcc_type: String,
