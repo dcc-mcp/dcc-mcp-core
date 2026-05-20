@@ -17,12 +17,20 @@ All symbols in ``__all__`` are still accessible via ``from dcc_mcp_core import X
 # Import future modules
 from __future__ import annotations
 
-# Eagerly import _core so __version__ / __author__ are always available,
-# and so that ``dcc_mcp_core._core`` sub-module access still works.
-from dcc_mcp_core import _core
-
-__version__: str = getattr(_core, "__version__", "0.0.0-dev")
-__author__: str = getattr(_core, "__author__", "unknown")
+# Import _core when the compiled extension is present, but keep the package
+# importable from a source checkout. Skill scripts often run inside embedded DCC
+# Python with only the pure-Python helpers on sys.path; `dcc_mcp_core.skill`
+# must remain usable there and should not require a maturin-built extension.
+try:
+    from dcc_mcp_core import _core
+except ImportError as _core_import_error:
+    _CORE_IMPORT_ERROR: ImportError | None = _core_import_error
+    __version__: str = "0.0.0-dev"
+    __author__: str = "unknown"
+else:
+    _CORE_IMPORT_ERROR = None
+    __version__ = getattr(_core, "__version__", "0.0.0-dev")
+    __author__ = getattr(_core, "__author__", "unknown")
 
 # ---------------------------------------------------------------------------
 # Lazy import map — every public symbol and its source module.

@@ -56,6 +56,31 @@ Adapter helpers are better than hand-built result dictionaries when available:
 Never import `maya.cmds`, `bpy`, `pymxs`, or other host modules at file import
 time. Keep imports inside tool functions or adapter-dispatched callables.
 
+## Import Placement
+
+Use top-level imports for dependencies that are always available in the script's
+execution environment:
+
+- Python stdlib modules (`json`, `pathlib`, `typing`, `dataclasses`).
+- Pure helper modules that do not require a compiled extension, especially
+  `from dcc_mcp_core.skill import run_main, skill_entry, skill_success`.
+- Adapter-local pure modules that can be imported without launching or attaching
+  to the DCC.
+
+Use function-local imports for dependencies that are optional, host-bound, or
+compiled:
+
+- DCC host APIs: `maya.cmds`, `bpy`, `pymxs`, `hou`, Photoshop/ZBrush bridge
+  clients, Unreal/Unity editor bindings.
+- APIs re-exported from top-level `dcc_mcp_core` when they require the Rust
+  `_core` extension, such as schema validation, skill loading, serialization,
+  registry, or server types.
+- Heavy plugins or packages that may not exist in batch/headless workers.
+
+When a local import is intentional, leave a short comment naming the boundary,
+for example: `# Lazy import: requires Maya's embedded Python.` This keeps lint
+exceptions and future refactors honest.
+
 ## Stage Taxonomy
 
 Use `metadata.dcc-mcp.stage` when the adapter has enough skills to benefit from
