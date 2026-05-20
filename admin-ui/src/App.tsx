@@ -9,7 +9,7 @@ import unrealIcon from './assets/icons/unrealengine.svg';
 import substancePainterIcon from './assets/icons/photoshop.svg';
 import puzzleIcon from './assets/icons/puzzle.svg';
 
-type Panel = 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'tasks' | 'calls' | 'traces' | 'stats' | 'logs' | 'skill-paths';
+type Panel = 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'stats' | 'logs' | 'skill-paths';
 
 type HealthPayload = {
   status: string;
@@ -99,6 +99,9 @@ type AdminLinks = {
   trace_api_url?: string;
   debug_bundle_url?: string;
   issue_report_url?: string;
+  openapi_inspector_url?: string;
+  openapi_spec_url?: string;
+  openapi_docs_url?: string;
   stats_url?: string;
   admin_traces_url?: string;
 };
@@ -150,6 +153,41 @@ type TraceDetailPayload = {
   input?: TracePayload | null;
   output?: TracePayload | null;
   links?: AdminLinks;
+};
+
+type OpenApiSpec = {
+  openapi?: string;
+  info?: {
+    title?: string;
+    version?: string;
+    description?: string;
+  };
+  servers?: { url?: string; description?: string }[];
+  tags?: { name?: string; description?: string }[];
+  paths?: Record<string, Record<string, OpenApiOperationObject> | unknown>;
+  components?: unknown;
+};
+
+type OpenApiOperationObject = {
+  operationId?: string;
+  summary?: string;
+  description?: string;
+  tags?: string[];
+  parameters?: unknown[];
+  requestBody?: unknown;
+  responses?: Record<string, unknown>;
+};
+
+type OpenApiOperationRow = {
+  key: string;
+  method: string;
+  path: string;
+  operationId: string;
+  summary: string;
+  tags: string[];
+  responseCodes: string[];
+  hasRequestBody: boolean;
+  parameterCount: number;
 };
 
 type ActivityEvent = {
@@ -331,6 +369,7 @@ function adminApiBase(): string {
 const API_BASE = adminApiBase();
 /** Abort hung admin fetches so the UI does not wait indefinitely on a wedged gateway. */
 const ADMIN_FETCH_TIMEOUT_MS = 25_000;
+const OPENAPI_METHODS = new Set(['get', 'put', 'post', 'delete', 'patch', 'options', 'head', 'trace']);
 const PANELS: { id: Panel; label: string; group: string }[] = [
   { id: 'debug', label: 'Debug', group: 'Operations' },
   { id: 'instances', label: 'Instances', group: 'Operations' },
@@ -338,6 +377,7 @@ const PANELS: { id: Panel; label: string; group: string }[] = [
   { id: 'health', label: 'Health', group: 'Operations' },
   { id: 'tasks', label: 'Tasks', group: 'Workspace' },
   { id: 'tools', label: 'Tools', group: 'Workspace' },
+  { id: 'openapi', label: 'OpenAPI Inspector', group: 'Contracts' },
   { id: 'stats', label: 'Stats', group: 'Observability' },
   { id: 'traces', label: 'Traces', group: 'Observability' },
   { id: 'calls', label: 'Calls', group: 'Observability' },
@@ -351,6 +391,10 @@ const STATS_RANGE_IDS = new Set(['1h', '24h', '7d', 'all']);
 
 function gatewayDocsHref(): string {
   return `${window.location.origin}/docs`;
+}
+
+function gatewayOpenApiHref(): string {
+  return `${window.location.origin}/v1/openapi.json`;
 }
 
 function isPanelId(value: string | null | undefined): value is Panel {
@@ -395,6 +439,9 @@ function traceLinks(requestId: string, provided?: AdminLinks): AdminLinks {
     trace_api_url: provided?.trace_api_url ?? `${API_BASE}/traces/${encoded}`,
     debug_bundle_url: provided?.debug_bundle_url ?? `${API_BASE}/debug-bundle/${encoded}`,
     issue_report_url: provided?.issue_report_url ?? `${API_BASE}/issue-report/${encoded}`,
+    openapi_inspector_url: provided?.openapi_inspector_url ?? fullHrefForAdmin('openapi'),
+    openapi_spec_url: provided?.openapi_spec_url ?? gatewayOpenApiHref(),
+    openapi_docs_url: provided?.openapi_docs_url ?? gatewayDocsHref(),
     stats_url: provided?.stats_url ?? fullHrefForAdmin('stats', { range: readStatsRangeFromUrl() }),
     admin_traces_url: provided?.admin_traces_url ?? fullHrefForAdmin('traces'),
   };
@@ -523,6 +570,59 @@ function downloadJsonText(filename: string, text: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
+async function fetchOpenApiSpecText(): Promise<{ spec: OpenApiSpec; raw: string }> {
+  const ctrl = new AbortController();
+  const tid = window.setTimeout(() => ctrl.abort(), ADMIN_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(gatewayOpenApiHref(), { signal: ctrl.signal });
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`);
+    }
+    const text = await response.text();
+    const spec = JSON.parse(text) as OpenApiSpec;
+    return { spec, raw: JSON.stringify(spec, null, 2) };
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error(`Request timed out after ${ADMIN_FETCH_TIMEOUT_MS / 1000}s`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(tid);
+  }
+}
+
+function flattenOpenApiOperations(spec: OpenApiSpec | null): OpenApiOperationRow[] {
+  const rows: OpenApiOperationRow[] = [];
+  const paths = spec?.paths ?? {};
+  for (const [path, rawPathItem] of Object.entries(paths)) {
+    if (!rawPathItem || typeof rawPathItem !== 'object' || Array.isArray(rawPathItem)) {
+      continue;
+    }
+    for (const [method, rawOperation] of Object.entries(rawPathItem as Record<string, unknown>)) {
+      const methodKey = method.toLowerCase();
+      if (!OPENAPI_METHODS.has(methodKey) || !rawOperation || typeof rawOperation !== 'object' || Array.isArray(rawOperation)) {
+        continue;
+      }
+      const operation = rawOperation as OpenApiOperationObject;
+      const responseCodes = Object.keys(operation.responses ?? {});
+      const tags = Array.isArray(operation.tags) ? operation.tags.filter((tag): tag is string => typeof tag === 'string') : [];
+      const operationId = operation.operationId ?? `${methodKey}_${path.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '')}`;
+      rows.push({
+        key: `${methodKey.toUpperCase()} ${path}`,
+        method: methodKey.toUpperCase(),
+        path,
+        operationId,
+        summary: operation.summary ?? operation.description ?? '',
+        tags,
+        responseCodes,
+        hasRequestBody: operation.requestBody != null,
+        parameterCount: Array.isArray(operation.parameters) ? operation.parameters.length : 0,
+      });
+    }
+  }
+  return rows.sort((a, b) => a.path.localeCompare(b.path) || a.method.localeCompare(b.method));
+}
+
 function formatTime(value: string | null | undefined): string {
   if (!value) {
     return '-';
@@ -631,6 +731,7 @@ function NavIcon({ panel }: { panel: Panel }) {
     traces: ['M5 7h4v4H5z', 'M15 13h4v4h-4z', 'M9 9l6 6'],
     stats: ['M5 18V9', 'M12 18V5', 'M19 18v-6', 'M4 18h16'],
     logs: ['M7 5h8l3 3v11H7z', 'M15 5v4h4', 'M10 13h6', 'M10 16h5'],
+    openapi: ['M5 5h14v14H5z', 'M8 9h8', 'M8 13h5', 'M8 17h8'],
     'skill-paths': ['M5 12h14', 'M12 5v14', 'M7 7l10 10', 'M17 7L7 17'],
   };
   return (
@@ -906,6 +1007,9 @@ function TraceLinks({ links }: { links: AdminLinks }) {
     ['Trace API', links.trace_api_url],
     ['Debug bundle', links.debug_bundle_url],
     ['Issue report JSON', links.issue_report_url],
+    ['OpenAPI Inspector', links.openapi_inspector_url],
+    ['OpenAPI spec', links.openapi_spec_url],
+    ['OpenAPI docs', links.openapi_docs_url],
     ['Stats', links.stats_url],
   ].filter(([, url]) => typeof url === 'string' && url.length > 0) as [string, string][];
   return (
@@ -1049,6 +1153,87 @@ function TraceDetailPanel({
   );
 }
 
+function componentSchemaCount(spec: OpenApiSpec | null): number {
+  const components = spec?.components;
+  if (!components || typeof components !== 'object' || Array.isArray(components)) {
+    return 0;
+  }
+  const schemas = (components as { schemas?: unknown }).schemas;
+  if (!schemas || typeof schemas !== 'object' || Array.isArray(schemas)) {
+    return 0;
+  }
+  return Object.keys(schemas).length;
+}
+
+function OpenApiInspectorPanel({
+  spec,
+  raw,
+  operations,
+}: {
+  spec: OpenApiSpec | null;
+  raw: string;
+  operations: OpenApiOperationRow[];
+}) {
+  if (!spec) {
+    return <p className="empty">No OpenAPI document loaded.</p>;
+  }
+  const pathsCount = Object.keys(spec.paths ?? {}).length;
+  const tagCount = new Set(operations.flatMap((operation) => operation.tags)).size || (spec.tags?.length ?? 0);
+  const methods = Array.from(new Set(operations.map((operation) => operation.method))).sort();
+  const specLinks: AdminLinks = {
+    openapi_inspector_url: fullHrefForAdmin('openapi'),
+    openapi_spec_url: gatewayOpenApiHref(),
+    openapi_docs_url: gatewayDocsHref(),
+  };
+
+  return (
+    <div className="openapi-inspector">
+      <div className="metric-grid compact">
+        <MetricTile label="OpenAPI" value={spec.openapi ?? '-'} detail={spec.info?.title ?? 'Gateway REST contract'} />
+        <MetricTile label="Version" value={spec.info?.version ?? '-'} />
+        <MetricTile label="Paths" value={pathsCount} />
+        <MetricTile label="Operations" value={operations.length} />
+        <MetricTile label="Schemas" value={componentSchemaCount(spec)} />
+        <MetricTile label="Tags" value={tagCount} />
+      </div>
+
+      <div className="openapi-layout">
+        <div className="openapi-operation-list">
+          <div className="trace-group-head">
+            <h3>Operations</h3>
+            <span>{operations.length} · {methods.join(', ') || '-'}</span>
+          </div>
+          {operations.length === 0 ? <p className="empty">No operations match your search.</p> : operations.map((operation) => (
+            <article className="openapi-operation-card" key={operation.key}>
+              <div className="openapi-operation-head">
+                <span className={`method-pill ${operation.method.toLowerCase()}`}>{operation.method}</span>
+                <span className="openapi-path">{operation.path}</span>
+              </div>
+              <h3>{operation.operationId}</h3>
+              {operation.summary ? <p>{operation.summary}</p> : null}
+              <div className="openapi-meta-row">
+                <span>{operation.hasRequestBody ? 'body' : 'no body'}</span>
+                <span>{operation.parameterCount} params</span>
+                <span>{operation.responseCodes.length ? `responses ${operation.responseCodes.join(', ')}` : 'no responses'}</span>
+                {operation.tags.map((tag) => <span key={tag}>{tag}</span>)}
+              </div>
+            </article>
+          ))}
+        </div>
+
+        <div className="trace-detail-card openapi-spec-card">
+          <div className="trace-card-head">
+            <h3>Contract Links</h3>
+            <span>{formatBytes(raw.length)}</span>
+          </div>
+          <TraceLinks links={specLinks} />
+          <pre className="payload-pre openapi-spec-pre">{raw}</pre>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function groupRows<T>(rows: T[], keyFn: (row: T) => string): Map<string, T[]> {
   const map = new Map<string, T[]>();
   for (const row of rows) {
@@ -1070,6 +1255,8 @@ function App() {
   const [traces, setTraces] = useState<TraceRow[]>([]);
   const [stats, setStats] = useState<StatsPayload | null>(null);
   const [statsRange, setStatsRange] = useState(() => readStatsRangeFromUrl());
+  const [openApiSpec, setOpenApiSpec] = useState<OpenApiSpec | null>(null);
+  const [openApiRaw, setOpenApiRaw] = useState('');
   const [workers, setWorkers] = useState<WorkerRow[]>([]);
   const [workerSummary, setWorkerSummary] = useState<WorkerSummary>({ live: 0, stale: 0, unhealthy: 0 });
   const [logs, setLogs] = useState<LogRow[]>([]);
@@ -1087,6 +1274,7 @@ function App() {
     instances: 'Loading…',
     tools: 'Loading…',
     tasks: 'Loading…',
+    openapi: 'Loading…',
     calls: 'Loading…',
     traces: 'Loading…',
     stats: 'Loading…',
@@ -1147,6 +1335,28 @@ function App() {
       ),
     );
   }, [tools, listSearch]);
+
+  const openApiOperations = useMemo(() => flattenOpenApiOperations(openApiSpec), [openApiSpec]);
+
+  const filteredOpenApiOperations = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    if (!q) {
+      return openApiOperations;
+    }
+    return openApiOperations.filter((operation) =>
+      matchesListFilter(
+        q,
+        haystack(
+          operation.method,
+          operation.path,
+          operation.operationId,
+          operation.summary,
+          operation.tags.join(' '),
+          operation.responseCodes.join(' '),
+        ),
+      ),
+    );
+  }, [openApiOperations, listSearch]);
 
   const filteredCalls = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
@@ -1475,6 +1685,18 @@ function App() {
     }
   }, [markError, markUpdated]);
 
+  const fetchOpenApi = useCallback(async () => {
+    try {
+      const { spec, raw } = await fetchOpenApiSpecText();
+      const operations = flattenOpenApiOperations(spec);
+      setOpenApiSpec(spec);
+      setOpenApiRaw(raw);
+      markUpdated('openapi', `${operations.length} operation(s) — ${new Date().toLocaleTimeString()}`);
+    } catch (error) {
+      markError('openapi', error);
+    }
+  }, [markError, markUpdated]);
+
   const fetchCalls = useCallback(async () => {
     try {
       const payload = await apiJson<{ calls: CallRow[] }>('/calls');
@@ -1726,13 +1948,14 @@ function App() {
     if (panel === 'health') void fetchHealth();
     if (panel === 'instances') void fetchInstanceBackends();
     if (panel === 'tools') void fetchTools();
+    if (panel === 'openapi') void fetchOpenApi();
     if (panel === 'tasks') void fetchTasks();
     if (panel === 'calls') void fetchCalls();
     if (panel === 'traces') void fetchTraces();
     if (panel === 'stats') void fetchStats();
     if (panel === 'skill-paths') void fetchSkillPaths();
     if (panel === 'logs') void fetchLogs();
-  }, [fetchActivity, fetchCalls, fetchDebug, fetchHealth, fetchInstanceBackends, fetchLogs, fetchSkillPaths, fetchStats, fetchTasks, fetchTools, fetchTraces]);
+  }, [fetchActivity, fetchCalls, fetchDebug, fetchHealth, fetchInstanceBackends, fetchLogs, fetchOpenApi, fetchSkillPaths, fetchStats, fetchTasks, fetchTools, fetchTraces]);
 
   useEffect(() => {
     fetchPanel(activePanel);
@@ -1746,8 +1969,8 @@ function App() {
         <div className="brand-lockup">
           <div className="brand-accent" aria-hidden="true" />
           <div className="brand-text">
-            <h1>DCC-MCP Gateway</h1>
-            <p className="brand-tag">Admin console</p>
+            <h1>Admin Dashboard</h1>
+            <p className="brand-tag">DCC-MCP Gateway</p>
           </div>
         </div>
         <div className="nav-links">
@@ -1791,7 +2014,7 @@ function App() {
             <input
               type="search"
               className="list-search-input"
-              placeholder={activePanel === 'stats' ? 'Filter top tools / instances…' : 'Search this panel…'}
+              placeholder={activePanel === 'stats' ? 'Filter top tools / instances…' : activePanel === 'openapi' ? 'Filter operations, paths, tags…' : 'Search this panel…'}
               value={listSearch}
               onChange={(e) => setListSearch(e.target.value)}
               aria-label="Filter current panel"
@@ -1801,6 +2024,7 @@ function App() {
                 {activePanel === 'activity' ? `${filteredActivity.length} / ${activity.length}` : ''}
                 {activePanel === 'instances' ? `${filteredWorkers.length} / ${workers.length}` : ''}
                 {activePanel === 'tools' ? `${filteredTools.length} / ${tools.length}` : ''}
+                {activePanel === 'openapi' ? `${filteredOpenApiOperations.length} / ${openApiOperations.length}` : ''}
                 {activePanel === 'tasks' ? `${filteredTasks.length} / ${tasks.length}` : ''}
                 {activePanel === 'calls' ? `${filteredCalls.length} / ${calls.length}` : ''}
                 {activePanel === 'traces' ? `${filteredTraces.length} / ${traces.length}` : ''}
@@ -2056,6 +2280,34 @@ function App() {
                 </div>
               )))}
             <button className="refresh-btn" type="button" onClick={fetchTools}>Refresh</button>
+          </section>
+        )}
+
+        {activePanel === 'openapi' && (
+          <section className="panel active openapi-panel" data-panel="openapi">
+            <PanelHeader
+              title="OpenAPI Inspector"
+              meta="Gateway REST contract behind the MCP tool surface."
+              action={(
+                <>
+                  <a className="refresh-btn" href={gatewayDocsHref()} target="_blank" rel="noopener noreferrer">Open Reference</a>
+                  <a className="refresh-btn" href={gatewayOpenApiHref()} target="_blank" rel="noopener noreferrer">Spec JSON</a>
+                  <button className="refresh-btn" type="button" disabled={!openApiRaw} onClick={() => void copyText(openApiRaw, 'OpenAPI spec JSON')}>Copy JSON</button>
+                  <button className="refresh-btn" type="button" disabled={!openApiRaw} onClick={() => {
+                    downloadJsonText('dcc-mcp-gateway-openapi.json', openApiRaw);
+                    setCopiedNotice('Downloaded OpenAPI spec JSON');
+                    window.setTimeout(() => setCopiedNotice(''), 1800);
+                  }}>Download JSON</button>
+                  <button className="refresh-btn" type="button" onClick={fetchOpenApi}>Refresh</button>
+                </>
+              )}
+            />
+            <StatusLine text={copiedNotice || updatedAt.openapi} error={errors.openapi} />
+            <OpenApiInspectorPanel
+              spec={openApiSpec}
+              raw={openApiRaw}
+              operations={filteredOpenApiOperations}
+            />
           </section>
         )}
 

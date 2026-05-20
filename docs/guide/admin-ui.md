@@ -128,16 +128,20 @@ Example REST request:
 Admin list rows expose `transport`, `agent_id`, `agent_name`, `agent_model`,
 span counts, payload byte counts, slowest span summaries, and a `links` object
 with absolute URLs for the Admin trace page, trace API, debug bundle, issue
-report JSON, and stats page. Full trace rows include `agent_context`,
-request/response payload previews, a span waterfall, and the same copyable
-links. These URLs are designed to be pasted directly into an LLM evaluation
-prompt or another agent's debugging task.
+report JSON, OpenAPI Inspector, OpenAPI spec, OpenAPI docs, and stats page.
+Full trace rows include `agent_context`, request/response payload previews, a
+span waterfall, and the same copyable links. These URLs are designed to be
+pasted directly into an LLM evaluation prompt or another agent's debugging task.
 
 The Admin UI also exposes a standalone `GET /admin/api/issue-report/{request_id}`
 export. It returns a GitHub-attachable JSON report with a summary,
 `github_issue` title/body template, absolute links, and the correlated debug
 bundle. Review request/response payloads for secrets or proprietary scene paths
 before uploading the JSON to a public issue.
+
+The front-end product name is **Admin Dashboard**. The lower REST/OpenAPI
+contract view is named **OpenAPI Inspector** and reads the live gateway
+`/v1/openapi.json` contract while linking to the Scalar reference at `/docs`.
 
 ## API Response Shapes
 
@@ -221,6 +225,9 @@ before uploading the JSON to a public issue.
         "trace_api_url": "http://127.0.0.1:9765/admin/api/traces/req-123",
         "debug_bundle_url": "http://127.0.0.1:9765/admin/api/debug-bundle/req-123",
         "issue_report_url": "http://127.0.0.1:9765/admin/api/issue-report/req-123",
+        "openapi_inspector_url": "http://127.0.0.1:9765/admin?panel=openapi",
+        "openapi_spec_url": "http://127.0.0.1:9765/v1/openapi.json",
+        "openapi_docs_url": "http://127.0.0.1:9765/docs",
         "stats_url": "http://127.0.0.1:9765/admin?panel=stats"
       },
       "success": false,
@@ -250,6 +257,9 @@ before uploading the JSON to a public issue.
         "trace_api_url": "http://127.0.0.1:9765/admin/api/traces/req-123",
         "debug_bundle_url": "http://127.0.0.1:9765/admin/api/debug-bundle/req-123",
         "issue_report_url": "http://127.0.0.1:9765/admin/api/issue-report/req-123",
+        "openapi_inspector_url": "http://127.0.0.1:9765/admin?panel=openapi",
+        "openapi_spec_url": "http://127.0.0.1:9765/v1/openapi.json",
+        "openapi_docs_url": "http://127.0.0.1:9765/docs",
         "stats_url": "http://127.0.0.1:9765/admin?panel=stats"
       },
       "total_ms": 48,
@@ -277,6 +287,9 @@ before uploading the JSON to a public issue.
     "trace_api_url": "http://127.0.0.1:9765/admin/api/traces/req-123",
     "debug_bundle_url": "http://127.0.0.1:9765/admin/api/debug-bundle/req-123",
     "issue_report_url": "http://127.0.0.1:9765/admin/api/issue-report/req-123",
+    "openapi_inspector_url": "http://127.0.0.1:9765/admin?panel=openapi",
+    "openapi_spec_url": "http://127.0.0.1:9765/v1/openapi.json",
+    "openapi_docs_url": "http://127.0.0.1:9765/docs",
     "stats_url": "http://127.0.0.1:9765/admin?panel=stats"
   },
   "total_ms": 48,
@@ -296,7 +309,10 @@ before uploading the JSON to a public issue.
   "related_activity": [],
   "links": {
     "debug_bundle_url": "http://127.0.0.1:9765/admin/api/debug-bundle/req-123",
-    "issue_report_url": "http://127.0.0.1:9765/admin/api/issue-report/req-123"
+    "issue_report_url": "http://127.0.0.1:9765/admin/api/issue-report/req-123",
+    "openapi_inspector_url": "http://127.0.0.1:9765/admin?panel=openapi",
+    "openapi_spec_url": "http://127.0.0.1:9765/v1/openapi.json",
+    "openapi_docs_url": "http://127.0.0.1:9765/docs"
   },
   "hints": []
 }
@@ -320,7 +336,10 @@ before uploading the JSON to a public issue.
   },
   "links": {
     "admin_trace_url": "http://127.0.0.1:9765/admin?panel=traces&trace=req-123",
-    "issue_report_url": "http://127.0.0.1:9765/admin/api/issue-report/req-123"
+    "issue_report_url": "http://127.0.0.1:9765/admin/api/issue-report/req-123",
+    "openapi_inspector_url": "http://127.0.0.1:9765/admin?panel=openapi",
+    "openapi_spec_url": "http://127.0.0.1:9765/v1/openapi.json",
+    "openapi_docs_url": "http://127.0.0.1:9765/docs"
   },
   "debug_bundle": { "request_id": "req-123" }
 }
@@ -386,10 +405,11 @@ Set `DCC_MCP_GATEWAY_AUDIT_DIR` to enable durable JSONL persistence. The gateway
 The HTML dashboard includes:
 - **Debug Workbench**: the default first screen combines health, instances, calls, traces, stats, and warning logs so operators can triage gateway failures without jumping between panels.
 - **Gateway owner identity**: the Health and Debug panels show the current `__gateway__` sentinel label from `gateway_name` / `DCC_MCP_GATEWAY_NAME`, plus any challenger candidates.
-- **Left navigation**: Debug / Activity / Health / Instances / Tools / Tasks / Calls / Traces / Stats / Skill paths / Logs panels
+- **Left navigation**: Debug / Activity / Health / Instances / Tools / Tasks / OpenAPI Inspector / Calls / Traces / Stats / Skill paths / Logs panels
 - **Auto-refresh**: Panels poll their JSON endpoints every 5 seconds
 - **DCC icons**: common hosts such as Maya/Autodesk, Blender, GIMP, Inkscape, Krita, Unity, and Unreal get recognizable icons, with a safe fallback for custom hosts.
 - **Worker cards**: Per-instance status, heartbeat, and routing metadata
+- **OpenAPI Inspector**: summarizes the gateway `/v1/openapi.json` contract, filters REST operations by method/path/tag, and exposes copy/download links for the raw JSON plus `/docs`.
 - **Calls table**: request ids, error previews, and trace-detail links; DCC is displayed from the resolved backend slug when available, otherwise from explicit call arguments such as `dcc` / `dcc_type`.
 - **Trace drill-down**: `/admin/api/traces/{request_id}` exposes the full waterfall, optional agent/caller context, and bounded/redacted input/output payloads for one call.
 - **Logs panel**: groups normalized `contention`, `file`, and `audit` rows so operators can correlate routing events, rolling files, and tool calls in one timeline. File log reads are bounded to recent files and tail slices so the admin API does not scan unbounded historical logs.

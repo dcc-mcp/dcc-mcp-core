@@ -488,6 +488,16 @@ mod admin_tests {
                 .as_str()
                 .is_some_and(|url| url.ends_with("/admin/api/issue-report/req-task"))
         );
+        assert!(
+            bundle_body["links"]["openapi_inspector_url"]
+                .as_str()
+                .is_some_and(|url| url.ends_with("/admin?panel=openapi"))
+        );
+        assert!(
+            bundle_body["links"]["openapi_spec_url"]
+                .as_str()
+                .is_some_and(|url| url.ends_with("/v1/openapi.json"))
+        );
 
         let (report_status, report_body) = body_json(router, "/api/issue-report/req-task").await;
         assert_eq!(report_status, StatusCode::OK);
@@ -507,6 +517,11 @@ mod admin_tests {
             report_body["links"]["issue_report_url"]
                 .as_str()
                 .is_some_and(|url| url.ends_with("/admin/api/issue-report/req-task"))
+        );
+        assert!(
+            report_body["links"]["openapi_docs_url"]
+                .as_str()
+                .is_some_and(|url| url.ends_with("/docs"))
         );
     }
 
