@@ -32,4 +32,6 @@ tools:
           default: {}
     read_only: false
     idempotent: false
+    execution: sync
+    affinity: any
     source_file: scripts/run_chain.py

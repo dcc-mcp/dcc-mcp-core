@@ -14,8 +14,8 @@ curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/
 powershell -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
 ```
 
-需要固定版本时，设置 `DCC_MCP_VERSION=v0.17.4`，或给安装脚本传
-`--version v0.17.4`。
+需要固定版本时，设置 `DCC_MCP_VERSION=v0.17.17`，或给安装脚本传
+`--version v0.17.17`。
 
 | 二进制 | 角色 | 源码位置 |
 |---|---|---|

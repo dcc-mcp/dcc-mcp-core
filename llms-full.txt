@@ -60,7 +60,7 @@ sub-crates; the root crate re-exports everything into a single `dcc_mcp_core._co
 extension module. The Python package `dcc_mcp_core` re-exports the supported public APIs from `_core`
 and pure-Python helpers.
 
-**37 workspace members** (36 functional crates + `workspace-hack`; root `Cargo.toml` is source of truth) — **Zero runtime Python dependencies** — install with just `pip install dcc-mcp-core`.
+**41 workspace packages** (40 functional packages + `workspace-hack`; root `Cargo.toml` is source of truth) — **Zero runtime Python dependencies** — install with just `pip install dcc-mcp-core`.
 
 ```
 crates/
@@ -686,6 +686,11 @@ all_deps = expand_transitive_dependencies(skills, "my-skill")  # -> List[str] na
 ```
 
 ### SKILL.md Format
+
+Authoring helpers:
+
+- `skills/dcc-skills-creator/` scaffolds and validates DCC-MCP skill packages.
+- `skills/dcc-mcp-skill-developer/` is an instruction-only guide for agents building or modernizing DCC adapter skills. It distills dcc-mcp-maya, dcc-mcp-blender, and dcc-mcp-3dsmax patterns for server wiring, `SKILL.md` / `tools.yaml`, execution and affinity metadata, host differences, and testing/VRS coverage.
 
 ```yaml
 ---

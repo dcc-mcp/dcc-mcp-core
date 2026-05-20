@@ -200,13 +200,13 @@ By default, the installers download the latest GitHub Release asset:
 Pin a release or install somewhere custom:
 
 ```bash
-export DCC_MCP_VERSION=v0.17.7
+export DCC_MCP_VERSION=v0.17.17
 export DCC_MCP_INSTALL_DIR="$HOME/bin"
 curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | bash
 ```
 
 ```powershell
-$env:DCC_MCP_VERSION = "v0.17.7"
+$env:DCC_MCP_VERSION = "v0.17.17"
 $env:DCC_MCP_INSTALL_DIR = "$env:USERPROFILE\bin"
 irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex
 ```
@@ -407,7 +407,9 @@ Automated tools for optimising and validating Maya scenes.
 tools:
   - name: cleanup
     description: "Remove unused nodes from the active scene."
-    script: scripts/cleanup.py
+    source_file: scripts/cleanup.py
+    execution: sync
+    affinity: main
     annotations:
       read_only_hint: false
       destructive_hint: true
@@ -418,7 +420,9 @@ tools:
 
   - name: validate
     description: "Validate scene integrity after cleanup."
-    script: scripts/validate.mel
+    source_file: scripts/validate.mel
+    execution: sync
+    affinity: main
     annotations:
       read_only_hint: true
 ```
@@ -550,7 +554,7 @@ tools/list response (Maya session, nothing loaded yet):
 
 ## Architecture Overview — 38 Workspace Members
 
-`dcc-mcp-core` is organised as a **Rust workspace of 38 members** (37 functional crates + `workspace-hack`). Most library crates compile into the native Python extension (`_core`) via PyO3 / maturin, while operator-facing crates such as `dcc-mcp-cli`, `dcc-mcp-server`, and tunnel binaries also ship as release assets. The root `Cargo.toml` is the source of truth for membership. Selected crates:
+`dcc-mcp-core` is organised as a **Rust workspace of 41 packages** (40 functional packages + `workspace-hack`). Most library crates compile into the native Python extension (`_core`) via PyO3 / maturin, while operator-facing crates such as `dcc-mcp-cli`, `dcc-mcp-server`, and tunnel binaries also ship as release assets. The root `Cargo.toml` is the source of truth for membership. Selected crates:
 
 | Crate | Responsibility | Key Types |
 |---|---|---|

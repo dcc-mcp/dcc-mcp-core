@@ -222,10 +222,8 @@ def find_entry_function(script_path: str) -> Optional[str]:
 
     # Look for any function with **kwargs
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef):
-            for arg in node.args.kwarg:
-                if arg:
-                    return node.name
+        if isinstance(node, ast.FunctionDef) and node.args.kwarg is not None:
+            return node.name
 
     return None
 

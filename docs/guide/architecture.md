@@ -52,7 +52,7 @@ DCC-MCP-Core is a Rust workspace with Python bindings via PyO3. It provides:
 
 - **Zero third-party runtime dependencies** in the Rust core
 - **Optional Python bindings** via PyO3 for DCC integration
-- **38 workspace members** (37 functional crates + `workspace-hack`) for selective dependency usage; root `Cargo.toml` is the source of truth
+- **41 workspace packages** (40 functional packages + `workspace-hack`) for selective dependency usage; root `Cargo.toml` is the source of truth
 
 ## Crate Structure
 

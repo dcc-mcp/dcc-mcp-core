@@ -188,13 +188,13 @@ powershell -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/
 也可以固定版本或自定义安装目录：
 
 ```bash
-export DCC_MCP_VERSION=v0.17.7
+export DCC_MCP_VERSION=v0.17.17
 export DCC_MCP_INSTALL_DIR="$HOME/bin"
 curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | bash
 ```
 
 ```powershell
-$env:DCC_MCP_VERSION = "v0.17.7"
+$env:DCC_MCP_VERSION = "v0.17.17"
 $env:DCC_MCP_INSTALL_DIR = "$env:USERPROFILE\bin"
 irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex
 ```
@@ -395,7 +395,9 @@ metadata:
 tools:
   - name: cleanup
     description: "清理活跃场景中的未使用节点。"
-    script: scripts/cleanup.py
+    source_file: scripts/cleanup.py
+    execution: sync
+    affinity: main
     annotations:
       read_only_hint: false
       destructive_hint: true
@@ -406,7 +408,9 @@ tools:
 
   - name: validate
     description: "清理后校验场景完整性。"
-    script: scripts/validate.mel
+    source_file: scripts/validate.mel
+    execution: sync
+    affinity: main
     annotations:
       read_only_hint: true
 ```
@@ -536,9 +540,9 @@ tools/list 响应（Maya 会话、尚未加载任何 skill）：
 
 ---
 
-## 架构总览 —— 38 个 Workspace 成员
+## 架构总览 —— 41 个 Workspace 包
 
-`dcc-mcp-core` 组织为 **38 个成员的 Rust workspace**（37 个功能 crate + `workspace-hack`）。大多数库 crate 通过 PyO3 / maturin 编译进原生 Python 扩展（`_core`），`dcc-mcp-cli`、`dcc-mcp-server` 与 tunnel 二进制也会作为面向用户的 release assets 发布。根 `Cargo.toml` 是 workspace 成员列表的唯一来源。精选 crate：
+`dcc-mcp-core` 组织为 **41 个包的 Rust workspace**（40 个功能包 + `workspace-hack`）。大多数库 crate 通过 PyO3 / maturin 编译进原生 Python 扩展（`_core`），`dcc-mcp-cli`、`dcc-mcp-server` 与 tunnel 二进制也会作为面向用户的 release assets 发布。根 `Cargo.toml` 是 workspace 成员列表的唯一来源。精选 crate：
 
 | Crate | 职责 | 关键类型 |
 |---|---|---|

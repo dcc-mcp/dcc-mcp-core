@@ -12,7 +12,7 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/loo
 ```
 
 这会从最新 GitHub Release 安装独立的 `dcc-mcp-cli` 控制面二进制。
-需要固定版本时设置 `DCC_MCP_VERSION=v0.17.4`。
+需要固定版本时设置 `DCC_MCP_VERSION=v0.17.17`。
 
 ### 从 PyPI 安装
 
@@ -176,7 +176,7 @@ vx just lint
 - 查看 [Skills 技能包](/zh/guide/skills) 的零代码脚本注册
 - 使用 [MCP HTTP 服务器](/zh/api/http) 暴露工具给 AI 客户端
 - 查看 [传输层](/zh/guide/transport) 的 DCC 通信
-- 了解 [架构设计](/zh/guide/architecture) — 38 个 workspace 成员的 Rust 工作区结构
+- 了解 [架构设计](/zh/guide/architecture) — 41 个 workspace 包的 Rust 工作区结构
 - 学习 [技能作用域与策略](/zh/guide/skill-scopes-policies) — 基于信任的技能管理
 
 ## 使用 DccServerBase 构建 DCC 适配器

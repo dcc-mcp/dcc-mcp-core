@@ -13,6 +13,7 @@ Official skills and starter templates for the dcc-mcp-core ecosystem.
 | [`dcc-rest-gateway`](dcc-rest-gateway/) | Control any DCC via gateway REST only (no MCP); instance inventory and zero-instance setup | `skills/dcc-rest-gateway/` |
 | [`dcc-cli-gateway`](dcc-cli-gateway/) | Control any DCC through `dcc-mcp-cli`; instance inventory, search, describe, and call workflow | `skills/dcc-cli-gateway/` |
 | [`dcc-skills-creator`](dcc-skills-creator/) | Create, validate, and scaffold DCC skills | `skills/dcc-skills-creator/` |
+| [`dcc-mcp-skill-developer`](dcc-mcp-skill-developer/) | Guide agents through DCC-MCP adapter skill design, implementation, and testing | `skills/dcc-mcp-skill-developer/` |
 
 ### Install and validate
 
@@ -53,7 +54,7 @@ handle.shutdown()
 Then use the skill's tools:
 - `create_skill` — scaffold a new skill directory
 - `validate_skill_dir` — validate a skill against the spec
-- `skill_template` — get a full SKILL.md template
+- `skill_template` — get a current SKILL.md template
 
 ### Manual Template Copy
 
@@ -61,7 +62,7 @@ Then use the skill's tools:
 # 1. Copy a template
 cp -r skills/templates/minimal my-skills/my-new-skill
 
-# 2. Edit SKILL.md (name, description, dcc, tags, tools)
+# 2. Edit SKILL.md (name, description, metadata.dcc-mcp.*) and tools.yaml
 $EDITOR my-skills/my-new-skill/SKILL.md
 
 # 3. Write your script(s) in scripts/
@@ -164,14 +165,17 @@ Infrastructure skills do not require `on-failure` chains (they ARE the fallback)
 
 ### depends declaration
 
-Domain skills **must** declare `depends:` for every infrastructure skill they chain to via
-`next-tools.on-failure`. This ensures the infrastructure skill is loaded before the domain
-skill is activated:
+Domain skills **must** declare dependencies for every infrastructure skill they chain to via
+`next-tools.on-failure`. Use `metadata.dcc-mcp.depends` for short lists or
+`metadata/depends.md` for longer dependency notes. This ensures the infrastructure skill is
+loaded before the domain skill is activated:
 
 ```yaml
-depends:
-  - dcc-diagnostics   # required for on-failure chains
-  - usd-tools         # required if any tool exports/validates USD
+metadata:
+  dcc-mcp:
+    depends:
+      - dcc-diagnostics   # required for on-failure chains
+      - usd-tools         # required if any tool exports/validates USD
 ```
 
 ## Skill Anatomy
@@ -195,7 +199,6 @@ my-skill/
 | `license` | No | License identifier (agentskills.io spec, e.g. `MIT`, `Apache-2.0`) |
 | `compatibility` | No | Environment requirements, max 500 chars (agentskills.io spec, e.g. `"Maya 2024+, Python 3.7+"`) |
 | `allowed-tools` | No | Pre-approved tools, space-separated (agentskills.io spec, **experimental**, e.g. `Bash(git:*) Read`) |
-| `depends` | No | List of skill names this skill requires |
 | `metadata` | No | Namespaced key-value metadata (agentskills.io spec). Use `dcc-mcp.*` keys for dcc-mcp-core extensions. |
 | `metadata.dcc-mcp.dcc` | No | Target DCC (`maya`, `blender`, `python`, etc.) |
 | `metadata.dcc-mcp.version` | No | Semantic version (default `1.0.0`) |
@@ -203,6 +206,7 @@ my-skill/
 | `metadata.dcc-mcp.search-hint` | No | Extra keywords for `search_skills()` matching |
 | `metadata.dcc-mcp.tags` | No | Comma-separated discovery tags |
 | `metadata.dcc-mcp.tools` | No | Sibling file path for tool declarations (e.g. `tools.yaml`) |
+| `metadata.dcc-mcp.depends` | No | List of skill names this skill requires; use `metadata/depends.md` for longer dependency notes |
 
 ### Description Quality Guide
 
@@ -285,6 +289,7 @@ skills shipped in `examples/skills/`, or browse them directly:
 | [ffmpeg-media](../examples/skills/ffmpeg-media/) | infrastructure | python | External binary deps |
 | [imagemagick-tools](../examples/skills/imagemagick-tools/) | infrastructure | python | OpenClaw install |
 | [git-automation](../examples/skills/git-automation/) | infrastructure | python | OpenClaw format |
+| [dcc-mcp-skill-developer](dcc-mcp-skill-developer/) | infrastructure | python | Adapter skill authoring guidance |
 | [maya-geometry](../examples/skills/maya-geometry/) | domain | maya | Tool groups |
 | [maya-pipeline](../examples/skills/maya-pipeline/) | domain | maya | Dependencies + metadata/ |
 
