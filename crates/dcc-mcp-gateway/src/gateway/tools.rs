@@ -2,7 +2,7 @@
 
 use serde_json::{Value, json};
 
-use super::state::{GatewayState, entry_to_json};
+use super::state::GatewayState;
 use dcc_mcp_jsonrpc::coerce_tool_arguments_object;
 use dcc_mcp_transport::discovery::types::ServiceKey;
 
@@ -59,7 +59,7 @@ pub async fn tool_acquire_instance(gs: &GatewayState, args: &Value) -> Result<St
     serde_json::to_string_pretty(&json!({
         "success": true,
         "message": format!("Leased {dcc_type} instance {}", entry.instance_id),
-        "instance": entry_to_json(&entry, gs.stale_timeout),
+        "instance": gs.instance_json(&entry),
     }))
     .map_err(|e| e.to_string())
 }
@@ -99,7 +99,7 @@ pub async fn tool_release_instance(gs: &GatewayState, args: &Value) -> Result<St
                 "message": "This instance has no active pool lease in the shared registry.",
                 "hint": "Call acquire_dcc_instance first (same lease_owner string you plan to pass to release). release_dcc_instance only clears pool metadata in services.json — it does not close Maya or drop MCP connections.",
                 "instance_id": entry.instance_id.to_string(),
-                "instance": entry_to_json(&entry, gs.stale_timeout),
+                "instance": gs.instance_json(&entry),
             }))
             .unwrap_or_else(|_| "no_active_lease".to_string()));
         }
@@ -135,7 +135,7 @@ pub async fn tool_release_instance(gs: &GatewayState, args: &Value) -> Result<St
     serde_json::to_string_pretty(&json!({
         "success": true,
         "message": format!("Released lease for instance {}", released.instance_id),
-        "instance": entry_to_json(&released, gs.stale_timeout),
+        "instance": gs.instance_json(&released),
     }))
     .map_err(|e| e.to_string())
 }

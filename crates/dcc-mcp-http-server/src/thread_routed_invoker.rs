@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use dcc_mcp_actions::ToolDispatcher;
+use dcc_mcp_actions::{DispatchExecutionContext, ToolDispatcher, with_execution_context};
 use dcc_mcp_skill_rest::{
     CallOutcome, ServiceError, ServiceErrorKind, ToolInvoker, ToolSlug,
     dispatch_error_to_service_error,
@@ -70,18 +70,25 @@ impl ToolInvoker for ThreadRoutedInvoker {
         // panics. Hop to a plain OS thread and block on the host-bridge
         // runtime so `run_on_main_thread` can `.await` the bridge mpsc.
         let bridge_runtime = self.bridge_runtime.clone();
+        let host_dispatcher_attached = true;
         let dispatch_result = std::thread::scope(|scope| {
             let join = scope.spawn(move || {
-                bridge_runtime
-                    .block_on(dispatch_action_with_thread_routing(
-                        dispatcher.as_ref().clone(),
-                        Some(&executor),
-                        &action,
-                        params,
-                        affinity,
-                        enforce,
-                    ))
-                    .map_err(dispatch_error_to_service_error)
+                with_execution_context(
+                    DispatchExecutionContext {
+                        host_dispatcher_attached: Some(host_dispatcher_attached),
+                    },
+                    || {
+                        bridge_runtime.block_on(dispatch_action_with_thread_routing(
+                            dispatcher.as_ref().clone(),
+                            Some(&executor),
+                            &action,
+                            params,
+                            affinity,
+                            enforce,
+                        ))
+                    },
+                )
+                .map_err(dispatch_error_to_service_error)
             });
             join.join().map_err(|_| {
                 ServiceError::new(

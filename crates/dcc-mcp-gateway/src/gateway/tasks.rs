@@ -545,6 +545,9 @@ pub(crate) async fn start_gateway_tasks(
     // When `admin` feature is disabled the AuditMiddleware block is compiled
     // out, so `gw_state` is never mutated.  With `admin` enabled the block
     // below reassigns `gw_state.middleware_chain`, so `mut` is required.
+    let instance_diagnostics =
+        Arc::new(crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new());
+
     #[cfg_attr(not(feature = "admin"), allow(unused_mut))]
     let mut gw_state = GatewayState {
         registry: registry.clone(),
@@ -571,6 +574,7 @@ pub(crate) async fn start_gateway_tasks(
         #[cfg(feature = "prometheus")]
         gateway_metrics: gateway_metrics.clone(),
         middleware_chain: Arc::new(middleware_chain),
+        instance_diagnostics: instance_diagnostics.clone(),
     };
 
     // ── Admin UI state (#772, #864) ────────────────────────────────────────
@@ -773,6 +777,7 @@ pub(crate) async fn start_gateway_tasks(
         registry.clone(),
         http_client.clone(),
         contention_log.clone(),
+        instance_diagnostics,
         health_cfg,
     );
 

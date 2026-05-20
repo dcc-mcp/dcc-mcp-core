@@ -19,7 +19,6 @@ use crate::gateway::capability::RefreshReason;
 use crate::gateway::capability_service::refresh_all_live_backends;
 use crate::gateway::event_log::{ContendEvent, EventKind};
 use crate::gateway::resilience::{self as gw_resilience, gateway_limits};
-use crate::gateway::state::entry_to_json;
 use dcc_mcp_db::env::ENV_DCC_MCP_LOG_DIR;
 use dcc_mcp_db::read_gateway_log_dir_rows_recent;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};
@@ -110,7 +109,7 @@ pub async fn handle_admin_instances(
             registry_view || !stale
         })
         .map(|e| {
-            let mut v = entry_to_json(&e, s.gateway.stale_timeout);
+            let mut v = s.gateway.instance_json(&e);
             match v["status"].as_str() {
                 Some("available" | "busy") => live_count += 1,
                 Some("stale") => {}

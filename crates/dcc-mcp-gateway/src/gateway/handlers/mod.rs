@@ -18,7 +18,7 @@ pub(crate) use tokio_stream::wrappers::BroadcastStream;
 pub(crate) use super::super::gateway::is_newer_version;
 pub(crate) use super::aggregator;
 pub(crate) use super::proxy::proxy_request;
-pub(crate) use super::state::{GatewayState, ResolveInstanceError, entry_to_json};
+pub(crate) use super::state::{GatewayState, ResolveInstanceError};
 pub(crate) use dcc_mcp_jsonrpc::negotiate_protocol_version;
 pub(crate) use dcc_mcp_transport::discovery::types::ServiceStatus;
 

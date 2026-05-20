@@ -7,7 +7,7 @@
 
 use serde_json::{Value, json};
 
-use super::super::state::{GatewayState, entry_to_json};
+use super::super::state::GatewayState;
 use super::util::{parse_query, split_uri};
 
 /// URI for the gateway-native process / instance health summary.
@@ -103,7 +103,7 @@ pub async fn build_payload(
                     } else {
                         unhealthy_count += 1;
                     }
-                    entry_to_json(e, gs.stale_timeout)
+                    gs.instance_json(e)
                 })
                 .collect();
 
