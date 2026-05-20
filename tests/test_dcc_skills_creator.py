@@ -14,6 +14,7 @@ import pytest
 
 from conftest import REPO_ROOT
 import dcc_mcp_core
+from dcc_mcp_core._server.inprocess_executor import run_skill_script
 
 SKILL_DIR = REPO_ROOT / "skills" / "dcc-skills-creator"
 CREATE_SKILL_SCRIPT = SKILL_DIR / "scripts" / "create_skill.py"
@@ -69,6 +70,19 @@ def test_create_skill_example_tool_runs_successfully(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
+    assert payload["success"] is True
+    assert payload["message"] == "Hello from example_tool!"
+
+
+def test_create_skill_example_tool_runs_with_inprocess_executor(tmp_path: Path) -> None:
+    module = _load_module(CREATE_SKILL_SCRIPT, "dcc_skills_creator_create_skill_inprocess")
+    generated = Path(module.create_skill("python-inprocess-tool", str(tmp_path)))
+
+    payload = run_skill_script(
+        str(generated / "scripts" / "example_tool.py"),
+        {"unused_param": "accepted"},
+    )
+
     assert payload["success"] is True
     assert payload["message"] == "Hello from example_tool!"
 
