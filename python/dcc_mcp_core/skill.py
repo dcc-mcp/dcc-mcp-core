@@ -51,6 +51,7 @@ You can also call the helpers directly without the decorator:
 from __future__ import annotations
 
 import functools
+import json
 from pathlib import Path
 import sys
 import traceback
@@ -58,8 +59,6 @@ from typing import Any
 from typing import Callable
 from typing import Dict
 from typing import TypeVar
-
-from dcc_mcp_core import json_dumps
 
 __all__ = [
     "get_bundled_skill_paths",
@@ -652,9 +651,9 @@ def _serialize_result(result: ResultDict) -> str:
 
     # Pure-Python fallback: handles any extra keys in context gracefully.
     try:
-        return json_dumps(result, ensure_ascii=False)
+        return json.dumps(result, ensure_ascii=False)
     except (TypeError, ValueError) as exc:
-        return json_dumps(
+        return json.dumps(
             skill_error("Failed to serialize result", repr(exc)),
             ensure_ascii=False,
         )
