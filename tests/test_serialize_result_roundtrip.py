@@ -526,6 +526,37 @@ class TestSkillSerializeResult:
         parsed = json.loads(output)
         assert parsed["message"] == "fallback"
 
+    def test_serialize_result_fallback_prefers_core_json_dumps(self, monkeypatch):
+        """When validation is unavailable but json_dumps is importable, prefer it over stdlib JSON."""
+        import builtins
+        import importlib
+
+        original_import = builtins.__import__
+        calls = []
+
+        def mock_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "dcc_mcp_core._core":
+                raise ImportError("simulated missing validation path")
+            return original_import(name, globals, locals, fromlist, level)
+
+        def fake_json_dumps(payload, **kwargs):
+            calls.append((payload, kwargs))
+            return json.dumps(payload, **kwargs)
+
+        import dcc_mcp_core.skill as skill_mod
+
+        importlib.reload(skill_mod)
+
+        with monkeypatch.context() as mp:
+            mp.setattr(builtins, "__import__", mock_import)
+            mp.setattr(dcc_mcp_core, "json_dumps", fake_json_dumps, raising=False)
+            result = {"success": True, "message": "fast", "prompt": None, "error": None, "context": {}}
+
+            output = skill_mod._serialize_result(result)
+
+        assert calls
+        assert json.loads(output)["message"] == "fast"
+
 
 # ---------------------------------------------------------------------------
 # Cross-format compatibility check
