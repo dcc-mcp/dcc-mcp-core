@@ -773,6 +773,7 @@ async fn bind_remote_gateway_listener(
 struct CooperativeYieldFallbackDetail {
     error_kind: Option<String>,
     message: String,
+    optional_capability_miss: bool,
 }
 
 async fn request_cooperative_yield(
@@ -781,6 +782,16 @@ async fn request_cooperative_yield(
     own_ver: &str,
     gw_ver: &str,
 ) {
+    if !should_probe_cooperative_yield(own_ver, gw_ver) {
+        tracing::debug!(
+            own = %own_ver,
+            gateway = %gw_ver,
+            fallback = "polling",
+            "Skipping cooperative yield probe because challenger is not newer than the current gateway"
+        );
+        return;
+    }
+
     let body = serde_json::json!({ "challenger_version": own_ver }).to_string();
     match client
         .post(yield_url)
@@ -799,14 +810,25 @@ async fn request_cooperative_yield(
             let status = resp.status();
             let body_text = resp.text().await.unwrap_or_default();
             let detail = cooperative_yield_fallback_detail(status, &body_text);
-            tracing::info!(
-                status = %status,
-                gateway = %gw_ver,
-                error_kind = detail.error_kind.as_deref().unwrap_or("unknown"),
-                fallback = "polling",
-                "Cooperative yield unavailable or refused ({}) — polling for port",
-                detail.message
-            );
+            if detail.optional_capability_miss {
+                tracing::debug!(
+                    status = %status,
+                    gateway = %gw_ver,
+                    error_kind = detail.error_kind.as_deref().unwrap_or("unknown"),
+                    fallback = "polling",
+                    "Cooperative yield optional capability unavailable ({}) — polling for port",
+                    detail.message
+                );
+            } else {
+                tracing::info!(
+                    status = %status,
+                    gateway = %gw_ver,
+                    error_kind = detail.error_kind.as_deref().unwrap_or("unknown"),
+                    fallback = "polling",
+                    "Cooperative yield unavailable or refused ({}) — polling for port",
+                    detail.message
+                );
+            }
         }
         Err(err) => {
             tracing::debug!(
@@ -819,6 +841,10 @@ async fn request_cooperative_yield(
     }
 }
 
+fn should_probe_cooperative_yield(own_ver: &str, gw_ver: &str) -> bool {
+    gw_ver.trim().is_empty() || is_newer_version(own_ver, gw_ver)
+}
+
 fn cooperative_yield_fallback_detail(
     status: reqwest::StatusCode,
     body: &str,
@@ -829,6 +855,13 @@ fn cooperative_yield_fallback_detail(
         .and_then(|value| value.pointer("/error/kind"))
         .and_then(serde_json::Value::as_str)
         .map(str::to_owned);
+    let optional_capability_miss = matches!(
+        error_kind.as_deref(),
+        Some("optional-capability-unsupported")
+    ) || matches!(
+        status,
+        reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::METHOD_NOT_ALLOWED
+    );
     let message = parsed
         .as_ref()
         .and_then(|value| value.pointer("/error/message"))
@@ -853,6 +886,7 @@ fn cooperative_yield_fallback_detail(
     CooperativeYieldFallbackDetail {
         error_kind,
         message,
+        optional_capability_miss,
     }
 }
 
@@ -872,6 +906,7 @@ mod tests {
             Some("optional-capability-unsupported")
         );
         assert_eq!(detail.message, "poll instead");
+        assert!(detail.optional_capability_miss);
     }
 
     #[test]
@@ -879,10 +914,19 @@ mod tests {
         let detail = cooperative_yield_fallback_detail(reqwest::StatusCode::NOT_FOUND, "");
 
         assert_eq!(detail.error_kind, None);
+        assert!(detail.optional_capability_miss);
         assert!(
             detail.message.contains("optional capability miss"),
             "legacy detail should mark the fallback as optional: {}",
             detail.message
         );
+    }
+
+    #[test]
+    fn cooperative_yield_probe_skips_known_same_or_newer_gateway() {
+        assert!(should_probe_cooperative_yield("0.17.8", ""));
+        assert!(should_probe_cooperative_yield("0.17.9", "0.17.8"));
+        assert!(!should_probe_cooperative_yield("0.17.8", "0.17.8"));
+        assert!(!should_probe_cooperative_yield("0.17.7", "0.17.8"));
     }
 }
