@@ -60,6 +60,8 @@ Inspect them by reading `gateway://instances`:
 | Winner bound the port | `Won gateway election` (with `version`) | `INFO` |
 | Challenger waiting | `Challenger: port still taken (attempt N/M)` | `DEBUG` |
 | Cooperative yield accepted | `Cooperative yield accepted — waiting for port to free up` | `INFO` |
+| Optional cooperative yield fallback | `Cooperative yield optional capability unavailable (...) — polling for port` | `DEBUG` |
+| Yield probe skipped for same-or-older challenger | `Skipping cooperative yield probe because challenger is not newer than the current gateway` | `DEBUG` |
 | Newer sentinel detected | `Gateway: newer-version sentinel detected — initiating voluntary yield` | `INFO` |
 
 ---
