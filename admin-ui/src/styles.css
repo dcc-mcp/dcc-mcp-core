@@ -552,6 +552,46 @@ td .refresh-btn:hover {
   font-weight: 750;
 }
 
+.contract-row {
+  align-items: center;
+  border-bottom: 1px solid var(--border-faint);
+  color: var(--slate-medium);
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 0.55rem 0;
+}
+
+.contract-row:last-child {
+  border-bottom: 0;
+}
+
+.contract-row span:first-child {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.contract-row strong {
+  color: var(--slate-dark);
+  font-size: 0.86rem;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+
+.contract-row em {
+  color: var(--slate-light);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-style: normal;
+  overflow-wrap: anywhere;
+}
+
+.openapi-backend-links {
+  text-align: right;
+  white-space: nowrap;
+}
+
 .debug-row {
   align-items: center;
   background: transparent;
@@ -1720,6 +1760,16 @@ button.linkish:disabled {
 
   .debug-row {
     grid-template-columns: minmax(3.8rem, auto) minmax(4.6rem, auto) minmax(0, 1fr);
+  }
+
+  .contract-row {
+    align-items: start;
+    grid-template-columns: 1fr;
+  }
+
+  .openapi-backend-links {
+    text-align: left;
+    white-space: normal;
   }
 
   .mini-sparkline {
