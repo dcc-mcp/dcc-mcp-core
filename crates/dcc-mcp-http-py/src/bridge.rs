@@ -258,6 +258,8 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     super::output_dynamic::register(m)?;
     // ResourceRegistry PyO3 handle (issue #730)
     super::resources_handle::register(m)?;
+    // Session/job observability events (issue #1078)
+    super::session_events::register(m)?;
     // PromptRegistry PyO3 handle (issue #792)
     super::prompts_handle::register(m)?;
     m.add_function(wrap_pyfunction!(py_create_skill_server, m)?)?;
