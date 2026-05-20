@@ -58,19 +58,12 @@ pub(crate) fn spawn_health_check_task(
                 futures::future::join_all(entries.iter().map(|e| {
                     let url = format!("http://{}:{}/mcp", e.host, e.port);
                     async move {
-                        let report = crate::gateway::backend_client::probe_readiness(
+                        crate::gateway::backend_client::probe_mcp_readiness_once(
                             client,
                             &url,
                             Duration::from_secs(5),
                         )
-                        .await;
-                        let outcome = crate::gateway::backend_client::probe_mcp_readiness(
-                            client,
-                            &url,
-                            Duration::from_secs(5),
-                        )
-                        .await;
-                        (report, outcome)
+                        .await
                     }
                 }))
                 .await
