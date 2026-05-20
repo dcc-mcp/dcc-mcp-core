@@ -190,6 +190,14 @@ type OpenApiOperationRow = {
   parameterCount: number;
 };
 
+type OpenApiSource = {
+  label: string;
+  specUrl: string;
+  docsUrl: string;
+  inspectorUrl: string;
+  kind: 'gateway' | 'instance';
+};
+
 type ActivityEvent = {
   event_id: string;
   timestamp: string;
@@ -397,6 +405,16 @@ function gatewayOpenApiHref(): string {
   return `${window.location.origin}/v1/openapi.json`;
 }
 
+function gatewayOpenApiSource(): OpenApiSource {
+  return {
+    label: 'Gateway REST API',
+    specUrl: gatewayOpenApiHref(),
+    docsUrl: gatewayDocsHref(),
+    inspectorUrl: fullHrefForAdmin('openapi'),
+    kind: 'gateway',
+  };
+}
+
 function isPanelId(value: string | null | undefined): value is Panel {
   return value != null && value !== '' && PANEL_ID_SET.has(value as Panel);
 }
@@ -430,6 +448,28 @@ function hrefForAdmin(panel: Panel, extra?: Record<string, string | undefined>):
 
 function fullHrefForAdmin(panel: Panel, extra?: Record<string, string | undefined>): string {
   return new URL(hrefForAdmin(panel, extra), window.location.origin).toString();
+}
+
+function openApiInspectorHref(specUrl: string, docsUrl: string, label: string): string {
+  return hrefForAdmin('openapi', { spec: specUrl, docs: docsUrl, label });
+}
+
+function readOpenApiSourceFromUrl(): OpenApiSource {
+  const u = new URL(window.location.href);
+  const spec = u.searchParams.get('spec')?.trim();
+  if (!spec) {
+    return gatewayOpenApiSource();
+  }
+  const docs = u.searchParams.get('docs')?.trim();
+  const label = u.searchParams.get('label')?.trim();
+  const specUrl = new URL(spec, window.location.origin).toString();
+  return {
+    label: label || 'Instance REST API',
+    specUrl,
+    docsUrl: docs ? new URL(docs, window.location.origin).toString() : specUrl.replace(/\/v1\/openapi\.json(?:[?#].*)?$/, '/docs'),
+    inspectorUrl: fullHrefForAdmin('openapi', { spec: specUrl, docs: docs ?? undefined, label: label ?? undefined }),
+    kind: 'instance',
+  };
 }
 
 function traceLinks(requestId: string, provided?: AdminLinks): AdminLinks {
@@ -489,13 +529,25 @@ function isLoopbackHost(hostname: string): boolean {
   return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]';
 }
 
-function backendAccessUrls(mcpUrl: string): { origin: string; mcp: string; docs: string } {
+function backendAccessUrls(mcpUrl: string): { origin: string; mcp: string; docs: string; openapi: string } {
   const u = new URL(mcpUrl);
   if (isLoopbackHost(u.hostname)) {
     u.hostname = window.location.hostname;
   }
   const origin = u.origin;
-  return { origin, mcp: u.toString(), docs: `${origin}/docs` };
+  return { origin, mcp: u.toString(), docs: `${origin}/docs`, openapi: `${origin}/v1/openapi.json` };
+}
+
+function workerOpenApiSource(worker: WorkerRow): OpenApiSource {
+  const urls = backendAccessUrls(worker.mcp_url);
+  const label = `${worker.display_name || worker.dcc_type} ${worker.instance_id.slice(0, 8)}`;
+  return {
+    label,
+    specUrl: urls.openapi,
+    docsUrl: urls.docs,
+    inspectorUrl: new URL(openApiInspectorHref(urls.openapi, urls.docs, label), window.location.origin).toString(),
+    kind: 'instance',
+  };
 }
 
 function BackendAccessUrl({ mcpUrl }: { mcpUrl: string }) {
@@ -548,6 +600,23 @@ async function apiJson<T>(path: string): Promise<T> {
   }
 }
 
+function BackendOpenApiLinks({ worker }: { worker: WorkerRow }) {
+  try {
+    const source = workerOpenApiSource(worker);
+    return (
+      <span className="mcp-backend-links openapi-backend-links">
+        <a href={source.inspectorUrl}>Inspector</a>
+        {' · '}
+        <a href={source.specUrl} target="_blank" rel="noopener noreferrer">spec</a>
+        {' · '}
+        <a href={source.docsUrl} target="_blank" rel="noopener noreferrer">docs</a>
+      </span>
+    );
+  } catch {
+    return <span className="mono-path">{worker.mcp_url}</span>;
+  }
+}
+
 async function issueReportJsonText(requestId: string): Promise<string> {
   const payload = await apiJson<unknown>(`/issue-report/${encodeURIComponent(requestId)}`);
   return JSON.stringify(payload, null, 2);
@@ -556,6 +625,11 @@ async function issueReportJsonText(requestId: string): Promise<string> {
 function issueReportFilename(requestId: string): string {
   const safe = requestId.replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '') || 'request';
   return `dcc-mcp-issue-report-${safe}.json`;
+}
+
+function openApiSpecFilename(label: string): string {
+  const safe = label.replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '') || 'gateway';
+  return `dcc-mcp-openapi-${safe}.json`;
 }
 
 function downloadJsonText(filename: string, text: string): void {
@@ -570,11 +644,11 @@ function downloadJsonText(filename: string, text: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-async function fetchOpenApiSpecText(): Promise<{ spec: OpenApiSpec; raw: string }> {
+async function fetchOpenApiSpecText(specUrl: string): Promise<{ spec: OpenApiSpec; raw: string }> {
   const ctrl = new AbortController();
   const tid = window.setTimeout(() => ctrl.abort(), ADMIN_FETCH_TIMEOUT_MS);
   try {
-    const response = await fetch(gatewayOpenApiHref(), { signal: ctrl.signal });
+    const response = await fetch(specUrl, { signal: ctrl.signal });
     if (!response.ok) {
       throw new Error(`${response.status} ${response.statusText}`);
     }
@@ -1169,10 +1243,12 @@ function OpenApiInspectorPanel({
   spec,
   raw,
   operations,
+  source,
 }: {
   spec: OpenApiSpec | null;
   raw: string;
   operations: OpenApiOperationRow[];
+  source: OpenApiSource;
 }) {
   if (!spec) {
     return <p className="empty">No OpenAPI document loaded.</p>;
@@ -1181,15 +1257,15 @@ function OpenApiInspectorPanel({
   const tagCount = new Set(operations.flatMap((operation) => operation.tags)).size || (spec.tags?.length ?? 0);
   const methods = Array.from(new Set(operations.map((operation) => operation.method))).sort();
   const specLinks: AdminLinks = {
-    openapi_inspector_url: fullHrefForAdmin('openapi'),
-    openapi_spec_url: gatewayOpenApiHref(),
-    openapi_docs_url: gatewayDocsHref(),
+    openapi_inspector_url: source.inspectorUrl,
+    openapi_spec_url: source.specUrl,
+    openapi_docs_url: source.docsUrl,
   };
 
   return (
     <div className="openapi-inspector">
       <div className="metric-grid compact">
-        <MetricTile label="OpenAPI" value={spec.openapi ?? '-'} detail={spec.info?.title ?? 'Gateway REST contract'} />
+        <MetricTile label="OpenAPI" value={spec.openapi ?? '-'} detail={source.label} />
         <MetricTile label="Version" value={spec.info?.version ?? '-'} />
         <MetricTile label="Paths" value={pathsCount} />
         <MetricTile label="Operations" value={operations.length} />
@@ -1255,6 +1331,7 @@ function App() {
   const [traces, setTraces] = useState<TraceRow[]>([]);
   const [stats, setStats] = useState<StatsPayload | null>(null);
   const [statsRange, setStatsRange] = useState(() => readStatsRangeFromUrl());
+  const [openApiSource, setOpenApiSource] = useState<OpenApiSource>(() => readOpenApiSourceFromUrl());
   const [openApiSpec, setOpenApiSpec] = useState<OpenApiSpec | null>(null);
   const [openApiRaw, setOpenApiRaw] = useState('');
   const [workers, setWorkers] = useState<WorkerRow[]>([]);
@@ -1687,15 +1764,15 @@ function App() {
 
   const fetchOpenApi = useCallback(async () => {
     try {
-      const { spec, raw } = await fetchOpenApiSpecText();
+      const { spec, raw } = await fetchOpenApiSpecText(openApiSource.specUrl);
       const operations = flattenOpenApiOperations(spec);
       setOpenApiSpec(spec);
       setOpenApiRaw(raw);
-      markUpdated('openapi', `${operations.length} operation(s) — ${new Date().toLocaleTimeString()}`);
+      markUpdated('openapi', `${openApiSource.label}: ${operations.length} operation(s) — ${new Date().toLocaleTimeString()}`);
     } catch (error) {
       markError('openapi', error);
     }
-  }, [markError, markUpdated]);
+  }, [markError, markUpdated, openApiSource]);
 
   const fetchCalls = useCallback(async () => {
     try {
@@ -1866,11 +1943,14 @@ function App() {
   }, []);
 
   const pushAdminUrl = useCallback(
-    (panel: Panel, opts?: { traceId?: string | null; range?: string | null; replace?: boolean }) => {
+    (panel: Panel, opts?: { traceId?: string | null; range?: string | null; openApiSource?: OpenApiSource | null; replace?: boolean }) => {
       const u = new URL(window.location.href);
       u.searchParams.set('panel', panel);
       u.searchParams.delete('range');
       u.searchParams.delete('trace');
+      u.searchParams.delete('spec');
+      u.searchParams.delete('docs');
+      u.searchParams.delete('label');
       if (panel === 'stats') {
         const r = opts?.range;
         if (r && STATS_RANGE_IDS.has(r)) {
@@ -1879,6 +1959,11 @@ function App() {
       }
       if (panel === 'traces' && opts?.traceId) {
         u.searchParams.set('trace', opts.traceId);
+      }
+      if (panel === 'openapi' && opts?.openApiSource && opts.openApiSource.kind === 'instance') {
+        u.searchParams.set('spec', opts.openApiSource.specUrl);
+        u.searchParams.set('docs', opts.openApiSource.docsUrl);
+        u.searchParams.set('label', opts.openApiSource.label);
       }
       const next = `${u.pathname}${u.search}`;
       const cur = `${window.location.pathname}${window.location.search}`;
@@ -1895,16 +1980,20 @@ function App() {
   );
 
   const goToPanel = useCallback(
-    (panel: Panel, opts?: { traceId?: string; range?: string; replace?: boolean }) => {
+    (panel: Panel, opts?: { traceId?: string; range?: string; openApiSource?: OpenApiSource; replace?: boolean }) => {
       let effectiveRange = statsRange;
       if (opts?.range && STATS_RANGE_IDS.has(opts.range)) {
         effectiveRange = opts.range;
         setStatsRange(opts.range);
       }
+      if (panel === 'openapi') {
+        setOpenApiSource(opts?.openApiSource ?? gatewayOpenApiSource());
+      }
       setActivePanel(panel);
       pushAdminUrl(panel, {
         traceId: opts?.traceId,
         range: panel === 'stats' ? effectiveRange : null,
+        openApiSource: panel === 'openapi' ? (opts?.openApiSource ?? gatewayOpenApiSource()) : null,
         replace: opts?.replace,
       });
       if (panel === 'traces' && opts?.traceId) {
@@ -1922,6 +2011,7 @@ function App() {
       const panel = readPanelFromUrl();
       setActivePanel(panel);
       setStatsRange(readStatsRangeFromUrl());
+      setOpenApiSource(readOpenApiSourceFromUrl());
       const tid = readTraceIdFromUrl();
       if (panel === 'traces' && tid) {
         void fetchTraceInto(tid, 'trace');
@@ -1936,6 +2026,7 @@ function App() {
 
   useEffect(() => {
     const panel = readPanelFromUrl();
+    setOpenApiSource(readOpenApiSourceFromUrl());
     const tid = readTraceIdFromUrl();
     if (panel === 'traces' && tid) {
       void fetchTraceInto(tid, 'trace');
@@ -2109,6 +2200,22 @@ function App() {
                 ))}
               </div>
 
+              <div className="debug-card debug-wide">
+                <div className="debug-card-head">
+                  <h3>OpenAPI Entry Points</h3>
+                  <button className="linkish" type="button" onClick={() => goToPanel('openapi')}>Gateway spec</button>
+                </div>
+                {workers.length === 0 ? <p className="empty">No instance OpenAPI endpoints available yet.</p> : workers.slice(0, 8).map((worker) => (
+                  <div key={worker.instance_id} className="contract-row">
+                    <span>
+                      <strong>{worker.display_name}</strong>
+                      <em>{worker.dcc_type} · {compactId(worker.instance_id)}</em>
+                    </span>
+                    <BackendOpenApiLinks worker={worker} />
+                  </div>
+                ))}
+              </div>
+
               <div className="debug-card">
                 <div className="debug-card-head">
                   <h3>Event Warnings</h3>
@@ -2242,6 +2349,7 @@ function App() {
                       <span>Memory</span><span>{formatBytes(worker.memory_bytes)}</span>
                       <span>Access URL</span><span><BackendAccessUrl mcpUrl={worker.mcp_url} /></span>
                       <span>Endpoints</span><span><McpBackendLinks mcpUrl={worker.mcp_url} /></span>
+                      <span>OpenAPI</span><span><BackendOpenApiLinks worker={worker} /></span>
                     </div>
                   </div>
                 ))
@@ -2290,14 +2398,17 @@ function App() {
               meta="Gateway REST contract behind the MCP tool surface."
               action={(
                 <>
-                  <a className="refresh-btn" href={gatewayDocsHref()} target="_blank" rel="noopener noreferrer">Open Reference</a>
-                  <a className="refresh-btn" href={gatewayOpenApiHref()} target="_blank" rel="noopener noreferrer">Spec JSON</a>
+                  <a className="refresh-btn" href={openApiSource.docsUrl} target="_blank" rel="noopener noreferrer">Open Reference</a>
+                  <a className="refresh-btn" href={openApiSource.specUrl} target="_blank" rel="noopener noreferrer">Spec JSON</a>
                   <button className="refresh-btn" type="button" disabled={!openApiRaw} onClick={() => void copyText(openApiRaw, 'OpenAPI spec JSON')}>Copy JSON</button>
                   <button className="refresh-btn" type="button" disabled={!openApiRaw} onClick={() => {
-                    downloadJsonText('dcc-mcp-gateway-openapi.json', openApiRaw);
+                    downloadJsonText(openApiSpecFilename(openApiSource.label), openApiRaw);
                     setCopiedNotice('Downloaded OpenAPI spec JSON');
                     window.setTimeout(() => setCopiedNotice(''), 1800);
                   }}>Download JSON</button>
+                  {openApiSource.kind === 'instance' ? (
+                    <button className="refresh-btn" type="button" onClick={() => goToPanel('openapi', { replace: true })}>Gateway spec</button>
+                  ) : null}
                   <button className="refresh-btn" type="button" onClick={fetchOpenApi}>Refresh</button>
                 </>
               )}
@@ -2307,6 +2418,7 @@ function App() {
               spec={openApiSpec}
               raw={openApiRaw}
               operations={filteredOpenApiOperations}
+              source={openApiSource}
             />
           </section>
         )}
