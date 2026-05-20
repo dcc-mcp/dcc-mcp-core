@@ -37,6 +37,18 @@ jobs:
       tag_name: ${{ steps.decide.outputs.tag_name }}
       version: ${{ steps.decide.outputs.version }}
     steps:
+      - uses: actions/checkout@v6
+        if: github.event_name == 'push'
+
+      - name: Classify push release state
+        id: push-preflight
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: python scripts/ci/release_push_preflight.py
+
       - name: Validate manual release backfill inputs
         if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
         env:
@@ -55,7 +67,9 @@ jobs:
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
 
       - uses: googleapis/release-please-action@v5
-        if: github.event_name != 'workflow_dispatch' || inputs.release_tag == ''
+        if: >-
+          (github.event_name != 'workflow_dispatch' || inputs.release_tag == '') &&
+          steps.push-preflight.outputs.skip_release_please != 'true'
         id: release
         with:
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
@@ -70,11 +84,18 @@ jobs:
           RP_RELEASE_CREATED: ${{ steps.release.outputs.release_created }}
           RP_TAG_NAME: ${{ steps.release.outputs.tag_name }}
           RP_VERSION: ${{ steps.release.outputs.version }}
+          PREFLIGHT_RELEASE_CREATED: ${{ steps.push-preflight.outputs.release_created }}
+          PREFLIGHT_TAG_NAME: ${{ steps.push-preflight.outputs.tag_name }}
+          PREFLIGHT_VERSION: ${{ steps.push-preflight.outputs.version }}
         run: |
           if [ -n "$BACKFILL_TAG" ]; then
             release_created=true
             tag_name="$BACKFILL_TAG"
             version="$BACKFILL_VERSION"
+          elif [ "$PREFLIGHT_RELEASE_CREATED" = "true" ]; then
+            release_created=true
+            tag_name="$PREFLIGHT_TAG_NAME"
+            version="$PREFLIGHT_VERSION"
           else
             release_created="${RP_RELEASE_CREATED:-false}"
             tag_name="$RP_TAG_NAME"

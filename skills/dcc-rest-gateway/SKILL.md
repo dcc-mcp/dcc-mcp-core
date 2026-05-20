@@ -6,7 +6,7 @@ description: >-
   For any agent host (OpenClaw, ClawHub, Cursor, Claude, custom HTTP clients): inventory
   online instances, obtain user consent before setup when none are registered,
   then search, describe, and call tools via POST /v1/*.
-license: MIT
+license: MIT-0
 compatibility: Requires curl on PATH; DCC-MCP gateway reachable at DCC_MCP_GATEWAY_URL (default http://127.0.0.1:9765)
 allowed-tools: Bash Read
 metadata:

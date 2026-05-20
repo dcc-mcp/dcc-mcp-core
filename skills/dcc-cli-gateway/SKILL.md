@@ -8,7 +8,7 @@ description: >-
   and invoke tools without speaking MCP directly. If dcc-mcp-cli is missing,
   ask for consent, download it from GitHub Releases, and fall back to Python
   stdlib REST only if download fails.
-license: MIT
+license: MIT-0
 compatibility: Cross-platform Windows/macOS/Linux. Prefers dcc-mcp-cli on PATH; can download release asset from GitHub; Python 3.7+ stdlib REST fallback. DCC-MCP gateway reachable at DCC_MCP_BASE_URL (default http://127.0.0.1:9765)
 allowed-tools: Bash Read
 metadata:
