@@ -867,6 +867,10 @@ tbody tr:hover td {
   gap: 0.45rem;
 }
 
+.trace-copy-actions .refresh-btn {
+  margin-top: 0;
+}
+
 .trace-kicker {
   color: var(--cloud-dark);
   font-family: var(--font-mono);

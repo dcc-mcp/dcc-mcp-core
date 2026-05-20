@@ -59,6 +59,11 @@ impl AdminLinkBuilder {
                 "{}{}/api/debug-bundle/{}",
                 self.origin, self.admin_base, encoded
             ),
+            "issue_report_url": format!(
+                "{}{}/api/issue-report/{}",
+                self.origin, self.admin_base, encoded
+            ),
+            "stats_url": self.panel_url("stats"),
         })
     }
 
@@ -100,6 +105,21 @@ fn encode_url_component(value: &str) -> String {
         }
     }
     out
+}
+
+fn issue_report_filename(request_id: &str) -> String {
+    let mut safe = String::with_capacity(request_id.len());
+    for ch in request_id.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == '.' {
+            safe.push(ch);
+        } else {
+            safe.push('-');
+        }
+    }
+    if safe.is_empty() {
+        safe.push_str("request");
+    }
+    format!("dcc-mcp-issue-report-{safe}.json")
 }
 
 /// `GET /admin` — serve the inline HTML dashboard.
@@ -639,6 +659,38 @@ pub async fn handle_admin_debug_bundle(
     }
 }
 
+/// `GET /admin/api/issue-report/{request_id}` — export a GitHub-attachable JSON report.
+pub async fn handle_admin_issue_report(
+    State(s): State<AdminState>,
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+    axum::extract::Path(request_id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let links = AdminLinkBuilder::from_request(&headers, &uri);
+    match crate::gateway::admin::activity::build_debug_bundle(&s, &request_id).await {
+        Some(mut bundle) => {
+            let request_links = links.request_links(&request_id);
+            bundle["links"] = request_links.clone();
+            let report = issue_report_json(&request_id, bundle, request_links);
+            let mut response = (StatusCode::OK, Json(report)).into_response();
+            if let Ok(value) = HeaderValue::from_str(&format!(
+                "attachment; filename=\"{}\"",
+                issue_report_filename(&request_id)
+            )) {
+                response
+                    .headers_mut()
+                    .insert(header::CONTENT_DISPOSITION, value);
+            }
+            response
+        }
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "issue report not found", "request_id": request_id })),
+        )
+            .into_response(),
+    }
+}
+
 /// `GET /admin/api/stats?range=1h|24h|7d` — aggregated call statistics (Phase 3).
 ///
 /// Computes on-demand from the [`TraceLog`] ring buffer: call count, success
@@ -845,6 +897,60 @@ fn trace_detail_json(trace: &DispatchTrace, links: Option<Value>) -> Value {
         value["links"] = links;
     }
     value
+}
+
+fn issue_report_json(request_id: &str, bundle: Value, links: Value) -> Value {
+    let trace = bundle.get("trace").cloned().unwrap_or(Value::Null);
+    let audit = bundle.get("audit").cloned().unwrap_or(Value::Null);
+    let tool = trace
+        .get("tool_slug")
+        .or_else(|| trace.get("method"))
+        .or_else(|| audit.get("tool"))
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let dcc_type = trace
+        .get("dcc_type")
+        .or_else(|| audit.get("dcc_type"))
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let status = trace
+        .get("ok")
+        .and_then(Value::as_bool)
+        .or_else(|| audit.get("success").and_then(Value::as_bool))
+        .map(|ok| if ok { "ok" } else { "failed" })
+        .unwrap_or("unknown");
+    let total_ms = trace
+        .get("total_ms")
+        .or_else(|| audit.get("duration_ms"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let generated_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let title = format!("DCC-MCP request {request_id} {status}: {tool}");
+    let body_template = format!(
+        "## Summary\n\nRequest `{request_id}` returned `{status}` for `{tool}` on `{dcc_type}`.\n\n## Attached data\n\nUpload this JSON export to the issue so maintainers can inspect trace spans, audit metadata, payload previews, and links.\n\n## Notes\n\nReview the JSON for secrets or proprietary scene paths before uploading."
+    );
+
+    json!({
+        "schema_version": "dcc-mcp.admin.issue-report.v1",
+        "report_type": "github_issue_debug_json",
+        "generated_at": generated_at,
+        "request_id": request_id,
+        "summary": {
+            "title": title,
+            "status": status,
+            "tool": tool,
+            "dcc_type": dcc_type,
+            "total_ms": total_ms,
+        },
+        "github_issue": {
+            "title": title,
+            "body_template": body_template,
+            "suggested_labels": ["bug", "admin-telemetry"],
+        },
+        "links": links,
+        "privacy_note": "Review request and response payloads before uploading; this export may include scene paths, prompts, tokens, or proprietary data.",
+        "debug_bundle": bundle,
+    })
 }
 
 fn dispatch_trace_to_admin_row(t: &DispatchTrace, links: Option<AdminLinkBuilder>) -> Value {
