@@ -50,13 +50,12 @@ server = create_skill_server(
 ### Create a new skill
 
 ```python
-from dcc_mcp_core import create_skill
-
-# Scaffold a minimal skill
-create_skill("my-awesome-skill", "/path/to/skills/dir")
-
-# Scaffold with DCC target
-create_skill("maya-rigging", "/path/to/skills/dir", dcc="maya")
+# Call the loaded MCP tool:
+# dcc_skills_creator__create_skill(
+#     name="maya-rigging",
+#     parent_dir="/path/to/skills/dir",
+#     dcc="maya",
+# )
 ```
 
 ### Validate an existing skill
@@ -75,9 +74,8 @@ else:
 ### Get a SKILL.md template
 
 ```python
-from dcc_mcp_core import skill_template
-
-print(skill_template())  # Full template with all fields
+# Call the loaded MCP tool:
+# dcc_skills_creator__skill_template()
 ```
 
 ## Skill Directory Structure

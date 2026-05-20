@@ -2,7 +2,7 @@
 
 The Skills system registers scripts (Python, MEL, MaxScript, BAT, Shell, etc.) as MCP-discoverable tools with **zero Python glue code**. `SKILL.md` follows the agentskills.io V1.0 frontmatter shape; dcc-mcp-core extensions live under `metadata.dcc-mcp.*` and point to sibling files such as `tools.yaml` and `groups.yaml`. Keep extension data out of top-level `SKILL.md` keys so generic agentskills.io readers can still parse the package.
 
-For **adapter maintenance** (I/O tool copy, `recipes` / `skill-reference-docs`, gateway-friendly descriptions), use [skill-maintenance.md](skill-maintenance.md). In-tree reference skills: `python/dcc_mcp_core/skills/dcc-diagnostics`, `python/dcc_mcp_core/skills/workflow`.
+For **adapter maintenance** (I/O tool copy, `recipes` / `skill-reference-docs`, gateway-friendly descriptions), use [skill-maintenance.md](skill-maintenance.md). For agent-facing adapter skill development guidance, load `skills/dcc-mcp-skill-developer/`. In-tree reference skills: `python/dcc_mcp_core/skills/dcc-diagnostics`, `python/dcc_mcp_core/skills/workflow`.
 
 ## Quick Start
 
@@ -670,12 +670,14 @@ if __name__ == "__main__":
 
 ## Dependency Resolution
 
-Skills can declare dependencies on other skills using the `depends:` field in SKILL.md:
+Skills can declare dependencies on other skills using `metadata.dcc-mcp.depends` in SKILL.md or the sibling `metadata/depends.md` file:
 
 ```yaml
 ---
 name: maya-animation
-depends: ["maya-geometry"]
+metadata:
+  dcc-mcp:
+    depends: ["maya-geometry"]
 ---
 ```
 
@@ -1168,7 +1170,7 @@ A top-level `next-tools:` block on SKILL.md is rejected by the loader
 | `version: 1.0.0`                      | `metadata["dcc-mcp.version"]`                | string                |
 | `tags: [a, b]`                        | `metadata["dcc-mcp.tags"]`                   | comma-separated string |
 | `search-hint: "…"`                    | `metadata["dcc-mcp.search-hint"]`            | string                |
-| `depends: [x, y]`                     | `metadata["dcc-mcp.depends"]`                | comma-separated string |
+| `depends: [x, y]`                     | `metadata["dcc-mcp.depends"]`                | list or comma-separated string |
 | `products: [maya]`                    | `metadata["dcc-mcp.products"]`               | comma-separated string |
 | `allow_implicit_invocation`           | `metadata["dcc-mcp.allow-implicit-invocation"]` | `"true"` / `"false"` |
 | `external_deps: {...}`                | `metadata["dcc-mcp.external-deps"]`          | JSON string           |
@@ -1314,16 +1316,24 @@ The validator checks the following categories:
 
 ### Using the `dcc-skills-creator` Skill
 
-The `examples/skills/dcc-skills-creator/` skill provides scaffolding and validation helpers:
+The `skills/dcc-skills-creator/` skill provides scaffolding and validation helpers as MCP tools:
 
 ```python
-# Scaffold a new skill directory
-from dcc_mcp_core.skill import create_skill
+# Scaffold a new skill directory via the loaded MCP tool:
+# dcc_skills_creator__create_skill(name="my-new-skill", parent_dir="/path/to/skills", dcc="maya")
+# Creates: my-new-skill/SKILL.md, tools.yaml, scripts/, metadata/
 
-skill_path = create_skill("my-new-skill", "/path/to/skills", dcc="maya")
-# Creates: my-new-skill/SKILL.md, scripts/, metadata/
-
-# Get a full SKILL.md template
-from dcc_mcp_core.skill import skill_template
-print(skill_template())
+# Get a current SKILL.md template via:
+# dcc_skills_creator__skill_template()
 ```
+
+### Using the `dcc-mcp-skill-developer` Skill
+
+The `skills/dcc-mcp-skill-developer/` skill is an instruction-only companion for agents that are building or modernizing DCC-MCP adapter skills. Load it before changing `SKILL.md`, `tools.yaml`, adapter skill taxonomies, or host-specific scripts in repositories such as `dcc-mcp-maya`, `dcc-mcp-blender`, `dcc-mcp-3dsmax`, or future DCC adapters.
+
+It points agents to focused references for:
+
+- Server and adapter composition patterns.
+- `SKILL.md`, `tools.yaml`, and script authoring checklists.
+- Host differences across Maya, Blender, 3ds Max, Houdini, bridge-based hosts, and custom studio tools.
+- Unit, lint, gateway, E2E, and VRS validation choices.

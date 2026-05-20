@@ -28,6 +28,8 @@ tools:
           default: 5000
     read_only: true
     idempotent: false
+    execution: sync
+    affinity: any
     source_file: scripts/screenshot.py
 
   - name: audit_log
@@ -48,6 +50,8 @@ tools:
           default: 50
     read_only: true
     idempotent: true
+    execution: sync
+    affinity: any
     source_file: scripts/audit_log.py
 
   - name: tool_metrics
@@ -68,6 +72,8 @@ tools:
           default: 20
     read_only: true
     idempotent: true
+    execution: sync
+    affinity: any
     source_file: scripts/tool_metrics.py
 
   - name: process_status
@@ -80,6 +86,8 @@ tools:
           description: "Check status of a specific process ID. If omitted, returns summary of all tracked processes."
     read_only: true
     idempotent: true
+    execution: sync
+    affinity: any
     source_file: scripts/process_status.py
 
   - name: error_report
@@ -114,6 +122,8 @@ tools:
           default: 20
     read_only: true
     idempotent: true
+    execution: sync
+    affinity: any
     next-tools:
       on-success:
         - dcc_diagnostics__audit_log

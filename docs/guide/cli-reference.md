@@ -16,8 +16,8 @@ curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/
 powershell -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
 ```
 
-Pin a release by setting `DCC_MCP_VERSION=v0.17.4` or passing
-`--version v0.17.4` to the install script.
+Pin a release by setting `DCC_MCP_VERSION=v0.17.17` or passing
+`--version v0.17.17` to the install script.
 
 | Binary | Role | Source |
 |---|---|---|
