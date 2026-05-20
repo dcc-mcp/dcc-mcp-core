@@ -13,8 +13,8 @@
 //!   keyed by URI, with content-addressed hashing (SHA-256) so duplicate
 //!   bytes collapse to the same URI.
 //! - [`FilesystemArtefactStore`] — default persistent backend that writes
-//!   each artefact as `<workspace>/.dcc-mcp/artefacts/<sha256>.bin` with a
-//!   JSON sidecar carrying the `FileRef` metadata.
+//!   each artefact body as `<workspace>/.dcc-mcp/artefacts/<sha256>.bin`
+//!   with one or more JSON sidecars carrying logical `FileRef` metadata.
 //! - [`InMemoryArtefactStore`] — for tests and short-lived processes.
 //!
 //! The `artefact://` URI scheme is wired into the MCP Resources primitive
@@ -260,6 +260,35 @@ impl ArtefactPutOptions {
         let ttl_secs = self.ttl_secs.or(default_ttl_secs);
         file_ref.expires_at = ttl_secs.and_then(expires_at_from_ttl);
     }
+
+    fn has_logical_metadata(&self) -> bool {
+        self.mime.is_some()
+            || self.display_name.is_some()
+            || self.producer_job_id.is_some()
+            || self.tool_call_id.is_some()
+            || self.session_id.is_some()
+            || self.correlation_id.is_some()
+            || self.ttl_secs.is_some()
+            || !self.metadata.is_null()
+    }
+
+    fn logical_sidecar_key(&self) -> Option<String> {
+        if !self.has_logical_metadata() {
+            return None;
+        }
+        let payload = serde_json::json!({
+            "mime": self.mime.as_deref(),
+            "display_name": self.display_name.as_deref(),
+            "producer_job_id": self.producer_job_id,
+            "tool_call_id": self.tool_call_id.as_deref(),
+            "session_id": self.session_id.as_deref(),
+            "correlation_id": self.correlation_id.as_deref(),
+            "ttl_secs": self.ttl_secs,
+            "metadata": &self.metadata,
+        });
+        let bytes = serde_json::to_vec(&payload).unwrap_or_default();
+        Some(hash_bytes_sha256(&bytes)[..16].to_string())
+    }
 }
 
 /// Configurable local artefact store bounds.
@@ -394,6 +423,40 @@ fn apply_filter(fr: &FileRef, filter: &ArtefactFilter) -> bool {
     true
 }
 
+fn total_unique_body_bytes(refs: &[FileRef]) -> u64 {
+    let mut seen: HashMap<&str, u64> = HashMap::new();
+    for fr in refs {
+        seen.entry(fr.uri.as_str())
+            .or_insert(fr.size_bytes.unwrap_or(0));
+    }
+    seen.values().copied().sum()
+}
+
+fn make_file_ref(
+    uri: String,
+    hex: &str,
+    size: u64,
+    options: &ArtefactPutOptions,
+    default_ttl_secs: Option<u64>,
+) -> FileRef {
+    let mut file_ref = FileRef {
+        uri,
+        mime: None,
+        size_bytes: Some(size),
+        display_name: None,
+        digest: Some(format!("sha256:{hex}")),
+        producer_job_id: None,
+        tool_call_id: None,
+        session_id: None,
+        correlation_id: None,
+        created_at: Utc::now(),
+        expires_at: None,
+        metadata: serde_json::Value::Null,
+    };
+    options.apply_to(&mut file_ref, default_ttl_secs);
+    file_ref
+}
+
 fn expires_at_from_ttl(ttl_secs: u64) -> Option<DateTime<Utc>> {
     let ttl = i64::try_from(ttl_secs).ok()?;
     Utc::now().checked_add_signed(Duration::seconds(ttl))
@@ -408,12 +471,13 @@ fn expires_at_from_ttl(ttl_secs: u64) -> Option<DateTime<Utc>> {
 /// ```text
 /// <root>/
 ///   <hex>.bin    # raw body
-///   <hex>.json   # serialized FileRef sidecar
+///   <hex>.json   # primary FileRef sidecar
+///   <hex>.<key>.json # additional logical FileRef sidecars for same bytes
 /// ```
 ///
-/// Duplicate content (same SHA-256) reuses the existing files and returns
-/// the existing sidecar's `FileRef`. Metadata supplied by the caller is
-/// ignored for duplicates — first writer wins.
+/// Duplicate content (same SHA-256) reuses the existing body file. Logical
+/// metadata such as session/tool/correlation ids is stored as separate sidecars
+/// so filters can still find every producer that emitted identical bytes.
 pub struct FilesystemArtefactStore {
     root: PathBuf,
     limits: ArtefactStoreLimits,
@@ -454,8 +518,46 @@ impl FilesystemArtefactStore {
         self.root.join(format!("{hex}.json"))
     }
 
-    fn write_sidecar(&self, file_ref: &FileRef, hex: &str) -> ArtefactResult<()> {
-        let path = self.sidecar_path(hex);
+    fn sidecar_path_for_key(&self, hex: &str, key: Option<&str>) -> PathBuf {
+        match key {
+            Some(key) => self.root.join(format!("{hex}.{key}.json")),
+            None => self.sidecar_path(hex),
+        }
+    }
+
+    fn sidecar_paths_for_hex(&self, hex: &str) -> ArtefactResult<Vec<PathBuf>> {
+        let mut out = Vec::new();
+        let entries = match fs::read_dir(&self.root) {
+            Ok(e) => e,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(out),
+            Err(e) => return Err(e.into()),
+        };
+        let primary = format!("{hex}.json");
+        let logical_prefix = format!("{hex}.");
+        for entry in entries {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("json") {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            if name == primary || name.starts_with(&logical_prefix) {
+                out.push(path);
+            }
+        }
+        out.sort();
+        Ok(out)
+    }
+
+    fn write_sidecar(
+        &self,
+        file_ref: &FileRef,
+        hex: &str,
+        key: Option<&str>,
+    ) -> ArtefactResult<()> {
+        let path = self.sidecar_path_for_key(hex, key);
         let tmp = path.with_extension("json.tmp");
         {
             let mut f = fs::File::create(&tmp)?;
@@ -467,13 +569,33 @@ impl FilesystemArtefactStore {
         Ok(())
     }
 
-    fn read_sidecar(&self, hex: &str) -> ArtefactResult<Option<FileRef>> {
-        let path = self.sidecar_path(hex);
+    fn read_sidecar_for_key(
+        &self,
+        hex: &str,
+        key: Option<&str>,
+    ) -> ArtefactResult<Option<FileRef>> {
+        let path = self.sidecar_path_for_key(hex, key);
         match fs::read(&path) {
             Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e.into()),
         }
+    }
+
+    fn read_sidecar(&self, hex: &str) -> ArtefactResult<Option<FileRef>> {
+        if let Some(primary) = self.read_sidecar_for_key(hex, None)? {
+            return Ok(Some(primary));
+        }
+        for path in self.sidecar_paths_for_hex(hex)? {
+            let bytes = match fs::read(&path) {
+                Ok(b) => b,
+                Err(_) => continue,
+            };
+            if let Ok(fr) = serde_json::from_slice::<FileRef>(&bytes) {
+                return Ok(Some(fr));
+            }
+        }
+        Ok(None)
     }
 
     fn read_all_sidecars(&self) -> ArtefactResult<Vec<FileRef>> {
@@ -502,9 +624,30 @@ impl FilesystemArtefactStore {
 
     fn cleanup_expired(&self) -> ArtefactResult<()> {
         let now = Utc::now();
-        for fr in self.read_all_sidecars()? {
+        let entries = match fs::read_dir(&self.root) {
+            Ok(e) => e,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e.into()),
+        };
+        for entry in entries {
+            let path = entry?.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("json") {
+                continue;
+            }
+            let bytes = match fs::read(&path) {
+                Ok(b) => b,
+                Err(_) => continue,
+            };
+            let Ok(fr) = serde_json::from_slice::<FileRef>(&bytes) else {
+                continue;
+            };
             if fr.is_expired_at(now) {
-                self.delete(&fr.uri)?;
+                let _ = fs::remove_file(&path);
+                if let Some(hex) = fr.sha256_hex()
+                    && self.sidecar_paths_for_hex(hex)?.is_empty()
+                {
+                    let _ = fs::remove_file(self.body_path(hex));
+                }
             }
         }
         Ok(())
@@ -514,7 +657,7 @@ impl FilesystemArtefactStore {
         self.cleanup_expired()?;
         let mut refs = self.read_all_sidecars()?;
         refs.sort_by_key(|fr| fr.created_at);
-        let mut total_bytes: u64 = refs.iter().filter_map(|fr| fr.size_bytes).sum();
+        let mut total_bytes = total_unique_body_bytes(&refs);
         while self
             .limits
             .max_entries
@@ -527,9 +670,25 @@ impl FilesystemArtefactStore {
             let Some(fr) = refs.first().cloned() else {
                 break;
             };
-            total_bytes = total_bytes.saturating_sub(fr.size_bytes.unwrap_or(0));
-            self.delete(&fr.uri)?;
+            if let Some(hex) = fr.sha256_hex() {
+                for path in self.sidecar_paths_for_hex(hex)? {
+                    let bytes = match fs::read(&path) {
+                        Ok(b) => b,
+                        Err(_) => continue,
+                    };
+                    if let Ok(candidate) = serde_json::from_slice::<FileRef>(&bytes)
+                        && candidate == fr
+                    {
+                        let _ = fs::remove_file(path);
+                        break;
+                    }
+                }
+                if self.sidecar_paths_for_hex(hex)?.is_empty() {
+                    let _ = fs::remove_file(self.body_path(hex));
+                }
+            }
             refs.remove(0);
+            total_bytes = total_unique_body_bytes(&refs);
         }
         Ok(())
     }
@@ -563,10 +722,11 @@ impl FilesystemArtefactStore {
         }
         let hex = hash_bytes_sha256(&bytes);
         let uri = make_uri_sha256(&hex);
+        let sidecar_key = options.logical_sidecar_key();
 
-        if let Some(existing) = self.read_sidecar(&hex)? {
+        if let Some(existing) = self.read_sidecar_for_key(&hex, sidecar_key.as_deref())? {
             if existing.is_expired_at(Utc::now()) {
-                self.delete(&existing.uri)?;
+                let _ = fs::remove_file(self.sidecar_path_for_key(&hex, sidecar_key.as_deref()));
             } else {
                 return Ok(existing);
             }
@@ -583,22 +743,8 @@ impl FilesystemArtefactStore {
             fs::rename(&tmp, &body_path)?;
         }
 
-        let mut file_ref = FileRef {
-            uri: uri.clone(),
-            mime: None,
-            size_bytes: Some(size),
-            display_name: None,
-            digest: Some(format!("sha256:{hex}")),
-            producer_job_id: None,
-            tool_call_id: None,
-            session_id: None,
-            correlation_id: None,
-            created_at: Utc::now(),
-            expires_at: None,
-            metadata: serde_json::Value::Null,
-        };
-        options.apply_to(&mut file_ref, self.limits.default_ttl_secs);
-        self.write_sidecar(&file_ref, &hex)?;
+        let file_ref = make_file_ref(uri, &hex, size, &options, self.limits.default_ttl_secs);
+        self.write_sidecar(&file_ref, &hex, sidecar_key.as_deref())?;
         self.enforce_retention_limits()?;
         Ok(file_ref)
     }
@@ -621,10 +767,8 @@ impl ArtefactStore for FilesystemArtefactStore {
         let Some(hex) = parse_sha256_uri(uri) else {
             return Err(ArtefactError::InvalidUri(uri.to_string()));
         };
-        if let Some(head) = self.read_sidecar(hex)?
-            && head.is_expired_at(Utc::now())
-        {
-            self.delete(uri)?;
+        self.cleanup_expired()?;
+        if self.sidecar_paths_for_hex(hex)?.is_empty() {
             return Ok(None);
         }
         let path = self.body_path(hex);
@@ -654,7 +798,9 @@ impl ArtefactStore for FilesystemArtefactStore {
             return Err(ArtefactError::InvalidUri(uri.to_string()));
         };
         let _ = fs::remove_file(self.body_path(hex));
-        let _ = fs::remove_file(self.sidecar_path(hex));
+        for path in self.sidecar_paths_for_hex(hex)? {
+            let _ = fs::remove_file(path);
+        }
         Ok(())
     }
 
@@ -672,9 +818,12 @@ impl ArtefactStore for FilesystemArtefactStore {
 
 /// Non-persistent store keyed in memory. Useful for tests and for transient
 /// CI runs where the FS backend would be overkill.
+type InMemoryArtefactEntry = (Vec<FileRef>, Vec<u8>);
+type InMemoryArtefactMap = HashMap<String, InMemoryArtefactEntry>;
+
 #[derive(Default)]
 pub struct InMemoryArtefactStore {
-    inner: RwLock<HashMap<String, (FileRef, Vec<u8>)>>,
+    inner: RwLock<InMemoryArtefactMap>,
     limits: ArtefactStoreLimits,
 }
 
@@ -690,16 +839,22 @@ impl InMemoryArtefactStore {
         }
     }
 
-    fn cleanup_expired_locked(&self, map: &mut HashMap<String, (FileRef, Vec<u8>)>) {
+    fn cleanup_expired_locked(&self, map: &mut InMemoryArtefactMap) {
         let now = Utc::now();
-        map.retain(|_, (fr, _)| !fr.is_expired_at(now));
+        map.retain(|_, (refs, _)| {
+            refs.retain(|fr| !fr.is_expired_at(now));
+            !refs.is_empty()
+        });
     }
 
-    fn enforce_retention_locked(&self, map: &mut HashMap<String, (FileRef, Vec<u8>)>) {
+    fn enforce_retention_locked(&self, map: &mut InMemoryArtefactMap) {
         self.cleanup_expired_locked(map);
-        let mut refs: Vec<FileRef> = map.values().map(|(fr, _)| fr.clone()).collect();
+        let mut refs: Vec<FileRef> = map
+            .values()
+            .flat_map(|(refs, _)| refs.iter().cloned())
+            .collect();
         refs.sort_by_key(|fr| fr.created_at);
-        let mut total_bytes: u64 = refs.iter().filter_map(|fr| fr.size_bytes).sum();
+        let mut total_bytes = total_unique_body_bytes(&refs);
         while self
             .limits
             .max_entries
@@ -712,9 +867,20 @@ impl InMemoryArtefactStore {
             let Some(fr) = refs.first().cloned() else {
                 break;
             };
-            total_bytes = total_bytes.saturating_sub(fr.size_bytes.unwrap_or(0));
-            map.remove(&fr.uri);
+            let mut remove_body = false;
+            if let Some((entry_refs, _)) = map.get_mut(&fr.uri) {
+                if let Some(pos) = entry_refs.iter().position(|candidate| *candidate == fr) {
+                    entry_refs.remove(pos);
+                }
+                if entry_refs.is_empty() {
+                    remove_body = true;
+                }
+            }
+            if remove_body {
+                map.remove(&fr.uri);
+            }
             refs.remove(0);
+            total_bytes = total_unique_body_bytes(&refs);
         }
     }
 }
@@ -746,27 +912,36 @@ impl ArtefactStore for InMemoryArtefactStore {
         {
             let mut map = self.inner.write();
             self.cleanup_expired_locked(&mut map);
-            if let Some((existing, _)) = map.get(&uri) {
+            if let Some((refs, _)) = map.get(&uri)
+                && !options.has_logical_metadata()
+                && let Some(existing) = refs
+                    .iter()
+                    .find(|fr| {
+                        fr.mime.is_none()
+                            && fr.display_name.is_none()
+                            && fr.producer_job_id.is_none()
+                            && fr.tool_call_id.is_none()
+                            && fr.session_id.is_none()
+                            && fr.correlation_id.is_none()
+                            && fr.expires_at.is_none()
+                            && fr.metadata.is_null()
+                    })
+                    .or_else(|| refs.first())
+            {
                 return Ok(existing.clone());
             }
         }
-        let mut fr = FileRef {
-            uri: uri.clone(),
-            mime: None,
-            size_bytes: Some(size),
-            display_name: None,
-            digest: Some(format!("sha256:{hex}")),
-            producer_job_id: None,
-            tool_call_id: None,
-            session_id: None,
-            correlation_id: None,
-            created_at: Utc::now(),
-            expires_at: None,
-            metadata: serde_json::Value::Null,
-        };
-        options.apply_to(&mut fr, self.limits.default_ttl_secs);
+        let fr = make_file_ref(
+            uri.clone(),
+            &hex,
+            size,
+            &options,
+            self.limits.default_ttl_secs,
+        );
         let mut map = self.inner.write();
-        map.insert(uri, (fr.clone(), bytes));
+        map.entry(uri)
+            .and_modify(|(refs, _)| refs.push(fr.clone()))
+            .or_insert_with(|| (vec![fr.clone()], bytes));
         self.enforce_retention_locked(&mut map);
         Ok(fr)
     }
@@ -782,7 +957,7 @@ impl ArtefactStore for InMemoryArtefactStore {
     fn head(&self, uri: &str) -> ArtefactResult<Option<FileRef>> {
         let mut map = self.inner.write();
         self.cleanup_expired_locked(&mut map);
-        Ok(map.get(uri).map(|(fr, _)| fr.clone()))
+        Ok(map.get(uri).and_then(|(refs, _)| refs.first().cloned()))
     }
 
     fn delete(&self, uri: &str) -> ArtefactResult<()> {
@@ -795,13 +970,9 @@ impl ArtefactStore for InMemoryArtefactStore {
         self.cleanup_expired_locked(&mut map);
         Ok(map
             .values()
-            .filter_map(|(fr, _)| {
-                if apply_filter(fr, &filter) {
-                    Some(fr.clone())
-                } else {
-                    None
-                }
-            })
+            .flat_map(|(refs, _)| refs.iter())
+            .filter(|fr| apply_filter(fr, &filter))
+            .cloned()
             .collect())
     }
 }

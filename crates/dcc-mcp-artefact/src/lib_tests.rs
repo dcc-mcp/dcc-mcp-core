@@ -168,6 +168,99 @@ fn put_with_options_persists_metadata_and_correlation() {
 }
 
 #[test]
+fn in_memory_duplicate_bytes_keep_distinct_logical_metadata() {
+    let store = InMemoryArtefactStore::new();
+    let first = store
+        .put_with_options(
+            ArtefactBody::Inline(b"same bytes".to_vec()),
+            ArtefactPutOptions {
+                tool_call_id: Some("req-1".to_string()),
+                session_id: Some("session-a".to_string()),
+                correlation_id: Some("corr-a".to_string()),
+                ..ArtefactPutOptions::default()
+            },
+        )
+        .unwrap();
+    let second = store
+        .put_with_options(
+            ArtefactBody::Inline(b"same bytes".to_vec()),
+            ArtefactPutOptions {
+                tool_call_id: Some("req-2".to_string()),
+                session_id: Some("session-b".to_string()),
+                correlation_id: Some("corr-b".to_string()),
+                ..ArtefactPutOptions::default()
+            },
+        )
+        .unwrap();
+
+    assert_eq!(first.uri, second.uri);
+    assert_eq!(second.tool_call_id.as_deref(), Some("req-2"));
+
+    let first_filtered = store
+        .list(ArtefactFilter {
+            session_id: Some("session-a".to_string()),
+            ..ArtefactFilter::default()
+        })
+        .unwrap();
+    let second_filtered = store
+        .list(ArtefactFilter {
+            tool_call_id: Some("req-2".to_string()),
+            ..ArtefactFilter::default()
+        })
+        .unwrap();
+    assert_eq!(first_filtered.len(), 1);
+    assert_eq!(second_filtered.len(), 1);
+    assert_eq!(second_filtered[0].correlation_id.as_deref(), Some("corr-b"));
+}
+
+#[test]
+fn fs_duplicate_bytes_keep_distinct_logical_metadata() {
+    let tmp = tempdir().unwrap();
+    let store = FilesystemArtefactStore::new_in(tmp.path()).unwrap();
+    let first = store
+        .put_with_options(
+            ArtefactBody::Inline(b"same bytes".to_vec()),
+            ArtefactPutOptions {
+                tool_call_id: Some("req-1".to_string()),
+                session_id: Some("session-a".to_string()),
+                correlation_id: Some("corr-a".to_string()),
+                ..ArtefactPutOptions::default()
+            },
+        )
+        .unwrap();
+    let second = store
+        .put_with_options(
+            ArtefactBody::Inline(b"same bytes".to_vec()),
+            ArtefactPutOptions {
+                tool_call_id: Some("req-2".to_string()),
+                session_id: Some("session-b".to_string()),
+                correlation_id: Some("corr-b".to_string()),
+                ..ArtefactPutOptions::default()
+            },
+        )
+        .unwrap();
+
+    assert_eq!(first.uri, second.uri);
+    assert_eq!(second.session_id.as_deref(), Some("session-b"));
+
+    let first_filtered = store
+        .list(ArtefactFilter {
+            session_id: Some("session-a".to_string()),
+            ..ArtefactFilter::default()
+        })
+        .unwrap();
+    let second_filtered = store
+        .list(ArtefactFilter {
+            tool_call_id: Some("req-2".to_string()),
+            ..ArtefactFilter::default()
+        })
+        .unwrap();
+    assert_eq!(first_filtered.len(), 1);
+    assert_eq!(second_filtered.len(), 1);
+    assert_eq!(second_filtered[0].correlation_id.as_deref(), Some("corr-b"));
+}
+
+#[test]
 fn in_memory_store_rejects_oversized_payloads() {
     let store = InMemoryArtefactStore::with_limits(ArtefactStoreLimits {
         max_body_bytes: Some(4),
