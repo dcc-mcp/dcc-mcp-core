@@ -27,10 +27,13 @@
 //! | [`error`]   | [`HttpError`] / [`HttpResult`] error taxonomy             |
 //! | [`config`]  | [`McpHttpConfig`], [`ServerConfig`], [`SessionConfig`], [`GatewayConfig`], [`ServerSpawnMode`], [`JobRecoveryPolicy`], [`JobConfig`], [`WorkflowConfig`], [`TelemetryConfig`], [`FeatureFlags`], [`InstanceConfig`], [`QueueConfig`] |
 //! | [`dynamic_tools`] | [`dynamic_tools::ToolSpec`] dynamic-tool registration wire type |
+//! | [`debug_session`] | [`debug_session::DebugSessionDescriptor`] optional debugger attach metadata |
 //! | [`output`]  | [`output::OutputStream`] and [`output::OutputEntry`] output capture wire types |
 //! | [`prompts`] | [`prompts::PromptSpec`], [`prompts::PromptsSpec`], and related prompt spec types |
 //! | [`resources`] | [`resources::ProducerContent`] / [`resources::ResourceError`] resource values |
 //! | [`session`] | [`session::SessionLogLevel`] / [`session::SessionLogMessage`] log values |
+//! | [`session_events`] | [`session_events::SessionEvent`] bounded adapter runtime event values |
+//! | [`ui_automation`] | Cross-DCC UI automation observation/action contract values |
 //!
 //! # Migration plan (issue #852)
 //!
@@ -73,12 +76,15 @@
 #![warn(missing_docs)]
 
 pub mod config;
+pub mod debug_session;
 pub mod dynamic_tools;
 pub mod error;
 pub mod output;
 pub mod prompts;
 pub mod resources;
 pub mod session;
+pub mod session_events;
+pub mod ui_automation;
 
 use serde::{Deserialize, Serialize};
 

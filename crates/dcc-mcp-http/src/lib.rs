@@ -64,6 +64,7 @@ pub mod resources;
 pub(crate) mod rest_providers;
 pub mod server;
 pub mod session;
+pub mod session_events;
 pub mod workspace;
 
 #[cfg(feature = "prometheus")]
@@ -73,6 +74,16 @@ pub mod metrics;
 pub use bridge_registry::{BridgeContext, BridgeRegistry};
 pub use config::{McpHttpConfig, ServerSpawnMode};
 pub use dcc_mcp_gateway::{GatewayConfig, GatewayHandle, GatewayRunner};
+pub use dcc_mcp_http_types::debug_session::{
+    DebugPathMapping, DebugSessionDescriptor, DebugSessionStatus,
+};
+pub use dcc_mcp_http_types::session_events::{
+    SessionEvent, SessionEventPage, SessionEventReadOptions, SessionEventTruncation,
+};
+pub use dcc_mcp_http_types::ui_automation::{
+    UiActionKind, UiActionRequest, UiActionResult, UiArtifactRef, UiBounds, UiControlNode,
+    UiErrorCode, UiFindRequest, UiSnapshot,
+};
 pub use dcc_mcp_skill_rest::{
     AllowLocalhostGate, AuditEvent, AuditOutcome, AuditSink, AuthGate, BearerTokenGate,
     NoopAuditSink, Principal, ReadinessProbe, ReadinessReport, ServiceError, ServiceErrorKind,
@@ -98,4 +109,9 @@ pub use resources::{
 };
 pub use server::{McpHttpServer, McpServerHandle};
 pub use session::SessionManager;
+pub use session_events::{
+    DEFAULT_SESSION_EVENT_CAPACITY, DEFAULT_SESSION_EVENT_MAX_MESSAGE_BYTES,
+    DEFAULT_SESSION_EVENT_READ_LIMIT, MAX_SESSION_EVENT_READ_LIMIT, SessionEventBuffer,
+    SessionEventLevel, SessionEventResourceProducer,
+};
 pub use workspace::{WorkspaceResolveError, WorkspaceRoots};

@@ -113,6 +113,38 @@ server.resources().wire_audit_log(audit)
 handle = server.start()
 ```
 
+### Session/job events
+
+Adapters that want a generic diagnostics stream can register a
+`SessionEventBuffer` instead of inventing adapter-specific log tools:
+
+```python
+from dcc_mcp_core import SessionEventBuffer
+
+events = SessionEventBuffer("maya-001", maxlen=1000, max_message_bytes=4096)
+server.resources().register_session_event_buffer(events)
+
+events.append(
+    source="python",
+    stream="stdout",
+    level="info",
+    message="Created preview mesh",
+    tool_call_id="req-42",
+    job_id="job-7",
+)
+```
+
+Clients read by cursor:
+
+```json
+{"method": "resources/read",
+ "params": {"uri": "events://session/maya-001?cursor=0&limit=100"}}
+```
+
+The JSON payload includes `events`, `next_cursor`, retained/dropped counts,
+and per-event correlation fields (`session_id`, `tool_call_id`, `job_id`,
+`correlation_id`). Passing `drain=true` removes returned-and-older events.
+
 ### Updating the scene snapshot
 
 `set_scene()` replaces the snapshot atomically and emits a
@@ -182,6 +214,8 @@ See [`docs/guide/artefacts.md`](../guide/artefacts.md) for the full
 - Python helpers: `artefact_put_file`, `artefact_put_bytes`,
   `artefact_get_bytes`, `artefact_list`.
 - Enable with `McpHttpConfig.enable_artefact_resources = True`.
+- `FileRef` sidecars can carry display names, session/tool/job/correlation
+  fields, `expires_at`, and adapter-defined JSON metadata.
 
 ## Writing a Custom Producer (Rust)
 
