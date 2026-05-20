@@ -927,10 +927,21 @@ fn issue_report_json(request_id: &str, bundle: Value, links: Value) -> Value {
         .or_else(|| audit.get("duration_ms"))
         .cloned()
         .unwrap_or(Value::Null);
+    let postmortem = bundle.get("postmortem").cloned().unwrap_or(Value::Null);
+    let previous_call_count = postmortem
+        .get("previous_calls")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0);
+    let gateway_event_count = postmortem
+        .get("gateway_events")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0);
     let generated_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let title = format!("DCC-MCP request {request_id} {status}: {tool}");
     let body_template = format!(
-        "## Summary\n\nRequest `{request_id}` returned `{status}` for `{tool}` on `{dcc_type}`.\n\n## Attached data\n\nUpload this JSON export to the issue so maintainers can inspect trace spans, audit metadata, payload previews, and links.\n\n## Notes\n\nReview the JSON for secrets or proprietary scene paths before uploading."
+        "## Summary\n\nRequest `{request_id}` returned `{status}` for `{tool}` on `{dcc_type}`.\n\n## Attached data\n\nUpload this JSON export to the issue so maintainers can inspect trace spans, audit metadata, payload previews, postmortem context, and links.\n\n## Notes\n\nReview the JSON for secrets or proprietary scene paths before uploading."
     );
 
     json!({
@@ -944,6 +955,10 @@ fn issue_report_json(request_id: &str, bundle: Value, links: Value) -> Value {
             "tool": tool,
             "dcc_type": dcc_type,
             "total_ms": total_ms,
+            "postmortem": {
+                "previous_call_count": previous_call_count,
+                "gateway_event_count": gateway_event_count,
+            },
         },
         "github_issue": {
             "title": title,
