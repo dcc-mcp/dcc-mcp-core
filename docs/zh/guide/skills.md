@@ -308,12 +308,14 @@ paths = watcher.watched_paths()    # List[str]
 
 ## 依赖管理
 
-Skill 可通过 SKILL.md 中的 `depends:` 字段声明对其他 Skill 的依赖：
+Skill 可通过 SKILL.md 中的 `metadata.dcc-mcp.depends` 或同级 `metadata/depends.md` 声明对其他 Skill 的依赖：
 
 ```yaml
 ---
 name: maya-animation
-depends: ["maya-geometry"]
+metadata:
+  dcc-mcp:
+    depends: ["maya-geometry"]
 ---
 ```
 

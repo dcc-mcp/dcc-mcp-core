@@ -219,7 +219,15 @@ class TestSkillSummaryScopeFields:
         make_skill_dir(tmp_path, "trust-test")
         cat = make_catalog(extra_paths=[str(tmp_path)])
         for s in cat.list_skills():
-            assert s.scope in ("repo", "user", "system", "admin", "")
+            assert s.scope in ("repo", "user", "team", "system", "admin", "")
+
+    def test_skill_scope_python_export_includes_team(self) -> None:
+        """SkillScope is exported to Python with the full trust hierarchy."""
+        assert str(dcc_mcp_core.SkillScope.Repo) == "repo"
+        assert str(dcc_mcp_core.SkillScope.User) == "user"
+        assert str(dcc_mcp_core.SkillScope.Team) == "team"
+        assert str(dcc_mcp_core.SkillScope.System) == "system"
+        assert str(dcc_mcp_core.SkillScope.Admin) == "admin"
 
     def test_skill_summary_has_implicit_invocation_field(self, tmp_path: Path) -> None:
         """SkillSummary.implicit_invocation is a bool after discovery."""

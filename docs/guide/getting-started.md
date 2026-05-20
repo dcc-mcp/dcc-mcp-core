@@ -12,7 +12,7 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/loo
 ```
 
 This installs the standalone `dcc-mcp-cli` control-plane binary from the
-latest GitHub Release. Pin a release with `DCC_MCP_VERSION=v0.17.4`.
+latest GitHub Release. Pin a release with `DCC_MCP_VERSION=v0.17.17`.
 
 ### From PyPI
 
@@ -311,7 +311,7 @@ cargo build --workspace --features python-bindings 2>&1 | grep -E "error|warning
 | `success_result` context is empty | Pass kwargs directly: `success_result("msg", count=5)` — NOT `context={"count":5}` |
 | `ToolDispatcher.call()` not found | Use `.dispatch(name, json_str)` — there is no `.call()` method |
 | `McpHttpServer` tools not appearing | Register all tools BEFORE `server.start()` — the server reads the registry at startup |
-| `SkillScope` / `SkillPolicy` ImportError | These are Rust-only types. Use discovery paths plus `metadata.dcc-mcp.*` policy keys, then inspect via `SkillMetadata` methods |
+| `SkillPolicy` ImportError | `SkillScope` is exported for Python introspection; policy checks still belong on `SkillMetadata` methods and `metadata.dcc-mcp.*` policy keys |
 | Main-thread dispatch confusion | Prefer `HostExecutionBridge` / `InProcessCallableDispatcher` via `DccServerOptions`; use low-level `DeferredExecutor` only with `/guide/dcc-thread-safety` |
 | Skill scripts not discovered | Check `DCC_MCP_SKILL_PATHS` env var and `dcc:` field in SKILL.md matches your filter |
 | `ToolMeta` AttributeError | Rust-only type. Use `ToolRegistry.set_tool_enabled()` and `list_tools_in_group()` instead |
