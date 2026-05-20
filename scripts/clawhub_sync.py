@@ -15,6 +15,7 @@ import dcc_mcp_core
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = REPO_ROOT / ".github" / "clawhub-skills.json"
 DEFAULT_CLI = os.environ.get("CLAWHUB_CLI_PACKAGE", "clawhub@0.7.0")
+CLAWHUB_LICENSE = "MIT-0"
 
 
 def parse_args() -> argparse.Namespace:
@@ -58,6 +59,21 @@ def skill_version(skill_dir: Path) -> str:
     return version
 
 
+def skill_license(skill_dir: Path) -> str:
+    """Return the top-level SKILL.md license identifier."""
+    skill_md = skill_dir / "SKILL.md"
+    lines = skill_md.read_text(encoding="utf-8").splitlines()
+    if not lines or lines[0].strip() != "---":
+        raise ValueError(f"missing YAML frontmatter in {skill_md}")
+    for line in lines[1:]:
+        stripped = line.strip()
+        if stripped == "---":
+            break
+        if stripped.startswith("license:"):
+            return stripped.split(":", 1)[1].strip().strip("'\"")
+    raise ValueError(f"missing top-level license in {skill_md}")
+
+
 def npx_cmd(cli: str, *args: str) -> list[str]:
     """Build an npx invocation argv list."""
     npx = os.environ.get("NPX", "npx")
@@ -83,6 +99,16 @@ def publish_one(
         return 1
 
     version = skill_version(skill_dir)
+    license_id = skill_license(skill_dir)
+    if license_id != CLAWHUB_LICENSE:
+        print(
+            f"ClawHub publishes skills under {CLAWHUB_LICENSE}; "
+            f"set 'license: {CLAWHUB_LICENSE}' in {skill_dir / 'SKILL.md'} "
+            f"(found {license_id!r}).",
+            file=sys.stderr,
+        )
+        return 1
+
     report = dcc_mcp_core.validate_skill(str(skill_dir))
     if not report.is_clean:
         print(f"validate_skill failed for {skill_dir}:", file=sys.stderr)
