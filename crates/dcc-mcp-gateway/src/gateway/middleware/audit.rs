@@ -56,9 +56,9 @@ pub struct AuditEntry {
     pub duration_ms: Option<u64>,
     /// Phase 2: waterfall of timing spans collected by the handler.
     pub trace_spans: Vec<TraceSpan>,
-    /// Phase 2: captured input payload (bounded, pre-redacted).
+    /// Phase 2: captured input payload after before-middleware redaction.
     pub input_payload: Option<TracePayload>,
-    /// Phase 2: captured output payload (bounded, pre-redacted).
+    /// Phase 2: captured output payload (bounded).
     pub output_payload: Option<TracePayload>,
 }
 

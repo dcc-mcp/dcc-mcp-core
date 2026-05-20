@@ -609,13 +609,13 @@ async fn call_service_with_admin_trace(
     if let Some((dcc_type, instance_hint, _)) = parse_slug(slug) {
         ctx = ctx.with_backend(dcc_type, instance_hint);
     }
-    ctx.input_payload = Some(TracePayload::from_value(&arguments, MAX_INPUT_BYTES));
-
     if !gs.middleware_chain.is_empty()
         && let Err(err) = gs.middleware_chain.run_before(&mut ctx).await
     {
         return Err(ServiceError::new("middleware-error", err.to_string()));
     }
+
+    ctx.input_payload = Some(TracePayload::from_value(&ctx.args, MAX_INPUT_BYTES));
 
     let effective_arguments = if gs.middleware_chain.is_empty() {
         arguments
@@ -687,16 +687,16 @@ async fn call_batch_with_admin_trace(
     if let Some(session_id) = session_id_from_headers(headers) {
         ctx = ctx.with_session_id(session_id);
     }
-    ctx.input_payload = Some(TracePayload::from_value(request_body, MAX_INPUT_BYTES));
-
     if !gs.middleware_chain.is_empty()
         && let Err(err) = gs.middleware_chain.run_before(&mut ctx).await
     {
         return Err(err.to_string());
     }
 
+    ctx.input_payload = Some(TracePayload::from_value(&ctx.args, MAX_INPUT_BYTES));
+
     let dispatch_ns = now_ns();
-    let result = crate::gateway::tools::gateway_call_batch_inner(gs, request_body, None).await;
+    let result = crate::gateway::tools::gateway_call_batch_inner(gs, &ctx.args, None).await;
     let response_ns = now_ns();
     let (preview_text, is_error, output_value) = match &result {
         Ok(value) => (
@@ -784,9 +784,37 @@ mod tests {
     use axum::body::to_bytes;
     use dcc_mcp_transport::discovery::file_registry::FileRegistry;
     use std::collections::HashMap;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use tokio::sync::{RwLock, broadcast, watch};
+
+    #[derive(Default)]
+    struct CaptureSink(Mutex<Vec<crate::gateway::middleware::AuditEntry>>);
+
+    impl crate::gateway::middleware::AuditSink for CaptureSink {
+        fn record(&self, entry: crate::gateway::middleware::AuditEntry) {
+            self.0.lock().unwrap().push(entry);
+        }
+    }
+
+    struct ReplaceArgs(serde_json::Value);
+
+    impl crate::gateway::middleware::BeforeCallMiddleware for ReplaceArgs {
+        fn before_call<'a>(
+            &'a self,
+            ctx: &'a mut crate::gateway::middleware::CallContext,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = Result<(), crate::gateway::middleware::MiddlewareError>,
+                    > + Send
+                    + 'a,
+            >,
+        > {
+            ctx.args = self.0.clone();
+            Box::pin(async move { Ok::<(), crate::gateway::middleware::MiddlewareError>(()) })
+        }
+    }
 
     fn test_gateway_state(server_version: &str) -> GatewayState {
         let dir = tempfile::tempdir().unwrap();
@@ -896,5 +924,75 @@ mod tests {
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["ok"], true);
+    }
+
+    #[tokio::test]
+    async fn rest_trace_input_payload_uses_redacted_arguments() {
+        use crate::gateway::middleware::{AuditMiddleware, MiddlewareChain, RedactionMiddleware};
+
+        let sink = Arc::new(CaptureSink::default());
+        let chain = MiddlewareChain::new()
+            .with_before(Arc::new(RedactionMiddleware::new(vec!["api_key", "token"])))
+            .with_after(Arc::new(AuditMiddleware::new(sink.clone())));
+        let mut gs = test_gateway_state("1.2.3");
+        gs.middleware_chain = Arc::new(chain);
+
+        let request_body = json!({
+            "tool_slug": "maya.abcdef01.render",
+            "arguments": {
+                "api_key": "secret-key",
+                "nested": {"token": "secret-token"}
+            },
+            "meta": {}
+        });
+
+        let result = call_service_with_admin_trace(
+            &gs,
+            &HeaderMap::new(),
+            "v1/call",
+            "maya.abcdef01.render",
+            request_body["arguments"].clone(),
+            request_body.get("meta").cloned(),
+            &request_body,
+        )
+        .await;
+
+        assert!(result.is_err());
+        let entries = sink.0.lock().unwrap();
+        assert_eq!(entries.len(), 1);
+        let input = entries[0].input_payload.as_ref().unwrap().content.clone();
+        assert!(input.contains("[REDACTED]"));
+        assert!(!input.contains("secret-key"));
+        assert!(!input.contains("secret-token"));
+    }
+
+    #[tokio::test]
+    async fn rest_call_batch_uses_arguments_mutated_by_before_middleware() {
+        use crate::gateway::middleware::{AuditMiddleware, MiddlewareChain, RedactionMiddleware};
+
+        let sink = Arc::new(CaptureSink::default());
+        let rewritten = json!({
+            "calls": [{
+                "tool_slug": "maya.abcdef01.render",
+                "arguments": {"token": "secret-token"}
+            }]
+        });
+        let chain = MiddlewareChain::new()
+            .with_before(Arc::new(ReplaceArgs(rewritten)))
+            .with_before(Arc::new(RedactionMiddleware::new(vec!["token"])))
+            .with_after(Arc::new(AuditMiddleware::new(sink.clone())));
+        let mut gs = test_gateway_state("1.2.3");
+        gs.middleware_chain = Arc::new(chain);
+
+        let result =
+            call_batch_with_admin_trace(&gs, &HeaderMap::new(), &json!({"calls": []})).await;
+
+        let body = result.expect("batch should use middleware-mutated args");
+        assert_eq!(body["results"][0]["tool_slug"], "maya.abcdef01.render");
+        let entries = sink.0.lock().unwrap();
+        assert_eq!(entries.len(), 1);
+        let input = entries[0].input_payload.as_ref().unwrap().content.clone();
+        assert!(input.contains("[REDACTED]"));
+        assert!(!input.contains("secret-token"));
     }
 }
