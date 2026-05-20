@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.18](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.17...v0.17.18) (2026-05-20)
+
+
+### Bug Fixes
+
+* address PR review for affinity and gateway diagnostics ([29fb2bc](https://github.com/loonghao/dcc-mcp-core/commit/29fb2bc6d33c8938025c00042e33b3d915d0a22b))
+* improve thread-affinity and gateway backend diagnostics ([#1075](https://github.com/loonghao/dcc-mcp-core/issues/1075), [#1076](https://github.com/loonghao/dcc-mcp-core/issues/1076)) ([bbebae6](https://github.com/loonghao/dcc-mcp-core/commit/bbebae627f2b3bbe25db47302f97b713e1b413ec))
+
 ## [0.17.17](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.16...v0.17.17) (2026-05-19)
 
 
