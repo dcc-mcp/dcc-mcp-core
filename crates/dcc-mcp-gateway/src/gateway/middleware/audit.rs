@@ -5,7 +5,7 @@ use std::time::SystemTime;
 
 use super::context::{CallContext, CallResult};
 use super::traits::{AfterCallMiddleware, BeforeCallMiddleware, MiddlewareFuture};
-use crate::gateway::admin::trace::{TracePayload, TraceSpan};
+use crate::gateway::admin::trace::{AgentContext, TracePayload, TraceSpan};
 
 /// A single audit record produced for each tool call.
 ///
@@ -16,6 +16,8 @@ use crate::gateway::admin::trace::{TracePayload, TraceSpan};
 /// SIEM forwarders) can render a complete one-row view of the call.
 #[derive(Debug, Clone)]
 pub struct AuditEntry {
+    /// Wall-clock timestamp at which the call entered the handler.
+    pub started_at: SystemTime,
     /// Wall-clock timestamp at which the audit record was sealed —
     /// `SystemTime::now()` from the after-call hook, *not* the call
     /// start (that is reflected via `duration_ms`).
@@ -33,6 +35,10 @@ pub struct AuditEntry {
     pub instance_id: Option<String>,
     /// Originating MCP `Mcp-Session-Id` header, if any.
     pub session_id: Option<String>,
+    /// Transport surface that produced the request (`mcp`, `rest`, ...).
+    pub transport: Option<String>,
+    /// Optional client-supplied agent/caller context for admin telemetry.
+    pub agent_context: Option<AgentContext>,
     /// Stable request id used to correlate this entry with traces
     /// and the client's JSON-RPC `id`.
     pub request_id: String,
@@ -84,6 +90,8 @@ impl AuditSink for DefaultAuditSink {
             dcc_type      = ?entry.dcc_type,
             instance_id   = ?entry.instance_id,
             session_id    = ?entry.session_id,
+            transport     = ?entry.transport,
+            agent_id      = ?entry.agent_context.as_ref().and_then(|ctx| ctx.agent_id.as_deref()),
             request_id    = %entry.request_id,
             is_error      = entry.is_error,
             result_preview = %entry.result_preview,
@@ -153,12 +161,15 @@ impl AfterCallMiddleware for AuditMiddleware {
                 Some(((now_ns.saturating_sub(start_ns)) / 1_000_000) as u64)
             });
         let entry = AuditEntry {
+            started_at: ctx.started_at,
             timestamp: SystemTime::now(),
             method: ctx.method.clone(),
             tool_slug: ctx.tool_slug.clone(),
             dcc_type: ctx.dcc_type.clone(),
             instance_id: ctx.instance_id.clone(),
             session_id: ctx.session_id.clone(),
+            transport: ctx.transport.clone(),
+            agent_context: ctx.agent_context.clone(),
             request_id: ctx.request_id.clone(),
             is_error: result.is_error,
             result_preview: result.text.chars().take(256).collect(),

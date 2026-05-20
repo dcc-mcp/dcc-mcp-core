@@ -47,7 +47,12 @@ into a faster authoring loop.
    skill names, and search examples.
 5. Make every tool declaration explicit: `source_file`, `execution`, `affinity`,
    safety annotations, and `timeout_hint_secs` for async tools.
-6. Add tests at the lowest executable layer, then one discovery/load/call or
+6. When changing adapter server wiring or caller examples, keep Admin telemetry
+   useful: pass optional `agent_context` / `caller_context` summaries through
+   MCP `_meta`, REST `meta`, or `x-dcc-mcp-agent-*` headers when the caller is
+   an agent. Include only explicit summaries, plans, observations, and
+   correlation ids; never ask tools to expose hidden chain-of-thought.
+7. Add tests at the lowest executable layer, then one discovery/load/call or
    gateway REST path when behavior crosses MCP or REST boundaries.
 
 ## Adapter Selection

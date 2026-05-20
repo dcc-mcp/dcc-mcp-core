@@ -53,7 +53,7 @@ pub async fn handle_gateway_mcp(
 
     if let Some(batch) = body_value.as_array() {
         let label = format!("batch[{}]", batch.len());
-        let response = handle_batch_request(&gs, &client_session_id, batch).await;
+        let response = handle_batch_request(&gs, &client_session_id, batch, &headers).await;
         log_gateway_mcp_slow_dispatch(dispatch_started, &label);
         return response;
     }
@@ -75,14 +75,15 @@ pub async fn handle_gateway_mcp(
         return StatusCode::ACCEPTED.into_response();
     }
 
-    let response =
-        if let Some(response) = dispatch_single_request(&gs, &req, &client_session_id).await {
-            let mut response = Json(response).into_response();
-            attach_session_header(&mut response, &client_session_id);
-            response
-        } else {
-            StatusCode::ACCEPTED.into_response()
-        };
+    let response = if let Some(response) =
+        dispatch_single_request(&gs, &req, &client_session_id, &headers).await
+    {
+        let mut response = Json(response).into_response();
+        attach_session_header(&mut response, &client_session_id);
+        response
+    } else {
+        StatusCode::ACCEPTED.into_response()
+    };
     log_gateway_mcp_slow_dispatch(dispatch_started, &method_label);
     response
 }
@@ -91,6 +92,7 @@ async fn handle_batch_request(
     gs: &GatewayState,
     client_session_id: &str,
     batch: &[Value],
+    headers: &HeaderMap,
 ) -> Response {
     let mut responses = Vec::with_capacity(batch.len());
 
@@ -112,7 +114,8 @@ async fn handle_batch_request(
             continue;
         }
 
-        if let Some(response) = dispatch_single_request(gs, &req, client_session_id).await {
+        if let Some(response) = dispatch_single_request(gs, &req, client_session_id, headers).await
+        {
             responses.push(response);
         }
     }
@@ -149,6 +152,7 @@ pub(crate) async fn dispatch_single_request(
     gs: &GatewayState,
     req: &JsonRpcRequest,
     session_id: &str,
+    headers: &HeaderMap,
 ) -> Option<Value> {
     let id = req.id.clone()?;
     let id_str = serde_json::to_string(&id).unwrap_or_default();
@@ -168,7 +172,7 @@ pub(crate) async fn dispatch_single_request(
         }
         "prompts/list" => Some(handle_prompts_list(gs, id).await),
         "prompts/get" => Some(handle_prompts_get(gs, id, &id_str, req).await),
-        "tools/call" => Some(handle_tools_call(gs, id, &id_str, req, session_id).await),
+        "tools/call" => Some(handle_tools_call(gs, id, &id_str, req, session_id, headers).await),
         other => Some(json!({
             "jsonrpc": "2.0", "id": id,
             "error": {"code": -32601, "message": format!("Method not found: {other}")}
@@ -293,6 +297,7 @@ async fn handle_tools_call(
     id_str: &str,
     req: &JsonRpcRequest,
     session_id: &str,
+    headers: &HeaderMap,
 ) -> Value {
     let tool = req
         .params
@@ -322,6 +327,11 @@ async fn handle_tools_call(
         .as_ref()
         .and_then(|params| params.get("_meta"))
         .cloned();
+    let agent_context = crate::gateway::admin::trace::AgentContext::from_request_parts(
+        headers,
+        req.params.as_ref(),
+        meta.as_ref(),
+    );
     let resolved_slug = if tool == "call_tool" {
         args.get("tool_slug").and_then(Value::as_str)
     } else if tool == "call_tools" {
@@ -348,7 +358,9 @@ async fn handle_tools_call(
     // ── Middleware: BeforeCall ────────────────────────────────────────────
     let mut ctx = crate::gateway::middleware::CallContext::new("tools/call", id_str, args.clone())
         .with_tool_slug(resolved_slug.unwrap_or(tool))
-        .with_session_id(session_id);
+        .with_session_id(session_id)
+        .with_transport("mcp")
+        .with_agent_context(agent_context);
     if let Some((dcc_type, instance_hint, _)) = resolved_slug.and_then(parse_slug) {
         ctx = ctx.with_backend(dcc_type, instance_hint);
     } else if let Some(dcc_type) = args
