@@ -80,10 +80,10 @@ export DCC_MCP_SKILL_PATHS="/path/to/my-skills"
 | Template | Use Case | Features |
 |----------|----------|----------|
 | [`minimal`](templates/minimal/) | Simplest possible skill | 1 tool, 1 script, no groups |
-| [`dcc-specific`](templates/dcc-specific/) | DCC-bound skill (Maya, Blender, etc.) | `dcc:` field, `required_capabilities`, `next-tools` |
-| [`with-groups`](templates/with-groups/) | Progressive exposure via tool groups | `groups:` field, `default-active` toggle |
-| [`domain-skill`](templates/domain-skill/) | Business workflow skill with layering | `dcc-mcp.layer: domain`, negative routing, `depends:`, failure chains |
-| [`thin-harness`](templates/thin-harness/) | Raw script execution + recipe book (no wrappers) | `dcc-mcp.layer: thin-harness`, `recipes:`, `introspection:`, `execute_python` |
+| [`dcc-specific`](templates/dcc-specific/) | DCC-bound skill (Maya, Blender, etc.) | `metadata.dcc-mcp.dcc`, `required_capabilities`, `next-tools` |
+| [`with-groups`](templates/with-groups/) | Progressive exposure via tool groups | `metadata.dcc-mcp.groups`, `default-active` toggle |
+| [`domain-skill`](templates/domain-skill/) | Business workflow skill with layering | `metadata.dcc-mcp.layer: domain`, negative routing, `metadata.dcc-mcp.depends`, failure chains |
+| [`thin-harness`](templates/thin-harness/) | Raw script execution + recipe book (no wrappers) | `metadata.dcc-mcp.layer: thin-harness`, `recipes`, `introspection`, `execute_python` |
 
 ## Skill Layering
 
@@ -91,10 +91,11 @@ Every skill must belong to one of four layers. Set the layer in `metadata`:
 
 ```yaml
 metadata:
-  dcc-mcp.layer: infrastructure   # low-level reusable primitive
-  # dcc-mcp.layer: domain         # business workflow, depends on infrastructure
-  # dcc-mcp.layer: thin-harness   # raw script execution + recipes (fall-through)
-  # dcc-mcp.layer: example        # authoring reference, never used in production
+  dcc-mcp:
+    layer: infrastructure   # low-level reusable primitive
+    # layer: domain         # business workflow, depends on infrastructure
+    # layer: thin-harness   # raw script execution + recipes (fall-through)
+    # layer: example        # authoring reference, never used in production
 ```
 
 ### Layer definitions

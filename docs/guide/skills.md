@@ -425,9 +425,9 @@ that partitions discovery.
 fallback and recovery layer. Every domain skill chains to them via `next-tools.on-failure`.
 
 **Domain skills** (e.g. `maya-geometry`, `maya-pipeline`) implement a specific DCC
-workflow. They declare `depends:` on the infrastructure skills they chain to, and their
-tool descriptions guide agents toward other domain skills when the requested operation
-is out of scope.
+workflow. They declare `metadata.dcc-mcp.depends` for the infrastructure skills
+they chain to, and their tool descriptions guide agents toward other domain
+skills when the requested operation is out of scope.
 
 ### Description pattern: explicit negative routing
 
@@ -518,7 +518,7 @@ Before opening a PR for a new domain skill, verify:
 - [ ] `metadata.dcc-mcp.layer: domain` is set
 - [ ] `description` starts with `Domain skill —` and ends with at least one `Not for … — use … for that.` sentence
 - [ ] `search-hint` uses intent-oriented keywords that do not overlap with infrastructure skills
-- [ ] `depends:` lists every infrastructure skill referenced in `next-tools.on-failure`
+- [ ] `metadata.dcc-mcp.depends` lists every infrastructure skill referenced in `next-tools.on-failure`
 - [ ] Every tool has `on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]`
 
 ## Complex Skill Architecture
