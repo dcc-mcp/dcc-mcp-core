@@ -51,7 +51,9 @@ into a faster authoring loop.
    useful: pass optional `agent_context` / `caller_context` summaries through
    MCP `_meta`, REST `meta`, or `x-dcc-mcp-agent-*` headers when the caller is
    an agent. Include only explicit summaries, plans, observations, and
-   correlation ids; never ask tools to expose hidden chain-of-thought.
+   correlation ids; never ask tools to expose hidden chain-of-thought. Preserve
+   Admin `links` fields in examples so every trace/debug bundle can be copied
+   as a complete URL into a follow-up agent or LLM evaluation prompt.
 7. Add tests at the lowest executable layer, then one discovery/load/call or
    gateway REST path when behavior crosses MCP or REST boundaries.
 
