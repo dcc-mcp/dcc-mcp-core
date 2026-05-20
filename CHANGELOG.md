@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.19](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.18...v0.17.19) (2026-05-20)
+
+
+### Features
+
+* add adapter runtime observation contracts ([60c6733](https://github.com/loonghao/dcc-mcp-core/commit/60c67331196f6e1f2ae53c5e1693fda840f6739e))
+* add admin agent telemetry context ([0155560](https://github.com/loonghao/dcc-mcp-core/commit/0155560d74d619510f29445f6b02cd1d3668da15))
+* add admin postmortem debug context ([3515295](https://github.com/loonghao/dcc-mcp-core/commit/35152956245afc12ad4e2171dcea6a4608cc3e84))
+* add admin trace share links ([9a3c365](https://github.com/loonghao/dcc-mcp-core/commit/9a3c365099e3ba2e0e934c05047da45c89514c9c))
+* add dcc skill developer guidance ([10f37a9](https://github.com/loonghao/dcc-mcp-core/commit/10f37a97fdc6322130dd7aeff7cb82aa452353c0))
+* add openapi inspector dashboard panel ([cbd4361](https://github.com/loonghao/dcc-mcp-core/commit/cbd4361046fbf1325c64164be6e93bc855ab7036))
+* add per-instance openapi dashboard links ([88033d8](https://github.com/loonghao/dcc-mcp-core/commit/88033d8a33c31b60dd892c410e34e1529f27b698))
+* export admin issue report json ([099eea9](https://github.com/loonghao/dcc-mcp-core/commit/099eea99d18173fa8ec94ebd767560fabe2369ce))
+
+
+### Bug Fixes
+
+* address dcc skill guidance review ([f58d7aa](https://github.com/loonghao/dcc-mcp-core/commit/f58d7aa36194ff4e6e088822e4cfcd5ae20c4aa3))
+* keep skill helpers importable without core ([457b441](https://github.com/loonghao/dcc-mcp-core/commit/457b441c849cf4c0d717b4692e2ae102e2bfdf98))
+* prefer core json dumps in skill fallback ([f59e346](https://github.com/loonghao/dcc-mcp-core/commit/f59e346ed35a7dca4945e61649f0d48550aaa6b2))
+* respect middleware mutations in admin traces ([e7adc38](https://github.com/loonghao/dcc-mcp-core/commit/e7adc383ecec976d3a13e735c68ea7363efdb01f))
+
+
+### Documentation
+
+* add skill developer sync guidance ([f085a48](https://github.com/loonghao/dcc-mcp-core/commit/f085a48b16cdaddabdf06558cedb55168aebbeb1))
+
 ## [0.17.18](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.17...v0.17.18) (2026-05-20)
 
 
