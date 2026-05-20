@@ -174,7 +174,7 @@ Gateway resources/prompts:
 | Default rolling file logging | `default_file_logging_config()` from `dcc_mcp_logging::file_logging` — rolling daily files under the platform log dir (#557) |
 | Trim old log files | `prune_old_logs(retention_days, max_total_size_mb)` — call on a schedule or at startup to enforce retention (#558) |
 | Prometheus `/metrics` (gateway) | Build `dcc-mcp-http` with `--features prometheus`; `attach_gateway_metrics_route` + `dcc_mcp_telemetry::PrometheusExporter` expose `dcc_mcp_instances_total{status}`, `dcc_mcp_tools_total{dcc_type}`, request duration / failure counters at `GET /metrics` (#559) |
-| Skill scoping | `SkillScope` (Repo → User → System → Admin) — Rust-only |
+| Skill scoping | `SkillScope` (Repo → User → Team → System → Admin) |
 | Progressive tool exposure | `SkillGroup` + `activate_tool_group()` |
 | Declarative progressive loading on startup | `MinimalModeConfig(skills=…, deactivate_groups=…)` → pass to `register_builtin_actions(minimal_mode=…)` (#525) |
 | Connection-scoped cache | `McpHttpConfig(enable_tool_cache=True)` — per-session `tools/list` snapshot (#438) |
@@ -397,7 +397,7 @@ If a split is genuinely out-of-scope for the current PR:
 ## Repo Layout (What Lives Where)
 
 ```
-crates/          # Rust workspace — 38 members (37 functional crates + workspace-hack); `Cargo.toml` is source of truth
+crates/          # Rust workspace — 41 packages (40 functional packages + workspace-hack); `Cargo.toml` is source of truth
 python/dcc_mcp_core/__init__.py  # ← top-level Python public re-exports
 python/dcc_mcp_core/result_envelope.py  # ← typed ToolResult dataclass (#487)
 python/dcc_mcp_core/constants.py        # ← metadata key / layer / category constants (#487)
@@ -442,7 +442,7 @@ docs/            # human-readable guides + API reference
 - Don't add per-crate `*Error` enums → **return `DccMcpError` via `From` impls** (#488)
 - Don't add Python runtime deps → **zero-dep by design**
 - Don't manually bump versions → **Release Please handles this**
-- Don't import `SkillScope` from Python → **it's Rust-only; use `SkillMetadata` methods**
+- Don't hardcode scope strings → **use `SkillScope` when introspecting from Python and `SkillMetadata` methods for policy checks**
 - Don't add a generic `utils` / `common` / `helpers` crate → **route helpers to their owner: domain crate, `dcc-mcp-paths`, `dcc-mcp-logging`, or `dcc-mcp-pybridge`** ([rationale](docs/guide/agents-reference.md#workspace-boundary-rationale))
 
 Full list with code examples → [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md)

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import sys
+
+_KEBAB_CASE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 def create_skill(name: str, parent_dir: str, dcc: str = "python") -> str:
@@ -18,6 +21,9 @@ def create_skill(name: str, parent_dir: str, dcc: str = "python") -> str:
         Absolute path to the created skill directory.
 
     """
+    if not _KEBAB_CASE.fullmatch(name):
+        raise ValueError("Skill name must be kebab-case, e.g. 'maya-rigging-tools'")
+
     skill_dir = Path(parent_dir) / name
     if skill_dir.exists():
         raise FileExistsError(f"Skill directory already exists: {skill_dir}")
@@ -33,14 +39,15 @@ name: {name}
 description: "TODO: describe what this skill does and when to use it"
 license: MIT
 compatibility: "Python 3.7+"
-tags: []
-dcc: {dcc}
-version: "0.1.0"
-search-hint: ""
-tools:
-  - name: example_tool
-    description: "TODO: describe this tool"
-    source_file: scripts/example_tool.py
+allowed-tools: Bash Read Write Edit
+metadata:
+  dcc-mcp:
+    dcc: {dcc}
+    version: "0.1.0"
+    layer: thin-harness
+    tags: ["generated", "{dcc}"]
+    search-hint: "TODO: add search keywords for this skill"
+    tools: tools.yaml
 ---
 
 # {name.replace("-", " ").title()}
@@ -50,16 +57,33 @@ TODO: Write skill instructions here.
         encoding="utf-8",
     )
 
+    tools_yaml = skill_dir / "tools.yaml"
+    tools_yaml.write_text(
+        """tools:
+  - name: example_tool
+    description: "TODO: describe this tool"
+    source_file: scripts/example_tool.py
+    execution: sync
+    affinity: any
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+""",
+        encoding="utf-8",
+    )
+
     example_script = skill_dir / "scripts" / "example_tool.py"
     example_script.write_text(
         '"""Example tool implementation."""\n'
-        "from dcc_mcp_core.skill import skill_entry, skill_success\n\n\n"
-        "def main():\n"
-        "    args = skill_entry()\n"
+        "from dcc_mcp_core.skill import run_main, skill_entry, skill_success\n\n\n"
+        "@skill_entry\n"
+        "def example_tool():\n"
         "    # TODO: implement tool logic\n"
-        '    return skill_success(result={"message": "Hello from example_tool!"})\n\n\n'
+        '    return skill_success("Hello from example_tool!")\n\n\n'
         'if __name__ == "__main__":\n'
-        "    print(main())\n",
+        "    run_main(example_tool)\n",
         encoding="utf-8",
     )
 

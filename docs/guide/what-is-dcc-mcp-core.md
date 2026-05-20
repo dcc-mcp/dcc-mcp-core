@@ -66,7 +66,7 @@ flowchart LR
 
 ## Architecture
 
-38-member Rust workspace (37 functional crates + `workspace-hack`; root `Cargo.toml` is the source of truth), compiled by maturin into a single Python extension `dcc_mcp_core._core`:
+41-package Rust workspace (40 functional packages + `workspace-hack`; root `Cargo.toml` is the source of truth), compiled by maturin into a single Python extension `dcc_mcp_core._core`:
 
 ```
 dcc-mcp-core/

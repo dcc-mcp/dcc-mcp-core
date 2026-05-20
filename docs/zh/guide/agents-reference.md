@@ -185,11 +185,11 @@ return success_result("done", count=5)      # → ToolResult 实例
 
 **`SkillScope` — 更高作用域覆盖同名低作用域 skill：**
 ```python
-# 作用域层级：Repo < User < System < Admin
+# 作用域层级：Repo < User < Team < System < Admin
 # System 作用域的 skill 会静默遮蔽 Repo 作用域的同名 skill。
 # 这防止了项目本地 skill 劫持企业管理 skill。
-# 注意：SkillScope/SkillPolicy 是 Rust 层类型，不导出到 Python。
-# 通过 SkillMetadata 访问作用域信息：metadata.is_implicit_invocation_allowed()，
+# SkillScope 会导出到 Python 供内省使用；策略判断仍通过 SkillMetadata：
+# metadata.is_implicit_invocation_allowed()，
 # metadata.matches_product(dcc_name)。通过 metadata.dcc-mcp.* 配置：
 #   allow-implicit-invocation: false
 #   products: ["maya", "blender"]
@@ -354,14 +354,14 @@ json_str = result.to_json()    # JSON 字符串
 - 使用 `create_skill_server("maya", McpHttpConfig(port=8765))` — v0.12.12 以来的 Skills-First 入口
 - 使用 `success_result("msg", count=5)` — 额外 kwargs 变为 `context` dict
 - 使用 `ToolAnnotations(read_only_hint=True, destructive_hint=False)` — 帮助 AI 客户端安全选择
-- 在 SKILL.md 中使用 `next-tools: on-success/on-failure` — 引导 AI 代理到后续工具
-- 在 SKILL.md 中使用 `search-hint:` — 改善 `search_skills` 关键词匹配
+- 在同级 `tools.yaml` 的工具条目中使用 `next-tools: on-success/on-failure` — 引导 AI 代理到后续工具
+- 在 SKILL.md 中使用 `metadata.dcc-mcp.search-hint` — 改善 `search_skills` 关键词匹配
 - 对高级用户功能使用 `default_active: false` 的工具组 — 保持 `tools/list` 精简
 - **为每个 skill 标记 `metadata.dcc-mcp.layer`** — `infrastructure`、`domain` 或 `example`。参见 `skills/README.md#skill-layering`。
 - **每个 skill `description` 以 layer 前缀开头**（`Infrastructure skill —` / `Domain skill —` / `Example skill —`）后跟"Not for X — use Y"否定路由句
 - **保持 `search-hint` 在各层间不重叠** — infrastructure：机制导向；domain：意图导向；example：附加"authoring reference"
 - **将每个 domain skill 工具的 `on-failure` 连接到** `[dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]`
-- **在每个使用 `on-failure` 链的 domain skill 中声明 `depends: [dcc-diagnostics]`**
+- **在每个使用 `on-failure` 链的 domain skill 中通过 `metadata.dcc-mcp.depends` / `metadata/depends.md` 声明依赖**
 - 对每个新的 SKILL.md 扩展，使用 `metadata.dcc-mcp.<feature>` 键指向同级文件（参见陷阱中的"SKILL.md 同级文件模式"）。`tools`、`groups`、`workflows`、`prompts` 及任何未来扩展同理。
 - 解包 `scan_and_load()`：`skills, skipped = scan_and_load(dcc_name="maya")`
 - 在 `McpHttpServer.start()` **之前**注册所有处理器 — 服务器在启动时读取注册表
@@ -381,7 +381,7 @@ json_str = result.to_json()    # JSON 字符串
 - 不要使用 `success_result("msg", context={"count": 5})` — kwargs 自动进入 context
 - 不要调用 `ToolDispatcher.call()` — 方法是 `.dispatch(name, json_str)`
 - 不要向 `ToolRegistry.register()` 传位置参数 — 仅限关键字参数
-- 不要从 Python 导入 `SkillScope` 或 `SkillPolicy` — 它们是 Rust-only 类型
+- 不要硬编码 scope 字符串，也不要从 Python 导入 `SkillPolicy` — 用导出的 `SkillScope` 做内省，用 `SkillMetadata` 方法做策略判断
 - 不要从公共 `__init__` 导入 `DeferredExecutor` — 使用 `from dcc_mcp_core._core import DeferredExecutor`
 - 不要先调用 `.new_auto()` 再调用 `.capture_window()` — 单窗口捕获用 `.new_window_auto()`
 - 不要使用旧式 API：`ActionManager`、`create_action_manager()`、`MiddlewareChain`、`Action` — 在 v0.12+ 中已移除

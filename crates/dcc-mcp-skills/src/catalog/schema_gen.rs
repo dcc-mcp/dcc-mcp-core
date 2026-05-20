@@ -386,4 +386,38 @@ def main(file_path: str, namespace: Optional[str] = None, merge_namespaces: bool
             );
         }
     }
+
+    #[test]
+    fn test_auto_discovery_handles_functions_without_kwargs() {
+        set_manifest_dir();
+        if Command::new("python").arg("--version").output().is_err() {
+            eprintln!("Skipping test: Python interpreter not found in PATH");
+            return;
+        }
+
+        let script = create_test_script("def helper(value: str): return value\n");
+        let schema = generate_input_schema(script.path(), None)
+            .expect("auto-discovery should return the fallback object schema");
+        assert_eq!(schema["type"], "object");
+    }
+
+    #[test]
+    fn test_auto_discovery_uses_var_keyword_function_when_no_main_exists() {
+        set_manifest_dir();
+        if Command::new("python").arg("--version").output().is_err() {
+            eprintln!("Skipping test: Python interpreter not found in PATH");
+            return;
+        }
+
+        let script = create_test_script("def entrypoint(**kwargs): return kwargs\n");
+        let schema = generate_input_schema(script.path(), None)
+            .expect("auto-discovery should inspect the **kwargs entry function");
+        assert_eq!(schema["type"], "object");
+        if let Some(props) = schema.get("properties").and_then(|v| v.as_object()) {
+            assert!(
+                !props.contains_key("kwargs"),
+                "var-keyword parameters must not surface as schema properties"
+            );
+        }
+    }
 }

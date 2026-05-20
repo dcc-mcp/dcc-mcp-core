@@ -2,6 +2,8 @@ tools:
   - name: create_skill
     description: "Scaffold a new skill directory with SKILL.md, scripts/, and metadata/ structure."
     source_file: scripts/create_skill.py
+    execution: sync
+    affinity: any
     annotations:
       read_only_hint: false
       destructive_hint: false
@@ -14,6 +16,8 @@ tools:
   - name: validate_skill_dir
     description: "Validate a skill directory against the dcc-mcp-core specification. Returns structured errors, warnings, and info."
     source_file: scripts/validate_skill_dir.py
+    execution: sync
+    affinity: any
     annotations:
       read_only_hint: true
       destructive_hint: false
@@ -21,8 +25,10 @@ tools:
       open_world_hint: false
 
   - name: skill_template
-    description: "Return a SKILL.md template with all supported fields and documentation."
+    description: "Return a current SKILL.md template that uses metadata.dcc-mcp and sibling tools.yaml declarations."
     source_file: scripts/skill_template.py
+    execution: sync
+    affinity: any
     annotations:
       read_only_hint: true
       destructive_hint: false

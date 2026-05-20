@@ -14,9 +14,9 @@ Typical usage::
 
     from dcc_mcp_core.result_envelope import ToolResult
 
-    return ToolResult.success("Loaded skill", name="recipe.x").to_dict()
+    return ToolResult.ok("Loaded skill", name="recipe.x").to_dict()
 
-    return ToolResult.error(
+    return ToolResult.fail(
         "Failed to load skill",
         error="not_found",
         prompt="Try `recipes__list` to see available skills.",

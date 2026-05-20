@@ -243,11 +243,11 @@ return success_result("done", count=5)      # → ToolResult instance
 
 **`SkillScope` — higher scope overrides lower for same-name skills:**
 ```python
-# Scope hierarchy: Repo < User < System < Admin
+# Scope hierarchy: Repo < User < Team < System < Admin
 # A System-scoped skill silently shadows a Repo-scoped skill with the same name.
 # This prevents project-local skills from hijacking enterprise-managed ones.
-# NOTE: SkillScope/SkillPolicy are Rust-level types not exported to Python.
-# Access scope info via SkillMetadata: metadata.is_implicit_invocation_allowed(),
+# SkillScope is exported to Python for introspection. SkillPolicy checks are
+# exposed through SkillMetadata: metadata.is_implicit_invocation_allowed(),
 # metadata.matches_product(dcc_name). Configure via SKILL.md frontmatter:
 #   allow_implicit_invocation: false
 #   products: ["maya", "blender"]
@@ -412,14 +412,14 @@ json_str = result.to_json()    # JSON string
 - Use `create_skill_server("maya", McpHttpConfig(port=8765))` — the Skills-First entry point since v0.12.12
 - Use `success_result("msg", count=5)` — extra kwargs become `context` dict
 - Use `ToolAnnotations(read_only_hint=True, destructive_hint=False)` — helps AI clients choose safely
-- Use `next-tools: on-success/on-failure` in SKILL.md — guides AI agents to follow-up tools
-- Use `search-hint:` in SKILL.md — improves `search_skills` keyword matching
+- Use `next-tools: on-success/on-failure` inside sibling `tools.yaml` entries — guides AI agents to follow-up tools
+- Use `metadata.dcc-mcp.search-hint` in SKILL.md — improves `search_skills` keyword matching
 - Use tool groups with `default_active: false` for power-user features — keeps `tools/list` small
 - **Tag every skill with `metadata.dcc-mcp.layer`** — `infrastructure`, `domain`, or `example`. See `skills/README.md#skill-layering`.
 - **Start every skill `description` with the layer prefix** (`Infrastructure skill —` / `Domain skill —` / `Example skill —`) followed by a "Not for X — use Y" negative routing sentence
 - **Keep `search-hint` non-overlapping across layers** — infrastructure: mechanism-oriented; domain: intent-oriented; example: append "authoring reference"
 - **Wire every domain skill tool `on-failure`** to `[dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]`
-- **Declare `depends: [dcc-diagnostics]`** in every domain skill that uses `on-failure` chains
+- **Declare dependencies via `metadata.dcc-mcp.depends` / `metadata/depends.md`** in every domain skill that uses `on-failure` chains
 - For every new SKILL.md extension, use a `metadata.dcc-mcp.<feature>` key pointing at a sibling file (see "SKILL.md sibling-file pattern" in Traps). Same rule for `tools`, `groups`, `workflows`, `prompts`, and anything future.
 - Unpack `scan_and_load()`: `skills, skipped = scan_and_load(dcc_name="maya")`
 - Register ALL handlers BEFORE `McpHttpServer.start()` — the server reads the registry at startup
@@ -439,7 +439,7 @@ json_str = result.to_json()    # JSON string
 - Don't use `success_result("msg", context={"count": 5})` — kwargs go into context automatically
 - Don't call `ToolDispatcher.call()` — method is `.dispatch(name, json_str)`
 - Don't pass positional args to `ToolRegistry.register()` — keyword args only
-- Don't import `SkillScope` or `SkillPolicy` from Python — they are Rust-only types
+- Don't hardcode scope strings or import `SkillPolicy` from Python — use exported `SkillScope` for introspection and `SkillMetadata` methods for policy checks
 - Don't import `DeferredExecutor` from public `__init__` — use `from dcc_mcp_core._core import DeferredExecutor`
 - Don't call `.new_auto()` then `.capture_window()` — use `.new_window_auto()` for single-window capture
 - Don't use legacy APIs: `ActionManager`, `create_action_manager()`, `MiddlewareChain`, `Action` — removed in v0.12+
