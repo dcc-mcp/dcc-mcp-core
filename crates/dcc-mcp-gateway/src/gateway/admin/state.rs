@@ -34,6 +34,16 @@ pub struct AdminAuditRecord {
     pub instance_id: Option<String>,
     /// Originating MCP session id, if any.
     pub session_id: Option<String>,
+    /// Transport surface that produced the request (`mcp`, `rest`, ...).
+    pub transport: Option<String>,
+    /// Agent/caller id supplied for telemetry correlation.
+    pub agent_id: Option<String>,
+    /// Human-readable agent/caller name.
+    pub agent_name: Option<String>,
+    /// Model or runtime name supplied by the caller.
+    pub agent_model: Option<String>,
+    /// Parent request id for request-chain correlation.
+    pub parent_request_id: Option<String>,
     /// Tool slug or MCP method name.
     pub action: String,
     /// DCC type of the target backend (e.g. `"maya"`).
@@ -63,6 +73,16 @@ struct PersistedAuditRecord {
     method: Option<String>,
     instance_id: Option<String>,
     session_id: Option<String>,
+    #[serde(default)]
+    transport: Option<String>,
+    #[serde(default)]
+    agent_id: Option<String>,
+    #[serde(default)]
+    agent_name: Option<String>,
+    #[serde(default)]
+    agent_model: Option<String>,
+    #[serde(default)]
+    parent_request_id: Option<String>,
     action: String,
     dcc_type: Option<String>,
     success: bool,
@@ -212,6 +232,11 @@ impl From<&AdminAuditRecord> for PersistedAuditRecord {
             method: record.method.clone(),
             instance_id: record.instance_id.clone(),
             session_id: record.session_id.clone(),
+            transport: record.transport.clone(),
+            agent_id: record.agent_id.clone(),
+            agent_name: record.agent_name.clone(),
+            agent_model: record.agent_model.clone(),
+            parent_request_id: record.parent_request_id.clone(),
             action: record.action.clone(),
             dcc_type: record.dcc_type.clone(),
             success: record.success,
@@ -229,6 +254,11 @@ impl From<PersistedAuditRecord> for AdminAuditRecord {
             method: record.method,
             instance_id: record.instance_id,
             session_id: record.session_id,
+            transport: record.transport,
+            agent_id: record.agent_id,
+            agent_name: record.agent_name,
+            agent_model: record.agent_model,
+            parent_request_id: record.parent_request_id,
             action: record.action,
             dcc_type: record.dcc_type,
             success: record.success,
@@ -299,6 +329,23 @@ impl AuditSink for AdminAuditSink {
             method: Some(entry.method.clone()),
             instance_id: entry.instance_id.clone(),
             session_id: entry.session_id.clone(),
+            transport: entry.transport.clone(),
+            agent_id: entry
+                .agent_context
+                .as_ref()
+                .and_then(|ctx| ctx.agent_id.clone()),
+            agent_name: entry
+                .agent_context
+                .as_ref()
+                .and_then(|ctx| ctx.agent_name.clone()),
+            agent_model: entry
+                .agent_context
+                .as_ref()
+                .and_then(|ctx| ctx.model.clone()),
+            parent_request_id: entry
+                .agent_context
+                .as_ref()
+                .and_then(|ctx| ctx.parent_request_id.clone()),
             action: entry
                 .tool_slug
                 .clone()
@@ -335,7 +382,9 @@ impl AuditSink for AdminAuditSink {
                 instance_id: entry.instance_id.clone(),
                 session_id: entry.session_id.clone(),
                 dcc_type: entry.dcc_type.clone(),
-                started_at: entry.timestamp,
+                transport: entry.transport.clone(),
+                agent_context: entry.agent_context.clone(),
+                started_at: entry.started_at,
                 total_ms: entry.duration_ms.unwrap_or(0),
                 ok: !entry.is_error,
                 spans: entry.trace_spans,
@@ -364,6 +413,11 @@ mod durable_tests {
             method: Some("tools/call".to_string()),
             instance_id: Some("instance".to_string()),
             session_id: Some("session".to_string()),
+            transport: None,
+            agent_id: None,
+            agent_name: None,
+            agent_model: None,
+            parent_request_id: None,
             action: "maya.abcdef01.create_sphere".to_string(),
             dcc_type: Some("maya".to_string()),
             success: true,
@@ -385,6 +439,8 @@ mod durable_tests {
             instance_id: Some("instance".to_string()),
             session_id: Some("session".to_string()),
             dcc_type: Some("maya".to_string()),
+            transport: None,
+            agent_context: None,
             started_at: UNIX_EPOCH + Duration::from_millis(1),
             total_ms: 7,
             ok: true,

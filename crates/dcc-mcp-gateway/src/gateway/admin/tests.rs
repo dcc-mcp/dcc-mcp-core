@@ -293,6 +293,11 @@ mod admin_tests {
                 method: Some("tools/call".to_string()),
                 instance_id: Some("maya-instance".to_string()),
                 session_id: Some("session-1".to_string()),
+                transport: Some("mcp".to_string()),
+                agent_id: Some("agent-ok".to_string()),
+                agent_name: Some("Operator Agent".to_string()),
+                agent_model: Some("gpt-test".to_string()),
+                parent_request_id: None,
                 action: "tools/call:maya__open_scene".to_string(),
                 dcc_type: Some("maya".to_string()),
                 success: true,
@@ -305,6 +310,11 @@ mod admin_tests {
                 method: Some("tools/call".to_string()),
                 instance_id: Some("blender-instance".to_string()),
                 session_id: None,
+                transport: None,
+                agent_id: None,
+                agent_name: None,
+                agent_model: None,
+                parent_request_id: None,
                 action: "tools/call:blender__render".to_string(),
                 dcc_type: Some("blender".to_string()),
                 success: false,
@@ -336,6 +346,10 @@ mod admin_tests {
         assert_eq!(successes[0]["method"], "tools/call");
         assert_eq!(successes[0]["instance_id"], "maya-instance");
         assert_eq!(successes[0]["session_id"], "session-1");
+        assert_eq!(successes[0]["transport"], "mcp");
+        assert_eq!(successes[0]["agent_id"], "agent-ok");
+        assert_eq!(successes[0]["agent_name"], "Operator Agent");
+        assert_eq!(successes[0]["agent_model"], "gpt-test");
         assert_eq!(failures[0]["request_id"], "req-fail");
         assert_eq!(failures[0]["instance_id"], "blender-instance");
     }
@@ -348,6 +362,11 @@ mod admin_tests {
             method: Some("tools/call".to_string()),
             instance_id: None,
             session_id: None,
+            transport: None,
+            agent_id: None,
+            agent_name: None,
+            agent_model: None,
+            parent_request_id: None,
             action: "tools/call:photoshop__save".to_string(),
             dcc_type: None,
             success: true,
@@ -375,6 +394,11 @@ mod admin_tests {
             method: Some("tools/call".to_string()),
             instance_id: Some("inst-1".to_string()),
             session_id: Some("session-1".to_string()),
+            transport: Some("rest".to_string()),
+            agent_id: Some("agent-activity".to_string()),
+            agent_name: None,
+            agent_model: None,
+            parent_request_id: Some("parent-1".to_string()),
             action: "maya.inst.tool".to_string(),
             dcc_type: Some("maya".to_string()),
             success: true,
@@ -389,6 +413,12 @@ mod admin_tests {
             instance_id: Some("inst-1".into()),
             session_id: Some("session-1".into()),
             dcc_type: Some("maya".into()),
+            transport: Some("rest".into()),
+            agent_context: Some(crate::gateway::admin::trace::AgentContext {
+                agent_id: Some("agent-activity".into()),
+                parent_request_id: Some("parent-1".into()),
+                ..Default::default()
+            }),
             started_at: SystemTime::now(),
             total_ms: 11,
             ok: true,
@@ -428,6 +458,8 @@ mod admin_tests {
             instance_id: Some("inst-1".into()),
             session_id: Some("session-1".into()),
             dcc_type: Some("maya".into()),
+            transport: None,
+            agent_context: None,
             started_at: SystemTime::now(),
             total_ms: 25,
             ok: false,
@@ -530,6 +562,11 @@ mod admin_tests {
             method: Some("tools/call".into()),
             instance_id: Some("deadbeef".into()),
             session_id: None,
+            transport: None,
+            agent_id: None,
+            agent_name: None,
+            agent_model: None,
+            parent_request_id: None,
             action: "maya.deadbeef.scene__info".into(),
             dcc_type: Some("maya".into()),
             success: true,
@@ -619,6 +656,8 @@ mod admin_tests {
             instance_id: Some("inst-abc".into()),
             session_id: None,
             dcc_type: Some("maya".into()),
+            transport: None,
+            agent_context: None,
             started_at: SystemTime::now(),
             total_ms: 150,
             ok: true,
@@ -633,6 +672,8 @@ mod admin_tests {
             instance_id: Some("inst-abc".into()),
             session_id: None,
             dcc_type: Some("maya".into()),
+            transport: None,
+            agent_context: None,
             started_at: SystemTime::now(),
             total_ms: 50,
             ok: false,

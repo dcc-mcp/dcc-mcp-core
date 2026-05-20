@@ -86,6 +86,8 @@ pub struct GatewayStats {
     pub top_tools: Vec<TopEntry>,
     /// Top DCC instances by call count (up to 10).
     pub top_instances: Vec<TopEntry>,
+    /// Top client-supplied agents/callers by call count (up to 10).
+    pub top_agents: Vec<TopEntry>,
     /// Call distribution across the 24 hours of the day (UTC, index 0 = midnight).
     ///
     /// Each element is the number of calls that started in that hour window
@@ -178,6 +180,7 @@ fn compute_from_traces(in_range: &[DispatchTrace], range: StatsRange) -> Gateway
             latency_ms: LatencyStats::default(),
             top_tools: vec![],
             top_instances: vec![],
+            top_agents: vec![],
             hourly_distribution: vec![0u32; 24],
         };
     }
@@ -209,6 +212,14 @@ fn compute_from_traces(in_range: &[DispatchTrace], range: StatsRange) -> Gateway
     }
     let top_instances = top_n(instance_counts, 10);
 
+    let mut agent_counts: HashMap<String, usize> = HashMap::new();
+    for t in in_range {
+        if let Some(name) = t.agent_context.as_ref().and_then(|ctx| ctx.display_name()) {
+            *agent_counts.entry(name.to_string()).or_insert(0) += 1;
+        }
+    }
+    let top_agents = top_n(agent_counts, 10);
+
     let mut hourly = vec![0u32; 24];
     for t in in_range {
         let hour = t
@@ -230,6 +241,7 @@ fn compute_from_traces(in_range: &[DispatchTrace], range: StatsRange) -> Gateway
         latency_ms,
         top_tools,
         top_instances,
+        top_agents,
         hourly_distribution: hourly,
     }
 }
@@ -292,6 +304,8 @@ mod tests {
             instance_id: Some(instance.to_string()),
             session_id: None,
             dcc_type: Some("maya".into()),
+            transport: None,
+            agent_context: None,
             started_at: SystemTime::now(),
             total_ms,
             ok,

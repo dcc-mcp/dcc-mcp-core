@@ -132,7 +132,7 @@ The elected gateway exposes a read-only HTML dashboard at `GET /admin` and machi
 | `GET /admin/api/calls` | Correlate recent calls by `request_id`, tool slug, DCC type, instance, error preview, and duration. |
 | `GET /admin/api/traces?limit=200` | Inspect recent dispatch waterfalls, bounded input payloads (16 KiB), and bounded output payloads (64 KiB). |
 | `GET /admin/api/traces/{request_id}` | Drill into one call without scanning the whole trace ring. |
-| `GET /admin/api/stats?range=1h\|24h\|7d` | Compute success rate, latency percentiles, and top tools/instances from the trace log. |
+| `GET /admin/api/stats?range=1h\|24h\|7d` | Compute success rate, latency percentiles, and top tools/instances/agents from the trace log. |
 | `GET /admin/api/workers` | Inspect per-instance worker cards from the live registry. |
 
 By default these buffers are in memory only. Set `DCC_MCP_GATEWAY_AUDIT_DIR` to append bounded JSONL files:
@@ -141,6 +141,14 @@ By default these buffers are in memory only. Set `DCC_MCP_GATEWAY_AUDIT_DIR` to 
 - `traces.jsonl` — rows backing `/admin/api/traces` and stats.
 
 `DCC_MCP_GATEWAY_AUDIT_MAX_ROWS` (default `5000`) caps each file. On restart, the gateway seeds the in-memory admin buffers from those files. The persisted trace payloads use the same bounded/redacted `TracePayload` values as the live API; unbounded raw request bodies are not stored.
+
+MCP and REST clients can attach optional agent/caller context to correlate an
+operator-visible request with the caller's explicit plan and observations. Use
+`params._meta.agent_context` for MCP, REST `meta.agent_context` or
+`caller_context` fields, or `x-dcc-mcp-agent-*` headers. Fields are bounded and
+intended for concise telemetry such as `agent_id`, `agent_name`, `model`,
+`task`, `reasoning_summary`, `plan`, `observations`, `parent_request_id`, and
+tags; do not send hidden chain-of-thought or secrets.
 
 ---
 

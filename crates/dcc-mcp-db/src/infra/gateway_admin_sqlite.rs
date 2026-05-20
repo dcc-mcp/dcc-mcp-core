@@ -337,6 +337,11 @@ mod tests {
             method: Some("call".into()),
             instance_id: None,
             session_id: None,
+            transport: Some("rest".into()),
+            agent_id: Some("agent-1".into()),
+            agent_name: Some("Test Agent".into()),
+            agent_model: Some("gpt-test".into()),
+            parent_request_id: None,
             action: "x".into(),
             dcc_type: Some("maya".into()),
             success: true,
@@ -350,6 +355,8 @@ mod tests {
         assert_eq!(list.len(), 1);
         let back: GatewayAdminAuditPersistedJson = serde_json::from_str(&list[0]).unwrap();
         assert_eq!(back.request_id, "rid");
+        assert_eq!(back.transport.as_deref(), Some("rest"));
+        assert_eq!(back.agent_id.as_deref(), Some("agent-1"));
     }
 
     #[test]

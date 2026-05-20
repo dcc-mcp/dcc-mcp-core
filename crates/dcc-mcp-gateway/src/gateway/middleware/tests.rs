@@ -5,6 +5,8 @@ use std::time::Duration;
 
 use serde_json::json;
 
+use crate::gateway::admin::trace::AgentContext;
+
 use super::audit::{AuditEntry, AuditMiddleware, AuditSink};
 use super::chain::MiddlewareChain;
 use super::context::{CallContext, CallResult};
@@ -283,7 +285,13 @@ async fn test_combined_chain_audit_quota_redaction() {
         "combined-1",
         json!({"tool": "run", "token": "secret"}),
     )
-    .with_session_id("sess-combined");
+    .with_session_id("sess-combined")
+    .with_transport("mcp")
+    .with_agent_context(Some(AgentContext {
+        agent_id: Some("agent-combined".to_string()),
+        reasoning_summary: Some("Verify middleware telemetry fields.".to_string()),
+        ..Default::default()
+    }));
 
     chain.run_before(&mut ctx).await.unwrap();
 
@@ -296,4 +304,12 @@ async fn test_combined_chain_audit_quota_redaction() {
     // AfterCall audit entry should have been written.
     let log = entries.lock().unwrap();
     assert!(!log.is_empty(), "at least one audit entry expected");
+    assert_eq!(log[0].transport.as_deref(), Some("mcp"));
+    assert_eq!(
+        log[0]
+            .agent_context
+            .as_ref()
+            .and_then(|ctx| ctx.agent_id.as_deref()),
+        Some("agent-combined")
+    );
 }

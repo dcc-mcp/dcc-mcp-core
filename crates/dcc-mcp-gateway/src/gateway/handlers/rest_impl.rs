@@ -1,7 +1,6 @@
 use super::*;
 
-use crate::gateway::capability::RefreshReason;
-use crate::gateway::capability::tool_slug;
+use crate::gateway::capability::{RefreshReason, parse_slug, tool_slug};
 use crate::gateway::capability_service::{
     ServiceError, call_service, describe_tool_full, parse_search_payload,
     refresh_all_live_backends, search_service_rows, service_error_to_json,
@@ -397,7 +396,11 @@ pub async fn handle_v1_dcc_instance_describe(
 ///
 /// Request body: `{"tool_slug": "...", "arguments": {...},
 ///                 "meta": {...}}` (meta optional).
-pub async fn handle_v1_call(State(gs): State<GatewayState>, Json(body): Json<Value>) -> Response {
+pub async fn handle_v1_call(
+    State(gs): State<GatewayState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
     let Some(slug) = body.get("tool_slug").and_then(Value::as_str) else {
         return (
             StatusCode::BAD_REQUEST,
@@ -424,18 +427,10 @@ pub async fn handle_v1_call(State(gs): State<GatewayState>, Json(body): Json<Val
         };
     let meta = body.get("meta").cloned();
 
-    match call_service(&gs, slug, arguments.clone(), meta.clone()).await {
+    match call_service_with_admin_trace(&gs, &headers, "v1/call", slug, arguments, meta, &body)
+        .await
+    {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(err) if err.kind == "unknown-slug" => {
-            // Retry once after refresh — mirrors the MCP wrapper
-            // behaviour so agents that hit a newly-loaded skill from
-            // either transport experience the same recovery flow.
-            refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
-            match call_service(&gs, slug, arguments, meta).await {
-                Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-                Err(err2) => error_response(&err2).into_response(),
-            }
-        }
         Err(err) => error_response(&err).into_response(),
     }
 }
@@ -453,6 +448,7 @@ pub async fn handle_v1_call(State(gs): State<GatewayState>, Json(body): Json<Val
 /// `tool_slug(dcc, instance_uuid, backend_tool)`.
 pub async fn handle_v1_dcc_instance_call(
     State(gs): State<GatewayState>,
+    headers: HeaderMap,
     Path((dcc_type, instance_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Response {
@@ -518,15 +514,18 @@ pub async fn handle_v1_dcc_instance_call(
         };
     let meta = body.get("meta").cloned();
 
-    match call_service(&gs, &slug, arguments.clone(), meta.clone()).await {
+    match call_service_with_admin_trace(
+        &gs,
+        &headers,
+        "v1/dcc/instances/call",
+        &slug,
+        arguments,
+        meta,
+        &body,
+    )
+    .await
+    {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(err) if err.kind == "unknown-slug" => {
-            refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
-            match call_service(&gs, &slug, arguments, meta).await {
-                Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-                Err(err2) => error_response(&err2).into_response(),
-            }
-        }
         Err(err) => error_response(&err).into_response(),
     }
 }
@@ -566,9 +565,10 @@ fn resolve_instance_http_response(err: ResolveInstanceError) -> impl IntoRespons
 /// "stop_on_error"?: bool }` — same semantics as MCP `call_tools`.
 pub async fn handle_v1_call_batch(
     State(gs): State<GatewayState>,
+    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
-    match crate::gateway::tools::gateway_call_batch_inner(&gs, &body, None).await {
+    match call_batch_with_admin_trace(&gs, &headers, &body).await {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
         Err(message) => (
             StatusCode::BAD_REQUEST,
@@ -579,6 +579,191 @@ pub async fn handle_v1_call_batch(
         )
             .into_response(),
     }
+}
+
+async fn call_service_with_admin_trace(
+    gs: &GatewayState,
+    headers: &HeaderMap,
+    method: &str,
+    slug: &str,
+    arguments: Value,
+    meta: Option<Value>,
+    request_body: &Value,
+) -> Result<Value, ServiceError> {
+    use crate::gateway::admin::trace::{
+        AgentContext, MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, TracePayload, TraceSpan,
+    };
+    use crate::gateway::middleware::{CallContext, CallResult};
+
+    let mut ctx = CallContext::new(method, request_id_from_headers(headers), arguments.clone())
+        .with_tool_slug(slug)
+        .with_transport("rest")
+        .with_agent_context(AgentContext::from_request_parts(
+            headers,
+            Some(request_body),
+            meta.as_ref(),
+        ));
+    if let Some(session_id) = session_id_from_headers(headers) {
+        ctx = ctx.with_session_id(session_id);
+    }
+    if let Some((dcc_type, instance_hint, _)) = parse_slug(slug) {
+        ctx = ctx.with_backend(dcc_type, instance_hint);
+    }
+    ctx.input_payload = Some(TracePayload::from_value(&arguments, MAX_INPUT_BYTES));
+
+    if !gs.middleware_chain.is_empty()
+        && let Err(err) = gs.middleware_chain.run_before(&mut ctx).await
+    {
+        return Err(ServiceError::new("middleware-error", err.to_string()));
+    }
+
+    let effective_arguments = if gs.middleware_chain.is_empty() {
+        arguments
+    } else {
+        ctx.args.clone()
+    };
+    let dispatch_ns = now_ns();
+    let mut result = call_service(gs, slug, effective_arguments.clone(), meta.clone()).await;
+    if matches!(&result, Err(err) if err.kind == "unknown-slug") {
+        refresh_all_live_backends(gs, RefreshReason::Periodic).await;
+        result = call_service(gs, slug, effective_arguments, meta).await;
+    }
+
+    let response_ns = now_ns();
+    let (preview_text, is_error, output_value) = match &result {
+        Ok(value) => (
+            serde_json::to_string(value).unwrap_or_default(),
+            false,
+            value.clone(),
+        ),
+        Err(err) => (err.message.clone(), true, service_error_to_json(err)),
+    };
+    let mut span = TraceSpan::new(
+        "backend.execute",
+        dispatch_ns,
+        response_ns.saturating_sub(dispatch_ns),
+    )
+    .with_attr("tool_slug", slug)
+    .with_attr("transport", "rest")
+    .with_attr("ok", !is_error);
+    if is_error {
+        span = span.with_error();
+    }
+    ctx.push_span(span);
+    ctx.output_payload = Some(TracePayload::from_value(&output_value, MAX_OUTPUT_BYTES));
+
+    let mut call_result = CallResult::from_tuple(preview_text, is_error);
+    if !gs.middleware_chain.is_empty()
+        && let Err(err) = gs.middleware_chain.run_after(&ctx, &mut call_result).await
+    {
+        return Err(ServiceError::new("middleware-error", err.to_string()));
+    }
+
+    result
+}
+
+async fn call_batch_with_admin_trace(
+    gs: &GatewayState,
+    headers: &HeaderMap,
+    request_body: &Value,
+) -> Result<Value, String> {
+    use crate::gateway::admin::trace::{
+        AgentContext, MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, TracePayload, TraceSpan,
+    };
+    use crate::gateway::middleware::{CallContext, CallResult};
+
+    let mut ctx = CallContext::new(
+        "v1/call_batch",
+        request_id_from_headers(headers),
+        request_body.clone(),
+    )
+    .with_tool_slug("call_batch")
+    .with_transport("rest")
+    .with_agent_context(AgentContext::from_request_parts(
+        headers,
+        Some(request_body),
+        request_body.get("meta"),
+    ));
+    if let Some(session_id) = session_id_from_headers(headers) {
+        ctx = ctx.with_session_id(session_id);
+    }
+    ctx.input_payload = Some(TracePayload::from_value(request_body, MAX_INPUT_BYTES));
+
+    if !gs.middleware_chain.is_empty()
+        && let Err(err) = gs.middleware_chain.run_before(&mut ctx).await
+    {
+        return Err(err.to_string());
+    }
+
+    let dispatch_ns = now_ns();
+    let result = crate::gateway::tools::gateway_call_batch_inner(gs, request_body, None).await;
+    let response_ns = now_ns();
+    let (preview_text, is_error, output_value) = match &result {
+        Ok(value) => (
+            serde_json::to_string(value).unwrap_or_default(),
+            false,
+            value.clone(),
+        ),
+        Err(message) => (
+            message.clone(),
+            true,
+            json!({
+                "success": false,
+                "error": {"kind": "bad-request", "message": message},
+            }),
+        ),
+    };
+    let mut span = TraceSpan::new(
+        "batch.execute",
+        dispatch_ns,
+        response_ns.saturating_sub(dispatch_ns),
+    )
+    .with_attr("tool_slug", "call_batch")
+    .with_attr("transport", "rest")
+    .with_attr("ok", !is_error);
+    if is_error {
+        span = span.with_error();
+    }
+    ctx.push_span(span);
+    ctx.output_payload = Some(TracePayload::from_value(&output_value, MAX_OUTPUT_BYTES));
+
+    let mut call_result = CallResult::from_tuple(preview_text, is_error);
+    if !gs.middleware_chain.is_empty()
+        && let Err(err) = gs.middleware_chain.run_after(&ctx, &mut call_result).await
+    {
+        return Err(err.to_string());
+    }
+
+    result
+}
+
+fn request_id_from_headers(headers: &HeaderMap) -> String {
+    header_string(headers, "x-request-id")
+        .or_else(|| header_string(headers, "x-correlation-id"))
+        .or_else(|| header_string(headers, "traceparent"))
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
+}
+
+fn session_id_from_headers(headers: &HeaderMap) -> Option<String> {
+    header_string(headers, "mcp-session-id")
+        .or_else(|| header_string(headers, "x-session-id"))
+        .or_else(|| header_string(headers, "x-dcc-mcp-session-id"))
+}
+
+fn header_string(headers: &HeaderMap, name: &str) -> Option<String> {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn now_ns() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
 }
 
 fn error_response(err: &ServiceError) -> (StatusCode, Json<Value>) {
