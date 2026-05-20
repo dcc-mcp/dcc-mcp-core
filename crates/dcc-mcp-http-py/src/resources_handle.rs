@@ -254,6 +254,13 @@ impl PyResourceHandle {
             .register_output_buffer(capture.inner.buffer.clone());
     }
 
+    /// Register a :class:`SessionEventBuffer` as an
+    /// ``events://session/{instance_id}`` resource (issue #1078).
+    fn register_session_event_buffer(&self, buffer: PyRef<'_, super::PySessionEventBuffer>) {
+        self.inner
+            .register_session_event_buffer(buffer.inner.clone());
+    }
+
     /// Register a Python callable as a producer for ``scheme_or_uri``.
     ///
     /// The callable is invoked on a Tokio worker thread when an MCP

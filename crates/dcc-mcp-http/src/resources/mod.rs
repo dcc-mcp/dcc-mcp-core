@@ -206,6 +206,18 @@ impl ResourceRegistry {
         self.add_producer(Arc::new(crate::output::OutputResourceProducer::new(buffer)));
     }
 
+    /// Register a [`crate::session_events::SessionEventBuffer`] as an
+    /// ``events://session/{instance_id}`` resource.
+    ///
+    /// Adapters can append stdout/stderr/log/progress/checkpoint events with
+    /// tool-call or job correlation, while clients read by cursor using
+    /// ``resources/read``.
+    pub fn register_session_event_buffer(&self, buffer: crate::session_events::SessionEventBuffer) {
+        self.add_producer(Arc::new(
+            crate::session_events::SessionEventResourceProducer::new(buffer),
+        ));
+    }
+
     /// Publish a new scene snapshot for `scene://current`.
     ///
     /// Fires `notifications/resources/updated` for subscribed clients.

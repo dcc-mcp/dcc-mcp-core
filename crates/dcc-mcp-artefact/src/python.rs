@@ -17,7 +17,9 @@ use pyo3::types::{PyAny, PyBytes};
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pyfunction, gen_stub_pymethods};
 
-use crate::{ArtefactError, FileRef, FilesystemArtefactStore, SharedArtefactStore};
+use crate::{
+    ArtefactError, ArtefactPutOptions, FileRef, FilesystemArtefactStore, SharedArtefactStore,
+};
 
 /// Python wrapper for [`crate::FileRef`].
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
@@ -48,6 +50,12 @@ impl PyFileRef {
         self.inner.size_bytes
     }
 
+    /// Optional display filename/name for clients.
+    #[getter]
+    fn display_name(&self) -> Option<&str> {
+        self.inner.display_name.as_deref()
+    }
+
     /// Canonical digest, e.g. ``sha256:<hex>``.
     #[getter]
     fn digest(&self) -> Option<&str> {
@@ -60,10 +68,34 @@ impl PyFileRef {
         self.inner.producer_job_id.map(|u| u.to_string())
     }
 
+    /// Tool call/request id that produced the artefact (when known).
+    #[getter]
+    fn tool_call_id(&self) -> Option<&str> {
+        self.inner.tool_call_id.as_deref()
+    }
+
+    /// Session id that produced the artefact (when known).
+    #[getter]
+    fn session_id(&self) -> Option<&str> {
+        self.inner.session_id.as_deref()
+    }
+
+    /// Adapter-defined correlation id (when known).
+    #[getter]
+    fn correlation_id(&self) -> Option<&str> {
+        self.inner.correlation_id.as_deref()
+    }
+
     /// RFC-3339 creation timestamp.
     #[getter]
     fn created_at(&self) -> String {
         self.inner.created_at.to_rfc3339()
+    }
+
+    /// RFC-3339 expiry timestamp when retention is configured.
+    #[getter]
+    fn expires_at(&self) -> Option<String> {
+        self.inner.expires_at.map(|dt| dt.to_rfc3339())
     }
 
     /// Tool-defined metadata as a JSON string.
@@ -114,9 +146,40 @@ fn map_err(e: ArtefactError) -> PyErr {
     match e {
         ArtefactError::NotFound(msg) => PyIOError::new_err(format!("artefact not found: {msg}")),
         ArtefactError::InvalidUri(msg) => PyValueError::new_err(format!("invalid uri: {msg}")),
+        ArtefactError::LimitExceeded(msg) => {
+            PyValueError::new_err(format!("artefact limit exceeded: {msg}"))
+        }
         ArtefactError::Io(err) => PyIOError::new_err(err.to_string()),
         ArtefactError::Serde(err) => PyValueError::new_err(err.to_string()),
     }
+}
+
+fn build_put_options(
+    mime: Option<String>,
+    display_name: Option<String>,
+    producer_job_id: Option<String>,
+    tool_call_id: Option<String>,
+    session_id: Option<String>,
+    correlation_id: Option<String>,
+    ttl_secs: Option<u64>,
+) -> PyResult<ArtefactPutOptions> {
+    let producer_job_id = producer_job_id
+        .map(|raw| {
+            uuid::Uuid::parse_str(&raw).map_err(|e| {
+                PyValueError::new_err(format!("invalid producer_job_id UUID {raw:?}: {e}"))
+            })
+        })
+        .transpose()?;
+    Ok(ArtefactPutOptions {
+        mime,
+        display_name,
+        producer_job_id,
+        tool_call_id,
+        session_id,
+        correlation_id,
+        ttl_secs,
+        ..ArtefactPutOptions::default()
+    })
 }
 
 /// Store the file at ``path`` and return a :class:`FileRef`.
@@ -127,20 +190,59 @@ fn map_err(e: ArtefactError) -> PyErr {
 /// server-owned store automatically.
 #[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction(name = "artefact_put_file")]
-#[pyo3(signature = (path, mime=None))]
-pub fn py_artefact_put_file(path: &str, mime: Option<String>) -> PyResult<PyFileRef> {
+#[pyo3(signature = (path, mime=None, display_name=None, producer_job_id=None, tool_call_id=None, session_id=None, correlation_id=None, ttl_secs=None))]
+#[allow(clippy::too_many_arguments)]
+pub fn py_artefact_put_file(
+    path: &str,
+    mime: Option<String>,
+    display_name: Option<String>,
+    producer_job_id: Option<String>,
+    tool_call_id: Option<String>,
+    session_id: Option<String>,
+    correlation_id: Option<String>,
+    ttl_secs: Option<u64>,
+) -> PyResult<PyFileRef> {
     let store = default_store();
-    let fr = crate::put_file(store.as_ref(), PathBuf::from(path), mime).map_err(map_err)?;
+    let options = build_put_options(
+        mime,
+        display_name,
+        producer_job_id,
+        tool_call_id,
+        session_id,
+        correlation_id,
+        ttl_secs,
+    )?;
+    let fr = crate::put_file_with_options(store.as_ref(), PathBuf::from(path), options)
+        .map_err(map_err)?;
     Ok(PyFileRef::from(fr))
 }
 
 /// Store raw ``bytes`` and return a :class:`FileRef`.
 #[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction(name = "artefact_put_bytes")]
-#[pyo3(signature = (data, mime=None))]
-pub fn py_artefact_put_bytes(data: Vec<u8>, mime: Option<String>) -> PyResult<PyFileRef> {
+#[pyo3(signature = (data, mime=None, display_name=None, producer_job_id=None, tool_call_id=None, session_id=None, correlation_id=None, ttl_secs=None))]
+#[allow(clippy::too_many_arguments)]
+pub fn py_artefact_put_bytes(
+    data: Vec<u8>,
+    mime: Option<String>,
+    display_name: Option<String>,
+    producer_job_id: Option<String>,
+    tool_call_id: Option<String>,
+    session_id: Option<String>,
+    correlation_id: Option<String>,
+    ttl_secs: Option<u64>,
+) -> PyResult<PyFileRef> {
     let store = default_store();
-    let fr = crate::put_bytes(store.as_ref(), data, mime).map_err(map_err)?;
+    let options = build_put_options(
+        mime,
+        display_name,
+        producer_job_id,
+        tool_call_id,
+        session_id,
+        correlation_id,
+        ttl_secs,
+    )?;
+    let fr = crate::put_bytes_with_options(store.as_ref(), data, options).map_err(map_err)?;
     Ok(PyFileRef::from(fr))
 }
 

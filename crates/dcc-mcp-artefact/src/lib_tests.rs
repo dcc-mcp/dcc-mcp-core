@@ -10,9 +10,14 @@ fn fileref_round_trips_through_json() {
         uri: "artefact://sha256/abc".to_string(),
         mime: Some("image/png".to_string()),
         size_bytes: Some(1024),
+        display_name: Some("preview.png".to_string()),
         digest: Some("sha256:abc".to_string()),
         producer_job_id: Some(Uuid::nil()),
+        tool_call_id: Some("req-1".to_string()),
+        session_id: Some("session-1".to_string()),
+        correlation_id: Some("corr-1".to_string()),
         created_at: Utc::now(),
+        expires_at: Some(Utc::now() + Duration::seconds(60)),
         metadata: serde_json::json!({"width": 256}),
     };
     let text = serde_json::to_string(&fr).unwrap();
@@ -128,4 +133,86 @@ fn hash_file_matches_bytes() {
     let a = hash_file_sha256(&p).unwrap();
     let b = hash_bytes_sha256(b"abc123");
     assert_eq!(a, b);
+}
+
+#[test]
+fn put_with_options_persists_metadata_and_correlation() {
+    let store = InMemoryArtefactStore::new();
+    let fr = store
+        .put_with_options(
+            ArtefactBody::Inline(b"metadata".to_vec()),
+            ArtefactPutOptions {
+                mime: Some("text/plain".to_string()),
+                display_name: Some("log.txt".to_string()),
+                tool_call_id: Some("req-42".to_string()),
+                session_id: Some("session-a".to_string()),
+                correlation_id: Some("trace-a".to_string()),
+                metadata: serde_json::json!({"lines": 3}),
+                ..ArtefactPutOptions::default()
+            },
+        )
+        .unwrap();
+
+    assert_eq!(fr.mime.as_deref(), Some("text/plain"));
+    assert_eq!(fr.display_name.as_deref(), Some("log.txt"));
+    assert_eq!(fr.tool_call_id.as_deref(), Some("req-42"));
+    assert_eq!(fr.metadata["lines"], 3);
+
+    let filtered = store
+        .list(ArtefactFilter {
+            session_id: Some("session-a".to_string()),
+            ..ArtefactFilter::default()
+        })
+        .unwrap();
+    assert_eq!(filtered.len(), 1);
+}
+
+#[test]
+fn in_memory_store_rejects_oversized_payloads() {
+    let store = InMemoryArtefactStore::with_limits(ArtefactStoreLimits {
+        max_body_bytes: Some(4),
+        ..ArtefactStoreLimits::default()
+    });
+    let err = store
+        .put(ArtefactBody::Inline(b"too large".to_vec()))
+        .unwrap_err();
+    assert!(matches!(err, ArtefactError::LimitExceeded(_)));
+}
+
+#[test]
+fn in_memory_store_expires_ttl_payloads() {
+    let store = InMemoryArtefactStore::new();
+    let fr = store
+        .put_with_options(
+            ArtefactBody::Inline(b"short lived".to_vec()),
+            ArtefactPutOptions {
+                ttl_secs: Some(0),
+                ..ArtefactPutOptions::default()
+            },
+        )
+        .unwrap();
+    assert!(store.head(&fr.uri).unwrap().is_none());
+    assert!(store.get(&fr.uri).unwrap().is_none());
+}
+
+#[test]
+fn fs_store_enforces_max_entries_by_removing_oldest() {
+    let tmp = tempdir().unwrap();
+    let store = FilesystemArtefactStore::new_bounded_in(
+        tmp.path(),
+        ArtefactStoreLimits {
+            max_entries: Some(2),
+            ..ArtefactStoreLimits::default()
+        },
+    )
+    .unwrap();
+    let first = store.put(ArtefactBody::Inline(b"one".to_vec())).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    let second = store.put(ArtefactBody::Inline(b"two".to_vec())).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    let third = store.put(ArtefactBody::Inline(b"three".to_vec())).unwrap();
+
+    assert!(store.head(&first.uri).unwrap().is_none());
+    assert!(store.head(&second.uri).unwrap().is_some());
+    assert!(store.head(&third.uri).unwrap().is_some());
 }
