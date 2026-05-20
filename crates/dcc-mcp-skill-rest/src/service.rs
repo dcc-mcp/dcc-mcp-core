@@ -21,8 +21,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
 
-use dcc_mcp_actions::current_execution_context;
 use dcc_mcp_actions::dispatcher::{DispatchError, ToolDispatcher};
+use dcc_mcp_actions::{
+    DispatchExecutionContext, current_execution_context, with_execution_context,
+};
 use dcc_mcp_skills::SkillCatalog;
 
 use super::errors::{ServiceError, ServiceErrorKind};
@@ -629,14 +631,21 @@ pub fn dispatch_error_to_service_error(err: DispatchError) -> ServiceError {
 
 impl ToolInvoker for DispatcherInvoker {
     fn invoke(&self, action_name: &str, params: Value) -> Result<CallOutcome, ServiceError> {
-        match self.dispatcher.dispatch(action_name, params) {
-            Ok(r) => Ok(CallOutcome {
-                slug: ToolSlug(r.action.clone()),
-                output: r.output,
-                validation_skipped: r.validation_skipped,
-            }),
-            Err(err) => Err(dispatch_error_to_service_error(err)),
-        }
+        // Default REST path has no host main-thread bridge — publish that so
+        // affinity diagnostics can surface host_dispatcher_attached=false (#1075).
+        let exec_ctx = DispatchExecutionContext {
+            host_dispatcher_attached: Some(false),
+        };
+        with_execution_context(exec_ctx, || {
+            match self.dispatcher.dispatch(action_name, params) {
+                Ok(r) => Ok(CallOutcome {
+                    slug: ToolSlug(r.action.clone()),
+                    output: r.output,
+                    validation_skipped: r.validation_skipped,
+                }),
+                Err(err) => Err(dispatch_error_to_service_error(err)),
+            }
+        })
     }
 }
 

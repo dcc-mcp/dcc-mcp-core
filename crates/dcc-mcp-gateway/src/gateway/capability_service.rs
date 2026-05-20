@@ -289,14 +289,19 @@ pub async fn call_service(
         }
         Err(e) => {
             let backend_body = super::instance_diagnostics::parse_rest_error_json(&e);
-            let error_kind = backend_body
-                .as_ref()
-                .and_then(|b| b.get("kind"))
-                .and_then(|k| k.as_str())
-                .unwrap_or("backend-error");
+            let kind = if is_host_died_backend_error(&e) {
+                "host-died"
+            } else {
+                backend_body
+                    .as_ref()
+                    .and_then(|b| b.get("kind"))
+                    .and_then(|k| k.as_str())
+                    .filter(|k| *k == "thread-affinity-violation")
+                    .unwrap_or("backend-error")
+            };
             gs.instance_diagnostics.record_call_error(
                 entry.instance_id,
-                error_kind,
+                kind,
                 e.chars().take(512).collect::<String>(),
             );
             let diag = gs.instance_diagnostics.get(&entry.instance_id);
@@ -306,21 +311,14 @@ pub async fn call_service(
                 diag.as_ref(),
                 backend_body.as_ref(),
             );
-            if is_host_died_backend_error(&e) {
+            if kind == "host-died" {
                 record_host_died(gs, &entry, &record, &e);
-                return Err(ServiceError::new(
-                    "host-died",
-                    format!("backend host died during {}: {e}", record.callable_id),
-                )
-                .with_backend(backend_attachment));
             }
-            let kind = if error_kind == "thread-affinity-violation" {
-                "thread-affinity-violation"
-            } else {
-                "backend-error"
-            };
-            Err(ServiceError::new(kind, format!("backend call failed: {e}"))
-                .with_backend(backend_attachment))
+            Err(ServiceError::new(
+                kind,
+                format!("backend call failed during {}: {e}", record.callable_id),
+            )
+            .with_backend(backend_attachment))
         }
     }
 }
@@ -674,6 +672,22 @@ mod unit_tests {
                 .as_bool()
                 .unwrap()
         );
+    }
+
+    #[test]
+    fn host_died_records_consistent_last_error_kind() {
+        let entry =
+            dcc_mcp_transport::discovery::types::ServiceEntry::new("maya", "127.0.0.1", 8765);
+        let store = crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new();
+        let err_msg = r#"http://127.0.0.1:8765: HTTP 502: {"kind":"host-died","message":"gone"}"#;
+        let kind = if is_host_died_backend_error(err_msg) {
+            "host-died"
+        } else {
+            "backend-error"
+        };
+        store.record_call_error(entry.instance_id, kind, err_msg);
+        let diag = store.get(&entry.instance_id).unwrap();
+        assert_eq!(diag.last_error.as_ref().unwrap().kind, "host-died");
     }
 
     #[test]

@@ -1132,4 +1132,6 @@ async fn call_thread_affinity_violation_includes_context() {
     let ctx = body["context"].as_object().expect("context object");
     assert_eq!(ctx["declared_affinity"], "main");
     assert_eq!(ctx["observed_affinity"], "any");
+    assert_eq!(ctx["host_dispatcher_attached"], false);
+    assert_eq!(ctx["observed_context"], "worker_no_dispatcher");
 }

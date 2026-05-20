@@ -131,6 +131,27 @@ mod tests {
     }
 
     #[test]
+    fn dispatch_error_maps_host_dispatcher_false_on_default_rest_path() {
+        use dcc_mcp_actions::{DispatchError, with_execution_context};
+
+        use crate::dispatch_error_to_service_error;
+
+        let err = DispatchError::ThreadAffinityViolation {
+            action: "main_only".into(),
+            declared: ThreadAffinity::Main,
+            actual: ThreadAffinity::Any,
+        };
+        let svc = with_execution_context(
+            DispatchExecutionContext {
+                host_dispatcher_attached: Some(false),
+            },
+            || dispatch_error_to_service_error(err),
+        );
+        let ctx = svc.context.expect("context");
+        assert_eq!(ctx["host_dispatcher_attached"], false);
+    }
+
+    #[test]
     fn hint_mentions_dispatcher_when_missing() {
         let hint = thread_affinity_hint(ThreadAffinity::Main, ThreadAffinity::Any, Some(false));
         assert!(hint.contains("dispatcher"));
