@@ -5,8 +5,8 @@ use std::time::Duration;
 use std::time::UNIX_EPOCH;
 
 use axum::Json;
-use axum::extract::State;
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::extract::{OriginalUri, State};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, Uri, header};
 use axum::response::IntoResponse;
 use dcc_mcp_gateway_core::naming::instance_short;
 use serde::Deserialize;
@@ -24,6 +24,83 @@ use dcc_mcp_db::read_gateway_log_dir_rows_recent;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};
 
 const ADMIN_FILE_LOG_READ_TIMEOUT: Duration = Duration::from_millis(750);
+
+#[derive(Clone)]
+struct AdminLinkBuilder {
+    origin: String,
+    admin_base: String,
+}
+
+impl AdminLinkBuilder {
+    fn from_request(headers: &HeaderMap, uri: &Uri) -> Self {
+        let proto = header_value(headers, "x-forwarded-proto").unwrap_or_else(|| "http".into());
+        let host = header_value(headers, "x-forwarded-host")
+            .or_else(|| header_value(headers, "host"))
+            .unwrap_or_else(|| "127.0.0.1:9765".into());
+        let admin_base = admin_base_path(uri.path());
+        Self {
+            origin: format!("{proto}://{host}"),
+            admin_base,
+        }
+    }
+
+    fn request_links(&self, request_id: &str) -> Value {
+        let encoded = encode_url_component(request_id);
+        json!({
+            "admin_trace_url": format!(
+                "{}{}?panel=traces&trace={}",
+                self.origin, self.admin_base, encoded
+            ),
+            "trace_api_url": format!(
+                "{}{}/api/traces/{}",
+                self.origin, self.admin_base, encoded
+            ),
+            "debug_bundle_url": format!(
+                "{}{}/api/debug-bundle/{}",
+                self.origin, self.admin_base, encoded
+            ),
+        })
+    }
+
+    fn panel_url(&self, panel: &str) -> String {
+        format!("{}{}?panel={panel}", self.origin, self.admin_base)
+    }
+}
+
+fn header_value(headers: &HeaderMap, name: &str) -> Option<String> {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn admin_base_path(path: &str) -> String {
+    let base = path
+        .find("/api")
+        .map(|idx| &path[..idx])
+        .unwrap_or(path)
+        .trim_end_matches('/');
+    if base.is_empty() {
+        "/admin".to_string()
+    } else {
+        base.to_string()
+    }
+}
+
+fn encode_url_component(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char);
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
 
 /// `GET /admin` — serve the inline HTML dashboard.
 pub async fn handle_admin_ui() -> impl IntoResponse {
@@ -159,14 +236,14 @@ pub async fn handle_admin_tools(State(s): State<AdminState>) -> impl IntoRespons
     Json(json!({ "total": tools.len(), "tools": tools }))
 }
 
-fn admin_audit_row_json(r: &AdminAuditRecord) -> Value {
+fn admin_audit_row_json(r: &AdminAuditRecord, links: Option<AdminLinkBuilder>) -> Value {
     let ts = r
         .timestamp
         .duration_since(UNIX_EPOCH)
         .ok()
         .map(|_d| chrono::DateTime::<chrono::Utc>::from(r.timestamp).to_rfc3339())
         .unwrap_or_default();
-    json!({
+    let mut row = json!({
         "timestamp": ts,
         "request_id": r.request_id,
         "method": r.method,
@@ -183,23 +260,35 @@ fn admin_audit_row_json(r: &AdminAuditRecord) -> Value {
         "success": r.success,
         "error": r.error,
         "duration_ms": r.duration_ms,
-    })
+    });
+    if let Some(links) = links {
+        row["links"] = links.request_links(&r.request_id);
+    }
+    row
 }
 
 /// `GET /admin/api/calls` — recent calls from the AuditLog ring buffer.
 ///
 /// If no `AuditLog` is attached to the state, returns an empty array.
-pub async fn handle_admin_calls(State(s): State<AdminState>) -> impl IntoResponse {
+pub async fn handle_admin_calls(
+    State(s): State<AdminState>,
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+) -> impl IntoResponse {
+    let links = Some(AdminLinkBuilder::from_request(&headers, &uri));
     let mut by_rid: HashMap<String, Value> = HashMap::new();
     if let Some(ref lane) = s.admin_sqlite_lane {
         let r = lane.reader();
         for rec in r.list_audits_recent(500) {
-            by_rid.insert(rec.request_id.clone(), admin_audit_row_json(&rec));
+            by_rid.insert(
+                rec.request_id.clone(),
+                admin_audit_row_json(&rec, links.clone()),
+            );
         }
     }
     if let Some(log) = &s.audit_log {
         for r in log.lock().iter().rev().take(200) {
-            by_rid.insert(r.request_id.clone(), admin_audit_row_json(r));
+            by_rid.insert(r.request_id.clone(), admin_audit_row_json(r, links.clone()));
         }
     }
     let mut calls: Vec<Value> = by_rid.into_values().collect();
@@ -433,8 +522,11 @@ fn gateway_self_rss_bytes() -> Option<u64> {
 /// to the state, returns an empty array.
 pub async fn handle_admin_traces(
     State(s): State<AdminState>,
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> impl IntoResponse {
+    let links = AdminLinkBuilder::from_request(&headers, &uri);
     let limit = params
         .get("limit")
         .and_then(|v| v.parse::<usize>().ok())
@@ -459,8 +551,18 @@ pub async fn handle_admin_traces(
         tb.cmp(&ta)
     });
     traces.truncate(limit);
-    let mapped: Vec<Value> = traces.iter().map(dispatch_trace_to_admin_row).collect();
-    Json(json!({ "total": mapped.len(), "traces": mapped }))
+    let mapped: Vec<Value> = traces
+        .iter()
+        .map(|trace| dispatch_trace_to_admin_row(trace, Some(links.clone())))
+        .collect();
+    Json(json!({
+        "total": mapped.len(),
+        "traces": mapped,
+        "links": {
+            "admin_traces_url": links.panel_url("traces"),
+            "stats_url": links.panel_url("stats"),
+        }
+    }))
 }
 
 /// `GET /admin/api/traces/{request_id}` — full waterfall for one call.
@@ -468,12 +570,18 @@ pub async fn handle_admin_traces(
 /// Returns 404 when the trace is not in the ring buffer or SQLite store.
 pub async fn handle_admin_trace_detail(
     State(s): State<AdminState>,
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
     axum::extract::Path(request_id): axum::extract::Path<String>,
 ) -> impl IntoResponse {
+    let links = AdminLinkBuilder::from_request(&headers, &uri);
     if let Some(trace) = s.trace_log.as_ref().and_then(|log| log.get(&request_id)) {
         return (
             StatusCode::OK,
-            Json(serde_json::to_value(&trace).unwrap_or(json!({}))),
+            Json(trace_detail_json(
+                &trace,
+                Some(links.request_links(&request_id)),
+            )),
         )
             .into_response();
     }
@@ -482,7 +590,10 @@ pub async fn handle_admin_trace_detail(
         if let Some(trace) = r.get_trace(&request_id) {
             return (
                 StatusCode::OK,
-                Json(serde_json::to_value(&trace).unwrap_or(json!({}))),
+                Json(trace_detail_json(
+                    &trace,
+                    Some(links.request_links(&request_id)),
+                )),
             )
                 .into_response();
         }
@@ -510,10 +621,16 @@ pub async fn handle_admin_tasks(
 /// `GET /admin/api/debug-bundle/{request_id}` — correlated material for one request.
 pub async fn handle_admin_debug_bundle(
     State(s): State<AdminState>,
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
     axum::extract::Path(request_id): axum::extract::Path<String>,
 ) -> impl IntoResponse {
+    let links = AdminLinkBuilder::from_request(&headers, &uri);
     match crate::gateway::admin::activity::build_debug_bundle(&s, &request_id).await {
-        Some(bundle) => (StatusCode::OK, Json(bundle)).into_response(),
+        Some(mut bundle) => {
+            bundle["links"] = links.request_links(&request_id);
+            (StatusCode::OK, Json(bundle)).into_response()
+        }
         None => (
             StatusCode::NOT_FOUND,
             Json(json!({ "error": "debug bundle not found", "request_id": request_id })),
@@ -722,7 +839,15 @@ pub async fn handle_admin_workers(State(s): State<AdminState>) -> impl IntoRespo
     Json(payload)
 }
 
-fn dispatch_trace_to_admin_row(t: &DispatchTrace) -> Value {
+fn trace_detail_json(trace: &DispatchTrace, links: Option<Value>) -> Value {
+    let mut value = serde_json::to_value(trace).unwrap_or(json!({}));
+    if let Some(links) = links {
+        value["links"] = links;
+    }
+    value
+}
+
+fn dispatch_trace_to_admin_row(t: &DispatchTrace, links: Option<AdminLinkBuilder>) -> Value {
     let ts = chrono::DateTime::<chrono::Utc>::from(t.started_at)
         .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let tool = t.tool_slug.clone().unwrap_or_else(|| t.method.clone());
@@ -740,7 +865,7 @@ fn dispatch_trace_to_admin_row(t: &DispatchTrace) -> Value {
         .as_ref()
         .and_then(|ctx| ctx.agent_name.clone());
     let agent_model = t.agent_context.as_ref().and_then(|ctx| ctx.model.clone());
-    json!({
+    let mut row = json!({
         "timestamp": ts,
         "request_id": t.request_id,
         "tool": tool,
@@ -758,7 +883,11 @@ fn dispatch_trace_to_admin_row(t: &DispatchTrace) -> Value {
         "output_bytes": t.output_bytes(),
         "slowest_span_name": slowest_span_name,
         "slowest_span_ms": slowest_span_ms,
-    })
+    });
+    if let Some(links) = links {
+        row["links"] = links.request_links(&t.request_id);
+    }
+    row
 }
 
 fn contend_event_to_admin_row(e: ContendEvent) -> Value {

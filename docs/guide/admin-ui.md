@@ -126,8 +126,11 @@ Example REST request:
 ```
 
 Admin list rows expose `transport`, `agent_id`, `agent_name`, `agent_model`,
-span counts, payload byte counts, and the slowest span summary. Full trace rows
-include `agent_context`, request/response payload previews, and a span waterfall.
+span counts, payload byte counts, slowest span summaries, and a `links` object
+with absolute URLs for the Admin trace page, trace API, and debug bundle. Full
+trace rows include `agent_context`, request/response payload previews, a span
+waterfall, and the same copyable links. These URLs are designed to be pasted
+directly into an LLM evaluation prompt or another agent's debugging task.
 
 ## API Response Shapes
 
@@ -206,6 +209,11 @@ include `agent_context`, request/response payload previews, and a span waterfall
       "agent_id": "agent-42",
       "agent_name": "Layout Inspector",
       "agent_model": "gpt-5.4",
+      "links": {
+        "admin_trace_url": "http://127.0.0.1:9765/admin?panel=traces&trace=req-123",
+        "trace_api_url": "http://127.0.0.1:9765/admin/api/traces/req-123",
+        "debug_bundle_url": "http://127.0.0.1:9765/admin/api/debug-bundle/req-123"
+      },
       "success": false,
       "error": "backend timeout",
       "timestamp": "2026-05-05T10:00:00Z"
@@ -228,6 +236,11 @@ include `agent_context`, request/response payload previews, and a span waterfall
       "slowest_span_ms": 45,
       "input_bytes": 42,
       "output_bytes": 96,
+      "links": {
+        "admin_trace_url": "http://127.0.0.1:9765/admin?panel=traces&trace=req-123",
+        "trace_api_url": "http://127.0.0.1:9765/admin/api/traces/req-123",
+        "debug_bundle_url": "http://127.0.0.1:9765/admin/api/debug-bundle/req-123"
+      },
       "total_ms": 48,
       "success": true,
       "status": "ok"
@@ -247,6 +260,11 @@ include `agent_context`, request/response payload previews, and a span waterfall
     "agent_name": "Layout Inspector",
     "model": "gpt-5.4",
     "reasoning_summary": "Need scene topology before editing."
+  },
+  "links": {
+    "admin_trace_url": "http://127.0.0.1:9765/admin?panel=traces&trace=req-123",
+    "trace_api_url": "http://127.0.0.1:9765/admin/api/traces/req-123",
+    "debug_bundle_url": "http://127.0.0.1:9765/admin/api/debug-bundle/req-123"
   },
   "total_ms": 48,
   "ok": true,
