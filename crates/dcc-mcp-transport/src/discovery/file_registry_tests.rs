@@ -33,6 +33,24 @@ fn test_file_registry_register_and_list() {
 }
 
 #[test]
+fn test_file_registry_recreates_registry_dir_before_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry_dir = dir.path().to_path_buf();
+    let registry = FileRegistry::new(&registry_dir).unwrap();
+    drop(dir);
+
+    assert!(!registry_dir.exists());
+
+    registry
+        .register(ServiceEntry::new("maya", "127.0.0.1", 18812))
+        .unwrap();
+
+    assert!(registry.registry_lock_path().exists());
+    assert!(registry.registry_file_path().exists());
+    assert_eq!(FileRegistry::new(&registry_dir).unwrap().len(), 1);
+}
+
+#[test]
 fn test_file_registry_deregister() {
     let dir = tempfile::tempdir().unwrap();
     let registry = FileRegistry::new(dir.path()).unwrap();
