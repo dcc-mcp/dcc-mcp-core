@@ -576,8 +576,19 @@ mod admin_tests {
         let v1_router = crate::gateway::admin::router::build_v1_debug_router(state);
         let (v1_status, v1_body) = body_json(v1_router, "/v1/debug/bundles/trace-task").await;
         assert_eq!(v1_status, StatusCode::OK);
+        assert_eq!(v1_body["request_id"], "req-task");
         assert_eq!(v1_body["trace_id"], "trace-task");
         assert_eq!(v1_body["request_ids"].as_array().unwrap().len(), 2);
+        assert!(
+            v1_body["links"]["trace_api_url"]
+                .as_str()
+                .is_some_and(|url| url.ends_with("/admin/api/traces/req-task"))
+        );
+        assert!(
+            v1_body["links"]["debug_bundle_url"]
+                .as_str()
+                .is_some_and(|url| url.ends_with("/admin/api/debug-bundle/req-task"))
+        );
 
         let (report_status, report_body) = body_json(router, "/api/issue-report/req-task").await;
         assert_eq!(report_status, StatusCode::OK);
