@@ -1,46 +1,10 @@
 """Generic DCC MCP server base class.
 
-Provides a reusable foundation for embedding a standards-compliant MCP
-Streamable HTTP server (2025-03-26 spec) inside any DCC application.
-
-:class:`DccServerBase` bundles all the boilerplate that every DCC adapter
-would otherwise copy-paste:
-
-- Skill search path collection (per-app env var → global env var → bundled)
-- ``McpHttpConfig`` / ``create_skill_server`` wiring
-- All 7 skill query / management methods (find, list, load, unload, …)
-- Hot-reload integration via :class:`~dcc_mcp_core.hotreload.DccSkillHotReloader`
-- Gateway failover via :class:`~dcc_mcp_core.gateway_election.DccGatewayElection`
-- Server lifecycle (start / stop / is_running / mcp_url)
-- Module-level singleton helper via :func:`~dcc_mcp_core.factory.create_dcc_server`
-
-Creating a DCC adapter
------------------------
-Subclass :class:`DccServerBase` and pass a :class:`~dcc_mcp_core._server.options.DccServerOptions`
-instance (typically from :meth:`DccServerOptions.from_env`). Everything else is inherited::
-
-    from pathlib import Path
-
-    from dcc_mcp_core._server.options import DccServerOptions
-    from dcc_mcp_core.server_base import DccServerBase
-
-    class BlenderMcpServer(DccServerBase):
-        def __init__(self, port: int = 8765):
-            opts = DccServerOptions.from_env(
-                "blender",
-                Path(__file__).parent / "skills",
-                port=port,
-            )
-            super().__init__(opts)
-
-    # That's it — all skill methods, hot-reload, gateway are ready.
-
-Minimum viable DCC-specific code
-----------------------------------
-Some DCCs may need to override:
-
-- :meth:`_version_string` — return the DCC application version (default ``"unknown"``)
-- :meth:`_upgrade_to_gateway` — DCC-specific gateway promotion (advanced)
+``DccServerBase`` centralises the shared boilerplate for DCC adapters:
+skill-path discovery, MCP server wiring, hot reload, gateway failover, and
+server lifecycle management. Adapters usually only construct
+``DccServerOptions`` and optionally override ``_version_string`` or
+``_upgrade_to_gateway``.
 """
 
 # Import future modules
@@ -68,6 +32,8 @@ from dcc_mcp_core._core import get_skill_paths_from_env
 from dcc_mcp_core._core import get_skills_dir
 from dcc_mcp_core._server import FileLoggingManager
 from dcc_mcp_core._server import JobPersistenceManager
+from dcc_mcp_core._server import ServerLifecycleController
+from dcc_mcp_core._server import ServerRuntimeController
 from dcc_mcp_core._server import SkillQueryClient
 from dcc_mcp_core._server import TelemetryManager
 from dcc_mcp_core._server import WindowResolver
@@ -80,9 +46,6 @@ from dcc_mcp_core._server.options import _BridgeExecution
 from dcc_mcp_core._server.options import _DispatcherExecution
 from dcc_mcp_core.adapter_context import append_context_snapshot
 from dcc_mcp_core.adapter_context import register_adapter_instruction_resources
-from dcc_mcp_core.dcc_server import register_diagnostic_handlers
-from dcc_mcp_core.dcc_server import register_diagnostic_mcp_tools
-from dcc_mcp_core.gateway_election import DccGatewayElection
 from dcc_mcp_core.hotreload import DccSkillHotReloader
 from dcc_mcp_core.plugin_manifest import build_plugin_manifest
 from dcc_mcp_core.skill import get_bundled_skill_paths
@@ -99,11 +62,6 @@ class DccServerBase:
     (typically from :meth:`DccServerOptions.from_env`). All generic skill
     management, hot-reload, and gateway election logic lives here so DCC
     adapters stay thin.
-
-    Example::
-
-        opts = DccServerOptions.from_env("blender", Path(__file__).parent / "skills")
-        server = DccServerBase(opts)
 
     Args:
         options: Fully-configured :class:`~dcc_mcp_core._server.options.DccServerOptions`.
@@ -218,6 +176,8 @@ class DccServerBase:
         self._quit_hooks: list[Callable[[], Any]] = []
         self._quit_hooks_ran: bool = False
         self._atexit_registered: bool = False
+        self._lifecycle = ServerLifecycleController(self)
+        self._runtime = ServerRuntimeController(self)
 
     # ── adapter context helpers (#608, #609) ────────────────────────────────
 
@@ -708,12 +668,21 @@ class DccServerBase:
             server.stop()
 
     def _ensure_quit_hook_state(self) -> None:
-        if "_quit_hooks" not in self.__dict__:
-            self._quit_hooks = []
-        if "_quit_hooks_ran" not in self.__dict__:
-            self._quit_hooks_ran = False
-        if "_atexit_registered" not in self.__dict__:
-            self._atexit_registered = False
+        self._lifecycle_controller().ensure_state()
+
+    def _lifecycle_controller(self) -> ServerLifecycleController:
+        controller = self.__dict__.get("_lifecycle")
+        if controller is None:
+            controller = ServerLifecycleController(self)
+            self._lifecycle = controller
+        return controller
+
+    def _runtime_controller(self) -> ServerRuntimeController:
+        controller = self.__dict__.get("_runtime")
+        if controller is None:
+            controller = ServerRuntimeController(self)
+            self._runtime = controller
+        return controller
 
     def register_quit_hook(self, callback: Callable[[], Any]) -> Callable[[], Any]:
         """Register a callback to run before the server shuts down.
@@ -721,36 +690,18 @@ class DccServerBase:
         Hooks run once per server lifetime in LIFO order. Exceptions are
         logged and swallowed so one broken hook cannot block shutdown.
         """
-        if not callable(callback):
-            raise TypeError("quit hook must be callable")
-        self._ensure_quit_hook_state()
-        self._quit_hooks.append(callback)
-        return callback
+        return self._lifecycle_controller().register_quit_hook(callback)
 
     def unregister_quit_hook(self, callback: Callable[[], Any]) -> bool:
         """Remove a previously registered quit hook.
 
         Returns ``True`` when a hook was removed.
         """
-        self._ensure_quit_hook_state()
-        for idx in range(len(self._quit_hooks) - 1, -1, -1):
-            if self._quit_hooks[idx] is callback:
-                del self._quit_hooks[idx]
-                return True
-        return False
+        return self._lifecycle_controller().unregister_quit_hook(callback)
 
     def _run_quit_hooks(self) -> None:
         """Run registered quit hooks in LIFO order exactly once."""
-        self._ensure_quit_hook_state()
-        if self._quit_hooks_ran:
-            return
-        self._quit_hooks_ran = True
-        while self._quit_hooks:
-            hook = self._quit_hooks.pop()
-            try:
-                hook()
-            except Exception as exc:
-                logger.warning("[%s] Quit hook failed: %s", self._dcc_name, exc, exc_info=True)
+        self._lifecycle_controller().run_quit_hooks(dcc_name=self._dcc_name)
 
     def start(self, *, install_atexit_hook: bool = True) -> Any:
         """Start the MCP HTTP server.
@@ -762,7 +713,6 @@ class DccServerBase:
             ``McpServerHandle`` with ``.mcp_url()``, ``.port``, ``.shutdown()``.
 
         """
-        self._ensure_quit_hook_state()
         if self._handle is not None:
             logger.warning(
                 "[%s] Server already running on port %d",
@@ -770,34 +720,12 @@ class DccServerBase:
                 self._handle.port,
             )
             return self._handle
-        self._quit_hooks_ran = False
-        if install_atexit_hook and not self._atexit_registered:
-            atexit.register(DccServerBase._stop_from_atexit, weakref.ref(self))
-            self._atexit_registered = True
-
-        # Register instance-bound diagnostic IPC handlers before the server
-        # starts so skill subprocesses can call take_screenshot / audit_log.
-        try:
-            register_diagnostic_handlers(
-                self._server,
-                dcc_name=self._dcc_name,
-                dcc_pid=self._dcc_pid,
-                dcc_window_handle=self._dcc_window_handle,
-                dcc_window_title=self._dcc_window_title,
-                resolver=self._resolve_window_handle,
-            )
-            # MCP tools MUST be registered before server.start() per the
-            # "register all actions before start" rule in AGENTS.md.
-            register_diagnostic_mcp_tools(
-                self._server,
-                dcc_name=self._dcc_name,
-                dcc_pid=self._dcc_pid,
-                dcc_window_handle=self._dcc_window_handle,
-                dcc_window_title=self._dcc_window_title,
-                resolver=self._resolve_window_handle,
-            )
-        except Exception as exc:
-            logger.debug("[%s] register_diagnostic_* failed: %s", self._dcc_name, exc)
+        self._lifecycle_controller().prepare_start(
+            install_atexit_hook=install_atexit_hook,
+            stop_from_atexit=DccServerBase._stop_from_atexit,
+            atexit_register=atexit.register,
+        )
+        self._runtime_controller().register_diagnostics_before_start()
 
         # Initialise in-process metrics just before start so the
         # ToolRecorder inside McpHttpServer can accumulate data from the
@@ -806,47 +734,19 @@ class DccServerBase:
 
         self._handle = self._server.start()
         logger.info("[%s] MCP server started at %s", self._dcc_name, self._handle.mcp_url())
-
-        # Start gateway election thread if appropriate
-        gateway_port = getattr(self._config, "gateway_port", 0)
-        if self._enable_gateway_failover and gateway_port and gateway_port > 0 and self._gateway_election is None:
-            try:
-                self._gateway_election = DccGatewayElection(
-                    dcc_name=self._dcc_name,
-                    server=self,
-                    gateway_port=gateway_port,
-                )
-                self._gateway_election.start()
-                logger.info("[%s] Gateway failover election enabled", self._dcc_name)
-            except Exception as exc:
-                logger.warning("[%s] Failed to start gateway election: %s", self._dcc_name, exc)
+        self._runtime_controller().start_gateway_election_if_needed()
 
         return self._handle
 
     def stop(self) -> None:
         """Gracefully stop the server and gateway election thread."""
         self._run_quit_hooks()
-
-        if self._gateway_election is not None:
-            try:
-                self._gateway_election.stop()
-            except Exception as exc:
-                logger.warning("[%s] Error stopping gateway election: %s", self._dcc_name, exc)
-            finally:
-                self._gateway_election = None
+        self._runtime_controller().stop_gateway_election()
 
         if self._hot_reloader is not None:
             with contextlib.suppress(Exception):
                 self._hot_reloader.disable()
-
-        if self._handle is not None:
-            try:
-                self._handle.shutdown()
-            except Exception as exc:
-                logger.warning("[%s] Error stopping server: %s", self._dcc_name, exc)
-            finally:
-                self._handle = None
-            logger.info("[%s] MCP server stopped", self._dcc_name)
+        self._runtime_controller().shutdown_server_handle()
 
     def __enter__(self) -> Any:
         """Start the server and return its handle for ``with`` blocks."""

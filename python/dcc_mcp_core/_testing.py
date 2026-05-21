@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from dcc_mcp_core._server import ServerLifecycleController
+from dcc_mcp_core._server import ServerRuntimeController
 from dcc_mcp_core._server import SkillQueryClient
 from dcc_mcp_core._server import WindowResolver
 
@@ -78,6 +80,8 @@ def make_test_server(
     )
     if extra_attrs:
         obj.__dict__.update(extra_attrs)
+    obj.__dict__.setdefault("_lifecycle", ServerLifecycleController(obj))
+    obj.__dict__.setdefault("_runtime", ServerRuntimeController(obj))
     return obj
 
 

@@ -187,6 +187,25 @@ def _wait_reachable(url: str, budget_s: float = STARTUP_BUDGET_S) -> None:
     pytest.fail(f"url {url} not reachable within {budget_s}s; last exc={last_exc!r}")
 
 
+def _post_json_until_ok(url: str, body: Any, *, budget_s: float = 15.0) -> tuple[int, Any]:
+    """Retry POSTs for subprocess E2E probes until one succeeds or budget expires."""
+    deadline = time.monotonic() + budget_s
+    last_exc: Exception | None = None
+    last_result: tuple[int, Any] = (0, {})
+    while time.monotonic() < deadline:
+        remaining = max(1.0, min(CALL_TIMEOUT_S, deadline - time.monotonic()))
+        try:
+            last_result = _post_json(url, body, timeout=remaining)
+            if last_result[0] == 200:
+                return last_result
+        except Exception as exc:
+            last_exc = exc
+        time.sleep(0.1)
+    if last_exc is not None:
+        pytest.fail(f"POST {url} did not succeed within {budget_s}s; last exc={last_exc!r}")
+    return last_result
+
+
 # ── In-process fixture ───────────────────────────────────────────────────
 
 
@@ -408,14 +427,16 @@ def _find_server_binary() -> Path | None:
 class TestRealServerExeSubprocess:
     """Spawn 3 real ``server.exe`` subprocesses and run the same flow.
 
-    Each subprocess is launched with ``--dcc {maya|blender|houdini}``
+    Each subprocess is launched with ``--app {maya|blender|houdini}``
     and an isolated ``--skill-paths`` directory. We probe each REST
-    surface to prove the agent-facing flow works end-to-end through
-    the compiled binary — mirrors a production mcporter/dcc-mcp-server
-    deployment.
+    surface to prove discovery works end-to-end through the compiled
+    binary — mirrors a production mcporter/dcc-mcp-server deployment.
+    In-process tests above already cover the MCP handshake and tool-call
+    contract; this opt-in subprocess suite focuses on the compiled
+    binary's CLI + REST bootstrap path.
     """
 
-    @pytest.fixture(scope="class")
+    @pytest.fixture
     def real_three_dccs(self, tmp_path_factory):
         binary = _find_server_binary()
         assert binary is not None  # guarded by skipif
@@ -438,7 +459,7 @@ class TestRealServerExeSubprocess:
                         str(mcp_port),
                         "--gateway-port",
                         "0",
-                        "--dcc",
+                        "--app",
                         dcc,
                         "--no-bridge",
                         "--registry-dir",
@@ -473,52 +494,39 @@ class TestRealServerExeSubprocess:
                         p.wait()
 
     def test_real_rest_surface_lists_every_dcc_catalog(self, real_three_dccs):
-        """Each live subprocess lists its own skills via /v1/skills.
-
-        Subprocess behaviour differs: ``/v1/skills`` returns only loaded
-        skills and actions only register when a skill is loaded. So we
-        first POST ``/v1/load`` (if available) or use ``search_skills``
-        via MCP, then verify the skill is discoverable.
-        """
-        import urllib.request as _ur
-
+        """Each live subprocess exposes its own discoverable catalog via REST."""
         for dcc, inst in real_three_dccs.items():
-            # Drive via MCP search_skills which reads the discovered
-            # catalog (not the loaded action registry).
-            resp = _mcp_post(
-                inst["mcp_url"],
-                "tools/call",
-                {"name": "search_skills", "arguments": {"query": dcc}},
+            code, body = _post_json_until_ok(
+                f"{inst['rest_url']}/v1/search",
+                {"query": dcc, "loaded_only": False},
             )
-            assert "error" not in resp, f"{dcc} subprocess: search_skills errored: {resp.get('error')}"
-            text = "".join(c.get("text", "") for c in resp["result"]["content"] if c.get("type") == "text")
+            assert code == 200, f"{dcc} subprocess: /v1/search returned {code}"
+            slugs = {hit["slug"] for hit in body.get("hits", [])}
             expected = {defn[0] for defn in SKILL_DEFS[dcc] if defn[0] != "shared-geometry"}
             for skill_name in expected:
-                assert skill_name in text, (
-                    f"{dcc} subprocess: search_skills missing {skill_name!r}; got: {text[:400]!r}"
+                assert any(skill_name in slug for slug in slugs), (
+                    f"{dcc} subprocess: /v1/search missing {skill_name!r}; got: {sorted(slugs)}"
                 )
 
     def test_real_fuzzy_search_across_live_processes(self, real_three_dccs):
-        """Fuzzy MCP search_skills succeeds on every live subprocess."""
+        """Fuzzy REST search succeeds on every live subprocess."""
         for dcc, inst in real_three_dccs.items():
-            resp = _mcp_post(
-                inst["mcp_url"],
-                "tools/call",
-                {"name": "search_skills", "arguments": {"query": dcc}},
+            code, body = _post_json_until_ok(
+                f"{inst['rest_url']}/v1/search",
+                {"query": dcc, "loaded_only": False},
             )
-            assert "error" not in resp, f"{dcc}: search_skills errored"
-            text = "".join(c.get("text", "") for c in resp["result"]["content"] if c.get("type") == "text")
-            assert text.strip(), f"{dcc}: search returned empty body"
+            assert code == 200, f"{dcc}: /v1/search returned {code}"
+            assert body.get("hits"), f"{dcc}: search returned empty hits body={body}"
 
     def test_real_shared_skill_visible_on_every_subprocess(self, real_three_dccs):
-        """``shared-geometry`` is discoverable on every live subprocess."""
+        """``shared-geometry`` is discoverable over REST on every live subprocess."""
         for dcc, inst in real_three_dccs.items():
-            resp = _mcp_post(
-                inst["mcp_url"],
-                "tools/call",
-                {"name": "search_skills", "arguments": {"query": "shared"}},
+            code, body = _post_json_until_ok(
+                f"{inst['rest_url']}/v1/search",
+                {"query": "shared", "loaded_only": False},
             )
-            text = "".join(c.get("text", "") for c in resp["result"]["content"] if c.get("type") == "text")
-            assert "shared-geometry" in text, (
-                f"{dcc}: shared-geometry not discoverable in subprocess; got: {text[:400]!r}"
+            assert code == 200, f"{dcc}: /v1/search returned {code}"
+            slugs = {hit["slug"] for hit in body.get("hits", [])}
+            assert any("shared-geometry" in slug for slug in slugs), (
+                f"{dcc}: shared-geometry not discoverable in subprocess; got: {sorted(slugs)}"
             )
