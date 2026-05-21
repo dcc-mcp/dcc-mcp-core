@@ -657,7 +657,12 @@ pub async fn handle_admin_debug_bundle(
     let links = AdminLinkBuilder::from_request(&headers, &uri);
     match crate::gateway::admin::activity::build_debug_bundle(&s, &request_id).await {
         Some(mut bundle) => {
-            bundle["links"] = links.request_links(&request_id);
+            let resolved_request_id = bundle
+                .get("request_id")
+                .and_then(Value::as_str)
+                .unwrap_or(&request_id)
+                .to_string();
+            bundle["links"] = links.request_links(&resolved_request_id);
             (StatusCode::OK, Json(bundle)).into_response()
         }
         None => (
