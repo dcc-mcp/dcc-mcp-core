@@ -18,14 +18,73 @@
 | `GET` | `/v1/readyz` | 三态就绪：`200 Ready` / `503 Booting` / 无响应 `Unreachable`。 |
 | `GET` | `/v1/skills` | 已加载 action 的扁平清单，按字典序稳定排序。 |
 | `POST` | `/v1/search` | 模糊 / 精确搜索 loaded + unloaded skills。 |
+| `POST` | `/v1/load_skill` | 不经过 MCP `tools/call`，直接加载一个已发现的 skill。 |
+| `POST` | `/v1/unload_skill` | 不经过 MCP `tools/call`，直接卸载一个 skill。 |
 | `POST` | `/v1/describe` | 按 `tool_slug` 返回完整 input schema + 注解。 |
 | `GET` | `/v1/tools/{slug}` | `/v1/describe` 的别名（只读 URL 查询）。 |
 | `POST` | `/v1/call` | **按 slug 调用**一个工具。这是唯一规范的调用面。 |
+| `POST` | `/v1/call_batch` | 仅网关：按顺序调用最多 25 个工具，可选 `stop_on_error`。 |
 | `GET` | `/v1/context` | 场景 / 文档快照（per-DCC 或网关汇聚）。 |
+| `GET` | `/v1/resources` | MCP 风格 resource 清单。 |
+| `GET` | `/v1/resources/{uri}` | 读取一个 percent-encoded resource URI。 |
+| `GET` | `/v1/resources/{uri}/events` | resource 更新的 Server-Sent Events。 |
+| `GET` | `/v1/prompts` | MCP 风格 prompt template 清单。 |
+| `GET` | `/v1/prompts/{name}` | 渲染一个 prompt；JSON object 参数放在 `?args=...`。 |
+| `GET` | `/v1/jobs/{id}/events` | 单个 async job 的 Server-Sent Events。 |
+| `DELETE` | `/v1/jobs/{id}` | 取消单个 async job。 |
+| `GET` | `/v1/debug/instances` | 仅网关：稳定的 agent-facing instance diagnostics。 |
+| `GET` | `/v1/debug/activity` | 仅网关：来自 audit、trace、gateway event 的稳定 activity feed。 |
+| `GET` | `/v1/debug/traces` | 仅网关：最近的 dispatch trace 列表。 |
+| `GET` | `/v1/debug/traces/{request_id}` | 仅网关：按 request id 查看 dispatch trace 详情。 |
+| `GET` | `/v1/debug/trace-context/{lookup_id}` | 仅网关：按 trace id 或 request id 解析 primary trace context。 |
+| `GET` | `/v1/debug/bundles/{request_id}` | 仅网关：按 request id 或 trace id 取 full-chain debug bundle。 |
+| `GET` | `/v1/debug/issue-reports/{request_id}` | 仅网关：可附到 GitHub issue 的 debug report JSON。 |
+| `GET` | `/v1/debug/tasks` | 仅网关：从 traces 重建的 task-like snapshot。 |
+| `GET` | `/v1/debug/calls` | 仅网关：最近 audit call rows。 |
+| `GET` | `/v1/debug/logs` | 仅网关：合并 gateway events、file logs、audit summaries。 |
+| `GET` | `/v1/debug/stats` | 仅网关：聚合 call statistics。 |
+| `GET` | `/v1/debug/health` | 仅网关：debug subsystem health summary。 |
 | `GET` | `/v1/openapi.json` | 自动生成的 OpenAPI 3.x 文档，可供代码生成。 |
 
-网关也暴露相同的路径作为汇聚面板：网关上的 `POST /v1/call`
-解析 `<dcc>.<id8>.<action>` 三段式 slug，转发到拥有者后端。
+网关也暴露相同的路径作为汇聚面板。网关 capability slug 使用
+`<dcc>.<id8>.<tool>`，从 `POST /v1/search` 获取；直接 per-DCC REST slug
+使用 `<dcc>.<skill>.<action>`，不带 instance id 前缀。
+
+---
+
+## Gateway Agent Debug API
+
+被选举出来的 gateway 会把 Admin telemetry providers 提升为稳定的
+`/v1/debug/*` agent/CI 诊断路由。这些路由会出现在 `GET /v1/openapi.json`
+里；`/admin/api/*` 继续作为内嵌 dashboard 的兼容别名。
+
+Phase-1 debug routes 会保留现有 Admin payload 字段，让 operator 和 agent
+能一对一对照结果：
+
+| 稳定路由 | 兼容路由 | 说明 |
+|---|---|---|
+| `/v1/debug/instances` | `/admin/api/instances` | 支持 `view=live\|all`、`include_stale`、`include_dead`。 |
+| `/v1/debug/activity?limit=200` | `/admin/api/activity?limit=200` | 统一 activity feed。 |
+| `/v1/debug/traces?limit=200` | `/admin/api/traces?limit=200` | 最近 dispatch trace rows。 |
+| `/v1/debug/traces/{request_id}` | `/admin/api/traces/{request_id}` | 精确 request-id trace detail。 |
+| `/v1/debug/trace-context/{lookup_id}` | n/a | 按 `trace_id` 或 `request_id` 做 trace-context lookup。 |
+| `/v1/debug/bundles/{request_id}` | `/admin/api/debug-bundle/{request_id}` | 接受 request ids 和 retained trace ids。 |
+| `/v1/debug/issue-reports/{request_id}` | `/admin/api/issue-report/{request_id}` | 适合附到 GitHub issue 的 JSON export。 |
+| `/v1/debug/tasks` | `/admin/api/tasks` | retained traces 的 task projection。 |
+| `/v1/debug/calls` | `/admin/api/calls` | 最近 audit rows。 |
+| `/v1/debug/logs` | `/admin/api/logs` | 合并 gateway/file/audit logs。 |
+| `/v1/debug/stats` | `/admin/api/stats` | 聚合 call stats。 |
+| `/v1/debug/health` | `/admin/api/health` | debug provider health summary。 |
+
+所有 list endpoint 在底层 Admin provider 已支持时都支持 `limit` 参数。
+OpenAPI contract 预留了 `cursor`、`since`、`until` 给后续 normalized envelope
+工作；在该阶段落地前，调用方应忽略缺失的 `next_cursor`。
+
+常见关联字段包括 `request_id`、`trace_id`、`instance_id`、`dcc_type`、
+`tool` / `tool_slug`、`transport`、`agent_id`、`agent_name`、`agent_model`、
+`parent_request_id`，以及底层 provider 能提供的 timestamp。精确请求详情用
+`request_id`；跨请求 debug bundle 或 `/v1/debug/trace-context/{trace_id}`
+用 `trace_id`。
 
 ---
 
@@ -36,16 +95,21 @@
 ```json
 {
   "tool_slug": "maya.a1b2c3d4.create_sphere",
-  "params": { "radius": 2.0, "segments": 32 },
+  "arguments": { "radius": 2.0, "segments": 32 },
   "meta": { "progressToken": "session-42" }
 }
 ```
 
 | 字段 | 必需 | 说明 |
 |---|---|---|
-| `tool_slug` | ✅ | `<dcc>.<id8>.<action>` 三段。8-hex-char 的 `id8` 前缀用于在多实例环境下唯一定位一个 DCC。**不要**手写 slug —— 从 `POST /v1/search` 或 `GET /v1/skills` 里拿。 |
-| `params` | ❌ | 工具特定的输入。默认 `{}` 让 cURL 无参调用保持简洁。服务端会用工具的 JSON-Schema 做派发前校验。 |
-| `meta` | ❌ | MCP 风格的元信息侧车。认得这几个键：`progressToken`（进度事件绑定 session）、`dcc.async`（启用异步派发）、`dcc.wait_for_terminal`（阻塞直到终态）。 |
+| `tool_slug` | ✅ | 网关：`<dcc>.<id8>.<tool>`。直接 per-DCC REST：`<dcc>.<skill>.<action>`。从 `POST /v1/search` 或 `GET /v1/skills` 里拿有效 slug，**不要**手写。 |
+| `arguments` | ❌ | 规范工具输入，和 MCP `tools/call` 一致。缺失 / `null` / 空字符串会归一化成 `{}`；JSON object 原样使用；能解析成 object 的 JSON string 会为了 wrapper 兼容被接受；数组、布尔、数字和非 object 字符串会被拒绝。 |
+| `params` | ❌ | `arguments` 的向后兼容别名。新客户端优先使用 `arguments`，这样 REST 和 MCP 示例保持一致。 |
+| `meta` | ❌ | MCP 风格的元信息侧车。缺失 / `null` 会归一化为 absent；提供时必须是 object（或 object-shaped JSON string）。认得这几个键：`progressToken`、`dcc.async`、`dcc.wait_for_terminal`。 |
+
+规范归一化规则在 `dcc-mcp-wire`；Python host wrapper 可以复用
+`dcc_mcp_core.host.normalize_tool_arguments()` 和 `normalize_tool_meta()`，
+不要自己手写 JSON coercion。
 
 ### 成功响应 — `200 OK`
 
@@ -77,7 +141,7 @@
 - `unknown-slug` (404) —— 找不到匹配的 action；`candidates` 可能带建议 slug。
 - `ambiguous` (409) —— slug 匹配多个 action；`candidates` 列出全部。
 - `skill-not-loaded` (409) —— slug 有效但拥有者 skill 未加载。先调 `load_skill`。
-- `invalid-params` (400) —— JSON-Schema 校验 `params` 失败。
+- `invalid-params` (400) —— JSON-Schema 校验 `arguments` / `params` 失败。
 - `unauthorized` (401) —— `AuthGate` 拒绝。per-DCC 默认仅本机；远程访问需装 `BearerTokenGate`。
 - `not-ready` (503) —— `/v1/readyz` 红灯；DCC 还在启动中。
 - `affinity-violation` (409) —— 从 worker 线程调用了主线程独占的工具。
