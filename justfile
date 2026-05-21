@@ -153,10 +153,10 @@ run-server *ARGS:
 # Terminal 1: just demo-gateway-maya   → wins gateway :9765
 # Terminal 2: just demo-gateway-maya2  → plain instance
 demo-gateway-maya:
-    cargo run -p dcc-mcp-server -- --dcc maya --scene shot01.ma
+    cargo run -p dcc-mcp-server -- --app maya --scene shot01.ma
 
 demo-gateway-photoshop:
-    cargo run -p dcc-mcp-server -- --dcc photoshop --scene poster.psd
+    cargo run -p dcc-mcp-server -- --app photoshop --scene poster.psd
 
 # ── Python ────────────────────────────────────────────────────────────────────
 
@@ -176,7 +176,7 @@ dev:
 [windows]
 dev:
     if (-not (Test-Path .venv)) { python -m venv .venv }
-    & .\.venv\Scripts\python.exe -m pip install maturin -q 2>$null
+    & .\.venv\Scripts\python.exe -m pip install --disable-pip-version-check maturin -q
     just stubgen
     & .\.venv\Scripts\python.exe -m maturin develop --features {{DEV_FEATURES}}
 

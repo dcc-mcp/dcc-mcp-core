@@ -441,8 +441,8 @@ issue #341 中采用的三层行为结构：一句现在时"是什么"摘要、
 1. 在 `crates/dcc-mcp-*/src/` 中实现
 2. 在 crate 的 `python.rs` 中添加 `#[pyclass]` / `#[pymethods]` 绑定
 3. 通过相应的 `register_*()` 函数在 `src/lib.rs` 中注册
-4. 在 `python/dcc_mcp_core/__init__.py` 中重新导出（导入 + 添加到 `__all__`）
-5. 在 `python/dcc_mcp_core/_core.pyi` 中添加类型桩
+4. 通过 `python/dcc_mcp_core/_exports.py` 重新导出：把符号加入 `_LAZY`；`PUBLIC_EXPORTS` 和 `python/dcc_mcp_core/__init__.py` 会从该映射派生 `__all__`
+5. 通过运行 stub 生成/开发构建重新生成类型桩；`python/dcc_mcp_core/_core.pyi` 是生成产物，不要手动编辑
 6. 在 `tests/test_<module>.py` 中添加测试
 7. 运行 `vx just dev` 重新构建，然后 `vx just test`
 

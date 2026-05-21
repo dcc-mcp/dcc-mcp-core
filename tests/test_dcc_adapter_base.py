@@ -441,6 +441,100 @@ class TestDccServerBase:
         assert callback is DccServerBase._stop_from_atexit
         assert ref() is server
 
+    def test_start_registers_diagnostics_before_server_start(self, tmp_path, monkeypatch):
+        server = self._make_server(tmp_path)
+        handlers = []
+        tools = []
+
+        monkeypatch.setattr(
+            "dcc_mcp_core._server.runtime.register_diagnostic_handlers",
+            lambda *args, **kwargs: handlers.append((args, kwargs)),
+        )
+        monkeypatch.setattr(
+            "dcc_mcp_core._server.runtime.register_diagnostic_mcp_tools",
+            lambda *args, **kwargs: tools.append((args, kwargs)),
+        )
+
+        server.start()
+
+        assert len(handlers) == 1
+        assert len(tools) == 1
+        assert handlers[0][0] == (server._server,)
+        assert tools[0][0] == (server._server,)
+        assert handlers[0][1]["dcc_name"] == server._dcc_name
+        assert tools[0][1]["resolver"] == server._resolve_window_handle
+
+    def test_start_enables_gateway_election_through_runtime_controller(self, tmp_path, monkeypatch):
+        server = self._make_server(tmp_path)
+        server._enable_gateway_failover = True
+        server._config.gateway_port = 19765
+        starts = []
+
+        class _FakeElection:
+            def __init__(self, *, dcc_name, server, gateway_port):
+                self.dcc_name = dcc_name
+                self.server = server
+                self.gateway_port = gateway_port
+
+            def start(self):
+                starts.append((self.dcc_name, self.server, self.gateway_port))
+
+            def stop(self):
+                pass
+
+        monkeypatch.setattr("dcc_mcp_core._server.runtime.DccGatewayElection", _FakeElection)
+
+        server.start()
+
+        assert starts == [(server._dcc_name, server, 19765)]
+        assert isinstance(server._gateway_election, _FakeElection)
+
+    def test_gateway_election_start_failure_clears_runtime_state(self, tmp_path, monkeypatch):
+        server = self._make_server(tmp_path)
+        server._enable_gateway_failover = True
+        server._config.gateway_port = 19765
+
+        class _BrokenElection:
+            def __init__(self, *, dcc_name, server, gateway_port):
+                pass
+
+            def start(self):
+                raise RuntimeError("boom")
+
+        monkeypatch.setattr("dcc_mcp_core._server.runtime.DccGatewayElection", _BrokenElection)
+
+        server.start()
+
+        assert server._gateway_election is None
+
+    def test_stop_uses_runtime_controller_to_shutdown_gateway_and_handle(self, tmp_path):
+        server = self._make_server(tmp_path)
+        handle = MagicMock()
+        gateway = MagicMock()
+        server._handle = handle
+        server._gateway_election = gateway
+
+        server.stop()
+
+        gateway.stop.assert_called_once_with()
+        handle.shutdown.assert_called_once_with()
+        assert server._gateway_election is None
+        assert server._handle is None
+
+    def test_public_lifecycle_methods_recreate_missing_controllers(self, tmp_path):
+        server = self._make_server(tmp_path)
+        hook = MagicMock()
+        del server.__dict__["_lifecycle"]
+        del server.__dict__["_runtime"]
+
+        server.register_quit_hook(hook)
+
+        assert server.unregister_quit_hook(hook) is True
+        assert "_lifecycle" in server.__dict__
+        assert "_runtime" not in server.__dict__
+        server.start()
+        assert "_runtime" in server.__dict__
+
     def test_list_skills_returns_list(self, tmp_path):
         server = self._make_server(tmp_path)
         assert isinstance(server.list_skills(), list)

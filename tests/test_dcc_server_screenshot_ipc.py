@@ -17,6 +17,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
 SCRIPT_PATH = (
     Path(__file__).resolve().parent.parent
     / "python"
@@ -42,9 +44,14 @@ def _run_script(*extra_args: str, env: dict[str, str] | None = None) -> dict:
         env=env,
         encoding="utf-8",
     )
-    assert proc.returncode == 0, f"script failed: {proc.stderr}"
     # Strip any debug lines that may have been printed; the final line holds the JSON payload.
     lines = [line for line in proc.stdout.strip().splitlines() if line.strip().startswith("{")]
+    if proc.returncode != 0 and lines:
+        payload = json.loads(lines[-1])
+        message = str(payload.get("message", ""))
+        if message.startswith("Capture failed:"):
+            pytest.skip(f"screen capture unavailable in this session: {message}")
+    assert proc.returncode == 0, f"script failed: {proc.stderr}"
     assert lines, f"no JSON output:\nstdout={proc.stdout!r}\nstderr={proc.stderr!r}"
     return json.loads(lines[-1])
 

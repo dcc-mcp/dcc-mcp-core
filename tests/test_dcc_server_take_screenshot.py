@@ -23,6 +23,14 @@ class _MockServer:
         self._handlers[name] = fn
 
 
+def _skip_if_screen_capture_unavailable(data: dict) -> None:
+    if data.get("success") is True:
+        return
+    message = str(data.get("message", ""))
+    if message.startswith("platform error:") or message.startswith("Capture failed:"):
+        pytest.skip(f"screen capture unavailable in this session: {message}")
+
+
 def test_take_screenshot_handler_registered():
     from dcc_mcp_core.dcc_server import register_diagnostic_handlers
 
@@ -37,6 +45,7 @@ def test_take_screenshot_full_screen_returns_base64_png():
 
     result = _handle_take_screenshot(json.dumps({"full_screen": True, "format": "png"}))
     data = json.loads(result)
+    _skip_if_screen_capture_unavailable(data)
     assert data["success"] is True
     assert data["format"] == "png"
     assert data["width"] > 0
@@ -53,6 +62,7 @@ def test_take_screenshot_full_screen_raw_format():
 
     result = _handle_take_screenshot(json.dumps({"full_screen": True, "format": "raw_bgra"}))
     data = json.loads(result)
+    _skip_if_screen_capture_unavailable(data)
     assert data["success"] is True
     assert data["format"] == "raw_bgra"
     assert data["byte_len"] == data["width"] * data["height"] * 4
@@ -133,6 +143,7 @@ def test_take_screenshot_window_rect_none_for_full_screen():
 
     result = _handle_take_screenshot(json.dumps({"full_screen": True}))
     data = json.loads(result)
+    _skip_if_screen_capture_unavailable(data)
     assert data["success"] is True
     # Full-screen / mock captures report no window metadata.
     assert data["window_rect"] is None
