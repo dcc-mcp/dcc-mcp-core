@@ -7,7 +7,7 @@ use super::handlers::{
     handle_admin_instances, handle_admin_issue_report, handle_admin_logs,
     handle_admin_skill_path_add, handle_admin_skill_path_delete, handle_admin_skill_paths,
     handle_admin_stats, handle_admin_tasks, handle_admin_tools, handle_admin_trace_detail,
-    handle_admin_traces, handle_admin_ui, handle_admin_workers,
+    handle_admin_traces, handle_admin_ui, handle_admin_workers, handle_v1_debug_trace_lookup,
 };
 use super::state::AdminState;
 
@@ -62,5 +62,23 @@ pub fn build_admin_router(state: AdminState) -> Router {
         .route("/api/stats", routing::get(handle_admin_stats))
         .route("/api/workers", routing::get(handle_admin_workers))
         .route("/api/health", routing::get(handle_admin_health))
+        .with_state(state)
+}
+
+/// Build stable `/v1/debug/*` routes backed by the admin trace store.
+pub fn build_v1_debug_router(state: AdminState) -> Router {
+    Router::new()
+        .route(
+            "/v1/debug/traces/{lookup_id}",
+            routing::get(handle_v1_debug_trace_lookup),
+        )
+        .route(
+            "/v1/debug/trace-context/{lookup_id}",
+            routing::get(handle_v1_debug_trace_lookup),
+        )
+        .route(
+            "/v1/debug/bundles/{request_id}",
+            routing::get(handle_admin_debug_bundle),
+        )
         .with_state(state)
 }

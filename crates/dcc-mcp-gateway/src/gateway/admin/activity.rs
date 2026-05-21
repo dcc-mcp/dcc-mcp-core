@@ -6,7 +6,7 @@
 //! lanes without changing the hot-path writers.
 
 use std::cmp::Reverse;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::UNIX_EPOCH;
 
 use serde::Serialize;
@@ -21,6 +21,12 @@ const POSTMORTEM_EVENT_LIMIT: usize = 10;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ActivityCorrelation {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub span_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_span_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -90,27 +96,104 @@ pub async fn build_tasks_payload(state: &AdminState, limit: usize) -> Value {
     json!({ "total": tasks.len(), "tasks": tasks })
 }
 
-pub async fn build_debug_bundle(state: &AdminState, request_id: &str) -> Option<Value> {
+pub async fn build_debug_bundle(state: &AdminState, lookup_id: &str) -> Option<Value> {
     let audits = collect_audits(state, 1_000).await;
-    let audit = audits.into_iter().find(|r| r.request_id == request_id);
-    let trace = find_trace(state, request_id).await;
-    if audit.is_none() && trace.is_none() {
+    let all_traces = collect_traces(state, 1_000).await;
+    let mut matching_traces: Vec<DispatchTrace> = all_traces
+        .iter()
+        .filter(|trace| trace.request_id == lookup_id || trace.trace_id == lookup_id)
+        .cloned()
+        .collect();
+    if matching_traces.is_empty()
+        && let Some(trace) = find_trace(state, lookup_id).await
+    {
+        matching_traces.push(trace);
+    }
+    matching_traces.sort_by_key(|trace| Reverse(trace.started_at));
+    let trace_id = matching_traces.first().map(|trace| trace.trace_id.clone());
+    if let Some(trace_id) = trace_id.as_deref() {
+        let extra_traces: Vec<DispatchTrace> = all_traces
+            .iter()
+            .filter(|trace| trace.trace_id == trace_id)
+            .filter(|trace| {
+                !matching_traces
+                    .iter()
+                    .any(|existing| existing.request_id == trace.request_id)
+            })
+            .cloned()
+            .collect();
+        for trace in extra_traces {
+            matching_traces.push(trace);
+        }
+    }
+    let request_ids: HashSet<String> = matching_traces
+        .iter()
+        .map(|trace| trace.request_id.clone())
+        .collect();
+    let matching_audits: Vec<AdminAuditRecord> = audits
+        .into_iter()
+        .filter(|record| {
+            record.request_id == lookup_id
+                || request_ids.contains(&record.request_id)
+                || trace_id
+                    .as_deref()
+                    .is_some_and(|id| record.trace_id.as_deref() == Some(id))
+        })
+        .collect();
+    if matching_audits.is_empty() && matching_traces.is_empty() {
         return None;
     }
-    let gateway_events = related_gateway_events(state, request_id, trace.as_ref());
+    let primary_trace = matching_traces
+        .iter()
+        .find(|trace| trace.request_id == lookup_id)
+        .or_else(|| matching_traces.first());
+    let primary_audit = matching_audits
+        .iter()
+        .find(|record| record.request_id == lookup_id)
+        .or_else(|| matching_audits.first());
+    let primary_request_id = primary_trace
+        .map(|trace| trace.request_id.clone())
+        .or_else(|| primary_audit.map(|record| record.request_id.clone()))
+        .unwrap_or_else(|| lookup_id.to_string());
+    let mut request_ids: Vec<String> = request_ids.into_iter().collect();
+    if !request_ids.iter().any(|id| id == &primary_request_id) {
+        request_ids.push(primary_request_id.clone());
+    }
+    request_ids.sort();
+
+    let gateway_events = related_gateway_events(state, &request_ids, primary_trace);
     let related_activity: Vec<Value> = gateway_events
         .clone()
         .into_iter()
         .map(gateway_event_json)
+        .chain(
+            matching_audits
+                .iter()
+                .map(audit_event)
+                .filter_map(|event| serde_json::to_value(event).ok()),
+        )
+        .chain(
+            matching_traces
+                .iter()
+                .map(trace_event)
+                .filter_map(|event| serde_json::to_value(event).ok()),
+        )
         .collect();
-    let postmortem = build_postmortem(state, trace.as_ref(), gateway_events).await;
+    let postmortem = build_postmortem(state, primary_trace, gateway_events).await;
+    let primary_trace_value = primary_trace.cloned();
+    let hints = debug_hints(primary_trace);
     Some(json!({
-        "request_id": request_id,
-        "audit": audit.map(|r| audit_event(&r)),
-        "trace": trace,
+        "lookup_id": lookup_id,
+        "request_id": primary_request_id,
+        "trace_id": trace_id,
+        "request_ids": request_ids,
+        "audit": primary_audit.map(audit_event),
+        "audits": matching_audits.iter().map(audit_event).collect::<Vec<_>>(),
+        "trace": primary_trace_value,
+        "traces": matching_traces,
         "related_activity": related_activity,
         "postmortem": postmortem,
-        "hints": debug_hints(trace.as_ref()),
+        "hints": hints,
     }))
 }
 
@@ -197,6 +280,9 @@ fn audit_event(record: &AdminAuditRecord) -> ActivityEvent {
         tool: Some(record.action.clone()),
         duration_ms: record.duration_ms,
         correlation: ActivityCorrelation {
+            trace_id: record.trace_id.clone(),
+            span_id: record.span_id.clone(),
+            parent_span_id: record.parent_span_id.clone(),
             request_id: Some(record.request_id.clone()),
             session_id: record.session_id.clone(),
             instance_id: record.instance_id.clone(),
@@ -247,6 +333,9 @@ fn gateway_event(event: &ContendEvent) -> ActivityEvent {
         tool: None,
         duration_ms: None,
         correlation: ActivityCorrelation {
+            trace_id: None,
+            span_id: None,
+            parent_span_id: None,
             request_id: None,
             session_id: None,
             instance_id: Some(event.instance_id.clone()),
@@ -265,7 +354,7 @@ fn gateway_event_json(event: ContendEvent) -> Value {
 
 fn related_gateway_events(
     state: &AdminState,
-    request_id: &str,
+    request_ids: &[String],
     trace: Option<&DispatchTrace>,
 ) -> Vec<ContendEvent> {
     state
@@ -273,20 +362,20 @@ fn related_gateway_events(
         .event_log
         .recent_events(500)
         .into_iter()
-        .filter(|event| gateway_event_matches(event, request_id, trace))
+        .filter(|event| gateway_event_matches(event, request_ids, trace))
         .take(POSTMORTEM_EVENT_LIMIT)
         .collect()
 }
 
 fn gateway_event_matches(
     event: &ContendEvent,
-    request_id: &str,
+    request_ids: &[String],
     trace: Option<&DispatchTrace>,
 ) -> bool {
-    if event
-        .reason
-        .as_deref()
-        .is_some_and(|reason| reason.contains(request_id))
+    if let Some(reason) = event.reason.as_deref()
+        && request_ids
+            .iter()
+            .any(|request_id| reason.contains(request_id))
     {
         return true;
     }
@@ -335,6 +424,9 @@ async fn build_postmortem(
 }
 
 fn trace_matches_postmortem_scope(candidate: &DispatchTrace, target: &DispatchTrace) -> bool {
+    if candidate.trace_id == target.trace_id {
+        return true;
+    }
     if let (Some(a), Some(b)) = (
         candidate.instance_id.as_deref(),
         target.instance_id.as_deref(),
@@ -356,6 +448,10 @@ fn trace_matches_postmortem_scope(candidate: &DispatchTrace, target: &DispatchTr
 fn postmortem_trace_row(trace: DispatchTrace) -> Value {
     json!({
         "request_id": trace.request_id,
+        "trace_id": trace.trace_id,
+        "span_id": trace.span_id,
+        "parent_span_id": trace.parent_span_id,
+        "parent_request_id": trace.parent_request_id,
         "started_at": rfc3339(trace.started_at),
         "tool": trace.tool_slug.unwrap_or(trace.method),
         "dcc_type": trace.dcc_type,
@@ -389,6 +485,9 @@ fn normalise_instance_hint(value: &str) -> String {
 
 fn trace_correlation(trace: &DispatchTrace) -> ActivityCorrelation {
     ActivityCorrelation {
+        trace_id: Some(trace.trace_id.clone()),
+        span_id: trace.span_id.clone(),
+        parent_span_id: trace.parent_span_id.clone(),
         request_id: Some(trace.request_id.clone()),
         session_id: trace.session_id.clone(),
         instance_id: trace.instance_id.clone(),

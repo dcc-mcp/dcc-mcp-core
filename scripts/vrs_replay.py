@@ -75,11 +75,16 @@ def _do_request(
     method: str,
     path: str,
     body: Optional[Any],
+    extra_headers: Optional[Mapping[str, Any]],
     timeout: float,
 ) -> Tuple[int, str, Any]:
     url = base.rstrip("/") + path
     data_bytes: Optional[bytes] = None
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    if extra_headers:
+        for key, value in extra_headers.items():
+            if value is not None:
+                headers[str(key)] = str(value)
     if body is not None:
         data_bytes = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(url, data=data_bytes, headers=headers, method=method.upper())
@@ -151,7 +156,15 @@ def _run_skip_preflight(
     method = str(http.get("method", "POST")).upper()
     path = str(http["path"])
     body = http.get("json")
-    st, raw, parsed = _do_request(base, method, path, body, timeout)
+    headers = http.get("headers")
+    st, raw, parsed = _do_request(
+        base,
+        method,
+        path,
+        body,
+        headers if isinstance(headers, dict) else None,
+        timeout,
+    )
     if st >= 400:
         print(f"skip_preflight: request failed status={st} body={raw[:500]!r}", file=sys.stderr)
         return True
@@ -208,13 +221,17 @@ def run_trace(base_url: str, trace_path: str, dry_run: bool, verbose: bool) -> i
         method = str(http.get("method", "GET")).upper()
         path = str(http["path"])
         body = http.get("json")
+        headers = http.get("headers")
         body = _substitute_captures(body, captures) if body is not None else None
+        headers = _substitute_captures(headers, captures) if isinstance(headers, dict) else None
 
         if dry_run:
-            print(f"[dry-run] {method} {path} {json.dumps(body) if body else ''}")
+            suffix = json.dumps(body) if body else ""
+            header_suffix = f" headers={json.dumps(headers)}" if headers else ""
+            print(f"[dry-run] {method} {path}{header_suffix} {suffix}")
             continue
 
-        st, raw, parsed = _do_request(base_url, method, path, body, timeout)
+        st, raw, parsed = _do_request(base_url, method, path, body, headers, timeout)
         if verbose:
             print(f"--- step {sid} {method} {path} -> {st}")
 

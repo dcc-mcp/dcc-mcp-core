@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::time::SystemTime;
 
-use crate::gateway::admin::trace::{AgentContext, TracePayload, TraceSpan};
+use crate::gateway::admin::trace::{AgentContext, TraceContext, TracePayload, TraceSpan};
 
 /// Context for one gateway `tools/call` invocation.
 ///
@@ -41,6 +41,8 @@ pub struct CallContext {
     /// Stable per-call identifier used to correlate trace spans,
     /// audit records, and the client's JSON-RPC `id`.
     pub request_id: String,
+    /// End-to-end trace context propagated across gateway and backend hops.
+    pub trace_context: TraceContext,
     /// Raw argument value as received from the client. Middlewares
     /// must treat this as untrusted input and avoid logging it
     /// verbatim — use [`input_payload`](Self::input_payload) which
@@ -73,13 +75,30 @@ impl CallContext {
     /// `started_at` is set to `SystemTime::now()` so the trace
     /// waterfall measures the full handler latency.
     pub fn new(method: impl Into<String>, request_id: impl Into<String>, args: Value) -> Self {
+        let request_id = request_id.into();
         Self {
             method: method.into(),
             tool_slug: None,
             dcc_type: None,
             instance_id: None,
             session_id: None,
-            request_id: request_id.into(),
+            request_id: request_id.clone(),
+            trace_context: TraceContext {
+                trace_id: uuid::Uuid::new_v4().simple().to_string(),
+                request_id,
+                span_id: Some(
+                    uuid::Uuid::new_v4()
+                        .simple()
+                        .to_string()
+                        .chars()
+                        .take(16)
+                        .collect(),
+                ),
+                parent_span_id: None,
+                parent_request_id: None,
+                trace_flags: Some("00".to_string()),
+                trace_state: None,
+            },
             args,
             metadata: HashMap::new(),
             trace_spans: Vec::new(),
@@ -117,6 +136,21 @@ impl CallContext {
     /// Builder: attach optional agent/caller telemetry context.
     pub fn with_agent_context(mut self, context: Option<AgentContext>) -> Self {
         self.agent_context = context;
+        self
+    }
+
+    /// Builder: attach trace context parsed from request headers or JSON-RPC id.
+    pub fn with_trace_context(mut self, context: TraceContext) -> Self {
+        self.request_id = context.request_id.clone();
+        if let Some(agent_context) = &mut self.agent_context {
+            if agent_context.trace_id.is_none() {
+                agent_context.trace_id = Some(context.trace_id.clone());
+            }
+            if agent_context.parent_request_id.is_none() {
+                agent_context.parent_request_id = context.parent_request_id.clone();
+            }
+        }
+        self.trace_context = context;
         self
     }
 

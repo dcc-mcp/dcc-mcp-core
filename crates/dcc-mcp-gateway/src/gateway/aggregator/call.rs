@@ -18,13 +18,14 @@ pub async fn route_tools_call(
     meta: Option<&Value>,
     _request_id: Option<String>,
     _client_session_id: Option<&str>,
+    trace_context: Option<&crate::gateway::admin::trace::TraceContext>,
 ) -> (String, bool) {
     // ── Consolidated gateway surface (6 tools) ───────────────────────
     match tool {
         "lease" => return to_text_result(tool_lease(gs, args).await),
         "search" => return to_text_result(tool_search(gs, args).await),
         "describe" => return to_text_result(tool_describe(gs, args).await),
-        "call" => return tool_call(gs, args, meta).await,
+        "call" => return tool_call(gs, args, meta, trace_context).await,
         "load_skill" => return tool_load_skill(gs, args).await,
         "unload_skill" => return skill_mgmt_dispatch(gs, "unload_skill", args).await,
         _ => {}
@@ -36,8 +37,8 @@ pub async fn route_tools_call(
         "release_dcc_instance" => return to_text_result(tool_release_instance(gs, args).await),
         "search_tools" => return to_text_result(tool_search_tools(gs, args).await),
         "describe_tool" => return to_text_result(tool_describe_tool(gs, args).await),
-        "call_tool" => return tool_call_tool(gs, args, meta).await,
-        "call_tools" => return tool_call_tools(gs, args, meta).await,
+        "call_tool" => return tool_call_tool(gs, args, meta, trace_context).await,
+        "call_tools" => return tool_call_tools(gs, args, meta, trace_context).await,
         _ => {}
     }
 

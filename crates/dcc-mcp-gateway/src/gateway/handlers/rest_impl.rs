@@ -591,18 +591,20 @@ async fn call_service_with_admin_trace(
     request_body: &Value,
 ) -> Result<Value, ServiceError> {
     use crate::gateway::admin::trace::{
-        AgentContext, MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, TracePayload, TraceSpan,
+        AgentContext, MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, TraceContext, TracePayload,
     };
     use crate::gateway::middleware::{CallContext, CallResult};
 
-    let mut ctx = CallContext::new(method, request_id_from_headers(headers), arguments.clone())
+    let trace_context = TraceContext::from_headers(headers);
+    let mut ctx = CallContext::new(method, trace_context.request_id.clone(), arguments.clone())
         .with_tool_slug(slug)
         .with_transport("rest")
         .with_agent_context(AgentContext::from_request_parts(
             headers,
             Some(request_body),
             meta.as_ref(),
-        ));
+        ))
+        .with_trace_context(trace_context);
     if let Some(session_id) = session_id_from_headers(headers) {
         ctx = ctx.with_session_id(session_id);
     }
@@ -623,10 +625,24 @@ async fn call_service_with_admin_trace(
         ctx.args.clone()
     };
     let dispatch_ns = now_ns();
-    let mut result = call_service(gs, slug, effective_arguments.clone(), meta.clone()).await;
+    let mut result = call_service(
+        gs,
+        slug,
+        effective_arguments.clone(),
+        meta.clone(),
+        Some(&ctx.trace_context),
+    )
+    .await;
     if matches!(&result, Err(err) if err.kind == "unknown-slug") {
         refresh_all_live_backends(gs, RefreshReason::Periodic).await;
-        result = call_service(gs, slug, effective_arguments, meta).await;
+        result = call_service(
+            gs,
+            slug,
+            effective_arguments,
+            meta,
+            Some(&ctx.trace_context),
+        )
+        .await;
     }
 
     let response_ns = now_ns();
@@ -638,14 +654,16 @@ async fn call_service_with_admin_trace(
         ),
         Err(err) => (err.message.clone(), true, service_error_to_json(err)),
     };
-    let mut span = TraceSpan::new(
-        "backend.execute",
-        dispatch_ns,
-        response_ns.saturating_sub(dispatch_ns),
-    )
-    .with_attr("tool_slug", slug)
-    .with_attr("transport", "rest")
-    .with_attr("ok", !is_error);
+    let mut span = ctx
+        .trace_context
+        .child_span(
+            "backend.execute",
+            dispatch_ns,
+            response_ns.saturating_sub(dispatch_ns),
+        )
+        .with_attr("tool_slug", slug)
+        .with_attr("transport", "rest")
+        .with_attr("ok", !is_error);
     if is_error {
         span = span.with_error();
     }
@@ -668,13 +686,14 @@ async fn call_batch_with_admin_trace(
     request_body: &Value,
 ) -> Result<Value, String> {
     use crate::gateway::admin::trace::{
-        AgentContext, MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, TracePayload, TraceSpan,
+        AgentContext, MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, TraceContext, TracePayload,
     };
     use crate::gateway::middleware::{CallContext, CallResult};
 
+    let trace_context = TraceContext::from_headers(headers);
     let mut ctx = CallContext::new(
         "v1/call_batch",
-        request_id_from_headers(headers),
+        trace_context.request_id.clone(),
         request_body.clone(),
     )
     .with_tool_slug("call_batch")
@@ -683,7 +702,8 @@ async fn call_batch_with_admin_trace(
         headers,
         Some(request_body),
         request_body.get("meta"),
-    ));
+    ))
+    .with_trace_context(trace_context);
     if let Some(session_id) = session_id_from_headers(headers) {
         ctx = ctx.with_session_id(session_id);
     }
@@ -696,7 +716,13 @@ async fn call_batch_with_admin_trace(
     ctx.input_payload = Some(TracePayload::from_value(&ctx.args, MAX_INPUT_BYTES));
 
     let dispatch_ns = now_ns();
-    let result = crate::gateway::tools::gateway_call_batch_inner(gs, &ctx.args, None).await;
+    let result = crate::gateway::tools::gateway_call_batch_inner(
+        gs,
+        &ctx.args,
+        None,
+        Some(&ctx.trace_context),
+    )
+    .await;
     let response_ns = now_ns();
     let (preview_text, is_error, output_value) = match &result {
         Ok(value) => (
@@ -713,14 +739,16 @@ async fn call_batch_with_admin_trace(
             }),
         ),
     };
-    let mut span = TraceSpan::new(
-        "batch.execute",
-        dispatch_ns,
-        response_ns.saturating_sub(dispatch_ns),
-    )
-    .with_attr("tool_slug", "call_batch")
-    .with_attr("transport", "rest")
-    .with_attr("ok", !is_error);
+    let mut span = ctx
+        .trace_context
+        .child_span(
+            "batch.execute",
+            dispatch_ns,
+            response_ns.saturating_sub(dispatch_ns),
+        )
+        .with_attr("tool_slug", "call_batch")
+        .with_attr("transport", "rest")
+        .with_attr("ok", !is_error);
     if is_error {
         span = span.with_error();
     }
@@ -735,13 +763,6 @@ async fn call_batch_with_admin_trace(
     }
 
     result
-}
-
-fn request_id_from_headers(headers: &HeaderMap) -> String {
-    header_string(headers, "x-request-id")
-        .or_else(|| header_string(headers, "x-correlation-id"))
-        .or_else(|| header_string(headers, "traceparent"))
-        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
 }
 
 fn session_id_from_headers(headers: &HeaderMap) -> Option<String> {
@@ -964,6 +985,53 @@ mod tests {
         assert!(input.contains("[REDACTED]"));
         assert!(!input.contains("secret-key"));
         assert!(!input.contains("secret-token"));
+    }
+
+    #[tokio::test]
+    async fn rest_traceparent_does_not_replace_request_id() {
+        use crate::gateway::middleware::{AuditMiddleware, MiddlewareChain};
+
+        let sink = Arc::new(CaptureSink::default());
+        let chain = MiddlewareChain::new().with_after(Arc::new(AuditMiddleware::new(sink.clone())));
+        let mut gs = test_gateway_state("1.2.3");
+        gs.middleware_chain = Arc::new(chain);
+
+        let mut headers = HeaderMap::new();
+        headers.insert("x-request-id", "req-rest-1".parse().unwrap());
+        headers.insert(
+            "traceparent",
+            "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+                .parse()
+                .unwrap(),
+        );
+        let request_body = json!({
+            "tool_slug": "maya.abcdef01.render",
+            "arguments": {},
+            "meta": {}
+        });
+
+        let _ = call_service_with_admin_trace(
+            &gs,
+            &headers,
+            "v1/call",
+            "maya.abcdef01.render",
+            json!({}),
+            request_body.get("meta").cloned(),
+            &request_body,
+        )
+        .await;
+
+        let entries = sink.0.lock().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].request_id, "req-rest-1");
+        assert_eq!(
+            entries[0].trace_context.trace_id,
+            "4bf92f3577b34da6a3ce929d0e0e4736"
+        );
+        assert_eq!(
+            entries[0].trace_context.parent_span_id.as_deref(),
+            Some("00f067aa0ba902b7")
+        );
     }
 
     #[tokio::test]

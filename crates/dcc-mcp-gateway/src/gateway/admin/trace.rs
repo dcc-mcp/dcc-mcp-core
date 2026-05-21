@@ -17,6 +17,171 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+// ── Trace Context ────────────────────────────────────────────────────────────
+
+/// End-to-end trace identity propagated across gateway, sidecar, and host hops.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TraceContext {
+    /// End-to-end unit of work, W3C-compatible 16-byte lowercase hex.
+    pub trace_id: String,
+    /// Gateway-facing request id, kept distinct from `trace_id`.
+    pub request_id: String,
+    /// Current gateway span id, W3C-compatible 8-byte lowercase hex.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_id: Option<String>,
+    /// Incoming parent span id from W3C `traceparent`, when supplied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_span_id: Option<String>,
+    /// Request-level parent/child relationship for agent turns, jobs, retries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_request_id: Option<String>,
+    /// W3C trace flags, usually `"00"` or `"01"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_flags: Option<String>,
+    /// W3C `tracestate` header value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_state: Option<String>,
+}
+
+impl TraceContext {
+    /// Build context for an HTTP request, preserving `x-request-id` separately
+    /// from any W3C `traceparent` trace id.
+    pub fn from_headers(headers: &HeaderMap) -> Self {
+        let request_id = header_str(headers, "x-request-id")
+            .or_else(|| header_str(headers, "x-correlation-id"))
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        Self::from_headers_with_request_id(headers, request_id)
+    }
+
+    /// Build context for a JSON-RPC request where the id is already the
+    /// request identity and must not be replaced by transport headers.
+    pub fn from_headers_with_request_id(
+        headers: &HeaderMap,
+        request_id: impl Into<String>,
+    ) -> Self {
+        let parsed = headers
+            .get("traceparent")
+            .and_then(|v| v.to_str().ok())
+            .and_then(parse_traceparent);
+        let explicit_trace_id = header_str(headers, "x-trace-id")
+            .filter(|value| is_valid_trace_id(value))
+            .map(|value| value.to_ascii_lowercase());
+        let parent_request_id = header_str(headers, "x-dcc-mcp-parent-request-id");
+        let trace_state = header_str(headers, "tracestate");
+
+        Self {
+            trace_id: parsed
+                .as_ref()
+                .map(|tp| tp.trace_id.clone())
+                .or(explicit_trace_id)
+                .unwrap_or_else(new_trace_id),
+            request_id: request_id.into(),
+            span_id: Some(new_span_id()),
+            parent_span_id: parsed.as_ref().map(|tp| tp.parent_span_id.clone()),
+            parent_request_id,
+            trace_flags: parsed
+                .as_ref()
+                .map(|tp| tp.trace_flags.clone())
+                .or_else(|| Some("00".to_string())),
+            trace_state,
+        }
+    }
+
+    pub fn child_span(
+        &self,
+        name: impl Into<String>,
+        started_ns: u64,
+        duration_ns: u64,
+    ) -> TraceSpan {
+        let mut span = TraceSpan::new(name, started_ns, duration_ns);
+        span.parent_span_id = self.span_id.clone();
+        span
+    }
+
+    pub fn traceparent(&self) -> Option<String> {
+        let span_id = self.span_id.as_deref()?;
+        Some(format!(
+            "00-{}-{}-{}",
+            self.trace_id,
+            span_id,
+            self.trace_flags.as_deref().unwrap_or("00")
+        ))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedTraceParent {
+    trace_id: String,
+    parent_span_id: String,
+    trace_flags: String,
+}
+
+pub fn parse_traceparent(value: &str) -> Option<TraceContextHeader> {
+    parse_traceparent_inner(value).map(|p| TraceContextHeader {
+        trace_id: p.trace_id,
+        parent_span_id: p.parent_span_id,
+        trace_flags: p.trace_flags,
+    })
+}
+
+/// Parsed public shape for tests and callers that only need header fields.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TraceContextHeader {
+    pub trace_id: String,
+    pub parent_span_id: String,
+    pub trace_flags: String,
+}
+
+fn parse_traceparent_inner(value: &str) -> Option<ParsedTraceParent> {
+    let mut parts = value.trim().split('-');
+    let version = parts.next()?;
+    let trace_id = parts.next()?;
+    let parent_span_id = parts.next()?;
+    let trace_flags = parts.next()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    if version.len() != 2 || !is_lower_hex(version) || version.eq_ignore_ascii_case("ff") {
+        return None;
+    }
+    if !is_valid_trace_id(trace_id) || !is_valid_span_id(parent_span_id) {
+        return None;
+    }
+    if trace_flags.len() != 2 || !is_lower_hex(trace_flags) {
+        return None;
+    }
+    Some(ParsedTraceParent {
+        trace_id: trace_id.to_ascii_lowercase(),
+        parent_span_id: parent_span_id.to_ascii_lowercase(),
+        trace_flags: trace_flags.to_ascii_lowercase(),
+    })
+}
+
+fn is_valid_trace_id(value: &str) -> bool {
+    value.len() == 32 && is_lower_hex(value) && value != "00000000000000000000000000000000"
+}
+
+fn is_valid_span_id(value: &str) -> bool {
+    value.len() == 16 && is_lower_hex(value) && value != "0000000000000000"
+}
+
+fn is_lower_hex(value: &str) -> bool {
+    value.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+fn new_trace_id() -> String {
+    uuid::Uuid::new_v4().simple().to_string()
+}
+
+fn new_span_id() -> String {
+    uuid::Uuid::new_v4()
+        .simple()
+        .to_string()
+        .chars()
+        .take(16)
+        .collect()
+}
+
 // ── Payload capture ───────────────────────────────────────────────────────────
 
 /// Hard limits for payload capture (bytes, not tokens).
@@ -249,6 +414,7 @@ fn merge_header_agent_context(ctx: &mut AgentContext, headers: &HeaderMap) {
     }
     if ctx.trace_id.is_none() {
         ctx.trace_id = header_str(headers, "traceparent")
+            .and_then(|value| parse_traceparent(&value).map(|tp| tp.trace_id))
             .or_else(|| header_str(headers, "x-trace-id"))
             .map(bound_context_string);
     }
@@ -301,6 +467,12 @@ fn bound_context_metadata(value: Value) -> Value {
 /// `middleware.after`, `gateway.response`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TraceSpan {
+    /// Unique span id for this segment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_id: Option<String>,
+    /// Parent span id, if known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_span_id: Option<String>,
     /// Segment label (e.g. `"backend.dispatch"`).
     pub name: String,
     /// Nanoseconds since Unix epoch when this span started.
@@ -317,6 +489,8 @@ pub struct TraceSpan {
 impl TraceSpan {
     pub fn new(name: impl Into<String>, started_ns: u64, duration_ns: u64) -> Self {
         Self {
+            span_id: Some(new_span_id()),
+            parent_span_id: None,
             name: name.into(),
             started_ns,
             duration_ns,
@@ -343,6 +517,24 @@ impl TraceSpan {
 pub struct DispatchTrace {
     /// Matches the JSON-RPC `id` string used throughout the call.
     pub request_id: String,
+    /// End-to-end trace id shared by related requests.
+    #[serde(default = "new_trace_id")]
+    pub trace_id: String,
+    /// Root gateway span id for this request, if known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_id: Option<String>,
+    /// Parent span id from incoming trace context, if known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_span_id: Option<String>,
+    /// Parent request id for request-chain correlation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_request_id: Option<String>,
+    /// W3C trace flags.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_flags: Option<String>,
+    /// W3C tracestate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_state: Option<String>,
     /// MCP method (e.g. `"tools/call"`, `"tools/list"`).
     pub method: String,
     /// Tool slug from `params.name` (present for `tools/call`).
@@ -481,6 +673,18 @@ impl TraceLog {
             .find(|t| t.request_id == request_id)
             .cloned()
     }
+
+    /// Fetch traces by trace id, newest first.
+    pub fn by_trace_id(&self, trace_id: &str, limit: usize) -> Vec<DispatchTrace> {
+        self.buf
+            .lock()
+            .iter()
+            .rev()
+            .filter(|t| t.trace_id == trace_id)
+            .take(limit)
+            .cloned()
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -539,11 +743,48 @@ mod tests {
     }
 
     #[test]
+    fn trace_context_parses_w3c_traceparent_without_using_it_as_request_id() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-request-id", "req-explicit".parse().unwrap());
+        headers.insert(
+            "traceparent",
+            "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+                .parse()
+                .unwrap(),
+        );
+        headers.insert("tracestate", "vendor=value".parse().unwrap());
+
+        let ctx = TraceContext::from_headers(&headers);
+
+        assert_eq!(ctx.request_id, "req-explicit");
+        assert_eq!(ctx.trace_id, "4bf92f3577b34da6a3ce929d0e0e4736");
+        assert_eq!(ctx.parent_span_id.as_deref(), Some("00f067aa0ba902b7"));
+        assert_eq!(ctx.trace_flags.as_deref(), Some("01"));
+        assert_eq!(ctx.trace_state.as_deref(), Some("vendor=value"));
+    }
+
+    #[test]
+    fn trace_context_generates_ids_when_headers_are_absent() {
+        let ctx = TraceContext::from_headers(&HeaderMap::new());
+
+        assert_eq!(ctx.trace_id.len(), 32);
+        assert_eq!(ctx.span_id.as_deref().unwrap_or_default().len(), 16);
+        assert!(!ctx.request_id.is_empty());
+        assert!(ctx.traceparent().is_some());
+    }
+
+    #[test]
     fn trace_log_evicts_oldest_at_capacity() {
         let log = TraceLog::new(3);
         for i in 0u32..5 {
             log.push(DispatchTrace {
                 request_id: format!("req-{i}"),
+                trace_id: "trace-ring".into(),
+                span_id: None,
+                parent_span_id: None,
+                parent_request_id: None,
+                trace_flags: None,
+                trace_state: None,
                 method: "tools/call".into(),
                 tool_slug: None,
                 instance_id: None,
@@ -571,6 +812,12 @@ mod tests {
         let log = TraceLog::new(10);
         log.push(DispatchTrace {
             request_id: "abc-123".into(),
+            trace_id: "trace-abc".into(),
+            span_id: None,
+            parent_span_id: None,
+            parent_request_id: None,
+            trace_flags: None,
+            trace_state: None,
             method: "tools/call".into(),
             tool_slug: Some("maya.create_sphere".into()),
             instance_id: None,
@@ -601,6 +848,12 @@ mod tests {
     fn arb_trace(idx: u32) -> DispatchTrace {
         DispatchTrace {
             request_id: format!("req-{idx}"),
+            trace_id: format!("trace-{idx}"),
+            span_id: None,
+            parent_span_id: None,
+            parent_request_id: None,
+            trace_flags: None,
+            trace_state: None,
             method: "tools/call".into(),
             tool_slug: None,
             instance_id: None,

@@ -43,6 +43,23 @@ Every `tools/call` trace includes:
 | `mcp.session_id` | `"sess-..."` | MCP session ID |
 | `mcp.request_id` | `"req-..."` | Per-request unique ID |
 
+### Trace Context
+
+Gateway observability keeps these identifiers separate:
+
+| Field | Meaning |
+|-------|---------|
+| `trace_id` | End-to-end unit of work. REST callers can provide it with W3C `traceparent`; otherwise the gateway generates one. |
+| `request_id` | One gateway-facing HTTP/MCP request. REST uses `X-Request-Id`/`X-Correlation-Id` or generates one; MCP uses the JSON-RPC `id`. |
+| `span_id` / `parent_span_id` | Timed segment identity and causal parent from W3C `traceparent`. |
+| `parent_request_id` | Request-level parent/child relationship for agent turns, batches, jobs, and retries. |
+
+`traceparent` is never used as `request_id`. When both `X-Request-Id` and
+`traceparent` are present, admin traces record the request id from
+`X-Request-Id` and the trace id from the W3C header. Backend REST calls receive
+`traceparent`, `tracestate`, `X-Request-Id`, and
+`X-Dcc-Mcp-Parent-Request-Id` when available.
+
 ### Rust Config (programmatic)
 
 ```rust
@@ -132,6 +149,8 @@ The elected gateway exposes a read-only HTML dashboard at `GET /admin` and machi
 | `GET /admin/api/calls` | Correlate recent calls by `request_id`, tool slug, DCC type, instance, error preview, and duration. |
 | `GET /admin/api/traces?limit=200` | Inspect recent dispatch waterfalls, bounded input payloads (16 KiB), and bounded output payloads (64 KiB). |
 | `GET /admin/api/traces/{request_id}` | Drill into one call without scanning the whole trace ring. |
+| `GET /v1/debug/traces/{trace_id}` | Stable debug lookup by trace id or request id. |
+| `GET /v1/debug/bundles/{trace_id}` | Full-chain debug bundle across every retained request in a trace. |
 | `GET /admin/api/stats?range=1h\|24h\|7d` | Compute success rate, latency percentiles, and top tools/instances/agents from the trace log. |
 | `GET /admin/api/workers` | Inspect per-instance worker cards from the live registry. |
 
@@ -148,7 +167,9 @@ operator-visible request with the caller's explicit plan and observations. Use
 `caller_context` fields, or `x-dcc-mcp-agent-*` headers. Fields are bounded and
 intended for concise telemetry such as `agent_id`, `agent_name`, `model`,
 `task`, `reasoning_summary`, `plan`, `observations`, `parent_request_id`, and
-tags; do not send hidden chain-of-thought or secrets. Admin call and trace rows
+tags; do not send hidden chain-of-thought or secrets. `trace_id`, `request_id`,
+`span_id`, and `parent_span_id` are recorded separately so one trace can contain
+multiple request ids without losing per-request compatibility. Admin call and trace rows
 also include absolute `links` for the trace page, trace API, debug bundle,
 OpenAPI Inspector, OpenAPI spec/docs, and stats page so operators can paste a
 complete, replayable investigation target into an LLM evaluation or

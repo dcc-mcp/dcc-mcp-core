@@ -42,9 +42,9 @@ pub(crate) use probe::{
 pub(crate) use urls::{health_url_from_mcp_url, readyz_url_from_mcp_url, rest_base_from_mcp_url};
 
 pub use ops::{
-    call_backend, fetch_prompts, fetch_resources, fetch_tools, forward_prompts_get,
-    forward_tools_call, read_resource, subscribe_resource, try_describe_tool, try_fetch_prompts,
-    try_fetch_resources, try_fetch_tools,
+    ForwardToolsCallRequest, call_backend, fetch_prompts, fetch_resources, fetch_tools,
+    forward_prompts_get, forward_tools_call, read_resource, subscribe_resource, try_describe_tool,
+    try_fetch_prompts, try_fetch_resources, try_fetch_tools,
 };
 
 #[cfg(test)]

@@ -270,6 +270,18 @@ pub trait HostRpcClient: Send + Sync {
         request_id: &str,
     ) -> Result<serde_json::Value, HostRpcError>;
 
+    /// Dispatch a call with optional trace context. Implementations that do
+    /// not have a wire slot for this metadata can rely on the default fallback.
+    async fn call_with_trace_context(
+        &self,
+        action: &str,
+        args: serde_json::Value,
+        request_id: &str,
+        _trace_context: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, HostRpcError> {
+        self.call(action, args, request_id).await
+    }
+
     /// Best-effort cancellation hint for the given in-flight call.
     /// Defaults to `Ok(())` so impls that cannot cancel don't have to
     /// override.

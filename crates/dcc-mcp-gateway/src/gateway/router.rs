@@ -79,11 +79,12 @@ pub fn build_gateway_router_with_admin(
     // ── #772 admin UI (opt-in feature + runtime flag) ─────────────────────
     #[cfg(feature = "admin")]
     let router = if let Some(admin_st) = admin_state {
+        let debug_router = super::admin::build_v1_debug_router(admin_st.clone());
         let admin_router = super::admin::build_admin_router(admin_st);
         // nest adds the prefix; requests to e.g. `/admin/api/health` are
         // forwarded to the sub-router as `/api/health`.
         tracing::info!("Admin UI mounted at {admin_path}");
-        router.nest(admin_path, admin_router)
+        router.nest(admin_path, admin_router).merge(debug_router)
     } else {
         router
     };

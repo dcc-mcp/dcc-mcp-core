@@ -84,6 +84,9 @@ fn admin_audit_from_persisted(p: GatewayAdminAuditPersistedJson) -> AdminAuditRe
     AdminAuditRecord {
         timestamp: UNIX_EPOCH + Duration::from_millis(p.timestamp_ms),
         request_id: p.request_id,
+        trace_id: p.trace_id,
+        span_id: p.span_id,
+        parent_span_id: p.parent_span_id,
         method: p.method,
         instance_id: p.instance_id,
         session_id: p.session_id,
@@ -152,6 +155,9 @@ fn audit_to_persisted(r: &AdminAuditRecord) -> GatewayAdminAuditPersistedJson {
             .unwrap_or(Duration::ZERO)
             .as_millis() as u64,
         request_id: r.request_id.clone(),
+        trace_id: r.trace_id.clone(),
+        span_id: r.span_id.clone(),
+        parent_span_id: r.parent_span_id.clone(),
         method: r.method.clone(),
         instance_id: r.instance_id.clone(),
         session_id: r.session_id.clone(),
@@ -250,6 +256,12 @@ mod tests {
         let lane = AdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
         let t = DispatchTrace {
             request_id: "r1".into(),
+            trace_id: "trace-sqlite".into(),
+            span_id: None,
+            parent_span_id: None,
+            parent_request_id: None,
+            trace_flags: None,
+            trace_state: None,
             method: "tools/call".into(),
             tool_slug: Some("x".into()),
             instance_id: None,

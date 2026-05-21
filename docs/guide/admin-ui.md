@@ -82,6 +82,8 @@ When using `dcc-mcp-gateway` directly, compile with the `admin` Cargo feature. `
 | `GET /admin/api/traces` | `application/json` | Recent per-call dispatch traces; accepts `?limit=200` |
 | `GET /admin/api/traces/{request_id}` | `application/json` | Full waterfall for one recorded dispatch trace |
 | `GET /admin/api/debug-bundle/{request_id}` | `application/json` | One-stop debug bundle containing the trace, matching audit row, related activity, and hints |
+| `GET /v1/debug/traces/{trace_id}` | `application/json` | Stable trace lookup by trace id or request id |
+| `GET /v1/debug/bundles/{trace_id}` | `application/json` | Full-chain debug bundle across retained requests in one trace |
 | `GET /admin/api/stats?range=1h\|24h\|7d` | `application/json` | Aggregated call counts, success rate, latency, and top tools/instances/agents |
 | `GET /admin/api/workers` | `application/json` | Per-instance worker cards from the live registry |
 | `GET /admin/api/logs` | `application/json` | Merged gateway contention events, on-disk `*.log` rows, and audited call summaries |
@@ -126,12 +128,19 @@ Example REST request:
 ```
 
 Admin list rows expose `transport`, `agent_id`, `agent_name`, `agent_model`,
-span counts, payload byte counts, slowest span summaries, and a `links` object
+`trace_id`, `span_id`, `parent_span_id`, span counts, payload byte counts,
+slowest span summaries, and a `links` object
 with absolute URLs for the Admin trace page, trace API, debug bundle, issue
 report JSON, OpenAPI Inspector, OpenAPI spec, OpenAPI docs, and stats page.
 Full trace rows include `agent_context`, request/response payload previews, a
 span waterfall, and the same copyable links. These URLs are designed to be
 pasted directly into an LLM evaluation prompt or another agent's debugging task.
+
+`request_id` and `trace_id` are intentionally different. `request_id` identifies
+one HTTP/MCP request (or JSON-RPC id), while `trace_id` identifies the
+end-to-end unit of work. REST callers may send both `X-Request-Id` and W3C
+`traceparent`; the gateway keeps `X-Request-Id` as the request id and parses the
+trace id, parent span id, and flags from `traceparent`.
 
 The Admin UI also exposes a standalone `GET /admin/api/issue-report/{request_id}`
 export. It returns a GitHub-attachable JSON report with a summary,
@@ -306,8 +315,12 @@ matching Scalar reference.
 // GET /admin/api/debug-bundle/req-123
 {
   "request_id": "req-123",
-  "trace": { "request_id": "req-123", "spans": [] },
+  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "request_ids": ["req-123"],
+  "trace": { "request_id": "req-123", "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736", "spans": [] },
+  "traces": [{ "request_id": "req-123", "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736" }],
   "audit": { "request_id": "req-123", "success": true },
+  "audits": [{ "request_id": "req-123", "success": true }],
   "related_activity": [],
   "postmortem": {
     "target": { "request_id": "req-123", "tool": "maya.abcdef01.maya__open_scene" },
