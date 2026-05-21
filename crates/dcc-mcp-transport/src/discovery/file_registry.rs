@@ -65,6 +65,16 @@ fn maps_equal(left: &EntryMap, right: &EntryMap) -> bool {
             .all(|(key, entry)| right.get(key) == Some(entry))
 }
 
+fn ensure_registry_dir(path: &Path) -> TransportResult<()> {
+    fs::create_dir_all(path).map_err(|e| {
+        TransportError::RegistryFile(format!(
+            "failed to create registry dir {}: {}",
+            path.display(),
+            e
+        ))
+    })
+}
+
 #[cfg(test)]
 type BeforeFlushHook = Box<dyn FnOnce() + Send + 'static>;
 
@@ -148,13 +158,7 @@ impl FileRegistry {
         write_lock_backoff: Duration,
     ) -> TransportResult<Self> {
         let registry_dir = registry_dir.into();
-        fs::create_dir_all(&registry_dir).map_err(|e| {
-            TransportError::RegistryFile(format!(
-                "failed to create registry dir {}: {}",
-                registry_dir.display(),
-                e
-            ))
-        })?;
+        ensure_registry_dir(&registry_dir)?;
 
         let registry = Self {
             services: DashMap::new(),
@@ -279,6 +283,7 @@ impl FileRegistry {
     ) -> TransportResult<T> {
         let started = Instant::now();
         let _guard = self.acquire_process_write_lock(started)?;
+        ensure_registry_dir(&self.registry_dir)?;
         let path = self.registry_lock_path();
         let file = OpenOptions::new()
             .create(true)
@@ -1003,6 +1008,7 @@ impl FileRegistry {
     /// transient reader races on the target path.
     fn write_atomic(&self, path: &Path, content: String) -> TransportResult<()> {
         let dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+        ensure_registry_dir(dir)?;
         let pid = std::process::id();
         // Stable per-process temp name — AV/EDR minifilters see the same
         // file being rewritten rather than a brand-new path each time.
