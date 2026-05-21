@@ -153,6 +153,7 @@ fn backend_call_error_display_is_stable() {
                 "not a DCC MCP HTTP endpoint",
                 "/v1/readyz",
                 "/health",
+                "/healthz",
             ],
         ),
         (
