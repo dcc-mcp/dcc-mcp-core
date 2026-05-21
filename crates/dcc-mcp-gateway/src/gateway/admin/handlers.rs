@@ -141,14 +141,25 @@ pub async fn handle_admin_ui() -> impl IntoResponse {
 /// `GET /admin/api/activity` — unified operator / agent activity timeline.
 pub async fn handle_admin_activity(
     State(s): State<AdminState>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(params): axum::extract::Query<DebugListQuery>,
 ) -> impl IntoResponse {
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(200)
-        .clamp(1, 1_000);
+    let limit = params.limit(200, 1_000);
     Json(crate::gateway::admin::activity::build_activity_payload(&s, limit).await)
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct DebugListQuery {
+    limit: Option<String>,
+}
+
+impl DebugListQuery {
+    fn limit(&self, default: usize, max: usize) -> usize {
+        self.limit
+            .as_deref()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(default)
+            .clamp(1, max)
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -301,14 +312,16 @@ fn admin_audit_row_json(r: &AdminAuditRecord, links: Option<AdminLinkBuilder>) -
 /// If no `AuditLog` is attached to the state, returns an empty array.
 pub async fn handle_admin_calls(
     State(s): State<AdminState>,
+    axum::extract::Query(params): axum::extract::Query<DebugListQuery>,
     headers: HeaderMap,
     OriginalUri(uri): OriginalUri,
 ) -> impl IntoResponse {
     let links = Some(AdminLinkBuilder::from_request(&headers, &uri));
+    let limit = params.limit(200, 1_000);
     let mut by_rid: HashMap<String, Value> = HashMap::new();
     if let Some(ref lane) = s.admin_sqlite_lane {
         let r = lane.reader();
-        for rec in r.list_audits_recent(500) {
+        for rec in r.list_audits_recent(limit.saturating_mul(4).max(500)) {
             by_rid.insert(
                 rec.request_id.clone(),
                 admin_audit_row_json(&rec, links.clone()),
@@ -316,7 +329,7 @@ pub async fn handle_admin_calls(
         }
     }
     if let Some(log) = &s.audit_log {
-        for r in log.lock().iter().rev().take(200) {
+        for r in log.lock().iter().rev().take(limit) {
             by_rid.insert(r.request_id.clone(), admin_audit_row_json(r, links.clone()));
         }
     }
@@ -326,7 +339,7 @@ pub async fn handle_admin_calls(
         let tb = b.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
         tb.cmp(ta)
     });
-    calls.truncate(200);
+    calls.truncate(limit);
     Json(json!({ "total": calls.len(), "calls": calls }))
 }
 
@@ -336,11 +349,15 @@ pub async fn handle_admin_calls(
 /// Rows are normalised to `{timestamp, level, message}` for the embedded admin
 /// UI. Data comes from [`GatewayState::event_log`] (same ring as
 /// `resources://gateway/events`).
-pub async fn handle_admin_logs(State(s): State<AdminState>) -> impl IntoResponse {
+pub async fn handle_admin_logs(
+    State(s): State<AdminState>,
+    axum::extract::Query(params): axum::extract::Query<DebugListQuery>,
+) -> impl IntoResponse {
+    let limit = params.limit(500, 1_000);
     let mut logs: Vec<Value> = s
         .gateway
         .event_log
-        .recent_events(500)
+        .recent_events(limit)
         .into_iter()
         .map(contend_event_to_admin_row)
         .collect();
@@ -363,7 +380,7 @@ pub async fn handle_admin_logs(State(s): State<AdminState>) -> impl IntoResponse
         {
             return Vec::new();
         }
-        read_gateway_log_dir_rows_recent(&log_dir, 500)
+        read_gateway_log_dir_rows_recent(&log_dir, limit)
     });
     match tokio::time::timeout(ADMIN_FILE_LOG_READ_TIMEOUT, file_log_task).await {
         Ok(Ok(mut file_logs)) => logs.append(&mut file_logs),
@@ -380,7 +397,7 @@ pub async fn handle_admin_logs(State(s): State<AdminState>) -> impl IntoResponse
 
     if let Some(audit) = &s.audit_log {
         let records = audit.lock().clone();
-        for r in records.iter().rev().take(200) {
+        for r in records.iter().rev().take(limit) {
             let ts = r
                 .timestamp
                 .duration_since(UNIX_EPOCH)
@@ -421,7 +438,7 @@ pub async fn handle_admin_logs(State(s): State<AdminState>) -> impl IntoResponse
         let tb = b.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
         tb.cmp(ta)
     });
-    logs.truncate(500);
+    logs.truncate(limit);
 
     Json(json!({ "total": logs.len(), "logs": logs }))
 }
@@ -553,14 +570,10 @@ pub async fn handle_admin_traces(
     State(s): State<AdminState>,
     headers: HeaderMap,
     OriginalUri(uri): OriginalUri,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(params): axum::extract::Query<DebugListQuery>,
 ) -> impl IntoResponse {
     let links = AdminLinkBuilder::from_request(&headers, &uri);
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(200)
-        .min(500);
+    let limit = params.limit(200, 500);
     let mut by_id: HashMap<String, DispatchTrace> = HashMap::new();
     if let Some(ref lane) = s.admin_sqlite_lane {
         let r = lane.reader();
@@ -637,13 +650,9 @@ pub async fn handle_admin_trace_detail(
 /// `GET /admin/api/tasks` — task-like projection over retained gateway work.
 pub async fn handle_admin_tasks(
     State(s): State<AdminState>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(params): axum::extract::Query<DebugListQuery>,
 ) -> impl IntoResponse {
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(200)
-        .clamp(1, 1_000);
+    let limit = params.limit(200, 1_000);
     Json(crate::gateway::admin::activity::build_tasks_payload(&s, limit).await)
 }
 
