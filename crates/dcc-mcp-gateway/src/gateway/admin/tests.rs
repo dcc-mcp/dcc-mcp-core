@@ -28,6 +28,11 @@ mod admin_tests {
         previous: Option<String>,
     }
 
+    struct ScopedDiskLogsDir {
+        previous: Option<String>,
+        dir: tempfile::TempDir,
+    }
+
     impl ScopedNoDiskLogsDir {
         fn new() -> Self {
             let previous = std::env::var("DCC_MCP_LOG_DIR").ok();
@@ -43,7 +48,37 @@ mod admin_tests {
         }
     }
 
+    impl ScopedDiskLogsDir {
+        fn new() -> Self {
+            let previous = std::env::var("DCC_MCP_LOG_DIR").ok();
+            let dir = tempfile::tempdir().unwrap();
+            let p = dir.path().to_string_lossy().to_string();
+            // SAFETY: tests are serialized with `API_LOGS_ENV_LOCK`; no concurrent reads
+            // of this env var in other threads during the critical section.
+            unsafe {
+                std::env::set_var("DCC_MCP_LOG_DIR", &p);
+            }
+            Self { previous, dir }
+        }
+
+        fn path(&self) -> &std::path::Path {
+            self.dir.path()
+        }
+    }
+
     impl Drop for ScopedNoDiskLogsDir {
+        fn drop(&mut self) {
+            // SAFETY: same as `new` — guarded by the test mutex.
+            unsafe {
+                match &self.previous {
+                    Some(v) => std::env::set_var("DCC_MCP_LOG_DIR", v),
+                    None => std::env::remove_var("DCC_MCP_LOG_DIR"),
+                }
+            }
+        }
+    }
+
+    impl Drop for ScopedDiskLogsDir {
         fn drop(&mut self) {
             // SAFETY: same as `new` — guarded by the test mutex.
             unsafe {
@@ -329,7 +364,8 @@ mod admin_tests {
             },
         ]));
         let state = AdminState::new(make_gateway_state()).with_audit_log(audit_log);
-        let (status, body) = body_json(build_admin_router(state), "/api/calls").await;
+        let router = build_admin_router(state);
+        let (status, body) = body_json(router.clone(), "/api/calls").await;
         assert_eq!(status, StatusCode::OK);
         let calls = body["calls"].as_array().unwrap();
         assert_eq!(calls.len(), 2);
@@ -358,6 +394,11 @@ mod admin_tests {
         assert_eq!(successes[0]["agent_model"], "gpt-test");
         assert_eq!(failures[0]["request_id"], "req-fail");
         assert_eq!(failures[0]["instance_id"], "blender-instance");
+
+        let (limited_status, limited_body) = body_json(router, "/api/calls?limit=1").await;
+        assert_eq!(limited_status, StatusCode::OK);
+        assert_eq!(limited_body["calls"].as_array().unwrap().len(), 1);
+        assert_eq!(limited_body["total"], 1);
     }
 
     #[tokio::test]
@@ -793,39 +834,142 @@ mod admin_tests {
     }
 
     #[tokio::test]
+    async fn test_admin_logs_limit_1000_reads_event_log_tail() {
+        let _env = API_LOGS_ENV_LOCK.lock();
+        let _no_disk = ScopedNoDiskLogsDir::new();
+        use crate::gateway::event_log::{ContendEvent, EventKind, EventLog};
+
+        let gs = make_gateway_state();
+        for i in 0..EventLog::CAPACITY {
+            gs.event_log.push(ContendEvent {
+                timestamp: format!("2026-05-16T12:{:02}:{:02}.000Z", i / 60, i % 60),
+                event: EventKind::GhostReaped,
+                dcc_type: "maya".into(),
+                instance_id: format!("event-{i:04}"),
+                reason: None,
+            });
+        }
+
+        let state = AdminState::new(gs);
+        let (status, body) = body_json(build_admin_router(state), "/api/logs?limit=1000").await;
+        assert_eq!(status, StatusCode::OK);
+        let logs = body["logs"].as_array().unwrap();
+        assert_eq!(logs.len(), EventLog::CAPACITY);
+        assert!(
+            logs.iter()
+                .all(|log| log["source"].as_str() == Some("contention"))
+        );
+        assert!(
+            logs.iter()
+                .any(|log| log["instance_id"].as_str() == Some("event-0000"))
+        );
+        assert!(
+            logs.iter()
+                .any(|log| log["instance_id"].as_str() == Some("event-0999"))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_admin_logs_limit_1000_reads_file_log_tail() {
+        let _env = API_LOGS_ENV_LOCK.lock();
+        let disk_logs = ScopedDiskLogsDir::new();
+
+        let mut contents = String::new();
+        for i in 0..1_000 {
+            contents.push_str(&format!(
+                "2026-05-16T12:{:02}:{:02}.000000Z INFO dcc_mcp_gateway: file-row-{i}\n",
+                i / 60,
+                i % 60
+            ));
+        }
+        std::fs::write(disk_logs.path().join("gateway.log"), contents).unwrap();
+
+        let (status, body) = body_json(admin_router(), "/api/logs?limit=1000").await;
+        assert_eq!(status, StatusCode::OK);
+        let logs = body["logs"].as_array().unwrap();
+        assert_eq!(logs.len(), 1_000);
+        assert!(
+            logs.iter()
+                .all(|log| log["source"].as_str() == Some("file"))
+        );
+        assert!(
+            logs.iter()
+                .any(|log| log["message"].as_str() == Some("file-row-0"))
+        );
+        assert!(
+            logs.iter()
+                .any(|log| log["message"].as_str() == Some("file-row-999"))
+        );
+    }
+
+    #[tokio::test]
     async fn test_admin_logs_merges_audit_tail_when_audit_attached() {
         let _env = API_LOGS_ENV_LOCK.lock();
         let _no_disk = ScopedNoDiskLogsDir::new();
         use std::time::UNIX_EPOCH;
 
         let gs = make_gateway_state();
-        let audit: AuditLog = Mutex::new(vec![AdminAuditRecord {
-            timestamp: UNIX_EPOCH,
-            request_id: "req-audit-1".into(),
-            trace_id: Some("trace-audit-1".into()),
-            span_id: None,
-            parent_span_id: None,
-            method: Some("tools/call".into()),
-            instance_id: Some("deadbeef".into()),
-            session_id: None,
-            transport: None,
-            agent_id: None,
-            agent_name: None,
-            agent_model: None,
-            parent_request_id: None,
-            action: "maya.deadbeef.scene__info".into(),
-            dcc_type: Some("maya".into()),
-            success: true,
-            error: None,
-            duration_ms: Some(12),
-        }]);
+        let audit: AuditLog = Mutex::new(vec![
+            AdminAuditRecord {
+                timestamp: UNIX_EPOCH,
+                request_id: "req-audit-1".into(),
+                trace_id: Some("trace-audit-1".into()),
+                span_id: None,
+                parent_span_id: None,
+                method: Some("tools/call".into()),
+                instance_id: Some("deadbeef".into()),
+                session_id: None,
+                transport: None,
+                agent_id: None,
+                agent_name: None,
+                agent_model: None,
+                parent_request_id: None,
+                action: "maya.deadbeef.scene__info".into(),
+                dcc_type: Some("maya".into()),
+                success: true,
+                error: None,
+                duration_ms: Some(12),
+            },
+            AdminAuditRecord {
+                timestamp: UNIX_EPOCH + Duration::from_millis(1),
+                request_id: "req-audit-2".into(),
+                trace_id: Some("trace-audit-2".into()),
+                span_id: None,
+                parent_span_id: None,
+                method: Some("tools/call".into()),
+                instance_id: Some("cafebabe".into()),
+                session_id: None,
+                transport: None,
+                agent_id: None,
+                agent_name: None,
+                agent_model: None,
+                parent_request_id: None,
+                action: "blender.cafebabe.scene__info".into(),
+                dcc_type: Some("blender".into()),
+                success: false,
+                error: Some("boom".into()),
+                duration_ms: Some(24),
+            },
+        ]);
         let state = AdminState::new(gs).with_audit_log(Arc::new(audit));
-        let (status, body) = body_json(build_admin_router(state), "/api/logs").await;
+        let router = build_admin_router(state);
+        let (status, body) = body_json(router.clone(), "/api/logs").await;
         assert_eq!(status, StatusCode::OK);
         let logs = body["logs"].as_array().unwrap();
-        assert_eq!(logs.len(), 1);
-        assert_eq!(logs[0]["source"].as_str(), Some("audit"));
-        assert_eq!(logs[0]["tool"].as_str(), Some("maya.deadbeef.scene__info"));
+        assert_eq!(logs.len(), 2);
+        assert!(
+            logs.iter()
+                .all(|log| log["source"].as_str() == Some("audit"))
+        );
+        assert!(
+            logs.iter()
+                .any(|log| log["tool"].as_str() == Some("maya.deadbeef.scene__info"))
+        );
+
+        let (limited_status, limited_body) = body_json(router, "/api/logs?limit=1").await;
+        assert_eq!(limited_status, StatusCode::OK);
+        assert_eq!(limited_body["logs"].as_array().unwrap().len(), 1);
+        assert_eq!(limited_body["total"], 1);
     }
 
     // ── unknown routes ────────────────────────────────────────────────────
