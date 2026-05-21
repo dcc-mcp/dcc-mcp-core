@@ -68,7 +68,7 @@ so operators and agents can compare results one-to-one:
 
 | Stable route | Compatibility route | Notes |
 |---|---|---|
-| `/v1/debug/instances` | `/admin/api/instances` | Accepts `view=live|all`, `include_stale`, and `include_dead`. |
+| `/v1/debug/instances` | `/admin/api/instances` | Accepts `view=live\|all`, `include_stale`, and `include_dead`. |
 | `/v1/debug/activity?limit=200` | `/admin/api/activity?limit=200` | Unified activity feed. |
 | `/v1/debug/traces?limit=200` | `/admin/api/traces?limit=200` | Recent dispatch trace rows. |
 | `/v1/debug/traces/{request_id}` | `/admin/api/traces/{request_id}` | Exact request-id trace detail. |
