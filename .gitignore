@@ -66,6 +66,7 @@ CLEANUP_TODO.md
 .claude/
 .cline/
 .codebuddy/
+.codex/
 .cursor/
 .kiro/
 .opencode/

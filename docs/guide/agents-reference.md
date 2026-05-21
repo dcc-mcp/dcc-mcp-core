@@ -609,7 +609,7 @@ When adding a Rust type/function that needs to be callable from Python:
 1. Implement in `crates/dcc-mcp-*/src/`
 2. Add `#[pyclass]` / `#[pymethods]` bindings in the crate's `python.rs`
 3. Register in `src/lib.rs` via the appropriate `register_*()` function
-4. Re-export in `python/dcc_mcp_core/__init__.py` (import + add to `__all__`)
+4. Re-export through `python/dcc_mcp_core/_exports.py` by adding the symbol to `_LAZY`; `PUBLIC_EXPORTS` and `python/dcc_mcp_core/__init__.py` derive `__all__` from that map
 5. Re-export in the generated stub by running the stub generation/dev build (`cargo run --bin stub_gen --features stub-gen` or the project build path); `_core.pyi` is generated output, not hand-edited source
 6. Add tests in `tests/test_<module>.py`
 7. Run `vx just dev` to rebuild, then `vx just test`
