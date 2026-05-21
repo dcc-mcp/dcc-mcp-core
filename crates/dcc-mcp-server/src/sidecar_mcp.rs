@@ -238,17 +238,22 @@ async fn handle_mcp_post(
     }
 
     let id = req.id.clone().unwrap_or(Value::Null);
-    let body = dispatch(&state, &req, id).await;
+    let body = dispatch(&state, &headers, &req, id).await;
     let mut response = axum::Json(body).into_response();
     attach_session(&mut response, &session_id);
     response
 }
 
-async fn dispatch(state: &SidecarMcpState, req: &JsonRpcRequest, id: Value) -> Value {
+async fn dispatch(
+    state: &SidecarMcpState,
+    headers: &HeaderMap,
+    req: &JsonRpcRequest,
+    id: Value,
+) -> Value {
     match req.method.as_str() {
         "initialize" => initialize_response(id, &state.server_version),
         "ping" => json!({"jsonrpc": "2.0", "id": id, "result": {}}),
-        "tools/call" => handle_tools_call(state, id, req).await,
+        "tools/call" => handle_tools_call(state, headers, id, req).await,
         other => json!({
             "jsonrpc": "2.0",
             "id": id,
@@ -282,7 +287,12 @@ fn initialize_response(id: Value, server_version: &str) -> Value {
     })
 }
 
-async fn handle_tools_call(state: &SidecarMcpState, id: Value, req: &JsonRpcRequest) -> Value {
+async fn handle_tools_call(
+    state: &SidecarMcpState,
+    headers: &HeaderMap,
+    id: Value,
+    req: &JsonRpcRequest,
+) -> Value {
     let params: ToolsCallParams = match req
         .params
         .clone()
@@ -315,7 +325,12 @@ async fn handle_tools_call(state: &SidecarMcpState, id: Value, req: &JsonRpcRequ
     let result = {
         let guard = state.host_rpc.lock().await;
         guard
-            .call(&params.name, params.arguments, &request_id)
+            .call_with_trace_context(
+                &params.name,
+                params.arguments,
+                &request_id,
+                trace_context_from_headers(headers, &request_id),
+            )
             .await
     };
 
@@ -326,6 +341,51 @@ async fn handle_tools_call(state: &SidecarMcpState, id: Value, req: &JsonRpcRequ
         }),
         Err(err) => host_rpc_error_to_jsonrpc(id, err),
     }
+}
+
+fn trace_context_from_headers(headers: &HeaderMap, request_id: &str) -> Option<Value> {
+    let traceparent = header_str(headers, "traceparent");
+    let trace_id = traceparent
+        .as_deref()
+        .and_then(parse_traceparent_trace_id)
+        .or_else(|| header_str(headers, "x-trace-id"));
+    let trace_id = trace_id?;
+    let parent_span_id = traceparent
+        .as_deref()
+        .and_then(parse_traceparent_parent_span_id);
+    let trace_flags = traceparent.as_deref().and_then(parse_traceparent_flags);
+    Some(json!({
+        "trace_id": trace_id,
+        "request_id": request_id,
+        "parent_span_id": parent_span_id,
+        "parent_request_id": header_str(headers, "x-dcc-mcp-parent-request-id"),
+        "trace_flags": trace_flags,
+        "trace_state": header_str(headers, "tracestate"),
+    }))
+}
+
+fn header_str(headers: &HeaderMap, name: &str) -> Option<String> {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn parse_traceparent_trace_id(value: &str) -> Option<String> {
+    let trace_id = value.trim().split('-').nth(1)?;
+    (trace_id.len() == 32).then(|| trace_id.to_ascii_lowercase())
+}
+
+fn parse_traceparent_parent_span_id(value: &str) -> Option<String> {
+    let span_id = value.trim().split('-').nth(2)?;
+    (span_id.len() == 16).then(|| span_id.to_ascii_lowercase())
+}
+
+fn parse_traceparent_flags(value: &str) -> Option<String> {
+    let flags = value.trim().split('-').nth(3)?;
+    (flags.len() == 2).then(|| flags.to_ascii_lowercase())
 }
 
 fn host_rpc_error_to_jsonrpc(id: Value, err: HostRpcError) -> Value {

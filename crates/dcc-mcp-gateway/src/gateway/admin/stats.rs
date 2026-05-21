@@ -299,6 +299,12 @@ mod tests {
     fn make_trace(ok: bool, total_ms: u64, tool: &str, instance: &str) -> DispatchTrace {
         DispatchTrace {
             request_id: uuid::Uuid::new_v4().to_string(),
+            trace_id: uuid::Uuid::new_v4().simple().to_string(),
+            span_id: None,
+            parent_span_id: None,
+            parent_request_id: None,
+            trace_flags: None,
+            trace_state: None,
             method: "tools/call".into(),
             tool_slug: Some(tool.to_string()),
             instance_id: Some(instance.to_string()),

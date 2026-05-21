@@ -2,6 +2,8 @@
 
 use serde_json::{Value, json};
 
+use crate::gateway::admin::trace::TraceContext;
+
 use super::state::GatewayState;
 use dcc_mcp_jsonrpc::coerce_tool_arguments_object;
 use dcc_mcp_transport::discovery::types::ServiceKey;
@@ -196,11 +198,16 @@ pub async fn tool_describe(gs: &GatewayState, args: &Value) -> Result<String, St
 }
 
 /// Unified call: single `tool_slug` or ordered `calls` batch (same shape as legacy wrappers).
-pub async fn tool_call(gs: &GatewayState, args: &Value, meta: Option<&Value>) -> (String, bool) {
+pub async fn tool_call(
+    gs: &GatewayState,
+    args: &Value,
+    meta: Option<&Value>,
+    trace_context: Option<&TraceContext>,
+) -> (String, bool) {
     if args.get("calls").and_then(Value::as_array).is_some() {
-        tool_call_tools(gs, args, meta).await
+        tool_call_tools(gs, args, meta, trace_context).await
     } else {
-        tool_call_tool(gs, args, meta).await
+        tool_call_tool(gs, args, meta, trace_context).await
     }
 }
 
@@ -439,6 +446,7 @@ pub async fn tool_call_tool(
     gs: &GatewayState,
     args: &Value,
     meta: Option<&Value>,
+    trace_context: Option<&TraceContext>,
 ) -> (String, bool) {
     let Some(slug) = args.get("tool_slug").and_then(|v| v.as_str()) else {
         return ("missing required argument: tool_slug".to_string(), true);
@@ -459,6 +467,7 @@ pub async fn tool_call_tool(
         slug,
         arguments.clone(),
         forwarded_meta.clone(),
+        trace_context,
     )
     .await
     {
@@ -480,6 +489,7 @@ pub async fn tool_call_tool(
                 slug,
                 arguments,
                 forwarded_meta,
+                trace_context,
             )
             .await
             {
@@ -529,6 +539,7 @@ pub async fn gateway_call_batch_inner(
     gs: &GatewayState,
     args: &Value,
     mcp_meta: Option<&Value>,
+    trace_context: Option<&TraceContext>,
 ) -> Result<Value, String> {
     let calls = args
         .get("calls")
@@ -575,6 +586,7 @@ pub async fn gateway_call_batch_inner(
                 slug,
                 arguments.clone(),
                 forwarded_meta.clone(),
+                trace_context,
             )
             .await
             {
@@ -590,6 +602,7 @@ pub async fn gateway_call_batch_inner(
                         slug,
                         arguments,
                         forwarded_meta,
+                        trace_context,
                     )
                     .await
                 }
@@ -635,9 +648,10 @@ pub async fn tool_call_tools(
     gs: &GatewayState,
     args: &Value,
     meta: Option<&Value>,
+    trace_context: Option<&TraceContext>,
 ) -> (String, bool) {
     let _ = meta;
-    match gateway_call_batch_inner(gs, args, meta).await {
+    match gateway_call_batch_inner(gs, args, meta, trace_context).await {
         Ok(value) => {
             let is_error = !value
                 .get("success")

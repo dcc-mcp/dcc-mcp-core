@@ -28,6 +28,12 @@ pub struct AdminAuditRecord {
     pub timestamp: SystemTime,
     /// Stable request id used to correlate with traces.
     pub request_id: String,
+    /// End-to-end trace id shared by related requests.
+    pub trace_id: Option<String>,
+    /// Root gateway span id for this request, if known.
+    pub span_id: Option<String>,
+    /// Incoming parent span id, if known.
+    pub parent_span_id: Option<String>,
     /// JSON-RPC / MCP method name.
     pub method: Option<String>,
     /// Target backend instance id, if resolved.
@@ -70,6 +76,12 @@ pub struct DurableAuditStore {
 struct PersistedAuditRecord {
     timestamp_ms: u64,
     request_id: String,
+    #[serde(default)]
+    trace_id: Option<String>,
+    #[serde(default)]
+    span_id: Option<String>,
+    #[serde(default)]
+    parent_span_id: Option<String>,
     method: Option<String>,
     instance_id: Option<String>,
     session_id: Option<String>,
@@ -229,6 +241,9 @@ impl From<&AdminAuditRecord> for PersistedAuditRecord {
                 .unwrap_or(Duration::ZERO)
                 .as_millis() as u64,
             request_id: record.request_id.clone(),
+            trace_id: record.trace_id.clone(),
+            span_id: record.span_id.clone(),
+            parent_span_id: record.parent_span_id.clone(),
             method: record.method.clone(),
             instance_id: record.instance_id.clone(),
             session_id: record.session_id.clone(),
@@ -251,6 +266,9 @@ impl From<PersistedAuditRecord> for AdminAuditRecord {
         Self {
             timestamp: UNIX_EPOCH + Duration::from_millis(record.timestamp_ms),
             request_id: record.request_id,
+            trace_id: record.trace_id,
+            span_id: record.span_id,
+            parent_span_id: record.parent_span_id,
             method: record.method,
             instance_id: record.instance_id,
             session_id: record.session_id,
@@ -326,6 +344,9 @@ impl AuditSink for AdminAuditSink {
         let record = AdminAuditRecord {
             timestamp: entry.timestamp,
             request_id: entry.request_id.clone(),
+            trace_id: Some(entry.trace_context.trace_id.clone()),
+            span_id: entry.trace_context.span_id.clone(),
+            parent_span_id: entry.trace_context.parent_span_id.clone(),
             method: Some(entry.method.clone()),
             instance_id: entry.instance_id.clone(),
             session_id: entry.session_id.clone(),
@@ -342,10 +363,12 @@ impl AuditSink for AdminAuditSink {
                 .agent_context
                 .as_ref()
                 .and_then(|ctx| ctx.model.clone()),
-            parent_request_id: entry
-                .agent_context
-                .as_ref()
-                .and_then(|ctx| ctx.parent_request_id.clone()),
+            parent_request_id: entry.trace_context.parent_request_id.clone().or_else(|| {
+                entry
+                    .agent_context
+                    .as_ref()
+                    .and_then(|ctx| ctx.parent_request_id.clone())
+            }),
             action: entry
                 .tool_slug
                 .clone()
@@ -377,6 +400,12 @@ impl AuditSink for AdminAuditSink {
         if let Some(tl) = &self.trace_log {
             let trace = DispatchTrace {
                 request_id: entry.request_id.clone(),
+                trace_id: entry.trace_context.trace_id.clone(),
+                span_id: entry.trace_context.span_id.clone(),
+                parent_span_id: entry.trace_context.parent_span_id.clone(),
+                parent_request_id: entry.trace_context.parent_request_id.clone(),
+                trace_flags: entry.trace_context.trace_flags.clone(),
+                trace_state: entry.trace_context.trace_state.clone(),
                 method: entry.method.clone(),
                 tool_slug: entry.tool_slug.clone(),
                 instance_id: entry.instance_id.clone(),
@@ -410,6 +439,9 @@ mod durable_tests {
         AdminAuditRecord {
             timestamp: UNIX_EPOCH + Duration::from_millis(1),
             request_id: id.to_string(),
+            trace_id: Some("trace-test".to_string()),
+            span_id: None,
+            parent_span_id: None,
             method: Some("tools/call".to_string()),
             instance_id: Some("instance".to_string()),
             session_id: Some("session".to_string()),
@@ -434,6 +466,12 @@ mod durable_tests {
         store.append_audit(&audit);
         let trace = DispatchTrace {
             request_id: "req-1".to_string(),
+            trace_id: "trace-test".to_string(),
+            span_id: None,
+            parent_span_id: None,
+            parent_request_id: None,
+            trace_flags: None,
+            trace_state: None,
             method: "tools/call".to_string(),
             tool_slug: Some("maya.abcdef01.create_sphere".to_string()),
             instance_id: Some("instance".to_string()),

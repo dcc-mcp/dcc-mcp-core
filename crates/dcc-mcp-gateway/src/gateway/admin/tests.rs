@@ -290,6 +290,9 @@ mod admin_tests {
             AdminAuditRecord {
                 timestamp: std::time::SystemTime::now(),
                 request_id: "req-ok".to_string(),
+                trace_id: Some("trace-calls".to_string()),
+                span_id: None,
+                parent_span_id: None,
                 method: Some("tools/call".to_string()),
                 instance_id: Some("maya-instance".to_string()),
                 session_id: Some("session-1".to_string()),
@@ -307,6 +310,9 @@ mod admin_tests {
             AdminAuditRecord {
                 timestamp: std::time::SystemTime::now(),
                 request_id: "req-fail".to_string(),
+                trace_id: Some("trace-calls".to_string()),
+                span_id: None,
+                parent_span_id: None,
                 method: Some("tools/call".to_string()),
                 instance_id: Some("blender-instance".to_string()),
                 session_id: None,
@@ -359,6 +365,9 @@ mod admin_tests {
         let audit_log: Arc<AuditLog> = Arc::new(parking_lot::Mutex::new(vec![AdminAuditRecord {
             timestamp: std::time::SystemTime::now(),
             request_id: "req-photoshop".to_string(),
+            trace_id: Some("trace-photoshop".to_string()),
+            span_id: None,
+            parent_span_id: None,
             method: Some("tools/call".to_string()),
             instance_id: None,
             session_id: None,
@@ -391,6 +400,9 @@ mod admin_tests {
         let audit_log: Arc<AuditLog> = Arc::new(parking_lot::Mutex::new(vec![AdminAuditRecord {
             timestamp: SystemTime::now(),
             request_id: "req-activity".to_string(),
+            trace_id: Some("trace-activity".to_string()),
+            span_id: Some("span-activity".to_string()),
+            parent_span_id: None,
             method: Some("tools/call".to_string()),
             instance_id: Some("inst-1".to_string()),
             session_id: Some("session-1".to_string()),
@@ -408,6 +420,12 @@ mod admin_tests {
         let traces = Arc::new(TraceLog::new(10));
         traces.push(DispatchTrace {
             request_id: "req-activity".into(),
+            trace_id: "trace-activity".into(),
+            span_id: Some("span-activity".into()),
+            parent_span_id: None,
+            parent_request_id: Some("parent-1".into()),
+            trace_flags: Some("01".into()),
+            trace_state: None,
             method: "tools/call".into(),
             tool_slug: Some("maya.inst.tool".into()),
             instance_id: Some("inst-1".into()),
@@ -455,6 +473,12 @@ mod admin_tests {
         let instance_id = "abcdef01-2345-6789-abcd-ef0123456789";
         traces.push(DispatchTrace {
             request_id: "req-prev".into(),
+            trace_id: "trace-task".into(),
+            span_id: None,
+            parent_span_id: None,
+            parent_request_id: None,
+            trace_flags: None,
+            trace_state: None,
             method: "tools/call".into(),
             tool_slug: Some("maya.abcdef01.save_scene".into()),
             instance_id: Some(instance_id.into()),
@@ -474,6 +498,12 @@ mod admin_tests {
         });
         traces.push(DispatchTrace {
             request_id: "req-task".into(),
+            trace_id: "trace-task".into(),
+            span_id: None,
+            parent_span_id: None,
+            parent_request_id: Some("req-prev".into()),
+            trace_flags: None,
+            trace_state: None,
             method: "tools/call".into(),
             tool_slug: Some("maya.inst.long_task".into()),
             instance_id: Some(instance_id.into()),
@@ -496,7 +526,7 @@ mod admin_tests {
             Some("call=long_task display_id=maya@2026-abcdef01".into()),
         ));
         let state = AdminState::new(gateway).with_trace_log(traces, None);
-        let router = build_admin_router(state);
+        let router = build_admin_router(state.clone());
 
         let (tasks_status, tasks_body) = body_json(router.clone(), "/api/tasks").await;
         assert_eq!(tasks_status, StatusCode::OK);
@@ -507,6 +537,9 @@ mod admin_tests {
             body_json(router.clone(), "/api/debug-bundle/req-task").await;
         assert_eq!(bundle_status, StatusCode::OK);
         assert_eq!(bundle_body["request_id"], "req-task");
+        assert_eq!(bundle_body["trace_id"], "trace-task");
+        assert_eq!(bundle_body["request_ids"].as_array().unwrap().len(), 2);
+        assert_eq!(bundle_body["traces"].as_array().unwrap().len(), 2);
         assert!(bundle_body["trace"].is_object());
         assert!(bundle_body["related_activity"].is_array());
         assert_eq!(
@@ -539,6 +572,12 @@ mod admin_tests {
                 .as_str()
                 .is_some_and(|url| url.ends_with("/v1/openapi.json"))
         );
+
+        let v1_router = crate::gateway::admin::router::build_v1_debug_router(state);
+        let (v1_status, v1_body) = body_json(v1_router, "/v1/debug/bundles/trace-task").await;
+        assert_eq!(v1_status, StatusCode::OK);
+        assert_eq!(v1_body["trace_id"], "trace-task");
+        assert_eq!(v1_body["request_ids"].as_array().unwrap().len(), 2);
 
         let (report_status, report_body) = body_json(router, "/api/issue-report/req-task").await;
         assert_eq!(report_status, StatusCode::OK);
@@ -649,6 +688,9 @@ mod admin_tests {
         let audit: AuditLog = Mutex::new(vec![AdminAuditRecord {
             timestamp: UNIX_EPOCH,
             request_id: "req-audit-1".into(),
+            trace_id: Some("trace-audit-1".into()),
+            span_id: None,
+            parent_span_id: None,
             method: Some("tools/call".into()),
             instance_id: Some("deadbeef".into()),
             session_id: None,
@@ -741,6 +783,12 @@ mod admin_tests {
         let log = Arc::new(TraceLog::new(100));
         log.push(DispatchTrace {
             request_id: "r1".into(),
+            trace_id: "trace-stats-1".into(),
+            span_id: None,
+            parent_span_id: None,
+            parent_request_id: None,
+            trace_flags: None,
+            trace_state: None,
             method: "tools/call".into(),
             tool_slug: Some("maya.create_sphere".into()),
             instance_id: Some("inst-abc".into()),
@@ -757,6 +805,12 @@ mod admin_tests {
         });
         log.push(DispatchTrace {
             request_id: "r2".into(),
+            trace_id: "trace-stats-2".into(),
+            span_id: None,
+            parent_span_id: None,
+            parent_request_id: None,
+            trace_flags: None,
+            trace_state: None,
             method: "tools/call".into(),
             tool_slug: Some("maya.open_file".into()),
             instance_id: Some("inst-abc".into()),
