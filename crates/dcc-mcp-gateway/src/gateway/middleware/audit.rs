@@ -5,7 +5,7 @@ use std::time::SystemTime;
 
 use super::context::{CallContext, CallResult};
 use super::traits::{AfterCallMiddleware, BeforeCallMiddleware, MiddlewareFuture};
-use crate::gateway::admin::trace::{AgentContext, TracePayload, TraceSpan};
+use crate::gateway::admin::trace::{AgentContext, TraceContext, TracePayload, TraceSpan};
 
 /// A single audit record produced for each tool call.
 ///
@@ -42,6 +42,8 @@ pub struct AuditEntry {
     /// Stable request id used to correlate this entry with traces
     /// and the client's JSON-RPC `id`.
     pub request_id: String,
+    /// End-to-end trace context for this call.
+    pub trace_context: TraceContext,
     /// `true` when the dispatch handler returned an MCP-level error
     /// (`isError == true` or transport failure).
     pub is_error: bool,
@@ -171,6 +173,7 @@ impl AfterCallMiddleware for AuditMiddleware {
             transport: ctx.transport.clone(),
             agent_context: ctx.agent_context.clone(),
             request_id: ctx.request_id.clone(),
+            trace_context: ctx.trace_context.clone(),
             is_error: result.is_error,
             result_preview: result.text.chars().take(256).collect(),
             duration_ms,

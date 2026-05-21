@@ -39,6 +39,13 @@ def test_substitute_captures():
     assert out["tool_slug"] == "maya.abc.maya_scripting__execute_python"
 
 
+def test_substitute_captures_in_headers():
+    vr = _load_replay_module()
+    headers = {"X-Request-Id": "{{capture:request_id}}"}
+    out = vr._substitute_captures(headers, {"request_id": "req-123"})
+    assert out["X-Request-Id"] == "req-123"
+
+
 def test_check_expect_any_one_matches():
     vr = _load_replay_module()
     raw = json.dumps({"output": {"success": False}})

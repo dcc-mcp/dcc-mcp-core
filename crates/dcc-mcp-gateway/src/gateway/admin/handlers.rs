@@ -5,7 +5,7 @@ use std::time::Duration;
 use std::time::UNIX_EPOCH;
 
 use axum::Json;
-use axum::extract::{OriginalUri, State};
+use axum::extract::{OriginalUri, Path, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, Uri, header};
 use axum::response::IntoResponse;
 use dcc_mcp_gateway_core::naming::instance_short;
@@ -85,6 +85,9 @@ fn header_value(headers: &HeaderMap, name: &str) -> Option<String> {
 }
 
 fn admin_base_path(path: &str) -> String {
+    if path.starts_with("/v1/debug/") {
+        return "/admin".to_string();
+    }
     let base = path
         .find("/api")
         .map(|idx| &path[..idx])
@@ -269,6 +272,9 @@ fn admin_audit_row_json(r: &AdminAuditRecord, links: Option<AdminLinkBuilder>) -
     let mut row = json!({
         "timestamp": ts,
         "request_id": r.request_id,
+        "trace_id": r.trace_id,
+        "span_id": r.span_id,
+        "parent_span_id": r.parent_span_id,
         "method": r.method,
         "instance_id": r.instance_id,
         "session_id": r.session_id,
@@ -662,6 +668,39 @@ pub async fn handle_admin_debug_bundle(
     }
 }
 
+/// `GET /v1/debug/traces/{lookup_id}` — trace lookup by trace id or request id.
+pub async fn handle_v1_debug_trace_lookup(
+    State(s): State<AdminState>,
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+    Path(lookup_id): Path<String>,
+) -> impl IntoResponse {
+    let links = AdminLinkBuilder::from_request(&headers, &uri);
+    match crate::gateway::admin::activity::build_debug_bundle(&s, &lookup_id).await {
+        Some(bundle) => {
+            let request_id = bundle
+                .get("request_id")
+                .and_then(Value::as_str)
+                .unwrap_or(&lookup_id);
+            let payload = json!({
+                "lookup_id": lookup_id,
+                "trace_id": bundle.get("trace_id").cloned().unwrap_or(Value::Null),
+                "request_id": request_id,
+                "request_ids": bundle.get("request_ids").cloned().unwrap_or_else(|| json!([])),
+                "trace": bundle.get("trace").cloned().unwrap_or(Value::Null),
+                "traces": bundle.get("traces").cloned().unwrap_or_else(|| json!([])),
+                "links": links.request_links(request_id),
+            });
+            (StatusCode::OK, Json(payload)).into_response()
+        }
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "trace not found", "lookup_id": lookup_id })),
+        )
+            .into_response(),
+    }
+}
+
 /// `GET /admin/api/issue-report/{request_id}` — export a GitHub-attachable JSON report.
 pub async fn handle_admin_issue_report(
     State(s): State<AdminState>,
@@ -927,6 +966,10 @@ fn issue_report_json(request_id: &str, bundle: Value, links: Value) -> Value {
         .or_else(|| audit.get("duration_ms"))
         .cloned()
         .unwrap_or(Value::Null);
+    let trace_id = bundle
+        .get("trace_id")
+        .cloned()
+        .unwrap_or_else(|| trace.get("trace_id").cloned().unwrap_or(Value::Null));
     let postmortem = bundle.get("postmortem").cloned().unwrap_or(Value::Null);
     let previous_call_count = postmortem
         .get("previous_calls")
@@ -949,6 +992,7 @@ fn issue_report_json(request_id: &str, bundle: Value, links: Value) -> Value {
         "report_type": "github_issue_debug_json",
         "generated_at": generated_at,
         "request_id": request_id,
+        "trace_id": trace_id,
         "summary": {
             "title": title,
             "status": status,
@@ -992,6 +1036,10 @@ fn dispatch_trace_to_admin_row(t: &DispatchTrace, links: Option<AdminLinkBuilder
     let mut row = json!({
         "timestamp": ts,
         "request_id": t.request_id,
+        "trace_id": t.trace_id,
+        "span_id": t.span_id,
+        "parent_span_id": t.parent_span_id,
+        "parent_request_id": t.parent_request_id,
         "tool": tool,
         "status": status,
         "success": t.ok,

@@ -604,6 +604,66 @@ async fn read_resource_preserves_blob_bytes() {
 }
 
 #[tokio::test]
+async fn forward_tools_call_propagates_trace_context_headers() {
+    let seen = std::sync::Arc::new(parking_lot::Mutex::new(Vec::<(String, String)>::new()));
+    let seen_clone = seen.clone();
+    let app = axum::Router::new().route(
+        "/v1/call",
+        axum::routing::post(move |headers: axum::http::HeaderMap| {
+            let seen = seen_clone.clone();
+            async move {
+                seen.lock().push((
+                    headers
+                        .get("x-request-id")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("")
+                        .to_string(),
+                    headers
+                        .get("traceparent")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("")
+                        .to_string(),
+                ));
+                axum::Json(json!({"success": true}))
+            }
+        }),
+    );
+    let (mcp_url, stop) = spawn_fake_backend(app).await;
+    let trace_context = crate::gateway::admin::trace::TraceContext {
+        trace_id: "4bf92f3577b34da6a3ce929d0e0e4736".into(),
+        request_id: "req-forward".into(),
+        span_id: Some("00f067aa0ba902b7".into()),
+        parent_span_id: None,
+        parent_request_id: None,
+        trace_flags: Some("01".into()),
+        trace_state: None,
+    };
+
+    forward_tools_call(
+        &reqwest::Client::new(),
+        &mcp_url,
+        ForwardToolsCallRequest {
+            tool_name: "maya.render",
+            arguments: Some(json!({})),
+            meta: None,
+            request_id: None,
+            trace_context: Some(&trace_context),
+            timeout: Duration::from_secs(2),
+        },
+    )
+    .await
+    .expect("forward should succeed");
+
+    let seen = seen.lock();
+    assert_eq!(seen[0].0, "req-forward");
+    assert_eq!(
+        seen[0].1,
+        "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+    );
+    let _ = stop.send(());
+}
+
+#[tokio::test]
 async fn subscribe_resource_forwards_subscribe_and_unsubscribe_methods() {
     let hits = Arc::new(parking_lot::Mutex::new(
         Vec::<(String, Option<String>)>::new(),

@@ -4,6 +4,7 @@ use serde_json::Value;
 
 use super::error::BackendCallError;
 use super::urls::rest_base_from_mcp_url;
+use crate::gateway::admin::trace::TraceContext;
 use crate::gateway::metrics::record_gateway_backend_error_kind;
 use crate::gateway::resilience::{circuits, is_circuit_worthy_jsonrpc_error};
 
@@ -66,12 +67,37 @@ pub(super) async fn rest_post(
     body: Value,
     timeout: Duration,
 ) -> Result<Value, String> {
-    let resp = client
+    rest_post_with_trace_context(client, url, body, timeout, None).await
+}
+
+/// Issue a `POST` with optional W3C Trace Context propagation headers.
+pub(super) async fn rest_post_with_trace_context(
+    client: &reqwest::Client,
+    url: &str,
+    body: Value,
+    timeout: Duration,
+    trace_context: Option<&TraceContext>,
+) -> Result<Value, String> {
+    let mut request = client
         .post(url)
         .timeout(timeout)
         .header("content-type", "application/json")
         .header("accept", "application/json, text/event-stream")
-        .body(body.to_string())
+        .body(body.to_string());
+    if let Some(ctx) = trace_context {
+        request = request.header("x-request-id", ctx.request_id.as_str());
+        if let Some(parent_request_id) = ctx.parent_request_id.as_deref() {
+            request = request.header("x-dcc-mcp-parent-request-id", parent_request_id);
+        }
+        if let Some(traceparent) = ctx.traceparent() {
+            request = request.header("traceparent", traceparent);
+        }
+        if let Some(tracestate) = ctx.trace_state.as_deref() {
+            request = request.header("tracestate", tracestate);
+        }
+    }
+
+    let resp = request
         .send()
         .await
         .map_err(|e| format!("{url}: transport error: {e}"))?;

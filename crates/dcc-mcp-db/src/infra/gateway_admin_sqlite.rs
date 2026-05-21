@@ -334,6 +334,9 @@ mod tests {
         let row = GatewayAdminAuditPersistedJson {
             timestamp_ms: 1_700_000_000_000,
             request_id: "rid".into(),
+            trace_id: Some("trace-rid".into()),
+            span_id: None,
+            parent_span_id: None,
             method: Some("call".into()),
             instance_id: None,
             session_id: None,

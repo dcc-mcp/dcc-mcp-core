@@ -64,11 +64,11 @@ pub use dcc_mcp_db::{
 pub use sqlite_lane::{AdminSqliteLane, AdminSqliteReader, read_custom_skill_paths_for_startup};
 pub use state::{AdminAuditRecord, AdminAuditSink, AdminState, AuditLog, DurableAuditStore};
 pub use stats::{GatewayStats, LatencyStats, StatsAggregator, StatsRange, TopEntry};
-pub use trace::{DispatchTrace, TraceLog, TracePayload, TraceSpan};
+pub use trace::{DispatchTrace, TraceContext, TraceLog, TracePayload, TraceSpan};
 pub use workers::build_workers_payload;
 
 #[cfg(feature = "admin")]
-pub use router::build_admin_router;
+pub use router::{build_admin_router, build_v1_debug_router};
 
 #[cfg(test)]
 mod tests;
