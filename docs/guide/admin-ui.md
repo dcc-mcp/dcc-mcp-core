@@ -82,12 +82,29 @@ When using `dcc-mcp-gateway` directly, compile with the `admin` Cargo feature. `
 | `GET /admin/api/traces` | `application/json` | Recent per-call dispatch traces; accepts `?limit=200` |
 | `GET /admin/api/traces/{request_id}` | `application/json` | Full waterfall for one recorded dispatch trace |
 | `GET /admin/api/debug-bundle/{request_id}` | `application/json` | One-stop debug bundle containing the trace, matching audit row, related activity, and hints |
-| `GET /v1/debug/traces/{trace_id}` | `application/json` | Stable trace lookup by trace id or request id |
-| `GET /v1/debug/bundles/{trace_id}` | `application/json` | Full-chain debug bundle across retained requests in one trace |
 | `GET /admin/api/stats?range=1h\|24h\|7d` | `application/json` | Aggregated call counts, success rate, latency, and top tools/instances/agents |
 | `GET /admin/api/workers` | `application/json` | Per-instance worker cards from the live registry |
 | `GET /admin/api/logs` | `application/json` | Merged gateway contention events, on-disk `*.log` rows, and audited call summaries |
 | `GET /admin/api/health` | `application/json` | Service health summary |
+
+Stable agent-facing mirrors are exposed under `/v1/debug/*` and are included in
+`GET /v1/openapi.json`. The Admin routes above remain the dashboard
+compatibility layer; automation should prefer:
+
+| Stable route | Mirrors |
+|--------------|---------|
+| `GET /v1/debug/instances` | `/admin/api/instances` |
+| `GET /v1/debug/activity?limit=300` | `/admin/api/activity` |
+| `GET /v1/debug/traces?limit=200` | `/admin/api/traces` |
+| `GET /v1/debug/traces/{request_id}` | `/admin/api/traces/{request_id}` |
+| `GET /v1/debug/trace-context/{lookup_id}` | trace id or request id lookup |
+| `GET /v1/debug/bundles/{request_id_or_trace_id}` | `/admin/api/debug-bundle/{request_id}` |
+| `GET /v1/debug/issue-reports/{request_id}` | `/admin/api/issue-report/{request_id}` |
+| `GET /v1/debug/tasks` | `/admin/api/tasks` |
+| `GET /v1/debug/calls` | `/admin/api/calls` |
+| `GET /v1/debug/logs` | `/admin/api/logs` |
+| `GET /v1/debug/stats` | `/admin/api/stats` |
+| `GET /v1/debug/health` | `/admin/api/health` |
 
 ## Optional Agent / Caller Context
 

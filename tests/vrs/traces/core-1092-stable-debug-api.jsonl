@@ -1,0 +1,7 @@
+{"_vrs": {"version": 1}, "trace_id": "core-1092-stable-debug-api", "title": "Stable /v1/debug routes expose admin-equivalent diagnostics for agents"}
+{"id": "call_unknown_with_request_id", "http": {"method": "POST", "path": "/v1/call", "headers": {"X-Request-Id": "vrs-core-1092-request", "traceparent": "00-7bf92f3577b34da6a3ce929d0e0e1092-00f067aa0ba91092-01"}, "json": {"tool_slug": "maya.abcdef01.__vrs_core_1092_missing_tool__", "arguments": {}}}, "expect": {"status": 404, "json_subset": {"error": {"kind": "unknown-slug"}}}}
+{"id": "debug_activity", "http": {"method": "GET", "path": "/v1/debug/activity?limit=20"}, "expect": {"status": 200, "body_contains": "vrs-core-1092-request"}}
+{"id": "debug_traces_list", "http": {"method": "GET", "path": "/v1/debug/traces?limit=20"}, "expect": {"status": 200, "body_contains": "vrs-core-1092-request"}}
+{"id": "debug_trace_detail", "http": {"method": "GET", "path": "/v1/debug/traces/vrs-core-1092-request"}, "expect": {"status": 200, "json_subset": {"request_id": "vrs-core-1092-request", "trace_id": "7bf92f3577b34da6a3ce929d0e0e1092"}}}
+{"id": "debug_bundle_by_trace_id", "http": {"method": "GET", "path": "/v1/debug/bundles/7bf92f3577b34da6a3ce929d0e0e1092"}, "expect": {"status": 200, "json_subset": {"trace_id": "7bf92f3577b34da6a3ce929d0e0e1092", "request_id": "vrs-core-1092-request"}}}
+{"id": "openapi_lists_debug_routes", "http": {"method": "GET", "path": "/v1/openapi.json"}, "expect": {"status": 200, "body_contains": "/v1/debug/traces/{request_id}"}}
