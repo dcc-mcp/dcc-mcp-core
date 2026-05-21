@@ -68,17 +68,29 @@ pub fn build_admin_router(state: AdminState) -> Router {
 /// Build stable `/v1/debug/*` routes backed by the admin trace store.
 pub fn build_v1_debug_router(state: AdminState) -> Router {
     Router::new()
+        .route("/v1/debug/instances", routing::get(handle_admin_instances))
+        .route("/v1/debug/activity", routing::get(handle_admin_activity))
+        .route("/v1/debug/calls", routing::get(handle_admin_calls))
+        .route("/v1/debug/traces", routing::get(handle_admin_traces))
         .route(
-            "/v1/debug/traces/{lookup_id}",
-            routing::get(handle_v1_debug_trace_lookup),
+            "/v1/debug/traces/{request_id}",
+            routing::get(handle_admin_trace_detail),
         )
         .route(
             "/v1/debug/trace-context/{lookup_id}",
             routing::get(handle_v1_debug_trace_lookup),
         )
+        .route("/v1/debug/tasks", routing::get(handle_admin_tasks))
+        .route(
+            "/v1/debug/issue-reports/{request_id}",
+            routing::get(handle_admin_issue_report),
+        )
         .route(
             "/v1/debug/bundles/{request_id}",
             routing::get(handle_admin_debug_bundle),
         )
+        .route("/v1/debug/logs", routing::get(handle_admin_logs))
+        .route("/v1/debug/stats", routing::get(handle_admin_stats))
+        .route("/v1/debug/health", routing::get(handle_admin_health))
         .with_state(state)
 }

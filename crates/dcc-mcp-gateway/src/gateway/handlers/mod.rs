@@ -22,6 +22,8 @@ pub(crate) use super::state::{GatewayState, ResolveInstanceError};
 pub(crate) use dcc_mcp_jsonrpc::negotiate_protocol_version;
 pub(crate) use dcc_mcp_transport::discovery::types::ServiceStatus;
 
+#[cfg(feature = "admin")]
+mod debug_openapi;
 mod mcp_impl;
 mod notification_impl;
 mod proxy_impl;

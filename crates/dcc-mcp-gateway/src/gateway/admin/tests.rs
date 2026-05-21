@@ -574,6 +574,41 @@ mod admin_tests {
         );
 
         let v1_router = crate::gateway::admin::router::build_v1_debug_router(state);
+        let (instances_status, instances_body) =
+            body_json(v1_router.clone(), "/v1/debug/instances").await;
+        assert_eq!(instances_status, StatusCode::OK);
+        assert_eq!(instances_body["view"], "live");
+
+        let (activity_status, activity_body) =
+            body_json(v1_router.clone(), "/v1/debug/activity?limit=20").await;
+        assert_eq!(activity_status, StatusCode::OK);
+        assert!(activity_body["events"].as_array().is_some_and(|events| {
+            events
+                .iter()
+                .any(|event| event["correlation"]["request_id"] == "req-task")
+        }));
+
+        let (traces_status, traces_body) =
+            body_json(v1_router.clone(), "/v1/debug/traces?limit=20").await;
+        assert_eq!(traces_status, StatusCode::OK);
+        assert!(
+            traces_body["traces"]
+                .as_array()
+                .is_some_and(|traces| traces.iter().any(|trace| trace["request_id"] == "req-task"))
+        );
+
+        let (trace_detail_status, trace_detail_body) =
+            body_json(v1_router.clone(), "/v1/debug/traces/req-task").await;
+        assert_eq!(trace_detail_status, StatusCode::OK);
+        assert_eq!(trace_detail_body["request_id"], "req-task");
+        assert_eq!(trace_detail_body["trace_id"], "trace-task");
+
+        let (context_status, context_body) =
+            body_json(v1_router.clone(), "/v1/debug/trace-context/trace-task").await;
+        assert_eq!(context_status, StatusCode::OK);
+        assert_eq!(context_body["request_id"], "req-task");
+        assert_eq!(context_body["trace_id"], "trace-task");
+
         let (v1_status, v1_body) = body_json(v1_router, "/v1/debug/bundles/trace-task").await;
         assert_eq!(v1_status, StatusCode::OK);
         assert_eq!(v1_body["request_id"], "req-task");

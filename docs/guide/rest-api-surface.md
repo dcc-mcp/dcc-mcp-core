@@ -35,12 +35,62 @@ without touching the MCP protocol stack.
 | `GET` | `/v1/prompts/{name}` | Render one prompt; pass JSON object arguments in `?args=...`. |
 | `GET` | `/v1/jobs/{id}/events` | Server-Sent Events for one async job. |
 | `DELETE` | `/v1/jobs/{id}` | Cancel one async job. |
+| `GET` | `/v1/debug/instances` | Gateway only: stable agent-facing instance diagnostics. |
+| `GET` | `/v1/debug/activity` | Gateway only: stable activity feed from audits, traces, and gateway events. |
+| `GET` | `/v1/debug/traces` | Gateway only: recent dispatch trace list. |
+| `GET` | `/v1/debug/traces/{request_id}` | Gateway only: dispatch trace detail by request id. |
+| `GET` | `/v1/debug/trace-context/{lookup_id}` | Gateway only: resolve trace id or request id to the primary trace context. |
+| `GET` | `/v1/debug/bundles/{request_id}` | Gateway only: full-chain debug bundle by request id or trace id. |
+| `GET` | `/v1/debug/issue-reports/{request_id}` | Gateway only: GitHub-attachable debug report JSON. |
+| `GET` | `/v1/debug/tasks` | Gateway only: task-like snapshots reconstructed from traces. |
+| `GET` | `/v1/debug/calls` | Gateway only: recent audited calls. |
+| `GET` | `/v1/debug/logs` | Gateway only: merged gateway events, file logs, and audit summaries. |
+| `GET` | `/v1/debug/stats` | Gateway only: aggregated call statistics. |
+| `GET` | `/v1/debug/health` | Gateway only: debug subsystem health summary. |
 | `GET` | `/v1/openapi.json` | Auto-generated OpenAPI 3.x document for code-gen clients. |
 
 The gateway exposes the same paths as an aggregating facade. Gateway capability
 slugs use `<dcc>.<id8>.<tool>` and are obtained from `POST /v1/search`; direct
 per-DCC REST slugs use `<dcc>.<skill>.<action>` and do not include an instance
 id prefix.
+
+---
+
+## Gateway Agent Debug API
+
+The elected gateway promotes the Admin telemetry providers to stable
+`/v1/debug/*` routes for agents and CI diagnostics. These routes are included
+in `GET /v1/openapi.json`; the `/admin/api/*` routes remain compatibility
+aliases for the embedded dashboard.
+
+Phase-1 debug routes intentionally preserve the existing Admin payload fields
+so operators and agents can compare results one-to-one:
+
+| Stable route | Compatibility route | Notes |
+|---|---|---|
+| `/v1/debug/instances` | `/admin/api/instances` | Accepts `view=live|all`, `include_stale`, and `include_dead`. |
+| `/v1/debug/activity?limit=200` | `/admin/api/activity?limit=200` | Unified activity feed. |
+| `/v1/debug/traces?limit=200` | `/admin/api/traces?limit=200` | Recent dispatch trace rows. |
+| `/v1/debug/traces/{request_id}` | `/admin/api/traces/{request_id}` | Exact request-id trace detail. |
+| `/v1/debug/trace-context/{lookup_id}` | n/a | Trace-context lookup by `trace_id` or `request_id`. |
+| `/v1/debug/bundles/{request_id}` | `/admin/api/debug-bundle/{request_id}` | Accepts request ids and retained trace ids. |
+| `/v1/debug/issue-reports/{request_id}` | `/admin/api/issue-report/{request_id}` | JSON export suitable for GitHub issue attachment. |
+| `/v1/debug/tasks` | `/admin/api/tasks` | Task projection from retained traces. |
+| `/v1/debug/calls` | `/admin/api/calls` | Recent audit rows. |
+| `/v1/debug/logs` | `/admin/api/logs` | Merged gateway/file/audit logs. |
+| `/v1/debug/stats` | `/admin/api/stats` | Aggregated call stats. |
+| `/v1/debug/health` | `/admin/api/health` | Debug provider health summary. |
+
+Every list endpoint supports the existing `limit` parameter where the Admin
+provider already accepted one. The OpenAPI contract reserves `cursor`,
+`since`, and `until` for the follow-up normalized envelope work; callers should
+ignore missing `next_cursor` fields until that phase lands.
+
+Common correlation fields include `request_id`, `trace_id`, `instance_id`,
+`dcc_type`, `tool` / `tool_slug`, `transport`, `agent_id`, `agent_name`,
+`agent_model`, `parent_request_id`, and timestamps where the underlying provider
+has them. Use `request_id` for exact request detail and `trace_id` for
+full-chain bundles or `/v1/debug/trace-context/{trace_id}`.
 
 ---
 
