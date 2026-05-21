@@ -1088,6 +1088,24 @@ mod tests {
             entries[0].trace_context.parent_span_id.as_deref(),
             Some("00f067aa0ba902b7")
         );
+        let root_span_id = entries[0]
+            .trace_context
+            .span_id
+            .as_deref()
+            .expect("REST trace context should create a gateway root span id");
+        assert_eq!(root_span_id.len(), 16);
+        let backend_span = entries[0]
+            .trace_spans
+            .iter()
+            .find(|span| span.name == "backend.execute")
+            .expect("REST call should record backend.execute span");
+        let backend_span_id = backend_span
+            .span_id
+            .as_deref()
+            .expect("backend.execute should carry its own span id");
+        assert_eq!(backend_span_id.len(), 16);
+        assert_ne!(backend_span_id, root_span_id);
+        assert_eq!(backend_span.parent_span_id.as_deref(), Some(root_span_id));
     }
 
     #[tokio::test]
