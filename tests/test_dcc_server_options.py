@@ -17,6 +17,11 @@ import warnings
 
 import pytest
 
+from dcc_mcp_core._server.config import build_mcp_http_config
+from dcc_mcp_core._server.config import collect_context_metadata_from_env
+from dcc_mcp_core._server.config import resolve_diagnostics_state
+from dcc_mcp_core._server.config import resolve_execution_binding
+from dcc_mcp_core._server.config import resolve_observability_flags
 from dcc_mcp_core._server.options import BridgeExecution
 from dcc_mcp_core._server.options import DccServerOptions
 from dcc_mcp_core._server.options import DiagnosticsOptions
@@ -89,6 +94,80 @@ class TestObservabilityOptions:
         obs = ObservabilityOptions()
         with pytest.raises((AttributeError, TypeError)):
             obs.enable_file_logging = False  # type: ignore[misc]
+
+
+class TestResolvedServerConfig:
+    def test_observability_flags_honor_runtime_env(self, monkeypatch):
+        monkeypatch.setenv("DCC_MCP_DISABLE_FILE_LOGGING", "1")
+        monkeypatch.delenv("DCC_MCP_DISABLE_JOB_PERSISTENCE", raising=False)
+        monkeypatch.delenv("DCC_MCP_DISABLE_TELEMETRY", raising=False)
+
+        flags = resolve_observability_flags(ObservabilityOptions())
+
+        assert flags.file_logging is False
+        assert flags.job_persistence is True
+        assert flags.telemetry is True
+
+    def test_diagnostics_state_defaults_pid(self, monkeypatch):
+        monkeypatch.setattr(os, "getpid", lambda: 4321)
+
+        state = resolve_diagnostics_state(DiagnosticsOptions(window_title="Houdini"))
+
+        assert state.dcc_pid == 4321
+        assert state.window_title == "Houdini"
+        assert state.window_handle is None
+
+    def test_execution_binding_resolves_dispatcher(self):
+        dispatcher = MagicMock()
+
+        binding = resolve_execution_binding(DispatcherExecution(dispatcher))
+
+        assert binding.bridge is None
+        assert binding.dispatcher is dispatcher
+
+    def test_execution_binding_resolves_bridge_dispatcher(self):
+        dispatcher = MagicMock()
+        bridge = MagicMock(dispatcher=dispatcher)
+
+        binding = resolve_execution_binding(BridgeExecution(bridge))
+
+        assert binding.bridge is bridge
+        assert binding.dispatcher is dispatcher
+
+    def test_context_metadata_from_env_includes_dcc_specific_paths(self, monkeypatch):
+        monkeypatch.setenv("DCC_MCP_PROJECT", "show-a")
+        monkeypatch.setenv("DCC_MCP_HOUDINI_SKILL_PATHS", "C:/show/skills")
+
+        metadata = collect_context_metadata_from_env("houdini")
+
+        assert metadata["project"] == "show-a"
+        assert metadata["dcc_skill_paths"] == "C:/show/skills"
+
+    def test_build_mcp_http_config_populates_gateway_contract(self, tmp_path):
+        opts = DccServerOptions.from_env(
+            "photoshop",
+            tmp_path,
+            port=0,
+            gateway_port=19765,
+            registry_dir="C:/registry",
+            dcc_version="25.0",
+            scene="C:/scene.psd",
+        )
+
+        config = build_mcp_http_config(
+            opts,
+            package_version="9.9.9",
+            version_provider=lambda: "unused",
+        )
+
+        assert config.port == 0
+        assert config.server_name == "photoshop-mcp"
+        assert config.server_version == "9.9.9"
+        assert config.gateway_port == 19765
+        assert config.registry_dir == "C:/registry"
+        assert config.dcc_version == "25.0"
+        assert config.scene == "C:/scene.psd"
+        assert config.dcc_type == "photoshop"
 
 
 # ── DiagnosticsOptions ────────────────────────────────────────────────────────
