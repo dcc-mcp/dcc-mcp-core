@@ -206,6 +206,45 @@ def _post_json_until_ok(url: str, body: Any, *, budget_s: float = 15.0) -> tuple
     return last_result
 
 
+def _mcp_initialize_until_ok(mcp_url: str, *, budget_s: float = 15.0) -> dict[str, Any]:
+    """Retry a minimal MCP initialize probe until the subprocess endpoint is ready."""
+    deadline = time.monotonic() + budget_s
+    last_exc: Exception | None = None
+    body = {
+        "jsonrpc": "2.0",
+        "id": "__init__",
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "clientInfo": {"name": "pytest", "version": "1.0"},
+        },
+    }
+    while time.monotonic() < deadline:
+        remaining = max(1.0, min(CALL_TIMEOUT_S, deadline - time.monotonic()))
+        try:
+            req = urllib.request.Request(
+                mcp_url,
+                data=json.dumps(body).encode(),
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json, text/event-stream",
+                    "MCP-Protocol-Version": "2025-11-25",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=remaining) as resp:
+                envelope = json.loads(resp.read())
+            result = envelope.get("result", envelope)
+            if result.get("protocolVersion"):
+                return result
+            last_exc = AssertionError(f"initialize returned no protocolVersion: {result!r}")
+        except Exception as exc:
+            last_exc = exc
+        time.sleep(0.1)
+    pytest.fail(f"MCP initialize {mcp_url} did not succeed within {budget_s}s; last exc={last_exc!r}")
+
+
 # ── In-process fixture ───────────────────────────────────────────────────
 
 
@@ -468,8 +507,8 @@ class TestRealServerExeSubprocess:
                         str(skills_dir),
                         "--no-log-file",
                     ],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
                 )
                 procs.append(proc)
                 rest_url = f"http://127.0.0.1:{mcp_port}"
@@ -507,6 +546,16 @@ class TestRealServerExeSubprocess:
                 assert any(skill_name in slug for slug in slugs), (
                     f"{dcc} subprocess: /v1/search missing {skill_name!r}; got: {sorted(slugs)}"
                 )
+
+    def test_real_mcp_endpoint_initializes_on_subprocess(self, real_three_dccs):
+        """Keep a compiled-binary MCP smoke separate from REST catalog checks."""
+        dcc, inst = next(iter(real_three_dccs.items()))
+        result = _mcp_initialize_until_ok(inst["mcp_url"])
+        assert result.get("protocolVersion") in (
+            "2025-03-26",
+            "2025-06-18",
+            "2025-11-25",
+        ), f"{dcc}: unexpected initialize result: {result!r}"
 
     def test_real_fuzzy_search_across_live_processes(self, real_three_dccs):
         """Fuzzy REST search succeeds on every live subprocess."""
