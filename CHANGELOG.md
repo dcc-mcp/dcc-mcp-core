@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.20](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.19...v0.17.20) (2026-05-21)
+
+
+### Bug Fixes
+
+* **gateway:** keep health endpoints in unreachable error ([b1b4ce1](https://github.com/loonghao/dcc-mcp-core/commit/b1b4ce17e65327f26975b10953a316442c5267d5))
+* harden registry write transactions ([f04305f](https://github.com/loonghao/dcc-mcp-core/commit/f04305f646bd64545eed5c766fb0e8ea078b4a1d))
+* recreate registry dir before registry writes ([a56e5aa](https://github.com/loonghao/dcc-mcp-core/commit/a56e5aa53fdca8dd7a5f2981be4a01ace9f1cc53))
+* reduce cooperative yield fallback log noise ([9f25084](https://github.com/loonghao/dcc-mcp-core/commit/9f25084f8e3ddd5652787c6f11b67255ed8342cc))
+
+
+### Code Refactoring
+
+* extract server config resolution ([56554a2](https://github.com/loonghao/dcc-mcp-core/commit/56554a2e91a131a5c340de4b7786fbfe1fd5cd7a))
+* slim Python server facade ([9471664](https://github.com/loonghao/dcc-mcp-core/commit/947166440ef76798c93c25d41c9d99886d593301))
+
 ## [0.17.19](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.18...v0.17.19) (2026-05-20)
 
 
