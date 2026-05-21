@@ -18,6 +18,15 @@ from dcc_mcp_core._server.callable_dispatcher import JobOutcome
 from dcc_mcp_core._server.callable_dispatcher import PendingEnvelope
 from dcc_mcp_core._server.callable_dispatcher import PumpStats
 from dcc_mcp_core._server.callable_dispatcher import current_callable_job
+from dcc_mcp_core._server.config import CONTEXT_METADATA_ENV
+from dcc_mcp_core._server.config import DiagnosticsState
+from dcc_mcp_core._server.config import ExecutionBinding
+from dcc_mcp_core._server.config import ObservabilityFlags
+from dcc_mcp_core._server.config import build_mcp_http_config
+from dcc_mcp_core._server.config import collect_context_metadata_from_env
+from dcc_mcp_core._server.config import resolve_diagnostics_state
+from dcc_mcp_core._server.config import resolve_execution_binding
+from dcc_mcp_core._server.config import resolve_observability_flags
 from dcc_mcp_core._server.host_ui_dispatcher import DEFAULT_UI_JOB_TIMEOUT_MS
 from dcc_mcp_core._server.host_ui_dispatcher import DispatcherErrorCode
 from dcc_mcp_core._server.host_ui_dispatcher import HostUiDispatcherBase
@@ -57,6 +66,7 @@ from dcc_mcp_core._server.tools_list_policy import resolve_tools_list_stub_polic
 from dcc_mcp_core._server.window_resolver import WindowResolver
 
 __all__ = [
+    "CONTEXT_METADATA_ENV",
     "DEFAULT_UI_JOB_TIMEOUT_MS",
     "ENV_EXCLUDE_STUBS_FROM_TOOLS_LIST",
     "AdaptivePumpPolicy",
@@ -69,9 +79,11 @@ __all__ = [
     "DccServerOptions",
     "DeferredToolResult",
     "DiagnosticsOptions",
+    "DiagnosticsState",
     "DispatcherErrorCode",
     "DispatcherExecution",
     "DrainStats",
+    "ExecutionBinding",
     "ExecutionMode",
     "ExecutionOptions",
     "FileLoggingManager",
@@ -86,6 +98,7 @@ __all__ = [
     "JobOutcome",
     "JobPersistenceManager",
     "MinimalModeConfig",
+    "ObservabilityFlags",
     "ObservabilityOptions",
     "PendingEnvelope",
     "PumpStats",
@@ -97,6 +110,8 @@ __all__ = [
     "WindowResolver",
     "apply_tools_list_stub_policy",
     "build_inprocess_executor",
+    "build_mcp_http_config",
+    "collect_context_metadata_from_env",
     "current_callable_job",
     "current_host_ui_job",
     "dcc_exclude_stubs_env_name",
@@ -104,6 +119,9 @@ __all__ = [
     "exception_to_error_envelope",
     "host_ui_outcome",
     "normalize_affinity",
+    "resolve_diagnostics_state",
+    "resolve_execution_binding",
+    "resolve_observability_flags",
     "resolve_tools_list_stub_policy",
     "run_skill_script",
 ]
