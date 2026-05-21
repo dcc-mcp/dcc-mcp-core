@@ -125,7 +125,7 @@ pub(crate) fn add_gateway_debug_openapi_paths(doc: &mut Value) {
             "Aggregated gateway call statistics.",
             vec![query_param(
                 "range",
-                json!({"type": "string", "enum": ["1h", "24h", "7d"]}),
+                json!({"type": "string", "enum": ["1h", "24h", "7d", "all"]}),
                 "Aggregation range.",
             )],
         ),

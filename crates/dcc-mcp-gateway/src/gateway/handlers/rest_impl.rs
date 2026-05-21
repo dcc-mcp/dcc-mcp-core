@@ -925,11 +925,15 @@ mod tests {
         for path in [
             "/v1/debug/instances",
             "/v1/debug/activity",
+            "/v1/debug/calls",
             "/v1/debug/traces",
             "/v1/debug/traces/{request_id}",
             "/v1/debug/trace-context/{lookup_id}",
+            "/v1/debug/tasks",
             "/v1/debug/bundles/{request_id}",
             "/v1/debug/issue-reports/{request_id}",
+            "/v1/debug/logs",
+            "/v1/debug/stats",
             "/v1/debug/health",
         ] {
             assert!(
