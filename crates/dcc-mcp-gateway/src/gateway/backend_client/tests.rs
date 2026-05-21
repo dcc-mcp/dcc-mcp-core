@@ -605,24 +605,30 @@ async fn read_resource_preserves_blob_bytes() {
 
 #[tokio::test]
 async fn forward_tools_call_propagates_trace_context_headers() {
-    let seen = std::sync::Arc::new(parking_lot::Mutex::new(Vec::<(String, String)>::new()));
+    let seen = std::sync::Arc::new(parking_lot::Mutex::new(Vec::<(
+        String,
+        String,
+        String,
+        String,
+    )>::new()));
     let seen_clone = seen.clone();
     let app = axum::Router::new().route(
         "/v1/call",
         axum::routing::post(move |headers: axum::http::HeaderMap| {
             let seen = seen_clone.clone();
             async move {
+                let header = |name| {
+                    headers
+                        .get(name)
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("")
+                        .to_string()
+                };
                 seen.lock().push((
-                    headers
-                        .get("x-request-id")
-                        .and_then(|v| v.to_str().ok())
-                        .unwrap_or("")
-                        .to_string(),
-                    headers
-                        .get("traceparent")
-                        .and_then(|v| v.to_str().ok())
-                        .unwrap_or("")
-                        .to_string(),
+                    header("x-request-id"),
+                    header("x-dcc-mcp-parent-request-id"),
+                    header("traceparent"),
+                    header("tracestate"),
                 ));
                 axum::Json(json!({"success": true}))
             }
@@ -634,9 +640,9 @@ async fn forward_tools_call_propagates_trace_context_headers() {
         request_id: "req-forward".into(),
         span_id: Some("00f067aa0ba902b7".into()),
         parent_span_id: None,
-        parent_request_id: None,
+        parent_request_id: Some("req-parent".into()),
         trace_flags: Some("01".into()),
-        trace_state: None,
+        trace_state: Some("vendor=value".into()),
     };
 
     forward_tools_call(
@@ -656,10 +662,12 @@ async fn forward_tools_call_propagates_trace_context_headers() {
 
     let seen = seen.lock();
     assert_eq!(seen[0].0, "req-forward");
+    assert_eq!(seen[0].1, "req-parent");
     assert_eq!(
-        seen[0].1,
+        seen[0].2,
         "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
     );
+    assert_eq!(seen[0].3, "vendor=value");
     let _ = stop.send(());
 }
 
