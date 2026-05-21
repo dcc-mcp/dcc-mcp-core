@@ -525,7 +525,29 @@ mod admin_tests {
             "abcdef01",
             Some("call=long_task display_id=maya@2026-abcdef01".into()),
         ));
-        let state = AdminState::new(gateway).with_trace_log(traces, None);
+        let audit_log: Arc<AuditLog> = Arc::new(Mutex::new(vec![AdminAuditRecord {
+            timestamp: SystemTime::UNIX_EPOCH + Duration::from_millis(2_500),
+            request_id: "req-task".into(),
+            trace_id: Some("trace-task".into()),
+            span_id: None,
+            parent_span_id: None,
+            method: Some("tools/call".into()),
+            instance_id: Some(instance_id.into()),
+            session_id: Some("session-1".into()),
+            transport: Some("mcp".into()),
+            agent_id: Some("agent-task".into()),
+            agent_name: Some("Task Agent".into()),
+            agent_model: Some("gpt-test".into()),
+            parent_request_id: Some("req-prev".into()),
+            action: "maya.inst.long_task".into(),
+            dcc_type: Some("maya".into()),
+            success: false,
+            error: Some("host died".into()),
+            duration_ms: Some(25),
+        }]));
+        let state = AdminState::new(gateway)
+            .with_audit_log(audit_log)
+            .with_trace_log(traces, None);
         let router = build_admin_router(state.clone());
 
         let (tasks_status, tasks_body) = body_json(router.clone(), "/api/tasks").await;
@@ -609,7 +631,47 @@ mod admin_tests {
         assert_eq!(context_body["request_id"], "req-task");
         assert_eq!(context_body["trace_id"], "trace-task");
 
-        let (v1_status, v1_body) = body_json(v1_router, "/v1/debug/bundles/trace-task").await;
+        let (v1_tasks_status, v1_tasks_body) =
+            body_json(v1_router.clone(), "/v1/debug/tasks?limit=20").await;
+        assert_eq!(v1_tasks_status, StatusCode::OK);
+        assert!(
+            v1_tasks_body["tasks"]
+                .as_array()
+                .is_some_and(|tasks| tasks.iter().any(|task| task["task_id"] == "req-task"))
+        );
+
+        let (calls_status, calls_body) = body_json(v1_router.clone(), "/v1/debug/calls").await;
+        assert_eq!(calls_status, StatusCode::OK);
+        assert!(
+            calls_body["calls"]
+                .as_array()
+                .is_some_and(|calls| calls.iter().any(|call| call["request_id"] == "req-task"))
+        );
+
+        {
+            let _env = API_LOGS_ENV_LOCK.lock();
+            let _no_disk = ScopedNoDiskLogsDir::new();
+            let (logs_status, logs_body) = body_json(v1_router.clone(), "/v1/debug/logs").await;
+            assert_eq!(logs_status, StatusCode::OK);
+            assert!(
+                logs_body["logs"]
+                    .as_array()
+                    .is_some_and(|logs| logs.iter().any(|log| log["request_id"] == "req-task"))
+            );
+        }
+
+        let (stats_status, stats_body) =
+            body_json(v1_router.clone(), "/v1/debug/stats?range=all").await;
+        assert_eq!(stats_status, StatusCode::OK);
+        assert_eq!(stats_body["range"], "all");
+        assert_eq!(stats_body["total_calls"], 2);
+
+        let (health_status, health_body) = body_json(v1_router.clone(), "/v1/debug/health").await;
+        assert_eq!(health_status, StatusCode::OK);
+        assert_eq!(health_body["version"], "0.0.0-test");
+
+        let (v1_status, v1_body) =
+            body_json(v1_router.clone(), "/v1/debug/bundles/trace-task").await;
         assert_eq!(v1_status, StatusCode::OK);
         assert_eq!(v1_body["request_id"], "req-task");
         assert_eq!(v1_body["trace_id"], "trace-task");
@@ -624,6 +686,12 @@ mod admin_tests {
                 .as_str()
                 .is_some_and(|url| url.ends_with("/admin/api/debug-bundle/req-task"))
         );
+
+        let (v1_report_status, v1_report_body) =
+            body_json(v1_router, "/v1/debug/issue-reports/req-task").await;
+        assert_eq!(v1_report_status, StatusCode::OK);
+        assert_eq!(v1_report_body["request_id"], "req-task");
+        assert_eq!(v1_report_body["debug_bundle"]["trace_id"], "trace-task");
 
         let (report_status, report_body) = body_json(router, "/api/issue-report/req-task").await;
         assert_eq!(report_status, StatusCode::OK);
