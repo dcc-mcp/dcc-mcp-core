@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 
 use dcc_mcp_jsonrpc::{McpPrompt, McpTool};
 
+use crate::gateway::admin::trace::TraceContext;
 use crate::gateway::metrics::record_gateway_backend_error_kind;
 use crate::gateway::resilience::{
     circuits, is_circuit_worthy_rest_error, is_retryable_rest_error, jittered_backoff,
@@ -11,7 +12,10 @@ use crate::gateway::resilience::{
 };
 
 use super::error::{BackendCallError, rest_error_prometheus_kind};
-use super::http::{percent_encode_uri, post_jsonrpc, rest_get, rest_post, uuid_like_id};
+use super::http::{
+    percent_encode_uri, post_jsonrpc, rest_get, rest_post, rest_post_with_trace_context,
+    uuid_like_id,
+};
 use super::probe::{ProbeOutcome, probe_mcp_readiness};
 use super::urls::rest_base_from_mcp_url;
 
@@ -410,21 +414,34 @@ pub async fn read_resource(
     rest_get_idempotent(client, &url, timeout, key).await
 }
 
+/// Input for forwarding a `tools/call` to a backend via `POST /v1/call`.
+pub struct ForwardToolsCallRequest<'a> {
+    /// Slug-form tool name (`<dcc>.<skill>.<action>`). The REST surface maps
+    /// this to `tool_slug` directly.
+    pub tool_name: &'a str,
+    pub arguments: Option<Value>,
+    pub meta: Option<Value>,
+    /// Accepted for API compatibility but not forwarded; the REST surface does
+    /// not use JSON-RPC request ids.
+    pub request_id: Option<String>,
+    pub trace_context: Option<&'a TraceContext>,
+    pub timeout: Duration,
+}
+
 /// Forward a `tools/call` to a backend via `POST /v1/call`.
-///
-/// `tool_name` is already in slug form (`<dcc>.<skill>.<action>`) —
-/// the REST surface maps it to `tool_slug` directly.  `request_id` is
-/// accepted for API compatibility but not forwarded (the REST surface
-/// does not use JSON-RPC request ids).
 pub async fn forward_tools_call(
     client: &reqwest::Client,
     mcp_url: &str,
-    tool_name: &str,
-    arguments: Option<Value>,
-    meta: Option<Value>,
-    _request_id: Option<String>,
-    timeout: Duration,
+    request: ForwardToolsCallRequest<'_>,
 ) -> Result<Value, String> {
+    let ForwardToolsCallRequest {
+        tool_name,
+        arguments,
+        meta,
+        request_id: _request_id,
+        trace_context,
+        timeout,
+    } = request;
     let base = rest_base_from_mcp_url(mcp_url);
     let key = base.as_str();
     let url = format!("{base}/v1/call");
@@ -440,7 +457,7 @@ pub async fn forward_tools_call(
         record_gateway_backend_error_kind(rest_error_prometheus_kind(&msg));
         return Err(msg);
     }
-    match rest_post(client, &url, body, timeout).await {
+    match rest_post_with_trace_context(client, &url, body, timeout, trace_context).await {
         Ok(v) => {
             circuits().on_success(key);
             Ok(v)

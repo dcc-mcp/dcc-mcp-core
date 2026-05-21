@@ -332,6 +332,10 @@ async fn handle_tools_call(
         req.params.as_ref(),
         meta.as_ref(),
     );
+    let trace_context = crate::gateway::admin::trace::TraceContext::from_headers_with_request_id(
+        headers,
+        id_str.to_string(),
+    );
     let resolved_slug = if tool == "call_tool" {
         args.get("tool_slug").and_then(Value::as_str)
     } else if tool == "call_tools" {
@@ -360,7 +364,8 @@ async fn handle_tools_call(
         .with_tool_slug(resolved_slug.unwrap_or(tool))
         .with_session_id(session_id)
         .with_transport("mcp")
-        .with_agent_context(agent_context);
+        .with_agent_context(agent_context)
+        .with_trace_context(trace_context);
     if let Some((dcc_type, instance_hint, _)) = resolved_slug.and_then(parse_slug) {
         ctx = ctx.with_backend(dcc_type, instance_hint);
     } else if let Some(dcc_type) = args
@@ -410,23 +415,25 @@ async fn handle_tools_call(
         meta.as_ref(),
         Some(id_str.to_string()),
         Some(session_id),
+        Some(&ctx.trace_context),
     )
     .await;
 
     {
-        use crate::gateway::admin::trace::{MAX_OUTPUT_BYTES, TracePayload, TraceSpan};
+        use crate::gateway::admin::trace::{MAX_OUTPUT_BYTES, TracePayload};
         let response_ns = std::time::SystemTime::now()
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
             .map(|d| d.as_nanos() as u64)
             .unwrap_or(0);
         ctx.push_span(
-            TraceSpan::new(
-                "backend.execute",
-                dispatch_ns,
-                response_ns.saturating_sub(dispatch_ns),
-            )
-            .with_attr("tool_slug", tool)
-            .with_attr("ok", !is_error),
+            ctx.trace_context
+                .child_span(
+                    "backend.execute",
+                    dispatch_ns,
+                    response_ns.saturating_sub(dispatch_ns),
+                )
+                .with_attr("tool_slug", tool)
+                .with_attr("ok", !is_error),
         );
         ctx.output_payload = Some(TracePayload::from_str(&text, MAX_OUTPUT_BYTES));
     }

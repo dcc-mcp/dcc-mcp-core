@@ -7,6 +7,12 @@ use serde::{Deserialize, Serialize};
 pub struct GatewayAdminAuditPersistedJson {
     pub timestamp_ms: u64,
     pub request_id: String,
+    #[serde(default)]
+    pub trace_id: Option<String>,
+    #[serde(default)]
+    pub span_id: Option<String>,
+    #[serde(default)]
+    pub parent_span_id: Option<String>,
     pub method: Option<String>,
     pub instance_id: Option<String>,
     pub session_id: Option<String>,

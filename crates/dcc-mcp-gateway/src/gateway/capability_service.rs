@@ -23,7 +23,9 @@ use uuid::Uuid;
 use dcc_mcp_jsonrpc::McpTool;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 
-use super::backend_client::{forward_tools_call, try_describe_tool};
+use crate::gateway::admin::trace::TraceContext;
+
+use super::backend_client::{ForwardToolsCallRequest, forward_tools_call, try_describe_tool};
 use super::capability::{
     CapabilityIndex, CapabilityRecord, RefreshReason, SearchHit, SearchQuery, parse_slug,
     refresh_instance, remove_instance, search,
@@ -250,6 +252,7 @@ pub async fn call_service(
     slug: &str,
     arguments: Value,
     meta: Option<Value>,
+    trace_context: Option<&TraceContext>,
 ) -> Result<Value, ServiceError> {
     let record = describe_service(&gs.capability_index, slug)?;
     // Resolve the backend endpoint using the live registry — the
@@ -275,11 +278,14 @@ pub async fn call_service(
     match forward_tools_call(
         &gs.http_client,
         &url,
-        &record.callable_id,
-        Some(arguments),
-        meta,
-        None,
-        gs.backend_timeout,
+        ForwardToolsCallRequest {
+            tool_name: &record.callable_id,
+            arguments: Some(arguments),
+            meta,
+            request_id: None,
+            trace_context,
+            timeout: gs.backend_timeout,
+        },
     )
     .await
     {

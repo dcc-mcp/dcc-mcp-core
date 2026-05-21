@@ -124,15 +124,30 @@ impl HostRpcClient for WebSocketHostRpcClient {
         args: Value,
         request_id: &str,
     ) -> Result<Value, HostRpcError> {
+        self.call_with_trace_context(action, args, request_id, None)
+            .await
+    }
+
+    async fn call_with_trace_context(
+        &self,
+        action: &str,
+        args: Value,
+        request_id: &str,
+        trace_context: Option<Value>,
+    ) -> Result<Value, HostRpcError> {
+        let mut params = json!({
+            "action": action,
+            "args": args,
+            "request_id": request_id,
+        });
+        if let Some(trace_context) = trace_context {
+            params["trace_context"] = trace_context;
+        }
         let request = WireRequest {
             jsonrpc: "2.0",
             id: request_id,
             method: DISPATCH_METHOD,
-            params: json!({
-                "action": action,
-                "args": args,
-                "request_id": request_id,
-            }),
+            params,
         };
         let text = serde_json::to_string(&request)
             .map_err(|e| HostRpcError::transport(format!("encode websocket frame: {e}")))?;
