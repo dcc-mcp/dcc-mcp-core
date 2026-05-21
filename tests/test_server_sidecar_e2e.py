@@ -113,6 +113,33 @@ def _initialize(url: str) -> str:
     return client.session_id or ""
 
 
+def _initialize_mcp_json(url: str, *, timeout: float = 10.0) -> dict[str, Any]:
+    """Call MCP initialize as one JSON response without using session helpers."""
+    body = {
+        "jsonrpc": "2.0",
+        "id": "__init__",
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "clientInfo": {"name": "pytest", "version": "1.0"},
+        },
+    }
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+            "MCP-Protocol-Version": "2025-11-25",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        envelope = json.loads(resp.read())
+    return envelope.get("result", envelope)
+
+
 def _make_server(ttl_secs: int = 3600, port: int = 0) -> tuple[McpHttpServer, Any]:
     reg = ToolRegistry()
     reg.register(
@@ -552,9 +579,8 @@ class TestServerBinarySidecar:
                 str(registry_dir),
                 "--no-log-file",
             ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            **_process_group_kwargs(),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         try:
             base = f"http://127.0.0.1:{mcp_port}"
@@ -571,17 +597,19 @@ class TestServerBinarySidecar:
                     break
                 time.sleep(0.1)
             if proc.poll() is not None:
-                out, err = proc.communicate(timeout=1)
-                pytest.fail(
-                    "dcc-mcp-server exited before health check "
-                    f"(code={proc.returncode})\nstdout={out.decode('utf-8', 'replace')[:1000]}\n"
-                    f"stderr={err.decode('utf-8', 'replace')[:1000]}"
-                )
+                pytest.fail(f"dcc-mcp-server exited before health check (code={proc.returncode})")
             assert health[0] == 200
 
             code, body = _get(f"{base}/v1/healthz")
             assert code == 200
             assert body["ok"] is True
+
+            initialize_result = _initialize_mcp_json(f"{base}/mcp")
+            assert initialize_result.get("protocolVersion") in (
+                "2025-03-26",
+                "2025-06-18",
+                "2025-11-25",
+            )
 
             code, body = _post(f"{base}/v1/search", {"query": "", "loaded_only": False})
             assert code == 200
