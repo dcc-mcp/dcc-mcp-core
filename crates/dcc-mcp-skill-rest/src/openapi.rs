@@ -116,6 +116,12 @@ pub fn build_openapi_document(server_title: &str, server_version: &str) -> Value
 #[must_use]
 pub fn build_docs_html(server_title: &str, server_version: &str) -> String {
     let doc = build_openapi_document(server_title, server_version);
+    build_docs_html_for_document(doc)
+}
+
+/// Build the Scalar HTML API reference for an already-customized OpenAPI document.
+#[must_use]
+pub fn build_docs_html_for_document(doc: Value) -> String {
     utoipa_scalar::Scalar::new(doc).to_html()
 }
 
