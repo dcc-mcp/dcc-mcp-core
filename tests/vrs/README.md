@@ -85,7 +85,7 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 | `traces/core-995-list-skills-respects-limit.jsonl` | Yes (any DCC) | `POST /v1/list_skills` MUST honour `limit` and `fields` and report a `truncated` flag (core#995). |
 | `traces/core-996-instance-offline-carries-previous-status.jsonl` | No | `instance-offline` (or `unknown-slug`) error envelope MUST carry `previous_status` so agents can distinguish manual restart from crash (core#996). |
 | `traces/core-1037-gateway-yield-unsupported-envelope.jsonl` | No | `POST /gateway/yield` unsupported/invalid optional-capability path MUST return a structured envelope that tells runners to poll instead of treating it as a crash. |
-| `traces/core-1092-stable-debug-api.jsonl` | No | Stable `/v1/debug/*` routes expose activity, trace detail, debug bundle, and OpenAPI entries without scraping Admin HTML. |
+| `traces/core-1092-stable-debug-api.jsonl` | No | Stable `/v1/debug/*` routes expose the route family needed for agent diagnostics without scraping Admin HTML. |
 | `traces/core-1093-trace-context-debug-bundle.jsonl` | No | `X-Request-Id` and W3C `traceparent` stay distinct, and `/v1/debug/bundles/{trace_id}` can retrieve the retained trace. |
 | `traces/gateway-multi-instance-stress.jsonl` | Yes (≥3 live instances) | Skips unless `GET /v1/instances` reports `total >= 3`; then bursts health/instances/readyz/context/search to catch registry/probe regressions under load. |
 
