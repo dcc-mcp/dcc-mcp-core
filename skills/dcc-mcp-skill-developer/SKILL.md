@@ -57,6 +57,8 @@ into a faster authoring loop.
    URL into a follow-up agent, LLM evaluation prompt, or GitHub issue. When an
    adapter example surfaces an `mcp_url`, make sure the Admin Dashboard can
    derive per-instance OpenAPI Inspector, spec JSON, and docs links from it.
+   For machine consumers, prefer the stable gateway `/v1/debug/*` routes and
+   `GET /v1/openapi.json` over scraping `/admin` HTML or dashboard internals.
 7. Add tests at the lowest executable layer, then one discovery/load/call or
    gateway REST path when behavior crosses MCP or REST boundaries.
 

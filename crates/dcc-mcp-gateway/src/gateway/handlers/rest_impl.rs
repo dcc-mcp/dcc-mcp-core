@@ -141,12 +141,26 @@ pub async fn handle_v1_readyz(State(gs): State<GatewayState>) -> impl IntoRespon
 pub async fn handle_v1_openapi(State(gs): State<GatewayState>) -> impl IntoResponse {
     let doc =
         dcc_mcp_skill_rest::openapi::build_openapi_document("dcc-mcp-gateway", &gs.server_version);
+    #[cfg(feature = "admin")]
+    let doc = {
+        let mut doc = doc;
+        super::debug_openapi::add_gateway_debug_openapi_paths(&mut doc);
+        doc
+    };
     (StatusCode::OK, Json(doc))
 }
 
 /// `GET /docs` — gateway REST API reference.
 pub async fn handle_v1_docs(State(gs): State<GatewayState>) -> Response {
-    let html = dcc_mcp_skill_rest::openapi::build_docs_html("dcc-mcp-gateway", &gs.server_version);
+    let doc =
+        dcc_mcp_skill_rest::openapi::build_openapi_document("dcc-mcp-gateway", &gs.server_version);
+    #[cfg(feature = "admin")]
+    let doc = {
+        let mut doc = doc;
+        super::debug_openapi::add_gateway_debug_openapi_paths(&mut doc);
+        doc
+    };
+    let html = dcc_mcp_skill_rest::openapi::build_docs_html_for_document(doc);
     (StatusCode::OK, Html(html)).into_response()
 }
 
@@ -895,6 +909,44 @@ mod tests {
         assert!(body.contains("scalar") || body.contains("Scalar"));
         assert!(body.contains("dcc-mcp-gateway"));
         assert!(body.contains("/v1/search"));
+        assert!(body.contains("/v1/debug/instances"));
+    }
+
+    #[tokio::test]
+    async fn gateway_openapi_lists_stable_debug_routes() {
+        let (status, doc) = response_json(
+            handle_v1_openapi(State(test_gateway_state("1.2.3")))
+                .await
+                .into_response(),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        for path in [
+            "/v1/debug/instances",
+            "/v1/debug/activity",
+            "/v1/debug/traces",
+            "/v1/debug/traces/{request_id}",
+            "/v1/debug/trace-context/{lookup_id}",
+            "/v1/debug/bundles/{request_id}",
+            "/v1/debug/issue-reports/{request_id}",
+            "/v1/debug/health",
+        ] {
+            assert!(
+                doc["paths"].get(path).is_some(),
+                "gateway OpenAPI doc missing debug path {path}: {doc:#}"
+            );
+        }
+        assert!(
+            doc["tags"]
+                .as_array()
+                .is_some_and(|tags| tags.iter().any(|tag| tag["name"] == "debug"))
+        );
+        assert!(
+            doc["components"]["schemas"]
+                .get("GatewayDebugPayload")
+                .is_some()
+        );
     }
 
     #[tokio::test]
