@@ -32,6 +32,7 @@ from dcc_mcp_core._server.inprocess_executor import InProcessExecutionContext
 from dcc_mcp_core._server.inprocess_executor import build_inprocess_executor
 from dcc_mcp_core._server.inprocess_executor import exception_to_error_envelope
 from dcc_mcp_core._server.inprocess_executor import run_skill_script
+from dcc_mcp_core._server.lifecycle import ServerLifecycleController
 from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
 from dcc_mcp_core._server.observability import FileLoggingManager
 from dcc_mcp_core._server.observability import JobPersistenceManager
@@ -45,6 +46,7 @@ from dcc_mcp_core._server.options import ExecutionOptions
 from dcc_mcp_core._server.options import GatewayOptions
 from dcc_mcp_core._server.options import InlineExecution
 from dcc_mcp_core._server.options import ObservabilityOptions
+from dcc_mcp_core._server.runtime import ServerRuntimeController
 from dcc_mcp_core._server.skill_query import SkillQueryClient
 from dcc_mcp_core._server.tools_list_policy import ENV_EXCLUDE_STUBS_FROM_TOOLS_LIST
 from dcc_mcp_core._server.tools_list_policy import ToolsListStubPolicy
@@ -87,6 +89,8 @@ __all__ = [
     "ObservabilityOptions",
     "PendingEnvelope",
     "PumpStats",
+    "ServerLifecycleController",
+    "ServerRuntimeController",
     "SkillQueryClient",
     "TelemetryManager",
     "ToolsListStubPolicy",

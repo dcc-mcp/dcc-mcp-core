@@ -272,6 +272,18 @@ class TestVersion:
         for name in dcc_mcp_core.__all__:
             assert hasattr(dcc_mcp_core, name), f"Missing export: {name}"
 
+    def test_export_metadata_matches_facade(self) -> None:
+        from dcc_mcp_core._exports import _LAZY
+        from dcc_mcp_core._exports import _OPTIONAL
+        from dcc_mcp_core._exports import PUBLIC_EXPORTS
+        from dcc_mcp_core._exports import _public_export_sort_key
+
+        assert dcc_mcp_core.__all__ == PUBLIC_EXPORTS
+        assert sorted(PUBLIC_EXPORTS, key=_public_export_sort_key) == PUBLIC_EXPORTS
+        assert set(PUBLIC_EXPORTS) == set(_LAZY) | {"__author__", "__version__"}
+        assert len(PUBLIC_EXPORTS) == len(set(PUBLIC_EXPORTS))
+        assert set(_OPTIONAL).issubset(_LAZY)
+
     def test_core_module_accessible(self) -> None:
         assert hasattr(dcc_mcp_core, "_core")
 

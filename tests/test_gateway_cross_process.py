@@ -71,7 +71,7 @@ def test_standalone_server_gateway_listener_reachable(tmp_path):
             str(mcp_port),
             "--gateway-port",
             str(gateway_port),
-            "--dcc",
+            "--app",
             "test-exe",
             "--no-bridge",
             "--registry-dir",

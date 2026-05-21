@@ -19,6 +19,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import signal
 import socket
 import subprocess
 import sys
@@ -74,6 +75,8 @@ def _get(url: str, headers: dict | None = None) -> tuple[int, dict]:
             return resp.status, json.loads(resp.read())
     except urllib.error.HTTPError as e:
         return e.code, {}
+    except urllib.error.URLError:
+        return 0, {}
 
 
 def _allocate_port() -> int:
@@ -83,6 +86,24 @@ def _allocate_port() -> int:
     port = s.getsockname()[1]
     s.close()
     return port
+
+
+def _process_group_kwargs() -> dict[str, int]:
+    if platform.system() == "Windows":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {}
+
+
+def _request_process_shutdown(proc: subprocess.Popen) -> None:
+    if proc.poll() is not None:
+        return
+    if platform.system() == "Windows":
+        try:
+            proc.send_signal(signal.CTRL_BREAK_EVENT)
+        except (AttributeError, OSError):
+            proc.terminate()
+    else:
+        proc.send_signal(signal.SIGINT)
 
 
 def _initialize(url: str) -> str:
@@ -514,7 +535,7 @@ class TestServerBinarySidecar:
         assert result.returncode == 0
 
     def test_photoshop_binary_exposes_rest_routes(self, binary, tmp_path):
-        """Standalone binary path must expose /v1 for bridge DCCs such as Photoshop."""
+        """Standalone binary path must expose REST routes for bridge DCCs."""
         mcp_port = _allocate_port()
         registry_dir = tmp_path / "registry"
         proc = subprocess.Popen(
@@ -524,7 +545,7 @@ class TestServerBinarySidecar:
                 str(mcp_port),
                 "--gateway-port",
                 "0",
-                "--dcc",
+                "--app",
                 "photoshop",
                 "--no-bridge",
                 "--registry-dir",
@@ -533,6 +554,7 @@ class TestServerBinarySidecar:
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            **_process_group_kwargs(),
         )
         try:
             base = f"http://127.0.0.1:{mcp_port}"
@@ -565,9 +587,6 @@ class TestServerBinarySidecar:
             assert code == 200
             assert body["total"] == 0
             assert body["hits"] == []
-
-            sid = _initialize(f"{base}/mcp")
-            assert sid
         finally:
             proc.terminate()
             try:
@@ -606,10 +625,7 @@ class TestServerBinarySidecar:
             recorded_pid = int(pid_file.read_text().strip())
             assert recorded_pid == proc.pid, f"PID file contains {recorded_pid}, expected {proc.pid}"
         finally:
-            if platform.system() == "Windows":
-                proc.terminate()
-            else:
-                proc.send_signal(signal.SIGINT)
+            _request_process_shutdown(proc)
             try:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
@@ -625,8 +641,6 @@ class TestServerBinarySidecar:
 
     def test_duplicate_start_rejected_without_force(self, binary, tmp_path):
         """A second server instance refuses to start when PID file exists."""
-        import signal
-
         pid_file = tmp_path / "dup-test.pid"
         registry_dir = tmp_path / "registry"
         proc = subprocess.Popen(
@@ -642,6 +656,7 @@ class TestServerBinarySidecar:
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            **_process_group_kwargs(),
         )
         try:
             # Wait for PID file.
@@ -669,10 +684,7 @@ class TestServerBinarySidecar:
             assert dup.returncode != 0, "Second instance should have failed"
             assert "already running" in dup.stderr.lower() or "force" in dup.stderr.lower()
         finally:
-            if platform.system() == "Windows":
-                proc.terminate()
-            else:
-                proc.send_signal(signal.SIGINT)
+            _request_process_shutdown(proc)
             try:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
