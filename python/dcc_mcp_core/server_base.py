@@ -14,7 +14,6 @@ from __future__ import annotations
 import atexit
 import contextlib
 import logging
-import os
 from pathlib import Path
 import sys
 from typing import Any
@@ -24,7 +23,6 @@ import weakref
 # Import first-party modules — compiled symbols come from ``dcc_mcp_core._core`` so
 # this module never depends on the lazy ``dcc_mcp_core`` package facade during import.
 from dcc_mcp_core import _core
-from dcc_mcp_core._core import McpHttpConfig
 from dcc_mcp_core._core import SandboxContext
 from dcc_mcp_core._core import create_skill_server
 from dcc_mcp_core._core import get_app_skill_paths_from_env
@@ -37,13 +35,16 @@ from dcc_mcp_core._server import ServerRuntimeController
 from dcc_mcp_core._server import SkillQueryClient
 from dcc_mcp_core._server import TelemetryManager
 from dcc_mcp_core._server import WindowResolver
+from dcc_mcp_core._server import build_mcp_http_config
+from dcc_mcp_core._server import collect_context_metadata_from_env
+from dcc_mcp_core._server import resolve_diagnostics_state
+from dcc_mcp_core._server import resolve_execution_binding
+from dcc_mcp_core._server import resolve_observability_flags
 from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher
 from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
 from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
 from dcc_mcp_core._server.minimal_mode import apply_minimal_mode
 from dcc_mcp_core._server.options import DccServerOptions
-from dcc_mcp_core._server.options import _BridgeExecution
-from dcc_mcp_core._server.options import _DispatcherExecution
 from dcc_mcp_core.adapter_context import append_context_snapshot
 from dcc_mcp_core.adapter_context import register_adapter_instruction_resources
 from dcc_mcp_core.hotreload import DccSkillHotReloader
@@ -83,32 +84,21 @@ class DccServerBase:
         self._enable_gateway_failover = options.gateway.enable_failover
 
         # Observability flags (env var can override at runtime).
-        obs = options.observability
-        self._enable_file_logging: bool = (
-            obs.enable_file_logging and os.environ.get("DCC_MCP_DISABLE_FILE_LOGGING", "0") != "1"
-        )
-        self._enable_job_persistence: bool = (
-            obs.enable_job_persistence and os.environ.get("DCC_MCP_DISABLE_JOB_PERSISTENCE", "0") != "1"
-        )
-        self._enable_telemetry: bool = obs.enable_telemetry and os.environ.get("DCC_MCP_DISABLE_TELEMETRY", "0") != "1"
+        obs = resolve_observability_flags(options.observability)
+        self._enable_file_logging: bool = obs.file_logging
+        self._enable_job_persistence: bool = obs.job_persistence
+        self._enable_telemetry: bool = obs.telemetry
 
         # DCC diagnostic context
-        diag = options.diagnostics
-        self._dcc_pid: int = diag.dcc_pid if diag.dcc_pid is not None else os.getpid()
+        diag = resolve_diagnostics_state(options.diagnostics)
+        self._dcc_pid: int = diag.dcc_pid
         self._dcc_window_title: str | None = diag.window_title
         self._dcc_window_handle: int | None = diag.window_handle
 
         # Resolve execution mode from the tagged union
-        exec_mode = options.execution.mode
-        if isinstance(exec_mode, _BridgeExecution):
-            self._execution_bridge: HostExecutionBridge | None = exec_mode.bridge
-            self._dcc_dispatcher: BaseDccCallableDispatcher | None = exec_mode.bridge.dispatcher
-        elif isinstance(exec_mode, _DispatcherExecution):
-            self._execution_bridge = None
-            self._dcc_dispatcher = exec_mode.dispatcher
-        else:  # InlineExecution
-            self._execution_bridge = None
-            self._dcc_dispatcher = None
+        execution = resolve_execution_binding(options.execution.mode)
+        self._execution_bridge: HostExecutionBridge | None = execution.bridge
+        self._dcc_dispatcher: BaseDccCallableDispatcher | None = execution.dispatcher
 
         self._inprocess_executor_registered: bool = False
         self._cached_hwnd: int | None = None
@@ -125,28 +115,11 @@ class DccServerBase:
             sys.platform,
         )
 
-        # Build McpHttpConfig
-        gw = options.gateway
-        self._config = McpHttpConfig(
-            port=options.port,
-            server_name=options.server_name or f"{options.dcc_name}-mcp",
-            server_version=options.server_version if options.server_version is not None else _PKG_VERSION,
+        self._config = build_mcp_http_config(
+            options,
+            package_version=_PKG_VERSION,
+            version_provider=self._version_string,
         )
-        if gw.port is not None and gw.port > 0:
-            self._config.gateway_port = gw.port
-        if gw.registry_dir:
-            self._config.registry_dir = gw.registry_dir
-        resolved_dcc_version = gw.dcc_version if gw.dcc_version is not None else self._version_string()
-        if resolved_dcc_version:
-            self._config.dcc_version = resolved_dcc_version
-        if gw.scene:
-            self._config.scene = gw.scene
-        self._config.dcc_type = options.dcc_name
-        self._config.instance_metadata = self._context_metadata_from_env(options.dcc_name)
-
-        from dcc_mcp_core._server.tools_list_policy import apply_tools_list_stub_policy
-
-        apply_tools_list_stub_policy(self._config, options.dcc_name)
 
         # ── Job persistence ───────────────────────────────────────────────────
         self._init_job_persistence(options.dcc_name)
@@ -155,10 +128,10 @@ class DccServerBase:
         self._server: Any = create_skill_server(options.dcc_name, self._config)
 
         # Wire execution bridge / dispatcher
-        if isinstance(exec_mode, _BridgeExecution):
-            self.register_host_execution_bridge(exec_mode.bridge)
-        elif isinstance(exec_mode, _DispatcherExecution):
-            self.register_inprocess_executor(exec_mode.dispatcher)
+        if execution.bridge is not None:
+            self.register_host_execution_bridge(execution.bridge)
+        elif execution.dispatcher is not None:
+            self.register_inprocess_executor(execution.dispatcher)
 
         # Composed collaborators
         self._skill_client = SkillQueryClient(self._server, options.dcc_name)
@@ -199,31 +172,7 @@ class DccServerBase:
     @staticmethod
     def _context_metadata_from_env(dcc_name: str) -> dict[str, str]:
         """Collect Rez-resolved context metadata for gateway discovery."""
-        env_map = {
-            "context_bundle": "DCC_MCP_CONTEXT_BUNDLE",
-            "production_domain": "DCC_MCP_PRODUCTION_DOMAIN",
-            "context_kind": "DCC_MCP_CONTEXT_KIND",
-            "project": "DCC_MCP_PROJECT",
-            "sequence": "DCC_MCP_SEQUENCE",
-            "shot": "DCC_MCP_SHOT",
-            "asset": "DCC_MCP_ASSET",
-            "asset_type": "DCC_MCP_ASSET_TYPE",
-            "task": "DCC_MCP_TASK",
-            "toolset_profile": "DCC_MCP_TOOLSET_PROFILE",
-            "package_provenance": "DCC_MCP_PACKAGE_PROVENANCE",
-            "skill_paths": "DCC_MCP_SKILL_PATHS",
-            "resource_paths": "DCC_MCP_RESOURCE_PATHS",
-            "prompt_paths": "DCC_MCP_PROMPT_PATHS",
-        }
-        metadata: dict[str, str] = {}
-        for key, env_name in env_map.items():
-            value = os.environ.get(env_name, "")
-            if value:
-                metadata[key] = value
-        dcc_skill_paths = os.environ.get(f"DCC_MCP_{dcc_name.upper()}_SKILL_PATHS", "")
-        if dcc_skill_paths:
-            metadata["dcc_skill_paths"] = dcc_skill_paths
-        return metadata
+        return collect_context_metadata_from_env(dcc_name)
 
     # ── observability helpers (delegated to collaborators, #486) ──────────────
 
