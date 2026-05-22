@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.22](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.21...v0.17.22) (2026-05-22)
+
+
+### Features
+
+* add import-light install lifecycle helpers ([7dbadae](https://github.com/loonghao/dcc-mcp-core/commit/7dbadaee224a57fb83e0126a6d037a15b0f9b8d7))
+
+
+### Bug Fixes
+
+* fsync FileRegistry snapshots before rename ([fd3b8d6](https://github.com/loonghao/dcc-mcp-core/commit/fd3b8d6c0e65aff7b5944963d956ea84ae35adc9))
+* recover zero-padded FileRegistry snapshots ([9c2e67d](https://github.com/loonghao/dcc-mcp-core/commit/9c2e67d902f0f08aff39c358780365cfd3f7ddec))
+
 ## [0.17.21](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.20...v0.17.21) (2026-05-22)
 
 
