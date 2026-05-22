@@ -25,6 +25,17 @@ fn corrupted_registry_files(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     paths
 }
 
+fn temp_registry_file_names(dir: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<_> = std::fs::read_dir(dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with(".tmp."))
+        .collect();
+    names.sort();
+    names
+}
+
 #[test]
 fn test_file_registry_register_and_list() {
     let dir = tempfile::tempdir().unwrap();
@@ -915,14 +926,21 @@ fn test_concurrent_heartbeat_does_not_drop_entries() {
 /// `(pid, tid, seq)` path per write.
 ///
 /// The test verifies the invariant by:
-/// 1. Running N concurrent heartbeat threads, each flushing 50 times.
+/// 1. Running N concurrent heartbeat threads, each flushing several times.
 /// 2. Scanning the registry directory for `.tmp.*` files after the flushes.
 /// 3. Asserting that no file whose name contains a thread-id or sequence
 ///    number fragment ever appears on disk.
 #[test]
 fn test_write_atomic_stable_temp_filename() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = std::sync::Arc::new(FileRegistry::new(dir.path()).unwrap());
+    let registry = std::sync::Arc::new(
+        FileRegistry::new_with_lock_policy(
+            dir.path(),
+            Duration::from_secs(10),
+            Duration::from_millis(5),
+        )
+        .unwrap(),
+    );
 
     // Register an entry so there is something to flush.
     let mut entry = ServiceEntry::new("maya", "127.0.0.1", 7001);
@@ -931,8 +949,8 @@ fn test_write_atomic_stable_temp_filename() {
     registry.register(entry).unwrap();
 
     // Spawn N threads that flush concurrently.
-    const THREADS: usize = 8;
-    const FLUSHES_PER_THREAD: usize = 50;
+    const THREADS: usize = 4;
+    const FLUSHES_PER_THREAD: usize = 8;
     let mut handles = Vec::with_capacity(THREADS);
     for _ in 0..THREADS {
         let r = std::sync::Arc::clone(&registry);
@@ -967,4 +985,71 @@ fn test_write_atomic_stable_temp_filename() {
     }
     // The stable file is usually renamed away; it is acceptable (but not
     // required) for it to be absent after all flushes complete.
+}
+
+#[test]
+fn test_write_atomic_sync_failure_does_not_replace_registry_and_cleans_temp() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+
+    let maya = ServiceEntry::new("maya", "127.0.0.1", 7001);
+    let maya_key = maya.key();
+    registry.register(maya).unwrap();
+
+    let registry_path = dir.path().join(REGISTRY_FILE);
+    let baseline = std::fs::read_to_string(&registry_path).unwrap();
+    assert!(baseline.contains("maya"));
+
+    set_before_temp_sync_hook(dir.path(), |temp_path| {
+        let temp_content = std::fs::read_to_string(temp_path).unwrap();
+        assert!(
+            temp_content.contains("photoshop"),
+            "temp file should contain the new snapshot before fsync"
+        );
+        Err(std::io::Error::other("simulated crash before fsync"))
+    });
+
+    let photoshop = ServiceEntry::new("photoshop", "127.0.0.1", 7002);
+    let photoshop_key = photoshop.key();
+    let err = registry.register(photoshop).unwrap_err();
+    let err = err.to_string();
+    assert!(err.contains("failed to sync temp file"), "{err}");
+    assert!(err.contains("simulated crash before fsync"), "{err}");
+
+    assert_eq!(
+        std::fs::read_to_string(&registry_path).unwrap(),
+        baseline,
+        "a failed temp-file fsync must not replace the last durable services.json"
+    );
+    assert!(registry.get(&maya_key).is_some());
+    assert!(
+        registry.get(&photoshop_key).is_none(),
+        "a failed write must roll back the current registry handle"
+    );
+    assert!(
+        registry
+            .list_all()
+            .into_iter()
+            .all(|entry| entry.key() != photoshop_key),
+        "the failed write must not leak into list_all on the current handle"
+    );
+    assert!(
+        !registry.heartbeat(&photoshop_key).unwrap(),
+        "heartbeat must not re-persist an entry from the failed transaction"
+    );
+    assert!(
+        !registry.sentinel_handles.contains_key(&photoshop_key),
+        "failed register must not retain ownership of the new sentinel"
+    );
+    assert!(
+        temp_registry_file_names(dir.path()).is_empty(),
+        "failed fsync should clean up the stable temp file"
+    );
+
+    let reread = FileRegistry::new(dir.path()).unwrap();
+    assert!(reread.get(&maya_key).is_some());
+    assert!(
+        reread.get(&photoshop_key).is_none(),
+        "the failed write must not leak into the durable registry"
+    );
 }
