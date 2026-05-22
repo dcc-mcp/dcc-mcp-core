@@ -24,6 +24,7 @@ pub use application::gateway_admin::{
 pub use domain::env;
 pub use domain::error::DbError;
 pub use domain::gateway_admin_audit::GatewayAdminAuditPersistedJson;
+pub use domain::gateway_admin_deregistered::GatewayDeregisteredInstanceJson;
 pub use infra::file_log_merge::{
     default_gateway_log_dir, parse_gateway_file_log_line, read_gateway_log_dir_rows_recent,
 };

@@ -1,16 +1,22 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import mayaIcon from './assets/icons/autodesk.svg';
 import blenderIcon from './assets/icons/blender.svg';
+import claudeIcon from './assets/icons/claude.svg';
+import clineIcon from './assets/icons/cline.svg';
+import codebuddyIcon from './assets/icons/codebuddy.svg';
+import cursorIcon from './assets/icons/cursor.svg';
 import gimpIcon from './assets/icons/gimp.svg';
 import inkscapeIcon from './assets/icons/inkscape.svg';
 import kritaIcon from './assets/icons/krita.svg';
+import openaiIcon from './assets/icons/openai.svg';
 import unityIcon from './assets/icons/unity.svg';
 import unrealIcon from './assets/icons/unrealengine.svg';
 import substancePainterIcon from './assets/icons/photoshop.svg';
 import puzzleIcon from './assets/icons/puzzle.svg';
+import vscodeIcon from './assets/icons/vscode.svg';
 import { formatTime, timestampTitle } from './time';
 
-type Panel = 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'stats' | 'logs' | 'skill-paths';
+type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'stats' | 'logs' | 'skill-paths';
 
 type HealthPayload = {
   status: string;
@@ -259,11 +265,13 @@ type StatsPayload = {
 
 type WorkerRow = {
   instance_id: string;
-  display_name: string;
+  display_name: string | null;
   dcc_type: string;
   status: string;
   stale: boolean;
   pid: number | null;
+  host?: string;
+  port?: number;
   uptime_secs: number | null;
   version: string | null;
   adapter_version: string | null;
@@ -271,6 +279,8 @@ type WorkerRow = {
   memory_bytes: number | null;
   mcp_url: string;
   scene?: string | null;
+  failure_reason?: string | null;
+  failure_stage?: string | null;
 };
 
 type WorkerSummary = {
@@ -310,6 +320,36 @@ type SkillPathRow = {
   id?: number;
 };
 
+type SkillRow = {
+  name: string;
+  dcc_type: string;
+  loaded: boolean;
+  action_count: number;
+  instance_count: number;
+  instances: string[];
+  tools: string[];
+  summary?: string | null;
+};
+
+type SkillPayload = {
+  skills?: unknown[];
+  total?: number;
+  loaded?: number;
+  unloaded?: number;
+  action_count?: number;
+  error?: string;
+};
+
+type SetupUrlMode = 'local' | 'lan' | 'direct';
+
+type IdeTarget = {
+  id: string;
+  label: string;
+  configPath: string;
+  icon: string;
+  build: (url: string) => unknown;
+};
+
 function normalizeLogRow(raw: unknown): LogRow {
   if (!raw || typeof raw !== 'object') {
     return { timestamp: '', level: '', message: '' };
@@ -331,6 +371,37 @@ function normalizeLogRow(raw: unknown): LogRow {
     success: typeof o.success === 'boolean' ? o.success : undefined,
     detail: o.detail != null ? String(o.detail) : undefined,
     reason: o.reason == null ? null : String(o.reason),
+  };
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => String(item)) : [];
+}
+
+function normalizeSkillRow(raw: unknown): SkillRow {
+  if (!raw || typeof raw !== 'object') {
+    return {
+      name: '',
+      dcc_type: '',
+      loaded: false,
+      action_count: 0,
+      instance_count: 0,
+      instances: [],
+      tools: [],
+    };
+  }
+  const o = raw as Record<string, unknown>;
+  const instances = stringList(o.instances);
+  const tools = stringList(o.tools);
+  return {
+    name: String(o.name ?? ''),
+    dcc_type: String(o.dcc_type ?? o.dcc ?? ''),
+    loaded: o.loaded === true,
+    action_count: Number(o.action_count ?? tools.length ?? 0),
+    instance_count: Number(o.instance_count ?? instances.length ?? 0),
+    instances,
+    tools,
+    summary: o.summary == null ? null : String(o.summary),
   };
 }
 
@@ -379,7 +450,58 @@ const API_BASE = adminApiBase();
 /** Abort hung admin fetches so the UI does not wait indefinitely on a wedged gateway. */
 const ADMIN_FETCH_TIMEOUT_MS = 25_000;
 const OPENAPI_METHODS = new Set(['get', 'put', 'post', 'delete', 'patch', 'options', 'head', 'trace']);
+const IDE_SERVER_NAME = 'dcc-mcp-gateway';
+const buildMcpServersConfig = (url: string) => ({
+  mcpServers: {
+    [IDE_SERVER_NAME]: { url },
+  },
+});
+const IDE_TARGETS: IdeTarget[] = [
+  {
+    id: 'claude',
+    label: 'Claude Desktop',
+    configPath: '%APPDATA%\\Claude\\claude_desktop_config.json',
+    icon: claudeIcon,
+    build: buildMcpServersConfig,
+  },
+  {
+    id: 'cursor',
+    label: 'Cursor',
+    configPath: '%USERPROFILE%\\.cursor\\mcp.json',
+    icon: cursorIcon,
+    build: buildMcpServersConfig,
+  },
+  {
+    id: 'codebuddy',
+    label: 'CodeBuddy',
+    configPath: 'App settings -> Custom MCP Servers',
+    icon: codebuddyIcon,
+    build: buildMcpServersConfig,
+  },
+  {
+    id: 'vscode',
+    label: 'VS Code',
+    configPath: '~/.vscode/mcp.json',
+    icon: vscodeIcon,
+    build: buildMcpServersConfig,
+  },
+  {
+    id: 'cline',
+    label: 'Cline',
+    configPath: 'App settings panel -> MCP servers',
+    icon: clineIcon,
+    build: buildMcpServersConfig,
+  },
+  {
+    id: 'codex',
+    label: 'Codex / OpenAI',
+    configPath: 'settings.json',
+    icon: openaiIcon,
+    build: buildMcpServersConfig,
+  },
+];
 const PANELS: { id: Panel; label: string; group: string }[] = [
+  { id: 'setup', label: 'Connect IDE', group: 'Onboarding' },
   { id: 'debug', label: 'Debug', group: 'Operations' },
   { id: 'instances', label: 'Instances', group: 'Operations' },
   { id: 'activity', label: 'Activity', group: 'Operations' },
@@ -391,7 +513,7 @@ const PANELS: { id: Panel; label: string; group: string }[] = [
   { id: 'traces', label: 'Traces', group: 'Observability' },
   { id: 'calls', label: 'Calls', group: 'Observability' },
   { id: 'logs', label: 'Logs', group: 'Observability' },
-  { id: 'skill-paths', label: 'Skill paths', group: 'Configuration' },
+  { id: 'skill-paths', label: 'Skills', group: 'Configuration' },
 ];
 
 const PANEL_ID_SET = new Set<Panel>(PANELS.map((p) => p.id));
@@ -494,7 +616,7 @@ function readPanelFromUrl(): Panel {
   if (raw === 'workers') {
     return 'instances';
   }
-  return isPanelId(raw) ? raw : 'debug';
+  return isPanelId(raw) ? raw : 'setup';
 }
 
 function readStatsRangeFromUrl(): string {
@@ -537,6 +659,33 @@ function backendAccessUrls(mcpUrl: string): { origin: string; mcp: string; docs:
   }
   const origin = u.origin;
   return { origin, mcp: u.toString(), docs: `${origin}/docs`, openapi: `${origin}/v1/openapi.json` };
+}
+
+function gatewayMcpUrl(): string {
+  return new URL('/mcp', window.location.origin).toString();
+}
+
+function lanGatewayMcpUrl(): string | null {
+  if (isLoopbackHost(window.location.hostname)) {
+    return null;
+  }
+  return gatewayMcpUrl();
+}
+
+function workerSetupLabel(worker: WorkerRow): string {
+  return `${worker.display_name || worker.dcc_type} (${worker.instance_id.slice(0, 8)})`;
+}
+
+function ideConfigText(target: IdeTarget, url: string): string {
+  return JSON.stringify(target.build(url), null, 2);
+}
+
+function configPathFileUrl(path: string): string | null {
+  if (path.startsWith('%') || path.startsWith('~') || path.includes('->')) {
+    return null;
+  }
+  const normalized = path.replace(/\\/g, '/');
+  return normalized.match(/^[A-Za-z]:\//) ? `file:///${normalized}` : null;
 }
 
 function workerOpenApiSource(worker: WorkerRow): OpenApiSource {
@@ -798,6 +947,7 @@ function PanelHeader({ title, meta, action }: { title: string; meta?: string; ac
 
 function NavIcon({ panel }: { panel: Panel }) {
   const icons: Record<Panel, string[]> = {
+    setup: ['M5 12h10', 'M13 8l4 4-4 4', 'M4 5h16v14H4z'],
     debug: ['M6 6h12v12H6z', 'M9 9h6v6H9z'],
     activity: ['M4 14h4l2-5 4 9 2-4h4'],
     health: ['M12 4l7 4v5c0 4-3 7-7 8-4-1-7-4-7-8V8z'],
@@ -815,6 +965,12 @@ function NavIcon({ panel }: { panel: Panel }) {
     <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
       {icons[panel].map((d) => <path key={d} d={d} />)}
     </svg>
+  );
+}
+
+function IdeIcon({ target }: { target: IdeTarget }) {
+  return (
+    <img className={`ide-icon ide-icon-${target.id}`} src={target.icon} alt="" aria-hidden="true" />
   );
 }
 
@@ -1339,8 +1495,12 @@ function App() {
   const [openApiRaw, setOpenApiRaw] = useState('');
   const [workers, setWorkers] = useState<WorkerRow[]>([]);
   const [workerSummary, setWorkerSummary] = useState<WorkerSummary>({ live: 0, stale: 0, unhealthy: 0 });
+  const [setupUrlMode, setSetupUrlMode] = useState<SetupUrlMode>('local');
+  const [directInstanceId, setDirectInstanceId] = useState<string>('');
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [skillPaths, setSkillPaths] = useState<SkillPathRow[]>([]);
+  const [skills, setSkills] = useState<SkillRow[]>([]);
+  const [skillTotals, setSkillTotals] = useState({ total: 0, loaded: 0, unloaded: 0, action_count: 0 });
   const [skillPathInput, setSkillPathInput] = useState('');
   const [skillPathBusy, setSkillPathBusy] = useState(false);
   const [traceDetail, setTraceDetail] = useState<string>('Select a trace row for detail.');
@@ -1348,6 +1508,7 @@ function App() {
   const [callDetail, setCallDetail] = useState<string>('Select a call row for trace detail.');
   const [copiedNotice, setCopiedNotice] = useState<string>('');
   const [updatedAt, setUpdatedAt] = useState<Record<Panel, string>>({
+    setup: 'Loading…',
     debug: 'Loading…',
     activity: 'Loading…',
     health: 'Loading…',
@@ -1539,6 +1700,35 @@ function App() {
     );
   }, [workers, listSearch]);
 
+  const directSetupWorkers = useMemo(
+    () => workers.filter((worker) => !worker.stale && worker.mcp_url && !worker.mcp_url.includes(':0/')),
+    [workers],
+  );
+  const selectedDirectWorker = useMemo(
+    () => directSetupWorkers.find((worker) => worker.instance_id === directInstanceId) ?? directSetupWorkers[0] ?? null,
+    [directInstanceId, directSetupWorkers],
+  );
+  const lanUrl = useMemo(() => lanGatewayMcpUrl(), []);
+  const setupMcpUrl = useMemo(() => {
+    if (setupUrlMode === 'lan' && lanUrl) {
+      return lanUrl;
+    }
+    if (setupUrlMode === 'direct' && selectedDirectWorker) {
+      try {
+        return backendAccessUrls(selectedDirectWorker.mcp_url).mcp;
+      } catch {
+        return selectedDirectWorker.mcp_url;
+      }
+    }
+    return gatewayMcpUrl();
+  }, [lanUrl, selectedDirectWorker, setupUrlMode]);
+
+  useEffect(() => {
+    if (!directInstanceId && directSetupWorkers.length > 0) {
+      setDirectInstanceId(directSetupWorkers[0].instance_id);
+    }
+  }, [directInstanceId, directSetupWorkers]);
+
   const filteredLogs = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
     if (!q) {
@@ -1580,6 +1770,26 @@ function App() {
       matchesListFilter(q, haystack(r.path, r.source, r.id != null ? String(r.id) : '')),
     );
   }, [skillPaths, listSearch]);
+
+  const filteredSkills = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    if (!q) {
+      return skills;
+    }
+    return skills.filter((skill) =>
+      matchesListFilter(
+        q,
+        haystack(
+          skill.name,
+          skill.dcc_type,
+          skill.loaded ? 'loaded' : 'unloaded',
+          skill.summary ?? '',
+          skill.instances.join(' '),
+          skill.tools.join(' '),
+        ),
+      ),
+    );
+  }, [skills, listSearch]);
 
   const failedCalls = useMemo(
     () => calls.filter((call) => call.success === false || call.status.toLowerCase().includes('err') || call.status.toLowerCase().includes('fail')).slice(0, 8),
@@ -1698,6 +1908,17 @@ function App() {
       window.setTimeout(() => setCopiedNotice(''), 2400);
     }
   }, []);
+
+  const openConfigLocation = useCallback((target: IdeTarget) => {
+    const href = configPathFileUrl(target.configPath);
+    if (href) {
+      window.open(href, '_blank', 'noopener,noreferrer');
+      setCopiedNotice(`Opened ${target.label} config path`);
+      window.setTimeout(() => setCopiedNotice(''), 1800);
+      return;
+    }
+    void copyText(target.configPath, `${target.label} config path`);
+  }, [copyText]);
 
   const copyIssueReport = useCallback(async (requestId: string) => {
     try {
@@ -1843,6 +2064,35 @@ function App() {
     }
   }, [markError, markUpdated]);
 
+  const fetchSkills = useCallback(async () => {
+    try {
+      const payload = await apiJson<SkillPayload>('/skills');
+      const rows = Array.isArray(payload.skills) ? payload.skills.map(normalizeSkillRow) : [];
+      setSkills(rows);
+      setSkillTotals({
+        total: Number(payload.total ?? rows.length),
+        loaded: Number(payload.loaded ?? rows.filter((skill) => skill.loaded).length),
+        unloaded: Number(payload.unloaded ?? rows.filter((skill) => !skill.loaded).length),
+        action_count: Number(payload.action_count ?? rows.reduce((sum, skill) => sum + skill.action_count, 0)),
+      });
+      markUpdated(
+        'skill-paths',
+        `${payload.loaded ?? rows.filter((skill) => skill.loaded).length} loaded skill(s), ${payload.action_count ?? rows.reduce((sum, skill) => sum + skill.action_count, 0)} action(s) — ${new Date().toLocaleTimeString()}`,
+      );
+    } catch (error) {
+      markError('skill-paths', error);
+    }
+  }, [markError, markUpdated]);
+
+  const fetchSkillInventory = useCallback(async () => {
+    await Promise.allSettled([fetchSkillPaths(), fetchSkills()]);
+  }, [fetchSkillPaths, fetchSkills]);
+
+  const fetchSetup = useCallback(async () => {
+    await Promise.allSettled([fetchHealth(), fetchInstanceBackends()]);
+    markUpdated('setup', `Gateway target refreshed — ${new Date().toLocaleTimeString()}`);
+  }, [fetchHealth, fetchInstanceBackends, markUpdated]);
+
   const fetchDebug = useCallback(async () => {
     await Promise.allSettled([
       fetchHealth(),
@@ -1884,13 +2134,13 @@ function App() {
         clearTimeout(tid);
       }
       setSkillPathInput('');
-      await fetchSkillPaths();
+      await fetchSkillInventory();
     } catch (error) {
       markError('skill-paths', error);
     } finally {
       setSkillPathBusy(false);
     }
-  }, [fetchSkillPaths, markError, skillPathInput]);
+  }, [fetchSkillInventory, markError, skillPathInput]);
 
   const deleteSkillPath = useCallback(
     async (id: number) => {
@@ -1914,14 +2164,14 @@ function App() {
         } finally {
           clearTimeout(tid);
         }
-        await fetchSkillPaths();
+        await fetchSkillInventory();
       } catch (error) {
         markError('skill-paths', error);
       } finally {
         setSkillPathBusy(false);
       }
     },
-    [fetchSkillPaths, markError],
+    [fetchSkillInventory, markError],
   );
 
   const fetchTraceInto = useCallback(async (requestId: string, target: 'call' | 'trace') => {
@@ -2037,6 +2287,7 @@ function App() {
   }, [fetchTraceInto]);
 
   const fetchPanel = useCallback((panel: Panel) => {
+    if (panel === 'setup') void fetchSetup();
     if (panel === 'debug') void fetchDebug();
     if (panel === 'activity') void fetchActivity();
     if (panel === 'health') void fetchHealth();
@@ -2047,9 +2298,9 @@ function App() {
     if (panel === 'calls') void fetchCalls();
     if (panel === 'traces') void fetchTraces();
     if (panel === 'stats') void fetchStats();
-    if (panel === 'skill-paths') void fetchSkillPaths();
+    if (panel === 'skill-paths') void fetchSkillInventory();
     if (panel === 'logs') void fetchLogs();
-  }, [fetchActivity, fetchCalls, fetchDebug, fetchHealth, fetchInstanceBackends, fetchLogs, fetchOpenApi, fetchSkillPaths, fetchStats, fetchTasks, fetchTools, fetchTraces]);
+  }, [fetchActivity, fetchCalls, fetchDebug, fetchHealth, fetchInstanceBackends, fetchLogs, fetchOpenApi, fetchSetup, fetchSkillInventory, fetchStats, fetchTasks, fetchTools, fetchTraces]);
 
   useEffect(() => {
     fetchPanel(activePanel);
@@ -2103,7 +2354,7 @@ function App() {
         </div>
       </nav>
       <main className="main-stage">
-        {activePanel !== 'health' && activePanel !== 'debug' && (
+        {activePanel !== 'setup' && activePanel !== 'health' && activePanel !== 'debug' && (
           <div className="list-search-wrap">
             <input
               type="search"
@@ -2122,12 +2373,100 @@ function App() {
                 {activePanel === 'tasks' ? `${filteredTasks.length} / ${tasks.length}` : ''}
                 {activePanel === 'calls' ? `${filteredCalls.length} / ${calls.length}` : ''}
                 {activePanel === 'traces' ? `${filteredTraces.length} / ${traces.length}` : ''}
-                {activePanel === 'skill-paths' ? `${filteredSkillPaths.length} / ${skillPaths.length}` : ''}
+                {activePanel === 'skill-paths' ? `${filteredSkills.length} skill(s), ${filteredSkillPaths.length} path(s)` : ''}
                 {activePanel === 'logs' ? `${filteredLogs.length} / ${logs.length}` : ''}
                 {activePanel === 'stats' ? `charts: ${filteredTopTools.length} tools / ${filteredTopInstances.length} instances / ${filteredTopAgents.length} agents` : ''}
               </span>
             ) : null}
           </div>
+        )}
+        {activePanel === 'setup' && (
+          <section className="panel active setup-panel">
+            <PanelHeader
+              title="Connect IDE"
+              meta={setupMcpUrl}
+              action={<button className="refresh-btn" type="button" onClick={fetchSetup}>Refresh</button>}
+            />
+            <StatusLine text={copiedNotice || updatedAt.setup} error={errors.setup} />
+            <div className="setup-controls">
+              <div className="setup-mode-group" role="group" aria-label="MCP endpoint">
+                <button
+                  className={setupUrlMode === 'local' ? 'setup-mode active' : 'setup-mode'}
+                  type="button"
+                  aria-pressed={setupUrlMode === 'local'}
+                  onClick={() => setSetupUrlMode('local')}
+                >
+                  Local
+                </button>
+                <button
+                  className={setupUrlMode === 'lan' ? 'setup-mode active' : 'setup-mode'}
+                  type="button"
+                  aria-pressed={setupUrlMode === 'lan'}
+                  disabled={!lanUrl}
+                  onClick={() => lanUrl && setSetupUrlMode('lan')}
+                >
+                  LAN
+                </button>
+                <button
+                  className={setupUrlMode === 'direct' ? 'setup-mode active' : 'setup-mode'}
+                  type="button"
+                  aria-pressed={setupUrlMode === 'direct'}
+                  disabled={directSetupWorkers.length === 0}
+                  onClick={() => directSetupWorkers.length > 0 && setSetupUrlMode('direct')}
+                >
+                  Direct
+                </button>
+              </div>
+              <div className="setup-url-box">
+                <span>URL</span>
+                <code>{setupMcpUrl}</code>
+                <button className="copy-btn" type="button" onClick={() => copyText(setupMcpUrl, 'MCP URL')}>
+                  Copy
+                </button>
+              </div>
+              {setupUrlMode === 'direct' ? (
+                <label className="setup-instance-picker">
+                  <span>Instance</span>
+                  <select
+                    value={selectedDirectWorker?.instance_id ?? ''}
+                    onChange={(event) => setDirectInstanceId(event.target.value)}
+                    disabled={directSetupWorkers.length === 0}
+                  >
+                    {directSetupWorkers.map((worker) => (
+                      <option key={worker.instance_id} value={worker.instance_id}>
+                        {workerSetupLabel(worker)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+            </div>
+            <div className="ide-grid">
+              {IDE_TARGETS.map((target) => {
+                const config = ideConfigText(target, setupMcpUrl);
+                return (
+                  <article key={target.id} className="ide-card">
+                    <div className="ide-card-head">
+                      <IdeIcon target={target} />
+                      <div>
+                        <h3>{target.label}</h3>
+                        <p className="mono-path">{target.configPath}</p>
+                      </div>
+                    </div>
+                    <pre className="ide-config-preview">{config}</pre>
+                    <div className="ide-card-actions">
+                      <button className="copy-btn" type="button" onClick={() => copyText(config, `${target.label} config`)}>
+                        Copy
+                      </button>
+                      <button className="refresh-btn" type="button" onClick={() => openConfigLocation(target)}>
+                        Open file
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
         )}
         {activePanel === 'debug' && (
           <section className="panel active debug-panel">
@@ -2343,6 +2682,11 @@ function App() {
                     <div className="wkv">
                       <span>DCC</span><span>{worker.dcc_type}</span>
                       <span>Status</span><span><StatusBadge value={worker.status} /></span>
+                      {worker.failure_reason ? (
+                        <>
+                          <span>Failure</span><span>{worker.failure_reason}</span>
+                        </>
+                      ) : null}
                       <span>PID</span><span>{worker.pid ?? '-'}</span>
                       <span>Uptime</span><span>{formatUptime(worker.uptime_secs)}</span>
                       <span>Version</span><span>{worker.version ?? '-'}</span>
@@ -2638,11 +2982,55 @@ function App() {
 
         {activePanel === 'skill-paths' && (
           <section className="panel active skill-paths-panel">
-            <h2>Skill search paths</h2>
+            <h2>Skills & paths</h2>
             <StatusLine text={updatedAt['skill-paths']} error={errors['skill-paths']} />
             <p className="empty log-hint">
-              Paths used for skill discovery (CLI, environment variables, bundled data dir, and optional SQLite-backed custom entries). Adding or removing a custom path persists to SQLite, re-runs disk catalog discovery in-process, and refreshes gateway capability data; Event Log records each change.
+              Current loaded skills come from the live gateway capability index. Search paths show the directories used for skill discovery (CLI, environment variables, bundled data dir, and optional SQLite-backed custom entries).
             </p>
+            <div className="metric-grid compact skill-summary-grid">
+              <MetricTile label="Loaded skills" value={skillTotals.loaded} detail={`${skillTotals.total} indexed`} />
+              <MetricTile label="Actions" value={skillTotals.action_count} detail="from loaded skills" />
+              <MetricTile label="Search paths" value={skillPaths.length} detail="active discovery roots" />
+            </div>
+            <div className="skill-inventory-section">
+              <h3 className="section-kicker">Loaded skills</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Skill</th>
+                    <th>DCC</th>
+                    <th>State</th>
+                    <th>Actions</th>
+                    <th>Instances</th>
+                    <th>Tools</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {skills.length === 0 ? (
+                    <EmptyRow columns={6}>No loaded skills reported.</EmptyRow>
+                  ) : filteredSkills.length === 0 ? (
+                    <EmptyRow columns={6}>No skills match your search.</EmptyRow>
+                  ) : (
+                    filteredSkills.map((skill) => (
+                      <tr key={`${skill.dcc_type}-${skill.name}-${skill.loaded ? 'loaded' : 'unloaded'}`}>
+                        <td>
+                          <strong>{skill.name}</strong>
+                          {skill.summary ? <div className="muted skill-summary-text">{skill.summary}</div> : null}
+                        </td>
+                        <td><span className="source-pill">{skill.dcc_type || 'unknown'}</span></td>
+                        <td><span className={`badge ${skill.loaded ? 'badge-ok' : 'badge-muted'}`}>{skill.loaded ? 'loaded' : 'unloaded'}</span></td>
+                        <td>{skill.action_count}</td>
+                        <td className="mono-path">{skill.instances.join(', ') || '—'}</td>
+                        <td className="mono-path">{skill.tools.slice(0, 8).join(', ')}{skill.tools.length > 8 ? ` +${skill.tools.length - 8}` : ''}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="skill-inventory-section">
+              <h3 className="section-kicker">Skill search paths</h3>
+            </div>
             <div className="skill-path-add">
               <input
                 type="text"
@@ -2692,7 +3080,7 @@ function App() {
                 )}
               </tbody>
             </table>
-            <button className="refresh-btn" type="button" onClick={fetchSkillPaths}>
+            <button className="refresh-btn" type="button" onClick={fetchSkillInventory}>
               Refresh
             </button>
           </section>

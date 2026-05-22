@@ -28,7 +28,7 @@ use super::trace::DispatchTrace;
 #[cfg(feature = "admin-persist-sqlite")]
 use dcc_mcp_db::{
     GatewayAdminAuditPersistedJson, GatewayAdminSqliteLane as InnerLane,
-    GatewayAdminSqliteReader as InnerReader,
+    GatewayAdminSqliteReader as InnerReader, GatewayDeregisteredInstanceJson,
 };
 
 #[cfg(feature = "admin-persist-sqlite")]
@@ -76,6 +76,14 @@ impl AdminSqliteReader {
 
     pub fn list_custom_skill_paths(&self) -> Vec<(i64, String)> {
         self.inner.list_custom_skill_paths()
+    }
+
+    pub fn list_deregistered_instances(&self, limit: usize) -> Vec<serde_json::Value> {
+        self.inner
+            .list_deregistered_instances_json(limit)
+            .into_iter()
+            .filter_map(|s| serde_json::from_str(&s).ok())
+            .collect()
     }
 }
 
@@ -137,6 +145,17 @@ impl AdminSqliteLane {
         }
     }
 
+    pub fn try_persist_deregistered_instance(
+        &self,
+        entry: &dcc_mcp_transport::discovery::types::ServiceEntry,
+        reason: &str,
+    ) {
+        let row = deregistered_to_persisted(entry, reason);
+        if let Ok(json) = serde_json::to_string(&row) {
+            self.inner.try_persist_deregistered_instance_json(&json);
+        }
+    }
+
     pub fn try_add_skill_path(&self, path: String) -> bool {
         self.inner.try_add_skill_path(path)
     }
@@ -175,6 +194,23 @@ fn audit_to_persisted(r: &AdminAuditRecord) -> GatewayAdminAuditPersistedJson {
 }
 
 #[cfg(feature = "admin-persist-sqlite")]
+fn deregistered_to_persisted(
+    entry: &dcc_mcp_transport::discovery::types::ServiceEntry,
+    reason: &str,
+) -> GatewayDeregisteredInstanceJson {
+    GatewayDeregisteredInstanceJson {
+        timestamp_ms: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::ZERO)
+            .as_millis() as u64,
+        reason: reason.to_string(),
+        dcc_type: entry.dcc_type.clone(),
+        instance_id: entry.instance_id.to_string(),
+        entry: serde_json::to_value(entry).unwrap_or(serde_json::Value::Null),
+    }
+}
+
+#[cfg(feature = "admin-persist-sqlite")]
 pub use dcc_mcp_db::read_custom_skill_paths_for_startup;
 
 #[cfg(not(feature = "admin-persist-sqlite"))]
@@ -207,6 +243,10 @@ impl AdminSqliteReader {
     pub fn list_custom_skill_paths(&self) -> Vec<(i64, String)> {
         vec![]
     }
+
+    pub fn list_deregistered_instances(&self, _limit: usize) -> Vec<serde_json::Value> {
+        vec![]
+    }
 }
 
 #[cfg(not(feature = "admin-persist-sqlite"))]
@@ -227,6 +267,13 @@ impl AdminSqliteLane {
     pub fn try_persist_trace(&self, _: &DispatchTrace) {}
 
     pub fn try_persist_audit(&self, _: &AdminAuditRecord) {}
+
+    pub fn try_persist_deregistered_instance(
+        &self,
+        _: &dcc_mcp_transport::discovery::types::ServiceEntry,
+        _: &str,
+    ) {
+    }
 
     pub fn try_add_skill_path(&self, _: String) -> bool {
         false

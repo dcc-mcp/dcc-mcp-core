@@ -524,6 +524,7 @@ pub(crate) async fn start_gateway_tasks(
                     .into_iter()
                     .filter(|e| {
                         e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
+                            && e.port != 0
                             && !e.is_stale(stale_timeout)
                             && !is_own_instance(e, &sub_own_host, sub_own_port)
                     })
@@ -586,6 +587,24 @@ pub(crate) async fn start_gateway_tasks(
     // before-call hooks — a heuristic that avoids double-recording for
     // operators who supply a custom SIEM sink).
     #[cfg(feature = "admin")]
+    let sqlite_lane = if admin_enabled {
+        let db_path =
+            dcc_mcp_db::resolve_gateway_admin_sqlite_path(admin_persist.sqlite_path.as_ref(), None);
+        match crate::gateway::admin::sqlite_lane::AdminSqliteLane::spawn(
+            db_path,
+            admin_persist.sqlite_retention_days.clamp(1, 3650),
+        ) {
+            Ok(l) => Some(l),
+            Err(e) => {
+                tracing::warn!(error = %e, "gateway admin SQLite unavailable");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    #[cfg(feature = "admin")]
     let gw_router = {
         let admin_state_opt = if admin_enabled {
             let durable_store = crate::gateway::admin::state::DurableAuditStore::from_env();
@@ -615,20 +634,6 @@ pub(crate) async fn start_gateway_tasks(
                 trace_log.extend(store.load_traces());
             }
 
-            let db_path = dcc_mcp_db::resolve_gateway_admin_sqlite_path(
-                admin_persist.sqlite_path.as_ref(),
-                None,
-            );
-            let sqlite_lane = match crate::gateway::admin::sqlite_lane::AdminSqliteLane::spawn(
-                db_path,
-                admin_persist.sqlite_retention_days.clamp(1, 3650),
-            ) {
-                Ok(l) => Some(l),
-                Err(e) => {
-                    tracing::warn!(error = %e, "gateway admin SQLite unavailable");
-                    None
-                }
-            };
             if let Some(ref lane) = sqlite_lane {
                 let r = lane.reader();
                 trace_log.extend(r.list_traces_since(None, 10_000));
@@ -681,7 +686,7 @@ pub(crate) async fn start_gateway_tasks(
                     .with_audit_log(audit_log)
                     .with_trace_log(trace_log, sqlite_reader)
                     .with_skill_paths_snapshot(admin_persist.skill_paths_snapshot)
-                    .with_admin_sqlite_lane(sqlite_lane)
+                    .with_admin_sqlite_lane(sqlite_lane.clone())
                     .with_skill_paths_reload(admin_persist.skill_paths_reload.clone()),
             )
         } else {
@@ -771,6 +776,8 @@ pub(crate) async fn start_gateway_tasks(
         own_port,
         health_check_interval_secs,
         health_check_failures,
+        #[cfg(feature = "admin")]
+        admin_sqlite_lane: sqlite_lane.clone(),
         #[cfg(feature = "prometheus")]
         metrics: gateway_metrics.clone(),
     };

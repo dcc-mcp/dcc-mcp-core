@@ -1,6 +1,6 @@
 //! Admin UI HTTP handlers.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Duration;
 use std::time::UNIX_EPOCH;
 
@@ -251,6 +251,34 @@ pub async fn handle_admin_instances(
     .into_response()
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct DeregisteredQuery {
+    limit: Option<String>,
+}
+
+/// `GET /admin/api/deregistered` — recently auto-deregistered registry rows.
+pub async fn handle_admin_deregistered(
+    State(s): State<AdminState>,
+    axum::extract::Query(params): axum::extract::Query<DeregisteredQuery>,
+) -> impl IntoResponse {
+    let limit = params
+        .limit
+        .as_deref()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(100)
+        .clamp(1, 100);
+    let rows = s
+        .admin_sqlite_lane
+        .as_ref()
+        .map(|lane| lane.reader().list_deregistered_instances(limit))
+        .unwrap_or_default();
+
+    Json(json!({
+        "total": rows.len(),
+        "deregistered": rows,
+    }))
+}
+
 /// `GET /admin/api/tools` — list all registered capability records.
 pub async fn handle_admin_tools(State(s): State<AdminState>) -> impl IntoResponse {
     refresh_all_live_backends(&s.gateway, RefreshReason::Periodic).await;
@@ -271,6 +299,61 @@ pub async fn handle_admin_tools(State(s): State<AdminState>) -> impl IntoRespons
         })
         .collect();
     Json(json!({ "total": tools.len(), "tools": tools }))
+}
+
+/// `GET /admin/api/skills` — skills currently indexed by the gateway.
+pub async fn handle_admin_skills(State(s): State<AdminState>) -> impl IntoResponse {
+    let records = s.gateway.capability_index.snapshot().records;
+    let mut grouped: BTreeMap<(String, String, bool), Vec<_>> = BTreeMap::new();
+    for record in records.iter().cloned() {
+        let skill_name = record
+            .skill_name
+            .clone()
+            .unwrap_or_else(|| record.backend_tool.clone());
+        grouped
+            .entry((record.dcc_type.clone(), skill_name, record.loaded))
+            .or_default()
+            .push(record);
+    }
+
+    let mut loaded = 0usize;
+    let mut action_count = 0usize;
+    let skills: Vec<Value> = grouped
+        .into_iter()
+        .map(|((dcc_type, name, is_loaded), records)| {
+            if is_loaded {
+                loaded += 1;
+            }
+            action_count += records.len();
+            let instances: BTreeSet<String> = records
+                .iter()
+                .map(|r| instance_short(&r.instance_id))
+                .collect();
+            let tools: Vec<String> = records.iter().map(|r| r.backend_tool.clone()).collect();
+            let summary = records
+                .iter()
+                .find_map(|r| (!r.summary.is_empty()).then(|| r.summary.clone()))
+                .unwrap_or_default();
+            json!({
+                "name": name,
+                "dcc_type": dcc_type,
+                "loaded": is_loaded,
+                "action_count": records.len(),
+                "instance_count": instances.len(),
+                "instances": instances.into_iter().collect::<Vec<_>>(),
+                "tools": tools,
+                "summary": summary,
+            })
+        })
+        .collect();
+
+    Json(json!({
+        "total": skills.len(),
+        "loaded": loaded,
+        "unloaded": skills.len().saturating_sub(loaded),
+        "action_count": action_count,
+        "skills": skills,
+    }))
 }
 
 fn admin_audit_row_json(r: &AdminAuditRecord, links: Option<AdminLinkBuilder>) -> Value {
