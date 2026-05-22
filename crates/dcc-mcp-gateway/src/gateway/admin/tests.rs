@@ -350,6 +350,59 @@ mod admin_tests {
         assert!(body["tools"].as_array().unwrap().is_empty());
     }
 
+    #[tokio::test]
+    async fn test_admin_skills_groups_loaded_capabilities() {
+        use crate::gateway::capability::{CapabilityRecord, InstanceFingerprint};
+
+        let gs = make_gateway_state();
+        let entry = make_service_entry("maya", "127.0.0.1", 9, None);
+        let instance_id = entry.instance_id;
+        {
+            let registry = gs.registry.write().await;
+            registry.register(entry).unwrap();
+        }
+        gs.capability_index.upsert_instance(
+            instance_id,
+            vec![
+                CapabilityRecord::new(
+                    "maya.abcdef12.create_cube".into(),
+                    "create_cube".into(),
+                    "create_cube".into(),
+                    Some("maya-modeling".into()),
+                    "Create a cube",
+                    vec![],
+                    "maya".into(),
+                    instance_id,
+                    true,
+                    true,
+                ),
+                CapabilityRecord::new(
+                    "maya.abcdef12.delete_cube".into(),
+                    "delete_cube".into(),
+                    "delete_cube".into(),
+                    Some("maya-modeling".into()),
+                    "Delete a cube",
+                    vec![],
+                    "maya".into(),
+                    instance_id,
+                    true,
+                    true,
+                ),
+            ],
+            InstanceFingerprint(1),
+        );
+        let router = build_admin_router(AdminState::new(gs));
+
+        let (status, body) = body_json(router, "/api/skills").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["total"], 1);
+        assert_eq!(body["loaded"], 1);
+        assert_eq!(body["action_count"], 2);
+        assert_eq!(body["skills"][0]["name"], "maya-modeling");
+        assert_eq!(body["skills"][0]["dcc_type"], "maya");
+        assert_eq!(body["skills"][0]["action_count"], 2);
+    }
+
     // ── /api/calls ────────────────────────────────────────────────────────
 
     #[tokio::test]
@@ -1036,6 +1089,7 @@ mod admin_tests {
             "/api/instances",
             "/api/health",
             "/api/tools",
+            "/api/skills",
             "/api/calls",
             "/api/logs",
             "/api/stats",
@@ -1282,6 +1336,32 @@ mod admin_tests {
         assert_eq!(body["total"].as_u64(), Some(1));
         assert_eq!(body["summary"]["live"].as_u64(), Some(1));
         assert_eq!(body["summary"]["stale"].as_u64(), Some(0));
+    }
+
+    #[tokio::test]
+    async fn test_admin_workers_keeps_booting_failure_rows_visible() {
+        use dcc_mcp_transport::discovery::types::ServiceStatus;
+
+        let gs = make_gateway_state();
+        {
+            let reg = gs.registry.write().await;
+            let mut booting = make_service_entry("3dsmax", "127.0.0.1", 0, Some(4244));
+            booting.status = ServiceStatus::Booting;
+            booting
+                .metadata
+                .insert("failure_reason".into(), "host-rpc connect failed".into());
+            reg.register(booting).unwrap();
+        }
+        let state = AdminState::new(gs);
+        let router = build_admin_router(state);
+        let (status, body) = body_json(router, "/api/workers").await;
+        assert_eq!(status, StatusCode::OK);
+        let workers = body["workers"].as_array().unwrap();
+        assert_eq!(workers.len(), 1, "expected booting worker row");
+        assert_eq!(workers[0]["status"], "booting");
+        assert_eq!(workers[0]["port"], 0);
+        assert_eq!(workers[0]["failure_reason"], "host-rpc connect failed");
+        assert_eq!(body["summary"]["unhealthy"].as_u64(), Some(1));
     }
 
     #[tokio::test]

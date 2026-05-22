@@ -13,6 +13,7 @@ use rusqlite::{Connection, params};
 use serde::Deserialize;
 
 use crate::domain::gateway_admin_audit::GatewayAdminAuditPersistedJson;
+use crate::domain::gateway_admin_deregistered::GatewayDeregisteredInstanceJson;
 use crate::infra::gateway_admin_schema::GATEWAY_ADMIN_SQLITE_DDL;
 
 const SCHEMA: &str = GATEWAY_ADMIN_SQLITE_DDL;
@@ -114,11 +115,32 @@ impl GatewayAdminSqliteReader {
         };
         rows.filter_map(|r| r.ok()).collect()
     }
+
+    pub fn list_deregistered_instances_json(&self, limit: usize) -> Vec<String> {
+        let Some(conn) = self.open_ro() else {
+            return Vec::new();
+        };
+        let mut stmt = match conn.prepare_cached(
+            "SELECT entry_json FROM deregistered_instances ORDER BY ts_ms DESC, id DESC LIMIT ?1",
+        ) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let rows = stmt.query_map(params![limit as i64], |row| {
+            let s: String = row.get(0)?;
+            Ok(s)
+        });
+        let Ok(rows) = rows else {
+            return Vec::new();
+        };
+        rows.filter_map(|r| r.ok()).collect()
+    }
 }
 
 enum PersistMsg {
     TraceJson(String),
     AuditJson(String),
+    DeregisteredInstanceJson(String),
     AddSkillPath(String),
     DeleteSkillPath(i64),
 }
@@ -194,6 +216,14 @@ impl GatewayAdminSqliteLane {
         }
     }
 
+    pub fn try_persist_deregistered_instance_json(&self, json: &str) {
+        if let Ok(g) = self.inner.tx.lock()
+            && let Some(tx) = g.as_ref()
+        {
+            let _ = tx.try_send(PersistMsg::DeregisteredInstanceJson(json.to_owned()));
+        }
+    }
+
     pub fn try_add_skill_path(&self, path: String) -> bool {
         self.inner
             .tx
@@ -249,6 +279,24 @@ fn writer_main(path: PathBuf, retention_days: u32, rx: Receiver<PersistMsg>) {
                     tracing::debug!(error = %e, request_id = %p.request_id, "admin sqlite: audit insert failed");
                 }
             }
+            PersistMsg::DeregisteredInstanceJson(json) => {
+                if let Ok(p) = serde_json::from_str::<GatewayDeregisteredInstanceJson>(&json) {
+                    if let Err(e) = conn.execute(
+                        "INSERT INTO deregistered_instances (ts_ms, dcc_type, instance_id, reason, entry_json) VALUES (?1, ?2, ?3, ?4, ?5)",
+                        params![
+                            p.timestamp_ms.min(i64::MAX as u64) as i64,
+                            p.dcc_type,
+                            p.instance_id,
+                            p.reason,
+                            json,
+                        ],
+                    ) {
+                        tracing::debug!(error = %e, "admin sqlite: deregistered instance insert failed");
+                    } else {
+                        prune_deregistered_instances(&mut conn, 100);
+                    }
+                }
+            }
             PersistMsg::AddSkillPath(p) => {
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -284,6 +332,16 @@ fn prune_old_rows(conn: &mut Connection, retention_days: u32) {
         .unwrap_or(0);
     let _ = conn.execute("DELETE FROM traces WHERE started_ms < ?1", params![cutoff]);
     let _ = conn.execute("DELETE FROM audits WHERE ts_ms < ?1", params![cutoff]);
+}
+
+fn prune_deregistered_instances(conn: &mut Connection, keep: usize) {
+    let keep = keep.max(1) as i64;
+    let _ = conn.execute(
+        "DELETE FROM deregistered_instances WHERE id NOT IN (
+            SELECT id FROM deregistered_instances ORDER BY ts_ms DESC, id DESC LIMIT ?1
+        )",
+        params![keep],
+    );
 }
 
 pub fn read_custom_skill_paths_for_startup(db_path: &Path) -> Vec<PathBuf> {
@@ -392,6 +450,29 @@ mod tests {
         let paths2 = r2.list_custom_skill_paths();
         assert_eq!(paths2.len(), 1);
         assert_eq!(paths2[0].1, "/tmp/skills/houdini");
+    }
+
+    #[test]
+    fn roundtrip_deregistered_instance_json_keeps_latest_100() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("deregistered.sqlite");
+        let lane = GatewayAdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
+        for i in 0..105 {
+            let row = GatewayDeregisteredInstanceJson {
+                timestamp_ms: 1_700_000_000_000 + i,
+                reason: "probe failure".into(),
+                dcc_type: "maya".into(),
+                instance_id: format!("instance-{i:03}"),
+                entry: serde_json::json!({ "port": 18800 + i }),
+            };
+            lane.try_persist_deregistered_instance_json(&serde_json::to_string(&row).unwrap());
+        }
+        drop(lane);
+
+        let rows = GatewayAdminSqliteReader::new(db).list_deregistered_instances_json(150);
+        assert_eq!(rows.len(), 100);
+        assert!(rows[0].contains("instance-104"));
+        assert!(!rows.iter().any(|row| row.contains("instance-000")));
     }
 
     #[test]

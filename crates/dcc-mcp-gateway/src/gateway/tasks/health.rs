@@ -4,7 +4,7 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
-use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceStatus};
+use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus};
 
 use crate::gateway::instance_diagnostics::InstanceDiagnosticsStore;
 
@@ -14,8 +14,29 @@ pub(crate) struct HealthCheckConfig {
     pub own_port: u16,
     pub health_check_interval_secs: u64,
     pub health_check_failures: u32,
+    #[cfg(feature = "admin")]
+    pub admin_sqlite_lane: Option<crate::gateway::admin::sqlite_lane::AdminSqliteLane>,
     #[cfg(feature = "prometheus")]
     pub metrics: Arc<crate::gateway::event_log::GatewayMetrics>,
+}
+
+fn port_zero_boot_reason(entry: &ServiceEntry) -> String {
+    entry
+        .metadata
+        .get("failure_reason")
+        .cloned()
+        .unwrap_or_else(|| "sidecar listener has not published an MCP port yet".to_string())
+}
+
+#[cfg(feature = "admin")]
+fn persist_deregistered_instance(
+    lane: &Option<crate::gateway::admin::sqlite_lane::AdminSqliteLane>,
+    entry: &ServiceEntry,
+    reason: &str,
+) {
+    if let Some(lane) = lane {
+        lane.try_persist_deregistered_instance(entry, reason);
+    }
 }
 
 /// Spawn the periodic backend health-check task (issues #556 / #854).
@@ -40,6 +61,8 @@ pub(crate) fn spawn_health_check_task(
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut failure_counts: std::collections::HashMap<String, u32> =
             std::collections::HashMap::new();
+        let mut port_zero_seen: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
         loop {
             interval.tick().await;
             let entries = {
@@ -53,28 +76,65 @@ pub(crate) fn spawn_health_check_task(
                     .collect::<Vec<_>>()
             };
 
-            let probe_results: Vec<_> = {
+            let probe_results: std::collections::HashMap<String, _> = {
                 let client = &http_client;
-                futures::future::join_all(entries.iter().map(|e| {
+                futures::future::join_all(entries.iter().filter(|e| e.port != 0).map(|e| {
+                    let key = format!("{}:{}", e.dcc_type, e.instance_id);
                     let url = format!("http://{}:{}/mcp", e.host, e.port);
                     async move {
-                        crate::gateway::backend_client::probe_mcp_readiness_once(
-                            client,
-                            &url,
-                            Duration::from_secs(5),
+                        (
+                            key,
+                            crate::gateway::backend_client::probe_mcp_readiness_once(
+                                client,
+                                &url,
+                                Duration::from_secs(5),
+                            )
+                            .await,
                         )
-                        .await
                     }
                 }))
                 .await
+                .into_iter()
+                .collect()
             };
 
-            for (entry, (readiness_report, outcome)) in entries.iter().zip(probe_results) {
-                if let Some(report) = readiness_report {
-                    instance_diagnostics.record_readiness(entry.instance_id, report);
-                }
+            for entry in &entries {
                 let key = format!("{}:{}", entry.dcc_type, entry.instance_id);
                 let id8 = entry.instance_id.to_string()[..8].to_string();
+                if entry.port == 0 {
+                    let first_seen = port_zero_seen.insert(key.clone());
+                    failure_counts.remove(&key);
+                    if !matches!(entry.status, ServiceStatus::Booting) {
+                        let r = registry.read().await;
+                        let _ = r.update_status(&entry.key(), ServiceStatus::Booting);
+                    }
+                    if first_seen || !matches!(entry.status, ServiceStatus::Booting) {
+                        let reason = port_zero_boot_reason(entry);
+                        tracing::warn!(
+                            dcc_type = %entry.dcc_type,
+                            instance_id = %entry.instance_id,
+                            reason = %reason,
+                            "Health check skipped port=0 backend; keeping row Booting"
+                        );
+                        crate::gateway::event_log::record_event(
+                            &event_log,
+                            #[cfg(feature = "prometheus")]
+                            &cfg.metrics,
+                            crate::gateway::event_log::EventKind::ProbeBooting,
+                            &entry.dcc_type,
+                            &id8,
+                            Some(reason),
+                        );
+                    }
+                    continue;
+                }
+                port_zero_seen.remove(&key);
+                let Some((readiness_report, outcome)) = probe_results.get(&key) else {
+                    continue;
+                };
+                if let Some(report) = readiness_report {
+                    instance_diagnostics.record_readiness(entry.instance_id, report.clone());
+                }
 
                 if outcome.is_ready() {
                     let recovered_from_failure = failure_counts.remove(&key).is_some();
@@ -146,13 +206,23 @@ pub(crate) fn spawn_health_check_task(
 
                 if count > effective_failures {
                     let r = registry.read().await;
+                    #[cfg(feature = "admin")]
+                    let removed = r.deregister(&entry.key()).ok().flatten();
+                    #[cfg(not(feature = "admin"))]
                     let _ = r.deregister(&entry.key());
                     failure_counts.remove(&key);
+                    let reason = format!("{} consecutive health-check failures", count);
                     tracing::info!(
                         dcc_type = %entry.dcc_type,
                         instance_id = %entry.instance_id,
                         consecutive_failures = count,
                         "Auto-deregistered after consecutive health-check failures"
+                    );
+                    #[cfg(feature = "admin")]
+                    persist_deregistered_instance(
+                        &cfg.admin_sqlite_lane,
+                        removed.as_ref().unwrap_or(entry),
+                        &reason,
                     );
                     crate::gateway::event_log::record_event(
                         &event_log,
@@ -161,10 +231,84 @@ pub(crate) fn spawn_health_check_task(
                         crate::gateway::event_log::EventKind::AutoDeregister,
                         &entry.dcc_type,
                         &id8,
-                        Some(format!("{} consecutive health-check failures", count)),
+                        Some(reason),
                     );
                 }
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dcc_mcp_transport::discovery::types::ServiceEntry;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn port_zero_rows_stay_booting_and_are_not_deregistered() {
+        let dir = tempdir().unwrap();
+        let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+        let mut entry = ServiceEntry::new("3dsmax", "127.0.0.1", 0);
+        entry
+            .metadata
+            .insert("failure_reason".into(), "host-rpc connect failed".into());
+        let key = entry.key();
+        {
+            let reg = registry.write().await;
+            reg.register(entry).unwrap();
+        }
+
+        let event_log = Arc::new(crate::gateway::event_log::EventLog::new());
+        let handle = spawn_health_check_task(
+            registry.clone(),
+            reqwest::Client::new(),
+            event_log.clone(),
+            Arc::new(InstanceDiagnosticsStore::new()),
+            HealthCheckConfig {
+                own_host: "127.0.0.1".into(),
+                own_port: 9765,
+                health_check_interval_secs: 60,
+                health_check_failures: 1,
+                #[cfg(feature = "admin")]
+                admin_sqlite_lane: None,
+                #[cfg(feature = "prometheus")]
+                metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
+            },
+        );
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            let row = {
+                let reg = registry.read().await;
+                reg.get(&key)
+            };
+            if let Some(row) = row
+                && row.status == ServiceStatus::Booting
+                && event_log
+                    .recent_events(10)
+                    .iter()
+                    .any(|event| event.event == crate::gateway::event_log::EventKind::ProbeBooting)
+            {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "port=0 row was not marked Booting in time"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        handle.abort();
+
+        let reg = registry.read().await;
+        let row = reg.get(&key).expect("port=0 row must remain registered");
+        assert_eq!(row.status, ServiceStatus::Booting);
+        assert_eq!(row.port, 0);
+        assert!(
+            !event_log
+                .recent_events(10)
+                .iter()
+                .any(|event| event.event == crate::gateway::event_log::EventKind::AutoDeregister)
+        );
+    }
 }

@@ -1,0 +1,2 @@
+{"_vrs": {"version": 1}, "trace_id": "core-1108-deregistered-history", "title": "Gateway exposes recently auto-deregistered instance history for admin forensics"}
+{"id": "list_recently_deregistered_instances", "http": {"method": "GET", "path": "/v1/debug/deregistered"}, "expect": {"status": 200, "body_contains": "\"deregistered\""}}
