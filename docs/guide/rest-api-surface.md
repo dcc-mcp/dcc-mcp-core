@@ -63,6 +63,12 @@ The elected gateway promotes the Admin telemetry providers to stable
 in `GET /v1/openapi.json`; the `/admin/api/*` routes remain compatibility
 aliases for the embedded dashboard.
 
+This surface requires the gateway `admin` feature and runtime Admin telemetry.
+The shipped `dcc-mcp-server` and Python `dcc-mcp-http` gateway path enable it
+by default; minimal direct `dcc-mcp-gateway` builds without `admin`, or
+runtimes started with Admin disabled (`--no-admin` / `admin_enabled = false`),
+omit both the `/v1/debug/*` routes and their OpenAPI entries.
+
 Phase-1 debug routes intentionally preserve the existing Admin payload fields
 so operators and agents can compare results one-to-one:
 

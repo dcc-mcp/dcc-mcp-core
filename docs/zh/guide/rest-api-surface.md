@@ -58,6 +58,12 @@
 `/v1/debug/*` agent/CI 诊断路由。这些路由会出现在 `GET /v1/openapi.json`
 里；`/admin/api/*` 继续作为内嵌 dashboard 的兼容别名。
 
+这个 surface 依赖 gateway 的 `admin` feature 和运行时 Admin telemetry。
+发布的 `dcc-mcp-server` 和 Python `dcc-mcp-http` gateway 路径默认启用它；
+如果直接以 minimal `dcc-mcp-gateway` 构建且不启用 `admin`，或运行时关闭
+Admin（`--no-admin` / `admin_enabled = false`），则不会挂载 `/v1/debug/*`
+路由，也不会在 OpenAPI 中列出这些路径。
+
 Phase-1 debug routes 会保留现有 Admin payload 字段，让 operator 和 agent
 能一对一对照结果：
 
