@@ -24,6 +24,7 @@ pub(crate) async fn probe_and_evict_dead_instances(
         .into_iter()
         .filter(|e| {
             e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
+                && e.port != 0
                 && !e.is_stale(stale_timeout)
                 && !crate::gateway::is_own_instance(e, own_host, own_port)
         })
@@ -123,5 +124,32 @@ fn probe_addr(addr: std::net::SocketAddr) -> std::net::SocketAddr {
             std::net::IpAddr::V6(std::net::Ipv6Addr::LOCALHOST),
             addr.port(),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dcc_mcp_transport::discovery::types::ServiceEntry;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn startup_probe_skips_port_zero_rows() {
+        let dir = tempdir().unwrap();
+        let registry = FileRegistry::new(dir.path()).unwrap();
+        let entry = ServiceEntry::new("3dsmax", "127.0.0.1", 0);
+        let key = entry.key();
+        registry.register(entry).unwrap();
+
+        let evicted =
+            probe_and_evict_dead_instances(&registry, Duration::from_secs(30), "127.0.0.1", 9765)
+                .await
+                .unwrap();
+
+        assert_eq!(evicted, 0);
+        assert!(
+            registry.get(&key).is_some(),
+            "port=0 sidecar rows are booting diagnostics, not startup-probe evictions"
+        );
     }
 }

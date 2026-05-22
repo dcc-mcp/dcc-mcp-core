@@ -69,7 +69,7 @@ async function mockAdminApi(page: Page) {
     } else if (path === '/workers') {
       body = {
         total: 2,
-        summary: { live: 1, stale: 1, unhealthy: 0 },
+        summary: { live: 1, stale: 0, unhealthy: 1 },
         workers: [
           {
             instance_id: 'maya-1234567890',
@@ -90,16 +90,17 @@ async function mockAdminApi(page: Page) {
             instance_id: 'blender-abcdef1234',
             display_name: 'Blender Lookdev',
             dcc_type: 'blender',
-            status: 'stale',
-            stale: true,
+            status: 'booting',
+            stale: false,
             pid: null,
             uptime_secs: null,
             version: null,
             adapter_version: null,
             cpu_percent: null,
             memory_bytes: null,
-            mcp_url: 'http://127.0.0.1:8766/mcp',
+            mcp_url: 'http://127.0.0.1:0/mcp',
             scene: null,
+            failure_reason: 'host-rpc connect failed',
           },
         ],
       };
@@ -246,6 +247,35 @@ async function mockAdminApi(page: Page) {
           },
         ],
       };
+    } else if (path === '/skills') {
+      body = {
+        total: 2,
+        loaded: 2,
+        unloaded: 0,
+        action_count: 5,
+        skills: [
+          {
+            name: 'maya-modeling',
+            dcc_type: 'maya',
+            loaded: true,
+            action_count: 3,
+            instance_count: 1,
+            instances: ['12345678'],
+            tools: ['create_sphere', 'delete_sphere', 'set_transform'],
+            summary: 'Modeling tools currently loaded by Maya.',
+          },
+          {
+            name: 'blender-lookdev',
+            dcc_type: 'blender',
+            loaded: true,
+            action_count: 2,
+            instance_count: 1,
+            instances: ['abcdef12'],
+            tools: ['render_preview', 'assign_material'],
+            summary: 'Lookdev tools currently loaded by Blender.',
+          },
+        ],
+      };
     } else if (path === '/skill-paths' && method === 'GET') {
       body = { paths: state.skillPaths };
     } else if (path === '/skill-paths' && method === 'POST') {
@@ -273,14 +303,25 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.describe('Admin Page', () => {
-  test('loads the debug panel and navigation', async ({ page }) => {
+  test('loads the connect panel and navigation', async ({ page }) => {
     await page.goto('/admin/');
-    await expect(page.locator('h1')).toContainText('DCC-MCP Gateway');
-    await expect(page.getByRole('navigation').getByRole('link', { name: 'Debug' })).toHaveClass(/active/);
-    for (const label of ['Debug', 'Activity', 'Health', 'Instances', 'Tools', 'Tasks', 'Calls', 'Traces', 'Stats', 'Skill paths', 'Logs', 'Docs']) {
+    await expect(page.locator('.brand-tag')).toContainText('DCC-MCP Gateway');
+    await expect(page.locator('h1')).toContainText('Admin Dashboard');
+    await expect(page.getByRole('navigation').getByRole('link', { name: 'Connect IDE' })).toHaveClass(/active/);
+    for (const label of ['Connect IDE', 'Debug', 'Activity', 'Health', 'Instances', 'Tools', 'Tasks', 'Calls', 'Traces', 'Stats', 'Skills', 'Logs', 'Docs']) {
       await expect(page.getByRole('navigation').getByRole('link', { name: label })).toBeVisible();
     }
     await expect(page.getByRole('navigation').getByRole('link', { name: 'Docs' })).toHaveAttribute('href', 'http://127.0.0.1:3721/docs');
+    await expect(page.locator('.setup-panel')).toContainText('Claude Desktop');
+    await expect(page.locator('.setup-panel')).toContainText('http://127.0.0.1:3721/mcp');
+    await expect(page.locator('.setup-panel img.ide-icon')).toHaveCount(6);
+    await expect(page.locator('.setup-panel .ide-config-preview').first()).toContainText('"dcc-mcp-gateway"');
+    await page.locator('.setup-panel .ide-card').first().getByRole('button', { name: 'Copy' }).click();
+    await expect(page.locator('.setup-panel')).toContainText('Copied Claude Desktop config');
+    await page.getByRole('button', { name: 'Direct' }).click();
+    await expect(page.locator('.setup-panel')).toContainText('Maya Layout');
+    await expect(page.locator('.setup-panel .ide-config-preview').first()).toContainText('http://127.0.0.1:8765/mcp');
+    await page.getByRole('navigation').getByRole('link', { name: 'Debug' }).click();
     await expect(page.locator('.debug-panel')).toContainText('Debug Workbench');
     await expect(page.locator('.debug-panel')).toContainText('Traffic Shape');
     await page.getByRole('navigation').getByRole('link', { name: 'Health' }).click();
@@ -294,6 +335,7 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.dcc-icon')).toHaveCount(2);
     await expect(page.locator('.instances-panel')).toContainText('Access URL');
     await expect(page.locator('.instances-panel')).toContainText('http://127.0.0.1:8765');
+    await expect(page.locator('.instances-panel')).toContainText('host-rpc connect failed');
     await expect(page.locator('.instances-panel').getByRole('link', { name: 'docs' }).first()).toHaveAttribute('href', 'http://127.0.0.1:8765/docs');
     await page.getByLabel('Filter current panel').fill('blender');
     await expect(page.locator('.worker-card')).toHaveCount(1);
@@ -306,8 +348,8 @@ test.describe('Admin Page', () => {
     await page.getByRole('button', { name: 'req-123' }).click();
     await expect(page).toHaveURL(/panel=traces/);
     await expect(page).toHaveURL(/trace=req-123/);
-    await expect(page.locator('.traces-panel pre')).toContainText('"request_id": "req-123"');
-    await expect(page.locator('.traces-panel pre')).toContainText('"dispatch"');
+    await expect(page.locator('.trace-detail-panel')).toContainText('req-123');
+    await expect(page.locator('.trace-detail-panel')).toContainText('dispatch');
   });
 
   test('shows reconstructed tasks and links them to traces', async ({ page }) => {
@@ -318,7 +360,7 @@ test.describe('Admin Page', () => {
     await page.getByRole('button', { name: 'req-123' }).click();
     await expect(page).toHaveURL(/panel=traces/);
     await expect(page).toHaveURL(/trace=req-123/);
-    await expect(page.locator('.traces-panel pre')).toContainText('"request_id": "req-123"');
+    await expect(page.locator('.trace-detail-panel')).toContainText('req-123');
   });
 
   test('updates stats when the range selector changes', async ({ page }) => {
@@ -332,6 +374,10 @@ test.describe('Admin Page', () => {
 
   test('adds and removes SQLite-backed skill paths', async ({ page }) => {
     await page.goto('/admin/?panel=skill-paths');
+    await expect(page.locator('.skill-paths-panel')).toContainText('Skills & paths');
+    await expect(page.locator('.skill-paths-panel')).toContainText('maya-modeling');
+    await expect(page.locator('.skill-paths-panel')).toContainText('create_sphere');
+    await expect(page.locator('.skill-paths-panel')).toContainText('Loaded skills');
     await expect(page.locator('.skill-paths-panel')).toContainText('G:/custom/admin-skills');
     await page.getByLabel('New skill path').fill('G:/new/team-skills');
     await page.getByRole('button', { name: 'Add path' }).click();

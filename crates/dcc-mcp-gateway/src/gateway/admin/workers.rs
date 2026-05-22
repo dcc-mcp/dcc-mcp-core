@@ -67,22 +67,32 @@ fn entry_to_worker_json(e: &ServiceEntry, gs: &GatewayState) -> Value {
         "adapter_version":      e.adapter_version,
         "adapter_dcc":          e.adapter_dcc,
         "scene":                e.scene,
+        "failure_reason":       e.metadata.get("failure_reason").cloned(),
+        "failure_stage":        e.metadata.get("failure_stage").cloned(),
+        "metadata":             e.metadata,
         // CPU / memory not yet available — see module docs.
         "cpu_percent":          Value::Null,
         "memory_bytes":         Value::Null,
     })
 }
 
-/// Snapshot every live instance into a Workers payload.
+/// Snapshot every alive instance into a Workers payload.
 ///
-/// The admin Instances panel is an operator view of currently routable DCC
-/// backends. Stale registry rows are useful for diagnostics, but rendering
-/// them as instance cards makes closed/restarted DCC sessions look alive.
+/// The admin Instances panel is an operator view of current DCC backends plus
+/// still-alive diagnostics such as sidecars stuck in `Booting`. Stale/dead
+/// registry rows are filtered, while `Booting` rows stay visible with their
+/// structured failure metadata.
 pub async fn build_workers_payload(gs: &GatewayState) -> Value {
     use dcc_mcp_transport::discovery::types::ServiceStatus;
 
     let reg = gs.registry.read().await;
-    let live_instances = gs.live_instances(&reg);
+    let live_instances = gs
+        .read_alive_instances(&reg)
+        .map(|(entries, _)| entries)
+        .unwrap_or_else(|_| gs.all_instances(&reg))
+        .into_iter()
+        .filter(|e| !e.is_stale(gs.stale_timeout))
+        .collect::<Vec<_>>();
 
     let mut live = 0usize;
     let mut stale_count = 0usize;

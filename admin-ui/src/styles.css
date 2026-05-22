@@ -1670,6 +1670,185 @@ pre.empty {
   min-width: 0;
 }
 
+.skill-summary-grid {
+  margin-bottom: 1rem;
+}
+
+.skill-inventory-section {
+  margin-bottom: 1rem;
+}
+
+.section-kicker {
+  color: var(--slate-medium);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin: 0.35rem 0 0.55rem;
+  text-transform: uppercase;
+}
+
+.skill-summary-text {
+  font-size: 0.75rem;
+  margin-top: 0.18rem;
+  max-width: 34rem;
+}
+
+.setup-controls {
+  align-items: center;
+  background: var(--panel-soft);
+  border: 1px solid var(--border-faint);
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+}
+
+.setup-mode-group {
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--border-faint);
+  border-radius: 8px;
+  display: inline-flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+}
+
+.setup-mode {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--slate-light);
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 750;
+  min-height: 2rem;
+  padding: 0.35rem 0.65rem;
+}
+
+.setup-mode.active {
+  background: #19344f;
+  border-color: #2297ff;
+  color: #d9ecff;
+}
+
+.setup-mode:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.setup-url-box,
+.setup-instance-picker {
+  align-items: center;
+  display: flex;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.setup-url-box {
+  flex: 1 1 320px;
+}
+
+.setup-url-box span,
+.setup-instance-picker span {
+  color: var(--slate-light);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.setup-url-box code {
+  background: var(--panel);
+  border: 1px solid var(--border-faint);
+  border-radius: 6px;
+  color: var(--slate-dark);
+  flex: 1 1 auto;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 0.45rem 0.55rem;
+}
+
+.setup-instance-picker select {
+  background: var(--panel);
+  border: 1px solid var(--border-faint);
+  border-radius: 6px;
+  color: var(--slate-dark);
+  min-height: 2.1rem;
+  min-width: min(20rem, 72vw);
+  padding: 0.35rem 0.5rem;
+}
+
+.ide-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.ide-card {
+  background: var(--panel);
+  border: 1px solid var(--border-faint);
+  border-radius: 8px;
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 1rem;
+}
+
+.ide-card-head {
+  align-items: center;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.ide-card-head h3 {
+  color: var(--slate-dark);
+  font-size: 0.98rem;
+  font-weight: 800;
+}
+
+.ide-icon {
+  background: #f8fafc;
+  border: 1px solid var(--border-hover);
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgba(15, 20, 30, 0.04);
+  display: block;
+  height: 2.55rem;
+  object-fit: contain;
+  padding: 0.48rem;
+  width: 2.55rem;
+}
+
+.ide-icon-codebuddy {
+  padding: 0.28rem;
+}
+
+.ide-config-preview {
+  background: #0f131b;
+  border: 1px solid var(--border-faint);
+  border-radius: 8px;
+  color: #dbe7f6;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  line-height: 1.45;
+  max-height: 13rem;
+  min-height: 8.5rem;
+  overflow: auto;
+  padding: 0.75rem;
+  white-space: pre;
+}
+
+.ide-card-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
 .mono-path {
   font-family: var(--font-mono);
   font-size: 0.8125rem;
@@ -1689,6 +1868,24 @@ button.linkish {
 button.linkish:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+.copy-btn {
+  background: #1d5f47;
+  border: 1px solid rgba(95, 231, 169, 0.28);
+  border-radius: 8px;
+  color: #d9ffef;
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 800;
+  min-height: 2.1rem;
+  padding: 0.4rem 0.75rem;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.copy-btn:hover {
+  background: #247557;
+  border-color: rgba(95, 231, 169, 0.44);
 }
 
 @media (max-width: 720px) {
