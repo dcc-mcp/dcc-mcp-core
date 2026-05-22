@@ -246,6 +246,7 @@ mod tests {
     use crate::gateway::handlers::mcp_impl::JsonRpcRequest;
     use crate::gateway::state::GatewayState;
     use dcc_mcp_transport::discovery::file_registry::FileRegistry;
+    use dcc_mcp_transport::discovery::types::ServiceEntry;
     use serde_json::json;
     use std::collections::HashMap;
     use std::sync::Arc;
@@ -356,6 +357,45 @@ mod tests {
             .as_str()
             .expect("must return text content");
         assert!(text.is_empty(), "empty log text must be empty string");
+    }
+
+    #[tokio::test]
+    async fn gateway_instances_resource_includes_lifecycle_hints() {
+        let gs = test_gs_with_events(Vec::new());
+        {
+            let registry = gs.registry.write().await;
+            let mut entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+            entry.version = Some("2026".into());
+            entry.adapter_version = Some("1.2.0".into());
+            entry
+                .metadata
+                .insert("dcc_mcp_role".into(), "per-dcc-sidecar".into());
+            entry.metadata.insert("sidecar_pid".into(), "31337".into());
+            entry.metadata.insert(
+                "restart_command".into(),
+                "rez-env dcc_mcp_maya -- maya-sidecar".into(),
+            );
+            registry.register(entry).unwrap();
+        }
+
+        let req = make_read_req("gateway://instances");
+        let resp = handle_resources_read(&gs, json!(1), &req).await;
+        let text = resp["result"]["contents"][0]["text"]
+            .as_str()
+            .expect("response must contain text content");
+        let payload: serde_json::Value = serde_json::from_str(text).unwrap();
+        let row = &payload["instances"][0];
+
+        assert_eq!(row["version"], "2026");
+        assert_eq!(row["adapter_version"], "1.2.0");
+        assert_eq!(row["lifecycle"]["role"], "per-dcc-sidecar");
+        assert_eq!(row["lifecycle"]["sidecar_pid"], 31337);
+        assert_eq!(row["lifecycle"]["supports_safe_stop"], true);
+        assert_eq!(row["lifecycle"]["restartable"], true);
+        assert_eq!(
+            row["lifecycle"]["restart_command"],
+            "rez-env dcc_mcp_maya -- maya-sidecar"
+        );
     }
 
     #[test]

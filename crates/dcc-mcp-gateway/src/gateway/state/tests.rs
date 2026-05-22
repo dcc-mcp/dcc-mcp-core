@@ -197,6 +197,34 @@ async fn test_live_instances_prefers_sidecar_for_same_dcc_pid() {
     );
 }
 
+#[test]
+fn test_entry_json_exposes_lifecycle_metadata_for_admin() {
+    let mut entry = ServiceEntry::new("maya", "127.0.0.1", 28812).with_pid(4242);
+    entry
+        .metadata
+        .insert("dcc_mcp_role".into(), "per-dcc-sidecar".into());
+    entry.metadata.insert("sidecar_pid".into(), "31337".into());
+    entry.metadata.insert(
+        "restart_command".into(),
+        "rez-env dcc_mcp_maya -- maya-sidecar".into(),
+    );
+    entry.metadata.insert(
+        "install_root".into(),
+        "G:\\_thm\\rez_local_cache\\ext\\dcc_mcp_maya".into(),
+    );
+
+    let row = entry_to_json(&entry, Duration::from_secs(30), None);
+
+    assert_eq!(row["lifecycle"]["role"], "per-dcc-sidecar");
+    assert_eq!(row["lifecycle"]["sidecar_pid"], 31337);
+    assert_eq!(row["lifecycle"]["supports_safe_stop"], true);
+    assert_eq!(row["lifecycle"]["restartable"], true);
+    assert_eq!(
+        row["lifecycle"]["restart_command"],
+        "rez-env dcc_mcp_maya -- maya-sidecar"
+    );
+}
+
 #[tokio::test]
 async fn test_live_instances_stale_sidecar_does_not_hide_live_adapter() {
     let dir = tempfile::tempdir().unwrap();
