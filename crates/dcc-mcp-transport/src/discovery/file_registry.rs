@@ -3,9 +3,9 @@
 //! Stores service entries as JSON in a registry directory.
 //! Uses `(dcc_type, instance_id)` as key to support multiple instances per DCC type.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime};
@@ -82,6 +82,12 @@ type BeforeFlushHook = Box<dyn FnOnce() + Send + 'static>;
 static BEFORE_TRANSACTION_FLUSH_HOOK: Mutex<Option<(PathBuf, BeforeFlushHook)>> = Mutex::new(None);
 
 #[cfg(test)]
+type BeforeTempSyncHook = Box<dyn FnOnce(&Path) -> std::io::Result<()> + Send + 'static>;
+
+#[cfg(test)]
+static BEFORE_TEMP_SYNC_HOOK: Mutex<Option<(PathBuf, BeforeTempSyncHook)>> = Mutex::new(None);
+
+#[cfg(test)]
 fn set_before_transaction_flush_hook(registry_dir: &Path, hook: impl FnOnce() + Send + 'static) {
     let mut slot = BEFORE_TRANSACTION_FLUSH_HOOK
         .lock()
@@ -103,6 +109,34 @@ fn run_before_transaction_flush_hook(registry_dir: &Path) {
     if let Some((_, hook)) = hook {
         hook();
     }
+}
+
+#[cfg(test)]
+fn set_before_temp_sync_hook(
+    registry_dir: &Path,
+    hook: impl FnOnce(&Path) -> std::io::Result<()> + Send + 'static,
+) {
+    let mut slot = BEFORE_TEMP_SYNC_HOOK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    *slot = Some((registry_dir.to_path_buf(), Box::new(hook)));
+}
+
+#[cfg(test)]
+fn run_before_temp_sync_hook(registry_dir: &Path, temp_path: &Path) -> std::io::Result<()> {
+    let hook = {
+        let mut slot = BEFORE_TEMP_SYNC_HOOK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let should_run = slot
+            .as_ref()
+            .is_some_and(|(dir, _)| dir.as_path() == registry_dir);
+        if should_run { slot.take() } else { None }
+    };
+    if let Some((_, hook)) = hook {
+        hook(temp_path)?;
+    }
+    Ok(())
 }
 
 /// File-based service registry with instance-level keying.
@@ -303,11 +337,21 @@ impl FileRegistry {
 
         let result = (|| {
             let baseline = self.force_reload_from_file()?;
-            let (value, changed) = op()?;
+            let baseline_owned_sentinels = self.owned_sentinel_keys();
+            let (value, changed) = match op() {
+                Ok(result) => result,
+                Err(err) => {
+                    self.rollback_failed_transaction(&baseline, &baseline_owned_sentinels);
+                    return Err(err);
+                }
+            };
             if changed {
                 #[cfg(test)]
                 run_before_transaction_flush_hook(&self.registry_dir);
-                self.flush_to_file_after_transaction(&baseline)?;
+                if let Err(err) = self.flush_to_file_after_transaction(&baseline) {
+                    self.rollback_failed_transaction(&baseline, &baseline_owned_sentinels);
+                    return Err(err);
+                }
             }
             Ok(value)
         })();
@@ -402,6 +446,13 @@ impl FileRegistry {
     fn sentinel_path_for(&self, key: &ServiceKey) -> PathBuf {
         self.locks_dir()
             .join(format!("{}-{}.lock", key.dcc_type, key.instance_id))
+    }
+
+    fn owned_sentinel_keys(&self) -> HashSet<ServiceKey> {
+        self.sentinel_handles
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect()
     }
 
     fn create_sentinel(&self, key: &ServiceKey) -> TransportResult<(PathBuf, File)> {
@@ -901,14 +952,77 @@ impl FileRegistry {
         })?;
 
         let path = self.registry_file_path();
-        self.replace_services(&entries);
         self.write_atomic(&path, content)?;
+        self.replace_services(&entries);
 
         // Update cached mtime after write
         let _ = self.update_mtime();
         self.warn_if_post_write_clobbered(&entries);
 
         Ok(())
+    }
+
+    fn rollback_failed_transaction(
+        &self,
+        baseline_entries: &[ServiceEntry],
+        baseline_owned_sentinels: &HashSet<ServiceKey>,
+    ) {
+        let rollback_entries = match self.read_entries_from_file() {
+            Ok(entries) => entries,
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    path = %self.registry_file_path().display(),
+                    "FileRegistry could not reload durable snapshot after failed write; restoring pre-transaction snapshot"
+                );
+                baseline_entries.to_vec()
+            }
+        };
+
+        self.replace_services(&rollback_entries);
+        self.reconcile_sentinels_after_rollback(&rollback_entries, baseline_owned_sentinels);
+        let _ = self.update_mtime();
+    }
+
+    fn reconcile_sentinels_after_rollback(
+        &self,
+        rollback_entries: &[ServiceEntry],
+        baseline_owned_sentinels: &HashSet<ServiceKey>,
+    ) {
+        let rollback_keys: HashSet<ServiceKey> =
+            rollback_entries.iter().map(ServiceEntry::key).collect();
+        let desired_owned: HashSet<ServiceKey> = baseline_owned_sentinels
+            .intersection(&rollback_keys)
+            .cloned()
+            .collect();
+
+        let current_owned = self.owned_sentinel_keys();
+        for key in current_owned.difference(&desired_owned) {
+            if let Some((_, file)) = self.sentinel_handles.remove(key) {
+                let _ = file.unlock();
+            }
+            let _ = fs::remove_file(self.sentinel_path_for(key));
+        }
+
+        for key in desired_owned {
+            if self.sentinel_handles.contains_key(&key) {
+                continue;
+            }
+            match self.create_sentinel(&key) {
+                Ok((path, file)) => {
+                    if let Some(mut entry) = self.services.get_mut(&key) {
+                        entry.value_mut().sentinel_path = Some(path);
+                    }
+                    self.sentinel_handles.insert(key, file);
+                }
+                Err(err) => tracing::warn!(
+                    error = %err,
+                    dcc_type = %key.dcc_type,
+                    instance_id = %key.instance_id,
+                    "FileRegistry could not restore owned sentinel after failed write"
+                ),
+            }
+        }
     }
 
     fn reconcile_unlocked_writer_changes(
@@ -1006,6 +1120,10 @@ impl FileRegistry {
     /// Cross-process read-modify-write cycles are serialized by
     /// `services.lock`; the bounded `fs::rename` retry loop still handles
     /// transient reader races on the target path.
+    ///
+    /// The temp file is explicitly `sync_data`'d before the rename so Windows
+    /// cannot persist the directory swap while losing dirty file data during a
+    /// power loss or hard kill (#1104).
     fn write_atomic(&self, path: &Path, content: String) -> TransportResult<()> {
         let dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
         ensure_registry_dir(dir)?;
@@ -1014,13 +1132,54 @@ impl FileRegistry {
         // file being rewritten rather than a brand-new path each time.
         let temp_path = dir.join(format!(".tmp.{pid}.services.json"));
 
-        fs::write(&temp_path, content).map_err(|e| {
-            TransportError::RegistryFile(format!(
+        let mut file = match OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(&temp_path)
+        {
+            Ok(file) => file,
+            Err(e) => {
+                let _ = fs::remove_file(&temp_path);
+                return Err(TransportError::RegistryFile(format!(
+                    "failed to open temp file {}: {}",
+                    temp_path.display(),
+                    e
+                )));
+            }
+        };
+
+        if let Err(e) = file.write_all(content.as_bytes()) {
+            drop(file);
+            let _ = fs::remove_file(&temp_path);
+            return Err(TransportError::RegistryFile(format!(
                 "failed to write temp file {}: {}",
                 temp_path.display(),
                 e
-            ))
-        })?;
+            )));
+        }
+
+        #[cfg(test)]
+        if let Err(e) = run_before_temp_sync_hook(dir, &temp_path) {
+            drop(file);
+            let _ = fs::remove_file(&temp_path);
+            return Err(TransportError::RegistryFile(format!(
+                "failed to sync temp file {}: {}",
+                temp_path.display(),
+                e
+            )));
+        }
+
+        if let Err(e) = file.sync_data() {
+            drop(file);
+            let _ = fs::remove_file(&temp_path);
+            return Err(TransportError::RegistryFile(format!(
+                "failed to sync temp file {}: {}",
+                temp_path.display(),
+                e
+            )));
+        }
+        drop(file);
 
         // Bounded retry around `fs::rename` — Windows can briefly return
         // `PermissionDenied` if another process has the target file open for
