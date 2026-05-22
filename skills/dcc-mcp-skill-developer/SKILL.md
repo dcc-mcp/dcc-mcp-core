@@ -59,7 +59,16 @@ into a faster authoring loop.
    derive per-instance OpenAPI Inspector, spec JSON, and docs links from it.
    For machine consumers, prefer the stable gateway `/v1/debug/*` routes and
    `GET /v1/openapi.json` over scraping `/admin` HTML or dashboard internals.
-7. Add tests at the lowest executable layer, then one discovery/load/call or
+7. For adapter install, uninstall, or upgrade flows, use
+   `dcc_mcp_core.install_lifecycle` before importing Rust-backed public API:
+   query/stop registered sidecars, inspect install roots, classify locked
+   native artifacts, and call `safe_remove_tree` / `safe_replace_tree` from a
+   process that has not loaded `dcc_mcp_core._core`. Publish package versions
+   in registry metadata (`dcc_mcp_core_version`, `dcc_mcp_server_version`,
+   `adapter_version`); `ServiceEntry.version` is the DCC application version.
+   Stop helpers must respect FileRegistry sentinel locks before trusting PID
+   liveness so installer code never terminates a reused PID from a stale row.
+8. Add tests at the lowest executable layer, then one discovery/load/call or
    gateway REST path when behavior crosses MCP or REST boundaries.
 
 ## Adapter Selection
@@ -82,5 +91,7 @@ into a faster authoring loop.
 - No `execution: async` without a realistic `timeout_hint_secs`.
 - No new generic helper crate or module when core or an adapter-local owner
   already exists.
+- No installer or uninstaller import path that loads `dcc_mcp_core._core`
+  before removing or replacing a bundled adapter payload.
 - No raw `execute_python` or `execute_mel` as the primary UX when a typed tool
   can exist.

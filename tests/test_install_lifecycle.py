@@ -1,0 +1,439 @@
+"""Tests for import-light adapter install lifecycle helpers."""
+
+from __future__ import annotations
+
+import errno
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import types
+
+import pytest
+
+import dcc_mcp_core.install_lifecycle as lifecycle
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def test_package_import_does_not_load_core_in_fresh_process() -> None:
+    script = """
+import json
+import sys
+
+import dcc_mcp_core
+print(json.dumps({"after_package": "dcc_mcp_core._core" in sys.modules}))
+
+import dcc_mcp_core.install_lifecycle
+print(json.dumps({"after_lifecycle": "dcc_mcp_core._core" in sys.modules}))
+"""
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(REPO_ROOT / "python")
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=str(REPO_ROOT),
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    rows = [json.loads(line) for line in result.stdout.splitlines()]
+    assert rows == [{"after_package": False}, {"after_lifecycle": False}]
+
+
+def test_top_level_lifecycle_export_does_not_load_core_in_fresh_process() -> None:
+    script = """
+import json
+import sys
+
+from dcc_mcp_core import inspect_install_root
+
+print(json.dumps({
+    "core_loaded": "dcc_mcp_core._core" in sys.modules,
+    "module": inspect_install_root.__module__,
+}))
+"""
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(REPO_ROOT / "python")
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=str(REPO_ROOT),
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(result.stdout) == {
+        "core_loaded": False,
+        "module": "dcc_mcp_core.install_lifecycle",
+    }
+
+
+def test_module_cli_inspect_returns_json_without_loading_core(tmp_path: Path) -> None:
+    install_root = tmp_path / "adapter"
+    install_root.mkdir()
+    script = """
+import json
+import runpy
+import sys
+
+sys.argv = [
+    "dcc_mcp_core.install_lifecycle",
+    "inspect",
+    sys.argv[1],
+]
+try:
+    runpy.run_module("dcc_mcp_core.install_lifecycle", run_name="__main__")
+except SystemExit as exc:
+    code = exc.code
+else:
+    code = 0
+print(json.dumps({"core_loaded": "dcc_mcp_core._core" in sys.modules, "exit_code": code}))
+"""
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(REPO_ROOT / "python")
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(install_root)],
+        cwd=str(REPO_ROOT),
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload, end = json.JSONDecoder().raw_decode(result.stdout)
+    trailer = json.loads(result.stdout[end:].strip())
+
+    assert payload["success"] is True
+    assert payload["status"] == "ok"
+    assert trailer == {"core_loaded": False, "exit_code": 0}
+
+
+def test_inspect_install_root_reports_loaded_native_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    native = tmp_path / "dcc_mcp_core" / "_core.pyd"
+    native.parent.mkdir()
+    native.write_bytes(b"placeholder")
+    fake_core = types.ModuleType("dcc_mcp_core._core")
+    fake_core.__file__ = str(native)
+    monkeypatch.setitem(sys.modules, "dcc_mcp_core._core", fake_core)
+
+    result = lifecycle.inspect_install_root(tmp_path)
+
+    assert result["status"] == "requires_restart"
+    assert result["requires_restart"] is True
+    assert result["locked_path"] == str(native.resolve())
+    assert result["loaded_native_artifacts"] == [{"module": "dcc_mcp_core._core", "path": str(native.resolve())}]
+
+
+def test_safe_remove_tree_classifies_windows_permission_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_root = tmp_path / "adapter"
+    locked = install_root / "dcc_mcp_core" / "_core.pyd"
+    locked.parent.mkdir(parents=True)
+    locked.write_bytes(b"placeholder")
+
+    def deny_remove(_path: str) -> None:
+        raise PermissionError(errno.EACCES, "Access is denied", str(locked))
+
+    monkeypatch.setattr(lifecycle.shutil, "rmtree", deny_remove)
+    monkeypatch.setattr(lifecycle, "_is_windows_lock_error", lambda _exc: True)
+
+    result = lifecycle.safe_remove_tree(install_root)
+
+    assert result["status"] == "requires_restart"
+    assert result["requires_restart"] is True
+    assert result["reason"] == "windows_file_lock"
+    assert result["locked_path"] == str(locked.resolve())
+    assert result["deferred_operation"] == {
+        "operation": "remove_tree",
+        "path": str(install_root.resolve()),
+    }
+
+
+def test_windows_lock_classifier_ignores_posix_permission_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(lifecycle.os, "name", "posix")
+
+    assert lifecycle._is_windows_lock_error(PermissionError(errno.EACCES, "Permission denied")) is False
+
+
+def test_windows_lock_classifier_accepts_windows_permission_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(lifecycle.os, "name", "nt")
+
+    assert lifecycle._is_windows_lock_error(PermissionError(errno.EACCES, "Access is denied")) is True
+
+
+def test_safe_replace_tree_copies_after_remove(tmp_path: Path) -> None:
+    source = tmp_path / "new"
+    destination = tmp_path / "installed"
+    source.mkdir()
+    (source / "module.py").write_text("VALUE = 1\n", encoding="utf-8")
+    destination.mkdir()
+    (destination / "old.py").write_text("OLD = 1\n", encoding="utf-8")
+
+    result = lifecycle.safe_replace_tree(source, destination)
+
+    assert result["status"] == "replaced"
+    assert (destination / "module.py").read_text(encoding="utf-8") == "VALUE = 1\n"
+    assert not (destination / "old.py").exists()
+
+
+def test_query_runtime_state_reads_sidecar_pid(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    registry.mkdir()
+    (registry / "services.json").write_text(
+        json.dumps(
+            [
+                {
+                    "dcc_type": "maya",
+                    "instance_id": "11111111-1111-1111-1111-111111111111",
+                    "host": "127.0.0.1",
+                    "port": 18812,
+                    "pid": 1234,
+                    "status": "available",
+                    "metadata": {
+                        "dcc_mcp_role": "per-dcc-sidecar",
+                        "sidecar_pid": "2345",
+                        "mcp_url": "http://127.0.0.1:18812/mcp",
+                    },
+                },
+                {
+                    "dcc_type": "photoshop",
+                    "instance_id": "22222222-2222-2222-2222-222222222222",
+                    "host": "127.0.0.1",
+                    "port": 18813,
+                    "pid": 3456,
+                    "metadata": {},
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = lifecycle.query_runtime_state(registry, dcc_type="maya", role="per-dcc-sidecar")
+
+    assert result["total"] == 1
+    assert result["entries"][0]["dcc_type"] == "maya"
+    assert result["entries"][0]["parent_pid"] == 1234
+    assert result["entries"][0]["sidecar_pid"] == 2345
+    assert result["entries"][0]["runtime_pid"] == 2345
+    assert result["entries"][0]["mcp_url"] == "http://127.0.0.1:18812/mcp"
+
+
+def test_stop_runtime_entries_does_not_kill_host_by_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = tmp_path / "registry"
+    registry.mkdir()
+    (registry / "services.json").write_text(
+        json.dumps(
+            [
+                {
+                    "dcc_type": "zbrush",
+                    "instance_id": "33333333-3333-3333-3333-333333333333",
+                    "host": "127.0.0.1",
+                    "port": 18814,
+                    "pid": 999999,
+                    "metadata": {"dcc_mcp_role": "per-dcc-sidecar"},
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    killed = []
+    monkeypatch.setattr(lifecycle, "_entry_runtime_alive", lambda _sentinel, _pid: True)
+    monkeypatch.setattr(lifecycle.os, "kill", lambda pid, sig: killed.append((pid, sig)))
+
+    result = lifecycle.stop_runtime_entries(registry, dcc_type="zbrush")
+
+    assert killed == []
+    assert result["success"] is False
+    assert result["results"][0]["status"] == "unsupported"
+
+
+def test_stop_runtime_entries_respects_dead_sentinel_before_pid(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = tmp_path / "registry"
+    locks = registry / "locks"
+    locks.mkdir(parents=True)
+    sentinel = locks / "maya-33333333-3333-3333-3333-333333333333.lock"
+    sentinel.write_bytes(b"")
+    (registry / "services.json").write_text(
+        json.dumps(
+            [
+                {
+                    "dcc_type": "maya",
+                    "instance_id": "33333333-3333-3333-3333-333333333333",
+                    "host": "127.0.0.1",
+                    "port": 18814,
+                    "pid": 999999,
+                    "sentinel_path": str(sentinel),
+                    "metadata": {
+                        "dcc_mcp_role": "per-dcc-sidecar",
+                        "sidecar_pid": "888888",
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    killed = []
+    monkeypatch.setattr(lifecycle.os, "kill", lambda pid, sig: killed.append((pid, sig)))
+
+    state = lifecycle.query_runtime_state(registry, dcc_type="maya", role="per-dcc-sidecar")
+    result = lifecycle.stop_runtime_entries(registry, dcc_type="maya")
+
+    assert state["entries"][0]["runtime_alive"] is False
+    assert state["entries"][0]["sentinel_path"] == str(sentinel.resolve())
+    assert killed == []
+    assert result["success"] is True
+    assert result["results"][0]["status"] == "already_stopped"
+
+
+def test_resolve_deployment_layout_uses_rez_env_roots(tmp_path: Path) -> None:
+    core_root = tmp_path / "dcc_mcp_core"
+    server_root = tmp_path / "dcc_mcp_server"
+    maya_root = tmp_path / "dcc_mcp_maya"
+    (core_root / "python").mkdir(parents=True)
+    (server_root / "bin").mkdir(parents=True)
+    (maya_root / "python").mkdir(parents=True)
+    env = {
+        "REZ_USED_RESOLVE": "dcc_mcp_core dcc_mcp_server dcc_mcp_maya",
+        "REZ_DCC_MCP_CORE_ROOT": str(core_root),
+        "REZ_DCC_MCP_SERVER_ROOT": str(server_root),
+        "REZ_DCC_MCP_MAYA_ROOT": str(maya_root),
+    }
+
+    result = lifecycle.resolve_deployment_layout(adapter_package="dcc_mcp_maya", env=env)
+
+    assert result["mode"] == "rez"
+    assert result["missing_packages"] == []
+    assert result["environment"]["prepend"]["PYTHONPATH"] == [
+        str((core_root / "python").resolve()),
+        str((maya_root / "python").resolve()),
+    ]
+    assert result["environment"]["prepend"]["PATH"] == [str((server_root / "bin").resolve())]
+
+
+def test_resolve_deployment_layout_uses_cache_root_before_packages_exist(tmp_path: Path) -> None:
+    cache_root = tmp_path / "ext"
+    (cache_root / "dcc_mcp_core" / "python").mkdir(parents=True)
+    (cache_root / "dcc_mcp_server").mkdir(parents=True)
+
+    result = lifecycle.resolve_deployment_layout(
+        cache_root,
+        adapter_package="dcc_mcp_3dsmax",
+    )
+
+    assert result["mode"] == "filesystem"
+    assert result["missing_packages"] == ["dcc_mcp_3dsmax"]
+    assert result["packages"][0]["source"] == "cache-root"
+    assert result["packages"][0]["root"] == str((cache_root / "dcc_mcp_core").resolve())
+
+
+def test_plan_runtime_updates_marks_old_sidecar_restartable(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    registry.mkdir()
+    (registry / "services.json").write_text(
+        json.dumps(
+            [
+                {
+                    "dcc_type": "maya",
+                    "instance_id": "44444444-4444-4444-4444-444444444444",
+                    "host": "127.0.0.1",
+                    "port": 18815,
+                    "pid": 4444,
+                    "version": "2026",
+                    "adapter_version": "1.0.0",
+                    "metadata": {
+                        "dcc_mcp_role": "per-dcc-sidecar",
+                        "dcc_mcp_core_version": "0.17.20",
+                        "dcc_mcp_server_version": "0.17.20",
+                        "sidecar_pid": "5555",
+                    },
+                },
+                {
+                    "dcc_type": "3dsmax",
+                    "instance_id": "55555555-5555-5555-5555-555555555555",
+                    "host": "127.0.0.1",
+                    "port": 18816,
+                    "pid": 5555,
+                    "version": "2025",
+                    "adapter_version": "1.2.0",
+                    "metadata": {
+                        "dcc_mcp_role": "per-dcc-sidecar",
+                        "dcc_mcp_core_version": "0.17.21",
+                        "dcc_mcp_server_version": "0.17.21",
+                        "sidecar_pid": "6666",
+                    },
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    state = lifecycle.query_runtime_state(registry)
+
+    plan = lifecycle.plan_runtime_updates(
+        state,
+        target_versions={"core": "0.17.21", "server": "0.17.21", "adapter": "1.2.0"},
+    )
+
+    maya = next(item for item in plan["plans"] if item["dcc_type"] == "maya")
+    max_entry = next(item for item in plan["plans"] if item["dcc_type"] == "3dsmax")
+    assert maya["action"] == "restart_sidecar"
+    assert maya["restartable"] is True
+    assert maya["stale_components"] == ["core", "server", "adapter"]
+    assert max_entry["action"] == "keep"
+    assert max_entry["stale_components"] == []
+
+
+def test_plan_runtime_updates_does_not_treat_dcc_version_as_core_version() -> None:
+    plan = lifecycle.plan_runtime_updates(
+        [
+            {
+                "dcc_type": "maya",
+                "instance_id": "77777777-7777-7777-7777-777777777777",
+                "version": "2026",
+                "versions": {"core": None},
+                "sidecar_pid": 1234,
+            }
+        ],
+        target_versions={"core": "0.17.21"},
+    )
+
+    row = plan["plans"][0]
+    assert row["versions"]["core"]["current"] is None
+    assert row["versions"]["core"]["status"] == "unknown"
+    assert row["unknown_components"] == ["core"]
+    assert row["action"] == "verify_runtime_metadata"
+    assert plan["verification_required_count"] == 1
+
+
+def test_plan_runtime_updates_marks_host_only_runtime_manual() -> None:
+    plan = lifecycle.plan_runtime_updates(
+        [
+            {
+                "dcc_type": "photoshop",
+                "instance_id": "66666666-6666-6666-6666-666666666666",
+                "versions": {"core": "0.17.20"},
+                "parent_pid": 7777,
+                "sidecar_pid": None,
+            }
+        ],
+        target_versions={"core": "0.17.21"},
+    )
+
+    assert plan["plans"][0]["action"] == "manual_restart_required"
+    assert plan["plans"][0]["restart_scope"] == "host-process"
