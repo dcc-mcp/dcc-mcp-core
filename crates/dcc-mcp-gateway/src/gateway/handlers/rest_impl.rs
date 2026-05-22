@@ -144,7 +144,9 @@ pub async fn handle_v1_openapi(State(gs): State<GatewayState>) -> impl IntoRespo
     #[cfg(feature = "admin")]
     let doc = {
         let mut doc = doc;
-        super::debug_openapi::add_gateway_debug_openapi_paths(&mut doc);
+        if gs.debug_routes_enabled {
+            super::debug_openapi::add_gateway_debug_openapi_paths(&mut doc);
+        }
         doc
     };
     (StatusCode::OK, Json(doc))
@@ -157,7 +159,9 @@ pub async fn handle_v1_docs(State(gs): State<GatewayState>) -> Response {
     #[cfg(feature = "admin")]
     let doc = {
         let mut doc = doc;
-        super::debug_openapi::add_gateway_debug_openapi_paths(&mut doc);
+        if gs.debug_routes_enabled {
+            super::debug_openapi::add_gateway_debug_openapi_paths(&mut doc);
+        }
         doc
     };
     let html = dcc_mcp_skill_rest::openapi::build_docs_html_for_document(doc);
@@ -852,6 +856,13 @@ mod tests {
     }
 
     fn test_gateway_state(server_version: &str) -> GatewayState {
+        test_gateway_state_with_debug_routes(server_version, false)
+    }
+
+    fn test_gateway_state_with_debug_routes(
+        server_version: &str,
+        debug_routes_enabled: bool,
+    ) -> GatewayState {
         let dir = tempfile::tempdir().unwrap();
         let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
         let (yield_tx, _) = watch::channel(false);
@@ -882,6 +893,7 @@ mod tests {
             instance_diagnostics: Arc::new(
                 crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new(),
             ),
+            debug_routes_enabled,
             #[cfg(feature = "prometheus")]
             gateway_metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
         }
@@ -909,13 +921,26 @@ mod tests {
         assert!(body.contains("scalar") || body.contains("Scalar"));
         assert!(body.contains("dcc-mcp-gateway"));
         assert!(body.contains("/v1/search"));
+        assert!(!body.contains("/v1/debug/instances"));
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "admin")]
+    async fn gateway_docs_lists_debug_routes_when_runtime_debug_routes_enabled() {
+        let (status, body) = response_text(
+            handle_v1_docs(State(test_gateway_state_with_debug_routes("1.2.3", true))).await,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
         assert!(body.contains("/v1/debug/instances"));
     }
 
     #[tokio::test]
+    #[cfg(feature = "admin")]
     async fn gateway_openapi_lists_stable_debug_routes() {
         let (status, doc) = response_json(
-            handle_v1_openapi(State(test_gateway_state("1.2.3")))
+            handle_v1_openapi(State(test_gateway_state_with_debug_routes("1.2.3", true)))
                 .await
                 .into_response(),
         )
@@ -950,6 +975,56 @@ mod tests {
             doc["components"]["schemas"]
                 .get("GatewayDebugPayload")
                 .is_some()
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "admin")]
+    async fn gateway_openapi_omits_debug_routes_when_runtime_admin_disabled() {
+        let (status, doc) = response_json(
+            handle_v1_openapi(State(test_gateway_state("1.2.3")))
+                .await
+                .into_response(),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(doc["paths"].get("/v1/search").is_some());
+        assert!(doc["paths"].get("/v1/debug/instances").is_none());
+        assert!(
+            doc["tags"]
+                .as_array()
+                .is_none_or(|tags| !tags.iter().any(|tag| tag["name"] == "debug"))
+        );
+        assert!(
+            doc["components"]["schemas"]
+                .get("GatewayDebugPayload")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(not(feature = "admin"))]
+    async fn gateway_openapi_omits_debug_routes_without_admin_feature() {
+        let (status, doc) = response_json(
+            handle_v1_openapi(State(test_gateway_state("1.2.3")))
+                .await
+                .into_response(),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(doc["paths"].get("/v1/search").is_some());
+        assert!(doc["paths"].get("/v1/debug/instances").is_none());
+        assert!(
+            doc["tags"]
+                .as_array()
+                .is_none_or(|tags| !tags.iter().any(|tag| tag["name"] == "debug"))
+        );
+        assert!(
+            doc["components"]["schemas"]
+                .get("GatewayDebugPayload")
+                .is_none()
         );
     }
 

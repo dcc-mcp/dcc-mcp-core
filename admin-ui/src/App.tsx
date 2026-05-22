@@ -8,6 +8,7 @@ import unityIcon from './assets/icons/unity.svg';
 import unrealIcon from './assets/icons/unrealengine.svg';
 import substancePainterIcon from './assets/icons/photoshop.svg';
 import puzzleIcon from './assets/icons/puzzle.svg';
+import { formatTime, timestampTitle } from './time';
 
 type Panel = 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'stats' | 'logs' | 'skill-paths';
 
@@ -697,13 +698,6 @@ function flattenOpenApiOperations(spec: OpenApiSpec | null): OpenApiOperationRow
   return rows.sort((a, b) => a.path.localeCompare(b.path) || a.method.localeCompare(b.method));
 }
 
-function formatTime(value: string | null | undefined): string {
-  if (!value) {
-    return '-';
-  }
-  return new Date(value).toLocaleTimeString();
-}
-
 function formatUptime(value: number | null | undefined): string {
   if (value == null) {
     return '-';
@@ -756,6 +750,15 @@ function isWarnStatus(value: string | null | undefined): boolean {
 
 function StatusBadge({ value }: { value: string }) {
   return <span className={statusClass(value)}>{value}</span>;
+}
+
+function TimeValue({ value, className }: { value: string | null | undefined; className?: string }) {
+  const title = timestampTitle(value);
+  const text = formatTime(value);
+  if (!title) {
+    return <span className={className}>{text}</span>;
+  }
+  return <time className={className} dateTime={title} title={title}>{text}</time>;
 }
 
 function StatusLine({ text, error }: { text: string; error?: string }) {
@@ -2235,7 +2238,7 @@ function App() {
                     type="button"
                     onClick={() => row.request_id ? goToPanel('traces', { traceId: row.request_id }) : goToPanel('logs')}
                   >
-                    <span>{formatTime(row.timestamp)}</span>
+                    <TimeValue value={row.timestamp} />
                     <span>{row.source ?? row.level}</span>
                     <span title={row.message}>{row.message}</span>
                   </button>
@@ -2260,7 +2263,7 @@ function App() {
                     const requestId = event.correlation?.request_id;
                     return (
                       <tr key={event.event_id}>
-                        <td>{formatTime(event.timestamp)}</td>
+                        <td><TimeValue value={event.timestamp} /></td>
                         <td><StatusBadge value={event.status} /></td>
                         <td>{event.kind}</td>
                         <td title={event.message}>{event.message}</td>
@@ -2450,7 +2453,7 @@ function App() {
                         <div className="task-title-row">
                           <StatusBadge value={task.status} />
                           <span className="task-type">{task.task_type}</span>
-                          <span className="task-time">{formatTime(task.started_at)}</span>
+                          <TimeValue className="task-time" value={task.started_at} />
                         </div>
                         <h3 title={task.title}>{task.title}</h3>
                         <div className="task-meta">
@@ -2493,7 +2496,7 @@ function App() {
                     <tbody>
                       {groupCalls.map((call) => (
                         <tr key={call.request_id}>
-                          <td>{formatTime(call.timestamp)}</td>
+                          <td><TimeValue value={call.timestamp} /></td>
                           <td>
                             <button className="refresh-btn" type="button" title={call.request_id} onClick={() => goToPanel('traces', { traceId: call.request_id })}>
                               {call.request_id.slice(0, 12)}
@@ -2562,7 +2565,7 @@ function App() {
                         >
                           <span className="trace-item-main">
                             <strong>{trace.tool}</strong>
-                            <span>{compactId(trace.request_id)} - {formatTime(trace.timestamp)} - {trace.transport ?? '?'}</span>
+                            <span>{compactId(trace.request_id)} - <TimeValue value={trace.timestamp} /> - {trace.transport ?? '?'}</span>
                             <span>{agentLabel(trace)}{trace.slowest_span_name ? ` - slowest ${trace.slowest_span_name} ${formatDurationMs(trace.slowest_span_ms)}` : ''}</span>
                           </span>
                           <span className="trace-item-side">
@@ -2714,7 +2717,7 @@ function App() {
                           Request <span className="mono-path">{run.requestId}</span>
                         </div>
                         <div className="run-meta">
-                          {formatTime(run.timestamp)} · {run.dccType} · {run.tool}
+                          <TimeValue value={run.timestamp} /> · {run.dccType} · {run.tool}
                         </div>
                       </div>
                       <StatusBadge value={run.status} />
@@ -2726,7 +2729,7 @@ function App() {
                           <div className="step-body">
                             <div className="step-head">
                               <span className="step-name">Step {idx + 1}: {logStepTitle(log)}</span>
-                              <span className="muted">{formatTime(log.timestamp)}</span>
+                              <TimeValue className="muted" value={log.timestamp} />
                               <span className="source-pill" data-source={log.source ?? 'contention'}>{log.source ?? 'contention'}</span>
                             </div>
                             <div className="step-detail">{logStepDetail(log)}</div>
@@ -2748,7 +2751,7 @@ function App() {
                             <div key={`${log.timestamp}-${log.request_id ?? ''}-${idx}`} className="log-line">
                               <span className="source-pill" data-source={log.source ?? 'contention'}>{log.source ?? 'contention'}</span>
                               {' '}
-                              <span className="muted">{formatTime(log.timestamp)}</span>
+                              <TimeValue className="muted" value={log.timestamp} />
                               {' '}
                               <span className="warn-text">[{log.level}]</span>
                               {' '}

@@ -186,6 +186,7 @@ mod tests {
             instance_diagnostics: Arc::new(
                 crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new(),
             ),
+            debug_routes_enabled: false,
         }
     }
 

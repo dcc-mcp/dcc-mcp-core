@@ -156,6 +156,7 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
         instance_diagnostics: std::sync::Arc::new(
             crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new(),
         ),
+        debug_routes_enabled: false,
     };
 
     assert_eq!(gs.live_instances(&*gs.registry.read().await).len(), 1);
@@ -321,6 +322,7 @@ async fn make_gateway_state(
         instance_diagnostics: std::sync::Arc::new(
             crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new(),
         ),
+        debug_routes_enabled: false,
     }
 }
 
@@ -853,6 +855,7 @@ async fn gateway_state_with_instances(
         instance_diagnostics: std::sync::Arc::new(
             crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new(),
         ),
+        debug_routes_enabled: false,
     };
     (state, dir, ids)
 }

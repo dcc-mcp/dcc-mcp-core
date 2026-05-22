@@ -241,6 +241,13 @@ pub struct GatewayState {
 
     /// Cached per-instance readiness + last call error (#1076).
     pub instance_diagnostics: Arc<InstanceDiagnosticsStore>,
+
+    /// Whether stable gateway `/v1/debug/*` routes are mounted on this router.
+    ///
+    /// The routes require the `admin` feature at compile time and an AdminState
+    /// at runtime. OpenAPI generation reads this so the published contract does
+    /// not advertise routes disabled by `--no-admin` / `admin_enabled = false`.
+    pub debug_routes_enabled: bool,
 }
 
 impl GatewayState {

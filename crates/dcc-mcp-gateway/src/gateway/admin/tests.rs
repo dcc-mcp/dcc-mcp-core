@@ -16,6 +16,7 @@ mod admin_tests {
 
     use crate::gateway::admin::router::build_admin_router;
     use crate::gateway::admin::state::{AdminAuditRecord, AdminState, AuditLog};
+    use crate::gateway::router::build_gateway_router_with_admin;
     use crate::gateway::state::GatewayState;
     use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 
@@ -123,6 +124,7 @@ mod admin_tests {
             instance_diagnostics: Arc::new(
                 crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new(),
             ),
+            debug_routes_enabled: false,
         }
     }
 
@@ -150,6 +152,19 @@ mod admin_tests {
         (status, json)
     }
 
+    async fn response_status(router: Router, uri: &str) -> StatusCode {
+        router
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+            .status()
+    }
+
     async fn body_html(router: Router, uri: &str) -> (StatusCode, String, String) {
         let resp = router
             .oneshot(
@@ -173,6 +188,31 @@ mod admin_tests {
     }
 
     // ── HTML dashboard ────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn gateway_router_without_admin_state_omits_debug_routes_from_openapi() {
+        let router = build_gateway_router_with_admin(make_gateway_state(), None, "/admin");
+
+        let (status, doc) = body_json(router.clone(), "/v1/openapi.json").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(doc["paths"].get("/v1/search").is_some());
+        assert!(doc["paths"].get("/v1/debug/instances").is_none());
+        assert_eq!(
+            response_status(router, "/v1/debug/instances").await,
+            StatusCode::NOT_FOUND
+        );
+    }
+
+    #[tokio::test]
+    async fn gateway_router_with_admin_state_lists_debug_routes_in_openapi() {
+        let state = make_gateway_state();
+        let router =
+            build_gateway_router_with_admin(state.clone(), Some(AdminState::new(state)), "/admin");
+
+        let (status, doc) = body_json(router, "/v1/openapi.json").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(doc["paths"].get("/v1/debug/instances").is_some());
+    }
 
     #[tokio::test]
     async fn test_admin_ui_returns_html() {
