@@ -74,6 +74,7 @@
 | Cooperative cancellation in DCC dispatcher skills (#522) | `check_dcc_cancelled()` — also honours per-job `JobHandle` published via `set_current_job(handle)`; required for skills launched outside an MCP request context (queued batch render, `scriptJob` callback, simulation runner) |
 | Detect a misconfigured GUI binary on `DCC_MCP_PYTHON_EXECUTABLE` (#524) | `is_gui_executable(path)` → `GuiExecutableHint(gui_path, dcc_kind, recommended_replacement)` or `None` for python/unknown binaries; covers maya/houdini/unreal/blender/3dsmax/nuke/modo/motionbuilder/c4d/katana |
 | Auto-correct a GUI binary to its headless sibling (#524) | `correct_python_executable(path)` — returns `mayapy.exe` next to `maya.exe`, `hython` next to `houdini`, `UnrealEditor-Cmd.exe` next to `UnrealEditor.exe`; falls back to original path when no sibling is found on disk |
+| Adapter install/uninstall without loading `_core` (#1101) | `from dcc_mcp_core.install_lifecycle import query_runtime_state, stop_runtime_entries, inspect_install_root, safe_remove_tree, safe_replace_tree`; CLI: `python -m dcc_mcp_core.install_lifecycle inspect <install-root>` |
 | Declarative progressive skill loading on startup (#525) | `MinimalModeConfig(skills=("skill_a","skill_b"), deactivate_groups={"skill_a": ("preview",)})` → `register_builtin_actions(minimal_mode=cfg)`. Env vars: `DCC_MCP_DEFAULT_TOOLS` (comma-separated explicit list, takes precedence), `DCC_MCP_MINIMAL=0` (load every discovered skill). |
 | Unified host execution bridge for embedded adapters (#599) | `HostExecutionBridge(dispatcher=..., runner=...)` + `DccServerOptions.from_env(..., execution_bridge=bridge)` → `DccServerBase(opts)` — one adapter-facing object for in-process skill scripts and direct host callables; use `bridge.dispatch_callable(...)` for dynamic work so affinity metadata and error normalization match skill execution. Audited skills can set `enforce_thread_affinity: true` to reject mismatched runtime contexts with `THREAD_AFFINITY_VIOLATION`. |
 | Deferred host-operation completion (#604) | Return `DeferredToolResult(check_is_finished=..., timeout_secs=..., poll_interval_secs=..., stdout=..., stderr=...)` from an in-process skill or `HostExecutionBridge.dispatch_callable()`; `check_is_finished()` returns `None` while running and the final JSON-serialisable result when complete. Async `tools/call` keeps the existing `JobManager` row running until the bridge returns or times out. |
@@ -227,7 +228,7 @@ crates/
 └── workspace-hack/         # Cargo-hakari feature unification
 ```
 
-Pure-Python modules: `cancellation`, `checkpoint`, `constants` (#487), `result_envelope` (#487), `_server/{observability,skill_query,window_resolver}` (#486), `_tool_registration` (#481), `docs_resources`, `feedback`, `introspect`, `recipes`, `workflow_yaml`, `bridge`, `gateway_election`, `hotreload`, `factory`, `dcc_server`, `server_base`, `adapters`, `auth`, `batch`, `elicitation`, `rich_content`, `plugin_manifest`, `dcc_api_executor`, `skill`
+Pure-Python modules: `cancellation`, `checkpoint`, `constants` (#487), `result_envelope` (#487), `_server/{observability,skill_query,window_resolver}` (#486), `_tool_registration` (#481), `docs_resources`, `feedback`, `introspect`, `recipes`, `workflow_yaml`, `bridge`, `gateway_election`, `hotreload`, `factory`, `dcc_server`, `server_base`, `adapters`, `auth`, `batch`, `elicitation`, `rich_content`, `plugin_manifest`, `dcc_api_executor`, `install_lifecycle` (#1101), `skill`
 
 ## Core Concepts
 
@@ -652,6 +653,15 @@ tools:
 - `get_bundled_skill_paths() -> List[str]` — list containing the bundled skills directory when it exists
 - `copy_skill_to_team_dir(skill_dir) -> str` — copy a skill to the team directory
 - `copy_skill_to_user_dir(skill_dir) -> str` — copy a skill to the user directory
+
+### Adapter Install Lifecycle (`dcc_mcp_core.install_lifecycle`)
+
+- Import-light helpers for adapter installers/uninstallers that must not load `dcc_mcp_core._core` from an install root they may remove.
+- `query_runtime_state(registry_dir=None, dcc_type=None, role=None, install_root=None, include_dead=True)` reads `services.json` with stdlib only.
+- `stop_runtime_entries(..., role="per-dcc-sidecar", include_host_processes=False)` requests sidecar stop without terminating the owning DCC host by default.
+- `inspect_install_root(path)` reports loaded native artifacts under the install root as `status="requires_restart"` with `locked_path`.
+- `safe_remove_tree(path)` / `safe_replace_tree(source, destination)` attempt immediate cleanup and classify Windows native-file lock failures into a deferred operation.
+- CLI: `python -m dcc_mcp_core.install_lifecycle {query|stop|layout|plan-update|inspect|remove|replace}`.
 
 ### Scheduler (`dcc_mcp_core`)
 

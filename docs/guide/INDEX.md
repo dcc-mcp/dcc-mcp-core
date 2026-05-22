@@ -53,6 +53,7 @@ document without scanning every file.
 | [translate.md](translate.md) | `translate` subcommand: bridge any stdio MCP server to HTTP/SSE |
 | [openapi-mount.md](openapi-mount.md) | OpenAPI-to-MCP mount helper: expose any REST API as MCP tools |
 | [catalog.md](catalog.md) | DCC-MCP public adapter catalog: search and describe |
+| [adapter-install-lifecycle.md](adapter-install-lifecycle.md) | Import-light adapter install/uninstall helpers for registry query, sidecar stop, and Windows native-file lock handling |
 
 ## Core Subsystems
 

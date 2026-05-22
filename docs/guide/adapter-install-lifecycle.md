@@ -1,0 +1,189 @@
+# Adapter Install Lifecycle
+
+Adapter installers often run inside the DCC process they are updating. On
+Windows, importing `dcc_mcp_core._core` loads `_core.pyd`; that native module
+stays locked until the process exits, so an uninstall or upgrade can fail while
+removing the adapter's bundled package tree.
+
+Use `dcc_mcp_core.install_lifecycle` for installer and uninstaller code that
+must stay import-light. The module uses only the Python standard library and
+does not import `_core`.
+
+## Rez Or Filesystem Deployment Layout
+
+Pipeline teams can use the same bootstrap script before packages are formally
+built. Resolve package roots first, then prepend the returned paths to the
+process environment that launches the sidecar or gateway:
+
+```python
+from dcc_mcp_core.install_lifecycle import resolve_deployment_layout
+
+layout = resolve_deployment_layout(
+    r"G:\_thm\rez_local_cache\ext",
+    adapter_package="dcc_mcp_maya",
+)
+
+python_paths = layout["environment"]["prepend"]["PYTHONPATH"]
+path_entries = layout["environment"]["prepend"]["PATH"]
+```
+
+When Rez is active, the helper prefers `REZ_<PACKAGE>_ROOT` variables such as
+`REZ_DCC_MCP_CORE_ROOT`, `REZ_DCC_MCP_SERVER_ROOT`, and
+`REZ_DCC_MCP_MAYA_ROOT`. Without Rez, pass a shared cache root or explicit
+`package_roots` mapping:
+
+```python
+layout = resolve_deployment_layout(
+    package_roots={
+        "dcc_mcp_core": r"G:\_thm\rez_local_cache\ext\dcc_mcp_core",
+        "dcc_mcp_server": r"G:\_thm\rez_local_cache\ext\dcc_mcp_server",
+        "dcc_mcp_maya": r"G:\_thm\rez_local_cache\ext\dcc_mcp_maya",
+    },
+    adapter_package="dcc_mcp_maya",
+)
+```
+
+This keeps development, loose internal drops, and packaged Rez deployments on
+one code path.
+
+## Import-Light Preflight
+
+```python
+from dcc_mcp_core.install_lifecycle import inspect_install_root
+
+diagnostic = inspect_install_root(r"C:\Users\me\Documents\3dsMax\scripts\dcc_mcp_3dsmax")
+if diagnostic["requires_restart"]:
+    schedule_deferred_cleanup(diagnostic)
+```
+
+`inspect_install_root()` checks modules already loaded in the current process.
+If a native artifact under the install root is loaded, it returns:
+
+```json
+{
+  "status": "requires_restart",
+  "requires_restart": true,
+  "locked_path": "C:\\...\\dcc_mcp_core\\_core.pyd",
+  "recommended_next_action": "Defer cleanup until the DCC host restarts, then remove or replace the install root."
+}
+```
+
+## Registry Query And Sidecar Stop
+
+Installers can inspect the shared FileRegistry without creating any Rust-backed
+objects:
+
+```python
+from dcc_mcp_core.install_lifecycle import query_runtime_state
+from dcc_mcp_core.install_lifecycle import stop_runtime_entries
+
+state = query_runtime_state(dcc_type="3dsmax", role="per-dcc-sidecar")
+stop = stop_runtime_entries(dcc_type="3dsmax")
+```
+
+By default, `stop_runtime_entries()` only targets rows that publish
+`metadata.sidecar_pid`. It does not terminate the parent DCC process unless
+`include_host_processes=True` is passed explicitly.
+
+## Mixed Runtime Version Plan
+
+A gateway can see several DCC runtimes at once. For example, Maya may still be
+running an old sidecar while 3ds Max has already started a newer one. Treat each
+registered instance independently and plan restarts from registry metadata:
+
+```python
+from dcc_mcp_core.install_lifecycle import plan_runtime_updates
+from dcc_mcp_core.install_lifecycle import query_runtime_state
+
+state = query_runtime_state()
+plan = plan_runtime_updates(
+    state,
+    target_versions={
+        "core": "0.17.21",
+        "server": "0.17.21",
+        "adapter": "1.2.0",
+    },
+)
+```
+
+`ServiceEntry.version` is the DCC application's version, such as `Maya 2026` or
+`Photoshop 25.9`; it is not the `dcc-mcp-core` package version. Runtime rows
+must publish package versions through metadata keys such as
+`dcc_mcp_core_version`, `dcc_mcp_server_version`, and `adapter_version`.
+When package metadata is missing, `plan_runtime_updates()` reports
+`action=verify_runtime_metadata` instead of treating the DCC app version as a
+package version.
+
+Each plan row reports the component drift and a restart action:
+
+```json
+{
+  "dcc_type": "maya",
+  "action": "restart_sidecar",
+  "restart_scope": "sidecar",
+  "stale_components": ["core", "server", "adapter"],
+  "recommended_next_action": "Stop the registered sidecar, restart it from the target deployment, then re-run MCP readiness."
+}
+```
+
+Admin surfaces should render `action=restart_sidecar` as a safe sidecar restart
+button when `sidecar_pid` is present. If a row reports
+`manual_restart_required`, the runtime is host-owned and the DCC process must
+be restarted before reset or MCP calls are expected to use the newer code.
+If a row reports `verify_runtime_metadata`, the registry row is missing enough
+package-version metadata to decide safely; verify or restart that runtime before
+assuming it is using the target deployment.
+After any stop or restart, verify readiness with the instance MCP endpoint and
+refresh gateway registry state before sending reset calls.
+
+The gateway Admin JSON already exposes these operator hints on each instance:
+
+```json
+{
+  "lifecycle": {
+    "role": "per-dcc-sidecar",
+    "sidecar_pid": 31337,
+    "supports_safe_stop": true,
+    "restartable": true,
+    "restart_command": "rez-env dcc_mcp_maya -- maya-sidecar"
+  }
+}
+```
+
+## Safe Remove Or Replace
+
+```python
+from dcc_mcp_core.install_lifecycle import safe_remove_tree
+from dcc_mcp_core.install_lifecycle import safe_replace_tree
+
+removed = safe_remove_tree(install_root)
+replaced = safe_replace_tree(staged_payload, install_root)
+```
+
+Both helpers attempt immediate cleanup when preflight is clear. If Windows
+reports a native-file lock, the result is structured for a deferred startup
+hook:
+
+```json
+{
+  "status": "requires_restart",
+  "requires_restart": true,
+  "locked_path": "C:\\...\\_core.pyd",
+  "reason": "windows_file_lock",
+  "deferred_operation": {
+    "operation": "remove_tree",
+    "path": "C:\\...\\dcc_mcp_3dsmax"
+  }
+}
+```
+
+Run the same helpers from a subprocess when a DCC-specific installer needs a
+JSON-only control path:
+
+```bash
+python -m dcc_mcp_core.install_lifecycle inspect C:\path\to\adapter
+python -m dcc_mcp_core.install_lifecycle stop --dcc-type 3dsmax
+python -m dcc_mcp_core.install_lifecycle layout --cache-root G:\_thm\rez_local_cache\ext --adapter-package dcc_mcp_maya
+python -m dcc_mcp_core.install_lifecycle plan-update --target-version core=0.17.21 --target-version server=0.17.21
+python -m dcc_mcp_core.install_lifecycle remove C:\path\to\adapter
+```

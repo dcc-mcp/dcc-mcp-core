@@ -454,6 +454,51 @@ fn entry_to_short(instance_id: &Uuid) -> String {
     instance_id.simple().to_string()[..8].to_string()
 }
 
+fn first_metadata_value<'a>(
+    metadata: &'a HashMap<String, String>,
+    keys: &[&str],
+) -> Option<&'a str> {
+    keys.iter()
+        .filter_map(|key| metadata.get(*key).map(String::as_str))
+        .find(|value| !value.trim().is_empty())
+}
+
+fn lifecycle_json(e: &ServiceEntry) -> Value {
+    let role = e
+        .metadata
+        .get("dcc_mcp_role")
+        .map(String::as_str)
+        .unwrap_or("runtime");
+    let sidecar_pid = e
+        .metadata
+        .get("sidecar_pid")
+        .and_then(|value| value.parse::<u32>().ok());
+    let restart_command =
+        first_metadata_value(&e.metadata, &["restart_command", "dcc_mcp_restart_command"]);
+    let launch_command =
+        first_metadata_value(&e.metadata, &["launch_command", "dcc_mcp_launch_command"]);
+    let install_root = first_metadata_value(
+        &e.metadata,
+        &[
+            "install_root",
+            "adapter_root",
+            "adapter_install_root",
+            "package_root",
+            "root_path",
+        ],
+    );
+
+    json!({
+        "role": role,
+        "sidecar_pid": sidecar_pid,
+        "supports_safe_stop": sidecar_pid.is_some(),
+        "restartable": sidecar_pid.is_some() || restart_command.is_some() || launch_command.is_some(),
+        "restart_command": restart_command,
+        "launch_command": launch_command,
+        "install_root": install_root,
+    })
+}
+
 /// Serialize a `ServiceEntry` to a JSON `Value` suitable for gateway responses.
 ///
 /// The returned object always contains every field so that MCP clients can
@@ -502,6 +547,7 @@ pub fn entry_to_json(
         "version":         e.version,
         "adapter_version": e.adapter_version,
         "adapter_dcc":     e.adapter_dcc,
+        "lifecycle":       lifecycle_json(e),
         "metadata":        e.metadata,
         "pool": {
             "capacity": e.capacity,
