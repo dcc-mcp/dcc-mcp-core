@@ -44,7 +44,8 @@ use super::state::GatewayState;
 /// Admin UI (#772, `admin` feature):
 /// - `GET  /admin`              — HTML dashboard
 /// - `GET  /admin/api/*`        — JSON API endpoints
-pub fn build_gateway_router(state: GatewayState) -> Router {
+pub fn build_gateway_router(mut state: GatewayState) -> Router {
+    state.debug_routes_enabled = false;
     let limits = gateway_limits();
     let mut r = build_base_router(state);
     r = r.layer(RequestBodyLimitLayer::new(limits.body_max_bytes));
@@ -69,6 +70,12 @@ pub fn build_gateway_router_with_admin(
     #[cfg(feature = "admin")] admin_state: Option<super::admin::state::AdminState>,
     #[cfg(feature = "admin")] admin_path: &str,
 ) -> Router {
+    #[cfg(feature = "admin")]
+    let mut state = state;
+    #[cfg(feature = "admin")]
+    {
+        state.debug_routes_enabled = admin_state.is_some();
+    }
     let limits = gateway_limits();
     let mut router = build_base_router(state);
     router = router.layer(RequestBodyLimitLayer::new(limits.body_max_bytes));

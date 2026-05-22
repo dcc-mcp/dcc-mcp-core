@@ -58,7 +58,10 @@ into a faster authoring loop.
    adapter example surfaces an `mcp_url`, make sure the Admin Dashboard can
    derive per-instance OpenAPI Inspector, spec JSON, and docs links from it.
    For machine consumers, prefer the stable gateway `/v1/debug/*` routes and
-   `GET /v1/openapi.json` over scraping `/admin` HTML or dashboard internals.
+   `GET /v1/openapi.json` over scraping `/admin` HTML or dashboard internals;
+   the shipped server paths enable the required gateway `admin` feature and
+   Admin telemetry runtime state, while minimal direct `dcc-mcp-gateway` builds
+   or runtimes started with Admin disabled may omit those debug routes.
 7. For adapter install, uninstall, or upgrade flows, use
    `dcc_mcp_core.install_lifecycle` before importing Rust-backed public API:
    query/stop registered sidecars, inspect install roots, classify locked

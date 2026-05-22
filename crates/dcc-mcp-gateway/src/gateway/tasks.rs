@@ -575,6 +575,7 @@ pub(crate) async fn start_gateway_tasks(
         gateway_metrics: gateway_metrics.clone(),
         middleware_chain: Arc::new(middleware_chain),
         instance_diagnostics: instance_diagnostics.clone(),
+        debug_routes_enabled: false,
     };
 
     // ── Admin UI state (#772, #864) ────────────────────────────────────────
