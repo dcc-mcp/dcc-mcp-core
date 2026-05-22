@@ -10,6 +10,21 @@ fn remove_sentinel_for_pid_fallback(registry: &FileRegistry, key: &ServiceKey) {
     }
 }
 
+fn corrupted_registry_files(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut paths: Vec<_> = std::fs::read_dir(dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("services.json.corrupted-"))
+        })
+        .collect();
+    paths.sort();
+    paths
+}
+
 #[test]
 fn test_file_registry_register_and_list() {
     let dir = tempfile::tempdir().unwrap();
@@ -622,6 +637,58 @@ fn test_empty_registry_file_during_transaction_clears_snapshot() {
         FileRegistry::new(dir.path()).unwrap().is_empty(),
         "empty services.json must not be repopulated from stale memory"
     );
+}
+
+#[test]
+fn test_zero_padded_registry_file_is_quarantined_and_starts_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(REGISTRY_FILE);
+    std::fs::write(&path, vec![0u8; 1466]).unwrap();
+
+    let registry = FileRegistry::new(dir.path()).unwrap();
+
+    assert!(registry.is_empty());
+    assert!(!path.exists());
+    let quarantined = corrupted_registry_files(dir.path());
+    assert_eq!(quarantined.len(), 1);
+    assert_eq!(std::fs::metadata(&quarantined[0]).unwrap().len(), 1466);
+    assert!(
+        std::fs::read(&quarantined[0])
+            .unwrap()
+            .iter()
+            .all(|byte| *byte == 0)
+    );
+}
+
+#[test]
+fn test_zero_padded_registry_file_with_trailing_newline_is_quarantined() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(REGISTRY_FILE);
+    std::fs::write(&path, [0, 0, 0, b'\r', b'\n']).unwrap();
+
+    let registry = FileRegistry::new(dir.path()).unwrap();
+
+    assert!(registry.is_empty());
+    assert!(!path.exists());
+    let quarantined = corrupted_registry_files(dir.path());
+    assert_eq!(quarantined.len(), 1);
+    assert_eq!(
+        std::fs::read(&quarantined[0]).unwrap(),
+        vec![0, 0, 0, b'\r', b'\n']
+    );
+}
+
+#[test]
+fn test_whitespace_only_registry_file_stays_empty_without_quarantine() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(REGISTRY_FILE);
+    std::fs::write(&path, " \r\n\t").unwrap();
+
+    let registry = FileRegistry::new(dir.path()).unwrap();
+
+    assert!(registry.is_empty());
+    assert!(path.exists());
+    assert!(corrupted_registry_files(dir.path()).is_empty());
 }
 
 #[test]
