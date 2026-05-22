@@ -1082,9 +1082,44 @@ impl FileRegistry {
             return Ok(Vec::new());
         }
 
+        if Self::looks_like_zero_padded_empty_registry(&content) {
+            self.quarantine_zero_padded_registry_file(&path, content.len());
+            return Ok(Vec::new());
+        }
+
         serde_json::from_str(&content).map_err(|e| {
             TransportError::RegistryFile(format!("failed to parse {}: {}", path.display(), e))
         })
+    }
+
+    fn looks_like_zero_padded_empty_registry(content: &str) -> bool {
+        content.as_bytes().contains(&0)
+            && content
+                .bytes()
+                .all(|byte| byte == 0 || byte.is_ascii_whitespace())
+    }
+
+    fn quarantine_zero_padded_registry_file(&self, path: &Path, bytes: usize) {
+        let ts = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .unwrap_or(0);
+        let quarantined = path.with_extension(format!("json.corrupted-{ts}"));
+        match fs::rename(path, &quarantined) {
+            Ok(()) => tracing::warn!(
+                path = %path.display(),
+                quarantined = %quarantined.display(),
+                bytes,
+                "FileRegistry: registry file looked like a zero-padded NTFS artefact; quarantined and starting empty"
+            ),
+            Err(error) => tracing::warn!(
+                path = %path.display(),
+                quarantined = %quarantined.display(),
+                bytes,
+                error = %error,
+                "FileRegistry: registry file looked like a zero-padded NTFS artefact; failed to quarantine but starting empty"
+            ),
+        }
     }
 
     /// Read the registry file with a short bounded retry to tolerate the
