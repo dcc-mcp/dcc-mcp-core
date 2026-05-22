@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.21](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.20...v0.17.21) (2026-05-22)
+
+
+### Features
+
+* add gateway trace context ([0b8c771](https://github.com/loonghao/dcc-mcp-core/commit/0b8c77155eac6ee95bd92e32f66cc7559eee669b))
+* expose stable gateway debug api ([96b66e1](https://github.com/loonghao/dcc-mcp-core/commit/96b66e11b375fa5e9f420e1e3b4a4c10c73eec27))
+
+
+### Bug Fixes
+
+* honor debug list limits ([dd9491f](https://github.com/loonghao/dcc-mcp-core/commit/dd9491f3b4ccfd4d178c17408e24c8d76b85866a))
+* normalize debug bundle links ([1788975](https://github.com/loonghao/dcc-mcp-core/commit/1788975fc1cb00fa8568789409414abda616901e))
+
+
+### Documentation
+
+* fix debug api table lint ([3585ffb](https://github.com/loonghao/dcc-mcp-core/commit/3585ffbb6f6aa58af8bec19fe524fa240981a5ed))
+* sync zh rest debug api ([b3b87a1](https://github.com/loonghao/dcc-mcp-core/commit/b3b87a1511e37f09a4ba433ebfee474f4b3efd8a))
+
 ## [0.17.20](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.19...v0.17.20) (2026-05-21)
 
 
