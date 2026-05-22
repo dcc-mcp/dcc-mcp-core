@@ -3,4 +3,5 @@
 pub mod env;
 pub mod error;
 pub mod gateway_admin_audit;
+pub mod gateway_admin_deregistered;
 pub mod model;

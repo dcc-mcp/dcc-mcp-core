@@ -45,12 +45,12 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context as _;
 use clap::Args;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
-use dcc_mcp_transport::discovery::types::ServiceEntry;
+use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
 use tokio::sync::watch;
 use uuid::Uuid;
 
@@ -66,6 +66,10 @@ pub const ROLE_METADATA_KEY: &str = "dcc_mcp_role";
 
 /// Value stored in `metadata[ROLE_METADATA_KEY]` for per-DCC sidecars.
 pub const ROLE_PER_DCC_SIDECAR: &str = "per-dcc-sidecar";
+
+const FAILURE_REASON_METADATA_KEY: &str = "failure_reason";
+const FAILURE_STAGE_METADATA_KEY: &str = "failure_stage";
+const FAILURE_AT_UNIX_METADATA_KEY: &str = "failure_at_unix";
 
 /// How often we re-check whether `--watch-pid` is still alive.
 ///
@@ -258,21 +262,39 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
                     Some(connected)
                 }
                 Err(err) => {
+                    let reason = format!("host-rpc connect to `{}` failed: {}", args.host_rpc, err);
                     tracing::warn!(
                         host_rpc = %args.host_rpc,
                         error = %err,
                         "HostRpcClient connect failed; sidecar keeps running disconnected"
                     );
+                    if let Err(mark_err) =
+                        mark_sidecar_boot_failure(&registry, &key, "host-rpc-connect", reason)
+                    {
+                        tracing::warn!(
+                            error = %mark_err,
+                            "FileRegistry failed to record sidecar host-rpc failure"
+                        );
+                    }
                     None
                 }
             }
         }
         Err(err) => {
+            let reason = format!("unsupported host-rpc URI `{}`: {}", args.host_rpc, err);
             tracing::error!(
                 host_rpc = %args.host_rpc,
                 error = %err,
                 "unsupported --host-rpc scheme; sidecar keeps running but cannot dispatch"
             );
+            if let Err(mark_err) =
+                mark_sidecar_boot_failure(&registry, &key, "host-rpc-scheme", reason)
+            {
+                tracing::warn!(
+                    error = %mark_err,
+                    "FileRegistry failed to record sidecar host-rpc scheme failure"
+                );
+            }
             None
         }
     };
@@ -324,7 +346,16 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
                     Some(handle)
                 }
                 Err(err) => {
+                    let reason = format!("sidecar MCP listener bind failed: {err}");
                     tracing::error!(error = %err, "sidecar MCP listener bind failed");
+                    if let Err(mark_err) =
+                        mark_sidecar_boot_failure(&registry, &key, "mcp-listener-bind", reason)
+                    {
+                        tracing::warn!(
+                            error = %mark_err,
+                            "FileRegistry failed to record sidecar listener failure"
+                        );
+                    }
                     None
                 }
             }
@@ -402,12 +433,45 @@ fn republish_mcp_url(
     };
     entry.host = handle.bind_addr.ip().to_string();
     entry.port = handle.bind_addr.port();
+    entry.status = ServiceStatus::Available;
     entry
         .metadata
         .insert("mcp_url".to_string(), handle.mcp_url.clone());
+    entry.metadata.remove(FAILURE_REASON_METADATA_KEY);
+    entry.metadata.remove(FAILURE_STAGE_METADATA_KEY);
+    entry.metadata.remove(FAILURE_AT_UNIX_METADATA_KEY);
     // Deregister + register is atomic enough for our needs — the
     // FileRegistry only flushes after register() returns, so the
     // on-disk snapshot transitions in one step.
+    registry.deregister(key)?;
+    registry.register(entry)?;
+    Ok(())
+}
+
+fn mark_sidecar_boot_failure(
+    registry: &Arc<FileRegistry>,
+    key: &dcc_mcp_transport::discovery::types::ServiceKey,
+    stage: &str,
+    reason: String,
+) -> anyhow::Result<()> {
+    let Some(mut entry) = registry.get(key) else {
+        anyhow::bail!("registry row vanished before sidecar failure metadata update")
+    };
+    entry.status = ServiceStatus::Booting;
+    entry
+        .metadata
+        .insert(FAILURE_STAGE_METADATA_KEY.to_string(), stage.to_string());
+    entry
+        .metadata
+        .insert(FAILURE_REASON_METADATA_KEY.to_string(), reason);
+    entry.metadata.insert(
+        FAILURE_AT_UNIX_METADATA_KEY.to_string(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            .to_string(),
+    );
     registry.deregister(key)?;
     registry.register(entry)?;
     Ok(())
@@ -428,11 +492,12 @@ async fn client_connect(
 }
 
 fn build_service_entry(args: &SidecarArgs) -> ServiceEntry {
-    // The sidecar publishes its own host:port (currently `127.0.0.1:0`
-    // because we haven't started an MCP HTTP listener in this MVP).
-    // Once the HostRpcClient wiring lands and the sidecar speaks MCP HTTP
-    // back to the gateway, this becomes its real bind address.
+    // The sidecar starts as Booting with a placeholder port. Once the MCP
+    // listener binds, `republish_mcp_url` swaps in the real endpoint. If the
+    // HostRpc connection/listener fails, the row stays Booting with
+    // `failure_reason` metadata so operators can diagnose it in Admin.
     let mut entry = ServiceEntry::new(&args.dcc, "127.0.0.1", 0).with_pid(args.watch_pid);
+    entry.status = ServiceStatus::Booting;
 
     if let Some(uuid) = args.instance_id {
         entry.instance_id = uuid;
@@ -890,6 +955,29 @@ mod tests {
         )
         .await
         .expect("sidecar must register even when connect fails");
+        let failed_row = wait_for_failure_reason(
+            registry_dir.path(),
+            &key_dcc,
+            pinned_uuid,
+            Duration::from_secs(3),
+        )
+        .await
+        .expect("sidecar should expose host-rpc failure metadata");
+        assert_eq!(failed_row.status, ServiceStatus::Booting);
+        assert_eq!(failed_row.port, 0);
+        assert_eq!(
+            failed_row
+                .metadata
+                .get(FAILURE_STAGE_METADATA_KEY)
+                .map(String::as_str),
+            Some("host-rpc-connect")
+        );
+        assert!(
+            failed_row
+                .metadata
+                .get(FAILURE_REASON_METADATA_KEY)
+                .is_some_and(|reason| reason.contains("host-rpc connect"))
+        );
 
         child.kill().expect("kill sleep child");
         let _ = child.wait();
@@ -938,6 +1026,32 @@ mod tests {
             };
             if registry.get(&key).is_some() {
                 return Ok(());
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+
+    async fn wait_for_failure_reason(
+        registry_dir: &std::path::Path,
+        dcc: &str,
+        instance_id: Uuid,
+        timeout: Duration,
+    ) -> anyhow::Result<ServiceEntry> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if Instant::now() >= deadline {
+                anyhow::bail!("registry row never recorded failure metadata");
+            }
+            let registry =
+                FileRegistry::new(registry_dir).with_context(|| "reopen registry while polling")?;
+            let key = ServiceKey {
+                dcc_type: dcc.to_string(),
+                instance_id,
+            };
+            if let Some(row) = registry.get(&key)
+                && row.metadata.contains_key(FAILURE_REASON_METADATA_KEY)
+            {
+                return Ok(row);
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
