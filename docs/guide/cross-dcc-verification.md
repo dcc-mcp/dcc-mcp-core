@@ -128,9 +128,9 @@ these lines:
 
 ```
 1. Start producer DCC in headless mode, load producer skill.
-2. mcporter call: producer__create_sphere, producer__export_fbx.
+2. mcpcall call: producer__create_sphere, producer__export_fbx.
 3. Start verifier DCC in headless mode, load verifier skill.
-4. mcporter call: verifier__import_and_inspect(/tmp/sphere.fbx).
+4. mcpcall call: verifier__import_and_inspect(/tmp/sphere.fbx).
 5. Python assertion: SceneStats.from_dict(...).matches(produced).
 ```
 

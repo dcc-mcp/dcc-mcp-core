@@ -104,9 +104,9 @@ if __name__ == "__main__":
 
 ```
 1. 以无头模式启动生产者 DCC，加载生产者技能
-2. mcporter call: producer__create_sphere, producer__export_fbx
+2. mcpcall call: producer__create_sphere, producer__export_fbx
 3. 以无头模式启动验证者 DCC，加载验证者技能
-4. mcporter call: verifier__import_and_inspect(/tmp/sphere.fbx)
+4. mcpcall call: verifier__import_and_inspect(/tmp/sphere.fbx)
 5. Python 断言: SceneStats.from_dict(...).matches(produced)
 ```
 
