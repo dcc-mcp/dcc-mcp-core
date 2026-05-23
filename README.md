@@ -58,6 +58,7 @@ After install:
 dcc-mcp-cli health
 dcc-mcp-cli list
 dcc-mcp-cli search --query sphere --dcc-type maya
+dcc-mcp-cli load-skill workflow --dcc-type 3dsmax --instance-id 80321760
 dcc-mcp-cli lint path/to/skills
 ```
 
@@ -223,6 +224,7 @@ After install:
 dcc-mcp-cli health
 dcc-mcp-cli list
 dcc-mcp-cli search --query sphere --dcc-type maya
+dcc-mcp-cli load-skill workflow --dcc-type 3dsmax --instance-id 80321760
 dcc-mcp-cli lint path/to/skills
 ```
 
@@ -585,7 +587,7 @@ tools/list response (Maya session, nothing loaded yet):
 | `dcc-mcp-telemetry` | Observability | `TelemetryConfig`, `ToolRecorder`, `ToolMetrics`, optional Prometheus |
 | `dcc-mcp-usd` | USD integration | `UsdStage`, `UsdPrim`, `scene_info_json_to_stage` |
 | `dcc-mcp-http` | MCP Streamable HTTP facade | `McpHttpServer`, `McpHttpConfig`, `McpServerHandle`, PyO3 bindings, compatibility re-exports |
-| `dcc-mcp-cli` | Client control-plane CLI | `dcc-mcp-cli list/search/describe/call/install` |
+| `dcc-mcp-cli` | Client control-plane CLI | `dcc-mcp-cli list/search/load-skill/describe/call/install` |
 | `dcc-mcp-server` | Binary entry point | `dcc-mcp-server` CLI, gateway runner |
 | `dcc-mcp-workflow` | Workflow engine (opt-in) | `WorkflowSpec`, `WorkflowExecutor`, `WorkflowHost`, `StepPolicy`, `RetryPolicy` |
 | `dcc-mcp-scheduler` | Cron + webhook scheduler (opt-in) | `ScheduleSpec`, `TriggerSpec`, `SchedulerService`, HMAC verification |
