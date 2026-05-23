@@ -314,6 +314,15 @@ jobs:
       test-wheel: ${{ 'false' }}
       checkout-ref: ${{ needs.release-please.outputs.tag_name }}
 
+  publish-clawhub-skills:
+    needs: [release-please]
+    if: needs.release-please.outputs.release_created == 'true'
+    uses: ./.github/workflows/clawhub.yml
+    with:
+      checkout-ref: ${{ needs.release-please.outputs.tag_name }}
+      publish: true
+    secrets: inherit
+
   # ── Publish to PyPI ──
   publish:
     needs: [release-please, build-wheels, build-binaries]
