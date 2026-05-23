@@ -92,6 +92,12 @@ into a faster authoring loop.
    dict-style wrappers only for compatibility during adapter migrations.
 11. Add tests at the lowest executable layer, then one discovery/load/call or
    gateway REST path when behavior crosses MCP or REST boundaries.
+12. For application UI automation, use the generic `app_ui__*` contract rather
+    than DCC-specific names: snapshot -> find -> act -> wait_for -> verify.
+    Prefer native DCC APIs first; use `app_ui` as a scoped, policy-controlled
+    fallback. Keep raw coordinates and keyboard shortcuts disabled by default,
+    return structured `stale_control` / `policy_disabled` / `timeout` errors,
+    and redact typed text or screenshot bytes in audit records.
 
 ## Adapter Selection
 

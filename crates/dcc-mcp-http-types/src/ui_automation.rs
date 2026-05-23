@@ -122,12 +122,78 @@ pub struct UiFindRequest {
     pub limit: Option<usize>,
 }
 
+/// Condition kind evaluated by an `app_ui__wait_for` style tool.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiWaitConditionKind {
+    /// A matching control must exist.
+    ControlExists,
+    /// A matching control must be absent.
+    ControlMissing,
+    /// The control text must equal the expected text.
+    TextEquals,
+    /// The control value must equal the expected value.
+    ValueEquals,
+    /// The checked state must equal the expected value.
+    CheckedEquals,
+    /// The control must be enabled.
+    Enabled,
+    /// The control must be disabled.
+    Disabled,
+    /// The control must have focus.
+    Focused,
+}
+
+const fn default_wait_timeout_ms() -> u64 {
+    5_000
+}
+
+const fn default_wait_interval_ms() -> u64 {
+    100
+}
+
+/// Polling condition for a bounded UI backend.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UiWaitCondition {
+    /// Condition kind to evaluate.
+    pub kind: UiWaitConditionKind,
+    /// Exact control id to inspect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control_id: Option<String>,
+    /// Fuzzy/exact query used to resolve a control.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    /// Role/type filter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    /// Label filter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Expected visible text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Expected value/current text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    /// Expected checked state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked: Option<bool>,
+    /// Maximum time to poll inside the tool call.
+    #[serde(default = "default_wait_timeout_ms")]
+    pub timeout_ms: u64,
+    /// Poll interval inside the tool call.
+    #[serde(default = "default_wait_interval_ms")]
+    pub interval_ms: u64,
+}
+
 /// Bounded UI action kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UiActionKind {
     /// Click or activate a control.
     Click,
+    /// Fallback click at raw coordinates. Disabled by policy by default.
+    RawCoordinateClick,
     /// Set text/value on an editable control.
     SetText,
     /// Toggle a binary control.
@@ -138,6 +204,70 @@ pub enum UiActionKind {
     SelectOption,
     /// Move focus to a control.
     Focus,
+    /// Send a keyboard shortcut. Disabled by policy by default.
+    KeyboardShortcut,
+}
+
+/// Policy controls for scoped `app_ui` observation and actions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppUiPolicy {
+    /// Allow observing snapshots.
+    pub allow_snapshot: bool,
+    /// Allow finding controls.
+    pub allow_find: bool,
+    /// Allow any mutating UI action.
+    pub allow_mutating_actions: bool,
+    /// Allow text entry.
+    pub allow_text_entry: bool,
+    /// Allow keyboard shortcuts.
+    pub allow_keyboard_shortcuts: bool,
+    /// Allow raw-coordinate actions.
+    pub allow_raw_coordinates: bool,
+    /// Optional allow-list for window titles.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_window_titles: Vec<String>,
+    /// Optional allow-list for OS process ids.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_process_ids: Vec<u32>,
+    /// Whether audit sinks may include sensitive values such as typed text.
+    pub audit_sensitive_values: bool,
+}
+
+impl Default for AppUiPolicy {
+    fn default() -> Self {
+        Self {
+            allow_snapshot: true,
+            allow_find: true,
+            allow_mutating_actions: true,
+            allow_text_entry: true,
+            allow_keyboard_shortcuts: false,
+            allow_raw_coordinates: false,
+            allowed_window_titles: Vec::new(),
+            allowed_process_ids: Vec::new(),
+            audit_sensitive_values: false,
+        }
+    }
+}
+
+impl AppUiPolicy {
+    /// Return whether this policy permits an action kind.
+    #[must_use]
+    pub fn allows_action(&self, action: UiActionKind) -> bool {
+        match action {
+            UiActionKind::RawCoordinateClick => {
+                self.allow_mutating_actions && self.allow_raw_coordinates
+            }
+            UiActionKind::KeyboardShortcut => {
+                self.allow_mutating_actions && self.allow_keyboard_shortcuts
+            }
+            UiActionKind::SetText => self.allow_mutating_actions && self.allow_text_entry,
+            UiActionKind::Click
+            | UiActionKind::Toggle
+            | UiActionKind::SetChecked
+            | UiActionKind::SelectOption
+            | UiActionKind::Focus => self.allow_mutating_actions,
+        }
+    }
 }
 
 /// Request to perform one bounded UI action.
@@ -156,6 +286,15 @@ pub struct UiActionRequest {
     /// Option label/id for `select_option`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub option: Option<String>,
+    /// X coordinate for raw-coordinate fallback actions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x: Option<f64>,
+    /// Y coordinate for raw-coordinate fallback actions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y: Option<f64>,
+    /// Keyboard shortcut keys for `keyboard_shortcut`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keys: Vec<String>,
     /// Adapter-defined action metadata.
     #[serde(default)]
     pub metadata: Value,
@@ -173,8 +312,14 @@ pub enum UiErrorCode {
     UnsupportedAction,
     /// Adapter-side safety policy denied the action.
     Denied,
+    /// Runtime policy disabled the action category.
+    PolicyDisabled,
+    /// The scoped application window is missing or unavailable.
+    MissingWindow,
     /// The backend timed out while performing the action.
     Timeout,
+    /// The target exists but is not valid for this action.
+    InvalidTarget,
     /// The backend failed for an adapter-specific reason.
     BackendError,
 }
@@ -233,6 +378,70 @@ impl UiActionResult {
     }
 }
 
+/// Result of evaluating a UI wait condition.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UiWaitResult {
+    /// Whether the condition became true.
+    pub success: bool,
+    /// Condition that was evaluated.
+    pub condition: UiWaitCondition,
+    /// Elapsed wall-clock time in milliseconds.
+    pub elapsed_ms: f64,
+    /// Number of polling attempts.
+    pub attempts: u32,
+    /// Latest snapshot when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot: Option<UiSnapshot>,
+    /// Structured error code on failure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<UiErrorCode>,
+    /// Human-readable result or error message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    /// Adapter-defined result metadata.
+    #[serde(default)]
+    pub metadata: Value,
+}
+
+/// Small audit record for an `app_ui` action decision or outcome.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppUiAuditRecord {
+    /// Action kind that was attempted.
+    pub action_kind: String,
+    /// Whether the decision/outcome succeeded.
+    pub success: bool,
+    /// Target control id when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_control_id: Option<String>,
+    /// Target control role when safe to record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_role: Option<String>,
+    /// Target control label when safe to record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_label: Option<String>,
+    /// Focused control before the action.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before_focus_id: Option<String>,
+    /// Focused control after the action.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_focus_id: Option<String>,
+    /// Structured error code on failure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<UiErrorCode>,
+    /// Human-readable audit message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    /// App UI session id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// Fields intentionally redacted before audit storage.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub redacted_fields: Vec<String>,
+    /// Adapter-defined audit metadata.
+    #[serde(default)]
+    pub metadata: Value,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,6 +471,58 @@ mod tests {
         let value = serde_json::to_value(&result).unwrap();
         assert_eq!(value["error_code"], "stale_control");
         assert_eq!(value["success"], false);
+    }
+
+    #[test]
+    fn app_ui_policy_blocks_high_risk_actions_by_default() {
+        let policy = AppUiPolicy::default();
+
+        assert!(policy.allows_action(UiActionKind::Click));
+        assert!(policy.allows_action(UiActionKind::SetText));
+        assert!(!policy.allows_action(UiActionKind::RawCoordinateClick));
+        assert!(!policy.allows_action(UiActionKind::KeyboardShortcut));
+    }
+
+    #[test]
+    fn ui_wait_condition_serializes_polling_defaults() {
+        let condition = UiWaitCondition {
+            kind: UiWaitConditionKind::TextEquals,
+            control_id: Some("status".to_owned()),
+            query: None,
+            role: None,
+            label: None,
+            text: Some("Ready".to_owned()),
+            value: None,
+            checked: None,
+            timeout_ms: default_wait_timeout_ms(),
+            interval_ms: default_wait_interval_ms(),
+        };
+
+        let value = serde_json::to_value(&condition).unwrap();
+        assert_eq!(value["kind"], "text_equals");
+        assert_eq!(value["timeout_ms"], 5000);
+    }
+
+    #[test]
+    fn app_ui_audit_record_redacts_sensitive_fields() {
+        let record = AppUiAuditRecord {
+            action_kind: "set_text".to_owned(),
+            success: false,
+            target_control_id: Some("project-name".to_owned()),
+            target_role: Some("text_field".to_owned()),
+            target_label: Some("Project".to_owned()),
+            before_focus_id: Some("project-name".to_owned()),
+            after_focus_id: Some("project-name".to_owned()),
+            error_code: Some(UiErrorCode::PolicyDisabled),
+            message: Some("text entry disabled by policy".to_owned()),
+            session_id: Some("session-1".to_owned()),
+            redacted_fields: vec!["text".to_owned()],
+            metadata: Value::Null,
+        };
+
+        let value = serde_json::to_value(record).unwrap();
+        assert_eq!(value["error_code"], "policy_disabled");
+        assert_eq!(value["redacted_fields"][0], "text");
     }
 
     #[test]

@@ -3,7 +3,8 @@
 Official skills and starter templates for the dcc-mcp-core ecosystem.
 
 **Ongoing maintenance:** see [docs/guide/skill-maintenance.md](../docs/guide/skill-maintenance.md)
-(in-repo reference packages: `python/dcc_mcp_core/skills/dcc-diagnostics`,
+(in-repo reference packages: `python/dcc_mcp_core/skills/app-ui`,
+`python/dcc_mcp_core/skills/dcc-diagnostics`, and
 `python/dcc_mcp_core/skills/workflow`).
 
 ## Official Skills (ClawHub-ready)
@@ -29,6 +30,7 @@ python -c "from dcc_mcp_core import validate_skill; print(validate_skill('skills
 
 | Skill | Description | Location |
 |-------|-------------|----------|
+| `app-ui` | Scoped application UI observation/action mock backend | `python/dcc_mcp_core/skills/` |
 | `dcc-diagnostics` | Screenshot, audit log, metrics | `python/dcc_mcp_core/skills/` |
 | `workflow` | Multi-step orchestration | `python/dcc_mcp_core/skills/` |
 
@@ -102,7 +104,7 @@ metadata:
 
 | Layer | Role | Examples |
 |-------|------|---------|
-| **infrastructure** | Low-level, DCC-agnostic primitives. No business context. Stable API. Auto-loaded or shared across all servers. | `dcc-diagnostics`, `workflow`, `usd-tools`, `ffmpeg-media`, `imagemagick-tools`, `git-automation` |
+| **infrastructure** | Low-level, DCC-agnostic primitives. No business context. Stable API. Auto-loaded or shared across all servers. | `app-ui`, `dcc-diagnostics`, `workflow`, `usd-tools`, `ffmpeg-media`, `imagemagick-tools`, `git-automation` |
 | **domain** | Business workflows for a specific DCC or task area. Depends on infrastructure skills. Loaded on-demand per DCC. | `maya-geometry`, `maya-pipeline`, `maya-animation`, `blender-rigging` |
 | **thin-harness** | Raw script execution + recipe book. Primary fall-through when no domain skill matches. One `execute_python` tool + `references/RECIPES.md`. See [thin-harness guide](../docs/guide/thin-harness.md). | `maya-scripting`, `blender-scripting`, `houdini-scripting` |
 | **example** | Authoring references and demos only. Never loaded in production environments. | `hello-world`, `multi-script`, `async-render-example`, `cancellable-loop` |
@@ -288,6 +290,7 @@ skills shipped in `examples/skills/`, or browse them directly:
 | [clawhub-compat](../examples/skills/clawhub-compat/) | example | python | Full OpenClaw format |
 | [dcc-rest-gateway](dcc-rest-gateway/) | infrastructure | python | REST-only gateway control; ClawHub publishable |
 | [dcc-cli-gateway](dcc-cli-gateway/) | infrastructure | python | CLI gateway control with `dcc-mcp-cli`; ClawHub publishable |
+| app-ui | infrastructure | python | Bundled scoped UI automation mock backend |
 | [dcc-diagnostics](../examples/skills/dcc-diagnostics/) | infrastructure | python | Also bundled |
 | [workflow](../examples/skills/workflow/) | infrastructure | python | Also bundled |
 | [usd-tools](../examples/skills/usd-tools/) | infrastructure | python | Read-only USD tools |
@@ -300,10 +303,11 @@ skills shipped in `examples/skills/`, or browse them directly:
 
 ## Bundled Skills
 
-Two skills ship inside the `dcc-mcp-core` wheel and are available immediately
+Core skills ship inside the `dcc-mcp-core` wheel and are available immediately
 after `pip install dcc-mcp-core` (no `DCC_MCP_SKILL_PATHS` needed).
-Both are **infrastructure** skills:
+They are **infrastructure** skills:
 
+- **app-ui** — snapshot, find, act, wait_for (scoped UI automation mock backend)
 - **dcc-diagnostics** — screenshot, audit_log, tool_metrics, process_status
 - **workflow** — run_chain (multi-step orchestration)
 
