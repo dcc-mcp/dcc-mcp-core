@@ -128,6 +128,9 @@ fn should_skip(name: &str) -> bool {
     if name.is_empty() {
         return true;
     }
+    if dcc_mcp_naming::validate_tool_name(name).is_err() {
+        return true;
+    }
     // Skill stubs are discovery hints, not addressable actions.
     if name.starts_with("__skill__") || name.contains("__skill__") {
         return true;
@@ -283,11 +286,11 @@ mod unit_tests {
     }
 
     #[test]
-    fn extracts_skill_from_dotted_and_underscore_forms() {
+    fn extracts_skill_from_client_safe_skill_names() {
         let iid = Uuid::from_u128(2);
         let tools = vec![
             tool(
-                "maya-animation.set_keyframe",
+                "maya-animation__set_keyframe",
                 "keyframe",
                 json!({"type": "object"}),
             ),
@@ -305,12 +308,14 @@ mod unit_tests {
             .map(|r| (r.backend_tool.as_str(), r))
             .collect();
         assert_eq!(
-            by_tool["maya-animation.set_keyframe"].skill_name.as_deref(),
+            by_tool["maya-animation__set_keyframe"]
+                .skill_name
+                .as_deref(),
             Some("maya-animation"),
         );
         assert_eq!(
-            by_tool["maya-animation.set_keyframe"].callable_id,
-            "maya-animation.set_keyframe",
+            by_tool["maya-animation__set_keyframe"].callable_id,
+            "maya-animation__set_keyframe",
         );
         assert_eq!(
             by_tool["hello_world__greet"].skill_name.as_deref(),
@@ -321,6 +326,31 @@ mod unit_tests {
             "hello_world__greet"
         );
         assert_eq!(by_tool["standalone_action"].skill_name, None);
+    }
+
+    #[test]
+    fn skips_invalid_backend_tool_names() {
+        let iid = Uuid::from_u128(22);
+        let tools = vec![
+            tool(
+                "maya-animation.set_keyframe",
+                "legacy dotted tool",
+                json!({"type": "object"}),
+            ),
+            tool(
+                "maya-animation__set_keyframe",
+                "client-safe tool",
+                json!({"type": "object"}),
+            ),
+        ];
+        let out = build_records_from_backend(BuildInput {
+            instance_id: iid,
+            dcc_type: "maya",
+            backend_tools: &tools,
+        });
+        assert_eq!(out.skipped, 1);
+        assert_eq!(out.records.len(), 1);
+        assert_eq!(out.records[0].backend_tool, "maya-animation__set_keyframe");
     }
 
     #[test]

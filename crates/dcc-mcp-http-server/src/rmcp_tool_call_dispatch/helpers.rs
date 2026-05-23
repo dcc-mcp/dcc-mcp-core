@@ -76,7 +76,7 @@ pub(crate) fn resolve_action_name(state: &ServerState, tool_name: &str) -> Strin
             .registry
             .list_actions_by_skill(skill_part)
             .into_iter()
-            .find(|m| m.name == bare_tool);
+            .find(|m| extract_bare_tool_name(skill_part, &m.name) == bare_tool);
         if let Some(m) = matched {
             return m.name;
         }
