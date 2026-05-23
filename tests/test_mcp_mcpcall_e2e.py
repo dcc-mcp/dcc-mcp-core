@@ -1,10 +1,11 @@
-"""E2E tests for McpHttpServer using mcporter CLI as the MCP client.
+"""E2E tests for McpHttpServer using mcpcall CLI as the MCP client.
 
-mcporter (https://github.com/steipete/mcporter) is a TypeScript/CLI tool that
-connects to MCP servers over HTTP and can call tools via the command line.
+mcpcall (https://github.com/loonghao/mcpcall) is a Rust CLI that connects to
+MCP servers over Streamable HTTP or stdio and can list/call tools from shell
+scripts and CI.
 
-These tests start a real McpHttpServer, then exercise it through ``npx mcporter``
-to validate the full MCP protocol stack including:
+These tests start a real McpHttpServer, then exercise it through ``mcpcall`` to
+validate the full MCP protocol stack including:
 
 - Protocol methods: initialize, ping, tools/list
 - Core discovery tools: search_skills, list_skills, get_skill_info, load_skill, unload_skill
@@ -13,18 +14,17 @@ to validate the full MCP protocol stack including:
 - Batch requests, session lifecycle, notifications
 
 Requirements:
-    node >= 18, npx available in PATH
+    mcpcall binary available in PATH, or MCPCALL_BIN pointing to the binary
     dcc_mcp_core Python package installed (Rust wheel)
 
-The tests are skipped automatically when ``npx`` is not found.
+The tests are skipped automatically when ``mcpcall`` is not found.
 
-CI status: this file runs in the dedicated ``mcporter-e2e`` job
-(``.github/workflows/ci.yml``) which installs ``mcporter`` globally via
-``npm install -g mcporter`` and executes ``pytest tests/test_mcp_mcporter_e2e.py``
-against a Linux wheel built earlier in the run. It also auto-skips inside the
-standard ``pytest tests/`` matrix cells because ``npx`` is absent there. Do
-**not** add this file to local ``--ignore`` lists in CI workflows or shared
-scripts.
+CI status: this file runs in the dedicated ``mcpcall-e2e`` job
+(``.github/workflows/ci.yml``), which installs ``mcpcall`` with the upstream
+setup action and executes ``pytest tests/test_mcp_mcpcall_e2e.py`` against a
+Linux wheel built earlier in the run. It also auto-skips inside the standard
+``pytest tests/`` matrix cells when ``mcpcall`` is absent. Do **not** add this
+file to local ``--ignore`` lists in CI workflows or shared scripts.
 """
 
 from __future__ import annotations
@@ -52,21 +52,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES_SKILLS_DIR = str(REPO_ROOT / "examples" / "skills")
 
 # ---------------------------------------------------------------------------
-# Platform-aware mcporter invocation
+# Platform-aware mcpcall invocation
 # ---------------------------------------------------------------------------
 
-# On Windows, .cmd wrappers are required for npm-installed executables.
 _IS_WINDOWS = platform.system() == "Windows"
-_NPX_CMD = "npx.cmd" if _IS_WINDOWS else "npx"
-# mcporter may be installed globally via ``npm install -g mcporter``; when
-# available the global binary is used directly to avoid per-call npm
-# network round-trips (which can timeout on slow CI runners).
-_MCPORTER_GLOBAL = "mcporter.cmd" if _IS_WINDOWS else "mcporter"
+_MCPCALL_BIN = os.environ.get("MCPCALL_BIN") or ("mcpcall.exe" if _IS_WINDOWS else "mcpcall")
 
-# Timeout budget per mcporter invocation.
-# The first call may download the package on slow runners; subsequent ones
-# hit the npm cache. 120 s is generous but prevents hanging forever.
-_MCPORTER_TIMEOUT = int(os.environ.get("MCPORTER_TIMEOUT", "120"))
+# Timeout budget per mcpcall invocation.
+# 120 s is generous enough for slow CI runners but prevents hanging forever.
+_MCPCALL_TIMEOUT = int(os.environ.get("MCPCALL_TIMEOUT", "120"))
 
 
 def _probe_cmd(cmd: str, timeout: int = 10) -> bool:
@@ -83,73 +77,31 @@ def _probe_cmd(cmd: str, timeout: int = 10) -> bool:
         return False
 
 
-# Prefer a globally-installed mcporter (CI installs it via npm install -g).
-# Fall back to npx --yes (fetches on first call, caches afterward).
-_MCPORTER_USE_GLOBAL = _probe_cmd(_MCPORTER_GLOBAL)
-
-
-def _run_mcporter(*args: str, timeout: int | None = None) -> subprocess.CompletedProcess:
-    """Run mcporter portably, preferring the global install over npx.
-
-    When ``mcporter`` is installed globally (``npm install -g mcporter``) it
-    starts instantly. When it is not, we fall back to ``npx --yes mcporter``
-    which downloads the package on the first call and caches it afterward.
-    """
-    t = timeout if timeout is not None else _MCPORTER_TIMEOUT
-    cmd = [_MCPORTER_GLOBAL, *args] if _MCPORTER_USE_GLOBAL else [_NPX_CMD, "--yes", "mcporter", *args]
+def _run_mcpcall(*args: str, timeout: int | None = None) -> subprocess.CompletedProcess:
+    """Run mcpcall portably."""
+    t = timeout if timeout is not None else _MCPCALL_TIMEOUT
+    cmd = [_MCPCALL_BIN, *args]
     return subprocess.run(cmd, capture_output=True, text=True, timeout=t)
 
 
-# Keep backward-compatible alias used inside helpers.
-def _run_npx(*args: str, timeout: int = 60) -> subprocess.CompletedProcess:
-    """Alias for _run_mcporter; preserved for call-sites that pass --yes mcporter."""
-    # Strip the "--yes" "mcporter" prefix if present (legacy callers pass it).
-    stripped = list(args)
-    if stripped[:2] == ["--yes", "mcporter"]:
-        stripped = stripped[2:]
-    return _run_mcporter(*stripped, timeout=max(timeout, _MCPORTER_TIMEOUT))
-
-
 # ---------------------------------------------------------------------------
-# mcporter availability check
+# mcpcall availability check
 # ---------------------------------------------------------------------------
 
 
-def _npx_available() -> bool:
-    """Return True if mcporter is reachable (global or via npx)."""
-    if _MCPORTER_USE_GLOBAL:
-        return True
-    try:
-        r = subprocess.run(
-            [_NPX_CMD, "--yes", "mcporter", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=_MCPORTER_TIMEOUT,
-        )
-        return r.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        return False
+def _mcpcall_available() -> bool:
+    """Return True if mcpcall is reachable."""
+    return _probe_cmd(_MCPCALL_BIN, timeout=min(_MCPCALL_TIMEOUT, 10))
 
 
-NPX_AVAILABLE = _npx_available()
-
-# Windows-specific: npx/mcporter exit with non-zero code on Windows due to
-# libuv handle assertion in the uv event loop teardown. The output is still
-# valid JSON. We treat non-empty stderr that contains the known Windows uv
-# assertion as a benign exit.
-_WINDOWS_UV_ASSERT = "Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)"
-
-
-def _is_benign_windows_exit(result: subprocess.CompletedProcess) -> bool:
-    """Return True if the non-zero exit is only due to a Windows libuv teardown assertion."""
-    return _IS_WINDOWS and _WINDOWS_UV_ASSERT in result.stderr
+MCPCALL_AVAILABLE = _mcpcall_available()
 
 
 def _extract_content_text(result: dict[str, Any]) -> str:
     """Extract the text from an MCP tool call result.
 
-    mcporter --output json may return the parsed content directly (if the tool
-    response was valid JSON) or the full {"content": [...]} wrapper.
+    mcpcall --json returns the raw MCP CallToolResult, so text payloads are
+    normally nested under {"content": [...]}.
     """
     # If 'content' key present, it's the wrapper form
     raw = result.get("content")
@@ -160,15 +112,11 @@ def _extract_content_text(result: dict[str, Any]) -> str:
 
 
 def _parse_content_json(result: dict[str, Any]) -> Any:
-    """Return the JSON data from an mcporter tool call result.
+    """Return the JSON data from an mcpcall tool call result.
 
-    mcporter --output json behaves differently depending on the tool response:
-    - If the content text is valid JSON (core discovery tools), mcporter
-      returns the parsed JSON directly as the result dict.
-    - If the content text is not valid JSON (Python handler returning repr),
-      mcporter wraps it in {"content": [...], "isError": false}.
-
-    We detect which case we're in and return the appropriate data.
+    Core discovery tools return JSON text inside the MCP content block. A few
+    compatibility paths can already be parsed dictionaries, so both shapes are
+    accepted here.
     """
     # If result has 'skills', 'loaded', 'unloaded', etc. it IS the parsed data already
     _json_data_keys = {
@@ -189,10 +137,10 @@ def _parse_content_json(result: dict[str, Any]) -> Any:
     return json.loads(text)
 
 
-def _parse_mcporter_json(stdout: str) -> Any:
-    """Extract the last valid JSON object/array from mcporter stdout.
+def _parse_mcpcall_json(stdout: str) -> Any:
+    """Extract the last valid JSON object/array from mcpcall stdout.
 
-    When the server writes Rust tracing to stdout, it can mix with mcporter
+    When the server writes Rust tracing to stdout, it can mix with mcpcall
     output. We find the last JSON block and parse it.
     """
     # Try direct parse first
@@ -212,73 +160,50 @@ def _parse_mcporter_json(stdout: str) -> Any:
             except json.JSONDecodeError:
                 continue
 
-    raise ValueError(f"No valid JSON found in mcporter output:\n{stdout[:500]}")
+    raise ValueError(f"No valid JSON found in mcpcall output:\n{stdout[:500]}")
 
 
-def _mcporter_call(server_url: str, server_name: str, tool: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Invoke ``mcporter call --server <name> --tool <tool>`` against a local server.
-
-    Uses ``--server``/``--tool`` flags instead of the ``server.tool`` dot-notation,
-    which avoids mcporter prepending the server name to the tool call.
-    ``--allow-http`` is required for plain http:// URLs (localhost).
-    Returns the parsed JSON output dict.
-    """
+def _mcpcall_call(
+    server_url: str,
+    _server_name: str,
+    tool: str,
+    args: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Invoke ``mcpcall call --url <url> <tool>`` against a local server."""
     argv = [
         "call",
-        "--http-url",
+        "--url",
         server_url,
-        "--allow-http",
-        "--name",
-        server_name,
-        "--output",
-        "json",
-        "--server",
-        server_name,
-        "--tool",
-        tool,
+        "--json",
+        "--allow-tool-error",
     ]
     if args:
-        for key, val in args.items():
-            if isinstance(val, (list, dict)):
-                argv.append(f"{key}:{json.dumps(val)}")
-            elif isinstance(val, bool):
-                argv.append(f"{key}:{str(val).lower()}")
-            else:
-                argv.append(f"{key}:{val}")
+        argv.extend(["--args", json.dumps(args)])
+    argv.append(tool)
 
-    result = _run_mcporter(*argv)
-    if result.returncode != 0 and not _is_benign_windows_exit(result):
-        raise RuntimeError(f"mcporter call failed: {result.stderr}\nstdout: {result.stdout}")
-    return _parse_mcporter_json(result.stdout)
+    result = _run_mcpcall(*argv)
+    if result.returncode != 0:
+        raise RuntimeError(f"mcpcall call failed: {result.stderr}\nstdout: {result.stdout}")
+    return _parse_mcpcall_json(result.stdout)
 
 
-def _mcporter_list_tools(server_url: str, server_name: str) -> list[dict[str, Any]]:
-    """Return tools list via ``mcporter list --json``."""
+def _mcpcall_list_tools(server_url: str, _server_name: str) -> list[dict[str, Any]]:
+    """Return tools list via ``mcpcall list --json``."""
     argv = [
         "list",
-        "--http-url",
+        "--url",
         server_url,
-        "--allow-http",
-        "--name",
-        server_name,
         "--json",
     ]
-    result = _run_mcporter(*argv)
-    if result.returncode != 0 and not _is_benign_windows_exit(result):
-        raise RuntimeError(f"mcporter list failed: {result.stderr}")
-    data = _parse_mcporter_json(result.stdout)
-    # mcporter list --json returns array of server objects: [{name, tools: [...]}]
-    if isinstance(data, list):
-        for entry in data:
-            if isinstance(entry, dict) and "tools" in entry:
-                return entry["tools"]
-        return data
-    if "tools" in data:
+    result = _run_mcpcall(*argv)
+    if result.returncode != 0:
+        raise RuntimeError(f"mcpcall list failed: {result.stderr}\nstdout: {result.stdout}")
+    data = _parse_mcpcall_json(result.stdout)
+    # mcpcall list --json returns {"count": N, "tools": [...]}.
+    if isinstance(data, dict) and "tools" in data:
         return data["tools"]
-    # try first server entry
-    servers = data.get("servers", [])
-    if servers:
-        return servers[0].get("tools", [])
+    if isinstance(data, list):
+        return data
     return []
 
 
@@ -306,7 +231,7 @@ def server_with_catalog():
         version="1.0.0",
     )
 
-    config = McpHttpConfig(port=0, server_name="mcporter-e2e")
+    config = McpHttpConfig(port=0, server_name="mcpcall-e2e")
     server = McpHttpServer(reg, config)
     server.register_handler("get_scene_info", lambda params: {"scene": "test_scene", "objects": []})
 
@@ -319,7 +244,7 @@ def server_with_catalog():
     # Give the async runtime a moment to bind
     time.sleep(0.2)
 
-    yield server, handle, url, "mcporter-e2e"
+    yield server, handle, url, "mcpcall-e2e"
     handle.shutdown()
 
 
@@ -357,24 +282,24 @@ def simple_server():
 
 
 # ---------------------------------------------------------------------------
-# Basic tools/list via mcporter
+# Basic tools/list via mcpcall
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not NPX_AVAILABLE, reason="npx / mcporter not available")
-class TestMcporterToolsList:
-    """Validate tools/list response shape using mcporter CLI."""
+@pytest.mark.skipif(not MCPCALL_AVAILABLE, reason="mcpcall not available")
+class TestMcpcallToolsList:
+    """Validate tools/list response shape using mcpcall CLI."""
 
     def test_list_shows_registered_actions(self, simple_server):
         _, _, url, name = simple_server
-        tools = _mcporter_list_tools(url, name)
+        tools = _mcpcall_list_tools(url, name)
         tool_names = {t["name"] if isinstance(t, dict) else t for t in tools}
         assert "ping_action" in tool_names
         assert "list_objects" in tool_names
 
     def test_list_includes_core_discovery_tools(self, server_with_catalog):
         _, _, url, name = server_with_catalog
-        tools = _mcporter_list_tools(url, name)
+        tools = _mcpcall_list_tools(url, name)
         tool_names = {t["name"] if isinstance(t, dict) else t for t in tools}
         # 5 core discovery tools must always be present
         for core_tool in ("search_skills", "list_skills", "get_skill_info", "load_skill", "unload_skill"):
@@ -382,7 +307,7 @@ class TestMcporterToolsList:
 
     def test_tools_have_required_fields(self, simple_server):
         _, _, url, name = simple_server
-        tools = _mcporter_list_tools(url, name)
+        tools = _mcpcall_list_tools(url, name)
         for tool in tools:
             if not isinstance(tool, dict):
                 continue
@@ -391,17 +316,17 @@ class TestMcporterToolsList:
 
 
 # ---------------------------------------------------------------------------
-# Basic tool calls via mcporter
+# Basic tool calls via mcpcall
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not NPX_AVAILABLE, reason="npx / mcporter not available")
-class TestMcporterToolCall:
-    """Invoke registered tools through mcporter and validate results."""
+@pytest.mark.skipif(not MCPCALL_AVAILABLE, reason="mcpcall not available")
+class TestMcpcallToolCall:
+    """Invoke registered tools through mcpcall and validate results."""
 
     def test_call_registered_handler(self, simple_server):
         _, _, url, name = simple_server
-        result = _mcporter_call(url, name, "ping_action")
+        result = _mcpcall_call(url, name, "ping_action")
         assert result.get("isError") is False or "pong" in result
         # Handler may come back as raw parsed JSON or MCP content-wrapped output.
         raw = result.get("content") or []
@@ -410,7 +335,7 @@ class TestMcporterToolCall:
 
     def test_call_list_objects(self, simple_server):
         _, _, url, name = simple_server
-        result = _mcporter_call(url, name, "list_objects")
+        result = _mcpcall_call(url, name, "list_objects")
         assert result.get("isError") is False or "objects" in result
         raw = result.get("content") or []
         text = raw[0].get("text", "") if raw else json.dumps(result)
@@ -418,8 +343,8 @@ class TestMcporterToolCall:
 
     def test_call_unknown_tool_returns_error(self, simple_server):
         _, _, url, name = simple_server
-        result = _mcporter_call(url, name, "this_tool_does_not_exist")
-        # mcporter returns either the MCP CallToolResult (isError=true) or
+        result = _mcpcall_call(url, name, "this_tool_does_not_exist")
+        # mcpcall returns either the MCP CallToolResult (isError=true) or
         # the parsed DccMcpError envelope (layer/code/message) depending on
         # how it handles the JSON text content.
         is_mcp_error = result.get("isError") is True
@@ -428,24 +353,24 @@ class TestMcporterToolCall:
 
 
 # ---------------------------------------------------------------------------
-# Core discovery tools via mcporter
+# Core discovery tools via mcpcall
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not NPX_AVAILABLE, reason="npx / mcporter not available")
-class TestMcporterCoreDiscoveryTools:
-    """Test the 5 built-in discovery tools through mcporter."""
+@pytest.mark.skipif(not MCPCALL_AVAILABLE, reason="mcpcall not available")
+class TestMcpcallCoreDiscoveryTools:
+    """Test the 5 built-in discovery tools through mcpcall."""
 
     def test_list_skills_returns_discovered_skills(self, server_with_catalog):
         _, _, url, name = server_with_catalog
-        result = _mcporter_call(url, name, "list_skills", {"status": "all"})
+        result = _mcpcall_call(url, name, "list_skills", {"status": "all"})
         data = _parse_content_json(result)
         assert "skills" in data
         assert data["total"] >= 1
 
     def test_search_skills_by_keyword(self, server_with_catalog):
         _, _, url, name = server_with_catalog
-        result = _mcporter_call(url, name, "search_skills", {"query": "hello"})
+        result = _mcpcall_call(url, name, "search_skills", {"query": "hello"})
         data = _parse_content_json(result)
         assert "skills" in data
         skill_names = [s.get("name", "") for s in data["skills"]]
@@ -453,46 +378,46 @@ class TestMcporterCoreDiscoveryTools:
 
     def test_search_skills_by_tag(self, server_with_catalog):
         _, _, url, name = server_with_catalog
-        result = _mcporter_call(url, name, "search_skills", {"tags": ["example"]})
+        result = _mcpcall_call(url, name, "search_skills", {"tags": ["example"]})
         data = _parse_content_json(result)
         # hello-world has tag 'example'
         assert data["total"] >= 1
 
     def test_get_skill_info(self, server_with_catalog):
         _, _, url, name = server_with_catalog
-        result = _mcporter_call(url, name, "get_skill_info", {"skill_name": "hello-world"})
+        result = _mcpcall_call(url, name, "get_skill_info", {"skill_name": "hello-world"})
         data = _parse_content_json(result)
         assert data.get("name") == "hello-world" or "hello-world" in str(data)
 
     def test_get_skill_info_missing_name_returns_error(self, server_with_catalog):
         _, _, url, name = server_with_catalog
-        result = _mcporter_call(url, name, "get_skill_info", {"skill_name": "nonexistent-skill-xyz"})
+        result = _mcpcall_call(url, name, "get_skill_info", {"skill_name": "nonexistent-skill-xyz"})
         text = _extract_content_text(result)
         # Should indicate error or not-found
         assert "not found" in text.lower() or "error" in text.lower() or result.get("isError")
 
 
 # ---------------------------------------------------------------------------
-# Progressive loading via mcporter
+# Progressive loading via mcpcall
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not NPX_AVAILABLE, reason="npx / mcporter not available")
-class TestMcporterProgressiveLoading:
-    """Test the discover -> load -> call -> unload workflow through mcporter."""
+@pytest.mark.skipif(not MCPCALL_AVAILABLE, reason="mcpcall not available")
+class TestMcpcallProgressiveLoading:
+    """Test the discover -> load -> call -> unload workflow through mcpcall."""
 
     def test_load_skill_registers_tools(self, server_with_catalog):
         """After load_skill, the skill's tools appear in tools/list."""
         _, _, url, name = server_with_catalog
 
         # Load hello-world skill
-        result = _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
+        result = _mcpcall_call(url, name, "load_skill", {"skill_name": "hello-world"})
         data = _parse_content_json(result)
         assert data.get("loaded") is True
         assert data.get("tool_count", 0) >= 1
 
         # tools/list should now include the skill's tool
-        tools = _mcporter_list_tools(url, name)
+        tools = _mcpcall_list_tools(url, name)
         tool_names = {t["name"] if isinstance(t, dict) else t for t in tools}
         assert "greet" in tool_names or any("hello" in n.lower() for n in tool_names), (
             f"hello-world tool (bare: greet) not in list: {tool_names}"
@@ -503,27 +428,27 @@ class TestMcporterProgressiveLoading:
         _, _, url, name = server_with_catalog
 
         # Ensure hello-world is loaded (may already be from previous test)
-        _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
+        _mcpcall_call(url, name, "load_skill", {"skill_name": "hello-world"})
 
         # Greet via the skill tool
-        result = _mcporter_call(url, name, "greet", {"name": "mcporter"})
+        result = _mcpcall_call(url, name, "greet", {"name": "mcpcall"})
         text = _extract_content_text(result)
-        assert "mcporter" in text or "Hello" in text
+        assert "mcpcall" in text or "Hello" in text
 
     def test_unload_skill_removes_tools(self, server_with_catalog):
         """After unload_skill, the skill's tools disappear from tools/list."""
         _, _, url, name = server_with_catalog
 
         # Load first
-        _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
+        _mcpcall_call(url, name, "load_skill", {"skill_name": "hello-world"})
 
         # Unload
-        result = _mcporter_call(url, name, "unload_skill", {"skill_name": "hello-world"})
+        result = _mcpcall_call(url, name, "unload_skill", {"skill_name": "hello-world"})
         data = _parse_content_json(result)
         assert data.get("unloaded") is True
 
         # tools/list should no longer contain hello-world tools
-        tools = _mcporter_list_tools(url, name)
+        tools = _mcpcall_list_tools(url, name)
         tool_names = {t["name"] if isinstance(t, dict) else t for t in tools}
         # greet should be gone (core tools remain)
         assert "greet" not in tool_names
@@ -532,7 +457,7 @@ class TestMcporterProgressiveLoading:
         """load_skill with skill_names loads several skills in one call."""
         _, _, url, name = server_with_catalog
 
-        result = _mcporter_call(
+        result = _mcpcall_call(
             url,
             name,
             "load_skill",
@@ -547,9 +472,9 @@ class TestMcporterProgressiveLoading:
         _, _, url, name = server_with_catalog
 
         # Ensure at least one skill is loaded
-        _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
+        _mcpcall_call(url, name, "load_skill", {"skill_name": "hello-world"})
 
-        result = _mcporter_call(url, name, "list_skills", {"status": "loaded"})
+        result = _mcpcall_call(url, name, "list_skills", {"status": "loaded"})
         data = _parse_content_json(result)
         assert data["total"] >= 1
         for skill in data["skills"]:
@@ -559,58 +484,58 @@ class TestMcporterProgressiveLoading:
         """list_skills(status=unloaded) returns only unloaded skills."""
         _, _, url, name = server_with_catalog
 
-        result = _mcporter_call(url, name, "list_skills", {"status": "unloaded"})
+        result = _mcpcall_call(url, name, "list_skills", {"status": "unloaded"})
         data = _parse_content_json(result)
         # After loading hello-world, there should still be unloaded skills
         for skill in data["skills"]:
             assert skill.get("loaded") is False, f"Expected loaded=False, got: {skill}"
 
     def test_full_progressive_loading_cycle(self, server_with_catalog):
-        """Full cycle: find -> get_info -> load -> call -> unload via mcporter."""
+        """Full cycle: find -> get_info -> load -> call -> unload via mcpcall."""
         _, _, url, name = server_with_catalog
 
         # 1. Find the skill
-        find_result = _mcporter_call(url, name, "search_skills", {"query": "hello"})
+        find_result = _mcpcall_call(url, name, "search_skills", {"query": "hello"})
         found_data = _parse_content_json(find_result)
         assert found_data["total"] >= 1
 
         # 2. Get skill info
-        info_result = _mcporter_call(url, name, "get_skill_info", {"skill_name": "hello-world"})
+        info_result = _mcpcall_call(url, name, "get_skill_info", {"skill_name": "hello-world"})
         info_data = _parse_content_json(info_result)
         assert info_data  # non-empty info
 
         # 3. Load skill
-        load_result = _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
+        load_result = _mcpcall_call(url, name, "load_skill", {"skill_name": "hello-world"})
         load_data = _parse_content_json(load_result)
         assert load_data["loaded"] is True
 
         # 4. Call the skill tool
-        call_result = _mcporter_call(url, name, "greet", {"name": "E2E"})
+        call_result = _mcpcall_call(url, name, "greet", {"name": "E2E"})
         text = _extract_content_text(call_result)
         assert "E2E" in text or "Hello" in text
 
         # 5. Unload
-        unload_result = _mcporter_call(url, name, "unload_skill", {"skill_name": "hello-world"})
+        unload_result = _mcpcall_call(url, name, "unload_skill", {"skill_name": "hello-world"})
         unload_data = _parse_content_json(unload_result)
         assert unload_data["unloaded"] is True
 
 
 # ---------------------------------------------------------------------------
-# Fallback: skip-friendly smoke test when npx is absent
+# Fallback: skip-friendly smoke test when mcpcall is absent
 # ---------------------------------------------------------------------------
 
 
-class TestMcporterAvailability:
-    """Sanity checks that run regardless of mcporter availability."""
+class TestMcpcallAvailability:
+    """Sanity checks that run regardless of mcpcall availability."""
 
-    def test_npx_availability_logged(self, capsys):
-        status = "available" if NPX_AVAILABLE else "NOT available"
-        print(f"npx/mcporter: {status}", file=sys.stderr)
+    def test_mcpcall_availability_logged(self, capsys):
+        status = "available" if MCPCALL_AVAILABLE else "NOT available"
+        print(f"mcpcall: {status}", file=sys.stderr)
         # Always passes — just documents the environment
         assert True
 
     def test_server_reachable_with_stdlib(self, simple_server):
-        """Verify the server is reachable even without mcporter."""
+        """Verify the server is reachable even without mcpcall."""
         import urllib.request
 
         _, _, url, _ = simple_server
@@ -834,9 +759,9 @@ class TestMultipleServerInstances:
             h_a.shutdown()
             h_b.shutdown()
 
-    @pytest.mark.skipif(not NPX_AVAILABLE, reason="npx / mcporter not available")
-    def test_mcporter_connects_to_correct_instance(self):
-        """Mcporter explicitly targets one URL; the other server is unaffected."""
+    @pytest.mark.skipif(not MCPCALL_AVAILABLE, reason="mcpcall not available")
+    def test_mcpcall_connects_to_correct_instance(self):
+        """Mcpcall explicitly targets one URL; the other server is unaffected."""
         reg_a = ToolRegistry()
         reg_a.register("action_alpha", description="Alpha tool", category="test", tags=[], dcc="test", version="1.0")
 
@@ -849,12 +774,12 @@ class TestMultipleServerInstances:
         h_a = srv_a.start()
         h_b = srv_b.start()
         try:
-            # mcporter targets only server A
-            tools_a = _mcporter_list_tools(h_a.mcp_url(), "target-a")
+            # mcpcall targets only server A
+            tools_a = _mcpcall_list_tools(h_a.mcp_url(), "target-a")
             names_a = {t["name"] if isinstance(t, dict) else t for t in tools_a}
 
-            # mcporter targets only server B
-            tools_b = _mcporter_list_tools(h_b.mcp_url(), "target-b")
+            # mcpcall targets only server B
+            tools_b = _mcpcall_list_tools(h_b.mcp_url(), "target-b")
             names_b = {t["name"] if isinstance(t, dict) else t for t in tools_b}
 
             assert "action_alpha" in names_a
@@ -868,45 +793,45 @@ class TestMultipleServerInstances:
 
 
 # ---------------------------------------------------------------------------
-# Progressive loading boundary tests (mcporter + direct HTTP)
+# Progressive loading boundary tests (mcpcall + direct HTTP)
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not NPX_AVAILABLE, reason="npx / mcporter not available")
+@pytest.mark.skipif(not MCPCALL_AVAILABLE, reason="mcpcall not available")
 class TestProgressiveLoadingBoundary:
     """Edge cases for the on-demand skill discovery / loading workflow."""
 
     def test_stub_not_present_after_skill_loaded(self, server_with_catalog):
         """Once a skill is loaded its __skill__ stub must disappear."""
         _, _, url, name = server_with_catalog
-        _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
-        tools = _mcporter_list_tools(url, name)
+        _mcpcall_call(url, name, "load_skill", {"skill_name": "hello-world"})
+        tools = _mcpcall_list_tools(url, name)
         names = {t["name"] if isinstance(t, dict) else t for t in tools}
         assert "__skill__hello-world" not in names, "__skill__hello-world stub should be gone after loading"
 
     def test_stub_reappears_after_unload(self, server_with_catalog):
         """After unloading a skill its __skill__ stub must reappear."""
         _, _, url, name = server_with_catalog
-        _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
-        _mcporter_call(url, name, "unload_skill", {"skill_name": "hello-world"})
-        tools = _mcporter_list_tools(url, name)
+        _mcpcall_call(url, name, "load_skill", {"skill_name": "hello-world"})
+        _mcpcall_call(url, name, "unload_skill", {"skill_name": "hello-world"})
+        tools = _mcpcall_list_tools(url, name)
         names = {t["name"] if isinstance(t, dict) else t for t in tools}
         assert "__skill__hello-world" in names, "__skill__hello-world stub should reappear after unloading"
 
     def test_search_skills_finds_by_search_hint(self, server_with_catalog):
         """search_skills must match against the search-hint SKILL.md field."""
         _, _, url, name = server_with_catalog
-        result = _mcporter_call(url, name, "search_skills", {"query": "greeting"})
+        result = _mcpcall_call(url, name, "search_skills", {"query": "greeting"})
         try:
             data = _parse_content_json(result)
         except (json.JSONDecodeError, KeyError, TypeError):
-            pytest.skip("mcporter returned empty/invalid output (transient CI issue)")
+            pytest.skip("mcpcall returned empty/invalid output (transient CI issue)")
         assert data.get("total", 0) >= 1, "Expected at least 1 result for 'greeting' (hello-world search-hint)"
 
     def test_list_skills_total_matches_skill_count(self, server_with_catalog):
         """list_skills total field must equal len(skills) list."""
         _, _, url, name = server_with_catalog
-        all_skills = _mcporter_call(url, name, "list_skills", {"status": "all"})
+        all_skills = _mcpcall_call(url, name, "list_skills", {"status": "all"})
         data = _parse_content_json(all_skills)
         total = data.get("total", -1)
         skills = data.get("skills", [])
@@ -915,7 +840,7 @@ class TestProgressiveLoadingBoundary:
     def test_load_nonexistent_skill_returns_error(self, server_with_catalog):
         """load_skill with unknown name must surface an error."""
         _, _, url, name = server_with_catalog
-        result = _mcporter_call(
+        result = _mcpcall_call(
             url,
             name,
             "load_skill",
@@ -929,7 +854,7 @@ class TestProgressiveLoadingBoundary:
     def test_get_skill_info_includes_name(self, server_with_catalog):
         """get_skill_info must return a name field matching the queried skill."""
         _, _, url, name = server_with_catalog
-        result = _mcporter_call(url, name, "get_skill_info", {"skill_name": "hello-world"})
+        result = _mcpcall_call(url, name, "get_skill_info", {"skill_name": "hello-world"})
         data = _parse_content_json(result)
         assert data.get("name") == "hello-world"
 
@@ -937,9 +862,9 @@ class TestProgressiveLoadingBoundary:
         """unload_skill on a skill that is not loaded must return an error."""
         _, _, url, name = server_with_catalog
         # Ensure it's not loaded by unloading first if needed (ignore result)
-        _mcporter_call(url, name, "unload_skill", {"skill_name": "hello-world"})
+        _mcpcall_call(url, name, "unload_skill", {"skill_name": "hello-world"})
         # Now try again — it definitely should not be loaded
-        result = _mcporter_call(
+        result = _mcpcall_call(
             url,
             name,
             "unload_skill",
@@ -953,8 +878,8 @@ class TestProgressiveLoadingBoundary:
     def test_tool_call_passes_params_to_script(self, server_with_catalog):
         """tools/call must forward arguments to the skill script."""
         _, _, url, name = server_with_catalog
-        _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
-        result = _mcporter_call(
+        _mcpcall_call(url, name, "load_skill", {"skill_name": "hello-world"})
+        result = _mcpcall_call(
             url,
             name,
             "greet",
@@ -967,8 +892,8 @@ class TestProgressiveLoadingBoundary:
         """Loading the same skill twice must not duplicate its tools."""
         _, _, url, name = server_with_catalog
         for _ in range(2):
-            _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
-        tools = _mcporter_list_tools(url, name)
+            _mcpcall_call(url, name, "load_skill", {"skill_name": "hello-world"})
+        tools = _mcpcall_list_tools(url, name)
         names = [t["name"] if isinstance(t, dict) else t for t in tools]
         count = names.count("greet")
         assert count <= 1, f"greet duplicated after double load: {count}"
@@ -976,20 +901,20 @@ class TestProgressiveLoadingBoundary:
     def test_unload_then_reload_re_registers_tools(self, server_with_catalog):
         """After unload → reload, the skill's tools must be available again."""
         _, _, url, name = server_with_catalog
-        _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
-        _mcporter_call(url, name, "unload_skill", {"skill_name": "hello-world"})
-        rl = _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
+        _mcpcall_call(url, name, "load_skill", {"skill_name": "hello-world"})
+        _mcpcall_call(url, name, "unload_skill", {"skill_name": "hello-world"})
+        rl = _mcpcall_call(url, name, "load_skill", {"skill_name": "hello-world"})
         rl_data = _parse_content_json(rl)
         assert rl_data.get("loaded") is True
 
-        tools = _mcporter_list_tools(url, name)
+        tools = _mcpcall_list_tools(url, name)
         names = {t["name"] if isinstance(t, dict) else t for t in tools}
         assert "greet" in names or any("hello" in n for n in names), (
             f"Expected hello-world tool (bare: greet) after reload, got: {names}"
         )
 
 
-@pytest.mark.skipif(not NPX_AVAILABLE, reason="npx / mcporter not available")
+@pytest.mark.skipif(not MCPCALL_AVAILABLE, reason="mcpcall not available")
 class TestConcurrencyBoundary:
     """Concurrent requests must not corrupt server state."""
 
@@ -1003,7 +928,7 @@ class TestConcurrencyBoundary:
 
         def call_ping():
             try:
-                r = _mcporter_call(url, name, "ping_action", {})
+                r = _mcpcall_call(url, name, "ping_action", {})
                 results.append(r)
             except Exception as e:
                 errors.append(e)
@@ -1026,7 +951,7 @@ class TestConcurrencyBoundary:
 
         def load_hello():
             try:
-                _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
+                _mcpcall_call(url, name, "load_skill", {"skill_name": "hello-world"})
             except Exception as e:
                 errors.append(e)
 
@@ -1038,7 +963,7 @@ class TestConcurrencyBoundary:
 
         assert not errors, f"Concurrent loads raised: {errors}"
 
-        tools = _mcporter_list_tools(url, name)
+        tools = _mcpcall_list_tools(url, name)
         tool_names = [t["name"] if isinstance(t, dict) else t for t in tools]
         count = tool_names.count("greet")
         assert count <= 1, f"greet duplicated: {count} occurrences"
@@ -1090,15 +1015,15 @@ def server_for_search_tools():
     handle.shutdown()
 
 
-@pytest.mark.skipif(not NPX_AVAILABLE, reason="npx / mcporter not available")
-class TestMcporterSearchTools:
-    """search_tools acceptance criteria (#677) via the mcporter CLI."""
+@pytest.mark.skipif(not MCPCALL_AVAILABLE, reason="mcpcall not available")
+class TestMcpcallSearchTools:
+    """search_tools acceptance criteria (#677) via the mcpcall CLI."""
 
     def test_search_tools_filters_stubs_by_default(self, server_for_search_tools):
         """Default search never surfaces ``__skill__*`` / ``__group__*`` entries."""
         _, _, url, name = server_for_search_tools
         # `hello-world` is discovered but not loaded — its stub exists.
-        result = _mcporter_call(url, name, "search_tools", {"query": "hello"})
+        result = _mcpcall_call(url, name, "search_tools", {"query": "hello"})
         data = _parse_content_json(result)
         tool_names = [t.get("name", "") for t in data.get("tools", [])]
         assert not any(n.startswith("__skill__") for n in tool_names), (
@@ -1111,7 +1036,7 @@ class TestMcporterSearchTools:
     def test_search_tools_include_stubs_true_surfaces_stubs(self, server_for_search_tools):
         """The include_stubs escape hatch exposes progressive-loading stubs for debugging."""
         _, _, url, name = server_for_search_tools
-        result = _mcporter_call(
+        result = _mcpcall_call(
             url,
             name,
             "search_tools",
@@ -1126,7 +1051,7 @@ class TestMcporterSearchTools:
     def test_search_tools_matches_schema_property_name(self, server_for_search_tools):
         """Queries on input-schema property names hit the owning tool (#677)."""
         _, _, url, name = server_for_search_tools
-        result = _mcporter_call(url, name, "search_tools", {"query": "radius"})
+        result = _mcpcall_call(url, name, "search_tools", {"query": "radius"})
         data = _parse_content_json(result)
         tool_names = [t.get("name", "") for t in data.get("tools", [])]
         assert "create_sphere" in tool_names, (
@@ -1137,9 +1062,9 @@ class TestMcporterSearchTools:
         """Unloaded-skill hits arrive as skill_candidates with a usable load_hint."""
         _, _, url, name = server_for_search_tools
         # Make sure hello-world is unloaded so it shows up as a candidate.
-        _mcporter_call(url, name, "unload_skill", {"skill_name": "hello-world"})
+        _mcpcall_call(url, name, "unload_skill", {"skill_name": "hello-world"})
 
-        result = _mcporter_call(url, name, "search_tools", {"query": "hello"})
+        result = _mcpcall_call(url, name, "search_tools", {"query": "hello"})
         data = _parse_content_json(result)
         candidates = data.get("skill_candidates", [])
         names = [c.get("skill_name") for c in candidates]
@@ -1180,19 +1105,19 @@ def server_for_tool_groups():
 
     # Load maya-geometry so both groups (modeling: default-active=true,
     # rigging: default-active=false) become the catalog's canonical state.
-    _mcporter_call(url, "tool-groups-e2e", "load_skill", {"skill_name": "maya-geometry"})
+    _mcpcall_call(url, "tool-groups-e2e", "load_skill", {"skill_name": "maya-geometry"})
 
     yield server, handle, url, "tool-groups-e2e"
     handle.shutdown()
 
 
-@pytest.mark.skipif(not NPX_AVAILABLE, reason="npx / mcporter not available")
-class TestMcporterToolGroupActivation:
+@pytest.mark.skipif(not MCPCALL_AVAILABLE, reason="mcpcall not available")
+class TestMcpcallToolGroupActivation:
     """Progressive tool-group activation via the core `activate_tool_group` tool."""
 
     def test_default_active_group_members_are_exposed(self, server_for_tool_groups):
         _, _, url, name = server_for_tool_groups
-        tools = _mcporter_list_tools(url, name)
+        tools = _mcpcall_list_tools(url, name)
         tool_names = {t["name"] if isinstance(t, dict) else t for t in tools}
         # modeling group has default-active: true → its members must be live.
         assert "create_sphere" in tool_names, f"modeling-group tool create_sphere missing from tools/list: {tool_names}"
@@ -1200,8 +1125,8 @@ class TestMcporterToolGroupActivation:
     def test_inactive_group_is_collapsed_into_stub(self, server_for_tool_groups):
         _, _, url, name = server_for_tool_groups
         # Ensure rigging is deactivated before asserting the stub shape.
-        _mcporter_call(url, name, "deactivate_tool_group", {"group": "rigging"})
-        tools = _mcporter_list_tools(url, name)
+        _mcpcall_call(url, name, "deactivate_tool_group", {"group": "rigging"})
+        tools = _mcpcall_list_tools(url, name)
         tool_names = {t["name"] if isinstance(t, dict) else t for t in tools}
         assert "__group__rigging" in tool_names, (
             f"rigging group must collapse to __group__rigging stub, got: {tool_names}"
@@ -1212,12 +1137,12 @@ class TestMcporterToolGroupActivation:
 
     def test_activate_tool_group_expands_members(self, server_for_tool_groups):
         _, _, url, name = server_for_tool_groups
-        result = _mcporter_call(url, name, "activate_tool_group", {"group": "rigging"})
+        result = _mcpcall_call(url, name, "activate_tool_group", {"group": "rigging"})
         # activate_tool_group returns a JSON envelope in the text content.
         text = _extract_content_text(result)
         assert "rigging" in text, f"activate response should mention group name: {text}"
 
-        tools = _mcporter_list_tools(url, name)
+        tools = _mcpcall_list_tools(url, name)
         tool_names = {t["name"] if isinstance(t, dict) else t for t in tools}
         assert "create_joint" in tool_names, f"create_joint must surface after activating rigging, got: {tool_names}"
         assert "__group__rigging" not in tool_names, (
@@ -1227,10 +1152,10 @@ class TestMcporterToolGroupActivation:
     def test_deactivate_tool_group_collapses_members_again(self, server_for_tool_groups):
         _, _, url, name = server_for_tool_groups
         # Make sure it's active first (idempotent); then deactivate.
-        _mcporter_call(url, name, "activate_tool_group", {"group": "rigging"})
-        _mcporter_call(url, name, "deactivate_tool_group", {"group": "rigging"})
+        _mcpcall_call(url, name, "activate_tool_group", {"group": "rigging"})
+        _mcpcall_call(url, name, "deactivate_tool_group", {"group": "rigging"})
 
-        tools = _mcporter_list_tools(url, name)
+        tools = _mcpcall_list_tools(url, name)
         tool_names = {t["name"] if isinstance(t, dict) else t for t in tools}
         assert "create_joint" not in tool_names
         assert "__group__rigging" in tool_names
@@ -1238,7 +1163,7 @@ class TestMcporterToolGroupActivation:
     def test_activate_unknown_group_does_not_crash(self, server_for_tool_groups):
         """Activating a non-existent group should return a structured response, never panic."""
         _, _, url, name = server_for_tool_groups
-        result = _mcporter_call(
+        result = _mcpcall_call(
             url,
             name,
             "activate_tool_group",
@@ -1269,7 +1194,7 @@ def server_for_jobs():
     url = handle.mcp_url()
     time.sleep(0.2)
 
-    _mcporter_call(url, "jobs-e2e", "load_skill", {"skill_name": "async-render-example"})
+    _mcpcall_call(url, "jobs-e2e", "load_skill", {"skill_name": "async-render-example"})
 
     yield server, handle, url, "jobs-e2e"
     handle.shutdown()
@@ -1285,7 +1210,7 @@ def _poll_job_until_terminal(url: str, name: str, job_id: str, *, timeout_s: flo
     deadline = time.time() + timeout_s
     last_envelope: dict[str, Any] = {}
     while time.time() < deadline:
-        result = _mcporter_call(url, name, "jobs_get_status", {"job_id": job_id})
+        result = _mcpcall_call(url, name, "jobs_get_status", {"job_id": job_id})
         # jobs_get_status emits structured content; _parse_content_json copes
         # with both the wrapped and direct-data shapes.
         try:
@@ -1306,7 +1231,7 @@ def _extract_job_id(result: dict[str, Any]) -> str | None:
     """Pull the job_id out of an async tools/call response envelope.
 
     Async dispatch (#318) returns structuredContent ``{job_id, status,
-    parent_job_id, _meta: {dcc: {jobId}}}``. Depending on mcporter's handling
+    parent_job_id, _meta: {dcc: {jobId}}}``. Depending on mcpcall's handling
     we may see the structured form directly or nested under ``structuredContent``.
     """
     if not isinstance(result, dict):
@@ -1325,13 +1250,13 @@ def _extract_job_id(result: dict[str, Any]) -> str | None:
     return None
 
 
-@pytest.mark.skipif(not NPX_AVAILABLE, reason="npx / mcporter not available")
-class TestMcporterJobsLifecycle:
+@pytest.mark.skipif(not MCPCALL_AVAILABLE, reason="mcpcall not available")
+class TestMcpcallJobsLifecycle:
     """Exercise jobs_get_status and jobs_cleanup through a real async tool call."""
 
     def test_jobs_get_status_unknown_id_returns_error(self, server_for_jobs):
         _, _, url, name = server_for_jobs
-        result = _mcporter_call(url, name, "jobs_get_status", {"job_id": "does-not-exist"})
+        result = _mcpcall_call(url, name, "jobs_get_status", {"job_id": "does-not-exist"})
         text = _extract_content_text(result).lower()
         is_error = result.get("isError") is True
         assert is_error or "no job" in text or "not found" in text, (
@@ -1340,7 +1265,7 @@ class TestMcporterJobsLifecycle:
 
     def test_jobs_cleanup_zero_hours_is_safe(self, server_for_jobs):
         _, _, url, name = server_for_jobs
-        result = _mcporter_call(url, name, "jobs_cleanup", {"older_than_hours": 0})
+        result = _mcpcall_call(url, name, "jobs_cleanup", {"older_than_hours": 0})
         data = _parse_content_json(result)
         assert "removed" in data, f"jobs_cleanup must return `removed` count: {data}"
         assert isinstance(data["removed"], int)
@@ -1349,7 +1274,7 @@ class TestMcporterJobsLifecycle:
     def test_async_tool_reaches_terminal_state(self, server_for_jobs):
         """Call an async tool, follow the job to completion, assert state machine progresses."""
         _, _, url, name = server_for_jobs
-        result = _mcporter_call(
+        result = _mcpcall_call(
             url,
             name,
             "render_frames",
@@ -1371,19 +1296,19 @@ class TestMcporterJobsLifecycle:
         """After a job is terminal, jobs_cleanup(older_than_hours=0) must prune it."""
         _, _, url, name = server_for_jobs
         # Fire another render so we have a fresh terminal row to prune.
-        result = _mcporter_call(url, name, "render_frames", {"start": 1, "end": 1})
+        result = _mcpcall_call(url, name, "render_frames", {"start": 1, "end": 1})
         job_id = _extract_job_id(result)
         assert job_id, f"render_frames must return a job_id, got: {result}"
         _poll_job_until_terminal(url, name, job_id, timeout_s=20.0)
 
-        cleanup = _mcporter_call(url, name, "jobs_cleanup", {"older_than_hours": 0})
+        cleanup = _mcpcall_call(url, name, "jobs_cleanup", {"older_than_hours": 0})
         cleanup_data = _parse_content_json(cleanup)
         assert cleanup_data.get("removed", 0) >= 1, (
             f"cleanup must prune at least the just-completed job, got: {cleanup_data}"
         )
 
         # Re-querying the pruned job_id must now fail.
-        after = _mcporter_call(url, name, "jobs_get_status", {"job_id": job_id})
+        after = _mcpcall_call(url, name, "jobs_get_status", {"job_id": job_id})
         text = _extract_content_text(after).lower()
         is_error = after.get("isError") is True
         assert is_error or "no job" in text or "not found" in text, (
