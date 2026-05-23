@@ -41,6 +41,7 @@ _POLICY_KEYS = {
     "allow_text_entry",
     "allow_keyboard_shortcuts",
     "allow_raw_coordinates",
+    "require_scoped_window",
     "allowed_window_titles",
     "allowed_process_ids",
     "audit_sensitive_values",
@@ -380,7 +381,18 @@ def _find_by_id(snapshot: Dict[str, Any], control_id: str) -> Optional[Dict[str,
     return None
 
 
+def _has_scoped_window(state: Dict[str, Any]) -> bool:
+    title = str(state.get("title") or state.get("window_title") or "").strip()
+    try:
+        process_id = int(state.get("pid") or state.get("process_id") or 0)
+    except Exception:
+        process_id = 0
+    return bool(title) or process_id > 0
+
+
 def _window_allowed(state: Dict[str, Any], policy: AppUiPolicy) -> bool:
+    if policy.require_scoped_window and not _has_scoped_window(state):
+        return False
     if policy.allowed_window_titles:
         title = str(state.get("title") or "Chrome").lower()
         allowed = [str(item).lower() for item in policy.allowed_window_titles]
@@ -404,27 +416,33 @@ def _audit_record(
     policy: AppUiPolicy,
     error_code: Optional[str] = None,
     message: Optional[str] = None,
+    before_focus_id: Optional[str] = None,
+    after_focus_id: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     redacted = ["text"] if action == UiActionKind.SET_TEXT and not policy.audit_sensitive_values else []
+    audit_metadata = {
+        "backend": "chrome-cdp",
+        "preset": state.get("preset"),
+        "launch_mode": state.get("launch_mode"),
+        "snapshot_id": _snapshot_id(state),
+        "current_url": state.get("current_url"),
+    }
+    if metadata:
+        audit_metadata.update(metadata)
     return AppUiAuditRecord(
         action_kind=action,
         success=success,
         target_control_id=control.get("id") if control else None,
         target_role=control.get("role") if control else None,
         target_label=control.get("label") if control else None,
-        before_focus_id=state.get("focus_id"),
-        after_focus_id=state.get("focus_id"),
+        before_focus_id=before_focus_id if before_focus_id is not None else state.get("focus_id"),
+        after_focus_id=after_focus_id if after_focus_id is not None else state.get("focus_id"),
         error_code=error_code,
         message=message,
         session_id=state.get("session_id"),
         redacted_fields=redacted,
-        metadata={
-            "backend": "chrome-cdp",
-            "preset": state.get("preset"),
-            "launch_mode": state.get("launch_mode"),
-            "snapshot_id": _snapshot_id(state),
-            "current_url": state.get("current_url"),
-        },
+        metadata=audit_metadata,
     ).to_dict()
 
 
@@ -448,23 +466,30 @@ def _policy_denied(
     return skill_error(message, UiErrorCode.POLICY_DISABLED, result=result, audit=audit)
 
 
-def _stale_result(control_id: str, state: Dict[str, Any], requested: str) -> Dict[str, Any]:
+def _stale_result(
+    control_id: str,
+    action: str,
+    state: Dict[str, Any],
+    policy: AppUiPolicy,
+    requested: str,
+) -> Dict[str, Any]:
     result = UiActionResult.stale(control_id).to_dict()
-    result["metadata"] = {
+    metadata = {
         "requested_snapshot_id": requested,
         "current_snapshot_id": _snapshot_id(state),
     }
-    audit = AppUiAuditRecord(
-        action_kind="unknown",
-        success=False,
-        target_control_id=control_id,
-        before_focus_id=state.get("focus_id"),
-        after_focus_id=state.get("focus_id"),
-        error_code=UiErrorCode.STALE_CONTROL,
-        message="control is stale; refresh the UI snapshot",
-        session_id=state.get("session_id"),
-        metadata=result["metadata"],
-    ).to_dict()
+    result["metadata"] = metadata
+    control = _find_by_id(_snapshot_dict(state), control_id)
+    audit = _audit_record(
+        action,
+        False,
+        control or {"id": control_id},
+        state,
+        policy,
+        UiErrorCode.STALE_CONTROL,
+        "control is stale; refresh the UI snapshot",
+        metadata=metadata,
+    )
     return skill_error(
         "Control is stale; refresh the app_ui snapshot.",
         UiErrorCode.STALE_CONTROL,
@@ -474,7 +499,13 @@ def _stale_result(control_id: str, state: Dict[str, Any], requested: str) -> Dic
     )
 
 
-def _unsupported_action(action: str, control: Dict[str, Any], state: Dict[str, Any], message: str) -> Dict[str, Any]:
+def _unsupported_action(
+    action: str,
+    control: Dict[str, Any],
+    state: Dict[str, Any],
+    policy: AppUiPolicy,
+    message: str,
+) -> Dict[str, Any]:
     result = UiActionResult(
         success=False,
         control_id=str(control.get("id") or ""),
@@ -483,7 +514,7 @@ def _unsupported_action(action: str, control: Dict[str, Any], state: Dict[str, A
         before_focus_id=state.get("focus_id"),
         after_focus_id=state.get("focus_id"),
     ).to_dict()
-    audit = _audit_record(action, False, control, state, AppUiPolicy(), UiErrorCode.UNSUPPORTED_ACTION, message)
+    audit = _audit_record(action, False, control, state, policy, UiErrorCode.UNSUPPORTED_ACTION, message)
     return skill_error(message, UiErrorCode.UNSUPPORTED_ACTION, result=result, audit=audit)
 
 
@@ -567,19 +598,26 @@ def act_tool() -> Dict[str, Any]:
     action = str(params.get("action") or "")
     requested_snapshot_id = str(params.get("snapshot_id") or "")
     if requested_snapshot_id and requested_snapshot_id != _snapshot_id(state):
-        return _stale_result(control_id, state, requested_snapshot_id)
+        return _stale_result(control_id, action, state, policy, requested_snapshot_id)
     snapshot = _snapshot_dict(state)
     control = _find_by_id(snapshot, control_id)
     if not control:
+        message = "control not found in scoped Chrome app_ui window"
         result = UiActionResult(
             success=False,
             control_id=control_id,
             error_code=UiErrorCode.NOT_FOUND,
-            message="control not found in scoped Chrome app_ui window",
+            message=message,
             before_focus_id=state.get("focus_id"),
             after_focus_id=state.get("focus_id"),
         ).to_dict()
-        return skill_error("Control not found in scoped Chrome app_ui window.", UiErrorCode.NOT_FOUND, result=result)
+        audit = _audit_record(action, False, None, state, policy, UiErrorCode.NOT_FOUND, message)
+        return skill_error(
+            "Control not found in scoped Chrome app_ui window.",
+            UiErrorCode.NOT_FOUND,
+            result=result,
+            audit=audit,
+        )
     if not _window_allowed(state, policy):
         return _policy_denied(action, control_id, control, state, policy, "scoped Chrome window is not allowed")
     if not policy.allows_action(action):
@@ -606,7 +644,7 @@ def act_tool() -> Dict[str, Any]:
             state = _navigate_search(state)
             message = "Chrome search submitted"
         else:
-            return _unsupported_action(action, control, state, "unsupported Chrome app_ui action")
+            return _unsupported_action(action, control, state, policy, "unsupported Chrome app_ui action")
     except Exception as exc:
         return skill_error(str(exc), "backend_error", backend="chrome")
 
@@ -621,7 +659,7 @@ def act_tool() -> Dict[str, Any]:
         after_focus_id=state.get("focus_id"),
         metadata={"snapshot_id": _snapshot_id(state), "current_url": state.get("current_url")},
     ).to_dict()
-    audit = _audit_record(action, True, control, state, policy, None, message)
+    audit = _audit_record(action, True, control, state, policy, None, message, before_focus_id=before_focus)
     return skill_success(
         f"Completed Chrome app_ui action {action!r} on {control_id}.",
         prompt="Use app_ui__wait_for to poll for the expected UI state, then app_ui__snapshot to verify.",
@@ -669,6 +707,7 @@ def _condition_matches(snapshot: Dict[str, Any], condition: UiWaitCondition) -> 
 def wait_for_tool() -> Dict[str, Any]:
     params = _read_params()
     session_id = _safe_session_id(params.get("session_id"))
+    policy = _policy_from_params(params)
     condition = _condition_from_params(params.get("condition") or {})
     timeout_ms = max(0, int(condition.timeout_ms))
     interval_ms = max(10, int(condition.interval_ms))
@@ -683,10 +722,25 @@ def wait_for_tool() -> Dict[str, Any]:
         except Exception as exc:
             return _backend_unavailable(exc, state)
         _save_state(state)
+        if not _window_allowed(state, policy):
+            elapsed_ms = round((time.monotonic() - start) * 1000.0, 1)
+            message = "scoped Chrome window is not allowed by policy"
+            result = UiWaitResult(
+                success=False,
+                condition=condition,
+                elapsed_ms=elapsed_ms,
+                attempts=attempts,
+                snapshot=None,
+                error_code=UiErrorCode.POLICY_DISABLED,
+                message=message,
+            ).to_dict()
+            audit = _audit_record("wait_for", False, None, state, policy, UiErrorCode.POLICY_DISABLED, message)
+            return skill_error(message, UiErrorCode.POLICY_DISABLED, session_id=session_id, result=result, audit=audit)
         last_snapshot = _snapshot_dict(state)
         attempts += 1
         if _condition_matches(last_snapshot, condition):
             elapsed_ms = round((time.monotonic() - start) * 1000.0, 1)
+            control = _resolve_condition_control(last_snapshot, condition)
             result = UiWaitResult(
                 success=True,
                 condition=condition,
@@ -700,6 +754,16 @@ def wait_for_tool() -> Dict[str, Any]:
                 session_id=session_id,
                 snapshot_id=last_snapshot["metadata"]["snapshot_id"],
                 result=result,
+                audit=_audit_record(
+                    "wait_for",
+                    True,
+                    control,
+                    state,
+                    policy,
+                    None,
+                    "condition became true",
+                    metadata={"condition": condition.to_dict()},
+                ),
             )
         if time.monotonic() >= deadline:
             break
@@ -716,10 +780,22 @@ def wait_for_tool() -> Dict[str, Any]:
         message="condition did not become true before timeout",
         metadata={"last_snapshot": last_snapshot},
     ).to_dict()
+    control = _resolve_condition_control(last_snapshot, condition) if last_snapshot else None
+    audit = _audit_record(
+        "wait_for",
+        False,
+        control,
+        state,
+        policy,
+        UiErrorCode.TIMEOUT,
+        "condition did not become true before timeout",
+        metadata={"condition": condition.to_dict()},
+    )
     return skill_error(
         "app_ui wait_for timed out.",
         UiErrorCode.TIMEOUT,
         session_id=session_id,
         result=result,
+        audit=audit,
         attempts=attempts,
     )

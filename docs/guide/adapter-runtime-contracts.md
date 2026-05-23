@@ -106,7 +106,9 @@ Safety expectations:
 - Mutating actions should declare conservative safety annotations, main-thread
   affinity when required by the host, and a timeout that reflects UI polling.
 - Policy should disable whole-desktop access by default. Scope to an
-  adapter-owned process, window, or explicit allow-list.
+  adapter-owned process, window, or explicit allow-list. Keep
+  `AppUiPolicy.require_scoped_window` enabled unless the user explicitly opts
+  into a backend-specific whole-desktop fallback.
 - Raw coordinate clicks and keyboard shortcuts are high risk. Keep them disabled
   unless an adapter explicitly opts in and documents the fallback.
 - Audit records should include action kind, target control id/role/label when
