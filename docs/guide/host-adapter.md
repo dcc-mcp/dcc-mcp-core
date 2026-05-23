@@ -197,7 +197,7 @@ inside `arguments`.
 - [ ] Subclass `HostAdapter`, implement the 3 hooks.
 - [ ] Ship at least one example skill (a single tool is enough) that
   proves `bpy.ops` / `maya.cmds` / equivalent works on the main thread.
-- [ ] Add a CI job that starts the DCC headless, runs an `mcporter`
+- [ ] Add a CI job that starts the DCC headless, runs an `mcpcall`
   call against the live server, and asserts success.
 - [ ] Write a `README.md` pointing back at this doc so future
   maintainers understand the contract.

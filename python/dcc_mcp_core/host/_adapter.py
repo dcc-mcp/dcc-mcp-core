@@ -112,7 +112,7 @@ class HostAdapter:
 
         adapter = BlenderHost(dispatcher)
         adapter.start()              # wires bpy.app.timers
-        # ... your DCC runs; mcporter sends tools/call; they execute
+        # ... your DCC runs; mcpcall sends tools/call; they execute
         #     on the main thread as the timer fires ...
         adapter.stop()               # unwires cleanly
 
