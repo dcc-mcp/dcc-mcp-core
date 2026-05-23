@@ -1,0 +1,253 @@
+tools:
+  - name: probe
+    description: >-
+      Inspect a media file with vx-managed ffprobe and return format, stream,
+      duration, size, codec, and frame-rate metadata. Read-only; does not
+      modify the input.
+    input_schema:
+      type: object
+      required: [input_path]
+      properties:
+        input_path:
+          type: string
+          description: "Existing media file to inspect. Prefer an absolute path."
+        timeout_secs:
+          type: integer
+          minimum: 1
+          maximum: 300
+          default: 30
+          description: "Maximum time to wait for ffprobe."
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    source_file: scripts/probe.py
+
+  - name: sequence_to_mp4
+    description: >-
+      Convert an image sequence from DCC render/playblast output into an MP4
+      video using vx-managed ffmpeg. Accepts either a printf-style
+      input_pattern such as frame_%04d.png or input_dir plus frame_glob.
+    input_schema:
+      type: object
+      required: [output_path]
+      properties:
+        input_pattern:
+          type: string
+          description: "Printf-style or glob-style image sequence pattern."
+        input_dir:
+          type: string
+          description: "Directory containing frames when using frame_glob."
+        frame_glob:
+          type: string
+          default: "*.png"
+          description: "Frame glob used with input_dir, for example frame_*.png."
+        framerate:
+          type: number
+          minimum: 0.001
+          maximum: 240
+          default: 24
+          description: "Input sequence frame rate."
+        output_path:
+          type: string
+          description: "Destination .mp4 path. Parent directory must exist."
+        codec:
+          type: string
+          enum: [libx264, libx265, mpeg4]
+          default: mpeg4
+          description: "Video codec allowlist. mpeg4 is the portable vx default."
+        pix_fmt:
+          type: string
+          enum: [yuv420p, yuv422p, yuv444p]
+          default: yuv420p
+          description: "Output pixel format allowlist."
+        quality:
+          type: integer
+          minimum: 0
+          maximum: 51
+          default: 18
+          description: "FFmpeg CRF value; lower is higher quality."
+        overwrite:
+          type: boolean
+          default: false
+          description: "Set true to replace an existing output file."
+        timeout_secs:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          default: 300
+          description: "Maximum conversion time."
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/sequence_to_mp4.py
+    next-tools:
+      on-success:
+        - media__probe
+      on-failure:
+        - dcc_diagnostics__audit_log
+
+  - name: transcode
+    description: >-
+      Transcode a media file to another video/audio format with vx-managed
+      ffmpeg using safe codec, pixel-format, audio, and overwrite allowlists.
+    input_schema:
+      type: object
+      required: [input_path, output_path]
+      properties:
+        input_path:
+          type: string
+          description: "Existing input media file. Prefer an absolute path."
+        output_path:
+          type: string
+          description: "Destination media file path. Parent directory must exist."
+        video_codec:
+          type: string
+          enum: [libx264, libx265, mpeg4, prores_ks, copy]
+          default: mpeg4
+          description: "Video codec allowlist. mpeg4 is the portable vx default."
+        audio_codec:
+          type: string
+          enum: [aac, copy, none]
+          default: aac
+          description: "Audio handling allowlist; none disables audio."
+        pix_fmt:
+          type: string
+          enum: [yuv420p, yuv422p, yuv444p, rgb24]
+          default: yuv420p
+          description: "Output pixel format allowlist."
+        quality:
+          type: integer
+          minimum: 0
+          maximum: 51
+          default: 18
+          description: "FFmpeg CRF value when the selected codec supports it."
+        overwrite:
+          type: boolean
+          default: false
+          description: "Set true to replace an existing output file."
+        timeout_secs:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          default: 300
+          description: "Maximum transcode time."
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/transcode.py
+    next-tools:
+      on-success:
+        - media__probe
+      on-failure:
+        - dcc_diagnostics__audit_log
+
+  - name: extract_frames
+    description: >-
+      Extract image frames from a video into an output directory using
+      vx-managed ffmpeg. The output filename pattern is validated and must be a
+      basename such as frame_%04d.png.
+    input_schema:
+      type: object
+      required: [input_path, output_dir]
+      properties:
+        input_path:
+          type: string
+          description: "Existing input media file. Prefer an absolute path."
+        output_dir:
+          type: string
+          description: "Directory to receive extracted frames."
+        frame_pattern:
+          type: string
+          default: frame_%04d.png
+          description: "Output basename pattern containing a printf frame token."
+        fps:
+          type: number
+          minimum: 0.001
+          maximum: 240
+          description: "Optional output frames per second."
+        overwrite:
+          type: boolean
+          default: false
+          description: "Set true to replace matching existing frame files."
+        create_output_dir:
+          type: boolean
+          default: true
+          description: "Create output_dir when its parent exists."
+        timeout_secs:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          default: 300
+          description: "Maximum extraction time."
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/extract_frames.py
+    next-tools:
+      on-failure:
+        - dcc_diagnostics__audit_log
+
+  - name: thumbnail
+    description: >-
+      Extract one thumbnail image from a media file at a safe timestamp using
+      vx-managed ffmpeg. Optionally scales to a requested width.
+    input_schema:
+      type: object
+      required: [input_path, output_path]
+      properties:
+        input_path:
+          type: string
+          description: "Existing input media file. Prefer an absolute path."
+        output_path:
+          type: string
+          description: "Destination thumbnail path. Parent directory must exist."
+        time_seconds:
+          type: number
+          minimum: 0
+          default: 0
+          description: "Timestamp in seconds."
+        width:
+          type: integer
+          minimum: 16
+          maximum: 8192
+          description: "Optional output width; height is preserved."
+        quality:
+          type: integer
+          minimum: 2
+          maximum: 31
+          default: 2
+          description: "FFmpeg still-image q:v value; lower is higher quality."
+        overwrite:
+          type: boolean
+          default: false
+          description: "Set true to replace an existing output image."
+        timeout_secs:
+          type: integer
+          minimum: 1
+          maximum: 300
+          default: 30
+          description: "Maximum thumbnail extraction time."
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    source_file: scripts/thumbnail.py
+    next-tools:
+      on-success:
+        - media__probe
+      on-failure:
+        - dcc_diagnostics__audit_log
