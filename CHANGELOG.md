@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.24](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.23...v0.17.24) (2026-05-23)
+
+
+### Features
+
+* add event bus lifecycle hooks ([d6efc03](https://github.com/loonghao/dcc-mcp-core/commit/d6efc0361e04eb7ec015d47decf80e816292edb6))
+* log server version on startup ([5593210](https://github.com/loonghao/dcc-mcp-core/commit/55932102a173ad127e7ba27d5c2584062fcde5ee))
+
+
+### Bug Fixes
+
+* correct tool lifecycle event outcomes ([3b9648b](https://github.com/loonghao/dcc-mcp-core/commit/3b9648b8439d71c359e4f3babd0aa9eaca99f6c4))
+* keep soft dependency skills discoverable ([1957ad4](https://github.com/loonghao/dcc-mcp-core/commit/1957ad46c05601409845cd01db4ec9c13b8d44da))
+* preserve action result context envelopes ([3d6e802](https://github.com/loonghao/dcc-mcp-core/commit/3d6e802cfe08972bd8ebbe27da00fc07a3d37828))
+
 ## [0.17.23](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.22...v0.17.23) (2026-05-23)
 
 
