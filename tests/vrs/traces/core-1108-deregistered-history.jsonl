@@ -1,2 +1,5 @@
-{"_vrs": {"version": 1}, "trace_id": "core-1108-deregistered-history", "title": "Gateway exposes recently auto-deregistered instance history for admin forensics"}
+{"_vrs": {"version": 1, "skip_preflight": {"http": {"method": "GET", "path": "/v1/debug/instances?view=all"}, "skip_when": {"body_not_contains": "\"port\":0"}}}, "trace_id": "core-1108-deregistered-history", "title": "Gateway preserves port=0 booting diagnostics and exposes deregistered history"}
+{"id": "list_port_zero_row_before_health_loop", "http": {"method": "GET", "path": "/v1/debug/instances?view=all"}, "expect": {"status": 200, "body_contains": "\"port\":0"}}
+{"id": "wait_for_gateway_health_loop", "sleep_ms": 6000}
+{"id": "list_port_zero_row_after_health_loop", "http": {"method": "GET", "path": "/v1/debug/instances?view=all"}, "expect": {"status": 200, "body_contains_all": ["\"port\":0", "\"status\":\"booting\""]}}
 {"id": "list_recently_deregistered_instances", "http": {"method": "GET", "path": "/v1/debug/deregistered"}, "expect": {"status": 200, "body_contains": "\"deregistered\""}}
