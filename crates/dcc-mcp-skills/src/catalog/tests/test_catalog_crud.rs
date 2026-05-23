@@ -3,6 +3,18 @@ use super::*;
 use dcc_mcp_actions::dispatcher::{DispatchError, with_thread_affinity};
 use dcc_mcp_models::{SkillGroup, ThreadAffinity, ToolDeclaration};
 
+fn write_skill_dir(root: &std::path::Path, name: &str, dcc: &str) {
+    let dir = root.join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join(crate::constants::SKILL_METADATA_FILE),
+        format!(
+            "---\nname: {name}\ndescription: test skill\nmetadata:\n  dcc-mcp:\n    dcc: {dcc}\n---\n# {name}\n"
+        ),
+    )
+    .unwrap();
+}
+
 #[test]
 fn test_catalog_new_is_empty() {
     let catalog = make_test_catalog();
@@ -21,6 +33,27 @@ fn test_add_skill() {
     ));
     assert_eq!(catalog.len(), 1);
     assert!(!catalog.is_loaded("modeling-bevel"));
+}
+
+#[test]
+fn test_rediscover_removes_missing_skill_and_registered_tools() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_skill_dir(tmp.path(), "fresh-skill", "maya");
+
+    let catalog = make_test_catalog();
+    catalog.add_skill(make_test_skill("stale-skill", "maya", &["old_tool"]));
+    catalog.load_skill("stale-skill").unwrap();
+    assert!(catalog.is_loaded("stale-skill"));
+    assert_eq!(catalog.registry().len(), 1);
+
+    let paths = vec![tmp.path().to_string_lossy().to_string()];
+    let changed = catalog.rediscover(Some(&paths), Some("maya"));
+
+    assert_eq!(changed, 2, "expected one add and one remove");
+    assert!(catalog.get_skill_info("fresh-skill").is_some());
+    assert!(catalog.get_skill_info("stale-skill").is_none());
+    assert!(!catalog.is_loaded("stale-skill"));
+    assert_eq!(catalog.registry().len(), 0);
 }
 
 #[test]

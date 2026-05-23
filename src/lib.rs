@@ -230,6 +230,7 @@ fn register_utils(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dcc_mcp_paths::py_get_log_dir,
         dcc_mcp_paths::py_get_tools_dir,
         dcc_mcp_skills::paths::py_get_skills_dir,
+        dcc_mcp_skills::paths::py_get_local_skills_dir,
         dcc_mcp_skills::paths::py_get_skill_paths_from_env,
         dcc_mcp_skills::paths::py_get_app_skill_paths_from_env,
         dcc_mcp_skills::paths::py_get_user_skill_paths_from_env,

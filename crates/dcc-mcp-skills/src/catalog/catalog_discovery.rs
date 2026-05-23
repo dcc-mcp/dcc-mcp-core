@@ -124,6 +124,74 @@ impl SkillCatalog {
         new_count
     }
 
+    /// Re-scan the current search roots and make the catalog match disk.
+    ///
+    /// Unlike [`discover`](Self::discover), this removes catalog entries that
+    /// are no longer present in the scan result. It is intended for explicit
+    /// refresh flows such as the Admin skill-path panel.
+    pub fn rediscover(&self, extra_paths: Option<&[String]>, dcc_name: Option<&str>) -> usize {
+        let result = match loader::scan_and_load_lenient(extra_paths, dcc_name) {
+            Ok(result) => result,
+            Err(err) => {
+                tracing::error!("SkillCatalog: rediscovery failed: {err}");
+                return 0;
+            }
+        };
+
+        let mut seen = std::collections::HashSet::new();
+        let mut added = 0usize;
+
+        for skill in result.skills {
+            let name = skill.name.clone();
+            seen.insert(name.clone());
+            if let Some(mut entry) = self.entries.get_mut(&name) {
+                entry.metadata = skill;
+                if entry.state != SkillState::Loaded {
+                    entry.state = SkillState::Discovered;
+                }
+            } else {
+                self.entries.insert(
+                    name,
+                    SkillEntry {
+                        metadata: skill,
+                        state: SkillState::Discovered,
+                        registered_tools: Vec::new(),
+                        scope: SkillScope::Repo,
+                    },
+                );
+                added += 1;
+            }
+        }
+
+        let existing: Vec<String> = self
+            .entries
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect();
+        let mut removed = 0usize;
+        for name in existing {
+            if !seen.contains(&name) && self.remove_skill(&name) {
+                removed += 1;
+            }
+        }
+
+        if !result.skipped.is_empty() {
+            tracing::warn!(
+                count = result.skipped.len(),
+                skipped = ?result.skipped,
+                "SkillCatalog: skipped invalid or non-compliant skill directories during rediscovery"
+            );
+        }
+
+        tracing::info!(
+            "SkillCatalog: rediscovered skills (added {}, removed {}, total {})",
+            added,
+            removed,
+            self.entries.len()
+        );
+        added + removed
+    }
+
     /// Add a single skill to the catalog (e.g. from SkillWatcher).
     pub fn add_skill(&self, metadata: SkillMetadata) {
         let name = metadata.name.clone();

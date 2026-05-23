@@ -705,6 +705,27 @@ async fn main() -> anyhow::Result<()> {
                 })
                 .map(PathBuf::from),
         );
+        if let Ok(local_default) = dcc_mcp_skills::paths::get_local_skills_dir(Some(&args.app)) {
+            match std::fs::create_dir_all(&local_default) {
+                Ok(()) => {
+                    let p = PathBuf::from(&local_default);
+                    skill_paths_snapshot.push(SkillPathEntry {
+                        path: local_default.clone(),
+                        source: "local_default".into(),
+                    });
+                    if !skill_paths.iter().any(|x| x == &p) {
+                        skill_paths.push(p);
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        path = %local_default,
+                        error = %err,
+                        "could not initialise local default skill directory"
+                    );
+                }
+            }
+        }
     }
     if let Ok(bundled) = dcc_mcp_skills::paths::get_skills_dir(None) {
         let p = PathBuf::from(&bundled);
@@ -788,10 +809,10 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 Some(app_owned.as_str())
             };
-            let discovered = catalog.discover(Some(&extra), hint);
+            let discovered = catalog.rediscover(Some(&extra), hint);
             tracing::info!(
                 discovered,
-                "catalog.discover after admin skill-path change (hook)"
+                "catalog.rediscover after admin skill-path change (hook)"
             );
         })
     };

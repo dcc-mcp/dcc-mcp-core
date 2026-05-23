@@ -2982,10 +2982,17 @@ function App() {
 
         {activePanel === 'skill-paths' && (
           <section className="panel active skill-paths-panel">
-            <h2>Skills & paths</h2>
+            <PanelHeader
+              title="Skills & paths"
+              action={
+                <button className="refresh-btn" type="button" disabled={skillPathBusy} onClick={() => void fetchSkillInventory()}>
+                  Refresh
+                </button>
+              }
+            />
             <StatusLine text={updatedAt['skill-paths']} error={errors['skill-paths']} />
             <p className="empty log-hint">
-              Current loaded skills come from the live gateway capability index. Search paths show the directories used for skill discovery (CLI, environment variables, bundled data dir, and optional SQLite-backed custom entries).
+              Current loaded skills come from the live gateway capability index. Search paths show the directories used for skill discovery (CLI, environment variables, local developer defaults, bundled data dir, and optional SQLite-backed custom entries).
             </p>
             <div className="metric-grid compact skill-summary-grid">
               <MetricTile label="Loaded skills" value={skillTotals.loaded} detail={`${skillTotals.total} indexed`} />
@@ -3080,9 +3087,6 @@ function App() {
                 )}
               </tbody>
             </table>
-            <button className="refresh-btn" type="button" onClick={fetchSkillInventory}>
-              Refresh
-            </button>
           </section>
         )}
 
