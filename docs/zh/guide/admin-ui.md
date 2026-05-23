@@ -75,7 +75,7 @@ let config = GatewayConfig {
 
 ![Admin Connect IDE 面板](../../assets/admin-ui/admin-connect-ide.png)
 
-**Connect IDE** 面板会基于当前 gateway URL 生成 Claude Desktop、Cursor、CodeBuddy、VS Code、Cline 和 Codex / OpenAI 的 MCP 配置片段，方便直接复制到本地 IDE/Agent。
+**Connect IDE** 面板会基于当前 gateway URL 和当前平台的配置路径，生成 Claude Desktop、Cursor、CodeBuddy、VS Code、Cline 和 Codex / OpenAI 的 MCP 配置片段，方便直接复制到本地 IDE/Agent。
 
 ![Admin Skills 路径面板](../../assets/admin-ui/admin-skills-paths.png)
 

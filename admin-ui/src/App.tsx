@@ -372,11 +372,12 @@ type SkillDetailPayload = {
 };
 
 type SetupUrlMode = 'local' | 'lan' | 'direct';
+type ClientPlatform = 'windows' | 'macos' | 'linux';
 
 type IdeTarget = {
   id: string;
   label: string;
-  configPath: string;
+  configPath: string | Record<ClientPlatform, string>;
   icon: string;
   build: (url: string) => unknown;
 };
@@ -559,14 +560,22 @@ const IDE_TARGETS: IdeTarget[] = [
   {
     id: 'claude',
     label: 'Claude Desktop',
-    configPath: '%APPDATA%\\Claude\\claude_desktop_config.json',
+    configPath: {
+      windows: '%APPDATA%\\Claude\\claude_desktop_config.json',
+      macos: '~/Library/Application Support/Claude/claude_desktop_config.json',
+      linux: '~/.config/Claude/claude_desktop_config.json',
+    },
     icon: claudeIcon,
     build: buildMcpServersConfig,
   },
   {
     id: 'cursor',
     label: 'Cursor',
-    configPath: '%USERPROFILE%\\.cursor\\mcp.json',
+    configPath: {
+      windows: '%USERPROFILE%\\.cursor\\mcp.json',
+      macos: '~/.cursor/mcp.json',
+      linux: '~/.cursor/mcp.json',
+    },
     icon: cursorIcon,
     build: buildMcpServersConfig,
   },
@@ -580,7 +589,11 @@ const IDE_TARGETS: IdeTarget[] = [
   {
     id: 'vscode',
     label: 'VS Code',
-    configPath: '~/.vscode/mcp.json',
+    configPath: {
+      windows: '%APPDATA%\\Code\\User\\mcp.json',
+      macos: '~/Library/Application Support/Code/User/mcp.json',
+      linux: '~/.config/Code/User/mcp.json',
+    },
     icon: vscodeIcon,
     build: buildMcpServersConfig,
   },
@@ -594,7 +607,11 @@ const IDE_TARGETS: IdeTarget[] = [
   {
     id: 'codex',
     label: 'Codex / OpenAI',
-    configPath: 'settings.json',
+    configPath: {
+      windows: '%USERPROFILE%\\.codex\\settings.json',
+      macos: '~/.codex/settings.json',
+      linux: '~/.codex/settings.json',
+    },
     icon: openaiIcon,
     build: buildMcpServersConfig,
   },
@@ -777,6 +794,36 @@ function lanGatewayMcpUrl(): string | null {
 
 function workerSetupLabel(worker: WorkerRow): string {
   return `${worker.display_name || worker.dcc_type} (${worker.instance_id.slice(0, 8)})`;
+}
+
+function detectClientPlatform(): ClientPlatform {
+  const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
+  const primaryPlatform = `${nav.userAgentData?.platform ?? navigator.platform ?? ''}`.toLowerCase();
+  if (primaryPlatform.includes('win')) {
+    return 'windows';
+  }
+  if (primaryPlatform.includes('mac')) {
+    return 'macos';
+  }
+  if (primaryPlatform.includes('linux') || primaryPlatform.includes('x11')) {
+    return 'linux';
+  }
+
+  const userAgent = `${navigator.userAgent ?? ''}`.toLowerCase();
+  if (userAgent.includes('win')) {
+    return 'windows';
+  }
+  if (userAgent.includes('mac')) {
+    return 'macos';
+  }
+  return 'linux';
+}
+
+function configPathForTarget(target: IdeTarget, platform: ClientPlatform): string {
+  if (typeof target.configPath === 'string') {
+    return target.configPath;
+  }
+  return target.configPath[platform] ?? target.configPath.linux;
 }
 
 function ideConfigText(target: IdeTarget, url: string): string {
@@ -1841,6 +1888,7 @@ function App() {
   const [workers, setWorkers] = useState<WorkerRow[]>([]);
   const [workerSummary, setWorkerSummary] = useState<WorkerSummary>({ live: 0, stale: 0, unhealthy: 0 });
   const [setupUrlMode, setSetupUrlMode] = useState<SetupUrlMode>('local');
+  const [clientPlatform] = useState<ClientPlatform>(() => detectClientPlatform());
   const [directInstanceId, setDirectInstanceId] = useState<string>('');
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [skillPaths, setSkillPaths] = useState<SkillPathRow[]>([]);
@@ -2257,15 +2305,15 @@ function App() {
     }
   }, []);
 
-  const openConfigLocation = useCallback((target: IdeTarget) => {
-    const href = configPathFileUrl(target.configPath);
+  const openConfigLocation = useCallback((target: IdeTarget, configPath: string) => {
+    const href = configPathFileUrl(configPath);
     if (href) {
       window.open(href, '_blank', 'noopener,noreferrer');
       setCopiedNotice(`Opened ${target.label} config path`);
       window.setTimeout(() => setCopiedNotice(''), 1800);
       return;
     }
-    void copyText(target.configPath, `${target.label} config path`);
+    void copyText(configPath, `${target.label} config path`);
   }, [copyText]);
 
   const copyIssueReport = useCallback(async (requestId: string) => {
@@ -2817,13 +2865,14 @@ function App() {
             <div className="ide-grid">
               {IDE_TARGETS.map((target) => {
                 const config = ideConfigText(target, setupMcpUrl);
+                const configPath = configPathForTarget(target, clientPlatform);
                 return (
                   <article key={target.id} className="ide-card">
                     <div className="ide-card-head">
                       <IdeIcon target={target} />
                       <div>
                         <h3>{target.label}</h3>
-                        <p className="mono-path">{target.configPath}</p>
+                        <p className="mono-path">{configPath}</p>
                       </div>
                     </div>
                     <pre className="ide-config-preview">{config}</pre>
@@ -2831,7 +2880,7 @@ function App() {
                       <button className="copy-btn" type="button" onClick={() => copyText(config, `${target.label} config`)}>
                         Copy
                       </button>
-                      <button className="refresh-btn" type="button" onClick={() => openConfigLocation(target)}>
+                      <button className="refresh-btn" type="button" onClick={() => openConfigLocation(target, configPath)}>
                         Open file
                       </button>
                     </div>
