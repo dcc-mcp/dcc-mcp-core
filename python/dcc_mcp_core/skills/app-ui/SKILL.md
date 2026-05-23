@@ -12,8 +12,8 @@ metadata:
     dcc: python
     version: "0.1.0"
     layer: infrastructure
-    search-hint: "app ui, ui automation, dialog, modal, settings panel, snapshot, find control, click, set text, wait for ui, stale control, dcc debugging"
-    tags: "app-ui, ui-automation, diagnostics, infrastructure, mock"
+    search-hint: "app ui, ui automation, chrome cdp, dialog, modal, settings panel, snapshot, find control, click, set text, wait for ui, stale control, dcc debugging"
+    tags: "app-ui, ui-automation, chrome-cdp, diagnostics, infrastructure, mock"
     tools: tools.yaml
 ---
 
@@ -21,6 +21,22 @@ metadata:
 
 Application UI automation primitives for cases where native DCC tools cannot
 observe or drive the interface state directly.
+
+The default backend is deterministic mock state for CI and adapter authoring.
+Set `DCC_MCP_APP_UI_BACKEND=chrome` to use the experimental CDP backend through
+the same `app_ui__*` contract.
+
+CDP presets:
+
+- `DCC_MCP_APP_UI_CDP_PRESET=reuse` (default): attach to an existing DevTools
+  endpoint first so the current browser profile, cookies, and tokens can be
+  reused. Set `DCC_MCP_APP_UI_CDP_URL` for an explicit HTTP or WebSocket CDP
+  endpoint, or expose Chrome on `DCC_MCP_APP_UI_CDP_PORT` / port `9222`.
+- `DCC_MCP_APP_UI_CDP_PRESET=isolated`: launch Chrome with a temporary
+  `--user-data-dir` for hermetic tests and demos.
+- `DCC_MCP_APP_UI_CDP_PRESET=auroraview`: attach to AuroraView's CDP endpoint.
+  It uses `DCC_MCP_APP_UI_AURORAVIEW_CDP_PORT`, then `AURORAVIEW_CDP_PORT`,
+  then `DCC_MCP_APP_UI_CDP_PORT`, and finally port `9222`.
 
 ## Agent Loop
 

@@ -114,6 +114,12 @@ Safety expectations:
   Sensitive typed text and screenshot bytes should be redacted or returned only
   as artefact/resource references.
 
-The bundled `app-ui` skill provides a deterministic mock backend for tests and
-adapter authoring. It exposes `app_ui__snapshot`, `app_ui__find`,
-`app_ui__act`, and `app_ui__wait_for` without requiring a live DCC.
+The bundled `app-ui` skill defaults to a deterministic mock backend for tests
+and adapter authoring. Set `DCC_MCP_APP_UI_BACKEND=chrome` to use the
+experimental CDP backend and drive browser or webview search through the same
+`app_ui__snapshot`, `app_ui__find`, `app_ui__act`, and `app_ui__wait_for`
+tools. The CDP backend supports presets: `reuse` attaches to an existing
+DevTools endpoint first so current browser tokens can be reused, `isolated`
+launches a temporary Chrome profile, and `auroraview` attaches to AuroraView's
+CDP endpoint using `DCC_MCP_APP_UI_AURORAVIEW_CDP_PORT`,
+`AURORAVIEW_CDP_PORT`, `DCC_MCP_APP_UI_CDP_PORT`, or port `9222`.
