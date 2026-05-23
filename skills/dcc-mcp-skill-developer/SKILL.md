@@ -138,6 +138,11 @@ into a faster authoring loop.
     or `agent-browser`. Prefer reuse when a user expects existing cookies or
     tokens to remain available, and keep provider-specific launch logic in
     testable helpers so CI can cover endpoint and CLI discovery without a GUI.
+    Windows UI Automation backends must also live behind this runtime layer.
+    Require an explicit process/window scope, map UIA controls into the shared
+    app_ui roles, keep raw coordinate and keyboard shortcut fallbacks disabled
+    by default, and skip live UIA tests cleanly when Windows accessibility APIs
+    are unavailable.
 
 ## Adapter Selection
 

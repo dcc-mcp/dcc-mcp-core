@@ -25,6 +25,15 @@ def _load_cdp_runtime_module() -> Any:
     return module
 
 
+def _load_windows_uia_module() -> Any:
+    spec = importlib.util.spec_from_file_location("_test_app_ui_windows_uia", _SCRIPTS / "_windows_uia_backend.py")
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _run_tool(
     name: str,
     payload: dict[str, Any],
@@ -297,7 +306,69 @@ def test_app_ui_backend_router_reports_unknown_backend(tmp_path: Path) -> None:
         "cdp",
         "edge",
         "agent-browser",
+        "windows-uia",
     ]
+
+
+def test_app_ui_windows_uia_maps_control_tree_to_contract() -> None:
+    backend = _load_windows_uia_module()
+    raw = {
+        "runtime_id": "42.7",
+        "fallback_path": "0",
+        "name": "Project name",
+        "automation_id": "projectNameEdit",
+        "class_name": "Edit",
+        "control_type": "ControlType.Edit",
+        "process_id": 1234,
+        "native_window_handle": 500,
+        "enabled": True,
+        "offscreen": False,
+        "focused": True,
+        "bounds": {"x": 10, "y": 20, "width": 200, "height": 24},
+        "value": "Hero",
+        "children": [
+            {
+                "runtime_id": "42.8",
+                "fallback_path": "0.0",
+                "name": "Apply",
+                "automation_id": "applyButton",
+                "class_name": "Button",
+                "control_type": "ControlType.Button",
+                "process_id": 1234,
+                "native_window_handle": 501,
+                "enabled": True,
+                "offscreen": False,
+                "bounds": {"x": 220, "y": 20, "width": 80, "height": 24},
+                "children": [],
+            }
+        ],
+    }
+
+    node = backend._node_from_uia_dict(raw, "uia-session:1").to_dict()
+
+    assert node["id"] == "uia:42.7"
+    assert node["role"] == "text_field"
+    assert node["label"] == "Project name"
+    assert node["object_name"] == "projectNameEdit"
+    assert node["value"] == "Hero"
+    assert node["bounds"] == {"x": 10.0, "y": 20.0, "width": 200.0, "height": 24.0}
+    assert node["metadata"]["app_ui"]["backend"] == "windows-uia"
+    assert node["metadata"]["app_ui"]["process_id"] == 1234
+    assert node["children"][0]["role"] == "button"
+    assert node["children"][0]["id"] == "uia:42.8"
+
+
+def test_app_ui_windows_uia_requires_explicit_scope(tmp_path: Path) -> None:
+    result = _run_tool(
+        "snapshot",
+        {"session_id": "uia-no-scope"},
+        tmp_path,
+        extra_env={"DCC_MCP_APP_UI_BACKEND": "windows-uia"},
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "missing_window"
+    assert "whole-desktop snapshots are disabled" in result["message"]
 
 
 def test_app_ui_chrome_cdp_preset_aliases(monkeypatch: Any) -> None:

@@ -36,6 +36,10 @@ def _load_backend() -> Any:
         import _chrome_backend
 
         return _chrome_backend
+    if backend in {"windows-uia", "windows_uia", "uia", "win-uia", "win32-uia"}:
+        import _windows_uia_backend
+
+        return _windows_uia_backend
     return None
 
 
@@ -47,7 +51,15 @@ def _call(name: str) -> Dict[str, Any]:
             f"Unsupported app_ui backend {selected!r}.",
             "backend_unavailable",
             backend=selected,
-            supported_backends=["mock", "chrome", "chrome-cdp", "cdp", "edge", "agent-browser"],
+            supported_backends=[
+                "mock",
+                "chrome",
+                "chrome-cdp",
+                "cdp",
+                "edge",
+                "agent-browser",
+                "windows-uia",
+            ],
         )
     func: Callable[[], Dict[str, Any]] = getattr(backend, name)
     return func()
