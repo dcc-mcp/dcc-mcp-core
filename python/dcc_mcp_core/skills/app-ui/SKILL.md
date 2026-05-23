@@ -12,8 +12,8 @@ metadata:
     dcc: python
     version: "0.1.0"
     layer: infrastructure
-    search-hint: "app ui, ui automation, chrome cdp, dialog, modal, settings panel, snapshot, find control, click, set text, wait for ui, stale control, dcc debugging"
-    tags: "app-ui, ui-automation, chrome-cdp, diagnostics, infrastructure, mock"
+    search-hint: "app ui, ui automation, chrome cdp, edge cdp, agent-browser, dialog, modal, settings panel, snapshot, find control, click, set text, wait for ui, stale control, dcc debugging"
+    tags: "app-ui, ui-automation, chrome-cdp, edge-cdp, agent-browser, diagnostics, infrastructure, mock"
     tools: tools.yaml
 ---
 
@@ -37,6 +37,14 @@ CDP presets:
 - `DCC_MCP_APP_UI_CDP_PRESET=auroraview`: attach to AuroraView's CDP endpoint.
   It uses `DCC_MCP_APP_UI_AURORAVIEW_CDP_PORT`, then `AURORAVIEW_CDP_PORT`,
   then `DCC_MCP_APP_UI_CDP_PORT`, and finally port `9222`.
+- `DCC_MCP_APP_UI_CDP_PRESET=edge`: attach to or launch Microsoft Edge via
+  CDP. It uses `DCC_MCP_APP_UI_EDGE_CDP_URL` / `_PORT` before the shared CDP
+  URL/port, and `DCC_MCP_APP_UI_EDGE_PATH` when launching.
+- `DCC_MCP_APP_UI_CDP_PRESET=agent-browser`: use Vercel's `agent-browser`
+  CLI, reading its CDP WebSocket URL through `agent-browser get cdp-url` after
+  `agent-browser open about:blank`. Override the binary with
+  `DCC_MCP_APP_UI_AGENT_BROWSER_BIN`; this preset is suitable for CI when
+  `agent-browser install` has provisioned Chrome for Testing.
 
 ## Agent Loop
 

@@ -26,6 +26,16 @@ def _load_backend() -> Any:
         import _chrome_backend
 
         return _chrome_backend
+    if backend in {"edge", "msedge", "microsoft-edge"}:
+        os.environ.setdefault("DCC_MCP_APP_UI_CDP_PRESET", "edge")
+        import _chrome_backend
+
+        return _chrome_backend
+    if backend in {"agent-browser", "agent_browser", "agentbrowser"}:
+        os.environ.setdefault("DCC_MCP_APP_UI_CDP_PRESET", "agent-browser")
+        import _chrome_backend
+
+        return _chrome_backend
     return None
 
 
@@ -37,7 +47,7 @@ def _call(name: str) -> Dict[str, Any]:
             f"Unsupported app_ui backend {selected!r}.",
             "backend_unavailable",
             backend=selected,
-            supported_backends=["mock", "chrome", "chrome-cdp", "cdp"],
+            supported_backends=["mock", "chrome", "chrome-cdp", "cdp", "edge", "agent-browser"],
         )
     func: Callable[[], Dict[str, Any]] = getattr(backend, name)
     return func()

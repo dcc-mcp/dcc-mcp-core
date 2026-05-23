@@ -25,6 +25,8 @@ _DEFAULT_CDP_PORT = 9222
 _REUSE_PRESETS = {"reuse", "current", "default", "profile", "browser"}
 _ISOLATED_PRESETS = {"isolated", "temp", "temporary", "scoped", "sandbox"}
 _AURORAVIEW_PRESETS = {"auroraview", "aurora-view", "aurora"}
+_EDGE_PRESETS = {"edge", "msedge", "microsoft-edge", "microsoft_edge"}
+_AGENT_BROWSER_PRESETS = {"agent-browser", "agent_browser", "agentbrowser"}
 
 
 class CdpBackendError(RuntimeError):
@@ -148,12 +150,28 @@ def cdp_preset() -> str:
         return "isolated"
     if value in _AURORAVIEW_PRESETS:
         return "auroraview"
-    raise CdpBackendError(f"Unsupported app_ui CDP preset {raw!r}; use reuse, isolated, or auroraview")
+    if value in _EDGE_PRESETS:
+        return "edge"
+    if value in _AGENT_BROWSER_PRESETS:
+        return "agent-browser"
+    raise CdpBackendError(
+        f"Unsupported app_ui CDP preset {raw!r}; use reuse, isolated, auroraview, edge, or agent-browser"
+    )
 
 
 def endpoint_candidates(preset: str) -> List[str]:
     candidates: List[str] = []
-    for name in ("DCC_MCP_APP_UI_CDP_URL", "DCC_MCP_APP_UI_CHROME_CDP_URL"):
+    url_names = ["DCC_MCP_APP_UI_CDP_URL"]
+    if preset == "auroraview":
+        url_names.append("DCC_MCP_APP_UI_AURORAVIEW_CDP_URL")
+    elif preset == "edge":
+        url_names.append("DCC_MCP_APP_UI_EDGE_CDP_URL")
+    elif preset == "agent-browser":
+        url_names.append("DCC_MCP_APP_UI_AGENT_BROWSER_CDP_URL")
+    else:
+        url_names.append("DCC_MCP_APP_UI_CHROME_CDP_URL")
+
+    for name in url_names:
         raw = os.environ.get(name)
         if raw:
             candidates.append(_normalise_cdp_endpoint(raw))
@@ -171,6 +189,20 @@ def endpoint_candidates(preset: str) -> List[str]:
             "DCC_MCP_APP_UI_CHROME_CDP_PORT",
         )
         default_port = _DEFAULT_CDP_PORT
+    elif preset == "edge":
+        port_names = (
+            "DCC_MCP_APP_UI_EDGE_CDP_PORT",
+            "EDGE_CDP_PORT",
+            "DCC_MCP_APP_UI_CDP_PORT",
+        )
+        default_port = _DEFAULT_CDP_PORT
+    elif preset == "agent-browser":
+        port_names = (
+            "DCC_MCP_APP_UI_AGENT_BROWSER_CDP_PORT",
+            "AGENT_BROWSER_CDP_PORT",
+            "DCC_MCP_APP_UI_CDP_PORT",
+        )
+        default_port = None
     else:
         port_names = ("DCC_MCP_APP_UI_CDP_PORT",)
         default_port = None
@@ -227,6 +259,10 @@ def ensure_cdp_target(state: Dict[str, Any]) -> Dict[str, Any]:
             "AuroraView CDP endpoint is not available; start AuroraView with "
             f"AURORAVIEW_CDP_PORT={_DEFAULT_CDP_PORT} or set DCC_MCP_APP_UI_CDP_URL"
         )
+    if preset == "edge":
+        return _launch_edge(state)
+    if preset == "agent-browser":
+        return _ensure_agent_browser(state)
     if preset == "isolated":
         return _launch_chrome(state, isolated=True)
     return _launch_chrome(state, isolated=False)
@@ -253,6 +289,23 @@ def _find_chrome() -> str:
         if candidate and Path(candidate).exists():
             return str(candidate)
     raise CdpBackendError("Chrome executable not found; set DCC_MCP_CHROME_PATH")
+
+
+def _find_edge() -> str:
+    env_path = os.environ.get("DCC_MCP_APP_UI_EDGE_PATH") or os.environ.get("DCC_MCP_EDGE_PATH")
+    candidates = [
+        env_path,
+        str(Path(os.environ.get("PROGRAMFILES", "")) / "Microsoft" / "Edge" / "Application" / "msedge.exe"),
+        str(Path(os.environ.get("PROGRAMFILES(X86)", "")) / "Microsoft" / "Edge" / "Application" / "msedge.exe"),
+        str(Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "Edge" / "Application" / "msedge.exe"),
+        shutil.which("msedge"),
+        shutil.which("microsoft-edge"),
+        shutil.which("microsoft-edge-stable"),
+    ]
+    for candidate in candidates:
+        if candidate and Path(candidate).exists():
+            return str(candidate)
+    raise CdpBackendError("Microsoft Edge executable not found; set DCC_MCP_APP_UI_EDGE_PATH")
 
 
 def _env_int(name: str) -> Optional[int]:
@@ -363,6 +416,99 @@ def _try_connect_endpoint(state: Dict[str, Any], endpoint: str, launch_mode: str
 def _probe_cdp_page(ws_url: str) -> None:
     with CdpClient(ws_url) as cdp:
         cdp.call("Runtime.evaluate", {"expression": "1", "returnByValue": True}, timeout=3.0)
+
+
+def _launch_edge(state: Dict[str, Any]) -> Dict[str, Any]:
+    edge = _find_edge()
+    port = _env_int("DCC_MCP_APP_UI_EDGE_CDP_PORT") or _env_int("DCC_MCP_APP_UI_CDP_PORT") or _free_port()
+    user_data = os.environ.get("DCC_MCP_APP_UI_EDGE_USER_DATA_DIR", "")
+    profile_dir = os.environ.get("DCC_MCP_APP_UI_EDGE_PROFILE_DIRECTORY", "")
+    args = [
+        edge,
+        f"--remote-debugging-port={port}",
+    ]
+    if user_data:
+        args.append(f"--user-data-dir={user_data}")
+    if profile_dir:
+        args.append(f"--profile-directory={profile_dir}")
+    args.extend(["--new-window", "about:blank"])
+    proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    deadline = time.monotonic() + 8.0
+    while time.monotonic() < deadline:
+        if _port_ready(port):
+            state["port"] = port
+            state["pid"] = int(proc.pid)
+            state["user_data_dir"] = user_data
+            state["cdp_endpoint"] = f"http://127.0.0.1:{port}"
+            state["launch_mode"] = "edge"
+            state["web_socket_url"] = _page_websocket(str(state["cdp_endpoint"]))
+            return state
+        time.sleep(0.1)
+    raise CdpBackendError(
+        "Microsoft Edge DevTools endpoint did not become ready; start Edge "
+        f"with --remote-debugging-port={_DEFAULT_CDP_PORT} or set DCC_MCP_APP_UI_CDP_URL"
+    )
+
+
+def _ensure_agent_browser(state: Dict[str, Any]) -> Dict[str, Any]:
+    ws_url = _agent_browser_cdp_url()
+    if ws_url:
+        connected = _try_connect_endpoint(state, ws_url, "agent-browser")
+        if connected is not None:
+            return connected
+
+    open_url = os.environ.get("DCC_MCP_APP_UI_AGENT_BROWSER_OPEN_URL", "about:blank")
+    _run_agent_browser(["open", open_url], timeout=30.0)
+    deadline = time.monotonic() + float(os.environ.get("DCC_MCP_APP_UI_AGENT_BROWSER_WAIT_SECS", "10.0"))
+    while time.monotonic() < deadline:
+        ws_url = _agent_browser_cdp_url()
+        if ws_url:
+            connected = _try_connect_endpoint(state, ws_url, "agent-browser")
+            if connected is not None:
+                return connected
+        time.sleep(0.25)
+    raise CdpBackendError(
+        "agent-browser CDP endpoint is not available; install agent-browser, "
+        "run `agent-browser install`, or set DCC_MCP_APP_UI_AGENT_BROWSER_CDP_URL"
+    )
+
+
+def _agent_browser_bin() -> str:
+    explicit = (
+        os.environ.get("DCC_MCP_APP_UI_AGENT_BROWSER_BIN")
+        or os.environ.get("DCC_MCP_AGENT_BROWSER_BIN")
+        or os.environ.get("AGENT_BROWSER_BIN")
+    )
+    if explicit:
+        return explicit
+    return shutil.which("agent-browser") or "agent-browser"
+
+
+def _run_agent_browser(args: List[str], timeout: float = 10.0) -> str:
+    proc = subprocess.run(
+        [_agent_browser_bin(), *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    if proc.returncode != 0:
+        message = (proc.stderr or proc.stdout or "agent-browser command failed").strip()
+        raise CdpBackendError(message)
+    return proc.stdout.strip()
+
+
+def _agent_browser_cdp_url() -> str:
+    try:
+        return _extract_cdp_url(_run_agent_browser(["get", "cdp-url"], timeout=10.0))
+    except Exception:
+        return ""
+
+
+def _extract_cdp_url(text: str) -> str:
+    for token in text.replace('"', " ").replace("'", " ").split():
+        if token.startswith(("ws://", "wss://", "http://", "https://")):
+            return _normalise_cdp_endpoint(token.rstrip(","))
+    return ""
 
 
 def _launch_chrome(state: Dict[str, Any], isolated: bool) -> Dict[str, Any]:
