@@ -27,7 +27,10 @@ use crate::gateway::namespace::{decode_skill_tool_name, extract_bare_tool_name};
 use dcc_mcp_jsonrpc::McpTool;
 
 use super::index::InstanceFingerprint;
-use super::record::{CapabilityRecord, SCHEMA_AVAILABLE, is_valid_dcc_bucket, tool_slug};
+use super::record::{
+    CapabilityAnnotations, CapabilityMetadata, CapabilityRecord, SCHEMA_AVAILABLE,
+    is_valid_dcc_bucket, tool_slug,
+};
 
 pub use dcc_mcp_gateway_core::capability::builder::BuildOutcome;
 
@@ -95,18 +98,24 @@ pub fn build_records_from_backend(input: BuildInput<'_>) -> BuildOutcome {
         };
 
         let slug = tool_slug(input.dcc_type, &input.instance_id, &callable_id);
-        records.push(CapabilityRecord::new(
-            slug,
-            callable_id.clone(),
-            callable_id,
-            skill_name,
-            &summary,
-            tags,
-            input.dcc_type.to_string(),
-            input.instance_id,
-            has_schema,
-            true, // loaded: from live backend
-        ));
+        records.push(
+            CapabilityRecord::new(
+                slug,
+                callable_id.clone(),
+                callable_id,
+                skill_name,
+                &summary,
+                tags,
+                input.dcc_type.to_string(),
+                input.instance_id,
+                has_schema,
+                true, // loaded: from live backend
+            )
+            .with_surface_metadata(
+                extract_annotations(&tool.annotations),
+                extract_metadata(tool.meta.as_ref()),
+            ),
+        );
     }
 
     // Sort by slug so the per-instance slice is deterministic. The
@@ -240,11 +249,49 @@ fn compute_fingerprint(records: &[CapabilityRecord]) -> InstanceFingerprint {
         r.tool_slug.hash(&mut hasher);
         r.has_schema.hash(&mut hasher);
         r.summary.hash(&mut hasher);
+        r.annotations.hash(&mut hasher);
+        r.metadata.hash(&mut hasher);
         for t in &r.tags {
             t.hash(&mut hasher);
         }
     }
     InstanceFingerprint(hasher.finish())
+}
+
+fn extract_annotations(
+    annotations: &Option<dcc_mcp_jsonrpc::McpToolAnnotations>,
+) -> Option<CapabilityAnnotations> {
+    annotations.as_ref().map(|ann| CapabilityAnnotations {
+        title: ann.title.clone(),
+        read_only_hint: ann.read_only_hint,
+        destructive_hint: ann.destructive_hint,
+        idempotent_hint: ann.idempotent_hint,
+        open_world_hint: ann.open_world_hint,
+    })
+}
+
+fn extract_metadata(meta: Option<&serde_json::Map<String, Value>>) -> Option<CapabilityMetadata> {
+    let dcc = meta?.get("dcc").and_then(Value::as_object)?;
+    Some(CapabilityMetadata {
+        affinity: dcc
+            .get("affinity")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        execution: dcc
+            .get("execution")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        timeout_hint_secs: dcc
+            .get("timeoutHintSecs")
+            .or_else(|| dcc.get("timeout_hint_secs"))
+            .and_then(Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok()),
+        enforce_thread_affinity: dcc
+            .get("enforceThreadAffinity")
+            .or_else(|| dcc.get("enforce_thread_affinity"))
+            .and_then(Value::as_bool),
+        risk: dcc.get("risk").and_then(Value::as_str).map(str::to_string),
+    })
 }
 
 // Tiny re-import helper removed: `idempotent` tags now consistently
@@ -467,5 +514,43 @@ mod unit_tests {
         assert!(rec.tags.iter().any(|t| t == "idempotent"));
         assert!(rec.tags.iter().any(|t| t == "scene"));
         assert!(rec.tags.iter().any(|t| t == "reader"));
+        assert_eq!(
+            rec.annotations.as_ref().and_then(|ann| ann.read_only_hint),
+            Some(true)
+        );
+        assert_eq!(
+            rec.annotations.as_ref().and_then(|ann| ann.idempotent_hint),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn dcc_execution_metadata_surfaces_on_records() {
+        let iid = Uuid::from_u128(8);
+        let mut t = tool("app_ui__act", "act", json!({"type": "object"}));
+        t.meta = Some(
+            [(
+                "dcc".to_string(),
+                json!({
+                    "affinity": "any",
+                    "execution": "sync",
+                    "timeoutHintSecs": 5,
+                    "enforceThreadAffinity": false,
+                    "risk": "mutation",
+                }),
+            )]
+            .into_iter()
+            .collect(),
+        );
+        let out = build_records_from_backend(BuildInput {
+            instance_id: iid,
+            dcc_type: "python",
+            backend_tools: &[t],
+        });
+        let meta = out.records[0].metadata.as_ref().expect("metadata");
+        assert_eq!(meta.affinity.as_deref(), Some("any"));
+        assert_eq!(meta.execution.as_deref(), Some("sync"));
+        assert_eq!(meta.timeout_hint_secs, Some(5));
+        assert_eq!(meta.risk.as_deref(), Some("mutation"));
     }
 }

@@ -97,6 +97,11 @@ fn sphere_action(loaded: bool) -> CatalogAction {
         input_schema: serde_json::json!({"type":"object"}),
         loaded,
         scope: "repo".into(),
+        annotations: Default::default(),
+        execution: Default::default(),
+        timeout_hint_secs: None,
+        thread_affinity: Default::default(),
+        enforce_thread_affinity: false,
     }
 }
 
@@ -153,6 +158,39 @@ fn search_loaded_only_false_returns_executable_next_step() {
     assert_eq!(next.action, "load_skill");
     assert_eq!(next.arguments["skill_name"], "spheres");
     assert_eq!(next.arguments["dcc"], "maya");
+}
+
+#[test]
+fn search_and_describe_surface_safety_and_execution_metadata() {
+    let mut action = sphere_action(true);
+    action.action_name = "app_ui__act".into();
+    action.skill_name = "app-ui".into();
+    action.annotations.read_only_hint = Some(false);
+    action.annotations.destructive_hint = Some(false);
+    action.annotations.idempotent_hint = Some(false);
+    action.timeout_hint_secs = Some(5);
+    let (svc, _) = build_service(vec![action]);
+
+    let search = svc.search(&SearchRequest {
+        query: Some("app_ui".into()),
+        ..Default::default()
+    });
+    let hit = &search.hits[0];
+    assert_eq!(hit.annotations.as_ref().unwrap()["readOnlyHint"], false);
+    assert_eq!(
+        hit.metadata.as_ref().unwrap()["dcc"]["timeoutHintSecs"],
+        serde_json::json!(5)
+    );
+
+    let desc = svc
+        .describe(&DescribeRequest {
+            tool_slug: hit.slug.clone(),
+            include_schema: true,
+        })
+        .expect("describe");
+    assert_eq!(desc.annotations["readOnlyHint"], false);
+    assert_eq!(desc.metadata.as_ref().unwrap()["dcc"]["execution"], "sync");
+    assert_eq!(desc.metadata.as_ref().unwrap()["dcc"]["risk"], "mutation");
 }
 
 #[test]
