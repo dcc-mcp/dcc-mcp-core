@@ -368,24 +368,51 @@ class DccServerBase:
         if policy is not None:
             bridge.sandbox_context = SandboxContext(policy)
 
+    def _attach_host_dispatcher_to_http(self, dispatcher: Any | None) -> bool:
+        """Attach a host queue dispatcher to HTTP ``tools/call`` routing."""
+        if dispatcher is None:
+            return False
+        attach = getattr(self._server, "attach_dispatcher", None)
+        if not callable(attach):
+            return False
+        try:
+            attach(dispatcher)
+            return True
+        except RuntimeError as exc:
+            if "already called" in str(exc):
+                logger.debug("[%s] host dispatcher already attached: %s", self._dcc_name, exc)
+                return False
+            logger.warning("[%s] attach_dispatcher failed: %s", self._dcc_name, exc)
+            return False
+        except TypeError as exc:
+            logger.debug("[%s] dispatcher is not an HTTP host dispatcher: %s", self._dcc_name, exc)
+            return False
+        except Exception as exc:
+            logger.warning("[%s] attach_dispatcher failed: %s", self._dcc_name, exc)
+            return False
+
     def register_host_execution_bridge(self, bridge: HostExecutionBridge) -> None:
         """Wire the adapter-facing host execution bridge.
 
         New embedded adapters should keep a single :class:`HostExecutionBridge`
-        for both direct host callables and in-process skill scripts. The
-        bridge still registers through ``McpHttpServer.set_in_process_executor``
-        so the existing Rust server path remains unchanged.
+        for both direct host callables and in-process skill scripts. When the
+        bridge carries a Rust-backed host queue dispatcher, this method also
+        attaches it to ``McpHttpServer.attach_dispatcher`` so main-affinity
+        MCP/REST calls share the same host-thread route.
         """
         self._attach_sandbox_to_bridge(bridge)
         self._execution_bridge = bridge
         self._dcc_dispatcher = bridge.dispatcher
+        host_dispatcher = bridge.resolve_host_dispatcher()
         try:
             self._server.set_in_process_executor(bridge.as_inprocess_executor())
             self._inprocess_executor_registered = True
+            host_dispatcher_attached = self._attach_host_dispatcher_to_http(host_dispatcher)
             logger.info(
-                "[%s] Host execution bridge registered (dispatcher=%s)",
+                "[%s] Host execution bridge registered (dispatcher=%s, host_dispatcher_attached=%s)",
                 self._dcc_name,
                 type(bridge.dispatcher).__name__ if bridge.dispatcher is not None else "inline",
+                host_dispatcher_attached,
             )
         except Exception as exc:
             logger.warning(
@@ -424,13 +451,16 @@ class DccServerBase:
         self._attach_sandbox_to_bridge(bridge)
         self._execution_bridge = bridge
         executor = bridge.as_inprocess_executor()
+        host_dispatcher = bridge.resolve_host_dispatcher()
         try:
             self._server.set_in_process_executor(executor)
             self._inprocess_executor_registered = True
+            host_dispatcher_attached = self._attach_host_dispatcher_to_http(host_dispatcher)
             logger.info(
-                "[%s] In-process executor registered (dispatcher=%s)",
+                "[%s] In-process executor registered (dispatcher=%s, host_dispatcher_attached=%s)",
                 self._dcc_name,
                 type(dispatcher).__name__ if dispatcher is not None else "inline",
+                host_dispatcher_attached,
             )
         except Exception as exc:
             logger.warning(

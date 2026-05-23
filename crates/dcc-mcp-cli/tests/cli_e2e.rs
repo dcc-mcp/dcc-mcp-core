@@ -145,6 +145,24 @@ fn spawn_gateway_fixture() -> GatewayFixture {
             }),
         )
         .route(
+            "/v1/load_skill",
+            post(|Json(body): Json<Value>| async move {
+                Json(json!({
+                    "loaded": true,
+                    "skill_name": body["skill_name"],
+                    "dcc_type": body.get("dcc_type").cloned().unwrap_or(Value::Null),
+                    "instance_id": body.get("instance_id").cloned().unwrap_or(Value::Null),
+                    "activate_groups": body.get("activate_groups").cloned().unwrap_or(Value::Null),
+                    "registered_tools": ["workflow__run"],
+                    "tool_count": 1,
+                    "tools": [{
+                        "name": "workflow__run",
+                        "inputSchema": {"type": "object"}
+                    }]
+                }))
+            }),
+        )
+        .route(
             "/v1/call",
             post(|Json(body): Json<Value>| async move {
                 Json(json!({
@@ -245,6 +263,33 @@ fn list_search_describe_and_call_gateway_rest_surface() {
         describe["record"]["tool_slug"],
         "maya.abc12345.create_sphere"
     );
+
+    let loaded = run_json(&[
+        "--base-url",
+        &fixture.base_url,
+        "load-skill",
+        "workflow",
+        "--dcc-type",
+        "3dsmax",
+        "--instance-id",
+        "80321760",
+    ]);
+    assert_eq!(loaded["loaded"], true);
+    assert_eq!(loaded["skill_name"], "workflow");
+    assert_eq!(loaded["dcc_type"], "3dsmax");
+    assert_eq!(loaded["instance_id"], "80321760");
+    assert_eq!(loaded["registered_tools"][0], "workflow__run");
+
+    let loaded_from_json = run_json(&[
+        "--base-url",
+        &fixture.base_url,
+        "load-skill",
+        "--json",
+        r#"{"skill_name":"workflow","dcc_type":"3dsmax","instance_id":"80321760","activate_groups":false}"#,
+    ]);
+    assert_eq!(loaded_from_json["loaded"], true);
+    assert_eq!(loaded_from_json["activate_groups"], false);
+    assert_eq!(loaded_from_json["registered_tools"][0], "workflow__run");
 
     let call = run_json(&[
         "--base-url",

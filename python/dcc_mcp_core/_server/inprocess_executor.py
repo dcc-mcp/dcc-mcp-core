@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import importlib.util
+import inspect
 import json
 import logging
 from pathlib import Path
@@ -267,6 +268,13 @@ class BaseDccCallableDispatcher(Protocol):
         ...
 
 
+def _is_host_queue_dispatcher(dispatcher: Any | None) -> bool:
+    """Return ``True`` for the Rust-backed host dispatcher Python surface."""
+    if dispatcher is None:
+        return False
+    return callable(getattr(dispatcher, "post", None)) and callable(getattr(dispatcher, "tick", None))
+
+
 @dataclass
 class HostExecutionBridge:
     """Adapter-facing bridge for host-owned Python execution.
@@ -279,11 +287,27 @@ class HostExecutionBridge:
     """
 
     dispatcher: BaseDccCallableDispatcher | None = None
+    host_dispatcher: Any | None = None
     runner: Callable[[str, Mapping[str, Any]], Any] | None = None
     sandbox_context: Any | None = None
     default_thread_affinity: str = "any"
     default_execution: str = "sync"
     default_timeout_hint_secs: int | None = None
+
+    def resolve_host_dispatcher(self) -> Any | None:
+        """Return the dispatcher that should back HTTP main-thread routing.
+
+        ``host_dispatcher`` lets adapters pass a Rust-backed
+        ``QueueDispatcher`` / ``BlockingDispatcher`` alongside a custom
+        Python ``dispatch_callable`` implementation. When ``dispatcher`` is
+        already one of those queue dispatchers, the bridge reuses it for both
+        in-process skill execution and HTTP ``tools/call`` routing.
+        """
+        if _is_host_queue_dispatcher(self.host_dispatcher):
+            return self.host_dispatcher
+        if _is_host_queue_dispatcher(self.dispatcher):
+            return self.dispatcher
+        return None
 
     def execution_context(
         self,
@@ -340,18 +364,45 @@ class HostExecutionBridge:
         try:
             if self.dispatcher is None:
                 return _invoke()
-            return self.dispatcher.dispatch_callable(
-                _invoke,
-                affinity=context.thread_affinity,
-                context=context,
-                action_name=context.action_name,
-                skill_name=context.skill_name,
-                execution=context.execution,
-                timeout_hint_secs=context.timeout_hint_secs,
+            dispatch_callable = getattr(self.dispatcher, "dispatch_callable", None)
+            if callable(dispatch_callable):
+                return dispatch_callable(
+                    _invoke,
+                    affinity=context.thread_affinity,
+                    context=context,
+                    action_name=context.action_name,
+                    skill_name=context.skill_name,
+                    execution=context.execution,
+                    timeout_hint_secs=context.timeout_hint_secs,
+                )
+            if _is_host_queue_dispatcher(self.dispatcher):
+                return self._dispatch_via_host_queue(self.dispatcher, _invoke, context)
+            raise TypeError(
+                "HostExecutionBridge dispatcher must expose dispatch_callable(...) "
+                "or the QueueDispatcher/BlockingDispatcher post/tick API"
             )
         except Exception as exc:
             logger.exception("Host callable %s failed", getattr(func, "__name__", repr(func)))
             return exception_to_error_envelope(exc)
+
+    def _dispatch_via_host_queue(
+        self,
+        dispatcher: Any,
+        func: Callable[[], Any],
+        context: InProcessExecutionContext,
+    ) -> Any:
+        """Run ``func`` through a Rust-backed host queue dispatcher."""
+        handle = dispatcher.post(func)
+        timeout_ms = timeout_hint_secs_to_ms(
+            context.timeout_hint_secs,
+            action_name=context.action_name,
+            skill_name=context.skill_name,
+            thread_affinity=context.thread_affinity,
+            execution=context.execution,
+            warn_if_missing=False,
+        )
+        timeout_secs = None if timeout_ms is None else timeout_ms / 1000.0
+        return handle.wait(timeout=timeout_secs)
 
     def _resolve_deferred_result(
         self,
@@ -499,15 +550,57 @@ class HostExecutionBridge:
         return _executor
 
 
+def _call_script_main(main: Callable[..., Any], params: Mapping[str, Any]) -> Any:
+    """Invoke a skill ``main`` using the best supported calling convention."""
+    params_dict = dict(params)
+    try:
+        signature = inspect.signature(main)
+    except (TypeError, ValueError):
+        return main(**params_dict)
+
+    parameters = list(signature.parameters.values())
+    if any(param.kind is inspect.Parameter.VAR_KEYWORD for param in parameters):
+        return main(**params_dict)
+
+    keyword_names = {
+        param.name
+        for param in parameters
+        if param.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+    }
+    if set(params_dict).issubset(keyword_names):
+        return main(**params_dict)
+
+    positional = [
+        param
+        for param in parameters
+        if param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    required = [
+        param
+        for param in parameters
+        if param.default is inspect.Parameter.empty
+        and param.kind
+        in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
+    ]
+    if len(positional) == 1 and len(required) <= 1:
+        return main(params_dict)
+
+    return main(**params_dict)
+
+
 def run_skill_script(script_path: str, params: Mapping[str, Any]) -> Any:
-    """Lazy-import a skill script and call its ``main(**params)``.
+    """Lazy-import a skill script and call its ``main`` entry point.
 
     Mirrors the convention skill authors already use:
 
     * Module is loaded with a unique synthetic name to keep import
       caches from colliding when the same path is loaded twice.
-    * ``main`` is the entry point; raise an explicit error if the
-      module does not expose it.
+    * ``main`` is the entry point; both ``main(**params)`` and legacy
+      ``main(params)`` script conventions are supported.
     * ``SystemExit`` is intercepted because some DCCs raise it from
       inside ``main`` to bail out of the host's event loop; in that
       case the script is expected to publish a result via
@@ -534,7 +627,7 @@ def run_skill_script(script_path: str, params: Mapping[str, Any]) -> Any:
                 f"Skill script {script_path!r} does not expose a `main` callable",
             )
         try:
-            return module.main(**dict(params))
+            return _call_script_main(module.main, params)
         except SystemExit:
             return getattr(module, "__mcp_result__", None)
     finally:

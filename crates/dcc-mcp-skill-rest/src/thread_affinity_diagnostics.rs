@@ -35,7 +35,8 @@ pub fn thread_affinity_hint(
         (ThreadAffinity::Main, ThreadAffinity::Any, Some(false)) => {
             "This tool requires the DCC main thread but no host dispatcher is attached. \
              In interactive hosts, load the DCC plugin or pass a UI dispatcher to start_server(); \
-             when using the gateway, confirm the backend instance is ready (dispatcher=true on GET /v1/readyz)."
+             note that dispatcher=true on GET /v1/readyz only confirms adapter readiness, \
+             while /v1/call also needs a host QueueDispatcher/BlockingDispatcher attached before server.start()."
                 .to_string()
         }
         (ThreadAffinity::Main, ThreadAffinity::Any, Some(true) | None) => {
@@ -95,10 +96,10 @@ fn remediation_steps(
         );
         if host_dispatcher_attached == Some(false) {
             steps.push(
-                "Wire HostExecutionBridge / DccExecutorHandle before starting the HTTP server.",
+                "Wire HostExecutionBridge with a host QueueDispatcher/BlockingDispatcher before starting the HTTP server.",
             );
             steps.push(
-                "When using the gateway, read gateway://instances and confirm readiness.dispatcher is true.",
+                "Do not rely on readiness.dispatcher alone; inspect the /v1/call error context for host_dispatcher_attached=true.",
             );
         }
     }

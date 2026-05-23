@@ -92,6 +92,8 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 | `traces/core-1092-stable-debug-api.jsonl` | No | Stable `/v1/debug/*` routes expose the route family needed for agent diagnostics without scraping Admin HTML. |
 | `traces/core-1093-trace-context-debug-bundle.jsonl` | No | `X-Request-Id` and W3C `traceparent` stay distinct, and `/v1/debug/bundles/{trace_id}` can retrieve the retained trace. |
 | `traces/core-1108-deregistered-history.jsonl` | Optional booting row | Stable debug route exposes recently auto-deregistered history and, when present, keeps port=0 booting diagnostics visible across debug health reads. |
+| `traces/core-1124-3dsmax-main-affinity-host-bridge.jsonl` | Yes (3ds Max) | A main-affinity 3ds Max tool called through `/v1/call` must route through the attached host dispatcher instead of `THREAD_AFFINITY_UNAVAILABLE`. |
+| `traces/core-1125-3dsmax-diagnostics-screenshot-dict.jsonl` | Yes (3ds Max) | After `load_skill`, bundled `dcc_diagnostics__screenshot` must return a normal dict envelope through gateway REST. |
 | `traces/gateway-multi-instance-stress.jsonl` | Yes (≥3 live instances) | Skips unless `GET /v1/instances` reports `total >= 3`; then bursts health/instances/readyz/context/search to catch registry/probe regressions under load. |
 
 ## CI policy (recommended)
@@ -113,3 +115,5 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 - core [#1037](https://github.com/loonghao/dcc-mcp-core/issues/1037) — cooperative gateway yield fallback should be structured and non-alarming
 - core [#1092](https://github.com/loonghao/dcc-mcp-core/issues/1092) — stable `/v1/debug/*` API for agent diagnostics
 - core [#1093](https://github.com/loonghao/dcc-mcp-core/issues/1093) — first-class Trace Context for full-chain debug bundles
+- core [#1124](https://github.com/loonghao/dcc-mcp-core/issues/1124) — HostExecutionBridge registration must satisfy main-affinity tools/call routing
+- core [#1125](https://github.com/loonghao/dcc-mcp-core/issues/1125) — bundled diagnostics screenshot must return a dict through REST dispatch
