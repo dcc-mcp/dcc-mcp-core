@@ -493,7 +493,7 @@ if env["status"] in {"completed", "failed", "cancelled", "interrupted"}:
 
 ### Built-in tools: `jobs_cleanup`
 
-Prune terminal jobs from `JobManager` (and any attached `JobStorage` backend) once they age out. Complements [`jobs_get_status`](#built-in-tools-jobsget_status) and the optional SQLite persistence backend (see [`docs/guide/job-persistence.md`](../guide/job-persistence.md), issue #328).
+Prune terminal jobs from `JobManager` (and any attached `JobStorage` backend) once they age out. Complements [`jobs_get_status`](#built-in-tools-jobs_get_status) and the optional SQLite persistence backend (see [`docs/guide/job-persistence.md`](../guide/job-persistence.md), issue #328).
 
 - **Name**: `jobs_cleanup` — client-safe, validated at server startup.
 - **Visibility**: always surfaced in `tools/list`, independent of which skills are loaded.

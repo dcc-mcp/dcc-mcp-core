@@ -434,14 +434,14 @@ mod admin_tests {
         let (port, stop) = spawn_search_backend(json!([
             {
                 "skill": "maya-modeling",
-                "action": "maya-modeling.create_cube",
+                "action": "maya-modeling__create_cube",
                 "summary": "Create a cube",
                 "loaded": true,
                 "has_schema": false
             },
             {
                 "skill": "maya-modeling",
-                "action": "maya-modeling.delete_cube",
+                "action": "maya-modeling__delete_cube",
                 "summary": "Delete a cube",
                 "loaded": true,
                 "has_schema": false
@@ -497,7 +497,7 @@ mod admin_tests {
             json!([
                 {
                     "skill": "maya-modeling",
-                    "action": "maya-modeling.create_cube",
+                    "action": "maya-modeling__create_cube",
                     "summary": "Create a cube",
                     "loaded": true,
                     "has_schema": false
