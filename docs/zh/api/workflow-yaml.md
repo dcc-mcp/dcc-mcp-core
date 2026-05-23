@@ -31,6 +31,6 @@
 
 - `load_workflow_yaml(path) -> WorkflowYaml` — 加载并验证工作流 YAML 文件
 - `get_workflow_path(metadata) -> str | None` — 从 SkillMetadata 中提取工作流文件路径
-- `register_workflow_yaml_tools(server, *, workflows=None, skills=None, dcc_name="dcc")` — 注册 `workflows.list` 和 `workflows.describe` MCP 工具
+- `register_workflow_yaml_tools(server, *, workflows=None, skills=None, dcc_name="dcc")` — 注册 `workflows_list` 和 `workflows_describe` MCP 工具
 
 详见 [English API 参考](../api/workflow-yaml.md)。

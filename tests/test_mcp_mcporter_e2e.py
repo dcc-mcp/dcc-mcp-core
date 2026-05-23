@@ -1251,7 +1251,7 @@ class TestMcporterToolGroupActivation:
 
 
 # ---------------------------------------------------------------------------
-# jobs.get_status / jobs.cleanup — async execution lifecycle
+# jobs_get_status / jobs_cleanup — async execution lifecycle
 # ---------------------------------------------------------------------------
 
 
@@ -1276,7 +1276,7 @@ def server_for_jobs():
 
 
 def _poll_job_until_terminal(url: str, name: str, job_id: str, *, timeout_s: float = 20.0) -> dict:
-    """Poll ``jobs.get_status`` until the job reaches a terminal state.
+    """Poll ``jobs_get_status`` until the job reaches a terminal state.
 
     Returns the final parsed envelope. Raises ``TimeoutError`` if the job has
     not left the ``pending``/``running`` state within ``timeout_s`` seconds.
@@ -1285,8 +1285,8 @@ def _poll_job_until_terminal(url: str, name: str, job_id: str, *, timeout_s: flo
     deadline = time.time() + timeout_s
     last_envelope: dict[str, Any] = {}
     while time.time() < deadline:
-        result = _mcporter_call(url, name, "jobs.get_status", {"job_id": job_id})
-        # jobs.get_status emits structured content; _parse_content_json copes
+        result = _mcporter_call(url, name, "jobs_get_status", {"job_id": job_id})
+        # jobs_get_status emits structured content; _parse_content_json copes
         # with both the wrapped and direct-data shapes.
         try:
             envelope = _parse_content_json(result)
@@ -1327,11 +1327,11 @@ def _extract_job_id(result: dict[str, Any]) -> str | None:
 
 @pytest.mark.skipif(not NPX_AVAILABLE, reason="npx / mcporter not available")
 class TestMcporterJobsLifecycle:
-    """Exercise jobs.get_status and jobs.cleanup through a real async tool call."""
+    """Exercise jobs_get_status and jobs_cleanup through a real async tool call."""
 
     def test_jobs_get_status_unknown_id_returns_error(self, server_for_jobs):
         _, _, url, name = server_for_jobs
-        result = _mcporter_call(url, name, "jobs.get_status", {"job_id": "does-not-exist"})
+        result = _mcporter_call(url, name, "jobs_get_status", {"job_id": "does-not-exist"})
         text = _extract_content_text(result).lower()
         is_error = result.get("isError") is True
         assert is_error or "no job" in text or "not found" in text, (
@@ -1340,9 +1340,9 @@ class TestMcporterJobsLifecycle:
 
     def test_jobs_cleanup_zero_hours_is_safe(self, server_for_jobs):
         _, _, url, name = server_for_jobs
-        result = _mcporter_call(url, name, "jobs.cleanup", {"older_than_hours": 0})
+        result = _mcporter_call(url, name, "jobs_cleanup", {"older_than_hours": 0})
         data = _parse_content_json(result)
-        assert "removed" in data, f"jobs.cleanup must return `removed` count: {data}"
+        assert "removed" in data, f"jobs_cleanup must return `removed` count: {data}"
         assert isinstance(data["removed"], int)
         assert data["removed"] >= 0
 
@@ -1368,7 +1368,7 @@ class TestMcporterJobsLifecycle:
         # payload content).
 
     def test_jobs_cleanup_removes_terminal_entry(self, server_for_jobs):
-        """After a job is terminal, jobs.cleanup(older_than_hours=0) must prune it."""
+        """After a job is terminal, jobs_cleanup(older_than_hours=0) must prune it."""
         _, _, url, name = server_for_jobs
         # Fire another render so we have a fresh terminal row to prune.
         result = _mcporter_call(url, name, "render_frames", {"start": 1, "end": 1})
@@ -1376,16 +1376,16 @@ class TestMcporterJobsLifecycle:
         assert job_id, f"render_frames must return a job_id, got: {result}"
         _poll_job_until_terminal(url, name, job_id, timeout_s=20.0)
 
-        cleanup = _mcporter_call(url, name, "jobs.cleanup", {"older_than_hours": 0})
+        cleanup = _mcporter_call(url, name, "jobs_cleanup", {"older_than_hours": 0})
         cleanup_data = _parse_content_json(cleanup)
         assert cleanup_data.get("removed", 0) >= 1, (
             f"cleanup must prune at least the just-completed job, got: {cleanup_data}"
         )
 
         # Re-querying the pruned job_id must now fail.
-        after = _mcporter_call(url, name, "jobs.get_status", {"job_id": job_id})
+        after = _mcporter_call(url, name, "jobs_get_status", {"job_id": job_id})
         text = _extract_content_text(after).lower()
         is_error = after.get("isError") is True
         assert is_error or "no job" in text or "not found" in text, (
-            f"pruned job must be unknown to jobs.get_status, got: {after}"
+            f"pruned job must be unknown to jobs_get_status, got: {after}"
         )

@@ -306,7 +306,7 @@ tools:
 | `on-success` | `List[str]` | Suggested tools after successful execution |
 | `on-failure` | `List[str]` | Debugging/recovery tools on failure |
 
-Both accept lists of fully-qualified tool names in `{skill_name}__{tool_name}` format. SEP-986 dot-namespacing (`skill.tool_name`) is also supported — see [Naming Rules](/guide/naming) for validation.
+Both accept lists of fully-qualified tool names in `{skill_name}__{tool_name}` format. Dotted MCP tool names are not valid; see [Naming Rules](/guide/naming) for validation.
 
 Unloaded skill stubs returned by `tools/list` also expose `annotations.deferredHint = true` as an explicit progressive-loading signal. Once you call `load_skill(...)`, the real tools replace the stub and return `deferredHint = false`.
 
@@ -847,7 +847,7 @@ group control in addition to the six skill-discovery tools:
 | `deactivate_tool_group` | Deactivate a group by `{ "group": "rigging" }` |
 | `search_tools` | Keyword search across currently-enabled tools (name, description, tags) |
 
-`tools/list` also returns `__group__<skill>.<group>` stubs for any group
+`tools/list` also returns `__group__<group>` stubs for any group
 that is inactive, making the full tool surface discoverable without
 exposing schemas or handlers.
 

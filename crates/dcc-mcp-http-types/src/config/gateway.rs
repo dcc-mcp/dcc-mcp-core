@@ -42,7 +42,7 @@ pub struct GatewayConfig {
     ///
     /// For truly long-running operations (renders, heavy simulations) prefer
     /// async dispatch (`_meta.dcc.async = true`) which returns a `job_id`
-    /// immediately and lets the client poll via `jobs.get_status`.
+    /// immediately and lets the client poll via `jobs_get_status`.
     ///
     /// Only the gateway fan-out uses this value — per-instance servers
     /// bound to a DCC execute inline and are governed by

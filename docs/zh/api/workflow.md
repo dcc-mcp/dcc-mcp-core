@@ -169,7 +169,7 @@ steps:
 尝试编号从 1 开始：`attempt_number == 1` 是首次运行
 （无前置延迟）；`attempt_number == 2` 是第一次重试。
 
-工作流的取消会**中断休眠** — 重试永远不会比 `workflows.cancel`
+工作流的取消会**中断休眠** — 重试永远不会比 `workflows_cancel`
 调用活得更久。每次尝试都被记录为工作流根作业下的一个独立子作业
 （parent-job id 来自 issue #318）。
 
@@ -180,10 +180,10 @@ steps:
 
 | 工具 | 说明 | ToolAnnotations |
 |------|------|-----------------|
-| `workflows.run` | 启动运行（YAML 或 JSON spec + inputs）。 | `destructive_hint=true, open_world_hint=true` |
-| `workflows.get_status` | 轮询终止状态 + 进度。 | `read_only_hint=true, idempotent_hint=true` |
-| `workflows.cancel` | 通过 `workflow_id` 取消运行（级联）。 | `destructive_hint=true, idempotent_hint=true` |
-| `workflows.lookup` | 目录搜索（只读）。 | `read_only_hint=true` |
+| `workflows_run` | 启动运行（YAML 或 JSON spec + inputs）。 | `destructive_hint=true, open_world_hint=true` |
+| `workflows_get_status` | 轮询终止状态 + 进度。 | `read_only_hint=true, idempotent_hint=true` |
+| `workflows_cancel` | 通过 `workflow_id` 取消运行（级联）。 | `destructive_hint=true, idempotent_hint=true` |
+| `workflows_lookup` | 目录搜索（只读）。 | `read_only_hint=true` |
 
 ## Python 接口
 
@@ -204,7 +204,7 @@ assert retry.next_delay_ms(2) == 500       # 第一次重试延迟（未加 jitt
 
 所有策略类都是 **frozen** — Python 无法修改已解析的 spec。
 要运行工作流，请从 MCP 客户端侧调用 MCP 工具
-(`workflows.run` / `workflows.get_status` / `workflows.cancel`) —
+(`workflows_run` / `workflows_get_status` / `workflows_cancel`) —
 它们注册在任何调用了 `register_builtin_workflow_tools` 加上
 `register_workflow_handlers` 的技能服务器上。
 

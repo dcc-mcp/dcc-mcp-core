@@ -2,10 +2,10 @@
 //!
 //! Covers the three naming surfaces of the gateway namespace:
 //!
-//! * **Skill → tool** (`<skill>.<tool>`): [`extract_bare_tool_name`],
+//! * **Skill → tool** (`<skill>__<tool>`): [`extract_bare_tool_name`],
 //!   [`skill_tool_name`], [`decode_skill_tool_name`].
-//! * **Gateway instance prefix**: [`encode_tool_name`] (SEP-986 form
-//!   `{id8}.{tool}` — still valid for wire slugs where a client accepts `.`),
+//! * **Gateway instance prefix**: [`encode_tool_name`] (client-safe form
+//!   `{id8}__{tool}`),
 //!   [`encode_tool_name_cursor_safe`] (client-safe form `i_{id8}__{escaped_tool}`,
 //!   issue #656), [`decode_tool_name`] (cursor-safe form only),
 //!   [`assert_gateway_tool_name`].
@@ -40,13 +40,13 @@ pub fn extract_bare_tool_name<'a>(skill_name: &str, action_name: &'a str) -> &'a
         .unwrap_or(action_name)
 }
 
-/// Build the proactive `<skill-name>.<tool-name>` MCP name.
+/// Build the proactive `<skill-name>__<tool-name>` MCP name.
 ///
 /// # Examples
 /// ```
 /// # use dcc_mcp_gateway::gateway::namespace::skill_tool_name;
 /// assert_eq!(skill_tool_name("maya-animation", "maya_animation__set_keyframe"),
-///            Some("maya-animation.set_keyframe".to_string()));
+///            Some("maya-animation__set_keyframe".to_string()));
 /// assert_eq!(skill_tool_name("", "set_keyframe"), None);
 /// ```
 pub fn skill_tool_name(skill_name: &str, action_name: &str) -> Option<String> {
@@ -60,12 +60,15 @@ pub fn skill_tool_name(skill_name: &str, action_name: &str) -> Option<String> {
     Some(format!("{skill_name}{SKILL_TOOL_SEP}{bare}"))
 }
 
-/// Decode a `<skill>.<tool>` pair from a per-DCC tool name.
+/// Decode a `<skill>__<tool>` pair from a per-DCC tool name.
 ///
-/// Rejects gateway-encoded names (`{id8}.<rest>` with an 8-hex prefix) and
+/// Rejects gateway-encoded names (`{id8}__<rest>` with an 8-hex prefix) and
 /// skill stubs (`__skill__...`).
 pub fn decode_skill_tool_name(namespaced: &str) -> Option<(&str, &str)> {
     if namespaced.starts_with("__") || namespaced.contains('/') {
+        return None;
+    }
+    if namespaced.starts_with(CURSOR_SAFE_PREFIX) {
         return None;
     }
     // Reject gateway-encoded form — the gateway prefix owns the first dot.
@@ -77,20 +80,20 @@ pub fn decode_skill_tool_name(namespaced: &str) -> Option<(&str, &str)> {
     namespaced.split_once(SKILL_TOOL_SEP)
 }
 
-/// Encode a tool name for gateway aggregation: `{id8}.{original}`.
+/// Encode a tool name for gateway aggregation: `{id8}__{original}`.
 ///
 /// # Panics (debug builds only)
 ///
 /// In debug builds the result is checked against
 /// [`dcc_mcp_naming::validate_tool_name`]; the gateway never emits a name that
-/// fails SEP-986. Release builds skip the check for zero overhead — invalid
+/// fails the client-safe contract. Release builds skip the check for zero overhead — invalid
 /// names would have been caught at registration time (see
 /// [`assert_gateway_tool_name`]).
 pub fn encode_tool_name(id: &Uuid, original: &str) -> String {
     let encoded = format!("{}{INSTANCE_SEP}{original}", instance_short(id));
     debug_assert!(
         dcc_mcp_naming::validate_tool_name(&encoded).is_ok(),
-        "gateway emitted tool name {encoded:?} that violates SEP-986"
+        "gateway emitted tool name {encoded:?} that violates the client-safe contract"
     );
     encoded
 }
@@ -139,8 +142,7 @@ pub fn decode_tool_name(prefixed: &str) -> Option<(String, String)> {
 /// Unlike [`encode_tool_name`], the output of this function contains
 /// only characters from the stricter `^[A-Za-z0-9_]+$` alphabet that
 /// clients such as Cursor enforce — so the emitted name survives both
-/// the MCP SEP-986 validator and the more restrictive client-side
-/// regex.
+/// the MCP tool-name validator and the more restrictive client-side regex.
 ///
 /// The escape vocabulary is `_U_` → `_`, `_D_` → `.`, `_H_` → `-`; all
 /// other ASCII-alphanumeric bytes pass through unchanged. The encoding
@@ -163,7 +165,7 @@ pub fn encode_tool_name_cursor_safe(id: &Uuid, original: &str) -> String {
     );
     debug_assert!(
         dcc_mcp_naming::validate_tool_name(&encoded).is_ok(),
-        "gateway emitted cursor-safe tool name {encoded:?} that violates SEP-986"
+        "gateway emitted cursor-safe tool name {encoded:?} that violates the client-safe contract"
     );
     debug_assert!(
         is_cursor_safe_alphabet(&encoded),
@@ -194,10 +196,10 @@ pub fn is_cursor_safe_alphabet(s: &str) -> bool {
 /// | `.`        | `_D_`  |
 /// | `-`        | `_H_`  |
 ///
-/// The escape is defined only on the alphabet permitted by
-/// [`dcc_mcp_naming::validate_tool_name`] (`[A-Za-z0-9_.\-]`); any other
-/// byte is a bug in the caller's registration path and will be
-/// asserted out in debug builds.
+/// The escape is defined for client-safe MCP tool names
+/// (`[A-Za-z0-9_-]`) and for dotted REST/diagnostic slugs that still reuse
+/// the codec internally; any other byte is a bug in the caller's routing
+/// path and will be asserted out in debug builds.
 pub fn escape_cursor_safe(s: &str) -> String {
     // Heuristic: most names pass through; pre-size conservatively to
     // avoid reallocation on the common short-name case.
@@ -209,14 +211,14 @@ pub fn escape_cursor_safe(s: &str) -> String {
             b'-' => out.push_str("_H_"),
             b if b.is_ascii_alphanumeric() => out.push(b as char),
             _ => {
-                // Any other byte is outside the SEP-986 alphabet and
+                // Any other byte is outside the client-safe alphabet and
                 // should have been rejected at tool registration time.
                 // Escape it to a deterministic `_X<hex>_` envelope so
                 // the encoder never panics in release builds, but
                 // trip the debug assertion loud and early.
                 debug_assert!(
                     false,
-                    "escape_cursor_safe called with byte {b:#04x} outside SEP-986 alphabet",
+                    "escape_cursor_safe called with byte {b:#04x} outside the client-safe alphabet",
                 );
                 out.push_str(&format!("_X{b:02X}_"));
             }

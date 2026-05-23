@@ -8,7 +8,7 @@ Verifies the full restart-recovery contract from Python:
 2. Stop the server before the async job completes (by starting a second
    server against the same file before the first finishes).
 3. On the second incarnation, any row left in ``pending`` / ``running``
-   is visible as ``interrupted`` via ``jobs.get_status``.
+   is visible as ``interrupted`` via ``jobs_get_status``.
 
 The test is skipped at module level when the wheel was not built with
 the ``job-persist-sqlite`` Cargo feature — detected by trying to set
@@ -179,7 +179,7 @@ def test_sqlite_storage_persists_rows_across_restart():
         # while the interpreter links the system ``sqlite3`` — mixing
         # the two on the same files can yield ``database disk image is
         # malformed`` on the next ``rusqlite::Connection::open`` (notably
-        # on macOS CI). Recovery + ``jobs.get_status`` below is the
+        # on macOS CI). Recovery + ``jobs_get_status`` below is the
         # authoritative check of persisted rows.
         assert Path(db).exists(), "SQLite database file should have been created"
         assert Path(db).stat().st_size > 0, "database file is unexpectedly empty"
@@ -195,7 +195,7 @@ def test_sqlite_storage_persists_rows_across_restart():
                     "id": 3,
                     "method": "tools/call",
                     "params": {
-                        "name": "jobs.get_status",
+                        "name": "jobs_get_status",
                         "arguments": {"job_id": job_id},
                     },
                 },
@@ -249,7 +249,7 @@ def test_jobs_cleanup_tool_roundtrip_with_sqlite_storage():
                         "id": 5,
                         "method": "tools/call",
                         "params": {
-                            "name": "jobs.get_status",
+                            "name": "jobs_get_status",
                             "arguments": {"job_id": job_id},
                         },
                     },
@@ -268,7 +268,7 @@ def test_jobs_cleanup_tool_roundtrip_with_sqlite_storage():
                     "id": 6,
                     "method": "tools/call",
                     "params": {
-                        "name": "jobs.cleanup",
+                        "name": "jobs_cleanup",
                         "arguments": {"older_than_hours": 0},
                     },
                 },
@@ -278,7 +278,7 @@ def test_jobs_cleanup_tool_roundtrip_with_sqlite_storage():
             env = cleanup["result"]["structuredContent"]
             assert env["removed"] >= 1, env
 
-            # jobs.get_status for the pruned id now reports unknown.
+            # jobs_get_status for the pruned id now reports unknown.
             follow = _post(
                 url,
                 {
@@ -286,7 +286,7 @@ def test_jobs_cleanup_tool_roundtrip_with_sqlite_storage():
                     "id": 7,
                     "method": "tools/call",
                     "params": {
-                        "name": "jobs.get_status",
+                        "name": "jobs_get_status",
                         "arguments": {"job_id": job_id},
                     },
                 },

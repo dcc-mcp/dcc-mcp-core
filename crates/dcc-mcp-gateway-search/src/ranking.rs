@@ -341,24 +341,20 @@ impl Scorer for FuzzyScorer {
 /// search. Issue #994: demote these so domain actions surface first.
 ///
 /// Only targets **known gateway-level meta-tools** — not arbitrary
-/// DCC actions that happen to share a prefix (e.g. `project.save` in
+/// DCC actions that happen to share a prefix (e.g. `project_save` in
 /// a maya-scene skill is NOT a meta-tool).
 fn is_meta_tool(backend_tool: &str) -> bool {
     let lower = backend_tool.to_ascii_lowercase();
-    // Specific known project meta-tools (NOT `project.save`, `project.open`, etc.)
-    if lower == "project.resume"
-        || lower == "project.checkpoint"
-        || lower == "project__resume"
-        || lower == "project__checkpoint"
-    {
+    // Specific known project meta-tools (NOT `project_save`, `project_open`, etc.)
+    if lower == "project_resume" || lower == "project_checkpoint" {
         return true;
     }
     // recipes__* batch automation tools
-    if lower.starts_with("recipes__") || lower.starts_with("recipes.") {
+    if lower.starts_with("recipes__") {
         return true;
     }
     // diagnostics__* diagnostic/screenshot tools
-    if lower.starts_with("diagnostics__") || lower.starts_with("diagnostics.") {
+    if lower.starts_with("diagnostics__") {
         return true;
     }
     // dcc_capability_manifest infrastructure tool
@@ -712,14 +708,10 @@ mod tests {
 
     #[test]
     fn is_meta_tool_recognises_known_patterns() {
-        assert!(super::is_meta_tool("project.resume"));
-        assert!(super::is_meta_tool("project.checkpoint"));
-        assert!(super::is_meta_tool("project__resume"));
-        assert!(super::is_meta_tool("project__checkpoint"));
+        assert!(super::is_meta_tool("project_resume"));
+        assert!(super::is_meta_tool("project_checkpoint"));
         assert!(super::is_meta_tool("recipes__list"));
-        assert!(super::is_meta_tool("recipes.validate"));
         assert!(super::is_meta_tool("diagnostics__screenshot"));
-        assert!(super::is_meta_tool("diagnostics.ping"));
         assert!(super::is_meta_tool("dcc_capability_manifest"));
 
         // Domain tools must NOT be classified as meta.
@@ -728,14 +720,14 @@ mod tests {
             "maya_light_rig__create_three_point_rig"
         ));
         assert!(!super::is_meta_tool("create_sphere"));
-        // DCC actions that happen to start with "project." are NOT meta.
-        assert!(!super::is_meta_tool("project.save"));
-        assert!(!super::is_meta_tool("project.open"));
+        // DCC actions that happen to start with "project_" are NOT meta.
+        assert!(!super::is_meta_tool("project_save"));
+        assert!(!super::is_meta_tool("project_open"));
     }
 
     #[test]
     fn fuzzy_scorer_demotes_meta_tools_below_domain_hits() {
-        // Issue #994: `project.resume` must NOT out-rank a real lighting tool
+        // Issue #994: `project_resume` must NOT out-rank a real lighting tool
         // for a query like "light rig three point".
         let mut s = FuzzyScorer::new();
         let domain_tool = rec(
@@ -746,7 +738,7 @@ mod tests {
             true,
         );
         let meta_tool = rec(
-            "project.resume",
+            "project_resume",
             "Resume from last checkpoint: active_tool_groups, checkpoint_ids, three-point references, light rig state",
             Some("project"),
             &["meta"],
@@ -766,7 +758,7 @@ mod tests {
         // Meta-tools should still be discoverable when queried by their exact name.
         let mut s = FuzzyScorer::new();
         let meta_tool = rec(
-            "project.resume",
+            "project_resume",
             "Resume a project from its last checkpoint.",
             Some("project"),
             &["meta"],

@@ -62,7 +62,7 @@ document without scanning every file.
 | [actions.md](actions.md) | ToolRegistry, ToolDispatcher, ToolPipeline, VersionedRegistry |
 | [custom-actions.md](custom-actions.md) | Adding custom tool types and validation strategies |
 | [events.md](events.md) | EventBus pub/sub system |
-| [naming.md](naming.md) | SEP-986 tool name and action ID validation rules |
+| [naming.md](naming.md) | Client-safe tool name and action ID validation rules |
 | [transport.md](transport.md) | IPC transport: DccLinkFrame, IpcChannelAdapter, SocketServerAdapter |
 | [process.md](process.md) | Process management: launch, monitor, crash recovery |
 | [capture.md](capture.md) | Screen/window capture APIs |

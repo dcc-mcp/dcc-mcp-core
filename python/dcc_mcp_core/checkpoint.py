@@ -335,13 +335,17 @@ _JOBS_CHECKPOINT_STATUS_DESCRIPTION = (
 )
 
 
+JOBS_CHECKPOINT_STATUS_TOOL = "jobs_checkpoint_status"
+JOBS_RESUME_CONTEXT_TOOL = "jobs_resume_context"
+
+
 def register_checkpoint_tools(
     server: Any,
     *,
     dcc_name: str = "dcc",
     store: CheckpointStore | None = None,
 ) -> None:
-    """Register ``jobs.checkpoint_status`` and ``jobs.resume_context`` on *server*.
+    """Register ``jobs_checkpoint_status`` and ``jobs_resume_context`` on *server*.
 
     These tools allow agents to query checkpoint state before re-submitting
     interrupted jobs, so the skill script can resume from where it left off.
@@ -407,13 +411,13 @@ def register_checkpoint_tools(
 
     tools = [
         (
-            "jobs.checkpoint_status",
+            JOBS_CHECKPOINT_STATUS_TOOL,
             _JOBS_CHECKPOINT_STATUS_DESCRIPTION,
             _JOBS_CHECKPOINT_STATUS_SCHEMA,
             _handle_checkpoint_status,
         ),
         (
-            "jobs.resume_context",
+            JOBS_RESUME_CONTEXT_TOOL,
             _JOBS_RESUME_DESCRIPTION,
             _JOBS_RESUME_SCHEMA,
             _handle_resume_context,
@@ -442,6 +446,8 @@ def register_checkpoint_tools(
 # ── Public API ─────────────────────────────────────────────────────────────
 
 __all__ = [
+    "JOBS_CHECKPOINT_STATUS_TOOL",
+    "JOBS_RESUME_CONTEXT_TOOL",
     "CheckpointStore",
     "checkpoint_every",
     "clear_checkpoint",

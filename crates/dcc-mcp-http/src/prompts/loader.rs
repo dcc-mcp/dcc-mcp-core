@@ -180,7 +180,7 @@ fn workflow_to_prompt(
 
     let template = format!(
         "Workflow: {description}\n\nThis workflow runs these steps in order:\n{steps}\n\
-         Call `workflows.run` with name = {wf_name:?} to execute, or invoke the tools \
+         Call `workflows_run` with name = {wf_name:?} to execute, or invoke the tools \
          manually in the order above.\n",
         description = if spec.description.is_empty() {
             spec.name.clone()

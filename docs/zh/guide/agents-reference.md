@@ -48,7 +48,7 @@ body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
 }}
 # → result.structuredContent = {"job_id": "<uuid>", "status": "pending",
 #                               "parent_job_id": "<uuid>|null"}
-# 通过 jobs.get_status (#319) 轮询；取消父任务会取消每个子任务
+# 通过 jobs_get_status (#319) 轮询；取消父任务会取消每个子任务
 # 其 _meta.dcc.parentJobId 匹配（CancellationToken 子令牌级联）。
 ```
 
@@ -287,16 +287,17 @@ router = vr.router()  # -> CompatibilityRouter（借用注册表）
 result = vr.resolve("create_sphere", "maya", "^1.0.0")
 ```
 
-**SEP-986 工具命名 — 注册前验证名称：**
+**客户端安全 MCP 工具命名 — 注册前验证名称：**
 ```python
 from dcc_mcp_core import validate_tool_name, validate_action_id, TOOL_NAME_RE
-# 工具名称：点分隔小写（如 "scene.get_info"）
-validate_tool_name("scene.get_info")     # ✓ 通过
+# 工具名称：仅 ASCII 字母/数字/_/-，最多 64 字符
+validate_tool_name("scene_get_info")     # ✓ 通过
+validate_tool_name("scene.get_info")     # ✗ 抛出 ValueError
 validate_tool_name("Scene/GetInfo")      # ✗ 抛出 ValueError
 # Action ID：点分隔小写标识符链
-validate_action_id("maya-geometry.create_sphere")  # ✓
+validate_action_id("maya_geometry.create_sphere")  # ✓
 # 用于自定义验证的正则常量：
-# TOOL_NAME_RE, ACTION_ID_RE, MAX_TOOL_NAME_LEN (48 字符)
+# TOOL_NAME_RE, ACTION_ID_RE, MAX_TOOL_NAME_LEN (64 字符)
 ```
 
 **Workflow 步骤策略 — 重试 / 超时 / 幂等性 (#353)：**
@@ -327,14 +328,13 @@ config.lazy_actions = True   # opt-in；默认为 False
 **`bare_tool_names` — 冲突感知的裸操作名 (#307)：**
 ```python
 # 默认 True。tools/list 在裸名称唯一时发出 "execute_python"
-# 而非 "maya-scripting.execute_python"。
-# 冲突时回退到完整的 "<skill>.<action>" 形式。
-# tools/call 在一个发布周期内接受两种形式。
+# 而非 "maya_scripting__execute_python"。
+# 冲突时回退到完整的 "<skill>__<action>" 形式。
+# tools/call 接受 tools/list 返回的客户端安全名称。
 config = McpHttpConfig(port=8765)
 config.bare_tool_names = True   # 默认
 
-# 仅当下游客户端硬编码了前缀形式
-# 且无法同步更新时选择退出：
+# 需要显式 skill 限定名称时选择退出：
 config.bare_tool_names = False
 ```
 
@@ -373,7 +373,7 @@ json_str = result.to_json()    # JSON 字符串
 - 使用 `registry.list_actions()`（显示全部）vs `registry.list_actions_enabled()`（仅活跃）
 - 查找工具时从 `search_skills(query)` 开始 — 不要猜测工具名。`search_skills` 接受 `tags`、`dcc`、`scope` 和 `limit`；无参调用可按信任作用域浏览。
 - 在多网关设置中使用 `init_file_logging(FileLoggingConfig(...))` 获取持久日志；调用 `flush_logs()` 立即将事件写入磁盘
-- 在 `tools/call` 中使用裸工具名 — `execute_python` 和 `maya-scripting.execute_python` 在一个版本的宽限期内都有效
+- 在 `tools/call` 中使用客户端安全工具名；使用 `_` 或 `-`，不要使用 dotted 工具名
 
 ### Don't ❌
 
@@ -395,7 +395,7 @@ json_str = result.to_json()    # JSON 字符串
 - 不要手动更新版本号或编辑 `CHANGELOG.md` — Release Please 负责处理
 - 不要硬编码 API 密钥、令牌或密码 — 使用环境变量
 - 不要在分支名中使用 `docs/` 前缀 — 会导致 `refs/heads/docs/...` 冲突
-- 不要在 `tools/call` 中硬编码旧式 `<skill>.<action>` 前缀形式 — 裸名自 v0.14.2 (#307) 起为默认
+- 不要在 `tools/call` 中硬编码 dotted `<skill>.<action>` 工具名；skill 限定名称使用 `skill__action`
 - 不要在 Python 中引用 `ToolMeta.enabled` — 使用 `ToolRegistry.set_tool_enabled()` 代替
 - 不要对 `ToolResult` 使用 `json.dumps()` — 使用 `result.to_json()` 或 `serialize_result()`
 - 不要猜测工具名 — 使用 `search_skills(query)` 发现正确的工具。

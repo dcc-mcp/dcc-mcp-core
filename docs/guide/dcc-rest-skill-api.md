@@ -16,7 +16,7 @@ republishing every backend action as a separate MCP tool.
 | Problem with gateway-only exposure                      | How the per-DCC REST surface fixes it                         |
 |---------------------------------------------------------|---------------------------------------------------------------|
 | `tools/list` grows linearly with `instances × actions`  | REST stays bounded: discovery, describe/call, resources, prompts, jobs |
-| MCP tool names must match `[A-Za-z0-9_]+`               | REST slugs use `<dcc>.<skill>.<action>` on per-DCC servers     |
+| MCP tool names must match `^[A-Za-z0-9_-]{1,64}$`       | REST slugs use `<dcc>.<skill>.<action>` on per-DCC servers     |
 | Non-MCP agents need a separate adapter to call DCC code | They `POST /v1/call` with a JSON body                          |
 | MCP resources/prompts need JSON-RPC clients             | They can use `GET /v1/resources*` and `GET /v1/prompts*`       |
 | No structured error class for "skill not loaded"        | `ServiceErrorKind::SkillNotLoaded` (kebab-case)                |

@@ -47,6 +47,8 @@ into a faster authoring loop.
    skill names, and search examples.
 5. Make every tool declaration explicit: `source_file`, `execution`, `affinity`,
    safety annotations, and `timeout_hint_secs` for async tools.
+   Published MCP tool names must be client-safe
+   `^[A-Za-z0-9_-]{1,64}$`; use underscores instead of dotted tool names.
 6. When changing adapter server wiring or caller examples, keep Admin telemetry
    useful: pass optional `agent_context` / `caller_context` summaries through
    MCP `_meta`, REST `meta`, or `x-dcc-mcp-agent-*` headers when the caller is
@@ -92,6 +94,7 @@ into a faster authoring loop.
 - No host API imports at module import time in skill scripts.
 - No scene-touching tool without `affinity: main`.
 - No `execution: async` without a realistic `timeout_hint_secs`.
+- No dotted MCP tool names in `tools.yaml`, examples, or caller docs.
 - No new generic helper crate or module when core or an adapter-local owner
   already exists.
 - No installer or uninstaller import path that loads `dcc_mcp_core._core`

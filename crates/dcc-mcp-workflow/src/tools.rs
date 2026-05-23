@@ -1,13 +1,13 @@
-//! Built-in `workflows.*` MCP tool registrations.
+//! Built-in `workflows_*` MCP tool registrations.
 //!
 //! This module exposes four tools for the workflow primitive (issue #348):
 //!
 //! | Tool name              | Status             | Behaviour                                     |
 //! |------------------------|--------------------|-----------------------------------------------|
-//! | `workflows.run`        | functional         | Starts a run via [`WorkflowHost`]             |
-//! | `workflows.get_status` | functional         | Queries the run registry for terminal status  |
-//! | `workflows.cancel`     | functional         | Flips the run's cancellation token            |
-//! | `workflows.lookup`     | read-only catalog  | Lists / searches the [`WorkflowCatalog`]      |
+//! | `workflows_run`        | functional         | Starts a run via [`WorkflowHost`]             |
+//! | `workflows_get_status` | functional         | Queries the run registry for terminal status  |
+//! | `workflows_cancel`     | functional         | Flips the run's cancellation token            |
+//! | `workflows_lookup`     | read-only catalog  | Lists / searches the [`WorkflowCatalog`]      |
 //!
 //! Two helpers are provided:
 //!
@@ -28,26 +28,26 @@ use serde_json::{Value, json};
 
 use crate::host::{WorkflowHost, cancel_handler, get_status_handler, run_handler};
 
-/// Stable wire-visible names for the `workflows.*` built-ins (public so
+/// Stable wire-visible names for the `workflows_*` built-ins (public so
 /// downstream crates can `use` them).
 pub mod names {
     /// Start a new workflow run from an inline spec or a `{skill, name}` pair.
-    pub const RUN: &str = "workflows.run";
+    pub const RUN: &str = "workflows_run";
     /// Poll aggregated workflow + child-job state.
-    pub const GET_STATUS: &str = "workflows.get_status";
+    pub const GET_STATUS: &str = "workflows_get_status";
     /// Cancel an in-flight workflow.
-    pub const CANCEL: &str = "workflows.cancel";
+    pub const CANCEL: &str = "workflows_cancel";
     /// Read-only catalog lookup — enumerate or filter known workflows.
-    pub const LOOKUP: &str = "workflows.lookup";
+    pub const LOOKUP: &str = "workflows_lookup";
     /// Resume a previously-persisted workflow run from storage (#565).
     /// Only functional when the executor was built with persistent
     /// storage; the metadata is registered unconditionally so
     /// `tools/list` advertises the surface even before storage is
     /// configured.
-    pub const RESUME: &str = "workflows.resume";
+    pub const RESUME: &str = "workflows_resume";
 }
 
-/// Register all four `workflows.*` built-in tools on `registry`.
+/// Register all four `workflows_*` built-in tools on `registry`.
 ///
 /// Safe to call multiple times on the same registry — the underlying
 /// `DashMap` insert overwrites. Tool names are asserted against
@@ -65,7 +65,7 @@ pub fn register_builtin_workflow_tools(registry: &ToolRegistry) {
 /// Register **functional** handlers for the three mutating workflow tools
 /// against a [`ToolDispatcher`] bound to a shared [`WorkflowHost`].
 ///
-/// `workflows.lookup` is intentionally **not** wired here — it is a pure
+/// `workflows_lookup` is intentionally **not** wired here — it is a pure
 /// catalog read whose handler depends on having a [`crate::WorkflowCatalog`]
 /// in scope, which lives at the server-layer boundary.
 ///

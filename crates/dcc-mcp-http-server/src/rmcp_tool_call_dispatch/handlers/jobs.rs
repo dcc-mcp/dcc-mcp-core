@@ -50,7 +50,7 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_jobs_get_status(
     if include_logs {
         tracing::debug!(
             job_id = %job_id,
-            "jobs.get_status received include_logs=true — no-op, JobManager does not capture logs"
+            "jobs_get_status received include_logs=true — no-op, JobManager does not capture logs"
         );
     }
 

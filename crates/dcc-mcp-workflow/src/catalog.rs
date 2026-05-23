@@ -5,8 +5,8 @@
 //! referenced from the skill's `metadata:` block, not a top-level SKILL.md
 //! field. The catalog reads the glob, records the matched paths, and (in
 //! this skeleton) parses only the `name` + `description` + `inputs` header
-//! of each file. Full-body parse is deferred until `workflows.lookup` or
-//! `workflows.run` actually touches the entry.
+//! of each file. Full-body parse is deferred until `workflows_lookup` or
+//! `workflows_run` actually touches the entry.
 
 use std::path::{Path, PathBuf};
 
@@ -132,7 +132,7 @@ impl WorkflowCatalog {
     }
 
     /// Search summaries by a free-text query (substring match, case-insensitive)
-    /// against `name` + `description`. Used by `workflows.lookup`.
+    /// against `name` + `description`. Used by `workflows_lookup`.
     #[must_use]
     pub fn search(&self, query: &str) -> Vec<WorkflowSummary> {
         let q = query.to_ascii_lowercase();
@@ -287,7 +287,7 @@ pub fn resolve_workflow_paths(
 
 /// Parse only the header fields of a workflow YAML.
 ///
-/// TODO(#348-full): lazy full parse on demand when `workflows.run` resolves
+/// TODO(#348-full): lazy full parse on demand when `workflows_run` resolves
 /// a `{skill, name}` pair. The summary is cheap; the full [`WorkflowSpec`]
 /// parse is deferred until execution is implemented in the follow-up PR.
 fn read_summary(path: &Path, skill: &str) -> Result<WorkflowSummary, WorkflowError> {
