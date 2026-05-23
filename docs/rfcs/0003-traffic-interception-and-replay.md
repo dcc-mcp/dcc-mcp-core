@@ -32,7 +32,7 @@ audit log - different file from RFC 0002's webhook-style event log.
 
 ## Motivation - what studio agent authors actually need
 
-From real downstream Maya skill iteration:
+Common skill iteration questions:
 
 - "The agent called `bootstrap_project` with `enable_debugpy=true` but
   my report says `debugpy.status=error`. Did the agent actually send
@@ -316,10 +316,3 @@ P0 alone unlocks the "what did the agent actually send" question.
    the request that *would* have been forwarded? Yes - emit
    `traffic.frame` with `direction=internal` and an `outcome=vetoed`
    field.
-
-## Acknowledgements
-
-Originated from prompt-engineering iteration on downstream Maya skill
-descriptions where the only feedback channel was Cursor's user-facing
-chat output - which is precisely the wrong signal to optimise against.
-The agent's *raw protocol* is the ground truth and we need it.

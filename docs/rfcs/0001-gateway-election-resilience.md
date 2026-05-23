@@ -68,7 +68,7 @@ unresponsive).
 
 ## Hard constraints
 
-These come from real downstream deployments, but they are typical of
+These constraints are typical of
 any in-DCC Python ecosystem:
 
 1. **No new processes.** The current "every DCC adapter ships its own
@@ -539,10 +539,3 @@ harden the upgrade path and make the protocol fully resumable.
   observable disconnect classes - current analysis says they don't.
 - **Cross-host gateway federation**. Today everything is localhost; LAN
   federation would belong in a separate RFC after this one lands.
-
-## Acknowledgements
-
-This RFC originated from end-to-end integration work on a downstream
-Maya adapter package - bootstrap, debugpy attach, and agent-driven
-`create_shelves` flows that exposed the
-preemption-induced disconnect in a reproducible way.
