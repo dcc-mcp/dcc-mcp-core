@@ -284,6 +284,7 @@ pub async fn call_service(
             meta,
             request_id: None,
             trace_context,
+            traffic_capture: Some(&gs.traffic_capture),
             timeout: gs.backend_timeout,
         },
     )

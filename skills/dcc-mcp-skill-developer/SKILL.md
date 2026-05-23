@@ -73,6 +73,10 @@ into a faster authoring loop.
    needs programmatic lifecycle hooks: use `skill.*` events for load/unload
    visibility and `tool.*` events for dispatch/completion/failure metrics
    instead of scraping logs or wrapping every handler manually.
+   For local traffic debugging, prefer the gateway `traffic.frame` capture
+   stream (`DCC_MCP_TRAFFIC_CAPTURE=jsonl:<path>`) over ad-hoc print logging;
+   capture files can contain prompts, scene paths, and tool arguments, so keep
+   them as local debugging artifacts unless redaction has been applied.
 8. For adapter install, uninstall, or upgrade flows, use
    `dcc_mcp_core.install_lifecycle` before importing Rust-backed public API:
    query/stop registered sidecars, inspect install roots, classify locked

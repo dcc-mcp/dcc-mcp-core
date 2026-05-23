@@ -401,6 +401,27 @@ async fn handle_tools_call(
     } else {
         ctx.args.clone()
     };
+    emit_mcp_traffic_frame(
+        gs,
+        &ctx,
+        headers,
+        McpTrafficFrame {
+            id: &id,
+            direction: "inbound",
+            leg: "client_to_gateway",
+            status: None,
+            body: json!({
+            "jsonrpc": req.jsonrpc.clone().unwrap_or_else(|| "2.0".to_string()),
+            "id": id.clone(),
+            "method": "tools/call",
+            "params": {
+                "name": tool,
+                "arguments": effective_args.clone(),
+                "_meta": meta.clone(),
+            },
+            }),
+        },
+    );
 
     // Phase 2: backend.execute span
     let dispatch_ns = std::time::SystemTime::now()
@@ -460,10 +481,73 @@ async fn handle_tools_call(
         pending.remove(id_str);
     }
 
-    json!({
+    let response = json!({
         "jsonrpc": "2.0", "id": id,
         "result": {"content": [{"type": "text", "text": final_text}], "isError": final_is_error}
-    })
+    });
+    emit_mcp_traffic_frame(
+        gs,
+        &ctx,
+        headers,
+        McpTrafficFrame {
+            id: response.get("id").unwrap_or(&Value::Null),
+            direction: "outbound",
+            leg: "gateway_to_client",
+            status: Some(200),
+            body: response.clone(),
+        },
+    );
+    response
+}
+
+struct McpTrafficFrame<'a> {
+    id: &'a Value,
+    direction: &'static str,
+    leg: &'static str,
+    status: Option<u16>,
+    body: Value,
+}
+
+fn emit_mcp_traffic_frame(
+    gs: &GatewayState,
+    ctx: &crate::gateway::middleware::CallContext,
+    headers: &HeaderMap,
+    frame: McpTrafficFrame<'_>,
+) {
+    gs.traffic_capture.emit_json_frame(
+        crate::gateway::traffic::TrafficFrame::json(
+            crate::gateway::traffic::gateway_source(
+                &gs.server_name,
+                &gs.server_version,
+                &gs.own_host,
+                gs.own_port,
+            ),
+            crate::gateway::traffic::correlation(
+                Some(&ctx.trace_context.request_id),
+                Some(&ctx.trace_context.trace_id),
+                ctx.session_id.as_deref(),
+            ),
+            frame.direction,
+            frame.leg,
+            "http",
+            frame.body,
+        )
+        .with_session_id(ctx.session_id.as_deref())
+        .with_http(crate::gateway::traffic::http_post(
+            "/mcp",
+            Some(headers),
+            frame.status,
+        ))
+        .with_mcp(crate::gateway::traffic::mcp_message(
+            if frame.direction == "inbound" {
+                "request"
+            } else {
+                "response"
+            },
+            "tools/call",
+            Some(frame.id.clone()),
+        )),
+    );
 }
 
 /// `prompts/list` — fan out to every live backend, namespace entries by

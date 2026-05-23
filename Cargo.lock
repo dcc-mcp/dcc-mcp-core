@@ -908,6 +908,7 @@ dependencies = [
  "chrono",
  "criterion",
  "dashmap",
+ "dcc-mcp-actions",
  "dcc-mcp-catalog",
  "dcc-mcp-db",
  "dcc-mcp-gateway-core",
