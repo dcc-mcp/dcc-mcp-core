@@ -41,6 +41,14 @@
         },
         {
           "type": "generic",
+          "path": "skills/dcc-cli-gateway/SKILL.md"
+        },
+        {
+          "type": "generic",
+          "path": "skills/dcc-rest-gateway/SKILL.md"
+        },
+        {
+          "type": "generic",
           "path": "docs/.vitepress/config.mts"
         },
         {
