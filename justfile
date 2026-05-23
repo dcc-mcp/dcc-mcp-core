@@ -213,9 +213,9 @@ test:
 test-cov:
     pytest tests/ -q --tb=short --show-capture=no --cov=dcc_mcp_core --cov-report=term --cov-report=xml:coverage.xml
 
-# Run mcporter MCP end-to-end tests (requires: npm install -g mcporter)
+# Run mcpcall MCP end-to-end tests (requires: mcpcall on PATH)
 test-e2e:
-    pytest tests/test_mcp_mcporter_e2e.py -v --tb=short
+    pytest tests/test_mcp_mcpcall_e2e.py -v --tb=short
 
 # Replay a Verified Regression Suite trace (HTTP against gateway REST /v1/*).
 # Example: `just vrs-replay`

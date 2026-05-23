@@ -15,7 +15,7 @@ simulated DCC instances:
 The in-process suite runs on every matrix cell and validates the core
 invariants. The real-subprocess suite (``TestRealServerExeSubprocess``)
 is gated by ``DCC_MCP_SERVER_EXE`` so the main CI path stays fast; the
-mcporter-e2e job (or a local developer) opts in by setting the env var
+mcpcall-e2e job (or a local developer) opts in by setting the env var
 to the compiled ``dcc-mcp-server`` binary path.
 """
 
@@ -469,7 +469,7 @@ class TestRealServerExeSubprocess:
     Each subprocess is launched with ``--app {maya|blender|houdini}``
     and an isolated ``--skill-paths`` directory. We probe each REST
     surface to prove discovery works end-to-end through the compiled
-    binary — mirrors a production mcporter/dcc-mcp-server deployment.
+    binary — mirrors a production mcpcall/dcc-mcp-server deployment.
     In-process tests above already cover the MCP handshake and tool-call
     contract; this opt-in subprocess suite focuses on the compiled
     binary's CLI + REST bootstrap path.

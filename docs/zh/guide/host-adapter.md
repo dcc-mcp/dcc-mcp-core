@@ -154,7 +154,7 @@ def test_my_host_drives_dispatcher(live_dcc_fixture):
 
 - [ ] 子类化 `HostAdapter`，实现 3 个 hook
 - [ ] 附带至少一个示例技能（单个工具即可），证明 `bpy.ops` / `maya.cmds` / 等效函数可在主线程上工作
-- [ ] 添加 CI 作业：以无头模式启动 DCC，对实时服务器运行 `mcporter` 调用，并断言成功
+- [ ] 添加 CI 作业：以无头模式启动 DCC，对实时服务器运行 `mcpcall` 调用，并断言成功
 - [ ] 编写 `README.md` 指回本文档，使未来维护者理解契约
 - [ ] 在你的仓库中开一个跟踪 issue；交叉引用核心的 [总揽 issue][umbrella]，使进度跨仓库可见
 

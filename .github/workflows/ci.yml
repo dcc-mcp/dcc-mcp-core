@@ -331,14 +331,14 @@ jobs:
               --base-url http://127.0.0.1:1 --dry-run --trace "$f"
           done
 
-  # -- mcporter e2e: real MCP client (npx mcporter) vs live McpHttpServer --
+  # -- mcpcall e2e: real MCP client vs live McpHttpServer --
   # Exercises the full HTTP stack from outside the process:
   #   tools/list, tools/call, find_skills, load_skill, unload_skill,
   #   progressive loading (discover -> load -> call -> unload)
   # Reuses the wheel artifact from `build-wheel` (ubuntu-latest) to avoid
   # rebuilding the same wheel in a separate workflow.
-  mcporter-e2e:
-    name: mcporter e2e
+  mcpcall-e2e:
+    name: mcpcall e2e
     needs: [build-wheel]
     runs-on: ubuntu-latest
     steps:
@@ -347,15 +347,6 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
-
-      - uses: loonghao/vx@v0.8.36
-
-      - name: Expose vx global shims
-        run: |
-          echo "$HOME/.vx/bin" >> "$GITHUB_PATH"
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-        shell: bash
 
       - name: Download wheel
         uses: actions/download-artifact@v8
@@ -367,16 +358,15 @@ jobs:
         run: pip install --no-index --find-links dist dcc-mcp-core && pip install pytest anyio
         shell: bash
 
-      # Install mcporter globally (Node/npm from vx.toml via vx).
-      # The global binary is detected by the test suite and used directly.
-      - name: Install mcporter globally
-        run: vx npm install -g mcporter@0.9.0 --force
+      - name: Install mcpcall
+        uses: loonghao/mcpcall/.github/actions/setup-mcpcall@mcpcall-v0.2.0
+        with:
+          version: mcpcall-v0.2.0
+
+      - name: Verify mcpcall
+        run: mcpcall --version
         shell: bash
 
-      - name: Verify mcporter
-        run: mcporter --version || npx --yes mcporter@0.9.0 --version
-        shell: bash
-
-      - name: Run mcporter e2e tests
-        run: pytest tests/test_mcp_mcporter_e2e.py -v --tb=short
+      - name: Run mcpcall e2e tests
+        run: pytest tests/test_mcp_mcpcall_e2e.py -v --tb=short
         shell: bash

@@ -4,7 +4,7 @@ These tests use a lightweight fake MCP server (MagicMock-backed) in the same
 style as tests/test_checkpoint.py, so the tool handlers can be exercised
 directly without spinning up the Rust HTTP stack.  End-to-end validation
 against a real MCP server-in-DCC is intentionally out of scope for the
-unit-test layer; that happens via tests/test_mcp_mcporter_e2e.py or manual
+unit-test layer; that happens via tests/test_mcp_mcpcall_e2e.py or manual
 invocation from inside Maya/Blender.
 """
 
