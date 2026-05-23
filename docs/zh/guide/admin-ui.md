@@ -69,6 +69,22 @@ let config = GatewayConfig {
 
 直接使用 `dcc-mcp-gateway` 时需要启用 `admin` Cargo feature。`dcc-mcp-http` 与发布的 server 二进制已在内嵌网关路径中启用。
 
+## 仪表盘截图
+
+以下截图使用代表性的演示数据，展示嵌入式 Admin Dashboard 中面向浏览器的运维工作流。
+
+![Admin Connect IDE 面板](../../assets/admin-ui/admin-connect-ide.png)
+
+**Connect IDE** 面板会基于当前 gateway URL 生成 Claude Desktop、Cursor、CodeBuddy、VS Code、Cline 和 Codex / OpenAI 的 MCP 配置片段，方便直接复制到本地 IDE/Agent。
+
+![Admin Skills 路径面板](../../assets/admin-ui/admin-skills-paths.png)
+
+**Skills** 面板展示当前已加载的 skills、action 数量、后端实例前缀、活动发现路径，以及本地开发默认路径 `~/.dcc-mcp/{dcc-type}/skills`（存在时）。
+
+![Admin Skill Markdown 详情面板](../../assets/admin-ui/admin-skill-detail.png)
+
+点击某个 skill 会打开详情面板，显示后端实例信息、注册工具、`SKILL.md` 源路径、frontmatter，以及渲染后的 Markdown 正文，方便开发者 review。
+
 ## 路由
 
 | 路由 | Content-Type | 说明 |
@@ -86,6 +102,11 @@ let config = GatewayConfig {
 | `GET /admin/api/workers` | `application/json` | 来自 live registry 的实例 worker 卡片 |
 | `GET /admin/api/logs` | `application/json` | 合并后的网关竞争事件、磁盘 `*.log` 行和审计调用摘要 |
 | `GET /admin/api/health` | `application/json` | 服务健康摘要 |
+| `GET /admin/api/skills` | `application/json` | 按 DCC 类型、skill 名、加载状态、工具和后端实例聚合的实时 skill 清单 |
+| `GET /admin/api/skill-detail?name=...` | `application/json` | 单个 skill 的后端详情；可用时包含用于 review 的 `SKILL.md` Markdown 内容 |
+| `GET /admin/api/skill-paths` | `application/json` | 当前 skill 发现根目录，包括环境变量、本地默认路径、内置路径和 admin custom 路径 |
+| `POST /admin/api/skill-paths` | `application/json` | 添加 SQLite 持久化的自定义 skill 发现根目录，并刷新 live backend skill index |
+| `DELETE /admin/api/skill-paths/{id}` | `application/json` | 删除 SQLite 持久化的自定义 skill 发现根目录，并刷新 live backend skill index |
 
 ## API 响应格式
 

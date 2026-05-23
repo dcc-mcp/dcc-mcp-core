@@ -69,6 +69,29 @@ let config = GatewayConfig {
 
 When using `dcc-mcp-gateway` directly, compile with the `admin` Cargo feature. `dcc-mcp-http` and the shipped server binary enable this for their embedded gateway path.
 
+## Dashboard Screenshots
+
+The screenshots below use representative demo data and show the browser-first
+operator workflows exposed by the embedded dashboard.
+
+![Admin Connect IDE panel](../assets/admin-ui/admin-connect-ide.png)
+
+The **Connect IDE** panel provides copyable MCP configuration snippets for
+Claude Desktop, Cursor, CodeBuddy, VS Code, Cline, and Codex / OpenAI, using
+the current gateway URL.
+
+![Admin Skills paths panel](../assets/admin-ui/admin-skills-paths.png)
+
+The **Skills** panel shows loaded skills, action counts, per-instance prefixes,
+active skill discovery roots, and the local developer default
+`~/.dcc-mcp/{dcc-type}/skills` path when present.
+
+![Admin skill markdown detail panel](../assets/admin-ui/admin-skill-detail.png)
+
+Clicking a skill opens its detail panel, including backend instance metadata,
+registered tools, `SKILL.md` source path, parsed frontmatter, and rendered
+Markdown body for developer review.
+
 ## Routes
 
 | Route | Content-Type | Description |
@@ -86,6 +109,11 @@ When using `dcc-mcp-gateway` directly, compile with the `admin` Cargo feature. `
 | `GET /admin/api/workers` | `application/json` | Per-instance worker cards from the live registry |
 | `GET /admin/api/logs` | `application/json` | Merged gateway contention events, on-disk `*.log` rows, and audited call summaries |
 | `GET /admin/api/health` | `application/json` | Service health summary |
+| `GET /admin/api/skills` | `application/json` | Live skill inventory grouped by DCC type, skill name, load state, tools, and backend instance |
+| `GET /admin/api/skill-detail?name=...` | `application/json` | One skill's backend detail payload, including rendered-review `SKILL.md` markdown when available |
+| `GET /admin/api/skill-paths` | `application/json` | Current skill discovery roots, including environment, local defaults, bundled paths, and admin custom paths |
+| `POST /admin/api/skill-paths` | `application/json` | Add a SQLite-backed custom skill discovery root, then refresh live backend skill indexes |
+| `DELETE /admin/api/skill-paths/{id}` | `application/json` | Remove a SQLite-backed custom skill discovery root, then refresh live backend skill indexes |
 
 Stable agent-facing mirrors are exposed under `/v1/debug/*` and are included in
 `GET /v1/openapi.json`. The Admin routes above remain the dashboard
