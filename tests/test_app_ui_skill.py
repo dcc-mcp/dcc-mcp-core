@@ -202,7 +202,14 @@ def test_app_ui_backend_router_reports_unknown_backend(tmp_path: Path) -> None:
 
     assert result["success"] is False
     assert result["error"] == "backend_unavailable"
-    assert result["context"]["supported_backends"] == ["mock", "chrome", "chrome-cdp", "cdp"]
+    assert result["context"]["supported_backends"] == [
+        "mock",
+        "chrome",
+        "chrome-cdp",
+        "cdp",
+        "edge",
+        "agent-browser",
+    ]
 
 
 def test_app_ui_chrome_cdp_preset_aliases(monkeypatch: Any) -> None:
@@ -218,6 +225,12 @@ def test_app_ui_chrome_cdp_preset_aliases(monkeypatch: Any) -> None:
     monkeypatch.setenv("DCC_MCP_APP_UI_CDP_PRESET", "temp")
     assert cdp_runtime.cdp_preset() == "isolated"
 
+    monkeypatch.setenv("DCC_MCP_APP_UI_CDP_PRESET", "msedge")
+    assert cdp_runtime.cdp_preset() == "edge"
+
+    monkeypatch.setenv("DCC_MCP_APP_UI_CDP_PRESET", "agent_browser")
+    assert cdp_runtime.cdp_preset() == "agent-browser"
+
 
 def test_app_ui_auroraview_preset_uses_auroraview_port(monkeypatch: Any) -> None:
     cdp_runtime = _load_cdp_runtime_module()
@@ -231,3 +244,30 @@ def test_app_ui_auroraview_preset_uses_auroraview_port(monkeypatch: Any) -> None
         "http://127.0.0.1:9333",
         "http://127.0.0.1:9222",
     ]
+
+
+def test_app_ui_edge_preset_uses_edge_port(monkeypatch: Any) -> None:
+    cdp_runtime = _load_cdp_runtime_module()
+
+    monkeypatch.delenv("DCC_MCP_APP_UI_CDP_URL", raising=False)
+    monkeypatch.delenv("DCC_MCP_APP_UI_EDGE_CDP_URL", raising=False)
+    monkeypatch.delenv("DCC_MCP_APP_UI_CDP_PORT", raising=False)
+    monkeypatch.setenv("DCC_MCP_APP_UI_EDGE_CDP_PORT", "9444")
+
+    assert cdp_runtime.endpoint_candidates("edge") == [
+        "http://127.0.0.1:9444",
+        "http://127.0.0.1:9222",
+    ]
+
+
+def test_app_ui_agent_browser_preset_parses_cdp_url(tmp_path: Path, monkeypatch: Any) -> None:
+    cdp_runtime = _load_cdp_runtime_module()
+    script = tmp_path / ("agent-browser.cmd" if os.name == "nt" else "agent-browser")
+    if os.name == "nt":
+        script.write_text("@echo off\necho ws://127.0.0.1:9777/devtools/page/ci\n", encoding="utf-8")
+    else:
+        script.write_text("#!/bin/sh\necho ws://127.0.0.1:9777/devtools/page/ci\n", encoding="utf-8")
+        script.chmod(0o755)
+    monkeypatch.setenv("DCC_MCP_APP_UI_AGENT_BROWSER_BIN", str(script))
+
+    assert cdp_runtime._agent_browser_cdp_url() == "ws://127.0.0.1:9777/devtools/page/ci"

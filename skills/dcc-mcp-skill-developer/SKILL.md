@@ -105,8 +105,10 @@ into a faster authoring loop.
     same `app_ui__snapshot` -> `find` -> `act` -> `wait_for` contract.
     CDP-backed implementations should expose explicit presets for reusing an
     existing browser/webview session, launching an isolated test profile, or
-    attaching to a host-specific endpoint such as AuroraView. Prefer reuse
-    when a user expects existing cookies or tokens to remain available.
+    attaching to a host-specific endpoint such as AuroraView, Microsoft Edge,
+    or `agent-browser`. Prefer reuse when a user expects existing cookies or
+    tokens to remain available, and keep provider-specific launch logic in
+    testable helpers so CI can cover endpoint and CLI discovery without a GUI.
 
 ## Adapter Selection
 

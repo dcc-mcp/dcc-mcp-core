@@ -235,9 +235,25 @@ def _node(
 
 
 def _app_label(state: Dict[str, Any]) -> str:
-    if str(state.get("preset") or "") == "auroraview":
+    preset = str(state.get("preset") or "")
+    if preset == "auroraview":
         return "AuroraView"
+    if preset == "edge":
+        return "Edge"
+    if preset == "agent-browser":
+        return "Agent Browser"
     return "Chrome"
+
+
+def _app_window_object_name(state: Dict[str, Any]) -> str:
+    preset = str(state.get("preset") or "")
+    if preset == "auroraview":
+        return "auroraviewAppWindow"
+    if preset == "edge":
+        return "edgeAppWindow"
+    if preset == "agent-browser":
+        return "agentBrowserAppWindow"
+    return "chromeAppWindow"
 
 
 def _snapshot_from_state(state: Dict[str, Any]) -> UiSnapshot:
@@ -294,7 +310,7 @@ def _snapshot_from_state(state: Dict[str, Any]) -> UiSnapshot:
         "chrome-window",
         "window",
         label=str(state.get("title") or app_label),
-        object_name="auroraviewAppWindow" if app_label == "AuroraView" else "chromeAppWindow",
+        object_name=_app_window_object_name(state),
         bounds=UiBounds(x=80, y=80, width=960, height=720),
         snapshot_id=sid,
     )

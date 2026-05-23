@@ -122,4 +122,8 @@ tools. The CDP backend supports presets: `reuse` attaches to an existing
 DevTools endpoint first so current browser tokens can be reused, `isolated`
 launches a temporary Chrome profile, and `auroraview` attaches to AuroraView's
 CDP endpoint using `DCC_MCP_APP_UI_AURORAVIEW_CDP_PORT`,
-`AURORAVIEW_CDP_PORT`, `DCC_MCP_APP_UI_CDP_PORT`, or port `9222`.
+`AURORAVIEW_CDP_PORT`, `DCC_MCP_APP_UI_CDP_PORT`, or port `9222`. The same
+runtime also supports `edge` for Microsoft Edge CDP and `agent-browser` for
+Vercel's `agent-browser` CLI, which exposes its DevTools URL through
+`agent-browser get cdp-url` and can be provisioned in CI with
+`agent-browser install`.
