@@ -766,8 +766,8 @@ Calling a stub returns a `load_skill` hint, not a missing-handler error.
 
 ### Bundled Skills
 
-Two core skills ship inside the wheel under `dcc_mcp_core/skills/`:
-`dcc-diagnostics`, `workflow`.
+Core skills ship inside the wheel under `dcc_mcp_core/skills/`:
+`app-ui`, `dcc-diagnostics`, `workflow`.
 
 ```python
 from dcc_mcp_core import get_bundled_skills_dir, get_bundled_skill_paths

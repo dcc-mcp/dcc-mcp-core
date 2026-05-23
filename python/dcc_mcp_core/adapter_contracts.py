@@ -165,15 +165,90 @@ class UiFindRequest:
         return _drop_none(asdict(self))
 
 
+class UiWaitConditionKind:
+    """Stable UI wait condition kind strings."""
+
+    CONTROL_EXISTS = "control_exists"
+    CONTROL_MISSING = "control_missing"
+    TEXT_EQUALS = "text_equals"
+    VALUE_EQUALS = "value_equals"
+    CHECKED_EQUALS = "checked_equals"
+    ENABLED = "enabled"
+    DISABLED = "disabled"
+    FOCUSED = "focused"
+
+
+@dataclass
+class UiWaitCondition:
+    """Condition that ``app_ui__wait_for`` evaluates inside one tool call."""
+
+    kind: str
+    control_id: Optional[str] = None
+    query: Optional[str] = None
+    role: Optional[str] = None
+    label: Optional[str] = None
+    text: Optional[str] = None
+    value: Optional[str] = None
+    checked: Optional[bool] = None
+    timeout_ms: int = 5000
+    interval_ms: int = 100
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Return the wire dictionary."""
+        return _drop_none(asdict(self))
+
+
 class UiActionKind:
     """Stable UI action kind strings."""
 
     CLICK = "click"
+    RAW_COORDINATE_CLICK = "raw_coordinate_click"
     SET_TEXT = "set_text"
     TOGGLE = "toggle"
     SET_CHECKED = "set_checked"
     SELECT_OPTION = "select_option"
     FOCUS = "focus"
+    KEYBOARD_SHORTCUT = "keyboard_shortcut"
+
+
+@dataclass
+class AppUiPolicy:
+    """Policy controls for scoped ``app_ui`` observation and actions."""
+
+    allow_snapshot: bool = True
+    allow_find: bool = True
+    allow_mutating_actions: bool = True
+    allow_text_entry: bool = True
+    allow_keyboard_shortcuts: bool = False
+    allow_raw_coordinates: bool = False
+    allowed_window_titles: List[str] = field(default_factory=list)
+    allowed_process_ids: List[int] = field(default_factory=list)
+    audit_sensitive_values: bool = False
+
+    def allows_action(self, action: str) -> bool:
+        """Return whether this policy permits an action kind."""
+        if action == UiActionKind.RAW_COORDINATE_CLICK and not self.allow_raw_coordinates:
+            return False
+        if action == UiActionKind.KEYBOARD_SHORTCUT and not self.allow_keyboard_shortcuts:
+            return False
+        if action == UiActionKind.SET_TEXT and not self.allow_text_entry:
+            return False
+        if action in (
+            UiActionKind.CLICK,
+            UiActionKind.RAW_COORDINATE_CLICK,
+            UiActionKind.SET_TEXT,
+            UiActionKind.TOGGLE,
+            UiActionKind.SET_CHECKED,
+            UiActionKind.SELECT_OPTION,
+            UiActionKind.FOCUS,
+            UiActionKind.KEYBOARD_SHORTCUT,
+        ):
+            return self.allow_mutating_actions
+        return False
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Return the wire dictionary."""
+        return _drop_none(asdict(self))
 
 
 @dataclass
@@ -185,6 +260,9 @@ class UiActionRequest:
     text: Optional[str] = None
     checked: Optional[bool] = None
     option: Optional[str] = None
+    x: Optional[float] = None
+    y: Optional[float] = None
+    keys: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -199,7 +277,10 @@ class UiErrorCode:
     NOT_FOUND = "not_found"
     UNSUPPORTED_ACTION = "unsupported_action"
     DENIED = "denied"
+    POLICY_DISABLED = "policy_disabled"
+    MISSING_WINDOW = "missing_window"
     TIMEOUT = "timeout"
+    INVALID_TARGET = "invalid_target"
     BACKEND_ERROR = "backend_error"
 
 
@@ -231,7 +312,49 @@ class UiActionResult:
         return _drop_none(asdict(self))
 
 
+@dataclass
+class UiWaitResult:
+    """Result of evaluating one UI wait condition."""
+
+    success: bool
+    condition: UiWaitCondition
+    elapsed_ms: float
+    attempts: int
+    snapshot: Optional[UiSnapshot] = None
+    error_code: Optional[str] = None
+    message: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Return the wire dictionary."""
+        return _drop_none(asdict(self))
+
+
+@dataclass
+class AppUiAuditRecord:
+    """Small audit record for an ``app_ui`` action decision or outcome."""
+
+    action_kind: str
+    success: bool
+    target_control_id: Optional[str] = None
+    target_role: Optional[str] = None
+    target_label: Optional[str] = None
+    before_focus_id: Optional[str] = None
+    after_focus_id: Optional[str] = None
+    error_code: Optional[str] = None
+    message: Optional[str] = None
+    session_id: Optional[str] = None
+    redacted_fields: List[str] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Return the wire dictionary."""
+        return _drop_none(asdict(self))
+
+
 __all__ = [
+    "AppUiAuditRecord",
+    "AppUiPolicy",
     "DebugPathMapping",
     "DebugSessionDescriptor",
     "DebugSessionStatus",
@@ -244,4 +367,7 @@ __all__ = [
     "UiErrorCode",
     "UiFindRequest",
     "UiSnapshot",
+    "UiWaitCondition",
+    "UiWaitConditionKind",
+    "UiWaitResult",
 ]
