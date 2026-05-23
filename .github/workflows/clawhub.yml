@@ -1,6 +1,21 @@
 name: Sync ClawHub Skills
 
 on:
+  workflow_call:
+    inputs:
+      checkout-ref:
+        description: "Git ref to publish from, such as a release tag"
+        required: false
+        type: string
+        default: ""
+      publish:
+        description: "Publish to ClawHub instead of dry-running"
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      CLAWHUB_TOKEN:
+        required: true
   pull_request:
     branches:
       - main
@@ -22,6 +37,12 @@ on:
       - ".github/workflows/clawhub.yml"
       - "justfile"
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to ClawHub instead of dry-running"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -42,6 +63,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.checkout-ref || github.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -52,10 +75,24 @@ jobs:
         run: pip install -e .
 
       - name: Package ClawHub skill archives
+        env:
+          CLAWHUB_SKILLS_MANIFEST: .github/clawhub-skills.json
         run: |
           mkdir -p dist/skills
-          python scripts/package_openclaw_skill.py skills/dcc-rest-gateway dist/skills
-          python scripts/package_openclaw_skill.py skills/dcc-cli-gateway dist/skills
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          manifest = json.loads(Path(os.environ["CLAWHUB_SKILLS_MANIFEST"]).read_text(encoding="utf-8"))
+          for entry in manifest:
+              subprocess.run(
+                  [sys.executable, "scripts/package_openclaw_skill.py", entry["path"], "dist/skills"],
+                  check=True,
+              )
+          PY
 
       - name: Upload packaged skill artifacts
         uses: actions/upload-artifact@v4
@@ -64,12 +101,11 @@ jobs:
           path: dist/skills/*.zip
           if-no-files-found: error
 
-      - name: Skip ClawHub sync for external pull requests
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
-        run: echo "Skipping ClawHub publish for fork PRs (secrets unavailable)."
-
       - name: Require ClawHub token
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+        if: >-
+          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+          (github.event_name == 'workflow_call' && inputs.publish) ||
+          (github.event_name == 'workflow_dispatch' && inputs.publish)
         shell: bash
         env:
           CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
@@ -80,7 +116,10 @@ jobs:
           fi
 
       - name: Login to ClawHub
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+        if: >-
+          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+          (github.event_name == 'workflow_call' && inputs.publish) ||
+          (github.event_name == 'workflow_dispatch' && inputs.publish)
         shell: bash
         env:
           CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
@@ -88,10 +127,16 @@ jobs:
           mkdir -p "$(dirname "$CLAWHUB_CONFIG_PATH")"
           npx "$CLAWHUB_CLI_PACKAGE" login --token "$CLAWHUB_TOKEN" --no-browser --no-input
 
-      - name: Dry-run ClawHub publish (pull requests)
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+      - name: Dry-run ClawHub publish
+        if: >-
+          github.event_name == 'pull_request' ||
+          (github.event_name == 'workflow_call' && !inputs.publish) ||
+          (github.event_name == 'workflow_dispatch' && !inputs.publish)
         run: python scripts/clawhub_sync.py --dry-run
 
-      - name: Publish skills to ClawHub (main)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - name: Publish skills to ClawHub
+        if: >-
+          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+          (github.event_name == 'workflow_call' && inputs.publish) ||
+          (github.event_name == 'workflow_dispatch' && inputs.publish)
         run: python scripts/clawhub_sync.py
