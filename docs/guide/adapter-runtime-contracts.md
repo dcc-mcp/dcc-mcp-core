@@ -63,6 +63,10 @@ capability is intentionally broader than a DCC-only UI namespace: the same
 contract can describe a DCC preferences dialog, an external launcher, a license
 utility, or another adapter-owned application window.
 
+The Rust schema lives in the `dcc-mcp-app-ui` crate so UI automation contracts
+can evolve independently from the HTTP server layer. Python adapters continue
+to import the matching dataclasses from `dcc_mcp_core.adapter_contracts`.
+
 Core shapes include:
 
 - `UiControlNode` and `UiSnapshot` for bounded UI trees.

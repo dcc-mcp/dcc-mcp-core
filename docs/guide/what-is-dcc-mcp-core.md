@@ -66,7 +66,7 @@ flowchart LR
 
 ## Architecture
 
-41-package Rust workspace (40 functional packages + `workspace-hack`; root `Cargo.toml` is the source of truth), compiled by maturin into a single Python extension `dcc_mcp_core._core`:
+42-package Rust workspace (41 functional packages + `workspace-hack`; root `Cargo.toml` is the source of truth), compiled by maturin into a single Python extension `dcc_mcp_core._core`:
 
 ```
 dcc-mcp-core/
@@ -90,6 +90,7 @@ dcc-mcp-core/
 │   ├── dcc-mcp-workflow/            # YAML declarative workflows
 │   ├── dcc-mcp-scheduler/           # cron / timers
 │   ├── dcc-mcp-artefact/            # file/data hand-off between tools
+│   ├── dcc-mcp-app-ui/              # DCC-agnostic app_ui contract types
 │   ├── dcc-mcp-http-types/          # pure HTTP wire/config/value types, McpHttpConfig (#852)
 │   ├── dcc-mcp-http-server/         # reusable HTTP runtime support (#852)
 │   ├── dcc-mcp-http-py/             # PyO3 binding boundary for HTTP APIs (#852)
