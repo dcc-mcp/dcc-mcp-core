@@ -654,6 +654,7 @@ async fn forward_tools_call_propagates_trace_context_headers() {
             meta: None,
             request_id: None,
             trace_context: Some(&trace_context),
+            traffic_capture: None,
             timeout: Duration::from_secs(2),
         },
     )

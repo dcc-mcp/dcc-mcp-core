@@ -72,6 +72,7 @@ present:
 | `skill.loaded` | A skill loaded and registered its tools |
 | `skill.unloaded` | A loaded skill was unloaded and its tools were removed |
 | `skill.validation_failed` | A skill could not load because it was missing, had dependency issues, or failed setup validation |
+| `traffic.frame` | Opt-in gateway traffic capture frame for MCP/REST debugging |
 
 Tool lifecycle attributes include `tool_slug`, `tool_name`, `duration_ms`,
 `result_success` on terminal events, and metadata such as `dcc_type`,
@@ -82,6 +83,31 @@ otherwise handler success defaults to `true`.
 Skill lifecycle attributes include `skill_name`, `dcc_type`, `version`,
 `skill_path`, declared/registered tool counts, registered tool names, and
 failure details such as `error_kind` and `error_message`.
+
+## Gateway Traffic Capture
+
+RFC 0003 P0 adds an opt-in `traffic.frame` stream for local debugging. It is
+off by default. Enable the quick JSONL sink when starting a gateway:
+
+```bash
+DCC_MCP_TRAFFIC_CAPTURE=jsonl:./capture.jsonl dcc-mcp-server ...
+```
+
+Each JSONL row is the structured EventBus envelope. The frame payload lives in
+`attributes` and includes `capture_id`, `direction`, `leg`, `transport`, safe
+HTTP metadata, MCP method/id metadata, and a JSON body with `size_bytes`.
+Current P0 frames cover `tools/call` traffic at these gateway boundaries:
+
+| Leg | Meaning |
+|-----|---------|
+| `client_to_gateway` | MCP `/mcp` or REST `/v1/call` request entering the gateway |
+| `gateway_to_client` | Gateway response leaving through MCP or REST |
+| `gateway_to_adapter` | Gateway forwarding a backend `POST /v1/call` |
+| `adapter_to_gateway` | Backend response or transport error observed by the gateway |
+
+Traffic capture may include scene paths, user prompts, and tool arguments. If
+`DCC_MCP_PROD_PROFILE=1`, the gateway refuses to enable capture unless
+`DCC_MCP_FORCE_TRAFFIC_CAPTURE=1` is also set.
 
 ## Wildcard Subscriptions
 

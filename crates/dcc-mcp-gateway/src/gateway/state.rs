@@ -242,6 +242,9 @@ pub struct GatewayState {
     /// Cached per-instance readiness + last call error (#1076).
     pub instance_diagnostics: Arc<InstanceDiagnosticsStore>,
 
+    /// Opt-in development traffic capture (RFC 0003 P0).
+    pub traffic_capture: Arc<super::traffic::TrafficCapture>,
+
     /// Whether stable gateway `/v1/debug/*` routes are mounted on this router.
     ///
     /// The routes require the `admin` feature at compile time and an AdminState

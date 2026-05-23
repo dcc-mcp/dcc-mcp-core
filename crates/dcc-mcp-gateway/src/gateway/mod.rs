@@ -51,6 +51,7 @@ pub mod router;
 pub mod sse_subscriber;
 pub mod state;
 pub mod tools;
+pub mod traffic;
 
 pub use middleware::MiddlewareChain;
 
