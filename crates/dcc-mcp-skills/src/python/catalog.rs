@@ -7,6 +7,7 @@ use pyo3::prelude::*;
 use pyo3_stub_gen_derive::gen_stub_pymethods;
 
 use crate::catalog::{SkillCatalog, SkillSummary, helpers};
+use dcc_mcp_actions::EventBus;
 use dcc_mcp_actions::registry::ToolRegistry;
 
 #[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
@@ -15,6 +16,12 @@ impl SkillCatalog {
     #[new]
     fn py_new(registry: ToolRegistry) -> Self {
         Self::new(Arc::new(registry))
+    }
+
+    /// Return the catalog lifecycle event bus.
+    #[pyo3(name = "event_bus")]
+    fn py_event_bus(&self) -> EventBus {
+        self.event_bus()
     }
 
     /// Activate a tool group (enable every action in it).

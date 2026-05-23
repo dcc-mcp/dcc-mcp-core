@@ -11,6 +11,13 @@ use pyo3_stub_gen_derive::gen_stub_pyclass;
 use dashmap::DashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+
+/// Current event envelope schema version.
+pub const EVENT_SCHEMA_VERSION: u32 = 1;
 
 /// Event subscriber ID for unsubscription.
 pub(crate) type SubscriberId = u64;
@@ -20,7 +27,7 @@ pub(crate) type SubscriberId = u64;
 /// Wrapped in `Arc` so callbacks can be cloned out of the DashMap before
 /// invocation — this avoids holding a read-lock while executing user code.
 #[cfg(not(feature = "python-bindings"))]
-type EventCallback = Arc<dyn Fn() + Send + Sync>;
+type EventCallback = Arc<dyn Fn(&EventEnvelope) + Send + Sync>;
 
 /// Type alias for the subscriber storage map.
 #[cfg(feature = "python-bindings")]
@@ -37,13 +44,53 @@ type SubscriberMap = Arc<DashMap<String, Vec<(SubscriberId, EventCallback)>>>;
 #[derive(Clone)]
 pub struct EventBus {
     pub(crate) next_id: Arc<AtomicU64>,
+    pub(crate) next_event_id: Arc<AtomicU64>,
     pub(crate) subscribers: SubscriberMap,
+}
+
+/// Structured event envelope shared by in-process subscribers and future webhooks.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EventEnvelope {
+    pub schema_version: u32,
+    pub name: String,
+    pub id: String,
+    pub timestamp_ns: u64,
+    pub source: Value,
+    pub correlation: Value,
+    pub attributes: Value,
+}
+
+impl EventEnvelope {
+    #[must_use]
+    pub fn new(
+        name: impl Into<String>,
+        id: impl Into<String>,
+        source: Value,
+        correlation: Value,
+        attributes: Value,
+    ) -> Self {
+        Self {
+            schema_version: EVENT_SCHEMA_VERSION,
+            name: name.into(),
+            id: id.into(),
+            timestamp_ns: timestamp_ns(),
+            source: object_or_empty(source),
+            correlation: object_or_empty(correlation),
+            attributes: object_or_empty(attributes),
+        }
+    }
+
+    #[must_use]
+    pub fn to_value(&self) -> Value {
+        serde_json::to_value(self).unwrap_or_else(|_| Value::Object(Map::new()))
+    }
 }
 
 impl std::fmt::Debug for EventBus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EventBus")
             .field("next_id", &self.next_id.load(Ordering::Relaxed))
+            .field("next_event_id", &self.next_event_id.load(Ordering::Relaxed))
             .field(
                 "subscriber_events",
                 &self
@@ -67,6 +114,7 @@ impl EventBus {
     pub fn new() -> Self {
         Self {
             next_id: Arc::new(AtomicU64::new(0)),
+            next_event_id: Arc::new(AtomicU64::new(0)),
             subscribers: Arc::new(DashMap::new()),
         }
     }
@@ -80,10 +128,9 @@ impl EventBus {
     /// Check if any subscribers exist for the given event.
     #[must_use]
     pub fn has_subscribers(&self, event_name: &str) -> bool {
-        self.subscribers
-            .get(event_name)
-            .map(|s| !s.is_empty())
-            .unwrap_or(false)
+        self.subscribers.iter().any(|entry| {
+            !entry.value().is_empty() && subscription_matches(entry.key().as_str(), event_name)
+        })
     }
 
     /// Allocate a new subscriber ID (starts at 1, monotonically increasing).
@@ -100,6 +147,73 @@ impl EventBus {
         }
         false
     }
+
+    #[must_use]
+    pub(crate) fn make_event(
+        &self,
+        event_name: &str,
+        source: Value,
+        correlation: Value,
+        attributes: Value,
+    ) -> EventEnvelope {
+        EventEnvelope::new(
+            event_name,
+            self.next_event_id(),
+            source,
+            correlation,
+            attributes,
+        )
+    }
+
+    /// Emit a structured event and return the envelope that was delivered.
+    #[must_use]
+    pub fn emit(
+        &self,
+        event_name: &str,
+        source: Value,
+        correlation: Value,
+        attributes: Value,
+    ) -> EventEnvelope {
+        let event = self.make_event(event_name, source, correlation, attributes);
+        self.publish_event(&event);
+        event
+    }
+
+    fn next_event_id(&self) -> String {
+        let seq = self.next_event_id.fetch_add(1, Ordering::Relaxed) + 1;
+        format!("ev_{:x}_{:x}", timestamp_ns(), seq)
+    }
+}
+
+#[must_use]
+pub(crate) fn subscription_matches(pattern: &str, event_name: &str) -> bool {
+    if pattern == event_name || pattern == "*" {
+        return true;
+    }
+    let Some(prefix) = pattern.strip_suffix(".*") else {
+        return false;
+    };
+    if prefix.is_empty() {
+        return true;
+    }
+    event_name
+        .strip_prefix(prefix)
+        .is_some_and(|suffix| suffix.starts_with('.'))
+}
+
+fn object_or_empty(value: Value) -> Value {
+    if value.is_object() {
+        value
+    } else {
+        Value::Object(Map::new())
+    }
+}
+
+fn timestamp_ns() -> u64 {
+    let duration = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    duration.as_secs().saturating_mul(1_000_000_000) + u64::from(duration.subsec_nanos())
 }
 
 // ── Non-Python Rust API ──
@@ -111,6 +225,15 @@ impl EventBus {
     pub fn subscribe<F>(&self, event_name: String, callback: F) -> SubscriberId
     where
         F: Fn() + Send + Sync + 'static,
+    {
+        self.subscribe_event(event_name, move |_| callback())
+    }
+
+    /// Subscribe a Rust closure to structured event envelopes.
+    #[must_use]
+    pub fn subscribe_event<F>(&self, event_name: String, callback: F) -> SubscriberId
+    where
+        F: Fn(&EventEnvelope) + Send + Sync + 'static,
     {
         let id = self.next_subscriber_id();
         self.subscribers
@@ -126,7 +249,7 @@ impl EventBus {
         self.remove_subscriber(event_name, subscriber_id)
     }
 
-    /// Publish an event, calling all subscribers.
+    /// Publish an empty structured event, calling all matching subscribers.
     ///
     /// Callbacks are collected before invocation to avoid holding a DashMap
     /// read-lock while executing user code (which could attempt to
@@ -136,21 +259,39 @@ impl EventBus {
     /// panicking subscriber does not prevent subsequent subscribers from
     /// being called.
     pub fn publish(&self, event_name: &str) {
+        let event = self.make_event(
+            event_name,
+            Value::Object(Map::new()),
+            Value::Object(Map::new()),
+            Value::Object(Map::new()),
+        );
+        self.publish_event(&event);
+    }
+
+    /// Publish an existing structured event envelope.
+    pub fn publish_event(&self, event: &EventEnvelope) {
         let callbacks: Vec<_> = self
             .subscribers
-            .get(event_name)
-            .map(|subs| subs.iter().map(|(_, cb)| Clone::clone(cb)).collect())
-            .unwrap_or_default();
+            .iter()
+            .filter(|entry| subscription_matches(entry.key().as_str(), &event.name))
+            .flat_map(|entry| {
+                entry
+                    .value()
+                    .iter()
+                    .map(|(_, cb)| Clone::clone(cb))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
         for callback in &callbacks {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                callback();
+                callback(event);
             })) {
                 let msg = e
                     .downcast_ref::<&str>()
                     .copied()
                     .or_else(|| e.downcast_ref::<String>().map(|s| s.as_str()))
                     .unwrap_or("unknown panic");
-                tracing::error!("Panic in event subscriber for {event_name}: {msg}");
+                tracing::error!("Panic in event subscriber for {}: {msg}", event.name);
             }
         }
     }
@@ -158,7 +299,7 @@ impl EventBus {
 
 // PyO3 bindings live in `crate::python::events`.
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "python-bindings")))]
 mod tests {
     use super::*;
 
@@ -226,6 +367,58 @@ mod tests {
         assert!(!bus.has_subscribers("my_event"));
         let _id = bus.subscribe("my_event".to_string(), || {});
         assert!(bus.has_subscribers("my_event"));
+    }
+
+    #[test]
+    fn test_event_bus_wildcard_subscribers_receive_matching_events() {
+        let bus = EventBus::new();
+        let names = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = Arc::clone(&names);
+        let _id = bus.subscribe_event("tool.*".to_string(), move |event| {
+            seen.lock().unwrap().push(event.name.clone());
+        });
+
+        assert!(bus.has_subscribers("tool.completed"));
+        assert!(!bus.has_subscribers("skill.loaded"));
+
+        let _ = bus.emit(
+            "tool.completed",
+            serde_json::json!({"dcc_type": "maya"}),
+            serde_json::json!({}),
+            serde_json::json!({"tool_slug": "maya.scene__open"}),
+        );
+        bus.publish("skill.loaded");
+
+        assert_eq!(
+            names.lock().unwrap().as_slice(),
+            &["tool.completed".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_event_bus_structured_envelope_contains_schema_and_payload() {
+        let bus = EventBus::new();
+        let captured = Arc::new(std::sync::Mutex::new(None));
+        let captured_clone = Arc::clone(&captured);
+        let _id = bus.subscribe_event("gateway.started".to_string(), move |event| {
+            *captured_clone.lock().unwrap() = Some(event.clone());
+        });
+
+        let event = bus.emit(
+            "gateway.started",
+            serde_json::json!({"dcc_type": "custom"}),
+            serde_json::json!({"request_id": "req-1"}),
+            serde_json::json!({"port": 9765}),
+        );
+
+        let observed = captured.lock().unwrap().clone().unwrap();
+        assert_eq!(event.schema_version, EVENT_SCHEMA_VERSION);
+        assert_eq!(observed.name, "gateway.started");
+        assert_eq!(observed.source["dcc_type"], "custom");
+        assert_eq!(observed.correlation["request_id"], "req-1");
+        assert_eq!(observed.attributes["port"], 9765);
+        assert!(observed.id.starts_with("ev_"));
+        assert!(observed.timestamp_ns > 0);
     }
 
     #[test]

@@ -209,4 +209,10 @@ impl SkillCatalog {
     pub fn dispatcher(&self) -> Option<&Arc<ToolDispatcher>> {
         self.dispatcher.as_ref()
     }
+
+    /// Return the in-process lifecycle event bus.
+    #[must_use]
+    pub fn event_bus(&self) -> EventBus {
+        self.event_bus.clone()
+    }
 }

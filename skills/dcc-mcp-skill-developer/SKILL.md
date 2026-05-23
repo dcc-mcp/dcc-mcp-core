@@ -69,6 +69,10 @@ into a faster authoring loop.
    the shipped server paths enable the required gateway `admin` feature and
    Admin telemetry runtime state, while minimal direct `dcc-mcp-gateway` builds
    or runtimes started with Admin disabled may omit those debug routes.
+   Subscribe to the shared `EventBus` when an adapter or studio integration
+   needs programmatic lifecycle hooks: use `skill.*` events for load/unload
+   visibility and `tool.*` events for dispatch/completion/failure metrics
+   instead of scraping logs or wrapping every handler manually.
 8. For adapter install, uninstall, or upgrade flows, use
    `dcc_mcp_core.install_lifecycle` before importing Rust-backed public API:
    query/stop registered sidecars, inspect install roots, classify locked

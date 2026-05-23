@@ -48,7 +48,7 @@ use pyo3_stub_gen_derive::gen_stub_pyclass;
 
 use dashmap::{DashMap, DashSet};
 use dcc_mcp_actions::{
-    ToolDispatcher,
+    EventBus, ToolDispatcher,
     registry::{ToolMeta, ToolRegistry},
 };
 use dcc_mcp_models::registry::{Registry, SearchQuery};
@@ -99,6 +99,8 @@ pub struct SkillCatalog {
     pub(super) registry: Arc<ToolRegistry>,
     /// Optional dispatcher for auto-registering script handlers on load.
     pub(super) dispatcher: Option<Arc<ToolDispatcher>>,
+    /// In-process lifecycle event bus for skill load/unload events.
+    pub(super) event_bus: EventBus,
     /// Optional in-process script executor.
     ///
     /// When set, skill scripts are run inside the current Python interpreter
