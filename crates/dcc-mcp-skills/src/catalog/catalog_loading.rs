@@ -26,6 +26,16 @@ impl SkillCatalog {
         skill_name: &str,
         activate_groups: bool,
     ) -> Result<Vec<String>, String> {
+        let mut visiting = Vec::new();
+        self.load_skill_recursive(skill_name, activate_groups, &mut visiting)
+    }
+
+    fn load_skill_recursive(
+        &self,
+        skill_name: &str,
+        activate_groups: bool,
+        visiting: &mut Vec<String>,
+    ) -> Result<Vec<String>, String> {
         if self.loaded.contains(skill_name) {
             let actions = self
                 .entries
@@ -40,6 +50,15 @@ impl SkillCatalog {
             return Ok(actions);
         }
 
+        if let Some(pos) = visiting.iter().position(|name| name == skill_name) {
+            let mut cycle = visiting[pos..].to_vec();
+            cycle.push(skill_name.to_string());
+            return Err(format!(
+                "Cannot load skill '{skill_name}' because its dependencies contain a cycle: {}",
+                cycle.join(" -> ")
+            ));
+        }
+
         let metadata = {
             self.entries
                 .get(skill_name)
@@ -47,12 +66,64 @@ impl SkillCatalog {
                 .ok_or_else(|| format!("Skill '{skill_name}' not found in catalog"))
         }?;
 
+        let known_names: std::collections::HashSet<String> = self
+            .entries
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect();
+        let missing: Vec<String> = metadata
+            .depends
+            .iter()
+            .filter(|dep| !known_names.contains(dep.as_str()))
+            .cloned()
+            .collect();
+        if !missing.is_empty() {
+            if let Some(mut entry) = self.entries.get_mut(skill_name) {
+                entry.state = SkillState::PendingDeps {
+                    missing: missing.clone(),
+                };
+            }
+            return Err(format!(
+                "Skill '{skill_name}' is pending dependencies: missing {}. \
+                 Discover or install the dependency skill(s), then retry load_skill('{skill_name}').",
+                missing.join(", ")
+            ));
+        }
+
+        visiting.push(skill_name.to_string());
+        for dep in &metadata.depends {
+            if !self.loaded.contains(dep.as_str()) {
+                self.load_skill_recursive(dep, activate_groups, visiting)
+                    .map_err(|err| {
+                        format!("Failed to load dependency '{dep}' for skill '{skill_name}': {err}")
+                    })?;
+            }
+        }
+        visiting.pop();
+
+        if self.loaded.contains(skill_name) {
+            return Ok(self
+                .entries
+                .get(skill_name)
+                .map(|entry| entry.registered_tools.clone())
+                .unwrap_or_default());
+        }
+
+        self.load_skill_metadata(skill_name, &metadata, activate_groups)
+    }
+
+    fn load_skill_metadata(
+        &self,
+        skill_name: &str,
+        metadata: &SkillMetadata,
+        activate_groups: bool,
+    ) -> Result<Vec<String>, String> {
         let mut registered = Vec::new();
         let skill_base = metadata.name.replace('-', "_");
         let skill_path = std::path::Path::new(&metadata.skill_path);
 
         if activate_groups {
-            activate_skill_groups(self, &metadata);
+            activate_skill_groups(self, metadata);
         } else {
             for group in &metadata.groups {
                 if group.default_active {
@@ -296,7 +367,11 @@ impl SkillCatalog {
         if self.loaded.contains(skill_name) {
             let _ = self.unload_skill(skill_name);
         }
-        self.entries.remove(skill_name).is_some()
+        let removed = self.entries.remove(skill_name).is_some();
+        if removed {
+            self.refresh_dependency_states();
+        }
+        removed
     }
 
     /// Clear all skills from the catalog.

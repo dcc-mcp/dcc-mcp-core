@@ -153,6 +153,7 @@ pub(crate) fn group_default_active(groups: &[SkillGroup], group_name: &str) -> b
 impl Registry<SkillEntry> for SkillCatalog {
     fn register(&self, entry: SkillEntry) {
         self.entries.insert(entry.key(), entry);
+        self.refresh_dependency_states();
     }
 
     fn get(&self, key: &str) -> Option<SkillEntry> {
@@ -164,7 +165,11 @@ impl Registry<SkillEntry> for SkillCatalog {
     }
 
     fn remove(&self, key: &str) -> bool {
-        self.entries.remove(key).is_some()
+        let removed = self.entries.remove(key).is_some();
+        if removed {
+            self.refresh_dependency_states();
+        }
+        removed
     }
 
     fn count(&self) -> usize {

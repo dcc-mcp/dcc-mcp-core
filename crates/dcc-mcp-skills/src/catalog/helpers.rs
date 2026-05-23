@@ -37,6 +37,8 @@ pub fn skill_entry_to_summary(e: &SkillEntry) -> SkillSummary {
         tool_count: e.metadata.tools.len(),
         tool_names: e.metadata.tools.iter().map(|t| t.name.clone()).collect(),
         loaded: e.state == SkillState::Loaded,
+        status: e.state.status().to_string(),
+        missing_dependencies: e.state.missing_dependencies(),
         scope: e.scope.label().to_string(),
         implicit_invocation: e
             .metadata
