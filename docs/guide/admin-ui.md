@@ -78,7 +78,7 @@ operator workflows exposed by the embedded dashboard.
 
 The **Connect IDE** panel provides copyable MCP configuration snippets for
 Claude Desktop, Cursor, CodeBuddy, VS Code, Cline, and Codex / OpenAI, using
-the current gateway URL.
+the current gateway URL and platform-aware config paths.
 
 ![Admin Skills paths panel](../assets/admin-ui/admin-skills-paths.png)
 
