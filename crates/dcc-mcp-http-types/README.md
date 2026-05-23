@@ -18,6 +18,10 @@ Consumers in `dcc-mcp-http` re-export the types under their historical
 paths so existing call sites keep compiling while the migration is in
 flight.
 
+Application UI observation/action contracts intentionally live in
+`dcc-mcp-app-ui`, not here. That keeps the `app_ui` schema independent from the
+HTTP wire/config layer and from any host-specific UI automation backend.
+
 ## Stability
 
 Semver follows the workspace version. Types move here from

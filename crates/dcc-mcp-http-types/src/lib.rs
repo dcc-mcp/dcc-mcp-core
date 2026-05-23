@@ -33,7 +33,6 @@
 //! | [`resources`] | [`resources::ProducerContent`] / [`resources::ResourceError`] resource values |
 //! | [`session`] | [`session::SessionLogLevel`] / [`session::SessionLogMessage`] log values |
 //! | [`session_events`] | [`session_events::SessionEvent`] bounded adapter runtime event values |
-//! | [`ui_automation`] | Cross-DCC UI automation observation/action contract values |
 //!
 //! # Migration plan (issue #852)
 //!
@@ -69,6 +68,10 @@
 //! | [`session::SessionLogLevel`] |                                  |
 //! | [`session::SessionLogMessage`] |                                |
 //!
+//! `app_ui` observation/action contracts live in the sibling
+//! `dcc-mcp-app-ui` crate so UI automation can evolve independently of the
+//! HTTP wire layer.
+//!
 //! Each new round of #852 PRs migrates one self-contained subsystem at a
 //! time and re-exports it from `dcc-mcp-http` to preserve the public API.
 
@@ -84,7 +87,6 @@ pub mod prompts;
 pub mod resources;
 pub mod session;
 pub mod session_events;
-pub mod ui_automation;
 
 use serde::{Deserialize, Serialize};
 

@@ -52,7 +52,7 @@ DCC-MCP-Core is a Rust workspace with Python bindings via PyO3. It provides:
 
 - **Zero third-party runtime dependencies** in the Rust core
 - **Optional Python bindings** via PyO3 for DCC integration
-- **41 workspace packages** (40 functional packages + `workspace-hack`) for selective dependency usage; root `Cargo.toml` is the source of truth
+- **42 workspace packages** (41 functional packages + `workspace-hack`) for selective dependency usage; root `Cargo.toml` is the source of truth
 
 ## Crate Structure
 
@@ -65,6 +65,7 @@ dcc-mcp-core (workspace root)
 ├── dcc-mcp-protocols     # MCP-facing Tool/Resource/Prompt/DccAdapter models
 ├── dcc-mcp-jsonrpc       # MCP 2025-03-26 JSON-RPC builders
 ├── dcc-mcp-wire          # Canonical MCP/REST call envelopes, validation, normalization
+├── dcc-mcp-app-ui        # DCC-agnostic app_ui observation/action contracts
 ├── dcc-mcp-job           # Async job tracking + optional persistence
 ├── dcc-mcp-skill-rest    # Per-DCC /v1/* REST skill API
 ├── dcc-mcp-gateway-core  # Pure gateway domain/search/ranking types
@@ -128,6 +129,8 @@ dcc-mcp-http ← dcc-mcp-http-types, dcc-mcp-http-server, dcc-mcp-gateway, dcc-m
 dcc-mcp-server ← dcc-mcp-http
 
 dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
+
+dcc-mcp-app-ui (independent pure app_ui observation/action/wait/policy/audit contracts)
 ```
 
 ## Crate Responsibilities
@@ -377,6 +380,20 @@ dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 - Admin/dashboard support — read-only `/admin/api/*` inspection for instances, tools, calls, traces, stats, workers, logs, and health.
 
 **Dependencies**: `dcc-mcp-gateway-core`, `dcc-mcp-gateway-search`, `dcc-mcp-wire`, `dcc-mcp-transport`, `dcc-mcp-skill-rest`, `reqwest`, `tokio`.
+
+### dcc-mcp-app-ui
+
+**Purpose**: DCC-agnostic application UI observation/action contract values. Keep these schemas independent from HTTP, Python bindings, OS accessibility, Qt, or webview automation so adapters can share the same contract without inheriting a backend.
+
+**Key Types**:
+- `UiBounds`, `UiControlNode`, `UiSnapshot` — bounded UI tree snapshots.
+- `UiFindRequest`, `UiActionRequest`, `UiActionKind`, `UiActionResult` — find-and-act envelopes for scoped controls.
+- `UiWaitCondition`, `UiWaitResult` — in-tool polling contract.
+- `AppUiPolicy`, `AppUiAuditRecord` — action policy and audit records.
+
+**Compatibility**: The Rust types are not re-exported through `dcc-mcp-http` because this surface has not shipped yet. The Python-facing contract names remain stable in `dcc_mcp_core.adapter_contracts`, and CLI/server behavior is unchanged.
+
+**Dependencies**: `serde`, `serde_json`.
 
 ### dcc-mcp-http-types
 

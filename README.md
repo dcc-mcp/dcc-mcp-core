@@ -561,15 +561,16 @@ tools/list response (Maya session, nothing loaded yet):
 
 ---
 
-## Architecture Overview — 41 Workspace Packages
+## Architecture Overview — 42 Workspace Packages
 
-`dcc-mcp-core` is organised as a **Rust workspace of 41 packages** (40 functional packages + `workspace-hack`). Most library crates compile into the native Python extension (`_core`) via PyO3 / maturin, while operator-facing crates such as `dcc-mcp-cli`, `dcc-mcp-server`, and tunnel binaries also ship as release assets. The root `Cargo.toml` is the source of truth for membership. Selected crates:
+`dcc-mcp-core` is organised as a **Rust workspace of 42 packages** (41 functional packages + `workspace-hack`). Most library crates compile into the native Python extension (`_core`) via PyO3 / maturin, while operator-facing crates such as `dcc-mcp-cli`, `dcc-mcp-server`, and tunnel binaries also ship as release assets. The root `Cargo.toml` is the source of truth for membership. Selected crates:
 
 | Crate | Responsibility | Key Types |
 |---|---|---|
 | `dcc-mcp-naming` | SEP-986 naming validators | `validate_tool_name`, `validate_action_id`, `TOOL_NAME_RE` |
 | `dcc-mcp-models` | Data models | `ToolResult`, `SkillMetadata`, `ToolDeclaration` |
 | `dcc-mcp-actions` | Tool execution lifecycle | `ToolRegistry`, `ToolDispatcher`, `ToolValidator`, `ToolPipeline`, `EventBus` |
+| `dcc-mcp-app-ui` | App UI observation/action contracts | `UiSnapshot`, `UiActionRequest`, `UiWaitCondition`, `AppUiPolicy` |
 | `dcc-mcp-skills` | Skills discovery & loading | `SkillScanner`, `SkillCatalog`, `SkillWatcher`, dependency resolver |
 | `dcc-mcp-protocols` | MCP protocol-facing models | `ToolDefinition`, `ResourceDefinition`, `PromptDefinition`, `ToolAnnotations`, `BridgeKind` |
 | `dcc-mcp-jsonrpc` | MCP JSON-RPC wire types | `JsonRpcRequest`, `JsonRpcResponse`, notifications |
