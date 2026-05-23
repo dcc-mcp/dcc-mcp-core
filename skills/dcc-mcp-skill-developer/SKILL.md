@@ -100,6 +100,13 @@ into a faster authoring loop.
     fallback. Keep raw coordinates and keyboard shortcuts disabled by default,
     return structured `stale_control` / `policy_disabled` / `timeout` errors,
     and redact typed text or screenshot bytes in audit records.
+    Backend-specific implementations, such as the bundled Chrome DevTools
+    prototype, belong behind the skill/runtime layer and must preserve the
+    same `app_ui__snapshot` -> `find` -> `act` -> `wait_for` contract.
+    CDP-backed implementations should expose explicit presets for reusing an
+    existing browser/webview session, launching an isolated test profile, or
+    attaching to a host-specific endpoint such as AuroraView. Prefer reuse
+    when a user expects existing cookies or tokens to remain available.
 
 ## Adapter Selection
 
