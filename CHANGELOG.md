@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.25](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.24...v0.17.25) (2026-05-23)
+
+
+### Features
+
+* add app ui cdp backend presets ([4760bb7](https://github.com/loonghao/dcc-mcp-core/commit/4760bb7bd12e8ba2bf1ae6e133e7105a0b01e84c))
+* add app ui contract and mock skill ([2bd442d](https://github.com/loonghao/dcc-mcp-core/commit/2bd442dbd85cb96cbf0578f93a74f4807a1e29d9))
+* add edge and agent browser app ui presets ([f920bbe](https://github.com/loonghao/dcc-mcp-core/commit/f920bbe8144ca9d3d134105f33521f8d7cc4217a))
+
+
+### Bug Fixes
+
+* repair diagnostics routing and CLI load-skill ([fe878cd](https://github.com/loonghao/dcc-mcp-core/commit/fe878cda82be3b629c225bef2b1da42a5e1f19c5))
+
+
+### Code Refactoring
+
+* split app ui contracts into crate ([208abb1](https://github.com/loonghao/dcc-mcp-core/commit/208abb18b91c303910a47016877b7955f6b7a1b3))
+
 ## [0.17.24](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.23...v0.17.24) (2026-05-23)
 
 
