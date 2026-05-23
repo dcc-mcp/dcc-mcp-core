@@ -148,8 +148,8 @@ pub async fn call_backend(
 /// `{"type":"object"}` — the builder only uses it to set `has_schema`,
 /// which correctly becomes `false` for tools without declared parameters.
 ///
-/// The `action` field from the search hit (bare tool name such as
-/// `hello-world.greet`) is used as `McpTool.name` so the capability
+/// The `action` field from the search hit (client-safe tool name such as
+/// `hello-world__greet`) is used as `McpTool.name` so the capability
 /// builder receives the same bare-name input it expects.  The `slug`
 /// field is ignored here — the builder recomputes the gateway-level
 /// slug itself via `tool_slug(dcc_type, instance_id, callable_id)`.

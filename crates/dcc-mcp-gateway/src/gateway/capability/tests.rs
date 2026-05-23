@@ -23,17 +23,17 @@ fn tool(name: &str, desc: &str, input_schema: serde_json::Value) -> McpTool {
 fn maya_toolbox() -> Vec<McpTool> {
     vec![
         tool(
-            "maya-animation.set_keyframe",
+            "maya-animation__set_keyframe",
             "Insert a keyframe at the current time",
             json!({"type": "object", "properties": {"time": {"type": "number"}}, "required": ["time"]}),
         ),
         tool(
-            "maya-geometry.create_sphere",
+            "maya-geometry__create_sphere",
             "Create a polygonal sphere at the origin",
             json!({"type": "object", "properties": {"radius": {"type": "number"}}, "required": ["radius"]}),
         ),
         tool(
-            "maya-geometry.create_cube",
+            "maya-geometry__create_cube",
             "Create a polygonal cube",
             json!({"type": "object", "properties": {"size": {"type": "number"}}}),
         ),
@@ -49,12 +49,12 @@ fn maya_toolbox() -> Vec<McpTool> {
 fn blender_toolbox() -> Vec<McpTool> {
     vec![
         tool(
-            "blender-rendering.render",
+            "blender-rendering__render",
             "Render the current scene",
             json!({"type": "object", "properties": {"frame": {"type": "integer"}}}),
         ),
         tool(
-            "blender-geometry.add_material",
+            "blender-geometry__add_material",
             "Attach a material to the selected object",
             json!({"type": "object", "properties": {"name": {"type": "string"}}}),
         ),
@@ -126,13 +126,13 @@ fn end_to_end_two_backends_search_and_route() {
         },
     );
     assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].record.backend_tool, "maya-geometry.create_sphere");
+    assert_eq!(hits[0].record.backend_tool, "maya-geometry__create_sphere");
     // The slug carries everything needed to route the call back to
     // the exact backend instance.
     let (dcc, id8, tool) = record::parse_slug(&hits[0].record.tool_slug).unwrap();
     assert_eq!(dcc, "maya");
     assert_eq!(id8, &maya_id.to_string().replace('-', "")[..8]);
-    assert_eq!(tool, "maya-geometry.create_sphere");
+    assert_eq!(tool, "maya-geometry__create_sphere");
 
     // Phase 4: the same query without a dcc_type filter sees both
     // backends but still scores the Maya action first because its
@@ -145,7 +145,7 @@ fn end_to_end_two_backends_search_and_route() {
         },
     );
     assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].record.backend_tool, "maya-geometry.create_sphere");
+    assert_eq!(hits[0].record.backend_tool, "maya-geometry__create_sphere");
 
     // Phase 5: removing the Maya instance drops every Maya row in
     // one O(n) swap and leaves the Blender rows intact.
@@ -226,7 +226,7 @@ fn fingerprint_change_detects_skill_load_unload_cycle() {
     let after_load = vec![
         tool("list_scenes", "", json!({"type": "object"})),
         tool(
-            "render_farm.submit",
+            "render_farm__submit",
             "Submit render to farm",
             json!({"type": "object"}),
         ),
