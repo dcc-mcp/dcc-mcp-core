@@ -5,10 +5,11 @@ use axum::{Router, routing};
 use super::handlers::{
     handle_admin_activity, handle_admin_calls, handle_admin_debug_bundle,
     handle_admin_deregistered, handle_admin_health, handle_admin_instances,
-    handle_admin_issue_report, handle_admin_logs, handle_admin_skill_path_add,
-    handle_admin_skill_path_delete, handle_admin_skill_paths, handle_admin_skills,
-    handle_admin_stats, handle_admin_tasks, handle_admin_tools, handle_admin_trace_detail,
-    handle_admin_traces, handle_admin_ui, handle_admin_workers, handle_v1_debug_trace_lookup,
+    handle_admin_issue_report, handle_admin_logs, handle_admin_skill_detail,
+    handle_admin_skill_path_add, handle_admin_skill_path_delete, handle_admin_skill_paths,
+    handle_admin_skills, handle_admin_stats, handle_admin_tasks, handle_admin_tools,
+    handle_admin_trace_detail, handle_admin_traces, handle_admin_ui, handle_admin_workers,
+    handle_v1_debug_trace_lookup,
 };
 use super::state::AdminState;
 
@@ -22,6 +23,7 @@ use super::state::AdminState;
 /// - `GET  /api/instances` → JSON instance list
 /// - `GET  /api/tools`     → JSON tool list
 /// - `GET  /api/skills`    → JSON skill list
+/// - `GET  /api/skill-detail?name=...` → one skill's detailed markdown/info
 /// - `GET  /api/calls`              → JSON recent calls
 /// - `GET  /api/traces`             → JSON recent dispatch traces (Phase 2)
 /// - `GET  /api/traces/{request_id}` → full trace waterfall for one call
@@ -38,6 +40,7 @@ pub fn build_admin_router(state: AdminState) -> Router {
         .route("/api/instances", routing::get(handle_admin_instances))
         .route("/api/tools", routing::get(handle_admin_tools))
         .route("/api/skills", routing::get(handle_admin_skills))
+        .route("/api/skill-detail", routing::get(handle_admin_skill_detail))
         .route("/api/calls", routing::get(handle_admin_calls))
         .route("/api/traces", routing::get(handle_admin_traces))
         .route(

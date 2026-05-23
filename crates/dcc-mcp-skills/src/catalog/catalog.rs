@@ -118,6 +118,13 @@ impl SkillCatalog {
     pub fn get_skill_info(&self, skill_name: &str) -> Option<SkillDetail> {
         self.entries.get(skill_name).map(|entry| {
             let e = entry.value();
+            let skill_md_path = (!e.metadata.skill_path.is_empty()).then(|| {
+                std::path::Path::new(&e.metadata.skill_path)
+                    .join(crate::constants::SKILL_METADATA_FILE)
+            });
+            let markdown = skill_md_path
+                .as_ref()
+                .and_then(|path| std::fs::read_to_string(path).ok());
             SkillDetail {
                 name: e.metadata.name.clone(),
                 description: e.metadata.description.clone(),
@@ -126,6 +133,8 @@ impl SkillCatalog {
                 version: e.metadata.version.clone(),
                 depends: e.metadata.depends.clone(),
                 skill_path: e.metadata.skill_path.clone(),
+                skill_md_path: skill_md_path.map(|path| path.to_string_lossy().to_string()),
+                markdown,
                 scripts: e.metadata.scripts.clone(),
                 tools: e.metadata.tools.clone(),
                 state: e.state.to_string(),

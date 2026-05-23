@@ -261,6 +261,8 @@ async function mockAdminApi(page: Page) {
             action_count: 3,
             instance_count: 1,
             instances: ['12345678'],
+            instance_ids: ['12345678-aaaa-bbbb-cccc-1234567890ab'],
+            instance_details: [{ id: '12345678-aaaa-bbbb-cccc-1234567890ab', prefix: '12345678', dcc_type: 'maya' }],
             tools: ['create_sphere', 'delete_sphere', 'set_transform'],
             summary: 'Modeling tools currently loaded by Maya.',
           },
@@ -271,10 +273,29 @@ async function mockAdminApi(page: Page) {
             action_count: 2,
             instance_count: 1,
             instances: ['abcdef12'],
+            instance_ids: ['abcdef12-aaaa-bbbb-cccc-1234567890ab'],
+            instance_details: [{ id: 'abcdef12-aaaa-bbbb-cccc-1234567890ab', prefix: 'abcdef12', dcc_type: 'blender' }],
             tools: ['render_preview', 'assign_material'],
             summary: 'Lookdev tools currently loaded by Blender.',
           },
         ],
+      };
+    } else if (path === '/skill-detail') {
+      body = {
+        skill: {
+          name: url.searchParams.get('name') ?? 'maya-modeling',
+          description: 'Modeling tools currently loaded by Maya.',
+          dcc: 'maya',
+          dcc_type: 'maya',
+          state: 'loaded',
+          instance_id: url.searchParams.get('instance_id') ?? '12345678-aaaa-bbbb-cccc-1234567890ab',
+          instance_short: '12345678',
+          skill_path: 'G:/studio/skills/maya-modeling',
+          skill_md_path: 'G:/studio/skills/maya-modeling/SKILL.md',
+          markdown: '---\nname: maya-modeling\nmetadata:\n  dcc-mcp:\n    dcc: maya\n---\n# Maya Modeling\n\n- Create a polygon sphere\n\n```python\ncmds.polySphere()\n```',
+          tools: [{ name: 'create_sphere' }, { name: 'delete_sphere' }],
+        },
+        instances: [],
       };
     } else if (path === '/skill-paths' && method === 'GET') {
       body = { paths: state.skillPaths };
@@ -384,6 +405,18 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.skill-paths-panel')).toContainText('G:/new/team-skills');
     await page.getByRole('button', { name: 'Remove' }).first().click();
     await expect(page.locator('.skill-paths-panel')).not.toContainText('G:/custom/admin-skills');
+  });
+
+  test('opens rendered markdown details for a skill', async ({ page }) => {
+    await page.goto('/admin/?panel=skill-paths');
+    await page.getByRole('button', { name: 'maya-modeling' }).click();
+
+    const detail = page.locator('.skill-detail-panel');
+    await expect(detail).toContainText('G:/studio/skills/maya-modeling/SKILL.md');
+    await expect(detail.locator('.skill-markdown-preview h3')).toHaveText('Maya Modeling');
+    await expect(detail.locator('.skill-markdown-preview li')).toContainText('Create a polygon sphere');
+    await expect(detail.locator('.skill-code-block')).toContainText('cmds.polySphere()');
+    await expect(detail.locator('.skill-frontmatter')).toContainText('dcc: maya');
   });
 
   test('refreshes the skills inventory on demand', async ({ page }) => {
