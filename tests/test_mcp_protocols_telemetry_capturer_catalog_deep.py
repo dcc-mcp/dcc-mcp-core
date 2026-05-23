@@ -856,6 +856,15 @@ class TestCapturer:
 EXAMPLES_SKILLS_DIR = str((Path(__file__).parent / ".." / "examples" / "skills").resolve())
 
 
+def _first_standalone_skill(cat):
+    """Return a discovered skill that does not auto-load dependencies."""
+    for skill in cat.list_skills():
+        info = cat.get_skill_info(skill.name) or {}
+        if not info.get("depends"):
+            return skill
+    raise AssertionError("expected at least one standalone example skill")
+
+
 class TestSkillSummary:
     @pytest.fixture
     def catalog_with_skills(self):
@@ -979,7 +988,7 @@ class TestSkillCatalog:
         reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
-        s = cat.list_skills()[0]
+        s = _first_standalone_skill(cat)
         cat.load_skill(s.name)
         assert cat.loaded_count() == 1
 
@@ -1005,7 +1014,7 @@ class TestSkillCatalog:
         reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
-        s = cat.list_skills()[0]
+        s = _first_standalone_skill(cat)
         cat.load_skill(s.name)
         cat.unload_skill(s.name)
         assert cat.loaded_count() == 0
