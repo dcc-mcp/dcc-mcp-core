@@ -958,6 +958,7 @@ mod tests {
             "/v1/debug/bundles/{request_id}",
             "/v1/debug/issue-reports/{request_id}",
             "/v1/debug/logs",
+            "/v1/debug/deregistered",
             "/v1/debug/stats",
             "/v1/debug/health",
         ] {
