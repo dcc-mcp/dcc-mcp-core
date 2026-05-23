@@ -494,6 +494,7 @@ See [`examples/skills/`](examples/skills/) for complete reference packages.
 |---|---|---|
 | `app-ui` | `snapshot`, `find`, `act`, `wait_for` | Scoped application UI observation/action mock backend |
 | `dcc-diagnostics` | `screenshot`, `audit_log`, `tool_metrics`, `process_status` | Observability & debugging for any DCC |
+| `media` | `probe`, `sequence_to_mp4`, `transcode`, `extract_frames`, `thumbnail` | vx-managed FFmpeg media processing for render/playblast artifacts |
 | `workflow` | `run_chain` | Multi-step action chaining with context propagation |
 
 ```python
@@ -507,6 +508,9 @@ paths = get_bundled_skill_paths(include_bundled=False)  # opt-out
 ```
 
 DCC adapters (e.g. `dcc-mcp-maya`) include the bundled skills by default. To opt out: `start_server(include_bundled=False)`.
+The `media` skill uses `vx ffmpeg` / `vx ffprobe` internally so fresh machines
+do not need a manual FFmpeg install. If `vx` is missing, it bootstraps `vx`
+with the official install script, then retries the typed media command.
 
 ---
 

@@ -13,6 +13,7 @@ SKILL_ROOTS = [
     REPO_ROOT / "skills" / "dcc-rest-gateway",
     REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "app-ui",
     REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "dcc-diagnostics",
+    REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "media",
     REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "workflow",
 ]
 
