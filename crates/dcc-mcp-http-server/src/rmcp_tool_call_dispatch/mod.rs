@@ -244,3 +244,99 @@ async fn dispatch_registry_tool(
     attach_next_tools_meta(&mut result, &action_meta.next_tools);
     Ok(result)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::sync::Arc;
+
+    use dcc_mcp_actions::ToolDispatcher;
+    use dcc_mcp_actions::registry::{ToolMeta, ToolRegistry};
+    use dcc_mcp_skill_rest::StaticReadiness;
+    use dcc_mcp_skills::SkillCatalog;
+    use serde_json::json;
+
+    use crate::mcp_tool_list_builder::assemble_full_tool_list;
+
+    fn skill_tool_meta(name: &str, skill_name: &str) -> ToolMeta {
+        ToolMeta {
+            name: name.to_string(),
+            description: format!("{skill_name} create cube"),
+            dcc: "maya".to_string(),
+            input_schema: json!({"type": "object"}),
+            skill_name: Some(skill_name.to_string()),
+            ..Default::default()
+        }
+    }
+
+    fn ready_context() -> RegistryContext {
+        RegistryContext {
+            resource_provider: None,
+            prompt_provider: None,
+            readiness: Arc::new(StaticReadiness::fully_ready()),
+            on_skill_catalog_mutated: Arc::new(|| {}),
+        }
+    }
+
+    #[tokio::test]
+    async fn skill_qualified_collision_name_from_tools_list_dispatches() {
+        let registry = ToolRegistry::new();
+        let dispatcher = Arc::new(ToolDispatcher::new(registry.clone()));
+
+        registry.register_action(skill_tool_meta(
+            "maya_modeling__create_cube",
+            "maya-modeling",
+        ));
+        registry.register_action(skill_tool_meta("maya_rigging__create_cube", "maya-rigging"));
+        dispatcher.register_handler("maya_modeling__create_cube", |_| {
+            Ok(json!({"skill": "modeling"}))
+        });
+        dispatcher.register_handler("maya_rigging__create_cube", |_| {
+            Ok(json!({"skill": "rigging"}))
+        });
+
+        let registry = Arc::new(registry);
+        let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+            Arc::clone(&registry),
+            Arc::clone(&dispatcher),
+        ));
+        let state = ServerState::builder(registry, dispatcher, catalog).build();
+
+        let listed_names: Vec<String> = assemble_full_tool_list(&state, false, None)
+            .into_iter()
+            .map(|tool| tool.name)
+            .collect();
+        assert!(
+            listed_names
+                .iter()
+                .any(|name| name == "maya-modeling__create_cube")
+        );
+        assert!(
+            listed_names
+                .iter()
+                .any(|name| name == "maya-rigging__create_cube")
+        );
+        assert!(!listed_names.iter().any(|name| name == "create_cube"));
+
+        let result = dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            "maya-modeling__create_cube",
+            Some(json!({})),
+            None,
+        )
+        .await
+        .expect("dispatch should not return transport error");
+
+        assert!(
+            !result.is_error,
+            "tools/list name must be callable: {result:?}"
+        );
+        assert_eq!(
+            result.structured_content,
+            Some(json!({"skill": "modeling"}))
+        );
+    }
+}
