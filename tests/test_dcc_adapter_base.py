@@ -573,15 +573,16 @@ class TestDccServerBase:
 
     @pytest.fixture()
     def _patch_skill_env(self):
-        """Patch the three skill-path helpers to return empty / None values.
+        """Patch skill-path helpers to return empty / None values.
 
-        server_base.py does ``from dcc_mcp_core import <fn>`` inside
-        ``collect_skill_search_paths``, so we patch the symbols on the
-        ``dcc_mcp_core`` package itself.
+        server_base.py imports these helpers at module import time, so patch
+        the symbols on ``dcc_mcp_core.server_base``.
         """
-        with patch("dcc_mcp_core.get_app_skill_paths_from_env", return_value=[]), patch(
-            "dcc_mcp_core.get_skill_paths_from_env", return_value=[]
-        ), patch("dcc_mcp_core.get_skills_dir", return_value=None):
+        with patch("dcc_mcp_core.server_base.get_app_skill_paths_from_env", return_value=[]), patch(
+            "dcc_mcp_core.server_base.get_skill_paths_from_env", return_value=[]
+        ), patch("dcc_mcp_core.server_base.get_local_skills_dir", return_value=None), patch(
+            "dcc_mcp_core.server_base.get_skills_dir", return_value=None
+        ):
             yield
 
     def test_collect_skill_search_paths_includes_builtin(self, tmp_path, _patch_skill_env):
@@ -625,6 +626,19 @@ class TestDccServerBase:
             filter_existing=False,
         )
         assert nonexistent in paths
+
+    def test_collect_skill_search_paths_includes_local_default(self, tmp_path):
+        server = self._make_server(tmp_path)
+        local_default = tmp_path / ".dcc-mcp" / "maya" / "skills"
+        with patch("dcc_mcp_core.server_base.get_app_skill_paths_from_env", return_value=[]), patch(
+            "dcc_mcp_core.server_base.get_skill_paths_from_env", return_value=[]
+        ), patch("dcc_mcp_core.server_base.get_local_skills_dir", return_value=str(local_default)), patch(
+            "dcc_mcp_core.server_base.get_skills_dir", return_value=None
+        ):
+            paths = server.collect_skill_search_paths(include_bundled=False, filter_existing=True)
+
+        assert str(local_default) in paths
+        assert local_default.is_dir()
 
     def test_enable_hot_reload_creates_reloader(self, tmp_path):
         server = self._make_server(tmp_path)

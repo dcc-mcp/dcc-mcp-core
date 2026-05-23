@@ -26,8 +26,8 @@ pub use loader::{
 pub use manager::SkillsManager;
 pub use paths::{
     copy_skill_to_team_dir, copy_skill_to_user_dir, get_app_skill_paths_from_env,
-    get_app_team_skill_paths_from_env, get_app_user_skill_paths_from_env, get_skill_paths_from_env,
-    get_skills_dir, get_team_skill_paths_from_env, get_team_skills_dir,
+    get_app_team_skill_paths_from_env, get_app_user_skill_paths_from_env, get_local_skills_dir,
+    get_skill_paths_from_env, get_skills_dir, get_team_skill_paths_from_env, get_team_skills_dir,
     get_user_skill_paths_from_env, get_user_skills_dir,
 };
 pub use resolver::{
@@ -53,8 +53,9 @@ pub use loader::{
 pub use paths::{
     py_copy_skill_to_team_dir, py_copy_skill_to_user_dir, py_get_app_skill_paths_from_env,
     py_get_app_team_skill_paths_from_env, py_get_app_user_skill_paths_from_env,
-    py_get_skill_paths_from_env, py_get_skills_dir, py_get_team_skill_paths_from_env,
-    py_get_team_skills_dir, py_get_user_skill_paths_from_env, py_get_user_skills_dir,
+    py_get_local_skills_dir, py_get_skill_paths_from_env, py_get_skills_dir,
+    py_get_team_skill_paths_from_env, py_get_team_skills_dir, py_get_user_skill_paths_from_env,
+    py_get_user_skills_dir,
 };
 #[cfg(feature = "python-bindings")]
 pub use resolver::{

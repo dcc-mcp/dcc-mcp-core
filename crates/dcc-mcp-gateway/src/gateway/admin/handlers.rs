@@ -303,7 +303,7 @@ pub async fn handle_admin_tools(State(s): State<AdminState>) -> impl IntoRespons
 
 /// `GET /admin/api/skills` — skills currently indexed by the gateway.
 pub async fn handle_admin_skills(State(s): State<AdminState>) -> impl IntoResponse {
-    refresh_all_live_backends(&s.gateway, RefreshReason::Periodic).await;
+    reload_skill_paths_and_refresh_backends(&s, RefreshReason::Periodic).await;
     let records = s.gateway.capability_index.snapshot().records;
     let mut grouped: BTreeMap<(String, String, bool), Vec<_>> = BTreeMap::new();
     for record in records.iter().cloned() {
@@ -921,6 +921,13 @@ fn push_admin_operator_note(state: &AdminState, msg: String) {
     ));
 }
 
+async fn reload_skill_paths_and_refresh_backends(state: &AdminState, reason: RefreshReason) {
+    if let Some(cb) = state.skill_paths_reload.clone() {
+        cb();
+    }
+    refresh_all_live_backends(&state.gateway, reason).await;
+}
+
 /// `GET /admin/api/skill-paths` — skill search paths (snapshot + SQLite custom).
 pub async fn handle_admin_skill_paths(State(s): State<AdminState>) -> impl IntoResponse {
     let mut flat: Vec<Value> = s
@@ -964,13 +971,7 @@ pub async fn handle_admin_skill_path_add(
     };
     if lane.try_add_skill_path(path.clone()) {
         wait_for_custom_skill_path_visible(lane, &path).await;
-        if let Some(cb) = s.skill_paths_reload.clone() {
-            cb();
-        }
-        let gw = s.gateway.clone();
-        tokio::spawn(async move {
-            refresh_all_live_backends(&gw, RefreshReason::ToolsListChanged).await;
-        });
+        reload_skill_paths_and_refresh_backends(&s, RefreshReason::ToolsListChanged).await;
         push_admin_operator_note(
             &s,
             format!("Custom skill path persisted; catalog reload hook ran: {path}"),
@@ -999,13 +1000,7 @@ pub async fn handle_admin_skill_path_delete(
     };
     if lane.try_delete_skill_path(id) {
         wait_until_custom_skill_path_id_removed(lane, id).await;
-        if let Some(cb) = s.skill_paths_reload.clone() {
-            cb();
-        }
-        let gw = s.gateway.clone();
-        tokio::spawn(async move {
-            refresh_all_live_backends(&gw, RefreshReason::ToolsListChanged).await;
-        });
+        reload_skill_paths_and_refresh_backends(&s, RefreshReason::ToolsListChanged).await;
         push_admin_operator_note(
             &s,
             format!("Custom skill path removed (id={id}); catalog reload hook ran."),

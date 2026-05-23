@@ -1,7 +1,7 @@
 //! Global bridge context registry and helper functions.
 
 use super::*;
-use dcc_mcp_skills::paths::get_app_skill_paths_from_env;
+use dcc_mcp_skills::paths::{get_app_skill_paths_from_env, get_local_skills_dir};
 use std::sync::OnceLock;
 
 /// Global bridge context registry (for gateway mode).
@@ -345,9 +345,19 @@ pub fn py_create_skill_server(
         dispatcher.clone(),
     ));
 
-    // Collect paths: explicit extra_paths + per-app env var + global env var
+    // Collect paths: explicit extra_paths + env vars + local developer default.
     let mut all_paths: Vec<String> = extra_paths.unwrap_or_default();
     all_paths.extend(get_app_skill_paths_from_env(app_name));
+    if let Ok(local_dir) = get_local_skills_dir(Some(effective_dcc)) {
+        match std::fs::create_dir_all(&local_dir) {
+            Ok(()) => all_paths.push(local_dir),
+            Err(err) => tracing::warn!(
+                path = %local_dir,
+                error = %err,
+                "create_skill_server could not initialise local skill directory"
+            ),
+        }
+    }
     let discover_paths = if all_paths.is_empty() {
         None
     } else {

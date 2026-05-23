@@ -1384,6 +1384,7 @@ dependencies = [
  "dcc-mcp-naming",
  "dcc-mcp-paths",
  "dcc-mcp-pybridge",
+ "dirs",
  "notify",
  "parking_lot",
  "pyo3",

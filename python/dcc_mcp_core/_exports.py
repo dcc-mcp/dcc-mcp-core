@@ -174,6 +174,7 @@ _LAZY: dict[str, str] = {
     "get_config_dir": "dcc_mcp_core._core",
     "get_data_dir": "dcc_mcp_core._core",
     "get_log_dir": "dcc_mcp_core._core",
+    "get_local_skills_dir": "dcc_mcp_core._core",
     "get_platform_dir": "dcc_mcp_core._core",
     "get_skill_feedback": "dcc_mcp_core._core",
     "get_skill_paths_from_env": "dcc_mcp_core._core",
