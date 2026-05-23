@@ -351,6 +351,10 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.setup-panel')).not.toContainText('http://127.0.0.1:3721/mcp');
     await expect(page.locator('.setup-panel img.ide-icon')).toHaveCount(6);
     await expect(page.locator('.setup-panel .ide-config-preview').first()).toContainText('"dcc-mcp-gateway"');
+    const codexCard = page.locator('.setup-panel .ide-card').filter({ hasText: 'Codex / OpenAI' });
+    await expect(codexCard).toContainText('%USERPROFILE%\\.codex\\config.toml');
+    await expect(codexCard.locator('.ide-config-preview')).toContainText('[mcp_servers.dcc-mcp-gateway]');
+    await expect(codexCard.locator('.ide-config-preview')).toContainText('url = "http://127.0.0.1:9765/mcp"');
     await page.locator('.setup-panel .ide-card').first().getByRole('button', { name: 'Copy' }).click();
     await expect(page.locator('.setup-panel')).toContainText('Copied Claude Desktop config');
     await page.getByRole('button', { name: 'Direct' }).click();
@@ -381,7 +385,7 @@ test.describe('Admin Page', () => {
     await expect(setup).toContainText('~/Library/Application Support/Claude/claude_desktop_config.json');
     await expect(setup).toContainText('~/.cursor/mcp.json');
     await expect(setup).toContainText('~/Library/Application Support/Code/User/mcp.json');
-    await expect(setup).toContainText('~/.codex/settings.json');
+    await expect(setup).toContainText('~/.codex/config.toml');
     await expect(setup).not.toContainText('%APPDATA%\\Claude');
   });
 

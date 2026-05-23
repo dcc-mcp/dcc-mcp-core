@@ -120,6 +120,12 @@ pub(crate) fn add_gateway_debug_openapi_paths(doc: &mut Value) {
             list_params.clone(),
         ),
         (
+            "/v1/debug/deregistered",
+            "List auto-deregistered instances",
+            "Recently auto-deregistered registry rows retained for forensic debugging.",
+            limit_params.clone(),
+        ),
+        (
             "/v1/debug/stats",
             "Get debug statistics",
             "Aggregated gateway call statistics.",
