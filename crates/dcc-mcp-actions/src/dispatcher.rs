@@ -47,12 +47,14 @@
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use parking_lot::Mutex;
-use serde_json::Value;
+use serde_json::{Map, Value, json};
 
 use dcc_mcp_models::ThreadAffinity;
 
+use crate::events::EventBus;
 use crate::registry::{ToolMeta, ToolRegistry};
 use crate::validation_strategy::select_strategy;
 
@@ -179,6 +181,7 @@ pub struct DispatchResult {
 pub struct ToolDispatcher {
     registry: ToolRegistry,
     handlers: Arc<Mutex<HashMap<String, HandlerFn>>>,
+    event_bus: EventBus,
     /// Whether to skip validation when the schema is `{}` or `null`.
     pub skip_empty_schema_validation: bool,
 }
@@ -198,8 +201,22 @@ impl ToolDispatcher {
         Self {
             registry,
             handlers: Arc::new(Mutex::new(HashMap::new())),
+            event_bus: EventBus::new(),
             skip_empty_schema_validation: true,
         }
+    }
+
+    /// Create a dispatcher that emits lifecycle events on the supplied bus.
+    #[must_use]
+    pub fn with_event_bus(mut self, event_bus: EventBus) -> Self {
+        self.event_bus = event_bus;
+        self
+    }
+
+    /// Return the dispatcher event bus.
+    #[must_use]
+    pub fn event_bus(&self) -> EventBus {
+        self.event_bus.clone()
     }
 
     /// Register a handler function for the given action name.
@@ -273,42 +290,117 @@ impl ToolDispatcher {
         action_name: &str,
         params: Value,
     ) -> Result<DispatchResult, DispatchError> {
+        self.dispatch_inner(action_name, params, true)
+    }
+
+    #[cfg_attr(not(feature = "python-bindings"), allow(dead_code))]
+    pub(crate) fn dispatch_for_validation(
+        &self,
+        action_name: &str,
+        params: Value,
+    ) -> Result<DispatchResult, DispatchError> {
+        self.dispatch_inner(action_name, params, false)
+    }
+
+    fn dispatch_inner(
+        &self,
+        action_name: &str,
+        params: Value,
+        emit_events: bool,
+    ) -> Result<DispatchResult, DispatchError> {
+        let started = Instant::now();
         // 1. Look up handler
         let handler = {
             let map = self.handlers.lock();
             map.get(action_name).cloned()
         };
-        let handler =
-            handler.ok_or_else(|| DispatchError::HandlerNotFound(action_name.to_string()))?;
+        let Some(handler) = handler else {
+            let err = DispatchError::HandlerNotFound(action_name.to_string());
+            if emit_events {
+                self.emit_tool_failed(action_name, None, &err, started);
+            }
+            return Err(err);
+        };
 
         // 2. Metadata + progressive-exposure gate.
         let meta_opt: Option<ToolMeta> = self.registry.get_action(action_name, None);
         if let Some(meta) = &meta_opt {
             if !meta.enabled {
-                return Err(DispatchError::ActionDisabled {
+                let err = DispatchError::ActionDisabled {
                     action: action_name.to_string(),
                     group: meta.group.clone(),
-                });
+                };
+                if emit_events {
+                    self.emit_tool_failed(action_name, meta_opt.as_ref(), &err, started);
+                }
+                return Err(err);
             }
             if meta.enforce_thread_affinity {
                 let actual = current_thread_affinity();
                 if actual != meta.thread_affinity {
-                    return Err(DispatchError::ThreadAffinityViolation {
+                    let err = DispatchError::ThreadAffinityViolation {
                         action: action_name.to_string(),
                         declared: meta.thread_affinity,
                         actual,
-                    });
+                    };
+                    if emit_events {
+                        self.emit_tool_failed(action_name, meta_opt.as_ref(), &err, started);
+                    }
+                    return Err(err);
                 }
             }
         }
 
         // 3. Validation via pluggable strategy (#493).
-        let outcome = select_strategy(meta_opt.as_ref(), self.skip_empty_schema_validation)
+        let outcome = match select_strategy(meta_opt.as_ref(), self.skip_empty_schema_validation)
             .validate(&params)
-            .map_err(DispatchError::ValidationFailed)?;
+        {
+            Ok(outcome) => outcome,
+            Err(msg) => {
+                let err = DispatchError::ValidationFailed(msg);
+                if emit_events {
+                    self.emit_tool_failed(action_name, meta_opt.as_ref(), &err, started);
+                }
+                return Err(err);
+            }
+        };
 
         // 4. Call handler.
-        let output = handler(params).map_err(DispatchError::HandlerError)?;
+        if emit_events {
+            self.emit_tool_event(
+                "tool.dispatched",
+                action_name,
+                meta_opt.as_ref(),
+                started,
+                json!({
+                    "validation_skipped": outcome.skipped,
+                }),
+            );
+        }
+
+        let output = match handler(params) {
+            Ok(output) => output,
+            Err(msg) => {
+                let err = DispatchError::HandlerError(msg);
+                if emit_events {
+                    self.emit_tool_failed(action_name, meta_opt.as_ref(), &err, started);
+                }
+                return Err(err);
+            }
+        };
+
+        if emit_events {
+            self.emit_tool_event(
+                "tool.completed",
+                action_name,
+                meta_opt.as_ref(),
+                started,
+                json!({
+                    "validation_skipped": outcome.skipped,
+                    "result_success": true,
+                }),
+            );
+        }
 
         Ok(DispatchResult {
             action: action_name.to_string(),
@@ -317,10 +409,87 @@ impl ToolDispatcher {
         })
     }
 
+    fn emit_tool_failed(
+        &self,
+        action_name: &str,
+        meta: Option<&ToolMeta>,
+        err: &DispatchError,
+        started: Instant,
+    ) {
+        self.emit_tool_event(
+            "tool.failed",
+            action_name,
+            meta,
+            started,
+            json!({
+                "result_success": false,
+                "error_kind": dispatch_error_kind(err),
+                "error_message": err.to_string(),
+            }),
+        );
+    }
+
+    fn emit_tool_event(
+        &self,
+        event_name: &str,
+        action_name: &str,
+        meta: Option<&ToolMeta>,
+        started: Instant,
+        attributes: Value,
+    ) {
+        if !self.event_bus.has_subscribers(event_name) {
+            return;
+        }
+
+        let mut source = Map::new();
+        let mut attrs = attributes.as_object().cloned().unwrap_or_default();
+        attrs.insert("tool_slug".to_string(), json!(action_name));
+        attrs.insert("tool_name".to_string(), json!(action_name));
+        attrs.insert(
+            "duration_ms".to_string(),
+            json!(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)),
+        );
+
+        if let Some(meta) = meta {
+            if !meta.dcc.is_empty() {
+                source.insert("dcc_type".to_string(), json!(meta.dcc));
+                attrs.insert("dcc_type".to_string(), json!(meta.dcc));
+            }
+            if let Some(skill_name) = &meta.skill_name {
+                attrs.insert("skill_name".to_string(), json!(skill_name));
+            }
+            if !meta.group.is_empty() {
+                attrs.insert("group".to_string(), json!(meta.group));
+            }
+            attrs.insert(
+                "annotations".to_string(),
+                serde_json::to_value(&meta.annotations).unwrap_or(Value::Null),
+            );
+        }
+
+        let _ = self.event_bus.emit(
+            event_name,
+            Value::Object(source),
+            Value::Object(Map::new()),
+            Value::Object(attrs),
+        );
+    }
+
     /// Access the underlying registry.
     #[must_use]
     pub fn registry(&self) -> &ToolRegistry {
         &self.registry
+    }
+}
+
+fn dispatch_error_kind(err: &DispatchError) -> &'static str {
+    match err {
+        DispatchError::HandlerNotFound(_) => "handler_not_found",
+        DispatchError::MetadataNotFound(_) => "metadata_not_found",
+        DispatchError::ValidationFailed(_) => "validation_failed",
+        DispatchError::HandlerError(_) => "handler_error",
+        DispatchError::ActionDisabled { .. } => "action_disabled",
+        DispatchError::ThreadAffinityViolation { .. } => "thread_affinity_violation",
     }
 }
 
@@ -438,6 +607,76 @@ mod tests {
             .unwrap();
         assert_eq!(result.output["radius"], json!(5.0));
         assert!(!result.validation_skipped);
+    }
+
+    #[cfg(not(feature = "python-bindings"))]
+    #[test]
+    fn test_dispatch_emits_tool_lifecycle_events() {
+        let reg = ToolRegistry::new();
+        reg.register_action(ToolMeta {
+            name: "echo".into(),
+            dcc: "maya".into(),
+            skill_name: Some("maya-core".into()),
+            ..Default::default()
+        });
+        let dispatcher = ToolDispatcher::new(reg);
+        dispatcher.register_handler("echo", Ok);
+
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured = Arc::clone(&events);
+        let _id = dispatcher
+            .event_bus()
+            .subscribe_event("tool.*".to_string(), move |event| {
+                captured
+                    .lock()
+                    .unwrap()
+                    .push((event.name.clone(), event.attributes.clone()));
+            });
+
+        let result = dispatcher
+            .dispatch("echo", json!({"msg": "hello"}))
+            .unwrap();
+        assert_eq!(result.output, json!({"msg": "hello"}));
+
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].0, "tool.dispatched");
+        assert_eq!(events[0].1["tool_slug"], "echo");
+        assert_eq!(events[0].1["skill_name"], "maya-core");
+        assert_eq!(events[0].1["dcc_type"], "maya");
+        assert_eq!(events[1].0, "tool.completed");
+        assert_eq!(events[1].1["result_success"], true);
+    }
+
+    #[cfg(not(feature = "python-bindings"))]
+    #[test]
+    fn test_dispatch_validation_failure_emits_tool_failed() {
+        let (dispatcher, _reg) = make_dispatcher_with_action(json!({
+            "type": "object",
+            "required": ["radius"]
+        }));
+        dispatcher.register_handler("test_action", |_| Ok(json!("ok")));
+
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured = Arc::clone(&events);
+        let _id = dispatcher
+            .event_bus()
+            .subscribe_event("tool.*".to_string(), move |event| {
+                captured
+                    .lock()
+                    .unwrap()
+                    .push((event.name.clone(), event.attributes.clone()));
+            });
+
+        let err = dispatcher.dispatch("test_action", json!({})).unwrap_err();
+        assert!(matches!(err, DispatchError::ValidationFailed(_)));
+
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].0, "tool.failed");
+        assert_eq!(events[0].1["tool_slug"], "test_action");
+        assert_eq!(events[0].1["error_kind"], "validation_failed");
+        assert_eq!(events[0].1["result_success"], false);
     }
 
     #[test]

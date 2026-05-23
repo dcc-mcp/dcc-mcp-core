@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::{Map, Value, json};
 
 fn activate_skill_groups(catalog: &SkillCatalog, metadata: &SkillMetadata) {
     for group in &metadata.groups {
@@ -14,6 +15,46 @@ fn activate_skill_groups(catalog: &SkillCatalog, metadata: &SkillMetadata) {
 }
 
 impl SkillCatalog {
+    fn emit_skill_event(
+        &self,
+        event_name: &str,
+        skill_name: &str,
+        metadata: Option<&SkillMetadata>,
+        attributes: Value,
+    ) {
+        if !self.event_bus.has_subscribers(event_name) {
+            return;
+        }
+
+        let mut source = Map::new();
+        let mut attrs = attributes.as_object().cloned().unwrap_or_default();
+        attrs.insert("skill_name".to_string(), json!(skill_name));
+
+        if let Some(metadata) = metadata {
+            if !metadata.dcc.is_empty() {
+                source.insert("dcc_type".to_string(), json!(metadata.dcc));
+                attrs.insert("dcc_type".to_string(), json!(metadata.dcc));
+            }
+            if !metadata.version.is_empty() {
+                attrs.insert("version".to_string(), json!(metadata.version));
+            }
+            if !metadata.skill_path.is_empty() {
+                attrs.insert("skill_path".to_string(), json!(metadata.skill_path));
+            }
+            attrs.insert(
+                "declared_tool_count".to_string(),
+                json!(metadata.tools.len()),
+            );
+        }
+
+        let _ = self.event_bus.emit(
+            event_name,
+            Value::Object(source),
+            Value::Object(Map::new()),
+            Value::Object(attrs),
+        );
+    }
+
     /// Load a skill by name — registers its tools into ToolRegistry and,
     /// if a dispatcher is attached, auto-registers script execution handlers.
     pub fn load_skill(&self, skill_name: &str) -> Result<Vec<String>, String> {
@@ -53,18 +94,39 @@ impl SkillCatalog {
         if let Some(pos) = visiting.iter().position(|name| name == skill_name) {
             let mut cycle = visiting[pos..].to_vec();
             cycle.push(skill_name.to_string());
-            return Err(format!(
+            let err = format!(
                 "Cannot load skill '{skill_name}' because its dependencies contain a cycle: {}",
                 cycle.join(" -> ")
-            ));
+            );
+            self.emit_skill_event(
+                "skill.validation_failed",
+                skill_name,
+                None,
+                json!({
+                    "error_kind": "dependency_cycle",
+                    "error_message": err,
+                    "cycle": cycle,
+                }),
+            );
+            return Err(err);
         }
 
-        let metadata = {
-            self.entries
-                .get(skill_name)
-                .map(|entry| entry.metadata.clone())
-                .ok_or_else(|| format!("Skill '{skill_name}' not found in catalog"))
-        }?;
+        let metadata = match self.entries.get(skill_name) {
+            Some(entry) => entry.metadata.clone(),
+            None => {
+                let err = format!("Skill '{skill_name}' not found in catalog");
+                self.emit_skill_event(
+                    "skill.validation_failed",
+                    skill_name,
+                    None,
+                    json!({
+                        "error_kind": "not_found",
+                        "error_message": err,
+                    }),
+                );
+                return Err(err);
+            }
+        };
 
         let known_names: std::collections::HashSet<String> = self
             .entries
@@ -83,20 +145,42 @@ impl SkillCatalog {
                     missing: missing.clone(),
                 };
             }
-            return Err(format!(
+            let err = format!(
                 "Skill '{skill_name}' is pending dependencies: missing {}. \
                  Discover or install the dependency skill(s), then retry load_skill('{skill_name}').",
                 missing.join(", ")
-            ));
+            );
+            self.emit_skill_event(
+                "skill.validation_failed",
+                skill_name,
+                Some(&metadata),
+                json!({
+                    "error_kind": "missing_dependencies",
+                    "error_message": err,
+                    "missing_dependencies": missing,
+                }),
+            );
+            return Err(err);
         }
 
         visiting.push(skill_name.to_string());
         for dep in &metadata.depends {
-            if !self.loaded.contains(dep.as_str()) {
-                self.load_skill_recursive(dep, activate_groups, visiting)
-                    .map_err(|err| {
-                        format!("Failed to load dependency '{dep}' for skill '{skill_name}': {err}")
-                    })?;
+            if !self.loaded.contains(dep.as_str())
+                && let Err(err) = self.load_skill_recursive(dep, activate_groups, visiting)
+            {
+                let err =
+                    format!("Failed to load dependency '{dep}' for skill '{skill_name}': {err}");
+                self.emit_skill_event(
+                    "skill.validation_failed",
+                    skill_name,
+                    Some(&metadata),
+                    json!({
+                        "error_kind": "dependency_load_failed",
+                        "error_message": err,
+                        "dependency": dep,
+                    }),
+                );
+                return Err(err);
             }
         }
         visiting.pop();
@@ -121,6 +205,14 @@ impl SkillCatalog {
         let mut registered = Vec::new();
         let skill_base = metadata.name.replace('-', "_");
         let skill_path = std::path::Path::new(&metadata.skill_path);
+        self.emit_skill_event(
+            "skill.loading",
+            skill_name,
+            Some(metadata),
+            json!({
+                "activate_groups": activate_groups,
+            }),
+        );
 
         if activate_groups {
             activate_skill_groups(self, metadata);
@@ -142,11 +234,22 @@ impl SkillCatalog {
             let script_path = resolve_tool_script(tool_decl, &metadata.scripts, skill_path);
             let maybe_executor = self.script_executor.read().clone();
             if tool_decl.thread_affinity.is_main() && maybe_executor.is_none() {
-                return Err(format!(
+                let err = format!(
                     "Tool '{}' requires thread_affinity='main', but no in-process executor is set. \
                      Ensure the DCC adapter calls set_in_process_executor() before loading skills.",
                     action_name
-                ));
+                );
+                self.emit_skill_event(
+                    "skill.validation_failed",
+                    skill_name,
+                    Some(metadata),
+                    json!({
+                        "error_kind": "missing_in_process_executor",
+                        "error_message": err,
+                        "tool_name": action_name,
+                    }),
+                );
+                return Err(err);
             }
 
             // Generate input_schema: prefer tools.yaml if present, otherwise derive from Python signature
@@ -305,6 +408,17 @@ impl SkillCatalog {
             (Some(_), None) => "subprocess",
             (None, _) => "none",
         };
+        let registered_tool_count = registered.len();
+        self.emit_skill_event(
+            "skill.loaded",
+            skill_name,
+            Some(metadata),
+            json!({
+                "registered_tools": registered.clone(),
+                "registered_tool_count": registered_tool_count,
+                "handler_mode": handler_mode,
+            }),
+        );
         tracing::info!(
             "SkillCatalog: loaded skill '{}' ({} tools registered, handlers: {})",
             skill_name,
@@ -332,6 +446,10 @@ impl SkillCatalog {
         if !self.loaded.contains(skill_name) {
             return Err(format!("Skill '{skill_name}' is not loaded"));
         }
+        let metadata = self
+            .entries
+            .get(skill_name)
+            .map(|entry| entry.metadata.clone());
 
         let action_names: Vec<String> = self
             .entries
@@ -353,6 +471,15 @@ impl SkillCatalog {
         }
         self.loaded.remove(skill_name);
 
+        self.emit_skill_event(
+            "skill.unloaded",
+            skill_name,
+            metadata.as_ref(),
+            json!({
+                "registered_tools": action_names,
+                "removed_tool_count": count,
+            }),
+        );
         tracing::info!(
             "SkillCatalog: unloaded skill '{}' ({} tools removed)",
             skill_name,

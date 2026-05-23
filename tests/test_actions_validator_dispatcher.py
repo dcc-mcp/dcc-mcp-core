@@ -296,6 +296,23 @@ class TestToolDispatcher:
         assert result["output"]["created"] is True
         assert result["output"]["radius"] == 5.0
 
+    def test_dispatch_emits_tool_lifecycle_events(self, dispatcher_cls, registry_cls):
+        reg = registry_cls()
+        reg.register("sphere", dcc="maya")
+        d = dispatcher_cls(reg)
+        d.register_handler("sphere", lambda p: {"created": True, "radius": p.get("radius", 1.0)})
+
+        events = []
+        d.event_bus().subscribe("tool.*", lambda event: events.append(event))
+
+        result = d.dispatch("sphere", '{"radius": 2.0}')
+
+        assert result["output"]["created"] is True
+        assert [event["name"] for event in events] == ["tool.dispatched", "tool.completed"]
+        assert events[0]["attributes"]["tool_slug"] == "sphere"
+        assert events[0]["attributes"]["dcc_type"] == "maya"
+        assert events[1]["attributes"]["result_success"] is True
+
     def test_dispatch_no_handler_raises_key_error(self, empty_dispatcher):
         d, _ = empty_dispatcher
         with pytest.raises((KeyError, RuntimeError)):

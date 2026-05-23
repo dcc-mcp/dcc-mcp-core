@@ -43,6 +43,7 @@ impl SkillCatalog {
             loaded: DashSet::new(),
             registry,
             dispatcher: None,
+            event_bus: EventBus::new(),
             script_executor: RwLock::new(None),
             active_groups: DashSet::new(),
         }
@@ -53,11 +54,13 @@ impl SkillCatalog {
         registry: Arc<ToolRegistry>,
         dispatcher: Arc<ToolDispatcher>,
     ) -> Self {
+        let event_bus = dispatcher.event_bus();
         Self {
             entries: DashMap::new(),
             loaded: DashSet::new(),
             registry,
             dispatcher: Some(dispatcher),
+            event_bus,
             script_executor: RwLock::new(None),
             active_groups: DashSet::new(),
         }
@@ -65,7 +68,14 @@ impl SkillCatalog {
 
     /// Attach a dispatcher after construction (builder-style).
     pub fn with_dispatcher(mut self, dispatcher: Arc<ToolDispatcher>) -> Self {
+        self.event_bus = dispatcher.event_bus();
         self.dispatcher = Some(dispatcher);
+        self
+    }
+
+    /// Attach a lifecycle event bus after construction (builder-style).
+    pub fn with_event_bus(mut self, event_bus: EventBus) -> Self {
+        self.event_bus = event_bus;
         self
     }
 

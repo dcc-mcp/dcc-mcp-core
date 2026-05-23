@@ -111,6 +111,38 @@ fn test_load_skill_registers_tools() {
     assert!(registry.get_action("modeling_bevel__bevel", None).is_some());
 }
 
+#[cfg(not(feature = "python-bindings"))]
+#[test]
+fn test_load_and_unload_emit_skill_lifecycle_events() {
+    let catalog = make_test_catalog();
+    catalog.add_skill(make_test_skill("modeling-bevel", "maya", &["bevel"]));
+
+    let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let captured = std::sync::Arc::clone(&events);
+    let _id = catalog
+        .event_bus()
+        .subscribe_event("skill.*".to_string(), move |event| {
+            captured
+                .lock()
+                .unwrap()
+                .push((event.name.clone(), event.attributes.clone()));
+        });
+
+    catalog.load_skill("modeling-bevel").unwrap();
+    catalog.unload_skill("modeling-bevel").unwrap();
+
+    let events = events.lock().unwrap();
+    assert_eq!(events.len(), 3);
+    assert_eq!(events[0].0, "skill.loading");
+    assert_eq!(events[0].1["skill_name"], "modeling-bevel");
+    assert_eq!(events[0].1["dcc_type"], "maya");
+    assert_eq!(events[1].0, "skill.loaded");
+    assert_eq!(events[1].1["registered_tool_count"], 1);
+    assert_eq!(events[1].1["registered_tools"][0], "modeling_bevel__bevel");
+    assert_eq!(events[2].0, "skill.unloaded");
+    assert_eq!(events[2].1["removed_tool_count"], 1);
+}
+
 #[test]
 fn test_load_skill_auto_loads_discovered_dependencies_first() {
     let catalog = make_test_catalog();
