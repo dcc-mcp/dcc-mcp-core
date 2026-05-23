@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import threading
 from typing import Any
 from typing import Callable
 from typing import Mapping
@@ -77,6 +78,22 @@ def test_run_skill_script_calls_main_with_params(tmp_path: Path) -> None:
         "def main(a, b=2):\n    return {'sum': a + b}\n",
     )
     assert run_skill_script(str(p), {"a": 5}) == {"sum": 7}
+
+
+def test_run_skill_script_supports_single_dict_main(tmp_path: Path) -> None:
+    p = _write_script(
+        tmp_path,
+        "def main(params):\n    return {'scale': params['scale']}\n",
+    )
+    assert run_skill_script(str(p), {"scale": 0.25}) == {"scale": 0.25}
+
+
+def test_run_skill_script_supports_optional_dict_main(tmp_path: Path) -> None:
+    p = _write_script(
+        tmp_path,
+        "def main(args=None):\n    return {'keys': sorted((args or {}).keys())}\n",
+    )
+    assert run_skill_script(str(p), {"steps": []}) == {"keys": ["steps"]}
 
 
 def test_run_skill_script_missing_main_raises(tmp_path: Path) -> None:
@@ -319,6 +336,24 @@ def test_host_execution_bridge_routes_direct_callable_with_context() -> None:
         execution="async",
         timeout_hint_secs=10,
     )
+
+
+def test_host_execution_bridge_reuses_queue_dispatcher_for_direct_callable() -> None:
+    from dcc_mcp_core.host import QueueDispatcher
+    from dcc_mcp_core.host import StandaloneHost
+
+    dispatcher = QueueDispatcher()
+    bridge = HostExecutionBridge(dispatcher=dispatcher)
+    caller_tid = threading.get_ident()
+
+    with StandaloneHost(dispatcher, tick_interval=0.001) as host:
+        host_tid = host._thread.ident  # type: ignore[union-attr]
+        result = bridge.dispatch_callable(lambda value: (value * 2, threading.get_ident()), 21)
+
+    assert result[0] == 42
+    assert result[1] == host_tid
+    assert result[1] != caller_tid
+    assert bridge.resolve_host_dispatcher() is dispatcher
 
 
 def test_host_execution_bridge_as_inprocess_executor_uses_runner() -> None:
@@ -597,3 +632,49 @@ def test_dcc_server_base_constructor_registers_execution_bridge_before_discovery
     base.register_builtin_actions(include_bundled=False)
 
     assert events == ["set_in_process_executor", "discover"]
+
+
+def test_dcc_server_base_execution_bridge_attaches_queue_dispatcher_before_discovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dcc_mcp_core._server.options import DccServerOptions
+    from dcc_mcp_core.host import QueueDispatcher
+    from dcc_mcp_core.server_base import DccServerBase
+
+    events: list[str] = []
+
+    class _Server:
+        def set_in_process_executor(self, executor: Callable[..., Any]) -> None:
+            events.append("set_in_process_executor")
+            self.executor = executor
+
+        def attach_dispatcher(self, dispatcher: Any) -> None:
+            events.append("attach_dispatcher")
+            self.dispatcher = dispatcher
+
+        def discover(self, extra_paths: list[str]) -> int:
+            events.append("discover")
+            return len(extra_paths)
+
+    fake_server = _Server()
+    import dcc_mcp_core.server_base as server_base
+
+    monkeypatch.setattr(server_base, "create_skill_server", lambda *_args, **_kwargs: fake_server)
+
+    dispatcher = QueueDispatcher()
+    bridge = HostExecutionBridge(dispatcher=dispatcher)
+    opts = DccServerOptions.from_env(
+        "test_host_bridge_queue_ctor",
+        tmp_path,
+        port=0,
+        execution_bridge=bridge,
+        enable_file_logging=False,
+        enable_job_persistence=False,
+        enable_telemetry=False,
+    )
+    base = DccServerBase(opts)
+    base.register_builtin_actions(include_bundled=False)
+
+    assert events == ["set_in_process_executor", "attach_dispatcher", "discover"]
+    assert fake_server.dispatcher is dispatcher

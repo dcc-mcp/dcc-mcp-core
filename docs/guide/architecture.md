@@ -427,7 +427,7 @@ dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 
 ### dcc-mcp-cli
 
-**Purpose**: Client-side control-plane CLI for users, CI, and shell-capable skills. It talks to the gateway REST surface for `health`, `list`, `search`, `describe`, `call`, and adapter install planning; it does not host skills or replace per-DCC servers.
+**Purpose**: Client-side control-plane CLI for users, CI, and shell-capable skills. It talks to the gateway REST surface for `health`, `list`, `search`, `load-skill`, `describe`, `call`, and adapter install planning; it does not host skills or replace per-DCC servers.
 
 **Key Components**:
 - `main.rs` — CLI entry point using `GatewayRunner` and `McpHttpServer` library APIs
