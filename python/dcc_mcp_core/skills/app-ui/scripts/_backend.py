@@ -36,6 +36,7 @@ _POLICY_KEYS = {
     "allow_text_entry",
     "allow_keyboard_shortcuts",
     "allow_raw_coordinates",
+    "require_scoped_window",
     "allowed_window_titles",
     "allowed_process_ids",
     "audit_sensitive_values",
@@ -132,7 +133,18 @@ def _policy_from_params(params: Dict[str, Any]) -> AppUiPolicy:
     return AppUiPolicy(**{k: raw[k] for k in _POLICY_KEYS if k in raw})
 
 
+def _has_scoped_window(state: Dict[str, Any]) -> bool:
+    title = str(state.get("window_title") or state.get("title") or "").strip()
+    try:
+        process_id = int(state.get("process_id") or state.get("pid") or 0)
+    except Exception:
+        process_id = 0
+    return bool(title) or process_id > 0
+
+
 def _window_allowed(state: Dict[str, Any], policy: AppUiPolicy) -> bool:
+    if policy.require_scoped_window and not _has_scoped_window(state):
+        return False
     if policy.allowed_window_titles:
         title = str(state.get("window_title") or "").lower()
         allowed = [str(item).lower() for item in policy.allowed_window_titles]
@@ -317,23 +329,29 @@ def _audit_record(
     policy: AppUiPolicy,
     error_code: Optional[str] = None,
     message: Optional[str] = None,
+    before_focus_id: Optional[str] = None,
+    after_focus_id: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     redacted = []
     if action == UiActionKind.SET_TEXT and not policy.audit_sensitive_values:
         redacted.append("text")
+    audit_metadata = {"backend": "mock", "snapshot_id": _snapshot_id(state)}
+    if metadata:
+        audit_metadata.update(metadata)
     return AppUiAuditRecord(
         action_kind=action,
         success=success,
         target_control_id=control.get("id") if control else None,
         target_role=control.get("role") if control else None,
         target_label=control.get("label") if control else None,
-        before_focus_id=state.get("focus_id"),
-        after_focus_id=state.get("focus_id"),
+        before_focus_id=before_focus_id if before_focus_id is not None else state.get("focus_id"),
+        after_focus_id=after_focus_id if after_focus_id is not None else state.get("focus_id"),
         error_code=error_code,
         message=message,
         session_id=state.get("session_id"),
         redacted_fields=redacted,
-        metadata={"backend": "mock", "snapshot_id": _snapshot_id(state)},
+        metadata=audit_metadata,
     ).to_dict()
 
 
@@ -394,23 +412,30 @@ def find_tool() -> Dict[str, Any]:
     )
 
 
-def _stale_result(control_id: str, state: Dict[str, Any], requested: str) -> Dict[str, Any]:
+def _stale_result(
+    control_id: str,
+    action: str,
+    state: Dict[str, Any],
+    policy: AppUiPolicy,
+    requested: str,
+) -> Dict[str, Any]:
     result = UiActionResult.stale(control_id).to_dict()
-    result["metadata"] = {
+    metadata = {
         "requested_snapshot_id": requested,
         "current_snapshot_id": _snapshot_id(state),
     }
-    audit = AppUiAuditRecord(
-        action_kind="unknown",
-        success=False,
-        target_control_id=control_id,
-        before_focus_id=state.get("focus_id"),
-        after_focus_id=state.get("focus_id"),
-        error_code=UiErrorCode.STALE_CONTROL,
-        message="control is stale; refresh the UI snapshot",
-        session_id=state.get("session_id"),
-        metadata=result["metadata"],
-    ).to_dict()
+    result["metadata"] = metadata
+    control = _find_by_id(_snapshot_dict(state), control_id)
+    audit = _audit_record(
+        action,
+        False,
+        control or {"id": control_id},
+        state,
+        policy,
+        UiErrorCode.STALE_CONTROL,
+        "control is stale; refresh the UI snapshot",
+        metadata=metadata,
+    )
     return skill_error(
         "Control is stale; refresh the app_ui snapshot.",
         UiErrorCode.STALE_CONTROL,
@@ -429,22 +454,25 @@ def act_tool() -> Dict[str, Any]:
     action = str(params.get("action") or "")
     requested_snapshot_id = str(params.get("snapshot_id") or "")
     if requested_snapshot_id and requested_snapshot_id != _snapshot_id(state):
-        return _stale_result(control_id, state, requested_snapshot_id)
+        return _stale_result(control_id, action, state, policy, requested_snapshot_id)
     snapshot = _snapshot_dict(state)
     control = _find_by_id(snapshot, control_id)
     if not control:
+        message = "control not found in scoped app_ui window"
         result = UiActionResult(
             success=False,
             control_id=control_id,
             error_code=UiErrorCode.NOT_FOUND,
-            message="control not found in scoped app_ui window",
+            message=message,
             before_focus_id=state.get("focus_id"),
             after_focus_id=state.get("focus_id"),
         ).to_dict()
+        audit = _audit_record(action, False, None, state, policy, UiErrorCode.NOT_FOUND, message)
         return skill_error(
             "Control not found in scoped app_ui window.",
             UiErrorCode.NOT_FOUND,
             result=result,
+            audit=audit,
             current_snapshot_id=_snapshot_id(state),
         )
     if not _window_allowed(state, policy):
@@ -472,12 +500,12 @@ def act_tool() -> Dict[str, Any]:
         state["focus_id"] = control_id
     elif action == UiActionKind.SET_TEXT:
         if control.get("role") != "text_field":
-            return _unsupported_action(action, control, state, "set_text requires a text_field control")
+            return _unsupported_action(action, control, state, policy, "set_text requires a text_field control")
         state["project_name"] = str(params.get("text") or "")
         state["focus_id"] = control_id
     elif action in (UiActionKind.TOGGLE, UiActionKind.SET_CHECKED):
         if control.get("role") != "checkbox":
-            return _unsupported_action(action, control, state, f"{action} requires a checkbox control")
+            return _unsupported_action(action, control, state, policy, f"{action} requires a checkbox control")
         if action == UiActionKind.SET_CHECKED:
             state["cache_enabled"] = bool(params.get("checked"))
         else:
@@ -490,9 +518,9 @@ def act_tool() -> Dict[str, Any]:
         elif control.get("role") == "checkbox":
             state["cache_enabled"] = not bool(state.get("cache_enabled"))
         elif control.get("role") not in ("button", "text_field"):
-            return _unsupported_action(action, control, state, "click is unsupported for this control role")
+            return _unsupported_action(action, control, state, policy, "click is unsupported for this control role")
     else:
-        return _unsupported_action(action, control, state, "unsupported app_ui action")
+        return _unsupported_action(action, control, state, policy, "unsupported app_ui action")
 
     state["revision"] = int(state.get("revision") or 1) + 1
     _save_state(state)
@@ -504,7 +532,7 @@ def act_tool() -> Dict[str, Any]:
         after_focus_id=state.get("focus_id"),
         metadata={"snapshot_id": _snapshot_id(state)},
     ).to_dict()
-    audit = _audit_record(action, True, control, state, policy, None, message)
+    audit = _audit_record(action, True, control, state, policy, None, message, before_focus_id=before_focus)
     return skill_success(
         f"Completed app_ui action {action!r} on {control_id}.",
         prompt="Use app_ui__wait_for to poll for the expected UI state, then app_ui__snapshot to verify.",
@@ -519,6 +547,7 @@ def _unsupported_action(
     action: str,
     control: Dict[str, Any],
     state: Dict[str, Any],
+    policy: AppUiPolicy,
     message: str,
 ) -> Dict[str, Any]:
     result = UiActionResult(
@@ -529,18 +558,7 @@ def _unsupported_action(
         before_focus_id=state.get("focus_id"),
         after_focus_id=state.get("focus_id"),
     ).to_dict()
-    audit = AppUiAuditRecord(
-        action_kind=action,
-        success=False,
-        target_control_id=control.get("id"),
-        target_role=control.get("role"),
-        target_label=control.get("label"),
-        before_focus_id=state.get("focus_id"),
-        after_focus_id=state.get("focus_id"),
-        error_code=UiErrorCode.UNSUPPORTED_ACTION,
-        message=message,
-        session_id=state.get("session_id"),
-    ).to_dict()
+    audit = _audit_record(action, False, control, state, policy, UiErrorCode.UNSUPPORTED_ACTION, message)
     return skill_error(message, UiErrorCode.UNSUPPORTED_ACTION, result=result, audit=audit)
 
 
@@ -583,6 +601,7 @@ def _condition_matches(snapshot: Dict[str, Any], condition: UiWaitCondition) -> 
 def wait_for_tool() -> Dict[str, Any]:
     params = _read_params()
     session_id = _safe_session_id(params.get("session_id"))
+    policy = _policy_from_params(params)
     condition = _condition_from_params(params.get("condition") or {})
     timeout_ms = max(0, int(condition.timeout_ms))
     interval_ms = max(10, int(condition.interval_ms))
@@ -592,10 +611,25 @@ def wait_for_tool() -> Dict[str, Any]:
     start = time.monotonic()
     while True:
         state = _load_state(session_id)
+        if not _window_allowed(state, policy):
+            elapsed_ms = round((time.monotonic() - start) * 1000.0, 1)
+            message = "scoped app_ui window is not allowed by policy"
+            result = UiWaitResult(
+                success=False,
+                condition=condition,
+                elapsed_ms=elapsed_ms,
+                attempts=attempts,
+                snapshot=None,
+                error_code=UiErrorCode.POLICY_DISABLED,
+                message=message,
+            ).to_dict()
+            audit = _audit_record("wait_for", False, None, state, policy, UiErrorCode.POLICY_DISABLED, message)
+            return skill_error(message, UiErrorCode.POLICY_DISABLED, session_id=session_id, result=result, audit=audit)
         last_snapshot = _snapshot_dict(state)
         attempts += 1
         if _condition_matches(last_snapshot, condition):
             elapsed_ms = round((time.monotonic() - start) * 1000.0, 1)
+            control = _resolve_condition_control(last_snapshot, condition)
             result = UiWaitResult(
                 success=True,
                 condition=condition,
@@ -609,6 +643,16 @@ def wait_for_tool() -> Dict[str, Any]:
                 session_id=session_id,
                 snapshot_id=last_snapshot["metadata"]["snapshot_id"],
                 result=result,
+                audit=_audit_record(
+                    "wait_for",
+                    True,
+                    control,
+                    state,
+                    policy,
+                    None,
+                    "condition became true",
+                    metadata={"condition": condition.to_dict()},
+                ),
             )
         if time.monotonic() >= deadline:
             break
@@ -625,11 +669,23 @@ def wait_for_tool() -> Dict[str, Any]:
         message="condition did not become true before timeout",
         metadata={"last_snapshot": last_snapshot},
     ).to_dict()
+    control = _resolve_condition_control(last_snapshot, condition) if last_snapshot else None
+    audit = _audit_record(
+        "wait_for",
+        False,
+        control,
+        state,
+        policy,
+        UiErrorCode.TIMEOUT,
+        "condition did not become true before timeout",
+        metadata={"condition": condition.to_dict()},
+    )
     return skill_error(
         "app_ui wait_for timed out.",
         UiErrorCode.TIMEOUT,
         session_id=session_id,
         result=result,
+        audit=audit,
         attempts=attempts,
     )
 

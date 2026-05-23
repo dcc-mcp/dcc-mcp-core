@@ -113,8 +113,10 @@ into a faster authoring loop.
     accessibility, webview, PyO3, or HTTP runtime dependencies there.
     Prefer native DCC APIs first; use `app_ui` as a scoped, policy-controlled
     fallback. Keep raw coordinates and keyboard shortcuts disabled by default,
-    return structured `stale_control` / `policy_disabled` / `timeout` errors,
-    and redact typed text or screenshot bytes in audit records.
+    keep `require_scoped_window` enabled unless an adapter explicitly opts into
+    a documented whole-desktop fallback, return structured `stale_control` /
+    `policy_disabled` / `timeout` errors, and redact typed text or screenshot
+    bytes in audit records.
     Backend-specific implementations, such as the bundled Chrome DevTools
     prototype, belong behind the skill/runtime layer and must preserve the
     same `app_ui__snapshot` -> `find` -> `act` -> `wait_for` contract.
