@@ -16,6 +16,11 @@ pub struct DescribeRequest {
     pub tool_slug: String,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoadSkillRequest {
+    pub body: Value,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CallRequest {
     pub tool_slug: String,

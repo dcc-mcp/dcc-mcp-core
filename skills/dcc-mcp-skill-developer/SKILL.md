@@ -82,7 +82,15 @@ into a faster authoring loop.
    `adapter_version`); `ServiceEntry.version` is the DCC application version.
    Stop helpers must respect FileRegistry sentinel locks before trusting PID
    liveness so installer code never terminates a reused PID from a stale row.
-9. Add tests at the lowest executable layer, then one discovery/load/call or
+9. For embedded main-thread tools, wire `HostExecutionBridge` with the same
+   host `QueueDispatcher` / `BlockingDispatcher` that the DCC timer or
+   headless driver ticks. `DccServerBase` will then register both
+   `set_in_process_executor` and HTTP `attach_dispatcher` before server start,
+   so MCP `tools/call` and REST `/v1/call` satisfy `thread_affinity: main`.
+10. Skill script entry points may use either modern `main(**params)` or legacy
+   `main(params)` signatures; prefer `main(**params)` for new scripts and keep
+   dict-style wrappers only for compatibility during adapter migrations.
+11. Add tests at the lowest executable layer, then one discovery/load/call or
    gateway REST path when behavior crosses MCP or REST boundaries.
 
 ## Adapter Selection

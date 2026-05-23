@@ -45,6 +45,7 @@ dcc-mcp-cli list
 dcc-mcp-cli health
 dcc-mcp-cli search --query sphere --dcc-type maya
 dcc-mcp-cli describe maya.abc12345.create_sphere
+dcc-mcp-cli load-skill workflow --dcc-type 3dsmax --instance-id 80321760
 dcc-mcp-cli call maya.abc12345.create_sphere --json '{"radius":2}'
 dcc-mcp-cli install --dcc-type maya --version 2026
 dcc-mcp-cli lint path/to/skills
@@ -58,6 +59,7 @@ dcc-mcp-cli lint path/to/skills
 | `list` | `GET /v1/instances` | List live DCC instances from the gateway. |
 | `search` | `POST /v1/search` | Search callable capabilities. |
 | `describe <tool-slug>` | `POST /v1/describe` | Inspect a capability before calling it. |
+| `load-skill <skill-name> [--dcc-type <dcc>] [--instance-id <id>]` | `POST /v1/load_skill` | Activate a progressive skill and print its registered tools. |
 | `call <tool-slug> --json <object>` | `POST /v1/call` | Invoke one capability. |
 | `install --dcc-type <dcc> [--version <v>]` | catalog-backed local plan | Resolve the matching adapter and emit an auditable install plan. |
 | `lint [PATH ...]` | local filesystem validator | Recursively validate SKILL.md packages two levels below each path by default. |

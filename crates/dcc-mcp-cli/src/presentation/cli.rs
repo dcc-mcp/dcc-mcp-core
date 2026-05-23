@@ -7,12 +7,14 @@ use clap::{Parser, Subcommand, ValueEnum};
 use dcc_mcp_skills::validator::IssueSeverity;
 use dcc_mcp_skills::{SkillValidationReport, validate_skill_dir};
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::application::client::DccMcpClient;
 use crate::application::install::InstallService;
 use crate::domain::install::InstallRequest;
-use crate::domain::rest::{CallRequest, DescribeRequest, Endpoint, SearchRequest};
+use crate::domain::rest::{
+    CallRequest, DescribeRequest, Endpoint, LoadSkillRequest, SearchRequest,
+};
 use crate::infra::http::HttpGateway;
 
 const DEFAULT_BASE_URL: &str = "http://127.0.0.1:9765";
@@ -66,6 +68,21 @@ enum Command {
     },
     /// Describe one tool slug.
     Describe { tool_slug: String },
+    /// Load a skill on a gateway-managed DCC instance.
+    LoadSkill {
+        #[arg(value_name = "SKILL_NAME")]
+        skill_name: Option<String>,
+        #[arg(long)]
+        dcc_type: Option<String>,
+        #[arg(long)]
+        dcc: Option<String>,
+        #[arg(long)]
+        instance_id: Option<String>,
+        #[arg(long, value_name = "BOOL")]
+        activate_groups: Option<bool>,
+        #[arg(long = "json")]
+        request_json: Option<String>,
+    },
     /// Invoke one tool slug.
     Call {
         tool_slug: String,
@@ -159,6 +176,26 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         Command::Describe { tool_slug } => {
             let client = DccMcpClient::new(Endpoint::new(base_url));
             client.describe(DescribeRequest { tool_slug }).await?
+        }
+        Command::LoadSkill {
+            skill_name,
+            dcc_type,
+            dcc,
+            instance_id,
+            activate_groups,
+            request_json,
+        } => {
+            let client = DccMcpClient::new(Endpoint::new(base_url));
+            client
+                .load_skill(build_load_skill_request(
+                    skill_name,
+                    dcc_type,
+                    dcc,
+                    instance_id,
+                    activate_groups,
+                    request_json,
+                )?)
+                .await?
         }
         Command::Call {
             tool_slug,
@@ -321,6 +358,53 @@ fn parse_json_object(raw: &str, flag_name: &str) -> anyhow::Result<Value> {
     } else {
         anyhow::bail!("{flag_name} must be a JSON object")
     }
+}
+
+fn build_load_skill_request(
+    skill_name: Option<String>,
+    dcc_type: Option<String>,
+    dcc: Option<String>,
+    instance_id: Option<String>,
+    activate_groups: Option<bool>,
+    request_json: Option<String>,
+) -> anyhow::Result<LoadSkillRequest> {
+    if let Some(raw) = request_json {
+        if skill_name.is_some()
+            || dcc_type.is_some()
+            || dcc.is_some()
+            || instance_id.is_some()
+            || activate_groups.is_some()
+        {
+            anyhow::bail!("load-skill --json cannot be combined with positional or routing flags");
+        }
+        return Ok(LoadSkillRequest {
+            body: parse_json_object(&raw, "--json")?,
+        });
+    }
+
+    let skill_name = skill_name
+        .filter(|name| !name.trim().is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!("load-skill requires SKILL_NAME unless --json is provided")
+        })?;
+
+    let mut body = Map::new();
+    body.insert("skill_name".to_string(), Value::String(skill_name));
+    if let Some(dcc_type) = dcc_type {
+        body.insert("dcc_type".to_string(), Value::String(dcc_type));
+    }
+    if let Some(dcc) = dcc {
+        body.insert("dcc".to_string(), Value::String(dcc));
+    }
+    if let Some(instance_id) = instance_id {
+        body.insert("instance_id".to_string(), Value::String(instance_id));
+    }
+    if let Some(activate_groups) = activate_groups {
+        body.insert("activate_groups".to_string(), Value::Bool(activate_groups));
+    }
+    Ok(LoadSkillRequest {
+        body: Value::Object(body),
+    })
 }
 
 fn endpoint_for_mcp(raw: &str) -> String {

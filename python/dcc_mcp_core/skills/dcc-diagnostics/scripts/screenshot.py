@@ -11,7 +11,6 @@ Protocol (in order of preference):
 
 from __future__ import annotations
 
-import argparse
 import base64
 import json
 import os
@@ -52,8 +51,125 @@ def _try_ipc_capture(params: dict) -> dict | None:
         return None
 
 
-def main() -> None:
-    """Capture a screenshot and print JSON result to stdout."""
+def main(
+    format: str = "png",
+    scale: float = 1.0,
+    jpeg_quality: int = 85,
+    window_title: str | None = None,
+    save_path: str | None = None,
+    timeout_ms: int = 5000,
+    full_screen: bool = False,
+) -> dict:
+    """Capture a screenshot and return the standard skill result dict."""
+    # Try IPC path first so we capture the DCC's own window.
+    ipc_payload = _try_ipc_capture(
+        {
+            "format": format,
+            "jpeg_quality": jpeg_quality,
+            "scale": scale,
+            "timeout_ms": timeout_ms,
+            "full_screen": full_screen,
+            "window_title": window_title,
+        }
+    )
+    if ipc_payload is not None and ipc_payload.get("success"):
+        saved_path = None
+        if save_path:
+            try:
+                with Path(save_path).open("wb") as f:
+                    f.write(base64.b64decode(ipc_payload["image_base64"]))
+                saved_path = save_path
+            except OSError as exc:
+                saved_path = f"SAVE_FAILED: {exc}"
+        return {
+            "success": True,
+            "message": ipc_payload.get("message", "captured via IPC"),
+            "prompt": (
+                "Screenshot captured from the DCC's own window. "
+                "If you see an error on screen, use dcc_diagnostics__audit_log to check "
+                "recent tool history, or dcc_diagnostics__tool_metrics to find failing tools."
+            ),
+            "context": {
+                **{
+                    k: ipc_payload.get(k)
+                    for k in (
+                        "width",
+                        "height",
+                        "format",
+                        "mime_type",
+                        "byte_len",
+                        "timestamp_ms",
+                        "window_rect",
+                        "window_title",
+                        "image_base64",
+                    )
+                },
+                "saved_path": saved_path,
+                "source": "dcc-ipc",
+            },
+        }
+
+    try:
+        from dcc_mcp_core import Capturer
+    except ImportError:
+        return {"success": False, "message": "dcc_mcp_core not available. Install the package first."}
+
+    try:
+        capturer = Capturer.new_auto()
+    except Exception:
+        # Fall back to mock backend in headless environments
+        capturer = Capturer.new_mock(1920, 1080)
+
+    try:
+        frame = capturer.capture(
+            format=format,
+            jpeg_quality=jpeg_quality,
+            scale=scale,
+            timeout_ms=timeout_ms,
+            window_title=window_title,
+        )
+    except Exception as exc:
+        return {"success": False, "message": f"Capture failed: {exc}"}
+
+    # Optionally save to disk
+    saved_path = None
+    if save_path:
+        try:
+            with Path(save_path).open("wb") as f:
+                f.write(frame.data)
+            saved_path = save_path
+        except OSError as exc:
+            # Non-fatal: still return the base64 data
+            saved_path = f"SAVE_FAILED: {exc}"
+
+    b64_data = base64.b64encode(frame.data).decode("ascii")
+
+    return {
+        "success": True,
+        "message": f"Captured {frame.width}x{frame.height} {frame.format} ({frame.byte_len()} bytes)",
+        "prompt": (
+            "Screenshot captured. You can view the image data in the 'image_base64' field. "
+            "If you see an error on screen, use dcc_diagnostics__audit_log to check recent "
+            "tool history, or dcc_diagnostics__tool_metrics to find failing tools."
+        ),
+        "context": {
+            "width": frame.width,
+            "height": frame.height,
+            "format": frame.format,
+            "mime_type": frame.mime_type,
+            "byte_len": frame.byte_len(),
+            "timestamp_ms": frame.timestamp_ms,
+            "dpi_scale": frame.dpi_scale,
+            "saved_path": saved_path,
+            "image_base64": b64_data,
+        },
+    }
+
+
+def _main_cli() -> int:
+    """CLI shim kept for subprocess execution and manual debugging."""
+    import argparse
+
     parser = argparse.ArgumentParser(description="Capture a screenshot.")
     parser.add_argument("--format", default="png", choices=["png", "jpeg", "raw_bgra"])
     parser.add_argument("--scale", type=float, default=1.0)
@@ -64,121 +180,18 @@ def main() -> None:
     parser.add_argument("--full-screen", action="store_true", dest="full_screen")
     args = parser.parse_args()
 
-    # Try IPC path first so we capture the DCC's own window.
-    ipc_payload = _try_ipc_capture(
-        {
-            "format": args.format,
-            "jpeg_quality": args.jpeg_quality,
-            "scale": args.scale,
-            "timeout_ms": args.timeout_ms,
-            "full_screen": args.full_screen,
-            "window_title": args.window_title,
-        }
+    result = main(
+        format=args.format,
+        scale=args.scale,
+        jpeg_quality=args.jpeg_quality,
+        window_title=args.window_title,
+        save_path=args.save_path,
+        timeout_ms=args.timeout_ms,
+        full_screen=args.full_screen,
     )
-    if ipc_payload is not None and ipc_payload.get("success"):
-        saved_path = None
-        if args.save_path:
-            try:
-                with Path(args.save_path).open("wb") as f:
-                    f.write(base64.b64decode(ipc_payload["image_base64"]))
-                saved_path = args.save_path
-            except OSError as exc:
-                saved_path = f"SAVE_FAILED: {exc}"
-        print(
-            json.dumps(
-                {
-                    "success": True,
-                    "message": ipc_payload.get("message", "captured via IPC"),
-                    "prompt": (
-                        "Screenshot captured from the DCC's own window. "
-                        "If you see an error on screen, use dcc_diagnostics__audit_log to check "
-                        "recent tool history, or dcc_diagnostics__tool_metrics to find failing tools."
-                    ),
-                    "context": {
-                        **{
-                            k: ipc_payload.get(k)
-                            for k in (
-                                "width",
-                                "height",
-                                "format",
-                                "mime_type",
-                                "byte_len",
-                                "timestamp_ms",
-                                "window_rect",
-                                "window_title",
-                                "image_base64",
-                            )
-                        },
-                        "saved_path": saved_path,
-                        "source": "dcc-ipc",
-                    },
-                }
-            )
-        )
-        return
-
-    try:
-        from dcc_mcp_core import Capturer
-    except ImportError:
-        print(json.dumps({"success": False, "message": "dcc_mcp_core not available. Install the package first."}))
-        sys.exit(1)
-
-    try:
-        capturer = Capturer.new_auto()
-    except Exception:
-        # Fall back to mock backend in headless environments
-        capturer = Capturer.new_mock(1920, 1080)
-
-    try:
-        frame = capturer.capture(
-            format=args.format,
-            jpeg_quality=args.jpeg_quality,
-            scale=args.scale,
-            timeout_ms=args.timeout_ms,
-            window_title=args.window_title,
-        )
-    except Exception as exc:
-        print(json.dumps({"success": False, "message": f"Capture failed: {exc}"}))
-        sys.exit(1)
-
-    # Optionally save to disk
-    saved_path = None
-    if args.save_path:
-        try:
-            with Path(args.save_path).open("wb") as f:
-                f.write(frame.data)
-            saved_path = args.save_path
-        except OSError as exc:
-            # Non-fatal: still return the base64 data
-            saved_path = f"SAVE_FAILED: {exc}"
-
-    b64_data = base64.b64encode(frame.data).decode("ascii")
-
-    print(
-        json.dumps(
-            {
-                "success": True,
-                "message": (f"Captured {frame.width}x{frame.height} {frame.format} ({frame.byte_len()} bytes)"),
-                "prompt": (
-                    "Screenshot captured. You can view the image data in the 'image_base64' field. "
-                    "If you see an error on screen, use dcc_diagnostics__audit_log to check recent "
-                    "tool history, or dcc_diagnostics__tool_metrics to find failing tools."
-                ),
-                "context": {
-                    "width": frame.width,
-                    "height": frame.height,
-                    "format": frame.format,
-                    "mime_type": frame.mime_type,
-                    "byte_len": frame.byte_len(),
-                    "timestamp_ms": frame.timestamp_ms,
-                    "dpi_scale": frame.dpi_scale,
-                    "saved_path": saved_path,
-                    "image_base64": b64_data,
-                },
-            }
-        )
-    )
+    print(json.dumps(result))
+    return 0 if result.get("success") else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(_main_cli())

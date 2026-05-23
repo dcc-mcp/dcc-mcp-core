@@ -1,7 +1,9 @@
 use serde_json::{Value, json};
 use thiserror::Error;
 
-use crate::domain::rest::{CallRequest, DescribeRequest, Endpoint, SearchRequest};
+use crate::domain::rest::{
+    CallRequest, DescribeRequest, Endpoint, LoadSkillRequest, SearchRequest,
+};
 use crate::infra::http::{HttpError, HttpGateway};
 
 #[derive(Debug, Error)]
@@ -80,6 +82,13 @@ impl DccMcpClient {
         let body = json!({ "tool_slug": request.tool_slug });
         self.gateway
             .post_json(&self.endpoint.path("/v1/describe"), &body)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn load_skill(&self, request: LoadSkillRequest) -> Result<Value, ClientError> {
+        self.gateway
+            .post_json(&self.endpoint.path("/v1/load_skill"), &request.body)
             .await
             .map_err(Into::into)
     }
