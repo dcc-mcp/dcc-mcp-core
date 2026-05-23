@@ -94,6 +94,8 @@ into a faster authoring loop.
    gateway REST path when behavior crosses MCP or REST boundaries.
 12. For application UI automation, use the generic `app_ui__*` contract rather
     than DCC-specific names: snapshot -> find -> act -> wait_for -> verify.
+    The Rust contract types live in `dcc-mcp-app-ui`; do not add Qt, OS
+    accessibility, webview, PyO3, or HTTP runtime dependencies there.
     Prefer native DCC APIs first; use `app_ui` as a scoped, policy-controlled
     fallback. Keep raw coordinates and keyboard shortcuts disabled by default,
     return structured `stale_control` / `policy_disabled` / `timeout` errors,

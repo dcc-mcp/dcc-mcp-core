@@ -1,8 +1,11 @@
-//! Cross-DCC UI automation observation/action contract wire types.
+//! DCC-agnostic application UI observation/action contract types.
 //!
 //! These schemas describe what adapters may expose. They do not implement a
 //! universal clicker; each adapter remains responsible for Qt, accessibility,
-//! webview, or host-specific backends and safety policy.
+//! webview, OS automation, or host-specific backends and safety policy.
+
+#![forbid(unsafe_code)]
+#![warn(missing_docs)]
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
