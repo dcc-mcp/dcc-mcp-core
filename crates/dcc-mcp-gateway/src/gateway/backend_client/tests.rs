@@ -130,6 +130,100 @@ fn probe_outcome_is_ready_and_is_alive() {
     assert!(!ProbeOutcome::Unreachable.is_alive());
 }
 
+#[tokio::test]
+async fn skill_rest_metadata_survives_fetch_and_describe() {
+    let app = axum::Router::new()
+        .route(
+            "/v1/search",
+            axum::routing::post(|| async {
+                axum::Json(json!({
+                    "total": 1,
+                    "hits": [{
+                        "action": "app_ui__snapshot",
+                        "summary": "Capture app UI snapshot",
+                        "has_schema": true,
+                        "loaded": true,
+                        "annotations": {
+                            "readOnlyHint": true,
+                            "destructiveHint": false,
+                            "idempotentHint": true
+                        },
+                        "metadata": {
+                            "dcc": {
+                                "affinity": "any",
+                                "execution": "sync",
+                                "timeoutHintSecs": 2,
+                                "risk": "read-only"
+                            }
+                        }
+                    }]
+                }))
+            }),
+        )
+        .route(
+            "/v1/describe",
+            axum::routing::post(|| async {
+                axum::Json(json!({
+                    "entry": {"action": "app_ui__snapshot"},
+                    "description": "Capture app UI snapshot",
+                    "input_schema": {"type": "object", "properties": {"session_id": {"type": "string"}}},
+                    "annotations": {"readOnlyHint": true, "idempotentHint": true},
+                    "metadata": {
+                        "dcc": {
+                            "affinity": "any",
+                            "execution": "sync",
+                            "timeoutHintSecs": 2,
+                            "risk": "read-only"
+                        }
+                    }
+                }))
+            }),
+        );
+    let (mcp_url, stop) = spawn_fake_backend(app).await;
+    let client = reqwest::Client::new();
+
+    let (tools, unloaded) = try_fetch_tools(&client, &mcp_url, Duration::from_secs(2))
+        .await
+        .expect("search");
+    assert!(unloaded.is_empty());
+    assert_eq!(tools[0].name, "app_ui__snapshot");
+    assert_eq!(
+        tools[0]
+            .annotations
+            .as_ref()
+            .and_then(|ann| ann.read_only_hint),
+        Some(true)
+    );
+    assert_eq!(
+        tools[0]
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get("dcc"))
+            .and_then(|dcc| dcc.get("timeoutHintSecs"))
+            .and_then(Value::as_u64),
+        Some(2)
+    );
+
+    let described = try_describe_tool(
+        &client,
+        &mcp_url,
+        "app_ui__snapshot",
+        Duration::from_secs(2),
+    )
+    .await
+    .expect("describe");
+    assert_eq!(
+        described
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get("dcc"))
+            .and_then(|dcc| dcc.get("risk"))
+            .and_then(Value::as_str),
+        Some("read-only")
+    );
+    let _ = stop.send(());
+}
+
 #[test]
 fn backend_call_error_display_is_stable() {
     let cases: &[(BackendCallError, &[&str])] = &[

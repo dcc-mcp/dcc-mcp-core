@@ -17,5 +17,6 @@
 //! See `dcc_mcp_gateway_core::capability` for the original documentation.
 
 pub use dcc_mcp_gateway_core::capability::{
-    CapabilityRecord, SCHEMA_AVAILABLE, is_valid_dcc_bucket, parse_slug, tool_slug,
+    CapabilityAnnotations, CapabilityMetadata, CapabilityRecord, SCHEMA_AVAILABLE,
+    is_valid_dcc_bucket, parse_slug, tool_slug,
 };
