@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.23](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.22...v0.17.23) (2026-05-23)
+
+
+### Features
+
+* add gateway lifecycle diagnostics and IDE setup ([42f93bf](https://github.com/loonghao/dcc-mcp-core/commit/42f93bff1cf83527f221762a0473f55b86109a55))
+* show admin skill markdown details ([960106e](https://github.com/loonghao/dcc-mcp-core/commit/960106e1a14aec1c95648f18d421b6ccb301b969))
+* update dcc skills creator templates ([c613d60](https://github.com/loonghao/dcc-mcp-core/commit/c613d60bd1a96ea1f25993068edda323b5385248))
+
+
+### Bug Fixes
+
+* address client-safe tool regressions ([63cf209](https://github.com/loonghao/dcc-mcp-core/commit/63cf209c86a6636518ca51405d81035aa5247f01))
+* address gateway admin review feedback ([641c969](https://github.com/loonghao/dcc-mcp-core/commit/641c9691eda9aef7e5d8fb1d051edb1c8bc42b78))
+* align admin debug docs and codex setup ([cbf5770](https://github.com/loonghao/dcc-mcp-core/commit/cbf57703f76ba0c59fd171dda62be2da1da7ef4b))
+* enforce client-safe core tool names ([f0f68ec](https://github.com/loonghao/dcc-mcp-core/commit/f0f68ecfcc21b1029f99c28fbcfa3ea281866b79))
+* point admin docs nav to github docs ([f519b25](https://github.com/loonghao/dcc-mcp-core/commit/f519b25c6cae4d50773c008ed2dbc7c0cca01092))
+* refresh admin skill inventory ([0e5ebce](https://github.com/loonghao/dcc-mcp-core/commit/0e5ebce9d1df7dd9c8270f5e799d54dcad836966))
+* show platform-specific ide config paths ([31dc525](https://github.com/loonghao/dcc-mcp-core/commit/31dc5250141a501580555ad0f92e3d76211356ad))
+* stabilize gateway debug and admin time display ([2a062c7](https://github.com/loonghao/dcc-mcp-core/commit/2a062c79b9bf4d7f1af9e4a0d2236aef29d7198f))
+* use gateway url in admin ide setup ([83fd5c6](https://github.com/loonghao/dcc-mcp-core/commit/83fd5c66658eed157b9180c362b16ba700ec1e0c))
+
+
+### Documentation
+
+* add admin update screenshots ([07182a3](https://github.com/loonghao/dcc-mcp-core/commit/07182a3252fc127809784e557af75735f5867bca))
+* add gateway RFC proposals ([bac4ff7](https://github.com/loonghao/dcc-mcp-core/commit/bac4ff7ccd916024f6d80cfcf641ebbc057e9590))
+* remove RFC source references ([b118ec3](https://github.com/loonghao/dcc-mcp-core/commit/b118ec3de3746dc5d38cab17414faeb2660b72a2))
+
 ## [0.17.22](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.21...v0.17.22) (2026-05-22)
 
 
