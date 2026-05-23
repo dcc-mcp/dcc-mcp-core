@@ -1,7 +1,7 @@
 tools:
   - name: snapshot
     description: >-
-      Capture a bounded app_ui snapshot from the scoped mock application window.
+      Capture a bounded app_ui snapshot from the scoped application window.
       Start here before UI actions; use the returned snapshot_id when acting so
       stale controls can be detected.
     input_schema:
@@ -9,7 +9,7 @@ tools:
       properties:
         session_id:
           type: string
-          description: "Mock UI session id. Defaults to 'default'."
+          description: "app_ui session id. Defaults to 'default'."
         policy:
           type: object
           description: "Optional app_ui policy override for this call."
@@ -32,7 +32,7 @@ tools:
       properties:
         session_id:
           type: string
-          description: "Mock UI session id. Defaults to 'default'."
+          description: "app_ui session id. Defaults to 'default'."
         query:
           type: string
           description: "Text query matched against id, label, text, value, and object_name."
@@ -66,15 +66,15 @@ tools:
   - name: act
     description: >-
       Perform one scoped app_ui action against a resolved control id. Supports
-      click, set_text, toggle, and focus in the mock backend. Raw coordinates
-      and keyboard shortcuts are denied by default policy.
+      click, set_text, toggle, and focus where the selected backend supports
+      them. Raw coordinates and keyboard shortcuts are denied by default policy.
     input_schema:
       type: object
       required: [control_id, action]
       properties:
         session_id:
           type: string
-          description: "Mock UI session id. Defaults to 'default'."
+          description: "app_ui session id. Defaults to 'default'."
         control_id:
           type: string
           description: "Control id returned by app_ui__snapshot or app_ui__find."
@@ -110,7 +110,7 @@ tools:
 
   - name: wait_for
     description: >-
-      Poll the scoped mock UI inside one tool call until a condition becomes
+      Poll the scoped UI inside one tool call until a condition becomes
       true or times out. Use after app_ui__act before verifying with snapshot.
     input_schema:
       type: object
@@ -118,7 +118,7 @@ tools:
       properties:
         session_id:
           type: string
-          description: "Mock UI session id. Defaults to 'default'."
+          description: "app_ui session id. Defaults to 'default'."
         condition:
           type: object
           required: [kind]
