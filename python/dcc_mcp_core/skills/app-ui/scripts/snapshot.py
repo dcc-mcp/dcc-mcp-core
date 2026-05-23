@@ -1,9 +1,9 @@
-"""app_ui__snapshot entry point for the mock backend."""
+"""app_ui__snapshot entry point."""
 
 from __future__ import annotations
 
-from _backend import emit
-from _backend import snapshot_tool
+from _entrypoint import emit
+from _entrypoint import snapshot_tool
 
 if __name__ == "__main__":
     emit(snapshot_tool())

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -15,9 +16,25 @@ _SKILL_DIR = REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "app-ui"
 _SCRIPTS = _SKILL_DIR / "scripts"
 
 
-def _run_tool(name: str, payload: dict[str, Any], state_dir: Path) -> dict[str, Any]:
+def _load_cdp_runtime_module() -> Any:
+    spec = importlib.util.spec_from_file_location("_test_app_ui_cdp_runtime", _SCRIPTS / "_cdp_runtime.py")
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _run_tool(
+    name: str,
+    payload: dict[str, Any],
+    state_dir: Path,
+    extra_env: dict[str, str] | None = None,
+) -> dict[str, Any]:
     env = dict(os.environ)
     env["DCC_MCP_APP_UI_MOCK_STATE_DIR"] = str(state_dir)
+    if extra_env:
+        env.update(extra_env)
     python_path = str(REPO_ROOT / "python")
     if env.get("PYTHONPATH"):
         python_path = python_path + os.pathsep + env["PYTHONPATH"]
@@ -173,3 +190,44 @@ def test_app_ui_mock_reports_stale_and_policy_denied_paths(tmp_path: Path) -> No
     assert denied["success"] is False
     assert denied["context"]["result"]["error_code"] == "policy_disabled"
     assert denied["context"]["audit"]["redacted_fields"] == ["text"]
+
+
+def test_app_ui_backend_router_reports_unknown_backend(tmp_path: Path) -> None:
+    result = _run_tool(
+        "snapshot",
+        {"session_id": "bad-backend"},
+        tmp_path,
+        extra_env={"DCC_MCP_APP_UI_BACKEND": "definitely-not-a-backend"},
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "backend_unavailable"
+    assert result["context"]["supported_backends"] == ["mock", "chrome", "chrome-cdp", "cdp"]
+
+
+def test_app_ui_chrome_cdp_preset_aliases(monkeypatch: Any) -> None:
+    cdp_runtime = _load_cdp_runtime_module()
+
+    monkeypatch.delenv("DCC_MCP_APP_UI_CDP_PRESET", raising=False)
+    monkeypatch.delenv("DCC_MCP_APP_UI_CHROME_PRESET", raising=False)
+    assert cdp_runtime.cdp_preset() == "reuse"
+
+    monkeypatch.setenv("DCC_MCP_APP_UI_CDP_PRESET", "aurora")
+    assert cdp_runtime.cdp_preset() == "auroraview"
+
+    monkeypatch.setenv("DCC_MCP_APP_UI_CDP_PRESET", "temp")
+    assert cdp_runtime.cdp_preset() == "isolated"
+
+
+def test_app_ui_auroraview_preset_uses_auroraview_port(monkeypatch: Any) -> None:
+    cdp_runtime = _load_cdp_runtime_module()
+
+    monkeypatch.delenv("DCC_MCP_APP_UI_CDP_URL", raising=False)
+    monkeypatch.delenv("DCC_MCP_APP_UI_CHROME_CDP_URL", raising=False)
+    monkeypatch.delenv("DCC_MCP_APP_UI_CDP_PORT", raising=False)
+    monkeypatch.setenv("AURORAVIEW_CDP_PORT", "9333")
+
+    assert cdp_runtime.endpoint_candidates("auroraview") == [
+        "http://127.0.0.1:9333",
+        "http://127.0.0.1:9222",
+    ]
