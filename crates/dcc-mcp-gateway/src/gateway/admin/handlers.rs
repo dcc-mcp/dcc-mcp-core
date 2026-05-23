@@ -5,7 +5,7 @@ use std::time::Duration;
 use std::time::UNIX_EPOCH;
 
 use axum::Json;
-use axum::extract::{OriginalUri, Path, State};
+use axum::extract::{OriginalUri, Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, Uri, header};
 use axum::response::IntoResponse;
 use dcc_mcp_gateway_core::naming::instance_short;
@@ -172,6 +172,15 @@ pub struct AdminInstancesQuery {
     include_dead: Option<bool>,
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct AdminSkillDetailQuery {
+    pub name: Option<String>,
+    pub skill_name: Option<String>,
+    pub dcc: Option<String>,
+    pub dcc_type: Option<String>,
+    pub instance_id: Option<String>,
+}
+
 /// `GET /admin/api/instances` — list current routable instances by default.
 pub async fn handle_admin_instances(
     State(s): State<AdminState>,
@@ -326,10 +335,26 @@ pub async fn handle_admin_skills(State(s): State<AdminState>) -> impl IntoRespon
                 loaded += 1;
             }
             action_count += records.len();
-            let instances: BTreeSet<String> = records
-                .iter()
-                .map(|r| instance_short(&r.instance_id))
+            let mut instance_details = BTreeMap::new();
+            for r in &records {
+                let id = r.instance_id.to_string();
+                instance_details.entry(id.clone()).or_insert_with(|| {
+                    json!({
+                        "id": id,
+                        "instance_id": r.instance_id.to_string(),
+                        "prefix": instance_short(&r.instance_id),
+                        "instance_short": instance_short(&r.instance_id),
+                        "dcc_type": r.dcc_type,
+                    })
+                });
+            }
+            let instances: BTreeSet<String> = instance_details
+                .values()
+                .filter_map(|v| v.get("instance_short").and_then(Value::as_str))
+                .map(str::to_owned)
                 .collect();
+            let instance_ids: Vec<String> = instance_details.keys().cloned().collect();
+            let instance_details: Vec<Value> = instance_details.into_values().collect();
             let tools: Vec<String> = records.iter().map(|r| r.backend_tool.clone()).collect();
             let summary = records
                 .iter()
@@ -342,6 +367,8 @@ pub async fn handle_admin_skills(State(s): State<AdminState>) -> impl IntoRespon
                 "action_count": records.len(),
                 "instance_count": instances.len(),
                 "instances": instances.into_iter().collect::<Vec<_>>(),
+                "instance_ids": instance_ids,
+                "instance_details": instance_details,
                 "tools": tools,
                 "summary": summary,
             })
@@ -355,6 +382,137 @@ pub async fn handle_admin_skills(State(s): State<AdminState>) -> impl IntoRespon
         "action_count": action_count,
         "skills": skills,
     }))
+}
+
+fn admin_skill_query_name(params: &AdminSkillDetailQuery) -> Option<&str> {
+    params
+        .name
+        .as_deref()
+        .or(params.skill_name.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn admin_skill_query_dcc(params: &AdminSkillDetailQuery) -> Option<&str> {
+    params
+        .dcc_type
+        .as_deref()
+        .or(params.dcc.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn admin_instance_matches_filter(instance: &Value, filter: Option<&str>) -> bool {
+    let Some(filter) = filter.map(str::trim).filter(|value| !value.is_empty()) else {
+        return true;
+    };
+    let instance_id = instance
+        .get("instance_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let instance_short = instance
+        .get("instance_short")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    instance_id.eq_ignore_ascii_case(filter)
+        || instance_short.eq_ignore_ascii_case(filter)
+        || instance_id
+            .to_ascii_lowercase()
+            .starts_with(&filter.to_ascii_lowercase())
+}
+
+fn admin_parse_backend_skill_detail(instance: &Value) -> Value {
+    let instance_id = instance
+        .get("instance_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let instance_short = instance
+        .get("instance_short")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let dcc_type = instance
+        .get("dcc_type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    let mut detail = if let Some(result) = instance.get("result").and_then(Value::as_str) {
+        serde_json::from_str::<Value>(result).unwrap_or_else(|_| json!({ "message": result }))
+    } else if let Some(error) = instance.get("error").and_then(Value::as_str) {
+        json!({ "error": error })
+    } else {
+        json!({})
+    };
+
+    if !detail.is_object() {
+        detail = json!({ "value": detail });
+    }
+
+    if let Some(obj) = detail.as_object_mut() {
+        obj.insert("instance_id".to_string(), json!(instance_id));
+        obj.insert("instance_short".to_string(), json!(instance_short));
+        obj.insert("dcc_type".to_string(), json!(dcc_type));
+    }
+    detail
+}
+
+fn admin_skill_detail_instances(text: &str, instance_filter: Option<&str>) -> Vec<Value> {
+    let parsed = serde_json::from_str::<Value>(text).unwrap_or_else(|_| json!({ "message": text }));
+    if let Some(instances) = parsed.get("instances").and_then(Value::as_array) {
+        return instances
+            .iter()
+            .filter(|instance| admin_instance_matches_filter(instance, instance_filter))
+            .map(admin_parse_backend_skill_detail)
+            .collect();
+    }
+    vec![parsed]
+}
+
+/// `GET /admin/api/skill-detail` — raw rendered-review details for one skill.
+pub async fn handle_admin_skill_detail(
+    State(s): State<AdminState>,
+    Query(params): Query<AdminSkillDetailQuery>,
+) -> impl IntoResponse {
+    let Some(skill_name) = admin_skill_query_name(&params) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "missing required query parameter: name" })),
+        );
+    };
+
+    reload_skill_paths_and_refresh_backends(&s, RefreshReason::Periodic).await;
+    let mut args = json!({ "skill_name": skill_name });
+    if let Some(dcc) = admin_skill_query_dcc(&params)
+        && let Some(obj) = args.as_object_mut()
+    {
+        obj.insert("dcc_type".to_string(), json!(dcc));
+    }
+    if let Some(instance_id) = params
+        .instance_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        && let Some(obj) = args.as_object_mut()
+    {
+        obj.insert("instance_id".to_string(), json!(instance_id));
+    }
+
+    let (text, is_error) =
+        crate::gateway::aggregator::skill_mgmt_dispatch(&s.gateway, "get_skill_info", &args).await;
+    let instances = admin_skill_detail_instances(&text, params.instance_id.as_deref());
+    let skill = instances.first().cloned().unwrap_or(Value::Null);
+    let status = if is_error && instances.is_empty() {
+        StatusCode::BAD_GATEWAY
+    } else {
+        StatusCode::OK
+    };
+    (
+        status,
+        Json(json!({
+            "skill": skill,
+            "instances": instances,
+            "error": if is_error { Some(text) } else { None },
+        })),
+    )
 }
 
 fn admin_audit_row_json(r: &AdminAuditRecord, links: Option<AdminLinkBuilder>) -> Value {

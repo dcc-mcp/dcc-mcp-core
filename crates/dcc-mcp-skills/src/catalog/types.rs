@@ -111,6 +111,13 @@ pub struct SkillDetail {
     pub version: String,
     pub depends: Vec<String>,
     pub skill_path: String,
+    /// Absolute path to the skill's `SKILL.md` file when the catalog can
+    /// resolve it from `skill_path`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_md_path: Option<String>,
+    /// Raw `SKILL.md` markdown content for developer review surfaces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub markdown: Option<String>,
     pub scripts: Vec<String>,
     pub tools: Vec<ToolDeclaration>,
     pub state: String,

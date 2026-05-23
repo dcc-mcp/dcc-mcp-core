@@ -351,6 +351,24 @@ fn test_get_skill_info() {
 }
 
 #[test]
+fn test_get_skill_info_includes_skill_markdown() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_skill_dir(tmp.path(), "review-skill", "maya");
+
+    let catalog = make_test_catalog();
+    let paths = vec![tmp.path().to_string_lossy().to_string()];
+    assert_eq!(catalog.rediscover(Some(&paths), Some("maya")), 1);
+
+    let info = catalog.get_skill_info("review-skill").unwrap();
+    assert!(
+        info.skill_md_path
+            .unwrap()
+            .ends_with(crate::constants::SKILL_METADATA_FILE)
+    );
+    assert!(info.markdown.unwrap().contains("# review-skill"));
+}
+
+#[test]
 fn test_get_skill_info_nonexistent() {
     let catalog = make_test_catalog();
     assert!(catalog.get_skill_info("nope").is_none());
