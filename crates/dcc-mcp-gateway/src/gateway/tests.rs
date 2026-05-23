@@ -446,7 +446,7 @@ async fn test_gateway_winner_stamps_human_readable_name_on_sentinel() {
 }
 
 #[tokio::test]
-async fn test_newer_gateway_takes_over_local_and_remote_listeners() {
+async fn test_newer_gateway_does_not_preempt_healthy_local_and_remote_listeners() {
     let dir = tempfile::tempdir().unwrap();
     let gw_port = ephemeral_port();
     let remote_port = ephemeral_port();
@@ -483,15 +483,15 @@ async fn test_newer_gateway_takes_over_local_and_remote_listeners() {
 
     assert!(
         !new.is_gateway,
-        "new runner starts as challenger while old owns the port"
+        "new runner must not win while a healthy resident owns the port"
     );
     assert!(
-        new.challenger_abort.is_some(),
-        "newer runner must start a challenger loop"
+        new.challenger_abort.is_none(),
+        "newer runner must stay a plain peer while the resident gateway is healthy"
     );
-    wait_gateway_sentinel_version(&new_runner, "9.9.9", Duration::from_secs(25)).await;
-    wait_gateway_initialize_version(gw_port, "9.9.9", Duration::from_secs(120)).await;
-    wait_gateway_initialize_version(remote_port, "9.9.9", Duration::from_secs(20)).await;
+    wait_gateway_sentinel_version(&old_runner, "0.1.0", Duration::from_secs(10)).await;
+    wait_gateway_initialize_version(gw_port, "0.1.0", Duration::from_secs(10)).await;
+    wait_gateway_initialize_version(remote_port, "0.1.0", Duration::from_secs(10)).await;
 
     if let Some(abort) = new.challenger_abort {
         abort.abort();
