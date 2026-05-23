@@ -289,6 +289,7 @@ mod admin_tests {
         let (status, doc) = body_json(router, "/v1/openapi.json").await;
         assert_eq!(status, StatusCode::OK);
         assert!(doc["paths"].get("/v1/debug/instances").is_some());
+        assert!(doc["paths"].get("/v1/debug/deregistered").is_some());
     }
 
     #[tokio::test]

@@ -379,7 +379,7 @@ type IdeTarget = {
   label: string;
   configPath: string | Record<ClientPlatform, string>;
   icon: string;
-  build: (url: string) => unknown;
+  build: (url: string) => string;
 };
 
 function normalizeLogRow(raw: unknown): LogRow {
@@ -552,11 +552,16 @@ const ADMIN_FETCH_TIMEOUT_MS = 25_000;
 const DEFAULT_LOCAL_GATEWAY_PORT = '9765';
 const OPENAPI_METHODS = new Set(['get', 'put', 'post', 'delete', 'patch', 'options', 'head', 'trace']);
 const IDE_SERVER_NAME = 'dcc-mcp-gateway';
-const buildMcpServersConfig = (url: string) => ({
+const buildMcpServersConfig = (url: string) => JSON.stringify({
   mcpServers: {
     [IDE_SERVER_NAME]: { url },
   },
-});
+}, null, 2);
+const tomlString = (value: string) => JSON.stringify(value);
+const buildCodexConfig = (url: string) => [
+  `[mcp_servers.${IDE_SERVER_NAME}]`,
+  `url = ${tomlString(url)}`,
+].join('\n');
 const IDE_TARGETS: IdeTarget[] = [
   {
     id: 'claude',
@@ -609,12 +614,12 @@ const IDE_TARGETS: IdeTarget[] = [
     id: 'codex',
     label: 'Codex / OpenAI',
     configPath: {
-      windows: '%USERPROFILE%\\.codex\\settings.json',
-      macos: '~/.codex/settings.json',
-      linux: '~/.codex/settings.json',
+      windows: '%USERPROFILE%\\.codex\\config.toml',
+      macos: '~/.codex/config.toml',
+      linux: '~/.codex/config.toml',
     },
     icon: openaiIcon,
-    build: buildMcpServersConfig,
+    build: buildCodexConfig,
   },
 ];
 const PANELS: { id: Panel; label: string; group: string }[] = [
@@ -871,7 +876,7 @@ function configPathForTarget(target: IdeTarget, platform: ClientPlatform): strin
 }
 
 function ideConfigText(target: IdeTarget, url: string): string {
-  return JSON.stringify(target.build(url), null, 2);
+  return target.build(url);
 }
 
 function configPathFileUrl(path: string): string | null {
