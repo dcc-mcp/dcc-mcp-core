@@ -14,7 +14,7 @@ The **gateway** is a single Rust HTTP server (running on `localhost:9765` by def
 
 **One gateway per machine**. It's started automatically when the first DCC instance registers.
 
-## The Problem: First-Come-First-Served
+## The Problem: First-Come-First-Served and Unsafe Preemption
 
 Without version awareness, the oldest DCC wins the gateway role:
 
@@ -24,7 +24,11 @@ Maya v0.12.29 starts → port 9999 taken → becomes subordinate
 ❌ Old version controls routing; new features ignored
 ```
 
-## Our Solution: Version-Aware Election
+Pure version preemption has the opposite failure mode: a healthy existing
+gateway can be asked to yield just because a newer adapter starts, dropping
+long-lived MCP clients even though no failover is needed.
+
+## Our Solution: Liveness-Aware Election
 
 ```
 Maya v0.12.6 (gateway)           Maya v0.12.29 (new)
@@ -32,6 +36,24 @@ Maya v0.12.6 (gateway)           Maya v0.12.29 (new)
          │                   port 9999 taken
          │                                │
          │         read __gateway__ sentinel
+         │         GET /health -> 200 OK
+         │                                │
+         │         healthy resident wins
+         │                                │
+                         register as plain instance
+                         ✅ existing MCP sessions stay connected
+```
+
+If the resident does not answer `/health`, the newcomer enters challenger
+mode and polls for the port so crash/TIME_WAIT recovery still works:
+
+```
+Maya v0.12.6 (gateway)           Maya v0.12.29 (new)
+         │                                │
+         │                   port 9999 taken
+         │                                │
+         │         read __gateway__ sentinel
+         │         GET /health fails
          │         own version 0.12.29 > gw 0.12.6
          │                                │
          │ ←── POST /gateway/yield {"challenger_version": "0.12.29"}
@@ -66,8 +88,14 @@ the adapter is bound to.
 
 **2. Three-Tier Election Comparison** (issue maya#137)
 
-The challenger compares its own profile against the resident sentinel in
-this order — each tier is only consulted when the previous tier ties:
+The challenger still compares its own profile against the resident sentinel,
+but that comparison only gates the cooperative yield request. A healthy
+resident keeps the gateway role so co-existing DCC launches do not interrupt
+active clients; missing or unhealthy residents enter challenger mode so
+recovery can still happen.
+
+When cooperative yield is considered, the profile comparison runs in this order
+— each tier is only consulted when the previous tier ties:
 
 | Tier | Field             | Rule                                                                 |
 |------|-------------------|----------------------------------------------------------------------|
@@ -93,11 +121,21 @@ field would otherwise look newer than the `0.14.18` crate version — see
 issue #228 — so only the `__gateway__` sentinel row contributes to the
 self-yield decision).
 
-**3. Voluntary Yield**
+**3. Resident Health Probe**
 
-The cleanup task (every 15s) checks for newer challengers. If found, it shuts down gracefully.
+When the gateway port is occupied and a sentinel exists, new instances probe
+`GET /health` on the resident gateway before considering challenger mode.
+`200` means "stay plain"; non-success or transport failure means "recover or
+fail over". If no sentinel exists, the process still enters challenger mode to
+cover the post-crash TIME_WAIT race.
 
-**4. Challenger Retry Loop**
+**4. Voluntary Yield**
+
+The cleanup task (every 15s) checks for newer challengers. If found, it shuts
+down gracefully. Healthy-resident startup no longer creates such a challenger
+sentinel.
+
+**5. Challenger Retry Loop**
 
 New instances poll the port every 10s for up to 120s. As soon as the port is free, they take over.
 

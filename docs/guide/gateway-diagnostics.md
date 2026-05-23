@@ -72,8 +72,11 @@ logs.
 ## Election (three-tier comparison)
 
 Only one process can bind the gateway port at a time; the rest stand by.
-When a newer/better adapter shows up, the current gateway yields
-cooperatively (issue #718). The comparison uses three tiers, in order:
+When another adapter shows up, the newcomer first probes the resident gateway's
+`/health` endpoint. A healthy resident keeps the gateway role so active MCP
+clients stay connected. Only a missing or unhealthy resident enters challenger
+mode; version comparison only affects whether cooperative yield is attempted.
+That comparison uses three tiers, in order:
 
 1. **`crate_version`** — the `dcc_mcp_core` version baked into the
    binary. A 0.14.28 challenger beats a 0.14.17 resident.
@@ -105,6 +108,8 @@ Inspect them by reading `gateway://instances`:
 | Cooperative yield accepted | `Cooperative yield accepted — waiting for port to free up` | `INFO` |
 | Optional cooperative yield fallback | `Cooperative yield optional capability unavailable (...) — polling for port` | `DEBUG` |
 | Yield probe skipped for same-or-older challenger | `Skipping cooperative yield probe because challenger is not newer than the current gateway` | `DEBUG` |
+| Healthy resident kept gateway role | `Gateway port held by healthy resident — running as plain DCC instance` | `INFO` |
+| Resident health probe failed | `Resident gateway /health probe failed` | `WARN` |
 | Newer sentinel detected | `Gateway: newer-version sentinel detected — initiating voluntary yield` | `INFO` |
 
 ---
