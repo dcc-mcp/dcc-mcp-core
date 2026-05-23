@@ -34,7 +34,7 @@ For Maya behind the gateway, prefer **`search_skills`** → **`load_skill`** →
 ### `tool_slug` shape (and why it is not slash-separated yet)
 
 - Every `search_tools` hit includes **`tool_slug`**. Treat it as an opaque **routing token**: copy it **verbatim** into `describe_tool` and `call_tool` (and into REST `POST /v1/describe` / `/v1/call` bodies as the `tool_slug` field).
-- Format: **`<dcc_type>.<instance_prefix_or_uuid>.<backend_tool>`** — three dot-separated segments. Example: `maya.277685a7.maya_primitives__create_sphere`. This encodes the same tuple a path-style URL would use (`/<dcc>/<instance>/<backend_tool>`), but dots keep parsing O(1) and avoid escaping issues because `backend_tool` may contain `.` (e.g. `project.save`) and `__` (skill action names).
+- Format: **`<dcc_type>.<instance_prefix_or_uuid>.<backend_tool>`** — three dot-separated routing segments. Example: `maya.277685a7.maya_primitives__create_sphere`. This encodes the same tuple a path-style URL would use (`/<dcc>/<instance>/<backend_tool>`); the final `backend_tool` segment is the client-safe MCP name such as `project_save` or `maya_primitives__create_sphere`.
 - **Common agent mistake:** calling `call_tool` with only `code` / `python` / `mel` at the **top level**. That shape belongs to **specific backend tools** inside **`arguments`**, only when their schema says so — the gateway wrapper **always** requires **`tool_slug`** plus optional **`arguments`** / **`meta`**.
 
 ---

@@ -74,10 +74,10 @@ during server bootstrap.  It registers four tools under category `project`:
 
 | Tool | Input | Output |
 |-|-|-|
-| `project.save`   | `scene_path`              | Full state dict after save  |
-| `project.load`   | `scene_path` or `project_dir` | State dict, or `success: false` if no `project.json` exists |
-| `project.resume` | `scene_path` or `project_dir` | `resume_session()` payload  |
-| `project.status` | `scene_path` or `project_dir` | State dict for the given project |
+| `project_save`   | `scene_path`              | Full state dict after save  |
+| `project_load`   | `scene_path` or `project_dir` | State dict, or `success: false` if no `project.json` exists |
+| `project_resume` | `scene_path` or `project_dir` | `resume_session()` payload  |
+| `project_status` | `scene_path` or `project_dir` | State dict for the given project |
 
 ```python
 from dcc_mcp_core import register_project_tools
@@ -85,7 +85,7 @@ from dcc_mcp_core import register_project_tools
 # Bootstrap: no default project, callers must pass scene_path / project_dir
 register_project_tools(server, dcc_name="maya")
 
-# OR: bind a default so agents can call project.status with no args
+# OR: bind a default so agents can call project_status with no args
 from dcc_mcp_core.project import DccProject
 project = DccProject.open(current_scene_path())
 register_project_tools(server, dcc_name="maya", project=project)
@@ -106,7 +106,7 @@ Adapters typically:
 3. Populate `ProjectState.metadata` with host-specific hints that agents cannot
    guess otherwise: `units`, `up_axis`, frame range, render camera, and so on.
 4. Call `register_project_tools(server, project=<bound project>)` so agents can
-   always query `project.status` without a round-trip to the host.
+   always query `project_status` without a round-trip to the host.
 5. Extend `active_tool_groups` at adapter startup to reflect which UI shelves
    / tool-palettes are currently mounted — this lets recipes and skills decide
    whether their prerequisites are available without a separate probe.
@@ -152,9 +152,9 @@ if scene_path:
 
 - `dcc_mcp_core.checkpoint` — job-scoped resume state.
   See [Job Persistence](./job-persistence.md).
-- `workflows.resume` — workflow-level resume (issue
+- `workflows_resume` — workflow-level resume (issue
   [#565](https://github.com/loonghao/dcc-mcp-core/issues/565)).  A future
-  enhancement may bridge `project.resume` into the workflow engine so a
+  enhancement may bridge `project_resume` into the workflow engine so a
   workflow can restore the DCC session before re-running steps.
 - `AGENTS.md` at the repo root — how to discover and call these tools from an
   agent.

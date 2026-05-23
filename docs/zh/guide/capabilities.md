@@ -201,5 +201,5 @@ let path = roots.resolve("workspace://assets/hero.usd")?;
 ## 参见
 
 - [Skills guide](skills.md) — `tools.yaml` 兄弟文件模式 (#356)
-- [`docs/guide/naming.md`](naming.md) — SEP-986 工具名验证
+- [`docs/guide/naming.md`](naming.md) — 客户端安全工具名验证
 - MCP roots 规范: <https://modelcontextprotocol.io/specification/2025-03-26/client/roots>

@@ -129,7 +129,7 @@ fn should_skip(name: &str) -> bool {
         return true;
     }
     // Skill stubs are discovery hints, not addressable actions.
-    if name.starts_with("__skill__") || name.contains(".__skill__") {
+    if name.starts_with("__skill__") || name.contains("__skill__") {
         return true;
     }
     // Gateway-local and skill-management tools are served directly.
@@ -145,7 +145,7 @@ fn should_skip(name: &str) -> bool {
 ///
 /// Backends publish actions in two forms (see #258 / #307):
 ///
-/// * `<skill>.<action>` — proactive skill namespacing.
+/// * `<skill>__<action>` — proactive skill namespacing.
 /// * `<bare action>` — single-skill instance where the bare name is
 ///   unique.
 ///
@@ -155,10 +155,9 @@ fn extract_skill_and_bare(name: &str) -> (Option<String>, String) {
     if let Some((skill, action)) = decode_skill_tool_name(name) {
         return (Some(skill.to_string()), action.to_string());
     }
-    // Fall back to the double-underscore convention used internally
-    // (`<skill>__<action>`) for backends that register with the
-    // underscore form — we still want the skill dimension available
-    // for search ranking.
+    // Fall back to a raw split for backends that already register with
+    // `<skill>__<action>` but contain characters the namespace decoder
+    // conservatively rejects.
     if let Some((skill, action)) = name.split_once("__")
         && !skill.is_empty()
         && !action.is_empty()

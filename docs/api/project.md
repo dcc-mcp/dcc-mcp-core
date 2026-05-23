@@ -29,7 +29,7 @@ project.activate_skill("maya-lookdev")
 project.add_checkpoint_id("job_abc123")
 project.update_metadata(units="cm", up_axis="y")
 
-payload = project.resume_session()
+payload = project_resume_session()
 ```
 
 `DccProject.open(scene_path)` creates `.dcc-mcp/project.json` in the scene directory when missing. Mutating helpers auto-save, and `DccProject.load(scene_path_or_project_dir)` restores the state for a later session.

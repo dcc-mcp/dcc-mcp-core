@@ -77,7 +77,7 @@ impl JobManager {
     /// the `$/dcc.jobUpdated` SSE channel surfaces the transition.
     ///
     /// Terminal rows are left untouched — they remain queryable via
-    /// `jobs.get_status` / `jobs.cleanup`.
+    /// `jobs_get_status` / `jobs_cleanup`.
     ///
     /// Returns the number of rows that were flipped to `Interrupted`.
     pub fn recover_from_storage(&self) -> Result<usize, crate::job_storage::JobStorageError> {
@@ -357,7 +357,7 @@ impl JobManager {
         removed
     }
 
-    /// TTL-based cleanup used by the built-in `jobs.cleanup` MCP tool
+    /// TTL-based cleanup used by the built-in `jobs_cleanup` MCP tool
     /// (issue #328). Purges terminal rows older than
     /// `older_than_hours` from both the in-process map and any attached
     /// [`JobStorage`] backend.

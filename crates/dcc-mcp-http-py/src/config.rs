@@ -229,13 +229,13 @@ impl PyMcpHttpConfig {
         self.inner.features.lazy_actions = v;
     }
 
-    /// Enable the built-in ``workflows.*`` tools (issue #348).
+    /// Enable the built-in ``workflows_*`` tools (issue #348).
     #[getter]
     fn enable_workflows(&self) -> bool {
         self.inner.workflow.enable_workflows
     }
 
-    /// Enable the built-in ``workflows.*`` tools (issue #348).
+    /// Enable the built-in ``workflows_*`` tools (issue #348).
     #[setter]
     fn set_enable_workflows(&mut self, v: bool) {
         self.inner.workflow.enable_workflows = v;
@@ -633,13 +633,13 @@ impl PyMcpHttpConfig {
 
     // ── WorkflowConfig getters/setters ──────────────────────────────
 
-    /// Enable the built-in ``workflows.*`` tools (issue #348).
+    /// Enable the built-in ``workflows_*`` tools (issue #348).
     #[getter]
     fn enable_scheduler(&self) -> bool {
         self.inner.workflow.enable_scheduler
     }
 
-    /// Enable the built-in ``workflows.*`` tools (issue #348).
+    /// Enable the built-in ``workflows_*`` tools (issue #348).
     #[setter]
     fn set_enable_scheduler(&mut self, v: bool) {
         self.inner.workflow.enable_scheduler = v;

@@ -6,8 +6,8 @@
 //! `handle_tools_call` returns.
 //!
 //! This module is intentionally pure-Rust.  Python bindings are deferred to
-//! issue #319 where a coherent user-facing API (`jobs.get_status`,
-//! `jobs.cancel`, …) lands together.
+//! issue #319 where a coherent user-facing API (`jobs_get_status`,
+//! `jobs_cleanup`, …) lands together.
 //!
 //! # Concurrency model
 //!

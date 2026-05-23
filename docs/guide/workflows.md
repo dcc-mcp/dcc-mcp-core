@@ -96,7 +96,7 @@ run (no pre-delay); `attempt_number == 2` is the first retry.
 | `exponential` | `initial_delay * 2^(n - 2)`    |
 
 Cancellation of the enclosing workflow **interrupts the sleep** — retries
-never outlive a `workflows.cancel` call. Each attempt is recorded as a
+never outlive a `workflows_cancel` call. Each attempt is recorded as a
 separate child job under the workflow's root job (parent-job id from
 issue #318).
 
@@ -275,15 +275,15 @@ handlers are bound by `register_workflow_handlers(&dispatcher, &host)`.
 
 | Tool                   | Description                                      | ToolAnnotations                               |
 | ---------------------- | ------------------------------------------------ | --------------------------------------------- |
-| `workflows.run`        | Start a run (YAML or JSON spec + inputs).        | `destructive_hint=true, open_world_hint=true` |
-| `workflows.get_status` | Poll terminal status + progress.                 | `read_only_hint=true, idempotent_hint=true`   |
-| `workflows.cancel`     | Cancel a run by `workflow_id` (cascade).         | `destructive_hint=true, idempotent_hint=true` |
-| `workflows.lookup`     | Catalog search (read-only).                      | `read_only_hint=true`                         |
-| `workflows.resume`     | Resume a persisted run from storage; skips `completed` steps; honours `force_steps` + `expected_spec_hash` (#565). Requires the executor to be built with `WorkflowStorage`. | `destructive_hint=true, idempotent_hint=true, open_world_hint=true` |
+| `workflows_run`        | Start a run (YAML or JSON spec + inputs).        | `destructive_hint=true, open_world_hint=true` |
+| `workflows_get_status` | Poll terminal status + progress.                 | `read_only_hint=true, idempotent_hint=true`   |
+| `workflows_cancel`     | Cancel a run by `workflow_id` (cascade).         | `destructive_hint=true, idempotent_hint=true` |
+| `workflows_lookup`     | Catalog search (read-only).                      | `read_only_hint=true`                         |
+| `workflows_resume`     | Resume a persisted run from storage; skips `completed` steps; honours `force_steps` + `expected_spec_hash` (#565). Requires the executor to be built with `WorkflowStorage`. | `destructive_hint=true, idempotent_hint=true, open_world_hint=true` |
 
 ### Resume (issue #565)
 
-For long-running workflows that survive a server restart, `workflows.resume`
+For long-running workflows that survive a server restart, `workflows_resume`
 re-drives the persisted spec from the first non-completed step. The
 executor reads the persisted spec + inputs + per-step status from
 `WorkflowStorage`, hydrates its context with every recorded
@@ -316,7 +316,7 @@ Resume requires that the executor was built with both:
 - `WorkflowExecutorBuilder::storage(Arc<WorkflowStorage>)`, and
 - the `dcc-mcp-workflow/job-persist-sqlite` Cargo feature.
 
-Without storage, `workflows.resume` returns `NoStorage` immediately.
+Without storage, `workflows_resume` returns `NoStorage` immediately.
 
 ### Approval gating
 
@@ -337,8 +337,8 @@ into `ApprovalGate::resolve`. On timeout the gate resolves with
 ### Python surface for runs
 
 Today the Python layer exposes the spec + policy viewers only. To run
-workflows, call the MCP tools (`workflows.run` / `workflows.get_status`
-/ `workflows.cancel`) from the MCP client side — they are registered
+workflows, call the MCP tools (`workflows_run` / `workflows_get_status`
+/ `workflows_cancel`) from the MCP client side — they are registered
 on any skill server that calls `register_builtin_workflow_tools` plus
 `register_workflow_handlers`. A native `WorkflowHost` Python class is
 tracked as a follow-up; the MCP tool path is the recommended entry

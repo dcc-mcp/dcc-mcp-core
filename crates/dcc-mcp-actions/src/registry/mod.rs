@@ -12,6 +12,7 @@ use dashmap::DashMap;
 use dcc_mcp_models::registry::{Registry, SearchQuery};
 use std::sync::Arc;
 
+use dcc_mcp_naming::validate_tool_name;
 #[cfg(feature = "python-bindings")]
 use dcc_mcp_naming::{DEFAULT_DCC, DEFAULT_VERSION};
 
@@ -66,7 +67,19 @@ impl ToolRegistry {
     }
 
     /// Register an action with metadata.
+    ///
+    /// Invalid MCP tool names are rejected so `tools/list` never emits names
+    /// that common clients refuse.
     pub fn register_action(&self, meta: ToolMeta) {
+        if let Err(err) = validate_tool_name(&meta.name) {
+            tracing::warn!(
+                tool_name = %meta.name,
+                error = %err,
+                "refusing to register action with invalid MCP tool name"
+            );
+            return;
+        }
+
         let name = meta.name.clone();
         let dcc = meta.dcc.clone();
         // Clone meta for the DCC map before moving it into `actions`.

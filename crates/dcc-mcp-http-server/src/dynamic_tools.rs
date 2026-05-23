@@ -32,6 +32,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use dcc_mcp_jsonrpc::{McpTool, McpToolAnnotations};
+use dcc_mcp_naming::{MAX_TOOL_NAME_LEN, validate_tool_name};
 
 /// Default TTL for a dynamic tool if not specified in the spec.
 const DEFAULT_TOOL_TTL_SECS: u64 = 3600;
@@ -41,6 +42,10 @@ const MAX_CODE_BYTES: usize = 256 * 1024;
 
 /// The name prefix for all dynamic tools, making them easy to identify.
 pub const DYNAMIC_TOOL_PREFIX: &str = "dyn__";
+
+const DYNAMIC_SUFFIX_LEN: usize = 7; // "_" + six hex chars.
+const MAX_DYNAMIC_BASE_NAME_LEN: usize =
+    MAX_TOOL_NAME_LEN - DYNAMIC_TOOL_PREFIX.len() - DYNAMIC_SUFFIX_LEN;
 
 /// Build the Python wrapper script that binds `params` to the call arguments (issue #462).
 #[must_use]
@@ -232,12 +237,7 @@ pub enum DynamicToolError {
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 fn validate_spec(spec: &ToolSpec) -> Result<(), DynamicToolError> {
-    if spec.name.is_empty()
-        || !spec
-            .name
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
-    {
+    if validate_tool_name(&spec.name).is_err() || spec.name.len() > MAX_DYNAMIC_BASE_NAME_LEN {
         return Err(DynamicToolError::InvalidName);
     }
     if spec.description.trim().is_empty() {
@@ -293,7 +293,7 @@ pub fn build_register_tool_descriptor() -> McpTool {
                     "properties": {
                         "name": {
                             "type": "string",
-                            "description": "Tool name: [a-zA-Z0-9_-], max 64 chars."
+                            "description": "Tool base name: [a-zA-Z0-9_-], max 52 chars so the assigned dyn__ name stays within 64 chars."
                         },
                         "description": {
                             "type": "string",
@@ -561,6 +561,21 @@ mod tests {
         let mut spec = make_spec("valid");
         spec.name = "bad name!".to_string();
         assert!(reg.register(spec).is_err());
+    }
+
+    #[test]
+    fn test_generated_name_stays_client_safe() {
+        let mut reg = SessionDynamicTools::new();
+        let spec = make_spec(&"a".repeat(MAX_DYNAMIC_BASE_NAME_LEN));
+        let (name, _) = reg.register(spec).unwrap();
+
+        validate_tool_name(&name).unwrap();
+        assert_eq!(name.len(), MAX_TOOL_NAME_LEN);
+
+        let too_long = make_spec(&"a".repeat(MAX_DYNAMIC_BASE_NAME_LEN + 1));
+        assert!(reg.register(too_long).is_err());
+        let dotted = make_spec("name.with.dot");
+        assert!(reg.register(dotted).is_err());
     }
 
     #[test]

@@ -76,7 +76,7 @@ that had an in-flight job on that backend:
 }
 ```
 
-Clients use this to re-query in-flight jobs via `jobs.get_status`.
+Clients use this to re-query in-flight jobs via `jobs_get_status`.
 
 ### Session lifecycle
 
@@ -415,7 +415,7 @@ If `gateway_wait_terminal_timeout_ms` elapses before a terminal event
 arrives, the gateway returns the **last observed** job envelope
 annotated with `_meta.dcc.timed_out = true` and leaves the job running
 on the backend. Callers can either reconnect over SSE or keep polling
-`jobs.get_status` to collect the eventual result.
+`jobs_get_status` to collect the eventual result.
 
 ### Backend disconnect
 

@@ -3,28 +3,26 @@
 > **Status**: mandatory. Every DCC-MCP crate, Python wheel and skill author
 > must pick names that pass the two validators shipped in
 > [`dcc_mcp_core::naming`](https://github.com/loonghao/dcc-mcp-core/tree/main/crates/dcc-mcp-naming).
-> Related spec: [MCP `draft/server/tools#tool-names`](https://modelcontextprotocol.io/specification/draft/server/tools#tool-names),
-> [SEP-986](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986).
+> Related spec: [MCP `draft/server/tools#tool-names`](https://modelcontextprotocol.io/specification/draft/server/tools#tool-names).
 
 There are **two** naming rules in the ecosystem. Know which one applies to
 the string you are writing before you reach for a keyboard.
 
 | Concept | Purpose | Who sees it | Validator | Regex |
 |---------|---------|-------------|-----------|-------|
-| **Tool name** | MCP wire-visible string published in `tools/list` | The LLM / the MCP client | `validate_tool_name` | `^[A-Za-z0-9](?:[A-Za-z0-9_.\-]{0,47})$` |
+| **Tool name** | MCP wire-visible string published in `tools/list` | The LLM / the MCP client | `validate_tool_name` | `^[A-Za-z0-9_-]{1,64}$` |
 | **Action id** | Internal, stable id used by hosts to route `tools/call` | Rust/Python code, hand-wired registrations | `validate_action_id` | `^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$` |
 
 ## Why two rules?
 
-The MCP spec is permissive on tool names: mixed case, hyphens, dots, up to
-128 characters. That's fine for the wire, but it makes a poor internal
-identifier — hyphens collide with Python attribute names, mixed case
-encourages typo-driven bugs, and 128 characters is too long to read.
+The MCP spec is permissive on tool names, but common desktop clients validate
+the stricter `^[A-Za-z0-9_-]{1,64}$` shape. `dcc-mcp-core` uses that common
+wire contract directly so `tools/list` remains accepted everywhere.
 
 `dcc-mcp-core` therefore keeps two layers:
 
-1. **Tool names** follow the spec, but are capped at 48 characters to leave
-   room for gateway prefixes (`{id8}/`, `{skill}.`).
+1. **Tool names** use only ASCII letters, digits, `_`, and `-`, capped at
+   64 characters.
 2. **Action ids** are stricter: dotted, lowercase, snake-case segments. You
    write these by hand in your host code; the library turns them into tool
    names when publishing.
@@ -36,7 +34,7 @@ encourages typo-driven bugs, and 128 characters is too long to read.
 ```rust
 use dcc_mcp_naming::{validate_tool_name, validate_action_id};
 
-validate_tool_name("geometry.create_sphere")?;
+validate_tool_name("geometry_create_sphere")?;
 validate_action_id("scene.get_info")?;
 ```
 
@@ -55,7 +53,7 @@ from dcc_mcp_core import (
     validate_action_id,
 )
 
-validate_tool_name("hello-world.greet")        # ok
+validate_tool_name("hello-world_greet")        # ok
 validate_action_id("scene.get_info")           # ok
 
 validate_tool_name("bad/name")                 # raises ValueError
@@ -74,10 +72,12 @@ the regex in your own code.
 
 ```
 create_sphere
-geometry.create_sphere
-scene.object.transform
-hello-world.greet
+geometry_create_sphere
+scene_object_transform
+hello-world_greet
 CamelCaseTool          # MCP allows mixed case
+_leading               # leading `_` is accepted
+-leading               # leading `-` is accepted
 0              # single ASCII alphanumeric is legal
 ```
 
@@ -86,11 +86,10 @@ CamelCaseTool          # MCP allows mixed case
 | Input | Reason |
 |-------|--------|
 | `""` | empty |
-| `_leading` | leading `_` is not ASCII alphanumeric |
-| `.tool` / `-tool` | leading `.` / `-` |
+| `tool.name` / `.tool` | `.` is not part of the common client-safe alphabet |
 | `tool/call` | `/` is reserved for gateway prefixes |
-| `tool name` / `tool,other` / `tool@host` / `tool+v2` | punctuation outside `[_.-]` |
-| `a * 49` | exceeds `MAX_TOOL_NAME_LEN = 48` |
+| `tool name` / `tool,other` / `tool@host` / `tool+v2` | punctuation outside `[_-]` |
+| `a * 65` | exceeds `MAX_TOOL_NAME_LEN = 64` |
 | `工具` / `tôol` | non-ASCII |
 
 ### Valid action ids
@@ -116,9 +115,8 @@ v2.create
 
 ## Caps and rationale
 
-* **`MAX_TOOL_NAME_LEN = 48`** — MCP spec allows 128, we cap at 48 so that
-  a gateway can safely prepend `{id8}/` (9 chars) or a skill can prepend
-  `{skill}.` without blowing past the spec ceiling.
+* **`MAX_TOOL_NAME_LEN = 64`** — matches the common client-safe MCP tool name
+  limit used by desktop clients.
 * **Stricter action-id grammar** — keeps hand-typed identifiers consistent
   with Python attribute conventions (lowercase, snake_case, dot-separated
   namespaces) and eliminates ambiguity when action ids are serialised in

@@ -38,7 +38,7 @@
 | Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig(port=8765))` — Skills-First one-call setup; gateway/slim agents use `search_tools` → `describe_tool` → `call_tool` / `call_tools`; wrapper payloads are `{tool_slug, arguments?, meta?}` and backend-specific fields live inside `arguments`; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
 | Discover gateway DCC instances / direct MCP URLs (#813 phase 1) | `resources/read uri="gateway://instances"` or `gateway://instances/{id}` — entries include `mcp_url`; `resources/list` shows the root pointer only; legacy `list_dcc_instances` / `get_dcc_instance` / `connect_to_dcc` and non-standard `instances/list` are removed |
 | Register MCP prompts from Python (issue #792) | `handle = server.prompts(); handle.register_prompt(name, template, description=..., arguments=[{"name": str, "description": str, "required": bool}])` — `server.prompts()` returns `PromptHandle`; registration upserts in-place and appears in the next `prompts/list` / `prompts/get` |
-| Persist and resume DCC project state | `DccProject.open/load(...)` + `register_project_tools(server, ...)` exposing `project.save/load/resume/status` |
+| Persist and resume DCC project state | `DccProject.open/load(...)` + `register_project_tools(server, ...)` exposing `project_save`, `project_load`, `project_resume`, and `project_status` |
 
 | Share resources/prompts through a gateway | `resources/list/read/subscribe` with exact gateway-returned URIs; `prompts/list/get` for namespaced backend prompts |
 | Discover team-level skills | `scan_and_load_team()` / `scan_and_load_team_lenient()` |
@@ -64,7 +64,7 @@ and pure-Python helpers.
 
 ```
 crates/
-├── dcc-mcp-naming/       # SEP-986 tool-name / action-id validators
+├── dcc-mcp-naming/       # client-safe tool-name / action-id validators
 ├── dcc-mcp-models/       # ToolResult, SkillMetadata, DccName, shared errors
 ├── dcc-mcp-actions/      # ToolRegistry, ToolDispatcher, ToolValidator, EventBus, ToolPipeline
 ├── dcc-mcp-skills/       # SkillScanner, SkillCatalog, SkillWatcher, parse_skill_md, dependency resolver
@@ -341,7 +341,7 @@ Response shape (standard `CallToolResult`, spec-compliant):
 }
 ```
 
-Poll `jobs.get_status` (#319) for progress / completion. Cancellation: send
+Poll `jobs_get_status` (#319) for progress / completion. Cancellation: send
 `notifications/cancelled` with the request id, OR use `_meta.dcc.jobId` once
 the job-scoped cancel endpoint ships (#319).
 
@@ -834,7 +834,7 @@ tools:
 1. Every tool is registered in `ToolRegistry` with its group metadata set.
 2. Tools whose group has `default_active=false` are hidden from
    MCP `tools/list` — they remain in the registry and become visible once activated.
-3. `tools/list` also emits `__group__<skill>.<group>` stubs for inactive
+3. `tools/list` also emits `__group__<group>` stubs for inactive
    groups so clients can discover and activate them on demand.
 
 **Activate / deactivate from Python:**
@@ -1231,7 +1231,7 @@ project.update_metadata(units="cm", up_axis="y")
 register_project_tools(server, dcc_name="maya", project=project)
 ```
 
-`register_project_tools` exposes `project.save`, `project.load`, `project.resume`, and `project.status` so agents can recover scene paths, loaded assets, active skills/groups, checkpoints, and adapter metadata across DCC restarts.
+`register_project_tools` exposes `project_save`, `project_load`, `project_resume`, and `project_status` so agents can recover scene paths, loaded assets, active skills/groups, checkpoints, and adapter metadata across DCC restarts.
 
 ### PromptDefinition / PromptArgument
 
@@ -2644,8 +2644,8 @@ config.session_ttl_secs = 3600  # idle session eviction (0 = disable)
 
 # Bare tool names (#307) — default True; emits "execute_python" instead of
 # "maya-scripting.execute_python" when the bare name is unique. Collisions
-# fall back to the full <skill>.<action> form; tools/call accepts both.
-config.bare_tool_names = True   # set False to force legacy prefixed form
+# fall back to the full <skill>__<action> form.
+config.bare_tool_names = True   # set False to force skill-qualified names
 ```
 
 ### McpHttpServer
@@ -2787,7 +2787,7 @@ newtypes with `#[serde(transparent)]`.
 
 ```rust
 let spec = WorkflowSpec::from_yaml(yaml_source)?;
-spec.validate()?;   // unique step ids, SEP-986 tool names, JSONPath parse
+spec.validate()?;   // unique step ids, client-safe tool names, JSONPath parse
 ```
 
 Validation uses `dcc_mcp_naming::validate_tool_name` for tool refs and
@@ -2861,10 +2861,10 @@ Registered by `register_builtin_workflow_tools(&registry)` + bound by
 
 | Tool | Description | ToolAnnotations |
 |------|-------------|-----------------|
-| `workflows.run` | Start a run (YAML or JSON spec + inputs). | `destructive_hint=true, open_world_hint=true` |
-| `workflows.get_status` | Poll terminal status + progress. | `read_only_hint=true, idempotent_hint=true` |
-| `workflows.cancel` | Cancel a run by `workflow_id` (cascade). | `destructive_hint=true, idempotent_hint=true` |
-| `workflows.lookup` | Catalog search (read-only). | `read_only_hint=true` |
+| `workflows_run` | Start a run (YAML or JSON spec + inputs). | `destructive_hint=true, open_world_hint=true` |
+| `workflows_get_status` | Poll terminal status + progress. | `read_only_hint=true, idempotent_hint=true` |
+| `workflows_cancel` | Cancel a run by `workflow_id` (cascade). | `destructive_hint=true, idempotent_hint=true` |
+| `workflows_lookup` | Catalog search (read-only). | `read_only_hint=true` |
 
 ### Artefact hand-off (issue #349)
 
@@ -2900,7 +2900,7 @@ assert retry.next_delay_ms(2) == 500   # first retry delay (unjittered)
 ```
 
 All policy classes are **frozen**. To run workflows, call the MCP tools
-(`workflows.run` / `workflows.get_status` / `workflows.cancel`) from the
+(`workflows_run` / `workflows_get_status` / `workflows_cancel`) from the
 MCP client side.
 
 ### HTTP server gate

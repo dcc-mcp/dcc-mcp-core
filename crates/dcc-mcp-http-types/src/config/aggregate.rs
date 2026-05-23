@@ -479,7 +479,7 @@ impl McpHttpConfig {
         self
     }
 
-    /// Builder: enable the built-in `workflows.*` tools (issue #348).
+    /// Builder: enable the built-in `workflows_*` tools (issue #348).
     pub fn with_workflows(mut self) -> Self {
         self.workflow.enable_workflows = true;
         self
@@ -491,8 +491,8 @@ impl McpHttpConfig {
         self
     }
 
-    /// Builder: force the legacy `<skill>.<action>` form even when bare
-    /// names would be unique (#307).
+    /// Builder: force the `<skill>__<action>` form even when bare names
+    /// would be unique (#307).
     pub fn without_bare_tool_names(mut self) -> Self {
         self.features.bare_tool_names = false;
         self

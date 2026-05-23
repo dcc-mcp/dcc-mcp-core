@@ -71,7 +71,7 @@ Gateway 会向每个在该后端上有进行中的作业的客户端发出一个
 }
 ```
 
-客户端使用此事件通过 `jobs.get_status` 重新查询进行中的作业。
+客户端使用此事件通过 `jobs_get_status` 重新查询进行中的作业。
 
 ### 会话生命周期
 
@@ -216,7 +216,7 @@ Gateway 现在：
 如果 `gateway_wait_terminal_timeout_ms` 超时前未到达终止事件，
 Gateway 会返回**最后观察到的**作业信封，并标注
 `_meta.dcc.timed_out = true`，同时让作业继续在后端运行。
-调用者可以重新通过 SSE 连接或持续轮询 `jobs.get_status`
+调用者可以重新通过 SSE 连接或持续轮询 `jobs_get_status`
 来收集最终结果。
 
 ### 后端断开

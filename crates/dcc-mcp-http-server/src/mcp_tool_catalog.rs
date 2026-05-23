@@ -87,7 +87,7 @@ pub fn build_lazy_action_tools() -> Vec<McpTool> {
                 "properties": {
                     "id": {
                         "type": "string",
-                        "description": "Action id (e.g. create_sphere or maya-geometry.create_sphere)."
+                            "description": "Action id (e.g. create_sphere or maya_geometry__create_sphere)."
                     },
                     "args": {
                         "type": "object",
@@ -236,8 +236,8 @@ pub(crate) fn missing_capabilities(required: &[String], declared: &[String]) -> 
 pub fn is_progressive_tool_stub(name: &str) -> bool {
     name.starts_with("__skill__")
         || name.starts_with("__group__")
-        || name.contains(".__skill__")
-        || name.contains(".__group__")
+        || name.contains("__skill__")
+        || name.contains("__group__")
 }
 
 #[must_use]

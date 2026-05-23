@@ -53,7 +53,7 @@ cfg = McpHttpConfig(
 | `scene` | `str \| None` | `None` | Currently open scene file — improves gateway routing |
 | `spawn_mode` | `str` | `"dedicated"` | Listener spawn strategy: `"ambient"` (standalone binary) or `"dedicated"` (PyO3-embedded; own OS thread + current_thread runtime). Fixes issue #303 |
 | `self_probe_timeout_ms` | `int` | `200` | Max ms to wait when self-probing a freshly bound listener. 0 disables. Issue #303 guard |
-| `bare_tool_names` | `bool` | `True` | Publish unique action names without `<skill>.` prefix in `tools/list` (#307). Collisions fall back to full form; `tools/call` accepts both shapes |
+| `bare_tool_names` | `bool` | `True` | Publish unique action names without `<skill>__` prefix in `tools/list` (#307). Collisions fall back to the client-safe `<skill>__<action>` form. |
 | `enable_tool_cache` | `bool` | `True` | Connection-scoped `tools/list` cache (#438). Per-session snapshot avoids redundant registry scans on sequential calls. Invalidated on skill load/unload, group activation/deactivation, session eviction, or `_meta.dcc.refresh=true` |
 
 ::: tip Admin persistence
@@ -442,11 +442,11 @@ cfg.enable_job_notifications = True
 
 Channel A follows the MCP 2025-03-26 spec exactly and is mandatory whenever a `progressToken` is provided — the flag only controls B and C.
 
-### Built-in tools: `jobs.get_status`
+### Built-in tools: `jobs_get_status`
 
-Clients that can't consume the `$/dcc.jobUpdated` SSE stream (or simply prefer request/response) can poll job state via the always-registered `jobs.get_status` built-in tool (issue #319).
+Clients that can't consume the `$/dcc.jobUpdated` SSE stream (or simply prefer request/response) can poll job state via the always-registered `jobs_get_status` built-in tool (issue #319).
 
-- **Name**: `jobs.get_status` — SEP-986 compliant (validated with `TOOL_NAME_RE` at server startup; the build panics if the regex ever rejects the name).
+- **Name**: `jobs_get_status` — client-safe (validated with `TOOL_NAME_RE` at server startup; the build panics if the regex ever rejects the name).
 - **Visibility**: surfaced in `tools/list` unconditionally, regardless of which skills are loaded or whether any jobs exist.
 - **Annotations**: `readOnlyHint=true`, `destructiveHint=false`, `idempotentHint=true`, `openWorldHint=false`.
 
@@ -484,18 +484,18 @@ Python example:
 
 ```python
 body = post_mcp({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                 "params": {"name": "jobs.get_status",
+                 "params": {"name": "jobs_get_status",
                             "arguments": {"job_id": jid}}})
 env = body["result"]["structuredContent"]
 if env["status"] in {"completed", "failed", "cancelled", "interrupted"}:
     print("final:", env.get("result"))
 ```
 
-### Built-in tools: `jobs.cleanup`
+### Built-in tools: `jobs_cleanup`
 
-Prune terminal jobs from `JobManager` (and any attached `JobStorage` backend) once they age out. Complements [`jobs.get_status`](#built-in-tools-jobsget_status) and the optional SQLite persistence backend (see [`docs/guide/job-persistence.md`](../guide/job-persistence.md), issue #328).
+Prune terminal jobs from `JobManager` (and any attached `JobStorage` backend) once they age out. Complements [`jobs_get_status`](#built-in-tools-jobsget_status) and the optional SQLite persistence backend (see [`docs/guide/job-persistence.md`](../guide/job-persistence.md), issue #328).
 
-- **Name**: `jobs.cleanup` — SEP-986 compliant, validated at server startup.
+- **Name**: `jobs_cleanup` — client-safe, validated at server startup.
 - **Visibility**: always surfaced in `tools/list`, independent of which skills are loaded.
 - **Annotations**: `readOnlyHint=false`, `destructiveHint=true`, `idempotentHint=true`, `openWorldHint=false`.
 

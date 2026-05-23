@@ -58,7 +58,7 @@
 | [actions.md](actions.md) | ToolRegistry、ToolDispatcher、ToolPipeline、VersionedRegistry |
 | [custom-actions.md](custom-actions.md) | 添加自定义工具类型与验证策略 |
 | [events.md](events.md) | EventBus 发布/订阅系统 |
-| [naming.md](naming.md) | SEP-986 工具名称与 Action ID 验证规则 |
+| [naming.md](naming.md) | 客户端安全工具名称与 Action ID 验证规则 |
 | [transport.md](transport.md) | IPC 传输：DccLinkFrame、IpcChannelAdapter、SocketServerAdapter |
 | [process.md](process.md) | 进程管理：启动、监控、崩溃恢复 |
 | [capture.md](capture.md) | 屏幕/窗口截图 API |

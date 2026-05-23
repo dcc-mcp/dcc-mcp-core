@@ -11,7 +11,7 @@ MCP 网关**并非**唯一能让外部调用 DCC 技能的方式。每个嵌入 
 | 仅使用网关暴露的问题 | REST 接口如何解决 |
 |---------------------|-----------------|
 | `tools/list` 随 `实例数 × Action 数` 线性增长 | REST 接口有界——仅 9 条固定路由 |
-| MCP 工具名必须符合 `[A-Za-z0-9_]+` | REST slug 使用 `<dcc>.<skill>.<action>` |
+| MCP 工具名必须符合 `^[A-Za-z0-9_-]{1,64}$` | REST slug 使用 `<dcc>.<skill>.<action>` |
 | 非 MCP Agent 调用 DCC 代码需要额外适配器 | 直接 `POST /v1/call` 加 JSON 请求体 |
 | "技能未加载"没有结构化错误类 | `ServiceErrorKind::SkillNotLoaded`（kebab-case） |
 

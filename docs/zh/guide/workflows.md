@@ -91,7 +91,7 @@ steps:
 | `linear` | `initial_delay * (n - 1)` |
 | `exponential` | `initial_delay * 2^(n - 2)` |
 
-工作流的取消会**中断休眠** — 重试永远不会比 `workflows.cancel`
+工作流的取消会**中断休眠** — 重试永远不会比 `workflows_cancel`
 调用活得更久。每次尝试都被记录为工作流根作业下的一个独立子作业
 （parent-job id 来自 issue #318）。
 
@@ -232,10 +232,10 @@ WorkflowExecutor::run(spec, inputs, parent)
 
 | 工具 | 说明 | ToolAnnotations |
 | ---- | ---- | --------------- |
-| `workflows.run` | 启动一次运行（YAML 或 JSON spec + inputs）。 | `destructive_hint=true, open_world_hint=true` |
-| `workflows.get_status` | 轮询终止状态 + 进度。 | `read_only_hint=true, idempotent_hint=true` |
-| `workflows.cancel` | 通过 `workflow_id` 取消运行（级联）。 | `destructive_hint=true, idempotent_hint=true` |
-| `workflows.lookup` | 目录搜索（只读）。 | `read_only_hint=true` |
+| `workflows_run` | 启动一次运行（YAML 或 JSON spec + inputs）。 | `destructive_hint=true, open_world_hint=true` |
+| `workflows_get_status` | 轮询终止状态 + 进度。 | `read_only_hint=true, idempotent_hint=true` |
+| `workflows_cancel` | 通过 `workflow_id` 取消运行（级联）。 | `destructive_hint=true, idempotent_hint=true` |
+| `workflows_lookup` | 目录搜索（只读）。 | `read_only_hint=true` |
 
 ### 审批门控
 
@@ -256,8 +256,8 @@ steps:
 ### 用于运行的 Python 接口
 
 目前 Python 层仅暴露 spec + policy 查看器。要运行工作流，请从
-MCP 客户端侧调用 MCP 工具（`workflows.run` / `workflows.get_status`
-/ `workflows.cancel`）— 它们注册在任何调用了
+MCP 客户端侧调用 MCP 工具（`workflows_run` / `workflows_get_status`
+/ `workflows_cancel`）— 它们注册在任何调用了
 `register_builtin_workflow_tools` 加上
 `register_workflow_handlers` 的技能服务器上。原生的 `WorkflowHost`
 Python 类作为后续跟进追踪；MCP 工具路径是推荐的入口点，

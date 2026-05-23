@@ -82,7 +82,7 @@
 | Full callable-payload dispatch contract for DCC adapters (#520) | `BaseDccCallableDispatcherFull` Protocol — `submit_callable(request_id, task, affinity, timeout_ms) -> JobOutcome`, `submit_async_callable(...) -> PendingEnvelope`, `cancel(request_id) -> bool`, `shutdown(reason) -> int`. Companion `BaseDccPump` for cooperative idle-tick draining. Reference impl `InProcessCallableDispatcher` runs jobs inline for `mayapy` / headless / pytest; production hosts (Maya UI thread, Houdini …) compose or subclass it. Per-job `current_callable_job` ContextVar enables cooperative-cancel probes from inside the task. |
 | Cross-DCC asset round-trip contract (#688) | `dcc_mcp_core.SceneStats(object_count, vertex_count, has_mesh, extra={})` + `skills/templates/verifier-harness/` — minimal shape every DCC verifier skill returns from `import_and_inspect(file_path)`; `SceneStats.matches(other, vertex_tolerance=0.05)` adjudicates producer→file→verifier drift. DCC-specific implementations live in downstream repos (`dcc-mcp-blender`, `dcc-mcp-maya`, ...). See `docs/guide/cross-dcc-verification.md`. |
 | Checkpoint/resume long-running tool executions (issue #436) | `save_checkpoint(job_id, state)` / `get_checkpoint(job_id)` / `checkpoint_every(n, job_id, state_fn)` — persist progress at intervals so interrupted jobs resume from last checkpoint |
-| Project-level state persistence (#576) | `DccProject.open(scene_path)` creates/loads `.dcc-mcp/project.json`; mutate via `add_asset`, `activate_skill`, `activate_tool_group`, `add_checkpoint_id`, `update_metadata`; call `register_project_tools(server, ...)` to expose `project.save/load/resume/status`; use `resume_session()` to recover scene/assets/skills/checkpoints across DCC restarts |
+| Project-level state persistence (#576) | `DccProject.open(scene_path)` creates/loads `.dcc-mcp/project.json`; mutate via `add_asset`, `activate_skill`, `activate_tool_group`, `add_checkpoint_id`, `update_metadata`; call `register_project_tools(server, ...)` to expose `project_save`, `project_load`, `project_resume`, and `project_status`; use `resume_session()` to recover scene/assets/skills/checkpoints across DCC restarts |
 | Agent-facing docs:// MCP resources (issue #435) | `register_docs_server(server)` — serves `docs://output-format/*` and `docs://skill-authoring/*` resources; agents fetch only specs they need |
 | Agent feedback / rationale (issues #433, #434) | `register_feedback_tool(server)` / `extract_rationale(params)` / `make_rationale_meta(text)` — `dcc_feedback__report` tool + `_meta.dcc.rationale` extraction |
 | Runtime DCC namespace introspection (issue #426) | `register_introspect_tools(server)` — `dcc_introspect__list_module`, `dcc_introspect__signature`, `dcc_introspect__search`, `dcc_introspect__eval` |
@@ -192,7 +192,7 @@ The historical god-crate `dcc-mcp-http` was decomposed into cohesive crates. New
 
 ```
 crates/
-├── dcc-mcp-naming/         # SEP-986 tool-name / action-id validators
+├── dcc-mcp-naming/         # client-safe tool-name / action-id validators
 ├── dcc-mcp-models/         # SkillMetadata, ToolResult, DccName, DccMcpError
 ├── dcc-mcp-actions/        # ToolRegistry, ToolDispatcher, EventBus, validation
 ├── dcc-mcp-skills/         # SkillScanner, SkillCatalog, SkillWatcher, resolver
@@ -248,7 +248,7 @@ Pure-Python modules: `cancellation`, `checkpoint`, `constants` (#487), `result_e
 **Actions:**
 - `ToolRegistry` — Thread-safe registry; `.register(name, ...)`, `.register_batch([{...}, ...])`, `.unregister(name, dcc_name=None)`, `.get_action(name)`, `.list_actions()`, `.list_actions_for_dcc(dcc)`, `.get_all_dccs()`, `.search_actions(category, tags, dcc_name)`, `.count_actions(category, tags, dcc_name)`, `.get_categories()`, `.get_tags()`, `.reset()`
 - `ToolDispatcher` — Validated dispatch; `ToolDispatcher(registry)` (ONE arg); `.dispatch(name, json_str) -> dict`; dict keys: `"action"`, `"output"`, `"validation_skipped"`
-- **Async `tools/call` (#318)** — over the wire, a `tools/call` opts into async dispatch when ANY of: `_meta.dcc.async = true`, `_meta.progressToken` is set, or the tool's `ToolMeta` declares `execution: async` / `timeout_hint_secs > 0`. Response returns immediately with `CallToolResult.structuredContent = {"job_id", "status": "pending", "parent_job_id"}`. Poll status via `jobs.get_status` (#319). Parent-job cascade: `_meta.dcc.parentJobId` wires the new job's `CancellationToken` as a child of the parent's — cancelling the parent cancels every descendant
+- **Async `tools/call` (#318)** — over the wire, a `tools/call` opts into async dispatch when ANY of: `_meta.dcc.async = true`, `_meta.progressToken` is set, or the tool's `ToolMeta` declares `execution: async` / `timeout_hint_secs > 0`. Response returns immediately with `CallToolResult.structuredContent = {"job_id", "status": "pending", "parent_job_id"}`. Poll status via `jobs_get_status` (#319). Parent-job cascade: `_meta.dcc.parentJobId` wires the new job's `CancellationToken` as a child of the parent's — cancelling the parent cancels every descendant
 - `ToolValidator` — Input validation before action execution
 - `ToolPipeline(dispatcher)` — Middleware-style processing pipeline; `.add_logging(log_params=False)`, `.add_timing() -> TimingMiddleware`, `.add_audit(record_params=True) -> AuditMiddleware`, `.add_rate_limit(max_calls, window_ms) -> RateLimitMiddleware`, `.add_callable(before_fn=None, after_fn=None)`, `.dispatch(action_name, params_json="null") -> dict`, `.register_handler(name, fn)`, `.middleware_count()`, `.middleware_names()`, `.handler_count()`
 - `LoggingMiddleware(log_params=False)` — emits tracing log lines before/after each action
@@ -323,9 +323,9 @@ Pure-Python modules: `cancellation`, `checkpoint`, `constants` (#487), `result_e
 - `ToolRegistry.activate_tool_group(skill, group) -> int`, `.deactivate_tool_group(skill, group) -> int` — enable/disable tools in a group; emits `notifications/tools/list_changed`
 - `ToolRegistry.list_tools_in_group(skill, group) -> List[dict]`, `.list_actions_enabled() -> List[dict]`, `.set_tool_enabled(name, enabled) -> bool`
 - **Note**: `ToolMeta` is a Rust-internal type not accessible from Python. Use the `ToolRegistry` methods above to control tool visibility.
-- MCP core tools: `activate_tool_group`, `deactivate_tool_group`, `search_tools` (registered alongside the six skill-discovery tools; `tools/list` also emits `__group__<skill>.<group>` stubs for inactive groups)
+- MCP core tools: `activate_tool_group`, `deactivate_tool_group`, `search_tools` (registered alongside the six skill-discovery tools; `tools/list` also emits `__group__<group>` stubs for inactive groups)
 
-**Action naming**: `{skill_name}__{script_stem}` — hyphens in skill names replaced by underscores. SEP-986 dot-namespacing (`skill.tool_name`) also supported — see `docs/guide/naming.md` for validation rules (`validate_tool_name`, `validate_action_id`)
+**Action naming**: `{skill_name}__{script_stem}` — hyphens in skill names replaced by underscores. Published MCP tool names must match `^[A-Za-z0-9_-]{1,64}$`; see `docs/guide/naming.md` for validation rules (`validate_tool_name`, `validate_action_id`).
 
 **`next-tools` (dcc-mcp-core extension):** Declared per-tool in the sibling `tools.yaml` file referenced by `metadata.dcc-mcp.tools` to guide AI agents to follow-up tools:
 ```yaml
@@ -398,7 +398,7 @@ tools:
   - `.gateway_port` — default `9765` in Python; first process to bind wins the single gateway/admin, `0` disables gateway/admin
   - `.admin_enabled` / `.admin_path` — default `True` / `"/admin"`; disable manually with `cfg.admin_enabled = False`
   - `.registry_dir`, `.stale_timeout_secs`, `.heartbeat_secs`, `.dcc_type`, `.dcc_version`, `.scene` — gateway participation config
-  - `.bare_tool_names` — default `True`; publish unique action names without `<skill>.` prefix in `tools/list` (#307). Collisions fall back to full form; `tools/call` accepts both shapes
+  - `.bare_tool_names` — default `True`; publish unique action names without `<skill>__` prefix in `tools/list` (#307). Collisions fall back to the client-safe full form (`<skill>__<action>`).
   - `.enable_resources` — default `True`; advertise `resources: { subscribe, listChanged }` and serve `resources/list|read|subscribe|unsubscribe` (#350). Built-ins: `scene://current`, `capture://current_window`, `audit://recent`
   - `.enable_artefact_resources` — default `False`; when `True`, `artefact://` URIs are served from the artefact store (#349, not yet implemented); otherwise returns JSON-RPC error `-32002`
   - `.enable_tool_cache` — default `True`; per-session `tools/list` snapshot cache (#438). Cache hit avoids registry scan + bare-name resolution + `McpTool` construction. Invalidated on skill load/unload, group activation/deactivation, session TTL eviction, or `_meta.dcc.refresh=true` on the `tools/list` request
@@ -532,7 +532,7 @@ tools:
 - `clear_checkpoint(job_id, *, store=None) -> bool` — delete a job's checkpoint
 - `list_checkpoints(*, store=None) -> list[str]` — enumerate stored checkpoint job IDs
 - `checkpoint_every(n, job_id, state_fn, *, progress_fn=None, store=None)` — auto-checkpoint every *n* iterations inside a loop
-- `register_checkpoint_tools(server, *, dcc_name="dcc", store=None)` — register `jobs.checkpoint_status` and `jobs.resume_context` tools
+- `register_checkpoint_tools(server, *, dcc_name="dcc", store=None)` — register `jobs_checkpoint_status` and `jobs_resume_context` tools
 
 ### docs:// MCP Resources (`dcc_mcp_core.docs_resources`)
 
@@ -576,7 +576,7 @@ tools:
 - `WorkflowYaml` (dataclass) — `name`, `goal`, `config`, `variables`, `tasks` (list[WorkflowTask]), `source_path`; `.validate()`, `.task_names()`, `.get_task(name)`, `.to_summary_dict()`
 - `load_workflow_yaml(path) -> WorkflowYaml` — load and validate a workflow YAML file
 - `get_workflow_path(metadata) -> str | None` — extract workflow file path from SkillMetadata
-- `register_workflow_yaml_tools(server, *, workflows=None, skills=None, dcc_name="dcc")` — register `workflows.list` and `workflows.describe` tools
+- `register_workflow_yaml_tools(server, *, workflows=None, skills=None, dcc_name="dcc")` — register `workflows_list` and `workflows_describe` tools
 
 ### Gateway Election (`dcc_mcp_core.gateway_election`)
 
@@ -683,8 +683,8 @@ tools:
 - `DEFAULT_DCC = "python"`, `DEFAULT_LOG_LEVEL = "DEBUG"`, `DEFAULT_MIME_TYPE = "text/plain"`, `DEFAULT_VERSION = "1.0.0"`
 - `SKILL_METADATA_FILE = "SKILL.md"`, `SKILL_SCRIPTS_DIR = "scripts"`, `SKILL_METADATA_DIR = "metadata"`
 - `ENV_SKILL_PATHS = "DCC_MCP_SKILL_PATHS"`, `ENV_LOG_LEVEL = "MCP_LOG_LEVEL"`, `ENV_DISABLE_ACCUMULATED_SKILLS` — set to "1" to disable accumulated/evolved skills discovery, `ENV_TEAM_SKILL_PATHS` / `ENV_USER_SKILL_PATHS` — team-level and user-level skill path env vars
-- `TOOL_NAME_RE` / `ACTION_ID_RE` — SEP-986 regex patterns for tool names and action IDs
-- `MAX_TOOL_NAME_LEN = 48` — maximum tool name length
+- `TOOL_NAME_RE` / `ACTION_ID_RE` — regex patterns for client-safe tool names and internal action IDs
+- `MAX_TOOL_NAME_LEN = 64` — maximum tool name length
 
 ### Serialization — Rust-Powered (`dcc_mcp_core`)
 
@@ -717,9 +717,9 @@ tools:
 - `DEFAULT_LOG_FILE_PREFIX = "dcc-mcp"`, `DEFAULT_LOG_MAX_FILES = 7`, `DEFAULT_LOG_MAX_SIZE = 10485760`, `DEFAULT_LOG_ROTATION = "both"`
 - `ENV_LOG_DIR`, `ENV_LOG_FILE`, `ENV_LOG_FILE_PREFIX`, `ENV_LOG_MAX_FILES`, `ENV_LOG_MAX_SIZE`, `ENV_LOG_ROTATION` — environment variable names for file logging configuration
 
-### SEP-986 Naming Validators (`dcc_mcp_core`)
+### Naming Validators (`dcc_mcp_core`)
 
-- `validate_tool_name(name: str) -> None` — raise `ValueError` if name doesn't match `TOOL_NAME_RE` (dot-separated lowercase, max 48 chars)
+- `validate_tool_name(name: str) -> None` — raise `ValueError` if name doesn't match `TOOL_NAME_RE` (`^[A-Za-z0-9_-]{1,64}$`)
 - `validate_action_id(name: str) -> None` — raise `ValueError` if id doesn't match `ACTION_ID_RE` (dotted lowercase identifier chain)
 - See `docs/guide/naming.md` for the full naming rules`
 
@@ -795,14 +795,14 @@ export DCC_MCP_SKILL_PATHS="/path/to/skills1:/path/to/skills2"
 Opt-in via the `workflow` Cargo feature. Full spec-driven pipeline engine with six step kinds, step-level policies, artefact hand-off, and persistence.
 
 - **Types**: `WorkflowSpec`, `WorkflowStep`, `StepKind` (`Tool`/`ToolRemote`/`Foreach`/`Parallel`/`Approve`/`Branch`), `WorkflowStatus`, `WorkflowJob`, `WorkflowProgress`, `StepPolicy`, `RetryPolicy`, `BackoffKind`
-- **Parser / validator**: `WorkflowSpec::from_yaml_str(&str)` + `.validate()` — checks unique step ids, SEP-986 tool names, JSONPath in `branch.on` / `foreach.items`
+- **Parser / validator**: `WorkflowSpec::from_yaml_str(&str)` + `.validate()` — checks unique step ids, client-safe tool names, JSONPath in `branch.on` / `foreach.items`
 - **Catalog**: `WorkflowCatalog::from_skill(&SkillMetadata, skill_root)` reads the `metadata["dcc-mcp.workflows"]` glob
 - **Execution engine**: `WorkflowExecutor::run(spec, inputs, parent)` — drives steps sequentially, dispatches by kind, applies retry/timeout/idempotency policies, handles cancellation cascade
 - **Tools** (registered via `register_builtin_workflow_tools` + `register_workflow_handlers`):
-  - `workflows.run` — start a run (spec + inputs)
-  - `workflows.get_status` — poll terminal status + progress
-  - `workflows.cancel` — cancel by `workflow_id` (cascade)
-  - `workflows.lookup` — catalog search
+  - `workflows_run` — start a run (spec + inputs)
+  - `workflows_get_status` — poll terminal status + progress
+  - `workflows_cancel` — cancel by `workflow_id` (cascade)
+  - `workflows_lookup` — catalog search
 - **Step policies** (per-step): `timeout_secs`, `retry { max_attempts, backoff: fixed|linear|exponential, initial_delay_ms, max_delay_ms, jitter, retry_on }`, `idempotency_key`, `idempotency_scope: workflow|global`
 - **Artefact hand-off**: step outputs with `file_refs` are captured to `ArtefactStore`; downstream steps reference via `{{steps.<id>.file_refs[<i>].uri}}`
 - **Persistence**: `workflows` + `workflow_steps` tables under `job-persist-sqlite`; non-terminal rows flip to `Interrupted` on restart

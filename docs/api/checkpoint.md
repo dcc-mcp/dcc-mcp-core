@@ -98,4 +98,4 @@ for i, item in enumerate(items):
 register_checkpoint_tools(server, *, dcc_name="dcc", store=None) -> None
 ```
 
-Register `jobs.checkpoint_status` and `jobs.resume_context` MCP tools on `server`. Call **before** `server.start()`.
+Register `jobs_checkpoint_status` and `jobs_resume_context` MCP tools on `server`. Call **before** `server.start()`.
