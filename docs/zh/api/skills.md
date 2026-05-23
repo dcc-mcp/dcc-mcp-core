@@ -40,7 +40,7 @@ SkillCatalog(registry: ToolRegistry) -> SkillCatalog
 | `remove_skill(skill_name)` | `bool` | 从目录中完全移除（已加载则先卸载） |
 | `clear()` | `None` | 清空所有 Skill（已加载的先卸载） |
 | `search_skills(query=None, tags=None, dcc=None, scope=None, limit=None)` | `List[SkillSummary]` | 统一发现：支持 `scope`（`"repo" \| "user" \| "system" \| "admin"`）和 `limit`。空调用按 scope 优先级返回顶级 Skill（Admin > System > User > Repo）。 |
-| `list_skills(status=None)` | `List[SkillSummary]` | 列出 Skill。status：`"loaded"` 或 `"unloaded"`，`None` 为全部 |
+| `list_skills(status=None)` | `List[SkillSummary]` | 列出 Skill。status：`"loaded"`、`"unloaded"`、`"pending_deps"` 或 `"error"`，`None` 为全部 |
 | `get_skill_info(skill_name)` | `SkillMetadata \| None` | 返回完整元数据，未找到返回 `None` |
 | `is_loaded(skill_name)` | `bool` | 指定 Skill 是否已加载 |
 | `loaded_count()` | `int` | 已加载 Skill 的数量 |
@@ -107,6 +107,8 @@ print(f"已移除 {removed} 个 action")
 | `tool_count` | `int` | 声明的工具数量 |
 | `tool_names` | `List[str]` | 声明的工具名称列表 |
 | `loaded` | `bool` | 当前是否已加载 |
+| `status` | `str` | 机器可读加载状态：`"discovered"`、`"pending_deps"`、`"loaded"` 或 `"error"` |
+| `missing_dependencies` | `List[str]` | 当前 catalog 中尚未出现的依赖 Skill 名称 |
 
 ### 特殊方法
 
@@ -312,7 +314,7 @@ scan_and_load_lenient(
 ) -> tuple[List[SkillMetadata], List[str]]
 ```
 
-与 `scan_and_load` 相同，但静默跳过依赖缺失的 Skill（通过日志记录警告）。仅循环依赖会抛出 `ValueError`。
+与 `scan_and_load` 相同，但会保留缺失软依赖的 Skill，让它们仍可被发现（通过日志记录警告）。缺失依赖只会在排序时被忽略；已经存在的依赖仍会排在依赖方之前。仅循环依赖会抛出 `ValueError`。
 
 ### resolve_dependencies
 

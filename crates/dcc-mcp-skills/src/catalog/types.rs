@@ -22,16 +22,38 @@ where
 pub enum SkillState {
     /// Skill discovered but not loaded (tools not registered).
     Discovered,
+    /// Skill is discoverable, but one or more declared dependencies
+    /// are not present in the catalog yet.
+    PendingDeps { missing: Vec<String> },
     /// Skill loaded — tools registered in ToolRegistry.
     Loaded,
     /// Skill failed to load.
     Error(String),
 }
 
+impl SkillState {
+    pub fn status(&self) -> &'static str {
+        match self {
+            SkillState::Discovered => "discovered",
+            SkillState::PendingDeps { .. } => "pending_deps",
+            SkillState::Loaded => "loaded",
+            SkillState::Error(_) => "error",
+        }
+    }
+
+    pub fn missing_dependencies(&self) -> Vec<String> {
+        match self {
+            SkillState::PendingDeps { missing } => missing.clone(),
+            _ => Vec::new(),
+        }
+    }
+}
+
 impl std::fmt::Display for SkillState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SkillState::Discovered => write!(f, "discovered"),
+            SkillState::PendingDeps { .. } => write!(f, "pending_deps"),
             SkillState::Loaded => write!(f, "loaded"),
             SkillState::Error(e) => write!(f, "error: {e}"),
         }
@@ -79,6 +101,13 @@ pub struct SkillSummary {
     #[serde(serialize_with = "serialize_tool_names")]
     pub tool_names: Vec<String>,
     pub loaded: bool,
+    /// Machine-readable load status: `"discovered"`, `"pending_deps"`,
+    /// `"loaded"`, or `"error"`.
+    #[serde(default)]
+    pub status: String,
+    /// Declared dependencies not currently present in the catalog.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing_dependencies: Vec<String>,
     /// Trust level / origin scope of this skill (e.g. `"repo"`, `"user"`, `"system"`).
     pub scope: String,
     /// `true` when this skill declares `allow_implicit_invocation: false`.
@@ -121,6 +150,8 @@ pub struct SkillDetail {
     pub scripts: Vec<String>,
     pub tools: Vec<ToolDeclaration>,
     pub state: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing_dependencies: Vec<String>,
     pub registered_tools: Vec<String>,
     /// Trust level / origin scope of this skill.
     pub scope: String,

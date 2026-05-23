@@ -168,8 +168,12 @@ Infrastructure skills do not require `on-failure` chains (they ARE the fallback)
 
 Domain skills **must** declare dependencies for every infrastructure skill they chain to via
 `next-tools.on-failure`. Use `metadata.dcc-mcp.depends` for short lists or
-`metadata/depends.md` for longer dependency notes. This ensures the infrastructure skill is
-loaded before the domain skill is activated:
+`metadata/depends.md` for longer dependency notes. Discovery treats these as
+soft dependencies: a domain skill remains searchable with `status:
+pending_deps` until every dependency is present. `load_skill` auto-loads
+dependencies that have been discovered and returns an actionable error for
+dependencies that are still missing. This ensures the infrastructure skill is
+loaded before the domain skill is activated without making scan order fragile:
 
 ```yaml
 metadata:

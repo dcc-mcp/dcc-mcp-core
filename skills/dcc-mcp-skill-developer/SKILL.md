@@ -49,7 +49,12 @@ into a faster authoring loop.
    safety annotations, and `timeout_hint_secs` for async tools.
    Published MCP tool names must be client-safe
    `^[A-Za-z0-9_-]{1,64}$`; use underscores instead of dotted tool names.
-6. When changing adapter server wiring or caller examples, keep Admin telemetry
+6. Treat `metadata.dcc-mcp.depends` as soft during discovery. Composition
+   skills may remain searchable with `status: pending_deps` while host-specific
+   dependencies are injected later through `DCC_MCP_*_SKILL_PATHS`. `load_skill`
+   auto-loads discovered dependencies first and returns a clear missing-dep
+   error only when a dependency is still absent.
+7. When changing adapter server wiring or caller examples, keep Admin telemetry
    useful: pass optional `agent_context` / `caller_context` summaries through
    MCP `_meta`, REST `meta`, or `x-dcc-mcp-agent-*` headers when the caller is
    an agent. Include only explicit summaries, plans, observations, and
@@ -64,7 +69,7 @@ into a faster authoring loop.
    the shipped server paths enable the required gateway `admin` feature and
    Admin telemetry runtime state, while minimal direct `dcc-mcp-gateway` builds
    or runtimes started with Admin disabled may omit those debug routes.
-7. For adapter install, uninstall, or upgrade flows, use
+8. For adapter install, uninstall, or upgrade flows, use
    `dcc_mcp_core.install_lifecycle` before importing Rust-backed public API:
    query/stop registered sidecars, inspect install roots, classify locked
    native artifacts, and call `safe_remove_tree` / `safe_replace_tree` from a
@@ -73,7 +78,7 @@ into a faster authoring loop.
    `adapter_version`); `ServiceEntry.version` is the DCC application version.
    Stop helpers must respect FileRegistry sentinel locks before trusting PID
    liveness so installer code never terminates a reused PID from a stale row.
-8. Add tests at the lowest executable layer, then one discovery/load/call or
+9. Add tests at the lowest executable layer, then one discovery/load/call or
    gateway REST path when behavior crosses MCP or REST boundaries.
 
 ## Adapter Selection
