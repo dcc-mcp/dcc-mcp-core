@@ -11,8 +11,10 @@ mod admin_tests {
     use axum::http::{Request, StatusCode};
     use parking_lot::Mutex;
     use serde_json::{Value, json};
-    use tokio::sync::{RwLock, broadcast, watch};
+    use tokio::sync::{RwLock, broadcast, oneshot, watch};
     use tower::ServiceExt;
+
+    use dcc_mcp_gateway_core::naming::instance_short;
 
     use crate::gateway::admin::router::build_admin_router;
     use crate::gateway::admin::state::{AdminAuditRecord, AdminState, AuditLog};
@@ -150,6 +152,27 @@ mod admin_tests {
         let bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let json: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
         (status, json)
+    }
+
+    async fn spawn_search_backend(hits: Value) -> (u16, oneshot::Sender<()>) {
+        let app = Router::new().route(
+            "/v1/search",
+            axum::routing::post(move || {
+                let hits = hits.clone();
+                async move { axum::Json(json!({ "hits": hits })) }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (tx, rx) = oneshot::channel::<()>();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = rx.await;
+                })
+                .await;
+        });
+        (port, tx)
     }
 
     async fn response_status(router: Router, uri: &str) -> StatusCode {
@@ -351,49 +374,39 @@ mod admin_tests {
     }
 
     #[tokio::test]
-    async fn test_admin_skills_groups_loaded_capabilities() {
-        use crate::gateway::capability::{CapabilityRecord, InstanceFingerprint};
-
+    async fn test_admin_skills_refreshes_live_backend_when_index_empty() {
         let gs = make_gateway_state();
-        let entry = make_service_entry("maya", "127.0.0.1", 9, None);
+        let (port, stop) = spawn_search_backend(json!([
+            {
+                "skill": "maya-modeling",
+                "action": "maya-modeling.create_cube",
+                "summary": "Create a cube",
+                "loaded": true,
+                "has_schema": false
+            },
+            {
+                "skill": "maya-modeling",
+                "action": "maya-modeling.delete_cube",
+                "summary": "Delete a cube",
+                "loaded": true,
+                "has_schema": false
+            }
+        ]))
+        .await;
+        let entry = make_service_entry("maya", "127.0.0.1", port, None);
         let instance_id = entry.instance_id;
         {
             let registry = gs.registry.write().await;
             registry.register(entry).unwrap();
         }
-        gs.capability_index.upsert_instance(
-            instance_id,
-            vec![
-                CapabilityRecord::new(
-                    "maya.abcdef12.create_cube".into(),
-                    "create_cube".into(),
-                    "create_cube".into(),
-                    Some("maya-modeling".into()),
-                    "Create a cube",
-                    vec![],
-                    "maya".into(),
-                    instance_id,
-                    true,
-                    true,
-                ),
-                CapabilityRecord::new(
-                    "maya.abcdef12.delete_cube".into(),
-                    "delete_cube".into(),
-                    "delete_cube".into(),
-                    Some("maya-modeling".into()),
-                    "Delete a cube",
-                    vec![],
-                    "maya".into(),
-                    instance_id,
-                    true,
-                    true,
-                ),
-            ],
-            InstanceFingerprint(1),
+        assert!(
+            gs.capability_index.snapshot().records.is_empty(),
+            "endpoint test must start with an empty capability index"
         );
         let router = build_admin_router(AdminState::new(gs));
 
         let (status, body) = body_json(router, "/api/skills").await;
+        let _ = stop.send(());
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["total"], 1);
         assert_eq!(body["loaded"], 1);
@@ -401,6 +414,10 @@ mod admin_tests {
         assert_eq!(body["skills"][0]["name"], "maya-modeling");
         assert_eq!(body["skills"][0]["dcc_type"], "maya");
         assert_eq!(body["skills"][0]["action_count"], 2);
+        assert_eq!(
+            body["skills"][0]["instances"][0],
+            instance_short(&instance_id)
+        );
     }
 
     // ── /api/calls ────────────────────────────────────────────────────────

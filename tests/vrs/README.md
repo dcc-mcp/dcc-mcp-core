@@ -17,6 +17,7 @@ Each trace is a UTF-8 `.jsonl` file:
    - `http` — `{ "method": "GET"|"POST", "path": "/v1/...", "headers": { ... }, "json": { ... } }` (`json` and `headers` optional).
    - `expect` — assertions (all must pass), **or** `expect_any` — list of `expect` objects (at least one must pass).
    - `capture` — optional `{ "json_pointer": "/hits/0/tool_slug", "as": "slug" }` after a successful step; substitutes `{{capture:slug}}` in later bodies.
+   - `sleep_ms` — optional delay step with no HTTP request; useful for observing health-loop effects.
 
 ### Expect fields
 
@@ -24,6 +25,7 @@ Each trace is a UTF-8 `.jsonl` file:
 |-------|---------|
 | `status` | HTTP status int, or list of allowed ints |
 | `body_contains` | Substring that must appear in the raw body |
+| `body_contains_all` | List of substrings that must all appear in the raw body |
 | `json_subset` | Recursive partial match on parsed JSON (dict leaves must match) |
 
 ### `skip_preflight.skip_when`
@@ -33,6 +35,8 @@ Each trace is a UTF-8 `.jsonl` file:
 | `json_pointer` | Value to read from the preflight JSON body (default `/total`). |
 | `equals` | Skip when the resolved value equals this (same types as JSON). |
 | `less_than` | Skip when the resolved value parses as an integer **strictly less than** this (e.g. `less_than: 3` skips when `/total` is 0, 1, or 2). |
+| `body_contains` | Skip when the raw preflight body contains this substring. |
+| `body_not_contains` | Skip when the raw preflight body does not contain this substring. |
 
 ### Substitution
 
@@ -87,7 +91,7 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 | `traces/core-1037-gateway-yield-unsupported-envelope.jsonl` | No | `POST /gateway/yield` unsupported/invalid optional-capability path MUST return a structured envelope that tells runners to poll instead of treating it as a crash. |
 | `traces/core-1092-stable-debug-api.jsonl` | No | Stable `/v1/debug/*` routes expose the route family needed for agent diagnostics without scraping Admin HTML. |
 | `traces/core-1093-trace-context-debug-bundle.jsonl` | No | `X-Request-Id` and W3C `traceparent` stay distinct, and `/v1/debug/bundles/{trace_id}` can retrieve the retained trace. |
-| `traces/core-1108-deregistered-history.jsonl` | No | Stable debug route exposes recently auto-deregistered instance history for gateway lifecycle forensics. |
+| `traces/core-1108-deregistered-history.jsonl` | Optional booting row | Stable debug route exposes recently auto-deregistered history and, when present, keeps port=0 booting diagnostics visible across debug health reads. |
 | `traces/gateway-multi-instance-stress.jsonl` | Yes (≥3 live instances) | Skips unless `GET /v1/instances` reports `total >= 3`; then bursts health/instances/readyz/context/search to catch registry/probe regressions under load. |
 
 ## CI policy (recommended)
