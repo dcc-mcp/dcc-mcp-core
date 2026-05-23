@@ -313,6 +313,51 @@ class TestToolDispatcher:
         assert events[0]["attributes"]["dcc_type"] == "maya"
         assert events[1]["attributes"]["result_success"] is True
 
+    def test_dispatch_success_false_payload_marks_completed_event_failed(self, dispatcher_cls, registry_cls):
+        reg = registry_cls()
+        reg.register("soft_fail", dcc="maya")
+        d = dispatcher_cls(reg)
+        d.register_handler("soft_fail", lambda _: {"success": False, "message": "domain failure"})
+
+        events = []
+        d.event_bus().subscribe("tool.*", lambda event: events.append(event))
+
+        result = d.dispatch("soft_fail", "{}")
+
+        assert result["output"]["success"] is False
+        assert [event["name"] for event in events] == ["tool.dispatched", "tool.completed"]
+        assert events[1]["attributes"]["result_success"] is False
+
+    def test_dispatch_disabled_action_event_kind_matches_rust(self, dispatcher_cls, registry_cls):
+        reg = registry_cls()
+        reg.register("rig_a", dcc="maya", group="rigging", enabled=False)
+        d = dispatcher_cls(reg)
+        d.register_handler("rig_a", lambda _: {"ok": True})
+
+        events = []
+        d.event_bus().subscribe("tool.failed", lambda event: events.append(event))
+
+        with pytest.raises(PermissionError):
+            d.dispatch("rig_a", "{}")
+
+        assert len(events) == 1
+        assert events[0]["attributes"]["error_kind"] == "action_disabled"
+
+    def test_dispatch_thread_affinity_event_kind_matches_rust(self, dispatcher_cls, registry_cls):
+        reg = registry_cls()
+        reg.register("main_only", dcc="maya", thread_affinity="main", enforce_thread_affinity=True)
+        d = dispatcher_cls(reg)
+        d.register_handler("main_only", lambda _: {"ok": True})
+
+        events = []
+        d.event_bus().subscribe("tool.failed", lambda event: events.append(event))
+
+        with pytest.raises(PermissionError):
+            d.dispatch("main_only", "{}")
+
+        assert len(events) == 1
+        assert events[0]["attributes"]["error_kind"] == "thread_affinity_violation"
+
     def test_dispatch_no_handler_raises_key_error(self, empty_dispatcher):
         d, _ = empty_dispatcher
         with pytest.raises((KeyError, RuntimeError)):
