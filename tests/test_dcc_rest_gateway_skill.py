@@ -13,6 +13,7 @@ import dcc_mcp_core
 
 DCC_REST_GATEWAY_DIR = str(REPO_ROOT / "skills" / "dcc-rest-gateway")
 CHECK_SCRIPT = Path(DCC_REST_GATEWAY_DIR) / "scripts" / "check_gateway.py"
+RELEASE_MANIFEST = REPO_ROOT / ".release-please-manifest.json"
 
 # Import probe from skill script (stdlib-only; safe on all platforms).
 sys.path.insert(0, str(CHECK_SCRIPT.parent))
@@ -29,7 +30,8 @@ class TestDccRestGatewaySkill:
         meta = dcc_mcp_core.parse_skill_md(DCC_REST_GATEWAY_DIR)
         assert meta is not None
         assert meta.name == "dcc-rest-gateway"
-        assert meta.version == "1.0.0"
+        release_version = json.loads(RELEASE_MANIFEST.read_text(encoding="utf-8"))["."]
+        assert meta.version == release_version
 
     def test_validate_skill_clean(self) -> None:
         report = dcc_mcp_core.validate_skill(DCC_REST_GATEWAY_DIR)
