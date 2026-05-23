@@ -8,8 +8,8 @@ use dcc_mcp_paths::path_to_string;
 
 use crate::paths::{
     copy_skill_to_team_dir, copy_skill_to_user_dir, get_app_skill_paths_from_env,
-    get_app_team_skill_paths_from_env, get_app_user_skill_paths_from_env, get_skill_paths_from_env,
-    get_skills_dir, get_team_skill_paths_from_env, get_team_skills_dir,
+    get_app_team_skill_paths_from_env, get_app_user_skill_paths_from_env, get_local_skills_dir,
+    get_skill_paths_from_env, get_skills_dir, get_team_skill_paths_from_env, get_team_skills_dir,
     get_user_skill_paths_from_env, get_user_skills_dir,
 };
 
@@ -18,6 +18,13 @@ use crate::paths::{
 #[pyo3(signature = (dcc_name=None))]
 pub fn py_get_skills_dir(dcc_name: Option<&str>) -> PyResult<String> {
     Ok(get_skills_dir(dcc_name)?)
+}
+
+#[pyfunction]
+#[pyo3(name = "get_local_skills_dir")]
+#[pyo3(signature = (dcc_name=None))]
+pub fn py_get_local_skills_dir(dcc_name: Option<&str>) -> PyResult<String> {
+    Ok(get_local_skills_dir(dcc_name)?)
 }
 
 #[pyfunction]

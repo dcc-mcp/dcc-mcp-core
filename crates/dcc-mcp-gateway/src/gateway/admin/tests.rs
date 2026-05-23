@@ -4,6 +4,7 @@
 #[allow(clippy::await_holding_lock)] // Intentional: parking_lot Mutex for env-var test serialization
 mod admin_tests {
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
     use axum::Router;
@@ -418,6 +419,21 @@ mod admin_tests {
             body["skills"][0]["instances"][0],
             instance_short(&instance_id)
         );
+    }
+
+    #[tokio::test]
+    async fn test_admin_skills_runs_skill_paths_reload_hook() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let calls_for_hook = calls.clone();
+        let state = make_admin_state().with_skill_paths_reload(Some(Arc::new(move || {
+            calls_for_hook.fetch_add(1, Ordering::SeqCst);
+        })));
+        let router = build_admin_router(state);
+
+        let (status, _body) = body_json(router, "/api/skills").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
     // ── /api/calls ────────────────────────────────────────────────────────
@@ -1454,7 +1470,13 @@ mod admin_tests {
         let db_path = tmp.path().join("test_crud.sqlite");
         let lane = AdminSqliteLane::spawn(db_path, 30).expect("spawn lane");
 
-        let state = make_admin_state().with_admin_sqlite_lane(Some(lane));
+        let reload_calls = Arc::new(AtomicUsize::new(0));
+        let reload_calls_for_hook = reload_calls.clone();
+        let state = make_admin_state()
+            .with_admin_sqlite_lane(Some(lane))
+            .with_skill_paths_reload(Some(Arc::new(move || {
+                reload_calls_for_hook.fetch_add(1, Ordering::SeqCst);
+            })));
         let router = build_admin_router(state);
 
         // POST a new skill path
@@ -1474,6 +1496,7 @@ mod admin_tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(reload_calls.load(Ordering::SeqCst), 1);
 
         // GET should now include the new path
         let (status, body) = body_json(router.clone(), "/api/skill-paths").await;
@@ -1502,6 +1525,7 @@ mod admin_tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(reload_calls.load(Ordering::SeqCst), 2);
 
         // GET should no longer include the deleted path
         let (status, body) = body_json(router, "/api/skill-paths").await;

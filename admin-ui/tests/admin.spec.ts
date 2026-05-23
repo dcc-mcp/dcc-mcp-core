@@ -386,6 +386,62 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.skill-paths-panel')).not.toContainText('G:/custom/admin-skills');
   });
 
+  test('refreshes the skills inventory on demand', async ({ page }) => {
+    await page.goto('/admin/?panel=skill-paths');
+    await expect(page.locator('.skill-paths-panel')).toContainText('maya-modeling');
+    await expect(page.locator('.skill-paths-panel')).not.toContainText('houdini-fx');
+
+    await page.route('**/admin/api/skills', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          total: 3,
+          loaded: 3,
+          unloaded: 0,
+          action_count: 6,
+          skills: [
+            {
+              name: 'maya-modeling',
+              dcc_type: 'maya',
+              loaded: true,
+              action_count: 3,
+              instance_count: 1,
+              instances: ['12345678'],
+              tools: ['create_sphere', 'delete_sphere', 'set_transform'],
+              summary: 'Modeling tools currently loaded by Maya.',
+            },
+            {
+              name: 'blender-lookdev',
+              dcc_type: 'blender',
+              loaded: true,
+              action_count: 2,
+              instance_count: 1,
+              instances: ['abcdef12'],
+              tools: ['render_preview', 'assign_material'],
+              summary: 'Lookdev tools currently loaded by Blender.',
+            },
+            {
+              name: 'houdini-fx',
+              dcc_type: 'houdini',
+              loaded: true,
+              action_count: 1,
+              instance_count: 1,
+              instances: ['fedcba98'],
+              tools: ['simulate_smoke'],
+              summary: 'FX tools discovered after manual refresh.',
+            },
+          ],
+        }),
+      });
+    });
+    await page.locator('.skill-paths-panel').getByRole('button', { name: 'Refresh' }).click();
+
+    await expect(page.locator('.skill-paths-panel')).toContainText('houdini-fx');
+    await expect(page.locator('.skill-paths-panel')).toContainText('simulate_smoke');
+    await expect(page.locator('.skill-summary-grid')).toContainText('3 indexed');
+  });
+
   test('shows logs and panel search metadata', async ({ page }) => {
     await page.goto('/admin/');
     await page.getByRole('navigation').getByRole('link', { name: 'Logs' }).click();
