@@ -6,20 +6,22 @@ description: >-
   an existing skill directory, or generate a SKILL.md template. Not for
   executing DCC commands — use domain-specific skills for that.
 license: MIT
-compatibility: "Python 3.7+, dcc-mcp-core 0.15+"
+compatibility: "Python 3.7+, dcc-mcp-core 0.17+"
 allowed-tools: Bash Read Write Edit
 metadata:
   dcc-mcp:
     dcc: python
     version: "1.0.0"
     layer: infrastructure
-    search-hint: "create skill, validate skill, scaffold skill, SKILL.md, skill template, skill format"
+    search-hint: "create skill, validate skill, scaffold skill, SKILL.md, tools.yaml, client-safe tool names, skill format"
     tools: tools.yaml
 ---
 
 # DCC Skills Creator
 
 A first-class meta-skill for creating and validating DCC skills in the dcc-mcp-core ecosystem.
+It emits the current `metadata.dcc-mcp.*` layout, sibling `tools.yaml`, explicit
+schemas, annotations, execution mode, and thread-affinity metadata.
 
 ## Installation
 
@@ -55,6 +57,8 @@ server = create_skill_server(
 #     name="maya-rigging",
 #     parent_dir="/path/to/skills/dir",
 #     dcc="maya",
+#     tool_name="create_locator",
+#     affinity="main",
 # )
 ```
 
@@ -83,13 +87,25 @@ else:
 ```
 my-skill/
 ├── SKILL.md              # Required: metadata frontmatter + instructions
+├── tools.yaml            # Required when metadata.dcc-mcp.tools points here
 ├── scripts/              # Optional: tool implementation scripts
-│   ├── tool1.py
-│   └── tool2.py
+│   └── create_locator.py
 └── metadata/             # Optional: documentation and dependencies
     ├── depends.md
     └── help.md
 ```
+
+## Current Tool Contract
+
+Generated `tools.yaml` entries follow the modern contract:
+
+- Local tool names are snake_case and client-safe. Do not use dotted names.
+- Loaded tools are published as `<skill-name>__<tool_name>` when namespacing is needed.
+- `input_schema` and `output_schema` are declared explicitly.
+- `execution` is `sync` or `async`; use `async` for deferred/long-running work.
+- `affinity` is explicit. Use `main` for host API or scene mutation work and `any` for pure work.
+- `enforce_thread_affinity: true` is emitted so adapter dispatch stays honest.
+- `annotations` use MCP hints: read-only, destructive, idempotent, open-world, and deferred.
 
 ## Validation Rules
 
@@ -100,7 +116,7 @@ The validator checks:
 - **Required fields**: `name`, `description`
 - **Name format**: kebab-case, ≤64 chars, matches directory name
 - **Field lengths**: description ≤1024, compatibility ≤500
-- **Tool declarations**: non-empty names, no duplicates, snake_case format
+- **Tool declarations**: non-empty names, no duplicates, snake_case client-safe format
 - **Script files**: `source_file` references exist in `scripts/`
 - **Sidecar files**: `metadata.dcc-mcp.tools/groups/prompts` references exist
 - **Dependencies**: `depends` vs `metadata/depends.md` consistency
