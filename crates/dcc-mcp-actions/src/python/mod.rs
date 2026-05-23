@@ -29,7 +29,7 @@ use serde_json::{Map, Value, json};
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
-use crate::dispatcher::{DispatchError, ToolDispatcher};
+use crate::dispatcher::{DispatchError, ToolDispatcher, dispatch_error_kind};
 use crate::events::EventBus;
 use crate::registry::{ToolMeta, ToolRegistry};
 use crate::validator::ToolValidator;
@@ -380,7 +380,7 @@ impl PyToolDispatcher {
                 | Err(err @ DispatchError::ThreadAffinityViolation { .. }) => {
                     self.emit_tool_failed(
                         action_name,
-                        "permission_denied",
+                        dispatch_error_kind(&err),
                         err.to_string(),
                         started,
                     );
@@ -412,13 +412,14 @@ impl PyToolDispatcher {
             pyo3::exceptions::PyRuntimeError::new_err(format!("handler error: {e}"))
         })?;
 
+        let result_success = py_result_success(&raw, py);
         self.emit_tool_event(
             "tool.completed",
             action_name,
             started,
             json!({
                 "validation_skipped": validation_skipped,
-                "result_success": true,
+                "result_success": result_success,
             }),
         );
 
@@ -497,6 +498,15 @@ fn value_to_py(py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> {
             Ok(dict.into())
         }
     }
+}
+
+fn py_result_success(raw: &Py<PyAny>, py: Python<'_>) -> bool {
+    raw.bind(py)
+        .cast::<PyDict>()
+        .ok()
+        .and_then(|dict| dict.get_item("success").ok().flatten())
+        .and_then(|value| value.extract::<bool>().ok())
+        .unwrap_or(true)
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
