@@ -117,6 +117,14 @@ into a faster authoring loop.
     a documented whole-desktop fallback, return structured `stale_control` /
     `policy_disabled` / `timeout` errors, and redact typed text or screenshot
     bytes in audit records.
+    Tool declarations must carry MCP safety annotations plus `execution`,
+    `affinity`, and `timeout_hint_secs`; the gateway propagates those through
+    `search_tools`, `describe_tool`, `/v1/search`, and `/v1/describe` so
+    agents can discover UI risk and timeout contracts before calling.
+    Gateway instance diagnostics expose `diagnostics.app_ui.status` as
+    `available`, `unavailable`, or `disabled_by_policy`; adapters may publish
+    policy status/reason in registry metadata with `app_ui.status` and
+    `app_ui.reason`.
     Backend-specific implementations, such as the bundled Chrome DevTools
     prototype, belong behind the skill/runtime layer and must preserve the
     same `app_ui__snapshot` -> `find` -> `act` -> `wait_for` contract.

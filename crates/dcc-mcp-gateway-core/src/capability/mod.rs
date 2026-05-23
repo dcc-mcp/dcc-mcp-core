@@ -38,7 +38,10 @@ pub mod search_ranking;
 // CapabilityRecord` etc.) keep working verbatim.
 pub use builder::BuildOutcome;
 pub use index::{IndexSnapshot, InstanceFingerprint};
-pub use record::{CapabilityRecord, SCHEMA_AVAILABLE, is_valid_dcc_bucket, parse_slug, tool_slug};
+pub use record::{
+    CapabilityAnnotations, CapabilityMetadata, CapabilityRecord, SCHEMA_AVAILABLE,
+    is_valid_dcc_bucket, parse_slug, tool_slug,
+};
 pub use refresh::RefreshReason;
 pub use search::{
     DEFAULT_LIMIT, MAX_LIMIT, SearchHit, SearchMode, SearchPage, SearchQuery, search, search_page,

@@ -25,6 +25,7 @@ use dcc_mcp_actions::dispatcher::{DispatchError, ToolDispatcher};
 use dcc_mcp_actions::{
     DispatchExecutionContext, current_execution_context, with_execution_context,
 };
+use dcc_mcp_models::{ExecutionMode, ThreadAffinity, ToolAnnotations};
 use dcc_mcp_skills::SkillCatalog;
 
 use super::errors::{ServiceError, ServiceErrorKind};
@@ -101,6 +102,15 @@ pub struct SkillListEntry {
     pub has_schema: bool,
     /// Human-readable scope label (`"repo"`, `"user"`, ...).
     pub scope: String,
+    /// MCP ToolAnnotations-style safety hints. Kept compact and omitted when
+    /// the backend has no declared hints.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<Object>)]
+    pub annotations: Option<Value>,
+    /// Execution metadata used by gateway `describe_tool` / REST clients.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<Object>)]
+    pub metadata: Option<Value>,
     /// Machine-executable remediation for progressive loading. Present
     /// when `loaded=false` so REST clients can load the owning skill
     /// without needing MCP tool metadata.
@@ -199,6 +209,11 @@ pub struct DescribeResponse {
     /// Skill annotations (tags, category, execution metadata...).
     #[schema(value_type = Object)]
     pub annotations: Value,
+    /// Execution metadata and risk hints carried outside the MCP
+    /// ToolAnnotations namespace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<Object>)]
+    pub metadata: Option<Value>,
 }
 
 /// Payload for `POST /v1/call`.
@@ -274,6 +289,11 @@ pub struct CatalogAction {
     pub input_schema: Value,
     pub loaded: bool,
     pub scope: String,
+    pub annotations: ToolAnnotations,
+    pub execution: ExecutionMode,
+    pub timeout_hint_secs: Option<u32>,
+    pub thread_affinity: ThreadAffinity,
+    pub enforce_thread_affinity: bool,
 }
 
 /// Anything that can invoke a tool by name and return its output.
@@ -497,6 +517,11 @@ impl SkillCatalogSource for CatalogSource {
                 input_schema: meta.input_schema,
                 loaded,
                 scope,
+                annotations: meta.annotations,
+                execution: meta.execution,
+                timeout_hint_secs: meta.timeout_hint_secs,
+                thread_affinity: meta.thread_affinity,
+                enforce_thread_affinity: meta.enforce_thread_affinity,
             });
         }
 
@@ -534,6 +559,11 @@ impl SkillCatalogSource for CatalogSource {
                     input_schema,
                     loaded: false,
                     scope: detail.scope.clone(),
+                    annotations: tool_decl.annotations.clone(),
+                    execution: tool_decl.execution,
+                    timeout_hint_secs: tool_decl.timeout_hint_secs,
+                    thread_affinity: tool_decl.thread_affinity,
+                    enforce_thread_affinity: tool_decl.enforce_thread_affinity,
                 });
             }
         }
@@ -878,12 +908,15 @@ impl SkillRestService {
     pub fn describe(&self, req: &DescribeRequest) -> Result<DescribeResponse, ServiceError> {
         let action = self.resolve_slug(&req.tool_slug)?;
         let entry = action_to_entry(action.clone());
-        let annotations = serde_json::json!({
-            "tags": action.tags,
-            "scope": action.scope,
-            "loaded": action.loaded,
-            "dcc": action.dcc,
-        });
+        let annotations = describe_annotations(&action);
+        let metadata = action_metadata(&action);
+        let mut annotations = annotations.unwrap_or_else(|| serde_json::json!({}));
+        annotations["tags"] = serde_json::json!(action.tags);
+        annotations["scope"] = serde_json::json!(action.scope);
+        annotations["loaded"] = serde_json::json!(action.loaded);
+        annotations["dcc"] = serde_json::json!(action.dcc);
+        let metadata =
+            Some(metadata).filter(|value| !value.as_object().is_none_or(|m| m.is_empty()));
         Ok(DescribeResponse {
             entry,
             description: action.description,
@@ -893,6 +926,7 @@ impl SkillRestService {
                 None
             },
             annotations,
+            metadata,
         })
     }
 
@@ -1068,6 +1102,8 @@ fn action_to_entry(a: CatalogAction) -> SkillListEntry {
             props_ok || required_ok
         })
         .unwrap_or(false);
+    let annotations = safety_annotations(&a.annotations);
+    let metadata = search_metadata(&a);
     SkillListEntry {
         slug: ToolSlug::build(&a.dcc, &a.skill_name, &a.action_name),
         skill: a.skill_name,
@@ -1077,7 +1113,87 @@ fn action_to_entry(a: CatalogAction) -> SkillListEntry {
         loaded: a.loaded,
         has_schema,
         scope: a.scope,
+        annotations,
+        metadata,
         next_step,
+    }
+}
+
+fn describe_annotations(action: &CatalogAction) -> Option<Value> {
+    safety_annotations(&action.annotations)
+}
+
+fn safety_annotations(annotations: &ToolAnnotations) -> Option<Value> {
+    let mut out = serde_json::Map::new();
+    if let Some(title) = &annotations.title {
+        out.insert("title".to_string(), Value::String(title.clone()));
+    }
+    if let Some(read_only) = annotations.read_only_hint {
+        out.insert("readOnlyHint".to_string(), Value::Bool(read_only));
+    }
+    if let Some(destructive) = annotations.destructive_hint {
+        out.insert("destructiveHint".to_string(), Value::Bool(destructive));
+    }
+    if let Some(idempotent) = annotations.idempotent_hint {
+        out.insert("idempotentHint".to_string(), Value::Bool(idempotent));
+    }
+    if let Some(open_world) = annotations.open_world_hint {
+        out.insert("openWorldHint".to_string(), Value::Bool(open_world));
+    }
+    (!out.is_empty()).then_some(Value::Object(out))
+}
+
+fn action_metadata(action: &CatalogAction) -> Value {
+    let mut dcc = serde_json::Map::new();
+    dcc.insert(
+        "affinity".to_string(),
+        Value::String(action.thread_affinity.as_str().to_string()),
+    );
+    dcc.insert(
+        "execution".to_string(),
+        Value::String(
+            match action.execution {
+                ExecutionMode::Sync => "sync",
+                ExecutionMode::Async => "async",
+            }
+            .to_string(),
+        ),
+    );
+    if let Some(timeout) = action.timeout_hint_secs {
+        dcc.insert("timeoutHintSecs".to_string(), serde_json::json!(timeout));
+    }
+    dcc.insert(
+        "enforceThreadAffinity".to_string(),
+        Value::Bool(action.enforce_thread_affinity),
+    );
+    dcc.insert(
+        "risk".to_string(),
+        Value::String(action_risk(&action.annotations).to_string()),
+    );
+
+    let mut out = serde_json::Map::new();
+    out.insert("dcc".to_string(), Value::Object(dcc));
+    Value::Object(out)
+}
+
+fn search_metadata(action: &CatalogAction) -> Option<Value> {
+    let has_non_default_execution = action.thread_affinity.is_main()
+        || action.execution.is_deferred()
+        || action.timeout_hint_secs.is_some()
+        || action.enforce_thread_affinity
+        || !action.annotations.is_empty();
+    has_non_default_execution.then(|| action_metadata(action))
+}
+
+fn action_risk(annotations: &ToolAnnotations) -> &'static str {
+    if annotations.destructive_hint == Some(true) {
+        "destructive"
+    } else if annotations.open_world_hint == Some(true) {
+        "open-world"
+    } else if annotations.read_only_hint == Some(true) {
+        "read-only"
+    } else {
+        "mutation"
     }
 }
 

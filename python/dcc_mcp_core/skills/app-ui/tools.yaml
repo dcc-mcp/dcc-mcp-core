@@ -15,6 +15,11 @@ tools:
           description: "Optional app_ui policy override for this call."
     read_only: true
     idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
     execution: sync
     affinity: any
     timeout_hint_secs: 2
@@ -54,6 +59,11 @@ tools:
           description: "Optional app_ui policy override for this call."
     read_only: true
     idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
     execution: sync
     affinity: any
     timeout_hint_secs: 2
@@ -96,6 +106,11 @@ tools:
           description: "Optional app_ui policy override for this call."
     read_only: false
     idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
     execution: sync
     affinity: any
     timeout_hint_secs: 5
@@ -151,6 +166,11 @@ tools:
           description: "Optional app_ui policy override for this call."
     read_only: true
     idempotent: false
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
     execution: sync
     affinity: any
     timeout_hint_secs: 10
