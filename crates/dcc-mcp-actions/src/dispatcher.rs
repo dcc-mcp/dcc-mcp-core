@@ -390,6 +390,7 @@ impl ToolDispatcher {
         };
 
         if emit_events {
+            let result_success = tool_result_success(&output);
             self.emit_tool_event(
                 "tool.completed",
                 action_name,
@@ -397,7 +398,7 @@ impl ToolDispatcher {
                 started,
                 json!({
                     "validation_skipped": outcome.skipped,
-                    "result_success": true,
+                    "result_success": result_success,
                 }),
             );
         }
@@ -482,7 +483,7 @@ impl ToolDispatcher {
     }
 }
 
-fn dispatch_error_kind(err: &DispatchError) -> &'static str {
+pub(crate) fn dispatch_error_kind(err: &DispatchError) -> &'static str {
     match err {
         DispatchError::HandlerNotFound(_) => "handler_not_found",
         DispatchError::MetadataNotFound(_) => "metadata_not_found",
@@ -491,6 +492,13 @@ fn dispatch_error_kind(err: &DispatchError) -> &'static str {
         DispatchError::ActionDisabled { .. } => "action_disabled",
         DispatchError::ThreadAffinityViolation { .. } => "thread_affinity_violation",
     }
+}
+
+fn tool_result_success(output: &Value) -> bool {
+    output
+        .get("success")
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -646,6 +654,48 @@ mod tests {
         assert_eq!(events[0].1["dcc_type"], "maya");
         assert_eq!(events[1].0, "tool.completed");
         assert_eq!(events[1].1["result_success"], true);
+    }
+
+    #[cfg(not(feature = "python-bindings"))]
+    #[test]
+    fn test_dispatch_completed_event_respects_success_false_payload() {
+        let reg = ToolRegistry::new();
+        reg.register_action(ToolMeta {
+            name: "soft_fail".into(),
+            dcc: "maya".into(),
+            ..Default::default()
+        });
+        let dispatcher = ToolDispatcher::new(reg);
+        dispatcher.register_handler("soft_fail", |_| {
+            Ok(json!({
+                "success": false,
+                "message": "tool reported a domain failure"
+            }))
+        });
+
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured = Arc::clone(&events);
+        let _id = dispatcher
+            .event_bus()
+            .subscribe_event("tool.*".to_string(), move |event| {
+                captured
+                    .lock()
+                    .unwrap()
+                    .push((event.name.clone(), event.attributes.clone()));
+            });
+
+        let result = dispatcher.dispatch("soft_fail", json!({})).unwrap();
+        assert_eq!(result.output["success"], false);
+
+        let events = events.lock().unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .map(|(name, _)| name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["tool.dispatched", "tool.completed"]
+        );
+        assert_eq!(events[1].1["result_success"], false);
     }
 
     #[cfg(not(feature = "python-bindings"))]

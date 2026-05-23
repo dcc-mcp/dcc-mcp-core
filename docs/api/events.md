@@ -80,6 +80,10 @@ Envelope fields:
 | `correlation` | `dict` | Request/session/trace correlation fields when available |
 | `attributes` | `dict` | Event-specific payload |
 
+For `tool.completed`, `attributes.result_success` follows the handler output's
+`success` boolean when present. If the output has no `success` field, a handler
+that returned normally is treated as successful.
+
 ---
 
 ## ToolRecorder

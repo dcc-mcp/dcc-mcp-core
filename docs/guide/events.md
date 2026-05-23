@@ -75,7 +75,9 @@ present:
 
 Tool lifecycle attributes include `tool_slug`, `tool_name`, `duration_ms`,
 `result_success` on terminal events, and metadata such as `dcc_type`,
-`skill_name`, `group`, and `annotations` when known.
+`skill_name`, `group`, and `annotations` when known. `tool.completed` derives
+`result_success` from an output object's `success` boolean when present;
+otherwise handler success defaults to `true`.
 
 Skill lifecycle attributes include `skill_name`, `dcc_type`, `version`,
 `skill_path`, declared/registered tool counts, registered tool names, and
