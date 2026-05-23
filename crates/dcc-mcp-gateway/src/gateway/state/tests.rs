@@ -51,6 +51,7 @@ fn test_gateway_state_with_own_and_unknown(
         instance_diagnostics: Arc::new(
             crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new(),
         ),
+        traffic_capture: Arc::new(crate::gateway::traffic::TrafficCapture::disabled()),
         debug_routes_enabled: false,
     }
 }

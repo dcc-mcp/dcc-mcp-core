@@ -12,6 +12,7 @@ build = "build.rs"
 [dependencies]
 # Internal
 dcc-mcp-db = { path = "../dcc-mcp-db", default-features = false }
+dcc-mcp-actions = { path = "../dcc-mcp-actions" }
 dcc-mcp-gateway-core = { path = "../dcc-mcp-gateway-core" }
 dcc-mcp-jsonrpc = { path = "../dcc-mcp-jsonrpc" }
 dcc-mcp-naming = { path = "../dcc-mcp-naming" }

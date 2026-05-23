@@ -554,6 +554,10 @@ pub(crate) async fn start_gateway_tasks(
     // below reassigns `gw_state.middleware_chain`, so `mut` is required.
     let instance_diagnostics =
         Arc::new(crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new());
+    let traffic_capture = Arc::new(crate::gateway::traffic::TrafficCapture::from_env()?);
+    if traffic_capture.is_enabled() {
+        tracing::info!("Gateway traffic capture enabled");
+    }
 
     #[cfg_attr(not(feature = "admin"), allow(unused_mut))]
     let mut gw_state = GatewayState {
@@ -582,6 +586,7 @@ pub(crate) async fn start_gateway_tasks(
         gateway_metrics: gateway_metrics.clone(),
         middleware_chain: Arc::new(middleware_chain),
         instance_diagnostics: instance_diagnostics.clone(),
+        traffic_capture,
         debug_routes_enabled: false,
     };
 

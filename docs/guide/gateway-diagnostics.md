@@ -26,6 +26,26 @@ and the `/metrics` Prometheus export.
 
 ---
 
+## Traffic capture
+
+For local agent/skill debugging, start the gateway with:
+
+```bash
+DCC_MCP_TRAFFIC_CAPTURE=jsonl:./capture.jsonl dcc-mcp-server ...
+```
+
+The JSONL file receives `traffic.frame` EventBus envelopes for `tools/call`
+traffic through the gateway. P0 records MCP/REST client-to-gateway frames,
+gateway-to-client responses, and forwarded gateway-to-adapter `/v1/call`
+frames. Capture is intentionally off by default and is blocked when
+`DCC_MCP_PROD_PROFILE=1` unless `DCC_MCP_FORCE_TRAFFIC_CAPTURE=1` is also set.
+
+Because frames can contain prompts, tool arguments, scene paths, and result
+payloads, treat capture files like debugging artifacts, not production audit
+logs.
+
+---
+
 ## Election (three-tier comparison)
 
 Only one process can bind the gateway port at a time; the rest stand by.

@@ -642,6 +642,22 @@ async fn call_service_with_admin_trace(
     } else {
         ctx.args.clone()
     };
+    emit_rest_traffic_frame(
+        gs,
+        &ctx,
+        headers,
+        RestTrafficFrame {
+            path: method,
+            direction: "inbound",
+            leg: "client_to_gateway",
+            status: None,
+            body: json!({
+            "tool_slug": slug,
+            "arguments": effective_arguments.clone(),
+            "meta": meta.clone(),
+            }),
+        },
+    );
     let dispatch_ns = now_ns();
     let mut result = call_service(
         gs,
@@ -695,6 +711,19 @@ async fn call_service_with_admin_trace(
         return Err(ServiceError::new("middleware-error", err.to_string()));
     }
 
+    emit_rest_traffic_frame(
+        gs,
+        &ctx,
+        headers,
+        RestTrafficFrame {
+            path: method,
+            direction: "outbound",
+            leg: "gateway_to_client",
+            status: Some(if is_error { 502 } else { 200 }),
+            body: output_value,
+        },
+    );
+
     result
 }
 
@@ -732,6 +761,18 @@ async fn call_batch_with_admin_trace(
     }
 
     ctx.input_payload = Some(TracePayload::from_value(&ctx.args, MAX_INPUT_BYTES));
+    emit_rest_traffic_frame(
+        gs,
+        &ctx,
+        headers,
+        RestTrafficFrame {
+            path: "v1/call_batch",
+            direction: "inbound",
+            leg: "client_to_gateway",
+            status: None,
+            body: ctx.args.clone(),
+        },
+    );
 
     let dispatch_ns = now_ns();
     let result = crate::gateway::tools::gateway_call_batch_inner(
@@ -780,7 +821,70 @@ async fn call_batch_with_admin_trace(
         return Err(err.to_string());
     }
 
+    emit_rest_traffic_frame(
+        gs,
+        &ctx,
+        headers,
+        RestTrafficFrame {
+            path: "v1/call_batch",
+            direction: "outbound",
+            leg: "gateway_to_client",
+            status: Some(if is_error { 400 } else { 200 }),
+            body: output_value,
+        },
+    );
+
     result
+}
+
+struct RestTrafficFrame<'a> {
+    path: &'a str,
+    direction: &'static str,
+    leg: &'static str,
+    status: Option<u16>,
+    body: Value,
+}
+
+fn emit_rest_traffic_frame(
+    gs: &GatewayState,
+    ctx: &crate::gateway::middleware::CallContext,
+    headers: &HeaderMap,
+    frame: RestTrafficFrame<'_>,
+) {
+    gs.traffic_capture.emit_json_frame(
+        crate::gateway::traffic::TrafficFrame::json(
+            crate::gateway::traffic::gateway_source(
+                &gs.server_name,
+                &gs.server_version,
+                &gs.own_host,
+                gs.own_port,
+            ),
+            crate::gateway::traffic::correlation(
+                Some(&ctx.trace_context.request_id),
+                Some(&ctx.trace_context.trace_id),
+                ctx.session_id.as_deref(),
+            ),
+            frame.direction,
+            frame.leg,
+            "http",
+            frame.body,
+        )
+        .with_session_id(ctx.session_id.as_deref())
+        .with_http(crate::gateway::traffic::http_post(
+            frame.path,
+            Some(headers),
+            frame.status,
+        ))
+        .with_mcp(crate::gateway::traffic::mcp_message(
+            if frame.direction == "inbound" {
+                "request"
+            } else {
+                "response"
+            },
+            "tools/call",
+            None,
+        )),
+    );
 }
 
 fn session_id_from_headers(headers: &HeaderMap) -> Option<String> {
@@ -893,6 +997,7 @@ mod tests {
             instance_diagnostics: Arc::new(
                 crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new(),
             ),
+            traffic_capture: Arc::new(crate::gateway::traffic::TrafficCapture::disabled()),
             debug_routes_enabled,
             #[cfg(feature = "prometheus")]
             gateway_metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),

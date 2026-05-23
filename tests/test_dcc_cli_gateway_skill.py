@@ -13,6 +13,7 @@ import dcc_mcp_core
 
 DCC_CLI_GATEWAY_DIR = str(REPO_ROOT / "skills" / "dcc-cli-gateway")
 CHECK_SCRIPT = Path(DCC_CLI_GATEWAY_DIR) / "scripts" / "check_cli.py"
+RELEASE_MANIFEST = REPO_ROOT / ".release-please-manifest.json"
 
 sys.path.insert(0, str(CHECK_SCRIPT.parent))
 import check_cli as check_cli_mod  # noqa: E402
@@ -29,7 +30,8 @@ class TestDccCliGatewaySkill:
         meta = dcc_mcp_core.parse_skill_md(DCC_CLI_GATEWAY_DIR)
         assert meta is not None
         assert meta.name == "dcc-cli-gateway"
-        assert meta.version == "1.0.0"
+        release_version = json.loads(RELEASE_MANIFEST.read_text(encoding="utf-8"))["."]
+        assert meta.version == release_version
 
     def test_validate_skill_clean(self) -> None:
         report = dcc_mcp_core.validate_skill(DCC_CLI_GATEWAY_DIR)

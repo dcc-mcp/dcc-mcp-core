@@ -425,6 +425,7 @@ pub struct ForwardToolsCallRequest<'a> {
     /// not use JSON-RPC request ids.
     pub request_id: Option<String>,
     pub trace_context: Option<&'a TraceContext>,
+    pub traffic_capture: Option<&'a crate::gateway::traffic::TrafficCapture>,
     pub timeout: Duration,
 }
 
@@ -440,6 +441,7 @@ pub async fn forward_tools_call(
         meta,
         request_id: _request_id,
         trace_context,
+        traffic_capture,
         timeout,
     } = request;
     let base = rest_base_from_mcp_url(mcp_url);
@@ -452,14 +454,47 @@ pub async fn forward_tools_call(
     if let Some(m) = meta {
         body["meta"] = m;
     }
+    if let Some(capture) = traffic_capture {
+        emit_backend_traffic_frame(
+            capture,
+            trace_context,
+            &url,
+            "request",
+            "gateway_to_adapter",
+            None,
+            body.clone(),
+        );
+    }
     if let Err(reason) = circuits().check_open(key) {
         let msg = format!("{mcp_url}: {reason}");
         record_gateway_backend_error_kind(rest_error_prometheus_kind(&msg));
+        if let Some(capture) = traffic_capture {
+            emit_backend_traffic_frame(
+                capture,
+                trace_context,
+                &url,
+                "response",
+                "adapter_to_gateway",
+                None,
+                json!({"success": false, "error": {"kind": "circuit-open", "message": msg}}),
+            );
+        }
         return Err(msg);
     }
     match rest_post_with_trace_context(client, &url, body, timeout, trace_context).await {
         Ok(v) => {
             circuits().on_success(key);
+            if let Some(capture) = traffic_capture {
+                emit_backend_traffic_frame(
+                    capture,
+                    trace_context,
+                    &url,
+                    "response",
+                    "adapter_to_gateway",
+                    Some(200),
+                    v.clone(),
+                );
+            }
             Ok(v)
         }
         Err(e) => {
@@ -469,9 +504,55 @@ pub async fn forward_tools_call(
                 circuits().on_success(key);
             }
             record_gateway_backend_error_kind(rest_error_prometheus_kind(&e));
+            if let Some(capture) = traffic_capture {
+                emit_backend_traffic_frame(
+                    capture,
+                    trace_context,
+                    &url,
+                    "response",
+                    "adapter_to_gateway",
+                    None,
+                    json!({"success": false, "error": {"kind": "backend-error", "message": e}}),
+                );
+            }
             Err(e)
         }
     }
+}
+
+fn emit_backend_traffic_frame(
+    capture: &crate::gateway::traffic::TrafficCapture,
+    trace_context: Option<&TraceContext>,
+    url: &str,
+    kind: &str,
+    leg: &'static str,
+    status: Option<u16>,
+    body: Value,
+) {
+    capture.emit_json_frame(
+        crate::gateway::traffic::TrafficFrame::json(
+            crate::gateway::traffic::basic_gateway_source(),
+            trace_correlation(trace_context, None),
+            "internal",
+            leg,
+            "http",
+            body,
+        )
+        .with_http(crate::gateway::traffic::http_post(url, None, status))
+        .with_mcp(crate::gateway::traffic::mcp_message(
+            kind,
+            "tools/call",
+            None,
+        )),
+    );
+}
+
+fn trace_correlation(trace_context: Option<&TraceContext>, session_id: Option<&str>) -> Value {
+    crate::gateway::traffic::correlation(
+        trace_context.map(|ctx| ctx.request_id.as_str()),
+        trace_context.map(|ctx| ctx.trace_id.as_str()),
+        session_id,
+    )
 }
 
 /// Forward a `prompts/get` to a backend via `GET /v1/prompts/{name}`.
