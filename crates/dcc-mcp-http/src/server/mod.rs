@@ -612,8 +612,13 @@ impl McpHttpServer {
         let actual_bind = actual_addr.to_string();
 
         tracing::info!(
-            "MCP HTTP server listening on http://{actual_bind}{}",
-            self.config.server.endpoint_path
+            server_name = %self.config.server.server_name,
+            server_version = %self.config.server.server_version,
+            "MCP HTTP server {} v{} listening on http://{}{}",
+            self.config.server.server_name,
+            self.config.server.server_version,
+            actual_bind,
+            self.config.server.endpoint_path,
         );
 
         // ── Optional gateway competition ──────────────────────────────────────

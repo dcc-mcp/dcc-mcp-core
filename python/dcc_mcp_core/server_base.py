@@ -692,7 +692,13 @@ class DccServerBase:
         self._init_telemetry()
 
         self._handle = self._server.start()
-        logger.info("[%s] MCP server started at %s", self._dcc_name, self._handle.mcp_url())
+        server_version = getattr(self._config, "server_version", _PKG_VERSION)
+        logger.info(
+            "[%s] MCP server v%s started at %s",
+            self._dcc_name,
+            server_version,
+            self._handle.mcp_url(),
+        )
         self._runtime_controller().start_gateway_election_if_needed()
 
         return self._handle
