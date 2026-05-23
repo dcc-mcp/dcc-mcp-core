@@ -25,6 +25,19 @@ async function mockAdminApi(page: Page) {
         uptime_secs: 3723,
         version: '0.17.7',
         rss_bytes: 2097152,
+        gateway: {
+          current: {
+            name: 'local-gateway',
+            role: 'active',
+            host: '127.0.0.1',
+            port: 9765,
+            instance_id: 'gateway-1234567890',
+            version: '0.17.7',
+            adapter_version: null,
+            adapter_dcc: null,
+          },
+          candidates: [],
+        },
         limits: {
           body_max_bytes: 1048576,
           rate_limit_per_minute_per_ip: 60,
@@ -334,7 +347,8 @@ test.describe('Admin Page', () => {
     }
     await expect(page.getByRole('navigation').getByRole('link', { name: 'Docs' })).toHaveAttribute('href', 'https://github.com/loonghao/dcc-mcp-core/tree/main/docs');
     await expect(page.locator('.setup-panel')).toContainText('Claude Desktop');
-    await expect(page.locator('.setup-panel')).toContainText('http://127.0.0.1:3721/mcp');
+    await expect(page.locator('.setup-panel')).toContainText('http://127.0.0.1:9765/mcp');
+    await expect(page.locator('.setup-panel')).not.toContainText('http://127.0.0.1:3721/mcp');
     await expect(page.locator('.setup-panel img.ide-icon')).toHaveCount(6);
     await expect(page.locator('.setup-panel .ide-config-preview').first()).toContainText('"dcc-mcp-gateway"');
     await page.locator('.setup-panel .ide-card').first().getByRole('button', { name: 'Copy' }).click();
@@ -369,6 +383,29 @@ test.describe('Admin Page', () => {
     await expect(setup).toContainText('~/Library/Application Support/Code/User/mcp.json');
     await expect(setup).toContainText('~/.codex/settings.json');
     await expect(setup).not.toContainText('%APPDATA%\\Claude');
+  });
+
+  test('uses the default local gateway port when the dev server has no gateway sentinel', async ({ page }) => {
+    await page.route('**/admin/api/health', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 'ok',
+          instances_ready: 0,
+          instances_total: 0,
+          uptime_secs: 1,
+          version: '0.17.7',
+          rss_bytes: 0,
+        }),
+      });
+    });
+
+    await page.goto('/admin/');
+
+    const setup = page.locator('.setup-panel');
+    await expect(setup).toContainText('http://127.0.0.1:9765/mcp');
+    await expect(setup).not.toContainText('http://127.0.0.1:3721/mcp');
   });
 
   test('switches to instances, renders DCC cards, and filters rows', async ({ page }) => {

@@ -549,6 +549,7 @@ function adminApiBase(): string {
 const API_BASE = adminApiBase();
 /** Abort hung admin fetches so the UI does not wait indefinitely on a wedged gateway. */
 const ADMIN_FETCH_TIMEOUT_MS = 25_000;
+const DEFAULT_LOCAL_GATEWAY_PORT = '9765';
 const OPENAPI_METHODS = new Set(['get', 'put', 'post', 'delete', 'patch', 'options', 'head', 'trace']);
 const IDE_SERVER_NAME = 'dcc-mcp-gateway';
 const buildMcpServersConfig = (url: string) => ({
@@ -781,7 +782,50 @@ function backendAccessUrls(mcpUrl: string): { origin: string; mcp: string; docs:
   return { origin, mcp: u.toString(), docs: `${origin}/docs`, openapi: `${origin}/v1/openapi.json` };
 }
 
-function gatewayMcpUrl(): string {
+function urlHost(host: string): string {
+  const trimmed = host.trim();
+  if (trimmed === '0.0.0.0' || trimmed === '::') {
+    return window.location.hostname;
+  }
+  if (trimmed.includes(':') && !trimmed.startsWith('[') && !trimmed.endsWith(']')) {
+    return `[${trimmed}]`;
+  }
+  return trimmed;
+}
+
+function gatewaySentinelMcpUrl(sentinel: GatewaySentinel | null | undefined): string | null {
+  if (!sentinel || !sentinel.host || !Number.isFinite(sentinel.port) || sentinel.port <= 0) {
+    return null;
+  }
+  try {
+    return new URL('/mcp', `http://${urlHost(sentinel.host)}:${sentinel.port}`).toString();
+  } catch {
+    return null;
+  }
+}
+
+function configuredDevGatewayMcpUrl(): string | null {
+  if (!import.meta.env.DEV || !isLoopbackHost(window.location.hostname)) {
+    return null;
+  }
+  const configured = String(import.meta.env.VITE_DCC_MCP_GATEWAY_URL ?? '').trim();
+  try {
+    if (configured) {
+      return new URL('/mcp', configured).toString();
+    }
+    return new URL('/mcp', `${window.location.protocol}//${window.location.hostname}:${DEFAULT_LOCAL_GATEWAY_PORT}`).toString();
+  } catch {
+    return null;
+  }
+}
+
+function gatewayMcpUrl(health: HealthPayload | null): string {
+  return gatewaySentinelMcpUrl(health?.gateway?.current)
+    ?? configuredDevGatewayMcpUrl()
+    ?? new URL('/mcp', window.location.origin).toString();
+}
+
+function gatewayMcpUrlFromPage(): string {
   return new URL('/mcp', window.location.origin).toString();
 }
 
@@ -789,7 +833,7 @@ function lanGatewayMcpUrl(): string | null {
   if (isLoopbackHost(window.location.hostname)) {
     return null;
   }
-  return gatewayMcpUrl();
+  return gatewayMcpUrlFromPage();
 }
 
 function workerSetupLabel(worker: WorkerRow): string {
@@ -2116,8 +2160,8 @@ function App() {
         return selectedDirectWorker.mcp_url;
       }
     }
-    return gatewayMcpUrl();
-  }, [lanUrl, selectedDirectWorker, setupUrlMode]);
+    return gatewayMcpUrl(health);
+  }, [health, lanUrl, selectedDirectWorker, setupUrlMode]);
 
   useEffect(() => {
     if (!directInstanceId && directSetupWorkers.length > 0) {
