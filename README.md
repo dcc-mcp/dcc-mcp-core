@@ -509,8 +509,9 @@ paths = get_bundled_skill_paths(include_bundled=False)  # opt-out
 
 DCC adapters (e.g. `dcc-mcp-maya`) include the bundled skills by default. To opt out: `start_server(include_bundled=False)`.
 The `media` skill uses `vx ffmpeg` / `vx ffprobe` internally so fresh machines
-do not need a manual FFmpeg install. If `vx` is missing, it bootstraps `vx`
-with the official install script, then retries the typed media command.
+do not need a manual FFmpeg install. If `vx` is missing, non-read-only media
+tools bootstrap `vx` with the official install script before retrying; the
+read-only `probe` tool reports `vx_not_found` instead of installing anything.
 
 ---
 
