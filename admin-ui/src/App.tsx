@@ -327,8 +327,16 @@ type SkillRow = {
   action_count: number;
   instance_count: number;
   instances: string[];
+  instance_ids: string[];
+  instance_details: SkillInstanceRef[];
   tools: string[];
   summary?: string | null;
+};
+
+type SkillInstanceRef = {
+  id: string;
+  prefix: string;
+  dcc_type?: string;
 };
 
 type SkillPayload = {
@@ -338,6 +346,29 @@ type SkillPayload = {
   unloaded?: number;
   action_count?: number;
   error?: string;
+};
+
+type SkillDetailInstance = {
+  name?: string;
+  description?: string;
+  dcc?: string;
+  dcc_type?: string;
+  state?: string;
+  skill_path?: string;
+  skill_md_path?: string | null;
+  markdown?: string | null;
+  instance_id?: string;
+  instance_short?: string;
+  tools?: unknown[];
+  error?: string;
+  message?: string;
+  raw?: unknown;
+};
+
+type SkillDetailPayload = {
+  skill?: SkillDetailInstance | null;
+  instances?: SkillDetailInstance[];
+  error?: string | null;
 };
 
 type SetupUrlMode = 'local' | 'lan' | 'direct';
@@ -378,6 +409,21 @@ function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.map((item) => String(item)) : [];
 }
 
+function recordOrNull(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' ? value as Record<string, unknown> : null;
+}
+
+function normalizeSkillInstanceRef(raw: unknown, fallbackPrefix = '', fallbackDcc = ''): SkillInstanceRef {
+  const o = recordOrNull(raw);
+  const id = String(o?.id ?? o?.instance_id ?? fallbackPrefix);
+  const prefix = String(o?.prefix ?? o?.instance_short ?? fallbackPrefix ?? id);
+  return {
+    id,
+    prefix,
+    dcc_type: String(o?.dcc_type ?? fallbackDcc),
+  };
+}
+
 function normalizeSkillRow(raw: unknown): SkillRow {
   if (!raw || typeof raw !== 'object') {
     return {
@@ -387,21 +433,74 @@ function normalizeSkillRow(raw: unknown): SkillRow {
       action_count: 0,
       instance_count: 0,
       instances: [],
+      instance_ids: [],
+      instance_details: [],
       tools: [],
     };
   }
   const o = raw as Record<string, unknown>;
   const instances = stringList(o.instances);
+  const instanceIds = stringList(o.instance_ids);
+  const dccType = String(o.dcc_type ?? o.dcc ?? '');
+  const explicitDetails = Array.isArray(o.instance_details)
+    ? o.instance_details.map((item, index) => normalizeSkillInstanceRef(item, instances[index], dccType))
+    : [];
+  const instanceDetails = explicitDetails.length > 0
+    ? explicitDetails
+    : instances.map((prefix, index) => ({ id: instanceIds[index] ?? prefix, prefix, dcc_type: dccType }));
   const tools = stringList(o.tools);
   return {
     name: String(o.name ?? ''),
-    dcc_type: String(o.dcc_type ?? o.dcc ?? ''),
+    dcc_type: dccType,
     loaded: o.loaded === true,
     action_count: Number(o.action_count ?? tools.length ?? 0),
     instance_count: Number(o.instance_count ?? instances.length ?? 0),
     instances,
+    instance_ids: instanceIds,
+    instance_details: instanceDetails,
     tools,
     summary: o.summary == null ? null : String(o.summary),
+  };
+}
+
+function normalizeSkillDetailInstance(raw: unknown): SkillDetailInstance {
+  const o = recordOrNull(raw);
+  if (!o) {
+    return { raw };
+  }
+  return {
+    name: o.name == null ? undefined : String(o.name),
+    description: o.description == null ? undefined : String(o.description),
+    dcc: o.dcc == null ? undefined : String(o.dcc),
+    dcc_type: o.dcc_type == null ? undefined : String(o.dcc_type),
+    state: o.state == null ? undefined : String(o.state),
+    skill_path: o.skill_path == null ? undefined : String(o.skill_path),
+    skill_md_path: o.skill_md_path == null ? null : String(o.skill_md_path),
+    markdown: o.markdown == null ? null : String(o.markdown),
+    instance_id: o.instance_id == null ? undefined : String(o.instance_id),
+    instance_short: o.instance_short == null ? undefined : String(o.instance_short),
+    tools: Array.isArray(o.tools) ? o.tools : undefined,
+    error: o.error == null ? undefined : String(o.error),
+    message: o.message == null ? undefined : String(o.message),
+    raw,
+  };
+}
+
+function normalizeSkillDetailPayload(raw: unknown): SkillDetailPayload {
+  const o = recordOrNull(raw);
+  if (!o) {
+    return { skill: null, instances: [], error: 'Invalid skill detail payload' };
+  }
+  const instances = Array.isArray(o.instances)
+    ? o.instances.map(normalizeSkillDetailInstance)
+    : [];
+  const skill = o.skill == null || o.skill === false
+    ? instances[0] ?? null
+    : normalizeSkillDetailInstance(o.skill);
+  return {
+    skill,
+    instances,
+    error: o.error == null ? null : String(o.error),
   };
 }
 
@@ -993,6 +1092,248 @@ function EmptyRow({ columns, children }: { columns: number; children: string }) 
   );
 }
 
+type MarkdownBlock =
+  | { kind: 'heading'; level: number; text: string }
+  | { kind: 'paragraph'; text: string }
+  | { kind: 'list'; items: string[] }
+  | { kind: 'code'; language: string; text: string }
+  | { kind: 'quote'; text: string }
+  | { kind: 'rule' };
+
+function splitSkillMarkdown(markdown: string): { frontmatter: string | null; body: string } {
+  const normalized = markdown.replace(/\r\n/g, '\n');
+  const lines = normalized.split('\n');
+  if (lines[0]?.trim() === '---') {
+    const end = lines.findIndex((line, index) => index > 0 && line.trim() === '---');
+    if (end > 0) {
+      return {
+        frontmatter: lines.slice(1, end).join('\n').trim(),
+        body: lines.slice(end + 1).join('\n').trim(),
+      };
+    }
+  }
+  return { frontmatter: null, body: normalized.trim() };
+}
+
+function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
+  const blocks: MarkdownBlock[] = [];
+  const paragraph: string[] = [];
+  let list: string[] = [];
+  let code: string[] | null = null;
+  let codeLanguage = '';
+
+  const flushParagraph = () => {
+    if (paragraph.length > 0) {
+      blocks.push({ kind: 'paragraph', text: paragraph.join(' ') });
+      paragraph.length = 0;
+    }
+  };
+  const flushList = () => {
+    if (list.length > 0) {
+      blocks.push({ kind: 'list', items: list });
+      list = [];
+    }
+  };
+
+  for (const line of markdown.replace(/\r\n/g, '\n').split('\n')) {
+    const trimmed = line.trim();
+    if (code) {
+      if (trimmed.startsWith('```')) {
+        blocks.push({ kind: 'code', language: codeLanguage, text: code.join('\n') });
+        code = null;
+        codeLanguage = '';
+      } else {
+        code.push(line);
+      }
+      continue;
+    }
+
+    if (trimmed.startsWith('```')) {
+      flushParagraph();
+      flushList();
+      code = [];
+      codeLanguage = trimmed.slice(3).trim();
+      continue;
+    }
+    if (!trimmed) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+    if (/^-{3,}$/.test(trimmed)) {
+      flushParagraph();
+      flushList();
+      blocks.push({ kind: 'rule' });
+      continue;
+    }
+    const heading = /^(#{1,4})\s+(.+)$/.exec(trimmed);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      blocks.push({ kind: 'heading', level: heading[1].length, text: heading[2] });
+      continue;
+    }
+    const bullet = /^[-*]\s+(.+)$/.exec(trimmed);
+    if (bullet) {
+      flushParagraph();
+      list.push(bullet[1]);
+      continue;
+    }
+    const quote = /^>\s?(.+)$/.exec(trimmed);
+    if (quote) {
+      flushParagraph();
+      flushList();
+      blocks.push({ kind: 'quote', text: quote[1] });
+      continue;
+    }
+    paragraph.push(trimmed);
+  }
+
+  if (code) {
+    blocks.push({ kind: 'code', language: codeLanguage, text: code.join('\n') });
+  }
+  flushParagraph();
+  flushList();
+  return blocks;
+}
+
+function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
+  return text.split(/(`[^`]+`)/g).map((part, index) => {
+    if (part.startsWith('`') && part.endsWith('`')) {
+      return <code className="inline-code" key={`${keyPrefix}-code-${index}`}>{part.slice(1, -1)}</code>;
+    }
+    return <span key={`${keyPrefix}-text-${index}`}>{part}</span>;
+  });
+}
+
+function SkillMarkdownPreview({ markdown }: { markdown?: string | null }) {
+  if (!markdown) {
+    return <p className="empty">No SKILL.md markdown was returned by the backend.</p>;
+  }
+  const { frontmatter, body } = splitSkillMarkdown(markdown);
+  const blocks = parseMarkdownBlocks(body);
+  return (
+    <div className="skill-markdown-preview">
+      {frontmatter ? (
+        <details className="skill-frontmatter">
+          <summary>Frontmatter</summary>
+          <pre>{frontmatter}</pre>
+        </details>
+      ) : null}
+      {blocks.length === 0 ? <p className="empty">No markdown body.</p> : null}
+      {blocks.map((block, index) => {
+        const key = `skill-md-${index}`;
+        if (block.kind === 'heading') {
+          const content = renderInlineMarkdown(block.text, key);
+          if (block.level === 1) {
+            return <h3 key={key}>{content}</h3>;
+          }
+          if (block.level === 2) {
+            return <h4 key={key}>{content}</h4>;
+          }
+          return <h5 key={key}>{content}</h5>;
+        }
+        if (block.kind === 'paragraph') {
+          return <p key={key}>{renderInlineMarkdown(block.text, key)}</p>;
+        }
+        if (block.kind === 'list') {
+          return (
+            <ul key={key}>
+              {block.items.map((item, itemIndex) => (
+                <li key={`${key}-${itemIndex}`}>{renderInlineMarkdown(item, `${key}-${itemIndex}`)}</li>
+              ))}
+            </ul>
+          );
+        }
+        if (block.kind === 'code') {
+          return (
+            <pre className="skill-code-block" key={key}>
+              {block.language ? <span className="skill-code-language">{block.language}</span> : null}
+              <code>{block.text}</code>
+            </pre>
+          );
+        }
+        if (block.kind === 'quote') {
+          return <blockquote key={key}>{renderInlineMarkdown(block.text, key)}</blockquote>;
+        }
+        return <hr key={key} />;
+      })}
+    </div>
+  );
+}
+
+function skillDetailToolNames(detail: SkillDetailInstance | null | undefined): string[] {
+  if (!Array.isArray(detail?.tools)) {
+    return [];
+  }
+  return detail.tools
+    .map((tool) => {
+      if (typeof tool === 'string') {
+        return tool;
+      }
+      const o = recordOrNull(tool);
+      return o?.name == null ? '' : String(o.name);
+    })
+    .filter(Boolean);
+}
+
+function SkillDetailPanel({
+  skill,
+  detail,
+  busy,
+  onReload,
+  onClose,
+}: {
+  skill: SkillRow;
+  detail: SkillDetailPayload | null;
+  busy: boolean;
+  onReload: () => void;
+  onClose: () => void;
+}) {
+  const selected = detail?.skill ?? detail?.instances?.[0] ?? null;
+  const tools = skillDetailToolNames(selected);
+  const dccLabel = selected?.dcc_type ?? selected?.dcc ?? skill.dcc_type;
+  return (
+    <section className="skill-detail-panel" aria-live="polite">
+      <div className="skill-detail-heading">
+        <div>
+          <h3>{selected?.name ?? skill.name}</h3>
+          <div className="skill-detail-meta">
+            <span className="source-pill">{dccLabel || 'unknown'}</span>
+            <span className={`badge ${skill.loaded ? 'badge-ok' : 'badge-muted'}`}>{selected?.state ?? (skill.loaded ? 'loaded' : 'unloaded')}</span>
+            {selected?.instance_short ? <span className="mono-path">instance {selected.instance_short}</span> : null}
+          </div>
+        </div>
+        <div className="table-actions">
+          <button className="refresh-btn" type="button" disabled={busy} onClick={onReload}>
+            {busy ? 'Loading…' : 'Reload'}
+          </button>
+          <button className="linkish" type="button" onClick={onClose}>Close</button>
+        </div>
+      </div>
+      {selected?.description ? <p className="skill-detail-description">{selected.description}</p> : null}
+      {selected?.skill_md_path ? <div className="mono-path skill-detail-path">{selected.skill_md_path}</div> : null}
+      {detail?.error || selected?.error ? <p className="empty skill-detail-error">{detail?.error ?? selected?.error}</p> : null}
+      {selected?.message ? <p className="empty">{selected.message}</p> : null}
+      {tools.length > 0 ? (
+        <div className="skill-detail-tools">
+          {tools.map((tool) => <span className="source-pill" key={tool}>{tool}</span>)}
+        </div>
+      ) : null}
+      <SkillMarkdownPreview markdown={selected?.markdown} />
+      {detail?.instances && detail.instances.length > 1 ? (
+        <div className="skill-detail-instances">
+          {detail.instances.map((instance) => (
+            <span className="source-pill" key={`${instance.instance_id ?? instance.instance_short ?? instance.name}`}>
+              {instance.dcc_type ?? instance.dcc ?? skill.dcc_type}:{instance.instance_short ?? compactId(instance.instance_id)}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function toolGroupLabel(tool: ToolRow): string {
   const p = tool.instance_prefix ?? '—';
   return `${tool.dcc_type} · instance ${p}`;
@@ -1503,6 +1844,9 @@ function App() {
   const [skillTotals, setSkillTotals] = useState({ total: 0, loaded: 0, unloaded: 0, action_count: 0 });
   const [skillPathInput, setSkillPathInput] = useState('');
   const [skillPathBusy, setSkillPathBusy] = useState(false);
+  const [selectedSkill, setSelectedSkill] = useState<SkillRow | null>(null);
+  const [skillDetail, setSkillDetail] = useState<SkillDetailPayload | null>(null);
+  const [skillDetailBusy, setSkillDetailBusy] = useState(false);
   const [traceDetail, setTraceDetail] = useState<string>('Select a trace row for detail.');
   const [traceDetailPayload, setTraceDetailPayload] = useState<TraceDetailPayload | null>(null);
   const [callDetail, setCallDetail] = useState<string>('Select a call row for trace detail.');
@@ -2081,6 +2425,31 @@ function App() {
       );
     } catch (error) {
       markError('skill-paths', error);
+    }
+  }, [markError, markUpdated]);
+
+  const fetchSkillDetail = useCallback(async (skill: SkillRow) => {
+    setSelectedSkill(skill);
+    setSkillDetailBusy(true);
+    setSkillDetail(null);
+    try {
+      const params = new URLSearchParams({ name: skill.name });
+      if (skill.dcc_type) {
+        params.set('dcc_type', skill.dcc_type);
+      }
+      const instanceId = skill.instance_details[0]?.id || skill.instance_ids[0];
+      if (instanceId) {
+        params.set('instance_id', instanceId);
+      }
+      const payload = await apiJson<SkillDetailPayload>(`/skill-detail?${params.toString()}`);
+      setSkillDetail(normalizeSkillDetailPayload(payload));
+      markUpdated('skill-paths', `Skill ${skill.name} detail loaded — ${new Date().toLocaleTimeString()}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSkillDetail({ skill: null, instances: [], error: message });
+      markError('skill-paths', error);
+    } finally {
+      setSkillDetailBusy(false);
     }
   }, [markError, markUpdated]);
 
@@ -3019,9 +3388,14 @@ function App() {
                     <EmptyRow columns={6}>No skills match your search.</EmptyRow>
                   ) : (
                     filteredSkills.map((skill) => (
-                      <tr key={`${skill.dcc_type}-${skill.name}-${skill.loaded ? 'loaded' : 'unloaded'}`}>
+                      <tr
+                        className={selectedSkill?.name === skill.name && selectedSkill?.dcc_type === skill.dcc_type ? 'skill-row selected' : 'skill-row'}
+                        key={`${skill.dcc_type}-${skill.name}-${skill.loaded ? 'loaded' : 'unloaded'}`}
+                      >
                         <td>
-                          <strong>{skill.name}</strong>
+                          <button className="linkish skill-name-button" type="button" onClick={() => void fetchSkillDetail(skill)}>
+                            {skill.name}
+                          </button>
                           {skill.summary ? <div className="muted skill-summary-text">{skill.summary}</div> : null}
                         </td>
                         <td><span className="source-pill">{skill.dcc_type || 'unknown'}</span></td>
@@ -3034,6 +3408,18 @@ function App() {
                   )}
                 </tbody>
               </table>
+              {selectedSkill ? (
+                <SkillDetailPanel
+                  skill={selectedSkill}
+                  detail={skillDetail}
+                  busy={skillDetailBusy}
+                  onReload={() => void fetchSkillDetail(selectedSkill)}
+                  onClose={() => {
+                    setSelectedSkill(null);
+                    setSkillDetail(null);
+                  }}
+                />
+              ) : null}
             </div>
             <div className="skill-inventory-section">
               <h3 className="section-kicker">Skill search paths</h3>

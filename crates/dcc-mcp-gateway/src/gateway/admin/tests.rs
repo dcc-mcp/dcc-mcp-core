@@ -176,6 +176,59 @@ mod admin_tests {
         (port, tx)
     }
 
+    async fn spawn_skill_detail_backend(hits: Value, detail: Value) -> (u16, oneshot::Sender<()>) {
+        let app = Router::new()
+            .route("/health", axum::routing::get(|| async { StatusCode::OK }))
+            .route(
+                "/v1/search",
+                axum::routing::post(move || {
+                    let hits = hits.clone();
+                    async move { axum::Json(json!({ "hits": hits })) }
+                }),
+            )
+            .route(
+                "/mcp",
+                axum::routing::post(move |axum::Json(req): axum::Json<Value>| {
+                    let detail = detail.clone();
+                    async move {
+                        let id = req.get("id").cloned().unwrap_or(json!("test"));
+                        let tool_name = req
+                            .pointer("/params/name")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default();
+                        if tool_name == "get_skill_info" {
+                            let text = serde_json::to_string_pretty(&detail).unwrap();
+                            axum::Json(json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "result": {
+                                    "content": [{ "type": "text", "text": text }],
+                                    "isError": false
+                                }
+                            }))
+                        } else {
+                            axum::Json(json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "error": { "code": -32601, "message": "unknown tool" }
+                            }))
+                        }
+                    }
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (tx, rx) = oneshot::channel::<()>();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = rx.await;
+                })
+                .await;
+        });
+        (port, tx)
+    }
+
     async fn response_status(router: Router, uri: &str) -> StatusCode {
         router
             .oneshot(
@@ -434,6 +487,66 @@ mod admin_tests {
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_admin_skill_detail_returns_backend_markdown() {
+        let gs = make_gateway_state();
+        let (port, stop) = spawn_skill_detail_backend(
+            json!([
+                {
+                    "skill": "maya-modeling",
+                    "action": "maya-modeling.create_cube",
+                    "summary": "Create a cube",
+                    "loaded": true,
+                    "has_schema": false
+                }
+            ]),
+            json!({
+                "name": "maya-modeling",
+                "description": "Modeling tools currently loaded by Maya.",
+                "dcc": "maya",
+                "skill_path": "G:/studio/skills/maya-modeling",
+                "skill_md_path": "G:/studio/skills/maya-modeling/SKILL.md",
+                "markdown": "---\nname: maya-modeling\n---\n# Maya Modeling\n\n- Create a cube\n",
+                "tools": [{ "name": "create_cube" }],
+                "state": "loaded"
+            }),
+        )
+        .await;
+        let entry = make_service_entry("maya", "127.0.0.1", port, None);
+        let instance_id = entry.instance_id;
+        {
+            let registry = gs.registry.write().await;
+            registry.register(entry).unwrap();
+        }
+        let router = build_admin_router(AdminState::new(gs));
+
+        let uri = format!(
+            "/api/skill-detail?name=maya-modeling&dcc_type=maya&instance_id={}",
+            instance_short(&instance_id)
+        );
+        let (status, body) = body_json(router, &uri).await;
+        let _ = stop.send(());
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["skill"]["name"], "maya-modeling");
+        assert_eq!(body["skill"]["dcc_type"], "maya");
+        assert_eq!(
+            body["skill"]["instance_short"],
+            instance_short(&instance_id)
+        );
+        assert!(
+            body["skill"]["markdown"]
+                .as_str()
+                .unwrap()
+                .contains("# Maya Modeling")
+        );
+        assert_eq!(
+            body["skill"]["skill_md_path"],
+            "G:/studio/skills/maya-modeling/SKILL.md"
+        );
+        assert_eq!(body["instances"].as_array().unwrap().len(), 1);
     }
 
     // ── /api/calls ────────────────────────────────────────────────────────
