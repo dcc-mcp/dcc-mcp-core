@@ -22,6 +22,13 @@ pub struct GatewayRunner {
     pub registry: Arc<RwLock<FileRegistry>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResidentGatewayHealth {
+    Missing,
+    Healthy,
+    Unhealthy,
+}
+
 impl GatewayRunner {
     /// Create a new runner, initializing (or loading) the `FileRegistry` from
     /// `config.registry_dir`, the `DCC_MCP_REGISTRY_DIR` environment variable,
@@ -43,7 +50,7 @@ impl GatewayRunner {
         })
     }
 
-    /// Register `entry`, start heartbeat, and run the **version-aware gateway election**.
+    /// Register `entry`, start heartbeat, and run the liveness-aware gateway election.
     ///
     /// ## Election algorithm
     ///
@@ -52,12 +59,14 @@ impl GatewayRunner {
     ///    - Periodically checks whether any live instance has a *newer* version;
     ///      if so, initiates voluntary yield (graceful shutdown of its listener).
     ///
-    /// 2. **Lose + same-or-older version**: registers as a plain DCC instance
-    ///    (current `is_gateway = false` behaviour).
+    /// 2. **Lose + healthy resident**: registers as a plain DCC instance
+    ///    even when this process has a newer version. Healthy co-existing
+    ///    DCCs must not drop active MCP clients just because another adapter
+    ///    started.
     ///
-    /// 3. **Lose + newer version** (e.g. `0.12.29` vs `0.12.6` gateway):
-    ///    - First tries a cooperative [`POST /gateway/yield`] to the existing
-    ///      gateway (works if the gateway supports it, i.e. is also `≥ 0.12.29`).
+    /// 3. **Lose + missing or unhealthy resident**:
+    ///    - First tries a cooperative [`POST /gateway/yield`] when this
+    ///      process is newer and the incumbent supports it.
     ///    - Regardless of the response, enters a **challenger retry loop** that
     ///      polls the port every `challenger_poll_interval_secs` for up to
     ///      `challenger_timeout_secs`.
@@ -203,7 +212,7 @@ impl GatewayRunner {
         })
     }
 
-    /// Core version-aware election logic, extracted for clarity.
+    /// Core liveness-aware election logic, extracted for clarity.
     ///
     /// Public so out-of-process sidecars can re-run election after the
     /// incumbent gateway dies without restarting the whole DCC host.
@@ -386,13 +395,10 @@ impl GatewayRunner {
                 }
             }
 
-            // ── Port is taken — version-aware challenger logic ────────────
+            // ── Port is taken — liveness-aware challenger logic ───────────
             None => {
-                // Read the sentinel to discover the current gateway's full
-                // election profile (crate version + adapter metadata).
-                // Issue maya#137: the previous lookup only fetched `version`,
-                // so a freshly-released DCC adapter could never preempt an
-                // older standalone server pinned to a newer crate version.
+                // Read the sentinel so logs and optional cooperative-yield
+                // requests can identify the resident gateway profile.
                 let resident = {
                     let reg = self.registry.read().await;
                     reg.list_instances(GATEWAY_SENTINEL_DCC_TYPE)
@@ -407,30 +413,26 @@ impl GatewayRunner {
                 let gw_adapter_version = resident.as_ref().and_then(|e| e.adapter_version.clone());
                 let gw_adapter_dcc = resident.as_ref().and_then(|e| e.adapter_dcc.clone());
 
-                let own_info = ElectionInfo::new(
-                    &own_version,
-                    own_adapter_version.as_deref(),
-                    own_adapter_dcc.as_deref(),
-                );
-                let gw_info = ElectionInfo::new(
-                    if gw_version.is_empty() {
-                        "0.0.0"
-                    } else {
-                        &gw_version
-                    },
-                    gw_adapter_version.as_deref(),
-                    gw_adapter_dcc.as_deref(),
-                );
+                let resident_health = if resident.is_none() {
+                    ResidentGatewayHealth::Missing
+                } else {
+                    probe_resident_gateway_health(
+                        &self.config.host,
+                        self.config.gateway_port,
+                        Duration::from_secs(self.config.challenger_poll_interval_secs.clamp(1, 5)),
+                    )
+                    .await
+                };
 
                 // Three cases reach this branch:
-                //   A. Resident exists AND we outrank it     -> challenger
-                //   B. Resident is gone (TIME_WAIT / race    -> challenger
+                //   A. Resident exists and /health passes    -> plain
+                //   B. Resident exists but /health fails     -> challenger
+                //   C. Resident is gone (TIME_WAIT / race    -> challenger
                 //      with no live sentinel; the OS still
                 //      holds the address but no peer is the
                 //      authoritative owner)
-                //   C. Resident exists and same-or-stronger  -> plain
                 //
-                // (B) is the post-crash recovery case: the previous
+                // (C) is the post-crash recovery case: the previous
                 // gateway died, ``prune_dead_entries`` cleared the stale
                 // sentinel, but the kernel still keeps the port in
                 // TIME_WAIT so our first bind attempt failed. Without
@@ -441,15 +443,9 @@ impl GatewayRunner {
                 // restarts a DCC. The challenger loop polls up to
                 // ``challenger_timeout_secs`` and wins the bind the
                 // moment TIME_WAIT releases (#893 follow-up).
-                let challenger_reason = if gw_version.is_empty() {
-                    "Bind failed but no resident sentinel (TIME_WAIT / race) — entering challenger mode"
-                } else if is_newer_election(own_info, gw_info) {
-                    "We outrank the current gateway — entering challenger mode"
-                } else {
-                    ""
-                };
+                let challenger_reason = challenger_reason(resident_health);
 
-                if !challenger_reason.is_empty() {
+                if let Some(challenger_reason) = challenger_reason {
                     tracing::info!(
                         own = %own_version,
                         own_adapter_version = ?own_adapter_version,
@@ -457,6 +453,7 @@ impl GatewayRunner {
                         gateway = %gw_version,
                         gateway_adapter_version = ?gw_adapter_version,
                         gateway_adapter_dcc = ?gw_adapter_dcc,
+                        resident_health = ?resident_health,
                         "{}",
                         challenger_reason,
                     );
@@ -479,7 +476,8 @@ impl GatewayRunner {
                         own_version = %own_version,
                         own_adapter_version = ?own_adapter_version,
                         own_adapter_dcc = ?own_adapter_dcc,
-                        "Gateway port held by same-or-stronger candidate — running as plain DCC instance"
+                        resident_health = ?resident_health,
+                        "Gateway port held by healthy resident — running as plain DCC instance"
                     );
                     Ok(ElectionOutcome {
                         is_gateway: false,
@@ -723,6 +721,50 @@ fn stamp_gateway_sentinel(entry: &mut ServiceEntry, gateway_name: &str, role: &s
     );
 }
 
+fn challenger_reason(resident_health: ResidentGatewayHealth) -> Option<&'static str> {
+    match resident_health {
+        ResidentGatewayHealth::Missing => Some(
+            "Bind failed but no resident sentinel (TIME_WAIT / race) — entering challenger mode",
+        ),
+        ResidentGatewayHealth::Unhealthy => {
+            Some("Resident gateway failed /health probe — entering challenger mode")
+        }
+        ResidentGatewayHealth::Healthy => None,
+    }
+}
+
+async fn probe_resident_gateway_health(
+    host: &str,
+    port: u16,
+    timeout: Duration,
+) -> ResidentGatewayHealth {
+    let url = format!("http://{host}:{port}/health");
+    let client = reqwest::Client::builder()
+        .connect_timeout(timeout)
+        .timeout(timeout)
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+    match client.get(&url).send().await {
+        Ok(resp) if resp.status().is_success() => ResidentGatewayHealth::Healthy,
+        Ok(resp) => {
+            tracing::warn!(
+                status = %resp.status(),
+                url = %url,
+                "Resident gateway /health probe failed"
+            );
+            ResidentGatewayHealth::Unhealthy
+        }
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                url = %url,
+                "Resident gateway /health probe failed"
+            );
+            ResidentGatewayHealth::Unhealthy
+        }
+    }
+}
+
 struct PromotedGatewayGuard {
     abort: Option<AbortHandle>,
     registry: Arc<RwLock<FileRegistry>>,
@@ -928,5 +970,28 @@ mod tests {
         assert!(should_probe_cooperative_yield("0.17.9", "0.17.8"));
         assert!(!should_probe_cooperative_yield("0.17.8", "0.17.8"));
         assert!(!should_probe_cooperative_yield("0.17.7", "0.17.8"));
+    }
+
+    #[test]
+    fn healthy_resident_suppresses_version_preemption() {
+        assert_eq!(challenger_reason(ResidentGatewayHealth::Healthy), None);
+    }
+
+    #[test]
+    fn unhealthy_resident_enters_challenger_mode_even_without_version_advantage() {
+        assert_eq!(
+            challenger_reason(ResidentGatewayHealth::Unhealthy),
+            Some("Resident gateway failed /health probe — entering challenger mode")
+        );
+    }
+
+    #[test]
+    fn missing_resident_still_recovers_time_wait_race() {
+        assert_eq!(
+            challenger_reason(ResidentGatewayHealth::Missing),
+            Some(
+                "Bind failed but no resident sentinel (TIME_WAIT / race) — entering challenger mode"
+            )
+        );
     }
 }
