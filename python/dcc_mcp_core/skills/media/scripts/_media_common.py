@@ -622,7 +622,7 @@ def build_thumbnail_command(
     return vx_command("ffmpeg", args), output
 
 
-def run_command(command: Sequence[str], timeout_secs: Any) -> str:
+def run_command(command: Sequence[str], timeout_secs: Any, *, allow_auto_install: bool = True) -> str:
     timeout = number_value("timeout_secs", timeout_secs, 30, minimum=1, maximum=3600)
     command_list = list(command)
     try:
@@ -635,6 +635,21 @@ def run_command(command: Sequence[str], timeout_secs: Any) -> str:
         )
     except FileNotFoundError as exc:
         if _is_default_vx_command(command_list):
+            if not allow_auto_install:
+                raise MediaToolError(
+                    "vx is not available on PATH; this read-only media command will not install it automatically.",
+                    "vx_not_found",
+                    prompt=(
+                        "Install vx manually, set DCC_MCP_MEDIA_VX_BIN, or run a non-read-only media tool "
+                        "when installation is intended."
+                    ),
+                    possible_solutions=[
+                        "Install vx and ensure `vx --version` works.",
+                        "Set DCC_MCP_MEDIA_VX_BIN to the absolute path of the vx executable.",
+                        "Use a non-read-only media tool only when automatic vx installation is acceptable.",
+                    ],
+                    context={"detail": str(exc), "command": command_list, "allow_auto_install": False},
+                ) from exc
             vx_bin = _bootstrap_vx_or_error(exc, command_list)
             command_list[0] = vx_bin
             try:
@@ -752,7 +767,7 @@ def _safe_int(value: Any) -> Optional[int]:
 
 def probe(input_path: Any, timeout_secs: Any = 30) -> Dict[str, Any]:
     command = build_probe_command(input_path)
-    stdout = run_command(command, timeout_secs)
+    stdout = run_command(command, timeout_secs, allow_auto_install=False)
     info = parse_probe(stdout)
     return skill_success(
         "Media metadata probed.",
