@@ -95,6 +95,7 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 | `traces/core-1124-3dsmax-main-affinity-host-bridge.jsonl` | Yes (3ds Max) | A main-affinity 3ds Max tool called through `/v1/call` must route through the attached host dispatcher instead of `THREAD_AFFINITY_UNAVAILABLE`. |
 | `traces/core-1125-3dsmax-diagnostics-screenshot-dict.jsonl` | Yes (3ds Max) | After `load_skill`, bundled `dcc_diagnostics__screenshot` must return a normal dict envelope through gateway REST. |
 | `traces/core-1133-app-ui-gateway-rest.jsonl` | Yes (any app_ui-capable instance) | `app_ui__snapshot` must be discoverable through gateway REST, describe must expose UI metadata, and call must preserve the structured envelope. |
+| `traces/core-1134-app-ui-mock-workflow.jsonl` | Yes (any app_ui-capable instance) | `app_ui` mock workflow must support snapshot -> find -> act -> wait and structured stale/policy/timeout/missing-window errors through REST. |
 | `traces/gateway-multi-instance-stress.jsonl` | Yes (≥3 live instances) | Skips unless `GET /v1/instances` reports `total >= 3`; then bursts health/instances/readyz/context/search to catch registry/probe regressions under load. |
 
 ## CI policy (recommended)
@@ -119,3 +120,4 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 - core [#1124](https://github.com/loonghao/dcc-mcp-core/issues/1124) — HostExecutionBridge registration must satisfy main-affinity tools/call routing
 - core [#1125](https://github.com/loonghao/dcc-mcp-core/issues/1125) — bundled diagnostics screenshot must return a dict through REST dispatch
 - core [#1133](https://github.com/loonghao/dcc-mcp-core/issues/1133) — app_ui gateway discovery and REST dispatch
+- core [#1134](https://github.com/loonghao/dcc-mcp-core/issues/1134) — app_ui DCC debugging workflow examples and REST traces

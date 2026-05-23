@@ -59,3 +59,19 @@ Use this loop:
 If an action returns `stale_control`, restart at `app_ui__snapshot`. If an
 action returns `policy_disabled`, prefer a native DCC skill or ask for an
 explicit policy change.
+
+## Workflow Examples
+
+Modal dialog: snapshot the scoped DCC/app window, find the button by label or
+role, click with the returned `snapshot_id`, then `wait_for` the button or
+dialog root to disappear. Verify completion through a native DCC skill when
+possible.
+
+Settings panel: snapshot, find the labeled field or checkbox, `set_text` /
+`toggle` / `set_checked`, click Apply, then `wait_for` a status label such as
+`Applied` and snapshot again. Typed text is redacted from audit unless policy
+allows sensitive values.
+
+Recovery: on `missing_window`, confirm process/window scope instead of widening
+to the desktop. On `timeout`, inspect the last snapshot and either wait once
+more with a justified budget or switch to host diagnostics.

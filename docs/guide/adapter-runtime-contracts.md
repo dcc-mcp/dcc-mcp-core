@@ -98,6 +98,8 @@ Preferred agent loop:
 
 Use native DCC skills or APIs first. Use `app_ui__*` only when the behavior is
 visible in the application UI but not exposed through a reliable host API.
+Workflow examples and recovery patterns live in
+[app-ui-workflows.md](app-ui-workflows.md).
 
 Safety expectations:
 
