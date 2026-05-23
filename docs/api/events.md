@@ -19,7 +19,8 @@ bus = EventBus()
 |--------|---------|-------------|
 | `subscribe(event_name, callback)` | `int` | Subscribe a callable. Returns subscriber ID |
 | `unsubscribe(event_name, subscriber_id)` | `bool` | Unsubscribe by ID. Returns True if found |
-| `publish(event_name, **kwargs)` | — | Call all subscribers with kwargs |
+| `publish(event_name, **kwargs)` | `None` | Call all matching subscribers with kwargs |
+| `emit(event_name, source=None, correlation=None, attributes=None)` | `dict` | Emit a structured event envelope and pass it to all matching subscribers |
 
 ### Dunder Methods
 
@@ -30,6 +31,8 @@ bus = EventBus()
 ### Behavior
 
 - Subscribers receive keyword arguments from `publish(event_name, **kwargs)`
+- Subscribers receive one event-envelope dict from `emit(...)`
+- Event names support exact matches, `prefix.*` wildcards, and a catch-all `*`
 - Exceptions in subscribers are logged via `tracing` but do not propagate
 - Callbacks are collected before invocation to avoid DashMap deadlocks
 - Multiple subscribers per event are supported
@@ -47,6 +50,35 @@ sid = bus.subscribe("action.executed", on_action)
 bus.publish("action.executed", action_name="create_sphere")
 bus.unsubscribe("action.executed", sid)
 ```
+
+### Structured Event Envelope
+
+```python
+events = []
+bus.subscribe("tool.*", lambda event: events.append(event))
+
+event = bus.emit(
+    "tool.completed",
+    source={"dcc_type": "maya"},
+    correlation={"request_id": "req-123"},
+    attributes={"tool_slug": "maya_scene__open", "result_success": True},
+)
+
+assert event["schema_version"] == 1
+assert events == [event]
+```
+
+Envelope fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `schema_version` | `int` | Event envelope schema version, currently `1` |
+| `name` | `str` | Dotted event name |
+| `id` | `str` | Opaque event id prefixed with `ev_` |
+| `timestamp_ns` | `int` | Unix timestamp in nanoseconds |
+| `source` | `dict` | Emitter identity such as `dcc_type` |
+| `correlation` | `dict` | Request/session/trace correlation fields when available |
+| `attributes` | `dict` | Event-specific payload |
 
 ---
 

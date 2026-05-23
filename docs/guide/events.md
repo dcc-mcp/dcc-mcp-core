@@ -1,75 +1,113 @@
 # Event System
 
-DCC-MCP-Core provides a publish/subscribe event system via the `EventBus` for decoupled action lifecycle communication.
+DCC-MCP-Core provides a thread-safe `EventBus` for downstream extensions that
+need to observe gateway, skill, or tool lifecycle without forking the server.
+The bus supports exact subscriptions, `prefix.*` wildcard subscriptions, and a
+catch-all `*` subscription.
 
-## Usage
+## Legacy Keyword Events
+
+`publish()` preserves the original lightweight API: subscribers are called with
+the keyword arguments supplied by the publisher.
 
 ```python
 from dcc_mcp_core import EventBus
 
 bus = EventBus()
 
-def on_sphere_done(event, **kwargs):
-    print(f"Event: {event}")
-    # kwargs contains event-specific data
+def on_scene_saved(**payload):
+    print(payload["file_path"])
 
-# Subscribe to an event — returns an integer subscriber ID
-sub_id = bus.subscribe("action.after_execute.create_sphere", on_sphere_done)
-
-# Unsubscribe using the event name and subscriber ID
-bus.unsubscribe("action.after_execute.create_sphere", sub_id)
-
-# Publish manually
-bus.publish("my_custom_event", data="value")
+sub_id = bus.subscribe("scene.saved", on_scene_saved)
+bus.publish("scene.saved", file_path="/tmp/scene.usda", size_kb=1024)
+bus.unsubscribe("scene.saved", sub_id)
 ```
 
-::: tip
-`subscribe()` returns a **subscriber ID** (integer), not the callback. Pass that ID to `unsubscribe()`, not the callback.
-:::
+## Structured Lifecycle Events
 
-## Event Discovery
+`emit()` publishes an RFC-0002 event envelope and passes the same dict to every
+matching subscriber.
 
-The `EventBus` is a generic pub/sub system. What events are published depends on the DCC adapter or service that uses it. Consult your DCC-specific adapter documentation for the full list of events it publishes.
+```python
+bus = EventBus()
 
-Common patterns:
+def record_metric(event: dict) -> None:
+    attrs = event["attributes"]
+    print(event["name"], attrs["tool_slug"], attrs.get("duration_ms"))
 
-| Event Pattern | Description |
-|---------------|-------------|
-| `action.before_execute.{name}` | Before executing a specific tool |
-| `action.after_execute.{name}` | After a specific tool completes |
-| `action.error.{name}` | When a specific tool raises an error |
+bus.subscribe("tool.*", record_metric)
+bus.emit(
+    "tool.completed",
+    source={"dcc_type": "maya"},
+    correlation={"request_id": "req-123"},
+    attributes={"tool_slug": "maya_scene__open", "result_success": True},
+)
+```
+
+Every structured event uses this envelope shape:
+
+```json
+{
+  "schema_version": 1,
+  "name": "tool.completed",
+  "id": "ev_...",
+  "timestamp_ns": 1779478215123456789,
+  "source": {},
+  "correlation": {},
+  "attributes": {}
+}
+```
+
+## Built-In Emit Points
+
+The core dispatcher and skill catalog emit these events when subscribers are
+present:
+
+| Event | Emitted when |
+|-------|--------------|
+| `tool.dispatched` | A tool call passed lookup, policy, and schema validation and is about to run |
+| `tool.completed` | A tool handler returned successfully |
+| `tool.failed` | Tool lookup, policy, validation, or handler execution failed |
+| `skill.loading` | A skill load is beginning |
+| `skill.loaded` | A skill loaded and registered its tools |
+| `skill.unloaded` | A loaded skill was unloaded and its tools were removed |
+| `skill.validation_failed` | A skill could not load because it was missing, had dependency issues, or failed setup validation |
+
+Tool lifecycle attributes include `tool_slug`, `tool_name`, `duration_ms`,
+`result_success` on terminal events, and metadata such as `dcc_type`,
+`skill_name`, `group`, and `annotations` when known.
+
+Skill lifecycle attributes include `skill_name`, `dcc_type`, `version`,
+`skill_path`, declared/registered tool counts, registered tool names, and
+failure details such as `error_kind` and `error_message`.
 
 ## Wildcard Subscriptions
 
-The event bus supports `*` as a wildcard in event names:
+Use dotted event names and subscribe to either an exact name, a prefix wildcard,
+or all events:
 
 ```python
-bus = EventBus()
-
-def on_any_after_execute(event, **kwargs):
-    print(f"Action completed: {event}")
-
-# Subscribe to all "after_execute" events
-id1 = bus.subscribe("action.after_execute.*", on_any_after_execute)
-
-# Subscribe to all events
-id2 = bus.subscribe("*", on_any_event)
+bus.subscribe("tool.completed", on_completed)
+bus.subscribe("skill.*", on_any_skill_event)
+bus.subscribe("*", on_any_event)
 ```
 
-## Publishing Events
+## Dispatcher And Catalog Buses
 
-Publish custom events for decoupled communication:
+`ToolDispatcher.event_bus()` returns the dispatcher's bus. A `SkillCatalog`
+created with `SkillCatalog.new_with_dispatcher(...)` shares the dispatcher's bus
+so subscribers can observe both `skill.*` and `tool.*` events from one place.
 
 ```python
-bus = EventBus()
+from dcc_mcp_core import ToolDispatcher, ToolRegistry
 
-# Publish with keyword arguments
-bus.publish("scene.saved", file_path="/tmp/scene.usda", size_kb=1024)
-bus.publish("scene.opened", file_path="/tmp/scene.usda")
+registry = ToolRegistry()
+dispatcher = ToolDispatcher(registry)
+dispatcher.event_bus().subscribe("tool.*", record_metric)
 ```
 
-## Dunder Methods
+## Failure Isolation
 
-| Method | Description |
-|--------|-------------|
-| `__repr__` | `EventBus(subscribers=N)` |
+Subscriber exceptions are logged and do not stop later subscribers. Callbacks
+are collected before invocation so a callback can safely subscribe or
+unsubscribe without deadlocking the bus.

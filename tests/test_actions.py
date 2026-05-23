@@ -498,6 +498,23 @@ class TestEventBus:
         bus.publish("evt", x=1, y="hello")
         assert results[0] == {"x": 1, "y": "hello"}
 
+    def test_emit_structured_event_to_wildcard_subscriber(self) -> None:
+        bus = dcc_mcp_core.EventBus()
+        results = []
+        bus.subscribe("skill.*", lambda event: results.append(event))
+
+        event = bus.emit(
+            "skill.loaded",
+            source={"dcc_type": "maya"},
+            correlation={"request_id": "req-1"},
+            attributes={"skill_name": "maya-core"},
+        )
+
+        assert event["schema_version"] == 1
+        assert event["name"] == "skill.loaded"
+        assert event["attributes"]["skill_name"] == "maya-core"
+        assert results == [event]
+
     def test_publish_no_subscribers(self) -> None:
         bus = dcc_mcp_core.EventBus()
         bus.publish("nonexistent")  # should not error

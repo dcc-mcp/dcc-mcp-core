@@ -19,16 +19,18 @@ mod events;
 pub(crate) mod versioned;
 
 use std::collections::HashMap;
+use std::time::Instant;
 
 use pyo3::Py;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
-use serde_json::Value;
+use serde_json::{Map, Value, json};
 
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 use crate::dispatcher::{DispatchError, ToolDispatcher};
+use crate::events::EventBus;
 use crate::registry::{ToolMeta, ToolRegistry};
 use crate::validator::ToolValidator;
 
@@ -157,6 +159,74 @@ pub struct PyToolDispatcher {
     pub skip_empty_schema_validation: bool,
 }
 
+impl PyToolDispatcher {
+    fn emit_tool_failed(
+        &self,
+        action_name: &str,
+        error_kind: &str,
+        error_message: String,
+        started: Instant,
+    ) {
+        self.emit_tool_event(
+            "tool.failed",
+            action_name,
+            started,
+            json!({
+                "result_success": false,
+                "error_kind": error_kind,
+                "error_message": error_message,
+            }),
+        );
+    }
+
+    fn emit_tool_event(
+        &self,
+        event_name: &str,
+        action_name: &str,
+        started: Instant,
+        attributes: Value,
+    ) {
+        let event_bus = self.inner.event_bus();
+        if !event_bus.has_subscribers(event_name) {
+            return;
+        }
+
+        let meta = self.inner.registry().get_action(action_name, None);
+        let mut source = Map::new();
+        let mut attrs = attributes.as_object().cloned().unwrap_or_default();
+        attrs.insert("tool_slug".to_string(), json!(action_name));
+        attrs.insert("tool_name".to_string(), json!(action_name));
+        attrs.insert(
+            "duration_ms".to_string(),
+            json!(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)),
+        );
+
+        if let Some(meta) = meta {
+            if !meta.dcc.is_empty() {
+                source.insert("dcc_type".to_string(), json!(meta.dcc));
+                attrs.insert("dcc_type".to_string(), json!(meta.dcc));
+            }
+            if let Some(skill_name) = &meta.skill_name {
+                attrs.insert("skill_name".to_string(), json!(skill_name));
+            }
+            if !meta.group.is_empty() {
+                attrs.insert("group".to_string(), json!(meta.group));
+            }
+            attrs.insert(
+                "annotations".to_string(),
+                serde_json::to_value(&meta.annotations).unwrap_or(Value::Null),
+            );
+        }
+
+        let _ = event_bus.emit(
+            event_name,
+            Value::Object(source),
+            Value::Object(Map::new()),
+            Value::Object(attrs),
+        );
+    }
+}
+
 #[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyToolDispatcher {
@@ -168,6 +238,18 @@ impl PyToolDispatcher {
             handler_map: HashMap::new(),
             skip_empty_schema_validation: true,
         }
+    }
+
+    /// Return the dispatcher event bus.
+    #[pyo3(name = "event_bus")]
+    pub fn py_event_bus(&self) -> EventBus {
+        self.inner.event_bus()
+    }
+
+    /// Replace the dispatcher event bus.
+    #[pyo3(name = "set_event_bus")]
+    pub fn py_set_event_bus(&mut self, event_bus: EventBus) {
+        self.inner = self.inner.clone().with_event_bus(event_bus);
     }
 
     /// Register a Python callable as the handler for ``action_name``.
@@ -251,20 +333,36 @@ impl PyToolDispatcher {
         action_name: &str,
         params_json: &str,
     ) -> PyResult<Bound<'py, PyDict>> {
+        let started = Instant::now();
         // 1. Parse params
         let params: Value = serde_json::from_str(params_json)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("invalid JSON: {e}")))?;
 
         // 2. Validate via Rust dispatcher (the stub handler is registered there too)
         let validation_skipped = if !self.handler_map.contains_key(action_name) {
+            self.emit_tool_failed(
+                action_name,
+                "handler_not_found",
+                format!("no handler for '{action_name}'"),
+                started,
+            );
             return Err(pyo3::exceptions::PyKeyError::new_err(format!(
                 "no handler for '{action_name}'"
             )));
         } else {
             // Use the Rust dispatcher only for validation
-            match self.inner.dispatch(action_name, params.clone()) {
+            match self
+                .inner
+                .dispatch_for_validation(action_name, params.clone())
+            {
                 Ok(r) => r.validation_skipped,
                 Err(DispatchError::ValidationFailed(msg)) => {
+                    self.emit_tool_failed(
+                        action_name,
+                        "validation_failed",
+                        format!("validation failed: {msg}"),
+                        started,
+                    );
                     return Err(pyo3::exceptions::PyValueError::new_err(format!(
                         "validation failed: {msg}"
                     )));
@@ -280,6 +378,12 @@ impl PyToolDispatcher {
                 }
                 Err(err @ DispatchError::ActionDisabled { .. })
                 | Err(err @ DispatchError::ThreadAffinityViolation { .. }) => {
+                    self.emit_tool_failed(
+                        action_name,
+                        "permission_denied",
+                        err.to_string(),
+                        started,
+                    );
                     return Err(pyo3::exceptions::PyPermissionError::new_err(
                         err.to_string(),
                     ));
@@ -288,11 +392,35 @@ impl PyToolDispatcher {
         };
 
         // 3. Call the Python handler
+        self.emit_tool_event(
+            "tool.dispatched",
+            action_name,
+            started,
+            json!({
+                "validation_skipped": validation_skipped,
+            }),
+        );
         let handler = self.handler_map.get(action_name).expect("checked above");
         let py_params = value_to_py(py, &params)?;
         let raw = handler.call1(py, (py_params,)).map_err(|e| {
+            self.emit_tool_failed(
+                action_name,
+                "handler_error",
+                format!("handler error: {e}"),
+                started,
+            );
             pyo3::exceptions::PyRuntimeError::new_err(format!("handler error: {e}"))
         })?;
+
+        self.emit_tool_event(
+            "tool.completed",
+            action_name,
+            started,
+            json!({
+                "validation_skipped": validation_skipped,
+                "result_success": true,
+            }),
+        );
 
         // 4. Build result dict
         let d = PyDict::new(py);
