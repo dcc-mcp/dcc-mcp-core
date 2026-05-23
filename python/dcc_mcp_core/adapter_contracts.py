@@ -221,6 +221,7 @@ class AppUiPolicy:
     allow_text_entry: bool = True
     allow_keyboard_shortcuts: bool = False
     allow_raw_coordinates: bool = False
+    require_scoped_window: bool = True
     allowed_window_titles: List[str] = field(default_factory=list)
     allowed_process_ids: List[int] = field(default_factory=list)
     audit_sensitive_values: bool = False

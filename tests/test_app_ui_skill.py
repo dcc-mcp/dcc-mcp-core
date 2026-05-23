@@ -174,6 +174,8 @@ def test_app_ui_mock_reports_stale_and_policy_denied_paths(tmp_path: Path) -> No
     )
     assert stale["success"] is False
     assert stale["context"]["result"]["error_code"] == "stale_control"
+    assert stale["context"]["audit"]["action_kind"] == "toggle"
+    assert stale["context"]["audit"]["error_code"] == "stale_control"
 
     denied = _run_tool(
         "act",
@@ -190,6 +192,92 @@ def test_app_ui_mock_reports_stale_and_policy_denied_paths(tmp_path: Path) -> No
     assert denied["success"] is False
     assert denied["context"]["result"]["error_code"] == "policy_disabled"
     assert denied["context"]["audit"]["redacted_fields"] == ["text"]
+
+    not_found = _run_tool(
+        "act",
+        {
+            "session_id": session_id,
+            "control_id": "missing-control",
+            "action": "click",
+            "snapshot_id": changed["context"]["snapshot_id"],
+        },
+        tmp_path,
+    )
+    assert not_found["success"] is False
+    assert not_found["context"]["result"]["error_code"] == "not_found"
+    assert not_found["context"]["audit"]["action_kind"] == "click"
+    assert not_found["context"]["audit"]["error_code"] == "not_found"
+
+
+def test_app_ui_mock_policy_scopes_wait_and_audits_timeout(tmp_path: Path) -> None:
+    session_id = "wait-policy"
+    denied = _run_tool(
+        "wait_for",
+        {
+            "session_id": session_id,
+            "condition": {
+                "kind": "text_equals",
+                "control_id": "status",
+                "text": "Never",
+                "timeout_ms": 10,
+                "interval_ms": 10,
+            },
+            "policy": {"allowed_window_titles": ["Other App"]},
+        },
+        tmp_path,
+    )
+    assert denied["success"] is False
+    assert denied["error"] == "policy_disabled"
+    assert denied["context"]["audit"]["action_kind"] == "wait_for"
+    assert denied["context"]["audit"]["error_code"] == "policy_disabled"
+
+    timed_out = _run_tool(
+        "wait_for",
+        {
+            "session_id": session_id,
+            "condition": {
+                "kind": "text_equals",
+                "control_id": "status",
+                "text": "Never",
+                "timeout_ms": 10,
+                "interval_ms": 10,
+            },
+        },
+        tmp_path,
+    )
+    assert timed_out["success"] is False
+    assert timed_out["context"]["result"]["error_code"] == "timeout"
+    assert timed_out["context"]["audit"]["action_kind"] == "wait_for"
+    assert timed_out["context"]["audit"]["target_control_id"] == "status"
+    assert timed_out["context"]["audit"]["target_role"] == "label"
+    assert timed_out["context"]["audit"]["error_code"] == "timeout"
+
+
+def test_app_ui_policy_can_leave_observation_enabled_while_actions_disabled(tmp_path: Path) -> None:
+    policy = {"allow_mutating_actions": False}
+    session_id = "read-only-policy"
+
+    snapshot = _run_tool("snapshot", {"session_id": session_id, "policy": policy}, tmp_path)
+    assert snapshot["success"] is True
+
+    found = _run_tool("find", {"session_id": session_id, "label": "Apply", "policy": policy}, tmp_path)
+    assert found["success"] is True
+    assert found["context"]["matches"][0]["id"] == "apply"
+
+    denied = _run_tool(
+        "act",
+        {
+            "session_id": session_id,
+            "control_id": "apply",
+            "action": "click",
+            "snapshot_id": snapshot["context"]["snapshot_id"],
+            "policy": policy,
+        },
+        tmp_path,
+    )
+    assert denied["success"] is False
+    assert denied["context"]["result"]["error_code"] == "policy_disabled"
+    assert denied["context"]["audit"]["target_control_id"] == "apply"
 
 
 def test_app_ui_backend_router_reports_unknown_backend(tmp_path: Path) -> None:
