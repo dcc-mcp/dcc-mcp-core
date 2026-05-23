@@ -165,9 +165,15 @@ paths, and latency trends without leaving the browser. The examples below use
 representative demo data to show the range of panels available in a busy
 multi-DCC workstation.
 
+![Gateway admin Connect IDE panel](docs/assets/admin-ui/admin-connect-ide.png)
+
 ![Gateway admin health panel](docs/assets/admin-ui/admin-health.png)
 
 ![Gateway admin instances panel](docs/assets/admin-ui/admin-instances.png)
+
+![Gateway admin Skills paths panel](docs/assets/admin-ui/admin-skills-paths.png)
+
+![Gateway admin skill markdown detail panel](docs/assets/admin-ui/admin-skill-detail.png)
 
 ![Gateway admin stats panel](docs/assets/admin-ui/admin-stats.png)
 
