@@ -32,7 +32,7 @@ written for one consumer keeps working when moved to the other.
 
 ## Motivation
 
-Real downstream integration use cases that today require log-scraping or
+Common downstream integration use cases that today require log-scraping or
 patches to upstream code:
 
 - **Per-call audit log into studio observability.** Every tool call
@@ -317,10 +317,3 @@ the list is hand-curated rather than open.
    Python EventBus with a one-way Rust->Python bridge? The former is
    faster but adds GIL coordination; the latter is simpler but adds
    one IPC hop. Suggest: prototype both, decide on benchmark.
-
-## Acknowledgements
-
-Originated from the downstream Maya integration work after
-realising that downstream studio code (per-call metrics, skill
-gating, destructive-tool alerts) all needed the same primitive that
-didn't exist in `dcc-mcp-core`.
