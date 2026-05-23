@@ -83,6 +83,19 @@ def test_media_tool_registers_prefixed_actions_after_load():
     assert "media__probe" in action_names
 
 
+def test_media_read_only_metadata_is_limited_to_probe():
+    from dcc_mcp_core import parse_skill_md
+
+    meta = parse_skill_md(str(_SKILL_DIR))
+    assert meta is not None
+    read_only_tools = {tool.name for tool in meta.tools if tool.read_only}
+
+    assert read_only_tools == {"probe"}
+    probe_tool = next(tool for tool in meta.tools if tool.name == "probe")
+    assert probe_tool.destructive is False
+    assert probe_tool.idempotent is True
+
+
 def test_sequence_command_uses_vx_ffmpeg_without_shell(media_common, tmp_path):
     frame = tmp_path / "frames" / "frame_0001.png"
     _write_stub_file(frame)
@@ -237,6 +250,28 @@ def test_run_command_can_disable_vx_bootstrap(media_common, monkeypatch):
 
     assert exc.value.code == "vx_not_found"
     assert "automatic vx bootstrap is disabled" in exc.value.message
+
+
+def test_probe_does_not_bootstrap_vx_when_marked_read_only(media_common, tmp_path, monkeypatch):
+    input_file = tmp_path / "clip.mp4"
+    _write_stub_file(input_file)
+
+    def fake_run(command, **kwargs):
+        raise FileNotFoundError("vx")
+
+    def fail_bootstrap():
+        pytest.fail("read-only probe must not bootstrap vx")
+
+    monkeypatch.delenv("DCC_MCP_MEDIA_VX_BIN", raising=False)
+    monkeypatch.delenv("DCC_MCP_MEDIA_AUTO_INSTALL_VX", raising=False)
+    monkeypatch.setattr(media_common.subprocess, "run", fake_run)
+    monkeypatch.setattr(media_common, "_download_and_install_vx", fail_bootstrap)
+
+    with pytest.raises(media_common.MediaToolError) as exc:
+        media_common.probe(str(input_file), timeout_secs=5)
+
+    assert exc.value.code == "vx_not_found"
+    assert exc.value.context["allow_auto_install"] is False
 
 
 def test_vx_bootstrap_uses_official_install_scripts(media_common, monkeypatch):

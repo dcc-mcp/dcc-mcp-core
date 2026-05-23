@@ -6,7 +6,7 @@ description: >-
   FFmpeg. Use when agents need to inspect or share render/playblast outputs.
   Not for arbitrary shell or vx execution - use typed media tools only.
 license: MIT
-compatibility: Uses vx on PATH or bootstraps vx with the official install script; ffmpeg/ffprobe are provisioned via vx.
+compatibility: Uses vx on PATH; non-read-only media tools can bootstrap vx with the official install script.
 metadata:
   dcc-mcp:
     dcc: python
@@ -22,8 +22,10 @@ metadata:
 DCC-agnostic media utilities for render, playblast, flipbook, and review
 artifacts. The tools invoke FFmpeg and FFprobe through `vx`, so a fresh machine
 does not need users to install FFmpeg manually. If `vx` is not available on
-`PATH`, the skill runs the official `loonghao/vx` installer for the current
-platform and then retries the media command with the installed binary.
+`PATH`, non-read-only media tools run the official `loonghao/vx` installer for
+the current platform and then retry the media command with the installed
+binary. `media__probe` remains side-effect-free: when `vx` is missing it
+returns `vx_not_found` instead of installing anything.
 
 Use this skill after a DCC-native render/playblast/export tool has produced
 files on disk. Prefer native DCC skills for creating the render output, then use
@@ -42,7 +44,8 @@ outputs.
 Configuration:
 
 - `DCC_MCP_MEDIA_VX_BIN`: explicit vx executable path or command name.
-- `DCC_MCP_MEDIA_AUTO_INSTALL_VX=0`: disable automatic vx installation.
+- `DCC_MCP_MEDIA_AUTO_INSTALL_VX=0`: disable automatic vx installation for
+  non-read-only media tools.
 - `VX_INSTALL_DIR`: override the official vx installer target directory.
 
 Installer commands:
