@@ -4,29 +4,35 @@ from __future__ import annotations
 
 SKILL_TEMPLATE = """---
 name: my-skill
-description: "Describe what this skill does and when an AI agent should use it. Keep under 1024 characters."
+description: >-
+  DCC skill - Describe the durable user intent this skill serves. Use when an
+  AI agent needs that intent. Not for unrelated diagnostics or raw code eval.
 license: MIT
-compatibility: "Python 3.7+; Maya 2022+"
+compatibility: "Python 3.7+; dcc-mcp-core 0.17+"
 allowed-tools: Bash Read Write Edit
 metadata:
   dcc-mcp:
     dcc: maya
     version: "1.0.0"
     layer: thin-harness
+    stage: authoring
     tags: ["modeling", "animation", "example"]
-    search-hint: "keywords, comma, separated, for, search"
+    search-hint: "create object, inspect scene, export asset"
     tools: tools.yaml
 ---
 
 # My Skill
 
-Write detailed instructions for the AI agent here.
+Write concise instructions for the AI agent:
 
-## Usage
+- when to load this skill;
+- what each tool changes or reads;
+- what to verify after success;
+- what diagnostic tool to call after failure.
 
-1. Load the skill
-2. Call the tools
-3. Handle results
+Tool names must be client-safe (`^[A-Za-z0-9_-]{1,64}$`). In `tools.yaml`, use
+local snake_case names such as `create_locator`; dcc-mcp-core publishes loaded
+tools as `<skill-name>__<tool_name>`.
 """
 
 
@@ -34,8 +40,9 @@ def skill_template() -> str:
     """Return a current SKILL.md template.
 
     Tool declarations live in the sibling ``tools.yaml`` referenced by
-    ``metadata.dcc-mcp.tools``. Skill dependencies live in
-    ``metadata/depends.md`` when needed.
+    ``metadata.dcc-mcp.tools``. Use the creator scaffold for a full
+    SKILL.md + tools.yaml + scripts/ example with schemas, annotations, and
+    thread-affinity metadata.
     """
     return SKILL_TEMPLATE
 
