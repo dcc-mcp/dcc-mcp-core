@@ -306,7 +306,13 @@ impl GatewayState {
     #[must_use]
     pub fn instance_json(&self, e: &ServiceEntry) -> Value {
         let diag = self.instance_diagnostics.get(&e.instance_id);
-        entry_to_json(e, self.stale_timeout, diag.as_ref())
+        let mut row = entry_to_json(e, self.stale_timeout, diag.as_ref());
+        let app_ui = app_ui_diagnostics(e, &self.capability_index.snapshot());
+        if !row.get("diagnostics").is_some_and(Value::is_object) {
+            row["diagnostics"] = json!({});
+        }
+        row["diagnostics"]["app_ui"] = app_ui;
+        row
     }
 
     /// Typed server-identity view (server/adapter metadata, protocol
@@ -506,6 +512,53 @@ fn lifecycle_json(e: &ServiceEntry) -> Value {
         "restart_command": restart_command,
         "launch_command": launch_command,
         "install_root": install_root,
+    })
+}
+
+fn app_ui_diagnostics(e: &ServiceEntry, snap: &crate::gateway::capability::IndexSnapshot) -> Value {
+    let explicit_status = first_metadata_value(
+        &e.metadata,
+        &[
+            "app_ui.status",
+            "dcc_mcp_app_ui_status",
+            "dcc_mcp.app_ui.status",
+        ],
+    )
+    .map(|value| value.trim().to_ascii_lowercase());
+    let explicit_reason = first_metadata_value(
+        &e.metadata,
+        &[
+            "app_ui.reason",
+            "dcc_mcp_app_ui_reason",
+            "dcc_mcp.app_ui.reason",
+        ],
+    );
+
+    let mut tools: Vec<String> = snap
+        .records
+        .iter()
+        .filter(|record| record.instance_id == e.instance_id)
+        .filter(|record| record.loaded)
+        .filter(|record| record.callable_id.starts_with("app_ui__"))
+        .map(|record| record.callable_id.clone())
+        .collect();
+    tools.sort();
+    tools.dedup();
+
+    let status = match explicit_status.as_deref() {
+        Some("disabled") | Some("disabled_by_policy") | Some("policy_disabled") => {
+            "disabled_by_policy"
+        }
+        Some("available") => "available",
+        Some("unavailable") => "unavailable",
+        _ if tools.is_empty() => "unavailable",
+        _ => "available",
+    };
+
+    json!({
+        "status": status,
+        "tools": tools,
+        "reason": explicit_reason,
     })
 }
 

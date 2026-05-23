@@ -114,6 +114,84 @@ pub fn is_valid_dcc_bucket(dcc_type: &str) -> bool {
     !dcc_type.is_empty() && is_cursor_safe_alphabet(dcc_type) && !dcc_type.contains('.')
 }
 
+/// Compact MCP ToolAnnotations-style hints carried in gateway search records.
+///
+/// These fields mirror the MCP `ToolAnnotations` names so non-MCP clients can
+/// apply the same safety policy before calling a dynamic gateway capability.
+///
+/// Field ordering and field names are part of the REST wire contract
+/// (`POST /v1/search` returns an array of `CapabilityRecord`) — adjust
+/// with care and bump the REST contract docs if you change the shape.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CapabilityAnnotations {
+    /// Optional human-readable title from the backend's tool annotations.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// Whether the backend declares the tool as read-only.
+    #[serde(rename = "readOnlyHint", skip_serializing_if = "Option::is_none")]
+    pub read_only_hint: Option<bool>,
+    /// Whether the backend declares the tool may perform destructive changes.
+    #[serde(rename = "destructiveHint", skip_serializing_if = "Option::is_none")]
+    pub destructive_hint: Option<bool>,
+    /// Whether repeated calls with the same arguments should be safe.
+    #[serde(rename = "idempotentHint", skip_serializing_if = "Option::is_none")]
+    pub idempotent_hint: Option<bool>,
+    /// Whether the tool may interact with external systems or open-world state.
+    #[serde(rename = "openWorldHint", skip_serializing_if = "Option::is_none")]
+    pub open_world_hint: Option<bool>,
+}
+
+impl CapabilityAnnotations {
+    /// Return `true` when no annotation hint is populated.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.title.is_none()
+            && self.read_only_hint.is_none()
+            && self.destructive_hint.is_none()
+            && self.idempotent_hint.is_none()
+            && self.open_world_hint.is_none()
+    }
+}
+
+/// Compact execution metadata carried in gateway search records.
+///
+/// Full tool schemas remain behind `describe_tool`; this metadata is small
+/// enough to include in discovery responses and lets agents decide whether a
+/// call needs main-thread dispatch, a timeout budget, or extra approval.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CapabilityMetadata {
+    /// Host thread affinity hint, such as `main` or `any`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub affinity: Option<String>,
+    /// Execution mode hint, such as `in-process` or `subprocess`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution: Option<String>,
+    /// Suggested timeout budget in seconds.
+    #[serde(rename = "timeoutHintSecs", skip_serializing_if = "Option::is_none")]
+    pub timeout_hint_secs: Option<u32>,
+    /// Whether the gateway/dispatcher should reject mismatched thread context.
+    #[serde(
+        rename = "enforceThreadAffinity",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub enforce_thread_affinity: Option<bool>,
+    /// Coarse risk label derived from safety annotations.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub risk: Option<String>,
+}
+
+impl CapabilityMetadata {
+    /// Return `true` when no execution metadata is populated.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.affinity.is_none()
+            && self.execution.is_none()
+            && self.timeout_hint_secs.is_none()
+            && self.enforce_thread_affinity.is_none()
+            && self.risk.is_none()
+    }
+}
+
 /// One compact capability record.
 ///
 /// Field ordering and field names are part of the REST wire contract
@@ -155,6 +233,16 @@ pub struct CapabilityRecord {
     /// skills; the agent can then call `load_skill` before invoking
     /// the tool.
     pub loaded: bool,
+    /// MCP ToolAnnotations-style safety hints propagated from the backend.
+    ///
+    /// Search responses keep this compact and omit it when the backend did not
+    /// declare any hint. Full schemas still live behind `describe_tool`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub annotations: Option<CapabilityAnnotations>,
+    /// Execution metadata that agents need before dispatching a dynamic
+    /// capability: affinity, execution mode, timeout, and risk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<CapabilityMetadata>,
 }
 
 impl CapabilityRecord {
@@ -193,7 +281,24 @@ impl CapabilityRecord {
             instance_id,
             has_schema,
             loaded,
+            annotations: None,
+            metadata: None,
         }
+    }
+
+    /// Attach compact safety and execution metadata to this record.
+    ///
+    /// Empty metadata objects are filtered out so REST search responses stay
+    /// compact while preserving backend-declared policy hints when present.
+    #[must_use]
+    pub fn with_surface_metadata(
+        mut self,
+        annotations: Option<CapabilityAnnotations>,
+        metadata: Option<CapabilityMetadata>,
+    ) -> Self {
+        self.annotations = annotations.filter(|ann| !ann.is_empty());
+        self.metadata = metadata.filter(|meta| !meta.is_empty());
+        self
     }
 
     /// Build a record for a tool from an **unloaded** skill's metadata.
@@ -227,6 +332,8 @@ impl CapabilityRecord {
             instance_id: nil,
             has_schema: false, // unknown until loaded
             loaded: false,
+            annotations: None,
+            metadata: None,
         }
     }
 }

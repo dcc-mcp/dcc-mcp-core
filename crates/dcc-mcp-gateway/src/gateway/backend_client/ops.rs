@@ -212,6 +212,8 @@ pub async fn try_fetch_tools(
             let loaded = v.get("loaded").and_then(Value::as_bool).unwrap_or(true);
 
             if loaded {
+                let annotations = parse_tool_annotations(v.get("annotations"));
+                let meta = mcp_meta_from_rest_metadata(v.get("metadata"));
                 loaded_tools.push(McpTool {
                     name: action,
                     description,
@@ -221,8 +223,8 @@ pub async fn try_fetch_tools(
                         json!({"type": "object"})
                     },
                     output_schema: None,
-                    annotations: None,
-                    meta: None,
+                    annotations,
+                    meta,
                 });
             } else {
                 // Collect the skill name for unloaded hint records.  The
@@ -274,7 +276,8 @@ pub async fn try_describe_tool(
     //   { "entry": { "slug", "skill", "action", "dcc", "summary", "loaded", "scope" },
     //     "description": "...",
     //     "input_schema": { ... } | null,
-    //     "annotations": { ... } }
+    //     "annotations": { ... },
+    //     "metadata": { "dcc": { ... } } }
     let name = val
         .get("entry")
         .and_then(|e| e.get("action"))
@@ -290,15 +293,37 @@ pub async fn try_describe_tool(
         .get("input_schema")
         .cloned()
         .unwrap_or_else(|| json!({"type": "object"}));
+    let annotations = parse_tool_annotations(val.get("annotations"));
+    let meta = mcp_meta_from_rest_metadata(val.get("metadata"));
 
     Ok(McpTool {
         name,
         description,
         input_schema,
         output_schema: None,
-        annotations: None,
-        meta: None,
+        annotations,
+        meta,
     })
+}
+
+fn parse_tool_annotations(value: Option<&Value>) -> Option<dcc_mcp_jsonrpc::McpToolAnnotations> {
+    let ann: dcc_mcp_jsonrpc::McpToolAnnotations = serde_json::from_value(value?.clone()).ok()?;
+    if ann.title.is_none()
+        && ann.read_only_hint.is_none()
+        && ann.destructive_hint.is_none()
+        && ann.idempotent_hint.is_none()
+        && ann.open_world_hint.is_none()
+        && ann.deferred_hint.is_none()
+    {
+        None
+    } else {
+        Some(ann)
+    }
+}
+
+fn mcp_meta_from_rest_metadata(value: Option<&Value>) -> Option<serde_json::Map<String, Value>> {
+    let map = value?.as_object()?.clone();
+    (!map.is_empty()).then_some(map)
 }
 
 /// Fetch tool list from a backend; fail-soft on errors.

@@ -228,6 +228,69 @@ fn test_entry_json_exposes_lifecycle_metadata_for_admin() {
 }
 
 #[tokio::test]
+async fn test_instance_json_reports_app_ui_availability_from_capabilities() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let mut entry = ServiceEntry::new("python", "127.0.0.1", 18812);
+    entry.instance_id = uuid::Uuid::parse_str("aaaaaaaa-0000-0000-0000-000000000001").unwrap();
+    {
+        let r = registry.read().await;
+        r.register(entry.clone()).unwrap();
+    }
+
+    let gs = test_gateway_state(registry.clone());
+    let record = crate::gateway::capability::CapabilityRecord::new(
+        crate::gateway::capability::tool_slug("python", &entry.instance_id, "app_ui__snapshot"),
+        "app_ui__snapshot".into(),
+        "app_ui__snapshot".into(),
+        Some("app-ui".into()),
+        "Capture app UI snapshot",
+        vec!["app-ui".into()],
+        "python".into(),
+        entry.instance_id,
+        true,
+        true,
+    );
+    gs.capability_index.upsert_instance(
+        entry.instance_id,
+        vec![record],
+        crate::gateway::capability::InstanceFingerprint(1),
+    );
+
+    let row = gs.instance_json(&entry);
+
+    assert_eq!(row["diagnostics"]["app_ui"]["status"], "available");
+    assert_eq!(row["diagnostics"]["app_ui"]["tools"][0], "app_ui__snapshot");
+}
+
+#[tokio::test]
+async fn test_instance_json_reports_app_ui_disabled_by_policy() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let mut entry = ServiceEntry::new("photoshop", "127.0.0.1", 18812);
+    entry
+        .metadata
+        .insert("app_ui.status".into(), "disabled".into());
+    entry.metadata.insert(
+        "app_ui.reason".into(),
+        "adapter policy denied UI automation".into(),
+    );
+    {
+        let r = registry.read().await;
+        r.register(entry.clone()).unwrap();
+    }
+
+    let gs = test_gateway_state(registry.clone());
+    let row = gs.instance_json(&entry);
+
+    assert_eq!(row["diagnostics"]["app_ui"]["status"], "disabled_by_policy");
+    assert_eq!(
+        row["diagnostics"]["app_ui"]["reason"],
+        "adapter policy denied UI automation"
+    );
+}
+
+#[tokio::test]
 async fn test_live_instances_stale_sidecar_does_not_hide_live_adapter() {
     let dir = tempfile::tempdir().unwrap();
     let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));

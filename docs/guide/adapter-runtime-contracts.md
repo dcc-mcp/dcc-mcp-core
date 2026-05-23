@@ -105,6 +105,14 @@ Safety expectations:
   supports it.
 - Mutating actions should declare conservative safety annotations, main-thread
   affinity when required by the host, and a timeout that reflects UI polling.
+- Declare MCP `annotations`, `execution`, `affinity`, and
+  `timeout_hint_secs` in `tools.yaml`. Gateway `search_tools` / `/v1/search`
+  carry compact safety hints, and `describe_tool` / `/v1/describe` expose the
+  full schema plus `_meta.dcc` affinity, execution, timeout, and risk hints.
+- Gateway instance rows include `diagnostics.app_ui.status`: `available` when
+  `app_ui__*` capabilities are indexed, `unavailable` when none are present,
+  or `disabled_by_policy` when adapter registry metadata publishes
+  `app_ui.status=disabled` (optionally with `app_ui.reason`).
 - Policy should disable whole-desktop access by default. Scope to an
   adapter-owned process, window, or explicit allow-list. Keep
   `AppUiPolicy.require_scoped_window` enabled unless the user explicitly opts
