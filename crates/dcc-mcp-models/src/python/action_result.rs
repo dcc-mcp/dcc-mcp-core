@@ -25,7 +25,7 @@ const CTX_KEY_ERROR_TYPE: &str = "error_type";
 const CTX_KEY_TRACEBACK: &str = "traceback";
 const CTX_KEY_VALUE: &str = "value";
 const CTX_KEY_POSSIBLE_SOLUTIONS: &str = "possible_solutions";
-const ACTION_RESULT_KNOWN_KEYS: &[&str] = &["success", "message", "prompt", "error"];
+const ACTION_RESULT_KNOWN_KEYS: &[&str] = &["success", "message", "prompt", "error", "context"];
 
 #[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
@@ -241,13 +241,29 @@ fn extract_optional_string_field(dict: &Bound<'_, PyDict>, key: &str) -> PyResul
         .map(|opt| opt.flatten())
 }
 
+fn extract_context_field(dict: &Bound<'_, PyDict>) -> PyResult<HashMap<String, serde_json::Value>> {
+    dict.get_item("context")?
+        .map(|v| {
+            if v.is_none() {
+                Ok(HashMap::new())
+            } else {
+                let context = v.cast::<PyDict>().map_err(|_| {
+                    pyo3::exceptions::PyTypeError::new_err("'context' field must be a dict")
+                })?;
+                py_dict_to_json_map(context)
+            }
+        })
+        .transpose()
+        .map(|opt| opt.unwrap_or_default())
+}
+
 fn validate_from_dict(dict: &Bound<'_, PyDict>) -> PyResult<ActionResultModel> {
     let success = extract_bool_field(dict, "success", true)?;
     let message = extract_string_field(dict, "message")?;
     let prompt = extract_optional_string_field(dict, "prompt")?;
     let error = extract_optional_string_field(dict, "error")?;
 
-    let mut ctx = HashMap::new();
+    let mut ctx = extract_context_field(dict)?;
     for (k, v) in dict.iter() {
         if let Ok(key) = k.extract::<String>()
             && !ACTION_RESULT_KNOWN_KEYS.contains(&key.as_str())

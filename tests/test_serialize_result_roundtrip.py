@@ -372,14 +372,21 @@ class TestValidateAndSerializePipeline:
     """Test the full pipeline used by skill.py: dict → validate → serialize → deserialize."""
 
     def test_success_dict_pipeline(self):
-        # validate_action_result extracts success/message/prompt/error from the dict;
-        # all other top-level keys become context entries.
-        # An empty "context" key becomes context["context"] = {} — that's expected behavior.
-        raw = {"success": True, "message": "done", "prompt": None, "error": None}
+        # validate_action_result preserves an explicit context object while
+        # still extracting success/message/prompt/error from the dict.
+        raw = {
+            "success": True,
+            "message": "done",
+            "prompt": None,
+            "error": None,
+            "context": {"label": "example"},
+        }
         arm = validate_action_result(raw)
         restored = deserialize_result(serialize_result(arm))
         assert restored.success is True
         assert restored.message == "done"
+        assert restored.context["label"] == "example"
+        assert "context" not in restored.context
 
     def test_error_dict_pipeline(self):
         # validate_action_result treats top-level non-standard keys as context.
