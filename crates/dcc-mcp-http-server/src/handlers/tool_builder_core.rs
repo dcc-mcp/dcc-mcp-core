@@ -367,19 +367,16 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
             }),
             meta: None,
         },
-        // `jobs.get_status` — built-in job-polling tool (#319).
+        // `jobs_get_status` — built-in job-polling tool (#319).
         //
         // Complements the `$/dcc.jobUpdated` SSE channel (#326) for clients
         // that prefer request/response polling over a long-lived stream.
-        // SEP-986 compliant: the dot-separated `jobs.*` namespace is the
-        // reserved built-in prefix (see `docs/guide/naming.md`). We panic
-        // at first build if the regex or the length cap ever rejects this
-        // name — that would be a dcc-mcp-naming regression and we want to
-        // catch it loudly.
+        // Client-safe: uses underscores because Claude Desktop/API and other
+        // major MCP clients reject dotted tool names in `tools/list`.
         {
-            const TOOL_NAME: &str = "jobs.get_status";
+            const TOOL_NAME: &str = "jobs_get_status";
             if let Err(e) = dcc_mcp_naming::validate_tool_name(TOOL_NAME) {
-                panic!("built-in tool name `{TOOL_NAME}` fails SEP-986 validation: {e}");
+                panic!("built-in tool name `{TOOL_NAME}` fails tool-name validation: {e}");
             }
             McpTool {
                 name: TOOL_NAME.to_string(),
@@ -427,14 +424,14 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
             meta: None,
             }
         },
-        // `jobs.cleanup` — built-in TTL pruning tool (#328). Removes
+        // `jobs_cleanup` — built-in TTL pruning tool (#328). Removes
         // terminal job rows (and storage-backed rows when a
         // `job_storage_path` is configured) older than the given
         // window. Never touches pending / running jobs.
         {
-            const TOOL_NAME: &str = "jobs.cleanup";
+            const TOOL_NAME: &str = "jobs_cleanup";
             if let Err(e) = dcc_mcp_naming::validate_tool_name(TOOL_NAME) {
-                panic!("built-in tool name `{TOOL_NAME}` fails SEP-986 validation: {e}");
+                panic!("built-in tool name `{TOOL_NAME}` fails tool-name validation: {e}");
             }
             McpTool {
                 name: TOOL_NAME.to_string(),

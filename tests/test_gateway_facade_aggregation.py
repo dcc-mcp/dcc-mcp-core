@@ -112,17 +112,15 @@ def _unescape_cursor_safe(escaped: str) -> str | None:
 
 
 def _split_gateway_prefixed_tool(name: str) -> tuple[str, str] | None:
-    """Return ``(instance_prefix, tool_name)`` for every gateway wire form.
+    """Return ``(instance_prefix, tool_name)`` for the gateway-safe wire form.
 
-    Accepts both the pre-#656 SEP-986 dotted form ``<id8>.<tool>`` and
-    the cursor-safe form ``i_<id8>__<escaped>``. Returns ``None`` for
-    anything else so the caller can keep its existing "is this a
-    gateway-encoded tool?" filter semantics.
+    Returns ``None`` for anything else so the caller can keep its existing
+    "is this a gateway-encoded tool?" filter semantics.
     """
     if name.startswith("__"):
         return None
 
-    # Cursor-safe form first (#656): ``i_<id8>__<escaped>``.
+    # Cursor-safe form (#656): ``i_<id8>__<escaped>``.
     if name.startswith("i_"):
         rest = name[len("i_") :]
         sep_idx = rest.find("__")
@@ -133,16 +131,7 @@ def _split_gateway_prefixed_tool(name: str) -> tuple[str, str] | None:
                 decoded = _unescape_cursor_safe(escaped)
                 if decoded is not None:
                     return prefix, decoded
-
-    # Legacy SEP-986 dotted form, still accepted during the
-    # compatibility window opened by #656.
-    prefix, sep, suffix = name.partition(".")
-    if not sep:
-        return None
-    if len(prefix) != 8 or not all(ch.isascii() and ch in "0123456789abcdef" for ch in prefix):
-        return None
-    return prefix, suffix
-    return prefix, suffix
+    return None
 
 
 def _make_backend(dcc: str, tool_names: list[str], registry_dir: Path, gw_port: int) -> tuple[McpHttpServer, object]:

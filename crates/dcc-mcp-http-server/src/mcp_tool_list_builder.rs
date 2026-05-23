@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use dcc_mcp_gateway::namespace::{BareNameInput, resolve_bare_names};
 use dcc_mcp_jsonrpc::{McpTool, TOOLS_LIST_PAGE_SIZE, decode_cursor, encode_cursor};
+use dcc_mcp_naming::validate_tool_name;
 
 use crate::handlers::build_core_tools;
 use crate::mcp_tool_catalog::{
@@ -76,7 +77,22 @@ pub fn assemble_full_tool_list(
         tools.extend(state.sessions.dynamic_tools_for_list(sid));
     }
 
+    tools.retain(tool_name_is_client_safe);
     tools
+}
+
+fn tool_name_is_client_safe(tool: &McpTool) -> bool {
+    match validate_tool_name(&tool.name) {
+        Ok(()) => true,
+        Err(err) => {
+            tracing::warn!(
+                tool_name = %tool.name,
+                error = %err,
+                "dropping invalid MCP tool name from tools/list"
+            );
+            false
+        }
+    }
 }
 
 /// Paginate a tool list using MCP cursor tokens.

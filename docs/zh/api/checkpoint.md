@@ -23,6 +23,6 @@
 - `clear_checkpoint(job_id, *, store=None) -> bool` — 删除检查点
 - `list_checkpoints(*, store=None) -> list[str]` — 列出 job ID
 - `checkpoint_every(n, job_id, state_fn, *, progress_fn=None, store=None)` — 每 *n* 次迭代自动保存
-- `register_checkpoint_tools(server, *, dcc_name="dcc", store=None)` — 注册 `jobs.checkpoint_status` 和 `jobs.resume_context` MCP 工具
+- `register_checkpoint_tools(server, *, dcc_name="dcc", store=None)` — 注册 `jobs_checkpoint_status` 和 `jobs_resume_context` MCP 工具
 
 详见 [English API 参考](../api/checkpoint.md)。

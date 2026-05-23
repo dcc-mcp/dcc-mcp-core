@@ -72,14 +72,14 @@ handle = server.start()
 恢复失败会以 `error` 级别记录日志，并且**不会**中止启动 —
 进程内映射简单地以空开始，进程继续服务新请求。
 
-## `jobs.cleanup` 内置工具
+## `jobs_cleanup` 内置工具
 
-一个符合 SEP-986 规范的内置 MCP 工具，用于修剪终止作业：
+一个符合客户端安全命名规范的内置 MCP 工具，用于修剪终止作业：
 
 ```jsonc
 // tools/call
 {
-  "name": "jobs.cleanup",
+  "name": "jobs_cleanup",
   "arguments": { "older_than_hours": 24 }  // 默认值: 24
 }
 // → { "removed": <count>, "older_than_hours": 24 }
@@ -117,7 +117,7 @@ CREATE INDEX IF NOT EXISTS jobs_updated_idx ON jobs(updated_at);
 
 - **备份**: SQLite 文件是单个路径；标准文件级快照即可。
   跨版本没有 WAL 模式承诺 — 将其视为持久缓存，而非记录系统。
-- **增长**: 按计划调用 `jobs.cleanup`（cron、k8s CronJob 或从编排
+- **增长**: 按计划调用 `jobs_cleanup`（cron、k8s CronJob 或从编排
   agent）。默认 24 小时窗口对大多数交互式使用来说足够。
 - **迁移**: 目前没有跨版本迁移。如果未来版本中 schema 改变，
   删除文件让 `JobManager` 重新创建它 — 该文件旨在 survive 重启，
@@ -131,5 +131,5 @@ CREATE INDEX IF NOT EXISTS jobs_updated_idx ON jobs(updated_at);
 - #316 — 带有 `Pending`/`Running`/`Completed` 状态的异步作业执行
 - #318 — `JobManager` 核心
 - #326 — `$/dcc.jobUpdated` 通知
-- #371 — `jobs.get_status` 工具
+- #371 — `jobs_get_status` 工具
 - **#328** — 本文档

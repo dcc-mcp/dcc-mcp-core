@@ -1,7 +1,7 @@
 //! Namespace constants + trivial classifier predicates.
 //!
 //! Holds the three canonical name lists (`GATEWAY_LOCAL_TOOLS`,
-//! `CORE_TOOL_NAMES`), the SEP-986 separator constants, and the small
+//! `CORE_TOOL_NAMES`), the tool-name separator constants, and the small
 //! prefix helpers used by every other namespace module.
 
 use uuid::Uuid;
@@ -56,22 +56,36 @@ pub const CORE_TOOL_NAMES: &[&str] = &[
     "call_tools",
     "acquire_dcc_instance",
     "release_dcc_instance",
+    "jobs_get_status",
+    "jobs_cleanup",
+    "jobs_checkpoint_status",
+    "jobs_resume_context",
+    "project_save",
+    "project_load",
+    "project_resume",
+    "project_status",
+    "workflows_run",
+    "workflows_get_status",
+    "workflows_cancel",
+    "workflows_lookup",
+    "workflows_resume",
+    "workflows_list",
+    "workflows_describe",
 ];
 
-/// SEP-986 gateway instance separator for dotted slugs (REST / capability
-/// records). MCP aggregation surfaces use [`super::encode::encode_tool_name_cursor_safe`]
-/// instead; [`super::encode::decode_tool_name`] only accepts the `i_` form.
-pub const INSTANCE_SEP: &str = ".";
-/// Skill→tool separator (unchanged; already SEP-986-compliant).
-pub const SKILL_TOOL_SEP: &str = ".";
+/// Client-safe gateway instance separator for direct encoded names.
+/// MCP aggregation surfaces prefer [`super::encode::encode_tool_name_cursor_safe`];
+/// [`super::encode::decode_tool_name`] only accepts the `i_` form.
+pub const INSTANCE_SEP: &str = "__";
+/// Skill→tool separator for per-DCC proactive namespacing.
+pub const SKILL_TOOL_SEP: &str = "__";
 
 /// Cursor-safe gateway tool-name prefix (issue #656).
 ///
 /// Some MCP clients — notably Cursor — filter out tool names that
-/// contain anything other than `[A-Za-z0-9_]`, which excludes the
-/// SEP-986-legal `.` and `-` separators the gateway has historically
-/// emitted. The cursor-safe form `i_<id8>__<escaped_tool>` keeps every
-/// published byte inside that stricter alphabet while staying
+/// contain anything other than `[A-Za-z0-9_]`. The cursor-safe form
+/// `i_<id8>__<escaped_tool>` keeps every published byte inside that
+/// stricter alphabet while staying
 /// reversible thanks to the escape vocabulary in
 /// [`encode::escape_cursor_safe`](super::encode).
 ///

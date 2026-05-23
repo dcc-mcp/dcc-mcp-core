@@ -1,9 +1,9 @@
-"""Tests for the SEP-986 naming validators exposed from ``dcc_mcp_core``.
+"""Tests for client-safe MCP naming validators exposed from ``dcc_mcp_core``.
 
 The authoritative Rust unit tests live in ``crates/dcc-mcp-naming/src/lib.rs``.
 These Python-side tests guard the PyO3 binding layer: constants are reachable,
-validators raise ``ValueError`` on bad input, and accept the spec's canonical
-examples. See issue #260 for the full contract.
+validators raise ``ValueError`` on bad input, and accept the common
+client-safe wire contract. See issue #260 for the full contract.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import pytest
 from dcc_mcp_core import ACTION_ID_RE
 from dcc_mcp_core import MAX_TOOL_NAME_LEN
 from dcc_mcp_core import TOOL_NAME_RE
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import validate_action_id
 from dcc_mcp_core import validate_tool_name
 
@@ -31,9 +32,8 @@ class TestNamingConstants:
         assert ACTION_ID_RE.startswith("^")
         assert ACTION_ID_RE.endswith("$")
 
-    def test_max_tool_name_len_is_48(self) -> None:
-        # Capped below MCP spec (128) to leave room for gateway prefixes.
-        assert MAX_TOOL_NAME_LEN == 48
+    def test_max_tool_name_len_is_64(self) -> None:
+        assert MAX_TOOL_NAME_LEN == 64
 
     def test_regexes_compile(self) -> None:
         re.compile(TOOL_NAME_RE)
@@ -48,9 +48,11 @@ class TestValidateToolName:
         "name",
         [
             "create_sphere",
-            "geometry.create_sphere",
-            "scene.object.transform",
-            "hello-world.greet",
+            "geometry_create_sphere",
+            "scene_object_transform",
+            "hello-world_greet",
+            "_leading",
+            "-leading",
             "CamelCaseTool",
             "a",
             "Z",
@@ -69,14 +71,10 @@ class TestValidateToolName:
         with pytest.raises(ValueError):
             validate_tool_name("a" * (MAX_TOOL_NAME_LEN + 1))
 
-    @pytest.mark.parametrize("name", ["-tool", ".tool", "_tool"])
-    def test_rejects_bad_leading_char(self, name: str) -> None:
-        with pytest.raises(ValueError):
-            validate_tool_name(name)
-
     @pytest.mark.parametrize(
         "name",
         [
+            "tool.name",
             "tool/call",
             "ns:tool",
             "tool name",
@@ -100,6 +98,16 @@ class TestValidateToolName:
     def test_error_message_mentions_char_for_bad_char(self) -> None:
         with pytest.raises(ValueError, match=r"'/'"):
             validate_tool_name("bad/name")
+
+
+class TestToolRegistryNameValidation:
+    def test_register_rejects_dotted_tool_name(self) -> None:
+        registry = ToolRegistry()
+
+        with pytest.raises(ValueError):
+            registry.register("project.status", description="Invalid dotted name")
+
+        assert "project.status" not in registry.list_actions_for_dcc("dcc")
 
 
 # ── validate_action_id ──────────────────────────────────────────────────────
@@ -168,16 +176,15 @@ class TestRegexMatchesValidator:
     """
 
     SAMPLES_OK: ClassVar[list[str]] = [
-        "geometry.create_sphere",
-        "hello-world.greet",
+        "geometry_create_sphere",
+        "hello-world_greet",
         "CamelCase",
         "a" * MAX_TOOL_NAME_LEN,
     ]
     SAMPLES_BAD: ClassVar[list[str]] = [
         "",
-        "_x",
-        "-x",
         ".x",
+        "bad.name",
         "bad/name",
         "a" * (MAX_TOOL_NAME_LEN + 1),
         "tôol",

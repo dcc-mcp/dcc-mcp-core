@@ -1,18 +1,18 @@
-"""End-to-end tests for the built-in ``jobs.get_status`` tool (issue #319).
+"""End-to-end tests for the built-in ``jobs_get_status`` tool (issue #319).
 
 The tool is always registered by ``McpHttpServer`` — regardless of which
-skills are loaded — and is SEP-986 compliant (``validate_tool_name``).
+skills are loaded — and matches the client-safe ``validate_tool_name`` contract.
 
 Covers:
 
-1. ``jobs.get_status`` is visible in ``tools/list`` with the expected
-   SEP-986 name and ``ToolAnnotations`` (read-only, idempotent).
-2. Calling ``jobs.get_status`` with an unknown ``job_id`` returns an
+1. ``jobs_get_status`` is visible in ``tools/list`` with the expected
+   client-safe name and ``ToolAnnotations`` (read-only, idempotent).
+2. Calling ``jobs_get_status`` with an unknown ``job_id`` returns an
    ``isError=true`` ``CallToolResult`` — never a JSON-RPC transport error.
 3. Dispatching an ``execution: async`` tool produces a
    ``job_id``; polling that id transitions ``pending → running →
    completed`` and surfaces the final ``ToolResult`` in the envelope.
-4. The SEP-986 naming validator accepts the name.
+4. The tool-name validator accepts the name and rejects the dotted form.
 """
 
 from __future__ import annotations
@@ -84,9 +84,11 @@ def _make_server() -> tuple[Any, str]:
     return server, handle, handle.mcp_url()
 
 
-def test_sep986_validate_tool_name_accepts_jobs_get_status():
+def test_validate_tool_name_accepts_jobs_get_status():
     # Belt-and-braces check on the Python-exposed validator.
-    validate_tool_name("jobs.get_status")
+    validate_tool_name("jobs_get_status")
+    with pytest.raises(ValueError):
+        validate_tool_name("jobs.get_status")
 
 
 def test_jobs_get_status_listed_in_tools_list():
@@ -98,9 +100,10 @@ def test_jobs_get_status_listed_in_tools_list():
         )
         tools = body["result"]["tools"]
         names = [t["name"] for t in tools]
-        assert "jobs.get_status" in names, f"tools/list missing jobs.get_status: {names}"
+        assert "jobs_get_status" in names, f"tools/list missing jobs_get_status: {names}"
+        assert all("." not in name for name in names), f"tools/list has dotted names: {names}"
 
-        meta = next(t for t in tools if t["name"] == "jobs.get_status")
+        meta = next(t for t in tools if t["name"] == "jobs_get_status")
         ann = meta.get("annotations") or {}
         # rmcp may omit empty/default annotations; when present they must match.
         if ann:
@@ -125,7 +128,7 @@ def test_jobs_get_status_unknown_id_returns_is_error_envelope():
                 "id": 3,
                 "method": "tools/call",
                 "params": {
-                    "name": "jobs.get_status",
+                    "name": "jobs_get_status",
                     "arguments": {"job_id": "does-not-exist"},
                 },
             },
@@ -168,7 +171,7 @@ def test_jobs_get_status_polls_async_dispatch_to_completion():
         # Initial status is "pending" or "running" depending on timing.
         assert sc["status"] in {"pending", "running"}
 
-        # Poll jobs.get_status until terminal. Guard with a hard timeout so
+        # Poll jobs_get_status until terminal. Guard with a hard timeout so
         # a regression doesn't hang the suite.
         deadline = time.monotonic() + 5.0
         final = None
@@ -181,7 +184,7 @@ def test_jobs_get_status_polls_async_dispatch_to_completion():
                     "id": 5,
                     "method": "tools/call",
                     "params": {
-                        "name": "jobs.get_status",
+                        "name": "jobs_get_status",
                         "arguments": {"job_id": job_id, "include_result": True},
                     },
                 },
@@ -244,7 +247,7 @@ def test_jobs_get_status_include_result_false_omits_result():
                     "id": 7,
                     "method": "tools/call",
                     "params": {
-                        "name": "jobs.get_status",
+                        "name": "jobs_get_status",
                         "arguments": {"job_id": job_id, "include_result": False},
                     },
                 },

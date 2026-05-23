@@ -38,7 +38,7 @@ class TestRegisterProjectTools:
         register_project_tools(server)
 
         names = {c.kwargs["name"] for c in server.registry.register.call_args_list}
-        assert names == {"project.save", "project.load", "project.resume", "project.status"}
+        assert names == {"project_save", "project_load", "project_resume", "project_status"}
         # All metadata registrations use category="project".
         for call in server.registry.register.call_args_list:
             assert call.kwargs["category"] == "project"
@@ -49,7 +49,7 @@ class TestRegisterProjectTools:
         register_project_tools(server)
         scene = tmp_path / "shot.ma"
 
-        result = handlers["project.save"](json.dumps({"scene_path": str(scene)}))
+        result = handlers["project_save"](json.dumps({"scene_path": str(scene)}))
 
         assert result["success"] is True
         assert (tmp_path / PROJECT_DIR_NAME / PROJECT_STATE_FILE).is_file()
@@ -59,7 +59,7 @@ class TestRegisterProjectTools:
         server, handlers = _make_server()
         register_project_tools(server)
 
-        result = handlers["project.save"]({})
+        result = handlers["project_save"]({})
 
         assert result["success"] is False
         assert "scene_path" in result["message"]
@@ -69,7 +69,7 @@ class TestRegisterProjectTools:
         register_project_tools(server)
 
         # No .dcc-mcp/ has been created under tmp_path.
-        result = handlers["project.load"]({"scene_path": str(tmp_path / "never_saved.ma")})
+        result = handlers["project_load"]({"scene_path": str(tmp_path / "never_saved.ma")})
 
         assert result["success"] is False
         assert "No project.json" in result["message"]
@@ -80,7 +80,7 @@ class TestRegisterProjectTools:
         server, handlers = _make_server()
         register_project_tools(server)
 
-        result = handlers["project.load"]({})
+        result = handlers["project_load"]({})
 
         assert result["success"] is False
         assert "scene_path" in result["message"] or "project_dir" in result["message"]
@@ -92,13 +92,13 @@ class TestRegisterProjectTools:
 
         # Save first so project.json exists; then mutate via a direct DccProject
         # handle to simulate adapter-side state changes between sessions.
-        handlers["project.save"]({"scene_path": str(scene)})
+        handlers["project_save"]({"scene_path": str(scene)})
         project = DccProject.load(scene)
         project.add_asset(tmp_path / "char.ma")
         project.activate_skill("maya-lookdev")
         project.activate_tool_group("group-a")
 
-        loaded = handlers["project.load"]({"scene_path": str(scene)})
+        loaded = handlers["project_load"]({"scene_path": str(scene)})
 
         assert loaded["success"] is True
         state = loaded["context"]["state"]
@@ -110,12 +110,12 @@ class TestRegisterProjectTools:
         server, handlers = _make_server()
         register_project_tools(server)
         scene = tmp_path / "shot.ma"
-        handlers["project.save"]({"scene_path": str(scene)})
+        handlers["project_save"]({"scene_path": str(scene)})
         project = DccProject.load(scene)
         project.add_checkpoint_id("job-a")
         project.update_metadata(units="cm")
 
-        result = handlers["project.resume"]({"scene_path": str(scene)})
+        result = handlers["project_resume"]({"scene_path": str(scene)})
 
         assert result["success"] is True
         ctx = result["context"]
@@ -141,9 +141,9 @@ class TestRegisterProjectTools:
         server, handlers = _make_server()
         register_project_tools(server)
         scene = tmp_path / "shot.ma"
-        handlers["project.save"]({"scene_path": str(scene)})
+        handlers["project_save"]({"scene_path": str(scene)})
 
-        result = handlers["project.status"]({"scene_path": str(scene)})
+        result = handlers["project_status"]({"scene_path": str(scene)})
 
         assert result["success"] is True
         assert result["context"]["state"]["scene_path"] == str(scene)
@@ -152,7 +152,7 @@ class TestRegisterProjectTools:
         server, handlers = _make_server()
         register_project_tools(server)
 
-        result = handlers["project.status"]({})
+        result = handlers["project_status"]({})
 
         assert result["success"] is False
 
@@ -164,7 +164,7 @@ class TestRegisterProjectTools:
         server, handlers = _make_server()
         register_project_tools(server, project=default_project)
 
-        result = handlers["project.resume"]({})
+        result = handlers["project_resume"]({})
         assert result["success"] is True
         assert result["context"]["active_skills"] == ["skill-bound"]
 
@@ -172,7 +172,7 @@ class TestRegisterProjectTools:
         server, handlers = _make_server()
         register_project_tools(server)
 
-        result = handlers["project.save"]({"scene_path": str(tmp_path / "direct.ma")})
+        result = handlers["project_save"]({"scene_path": str(tmp_path / "direct.ma")})
 
         assert result["success"] is True
 

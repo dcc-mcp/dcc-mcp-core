@@ -269,13 +269,13 @@ class TestRegisterWorkflowYamlTools:
         server, _handlers = self._make_server()
         register_workflow_yaml_tools(server, workflows=[self._make_wf()])
         names = {c.kwargs["name"] for c in server.registry.register.call_args_list}
-        assert "workflows.list" in names
-        assert "workflows.describe" in names
+        assert "workflows_list" in names
+        assert "workflows_describe" in names
 
     def test_list_returns_workflows(self) -> None:
         server, handlers = self._make_server()
         register_workflow_yaml_tools(server, workflows=[self._make_wf()])
-        result = handlers["workflows.list"](None)
+        result = handlers["workflows_list"](None)
         assert result["success"] is True
         assert result["context"]["count"] == 1
         assert result["context"]["workflows"][0]["name"] == "test-wf"
@@ -283,14 +283,14 @@ class TestRegisterWorkflowYamlTools:
     def test_describe_known_workflow(self) -> None:
         server, handlers = self._make_server()
         register_workflow_yaml_tools(server, workflows=[self._make_wf()])
-        result = handlers["workflows.describe"](json.dumps({"name": "test-wf"}))
+        result = handlers["workflows_describe"](json.dumps({"name": "test-wf"}))
         assert result["success"] is True
         assert result["context"]["task_count"] == 2
 
     def test_describe_unknown_workflow(self) -> None:
         server, handlers = self._make_server()
         register_workflow_yaml_tools(server, workflows=[self._make_wf()])
-        result = handlers["workflows.describe"](json.dumps({"name": "no-such-wf"}))
+        result = handlers["workflows_describe"](json.dumps({"name": "no-such-wf"}))
         assert result["success"] is False
         assert "available" in result["context"]
 
@@ -313,5 +313,5 @@ class TestRegisterWorkflowYamlTools:
         md.name = "no-wf-skill"
         server, handlers = self._make_server()
         register_workflow_yaml_tools(server, skills=[md])
-        result = handlers["workflows.list"](None)
+        result = handlers["workflows_list"](None)
         assert result["context"]["count"] == 0

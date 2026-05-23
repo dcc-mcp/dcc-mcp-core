@@ -86,8 +86,8 @@ pub async fn dispatch_rmcp_tool_call(
             session_id,
         )),
         "search_tools" => Ok(handle_search_tools(state, &arguments_value)),
-        "jobs.get_status" => Ok(handle_jobs_get_status(state, &arguments_value)),
-        "jobs.cleanup" => Ok(handle_jobs_cleanup(state, &arguments_value)),
+        "jobs_get_status" => Ok(handle_jobs_get_status(state, &arguments_value)),
+        "jobs_cleanup" => Ok(handle_jobs_cleanup(state, &arguments_value)),
         "register_tool" => Ok(handle_register_tool_dynamic(
             state,
             session_id,

@@ -4,19 +4,20 @@
 //! DCC-MCP ecosystem:
 //!
 //! * **Tool name** — the wire-visible string published in MCP `tools/list`.
-//!   Must match [`TOOL_NAME_RE`].
+//!   Must match [`TOOL_NAME_RE`]. This crate intentionally follows the
+//!   stricter regex enforced by Claude Desktop/API and other major clients,
+//!   not only the broader MCP spec allowance.
 //! * **Action id** — the internal, stable identifier used by Rust hosts and
 //!   Python bridges to route `tools/call`. Must match [`ACTION_ID_RE`].
 //!
-//! ## Specs
+//! ## Spec and client contract
 //!
 //! * [MCP `draft/server/tools#tool-names`](https://modelcontextprotocol.io/specification/draft/server/tools#tool-names)
-//! * [SEP-986](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986)
-//!   merged in [modelcontextprotocol#1603](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/1603)
 //!
-//! The MCP spec allows up to 128 characters for a tool name; this crate caps
-//! at **48** to leave room for namespace prefixes added by gateways (e.g.
-//! `{id8}/` or `{skill}.`).
+//! The MCP spec allows up to 128 characters for a tool name, but common
+//! clients converge on `^[A-Za-z0-9_-]{1,64}$`. This crate uses that stricter
+//! wire-visible contract so a single invalid tool cannot make a client reject
+//! the whole `tools/list` response.
 //!
 //! Every other crate in this repository — `dcc-mcp-actions`,
 //! `dcc-mcp-skills`, `dcc-mcp-http`, the Python wheel, macros, docs — **must**
@@ -32,13 +33,12 @@ pub mod python;
 
 /// MCP wire-visible tool-name regex.
 ///
-/// Syntax (see module docs): starts with ASCII alphanumeric, then up to 47
-/// more ASCII alphanumeric / `_` / `.` / `-` characters, total length ≤ 48.
+/// Syntax (see module docs): 1-64 ASCII alphanumeric / `_` / `-` characters.
 ///
-/// The trailing character class intentionally excludes `/`, `:`, space, `,`,
-/// `@`, `+` and every other punctuation mark — these are reserved for
-/// transport-layer composition (gateway prefixes, MCP URIs, etc.).
-pub const TOOL_NAME_RE: &str = r"^[A-Za-z0-9](?:[A-Za-z0-9_.\-]{0,47})$";
+/// The character class intentionally excludes `.`, `/`, `:`, space, `,`, `@`,
+/// `+` and every other punctuation mark. Dotted names remain valid internal
+/// action ids; they are not valid MCP tool names.
+pub const TOOL_NAME_RE: &str = r"^[A-Za-z0-9_-]{1,64}$";
 
 /// Internal action-id regex.
 ///
@@ -48,9 +48,8 @@ pub const TOOL_NAME_RE: &str = r"^[A-Za-z0-9](?:[A-Za-z0-9_.\-]{0,47})$";
 /// Examples: `scene.get_info`, `geometry.create_sphere`, `maya.render`.
 pub const ACTION_ID_RE: &str = r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$";
 
-/// Maximum length enforced on tool names (MCP spec allows 128, we cap lower
-/// to leave room for gateway prefixes).
-pub const MAX_TOOL_NAME_LEN: usize = 48;
+/// Maximum length enforced on tool names.
+pub const MAX_TOOL_NAME_LEN: usize = 64;
 
 /// Default DCC name used when a skill / action does not declare one.
 ///
@@ -117,7 +116,7 @@ pub enum NamingError {
 
 // ── tool-name ───────────────────────────────────────────────────────────────
 
-/// Validate an MCP tool name against [`TOOL_NAME_RE`] + the 48-char cap.
+/// Validate an MCP tool name against [`TOOL_NAME_RE`] + the 64-char cap.
 ///
 /// Runs in `O(n)` and does not allocate. Prefer this over hand-rolled checks.
 ///
@@ -129,11 +128,12 @@ pub enum NamingError {
 ///
 /// ```
 /// use dcc_mcp_naming::validate_tool_name;
-/// assert!(validate_tool_name("geometry.create_sphere").is_ok());
-/// assert!(validate_tool_name("hello-world.greet").is_ok());
+/// assert!(validate_tool_name("geometry_create_sphere").is_ok());
+/// assert!(validate_tool_name("hello-world_greet").is_ok());
 /// assert!(validate_tool_name("").is_err());
+/// assert!(validate_tool_name("bad.name").is_err());
 /// assert!(validate_tool_name("bad/name").is_err());
-/// assert!(validate_tool_name("_leading").is_err());
+/// assert!(validate_tool_name("_leading").is_ok());
 /// ```
 pub fn validate_tool_name(s: &str) -> Result<(), NamingError> {
     if s.is_empty() {
@@ -145,24 +145,11 @@ pub fn validate_tool_name(s: &str) -> Result<(), NamingError> {
             max: MAX_TOOL_NAME_LEN,
         });
     }
-    let mut chars = s.char_indices();
-    // Leading char: must be ASCII alphanumeric.
-    let (_, first) = chars.next().expect("length checked above");
-    if !first.is_ascii() {
-        return Err(NamingError::NonAscii {
-            ch: first,
-            offset: 0,
-        });
-    }
-    if !first.is_ascii_alphanumeric() {
-        return Err(NamingError::BadLeadingChar { ch: first });
-    }
-    // Remainder: [A-Za-z0-9_.-]
-    for (offset, ch) in chars {
+    for (offset, ch) in s.char_indices() {
         if !ch.is_ascii() {
             return Err(NamingError::NonAscii { ch, offset });
         }
-        let ok = ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '-');
+        let ok = ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-');
         if !ok {
             return Err(NamingError::BadChar { ch, offset });
         }
@@ -243,14 +230,14 @@ mod tests {
     }
 
     #[test]
-    fn tool_name_accepts_dotted() {
-        assert!(validate_tool_name("geometry.create_sphere").is_ok());
-        assert!(validate_tool_name("scene.object.transform").is_ok());
+    fn tool_name_accepts_hyphens() {
+        assert!(validate_tool_name("hello-world_greet").is_ok());
     }
 
     #[test]
-    fn tool_name_accepts_hyphens() {
-        assert!(validate_tool_name("hello-world.greet").is_ok());
+    fn tool_name_accepts_leading_underscore_and_hyphen() {
+        assert!(validate_tool_name("_leading").is_ok());
+        assert!(validate_tool_name("-leading").is_ok());
     }
 
     #[test]
@@ -289,18 +276,9 @@ mod tests {
     }
 
     #[test]
-    fn tool_name_rejects_leading_hyphen_dot_underscore() {
-        for bad in ["-tool", ".tool", "_tool"] {
-            assert!(matches!(
-                validate_tool_name(bad),
-                Err(NamingError::BadLeadingChar { .. })
-            ));
-        }
-    }
-
-    #[test]
     fn tool_name_rejects_forbidden_chars() {
         for bad in [
+            "tool.name",
             "tool/call",
             "ns:tool",
             "tool name",

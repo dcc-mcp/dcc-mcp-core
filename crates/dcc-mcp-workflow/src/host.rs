@@ -8,8 +8,8 @@
 //!
 //! The executor itself is transport-agnostic and stateless across runs:
 //! every call to [`WorkflowExecutor::run`] returns an independent
-//! [`WorkflowRunHandle`]. The MCP tools `workflows.run` /
-//! `workflows.get_status` / `workflows.cancel` need a *shared* registry
+//! [`WorkflowRunHandle`]. The MCP tools `workflows_run` /
+//! `workflows_get_status` / `workflows_cancel` need a *shared* registry
 //! that can be looked up by `workflow_id` across later tool calls. That
 //! registry is what [`WorkflowHost`] provides.
 //!
@@ -219,7 +219,7 @@ impl WorkflowHost {
 
 // ── Structured handler outputs ───────────────────────────────────────────
 
-/// Handler for the `workflows.run` MCP tool.
+/// Handler for the `workflows_run` MCP tool.
 ///
 /// Accepts `{ spec: <WorkflowSpec YAML string>, inputs?: <object> }` or
 /// `{ spec: <WorkflowSpec JSON object>, inputs?: <object> }` and returns
@@ -241,7 +241,7 @@ pub fn run_handler(host: &WorkflowHost, args: Value) -> Result<Value, String> {
     }))
 }
 
-/// Handler for the `workflows.get_status` MCP tool.
+/// Handler for the `workflows_get_status` MCP tool.
 pub fn get_status_handler(host: &WorkflowHost, args: Value) -> Result<Value, String> {
     let id = parse_workflow_id(&args)?;
     match host.status(id) {
@@ -261,7 +261,7 @@ pub fn get_status_handler(host: &WorkflowHost, args: Value) -> Result<Value, Str
     }
 }
 
-/// Handler for the `workflows.cancel` MCP tool.
+/// Handler for the `workflows_cancel` MCP tool.
 pub fn cancel_handler(host: &WorkflowHost, args: Value) -> Result<Value, String> {
     let id = parse_workflow_id(&args)?;
     let cancelled = host.cancel(id);
@@ -271,7 +271,7 @@ pub fn cancel_handler(host: &WorkflowHost, args: Value) -> Result<Value, String>
     }))
 }
 
-/// Handler for the `workflows.resume` MCP tool (issue #565).
+/// Handler for the `workflows_resume` MCP tool (issue #565).
 ///
 /// Accepts `{ workflow_id, force_steps?, expected_spec_hash?, strict? }`
 /// and returns `{ workflow_id, root_job_id, status, resumed: true,
@@ -355,7 +355,7 @@ mod tests {
 
     fn host_with_echo() -> WorkflowHost {
         let caller = Arc::new(MockToolCaller::new());
-        caller.add("scene.echo", Ok);
+        caller.add("scene_echo", Ok);
         let executor = WorkflowExecutor::builder().tool_caller(caller).build();
         WorkflowHost::new(executor)
     }
@@ -366,7 +366,7 @@ description: ""
 inputs: {}
 steps:
   - id: s1
-    tool: scene.echo
+    tool: scene_echo
     args:
       hello: world
 "#;
@@ -445,7 +445,7 @@ steps:
             "description": "",
             "inputs": {},
             "steps": [
-                {"id": "s1", "tool": "scene.echo", "args": {"k": "v"}},
+                {"id": "s1", "tool": "scene_echo", "args": {"k": "v"}},
             ],
         });
         let out = run_handler(&host, json!({"spec": spec_obj, "inputs": {}})).unwrap();

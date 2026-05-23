@@ -93,8 +93,8 @@ pub enum WorkflowError {
     /// An operation is declared but not yet implemented in this skeleton.
     ///
     /// This is the stable error returned by the three execution-facing
-    /// built-in tools (`workflows.run` / `workflows.get_status` /
-    /// `workflows.cancel`) so downstream callers can depend on a fixed
+    /// built-in tools (`workflows_run` / `workflows_get_status` /
+    /// `workflows_cancel`) so downstream callers can depend on a fixed
     /// shape. See issue #348.
     #[error("not implemented: {0}")]
     NotImplemented(&'static str),

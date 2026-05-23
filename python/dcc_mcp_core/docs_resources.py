@@ -120,7 +120,7 @@ When ``_meta.dcc.async=true`` or a ``progressToken`` is present:
 }
 ```
 
-Poll status via the ``jobs.get_status`` built-in tool.
+Poll status via the ``jobs_get_status`` built-in tool.
 
 ## _meta.dcc.raw_trace (when enable_error_raw_trace=True)
 
@@ -218,7 +218,7 @@ Referenced via ``metadata.dcc-mcp.tools: tools.yaml`` in SKILL.md.
 
 ```yaml
 tools:
-  - name: create_sphere           # required; SEP-986 lowercase + underscores
+  - name: create_sphere           # required; client-safe [A-Za-z0-9_-], max 64
     description: >-               # required; 3-layer structure (≤500 chars)
       Create a polygon sphere at the origin.
       When to use: when the user asks to add a sphere.

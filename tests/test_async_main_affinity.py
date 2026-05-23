@@ -191,7 +191,7 @@ class TestMainAffinityAsyncEnvelope:
         while time.monotonic() < deadline:
             poll = _tools_call(
                 mcp_client,
-                "jobs.get_status",
+                "jobs_get_status",
                 arguments={"job_id": job_id, "include_result": True},
                 req_id=2,
             )

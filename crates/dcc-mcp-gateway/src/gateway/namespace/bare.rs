@@ -1,10 +1,9 @@
-//! Bare-name resolver (#307) + one-shot deprecation warning helpers.
+//! Bare-name resolver (#307) + one-shot warning helpers.
 //!
 //! The resolver decides — on every `tools/list` response — which skill
 //! actions may publish under their **bare name** instead of
-//! `<skill>.<action>`. Collisions are logged once per process through
-//! [`warn_bare_collision_once`]; clients that still call the legacy
-//! prefixed form are nudged through [`warn_legacy_prefixed_once`].
+//! `<skill>__<action>`. Collisions are logged once per process through
+//! [`warn_bare_collision_once`].
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
@@ -33,13 +32,12 @@ pub struct BareNameInput<'a> {
 ///   unique across **all** skill-scoped actions on the instance, AND
 /// * the bare name is not a reserved core-tool name (those already carry
 ///   first-class positions in `tools/list`), AND
-/// * the bare name contains no `.` (which would create an ambiguous
-///   `{id8}.a.b` gateway encoding).
+/// * the bare name is not itself skill-qualified.
 ///
 /// Returns the set of `(skill_name, action_name)` tuples that should be
 /// published bare. Callers that find a tuple in the set emit
 /// `meta.name.strip_prefix(...)`; callers that don't, fall back to the
-/// `<skill>.<action>` form produced by [`super::skill_tool_name`].
+/// `<skill>__<action>` form produced by [`super::skill_tool_name`].
 ///
 /// Collisions (same bare name from two different skills) are logged once
 /// per process via [`warn_bare_collision_once`].
@@ -119,34 +117,32 @@ fn warn_bare_collision_once(bare: &str, skills: &[&str]) {
         tracing::warn!(
             tool = bare,
             skills = ?unique,
-            "bare tool name collision — falling back to `<skill>.<action>` form; \
+            "bare tool name collision — falling back to `<skill>__<action>` form; \
              set bare_tool_names=false to silence, or rename one action in SKILL.md"
         );
     }
 }
 
-static LEGACY_PREFIXED_WARNED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+static SKILL_QUALIFIED_WARNED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
 fn warned_prefixed_slot() -> &'static Mutex<HashSet<String>> {
-    LEGACY_PREFIXED_WARNED.get_or_init(|| Mutex::new(HashSet::new()))
+    SKILL_QUALIFIED_WARNED.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
-/// Emit a one-shot deprecation warning when a client calls a tool using the
-/// legacy `<skill>.<action>` form that could also have been reached via its
-/// bare name.
+/// Emit a one-shot warning when a client calls a skill-qualified tool that
+/// could also have been reached via its bare name.
 ///
 /// Used by `handle_tools_call` so operators learn which integrations still
 /// hard-code the prefixed form without drowning production logs when a
 /// dashboard retries the same tool every few seconds.
-pub fn warn_legacy_prefixed_once(prefixed: &str) {
+pub fn warn_skill_qualified_once(prefixed: &str) {
     let Ok(mut slot) = warned_prefixed_slot().lock() else {
         return;
     };
     if slot.insert(prefixed.to_string()) {
         tracing::warn!(
             tool = prefixed,
-            "legacy `<skill>.<action>` tool name accepted — prefer the bare name; \
-             the prefix fallback will be removed in one release"
+            "skill-qualified tool name accepted — prefer the bare name when it is unique"
         );
     }
 }
