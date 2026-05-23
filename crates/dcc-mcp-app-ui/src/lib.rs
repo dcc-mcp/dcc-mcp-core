@@ -155,6 +155,10 @@ const fn default_wait_interval_ms() -> u64 {
     100
 }
 
+const fn default_true() -> bool {
+    true
+}
+
 /// Polling condition for a bounded UI backend.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UiWaitCondition {
@@ -226,6 +230,9 @@ pub struct AppUiPolicy {
     pub allow_keyboard_shortcuts: bool,
     /// Allow raw-coordinate actions.
     pub allow_raw_coordinates: bool,
+    /// Require the backend to target a scoped application window/process.
+    #[serde(default = "default_true")]
+    pub require_scoped_window: bool,
     /// Optional allow-list for window titles.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allowed_window_titles: Vec<String>,
@@ -245,6 +252,7 @@ impl Default for AppUiPolicy {
             allow_text_entry: true,
             allow_keyboard_shortcuts: false,
             allow_raw_coordinates: false,
+            require_scoped_window: true,
             allowed_window_titles: Vec::new(),
             allowed_process_ids: Vec::new(),
             audit_sensitive_values: false,
@@ -484,6 +492,23 @@ mod tests {
         assert!(policy.allows_action(UiActionKind::SetText));
         assert!(!policy.allows_action(UiActionKind::RawCoordinateClick));
         assert!(!policy.allows_action(UiActionKind::KeyboardShortcut));
+        assert!(policy.require_scoped_window);
+    }
+
+    #[test]
+    fn app_ui_policy_deserializes_old_payloads_as_scoped() {
+        let policy: AppUiPolicy = serde_json::from_value(serde_json::json!({
+            "allow_snapshot": true,
+            "allow_find": true,
+            "allow_mutating_actions": true,
+            "allow_text_entry": true,
+            "allow_keyboard_shortcuts": false,
+            "allow_raw_coordinates": false,
+            "audit_sensitive_values": false
+        }))
+        .unwrap();
+
+        assert!(policy.require_scoped_window);
     }
 
     #[test]
