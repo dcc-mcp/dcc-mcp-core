@@ -35,7 +35,7 @@ SkillCatalog(registry: ToolRegistry) -> SkillCatalog
 | `load_skill(skill_name)` | `List[str]` | Load a skill; returns list of registered action names. Raises `ValueError` if not found |
 | `unload_skill(skill_name)` | `int` | Unload a skill; returns number of actions removed. Raises `ValueError` if not loaded |
 | `search_skills(query=None, tags=None, dcc=None, scope=None, limit=None)` | `List[SkillSummary]` | Unified discovery with `scope` (`"repo" \| "user" \| "system" \| "admin"`) and `limit`. Empty call returns top skills by scope precedence (Admin > System > User > Repo). |
-| `list_skills(status=None)` | `List[SkillSummary]` | List skills. `status`: `"loaded"` or `"unloaded"`, or `None` for all |
+| `list_skills(status=None)` | `List[SkillSummary]` | List skills. `status`: `"loaded"`, `"unloaded"`, `"pending_deps"`, `"error"`, or `None` for all |
 | `get_skill_info(skill_name)` | `dict \| None` | Full metadata for a skill, or `None` if not found |
 | `is_loaded(skill_name)` | `bool` | Whether a skill is currently loaded |
 | `loaded_count()` | `int` | Number of loaded skills |
@@ -101,6 +101,8 @@ Lightweight summary returned by `SkillCatalog.search_skills()` and `list_skills(
 | `tool_count` | `int` | Number of declared tools |
 | `tool_names` | `List[str]` | Names of declared tools |
 | `loaded` | `bool` | Whether the skill is currently loaded |
+| `status` | `str` | Machine-readable load status: `"discovered"`, `"pending_deps"`, `"loaded"`, or `"error"` |
+| `missing_dependencies` | `List[str]` | Dependency skill names that are not currently present in the catalog |
 
 ### Dunder Methods
 
@@ -337,7 +339,7 @@ scan_and_load_lenient(
 ) -> tuple[List[SkillMetadata], List[str]]
 ```
 
-Same as `scan_and_load` but silently skips skills with missing dependencies (warns via logging). Only cyclic dependencies raise `ValueError`.
+Same as `scan_and_load` but keeps skills with missing soft dependencies in the returned skill list (warns via logging). Missing dependencies are ignored only for ordering; dependencies that are present are still sorted before their dependents. Only cyclic dependencies raise `ValueError`.
 
 Returns `(ordered_skills, skipped_dirs)`.
 

@@ -36,6 +36,40 @@ fn test_add_skill() {
 }
 
 #[test]
+fn test_add_skill_marks_missing_soft_dependencies_pending() {
+    let catalog = make_test_catalog();
+    let mut skill = make_test_skill("shot-publish", "maya", &["publish"]);
+    skill.depends = vec!["maya-dev".to_string()];
+    catalog.add_skill(skill);
+
+    let pending = catalog.list_skills(Some("pending_deps"));
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].name, "shot-publish");
+    assert_eq!(pending[0].status, "pending_deps");
+    assert_eq!(pending[0].missing_dependencies, vec!["maya-dev"]);
+
+    let search = catalog.search_skills(Some("publish"), &[], Some("maya"), None, None);
+    assert_eq!(search.len(), 1, "pending skills must remain discoverable");
+    assert_eq!(search[0].status, "pending_deps");
+}
+
+#[test]
+fn test_add_dependency_clears_pending_dependency_state() {
+    let catalog = make_test_catalog();
+    let mut skill = make_test_skill("shot-publish", "maya", &["publish"]);
+    skill.depends = vec!["maya-dev".to_string()];
+    catalog.add_skill(skill);
+    assert_eq!(catalog.list_skills(Some("pending_deps")).len(), 1);
+
+    catalog.add_skill(make_test_skill("maya-dev", "maya", &["inspect"]));
+
+    assert!(catalog.list_skills(Some("pending_deps")).is_empty());
+    let info = catalog.get_skill_info("shot-publish").unwrap();
+    assert_eq!(info.state, "discovered");
+    assert!(info.missing_dependencies.is_empty());
+}
+
+#[test]
 fn test_rediscover_removes_missing_skill_and_registered_tools() {
     let tmp = tempfile::tempdir().unwrap();
     write_skill_dir(tmp.path(), "fresh-skill", "maya");
@@ -75,6 +109,44 @@ fn test_load_skill_registers_tools() {
     let registry = catalog.registry();
     assert_eq!(registry.len(), 2);
     assert!(registry.get_action("modeling_bevel__bevel", None).is_some());
+}
+
+#[test]
+fn test_load_skill_auto_loads_discovered_dependencies_first() {
+    let catalog = make_test_catalog();
+    catalog.add_skill(make_test_skill("maya-dev", "maya", &["inspect"]));
+    let mut skill = make_test_skill("shot-publish", "maya", &["publish"]);
+    skill.depends = vec!["maya-dev".to_string()];
+    catalog.add_skill(skill);
+
+    let actions = catalog.load_skill("shot-publish").unwrap();
+
+    assert_eq!(actions, vec!["shot_publish__publish".to_string()]);
+    assert!(catalog.is_loaded("maya-dev"));
+    assert!(catalog.is_loaded("shot-publish"));
+    assert!(
+        catalog
+            .registry()
+            .get_action("maya_dev__inspect", None)
+            .is_some(),
+        "dependency tools should be registered before the dependent skill"
+    );
+}
+
+#[test]
+fn test_load_skill_missing_dependency_error_is_actionable() {
+    let catalog = make_test_catalog();
+    let mut skill = make_test_skill("shot-publish", "maya", &["publish"]);
+    skill.depends = vec!["maya-dev".to_string()];
+    catalog.add_skill(skill);
+
+    let err = catalog
+        .load_skill("shot-publish")
+        .expect_err("missing dependency should block activation");
+
+    assert!(err.contains("pending dependencies"), "{err}");
+    assert!(err.contains("maya-dev"), "{err}");
+    assert!(err.contains("retry load_skill('shot-publish')"), "{err}");
 }
 
 #[test]

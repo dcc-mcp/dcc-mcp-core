@@ -128,7 +128,7 @@ class TestScanAndLoad:
 
 
 # ---------------------------------------------------------------------------
-# scan_and_load_lenient — tolerates missing dependencies
+# scan_and_load_lenient — preserves soft dependency discovery
 # ---------------------------------------------------------------------------
 
 
@@ -169,15 +169,14 @@ class TestScanAndLoadLenient:
         assert len(skills) == 4
 
     def test_missing_dependency_reports_skipped_skill_path_not_exception(self, tmp_path: Path) -> None:
-        """Lenient scans keep valid skills and report dependency failures as skipped paths."""
+        """Lenient scans keep skills with missing soft dependencies discoverable."""
         _write_skill(tmp_path, "orphan-skill", deps=["missing-dep"])
         _write_skill(tmp_path, "good-skill")
 
         skills, skipped = dcc_mcp_core.scan_and_load_lenient(extra_paths=[str(tmp_path)])
 
-        assert {skill.name for skill in skills} == {"good-skill"}
-        assert len(skipped) == 1
-        assert Path(skipped[0]).name == "orphan-skill"
+        assert {skill.name for skill in skills} == {"good-skill", "orphan-skill"}
+        assert skipped == []
 
 
 # ---------------------------------------------------------------------------

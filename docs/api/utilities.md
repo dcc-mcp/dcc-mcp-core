@@ -145,13 +145,13 @@ print(f"Skipped {len(skipped)} directories")
 
 ### `scan_and_load_lenient()`
 
-Like `scan_and_load()` but silently skips skills with missing dependencies (only fails on cycles):
+Like `scan_and_load()` but keeps skills with missing soft dependencies discoverable (only fails on cycles):
 
 ```python
 from dcc_mcp_core import scan_and_load_lenient
 
 skills, skipped = scan_and_load_lenient(dcc_name="maya")
-# skills with unresolvable deps are in skipped, not raised as errors
+# skills with missing soft deps stay in skills; parse failures remain in skipped
 ```
 
 ### `resolve_dependencies()`

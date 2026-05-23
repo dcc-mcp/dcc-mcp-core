@@ -340,7 +340,7 @@ os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/skills"
 
 # One-shot scan + load + dependency sort → returns (skills, skipped_dirs)
 skills, skipped = scan_and_load(extra_paths=["/my/skills"], dcc_name="maya")
-skills_lenient, skipped = scan_and_load_lenient(dcc_name="maya")  # skip errors
+skills_lenient, skipped = scan_and_load_lenient(dcc_name="maya")  # keep soft-dep skills discoverable
 
 # Strict variant (issue maya#138): raises ValueError when any directory
 # was silently skipped, so embedders can fail start-up loudly instead of
@@ -355,12 +355,12 @@ except ValueError as exc:
 ```
 
 ::: tip Choosing the right entry point
-- `scan_and_load` — default; logs a `warn`-level summary for every skipped
-  directory (issue maya#138) and a per-failure `warn` from
-  `parse_skill_md`. Good for production where missing skills should be
-  visible in logs but not block start-up.
-- `scan_and_load_lenient` — same return shape but tolerates resolver
-  errors (missing dependency, dependency cycle).
+- `scan_and_load` — fail-fast on missing dependencies or cycles after logging
+  skipped directories and parse failures. Good for CI and packaged adapter
+  releases where dependency completeness should block the build.
+- `scan_and_load_lenient` — same return shape but keeps skills with missing
+  soft dependencies discoverable; present dependencies still sort before their
+  dependents, and dependency cycles still fail.
 - `scan_and_load_strict` — fails fast when the scanner skipped any
   directory. Use in CI / packaged adapter releases where a malformed
   `SKILL.md` should be a blocking error rather than a silent omission.
@@ -700,6 +700,16 @@ errors = validate_dependencies(skills)
 deps = expand_transitive_dependencies(skills, "maya-animation")
 # ["maya-geometry"]
 ```
+
+Dependency declarations are soft during catalog discovery. If a composition
+skill depends on `maya-dev` before that skill has been discovered, the
+composition skill still appears in `search_skills()` / `list_skills()` with
+`status: "pending_deps"` and a `missing_dependencies` list. Calling
+`load_skill("maya-animation")` auto-loads any discovered dependencies first;
+when a dependency is still missing, `load_skill` returns an actionable error
+that names the missing skill and asks the caller to discover or install it.
+Use `scan_and_load()` / `resolve_dependencies()` when you explicitly want a
+fail-fast dependency check for packaging or CI.
 
 ## Skill Directory Structure
 

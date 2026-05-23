@@ -78,7 +78,8 @@ pub fn scan_and_load_strict(
     })
 }
 
-/// Lenient pipeline: scan, load, and resolve dependencies but skip unresolvable skills.
+/// Lenient pipeline: scan, load, and resolve dependencies while keeping
+/// skills with missing soft dependencies discoverable.
 pub fn scan_and_load_lenient(
     extra_paths: Option<&[String]>,
     dcc_name: Option<&str>,
@@ -86,32 +87,18 @@ pub fn scan_and_load_lenient(
     let mut scanner = SkillScanner::new();
     let dirs = scanner.scan(extra_paths, dcc_name, false);
 
-    let (skills, mut skipped) = load_all_skills(&dirs);
+    let (skills, skipped) = load_all_skills(&dirs);
     let errors = resolver::validate_dependencies(&skills);
     if !errors.is_empty() {
-        let mut bad_skills = std::collections::HashSet::new();
         for err in &errors {
             if let ResolveError::MissingDependency { skill, dependency } = err {
                 tracing::warn!(
-                    "Skill '{skill}' depends on '{dependency}' which is not available; skipping."
+                    "Skill '{skill}' depends on '{dependency}' which is not available yet; \
+                     keeping it discoverable as a pending dependency."
                 );
-                bad_skills.insert(skill.clone());
             }
         }
-
-        let filtered: Vec<SkillMetadata> = skills
-            .into_iter()
-            .filter(|skill| {
-                if bad_skills.contains(&skill.name) {
-                    skipped.push(skill.skill_path.clone());
-                    false
-                } else {
-                    true
-                }
-            })
-            .collect();
-
-        let resolved = resolver::resolve_dependencies(&filtered)?;
+        let resolved = resolve_dependencies_soft(&skills)?;
         return Ok(LoadResult {
             skills: resolved.ordered,
             skipped,
@@ -123,6 +110,31 @@ pub fn scan_and_load_lenient(
         skills: resolved.ordered,
         skipped,
     })
+}
+
+fn resolve_dependencies_soft(
+    skills: &[SkillMetadata],
+) -> Result<resolver::ResolvedSkills, ResolveError> {
+    let names: std::collections::HashSet<&str> = skills.iter().map(|s| s.name.as_str()).collect();
+    let orderable: Vec<SkillMetadata> = skills
+        .iter()
+        .map(|skill| {
+            let mut clone = skill.clone();
+            clone.depends.retain(|dep| names.contains(dep.as_str()));
+            clone
+        })
+        .collect();
+    let resolved = resolver::resolve_dependencies(&orderable)?;
+    let originals: std::collections::HashMap<&str, &SkillMetadata> = skills
+        .iter()
+        .map(|skill| (skill.name.as_str(), skill))
+        .collect();
+    let ordered = resolved
+        .ordered
+        .into_iter()
+        .filter_map(|skill| originals.get(skill.name.as_str()).map(|s| (*s).clone()))
+        .collect();
+    Ok(resolver::ResolvedSkills { ordered })
 }
 
 /// Load all skill metadata from a list of directories.
