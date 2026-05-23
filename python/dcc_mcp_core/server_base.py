@@ -26,6 +26,7 @@ from dcc_mcp_core import _core
 from dcc_mcp_core._core import SandboxContext
 from dcc_mcp_core._core import create_skill_server
 from dcc_mcp_core._core import get_app_skill_paths_from_env
+from dcc_mcp_core._core import get_local_skills_dir
 from dcc_mcp_core._core import get_skill_paths_from_env
 from dcc_mcp_core._core import get_skills_dir
 from dcc_mcp_core._server import FileLoggingManager
@@ -223,8 +224,9 @@ class DccServerBase:
         2. Bundled skills in ``builtin_skills_dir``
         3. ``DCC_MCP_{DCC_NAME}_SKILL_PATHS`` env var (DCC-specific)
         4. ``DCC_MCP_SKILL_PATHS`` env var (global fallback)
-        5. Bundled skills shipped with dcc-mcp-core (when ``include_bundled=True``)
-        6. Platform default skills dir
+        5. Local developer skills in ``~/.dcc-mcp/{dcc_name}/skills``
+        6. Bundled skills shipped with dcc-mcp-core (when ``include_bundled=True``)
+        7. Platform default skills dir
 
         Args:
             extra_paths: Additional directories to prepend.
@@ -245,6 +247,14 @@ class DccServerBase:
 
         paths.extend(get_app_skill_paths_from_env(self._dcc_name))
         paths.extend(get_skill_paths_from_env())
+
+        try:
+            local_default_dir = get_local_skills_dir(self._dcc_name)
+            Path(local_default_dir).mkdir(parents=True, exist_ok=True)
+            if local_default_dir not in paths:
+                paths.append(local_default_dir)
+        except Exception as exc:
+            logger.debug("[%s] Could not initialise local skill path: %s", self._dcc_name, exc)
 
         if include_bundled:
             try:

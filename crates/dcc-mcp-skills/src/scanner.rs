@@ -145,8 +145,9 @@ impl SkillScanner {
     /// 1. `extra_paths` — caller-provided explicit paths
     /// 2. `DCC_MCP_{APP}_SKILL_PATHS` — per-app env var (when dcc_name is given)
     /// 3. `DCC_MCP_SKILL_PATHS` — global env var
-    /// 4. Platform-specific skills directory for this DCC
-    /// 5. Global skills directory
+    /// 4. Local developer skills directory under `~/.dcc-mcp/{dcc}/skills`
+    /// 5. Platform-specific skills directory for this DCC
+    /// 6. Global skills directory
     fn collect_search_paths(extra_paths: Option<&[String]>, dcc_name: Option<&str>) -> Vec<String> {
         let mut search_paths = Vec::new();
 
@@ -163,7 +164,14 @@ impl SkillScanner {
             search_paths.extend(crate::paths::get_skill_paths_from_env());
         }
 
-        // 3. Platform-specific skills directory
+        // 3. Local developer skills directory
+        if let Ok(local_dir) = crate::paths::get_local_skills_dir(dcc_name)
+            && Path::new(&local_dir).is_dir()
+        {
+            search_paths.push(local_dir);
+        }
+
+        // 4. Platform-specific skills directory
         if let Ok(platform_dir) = crate::paths::get_skills_dir(dcc_name)
             && Path::new(&platform_dir).is_dir()
         {

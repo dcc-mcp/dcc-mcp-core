@@ -28,6 +28,26 @@ pub fn get_skills_dir(dcc_name: Option<&str>) -> Result<String, FilesystemError>
     Ok(path_to_string(&dir))
 }
 
+/// Get the local developer skill directory under `~/.dcc-mcp`.
+///
+/// For a DCC-scoped server this returns `~/.dcc-mcp/{dcc}/skills`.
+/// Without a DCC name it returns `~/.dcc-mcp/skills`.
+///
+/// # Errors
+/// Returns [`FilesystemError`] if the user's home directory cannot be determined.
+#[must_use = "this returns the local developer skill directory path; the directory is not created"]
+pub fn get_local_skills_dir(dcc_name: Option<&str>) -> Result<String, FilesystemError> {
+    let mut dir = dirs::home_dir()
+        .ok_or_else(|| FilesystemError::PlatformDirNotFound("home".to_string()))?
+        .join(".dcc-mcp");
+    if let Some(dcc) = dcc_name.map(str::trim).filter(|dcc| !dcc.is_empty()) {
+        dir = dir.join(dcc.to_lowercase()).join("skills");
+    } else {
+        dir = dir.join("skills");
+    }
+    Ok(path_to_string(&dir))
+}
+
 /// Get skill search paths from environment variable.
 ///
 /// Reads `DCC_MCP_SKILL_PATHS` (colon-separated on Unix, semicolon on Windows).
@@ -317,8 +337,9 @@ pub(crate) fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> 
 pub use crate::python::paths::{
     py_copy_skill_to_team_dir, py_copy_skill_to_user_dir, py_get_app_skill_paths_from_env,
     py_get_app_team_skill_paths_from_env, py_get_app_user_skill_paths_from_env,
-    py_get_skill_paths_from_env, py_get_skills_dir, py_get_team_skill_paths_from_env,
-    py_get_team_skills_dir, py_get_user_skill_paths_from_env, py_get_user_skills_dir,
+    py_get_local_skills_dir, py_get_skill_paths_from_env, py_get_skills_dir,
+    py_get_team_skill_paths_from_env, py_get_team_skills_dir, py_get_user_skill_paths_from_env,
+    py_get_user_skills_dir,
 };
 
 #[cfg(test)]
@@ -347,6 +368,18 @@ mod tests {
         let upper = get_skills_dir(Some("BLENDER")).unwrap();
         assert!(lower.contains("blender"));
         assert!(upper.contains("blender"));
+    }
+
+    #[test]
+    fn test_get_local_skills_dir_with_dcc() {
+        let path = get_local_skills_dir(Some("BLENDER")).unwrap();
+        assert!(path.contains(".dcc-mcp"), "path={path}");
+        assert!(path.contains("blender"), "path={path}");
+        assert!(path.ends_with(&format!(
+            "{}blender{}skills",
+            std::path::MAIN_SEPARATOR,
+            std::path::MAIN_SEPARATOR
+        )));
     }
 
     #[test]
