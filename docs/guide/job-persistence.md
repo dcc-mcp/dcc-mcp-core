@@ -104,14 +104,14 @@ If you want to *guarantee* drop semantics regardless of future releases, leave
 ships, set `job_recovery = "requeue"` today and the same configuration will
 pick up the new behaviour automatically.
 
-## `jobs.cleanup` built-in tool
+## `jobs_cleanup` built-in tool
 
-A SEP-986-compliant built-in MCP tool prunes terminal jobs:
+A client-safe built-in MCP tool prunes terminal jobs:
 
 ```jsonc
 // tools/call
 {
-  "name": "jobs.cleanup",
+  "name": "jobs_cleanup",
   "arguments": { "older_than_hours": 24 }  // default: 24
 }
 // → { "removed": <count>, "older_than_hours": 24 }
@@ -151,7 +151,7 @@ JSON-serialized — the schema stays stable even if internal `Job` fields evolve
 - **Backup**: the SQLite file is a single path; standard file-level snapshotting
   works. There is no WAL-mode promise across versions — treat it as a durable
   cache, not a system of record.
-- **Growth**: call `jobs.cleanup` on a schedule (cron, k8s CronJob, or from an
+- **Growth**: call `jobs_cleanup` on a schedule (cron, k8s CronJob, or from an
   orchestrator agent). Default 24h window works for most interactive use.
 - **Migration**: there is no cross-version migration today. If the schema
   changes in a future release, delete the file and let `JobManager` recreate
@@ -165,6 +165,6 @@ JSON-serialized — the schema stays stable even if internal `Job` fields evolve
 - #316 — Async job execution with `Pending`/`Running`/`Completed` states
 - #318 — `JobManager` core
 - #326 — `$/dcc.jobUpdated` notifications
-- #371 — `jobs.get_status` tool
+- #371 — `jobs_get_status` tool
 - **#328** — this document
 - **#567** — `job_recovery` policy contract (`drop` / `requeue`)

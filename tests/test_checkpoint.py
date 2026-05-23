@@ -165,13 +165,13 @@ class TestRegisterCheckpointTools:
         server, _handlers, store = self._make_server()
         register_checkpoint_tools(server, store=store)
         names = {c.kwargs["name"] for c in server.registry.register.call_args_list}
-        assert "jobs.checkpoint_status" in names
-        assert "jobs.resume_context" in names
+        assert "jobs_checkpoint_status" in names
+        assert "jobs_resume_context" in names
 
     def test_checkpoint_status_no_checkpoint(self) -> None:
         server, handlers, store = self._make_server()
         register_checkpoint_tools(server, store=store)
-        result = handlers["jobs.checkpoint_status"](json.dumps({"job_id": "j1"}))
+        result = handlers["jobs_checkpoint_status"](json.dumps({"job_id": "j1"}))
         assert result["success"] is True
         assert result["context"]["checkpoint"] is None
 
@@ -179,14 +179,14 @@ class TestRegisterCheckpointTools:
         server, handlers, store = self._make_server()
         store.save("j2", {"n": 5}, progress_hint="5/10")
         register_checkpoint_tools(server, store=store)
-        result = handlers["jobs.checkpoint_status"](json.dumps({"job_id": "j2"}))
+        result = handlers["jobs_checkpoint_status"](json.dumps({"job_id": "j2"}))
         assert result["success"] is True
         assert result["context"]["context"]["n"] == 5
 
     def test_resume_context_no_checkpoint(self) -> None:
         server, handlers, store = self._make_server()
         register_checkpoint_tools(server, store=store)
-        result = handlers["jobs.resume_context"](json.dumps({"job_id": "j3"}))
+        result = handlers["jobs_resume_context"](json.dumps({"job_id": "j3"}))
         assert result["success"] is True
         assert result["context"]["has_checkpoint"] is False
         assert result["context"]["resume_state"] is None
@@ -195,7 +195,7 @@ class TestRegisterCheckpointTools:
         server, handlers, store = self._make_server()
         store.save("j4", {"count": 80}, progress_hint="80/100")
         register_checkpoint_tools(server, store=store)
-        result = handlers["jobs.resume_context"](json.dumps({"job_id": "j4"}))
+        result = handlers["jobs_resume_context"](json.dumps({"job_id": "j4"}))
         assert result["success"] is True
         assert result["context"]["has_checkpoint"] is True
         assert result["context"]["resume_state"]["count"] == 80
@@ -204,7 +204,7 @@ class TestRegisterCheckpointTools:
     def test_handler_accepts_dict_params(self) -> None:
         server, handlers, store = self._make_server()
         register_checkpoint_tools(server, store=store)
-        result = handlers["jobs.checkpoint_status"]({"job_id": "j5"})
+        result = handlers["jobs_checkpoint_status"]({"job_id": "j5"})
         assert result["success"] is True
 
     def test_no_registry_logs_warning(self) -> None:

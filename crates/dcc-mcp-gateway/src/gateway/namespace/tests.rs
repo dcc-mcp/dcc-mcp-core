@@ -1,7 +1,7 @@
 //! Unit tests for the namespace module.
 
 use super::*;
-use dcc_mcp_naming::validate_tool_name;
+use dcc_mcp_naming::{MAX_TOOL_NAME_LEN, validate_tool_name};
 use uuid::Uuid;
 
 #[test]
@@ -11,10 +11,10 @@ fn instance_short_deterministic() {
 }
 
 #[test]
-fn encode_uses_dot_separator() {
+fn encode_uses_client_safe_separator() {
     let id = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
     let enc = encode_tool_name(&id, "create_sphere");
-    assert_eq!(enc, "abcdef01.create_sphere");
+    assert_eq!(enc, "abcdef01__create_sphere");
 }
 
 #[test]
@@ -22,7 +22,7 @@ fn encode_never_contains_slash() {
     let id = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
     for tool in [
         "create_sphere",
-        "maya-animation.set_keyframe",
+        "maya-animation__set_keyframe",
         "CamelCase",
         "x",
     ] {
@@ -35,13 +35,13 @@ fn encode_never_contains_slash() {
 }
 
 #[test]
-fn encode_produces_sep986_compliant_names() {
+fn encode_produces_client_safe_names() {
     let id = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
-    for tool in ["create_sphere", "maya-animation.set_keyframe", "CamelCase"] {
+    for tool in ["create_sphere", "maya-animation__set_keyframe", "CamelCase"] {
         let enc = encode_tool_name(&id, tool);
         assert!(
             validate_tool_name(&enc).is_ok(),
-            "gateway emitted {enc:?} which fails SEP-986 validation"
+            "gateway emitted {enc:?} which fails client-safe validation"
         );
     }
 }
@@ -49,15 +49,16 @@ fn encode_produces_sep986_compliant_names() {
 #[test]
 fn cursor_safe_encode_then_decode_roundtrips() {
     let id = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
-    let enc = encode_tool_name_cursor_safe(&id, "maya-animation.set_keyframe");
+    let enc = encode_tool_name_cursor_safe(&id, "maya-animation__set_keyframe");
     let (p, o) = decode_tool_name(&enc).unwrap();
     assert_eq!(p, "abcdef01");
-    assert_eq!(o, "maya-animation.set_keyframe");
+    assert_eq!(o, "maya-animation__set_keyframe");
 }
 
 #[test]
-fn decode_rejects_sep986_dot_prefixed_form() {
+fn decode_rejects_non_cursor_safe_prefixed_form() {
     assert!(decode_tool_name("abcdef01.create_sphere").is_none());
+    assert!(decode_tool_name("abcdef01__create_sphere").is_none());
 }
 
 #[test]
@@ -97,19 +98,18 @@ fn local_tools_decode_to_none() {
 
 #[test]
 fn cursor_safe_encode_produces_only_alnum_and_underscore() {
-    // Cursor's tool-name regex is stricter than SEP-986 (`[A-Za-z0-9_]+`).
-    // Every input that survives SEP-986 must come out clean here — this
+    // Cursor's tool-name regex is stricter than the common client-safe
+    // contract because it rejects hyphen. Every valid input must come out clean here — this
     // test is the contract the gateway signs with the client.
     let id = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
     for tool in [
-        "create_sphere",               // plain identifier
-        "maya-animation.set_keyframe", // skill-prefixed with dot + hyphen
-        "CamelCase",                   // mixed case
-        "scene.object.transform",      // multiple dots
-        "hello-world-greeting",        // multiple hyphens
-        "a",                           // single byte
-        "0",                           // digit-only leading byte
-        "v2.dotted.chain_name",        // dots and underscores together
+        "create_sphere",                // plain identifier
+        "maya-animation__set_keyframe", // skill-prefixed with separator + hyphen
+        "CamelCase",                    // mixed case
+        "hello-world-greeting",         // multiple hyphens
+        "a",                            // single byte
+        "0",                            // digit-only leading byte
+        "v2_dotted_chain_name",         // underscores together
     ] {
         let enc = encode_tool_name_cursor_safe(&id, tool);
         assert!(
@@ -122,7 +122,7 @@ fn cursor_safe_encode_produces_only_alnum_and_underscore() {
         );
         assert!(
             validate_tool_name(&enc).is_ok(),
-            "cursor-safe encoding of {tool:?} yielded {enc:?} which fails SEP-986",
+            "cursor-safe encoding of {tool:?} yielded {enc:?} which fails client-safe validation",
         );
         assert!(
             enc.starts_with("i_abcdef01__"),
@@ -146,19 +146,18 @@ fn cursor_safe_encode_escape_vocabulary_is_exhaustive() {
 
 #[test]
 fn cursor_safe_decode_is_inverse_of_encode_for_every_valid_backend_name() {
-    // Every backend tool name that passes SEP-986 validation must
+    // Every backend tool name that passes tool-name validation must
     // round-trip losslessly through cursor-safe encoding. This keeps
     // the gateway from quietly renaming tools on its way to Cursor.
     let id = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
     for tool in [
         "create_sphere",
-        "maya-animation.set_keyframe",
-        "scene.object.transform",
+        "maya-animation__set_keyframe",
         "CamelCase",
         "x",
         "hello-world",
-        "dotted.name.with_underscore",
-        "with.dot-and-dash",
+        "dotted_name_with_underscore",
+        "with-dash",
     ] {
         let enc = encode_tool_name_cursor_safe(&id, tool);
         let (p, o) = decode_tool_name(&enc)
@@ -169,11 +168,9 @@ fn cursor_safe_decode_is_inverse_of_encode_for_every_valid_backend_name() {
 }
 
 #[test]
-fn cursor_safe_decode_accepts_backend_tool_names_with_dots() {
-    // The spec explicitly requires support for backend names that
-    // themselves contain dots. If this regresses, any Maya skill-prefixed
-    // action (e.g. `maya-animation.set_keyframe`) becomes unreachable
-    // through Cursor.
+fn cursor_safe_decode_still_roundtrips_escaped_dots_for_non_tool_slugs() {
+    // The escape codec is still total for dotted diagnostic/REST slugs even
+    // though MCP tool names no longer publish dots.
     let id = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
     let enc = encode_tool_name_cursor_safe(&id, "maya-animation.set_keyframe");
     assert_eq!(enc, "i_abcdef01__maya_H_animation_D_set_U_keyframe");
@@ -214,18 +211,18 @@ fn cursor_safe_decode_does_not_confuse_instance_prefix_with_skill_slug() {
 }
 
 #[test]
-fn cursor_safe_encode_length_budget_fits_in_48() {
-    // MAX_TOOL_NAME_LEN is 48 in dcc-mcp-naming. The `i_<id8>__`
-    // prefix is 12 bytes, leaving 36 bytes for the escaped payload.
+fn cursor_safe_encode_length_budget_fits_in_64() {
+    // MAX_TOOL_NAME_LEN is 64 in dcc-mcp-naming. The `i_<id8>__`
+    // prefix is 12 bytes, leaving 52 bytes for the escaped payload.
     // The worst-case expansion ratio is 3x (every input byte becomes
-    // `_?_`), so a backend name ≤ 12 bytes is guaranteed to fit. Pin
+    // `_?_`), so a backend name ≤ 17 bytes is guaranteed to fit. Pin
     // that budget explicitly so future tool-name caps (or prefix
     // growth) notice the regression here rather than at runtime.
     let id = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
-    // 12-byte name entirely made of dots → 36-byte payload → 48 total.
-    let worst = ".".repeat(12);
+    // 17-byte name entirely made of hyphens → 51-byte payload → 63 total.
+    let worst = "-".repeat(17);
     let enc = encode_tool_name_cursor_safe(&id, &worst);
-    assert_eq!(enc.len(), 48);
+    assert!(enc.len() <= MAX_TOOL_NAME_LEN);
     assert!(validate_tool_name(&enc).is_ok());
 }
 
@@ -258,7 +255,7 @@ fn extract_bare_name_strips_prefix() {
 fn skill_tool_name_formats_correctly() {
     assert_eq!(
         skill_tool_name("maya-animation", "maya_animation__set_keyframe"),
-        Some("maya-animation.set_keyframe".to_string())
+        Some("maya-animation__set_keyframe".to_string())
     );
     assert_eq!(skill_tool_name("", "set_keyframe"), None);
 }
@@ -272,7 +269,7 @@ fn skill_tool_name_none_for_core_tools() {
 
 #[test]
 fn decode_skill_tool_name_round_trips() {
-    let (skill, tool) = decode_skill_tool_name("maya-animation.set_keyframe").unwrap();
+    let (skill, tool) = decode_skill_tool_name("maya-animation__set_keyframe").unwrap();
     assert_eq!(skill, "maya-animation");
     assert_eq!(tool, "set_keyframe");
 }
@@ -285,15 +282,15 @@ fn decode_skill_tool_name_rejects_stubs() {
 
 #[test]
 fn decode_skill_tool_name_rejects_gateway_encoded_form() {
-    // `abcdef01.create_sphere` is a gateway-encoded tool, not a skill.tool
+    // `abcdef01__create_sphere` is a gateway-encoded tool, not a skill/tool
     // pair. `decode_skill_tool_name` must yield None so callers route it
     // through `decode_tool_name` instead.
-    assert!(decode_skill_tool_name("abcdef01.create_sphere").is_none());
+    assert!(decode_skill_tool_name("abcdef01__create_sphere").is_none());
 }
 
 #[test]
 fn assert_gateway_tool_name_accepts_compliant() {
-    assert!(assert_gateway_tool_name("abcdef01.create_sphere").is_ok());
+    assert!(assert_gateway_tool_name("abcdef01__create_sphere").is_ok());
 }
 
 #[test]
@@ -411,12 +408,12 @@ fn actions_without_skill_are_skipped_by_resolver() {
 }
 
 #[test]
-fn warn_legacy_prefixed_once_is_one_shot_per_name() {
+fn warn_skill_qualified_once_is_one_shot_per_name() {
     __reset_warn_state_for_tests();
     // Two calls with the same name should not panic or repeatedly warn;
     // we can only verify the API surface is idempotent here — actual
     // log output is observed via `cargo test --nocapture` if needed.
-    warn_legacy_prefixed_once("maya-anim.set_keyframe");
-    warn_legacy_prefixed_once("maya-anim.set_keyframe");
-    warn_legacy_prefixed_once("maya-geo.create_sphere");
+    warn_skill_qualified_once("maya_anim__set_keyframe");
+    warn_skill_qualified_once("maya_anim__set_keyframe");
+    warn_skill_qualified_once("maya_geo__create_sphere");
 }

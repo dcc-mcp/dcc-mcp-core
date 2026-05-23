@@ -469,7 +469,7 @@ pub struct ResumeSnapshot {
 /// Compute the canonical SHA-256 hex digest of a workflow spec. Two
 /// specs that hash the same will produce identical executor behaviour;
 /// adapters can compare this hash across catalog reloads to detect
-/// drift before issuing `workflows.resume`.
+/// drift before issuing `workflows_resume`.
 #[must_use]
 pub fn compute_spec_hash(spec: &WorkflowSpec) -> String {
     use sha2::{Digest, Sha256};

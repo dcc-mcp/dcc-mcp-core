@@ -70,4 +70,4 @@ Extract the workflow file path from a `SkillMetadata` object. If value is a glob
 register_workflow_yaml_tools(server, *, workflows=None, skills=None, dcc_name="dcc") -> None
 ```
 
-Register `workflows.list` and `workflows.describe` MCP tools on `server`. Pass either pre-loaded `workflows` or a list of `SkillMetadata` `skills`.
+Register `workflows_list` and `workflows_describe` MCP tools on `server`. Pass either pre-loaded `workflows` or a list of `SkillMetadata` `skills`.

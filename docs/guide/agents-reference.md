@@ -47,7 +47,7 @@ body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
 }}
 # → result.structuredContent = {"job_id": "<uuid>", "status": "pending",
 #                               "parent_job_id": "<uuid>|null"}
-# Poll via jobs.get_status (#319); cancelling the parent cancels every child
+# Poll via jobs_get_status (#319); cancelling the parent cancels every child
 # whose _meta.dcc.parentJobId matches (CancellationToken child-token cascade).
 ```
 
@@ -345,16 +345,17 @@ router = vr.router()  # -> CompatibilityRouter (borrows the registry)
 result = vr.resolve("create_sphere", "maya", "^1.0.0")
 ```
 
-**SEP-986 tool naming — validate names before registration:**
+**Client-safe MCP tool naming — validate names before registration:**
 ```python
 from dcc_mcp_core import validate_tool_name, validate_action_id, TOOL_NAME_RE
-# Tool names: dot-separated lowercase (e.g. "scene.get_info")
-validate_tool_name("scene.get_info")     # ✓ passes
+# Tool names: ASCII letters/digits/_/- only, max 64 chars.
+validate_tool_name("scene_get_info")     # ✓ passes
+validate_tool_name("scene.get_info")     # ✗ raises ValueError
 validate_tool_name("Scene/GetInfo")      # ✗ raises ValueError
 # Action IDs: dotted lowercase identifier chains
-validate_action_id("maya-geometry.create_sphere")  # ✓
+validate_action_id("maya_geometry.create_sphere")  # ✓
 # Regex constants for custom validation:
-# TOOL_NAME_RE, ACTION_ID_RE, MAX_TOOL_NAME_LEN (48 chars)
+# TOOL_NAME_RE, ACTION_ID_RE, MAX_TOOL_NAME_LEN (64 chars)
 ```
 
 **Workflow step policies — retry / timeout / idempotency (#353):**
@@ -385,14 +386,13 @@ config.lazy_actions = True   # opt-in; default is False
 **`bare_tool_names` — collision-aware bare action names (#307):**
 ```python
 # Default True. tools/list emits "execute_python" instead of
-# "maya-scripting.execute_python" when the bare name is unique.
-# Collisions fall back to the full "<skill>.<action>" form.
-# tools/call accepts BOTH shapes for one release cycle.
+# "maya_scripting__execute_python" when the bare name is unique.
+# Collisions fall back to the full "<skill>__<action>" form.
+# tools/call accepts the exact client-safe name from tools/list.
 config = McpHttpConfig(port=8765)
 config.bare_tool_names = True   # default
 
-# Opt-out only if a downstream client hard-coded the prefixed form
-# and cannot be updated in lock-step:
+# Opt-out if a downstream client needs explicit skill-qualified names:
 config.bare_tool_names = False
 ```
 
@@ -431,7 +431,7 @@ json_str = result.to_json()    # JSON string
 - Use `registry.list_actions()` (shows all) vs `registry.list_actions_enabled()` (active only)
 - Start with `search_skills(query)` when looking for a tool — don't guess tool names. `search_skills` accepts `tags`, `dcc`, `scope`, and `limit`; call it with no arguments to browse by trust scope.
 - Use `init_file_logging(FileLoggingConfig(...))` for durable logs in multi-gateway setups; call `flush_logs()` to force events to disk immediately
-- Rely on bare tool names in `tools/call` — both `execute_python` and `maya-scripting.execute_python` work during the one-release grace window
+- Rely on client-safe tool names in `tools/call`; use `_` or `-`, not dotted tool names
 
 ### Don't ❌
 
@@ -453,7 +453,7 @@ json_str = result.to_json()    # JSON string
 - Don't manually bump versions or edit `CHANGELOG.md` — Release Please handles this
 - Don't hardcode API keys, tokens, or passwords — use environment variables
 - Don't use `docs/` prefix in branch names — causes `refs/heads/docs/...` conflicts
-- Don't hard-code the legacy `<skill>.<action>` prefixed form in `tools/call` — bare names are the default since v0.14.2 (#307)
+- Don't hard-code dotted `<skill>.<action>` tool names in `tools/call`; skill-qualified names use the client-safe `skill__action` shape
 - Don't reference `ToolMeta.enabled` in Python — use `ToolRegistry.set_tool_enabled()` instead
 - Don't use `json.dumps()` on `ToolResult` — use `result.to_json()` or `serialize_result()`
 - Don't guess tool names — use `search_skills(query)` to discover the right tool.
@@ -995,7 +995,7 @@ WorkflowExecutor::run(spec, inputs, parent_job)
 
 Use `WorkflowHost` as the stable entry point — it wraps `WorkflowExecutor`
 with a run registry keyed by `workflow_id`, so the three mutating MCP
-tools (`workflows.run` / `workflows.get_status` / `workflows.cancel`)
+tools (`workflows_run` / `workflows_get_status` / `workflows_cancel`)
 can be wired with `register_workflow_handlers(&dispatcher, &host)` after
 `register_builtin_workflow_tools(&registry)` has been called.
 
@@ -1078,8 +1078,8 @@ cfg = McpHttpConfig(port=8765)
 cfg.enable_job_notifications = False  # opt the $/dcc.* channels out
 ```
 
-Polling fallback: **`jobs.get_status`** (#319, always registered) returns
-the full job-state envelope for a given `job_id`. Use **`jobs.cleanup`**
+Polling fallback: **`jobs_get_status`** (#319, always registered) returns
+the full job-state envelope for a given `job_id`. Use **`jobs_cleanup`**
 (#328) with `older_than_hours` to prune terminal jobs; combine with
 `McpHttpConfig.job_storage_path` + Cargo feature `job-persist-sqlite`
 for restart-safe job history (pending/running rows become `Interrupted`

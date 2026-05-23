@@ -637,10 +637,10 @@ class TestInProcessExecutor:
                     _, poll = client.post(
                         {
                             "jsonrpc": "2.0",
-                            "id": f"jobs.get_status:{job_id}",
+                            "id": f"jobs_get_status:{job_id}",
                             "method": "tools/call",
                             "params": {
-                                "name": "jobs.get_status",
+                                "name": "jobs_get_status",
                                 "arguments": {"job_id": job_id, "include_result": True},
                             },
                         }

@@ -86,7 +86,7 @@ impl From<String> for StepId {
 /// `Interrupted` is the state reported by the recovery path when a running
 /// workflow is killed mid-flight: finished steps stay finished, the first
 /// unfinished step flips to `Interrupted`, and the workflow inherits that
-/// state until a `workflows.resume` call re-schedules it. See #348.
+/// state until a `workflows_resume` call re-schedules it. See #348.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum WorkflowStatus {
@@ -381,7 +381,7 @@ impl<'de> Deserialize<'de> for Step {
 /// Parsed from YAML via [`Self::from_yaml`]. Validated via [`Self::validate`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkflowSpec {
-    /// Workflow name — used as the key in `workflows.run({skill, name})`.
+    /// Workflow name — used as the key in `workflows_run({skill, name})`.
     pub name: String,
     /// Human-readable description.
     #[serde(default)]

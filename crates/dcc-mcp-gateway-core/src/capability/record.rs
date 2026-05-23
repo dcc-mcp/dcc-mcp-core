@@ -50,7 +50,7 @@ pub const SCHEMA_AVAILABLE: &str = "schema:available";
 /// The DCC type and id8 prefix are always cursor-safe (a-z0-9) by
 /// construction; `backend_tool` is copied verbatim (it was already
 /// validated through `dcc_mcp_naming::validate_tool_name` on the
-/// backend side, so it is SEP-986-legal).
+/// backend side, so it is client-safe).
 ///
 /// # Arguments
 ///
@@ -312,19 +312,19 @@ mod unit_tests {
     }
 
     #[test]
-    fn slug_preserves_backend_tool_with_dots_and_hyphens() {
-        // Backend tool names may carry SEP-986-legal `.` and `-`
-        // (skill-prefixed actions, e.g. `maya-animation.set_keyframe`).
+    fn slug_preserves_backend_tool_with_skill_separator_and_hyphens() {
+        // Backend tool names may carry client-safe `__` and `-`
+        // (skill-prefixed actions, e.g. `maya-animation__set_keyframe`).
         // The slug keeps them verbatim so reverse parsing stays
         // unambiguous — the first two dots are the fixed delimiters,
         // everything after that is the backend tool.
         let id = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
-        let slug = tool_slug("maya", &id, "maya-animation.set_keyframe");
-        assert_eq!(slug, "maya.abcdef01.maya-animation.set_keyframe");
+        let slug = tool_slug("maya", &id, "maya-animation__set_keyframe");
+        assert_eq!(slug, "maya.abcdef01.maya-animation__set_keyframe");
         let (dcc, id8, tool) = parse_slug(&slug).unwrap();
         assert_eq!(dcc, "maya");
         assert_eq!(id8, "abcdef01");
-        assert_eq!(tool, "maya-animation.set_keyframe");
+        assert_eq!(tool, "maya-animation__set_keyframe");
     }
 
     #[test]

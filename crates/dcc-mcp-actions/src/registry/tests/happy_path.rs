@@ -89,6 +89,15 @@ fn test_registry_get_unknown_returns_none() {
 }
 
 #[test]
+fn test_registry_rejects_invalid_mcp_tool_name() {
+    let reg = ToolRegistry::new();
+    reg.register_action(make_action("project.status", "maya"));
+
+    assert!(reg.is_empty());
+    assert!(reg.get_action("project.status", None).is_none());
+}
+
+#[test]
 fn test_registry_get_action_wrong_dcc_returns_none() {
     let reg = ToolRegistry::new();
     reg.register_action(make_action("create_sphere", "maya"));

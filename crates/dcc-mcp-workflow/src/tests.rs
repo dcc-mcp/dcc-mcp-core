@@ -156,7 +156,8 @@ fn builtin_tool_names_pass_sep986_validation() {
         tools::names::CANCEL,
         tools::names::LOOKUP,
     ] {
-        validate_tool_name(name).unwrap_or_else(|e| panic!("{name:?} rejected by SEP-986: {e}"));
+        validate_tool_name(name)
+            .unwrap_or_else(|e| panic!("{name:?} rejected by client-safe tool names: {e}"));
     }
 }
 
@@ -197,7 +198,7 @@ async fn register_workflow_handlers_wires_run_and_cancel() {
     use crate::tools::register_workflow_handlers;
 
     let caller = Arc::new(MockToolCaller::new());
-    caller.add("scene.echo", Ok);
+    caller.add("scene_echo", Ok);
     let executor = WorkflowExecutor::builder().tool_caller(caller).build();
     let host = WorkflowHost::new(executor);
 
@@ -206,7 +207,7 @@ async fn register_workflow_handlers_wires_run_and_cancel() {
     let dispatcher = ToolDispatcher::new(reg);
     register_workflow_handlers(&dispatcher, &host);
 
-    let yaml = "name: t\nsteps:\n  - id: s1\n    tool: scene.echo\n    args: {x: 1}\n";
+    let yaml = "name: t\nsteps:\n  - id: s1\n    tool: scene_echo\n    args: {x: 1}\n";
     let out = dispatcher
         .dispatch(tools::names::RUN, json!({"spec": yaml, "inputs": {}}))
         .unwrap()

@@ -214,9 +214,9 @@ mod unit_tests {
         idx.upsert_instance(
             iid,
             vec![CapabilityRecord::new(
-                crate::gateway::capability::tool_slug("maya", &iid, "project.save"),
-                "project.save".into(),
-                "project.save".into(),
+                crate::gateway::capability::tool_slug("maya", &iid, "project_save"),
+                "project_save".into(),
+                "project_save".into(),
                 Some("maya-scene".into()),
                 "save the current Maya scene",
                 vec!["save".into()],
@@ -232,7 +232,7 @@ mod unit_tests {
         records.extend(build_unloaded_records(
             vec![(
                 "maya-primitives".to_string(),
-                "maya-primitives.create_sphere".to_string(),
+                "maya_primitives__create_sphere".to_string(),
                 "Create a primitive sphere".to_string(),
             )],
             iid,
@@ -305,7 +305,7 @@ mod unit_tests {
             let records = build_unloaded_records(
                 vec![(
                     "maya-primitives".to_string(),
-                    "maya-primitives.create_sphere".to_string(),
+                    "maya_primitives__create_sphere".to_string(),
                     "Create a primitive sphere".to_string(),
                 )],
                 iid,
@@ -321,8 +321,8 @@ mod unit_tests {
         assert_eq!(
             slugs,
             vec![
-                "maya.aaaa0000.maya-primitives.create_sphere",
-                "maya.bbbb0000.maya-primitives.create_sphere",
+                "maya.aaaa0000.maya_primitives__create_sphere",
+                "maya.bbbb0000.maya_primitives__create_sphere",
             ]
         );
     }

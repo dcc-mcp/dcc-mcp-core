@@ -5,7 +5,7 @@
 //!
 //!   For domain queries (e.g. "three point rig light", "playblast viewport
 //!   capture"), the top-1 ranked hit MUST be a domain tool whose backend
-//!   name reflects the query intent. Generic meta-tools (`project.*`,
+//!   name reflects the query intent. Generic meta-tools (`project_*`,
 //!   `recipes__*`, `dcc_capability_manifest`, `diagnostics__*`) MUST NOT
 //!   appear in the top-3 simply because their long descriptions happen to
 //!   contain query tokens.
@@ -107,7 +107,7 @@ fn build_realistic_snapshot() -> Vec<R> {
         ),
         // --- Meta tools that must NOT dominate ---------------------------
         record(
-            "project.resume",
+            "project_resume",
             Some("project"),
             "Return the full resume payload for a scene: scene_path, loaded_assets, \
              active_skills, active_tool_groups, checkpoint_ids, and metadata.",
@@ -156,7 +156,7 @@ fn fuzzy(query: &str) -> SearchQuery {
 }
 
 const META_TOOLS: &[&str] = &[
-    "project.resume",
+    "project_resume",
     "dcc_capability_manifest",
     "recipes__list",
     "recipes__validate",

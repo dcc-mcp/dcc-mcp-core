@@ -70,10 +70,10 @@ print(restored.state.active_skills)  # → ['maya-lookdev']
 
 | 工具 | 输入 | 输出 |
 |-|-|-|
-| `project.save`   | `scene_path`              | 保存后的完整状态 dict |
-| `project.load`   | `scene_path` 或 `project_dir` | 状态 dict；不存在 `project.json` 时 `success: false` |
-| `project.resume` | `scene_path` 或 `project_dir` | `resume_session()` 载荷 |
-| `project.status` | `scene_path` 或 `project_dir` | 指定项目的状态 dict |
+| `project_save`   | `scene_path`              | 保存后的完整状态 dict |
+| `project_load`   | `scene_path` 或 `project_dir` | 状态 dict；不存在 `project.json` 时 `success: false` |
+| `project_resume` | `scene_path` 或 `project_dir` | `resume_session()` 载荷 |
+| `project_status` | `scene_path` 或 `project_dir` | 指定项目的状态 dict |
 
 ```python
 from dcc_mcp_core import register_project_tools
@@ -81,7 +81,7 @@ from dcc_mcp_core import register_project_tools
 # 无默认项目，调用方必须传 scene_path / project_dir
 register_project_tools(server, dcc_name="maya")
 
-# 或者绑定默认项目，代理就能无参数调用 project.status
+# 或者绑定默认项目，代理就能无参数调用 project_status
 from dcc_mcp_core.project import DccProject
 project = DccProject.open(current_scene_path())
 register_project_tools(server, dcc_name="maya", project=project)
@@ -102,7 +102,7 @@ register_project_tools(server, dcc_name="maya", project=project)
 3. 把代理猜不到的宿主信息写进 `ProjectState.metadata`：`units`、`up_axis`、
    帧范围、渲染相机等。
 4. 调用 `register_project_tools(server, project=<绑定的项目>)`，让代理不必
-   回调宿主就能查 `project.status`。
+   回调宿主就能查 `project_status`。
 5. 在适配器启动时往 `active_tool_groups` 里追加当前挂载的 UI shelf / 工具
    面板 —— 这样 recipe 和 skill 就能直接判断自己的前置条件是否可用，不必额外
    探测。
@@ -143,7 +143,7 @@ if scene_path:
 
 - `dcc_mcp_core.checkpoint` —— 任务级恢复状态。参见
   [任务持久化](./job-persistence.md)。
-- `workflows.resume` —— 工作流级恢复（issue
+- `workflows_resume` —— 工作流级恢复（issue
   [#565](https://github.com/loonghao/dcc-mcp-core/issues/565)）。未来可能把
-  `project.resume` 桥接到工作流引擎，让工作流在重跑步骤前先恢复 DCC 会话。
+  `project_resume` 桥接到工作流引擎，让工作流在重跑步骤前先恢复 DCC 会话。
 - 仓库根目录的 `AGENTS.md` —— 代理如何发现并调用这些工具。

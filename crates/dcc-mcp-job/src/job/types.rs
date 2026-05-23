@@ -129,7 +129,7 @@ impl Job {
         }
     }
 
-    /// JSON status snapshot used by `jobs.get_status` (#319) and the async
+    /// JSON status snapshot used by `jobs_get_status` (#319) and the async
     /// dispatch envelope returned by `tools/call` (#318).
     pub fn to_status_json(&self) -> serde_json::Value {
         serde_json::json!({

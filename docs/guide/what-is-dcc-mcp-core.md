@@ -108,7 +108,7 @@ dcc-mcp-core/
 │   ├── dcc-mcp-paths/               # platform path helpers
 │   ├── dcc-mcp-pybridge/            # PyO3 utilities
 │   ├── dcc-mcp-pybridge-derive/     # derive macros for PyO3 bridge helpers
-│   ├── dcc-mcp-naming/              # SEP-986 tool-name validation
+│   ├── dcc-mcp-naming/              # client-safe tool-name validation
 │   └── workspace-hack/              # cargo-hakari feature unification
 └── python/
     └── dcc_mcp_core/

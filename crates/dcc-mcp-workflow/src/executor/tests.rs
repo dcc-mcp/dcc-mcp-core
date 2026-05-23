@@ -520,7 +520,7 @@ async fn idempotency_persists_across_executor_rebuild_via_sqlite() {
     // idempotency key writes through to SQLite, and a *different*
     // executor instance built against the same on-disk DB short-circuits
     // the next call. This is the round-trip the in-memory cache could
-    // never deliver and is the foundation #565 (workflows.resume) builds
+    // never deliver and is the foundation #565 (workflows_resume) builds
     // on for skip-on-replay semantics.
     use std::sync::atomic::{AtomicU32, Ordering};
 

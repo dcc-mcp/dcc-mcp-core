@@ -248,6 +248,11 @@ _PROJECT_LOAD_SCHEMA: dict[str, Any] = {
 _PROJECT_RESUME_SCHEMA: dict[str, Any] = _PROJECT_LOAD_SCHEMA
 _PROJECT_STATUS_SCHEMA: dict[str, Any] = _PROJECT_LOAD_SCHEMA
 
+PROJECT_SAVE_TOOL = "project_save"
+PROJECT_LOAD_TOOL = "project_load"
+PROJECT_RESUME_TOOL = "project_resume"
+PROJECT_STATUS_TOOL = "project_status"
+
 _PROJECT_SAVE_DESCRIPTION = (
     "Save the DCC project state for a scene. "
     "When to use: after opening or modifying a scene to persist asset list, "
@@ -301,13 +306,13 @@ def _parse_project_params(params: Any) -> dict[str, Any]:
 
 
 def _project_handle_save(project: DccProject | None, params: Any) -> dict[str, Any]:
-    """Handle ``project.save`` — persist current project state to disk."""
+    """Handle ``project_save`` — persist current project state to disk."""
     args = _parse_project_params(params)
     scene_path = args.get("scene_path")
     if not scene_path and project is None:
         return {
             "success": False,
-            "message": "project.save requires scene_path (no default project bound).",
+            "message": "project_save requires scene_path (no default project bound).",
             "context": {},
         }
     target = (
@@ -327,14 +332,14 @@ def _project_handle_save(project: DccProject | None, params: Any) -> dict[str, A
 
 
 def _project_handle_load(params: Any) -> dict[str, Any]:
-    """Handle ``project.load`` — load project state from an existing project.json."""
+    """Handle ``project_load`` — load project state from an existing project.json."""
     args = _parse_project_params(params)
     scene_path = args.get("scene_path")
     project_dir = args.get("project_dir")
     if not scene_path and not project_dir:
         return {
             "success": False,
-            "message": "project.load requires scene_path or project_dir.",
+            "message": "project_load requires scene_path or project_dir.",
             "context": {},
         }
     # Determine whether a project.json actually exists — do not auto-create.
@@ -359,13 +364,13 @@ def _project_handle_load(params: Any) -> dict[str, Any]:
 
 
 def _project_handle_resume(project: DccProject | None, params: Any) -> dict[str, Any]:
-    """Handle ``project.resume`` — return session resume payload."""
+    """Handle ``project_resume`` — return session resume payload."""
     args = _parse_project_params(params)
     target = _resolve_project_target(args, project)
     if target is None:
         return {
             "success": False,
-            "message": "project.resume requires scene_path or project_dir (no default bound).",
+            "message": "project_resume requires scene_path or project_dir (no default bound).",
             "context": {},
         }
     return {
@@ -376,13 +381,13 @@ def _project_handle_resume(project: DccProject | None, params: Any) -> dict[str,
 
 
 def _project_handle_status(project: DccProject | None, params: Any) -> dict[str, Any]:
-    """Handle ``project.status`` — return current project state."""
+    """Handle ``project_status`` — return current project state."""
     args = _parse_project_params(params)
     target = _resolve_project_target(args, project)
     if target is None:
         return {
             "success": False,
-            "message": "project.status requires scene_path or project_dir (no default bound).",
+            "message": "project_status requires scene_path or project_dir (no default bound).",
             "context": {},
         }
     return {
@@ -402,7 +407,7 @@ def register_project_tools(
     dcc_name: str = "dcc",
     project: DccProject | None = None,
 ) -> None:
-    """Register ``project.save`` / ``load`` / ``resume`` / ``status`` on *server*.
+    """Register ``project_save`` / ``load`` / ``resume`` / ``status`` on *server*.
 
     Part of issue #576 acceptance criteria.  Adapters call this once during
     server bootstrap to expose project-level state persistence to MCP agents.
@@ -431,20 +436,20 @@ def register_project_tools(
 
     tools: list[tuple[str, str, dict[str, Any], Any]] = [
         (
-            "project.save",
+            PROJECT_SAVE_TOOL,
             _PROJECT_SAVE_DESCRIPTION,
             _PROJECT_SAVE_SCHEMA,
             lambda params: _project_handle_save(project, params),
         ),
-        ("project.load", _PROJECT_LOAD_DESCRIPTION, _PROJECT_LOAD_SCHEMA, _project_handle_load),
+        (PROJECT_LOAD_TOOL, _PROJECT_LOAD_DESCRIPTION, _PROJECT_LOAD_SCHEMA, _project_handle_load),
         (
-            "project.resume",
+            PROJECT_RESUME_TOOL,
             _PROJECT_RESUME_DESCRIPTION,
             _PROJECT_RESUME_SCHEMA,
             lambda params: _project_handle_resume(project, params),
         ),
         (
-            "project.status",
+            PROJECT_STATUS_TOOL,
             _PROJECT_STATUS_DESCRIPTION,
             _PROJECT_STATUS_SCHEMA,
             lambda params: _project_handle_status(project, params),
@@ -472,7 +477,11 @@ def register_project_tools(
 
 __all__ = [
     "PROJECT_DIR_NAME",
+    "PROJECT_LOAD_TOOL",
+    "PROJECT_RESUME_TOOL",
+    "PROJECT_SAVE_TOOL",
     "PROJECT_STATE_FILE",
+    "PROJECT_STATUS_TOOL",
     "DccProject",
     "ProjectState",
     "register_project_tools",

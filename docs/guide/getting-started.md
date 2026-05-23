@@ -286,7 +286,7 @@ vx just lint
 - See the [Transport Layer](/guide/transport) for DCC communication
 - Understand the [Architecture](/guide/architecture) of the 38-member Rust workspace
 - Learn [Skill Scopes & Policies](/guide/skill-scopes-policies) for trust-based skill management
-- Validate tool names with [SEP-986 Naming Rules](/guide/naming)
+- Validate tool names with [Naming Rules](/guide/naming)
 
 ## Troubleshooting
 

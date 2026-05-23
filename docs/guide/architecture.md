@@ -58,7 +58,7 @@ DCC-MCP-Core is a Rust workspace with Python bindings via PyO3. It provides:
 
 ```
 dcc-mcp-core (workspace root)
-├── dcc-mcp-naming        # SEP-986 tool-name / action-id validators
+├── dcc-mcp-naming        # client-safe tool-name / action-id validators
 ├── dcc-mcp-models        # ToolResult, SkillMetadata, DccName, shared errors
 ├── dcc-mcp-actions       # ToolRegistry, EventBus, ToolDispatcher, validation
 ├── dcc-mcp-skills        # SkillScanner, SkillCatalog, SkillWatcher, resolver

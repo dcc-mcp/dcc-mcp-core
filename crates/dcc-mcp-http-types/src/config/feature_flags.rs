@@ -27,10 +27,10 @@ pub struct FeatureFlags {
     /// when no collision exists on this instance (#307).
     ///
     /// When `true` (default), `tools/list` emits `execute_python`
-    /// rather than `maya-scripting.execute_python` whenever the bare
+    /// rather than `maya_scripting__execute_python` whenever the bare
     /// name is unique within the instance's loaded skills.
-    /// Collisions fall back to the full `<skill>.<action>` form, and
-    /// `tools/call` accepts both shapes for one release cycle.
+    /// Collisions fall back to the client-safe full
+    /// `<skill>__<action>` form.
     #[serde(default = "default_true")]
     pub bare_tool_names: bool,
 

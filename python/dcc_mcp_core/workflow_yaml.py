@@ -44,8 +44,8 @@ Public API:
 - :class:`WorkflowYaml` — a parsed workflow definition
 - :func:`load_workflow_yaml` — load and validate a workflow YAML file
 - :func:`get_workflow_path` — extract workflow file path from SkillMetadata
-- :func:`register_workflow_yaml_tools` — register ``workflows.list`` and
-  ``workflows.describe`` MCP tools
+- :func:`register_workflow_yaml_tools` — register ``workflows_list`` and
+  ``workflows_describe`` MCP tools
 
 """
 
@@ -334,7 +334,7 @@ _WORKFLOWS_DESCRIBE_SCHEMA: dict[str, Any] = {
     "properties": {
         "name": {
             "type": "string",
-            "description": "Workflow name (from workflows.list).",
+            "description": "Workflow name (from workflows_list).",
         },
     },
     "required": ["name"],
@@ -345,13 +345,13 @@ _WORKFLOWS_LIST_DESCRIPTION = (
     "List YAML workflow definitions loaded from skill sibling files. "
     "When to use: to discover available multi-step DCC workflows before "
     "executing them manually. "
-    "How to use: no parameters; use workflows.describe for details on a specific workflow."
+    "How to use: no parameters; use workflows_describe for details on a specific workflow."
 )
 
 _WORKFLOWS_DESCRIBE_DESCRIPTION = (
     "Describe a YAML workflow: goal, task list, kind (task vs step), and tools. "
     "When to use: before executing a workflow step-by-step — understand each tool call needed. "
-    "How to use: pass the workflow name from workflows.list."
+    "How to use: pass the workflow name from workflows_list."
 )
 
 
@@ -362,7 +362,7 @@ def register_workflow_yaml_tools(
     skills: list[Any] | None = None,
     dcc_name: str = "dcc",
 ) -> None:
-    """Register ``workflows.list`` and ``workflows.describe`` on *server*.
+    """Register ``workflows_list`` and ``workflows_describe`` on *server*.
 
     Pass either pre-loaded *workflows* or a list of ``SkillMetadata`` *skills*
     (the function will auto-discover workflow files via :func:`get_workflow_path`).
@@ -429,14 +429,14 @@ def register_workflow_yaml_tools(
 
     specs = [
         ToolSpec(
-            name="workflows.list",
+            name="workflows_list",
             description=_WORKFLOWS_LIST_DESCRIPTION,
             input_schema=_WORKFLOWS_LIST_SCHEMA,
             handler=_handle_list,
             category=CATEGORY_WORKFLOWS,
         ),
         ToolSpec(
-            name="workflows.describe",
+            name="workflows_describe",
             description=_WORKFLOWS_DESCRIBE_DESCRIPTION,
             input_schema=_WORKFLOWS_DESCRIBE_SCHEMA,
             handler=_handle_describe,

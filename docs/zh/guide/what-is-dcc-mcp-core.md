@@ -107,7 +107,7 @@ dcc-mcp-core/
 │   ├── dcc-mcp-paths/               # 平台路径帮助函数
 │   ├── dcc-mcp-pybridge/            # PyO3 工具
 │   ├── dcc-mcp-pybridge-derive/     # PyO3 bridge helper 的 derive 宏
-│   ├── dcc-mcp-naming/              # SEP-986 工具名校验
+│   ├── dcc-mcp-naming/              # 客户端安全工具名校验
 │   └── workspace-hack/              # cargo-hakari 统一特性
 └── python/
     └── dcc_mcp_core/

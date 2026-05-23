@@ -199,8 +199,8 @@ is safe.
 
 Since v0.15 the gateway no longer exposes per-tool backend actions via
 `tools/list`. Any tool name the gateway doesn't recognise — including
-the legacy `<skill>.<action>` / `i_<id8>__<escaped>` / `<id8>.<tool>`
-forms — now returns the redirect message:
+backend-qualified `<skill>__<action>` / `i_<id8>__<escaped>` /
+`<id8>__<tool>` forms — now returns the redirect message:
 
 > Unknown gateway tool 'X'. The gateway MCP surface is intentionally
 > minimal — it only exposes discovery + dispatch primitives. Use

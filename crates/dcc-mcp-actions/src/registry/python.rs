@@ -27,6 +27,14 @@ impl ToolRegistry {
             if name.is_empty() {
                 continue;
             }
+            if let Err(err) = validate_tool_name(&name) {
+                tracing::warn!(
+                    tool_name = %name,
+                    error = %err,
+                    "skipping batch action with invalid MCP tool name"
+                );
+                continue;
+            }
             let description: String = dict
                 .get_item("description")
                 .ok()
@@ -197,6 +205,11 @@ impl ToolRegistry {
         thread_affinity: String,
         enforce_thread_affinity: bool,
     ) -> pyo3::PyResult<()> {
+        validate_tool_name(&name).map_err(|err| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "invalid MCP tool name {name:?}: {err}"
+            ))
+        })?;
         let input_schema = parse_schema_or_default(input_schema.as_deref(), "input_schema", &name);
         let output_schema =
             parse_schema_or_default(output_schema.as_deref(), "output_schema", &name);
