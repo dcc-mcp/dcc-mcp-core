@@ -17,6 +17,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+import time
 from typing import Any
 from typing import Dict
 from typing import List
@@ -120,6 +121,13 @@ def _check_expect(
         needle = str(expect["body_contains"])
         if needle not in raw_body:
             return f"body does not contain substring {needle!r}"
+    if "body_contains_all" in expect:
+        needles = expect["body_contains_all"]
+        if not isinstance(needles, list):
+            return "body_contains_all must be a list"
+        missing = [str(needle) for needle in needles if str(needle) not in raw_body]
+        if missing:
+            return f"body does not contain substring(s) {missing!r}"
     if "json_subset" in expect and parsed is not None and not _json_subset_match(parsed, expect["json_subset"]):
         return f"json_subset mismatch; got {parsed!r}"
     return None
@@ -168,6 +176,16 @@ def _run_skip_preflight(
     if st >= 400:
         print(f"skip_preflight: request failed status={st} body={raw[:500]!r}", file=sys.stderr)
         return True
+    if "body_contains" in when:
+        needle = str(when["body_contains"])
+        if needle in raw:
+            print(f"SKIP: skip_preflight matched raw body contains {needle!r}. Trace not applicable.")
+            return True
+    if "body_not_contains" in when:
+        needle = str(when["body_not_contains"])
+        if needle not in raw:
+            print(f"SKIP: skip_preflight matched raw body missing {needle!r}. Trace not applicable.")
+            return True
     ptr = str(when.get("json_pointer", "/total"))
     val = _get_by_pointer(parsed, ptr)
     if when.get("equals") is not None and val == when["equals"]:
@@ -214,6 +232,24 @@ def run_trace(base_url: str, trace_path: str, dry_run: bool, verbose: bool) -> i
             print(f"Step {idx}: invalid record (not an object)", file=sys.stderr)
             return 1
         sid = step.get("id", str(idx))
+        sleep_ms = step.get("sleep_ms")
+        if sleep_ms is not None:
+            try:
+                delay_ms = int(sleep_ms)
+            except (TypeError, ValueError):
+                print(f"FAIL step {sid}: sleep_ms must be an integer", file=sys.stderr)
+                return 1
+            if delay_ms < 0:
+                print(f"FAIL step {sid}: sleep_ms must be >= 0", file=sys.stderr)
+                return 1
+            if dry_run:
+                print(f"[dry-run] sleep {delay_ms}ms")
+            else:
+                if verbose:
+                    print(f"--- step {sid} sleep {delay_ms}ms")
+                time.sleep(delay_ms / 1000)
+            continue
+
         http = step.get("http")
         if not isinstance(http, dict):
             print(f"Step {sid}: missing 'http'", file=sys.stderr)

@@ -60,3 +60,32 @@ def test_check_expect_any_one_matches():
         ],
     )
     assert err is None
+
+
+def test_check_expect_body_contains_all():
+    vr = _load_replay_module()
+    raw = '{"instances":[{"port":0,"status":"booting"}]}'
+    err = vr._check_expect(
+        200,
+        raw,
+        json.loads(raw),
+        {"status": 200, "body_contains_all": ['"port":0', '"status":"booting"']},
+    )
+    assert err is None
+
+
+def test_skip_preflight_body_not_contains(monkeypatch):
+    vr = _load_replay_module()
+
+    def fake_request(*_args, **_kwargs):
+        return 200, '{"instances":[]}', {"instances": []}
+
+    monkeypatch.setattr(vr, "_do_request", fake_request)
+    assert vr._run_skip_preflight(
+        "http://127.0.0.1:1",
+        {
+            "http": {"method": "GET", "path": "/v1/debug/instances?view=all"},
+            "skip_when": {"body_not_contains": '"port":0'},
+        },
+        1.0,
+    )
