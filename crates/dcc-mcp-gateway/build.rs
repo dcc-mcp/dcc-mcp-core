@@ -2,7 +2,9 @@
 //!
 //! When the `admin` feature is enabled, this script runs `vx npm …` from the
 //! workspace root (Node is resolved via `vx.toml`) or falls back to plain
-//! `npm` with `current_dir(admin-ui)` when `vx` is not on `PATH`.
+//! `npm` with `current_dir(admin-ui)` when `vx` is not on `PATH`. Build-only
+//! installs pass `--ignore-scripts` so the Playwright browser postinstall is
+//! kept out of Cargo/CI compilation paths.
 //!
 //! **manylinux / PyO3 maturin-action**: the Linux wheel build runs inside a
 //! Docker image that does not ship `vx`. CI must pre-build the bundle on the
@@ -147,8 +149,15 @@ fn main() -> Result<(), String> {
     }
 
     if !admin_ui.join("node_modules").exists() {
-        println!("cargo:warning=Installing admin-ui dependencies (vx npm ci or npm ci)");
-        run_npm_or_vx(&ws, &admin_ui, &["--prefix", "admin-ui", "ci"], &["ci"])?;
+        println!(
+            "cargo:warning=Installing admin-ui dependencies (vx npm ci --ignore-scripts or npm ci --ignore-scripts)"
+        );
+        run_npm_or_vx(
+            &ws,
+            &admin_ui,
+            &["--prefix", "admin-ui", "ci", "--ignore-scripts"],
+            &["ci", "--ignore-scripts"],
+        )?;
     }
 
     println!("cargo:warning=Building admin-ui bundle (vx npm run build or npm run build)");

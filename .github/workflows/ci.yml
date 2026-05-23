@@ -135,7 +135,7 @@ jobs:
         shell: bash
         run: |
           vx node --version
-          vx npm --prefix admin-ui ci
+          vx npm --prefix admin-ui ci --ignore-scripts
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
