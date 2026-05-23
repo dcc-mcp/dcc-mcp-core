@@ -16,17 +16,25 @@ fn create_skill(base: &std::path::Path, name: &str, deps: &[&str]) {
 }
 
 #[test]
-fn lenient_skips_missing_deps() {
+fn lenient_keeps_missing_deps_discoverable() {
     let tmp = tempfile::tempdir().unwrap();
     create_skill(tmp.path(), "good", &[]);
     create_skill(tmp.path(), "broken", &["nonexistent"]);
 
     let result =
         scan_and_load_lenient(Some(&[tmp.path().to_string_lossy().to_string()]), None).unwrap();
-    assert_eq!(result.skills.len(), 1);
-    assert_eq!(result.skills[0].name, "good");
-    // broken should be in skipped
-    assert!(!result.skipped.is_empty());
+    let names: Vec<&str> = result
+        .skills
+        .iter()
+        .map(|skill| skill.name.as_str())
+        .collect();
+    assert_eq!(names.len(), 2);
+    assert!(names.contains(&"good"));
+    assert!(names.contains(&"broken"));
+    assert!(
+        result.skipped.is_empty(),
+        "missing soft dependencies are not parse/load skips"
+    );
 }
 
 #[test]
@@ -55,7 +63,11 @@ fn lenient_preserves_valid_skills() {
     let names: Vec<&str> = result.skills.iter().map(|s| s.name.as_str()).collect();
     assert!(names.contains(&"base"));
     assert!(names.contains(&"child"));
-    assert!(!names.contains(&"orphan"));
+    assert!(names.contains(&"orphan"));
+    assert!(
+        names.iter().position(|name| *name == "base").unwrap()
+            < names.iter().position(|name| *name == "child").unwrap()
+    );
 }
 
 #[test]

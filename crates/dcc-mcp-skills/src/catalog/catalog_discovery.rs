@@ -1,6 +1,41 @@
 use super::*;
 
+fn dependency_state_for(
+    metadata: &SkillMetadata,
+    names: &std::collections::HashSet<String>,
+) -> SkillState {
+    let missing: Vec<String> = metadata
+        .depends
+        .iter()
+        .filter(|dep| !names.contains(dep.as_str()))
+        .cloned()
+        .collect();
+    if missing.is_empty() {
+        SkillState::Discovered
+    } else {
+        SkillState::PendingDeps { missing }
+    }
+}
+
 impl SkillCatalog {
+    pub(crate) fn refresh_dependency_states(&self) {
+        let names: std::collections::HashSet<String> = self
+            .entries
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect();
+        for mut entry in self.entries.iter_mut() {
+            if self.loaded.contains(entry.key()) {
+                entry.state = SkillState::Loaded;
+                continue;
+            }
+            if matches!(entry.state, SkillState::Error(_)) {
+                continue;
+            }
+            entry.state = dependency_state_for(&entry.metadata, &names);
+        }
+    }
+
     /// Create a new, empty catalog backed by the given registry.
     pub fn new(registry: Arc<ToolRegistry>) -> Self {
         Self {
@@ -107,6 +142,7 @@ impl SkillCatalog {
                 new_count += 1;
             }
         }
+        self.refresh_dependency_states();
 
         if !result.skipped.is_empty() {
             tracing::warn!(
@@ -174,6 +210,7 @@ impl SkillCatalog {
                 removed += 1;
             }
         }
+        self.refresh_dependency_states();
 
         if !result.skipped.is_empty() {
             tracing::warn!(
@@ -211,6 +248,7 @@ impl SkillCatalog {
                 },
             );
         }
+        self.refresh_dependency_states();
     }
 
     /// Discover skills from paths grouped by [`SkillScope`].
@@ -257,6 +295,7 @@ impl SkillCatalog {
                 }
             }
         }
+        self.refresh_dependency_states();
         tracing::info!(
             "SkillCatalog::discover_scoped: {} new skill(s) across {} scope(s)",
             total_new,

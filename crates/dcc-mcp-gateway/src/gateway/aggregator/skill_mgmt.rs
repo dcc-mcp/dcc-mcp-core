@@ -275,7 +275,7 @@ pub(crate) fn skill_management_tool_defs() -> Vec<Value> {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "status": {"type": "string", "enum": ["all", "loaded", "unloaded", "error"], "default": "all"},
+                    "status": {"type": "string", "enum": ["all", "loaded", "unloaded", "pending_deps", "error"], "default": "all"},
                     "dcc":    {"type": "string", "description": "Restrict to one DCC type (maya, blender, …)"},
                     "dcc_type": {"type": "string", "description": "Alias for dcc (REST callers)."},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 50},

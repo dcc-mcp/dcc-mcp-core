@@ -17,6 +17,8 @@ const COMPACT_FIELDS: &[&str] = &[
     "stage",
     "tool_count",
     "loaded",
+    "status",
+    "missing_dependencies",
     "scope",
     "summary",
     "dcc",
@@ -96,6 +98,15 @@ fn project_summary(summary: &SkillSummary, fields: &[String]) -> Value {
             }
             "loaded" => {
                 obj.insert("loaded".into(), json!(summary.loaded));
+            }
+            "status" => {
+                obj.insert("status".into(), json!(summary.status));
+            }
+            "missing_dependencies" if !summary.missing_dependencies.is_empty() => {
+                obj.insert(
+                    "missing_dependencies".into(),
+                    json!(summary.missing_dependencies),
+                );
             }
             "scope" => {
                 obj.insert("scope".into(), json!(summary.scope));
@@ -205,6 +216,27 @@ fn skill_summary_from_value(v: &Value) -> Option<SkillSummary> {
             .map(|s| s.split(',').map(str::to_string).collect())
             .unwrap_or_default(),
         loaded: v.get("loaded").and_then(Value::as_bool).unwrap_or(false),
+        status: v
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or_else(|| {
+                if v.get("loaded").and_then(Value::as_bool).unwrap_or(false) {
+                    "loaded"
+                } else {
+                    "discovered"
+                }
+            })
+            .to_string(),
+        missing_dependencies: v
+            .get("missing_dependencies")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default(),
         scope: v
             .get("scope")
             .and_then(Value::as_str)
@@ -234,6 +266,8 @@ mod tests {
             tool_count: 3,
             tool_names: vec!["a".to_string(), "b".to_string()],
             loaded: false,
+            status: "discovered".to_string(),
+            missing_dependencies: Vec::new(),
             scope: "repo".to_string(),
             implicit_invocation: true,
             layer: None,

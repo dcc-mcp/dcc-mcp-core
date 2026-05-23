@@ -269,7 +269,7 @@ os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/skills"
 
 # 一次性扫描 + 加载 + 依赖排序 → 返回 (skills, skipped_dirs)
 skills, skipped = scan_and_load(extra_paths=["/my/skills"], dcc_name="maya")
-skills_lenient, skipped = scan_and_load_lenient(dcc_name="maya")  # 跳过错误
+skills_lenient, skipped = scan_and_load_lenient(dcc_name="maya")  # 保留软依赖缺失的 Skill
 
 # 扫描目录中的 SKILL.md 文件
 scanner = SkillScanner()
@@ -338,6 +338,14 @@ errors = validate_dependencies(skills)
 deps = expand_transitive_dependencies(skills, "maya-animation")
 # ["maya-geometry"]
 ```
+
+Catalog 发现阶段会把这些声明当作软依赖处理。若组合 Skill 依赖
+`maya-dev`，但扫描时 `maya-dev` 还没有被发现，组合 Skill 仍会出现在
+`search_skills()` / `list_skills()` 中，并带有 `status: "pending_deps"` 和
+`missing_dependencies`。调用 `load_skill("maya-animation")` 时会先自动加载已经
+发现的依赖；如果依赖仍缺失，则返回包含缺失 Skill 名称和修复建议的错误。
+需要在打包或 CI 中强制校验依赖时，继续使用 `scan_and_load()` /
+`resolve_dependencies()` 的 fail-fast 行为。
 
 ## SkillMetadata 字段
 

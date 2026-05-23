@@ -105,7 +105,9 @@ impl SkillCatalog {
                 let state = &entry.value().state;
                 match status {
                     Some("loaded") => state == &SkillState::Loaded,
-                    Some("unloaded") | Some("discovered") => state == &SkillState::Discovered,
+                    Some("unloaded") => !matches!(state, SkillState::Loaded | SkillState::Error(_)),
+                    Some("discovered") => state == &SkillState::Discovered,
+                    Some("pending_deps") => matches!(state, SkillState::PendingDeps { .. }),
                     Some("error") => matches!(state, SkillState::Error(_)),
                     _ => true, // "all" or None
                 }
@@ -138,6 +140,7 @@ impl SkillCatalog {
                 scripts: e.metadata.scripts.clone(),
                 tools: e.metadata.tools.clone(),
                 state: e.state.to_string(),
+                missing_dependencies: e.state.missing_dependencies(),
                 registered_tools: e.registered_tools.clone(),
                 scope: e.scope.label().to_string(),
                 implicit_invocation: e

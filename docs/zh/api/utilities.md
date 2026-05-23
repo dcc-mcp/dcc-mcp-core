@@ -145,13 +145,13 @@ print(f"跳过 {len(skipped)} 个目录")
 
 ### `scan_and_load_lenient()`
 
-与 `scan_and_load()` 类似，但会静默跳过依赖缺失的 Skill（仅在出现循环依赖时失败）：
+与 `scan_and_load()` 类似，但会保留缺失软依赖的 Skill，让它们仍可被发现（仅在出现循环依赖时失败）：
 
 ```python
 from dcc_mcp_core import scan_and_load_lenient
 
 skills, skipped = scan_and_load_lenient(dcc_name="maya")
-# 依赖无法解析的 Skill 会出现在 skipped 中，而非抛出异常
+# 缺失软依赖的 Skill 仍在 skills 中；解析失败的目录仍在 skipped 中
 ```
 
 ### `resolve_dependencies()`

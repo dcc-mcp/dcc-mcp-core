@@ -4,7 +4,7 @@
 //!
 //! - [`parse_skill_md`]: Load a single skill from a directory.
 //! - [`scan_and_load`]: Full pipeline — scan directories, load all skills, resolve dependencies.
-//! - [`scan_and_load_lenient`]: Same pipeline but skips skills with missing deps instead of failing.
+//! - [`scan_and_load_lenient`]: Same pipeline but keeps skills with missing soft deps discoverable.
 
 // PyO3 bindings live in `crate::python::loader`.
 
