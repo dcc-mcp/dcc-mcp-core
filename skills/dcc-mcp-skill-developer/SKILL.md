@@ -125,6 +125,10 @@ into a faster authoring loop.
     `available`, `unavailable`, or `disabled_by_policy`; adapters may publish
     policy status/reason in registry metadata with `app_ui.status` and
     `app_ui.reason`.
+    Document workflow examples for modal dialogs, settings panels, semantic
+    waits, and recovery from stale controls, missing windows, denied actions,
+    and timeouts. Add a mock-backend workflow test or VRS trace whenever
+    gateway `/v1/*` routing is part of the behaviour being changed.
     Backend-specific implementations, such as the bundled Chrome DevTools
     prototype, belong behind the skill/runtime layer and must preserve the
     same `app_ui__snapshot` -> `find` -> `act` -> `wait_for` contract.

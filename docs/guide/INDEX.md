@@ -71,6 +71,7 @@ document without scanning every file.
 | [usd.md](usd.md) | OpenUSD bridge: UsdStage, scene info JSON |
 | [artefacts.md](artefacts.md) | FileRef + ArtefactStore — cross-tool file handoff |
 | [adapter-runtime-contracts.md](adapter-runtime-contracts.md) | Session events, artefact refs, debug descriptors, `app_ui` automation contracts |
+| [app-ui-workflows.md](app-ui-workflows.md) | Agent workflows for scoped `app_ui` UI automation, recovery, and VRS coverage |
 | [telemetry.md](telemetry.md) | ToolMetrics, ToolRecorder, RecordingGuard |
 | [observability.md](observability.md) | OTLP exporter, gateway event log (`resources://gateway/events`), Prometheus counters |
 | [scheduler.md](scheduler.md) | ScheduleSpec, TriggerSpec, cron/webhook scheduling |
