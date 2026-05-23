@@ -19,6 +19,7 @@ export default defineConfig({
         nav: [
           { text: 'Guide', link: '/guide/what-is-dcc-mcp-core' },
           { text: 'API', link: '/api/models' },
+          { text: 'RFCs', link: '/rfcs/' },
           {
             text: 'v0.17.22', // x-release-please-version
             items: [
@@ -141,6 +142,17 @@ export default defineConfig({
                 { text: 'Hot Reload', link: '/api/hot-reload' },
                 { text: 'Server Factory', link: '/api/factory' },
                 { text: 'Callable Dispatcher', link: '/api/dispatcher' },
+              ],
+            }
+          ],
+          '/rfcs/': [
+            {
+              text: 'Request for Comments',
+              items: [
+                { text: 'Overview', link: '/rfcs/' },
+                { text: '0001: Gateway Election Resilience', link: '/rfcs/0001-gateway-election-resilience' },
+                { text: '0002: Event Bus & Webhooks', link: '/rfcs/0002-event-bus-and-webhooks' },
+                { text: '0003: Traffic Interception & Agent Debugging', link: '/rfcs/0003-traffic-interception-and-replay' },
               ],
             }
           ]
