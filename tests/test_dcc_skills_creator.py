@@ -88,7 +88,9 @@ def test_create_skill_example_tool_runs_successfully(tmp_path: Path) -> None:
     payload = json.loads(result.stdout)
     assert payload["success"] is True
     assert payload["message"] == "Example tool completed"
-    assert payload["context"]["context"]["label"] == "example"
+    assert payload["context"]["label"] == "example"
+    assert payload["context"]["dry_run"] is True
+    assert payload["context"]["extra_params"] == {}
 
 
 def test_create_skill_example_tool_runs_with_inprocess_executor(tmp_path: Path) -> None:
@@ -102,6 +104,9 @@ def test_create_skill_example_tool_runs_with_inprocess_executor(tmp_path: Path) 
 
     assert payload["success"] is True
     assert payload["message"] == "Example tool completed"
+    assert payload["context"]["label"] == "example"
+    assert payload["context"]["dry_run"] is True
+    assert payload["context"]["extra_params"] == {"unused_param": "accepted"}
 
 
 def test_create_skill_rejects_non_kebab_case_name(tmp_path: Path) -> None:

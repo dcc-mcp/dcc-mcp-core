@@ -750,6 +750,8 @@ class TestValidateActionResult:
     def test_dict_with_context(self) -> None:
         r = dcc_mcp_core.validate_action_result({"success": True, "message": "m", "context": {"k": "v"}})
         assert r.success is True
+        assert r.context["k"] == "v"
+        assert "context" not in r.context
 
     def test_action_result_model_passthrough(self) -> None:
         original = dcc_mcp_core.success_result("hello")

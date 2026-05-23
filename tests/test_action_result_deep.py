@@ -336,6 +336,13 @@ class TestValidateActionResult:
         assert isinstance(validated, ToolResult)
         assert validated.success is True
 
+    def test_wraps_dict_context_as_context(self):
+        d = {"success": True, "message": "ok", "context": {"label": "example"}}
+        validated = validate_action_result(d)
+        assert isinstance(validated, ToolResult)
+        assert validated.context["label"] == "example"
+        assert "context" not in validated.context
+
     def test_wraps_dict_with_success_false(self):
         d = {"success": False, "message": "fail", "error": "oops"}
         validated = validate_action_result(d)
