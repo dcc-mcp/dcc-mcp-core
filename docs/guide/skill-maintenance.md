@@ -7,6 +7,9 @@ implementations** live under:
 - `python/dcc_mcp_core/skills/dcc-diagnostics/` — infrastructure skill: rich
   frontmatter `description`, `search-hint`, `layer`, tool purposes spelled out
   in SKILL.md body.
+- `python/dcc_mcp_core/skills/media/` — infrastructure skill: typed
+  vx-managed FFmpeg/FFprobe wrappers for DCC render/playblast artifacts without
+  exposing arbitrary shell or vx execution.
 - `python/dcc_mcp_core/skills/workflow/` — orchestration skill: example JSON
   chains and explicit “when not to use” boundaries.
 
