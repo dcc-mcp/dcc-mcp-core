@@ -623,6 +623,10 @@ function gatewayDocsHref(): string {
   return `${window.location.origin}/docs`;
 }
 
+function projectDocsHref(): string {
+  return 'https://github.com/loonghao/dcc-mcp-core/tree/main/docs';
+}
+
 function gatewayOpenApiHref(): string {
   return `${window.location.origin}/v1/openapi.json`;
 }
@@ -2710,11 +2714,11 @@ function App() {
           })}
           <div className="nav-entry">
             <a
-              href={gatewayDocsHref()}
+              href={projectDocsHref()}
               className="nav-link"
               target="_blank"
               rel="noopener noreferrer"
-              title="Open gateway OpenAPI docs"
+              title="Open project docs on GitHub"
             >
               <DocsIcon />
               <span>Docs</span>
