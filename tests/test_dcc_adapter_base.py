@@ -10,6 +10,7 @@ Covers:
 # Import future modules
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 # Import built-in modules
@@ -370,6 +371,15 @@ class TestDccServerBase:
         server.stop()
         assert not server.is_running
         assert server.mcp_url is None
+
+    def test_start_logs_server_version(self, tmp_path, caplog):
+        server = self._make_server(tmp_path)
+
+        with caplog.at_level(logging.INFO, logger="dcc_mcp_core.server_base"):
+            server.start()
+
+        assert "[fake-dcc] MCP server v0.1.0 started at http://127.0.0.1:18765/mcp" in caplog.text
+        server.stop()
 
     def test_start_returns_same_handle_if_already_running(self, tmp_path):
         server = self._make_server(tmp_path)
