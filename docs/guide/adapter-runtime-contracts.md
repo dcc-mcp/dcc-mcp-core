@@ -54,10 +54,14 @@ descriptor = DebugSessionDescriptor.listening("debugpy", "127.0.0.1", 5678)
 Publish the resulting `descriptor.to_dict()` through a docs/custom resource or
 an adapter-owned optional tool.
 
-## UI automation contract
+## App UI automation contract
 
-The UI contract is a schema, not a universal click bot. Adapters may implement
-it with Qt, native accessibility APIs, webviews, or DCC-specific UI APIs.
+The `app_ui` contract is a schema and workflow, not a universal click bot.
+Adapters may implement it with Qt, native accessibility APIs, webviews, or
+DCC-specific UI APIs. The public tool names use `app_ui__*` because the
+capability is intentionally broader than a DCC-only UI namespace: the same
+contract can describe a DCC preferences dialog, an external launcher, a license
+utility, or another adapter-owned application window.
 
 Core shapes include:
 
@@ -65,8 +69,47 @@ Core shapes include:
 - `UiFindRequest` for locating controls by query, role, label, or object name.
 - `UiActionRequest` for one bounded action such as click, set text, toggle,
   set checked, select option, or focus.
+- `UiWaitCondition` and `UiWaitResult` for in-tool polling such as "wait until
+  status text equals Applied" or "wait until the modal is gone".
 - `UiActionResult` with structured errors such as `stale_control`, `denied`,
   `unsupported_action`, and optional screenshot/artefact refs.
+- `AppUiPolicy` and `AppUiAuditRecord` for scoped action controls and
+  privacy-preserving audit output.
 
 Adapters must return structured errors instead of hanging when controls go
 stale, and adapter-side safety policy still decides which actions are allowed.
+
+Preferred agent loop:
+
+1. `app_ui__snapshot` observes a scoped application window and returns a
+   `snapshot_id`.
+2. `app_ui__find` resolves a stable control id by query, role, label, or object
+   name.
+3. `app_ui__act` performs one action against that control id. Pass the
+   `snapshot_id` when available so stale controls fail with `stale_control`
+   instead of acting on the wrong target.
+4. `app_ui__wait_for` polls inside one call until the expected UI state is true
+   or returns `timeout` with structured details.
+5. `app_ui__snapshot` verifies the final state.
+
+Use native DCC skills or APIs first. Use `app_ui__*` only when the behavior is
+visible in the application UI but not exposed through a reliable host API.
+
+Safety expectations:
+
+- Snapshot/find tools are read-only and may run on any thread when the backend
+  supports it.
+- Mutating actions should declare conservative safety annotations, main-thread
+  affinity when required by the host, and a timeout that reflects UI polling.
+- Policy should disable whole-desktop access by default. Scope to an
+  adapter-owned process, window, or explicit allow-list.
+- Raw coordinate clicks and keyboard shortcuts are high risk. Keep them disabled
+  unless an adapter explicitly opts in and documents the fallback.
+- Audit records should include action kind, target control id/role/label when
+  safe, before/after focus ids, success/failure, and a structured error code.
+  Sensitive typed text and screenshot bytes should be redacted or returned only
+  as artefact/resource references.
+
+The bundled `app-ui` skill provides a deterministic mock backend for tests and
+adapter authoring. It exposes `app_ui__snapshot`, `app_ui__find`,
+`app_ui__act`, and `app_ui__wait_for` without requiring a live DCC.

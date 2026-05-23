@@ -86,8 +86,8 @@ MAX_TRACE_CALL_LENGTH: int = 500
 
 # The ``skills/`` subdirectory is co-located with this module inside the
 # installed wheel.  It contains the general-purpose reference skill packages
-# (dcc-diagnostics, workflow, git-automation, etc.) that are bundled with
-# dcc-mcp-core so users do not need to clone the repository.
+# (app-ui, dcc-diagnostics, workflow, etc.) that are bundled with dcc-mcp-core
+# so users do not need to clone the repository.
 _BUNDLED_SKILLS_DIR: Path = Path(__file__).parent / "skills"
 
 
@@ -95,8 +95,7 @@ def get_bundled_skills_dir() -> str:
     """Return the absolute path to the bundled skills directory.
 
     The directory contains the general-purpose skill packages shipped with
-    ``dcc-mcp-core`` (``dcc-diagnostics``, ``workflow``, ``git-automation``,
-    ``ffmpeg-media``, ``imagemagick-tools``).
+    ``dcc-mcp-core`` (``app-ui``, ``dcc-diagnostics``, ``workflow``, etc.).
 
     Returns:
         Absolute path string.  The directory is guaranteed to exist when the

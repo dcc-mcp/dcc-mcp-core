@@ -81,8 +81,9 @@ pub use dcc_mcp_http_types::session_events::{
     SessionEvent, SessionEventPage, SessionEventReadOptions, SessionEventTruncation,
 };
 pub use dcc_mcp_http_types::ui_automation::{
-    UiActionKind, UiActionRequest, UiActionResult, UiArtifactRef, UiBounds, UiControlNode,
-    UiErrorCode, UiFindRequest, UiSnapshot,
+    AppUiAuditRecord, AppUiPolicy, UiActionKind, UiActionRequest, UiActionResult, UiArtifactRef,
+    UiBounds, UiControlNode, UiErrorCode, UiFindRequest, UiSnapshot, UiWaitCondition,
+    UiWaitConditionKind, UiWaitResult,
 };
 pub use dcc_mcp_skill_rest::{
     AllowLocalhostGate, AuditEvent, AuditOutcome, AuditSink, AuthGate, BearerTokenGate,

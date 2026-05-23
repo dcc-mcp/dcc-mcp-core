@@ -488,10 +488,11 @@ See [`examples/skills/`](examples/skills/) for complete reference packages.
 
 ### Bundled Skills — Zero Configuration Required
 
-`dcc-mcp-core` ships **two core skills** directly inside the wheel. They are available immediately after `pip install dcc-mcp-core` — no repository clone or `DCC_MCP_SKILL_PATHS` configuration needed.
+`dcc-mcp-core` ships core skills directly inside the wheel. They are available immediately after `pip install dcc-mcp-core` — no repository clone or `DCC_MCP_SKILL_PATHS` configuration needed.
 
 | Skill | Tools | Purpose |
 |---|---|---|
+| `app-ui` | `snapshot`, `find`, `act`, `wait_for` | Scoped application UI observation/action mock backend |
 | `dcc-diagnostics` | `screenshot`, `audit_log`, `tool_metrics`, `process_status` | Observability & debugging for any DCC |
 | `workflow` | `run_chain` | Multi-step action chaining with context propagation |
 

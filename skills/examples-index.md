@@ -54,7 +54,8 @@ Each demonstrates a specific skill system feature.
 
 ## Bundled Skills
 
-Two skills are **also shipped inside the wheel** (available without `DCC_MCP_SKILL_PATHS`):
+Core skills are **also shipped inside the wheel** (available without `DCC_MCP_SKILL_PATHS`):
+- `app-ui` — Bundled scoped UI automation mock backend
 - `dcc-diagnostics` — Same as `examples/skills/dcc-diagnostics/`
 - `workflow` — Same as `examples/skills/workflow/`
 
