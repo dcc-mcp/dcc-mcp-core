@@ -139,3 +139,12 @@ runtime also supports `edge` for Microsoft Edge CDP and `agent-browser` for
 Vercel's `agent-browser` CLI, which exposes its DevTools URL through
 `agent-browser get cdp-url` and can be provisioned in CI with
 `agent-browser install`.
+
+Set `DCC_MCP_APP_UI_BACKEND=windows-uia` on Windows to use the reference
+Windows UI Automation backend. It uses the OS UIAutomationClient API through a
+PowerShell helper and stays behind the same contract. The backend refuses
+unscoped whole-desktop access: provide an allowed window title, process id, or
+process name through the call policy or `DCC_MCP_APP_UI_UIA_*` environment
+variables. It maps UIA control types into normalized app_ui roles and returns
+structured `missing_window`, `not_found`, `unsupported_action`,
+`policy_disabled`, `stale_control`, and `timeout` errors.

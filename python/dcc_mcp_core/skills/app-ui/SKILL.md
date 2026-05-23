@@ -12,8 +12,8 @@ metadata:
     dcc: python
     version: "0.1.0"
     layer: infrastructure
-    search-hint: "app ui, ui automation, chrome cdp, edge cdp, agent-browser, dialog, modal, settings panel, snapshot, find control, click, set text, wait for ui, stale control, dcc debugging"
-    tags: "app-ui, ui-automation, chrome-cdp, edge-cdp, agent-browser, diagnostics, infrastructure, mock"
+    search-hint: "app ui, ui automation, windows uia, chrome cdp, edge cdp, agent-browser, dialog, modal, settings panel, snapshot, find control, click, set text, wait for ui, stale control, dcc debugging"
+    tags: "app-ui, ui-automation, windows-uia, chrome-cdp, edge-cdp, agent-browser, diagnostics, infrastructure, mock"
     tools: tools.yaml
 ---
 
@@ -25,6 +25,13 @@ observe or drive the interface state directly.
 The default backend is deterministic mock state for CI and adapter authoring.
 Set `DCC_MCP_APP_UI_BACKEND=chrome` to use the experimental CDP backend through
 the same `app_ui__*` contract.
+
+Set `DCC_MCP_APP_UI_BACKEND=windows-uia` on Windows to use the reference
+Windows UI Automation backend. Scope it explicitly with
+`policy.allowed_window_titles`, `policy.allowed_process_ids`,
+`DCC_MCP_APP_UI_UIA_WINDOW_TITLE`, `DCC_MCP_APP_UI_UIA_PROCESS_ID`, or
+`DCC_MCP_APP_UI_UIA_PROCESS_NAME`; whole-desktop snapshots are disabled by
+default.
 
 CDP presets:
 
