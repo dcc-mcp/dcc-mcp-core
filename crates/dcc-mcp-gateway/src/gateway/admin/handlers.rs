@@ -303,6 +303,7 @@ pub async fn handle_admin_tools(State(s): State<AdminState>) -> impl IntoRespons
 
 /// `GET /admin/api/skills` — skills currently indexed by the gateway.
 pub async fn handle_admin_skills(State(s): State<AdminState>) -> impl IntoResponse {
+    refresh_all_live_backends(&s.gateway, RefreshReason::Periodic).await;
     let records = s.gateway.capability_index.snapshot().records;
     let mut grouped: BTreeMap<(String, String, bool), Vec<_>> = BTreeMap::new();
     for record in records.iter().cloned() {
