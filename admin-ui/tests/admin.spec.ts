@@ -349,6 +349,28 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.health-panel')).toContainText('0.17.7');
   });
 
+  test('shows platform-specific IDE config paths', async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'userAgentData', {
+        configurable: true,
+        get: () => ({ platform: 'macOS' }),
+      });
+      Object.defineProperty(navigator, 'platform', {
+        configurable: true,
+        get: () => 'MacIntel',
+      });
+    });
+
+    await page.goto('/admin/');
+
+    const setup = page.locator('.setup-panel');
+    await expect(setup).toContainText('~/Library/Application Support/Claude/claude_desktop_config.json');
+    await expect(setup).toContainText('~/.cursor/mcp.json');
+    await expect(setup).toContainText('~/Library/Application Support/Code/User/mcp.json');
+    await expect(setup).toContainText('~/.codex/settings.json');
+    await expect(setup).not.toContainText('%APPDATA%\\Claude');
+  });
+
   test('switches to instances, renders DCC cards, and filters rows', async ({ page }) => {
     await page.goto('/admin/');
     await page.getByRole('navigation').getByRole('link', { name: 'Instances' }).click();
