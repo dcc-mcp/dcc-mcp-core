@@ -5,7 +5,9 @@ use crate::gateway::capability_service::{
     ServiceError, call_service, describe_tool_full, parse_search_payload,
     refresh_all_live_backends, search_service_rows, service_error_to_json,
 };
-use crate::gateway::response_codec::search_response;
+use crate::gateway::response_codec::{
+    compact_call_batch_payload, compact_describe_payload, negotiated_response, search_response,
+};
 
 #[derive(Debug, Deserialize)]
 pub struct DccInstanceDescribeQuery {
@@ -318,7 +320,7 @@ pub async fn handle_v1_search(
             }
             Err(err) => {
                 drop(registry);
-                return resolve_instance_http_response(err).into_response();
+                return resolve_instance_negotiated_response(&headers, &body, err);
             }
         }
     }
@@ -365,43 +367,48 @@ async fn skill_lifecycle_response(gs: &GatewayState, tool: &str, body: Value) ->
 /// Request body: `{"tool_slug": "<dcc>.<id8>.<tool>"}`.
 pub async fn handle_v1_describe(
     State(gs): State<GatewayState>,
+    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
     let Some(slug) = body.get("tool_slug").and_then(Value::as_str) else {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(service_error_to_json(&ServiceError::new(
-                "bad-request",
-                "missing required field: tool_slug",
-            ))),
-        )
-            .into_response();
+        return service_error_response(
+            &headers,
+            &body,
+            &ServiceError::new("bad-request", "missing required field: tool_slug"),
+        );
     };
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
 
-    describe_slug_response(&gs, slug).await
+    describe_slug_response(&gs, &headers, &body, slug).await
 }
 
 /// `GET /v1/tools/{slug}` — path form of describe.
 pub async fn handle_v1_describe_path(
     State(gs): State<GatewayState>,
+    headers: HeaderMap,
     Path(slug): Path<String>,
 ) -> Response {
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
-    describe_slug_response(&gs, &slug).await
+    let body = json!({});
+    describe_slug_response(&gs, &headers, &body, &slug).await
 }
 
-async fn describe_slug_response(gs: &GatewayState, slug: &str) -> Response {
+async fn describe_slug_response(
+    gs: &GatewayState,
+    headers: &HeaderMap,
+    body: &Value,
+    slug: &str,
+) -> Response {
     match describe_tool_full(gs, slug).await {
-        Ok((record, tool)) => (
-            StatusCode::OK,
-            Json(json!({
+        Ok((record, tool)) => {
+            let legacy = json!({
                 "record": record,
                 "tool": tool,
-            })),
-        )
-            .into_response(),
-        Err(err) => error_response(&err).into_response(),
+            });
+            let compact = compact_describe_payload(&legacy);
+            negotiated_response(headers, body, StatusCode::OK, legacy, Some(compact))
+        }
+        Err(err) => service_error_response(headers, body, &err),
     }
 }
 
@@ -413,19 +420,21 @@ async fn describe_slug_response(gs: &GatewayState, slug: &str) -> Response {
 /// Response matches [`handle_v1_describe_path`] (`GET /v1/tools/{slug}`).
 pub async fn handle_v1_dcc_instance_describe(
     State(gs): State<GatewayState>,
+    headers: HeaderMap,
     Path((dcc_type, instance_id)): Path<(String, String)>,
     Query(q): Query<DccInstanceDescribeQuery>,
 ) -> Response {
+    let body = json!({});
     let backend_tool = q.backend_tool.trim();
     if backend_tool.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(service_error_to_json(&ServiceError::new(
+        return service_error_response(
+            &headers,
+            &body,
+            &ServiceError::new(
                 "bad-request",
                 "missing or empty required query parameter: backend_tool (aliases: tool, action)",
-            ))),
-        )
-            .into_response();
+            ),
+        );
     }
 
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
@@ -439,24 +448,24 @@ pub async fn handle_v1_dcc_instance_describe(
         Ok(e) => e,
         Err(err) => {
             drop(registry);
-            return resolve_instance_http_response(err).into_response();
+            return resolve_instance_negotiated_response(&headers, &body, err);
         }
     };
     drop(registry);
 
     if !entry.dcc_type.eq_ignore_ascii_case(dcc_type.as_str()) {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(service_error_to_json(&ServiceError::new(
+        return service_error_response(
+            &headers,
+            &body,
+            &ServiceError::new(
                 "bad-request",
                 "path dcc_type does not match resolved registry row",
-            ))),
-        )
-            .into_response();
+            ),
+        );
     }
 
     let slug = tool_slug(&entry.dcc_type, &entry.instance_id, backend_tool);
-    describe_slug_response(&gs, &slug).await
+    describe_slug_response(&gs, &headers, &body, &slug).await
 }
 
 /// `POST /v1/call` — invoke a backend action by slug.
@@ -469,27 +478,21 @@ pub async fn handle_v1_call(
     Json(body): Json<Value>,
 ) -> Response {
     let Some(slug) = body.get("tool_slug").and_then(Value::as_str) else {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(service_error_to_json(&ServiceError::new(
-                "bad-request",
-                "missing required field: tool_slug",
-            ))),
-        )
-            .into_response();
+        return service_error_response(
+            &headers,
+            &body,
+            &ServiceError::new("bad-request", "missing required field: tool_slug"),
+        );
     };
     let arguments =
         match dcc_mcp_jsonrpc::coerce_tool_arguments_object(body.get("arguments").cloned()) {
             Ok(v) => v,
             Err(msg) => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(service_error_to_json(&ServiceError::new(
-                        "bad-request",
-                        msg,
-                    ))),
-                )
-                    .into_response();
+                return service_error_response(
+                    &headers,
+                    &body,
+                    &ServiceError::new("bad-request", msg),
+                );
             }
         };
     let meta = body.get("meta").cloned();
@@ -497,8 +500,8 @@ pub async fn handle_v1_call(
     match call_service_with_admin_trace(&gs, &headers, "v1/call", slug, arguments, meta, &body)
         .await
     {
-        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(err) => error_response(&err).into_response(),
+        Ok(result) => negotiated_response(&headers, &body, StatusCode::OK, result, None),
+        Err(err) => service_error_response(&headers, &body, &err),
     }
 }
 
@@ -527,14 +530,14 @@ pub async fn handle_v1_dcc_instance_call(
         .map(str::trim)
         .filter(|s| !s.is_empty());
     let Some(backend_tool) = backend_tool else {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(service_error_to_json(&ServiceError::new(
+        return service_error_response(
+            &headers,
+            &body,
+            &ServiceError::new(
                 "bad-request",
                 "missing required field: backend_tool (accepted aliases: tool, action)",
-            ))),
-        )
-            .into_response();
+            ),
+        );
     };
 
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
@@ -548,20 +551,20 @@ pub async fn handle_v1_dcc_instance_call(
         Ok(e) => e,
         Err(err) => {
             drop(registry);
-            return resolve_instance_http_response(err).into_response();
+            return resolve_instance_negotiated_response(&headers, &body, err);
         }
     };
     drop(registry);
 
     if !entry.dcc_type.eq_ignore_ascii_case(dcc_type.as_str()) {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(service_error_to_json(&ServiceError::new(
+        return service_error_response(
+            &headers,
+            &body,
+            &ServiceError::new(
                 "bad-request",
                 "path dcc_type does not match resolved registry row",
-            ))),
-        )
-            .into_response();
+            ),
+        );
     }
 
     let slug = tool_slug(&entry.dcc_type, &entry.instance_id, backend_tool);
@@ -569,14 +572,11 @@ pub async fn handle_v1_dcc_instance_call(
         match dcc_mcp_jsonrpc::coerce_tool_arguments_object(body.get("arguments").cloned()) {
             Ok(v) => v,
             Err(msg) => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(service_error_to_json(&ServiceError::new(
-                        "bad-request",
-                        msg,
-                    ))),
-                )
-                    .into_response();
+                return service_error_response(
+                    &headers,
+                    &body,
+                    &ServiceError::new("bad-request", msg),
+                );
             }
         };
     let meta = body.get("meta").cloned();
@@ -592,36 +592,44 @@ pub async fn handle_v1_dcc_instance_call(
     )
     .await
     {
-        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(err) => error_response(&err).into_response(),
+        Ok(result) => negotiated_response(&headers, &body, StatusCode::OK, result, None),
+        Err(err) => service_error_response(&headers, &body, &err),
     }
 }
 
 pub(crate) fn resolve_instance_http_response(err: ResolveInstanceError) -> impl IntoResponse {
+    let (status, body) = resolve_instance_error_parts(&err);
+    (status, Json(body))
+}
+
+fn resolve_instance_negotiated_response(
+    headers: &HeaderMap,
+    body: &Value,
+    err: ResolveInstanceError,
+) -> Response {
+    let (status, legacy) = resolve_instance_error_parts(&err);
+    negotiated_response(headers, body, status, legacy, None)
+}
+
+fn resolve_instance_error_parts(err: &ResolveInstanceError) -> (StatusCode, Value) {
     let refresh_hint = " After a DCC crash or reconnect the instance UUID usually changes — call \
         GET /v1/instances (or resources/read gateway://instances), then search_tools / POST /v1/search \
         again; do not reuse old tool_slug strings.";
-    match &err {
+    match err {
         ResolveInstanceError::PrefixTooShort { .. } => (
             StatusCode::BAD_REQUEST,
-            Json(service_error_to_json(&ServiceError::new(
-                "bad-request",
-                err.to_string(),
-            ))),
+            service_error_to_json(&ServiceError::new("bad-request", err.to_string())),
         ),
         ResolveInstanceError::NoMatch { .. } => (
             StatusCode::NOT_FOUND,
-            Json(service_error_to_json(
+            service_error_to_json(
                 &ServiceError::new("instance-offline", format!("{err}.{refresh_hint}"))
                     .with_instance_provenance("never-registered", None),
-            )),
+            ),
         ),
         ResolveInstanceError::MultipleMatches { .. } => (
             StatusCode::CONFLICT,
-            Json(service_error_to_json(&ServiceError::new(
-                "ambiguous",
-                err.to_string(),
-            ))),
+            service_error_to_json(&ServiceError::new("ambiguous", err.to_string())),
         ),
     }
 }
@@ -636,15 +644,17 @@ pub async fn handle_v1_call_batch(
     Json(body): Json<Value>,
 ) -> Response {
     match call_batch_with_admin_trace(&gs, &headers, &body).await {
-        Ok(value) => (StatusCode::OK, Json(value)).into_response(),
-        Err(message) => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({
+        Ok(value) => {
+            let compact = compact_call_batch_payload(&value);
+            negotiated_response(&headers, &body, StatusCode::OK, value, Some(compact))
+        }
+        Err(message) => {
+            let legacy = json!({
                 "success": false,
                 "error": {"kind": "bad-request", "message": message},
-            })),
-        )
-            .into_response(),
+            });
+            negotiated_response(&headers, &body, StatusCode::BAD_REQUEST, legacy, None)
+        }
     }
 }
 
@@ -958,8 +968,8 @@ fn now_ns() -> u64 {
         .unwrap_or(0)
 }
 
-fn error_response(err: &ServiceError) -> (StatusCode, Json<Value>) {
-    let status = match err.kind.as_str() {
+fn service_error_status(err: &ServiceError) -> StatusCode {
+    match err.kind.as_str() {
         "unknown-slug" => StatusCode::NOT_FOUND,
         "ambiguous" => StatusCode::CONFLICT,
         "instance-offline" => StatusCode::SERVICE_UNAVAILABLE,
@@ -967,440 +977,19 @@ fn error_response(err: &ServiceError) -> (StatusCode, Json<Value>) {
         "host-died" => StatusCode::BAD_GATEWAY,
         "backend-error" | "schema-unavailable" => StatusCode::BAD_GATEWAY,
         _ => StatusCode::BAD_REQUEST,
-    };
-    (status, Json(service_error_to_json(err)))
+    }
+}
+
+fn service_error_response(headers: &HeaderMap, body: &Value, err: &ServiceError) -> Response {
+    negotiated_response(
+        headers,
+        body,
+        service_error_status(err),
+        service_error_to_json(err),
+        None,
+    )
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::body::to_bytes;
-    use dcc_mcp_transport::discovery::file_registry::FileRegistry;
-    use dcc_mcp_transport::discovery::types::ServiceEntry;
-    use std::collections::HashMap;
-    use std::sync::{Arc, Mutex};
-    use std::time::Duration;
-    use tokio::sync::{RwLock, broadcast, watch};
-
-    #[derive(Default)]
-    struct CaptureSink(Mutex<Vec<crate::gateway::middleware::AuditEntry>>);
-
-    impl crate::gateway::middleware::AuditSink for CaptureSink {
-        fn record(&self, entry: crate::gateway::middleware::AuditEntry) {
-            self.0.lock().unwrap().push(entry);
-        }
-    }
-
-    struct ReplaceArgs(serde_json::Value);
-
-    impl crate::gateway::middleware::BeforeCallMiddleware for ReplaceArgs {
-        fn before_call<'a>(
-            &'a self,
-            ctx: &'a mut crate::gateway::middleware::CallContext,
-        ) -> std::pin::Pin<
-            Box<
-                dyn std::future::Future<
-                        Output = Result<(), crate::gateway::middleware::MiddlewareError>,
-                    > + Send
-                    + 'a,
-            >,
-        > {
-            ctx.args = self.0.clone();
-            Box::pin(async move { Ok::<(), crate::gateway::middleware::MiddlewareError>(()) })
-        }
-    }
-
-    fn test_gateway_state(server_version: &str) -> GatewayState {
-        test_gateway_state_with_debug_routes(server_version, false)
-    }
-
-    fn test_gateway_state_with_debug_routes(
-        server_version: &str,
-        debug_routes_enabled: bool,
-    ) -> GatewayState {
-        let dir = tempfile::tempdir().unwrap();
-        let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
-        let (yield_tx, _) = watch::channel(false);
-        let (events_tx, _) = broadcast::channel::<String>(8);
-        GatewayState {
-            registry,
-            stale_timeout: Duration::from_secs(30),
-            backend_timeout: Duration::from_secs(10),
-            async_dispatch_timeout: Duration::from_secs(60),
-            wait_terminal_timeout: Duration::from_secs(600),
-            server_name: "test".into(),
-            server_version: server_version.into(),
-            own_host: "127.0.0.1".into(),
-            own_port: 9765,
-            http_client: reqwest::Client::new(),
-            yield_tx: Arc::new(yield_tx),
-            events_tx: Arc::new(events_tx),
-            protocol_version: Arc::new(RwLock::new(None)),
-            resource_subscriptions: Arc::new(RwLock::new(HashMap::new())),
-            pending_calls: Arc::new(RwLock::new(HashMap::new())),
-            subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
-            allow_unknown_tools: false,
-            adapter_version: None,
-            adapter_dcc: None,
-            capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
-            event_log: Arc::new(crate::gateway::event_log::EventLog::new()),
-            middleware_chain: Arc::new(crate::gateway::middleware::MiddlewareChain::new()),
-            instance_diagnostics: Arc::new(
-                crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new(),
-            ),
-            traffic_capture: Arc::new(crate::gateway::traffic::TrafficCapture::disabled()),
-            debug_routes_enabled,
-            #[cfg(feature = "prometheus")]
-            gateway_metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
-        }
-    }
-
-    async fn response_json(resp: Response) -> (StatusCode, Value) {
-        let status = resp.status();
-        let bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
-        let body = serde_json::from_slice(&bytes).unwrap();
-        (status, body)
-    }
-
-    async fn response_text(resp: Response) -> (StatusCode, String) {
-        let status = resp.status();
-        let bytes = to_bytes(resp.into_body(), 4 * 1024 * 1024).await.unwrap();
-        (status, String::from_utf8_lossy(&bytes).to_string())
-    }
-
-    #[tokio::test]
-    async fn gateway_readyz_summarises_instance_readiness_bits() {
-        let gs = test_gateway_state("1.2.3");
-        let mut entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
-        entry.instance_id = uuid::Uuid::parse_str("abcdef01-2345-6789-abcd-ef0123456789").unwrap();
-        {
-            let registry = gs.registry.read().await;
-            registry.register(entry.clone()).unwrap();
-        }
-        gs.instance_diagnostics.record_readiness(
-            entry.instance_id,
-            dcc_mcp_skill_rest::ReadinessReport {
-                process: true,
-                dcc: true,
-                skill_catalog: true,
-                dispatcher: true,
-                host_execution_bridge: false,
-                main_thread_executor: false,
-            },
-        );
-
-        let (status, body) = response_json(handle_v1_readyz(State(gs)).await.into_response()).await;
-
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["live_instance_count"], 1);
-        assert_eq!(body["ready_instance_count"], 1);
-        assert_eq!(body["instances"][0]["instance_short"], "abcdef01");
-        assert_eq!(body["instances"][0]["readiness"]["skill_catalog"], true);
-        assert_eq!(
-            body["instances"][0]["readiness"]["host_execution_bridge"],
-            false
-        );
-    }
-
-    #[tokio::test]
-    async fn gateway_docs_serves_scalar_openapi_ui() {
-        let (status, body) =
-            response_text(handle_v1_docs(State(test_gateway_state("1.2.3"))).await).await;
-
-        assert_eq!(status, StatusCode::OK);
-        assert!(body.contains("scalar") || body.contains("Scalar"));
-        assert!(body.contains("dcc-mcp-gateway"));
-        assert!(body.contains("/v1/search"));
-        assert!(!body.contains("/v1/debug/instances"));
-    }
-
-    #[tokio::test]
-    #[cfg(feature = "admin")]
-    async fn gateway_docs_lists_debug_routes_when_runtime_debug_routes_enabled() {
-        let (status, body) = response_text(
-            handle_v1_docs(State(test_gateway_state_with_debug_routes("1.2.3", true))).await,
-        )
-        .await;
-
-        assert_eq!(status, StatusCode::OK);
-        assert!(body.contains("/v1/debug/instances"));
-    }
-
-    #[tokio::test]
-    #[cfg(feature = "admin")]
-    async fn gateway_openapi_lists_stable_debug_routes() {
-        let (status, doc) = response_json(
-            handle_v1_openapi(State(test_gateway_state_with_debug_routes("1.2.3", true)))
-                .await
-                .into_response(),
-        )
-        .await;
-
-        assert_eq!(status, StatusCode::OK);
-        for path in [
-            "/v1/debug/instances",
-            "/v1/debug/activity",
-            "/v1/debug/calls",
-            "/v1/debug/traces",
-            "/v1/debug/traces/{request_id}",
-            "/v1/debug/trace-context/{lookup_id}",
-            "/v1/debug/tasks",
-            "/v1/debug/bundles/{request_id}",
-            "/v1/debug/issue-reports/{request_id}",
-            "/v1/debug/logs",
-            "/v1/debug/deregistered",
-            "/v1/debug/stats",
-            "/v1/debug/health",
-        ] {
-            assert!(
-                doc["paths"].get(path).is_some(),
-                "gateway OpenAPI doc missing debug path {path}: {doc:#}"
-            );
-        }
-        assert!(
-            doc["tags"]
-                .as_array()
-                .is_some_and(|tags| tags.iter().any(|tag| tag["name"] == "debug"))
-        );
-        assert!(
-            doc["components"]["schemas"]
-                .get("GatewayDebugPayload")
-                .is_some()
-        );
-    }
-
-    #[tokio::test]
-    #[cfg(feature = "admin")]
-    async fn gateway_openapi_omits_debug_routes_when_runtime_admin_disabled() {
-        let (status, doc) = response_json(
-            handle_v1_openapi(State(test_gateway_state("1.2.3")))
-                .await
-                .into_response(),
-        )
-        .await;
-
-        assert_eq!(status, StatusCode::OK);
-        assert!(doc["paths"].get("/v1/search").is_some());
-        assert!(doc["paths"].get("/v1/debug/instances").is_none());
-        assert!(
-            doc["tags"]
-                .as_array()
-                .is_none_or(|tags| !tags.iter().any(|tag| tag["name"] == "debug"))
-        );
-        assert!(
-            doc["components"]["schemas"]
-                .get("GatewayDebugPayload")
-                .is_none()
-        );
-    }
-
-    #[tokio::test]
-    #[cfg(not(feature = "admin"))]
-    async fn gateway_openapi_omits_debug_routes_without_admin_feature() {
-        let (status, doc) = response_json(
-            handle_v1_openapi(State(test_gateway_state("1.2.3")))
-                .await
-                .into_response(),
-        )
-        .await;
-
-        assert_eq!(status, StatusCode::OK);
-        assert!(doc["paths"].get("/v1/search").is_some());
-        assert!(doc["paths"].get("/v1/debug/instances").is_none());
-        assert!(
-            doc["tags"]
-                .as_array()
-                .is_none_or(|tags| !tags.iter().any(|tag| tag["name"] == "debug"))
-        );
-        assert!(
-            doc["components"]["schemas"]
-                .get("GatewayDebugPayload")
-                .is_none()
-        );
-    }
-
-    #[tokio::test]
-    async fn gateway_yield_missing_challenger_is_structured_optional_capability() {
-        let (status, body) = response_json(
-            handle_gateway_yield(
-                State(test_gateway_state("1.2.3")),
-                axum::body::Bytes::from_static(b"{}"),
-            )
-            .await,
-        )
-        .await;
-
-        assert_eq!(status, StatusCode::CONFLICT);
-        assert_eq!(body["success"], false);
-        assert_eq!(body["fallback"], "polling");
-        assert_eq!(body["error"]["kind"], "optional-capability-unsupported");
-        assert_eq!(body["error"]["capability"], "cooperative_yield");
-    }
-
-    #[tokio::test]
-    async fn gateway_yield_same_version_is_structured_optional_capability() {
-        let (status, body) = response_json(
-            handle_gateway_yield(
-                State(test_gateway_state("1.2.3")),
-                axum::body::Bytes::from_static(br#"{"challenger_version":"1.2.3"}"#),
-            )
-            .await,
-        )
-        .await;
-
-        assert_eq!(status, StatusCode::CONFLICT);
-        assert_eq!(body["current_version"], "1.2.3");
-        assert_eq!(body["challenger_version"], "1.2.3");
-        assert_eq!(body["error"]["kind"], "optional-capability-unsupported");
-    }
-
-    #[tokio::test]
-    async fn gateway_yield_newer_challenger_still_accepts() {
-        let (status, body) = response_json(
-            handle_gateway_yield(
-                State(test_gateway_state("1.2.3")),
-                axum::body::Bytes::from_static(br#"{"challenger_version":"1.2.4"}"#),
-            )
-            .await,
-        )
-        .await;
-
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["ok"], true);
-    }
-
-    #[tokio::test]
-    async fn rest_trace_input_payload_uses_redacted_arguments() {
-        use crate::gateway::middleware::{AuditMiddleware, MiddlewareChain, RedactionMiddleware};
-
-        let sink = Arc::new(CaptureSink::default());
-        let chain = MiddlewareChain::new()
-            .with_before(Arc::new(RedactionMiddleware::new(vec!["api_key", "token"])))
-            .with_after(Arc::new(AuditMiddleware::new(sink.clone())));
-        let mut gs = test_gateway_state("1.2.3");
-        gs.middleware_chain = Arc::new(chain);
-
-        let request_body = json!({
-            "tool_slug": "maya.abcdef01.render",
-            "arguments": {
-                "api_key": "secret-key",
-                "nested": {"token": "secret-token"}
-            },
-            "meta": {}
-        });
-
-        let result = call_service_with_admin_trace(
-            &gs,
-            &HeaderMap::new(),
-            "v1/call",
-            "maya.abcdef01.render",
-            request_body["arguments"].clone(),
-            request_body.get("meta").cloned(),
-            &request_body,
-        )
-        .await;
-
-        assert!(result.is_err());
-        let entries = sink.0.lock().unwrap();
-        assert_eq!(entries.len(), 1);
-        let input = entries[0].input_payload.as_ref().unwrap().content.clone();
-        assert!(input.contains("[REDACTED]"));
-        assert!(!input.contains("secret-key"));
-        assert!(!input.contains("secret-token"));
-    }
-
-    #[tokio::test]
-    async fn rest_traceparent_does_not_replace_request_id() {
-        use crate::gateway::middleware::{AuditMiddleware, MiddlewareChain};
-
-        let sink = Arc::new(CaptureSink::default());
-        let chain = MiddlewareChain::new().with_after(Arc::new(AuditMiddleware::new(sink.clone())));
-        let mut gs = test_gateway_state("1.2.3");
-        gs.middleware_chain = Arc::new(chain);
-
-        let mut headers = HeaderMap::new();
-        headers.insert("x-request-id", "req-rest-1".parse().unwrap());
-        headers.insert(
-            "traceparent",
-            "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
-                .parse()
-                .unwrap(),
-        );
-        let request_body = json!({
-            "tool_slug": "maya.abcdef01.render",
-            "arguments": {},
-            "meta": {}
-        });
-
-        let _ = call_service_with_admin_trace(
-            &gs,
-            &headers,
-            "v1/call",
-            "maya.abcdef01.render",
-            json!({}),
-            request_body.get("meta").cloned(),
-            &request_body,
-        )
-        .await;
-
-        let entries = sink.0.lock().unwrap();
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].request_id, "req-rest-1");
-        assert_eq!(
-            entries[0].trace_context.trace_id,
-            "4bf92f3577b34da6a3ce929d0e0e4736"
-        );
-        assert_eq!(
-            entries[0].trace_context.parent_span_id.as_deref(),
-            Some("00f067aa0ba902b7")
-        );
-        let root_span_id = entries[0]
-            .trace_context
-            .span_id
-            .as_deref()
-            .expect("REST trace context should create a gateway root span id");
-        assert_eq!(root_span_id.len(), 16);
-        let backend_span = entries[0]
-            .trace_spans
-            .iter()
-            .find(|span| span.name == "backend.execute")
-            .expect("REST call should record backend.execute span");
-        let backend_span_id = backend_span
-            .span_id
-            .as_deref()
-            .expect("backend.execute should carry its own span id");
-        assert_eq!(backend_span_id.len(), 16);
-        assert_ne!(backend_span_id, root_span_id);
-        assert_eq!(backend_span.parent_span_id.as_deref(), Some(root_span_id));
-    }
-
-    #[tokio::test]
-    async fn rest_call_batch_uses_arguments_mutated_by_before_middleware() {
-        use crate::gateway::middleware::{AuditMiddleware, MiddlewareChain, RedactionMiddleware};
-
-        let sink = Arc::new(CaptureSink::default());
-        let rewritten = json!({
-            "calls": [{
-                "tool_slug": "maya.abcdef01.render",
-                "arguments": {"token": "secret-token"}
-            }]
-        });
-        let chain = MiddlewareChain::new()
-            .with_before(Arc::new(ReplaceArgs(rewritten)))
-            .with_before(Arc::new(RedactionMiddleware::new(vec!["token"])))
-            .with_after(Arc::new(AuditMiddleware::new(sink.clone())));
-        let mut gs = test_gateway_state("1.2.3");
-        gs.middleware_chain = Arc::new(chain);
-
-        let result =
-            call_batch_with_admin_trace(&gs, &HeaderMap::new(), &json!({"calls": []})).await;
-
-        let body = result.expect("batch should use middleware-mutated args");
-        assert_eq!(body["results"][0]["tool_slug"], "maya.abcdef01.render");
-        let entries = sink.0.lock().unwrap();
-        assert_eq!(entries.len(), 1);
-        let input = entries[0].input_payload.as_ref().unwrap().content.clone();
-        assert!(input.contains("[REDACTED]"));
-        assert!(!input.contains("secret-token"));
-    }
-}
+#[path = "rest_impl_tests.rs"]
+mod rest_impl_tests;

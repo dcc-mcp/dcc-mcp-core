@@ -69,11 +69,13 @@ into a faster authoring loop.
    the shipped server paths enable the required gateway `admin` feature and
    Admin telemetry runtime state, while minimal direct `dcc-mcp-gateway` builds
    or runtimes started with Admin disabled may omit those debug routes.
-   For REST discovery examples, keep `/v1/search` legacy JSON-compatible by
+   For REST discovery, describe, call, and batch examples, keep `/v1/search`,
+   `/v1/describe`, `/v1/call`, and `/v1/call_batch` legacy JSON-compatible by
    default and request compact TOON only explicitly with
    `Accept: application/toon`, `response_format: "toon"`, or `compact: true`;
    surface the `x-dcc-mcp-*` token accounting headers when teaching agents how
-   to budget discovery payloads.
+   to budget discovery, schema, invocation, and batch payloads. Compact batch
+   examples may also read per-result `token_accounting` metadata.
    Subscribe to the shared `EventBus` when an adapter or studio integration
    needs programmatic lifecycle hooks: use `skill.*` events for load/unload
    visibility and `tool.*` events for dispatch/completion/failure metrics
