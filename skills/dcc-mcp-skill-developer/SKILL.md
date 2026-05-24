@@ -97,6 +97,14 @@ into a faster authoring loop.
    full prompts. Compact batch examples may also read
    per-result `token_accounting` metadata, and batch request items may carry an
    optional `id` that is echoed next to the numeric result `index`.
+   Gateway OTLP spans mirror the same agent workflow chain with bounded
+   attributes: `gateway.search`, `gateway.describe`, `gateway.load_skill`,
+   `gateway.call`, and `gateway.call_batch` use `openinference.span.kind` plus
+   `dcc_mcp.*` fields for agent id/name/kind/model/task/tags, DCC route,
+   `search_id`, selected rank/score/match reasons, policy outcome, and
+   success/error kind. Adapter docs and examples should preserve those
+   correlation fields but must not put hidden reasoning, secrets, raw prompts,
+   or unbounded request bodies into `agent_context` metadata.
    Gateway search uses a hybrid ranker in default fuzzy mode: weighted lexical
    matches over tool names, skill names, tags, summaries, author-declared
    aliases, and bounded schema-field tokens take precedence, while fuzzy

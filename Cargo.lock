@@ -920,6 +920,7 @@ dependencies = [
  "dcc-mcp-transport",
  "futures",
  "http",
+ "opentelemetry",
  "parking_lot",
  "prometheus",
  "proptest",
