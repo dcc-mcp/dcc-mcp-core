@@ -1,11 +1,13 @@
 use super::*;
-use axum::body::to_bytes;
+use axum::body::{Body, to_bytes};
+use axum::http::Request;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::{RwLock, broadcast, watch};
+use tower::ServiceExt;
 
 #[derive(Default)]
 struct CaptureSink(Mutex<Vec<crate::gateway::middleware::AuditEntry>>);
@@ -144,6 +146,111 @@ async fn gateway_docs_serves_scalar_openapi_ui() {
     assert!(body.contains("dcc-mcp-gateway"));
     assert!(body.contains("/v1/search"));
     assert!(!body.contains("/v1/debug/instances"));
+    assert!(!body.contains("/v1/dcc/{dcc_type}/call"));
+}
+
+#[tokio::test]
+async fn gateway_openapi_lists_gateway_routes_not_per_dcc_routes() {
+    let (status, doc) = response_json(
+        handle_v1_openapi(State(test_gateway_state("1.2.3")))
+            .await
+            .into_response(),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    let paths = doc["paths"].as_object().expect("paths object");
+    for route in crate::gateway::rest_openapi::GATEWAY_OPENAPI_ROUTES {
+        let path_item = paths.get(route.path);
+        assert!(
+            path_item.is_some(),
+            "gateway OpenAPI doc missing {} {}: {doc:#}",
+            route.method,
+            route.path
+        );
+        assert!(
+            path_item
+                .and_then(|item| item.get(route.method.to_ascii_lowercase()))
+                .is_some(),
+            "gateway OpenAPI doc missing operation {} {}: {doc:#}",
+            route.method,
+            route.path
+        );
+    }
+    for forbidden in [
+        "/v1/resources",
+        "/v1/resources/{uri}",
+        "/v1/prompts",
+        "/v1/prompts/{name}",
+        "/v1/jobs/{id}/events",
+        "/v1/jobs/{id}",
+        "/v1/dcc/{dcc_type}/call",
+    ] {
+        assert!(
+            paths.get(forbidden).is_none(),
+            "gateway OpenAPI doc must not advertise per-DCC-only path {forbidden}: {doc:#}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn gateway_openapi_canonical_routes_are_mounted_by_router() {
+    let app = crate::gateway::router::build_gateway_router(test_gateway_state("1.2.3"));
+
+    for route in crate::gateway::rest_openapi::GATEWAY_OPENAPI_ROUTES {
+        let uri = materialized_gateway_route(route.path);
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(route.method)
+                    .uri(uri.as_str())
+                    .header("content-type", "application/json")
+                    .body(route_body(route.path))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        assert_ne!(
+            status,
+            StatusCode::METHOD_NOT_ALLOWED,
+            "{} {} is documented but mounted with a different method",
+            route.method,
+            route.path
+        );
+        if status == StatusCode::NOT_FOUND {
+            assert!(
+                !body.is_empty(),
+                "{} {} returned Axum's empty 404 and is likely not mounted",
+                route.method,
+                route.path
+            );
+        }
+    }
+}
+
+fn materialized_gateway_route(path: &str) -> String {
+    let mut materialized = path
+        .replace("{slug}", "maya.abcdef01.example_tool")
+        .replace("{dcc_type}", "maya")
+        .replace("{instance_id}", "abcdef01");
+    if path == "/v1/dcc/{dcc_type}/instances/{instance_id}/describe" {
+        materialized.push_str("?backend_tool=example_tool");
+    }
+    materialized
+}
+
+fn route_body(path: &str) -> Body {
+    let body = match path {
+        "/v1/call_batch" => r#"{"calls":[]}"#,
+        "/v1/dcc/{dcc_type}/instances/{instance_id}/call" => {
+            r#"{"backend_tool":"example_tool","arguments":{}}"#
+        }
+        _ => "{}",
+    };
+    Body::from(body)
 }
 
 #[tokio::test]

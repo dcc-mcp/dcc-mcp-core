@@ -1,8 +1,14 @@
 # REST API 面板
 
-每个 per-DCC 服务和多 DCC 网关都同时暴露 `/v1/*` REST API，和 MCP 端点并列。
-这个页面是面向**传统调用方**（cURL、CI 流水线、片场自动化、非-MCP 工具）的
-接入契约 —— 任何能讲 HTTP 的客户端都能用这些路由驱动 DCC，不需要碰 MCP 协议栈。
+per-DCC adapter 服务和多 DCC 网关都在 MCP 端点旁边暴露 `/v1/*` REST API，
+但两者的 surface 是重叠而非完全相同。这个页面是面向**传统调用方**
+（cURL、CI 流水线、片场自动化、非-MCP 工具）的接入契约 —— 任何能讲
+HTTP 的客户端都能用这些路由驱动 DCC，不需要碰 MCP 协议栈。
+
+Gateway 现在发布 gateway 专属的 `GET /v1/openapi.json` 契约。它只记录
+gateway router 真正挂载的路由，并刻意不广告 per-DCC-only 的 resource、
+prompt、job 路由。per-DCC adapter 服务继续在同一路径发布自己的 adapter
+OpenAPI 契约。
 
 > **和 MCP 的关系** —— 网关在 MCP `tools/list` 里广告同一条有界工作流：
 > `search`、`describe`、`load_skill`、`call`。这些工具与 `/v1/search`、
@@ -11,28 +17,26 @@
 
 ---
 
-## 端点一览
+## Gateway 端点
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| `GET` | `/v1/healthz` | 存活探针。只要 HTTP 处理器在跑就 `200 {"status": "ok"}`。 |
-| `GET` | `/v1/readyz` | 三态就绪：`200 Ready` / `503 Booting` / 无响应 `Unreachable`。 |
-| `GET` | `/v1/skills` | 已加载 action 的扁平清单，按字典序稳定排序。 |
+| `GET` | `/v1/instances` | elected gateway 当前知道的在线 DCC instance rows。 |
+| `GET` | `/v1/healthz` | Gateway 存活探针。HTTP handler 在线时返回 `200 {"ok": true}`。 |
+| `GET` | `/v1/readyz` | Gateway readiness 汇总，包含每个 instance 的 readiness bits；即使没有 ready instance，该路由仍返回 `200`。 |
+| `GET` | `/v1/skills` | 把已加载 gateway capability records 投影成 skill entries。 |
+| `POST` | `/v1/list_skills` | 把 skill-list 请求转发给选中的 backend instance。 |
 | `POST` | `/v1/search` | 模糊 / 精确搜索 loaded + unloaded skills。 |
-| `POST` | `/v1/load_skill` | 不经过 MCP `tools/call`，直接加载一个已发现的 skill。 |
-| `POST` | `/v1/unload_skill` | 不经过 MCP `tools/call`，直接卸载一个 skill。 |
+| `POST` | `/v1/load_skill` | 不经过 MCP `tools/call`，加载一个 backend skill；gateway 默认 lazy group activation。 |
+| `POST` | `/v1/unload_skill` | 不经过 MCP `tools/call`，卸载一个 backend skill。 |
 | `POST` | `/v1/describe` | 按 `tool_slug` 返回完整 input schema + 注解。 |
 | `GET` | `/v1/tools/{slug}` | `/v1/describe` 的别名（只读 URL 查询）。 |
-| `POST` | `/v1/call` | **按 slug 调用**一个工具。这是唯一规范的调用面。 |
-| `POST` | `/v1/call_batch` | 仅网关：按顺序调用最多 25 个工具，可选 `stop_on_error`。 |
-| `GET` | `/v1/context` | 场景 / 文档快照（per-DCC 或网关汇聚）。 |
-| `GET` | `/v1/resources` | MCP 风格 resource 清单。 |
-| `GET` | `/v1/resources/{uri}` | 读取一个 percent-encoded resource URI。 |
-| `GET` | `/v1/resources/{uri}/events` | resource 更新的 Server-Sent Events。 |
-| `GET` | `/v1/prompts` | MCP 风格 prompt template 清单。 |
-| `GET` | `/v1/prompts/{name}` | 渲染一个 prompt；JSON object 参数放在 `?args=...`。 |
-| `GET` | `/v1/jobs/{id}/events` | 单个 async job 的 Server-Sent Events。 |
-| `DELETE` | `/v1/jobs/{id}` | 取消单个 async job。 |
+| `POST` | `/v1/call` | 按 slug 调用一个 gateway capability。这是 gateway 的规范调用面。 |
+| `POST` | `/v1/call_batch` | 按顺序调用最多 25 个 gateway capability，可选 `stop_on_error`。 |
+| `GET` | `/v1/context` | Gateway snapshot，包含在线 instances 和 aggregate capability counts。 |
+| `GET` | `/v1/dcc/{dcc_type}/instances/{instance_id}/describe` | 描述某个 DCC instance 上的 backend tool；query 支持 `backend_tool` / `tool` / `action`。 |
+| `POST` | `/v1/dcc/{dcc_type}/instances/{instance_id}/call` | 使用 `{backend_tool, arguments, meta}` 调用某个 DCC instance 上的 backend tool。 |
+| `POST` | `/v1/dcc/{dcc_type}/instances/{instance_id}/stop` | 仅用于广告了 `safe_stop_url` metadata 的 test-owned instance safe stop。 |
 | `GET` | `/v1/debug/instances` | 仅网关：稳定的 agent-facing instance diagnostics。 |
 | `GET` | `/v1/debug/activity` | 仅网关：来自 audit、trace、gateway event 的稳定 activity feed。 |
 | `GET` | `/v1/debug/traces` | 仅网关：最近的 dispatch trace 列表。 |
@@ -45,11 +49,40 @@
 | `GET` | `/v1/debug/logs` | 仅网关：合并 gateway events、file logs、audit summaries。 |
 | `GET` | `/v1/debug/stats` | 仅网关：聚合 call statistics。 |
 | `GET` | `/v1/debug/health` | 仅网关：debug subsystem health summary。 |
-| `GET` | `/v1/openapi.json` | 自动生成的 OpenAPI 3.x 文档，可供代码生成。 |
+| `GET` | `/v1/openapi.json` | Gateway 专属 OpenAPI 3.x 文档，可供代码生成。 |
+| `GET` | `/docs` | 用同一份 gateway 专属 OpenAPI 文档渲染的 Scalar API reference。 |
 
-网关也暴露相同的路径作为汇聚面板。网关 capability slug 使用
-`<dcc>.<id8>.<tool>`，从 `POST /v1/search` 获取；直接 per-DCC REST slug
-使用 `<dcc>.<skill>.<action>`，不带 instance id 前缀。
+Gateway capability slug 使用 `<dcc>.<id8>.<tool>`，从 `POST /v1/search`
+获取。instance-scoped describe/call 路由适合已经知道目标 `dcc_type`、
+`instance_id` 和 backend tool id 的调用方。
+
+## Per-DCC Adapter 端点
+
+per-DCC adapter 服务只代表一个 host 进程。它们的 OpenAPI 文档可以包含
+gateway 不挂载的路由：
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| `GET` | `/v1/healthz` | Adapter 存活探针。 |
+| `GET` | `/v1/readyz` | Adapter readiness；DCC 启动时可能是 `Ready`、`Booting` 或 unreachable。 |
+| `GET` | `/v1/skills` | 该 adapter 已发现的 skills。 |
+| `POST` | `/v1/search` | 搜索该 adapter catalog。 |
+| `POST` | `/v1/load_skill` | 加载一个 adapter skill。 |
+| `POST` | `/v1/unload_skill` | 卸载一个 adapter skill。 |
+| `POST` | `/v1/describe` | 描述 adapter-local tool slug。 |
+| `GET` | `/v1/tools/{slug}` | adapter `/v1/describe` 的 URL 别名。 |
+| `POST` | `/v1/call` | 调用 adapter-local tool slug。 |
+| `POST` | `/v1/dcc/{dcc_type}/call` | Adapter-local backend call helper；gateway 不挂载。 |
+| `GET` | `/v1/context` | Host scene/document snapshot。 |
+| `GET` | `/v1/resources` | 该 adapter 的 MCP 风格 resource 清单。 |
+| `GET` | `/v1/resources/{uri}` | 读取一个 percent-encoded adapter resource URI。 |
+| `GET` | `/v1/resources/{uri}/events` | resource 更新 SSE stream。 |
+| `GET` | `/v1/prompts` | MCP 风格 prompt template 清单。 |
+| `GET` | `/v1/prompts/{name}` | 渲染一个 prompt；JSON object 参数放在 `?args=...`。 |
+| `GET` | `/v1/jobs/{id}/events` | async job SSE stream。 |
+| `DELETE` | `/v1/jobs/{id}` | 取消一个 async job。 |
+| `GET` | `/v1/openapi.json` | per-DCC adapter OpenAPI 文档。 |
+| `GET` | `/docs` | 用 adapter OpenAPI 文档渲染的 Scalar API reference。 |
 
 ---
 
