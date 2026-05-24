@@ -78,9 +78,15 @@ into a faster authoring loop.
    `/v1/describe`, `/v1/call`, and `/v1/call_batch` legacy JSON-compatible by
    default and request compact TOON only explicitly with
    `Accept: application/toon`, `response_format: "toon"`, or `compact: true`;
-   surface the `x-dcc-mcp-*` token accounting headers when teaching agents how
-   to budget discovery, schema, invocation, and batch payloads. Compact batch
-   examples may also read per-result `token_accounting` metadata.
+   surface the `x-dcc-mcp-*` token accounting and observability headers when
+   teaching agents how to budget and correlate discovery, schema, invocation,
+   and batch payloads. Gateway REST search/describe/load/batch bodies include
+   `request_id`, `trace_id`, and `index_generation`; `/v1/call` keeps the
+   backend envelope body compatible and exposes those values through
+   `x-dcc-mcp-request-id`, `x-dcc-mcp-trace-id`, `traceparent`, and
+   `x-dcc-mcp-index-generation`. Compact batch examples may also read
+   per-result `token_accounting` metadata, and batch request items may carry an
+   optional `id` that is echoed next to the numeric result `index`.
    Subscribe to the shared `EventBus` when an adapter or studio integration
    needs programmatic lifecycle hooks: use `skill.*` events for load/unload
    visibility and `tool.*` events for dispatch/completion/failure metrics

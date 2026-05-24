@@ -454,9 +454,10 @@ pub const MAX_CALL_TOOLS_BATCH: usize = 25;
 /// unknown-slug refresh-and-retry semantics as [`tool_call_tool`].
 ///
 /// Returns `Ok(Value)` with `{ "success": bool, "results": [...] }` where each
-/// result item includes `index`, `tool_slug`, `ok`, and either `result` or
-/// `error` (structured service error JSON). Returns `Err(message)` for bad
-/// request shapes (missing `calls`, empty array, over limit).
+/// result item includes `index`, optional client-supplied `id`, `tool_slug`,
+/// `ok`, and either `result` or `error` (structured service error JSON).
+/// Returns `Err(message)` for bad request shapes (missing `calls`, empty
+/// array, over limit).
 ///
 /// `mcp_meta` is optional MCP `_meta` from the outer `tools/call` envelope,
 /// applied to each batch item when that item does not supply its own `meta`.
@@ -487,13 +488,18 @@ pub async fn gateway_call_batch_inner(
     let mut all_ok = true;
 
     for (idx, call) in calls.iter().enumerate() {
+        let item_id = call.get("id").cloned();
         let Some(slug) = call.get("tool_slug").and_then(Value::as_str) else {
             all_ok = false;
-            results.push(json!({
+            let mut item = json!({
                 "index": idx,
                 "ok": false,
                 "error": {"kind": "bad-request", "message": "missing tool_slug on call item"},
-            }));
+            });
+            if let Some(id) = item_id {
+                item["id"] = id;
+            }
+            results.push(item);
             if stop_on_error {
                 break;
             }
@@ -538,22 +544,30 @@ pub async fn gateway_call_batch_inner(
 
         match single_outcome {
             Ok(result) => {
-                results.push(json!({
+                let mut item = json!({
                     "index": idx,
                     "tool_slug": slug,
                     "ok": true,
                     "result": result,
-                }));
+                });
+                if let Some(id) = item_id {
+                    item["id"] = id;
+                }
+                results.push(item);
             }
             Err(err) => {
                 all_ok = false;
                 let payload = crate::gateway::capability_service::service_error_to_json(&err);
-                results.push(json!({
+                let mut item = json!({
                     "index": idx,
                     "tool_slug": slug,
                     "ok": false,
                     "error": payload,
-                }));
+                });
+                if let Some(id) = item_id {
+                    item["id"] = id;
+                }
+                results.push(item);
                 if stop_on_error {
                     break;
                 }

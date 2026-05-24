@@ -327,6 +327,21 @@ otherwise the server generates one). The id flows into the audit log, the
 response envelope, and the MCP `_meta.request_id` field on the gateway so
 MCP and REST callers can trace the same unit of work.
 
+Gateway REST responses that participate in discovery, skill loading, describe,
+single-call, and batch execution also expose stable observability headers:
+
+| Header | Meaning |
+|---|---|
+| `x-dcc-mcp-request-id` | Gateway request id. Mirrors `X-Request-Id` when supplied. |
+| `x-dcc-mcp-trace-id` | End-to-end trace id for gateway, sidecar, and host correlation. |
+| `traceparent` | W3C trace context for clients that continue the HTTP trace. |
+| `x-dcc-mcp-index-generation` | Opaque capability-index fingerprint when the route touches discovery/call state. |
+
+`/v1/search`, `/v1/describe`, `/v1/load_skill`, and `/v1/call_batch` also include
+`request_id`, `trace_id`, and `index_generation` in JSON/TOON bodies. `/v1/call`
+keeps the backend result envelope byte-shape compatible and exposes this metadata
+through headers only.
+
 ---
 
 ## `POST /v1/call_batch` — gateway ordered batches
@@ -338,8 +353,8 @@ paying one HTTP/MCP round-trip per step.
 ```json
 {
   "calls": [
-    { "tool_slug": "maya.a1b2c3d4.create_sphere", "arguments": { "radius": 2.0 } },
-    { "tool_slug": "maya.a1b2c3d4.assign_material", "arguments": { "name": "mat_blue" } }
+    { "id": "create", "tool_slug": "maya.a1b2c3d4.create_sphere", "arguments": { "radius": 2.0 } },
+    { "id": "material", "tool_slug": "maya.a1b2c3d4.assign_material", "arguments": { "name": "mat_blue" } }
   ],
   "stop_on_error": true
 }
@@ -350,6 +365,8 @@ Rules:
 - `calls` is required and capped at 25 entries.
 - Each entry uses the same `tool_slug` / `arguments` / `meta` wrapper shape as
   `POST /v1/call`; missing `arguments` normalizes to `{}`.
+- Each entry may include an `id` string/number/boolean. The matching result item
+  echoes it unchanged alongside the stable numeric `index`.
 - `stop_on_error: true` stops at the first failed call. `false` executes all
   calls and returns per-call success/error envelopes.
 - Preserve response order to correlate results with the request array; do not
@@ -492,6 +509,8 @@ one DCC instance is live. A successful load refreshes the gateway capability
 index and returns `loaded`, `skill_name`, `dcc_type`, `instance_id`,
 `activated_groups`, `new_tool_slugs`, `index_generation`, and a suggested
 `next_step` (`describe` when a new slug is known, otherwise `search`).
+Use the returned `index_generation` or the `x-dcc-mcp-index-generation` header
+to decide whether cached `tool_slug` values came from an older gateway index.
 
 ---
 
@@ -505,6 +524,8 @@ Returns a `record` (compact capability descriptor) plus the full `tool`
 definition (`input_schema`, annotations, next-tool hints). `include_schema`
 defaults to `true`; set `false` on follow-up calls where only the metadata
 has changed.
+The response includes the current `index_generation` so generated clients can
+detect stale describe/call sequences without parsing logs.
 
 ---
 
