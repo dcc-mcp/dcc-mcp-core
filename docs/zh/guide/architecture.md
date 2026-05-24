@@ -11,7 +11,7 @@ DCC-MCP-Core 是一个 Rust workspace，通过 PyO3 提供 Python 绑定。当�
 ```
 +--------------------------------------------------------------------------------+
 | Agent / operator surfaces                                                       |
-| - MCP clients: search -> describe；REST clients 通过 /v1/call 执行             |
+| - MCP clients: search -> describe -> load_skill? -> call                       |
 | - CLI users: dcc-mcp-cli list/search/describe/call                              |
 | - ClawHub/OpenClaw skills: dcc-cli-gateway or dcc-rest-gateway                  |
 | - CI and custom clients: REST /v1/*                                             |
@@ -21,7 +21,7 @@ DCC-MCP-Core 是一个 Rust workspace，通过 PyO3 提供 Python 绑定。当�
                                          |
 +----------------------------------------v---------------------------------------+
 | Elected gateway (Rust HTTP control plane)                                       |
-| - Minimal MCP tools/list: discovery and dispatch primitives only                |
+| - Minimal MCP tools/list: four canonical workflow primitives only               |
 | - Dynamic capability search, schema describe, single/batch call routing         |
 | - Instance registry, TCP liveness probes, version-aware election, failover      |
 | - Admin UI, OpenAPI, audit logs, traces, metrics, jobs, workflows, artefacts    |

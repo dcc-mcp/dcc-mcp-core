@@ -6,10 +6,9 @@ use super::*;
 /// `CallToolResult`.
 ///
 /// The advertised gateway MCP surface is intentionally minimal: `tools/list`
-/// only exposes the read-only `search` and `describe` tools. This router keeps
-/// execution, skill lifecycle, lease, and legacy wrapper names callable as
-/// hidden compatibility routes, while steering new clients toward REST for
-/// state-changing work.
+/// only exposes `search`, `describe`, `load_skill`, and `call`. This router
+/// keeps legacy wrapper names and lease tools callable as hidden compatibility
+/// routes, while steering new clients toward the canonical four-tool workflow.
 pub async fn route_tools_call(
     gs: &GatewayState,
     tool: &str,
@@ -64,10 +63,10 @@ pub async fn route_tools_call(
     // that namespace.
     let hint = format!(
         "Unknown gateway tool '{tool}'. The advertised gateway MCP surface exposes \
-         only read-only discovery: `search` (tools and/or skills) and `describe` \
-         (tool schema or skill detail). Use `search` → `describe`, then call \
-         `POST /v1/call` or `POST /v1/call_batch`; put backend parameters inside \
-         the REST `arguments` object (e.g. export_fbx uses `path`)."
+         only four workflow tools: `search` (tools and/or skills), `describe` \
+         (tool schema or skill detail), `load_skill` (progressive activation), \
+         and `call` (single `tool_slug` or ordered `calls` batch). Put backend \
+         parameters inside `arguments` (e.g. export_fbx uses `path`)."
     );
     (hint, true)
 }

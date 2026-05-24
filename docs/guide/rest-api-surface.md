@@ -6,11 +6,11 @@ for **traditional callers** (cURL, CI pipelines, studio automation, non-MCP
 tooling) — anything that can speak HTTP can drive a DCC through these routes
 without touching the MCP protocol stack.
 
-> **Relationship to MCP** — The gateway advertises only read-only MCP
-> discovery tools (`search`, `describe`). State-changing work uses the REST
-> invocation plane (`POST /v1/call`, `POST /v1/call_batch`, `/v1/load_skill`).
-> Hidden MCP compatibility routes still share the same service code, but new
-> integrations should treat REST as the canonical execution transport.
+> **Relationship to MCP** — The gateway advertises the same bounded workflow
+> over MCP as four tools: `search`, `describe`, `load_skill`, and `call`.
+> These tools share service code with `/v1/search`, `/v1/describe`,
+> `/v1/load_skill`, `/v1/call`, and `/v1/call_batch`; REST remains the pure
+> HTTP twin for clients that do not speak MCP.
 
 ---
 
@@ -124,7 +124,7 @@ The canonical normalization rules live in `dcc-mcp-wire`; Python host wrappers c
 
 ### Wrapper payloads and object-shaped arguments
 
-When a **host** (Maya, Blender, Houdini…) or a **connector** (Zapier, n8n, a CI runner) wraps the gateway call surface, the inner payload passed to `call_tool` / `call_tools` **MUST** remain a single JSON object with:
+When a **host** (Maya, Blender, Houdini…) or a **connector** (Zapier, n8n, a CI runner) wraps the gateway call surface, the inner payload passed to MCP `call` or REST `/v1/call` / `/v1/call_batch` **MUST** remain a single JSON object with:
 
 1. **`tool_slug`** — a string (e.g. `"maya.a1b2c3d4.create_sphere"`)
 2. **`arguments`** — omitted for no-arg tools, or a JSON **object** `{}`
@@ -300,7 +300,7 @@ MCP and REST callers can trace the same unit of work.
 
 ## `POST /v1/call_batch` — gateway ordered batches
 
-`/v1/call_batch` is the REST twin of the gateway MCP `call_tools` wrapper. Use
+`/v1/call_batch` is the REST twin of gateway MCP `call({calls:[...]})`. Use
 it when an agent must execute several backend tools in a known order without
 paying one HTTP/MCP round-trip per step.
 
@@ -485,7 +485,7 @@ dashboards.
 
 ## Envelope parity with MCP
 
-| Concern | MCP `call_tool` (JSON-RPC) | REST `POST /v1/call` | Parity? |
+| Concern | MCP `call` (JSON-RPC) | REST `POST /v1/call` | Parity? |
 |---|---|---|---|
 | Success body | `result.content[].text` (str JSON) | `{slug, output, validation_skipped, request_id}` | ✅ same underlying `CallOutcome` |
 | Error body | `result.content[].text` (str JSON) with `isError: true` | `{kind, message, hint?, request_id, candidates?}` | ✅ same `ServiceError`; MCP wraps it into the MCP `CallToolResult` shape |
@@ -505,7 +505,7 @@ indicates a downstream-visible envelope break.
 
 | You are … | Prefer |
 |---|---|
-| Writing an **AI agent** (Claude, Cursor, ChatGPT desktop, custom) | **MCP + REST**. Use gateway MCP `search` / `describe` for low-token discovery, then REST `/v1/call` or `/v1/call_batch` for execution. |
+| Writing an **AI agent** (Claude, Cursor, ChatGPT desktop, custom) | **MCP** when available: use gateway `search` / `describe` / `load_skill` / `call`. Use REST when the client has no MCP stack or needs OpenAPI-generated HTTP bindings. |
 | Writing a **cURL script** / cron job / CI pipeline | **REST**. Pure HTTP + JSON, no MCP library required. |
 | Writing an **enterprise backend** that talks to many DCCs | **REST on the gateway**. Single endpoint, same envelope across all DCCs, OpenAPI doc for code generation. |
 | Writing an **in-host plugin** (Maya plug-in, Blender add-on) | Neither — call `DccServerBase.register_*` directly. REST / MCP are for external callers. |

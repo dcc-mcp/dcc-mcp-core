@@ -46,10 +46,10 @@ flowchart LR
 
 **关键架构决策**：
 
-1. **MCP 表面最小化（#657/#674，PR A 落地）** —— 网关的 `tools/list` **永远**只返回只读发现原语，不管连了多少 DCC。per-tool 后端工具通过 MCP `search` / `describe` 或 REST `/v1/search` / `/v1/describe` 动态发现；执行走 REST `/v1/call` / `/v1/call_batch`，绝不在 `tools/list` 里扇出。
-2. **REST 是调用面** —— 每个 per-DCC 服务都暴露完整的 `/v1/*` REST API，网关也把同样形状作为汇聚面板暴露。任何语言、任何客户端都能直接调用，不需要 MCP 协议栈。
-3. **单一契约** —— REST `POST /v1/call` 和隐藏 MCP 兼容路由走同一条 `call_service` 代码路径，输入/输出 envelope 完全一致（由 OpenAPI snapshot 测试锁定）。
-4. **渐进式发现** —— Agent 按需付费：`search(kind="skill")` 或 `/v1/search` → 必要时 `/v1/load_skill` → `search` → `describe` → `/v1/call`。
+1. **MCP 表面最小化（#657/#674，PR A 落地）** —— 网关的 `tools/list` **永远**只返回四个工作流原语（`search`、`describe`、`load_skill`、`call`），不管连了多少 DCC。per-tool 后端工具通过 MCP `search` / `describe` 或 REST `/v1/search` / `/v1/describe` 动态发现；执行走 MCP `call` 或 REST `/v1/call` / `/v1/call_batch`，绝不在 `tools/list` 里扇出。
+2. **REST 是纯 HTTP twin** —— 每个 per-DCC 服务都暴露完整的 `/v1/*` REST API，网关也把同样形状作为汇聚面板暴露。任何语言、任何客户端都能直接调用，不需要 MCP 协议栈。
+3. **单一契约** —— MCP `call`、REST `POST /v1/call` 和隐藏 MCP 兼容路由走同一条 `call_service` 代码路径，输入/输出 envelope 完全一致（由 OpenAPI snapshot 测试锁定）。
+4. **渐进式发现** —— Agent 按需付费：`search(kind="skill")` 或 `/v1/search` → 必要时 `load_skill` 或 `/v1/load_skill` → `search` → `describe` → `call` 或 `/v1/call`。
 
 ---
 
@@ -176,7 +176,7 @@ from dcc_mcp_core import (
 | 变更 | 影响 | 迁移 |
 |---|---|---|
 | **网关 MCP 表面收敛** | `GatewayToolExposure` 枚举、`tool_exposure` / `publishes_backend_tools` 配置、`--gateway-tool-exposure` CLI 标志全部移除 | 删掉对应代码/配置/环境变量；网关现在只有一种（最小）表面 |
-| **网关 wrapper payload 更严格** | `call_tool`、`call_tools`、`/v1/call`、`/v1/call_batch` 都经过 `dcc-mcp-wire` 归一化；wrapper 顶层的后端字段会被忽略或拒绝 | 发送 `{tool_slug, arguments?, meta?}`，把工具输入放进 `arguments`；Python host wrapper 使用 `normalize_tool_arguments()` |
+| **网关 wrapper payload 更严格** | MCP `call`、隐藏 `call_tool` / `call_tools`、`/v1/call`、`/v1/call_batch` 都经过 `dcc-mcp-wire` 归一化；wrapper 顶层的后端字段会被忽略或拒绝 | 发送 `{tool_slug, arguments?, meta?}` 或 `{calls:[...]}`，把工具输入放进 `arguments`；Python host wrapper 使用 `normalize_tool_arguments()` |
 | **网关 prompt 名称对 Cursor 安全** | 聚合 prompt 名称使用 `i_<id8>__<escaped>`，不再暴露原始后端名称 | 原样保存并使用 `prompts/list` 返回的名称，不要从 DCC/tool 名称自行拼接 |
 | **删除 SKILL.md flat-form 解析** | `metadata: { "dcc-mcp.dcc": ... }` 不再填充典型字段 | 改用 nested form：`metadata: { dcc-mcp: { dcc: ... } }` |
 | **删除 `register_dcc_api_docs` / `DccApiDoc*`** | 相关 Python API 不再存在 | 用 `register_docs_resource()` 替代 |

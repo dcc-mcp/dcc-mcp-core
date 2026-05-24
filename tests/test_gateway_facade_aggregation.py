@@ -220,14 +220,14 @@ class TestFacadeInitialize:
 
 
 class TestFacadeToolsAggregation:
-    """Gateway ``tools/list`` exposes only the read-only discovery surface.
+    """Gateway ``tools/list`` exposes only the canonical MCP workflow surface.
 
-    The gateway publishes exactly two tools: ``search`` and ``describe``.
-    Execution, lease, lifecycle, and legacy aliases remain callable through
-    ``tools/call`` but are hidden from ``tools/list``.  Backend per-action tools
-    are NOT fanned out — agents discover them via ``search`` → ``describe``,
-    then execute through the canonical REST plane (``POST /v1/call`` or
-    ``POST /v1/call_batch``).
+    The gateway publishes exactly four tools: ``search``, ``describe``,
+    ``load_skill``, and ``call``. Lease, lifecycle, and legacy aliases remain
+    callable through ``tools/call`` but are hidden from ``tools/list``. Backend
+    per-action tools are NOT fanned out — agents discover them via ``search`` →
+    ``describe``, optionally activate skills via ``load_skill``, then execute
+    through ``call``.
     """
 
     def test_aggregated_list_contains_local_and_backend_tools(self, facade_cluster):
@@ -242,19 +242,17 @@ class TestFacadeToolsAggregation:
                 "(promoted to gateway://instances resource in #813)"
             )
 
-        # Tier 2 — advertised gateway discovery tools.
-        for mgmt in ("search", "describe"):
+        # Tier 2 — advertised gateway canonical workflow tools.
+        for mgmt in ("search", "describe", "load_skill", "call"):
             assert mgmt in names, f"missing skill-management tool {mgmt!r}"
-        assert names == {"search", "describe"}, (
-            f"gateway tools/list should advertise only read-only discovery tools; got {sorted(names)!r}"
+        assert names == {"search", "describe", "load_skill", "call"}, (
+            f"gateway tools/list should advertise only canonical workflow tools; got {sorted(names)!r}"
         )
 
         # Tier 3 — hidden compatibility and state-changing routes remain
         # callable via tools/call, but are not advertised in tools/list.
         for alias in (
-            "call",
             "lease",
-            "load_skill",
             "unload_skill",
             "search_tools",
             "describe_tool",

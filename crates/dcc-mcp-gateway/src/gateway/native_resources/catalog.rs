@@ -173,6 +173,8 @@ mod tests {
     use std::io::Write;
     use tempfile::NamedTempFile;
 
+    static CATALOG_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     fn write_catalog_yaml(content: &str) -> NamedTempFile {
         let mut f = NamedTempFile::new().unwrap();
         f.write_all(content.as_bytes()).unwrap();
@@ -206,9 +208,9 @@ entries:
 
     #[tokio::test]
     async fn build_payload_list_empty_query_returns_all() {
+        let _env_guard = CATALOG_ENV_LOCK.lock().await;
         let f = write_catalog_yaml(TWO_ENTRY_YAML);
-        // SAFETY: tests are single-threaded inside one tokio test; no
-        // concurrent env access in this scope.
+        // SAFETY: process-wide env mutation is serialized by CATALOG_ENV_LOCK.
         unsafe { std::env::set_var("DCC_MCP_CATALOG_PATH", f.path()) };
 
         let v = build_payload(&Query::List {
@@ -224,8 +226,9 @@ entries:
 
     #[tokio::test]
     async fn build_payload_list_keyword_filters_results() {
+        let _env_guard = CATALOG_ENV_LOCK.lock().await;
         let f = write_catalog_yaml(TWO_ENTRY_YAML);
-        // SAFETY: see above.
+        // SAFETY: process-wide env mutation is serialized by CATALOG_ENV_LOCK.
         unsafe { std::env::set_var("DCC_MCP_CATALOG_PATH", f.path()) };
 
         let v = build_payload(&Query::List {
@@ -242,8 +245,9 @@ entries:
 
     #[tokio::test]
     async fn build_payload_single_existing_entry_returns_data() {
+        let _env_guard = CATALOG_ENV_LOCK.lock().await;
         let f = write_catalog_yaml(ONE_ENTRY_YAML);
-        // SAFETY: see above.
+        // SAFETY: process-wide env mutation is serialized by CATALOG_ENV_LOCK.
         unsafe { std::env::set_var("DCC_MCP_CATALOG_PATH", f.path()) };
 
         let v = build_payload(&Query::Single {
@@ -260,8 +264,9 @@ entries:
 
     #[tokio::test]
     async fn build_payload_single_missing_entry_errors() {
+        let _env_guard = CATALOG_ENV_LOCK.lock().await;
         let f = write_catalog_yaml(ONE_ENTRY_YAML);
-        // SAFETY: see above.
+        // SAFETY: process-wide env mutation is serialized by CATALOG_ENV_LOCK.
         unsafe { std::env::set_var("DCC_MCP_CATALOG_PATH", f.path()) };
 
         let err = build_payload(&Query::Single {

@@ -95,11 +95,13 @@ into a faster authoring loop.
    paths such as `body.data.params.arguments.api_key`, and capture files can
    contain prompts, scene paths, and tool arguments, so keep them as local
    debugging artifacts unless redaction has been applied.
-   For gateway-facing examples, keep MCP discovery-only: use gateway MCP
-   `search` / `describe` to find and inspect capabilities, then execute via
-   REST `/v1/call` or `/v1/call_batch`. Hidden gateway MCP call/load/lease
-   compatibility routes may appear in old clients, but new docs and skills
-   should not advertise them in `tools/list` workflows.
+   For gateway-facing examples, use the canonical four-tool MCP workflow:
+   `search` / `describe` / `load_skill` / `call`. `call` accepts either one
+   `tool_slug` with `arguments` or an ordered `{calls:[...]}` batch, matching
+   REST `/v1/call` and `/v1/call_batch`. Hidden legacy names (`search_tools`,
+   `describe_tool`, `call_tool`, `call_tools`, lease helpers) may appear in old
+   clients, but new docs and skills should not advertise them in `tools/list`
+   workflows.
 8. For adapter install, uninstall, or upgrade flows, use
    `dcc_mcp_core.install_lifecycle` before importing Rust-backed public API:
    query/stop registered sidecars, inspect install roots, classify locked
@@ -145,7 +147,7 @@ into a faster authoring loop.
     bytes in audit records.
     Tool declarations must carry MCP safety annotations plus `execution`,
     `affinity`, and `timeout_hint_secs`; the gateway propagates those through
-    `search_tools`, `describe_tool`, `/v1/search`, and `/v1/describe` so
+    MCP `search` / `describe` and REST `/v1/search` / `/v1/describe` so
     agents can discover UI risk and timeout contracts before calling.
     Gateway instance diagnostics expose `diagnostics.app_ui.status` as
     `available`, `unavailable`, or `disabled_by_policy`; adapters may publish
