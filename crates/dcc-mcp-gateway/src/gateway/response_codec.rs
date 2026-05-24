@@ -264,6 +264,8 @@ fn compact_record(record: &Value) -> Value {
     copy_field(&mut out, record, "instance_id");
     copy_field(&mut out, record, "has_schema");
     copy_field(&mut out, record, "loaded");
+    copy_field(&mut out, record, "load_state");
+    copy_field(&mut out, record, "available_groups");
     copy_field(&mut out, record, "score");
     copy_field(&mut out, record, "annotations");
     copy_field(&mut out, record, "metadata");

@@ -192,6 +192,29 @@ impl CapabilityMetadata {
     }
 }
 
+/// Lightweight progressive tool-group metadata surfaced in search hits.
+///
+/// The gateway keeps this bounded: it is enough for an agent to decide whether
+/// a group must be explicitly activated, while full skill prose remains behind
+/// skill detail surfaces.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CapabilityGroupInfo {
+    /// Group identifier unique within the owning skill.
+    pub name: String,
+    /// Short group summary when the skill declared one.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
+    /// Tool names declared in this group.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<String>,
+    /// Whether this group becomes active on a default lazy load.
+    #[serde(default)]
+    pub default_active: bool,
+    /// Runtime activation state when the backend knows it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active: Option<bool>,
+}
+
 /// One compact capability record.
 ///
 /// Field ordering and field names are part of the REST wire contract
@@ -243,6 +266,9 @@ pub struct CapabilityRecord {
     /// capability: affinity, execution mode, timeout, and risk.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<CapabilityMetadata>,
+    /// Progressive tool groups declared by the owning skill, when known.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub available_groups: Vec<CapabilityGroupInfo>,
 }
 
 impl CapabilityRecord {
@@ -283,6 +309,7 @@ impl CapabilityRecord {
             loaded,
             annotations: None,
             metadata: None,
+            available_groups: Vec::new(),
         }
     }
 
@@ -298,6 +325,16 @@ impl CapabilityRecord {
     ) -> Self {
         self.annotations = annotations.filter(|ann| !ann.is_empty());
         self.metadata = metadata.filter(|meta| !meta.is_empty());
+        self
+    }
+
+    /// Attach progressive group metadata discovered from the owning backend.
+    #[must_use]
+    pub fn with_available_groups(mut self, groups: Vec<CapabilityGroupInfo>) -> Self {
+        self.available_groups = groups
+            .into_iter()
+            .filter(|group| !group.name.is_empty())
+            .collect();
         self
     }
 
@@ -334,6 +371,7 @@ impl CapabilityRecord {
             loaded: false,
             annotations: None,
             metadata: None,
+            available_groups: Vec::new(),
         }
     }
 }

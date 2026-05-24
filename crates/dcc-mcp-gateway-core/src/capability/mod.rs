@@ -39,8 +39,8 @@ pub mod search_ranking;
 pub use builder::BuildOutcome;
 pub use index::{IndexSnapshot, InstanceFingerprint};
 pub use record::{
-    CapabilityAnnotations, CapabilityMetadata, CapabilityRecord, SCHEMA_AVAILABLE,
-    is_valid_dcc_bucket, parse_slug, tool_slug,
+    CapabilityAnnotations, CapabilityGroupInfo, CapabilityMetadata, CapabilityRecord,
+    SCHEMA_AVAILABLE, is_valid_dcc_bucket, parse_slug, tool_slug,
 };
 pub use refresh::RefreshReason;
 pub use search::{

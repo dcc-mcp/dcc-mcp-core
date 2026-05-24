@@ -37,6 +37,9 @@ pub(crate) async fn skill_mgmt_dispatch(
                     let mut forward_args = args.clone();
                     if let Some(obj) = forward_args.as_object_mut() {
                         obj.remove("instance_id");
+                        if tool == "load_skill" && !obj.contains_key("activate_groups") {
+                            obj.insert("activate_groups".to_string(), Value::Bool(false));
+                        }
                         if let Some(group_name) = obj.get("group_name").cloned()
                             && !obj.contains_key("group")
                         {
@@ -91,6 +94,11 @@ pub(crate) async fn skill_mgmt_dispatch(
                                     let _ = gs.events_tx.send(notif);
                                 }
                             }
+                            let text = if !is_error && tool == "load_skill" {
+                                decorate_load_skill_success(gs, &entry, &forward_args, &text)
+                            } else {
+                                text
+                            };
                             (text, is_error)
                         }
                         Err(e) => (format!("Backend call failed: {e}"), true),
@@ -322,7 +330,7 @@ pub(crate) fn skill_management_tool_defs() -> Vec<Value> {
                 "properties": {
                     "skill_name":      {"type": "string"},
                     "skill_names":     {"type": "array", "items": {"type": "string"}},
-                    "activate_groups": {"type": "boolean", "default": true, "description": "Cascade-activate all declared tool groups after loading. Set false for lazy activation."},
+                    "activate_groups": {"type": "boolean", "default": false, "description": "Gateway default is lazy: activate only default-active/core groups. Set true to cascade-activate all declared tool groups."},
                     "instance_id":     {"type": "string", "description": "Target instance (full UUID or short prefix)"},
                     "dcc":             {"type": "string", "description": "DCC type when only one instance of that type is live"}
                 },
@@ -373,4 +381,160 @@ pub(crate) fn skill_management_tool_defs() -> Vec<Value> {
             }
         }),
     ]
+}
+
+fn decorate_load_skill_success(
+    gs: &GatewayState,
+    entry: &ServiceEntry,
+    forwarded_args: &Value,
+    text: &str,
+) -> String {
+    let mut payload = serde_json::from_str::<Value>(text).unwrap_or_else(|_| {
+        json!({
+            "message": text,
+        })
+    });
+
+    if !payload.is_object() {
+        payload = json!({ "result": payload });
+    }
+
+    let Some(obj) = payload.as_object_mut() else {
+        return text.to_string();
+    };
+
+    let requested_skill = forwarded_args
+        .get("skill_name")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| {
+            forwarded_args
+                .get("skill_names")
+                .and_then(Value::as_array)
+                .and_then(|items| items.iter().find_map(Value::as_str))
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            obj.get("skill_name")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        });
+
+    obj.entry("loaded".to_string()).or_insert(Value::Bool(true));
+    if let Some(skill_name) = &requested_skill {
+        obj.entry("skill_name".to_string())
+            .or_insert_with(|| Value::String(skill_name.clone()));
+    }
+    obj.insert(
+        "dcc_type".to_string(),
+        Value::String(entry.dcc_type.clone()),
+    );
+    obj.insert(
+        "instance_id".to_string(),
+        Value::String(entry.instance_id.to_string()),
+    );
+    obj.insert(
+        "instance_short".to_string(),
+        Value::String(instance_short(&entry.instance_id)),
+    );
+
+    let tool_slugs = new_tool_slugs_for_skill(gs, entry.instance_id, requested_skill.as_deref());
+    obj.insert("new_tool_slugs".to_string(), json!(tool_slugs));
+    obj.insert(
+        "index_generation".to_string(),
+        Value::String(crate::gateway::capability_service::index_generation(
+            &gs.capability_index,
+        )),
+    );
+
+    if !obj.contains_key("activated_groups") {
+        let active_groups = obj
+            .get("active_groups")
+            .cloned()
+            .unwrap_or_else(|| json!([]));
+        obj.insert("activated_groups".to_string(), active_groups);
+    }
+
+    let next_step = suggested_post_load_next_step(
+        requested_skill.as_deref(),
+        &entry.dcc_type,
+        entry.instance_id,
+        obj.get("new_tool_slugs")
+            .and_then(Value::as_array)
+            .and_then(|items| items.first())
+            .and_then(Value::as_str),
+    );
+    obj.insert("next_step".to_string(), next_step);
+
+    serde_json::to_string_pretty(&payload).unwrap_or_else(|_| text.to_string())
+}
+
+fn new_tool_slugs_for_skill(
+    gs: &GatewayState,
+    instance_id: Uuid,
+    skill_name: Option<&str>,
+) -> Vec<String> {
+    let mut slugs: Vec<String> = gs
+        .capability_index
+        .snapshot()
+        .records
+        .iter()
+        .filter(|record| record.instance_id == instance_id && record.loaded)
+        .filter(|record| {
+            skill_name.is_none_or(|skill| {
+                record
+                    .skill_name
+                    .as_deref()
+                    .is_some_and(|candidate| candidate.eq_ignore_ascii_case(skill))
+            })
+        })
+        .map(|record| record.tool_slug.clone())
+        .collect();
+    slugs.sort();
+    slugs
+}
+
+fn suggested_post_load_next_step(
+    skill_name: Option<&str>,
+    dcc_type: &str,
+    instance_id: Uuid,
+    first_tool_slug: Option<&str>,
+) -> Value {
+    if let Some(tool_slug) = first_tool_slug {
+        let arguments = json!({ "tool_slug": tool_slug });
+        return json!({
+            "action": "describe",
+            "arguments": arguments.clone(),
+            "mcp": {
+                "tool": "describe",
+                "arguments": arguments.clone(),
+            },
+            "rest": {
+                "method": "POST",
+                "path": "/v1/describe",
+                "body": arguments,
+            },
+        });
+    }
+
+    let arguments = json!({
+        "query": skill_name.unwrap_or_default(),
+        "skill_hint": skill_name.unwrap_or_default(),
+        "dcc_type": dcc_type,
+        "instance_id": instance_id.to_string(),
+        "loaded_only": true,
+    });
+    json!({
+        "action": "search",
+        "arguments": arguments.clone(),
+        "mcp": {
+            "tool": "search",
+            "arguments": arguments.clone(),
+        },
+        "rest": {
+            "method": "POST",
+            "path": "/v1/search",
+            "body": arguments,
+        },
+    })
 }

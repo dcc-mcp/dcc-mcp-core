@@ -111,6 +111,9 @@ pub struct SkillListEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<Object>)]
     pub metadata: Option<Value>,
+    /// Progressive tool groups declared by the owning skill, when known.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub available_groups: Vec<SkillGroupState>,
     /// Machine-executable remediation for progressive loading. Present
     /// when `loaded=false` so REST clients can load the owning skill
     /// without needing MCP tool metadata.
@@ -124,6 +127,20 @@ pub struct ProgressiveNextStep {
     pub action: String,
     #[schema(value_type = Object)]
     pub arguments: Value,
+}
+
+/// Bounded group metadata for progressive skill activation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ToSchema)]
+pub struct SkillGroupState {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<String>,
+    #[serde(default)]
+    pub default_active: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active: Option<bool>,
 }
 
 /// Stable tool slug format used across REST and MCP.
@@ -294,6 +311,7 @@ pub struct CatalogAction {
     pub timeout_hint_secs: Option<u32>,
     pub thread_affinity: ThreadAffinity,
     pub enforce_thread_affinity: bool,
+    pub available_groups: Vec<SkillGroupState>,
 }
 
 /// Anything that can invoke a tool by name and return its output.
@@ -489,6 +507,35 @@ impl SkillCatalogSource for CatalogSource {
         for s in &summaries {
             skill_info.insert(s.name.clone(), (s.loaded, s.scope.clone(), s.dcc.clone()));
         }
+        let mut active_groups: std::collections::HashMap<(String, String), bool> =
+            std::collections::HashMap::new();
+        for (skill, group, active) in self.catalog.list_groups() {
+            active_groups.insert((skill, group), active);
+        }
+        let mut groups_by_skill: std::collections::HashMap<String, Vec<SkillGroupState>> =
+            std::collections::HashMap::new();
+        for s in &summaries {
+            let Some(detail) = self.catalog.get_skill_info(&s.name) else {
+                continue;
+            };
+            let groups = detail
+                .groups
+                .iter()
+                .filter(|group| !group.name.is_empty())
+                .map(|group| SkillGroupState {
+                    name: group.name.clone(),
+                    description: group.description.clone(),
+                    tools: group.tools.clone(),
+                    default_active: group.default_active,
+                    active: active_groups
+                        .get(&(detail.name.clone(), group.name.clone()))
+                        .copied(),
+                })
+                .collect::<Vec<_>>();
+            if !groups.is_empty() {
+                groups_by_skill.insert(s.name.clone(), groups);
+            }
+        }
 
         for meta in registry.list_actions(None) {
             let skill_name = meta
@@ -510,7 +557,7 @@ impl SkillCatalogSource for CatalogSource {
             seen.insert(meta.name.clone());
             out.push(CatalogAction {
                 action_name: meta.name,
-                skill_name,
+                skill_name: skill_name.clone(),
                 dcc: meta.dcc,
                 description: meta.description,
                 tags: meta.tags,
@@ -522,6 +569,10 @@ impl SkillCatalogSource for CatalogSource {
                 timeout_hint_secs: meta.timeout_hint_secs,
                 thread_affinity: meta.thread_affinity,
                 enforce_thread_affinity: meta.enforce_thread_affinity,
+                available_groups: groups_by_skill
+                    .get(&skill_name)
+                    .cloned()
+                    .unwrap_or_default(),
             });
         }
 
@@ -564,6 +615,10 @@ impl SkillCatalogSource for CatalogSource {
                     timeout_hint_secs: tool_decl.timeout_hint_secs,
                     thread_affinity: tool_decl.thread_affinity,
                     enforce_thread_affinity: tool_decl.enforce_thread_affinity,
+                    available_groups: groups_by_skill
+                        .get(&detail.name)
+                        .cloned()
+                        .unwrap_or_default(),
                 });
             }
         }
@@ -1127,6 +1182,7 @@ fn action_to_entry(a: CatalogAction) -> SkillListEntry {
         scope: a.scope,
         annotations,
         metadata,
+        available_groups: a.available_groups,
         next_step,
     }
 }

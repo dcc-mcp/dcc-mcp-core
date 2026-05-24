@@ -102,6 +102,7 @@ fn sphere_action(loaded: bool) -> CatalogAction {
         timeout_hint_secs: None,
         thread_affinity: Default::default(),
         enforce_thread_affinity: false,
+        available_groups: Vec::new(),
     }
 }
 
@@ -147,7 +148,15 @@ fn search_returns_loaded_only_by_default() {
 
 #[test]
 fn search_loaded_only_false_returns_executable_next_step() {
-    let (svc, _) = build_service(vec![sphere_action(false)]);
+    let mut action = sphere_action(false);
+    action.available_groups = vec![SkillGroupState {
+        name: "advanced".into(),
+        description: "Heavier modeling tools".into(),
+        tools: vec!["create_sphere".into()],
+        default_active: false,
+        active: Some(false),
+    }];
+    let (svc, _) = build_service(vec![action]);
     let resp = svc.search(&SearchRequest {
         loaded_only: false,
         ..Default::default()
@@ -158,6 +167,8 @@ fn search_loaded_only_false_returns_executable_next_step() {
     assert_eq!(next.action, "load_skill");
     assert_eq!(next.arguments["skill_name"], "spheres");
     assert_eq!(next.arguments["dcc"], "maya");
+    assert_eq!(resp.hits[0].available_groups[0].name, "advanced");
+    assert_eq!(resp.hits[0].available_groups[0].active, Some(false));
 }
 
 #[test]

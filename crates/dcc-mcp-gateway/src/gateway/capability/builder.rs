@@ -84,7 +84,8 @@ pub fn build_records_from_backend(input: BuildInput<'_>) -> BuildOutcome {
             continue;
         }
 
-        let (skill_name, _) = extract_skill_and_bare(&tool.name);
+        let (name_skill, _) = extract_skill_and_bare(&tool.name);
+        let skill_name = skill_name_from_meta(tool.meta.as_ref()).or(name_skill);
         let callable_id = tool.name.clone();
         let tags = extract_tags(&tool.annotations, tool.meta.as_ref());
         let has_schema = has_meaningful_schema(&tool.input_schema);
@@ -247,6 +248,7 @@ fn compute_fingerprint(records: &[CapabilityRecord]) -> InstanceFingerprint {
     let mut hasher = DefaultHasher::new();
     for r in records {
         r.tool_slug.hash(&mut hasher);
+        r.skill_name.hash(&mut hasher);
         r.has_schema.hash(&mut hasher);
         r.summary.hash(&mut hasher);
         r.annotations.hash(&mut hasher);
@@ -294,6 +296,19 @@ fn extract_metadata(meta: Option<&serde_json::Map<String, Value>>) -> Option<Cap
     })
 }
 
+fn skill_name_from_meta(meta: Option<&serde_json::Map<String, Value>>) -> Option<String> {
+    meta.and_then(|map| map.get("dcc"))
+        .and_then(Value::as_object)
+        .and_then(|dcc| {
+            dcc.get("skill")
+                .or_else(|| dcc.get("skillName"))
+                .or_else(|| dcc.get("skill_name"))
+        })
+        .and_then(Value::as_str)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+}
+
 // Tiny re-import helper removed: `idempotent` tags now consistently
 // go through `.to_string()`.
 
@@ -310,6 +325,17 @@ mod unit_tests {
             output_schema: None,
             annotations: None,
             meta: None,
+        }
+    }
+
+    fn tool_with_meta(name: &str, desc: &str, schema: Value, meta: Value) -> McpTool {
+        McpTool {
+            name: name.to_string(),
+            description: desc.to_string(),
+            input_schema: schema,
+            output_schema: None,
+            annotations: None,
+            meta: meta.as_object().cloned(),
         }
     }
 
@@ -373,6 +399,29 @@ mod unit_tests {
             "hello_world__greet"
         );
         assert_eq!(by_tool["standalone_action"].skill_name, None);
+    }
+
+    #[test]
+    fn rest_metadata_skill_names_bare_loaded_actions() {
+        let iid = Uuid::from_u128(3);
+        let tools = vec![tool_with_meta(
+            "create_sphere",
+            "sphere",
+            json!({"type": "object"}),
+            json!({"dcc": {"skill": "maya-primitives"}}),
+        )];
+        let out = build_records_from_backend(BuildInput {
+            instance_id: iid,
+            dcc_type: "maya",
+            backend_tools: &tools,
+        });
+
+        assert_eq!(out.records.len(), 1);
+        assert_eq!(out.records[0].backend_tool, "create_sphere");
+        assert_eq!(
+            out.records[0].skill_name.as_deref(),
+            Some("maya-primitives")
+        );
     }
 
     #[test]
