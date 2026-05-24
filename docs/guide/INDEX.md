@@ -73,7 +73,7 @@ document without scanning every file.
 | [adapter-runtime-contracts.md](adapter-runtime-contracts.md) | Session events, artefact refs, debug descriptors, `app_ui` automation contracts |
 | [app-ui-workflows.md](app-ui-workflows.md) | Agent workflows for scoped `app_ui` UI automation, recovery, and VRS coverage |
 | [telemetry.md](telemetry.md) | ToolMetrics, ToolRecorder, RecordingGuard |
-| [observability.md](observability.md) | OTLP exporter, gateway event log (`resources://gateway/events`), Prometheus counters |
+| [observability.md](observability.md) | OTLP exporter, agent workflow spans, gateway event log (`resources://gateway/events`), Prometheus counters |
 | [scheduler.md](scheduler.md) | ScheduleSpec, TriggerSpec, cron/webhook scheduling |
 | [workflows.md](workflows.md) | WorkflowSpec engine: step kinds, policies, persistence |
 | [job-persistence.md](job-persistence.md) | SQLite-backed job/workflow persistence and resume |

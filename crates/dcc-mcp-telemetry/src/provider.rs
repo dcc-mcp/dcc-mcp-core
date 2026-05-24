@@ -4,6 +4,7 @@
 //! Afterwards use [`tracer`] / [`meter`] helper functions anywhere in the crate.
 
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use opentelemetry::metrics::Meter;
 use opentelemetry::trace::{Tracer, TracerProvider as _};
@@ -47,6 +48,8 @@ impl TelemetryHandle {
 }
 
 static HANDLE: OnceLock<TelemetryHandle> = OnceLock::new();
+static ACTIVE: AtomicBool = AtomicBool::new(false);
+static DIRECT_SPAN_FALLBACK: AtomicBool = AtomicBool::new(false);
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
@@ -104,8 +107,23 @@ pub fn init(cfg: &TelemetryConfig) -> Result<(), TelemetryError> {
         None
     };
 
-    // Install tracing subscriber
-    install_subscriber(cfg, tracer_provider.as_ref())?;
+    if let Some(ref tp) = tracer_provider {
+        global::set_tracer_provider(tp.clone());
+    }
+
+    // Install tracing subscriber. Some hosts initialise the shared logging
+    // subscriber before telemetry so file logging can be attached later. In
+    // that case direct OpenTelemetry spans still export through the global
+    // provider above, even though a tracing-opentelemetry layer cannot be
+    // installed retroactively.
+    let mut direct_span_fallback = false;
+    if let Err(err) = install_subscriber(cfg, tracer_provider.as_ref()) {
+        if is_global_subscriber_already_set(&err) {
+            direct_span_fallback = tracer_provider.is_some();
+        } else {
+            return Err(err);
+        }
+    }
 
     let handle = TelemetryHandle {
         tracer_provider,
@@ -120,6 +138,8 @@ pub fn init(cfg: &TelemetryConfig) -> Result<(), TelemetryError> {
     HANDLE
         .set(handle)
         .map_err(|_| TelemetryError::AlreadyInitialized)?;
+    ACTIVE.store(true, Ordering::Release);
+    DIRECT_SPAN_FALLBACK.store(direct_span_fallback, Ordering::Release);
 
     Ok(())
 }
@@ -129,11 +149,23 @@ pub fn shutdown() {
     if let Some(h) = HANDLE.get() {
         h.shutdown();
     }
+    ACTIVE.store(false, Ordering::Release);
+    DIRECT_SPAN_FALLBACK.store(false, Ordering::Release);
 }
 
 /// Returns `true` if the global telemetry provider has been initialised.
 pub fn is_initialized() -> bool {
-    HANDLE.get().is_some()
+    ACTIVE.load(Ordering::Acquire)
+}
+
+/// Returns true when telemetry was initialised after another tracing subscriber
+/// had already been installed.
+///
+/// In that mode a `tracing-opentelemetry` layer cannot be added retroactively,
+/// so callers that own high-value semantic spans can emit them directly through
+/// the global OpenTelemetry tracer provider.
+pub fn direct_span_fallback_enabled() -> bool {
+    ACTIVE.load(Ordering::Acquire) && DIRECT_SPAN_FALLBACK.load(Ordering::Acquire)
 }
 
 /// Initialise a minimal no-op telemetry provider if one has not been set yet.
@@ -304,6 +336,10 @@ fn install_subscriber(
     Ok(())
 }
 
+fn is_global_subscriber_already_set(err: &TelemetryError) -> bool {
+    matches!(err, TelemetryError::TracerProviderSetup(message) if message.contains("global default") && message.contains("already"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -318,6 +354,11 @@ mod tests {
             // returns a bool without panicking.
             let _ = is_initialized();
         }
+
+        #[test]
+        fn direct_span_fallback_returns_bool_without_panic() {
+            let _ = direct_span_fallback_enabled();
+        }
     }
 
     mod test_shutdown {
@@ -327,6 +368,17 @@ mod tests {
         fn shutdown_before_init_is_safe() {
             // If not initialized, shutdown should be a no-op.
             shutdown(); // must not panic
+        }
+
+        #[test]
+        fn shutdown_marks_provider_inactive() {
+            ACTIVE.store(true, Ordering::Release);
+            DIRECT_SPAN_FALLBACK.store(true, Ordering::Release);
+
+            shutdown();
+
+            assert!(!is_initialized());
+            assert!(!direct_span_fallback_enabled());
         }
     }
 
@@ -363,6 +415,24 @@ mod tests {
                 Ok(_) => {}
                 Err(e) => panic!("unexpected error: {e}"),
             }
+        }
+    }
+
+    mod test_subscriber_error_classification {
+        use super::*;
+
+        #[test]
+        fn detects_existing_global_subscriber_error() {
+            let err = TelemetryError::TracerProviderSetup(
+                "a global default trace dispatcher has already been set".to_string(),
+            );
+            assert!(is_global_subscriber_already_set(&err));
+        }
+
+        #[test]
+        fn rejects_unrelated_subscriber_errors() {
+            let err = TelemetryError::TracerProviderSetup("invalid layer".to_string());
+            assert!(!is_global_subscriber_already_set(&err));
         }
     }
 

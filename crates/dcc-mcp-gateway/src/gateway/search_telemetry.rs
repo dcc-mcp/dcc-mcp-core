@@ -333,6 +333,21 @@ impl SearchTelemetryStore {
         true
     }
 
+    pub fn selected_hit(
+        &self,
+        search_id: &str,
+        tool_slug: Option<&str>,
+        skill_name: Option<&str>,
+    ) -> Option<SearchTelemetryHit> {
+        let inner = self.inner.lock();
+        let record = inner
+            .records
+            .iter()
+            .rev()
+            .find(|record| record.search_id == search_id)?;
+        selected_hit(record, tool_slug, skill_name).cloned()
+    }
+
     pub fn snapshot(&self, limit: usize) -> SearchTelemetrySnapshot {
         let inner = self.inner.lock();
         let recent: Vec<SearchTelemetryRecord> = inner
@@ -383,21 +398,25 @@ fn selected_rank(
     tool_slug: Option<&str>,
     skill_name: Option<&str>,
 ) -> Option<u32> {
+    selected_hit(record, tool_slug, skill_name).map(|hit| hit.rank)
+}
+
+fn selected_hit<'a>(
+    record: &'a SearchTelemetryRecord,
+    tool_slug: Option<&str>,
+    skill_name: Option<&str>,
+) -> Option<&'a SearchTelemetryHit> {
     if let Some(slug) = tool_slug
         && let Some(hit) = record.hits.iter().find(|hit| hit.tool_slug == slug)
     {
-        return Some(hit.rank);
+        return Some(hit);
     }
     let skill = skill_name?.to_ascii_lowercase();
-    record
-        .hits
-        .iter()
-        .find(|hit| {
-            hit.skill_name
-                .as_deref()
-                .is_some_and(|candidate| candidate.eq_ignore_ascii_case(&skill))
-        })
-        .map(|hit| hit.rank)
+    record.hits.iter().find(|hit| {
+        hit.skill_name
+            .as_deref()
+            .is_some_and(|candidate| candidate.eq_ignore_ascii_case(&skill))
+    })
 }
 
 fn compute_stats(inner: &SearchTelemetryInner) -> SearchQualityStats {

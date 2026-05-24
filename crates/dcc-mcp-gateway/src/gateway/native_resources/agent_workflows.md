@@ -14,6 +14,17 @@
 4. **Skills vs tools** — `search(kind="skill")` / `load_skill` load packaged workflows on a host; `search(kind="tool")` resolves a **`tool_slug`** for the dynamic surface. Keep names straight; use `describe` before calling an unfamiliar slug. Unloaded hits carry `load_state`, `available_groups` when known, and `next_step` with both MCP and REST call shapes.
 5. **Progressive groups** — gateway `load_skill` defaults to lazy group activation (`activate_groups=false` unless you opt in). Default-active/core groups may become active; heavier groups should be activated explicitly through `load_skill(..., tool_group="...")`.
 
+### Telemetry correlation
+
+When you use a `next_step` from `search`, keep its `meta.search_id` as REST
+`meta.search_id` or MCP `_meta.search_id` on `describe`, `load_skill`, `call`,
+and batched `call` requests. The gateway emits `gateway.search`,
+`gateway.describe`, `gateway.load_skill`, `gateway.call`, and
+`gateway.call_batch` OTLP spans with bounded `dcc_mcp.*` attributes, including
+selected rank, score, match reasons, policy outcome, and success/failure kind.
+Only explicit bounded `agent_context` fields are exported; do not send hidden
+reasoning, secrets, or raw prompt bodies as telemetry metadata.
+
 ### Host / connector wrappers (common mistakes)
 
 If your IDE or orchestration layer exposes **non-standard** tool names (for example `defer_execute_tool`, `get_sessions`, `tool_search`), they **must** map onto the gateway verbs above — those names are **not** part of `dcc-mcp-gateway`’s native `tools/list`.

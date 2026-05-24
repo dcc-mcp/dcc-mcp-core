@@ -1,6 +1,9 @@
 use super::*;
 
-use crate::gateway::admin::trace::TraceContext;
+use crate::gateway::admin::trace::{AgentContext, TraceContext};
+use crate::gateway::agent_telemetry::{
+    AgentWorkflowEvent, error_kind_from_text, policy_reason_from_value,
+};
 use crate::gateway::capability::{RefreshReason, parse_slug, tool_slug};
 use crate::gateway::capability_service::{
     SearchResponseContext, ServiceError, call_service, describe_tool_full, index_generation,
@@ -323,6 +326,11 @@ pub async fn handle_v1_search(
     Json(body): Json<Value>,
 ) -> Response {
     let trace_context = TraceContext::from_headers(&headers);
+    let agent_context = AgentContext::from_request_parts(
+        &headers,
+        Some(&body),
+        body.get("meta").or_else(|| body.get("_meta")),
+    );
     // Refresh-on-demand so the first call after startup or a skill
     // load sees fresh capabilities without waiting for a watcher tick.
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
@@ -352,25 +360,44 @@ pub async fn handle_v1_search(
     );
     let hits = search_service_hits_for_policy(&gs.capability_index, &query, &gs.policy);
     let telemetry_hits = search_hits_for_telemetry(&hits);
+    let total = hits.len();
     let hits: Vec<Value> = hits
         .into_iter()
         .map(|hit| search_hit_to_value_with_context(hit, Some(&search_context)))
         .collect();
+    let session_id = session_id_from_headers(&headers);
+    let query_dcc_type = query.dcc_type.clone();
+    let query_instance_id = query.instance_id.as_ref().map(ToString::to_string);
     gs.search_telemetry.record_search(SearchTelemetryInput {
         search_id: search_context.search_id.clone(),
         transport: "rest".to_string(),
         kind: "tool".to_string(),
         query: query.query.clone(),
-        dcc_type: query.dcc_type.clone(),
-        instance_id: query.instance_id.map(|id| id.to_string()),
+        dcc_type: query_dcc_type.clone(),
+        instance_id: query_instance_id.clone(),
         limit: query.limit,
-        total: hits.len(),
+        total,
         ranker_version: search_context.ranker_version.to_string(),
         index_generation: search_context.index_generation.clone(),
         hits: telemetry_hits,
         trace_context: Some(trace_context.clone()),
-        session_id: session_id_from_headers(&headers),
+        session_id: session_id.clone(),
     });
+    AgentWorkflowEvent::new("gateway.search", "rest")
+        .with_trace_context(Some(&trace_context))
+        .with_agent_context(agent_context.as_ref())
+        .with_session_id(session_id.as_deref())
+        .with_route(
+            None,
+            None,
+            query_dcc_type.as_deref(),
+            query_instance_id.as_deref(),
+        )
+        .with_search_id(Some(&search_context.search_id))
+        .with_ranker_version(Some(search_context.ranker_version))
+        .with_search_result(&json!({"total": total, "hits": hits}))
+        .with_outcome(true, None)
+        .emit();
     let metadata = RestResponseMetadata::from_trace_context(&trace_context)
         .with_index_generation(search_context.index_generation.clone())
         .with_search(
@@ -406,7 +433,13 @@ async fn skill_lifecycle_response(
     body: Value,
 ) -> Response {
     let trace_context = TraceContext::from_headers(headers);
+    let agent_context = AgentContext::from_request_parts(
+        headers,
+        Some(&body),
+        body.get("meta").or_else(|| body.get("_meta")),
+    );
     let search_id = search_id_from_payload(&body);
+    let skill_name = skill_name_from_payload(&body);
     let (text, is_error) = crate::gateway::aggregator::skill_mgmt_dispatch(gs, tool, &body).await;
     if tool == "load_skill" {
         record_search_followup(
@@ -414,10 +447,32 @@ async fn skill_lifecycle_response(
             search_id.as_deref(),
             "load_skill",
             None,
-            skill_name_from_payload(&body),
+            skill_name.clone(),
             !is_error,
             &trace_context,
         );
+        let selected_hit = search_id.as_deref().and_then(|search_id| {
+            gs.search_telemetry
+                .selected_hit(search_id, None, skill_name.as_deref())
+        });
+        let parsed = serde_json::from_str::<Value>(&text).ok();
+        let error_kind = if is_error {
+            error_kind_from_text(&text)
+                .or_else(|| Some(classify_skill_lifecycle_error(tool, &text).to_string()))
+        } else {
+            None
+        };
+        let policy_reason = parsed.as_ref().and_then(policy_reason_from_value);
+        AgentWorkflowEvent::new("gateway.load_skill", "rest")
+            .with_trace_context(Some(&trace_context))
+            .with_agent_context(agent_context.as_ref())
+            .with_search_id(search_id.as_deref())
+            .with_ranker_version(Some(crate::gateway::search_telemetry::RANKER_VERSION))
+            .with_route(None, skill_name.as_deref(), None, None)
+            .with_selected_hit(selected_hit.as_ref())
+            .with_outcome(!is_error, error_kind.as_deref())
+            .with_policy_reason(policy_reason.as_deref())
+            .emit();
     }
     let metadata = RestResponseMetadata::from_trace_context(&trace_context)
         .with_index_generation(index_generation(&gs.capability_index));
@@ -502,6 +557,11 @@ pub async fn handle_v1_describe(
     Json(body): Json<Value>,
 ) -> Response {
     let trace_context = TraceContext::from_headers(&headers);
+    let agent_context = AgentContext::from_request_parts(
+        &headers,
+        Some(&body),
+        body.get("meta").or_else(|| body.get("_meta")),
+    );
     let Some(slug) = body.get("tool_slug").and_then(Value::as_str) else {
         let metadata = RestResponseMetadata::from_trace_context(&trace_context)
             .with_index_generation(index_generation(&gs.capability_index));
@@ -517,7 +577,16 @@ pub async fn handle_v1_describe(
     let metadata = RestResponseMetadata::from_trace_context(&trace_context)
         .with_index_generation(index_generation(&gs.capability_index));
 
-    describe_slug_response(&gs, &headers, &body, slug, &metadata).await
+    describe_slug_response(
+        &gs,
+        &headers,
+        &body,
+        slug,
+        &metadata,
+        &trace_context,
+        agent_context.as_ref(),
+    )
+    .await
 }
 
 /// `GET /v1/tools/{slug}` — path form of describe.
@@ -527,11 +596,21 @@ pub async fn handle_v1_describe_path(
     Path(slug): Path<String>,
 ) -> Response {
     let trace_context = TraceContext::from_headers(&headers);
+    let agent_context = AgentContext::from_request_parts(&headers, None, None);
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
     let body = json!({});
     let metadata = RestResponseMetadata::from_trace_context(&trace_context)
         .with_index_generation(index_generation(&gs.capability_index));
-    describe_slug_response(&gs, &headers, &body, &slug, &metadata).await
+    describe_slug_response(
+        &gs,
+        &headers,
+        &body,
+        &slug,
+        &metadata,
+        &trace_context,
+        agent_context.as_ref(),
+    )
+    .await
 }
 
 async fn describe_slug_response(
@@ -540,10 +619,15 @@ async fn describe_slug_response(
     body: &Value,
     slug: &str,
     metadata: &RestResponseMetadata,
+    trace_context: &TraceContext,
+    agent_context: Option<&AgentContext>,
 ) -> Response {
     let search_id = search_id_from_payload(body);
     match describe_tool_full(gs, slug).await {
         Ok((record, tool)) => {
+            let dcc_type = record.dcc_type.clone();
+            let instance_id = record.instance_id.to_string();
+            let skill_name = record.skill_name.clone();
             record_search_followup(
                 gs,
                 search_id.as_deref(),
@@ -561,6 +645,24 @@ async fn describe_slug_response(
                     trace_state: None,
                 },
             );
+            let selected_hit = search_id.as_deref().and_then(|search_id| {
+                gs.search_telemetry
+                    .selected_hit(search_id, Some(slug), None)
+            });
+            AgentWorkflowEvent::new("gateway.describe", "rest")
+                .with_trace_context(Some(trace_context))
+                .with_agent_context(agent_context)
+                .with_search_id(search_id.as_deref())
+                .with_ranker_version(Some(crate::gateway::search_telemetry::RANKER_VERSION))
+                .with_route(
+                    Some(slug),
+                    skill_name.as_deref(),
+                    Some(dcc_type.as_str()),
+                    Some(instance_id.as_str()),
+                )
+                .with_selected_hit(selected_hit.as_ref())
+                .with_outcome(true, None)
+                .emit();
             let mut legacy = json!({
                 "record": record,
                 "tool": tool,
@@ -580,6 +682,8 @@ async fn describe_slug_response(
             )
         }
         Err(err) => {
+            let err_payload = crate::gateway::capability_service::service_error_to_json(&err);
+            let policy_reason = policy_reason_from_value(&err_payload);
             record_search_followup(
                 gs,
                 search_id.as_deref(),
@@ -597,6 +701,20 @@ async fn describe_slug_response(
                     trace_state: None,
                 },
             );
+            let selected_hit = search_id.as_deref().and_then(|search_id| {
+                gs.search_telemetry
+                    .selected_hit(search_id, Some(slug), None)
+            });
+            AgentWorkflowEvent::new("gateway.describe", "rest")
+                .with_trace_context(Some(trace_context))
+                .with_agent_context(agent_context)
+                .with_search_id(search_id.as_deref())
+                .with_ranker_version(Some(crate::gateway::search_telemetry::RANKER_VERSION))
+                .with_route(Some(slug), None, None, None)
+                .with_selected_hit(selected_hit.as_ref())
+                .with_outcome(false, Some(err.kind.as_str()))
+                .with_policy_reason(policy_reason.as_deref())
+                .emit();
             service_error_response_with_metadata(headers, body, &err, metadata, true)
         }
     }
@@ -615,6 +733,8 @@ pub async fn handle_v1_dcc_instance_describe(
     Query(q): Query<DccInstanceDescribeQuery>,
 ) -> Response {
     let body = json!({});
+    let trace_context = TraceContext::from_headers(&headers);
+    let agent_context = AgentContext::from_request_parts(&headers, None, None);
     let backend_tool = q.backend_tool.trim();
     if backend_tool.is_empty() {
         let metadata = RestResponseMetadata::from_headers(&headers)
@@ -631,7 +751,6 @@ pub async fn handle_v1_dcc_instance_describe(
         );
     }
 
-    let trace_context = TraceContext::from_headers(&headers);
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
     let metadata = RestResponseMetadata::from_trace_context(&trace_context)
         .with_index_generation(index_generation(&gs.capability_index));
@@ -664,7 +783,16 @@ pub async fn handle_v1_dcc_instance_describe(
     }
 
     let slug = tool_slug(&entry.dcc_type, &entry.instance_id, backend_tool);
-    describe_slug_response(&gs, &headers, &body, &slug, &metadata).await
+    describe_slug_response(
+        &gs,
+        &headers,
+        &body,
+        &slug,
+        &metadata,
+        &trace_context,
+        agent_context.as_ref(),
+    )
+    .await
 }
 
 /// `POST /v1/call` — invoke a backend action by slug.
@@ -1069,8 +1197,48 @@ async fn call_service_with_admin_trace(
     if !gs.middleware_chain.is_empty()
         && let Err(err) = gs.middleware_chain.run_after(&ctx, &mut call_result).await
     {
+        let selected_hit = selected_search_hit(gs, search_id.as_deref(), Some(slug), None);
+        AgentWorkflowEvent::new("gateway.call", "rest")
+            .with_trace_context(Some(&ctx.trace_context))
+            .with_agent_context(ctx.agent_context.as_ref())
+            .with_session_id(ctx.session_id.as_deref())
+            .with_search_id(search_id.as_deref())
+            .with_ranker_version(Some(crate::gateway::search_telemetry::RANKER_VERSION))
+            .with_route(
+                Some(slug),
+                None,
+                ctx.dcc_type.as_deref(),
+                ctx.instance_id.as_deref(),
+            )
+            .with_selected_hit(selected_hit.as_ref())
+            .with_outcome(false, Some("middleware-error"))
+            .emit();
         return Err(ServiceError::new("middleware-error", err.to_string()));
     }
+
+    let selected_hit = selected_search_hit(gs, search_id.as_deref(), Some(slug), None);
+    let error_kind = result.as_ref().err().map(|err| err.kind.as_str());
+    let error_payload = result
+        .as_ref()
+        .err()
+        .map(crate::gateway::capability_service::service_error_to_json);
+    let policy_reason = error_payload.as_ref().and_then(policy_reason_from_value);
+    AgentWorkflowEvent::new("gateway.call", "rest")
+        .with_trace_context(Some(&ctx.trace_context))
+        .with_agent_context(ctx.agent_context.as_ref())
+        .with_session_id(ctx.session_id.as_deref())
+        .with_search_id(search_id.as_deref())
+        .with_ranker_version(Some(crate::gateway::search_telemetry::RANKER_VERSION))
+        .with_route(
+            Some(slug),
+            None,
+            ctx.dcc_type.as_deref(),
+            ctx.instance_id.as_deref(),
+        )
+        .with_selected_hit(selected_hit.as_ref())
+        .with_outcome(!is_error, error_kind)
+        .with_policy_reason(policy_reason.as_deref())
+        .emit();
 
     emit_rest_traffic_frame(
         gs,
@@ -1176,11 +1344,60 @@ async fn call_batch_with_admin_trace(
     ctx.output_payload = Some(TracePayload::from_value(&output_value, MAX_OUTPUT_BYTES));
 
     let mut call_result = CallResult::from_tuple(preview_text, is_error);
+    let search_id = search_id_from_payload(request_body);
+    let batch_size = call_batch_size(request_body);
+    let first_slug = first_batch_tool_slug(request_body);
+    let selected_hit = selected_search_hit(gs, search_id.as_deref(), first_slug, None);
     if !gs.middleware_chain.is_empty()
         && let Err(err) = gs.middleware_chain.run_after(&ctx, &mut call_result).await
     {
+        AgentWorkflowEvent::new("gateway.call_batch", "rest")
+            .with_trace_context(Some(&ctx.trace_context))
+            .with_agent_context(ctx.agent_context.as_ref())
+            .with_session_id(ctx.session_id.as_deref())
+            .with_search_id(search_id.as_deref())
+            .with_ranker_version(Some(crate::gateway::search_telemetry::RANKER_VERSION))
+            .with_route(first_slug, None, None, None)
+            .with_selected_hit(selected_hit.as_ref())
+            .with_batch_size(batch_size)
+            .with_outcome(false, Some("middleware-error"))
+            .emit();
         return Err(err.to_string());
     }
+
+    let batch_success = result
+        .as_ref()
+        .ok()
+        .and_then(|value| value.get("success"))
+        .and_then(Value::as_bool)
+        .unwrap_or(!is_error);
+    AgentWorkflowEvent::new("gateway.call_batch", "rest")
+        .with_trace_context(Some(&ctx.trace_context))
+        .with_agent_context(ctx.agent_context.as_ref())
+        .with_session_id(ctx.session_id.as_deref())
+        .with_search_id(search_id.as_deref())
+        .with_ranker_version(Some(crate::gateway::search_telemetry::RANKER_VERSION))
+        .with_route(first_slug, None, None, None)
+        .with_selected_hit(selected_hit.as_ref())
+        .with_batch_size(batch_size)
+        .with_outcome(
+            batch_success,
+            if batch_success {
+                None
+            } else if result.is_err() {
+                Some("bad-request")
+            } else {
+                Some("call-failed")
+            },
+        )
+        .with_policy_reason(
+            result
+                .as_ref()
+                .ok()
+                .and_then(policy_reason_from_value)
+                .as_deref(),
+        )
+        .emit();
 
     emit_rest_traffic_frame(
         gs,
@@ -1196,6 +1413,34 @@ async fn call_batch_with_admin_trace(
     );
 
     result
+}
+
+fn selected_search_hit(
+    gs: &GatewayState,
+    search_id: Option<&str>,
+    tool_slug: Option<&str>,
+    skill_name: Option<&str>,
+) -> Option<crate::gateway::search_telemetry::SearchTelemetryHit> {
+    search_id.and_then(|search_id| {
+        gs.search_telemetry
+            .selected_hit(search_id, tool_slug, skill_name)
+    })
+}
+
+fn first_batch_tool_slug(request_body: &Value) -> Option<&str> {
+    request_body
+        .get("calls")
+        .and_then(Value::as_array)
+        .and_then(|calls| calls.first())
+        .and_then(|call| call.get("tool_slug"))
+        .and_then(Value::as_str)
+}
+
+fn call_batch_size(request_body: &Value) -> Option<usize> {
+    request_body
+        .get("calls")
+        .and_then(Value::as_array)
+        .map(Vec::len)
 }
 
 #[cfg(test)]
