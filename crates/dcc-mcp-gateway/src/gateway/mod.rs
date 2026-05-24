@@ -50,6 +50,7 @@ pub mod resilience;
 pub(crate) mod response_codec;
 pub(crate) mod rest_openapi;
 pub mod router;
+pub mod search_telemetry;
 pub mod sse_subscriber;
 pub mod state;
 pub mod tools;

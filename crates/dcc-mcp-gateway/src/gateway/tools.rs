@@ -3,6 +3,11 @@
 use serde_json::{Value, json};
 
 use crate::gateway::admin::trace::TraceContext;
+use crate::gateway::capability_service::{SearchResponseContext, search_hit_to_value_with_context};
+use crate::gateway::search_telemetry::{
+    RANKER_VERSION, SearchFollowupInput, SearchTelemetryHit, SearchTelemetryInput,
+    search_id_from_meta, search_id_from_payload,
+};
 
 use super::state::GatewayState;
 use dcc_mcp_jsonrpc::coerce_tool_arguments_object;
@@ -145,7 +150,13 @@ pub async fn tool_release_instance(gs: &GatewayState, args: &Value) -> Result<St
 // ── Gateway MCP tools ────────────────────────────────────────────────────
 
 /// Unified search: backend capabilities (`kind=tool`, default) or skills (`kind=skill`).
-pub async fn tool_search(gs: &GatewayState, args: &Value) -> Result<String, String> {
+pub async fn tool_search(
+    gs: &GatewayState,
+    args: &Value,
+    meta: Option<&Value>,
+    trace_context: Option<&TraceContext>,
+    session_id: Option<&str>,
+) -> Result<String, String> {
     let kind = args
         .get("kind")
         .and_then(Value::as_str)
@@ -164,33 +175,82 @@ pub async fn tool_search(gs: &GatewayState, args: &Value) -> Result<String, Stri
             };
             let (text, is_error) =
                 crate::gateway::aggregator::skill_mgmt_dispatch(gs, legacy, args).await;
-            if is_error { Err(text) } else { Ok(text) }
+            if is_error {
+                Err(text)
+            } else {
+                Ok(annotate_skill_search_payload(
+                    gs,
+                    args,
+                    &text,
+                    trace_context,
+                    session_id,
+                ))
+            }
         }
         "all" => {
-            let tools_json = tool_search_tools(gs, args).await?;
+            let tools_json = tool_search_tools(gs, args, trace_context, session_id).await?;
             let (skills_text, skills_err) =
                 crate::gateway::aggregator::skill_mgmt_dispatch(gs, "list_skills", args).await;
             if skills_err {
                 return Err(skills_text);
             }
+            let tools_value = serde_json::from_str::<Value>(&tools_json).unwrap_or(Value::Null);
+            let skills_json =
+                annotate_skill_search_payload(gs, args, &skills_text, trace_context, session_id);
+            let skills_value = serde_json::from_str::<Value>(&skills_json).unwrap_or(Value::Null);
+            let search_id = tools_value
+                .get("search_id")
+                .or_else(|| skills_value.get("search_id"))
+                .cloned()
+                .unwrap_or(Value::Null);
+            let ranker_version = tools_value
+                .get("ranker_version")
+                .or_else(|| skills_value.get("ranker_version"))
+                .cloned()
+                .unwrap_or_else(|| json!(RANKER_VERSION));
+            let index_generation = tools_value
+                .get("index_generation")
+                .or_else(|| skills_value.get("index_generation"))
+                .cloned()
+                .unwrap_or(Value::Null);
             Ok(serde_json::to_string_pretty(&json!({
-                "tools": serde_json::from_str::<Value>(&tools_json).unwrap_or(Value::Null),
-                "skills": serde_json::from_str::<Value>(&skills_text).unwrap_or(Value::Null),
+                "search_id": search_id,
+                "ranker_version": ranker_version,
+                "index_generation": index_generation,
+                "tools": tools_value,
+                "skills": skills_value,
             }))
             .map_err(|e| e.to_string())?)
         }
-        _ => tool_search_tools(gs, args).await,
+        _ => {
+            let _ = meta;
+            tool_search_tools(gs, args, trace_context, session_id).await
+        }
     }
 }
 
 /// Unified describe: `tool_slug` for backend schema, or `skill_name` for skill detail.
-pub async fn tool_describe(gs: &GatewayState, args: &Value) -> Result<String, String> {
+pub async fn tool_describe(
+    gs: &GatewayState,
+    args: &Value,
+    meta: Option<&Value>,
+    trace_context: Option<&TraceContext>,
+) -> Result<String, String> {
     if args.get("tool_slug").and_then(Value::as_str).is_some() {
-        return tool_describe_tool(gs, args).await;
+        return tool_describe_tool(gs, args, meta, trace_context).await;
     }
     if args.get("skill_name").and_then(Value::as_str).is_some() {
         let (text, is_error) =
             crate::gateway::aggregator::skill_mgmt_dispatch(gs, "get_skill_info", args).await;
+        record_search_followup(
+            gs,
+            search_id_from_inputs(args, meta).as_deref(),
+            "describe",
+            None,
+            skill_name_from_payload(args),
+            !is_error,
+            trace_context,
+        );
         if is_error { Err(text) } else { Ok(text) }
     } else {
         Err("describe requires `tool_slug` (from search) or `skill_name`".to_string())
@@ -305,7 +365,12 @@ pub async fn tool_load_skill(gs: &GatewayState, args: &Value) -> (String, bool) 
 ///
 /// Kept alongside the REST handler so both transports produce
 /// byte-identical responses for the same query.
-pub async fn tool_search_tools(gs: &GatewayState, args: &Value) -> Result<String, String> {
+pub async fn tool_search_tools(
+    gs: &GatewayState,
+    args: &Value,
+    trace_context: Option<&TraceContext>,
+    session_id: Option<&str>,
+) -> Result<String, String> {
     // Refresh on demand so the first query after startup (or after
     // a skill load/unload) always sees current capabilities.
     crate::gateway::capability_service::refresh_all_live_backends(
@@ -314,13 +379,42 @@ pub async fn tool_search_tools(gs: &GatewayState, args: &Value) -> Result<String
     )
     .await;
     let query = crate::gateway::capability_service::parse_search_payload(args);
-    let annotated = crate::gateway::capability_service::search_service_rows_for_policy(
+    let index_generation =
+        crate::gateway::capability_service::index_generation(&gs.capability_index);
+    let search_context = SearchResponseContext::new(
+        crate::gateway::search_telemetry::SearchTelemetryStore::new_search_id(),
+        index_generation,
+    );
+    let hits = crate::gateway::capability_service::search_service_hits_for_policy(
         &gs.capability_index,
         &query,
         &gs.policy,
     );
+    let telemetry_hits = search_hits_for_telemetry(&hits);
+    let annotated: Vec<Value> = hits
+        .into_iter()
+        .map(|hit| search_hit_to_value_with_context(hit, Some(&search_context)))
+        .collect();
+    gs.search_telemetry.record_search(SearchTelemetryInput {
+        search_id: search_context.search_id.clone(),
+        transport: "mcp".to_string(),
+        kind: "tool".to_string(),
+        query: query.query.clone(),
+        dcc_type: query.dcc_type.clone(),
+        instance_id: query.instance_id.map(|id| id.to_string()),
+        limit: query.limit,
+        total: annotated.len(),
+        ranker_version: search_context.ranker_version.to_string(),
+        index_generation: search_context.index_generation.clone(),
+        hits: telemetry_hits,
+        trace_context: trace_context.cloned(),
+        session_id: session_id.map(str::to_string),
+    });
 
     serde_json::to_string_pretty(&json!({
+        "search_id": search_context.search_id,
+        "ranker_version": search_context.ranker_version,
+        "index_generation": search_context.index_generation,
         "total": annotated.len(),
         "hits":  annotated,
     }))
@@ -329,7 +423,12 @@ pub async fn tool_search_tools(gs: &GatewayState, args: &Value) -> Result<String
 
 /// `describe_tool` — MCP wrapper around
 /// [`crate::gateway::capability_service::describe_service`].
-pub async fn tool_describe_tool(gs: &GatewayState, args: &Value) -> Result<String, String> {
+pub async fn tool_describe_tool(
+    gs: &GatewayState,
+    args: &Value,
+    meta: Option<&Value>,
+    trace_context: Option<&TraceContext>,
+) -> Result<String, String> {
     let Some(slug) = args.get("tool_slug").and_then(|v| v.as_str()) else {
         return Err("missing required argument: tool_slug".to_string());
     };
@@ -340,25 +439,47 @@ pub async fn tool_describe_tool(gs: &GatewayState, args: &Value) -> Result<Strin
         crate::gateway::capability::RefreshReason::Periodic,
     )
     .await;
+    let search_id = search_id_from_inputs(args, meta);
     match crate::gateway::capability_service::describe_tool_full(gs, slug).await {
         Ok((record, tool)) => {
+            record_search_followup(
+                gs,
+                search_id.as_deref(),
+                "describe",
+                Some(slug),
+                None,
+                true,
+                trace_context,
+            );
             let input_schema = tool.input_schema.clone();
             let required = input_schema
                 .get("required")
                 .cloned()
                 .unwrap_or_else(|| json!([]));
             let properties = input_schema.get("properties").cloned();
-            serde_json::to_string_pretty(&json!({
+            let mut payload = json!({
                 "record": record,
                 "tool": tool,
                 "input_schema": input_schema,
                 "required": required,
                 "properties": properties,
                 "hint": "Copy parameter names from `properties` / `required` into call.arguments (e.g. export_fbx uses `path`, not `destination`).",
-            }))
-            .map_err(|e| e.to_string())
+            });
+            if let Some(search_id) = search_id.as_deref() {
+                payload["next_step"] = call_next_step(slug, search_id);
+            }
+            serde_json::to_string_pretty(&payload).map_err(|e| e.to_string())
         }
         Err(err) => {
+            record_search_followup(
+                gs,
+                search_id.as_deref(),
+                "describe",
+                Some(slug),
+                None,
+                false,
+                trace_context,
+            );
             let payload = crate::gateway::capability_service::service_error_to_json(&err);
             Err(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| err.message.clone()))
         }
@@ -384,6 +505,7 @@ pub async fn tool_call_tool(
         Err(msg) => return (msg, true),
     };
     let forwarded_meta = args.get("meta").cloned().or_else(|| meta.cloned());
+    let search_id = search_id_from_inputs(args, meta);
     // No refresh here on purpose: `call_tool` is the hot path and
     // we trust that the caller used `describe_tool` / `search_tools`
     // to obtain the slug, both of which refresh. An unknown-slug
@@ -399,10 +521,21 @@ pub async fn tool_call_tool(
     )
     .await
     {
-        Ok(result) => (
-            serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string()),
-            false,
-        ),
+        Ok(result) => {
+            record_search_followup(
+                gs,
+                search_id.as_deref(),
+                "call",
+                Some(slug),
+                None,
+                true,
+                trace_context,
+            );
+            (
+                serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string()),
+                false,
+            )
+        }
         Err(err) if err.kind == "unknown-slug" => {
             // Refresh once in case the caller supplied a slug that
             // just became valid (e.g. a skill loaded between
@@ -421,11 +554,32 @@ pub async fn tool_call_tool(
             )
             .await
             {
-                Ok(result) => (
-                    serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string()),
-                    false,
-                ),
+                Ok(result) => {
+                    record_search_followup(
+                        gs,
+                        search_id.as_deref(),
+                        "call",
+                        Some(slug),
+                        None,
+                        true,
+                        trace_context,
+                    );
+                    (
+                        serde_json::to_string_pretty(&result)
+                            .unwrap_or_else(|_| result.to_string()),
+                        false,
+                    )
+                }
                 Err(err2) => {
+                    record_search_followup(
+                        gs,
+                        search_id.as_deref(),
+                        "call",
+                        Some(slug),
+                        None,
+                        false,
+                        trace_context,
+                    );
                     let payload = crate::gateway::capability_service::service_error_to_json(&err2);
                     (
                         serde_json::to_string_pretty(&payload)
@@ -436,6 +590,15 @@ pub async fn tool_call_tool(
             }
         }
         Err(err) => {
+            record_search_followup(
+                gs,
+                search_id.as_deref(),
+                "call",
+                Some(slug),
+                None,
+                false,
+                trace_context,
+            );
             let payload = crate::gateway::capability_service::service_error_to_json(&err);
             (
                 serde_json::to_string_pretty(&payload).unwrap_or_else(|_| err.message.clone()),
@@ -513,6 +676,10 @@ pub async fn gateway_call_batch_inner(
             Err(msg) => return Err(msg),
         };
         let forwarded_meta = call.get("meta").cloned().or_else(|| mcp_meta.cloned());
+        let search_id = call
+            .get("meta")
+            .and_then(search_id_from_meta)
+            .or_else(|| mcp_meta.and_then(search_id_from_meta));
 
         let single_outcome = async {
             match crate::gateway::capability_service::call_service(
@@ -547,6 +714,15 @@ pub async fn gateway_call_batch_inner(
 
         match single_outcome {
             Ok(result) => {
+                record_search_followup(
+                    gs,
+                    search_id.as_deref(),
+                    "call",
+                    Some(slug),
+                    None,
+                    true,
+                    trace_context,
+                );
                 let mut item = json!({
                     "index": idx,
                     "tool_slug": slug,
@@ -559,6 +735,15 @@ pub async fn gateway_call_batch_inner(
                 results.push(item);
             }
             Err(err) => {
+                record_search_followup(
+                    gs,
+                    search_id.as_deref(),
+                    "call",
+                    Some(slug),
+                    None,
+                    false,
+                    trace_context,
+                );
                 all_ok = false;
                 let payload = crate::gateway::capability_service::service_error_to_json(&err);
                 let mut item = json!({
@@ -609,6 +794,254 @@ pub async fn tool_call_tools(
 }
 
 // ── private helpers ────────────────────────────────────────────────────────
+
+pub(crate) fn record_load_skill_search_followup(
+    gs: &GatewayState,
+    args: &Value,
+    meta: Option<&Value>,
+    trace_context: Option<&TraceContext>,
+    success: bool,
+) {
+    record_search_followup(
+        gs,
+        search_id_from_inputs(args, meta).as_deref(),
+        "load_skill",
+        None,
+        skill_name_from_payload(args),
+        success,
+        trace_context,
+    );
+}
+
+fn annotate_skill_search_payload(
+    gs: &GatewayState,
+    args: &Value,
+    text: &str,
+    trace_context: Option<&TraceContext>,
+    session_id: Option<&str>,
+) -> String {
+    let search_id = crate::gateway::search_telemetry::SearchTelemetryStore::new_search_id();
+    let index_generation =
+        crate::gateway::capability_service::index_generation(&gs.capability_index);
+    let mut payload = serde_json::from_str::<Value>(text).unwrap_or_else(|_| json!({"raw": text}));
+    let mut telemetry_hits = Vec::new();
+    let skills = payload
+        .get_mut("skills")
+        .and_then(Value::as_array_mut)
+        .map(|items| {
+            for (idx, skill) in items.iter_mut().enumerate() {
+                if let Some(obj) = skill.as_object_mut() {
+                    let rank = (idx + 1) as u32;
+                    obj.entry("rank".to_string()).or_insert_with(|| json!(rank));
+                    let skill_name = obj
+                        .get("name")
+                        .or_else(|| obj.get("skill_name"))
+                        .or_else(|| obj.get("skill"))
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    let tool_slug = obj
+                        .get("tool_slug")
+                        .or_else(|| obj.get("slug"))
+                        .and_then(Value::as_str)
+                        .unwrap_or(skill_name.as_str())
+                        .to_string();
+                    let dcc_type = obj
+                        .get("_dcc_type")
+                        .or_else(|| obj.get("dcc_type"))
+                        .or_else(|| obj.get("dcc"))
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    let instance_id = obj
+                        .get("_instance_id")
+                        .or_else(|| obj.get("instance_id"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                    telemetry_hits.push(SearchTelemetryHit {
+                        tool_slug,
+                        skill_name: (!skill_name.is_empty()).then_some(skill_name.clone()),
+                        dcc_type: dcc_type.clone(),
+                        rank,
+                        score: obj
+                            .get("score")
+                            .and_then(Value::as_u64)
+                            .map_or(0, |score| score as u32),
+                        match_reasons: obj
+                            .get("match_reasons")
+                            .and_then(Value::as_array)
+                            .map(|items| {
+                                items
+                                    .iter()
+                                    .filter_map(Value::as_str)
+                                    .map(str::to_string)
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                        loaded: obj.get("loaded").and_then(Value::as_bool).unwrap_or(false),
+                    });
+                    let mut next_args = json!({
+                        "skill_name": skill_name,
+                    });
+                    if !dcc_type.is_empty() {
+                        next_args["dcc"] = json!(dcc_type);
+                    }
+                    if let Some(instance_id) = instance_id {
+                        next_args["instance_id"] = json!(instance_id);
+                    }
+                    attach_search_meta(&mut next_args, &search_id, &index_generation);
+                    obj.insert(
+                        "next_step".to_string(),
+                        json!({
+                            "action": "load_skill",
+                            "arguments": next_args.clone(),
+                            "mcp": {
+                                "tool": "load_skill",
+                                "arguments": next_args.clone(),
+                                "_meta": next_args["meta"].clone(),
+                            },
+                            "rest": {
+                                "method": "POST",
+                                "path": "/v1/load_skill",
+                                "body": next_args,
+                            },
+                        }),
+                    );
+                }
+            }
+            items.len()
+        })
+        .unwrap_or(0);
+    if let Some(obj) = payload.as_object_mut() {
+        obj.insert("search_id".to_string(), json!(search_id.clone()));
+        obj.insert("ranker_version".to_string(), json!(RANKER_VERSION));
+        obj.insert(
+            "index_generation".to_string(),
+            json!(index_generation.clone()),
+        );
+    }
+    gs.search_telemetry.record_search(SearchTelemetryInput {
+        search_id,
+        transport: "mcp".to_string(),
+        kind: "skill".to_string(),
+        query: args
+            .get("query")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        dcc_type: args
+            .get("dcc_type")
+            .or_else(|| args.get("dcc"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        instance_id: args
+            .get("instance_id")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        limit: args
+            .get("limit")
+            .and_then(Value::as_u64)
+            .map(|value| value as u32),
+        total: skills,
+        ranker_version: RANKER_VERSION.to_string(),
+        index_generation,
+        hits: telemetry_hits,
+        trace_context: trace_context.cloned(),
+        session_id: session_id.map(str::to_string),
+    });
+    serde_json::to_string_pretty(&payload).unwrap_or_else(|_| text.to_string())
+}
+
+fn search_hits_for_telemetry(
+    hits: &[crate::gateway::capability::SearchHit],
+) -> Vec<SearchTelemetryHit> {
+    hits.iter()
+        .map(|hit| SearchTelemetryHit {
+            tool_slug: hit.record.tool_slug.clone(),
+            skill_name: hit.record.skill_name.clone(),
+            dcc_type: hit.record.dcc_type.clone(),
+            rank: hit.rank,
+            score: hit.score,
+            match_reasons: hit.match_reasons.clone(),
+            loaded: hit.record.loaded,
+        })
+        .collect()
+}
+
+fn record_search_followup(
+    gs: &GatewayState,
+    search_id: Option<&str>,
+    kind: &str,
+    tool_slug: Option<&str>,
+    skill_name: Option<String>,
+    success: bool,
+    trace_context: Option<&TraceContext>,
+) {
+    let Some(search_id) = search_id else {
+        return;
+    };
+    gs.search_telemetry.record_followup(SearchFollowupInput {
+        search_id: search_id.to_string(),
+        kind: kind.to_string(),
+        tool_slug: tool_slug.map(str::to_string),
+        skill_name,
+        success,
+        trace_context: trace_context.cloned(),
+    });
+}
+
+fn search_id_from_inputs(args: &Value, meta: Option<&Value>) -> Option<String> {
+    search_id_from_payload(args).or_else(|| meta.and_then(search_id_from_meta))
+}
+
+fn skill_name_from_payload(payload: &Value) -> Option<String> {
+    payload
+        .get("skill_name")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| {
+            payload
+                .get("skill_names")
+                .and_then(Value::as_array)
+                .and_then(|items| items.iter().find_map(Value::as_str))
+                .map(str::to_string)
+        })
+}
+
+fn call_next_step(slug: &str, search_id: &str) -> Value {
+    let mut arguments = json!({
+        "tool_slug": slug,
+        "arguments": {},
+    });
+    attach_search_meta(&mut arguments, search_id, "");
+    json!({
+        "action": "call",
+        "arguments": arguments.clone(),
+        "mcp": {
+            "tool": "call",
+            "arguments": arguments.clone(),
+            "_meta": arguments["meta"].clone(),
+        },
+        "rest": {
+            "method": "POST",
+            "path": "/v1/call",
+            "body": arguments,
+        },
+    })
+}
+
+fn attach_search_meta(arguments: &mut Value, search_id: &str, index_generation: &str) {
+    if let Some(obj) = arguments.as_object_mut() {
+        let mut meta = json!({
+            "search_id": search_id,
+            "ranker_version": RANKER_VERSION,
+        });
+        if !index_generation.is_empty() {
+            meta["index_generation"] = json!(index_generation);
+        }
+        obj.insert("meta".to_string(), meta);
+    }
+}
 
 /// Return the advertised gateway MCP workflow surface.
 ///

@@ -53,6 +53,7 @@ fn test_gateway_state_with_own_and_unknown(
             crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new(),
         ),
         traffic_capture: Arc::new(crate::gateway::traffic::TrafficCapture::disabled()),
+        search_telemetry: Arc::new(crate::gateway::search_telemetry::SearchTelemetryStore::new()),
         debug_routes_enabled: false,
     }
 }

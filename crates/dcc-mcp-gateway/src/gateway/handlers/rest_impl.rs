@@ -3,13 +3,14 @@ use super::*;
 use crate::gateway::admin::trace::TraceContext;
 use crate::gateway::capability::{RefreshReason, parse_slug, tool_slug};
 use crate::gateway::capability_service::{
-    ServiceError, call_service, describe_tool_full, index_generation, parse_search_payload,
-    refresh_all_live_backends, search_service_rows_for_policy, service_error_to_json,
+    SearchResponseContext, ServiceError, call_service, describe_tool_full, index_generation,
+    parse_search_payload, refresh_all_live_backends, search_hit_to_value_with_context,
+    search_service_hits_for_policy, service_error_to_json,
 };
-use crate::gateway::response_codec::{
-    compact_call_batch_payload, compact_describe_payload, compact_search_payload,
-    negotiated_response,
-};
+use crate::gateway::response_codec::{compact_call_batch_payload, compact_describe_payload};
+use crate::gateway::search_telemetry::{SearchTelemetryInput, search_id_from_payload};
+
+use super::rest_support::*;
 
 #[derive(Debug, Deserialize)]
 pub struct DccInstanceDescribeQuery {
@@ -344,9 +345,38 @@ pub async fn handle_v1_search(
             }
         }
     }
-    let hits = search_service_rows_for_policy(&gs.capability_index, &query, &gs.policy);
+    let index_generation = index_generation(&gs.capability_index);
+    let search_context = SearchResponseContext::new(
+        crate::gateway::search_telemetry::SearchTelemetryStore::new_search_id(),
+        index_generation,
+    );
+    let hits = search_service_hits_for_policy(&gs.capability_index, &query, &gs.policy);
+    let telemetry_hits = search_hits_for_telemetry(&hits);
+    let hits: Vec<Value> = hits
+        .into_iter()
+        .map(|hit| search_hit_to_value_with_context(hit, Some(&search_context)))
+        .collect();
+    gs.search_telemetry.record_search(SearchTelemetryInput {
+        search_id: search_context.search_id.clone(),
+        transport: "rest".to_string(),
+        kind: "tool".to_string(),
+        query: query.query.clone(),
+        dcc_type: query.dcc_type.clone(),
+        instance_id: query.instance_id.map(|id| id.to_string()),
+        limit: query.limit,
+        total: hits.len(),
+        ranker_version: search_context.ranker_version.to_string(),
+        index_generation: search_context.index_generation.clone(),
+        hits: telemetry_hits,
+        trace_context: Some(trace_context.clone()),
+        session_id: session_id_from_headers(&headers),
+    });
     let metadata = RestResponseMetadata::from_trace_context(&trace_context)
-        .with_index_generation(index_generation(&gs.capability_index));
+        .with_index_generation(search_context.index_generation.clone())
+        .with_search(
+            search_context.search_id.clone(),
+            search_context.ranker_version.to_string(),
+        );
     search_response_with_metadata(&headers, &body, hits, &metadata)
 }
 
@@ -376,7 +406,19 @@ async fn skill_lifecycle_response(
     body: Value,
 ) -> Response {
     let trace_context = TraceContext::from_headers(headers);
+    let search_id = search_id_from_payload(&body);
     let (text, is_error) = crate::gateway::aggregator::skill_mgmt_dispatch(gs, tool, &body).await;
+    if tool == "load_skill" {
+        record_search_followup(
+            gs,
+            search_id.as_deref(),
+            "load_skill",
+            None,
+            skill_name_from_payload(&body),
+            !is_error,
+            &trace_context,
+        );
+    }
     let metadata = RestResponseMetadata::from_trace_context(&trace_context)
         .with_index_generation(index_generation(&gs.capability_index));
     if is_error {
@@ -499,12 +541,33 @@ async fn describe_slug_response(
     slug: &str,
     metadata: &RestResponseMetadata,
 ) -> Response {
+    let search_id = search_id_from_payload(body);
     match describe_tool_full(gs, slug).await {
         Ok((record, tool)) => {
-            let legacy = json!({
+            record_search_followup(
+                gs,
+                search_id.as_deref(),
+                "describe",
+                Some(slug),
+                None,
+                true,
+                &TraceContext {
+                    trace_id: metadata.trace_id.clone(),
+                    request_id: metadata.request_id.clone(),
+                    span_id: None,
+                    parent_span_id: None,
+                    parent_request_id: None,
+                    trace_flags: None,
+                    trace_state: None,
+                },
+            );
+            let mut legacy = json!({
                 "record": record,
                 "tool": tool,
             });
+            if let Some(search_id) = search_id.as_deref() {
+                legacy["next_step"] = call_next_step(slug, search_id, metadata);
+            }
             let compact = compact_describe_payload(&legacy);
             negotiated_response_with_metadata(
                 headers,
@@ -516,7 +579,26 @@ async fn describe_slug_response(
                 true,
             )
         }
-        Err(err) => service_error_response_with_metadata(headers, body, &err, metadata, true),
+        Err(err) => {
+            record_search_followup(
+                gs,
+                search_id.as_deref(),
+                "describe",
+                Some(slug),
+                None,
+                false,
+                &TraceContext {
+                    trace_id: metadata.trace_id.clone(),
+                    request_id: metadata.request_id.clone(),
+                    span_id: None,
+                    parent_span_id: None,
+                    parent_request_id: None,
+                    trace_flags: None,
+                    trace_state: None,
+                },
+            );
+            service_error_response_with_metadata(headers, body, &err, metadata, true)
+        }
     }
 }
 
@@ -882,6 +964,7 @@ async fn call_service_with_admin_trace(
         request_body,
         trace_context,
     } = request;
+    let search_id = search_id_from_payload(request_body);
 
     let mut ctx = CallContext::new(method, trace_context.request_id.clone(), arguments.clone())
         .with_tool_slug(slug)
@@ -949,6 +1032,15 @@ async fn call_service_with_admin_trace(
     }
 
     let response_ns = now_ns();
+    record_search_followup(
+        gs,
+        search_id.as_deref(),
+        "call",
+        Some(slug),
+        None,
+        result.is_ok(),
+        &ctx.trace_context,
+    );
     let (preview_text, is_error, output_value) = match &result {
         Ok(value) => (
             serde_json::to_string(value).unwrap_or_default(),
@@ -1104,235 +1196,6 @@ async fn call_batch_with_admin_trace(
     );
 
     result
-}
-
-#[derive(Debug, Clone)]
-struct RestResponseMetadata {
-    request_id: String,
-    trace_id: String,
-    traceparent: Option<String>,
-    index_generation: Option<String>,
-}
-
-impl RestResponseMetadata {
-    fn from_headers(headers: &HeaderMap) -> Self {
-        Self::from_trace_context(&TraceContext::from_headers(headers))
-    }
-
-    fn from_trace_context(trace_context: &TraceContext) -> Self {
-        Self {
-            request_id: trace_context.request_id.clone(),
-            trace_id: trace_context.trace_id.clone(),
-            traceparent: trace_context.traceparent(),
-            index_generation: None,
-        }
-    }
-
-    fn with_index_generation(mut self, generation: String) -> Self {
-        if !generation.is_empty() {
-            self.index_generation = Some(generation);
-        }
-        self
-    }
-
-    fn insert_body_fields(&self, value: &mut Value) {
-        if let Some(obj) = value.as_object_mut() {
-            obj.entry("request_id".to_string())
-                .or_insert_with(|| json!(self.request_id));
-            obj.entry("trace_id".to_string())
-                .or_insert_with(|| json!(self.trace_id));
-            if let Some(generation) = self.index_generation.as_deref() {
-                obj.entry("index_generation".to_string())
-                    .or_insert_with(|| json!(generation));
-            }
-        }
-    }
-
-    fn attach_headers(&self, headers: &mut HeaderMap) {
-        insert_header(
-            headers,
-            crate::gateway::response_codec::HEADER_REQUEST_ID,
-            &self.request_id,
-        );
-        insert_header(headers, "x-request-id", &self.request_id);
-        insert_header(
-            headers,
-            crate::gateway::response_codec::HEADER_TRACE_ID,
-            &self.trace_id,
-        );
-        if let Some(traceparent) = self.traceparent.as_deref() {
-            insert_header(headers, "traceparent", traceparent);
-        }
-        if let Some(generation) = self.index_generation.as_deref() {
-            insert_header(
-                headers,
-                crate::gateway::response_codec::HEADER_INDEX_GENERATION,
-                generation,
-            );
-        }
-    }
-}
-
-fn insert_header(headers: &mut HeaderMap, name: &'static str, value: &str) {
-    if let Ok(value) = axum::http::HeaderValue::from_str(value) {
-        headers.insert(name, value);
-    }
-}
-
-fn negotiated_response_with_metadata(
-    headers: &HeaderMap,
-    request_body: &Value,
-    status: StatusCode,
-    mut legacy_json: Value,
-    compact_json: Option<Value>,
-    metadata: &RestResponseMetadata,
-    include_body_metadata: bool,
-) -> Response {
-    let mut compact_json = compact_json;
-    if include_body_metadata {
-        metadata.insert_body_fields(&mut legacy_json);
-        if let Some(compact) = compact_json.as_mut() {
-            metadata.insert_body_fields(compact);
-        }
-    }
-    let mut response =
-        negotiated_response(headers, request_body, status, legacy_json, compact_json);
-    metadata.attach_headers(response.headers_mut());
-    response
-}
-
-fn search_response_with_metadata(
-    headers: &HeaderMap,
-    body: &Value,
-    hits: Vec<Value>,
-    metadata: &RestResponseMetadata,
-) -> Response {
-    let total = hits.len();
-    let mut legacy = json!({
-        "total": total,
-        "hits": hits,
-    });
-    metadata.insert_body_fields(&mut legacy);
-    let mut compact = compact_search_payload(
-        total,
-        legacy["hits"]
-            .as_array()
-            .map(Vec::as_slice)
-            .unwrap_or_default(),
-    );
-    metadata.insert_body_fields(&mut compact);
-    negotiated_response_with_metadata(
-        headers,
-        body,
-        StatusCode::OK,
-        legacy,
-        Some(compact),
-        metadata,
-        false,
-    )
-}
-
-struct RestTrafficFrame<'a> {
-    path: &'a str,
-    direction: &'static str,
-    leg: &'static str,
-    status: Option<u16>,
-    body: Value,
-}
-
-fn emit_rest_traffic_frame(
-    gs: &GatewayState,
-    ctx: &crate::gateway::middleware::CallContext,
-    headers: &HeaderMap,
-    frame: RestTrafficFrame<'_>,
-) {
-    gs.traffic_capture.emit_json_frame(
-        crate::gateway::traffic::TrafficFrame::json(
-            crate::gateway::traffic::gateway_source(
-                &gs.server_name,
-                &gs.server_version,
-                &gs.own_host,
-                gs.own_port,
-            ),
-            crate::gateway::traffic::correlation(
-                Some(&ctx.trace_context.request_id),
-                Some(&ctx.trace_context.trace_id),
-                ctx.session_id.as_deref(),
-            ),
-            frame.direction,
-            frame.leg,
-            "http",
-            frame.body,
-        )
-        .with_session_id(ctx.session_id.as_deref())
-        .with_http(crate::gateway::traffic::http_post(
-            frame.path,
-            Some(headers),
-            frame.status,
-        ))
-        .with_mcp(crate::gateway::traffic::mcp_message(
-            if frame.direction == "inbound" {
-                "request"
-            } else {
-                "response"
-            },
-            "tools/call",
-            None,
-        )),
-    );
-}
-
-fn session_id_from_headers(headers: &HeaderMap) -> Option<String> {
-    header_string(headers, "mcp-session-id")
-        .or_else(|| header_string(headers, "x-session-id"))
-        .or_else(|| header_string(headers, "x-dcc-mcp-session-id"))
-}
-
-fn header_string(headers: &HeaderMap, name: &str) -> Option<String> {
-    headers
-        .get(name)
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-}
-
-fn now_ns() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
-}
-
-fn service_error_status(err: &ServiceError) -> StatusCode {
-    match err.kind.as_str() {
-        "unknown-slug" => StatusCode::NOT_FOUND,
-        "ambiguous" => StatusCode::CONFLICT,
-        "instance-offline" => StatusCode::SERVICE_UNAVAILABLE,
-        "policy-denied" => StatusCode::FORBIDDEN,
-        "host-busy" => StatusCode::SERVICE_UNAVAILABLE,
-        "host-died" => StatusCode::BAD_GATEWAY,
-        "backend-error" | "schema-unavailable" => StatusCode::BAD_GATEWAY,
-        _ => StatusCode::BAD_REQUEST,
-    }
-}
-
-fn service_error_response_with_metadata(
-    headers: &HeaderMap,
-    body: &Value,
-    err: &ServiceError,
-    metadata: &RestResponseMetadata,
-    include_body_metadata: bool,
-) -> Response {
-    negotiated_response_with_metadata(
-        headers,
-        body,
-        service_error_status(err),
-        service_error_to_json(err),
-        None,
-        metadata,
-        include_body_metadata,
-    )
 }
 
 #[cfg(test)]

@@ -1026,6 +1026,26 @@ pub async fn handle_admin_stats(
     }
 }
 
+/// `GET /admin/api/search-telemetry?limit=200` — recent search-quality
+/// records plus aggregate hit-rate metrics.
+pub async fn handle_admin_search_telemetry(
+    State(s): State<AdminState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    let limit = params
+        .get("limit")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(200)
+        .clamp(1, 1_000);
+    Json(
+        serde_json::to_value(s.gateway.search_telemetry.snapshot(limit)).unwrap_or(json!({
+            "stats": {},
+            "total": 0,
+            "recent": [],
+        })),
+    )
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SkillPathAddBody {
     pub path: String,

@@ -44,7 +44,8 @@ pub use record::{
 };
 pub use refresh::RefreshReason;
 pub use search::{
-    DEFAULT_LIMIT, MAX_LIMIT, SearchHit, SearchMode, SearchPage, SearchQuery, search, search_page,
+    DEFAULT_LIMIT, MAX_LIMIT, RANKER_VERSION, SearchHit, SearchMode, SearchPage, SearchQuery,
+    search, search_page,
 };
 pub use search_ranking::{
     ExactScorer, FuzzyScorer, Scorer, ScorerFactory, SearchRecord, StrategyExactScorer,

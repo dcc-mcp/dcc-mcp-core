@@ -249,6 +249,9 @@ pub struct GatewayState {
     /// Opt-in development traffic capture (RFC 0003 P0).
     pub traffic_capture: Arc<super::traffic::TrafficCapture>,
 
+    /// Search-quality telemetry store used by admin/debug APIs and metrics.
+    pub search_telemetry: Arc<super::search_telemetry::SearchTelemetryStore>,
+
     /// Whether stable gateway `/v1/debug/*` routes are mounted on this router.
     ///
     /// The routes require the `admin` feature at compile time and an AdminState
