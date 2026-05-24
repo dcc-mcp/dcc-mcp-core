@@ -31,6 +31,9 @@ pub enum ServiceErrorKind {
     BadRequest,
     /// The handler itself returned an error.
     BackendError,
+    /// The host dispatcher is alive but saturated; callers should retry
+    /// after a short backoff or choose another instance.
+    HostBusy,
     /// Execution affinity violated — e.g. a main-thread-only tool was
     /// called without an executor available.
     AffinityViolation,
@@ -60,6 +63,7 @@ impl ServiceErrorKind {
             Self::PolicyDenied => 403,
             Self::BadRequest => 400,
             Self::AffinityViolation | Self::ThreadAffinityViolation => 409,
+            Self::HostBusy => 503,
             Self::NotReady => 503,
             Self::NotFound => 404,
             Self::BackendError => 502,
@@ -155,6 +159,7 @@ mod tests {
             ServiceErrorKind::PolicyDenied,
             ServiceErrorKind::BadRequest,
             ServiceErrorKind::BackendError,
+            ServiceErrorKind::HostBusy,
             ServiceErrorKind::AffinityViolation,
             ServiceErrorKind::ThreadAffinityViolation,
             ServiceErrorKind::NotReady,

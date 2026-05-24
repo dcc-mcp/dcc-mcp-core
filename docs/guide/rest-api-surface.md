@@ -280,6 +280,7 @@ Error-kind vocabulary (HTTP status in parentheses):
 - `invalid-params` (400) — JSON-Schema validation failed against normalized `arguments`.
 - `unauthorized` (401) — the `AuthGate` rejected the request. Defaults to localhost-only on per-DCC servers; install `BearerTokenGate` for remote access.
 - `not-ready` (503) — `/v1/readyz` is red; DCC is still starting up.
+- `host-busy` (503) — the DCC host is alive but its dispatcher is saturated; retry with backoff or route to another live instance.
 - `affinity-violation` (409) — the caller tried to invoke a main-thread tool from a worker thread.
 - `bad-request` (400) — malformed envelope (missing `tool_slug`, bad JSON, etc.).
 - `backend-error` (502) — the owning DCC process responded but the tool failed.

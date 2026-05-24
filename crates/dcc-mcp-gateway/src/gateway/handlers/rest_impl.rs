@@ -914,6 +914,7 @@ fn error_response(err: &ServiceError) -> (StatusCode, Json<Value>) {
         "unknown-slug" => StatusCode::NOT_FOUND,
         "ambiguous" => StatusCode::CONFLICT,
         "instance-offline" => StatusCode::SERVICE_UNAVAILABLE,
+        "host-busy" => StatusCode::SERVICE_UNAVAILABLE,
         "host-died" => StatusCode::BAD_GATEWAY,
         "backend-error" | "schema-unavailable" => StatusCode::BAD_GATEWAY,
         _ => StatusCode::BAD_REQUEST,

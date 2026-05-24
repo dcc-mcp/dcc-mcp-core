@@ -55,7 +55,7 @@ SkillCatalogSource  ToolInvoker  AuthGate  AuditSink
 ## 企业级控制（#660）
 
 - **版本化路径** — `/v1/*` 是稳定契约
-- **结构化错误** — 单一信封 `{kind, message, hint, request_id, candidates?}`，`kind` 为 kebab-case（`unknown-slug`、`ambiguous`、`skill-not-loaded`、`invalid-params`、`unauthorized`、`bad-request`、`affinity-violation`、`not-ready`、`backend-error`、`internal`）
+- **结构化错误** — 单一信封 `{kind, message, hint, request_id, candidates?}`，`kind` 为 kebab-case（`unknown-slug`、`ambiguous`、`skill-not-loaded`、`invalid-params`、`unauthorized`、`bad-request`、`affinity-violation`、`not-ready`、`host-busy`、`backend-error`、`internal`）
 - **认证门** — 可插拔 `AuthGate`。默认 `AllowLocalhostGate` 拒绝非回环地址。通过安装 `BearerTokenGate::new(vec![token])` 并将监听器绑定到非回环接口来启用远程调用
 - **审计 Sink** — 每次调用发出一个 `AuditEvent`（`{request_id, at, slug, route, subject, outcome, duration_ms}`）
 - **三状态就绪** — `进程 / 分发器 / DCC`。在所有三项均为绿色之前，`/v1/call` 返回 `503 not-ready`
