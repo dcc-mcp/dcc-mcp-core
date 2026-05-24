@@ -52,7 +52,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CLAWHUB_CLI_PACKAGE: clawhub@0.7.0
+  CLAWHUB_CLI_PACKAGE: clawhub@0.17.0
   CLAWHUB_CONFIG_PATH: .clawhub/config.json
   CLAWHUB_DISABLE_TELEMETRY: "1"
 

@@ -14,7 +14,7 @@ import dcc_mcp_core
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = REPO_ROOT / ".github" / "clawhub-skills.json"
-DEFAULT_CLI = os.environ.get("CLAWHUB_CLI_PACKAGE", "clawhub@0.7.0")
+DEFAULT_CLI = os.environ.get("CLAWHUB_CLI_PACKAGE", "clawhub@0.17.0")
 CLAWHUB_LICENSE = "MIT-0"
 
 
@@ -35,7 +35,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cli",
         default=DEFAULT_CLI,
-        help="npm package for clawhub CLI (default: clawhub@0.7.0)",
+        help="npm package for clawhub CLI (default: clawhub@0.17.0)",
     )
     return parser.parse_args()
 
