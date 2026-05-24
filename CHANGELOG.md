@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.27](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.26...v0.17.27) (2026-05-24)
+
+
+### Features
+
+* add windows uia app ui backend ([8b02c64](https://github.com/loonghao/dcc-mcp-core/commit/8b02c64b93d44fddf3c6576040242bf78568cebe))
+* expose app ui gateway metadata ([d0d62ff](https://github.com/loonghao/dcc-mcp-core/commit/d0d62ffa7ce260a85a73cedaed4d6a7ac5dd42c6))
+* harden app ui policy audit controls ([eda87a3](https://github.com/loonghao/dcc-mcp-core/commit/eda87a33c86f3ff26edb2a08f0c5cfe6f81edd4b))
+
+
+### Bug Fixes
+
+* align cli smoke mcp accept headers ([c6982eb](https://github.com/loonghao/dcc-mcp-core/commit/c6982eb33837a53db9ba76ea9ce0ce7021805ed8))
+* keep healthy gateway residents active ([cd3a6a0](https://github.com/loonghao/dcc-mcp-core/commit/cd3a6a04d8cf55182a980dea094c86b18dcc05bc))
+* preserve host failure envelopes through gateway ([3fc266b](https://github.com/loonghao/dcc-mcp-core/commit/3fc266bb6943f27df46cbdfcc29c553e6066365a)), closes [#1160](https://github.com/loonghao/dcc-mcp-core/issues/1160)
+
+
+### Documentation
+
+* add app ui workflow examples ([26baee9](https://github.com/loonghao/dcc-mcp-core/commit/26baee97a28251e0cc86e0dabc541abb2cba66c6))
+
 ## [0.17.26](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.25...v0.17.26) (2026-05-24)
 
 
