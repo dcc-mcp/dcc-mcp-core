@@ -19,6 +19,14 @@ use serde_json::{Map, Value};
 /// Current event envelope schema version.
 pub const EVENT_SCHEMA_VERSION: u32 = 1;
 
+/// Events that support `before` hooks and veto decisions.
+pub const VETOABLE_EVENTS: &[&str] = &[
+    "skill.loading",
+    "tool.dispatched",
+    "resource.subscribed",
+    "client.initialize",
+];
+
 /// Event subscriber ID for unsubscription.
 pub(crate) type SubscriberId = u64;
 
@@ -29,11 +37,21 @@ pub(crate) type SubscriberId = u64;
 #[cfg(not(feature = "python-bindings"))]
 type EventCallback = Arc<dyn Fn(&EventEnvelope) + Send + Sync>;
 
+/// Callback type for non-Python veto hooks.
+#[cfg(not(feature = "python-bindings"))]
+type BeforeCallback = Arc<dyn Fn(&EventEnvelope) -> Option<EventVeto> + Send + Sync>;
+
 /// Type alias for the subscriber storage map.
 #[cfg(feature = "python-bindings")]
 pub(crate) type SubscriberMap = Arc<DashMap<String, Vec<(SubscriberId, Py<PyAny>)>>>;
 #[cfg(not(feature = "python-bindings"))]
 type SubscriberMap = Arc<DashMap<String, Vec<(SubscriberId, EventCallback)>>>;
+
+/// Type alias for veto hook storage.
+#[cfg(feature = "python-bindings")]
+pub(crate) type BeforeSubscriberMap = Arc<DashMap<String, Vec<(SubscriberId, Py<PyAny>)>>>;
+#[cfg(not(feature = "python-bindings"))]
+type BeforeSubscriberMap = Arc<DashMap<String, Vec<(SubscriberId, BeforeCallback)>>>;
 
 /// Thread-safe event bus.
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
@@ -46,6 +64,7 @@ pub struct EventBus {
     pub(crate) next_id: Arc<AtomicU64>,
     pub(crate) next_event_id: Arc<AtomicU64>,
     pub(crate) subscribers: SubscriberMap,
+    pub(crate) before_subscribers: BeforeSubscriberMap,
 }
 
 /// Structured event envelope shared by in-process subscribers and future webhooks.
@@ -86,6 +105,38 @@ impl EventEnvelope {
     }
 }
 
+/// A veto decision returned by an EventBus `before` hook.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventVeto {
+    pub code: String,
+    pub reason: String,
+}
+
+impl EventVeto {
+    #[must_use]
+    pub fn new(reason: impl Into<String>) -> Self {
+        Self::with_code("vetoed", reason)
+    }
+
+    #[must_use]
+    pub fn with_code(code: impl Into<String>, reason: impl Into<String>) -> Self {
+        let code = code.into();
+        let reason = reason.into();
+        Self {
+            code: if code.trim().is_empty() {
+                "vetoed".to_string()
+            } else {
+                code
+            },
+            reason: if reason.trim().is_empty() {
+                "event vetoed".to_string()
+            } else {
+                reason
+            },
+        }
+    }
+}
+
 impl std::fmt::Debug for EventBus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EventBus")
@@ -95,6 +146,14 @@ impl std::fmt::Debug for EventBus {
                 "subscriber_events",
                 &self
                     .subscribers
+                    .iter()
+                    .map(|r| r.key().clone())
+                    .collect::<Vec<_>>(),
+            )
+            .field(
+                "before_events",
+                &self
+                    .before_subscribers
                     .iter()
                     .map(|r| r.key().clone())
                     .collect::<Vec<_>>(),
@@ -116,13 +175,22 @@ impl EventBus {
             next_id: Arc::new(AtomicU64::new(0)),
             next_event_id: Arc::new(AtomicU64::new(0)),
             subscribers: Arc::new(DashMap::new()),
+            before_subscribers: Arc::new(DashMap::new()),
         }
     }
 
     /// Get the count of all subscriptions.
     #[must_use]
     pub fn subscription_count(&self) -> usize {
-        self.subscribers.iter().map(|r| r.value().len()).sum()
+        self.subscribers
+            .iter()
+            .map(|r| r.value().len())
+            .sum::<usize>()
+            + self
+                .before_subscribers
+                .iter()
+                .map(|r| r.value().len())
+                .sum::<usize>()
     }
 
     /// Check if any subscribers exist for the given event.
@@ -133,6 +201,20 @@ impl EventBus {
         })
     }
 
+    /// Check if any veto hooks exist for the given event.
+    #[must_use]
+    pub fn has_before_subscribers(&self, event_name: &str) -> bool {
+        self.before_subscribers
+            .get(event_name)
+            .is_some_and(|entry| !entry.value().is_empty())
+    }
+
+    /// Check whether an event supports before/veto hooks.
+    #[must_use]
+    pub fn is_vetoable_event(event_name: &str) -> bool {
+        is_vetoable_event(event_name)
+    }
+
     /// Allocate a new subscriber ID (starts at 1, monotonically increasing).
     pub(crate) fn next_subscriber_id(&self) -> SubscriberId {
         self.next_id.fetch_add(1, Ordering::Relaxed) + 1
@@ -141,6 +223,20 @@ impl EventBus {
     /// Remove a subscriber by ID from a specific event (shared logic).
     pub(crate) fn remove_subscriber(&self, event_name: &str, subscriber_id: SubscriberId) -> bool {
         if let Some(mut subs) = self.subscribers.get_mut(event_name) {
+            let before = subs.len();
+            subs.retain(|(id, _)| *id != subscriber_id);
+            return subs.len() < before;
+        }
+        false
+    }
+
+    /// Remove a before hook by ID from a specific event.
+    pub(crate) fn remove_before_subscriber(
+        &self,
+        event_name: &str,
+        subscriber_id: SubscriberId,
+    ) -> bool {
+        if let Some(mut subs) = self.before_subscribers.get_mut(event_name) {
             let before = subs.len();
             subs.retain(|(id, _)| *id != subscriber_id);
             return subs.len() < before;
@@ -179,9 +275,36 @@ impl EventBus {
         event
     }
 
+    pub(crate) fn make_vetoable_event(
+        &self,
+        event_name: &str,
+        source: Value,
+        correlation: Value,
+        attributes: Value,
+    ) -> Result<EventEnvelope, EventVeto> {
+        ensure_vetoable_event(event_name)?;
+        Ok(self.make_event(event_name, source, correlation, attributes))
+    }
+
     fn next_event_id(&self) -> String {
         let seq = self.next_event_id.fetch_add(1, Ordering::Relaxed) + 1;
         format!("ev_{:x}_{:x}", timestamp_ns(), seq)
+    }
+}
+
+#[must_use]
+pub fn is_vetoable_event(event_name: &str) -> bool {
+    VETOABLE_EVENTS.contains(&event_name)
+}
+
+fn ensure_vetoable_event(event_name: &str) -> Result<(), EventVeto> {
+    if is_vetoable_event(event_name) {
+        Ok(())
+    } else {
+        Err(EventVeto::with_code(
+            "unsupported_veto_event",
+            format!("event '{event_name}' does not support before hooks"),
+        ))
     }
 }
 
@@ -247,6 +370,77 @@ impl EventBus {
     #[must_use]
     pub fn unsubscribe(&self, event_name: &str, subscriber_id: SubscriberId) -> bool {
         self.remove_subscriber(event_name, subscriber_id)
+    }
+
+    /// Register a veto hook for one of the whitelisted lifecycle events.
+    ///
+    /// The callback runs before the matching event is published. Returning
+    /// `Some(EventVeto)` rejects the operation; returning `None` allows it.
+    pub fn before<F>(&self, event_name: String, callback: F) -> Result<SubscriberId, EventVeto>
+    where
+        F: Fn(&EventEnvelope) -> Option<EventVeto> + Send + Sync + 'static,
+    {
+        ensure_vetoable_event(&event_name)?;
+        let id = self.next_subscriber_id();
+        self.before_subscribers
+            .entry(event_name)
+            .or_default()
+            .push((id, Arc::new(callback)));
+        Ok(id)
+    }
+
+    /// Remove a veto hook by subscriber ID.
+    #[must_use]
+    pub fn unsubscribe_before(&self, event_name: &str, subscriber_id: SubscriberId) -> bool {
+        self.remove_before_subscriber(event_name, subscriber_id)
+    }
+
+    /// Build a vetoable event, run matching before hooks, and return the event
+    /// for later publication when all hooks allow it.
+    pub fn before_event(
+        &self,
+        event_name: &str,
+        source: Value,
+        correlation: Value,
+        attributes: Value,
+    ) -> Result<EventEnvelope, EventVeto> {
+        let event = self.make_vetoable_event(event_name, source, correlation, attributes)?;
+        self.check_before_event(&event)?;
+        Ok(event)
+    }
+
+    /// Run before hooks against an existing event envelope.
+    pub fn check_before_event(&self, event: &EventEnvelope) -> Result<(), EventVeto> {
+        ensure_vetoable_event(&event.name)?;
+        let callbacks: Vec<_> = self
+            .before_subscribers
+            .get(&event.name)
+            .map(|entry| {
+                entry
+                    .value()
+                    .iter()
+                    .map(|(_, cb)| Clone::clone(cb))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        for callback in &callbacks {
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| callback(event))) {
+                Ok(Some(veto)) => return Err(veto),
+                Ok(None) => {}
+                Err(e) => {
+                    let msg = e
+                        .downcast_ref::<&str>()
+                        .copied()
+                        .or_else(|| e.downcast_ref::<String>().map(|s| s.as_str()))
+                        .unwrap_or("unknown panic");
+                    return Err(EventVeto::with_code(
+                        "before_hook_panic",
+                        format!("before hook for '{}' panicked: {msg}", event.name),
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Publish an empty structured event, calling all matching subscribers.
@@ -393,6 +587,45 @@ mod tests {
             names.lock().unwrap().as_slice(),
             &["tool.completed".to_string()]
         );
+    }
+
+    #[test]
+    fn test_before_hook_rejects_non_vetoable_events() {
+        let bus = EventBus::new();
+        let err = bus
+            .before("tool.completed".to_string(), |_| None)
+            .expect_err("tool.completed is not vetoable");
+
+        assert_eq!(err.code, "unsupported_veto_event");
+        assert!(!bus.has_before_subscribers("tool.completed"));
+    }
+
+    #[test]
+    fn test_before_hook_veto_stops_event_before_publish() {
+        let bus = EventBus::new();
+        let called = Arc::new(AtomicU64::new(0));
+        let called_clone = Arc::clone(&called);
+        let _before = bus
+            .before("tool.dispatched".to_string(), move |event| {
+                called_clone.fetch_add(1, Ordering::Relaxed);
+                assert_eq!(event.attributes["tool_slug"], "maya_scene__open");
+                Some(EventVeto::with_code(
+                    "policy_denied",
+                    "scene-open tools are blocked in review mode",
+                ))
+            })
+            .unwrap();
+
+        let event = bus.before_event(
+            "tool.dispatched",
+            serde_json::json!({"dcc_type": "maya"}),
+            serde_json::json!({}),
+            serde_json::json!({"tool_slug": "maya_scene__open"}),
+        );
+
+        let veto = event.expect_err("before hook should veto");
+        assert_eq!(veto.code, "policy_denied");
+        assert_eq!(called.load(Ordering::Relaxed), 1);
     }
 
     #[test]

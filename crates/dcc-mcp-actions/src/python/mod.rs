@@ -29,7 +29,7 @@ use serde_json::{Map, Value, json};
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
-use crate::dispatcher::{DispatchError, ToolDispatcher, dispatch_error_kind};
+use crate::dispatcher::{DispatchError, ToolDispatcher, dispatch_error_kind, tool_event_payload};
 use crate::events::EventBus;
 use crate::registry::{ToolMeta, ToolRegistry};
 use crate::validator::ToolValidator;
@@ -192,38 +192,27 @@ impl PyToolDispatcher {
         }
 
         let meta = self.inner.registry().get_action(action_name, None);
-        let mut source = Map::new();
-        let mut attrs = attributes.as_object().cloned().unwrap_or_default();
-        attrs.insert("tool_slug".to_string(), json!(action_name));
-        attrs.insert("tool_name".to_string(), json!(action_name));
-        attrs.insert(
-            "duration_ms".to_string(),
-            json!(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)),
-        );
+        let (source, attributes) =
+            tool_event_payload(action_name, meta.as_ref(), started, attributes);
 
-        if let Some(meta) = meta {
-            if !meta.dcc.is_empty() {
-                source.insert("dcc_type".to_string(), json!(meta.dcc));
-                attrs.insert("dcc_type".to_string(), json!(meta.dcc));
-            }
-            if let Some(skill_name) = &meta.skill_name {
-                attrs.insert("skill_name".to_string(), json!(skill_name));
-            }
-            if !meta.group.is_empty() {
-                attrs.insert("group".to_string(), json!(meta.group));
-            }
-            attrs.insert(
-                "annotations".to_string(),
-                serde_json::to_value(&meta.annotations).unwrap_or(Value::Null),
-            );
-        }
+        let _ = event_bus.emit(event_name, source, Value::Object(Map::new()), attributes);
+    }
 
-        let _ = event_bus.emit(
-            event_name,
-            Value::Object(source),
-            Value::Object(Map::new()),
-            Value::Object(attrs),
-        );
+    fn emit_vetoable_tool_event(
+        &self,
+        event_name: &str,
+        action_name: &str,
+        started: Instant,
+        attributes: Value,
+    ) -> Result<(), crate::events::EventVeto> {
+        let event_bus = self.inner.event_bus();
+        let meta = self.inner.registry().get_action(action_name, None);
+        let (source, attributes) =
+            tool_event_payload(action_name, meta.as_ref(), started, attributes);
+        let event =
+            event_bus.before_event(event_name, source, Value::Object(Map::new()), attributes)?;
+        event_bus.publish_event(&event);
+        Ok(())
     }
 }
 
@@ -377,7 +366,8 @@ impl PyToolDispatcher {
                     false
                 }
                 Err(err @ DispatchError::ActionDisabled { .. })
-                | Err(err @ DispatchError::ThreadAffinityViolation { .. }) => {
+                | Err(err @ DispatchError::ThreadAffinityViolation { .. })
+                | Err(err @ DispatchError::Vetoed { .. }) => {
                     self.emit_tool_failed(
                         action_name,
                         dispatch_error_kind(&err),
@@ -392,14 +382,21 @@ impl PyToolDispatcher {
         };
 
         // 3. Call the Python handler
-        self.emit_tool_event(
+        if let Err(veto) = self.emit_vetoable_tool_event(
             "tool.dispatched",
             action_name,
             started,
             json!({
                 "validation_skipped": validation_skipped,
             }),
-        );
+        ) {
+            let message = format!(
+                "EVENT_VETOED: action '{action_name}' was vetoed ({}): {}",
+                veto.code, veto.reason
+            );
+            self.emit_tool_failed(action_name, "event_vetoed", message.clone(), started);
+            return Err(pyo3::exceptions::PyPermissionError::new_err(message));
+        }
         let handler = self.handler_map.get(action_name).expect("checked above");
         let py_params = value_to_py(py, &params)?;
         let raw = handler.call1(py, (py_params,)).map_err(|e| {

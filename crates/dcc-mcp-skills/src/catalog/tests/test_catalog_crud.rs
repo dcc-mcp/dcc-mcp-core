@@ -143,6 +143,45 @@ fn test_load_and_unload_emit_skill_lifecycle_events() {
     assert_eq!(events[2].1["removed_tool_count"], 1);
 }
 
+#[cfg(not(feature = "python-bindings"))]
+#[test]
+fn test_skill_loading_before_hook_veto_blocks_registration() {
+    let catalog = make_test_catalog();
+    catalog.add_skill(make_test_skill("modeling-bevel", "maya", &["bevel"]));
+
+    let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let captured = std::sync::Arc::clone(&events);
+    let _id = catalog
+        .event_bus()
+        .subscribe_event("skill.*".to_string(), move |event| {
+            captured
+                .lock()
+                .unwrap()
+                .push((event.name.clone(), event.attributes.clone()));
+        });
+    let _before = catalog
+        .event_bus()
+        .before("skill.loading".to_string(), |event| {
+            assert_eq!(event.attributes["skill_name"], "modeling-bevel");
+            Some(dcc_mcp_actions::EventVeto::with_code(
+                "policy_denied",
+                "skills cannot load during maintenance",
+            ))
+        })
+        .unwrap();
+
+    let err = catalog.load_skill("modeling-bevel").unwrap_err();
+
+    assert!(err.contains("loading vetoed"), "{err}");
+    assert!(!catalog.is_loaded("modeling-bevel"));
+    assert_eq!(catalog.registry().len(), 0);
+    let events = events.lock().unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].0, "skill.validation_failed");
+    assert_eq!(events[0].1["error_kind"], "event_vetoed");
+    assert_eq!(events[0].1["veto_code"], "policy_denied");
+}
+
 #[test]
 fn test_load_skill_auto_loads_discovered_dependencies_first() {
     let catalog = make_test_catalog();

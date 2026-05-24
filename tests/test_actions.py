@@ -3,6 +3,8 @@
 # Import future modules
 from __future__ import annotations
 
+import pytest
+
 # Import local modules
 import dcc_mcp_core
 
@@ -545,6 +547,18 @@ class TestEventBus:
         id2 = bus.subscribe("b", lambda: None)
         id3 = bus.subscribe("a", lambda: None)
         assert len({id1, id2, id3}) == 3
+
+    def test_before_rejects_non_vetoable_event(self) -> None:
+        bus = dcc_mcp_core.EventBus()
+
+        with pytest.raises(ValueError):
+            bus.before("tool.completed", lambda event: None)
+
+    def test_vetoable_events_exposes_policy_contract(self) -> None:
+        bus = dcc_mcp_core.EventBus()
+
+        assert "tool.dispatched" in bus.vetoable_events()
+        assert "skill.loading" in bus.vetoable_events()
 
 
 class TestListActionsDict:

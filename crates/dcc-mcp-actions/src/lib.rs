@@ -20,7 +20,7 @@ pub use dispatcher::{
     DispatchError, DispatchResult, HandlerFn, ToolDispatcher, current_thread_affinity,
     with_thread_affinity,
 };
-pub use events::EventBus;
+pub use events::{EventBus, EventVeto, VETOABLE_EVENTS, is_vetoable_event};
 pub use pipeline::{
     ActionMiddleware, AuditMiddleware, AuditRecord, LoggingMiddleware, MiddlewareContext,
     RateLimitMiddleware, TimingMiddleware, ToolPipeline,

@@ -54,7 +54,7 @@ use serde_json::{Map, Value, json};
 
 use dcc_mcp_models::ThreadAffinity;
 
-use crate::events::EventBus;
+use crate::events::{EventBus, EventVeto};
 use crate::registry::{ToolMeta, ToolRegistry};
 use crate::validation_strategy::select_strategy;
 
@@ -108,6 +108,12 @@ pub enum DispatchError {
         declared: ThreadAffinity,
         actual: ThreadAffinity,
     },
+    /// A registered before hook vetoed the action before handler execution.
+    Vetoed {
+        action: String,
+        code: String,
+        reason: String,
+    },
 }
 
 impl std::fmt::Display for DispatchError {
@@ -130,6 +136,14 @@ impl std::fmt::Display for DispatchError {
             } => write!(
                 f,
                 "THREAD_AFFINITY_VIOLATION: action '{action}' declared thread_affinity={declared} but ran on {actual}"
+            ),
+            Self::Vetoed {
+                action,
+                code,
+                reason,
+            } => write!(
+                f,
+                "EVENT_VETOED: action '{action}' was vetoed ({code}): {reason}"
             ),
         }
     }
@@ -366,8 +380,8 @@ impl ToolDispatcher {
         };
 
         // 4. Call handler.
-        if emit_events {
-            self.emit_tool_event(
+        if emit_events
+            && let Err(veto) = self.emit_vetoable_tool_event(
                 "tool.dispatched",
                 action_name,
                 meta_opt.as_ref(),
@@ -375,7 +389,15 @@ impl ToolDispatcher {
                 json!({
                     "validation_skipped": outcome.skipped,
                 }),
-            );
+            )
+        {
+            let err = DispatchError::Vetoed {
+                action: action_name.to_string(),
+                code: veto.code,
+                reason: veto.reason,
+            };
+            self.emit_tool_failed(action_name, meta_opt.as_ref(), &err, started);
+            return Err(err);
         }
 
         let output = match handler(params) {
@@ -417,17 +439,40 @@ impl ToolDispatcher {
         err: &DispatchError,
         started: Instant,
     ) {
+        let mut attributes = Map::new();
+        attributes.insert("result_success".to_string(), json!(false));
+        attributes.insert("error_kind".to_string(), json!(dispatch_error_kind(err)));
+        attributes.insert("error_message".to_string(), json!(err.to_string()));
+        if let DispatchError::Vetoed { code, reason, .. } = err {
+            attributes.insert("veto_code".to_string(), json!(code));
+            attributes.insert("veto_reason".to_string(), json!(reason));
+        }
         self.emit_tool_event(
             "tool.failed",
             action_name,
             meta,
             started,
-            json!({
-                "result_success": false,
-                "error_kind": dispatch_error_kind(err),
-                "error_message": err.to_string(),
-            }),
+            Value::Object(attributes),
         );
+    }
+
+    fn emit_vetoable_tool_event(
+        &self,
+        event_name: &str,
+        action_name: &str,
+        meta: Option<&ToolMeta>,
+        started: Instant,
+        attributes: Value,
+    ) -> Result<(), EventVeto> {
+        let (source, attributes) = tool_event_payload(action_name, meta, started, attributes);
+        let event = self.event_bus.before_event(
+            event_name,
+            source,
+            Value::Object(Map::new()),
+            attributes,
+        )?;
+        self.event_bus.publish_event(&event);
+        Ok(())
     }
 
     fn emit_tool_event(
@@ -442,38 +487,11 @@ impl ToolDispatcher {
             return;
         }
 
-        let mut source = Map::new();
-        let mut attrs = attributes.as_object().cloned().unwrap_or_default();
-        attrs.insert("tool_slug".to_string(), json!(action_name));
-        attrs.insert("tool_name".to_string(), json!(action_name));
-        attrs.insert(
-            "duration_ms".to_string(),
-            json!(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)),
-        );
+        let (source, attributes) = tool_event_payload(action_name, meta, started, attributes);
 
-        if let Some(meta) = meta {
-            if !meta.dcc.is_empty() {
-                source.insert("dcc_type".to_string(), json!(meta.dcc));
-                attrs.insert("dcc_type".to_string(), json!(meta.dcc));
-            }
-            if let Some(skill_name) = &meta.skill_name {
-                attrs.insert("skill_name".to_string(), json!(skill_name));
-            }
-            if !meta.group.is_empty() {
-                attrs.insert("group".to_string(), json!(meta.group));
-            }
-            attrs.insert(
-                "annotations".to_string(),
-                serde_json::to_value(&meta.annotations).unwrap_or(Value::Null),
-            );
-        }
-
-        let _ = self.event_bus.emit(
-            event_name,
-            Value::Object(source),
-            Value::Object(Map::new()),
-            Value::Object(attrs),
-        );
+        let _ = self
+            .event_bus
+            .emit(event_name, source, Value::Object(Map::new()), attributes);
     }
 
     /// Access the underlying registry.
@@ -491,6 +509,7 @@ pub(crate) fn dispatch_error_kind(err: &DispatchError) -> &'static str {
         DispatchError::HandlerError(_) => "handler_error",
         DispatchError::ActionDisabled { .. } => "action_disabled",
         DispatchError::ThreadAffinityViolation { .. } => "thread_affinity_violation",
+        DispatchError::Vetoed { .. } => "event_vetoed",
     }
 }
 
@@ -499,6 +518,41 @@ fn tool_result_success(output: &Value) -> bool {
         .get("success")
         .and_then(Value::as_bool)
         .unwrap_or(true)
+}
+
+pub(crate) fn tool_event_payload(
+    action_name: &str,
+    meta: Option<&ToolMeta>,
+    started: Instant,
+    attributes: Value,
+) -> (Value, Value) {
+    let mut source = Map::new();
+    let mut attrs = attributes.as_object().cloned().unwrap_or_default();
+    attrs.insert("tool_slug".to_string(), json!(action_name));
+    attrs.insert("tool_name".to_string(), json!(action_name));
+    attrs.insert(
+        "duration_ms".to_string(),
+        json!(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)),
+    );
+
+    if let Some(meta) = meta {
+        if !meta.dcc.is_empty() {
+            source.insert("dcc_type".to_string(), json!(meta.dcc));
+            attrs.insert("dcc_type".to_string(), json!(meta.dcc));
+        }
+        if let Some(skill_name) = &meta.skill_name {
+            attrs.insert("skill_name".to_string(), json!(skill_name));
+        }
+        if !meta.group.is_empty() {
+            attrs.insert("group".to_string(), json!(meta.group));
+        }
+        attrs.insert(
+            "annotations".to_string(),
+            serde_json::to_value(&meta.annotations).unwrap_or(Value::Null),
+        );
+    }
+
+    (Value::Object(source), Value::Object(attrs))
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -654,6 +708,63 @@ mod tests {
         assert_eq!(events[0].1["dcc_type"], "maya");
         assert_eq!(events[1].0, "tool.completed");
         assert_eq!(events[1].1["result_success"], true);
+    }
+
+    #[cfg(not(feature = "python-bindings"))]
+    #[test]
+    fn test_dispatch_before_hook_veto_blocks_handler() {
+        let reg = ToolRegistry::new();
+        reg.register_action(ToolMeta {
+            name: "delete_scene".into(),
+            dcc: "maya".into(),
+            skill_name: Some("maya-danger".into()),
+            ..Default::default()
+        });
+        let dispatcher = ToolDispatcher::new(reg);
+        let handler_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let handler_called_clone = Arc::clone(&handler_called);
+        dispatcher.register_handler("delete_scene", move |_| {
+            handler_called_clone.store(true, std::sync::atomic::Ordering::Relaxed);
+            Ok(json!({"deleted": true}))
+        });
+
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured = Arc::clone(&events);
+        let _id = dispatcher
+            .event_bus()
+            .subscribe_event("tool.*".to_string(), move |event| {
+                captured
+                    .lock()
+                    .unwrap()
+                    .push((event.name.clone(), event.attributes.clone()));
+            });
+        let _before = dispatcher
+            .event_bus()
+            .before("tool.dispatched".to_string(), |event| {
+                assert_eq!(event.attributes["tool_slug"], "delete_scene");
+                Some(crate::events::EventVeto::with_code(
+                    "policy_denied",
+                    "destructive tools are disabled",
+                ))
+            })
+            .unwrap();
+
+        let err = dispatcher.dispatch("delete_scene", json!({})).unwrap_err();
+
+        assert!(matches!(
+            err,
+            DispatchError::Vetoed {
+                ref action,
+                ref code,
+                ..
+            } if action == "delete_scene" && code == "policy_denied"
+        ));
+        assert!(!handler_called.load(std::sync::atomic::Ordering::Relaxed));
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].0, "tool.failed");
+        assert_eq!(events[0].1["error_kind"], "event_vetoed");
+        assert_eq!(events[0].1["veto_code"], "policy_denied");
     }
 
     #[cfg(not(feature = "python-bindings"))]
