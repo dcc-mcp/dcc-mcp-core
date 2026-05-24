@@ -77,6 +77,10 @@ into a faster authoring loop.
    lifecycle points (`skill.loading`, `tool.dispatched`,
    `resource.subscribed`, `client.initialize`); keep callbacks fast and return
    `EventBus.veto(reason, code)` instead of raising for expected denials.
+   For standalone `dcc-mcp-server` deployments, prefer
+   `DCC_MCP_WEBHOOKS_CONFIG` when those lifecycle events need to leave the
+   process: webhook delivery is asynchronous, bounded, filterable by dotted
+   envelope paths, and reports exhausted retries as `webhook.delivery_failed`.
    For local traffic debugging, prefer the gateway `traffic.frame` capture
    stream (`DCC_MCP_TRAFFIC_CAPTURE=jsonl:<path>` for quick capture, or
    `DCC_MCP_TRAFFIC_CONFIG=traffic_capture.yaml` for SQLite/filter/redact
