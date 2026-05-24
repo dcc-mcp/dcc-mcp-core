@@ -7,10 +7,10 @@ gateway port, then drive the gateway's MCP endpoint directly to verify:
 
 * The first server to bind the gateway port wins the election and serves the
   aggregated endpoint; the second registers as a plain backend.
-* ``tools/list`` on the gateway returns the 6 canonical tools (search,
-  describe, call, lease, load_skill, unload_skill).  Legacy aliases like
+* ``tools/list`` on the gateway returns the two advertised discovery tools
+  (search, describe).  Execution, lease, lifecycle, and legacy aliases like
   ``search_tools`` are hidden from the listing but still route via
-  ``tools/call``.
+  ``tools/call`` for compatibility.
 * Tool-name collisions across DCCs never surface — each backend tool carries
   ``_instance_id`` / ``_dcc_type`` annotations so agents can disambiguate.
 * ``initialize`` advertises ``tools.listChanged: true`` and
@@ -220,15 +220,14 @@ class TestFacadeInitialize:
 
 
 class TestFacadeToolsAggregation:
-    """Gateway ``tools/list`` exposes only the 6-verb canonical surface.
+    """Gateway ``tools/list`` exposes only the read-only discovery surface.
 
-    After the consolidation (commit e7e3c7ec), the gateway publishes exactly
-    6 tools: ``search``, ``describe``, ``call``, ``lease``, ``load_skill``,
-    ``unload_skill``.  Legacy aliases (``search_tools``, ``describe_tool``,
-    ``call_tool``) are still callable but hidden from ``tools/list``.
-    Backend per-action tools are NOT fanned out — agents discover them via
-    ``search`` → ``describe`` → ``call`` (or the per-DCC REST
-    ``POST /v1/call``).
+    The gateway publishes exactly two tools: ``search`` and ``describe``.
+    Execution, lease, lifecycle, and legacy aliases remain callable through
+    ``tools/call`` but are hidden from ``tools/list``.  Backend per-action tools
+    are NOT fanned out — agents discover them via ``search`` → ``describe``,
+    then execute through the canonical REST plane (``POST /v1/call`` or
+    ``POST /v1/call_batch``).
     """
 
     def test_aggregated_list_contains_local_and_backend_tools(self, facade_cluster):
@@ -243,19 +242,25 @@ class TestFacadeToolsAggregation:
                 "(promoted to gateway://instances resource in #813)"
             )
 
-        # Tier 2 — skill-management tools (one canonical set gateway-side).
-        # After #813 refactor, the canonical set is: search, describe, call,
-        # lease, load_skill, unload_skill.
-        for mgmt in ("search", "describe", "call", "lease", "load_skill", "unload_skill"):
+        # Tier 2 — advertised gateway discovery tools.
+        for mgmt in ("search", "describe"):
             assert mgmt in names, f"missing skill-management tool {mgmt!r}"
+        assert names == {"search", "describe"}, (
+            f"gateway tools/list should advertise only read-only discovery tools; got {sorted(names)!r}"
+        )
 
-        # Tier 3 — legacy discover+dispatch wrappers (search_tools, describe_tool,
-        # call_tool) are hidden from tools/list after the 6-verb consolidation
-        # (commit e7e3c7ec) but remain callable as aliases via tools/call.
-        for alias in ("search_tools", "describe_tool", "call_tool"):
-            assert alias not in names, (
-                f"legacy alias {alias!r} should be hidden from tools/list (consolidated into canonical 6-verb surface)"
-            )
+        # Tier 3 — hidden compatibility and state-changing routes remain
+        # callable via tools/call, but are not advertised in tools/list.
+        for alias in (
+            "call",
+            "lease",
+            "load_skill",
+            "unload_skill",
+            "search_tools",
+            "describe_tool",
+            "call_tool",
+        ):
+            assert alias not in names, f"route {alias!r} should be hidden from tools/list"
 
         # Per-action backend tools must NOT be fanned out anymore.
         prefixed = [t for t in tools if _split_gateway_prefixed_tool(t["name"]) is not None]

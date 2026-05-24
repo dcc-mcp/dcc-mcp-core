@@ -81,7 +81,7 @@ When a gateway-proxied `call_tool` / `POST /v1/call` fails with `thread-affinity
 
 Where the gateway mounts them, mirror MCP with **`POST /v1/search`**, **`/v1/describe`**, **`/v1/call`**, **`/v1/call_batch`**, and **`/v1/resources*`** / **`/v1/prompts*`**. Same discovery order and same URI hygiene as MCP.
 
-`POST /v1/search` returns legacy JSON unless compact output is explicit. REST agents can request TOON with `Accept: application/toon`, `response_format: "toon"`, or `compact: true`; use `response_format: "json"` to force compatibility. Search responses include `x-dcc-mcp-token-estimator`, original/returned byte and token counts, and savings headers so an agent can budget repeated discovery calls.
+`POST /v1/search`, `/v1/describe`, `/v1/call`, direct per-instance describe/call routes, and `/v1/call_batch` return legacy JSON unless compact output is explicit. REST agents can request TOON with `Accept: application/toon`, `response_format: "toon"`, or `compact: true`; use `response_format: "json"` to force compatibility. Compact-capable responses include `x-dcc-mcp-token-estimator`, original/returned byte and token counts, and savings headers so an agent can budget repeated discovery, schema, and invocation calls. Compact batch responses also include per-result `token_accounting` metadata.
 
 ### Path-style invocation (optional; for curl / service accounts)
 

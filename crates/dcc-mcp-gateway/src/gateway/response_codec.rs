@@ -13,14 +13,14 @@ pub(crate) const TOON_MIME: &str = "application/toon";
 pub(crate) const JSON_MIME: &str = "application/json";
 pub(crate) const TOKEN_ESTIMATOR: &str = "dcc-mcp-byte4-v1";
 
-const HEADER_RESPONSE_FORMAT: &str = "x-dcc-mcp-response-format";
-const HEADER_TOKEN_ESTIMATOR: &str = "x-dcc-mcp-token-estimator";
-const HEADER_ORIGINAL_BYTES: &str = "x-dcc-mcp-original-bytes";
-const HEADER_RETURNED_BYTES: &str = "x-dcc-mcp-returned-bytes";
-const HEADER_ORIGINAL_TOKENS: &str = "x-dcc-mcp-original-tokens";
-const HEADER_RETURNED_TOKENS: &str = "x-dcc-mcp-returned-tokens";
-const HEADER_SAVED_TOKENS: &str = "x-dcc-mcp-saved-tokens";
-const HEADER_SAVINGS_PERCENT: &str = "x-dcc-mcp-savings-pct";
+pub(crate) const HEADER_RESPONSE_FORMAT: &str = "x-dcc-mcp-response-format";
+pub(crate) const HEADER_TOKEN_ESTIMATOR: &str = "x-dcc-mcp-token-estimator";
+pub(crate) const HEADER_ORIGINAL_BYTES: &str = "x-dcc-mcp-original-bytes";
+pub(crate) const HEADER_RETURNED_BYTES: &str = "x-dcc-mcp-returned-bytes";
+pub(crate) const HEADER_ORIGINAL_TOKENS: &str = "x-dcc-mcp-original-tokens";
+pub(crate) const HEADER_RETURNED_TOKENS: &str = "x-dcc-mcp-returned-tokens";
+pub(crate) const HEADER_SAVED_TOKENS: &str = "x-dcc-mcp-saved-tokens";
+pub(crate) const HEADER_SAVINGS_PERCENT: &str = "x-dcc-mcp-savings-pct";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ResponseFormat {
@@ -62,6 +62,20 @@ impl TokenAccounting {
         } else {
             (self.saved_tokens as f64 / self.original_tokens as f64) * 100.0
         }
+    }
+
+    #[must_use]
+    pub(crate) fn to_json(self, format: ResponseFormat) -> Value {
+        json!({
+            "response_format": format.as_str(),
+            "token_estimator": TOKEN_ESTIMATOR,
+            "original_bytes": self.original_bytes,
+            "returned_bytes": self.returned_bytes,
+            "original_tokens": self.original_tokens,
+            "returned_tokens": self.returned_tokens,
+            "saved_tokens": self.saved_tokens,
+            "savings_pct": format!("{:.2}", self.savings_percent()),
+        })
     }
 }
 
@@ -154,6 +168,23 @@ pub(crate) fn encoded_response(status: StatusCode, encoded: EncodedResponse) -> 
     response
 }
 
+pub(crate) fn negotiated_response(
+    headers: &HeaderMap,
+    body: &Value,
+    status: StatusCode,
+    legacy_json: Value,
+    compact_json: Option<Value>,
+) -> Response {
+    match encode_response(
+        &legacy_json,
+        compact_json.as_ref(),
+        negotiate_response_format(headers, body),
+    ) {
+        Ok(encoded) => encoded_response(status, encoded),
+        Err(err) => json_error_response(StatusCode::INTERNAL_SERVER_ERROR, &err),
+    }
+}
+
 pub(crate) fn search_response(headers: &HeaderMap, body: &Value, hits: Vec<Value>) -> Response {
     let total = hits.len();
     let legacy = json!({
@@ -167,14 +198,7 @@ pub(crate) fn search_response(headers: &HeaderMap, body: &Value, hits: Vec<Value
             .map(Vec::as_slice)
             .unwrap_or_default(),
     );
-    match encode_response(
-        &legacy,
-        Some(&compact),
-        negotiate_response_format(headers, body),
-    ) {
-        Ok(encoded) => encoded_response(StatusCode::OK, encoded),
-        Err(err) => json_error_response(StatusCode::INTERNAL_SERVER_ERROR, &err),
-    }
+    negotiated_response(headers, body, StatusCode::OK, legacy, Some(compact))
 }
 
 fn json_error_response(status: StatusCode, err: &EncodeError) -> Response {
@@ -196,23 +220,61 @@ pub(crate) fn compact_search_payload(total: usize, hits: &[Value]) -> Value {
     })
 }
 
-fn compact_search_hit(hit: &Value) -> Value {
+pub(crate) fn compact_describe_payload(legacy: &Value) -> Value {
     let mut out = Map::new();
-    copy_field(&mut out, hit, "tool_slug");
-    copy_field(&mut out, hit, "backend_tool");
-    copy_callable_if_distinct(&mut out, hit);
-    copy_field(&mut out, hit, "skill_name");
-    copy_field(&mut out, hit, "summary");
-    copy_field(&mut out, hit, "tags");
-    copy_field(&mut out, hit, "dcc_type");
-    copy_field(&mut out, hit, "instance_id");
-    copy_field(&mut out, hit, "has_schema");
-    copy_field(&mut out, hit, "loaded");
-    copy_field(&mut out, hit, "score");
-    copy_field(&mut out, hit, "annotations");
-    copy_field(&mut out, hit, "metadata");
-    copy_field(&mut out, hit, "next_step");
+    if let Some(record) = legacy.get("record") {
+        out.insert("record".to_string(), compact_record(record));
+    }
+    if let Some(tool) = legacy.get("tool") {
+        // The schema-bearing tool definition is the describe contract.
+        // Preserve it verbatim so compact output never hides validation hints.
+        out.insert("tool".to_string(), tool.clone());
+    }
     Value::Object(out)
+}
+
+pub(crate) fn compact_call_batch_payload(legacy: &Value) -> Value {
+    let mut compact = legacy.clone();
+    if let Some(results) = compact.get_mut("results").and_then(Value::as_array_mut) {
+        for item in results {
+            let item_payload = item.clone();
+            if let Some(accounting) = token_accounting_for_compact_value(&item_payload)
+                && let Some(obj) = item.as_object_mut()
+            {
+                obj.insert("token_accounting".to_string(), accounting);
+            }
+        }
+    }
+    compact
+}
+
+fn compact_search_hit(hit: &Value) -> Value {
+    compact_record(hit)
+}
+
+fn compact_record(record: &Value) -> Value {
+    let mut out = Map::new();
+    copy_field(&mut out, record, "tool_slug");
+    copy_field(&mut out, record, "backend_tool");
+    copy_callable_if_distinct(&mut out, record);
+    copy_field(&mut out, record, "skill_name");
+    copy_field(&mut out, record, "summary");
+    copy_field(&mut out, record, "tags");
+    copy_field(&mut out, record, "dcc_type");
+    copy_field(&mut out, record, "instance_id");
+    copy_field(&mut out, record, "has_schema");
+    copy_field(&mut out, record, "loaded");
+    copy_field(&mut out, record, "score");
+    copy_field(&mut out, record, "annotations");
+    copy_field(&mut out, record, "metadata");
+    copy_field(&mut out, record, "next_step");
+    Value::Object(out)
+}
+
+fn token_accounting_for_compact_value(value: &Value) -> Option<Value> {
+    encode_response(value, Some(value), ResponseFormat::Toon)
+        .ok()
+        .map(|encoded| encoded.accounting.to_json(encoded.format))
 }
 
 fn copy_field(out: &mut Map<String, Value>, hit: &Value, field: &str) {
@@ -569,6 +631,147 @@ mod tests {
         assert_eq!(
             compact["hits"][0]["tool_slug"],
             "maya.abcdef01.create_sphere"
+        );
+    }
+
+    #[test]
+    fn compact_describe_payload_preserves_schema_and_hints() {
+        let legacy = json!({
+            "record": {
+                "tool_slug": "maya.abcdef01.export_fbx",
+                "backend_tool": "export_fbx",
+                "callable_id": "export_fbx",
+                "skill_name": "maya-export",
+                "summary": "Export selected Maya objects to FBX.",
+                "tags": [],
+                "dcc_type": "maya",
+                "instance_id": "abcdef01-2345-6789-abcd-ef0123456789",
+                "has_schema": true,
+                "loaded": true,
+                "annotations": {"readOnlyHint": false},
+                "metadata": {"affinity": "main"}
+            },
+            "tool": {
+                "name": "export_fbx",
+                "description": "Export selected objects.",
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["path"],
+                    "properties": {
+                        "path": {"type": "string"},
+                        "selected_only": {"type": "boolean"}
+                    }
+                },
+                "annotations": {"destructiveHint": false}
+            }
+        });
+
+        let compact = compact_describe_payload(&legacy);
+
+        assert!(compact["record"].get("callable_id").is_none());
+        assert!(compact["record"].get("tags").is_none());
+        assert_eq!(compact["record"]["metadata"]["affinity"], "main");
+        assert_eq!(
+            compact["tool"]["inputSchema"]["properties"]["path"]["type"],
+            "string"
+        );
+        assert_eq!(compact["tool"]["inputSchema"]["required"][0], "path");
+        assert_eq!(compact["tool"]["annotations"]["destructiveHint"], false);
+    }
+
+    #[test]
+    fn compact_call_batch_payload_adds_per_item_token_accounting() {
+        let legacy = json!({
+            "success": false,
+            "stop_on_error": false,
+            "results": [
+                {
+                    "index": 0,
+                    "tool_slug": "maya.abcdef01.big_result",
+                    "ok": true,
+                    "result": {
+                        "output": {
+                            "success": true,
+                            "context": {
+                                "objects": [
+                                    {"name": "cube_a", "type": "mesh"},
+                                    {"name": "cube_b", "type": "mesh"}
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "index": 1,
+                    "tool_slug": "photoshop.12345678.select_layer",
+                    "ok": false,
+                    "error": {
+                        "success": false,
+                        "error": {
+                            "kind": "backend-error",
+                            "message": "Layer not found"
+                        }
+                    }
+                }
+            ]
+        });
+
+        let compact = compact_call_batch_payload(&legacy);
+
+        assert_eq!(compact["success"], false);
+        assert_eq!(compact["results"][0]["ok"], true);
+        assert_eq!(
+            compact["results"][1]["error"]["error"]["kind"],
+            "backend-error"
+        );
+        for item in compact["results"].as_array().unwrap() {
+            assert_eq!(item["token_accounting"]["response_format"], "toon");
+            assert_eq!(item["token_accounting"]["token_estimator"], TOKEN_ESTIMATOR);
+            assert!(item["token_accounting"]["original_tokens"].is_number());
+            assert!(item["token_accounting"]["returned_tokens"].is_number());
+            assert!(item["token_accounting"]["saved_tokens"].is_number());
+        }
+    }
+
+    #[tokio::test]
+    async fn negotiated_response_returns_compact_error_envelope() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ACCEPT, HeaderValue::from_static(TOON_MIME));
+        let legacy = json!({
+            "success": false,
+            "error": {
+                "kind": "unknown-slug",
+                "message": "No capability matched",
+                "candidates": [
+                    {"tool_slug": "maya.abcdef01.render"}
+                ]
+            }
+        });
+
+        let (status, response_headers, bytes) = response_bytes(negotiated_response(
+            &headers,
+            &json!({}),
+            StatusCode::NOT_FOUND,
+            legacy,
+            None,
+        ))
+        .await;
+        let text = String::from_utf8(bytes).unwrap();
+        let body: Value = toon_format::decode_default(&text).unwrap();
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(
+            response_headers
+                .get(HEADER_RESPONSE_FORMAT)
+                .and_then(|value| value.to_str().ok()),
+            Some("toon")
+        );
+        assert_eq!(body["success"], false);
+        assert_eq!(body["error"]["kind"], "unknown-slug");
+        assert_eq!(body["error"]["message"], "No capability matched");
+        assert_eq!(
+            body["error"]["candidates"][0]["tool_slug"],
+            "maya.abcdef01.render"
         );
     }
 }
