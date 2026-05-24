@@ -36,6 +36,7 @@ class TestClawhubSync:
         )
         assert proc.returncode == 0, proc.stderr
         assert "DRY-RUN" in proc.stdout
+        assert "clawhub@0.17.0" in proc.stdout
         assert "dcc-rest-gateway" in proc.stdout
         assert "dcc-cli-gateway" in proc.stdout
 
