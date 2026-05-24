@@ -78,9 +78,12 @@ into a faster authoring loop.
    `resource.subscribed`, `client.initialize`); keep callbacks fast and return
    `EventBus.veto(reason, code)` instead of raising for expected denials.
    For local traffic debugging, prefer the gateway `traffic.frame` capture
-   stream (`DCC_MCP_TRAFFIC_CAPTURE=jsonl:<path>`) over ad-hoc print logging;
-   capture files can contain prompts, scene paths, and tool arguments, so keep
-   them as local debugging artifacts unless redaction has been applied.
+   stream (`DCC_MCP_TRAFFIC_CAPTURE=jsonl:<path>` for quick capture, or
+   `DCC_MCP_TRAFFIC_CONFIG=traffic_capture.yaml` for SQLite/filter/redact
+   capture) over ad-hoc print logging. Redactions are write-time exact JSON
+   paths such as `body.data.params.arguments.api_key`, and capture files can
+   contain prompts, scene paths, and tool arguments, so keep them as local
+   debugging artifacts unless redaction has been applied.
 8. For adapter install, uninstall, or upgrade flows, use
    `dcc_mcp_core.install_lifecycle` before importing Rust-backed public API:
    query/stop registered sidecars, inspect install roots, classify locked
