@@ -40,9 +40,12 @@ DCC-MCP 的客户端控制面。它不托管 skills，也不替代 `dcc-mcp-serv
 ```bash
 dcc-mcp-cli list
 dcc-mcp-cli health
-dcc-mcp-cli search --query sphere --dcc-type maya
+dcc-mcp-cli search --query sphere --dcc-type maya --instance-id abc12345
 dcc-mcp-cli describe maya.abc12345.create_sphere
 dcc-mcp-cli call maya.abc12345.create_sphere --json '{"radius":2}'
+dcc-mcp-cli call maya_scene__get_session_info --dcc-type maya --instance-id abc12345 --json '{}'
+dcc-mcp-cli wait-ready --dcc-type maya --instance-id abc12345 --require skill_catalog,host_execution_bridge
+dcc-mcp-cli stop-instance --dcc-type maya --instance-id abc12345 --expected-owner release-smoke-test
 dcc-mcp-cli install --dcc-type maya --version 2026
 dcc-mcp-cli lint path/to/skills
 ```
@@ -53,9 +56,12 @@ dcc-mcp-cli lint path/to/skills
 |---|---|---|
 | `health` | `GET /v1/healthz` | 检查配置的端点。 |
 | `list` | `GET /v1/instances` | 从 gateway 列出在线 DCC 实例。 |
-| `search` | `POST /v1/search` | 搜索可调用能力。 |
+| `search [--instance-id <id>]` | `POST /v1/search` | 搜索可调用能力，可限定完整 UUID 或唯一前缀。 |
 | `describe <tool-slug>` | `POST /v1/describe` | 调用前检查能力 schema。 |
 | `call <tool-slug> --json <object>` | `POST /v1/call` | 调用一个能力。 |
+| `call <backend-tool> --dcc-type <dcc> --instance-id <id> --json <object>` | `POST /v1/dcc/{dcc}/instances/{id}/call` | 不手工拼 dotted gateway slug，直接调用指定实例上的 backend tool。 |
+| `wait-ready [--dcc-type <dcc>] [--instance-id <id>] [--require <bits>]` | `GET /v1/instances` + per-instance `/v1/readyz` | 等待 release smoke test 所需 readiness bit，例如 `skill_catalog` 或 `host_execution_bridge`。 |
+| `stop-instance --dcc-type <dcc> --instance-id <id>` | `POST /v1/dcc/{dcc}/instances/{id}/stop` | 对声明了 `safe_stop_url` 的实例发起带保护条件的 safe-stop 请求。 |
 | `install --dcc-type <dcc> [--version <v>]` | catalog-backed local plan | 解析匹配的 adapter 并输出可审计安装计划。 |
 | `lint [PATH ...]` | local filesystem validator | 默认递归校验每个路径下两层内的 SKILL.md 包。 |
 

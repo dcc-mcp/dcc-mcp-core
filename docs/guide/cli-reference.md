@@ -43,10 +43,13 @@ The default endpoint is `http://127.0.0.1:9765`, override it with
 ```bash
 dcc-mcp-cli list
 dcc-mcp-cli health
-dcc-mcp-cli search --query sphere --dcc-type maya
+dcc-mcp-cli search --query sphere --dcc-type maya --instance-id abc12345
 dcc-mcp-cli describe maya.abc12345.create_sphere
 dcc-mcp-cli load-skill workflow --dcc-type 3dsmax --instance-id 80321760
 dcc-mcp-cli call maya.abc12345.create_sphere --json '{"radius":2}'
+dcc-mcp-cli call maya_scene__get_session_info --dcc-type maya --instance-id abc12345 --json '{}'
+dcc-mcp-cli wait-ready --dcc-type maya --instance-id abc12345 --require skill_catalog,host_execution_bridge
+dcc-mcp-cli stop-instance --dcc-type maya --instance-id abc12345 --expected-owner release-smoke-test
 dcc-mcp-cli install --dcc-type maya --version 2026
 dcc-mcp-cli lint path/to/skills
 ```
@@ -57,10 +60,13 @@ dcc-mcp-cli lint path/to/skills
 |---|---|---|
 | `health` | `GET /v1/healthz` | Check the configured endpoint. |
 | `list` | `GET /v1/instances` | List live DCC instances from the gateway. |
-| `search` | `POST /v1/search` | Search callable capabilities. |
+| `search [--instance-id <id>]` | `POST /v1/search` | Search callable capabilities, optionally scoped to a full UUID or unique prefix. |
 | `describe <tool-slug>` | `POST /v1/describe` | Inspect a capability before calling it. |
 | `load-skill <skill-name> [--dcc-type <dcc>] [--instance-id <id>]` | `POST /v1/load_skill` | Activate a progressive skill and print its registered tools. |
 | `call <tool-slug> --json <object>` | `POST /v1/call` | Invoke one capability. |
+| `call <backend-tool> --dcc-type <dcc> --instance-id <id> --json <object>` | `POST /v1/dcc/{dcc}/instances/{id}/call` | Invoke a backend tool without constructing a dotted gateway slug. |
+| `wait-ready [--dcc-type <dcc>] [--instance-id <id>] [--require <bits>]` | `GET /v1/instances` + per-instance `/v1/readyz` | Wait for smoke-test readiness bits such as `skill_catalog` or `host_execution_bridge`. |
+| `stop-instance --dcc-type <dcc> --instance-id <id>` | `POST /v1/dcc/{dcc}/instances/{id}/stop` | Forward a guarded safe-stop request to instances that advertise `safe_stop_url`. |
 | `install --dcc-type <dcc> [--version <v>]` | catalog-backed local plan | Resolve the matching adapter and emit an auditable install plan. |
 | `lint [PATH ...]` | local filesystem validator | Recursively validate SKILL.md packages two levels below each path by default. |
 

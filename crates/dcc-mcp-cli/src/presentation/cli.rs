@@ -13,7 +13,8 @@ use crate::application::client::DccMcpClient;
 use crate::application::install::InstallService;
 use crate::domain::install::InstallRequest;
 use crate::domain::rest::{
-    CallRequest, DescribeRequest, Endpoint, LoadSkillRequest, SearchRequest,
+    CallRequest, DescribeRequest, DirectCallRequest, Endpoint, LoadSkillRequest, SearchRequest,
+    StopInstanceRequest, WaitReadyRequest,
 };
 use crate::infra::http::HttpGateway;
 
@@ -63,6 +64,9 @@ enum Command {
         query: Option<String>,
         #[arg(long)]
         dcc_type: Option<String>,
+        /// Filter to a full instance UUID or unique >=4-character prefix.
+        #[arg(long)]
+        instance_id: Option<String>,
         #[arg(long)]
         limit: Option<usize>,
     },
@@ -86,10 +90,40 @@ enum Command {
     /// Invoke one tool slug.
     Call {
         tool_slug: String,
+        /// DCC type for direct backend-tool calls without a dotted gateway slug.
+        #[arg(long)]
+        dcc_type: Option<String>,
+        /// Full instance UUID or unique >=4-character prefix for direct calls.
+        #[arg(long)]
+        instance_id: Option<String>,
         #[arg(long = "json", default_value = "{}")]
         arguments_json: String,
         #[arg(long)]
         meta_json: Option<String>,
+    },
+    /// Wait until a gateway-managed instance reports required readiness bits.
+    WaitReady {
+        #[arg(long)]
+        dcc_type: Option<String>,
+        #[arg(long)]
+        instance_id: Option<String>,
+        #[arg(long, value_delimiter = ',')]
+        require: Vec<String>,
+        #[arg(long, default_value = "30")]
+        timeout_secs: u64,
+        #[arg(long, default_value = "1")]
+        interval_secs: u64,
+    },
+    /// Ask a test-owned instance to stop through its advertised safe-stop hook.
+    StopInstance {
+        #[arg(long)]
+        dcc_type: String,
+        #[arg(long)]
+        instance_id: String,
+        #[arg(long)]
+        expected_owner: Option<String>,
+        #[arg(long)]
+        expected_session: Option<String>,
     },
     /// Build an auditable DCC adapter installation plan.
     Install {
@@ -162,6 +196,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         Command::Search {
             query,
             dcc_type,
+            instance_id,
             limit,
         } => {
             let client = DccMcpClient::new(Endpoint::new(base_url));
@@ -169,6 +204,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 .search(SearchRequest {
                     query,
                     dcc_type,
+                    instance_id,
                     limit,
                 })
                 .await?
@@ -199,6 +235,8 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         }
         Command::Call {
             tool_slug,
+            dcc_type,
+            instance_id,
             arguments_json,
             meta_json,
         } => {
@@ -208,11 +246,70 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 .map(|raw| parse_json_object(raw, "--meta-json"))
                 .transpose()?;
             let client = DccMcpClient::new(Endpoint::new(base_url));
+            match (dcc_type, instance_id) {
+                (Some(dcc_type), Some(instance_id)) => {
+                    client
+                        .direct_call(DirectCallRequest {
+                            dcc_type,
+                            instance_id,
+                            backend_tool: tool_slug,
+                            arguments,
+                            meta,
+                        })
+                        .await?
+                }
+                (None, None) => {
+                    client
+                        .call(CallRequest {
+                            tool_slug,
+                            arguments,
+                            meta,
+                        })
+                        .await?
+                }
+                _ => {
+                    anyhow::bail!(
+                        "call requires both --dcc-type and --instance-id for direct backend-tool calls"
+                    );
+                }
+            }
+        }
+        Command::WaitReady {
+            dcc_type,
+            instance_id,
+            require,
+            timeout_secs,
+            interval_secs,
+        } => {
+            let client = DccMcpClient::new(Endpoint::new(base_url));
+            let result = client
+                .wait_ready(WaitReadyRequest {
+                    dcc_type,
+                    instance_id,
+                    required: require,
+                    timeout: Duration::from_secs(timeout_secs),
+                    interval: Duration::from_secs(interval_secs.max(1)),
+                })
+                .await?;
+            failed = !result
+                .get("ready")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            result
+        }
+        Command::StopInstance {
+            dcc_type,
+            instance_id,
+            expected_owner,
+            expected_session,
+        } => {
+            let client = DccMcpClient::new(Endpoint::new(base_url));
             client
-                .call(CallRequest {
-                    tool_slug,
-                    arguments,
-                    meta,
+                .stop_instance(StopInstanceRequest {
+                    dcc_type,
+                    instance_id,
+                    expected_owner,
+                    expected_session,
                 })
                 .await?
         }

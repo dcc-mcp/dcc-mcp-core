@@ -214,12 +214,26 @@ fn test_entry_json_exposes_lifecycle_metadata_for_admin() {
         "install_root".into(),
         "G:\\_thm\\rez_local_cache\\ext\\dcc_mcp_maya".into(),
     );
+    entry
+        .metadata
+        .insert("owner".into(), "release-smoke-test".into());
+    entry.metadata.insert("session".into(), "test".into());
+    entry.metadata.insert(
+        "safe_stop_url".into(),
+        "http://127.0.0.1:19000/safe-stop".into(),
+    );
 
     let row = entry_to_json(&entry, Duration::from_secs(30), None);
 
     assert_eq!(row["lifecycle"]["role"], "per-dcc-sidecar");
+    assert_eq!(row["lifecycle"]["owner"], "release-smoke-test");
+    assert_eq!(row["lifecycle"]["session"], "test");
     assert_eq!(row["lifecycle"]["sidecar_pid"], 31337);
     assert_eq!(row["lifecycle"]["supports_safe_stop"], true);
+    assert_eq!(
+        row["lifecycle"]["safe_stop_url"],
+        "http://127.0.0.1:19000/safe-stop"
+    );
     assert_eq!(row["lifecycle"]["restartable"], true);
     assert_eq!(
         row["lifecycle"]["restart_command"],

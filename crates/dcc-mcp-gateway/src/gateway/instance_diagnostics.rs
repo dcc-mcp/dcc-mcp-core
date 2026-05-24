@@ -149,8 +149,11 @@ mod tests {
             id,
             ReadinessReport {
                 process: true,
-                dispatcher: false,
                 dcc: true,
+                skill_catalog: true,
+                dispatcher: false,
+                host_execution_bridge: false,
+                main_thread_executor: false,
             },
         );
         store.record_call_error(id, "thread-affinity-violation", "boom");

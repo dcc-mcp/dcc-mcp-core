@@ -257,7 +257,7 @@ async fn call_rejects_malformed_slug() {
     assert_eq!(body["kind"], "bad-request");
 }
 
-/// Readiness three-state gating: /v1/call must 503 until the probe
+/// Readiness gating: /v1/call must 503 until the probe
 /// is green, but /v1/healthz stays 200 regardless.
 #[tokio::test]
 async fn call_respects_readiness() {
