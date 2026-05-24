@@ -281,7 +281,8 @@ impl PyToolPipeline {
                 Err(pyo3::exceptions::PyRuntimeError::new_err(msg))
             }
             Err(err @ DispatchError::ActionDisabled { .. })
-            | Err(err @ DispatchError::ThreadAffinityViolation { .. }) => Err(
+            | Err(err @ DispatchError::ThreadAffinityViolation { .. })
+            | Err(err @ DispatchError::Vetoed { .. }) => Err(
                 pyo3::exceptions::PyPermissionError::new_err(err.to_string()),
             ),
         }

@@ -25,6 +25,8 @@ pub enum ServiceErrorKind {
     InvalidParams,
     /// Auth gate rejected the request.
     Unauthorized,
+    /// A policy hook rejected the request before execution.
+    PolicyDenied,
     /// Request body could not be parsed.
     BadRequest,
     /// The handler itself returned an error.
@@ -55,6 +57,7 @@ impl ServiceErrorKind {
             Self::SkillNotLoaded => 409,
             Self::InvalidParams => 400,
             Self::Unauthorized => 401,
+            Self::PolicyDenied => 403,
             Self::BadRequest => 400,
             Self::AffinityViolation | Self::ThreadAffinityViolation => 409,
             Self::NotReady => 503,
@@ -149,11 +152,13 @@ mod tests {
             ServiceErrorKind::SkillNotLoaded,
             ServiceErrorKind::InvalidParams,
             ServiceErrorKind::Unauthorized,
+            ServiceErrorKind::PolicyDenied,
             ServiceErrorKind::BadRequest,
             ServiceErrorKind::BackendError,
             ServiceErrorKind::AffinityViolation,
             ServiceErrorKind::ThreadAffinityViolation,
             ServiceErrorKind::NotReady,
+            ServiceErrorKind::NotFound,
             ServiceErrorKind::Internal,
         ] {
             // Every variant must produce a valid 4xx/5xx status.

@@ -60,8 +60,8 @@ Every structured event uses this envelope shape:
 
 ## Built-In Emit Points
 
-The core dispatcher and skill catalog emit these events when subscribers are
-present:
+The core dispatcher and skill catalog emit these events when subscribers or
+policy hooks are present:
 
 | Event | Emitted when |
 |-------|--------------|
@@ -83,6 +83,44 @@ otherwise handler success defaults to `true`.
 Skill lifecycle attributes include `skill_name`, `dcc_type`, `version`,
 `skill_path`, declared/registered tool counts, registered tool names, and
 failure details such as `error_kind` and `error_message`.
+
+## Before Hooks And Vetoes
+
+`before()` registers a synchronous policy hook for lifecycle points where an
+operation can still be rejected. Unlike normal subscribers, before hooks are
+blocking: return `None` or `False` to allow the operation, or return
+`EventBus.veto(reason, code="...")`, a `{"reason": "...", "code": "..."}`
+dict, or a string reason to veto it.
+
+```python
+from dcc_mcp_core import EventBus, ToolDispatcher, ToolRegistry
+
+registry = ToolRegistry()
+registry.register("delete_scene", dcc="maya")
+dispatcher = ToolDispatcher(registry)
+
+def block_destructive(event: dict):
+    if event["attributes"]["tool_slug"] == "delete_scene":
+        return EventBus.veto("destructive tools are disabled", "policy_denied")
+    return None
+
+dispatcher.event_bus().before("tool.dispatched", block_destructive)
+```
+
+Only these event names are vetoable:
+
+| Event | Veto result |
+|-------|-------------|
+| `skill.loading` | Rejects the skill load before tools are registered |
+| `tool.dispatched` | Rejects the tool call before the handler runs |
+| `resource.subscribed` | Reserved for rejecting resource subscriptions |
+| `client.initialize` | Reserved for rejecting client initialization |
+
+When a veto rejects a tool call, the dispatcher returns a structured
+`EVENT_VETOED` error and emits `tool.failed` with
+`error_kind="event_vetoed"`, `veto_code`, and `veto_reason`. When
+`skill.loading` is vetoed, the catalog rejects the load and emits
+`skill.validation_failed` with the same veto fields.
 
 ## Gateway Traffic Capture
 
@@ -138,4 +176,6 @@ dispatcher.event_bus().subscribe("tool.*", record_metric)
 
 Subscriber exceptions are logged and do not stop later subscribers. Callbacks
 are collected before invocation so a callback can safely subscribe or
-unsubscribe without deadlocking the bus.
+unsubscribe without deadlocking the bus. Before hooks are intentionally stricter:
+an exception or unsupported truthy return value becomes a veto so policy hooks
+fail closed.

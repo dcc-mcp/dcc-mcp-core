@@ -343,6 +343,31 @@ class TestToolDispatcher:
         assert len(events) == 1
         assert events[0]["attributes"]["error_kind"] == "action_disabled"
 
+    def test_dispatch_before_hook_veto_blocks_handler(self, dispatcher_cls, registry_cls):
+        reg = registry_cls()
+        reg.register("delete_scene", dcc="maya")
+        d = dispatcher_cls(reg)
+        called = {"value": False}
+
+        def handler(_params):
+            called["value"] = True
+            return {"deleted": True}
+
+        d.register_handler("delete_scene", handler)
+        events = []
+        d.event_bus().subscribe("tool.failed", lambda event: events.append(event))
+        d.event_bus().before(
+            "tool.dispatched",
+            lambda event: _core.EventBus.veto("destructive tools are disabled", "policy_denied"),
+        )
+
+        with pytest.raises(PermissionError):
+            d.dispatch("delete_scene", "{}")
+
+        assert called["value"] is False
+        assert len(events) == 1
+        assert events[0]["attributes"]["error_kind"] == "event_vetoed"
+
     def test_dispatch_thread_affinity_event_kind_matches_rust(self, dispatcher_cls, registry_cls):
         reg = registry_cls()
         reg.register("main_only", dcc="maya", thread_affinity="main", enforce_thread_affinity=True)

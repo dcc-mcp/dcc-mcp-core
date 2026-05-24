@@ -59,6 +59,17 @@ fn encode_dispatch_error_wire(err: &DispatchError) -> String {
             "declared": declared.to_string(),
             "actual": actual.to_string(),
         }),
+        DispatchError::Vetoed {
+            action,
+            code,
+            reason,
+        } => json!({
+            "__dispatch_error_kind": "event_vetoed",
+            "action": action,
+            "code": code,
+            "reason": reason,
+            "message": err.to_string(),
+        }),
     };
     serde_json::to_string(&payload).unwrap_or_else(|_| {
         "{\"__dispatch_error_kind\":\"handler_error\",\"message\":\"dispatch failure\"}".to_string()
@@ -144,6 +155,23 @@ fn decode_dispatch_error_payload(value: &Value) -> DispatchError {
                 actual,
             }
         }
+        "event_vetoed" => DispatchError::Vetoed {
+            action: value
+                .get("action")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+                .to_string(),
+            code: value
+                .get("code")
+                .and_then(Value::as_str)
+                .unwrap_or("vetoed")
+                .to_string(),
+            reason: value
+                .get("reason")
+                .and_then(Value::as_str)
+                .unwrap_or(message.as_str())
+                .to_string(),
+        },
         _ => DispatchError::HandlerError(message),
     }
 }
@@ -153,4 +181,31 @@ pub(crate) fn decode_dispatch_output(json_str: &str) -> Result<Value, String> {
     decode_dispatch_wire(json_str)
         .map(|r| r.output)
         .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dispatch_veto_round_trips_over_wire() {
+        let encoded = encode_dispatch_wire(Err(DispatchError::Vetoed {
+            action: "delete_scene".to_string(),
+            code: "policy_denied".to_string(),
+            reason: "destructive tools are disabled".to_string(),
+        }));
+
+        let decoded = decode_dispatch_wire(&encoded).unwrap_err();
+
+        assert!(matches!(
+            decoded,
+            DispatchError::Vetoed {
+                ref action,
+                ref code,
+                ref reason,
+            } if action == "delete_scene"
+                && code == "policy_denied"
+                && reason == "destructive tools are disabled"
+        ));
+    }
 }
