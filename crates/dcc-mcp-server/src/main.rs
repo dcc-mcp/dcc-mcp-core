@@ -78,6 +78,7 @@
 //! | `DCC_MCP_ADMIN_PATH`      | Admin URL prefix (default `/admin`)                |
 //! | `DCC_MCP_GATEWAY_ADMIN_DB` | Override path for admin SQLite (traces / skill paths) |
 //! | `DCC_MCP_GATEWAY_ADMIN_RETENTION_DAYS` | Admin SQLite retention in days (default 30, max 3650) |
+//! | `DCC_MCP_WEBHOOKS_CONFIG` | YAML event webhook config for forwarding `skill.*`, `tool.*`, and other EventBus envelopes |
 //! | `DCC_MCP_STANDALONE_REGISTRY_DCC_TYPE` | FileRegistry `dcc_type` when `--app` is empty (default `generic`) |
 //! | `DCC_MCP_REGISTRY_DIR`    | Shared FileRegistry directory                      |
 //! | `DCC_MCP_STALE_TIMEOUT`   | Seconds without heartbeat = stale (default 30)     |
@@ -98,6 +99,7 @@ use dcc_mcp_skills::constants::{
 };
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 use sysinfo::{Pid, ProcessesToUpdate, System};
+mod event_webhooks;
 mod gateway_daemon;
 mod sidecar;
 mod sidecar_gateway;
@@ -764,6 +766,8 @@ async fn main() -> anyhow::Result<()> {
         action_registry.clone(),
         dispatcher.clone(),
     ));
+    let _event_webhook_runtime =
+        event_webhooks::EventWebhookRuntime::from_env(dispatcher.event_bus())?;
 
     let app_hint = if args.app.is_empty() {
         None

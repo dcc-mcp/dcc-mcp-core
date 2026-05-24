@@ -172,6 +172,40 @@ Start the gateway with `DCC_MCP_TRAFFIC_CONFIG=./traffic_capture.yaml`. Relative
 sink paths resolve from the config file's directory, and `${TIMESTAMP}` expands
 once when the sink opens.
 
+## Event Webhooks
+
+RFC 0002 P3 adds optional webhook delivery in the standalone
+`dcc-mcp-server`. Set `DCC_MCP_WEBHOOKS_CONFIG` to a YAML file and the server
+subscribes to the shared dispatcher/catalog `EventBus` before skill discovery,
+so startup `skill.*` and runtime `tool.*` events can be forwarded without
+wrapping handlers.
+
+```yaml
+queue_capacity: 1024
+webhooks:
+  - name: studio-metrics
+    url: https://example.invalid/dcc-mcp/events
+    events: ["tool.completed", "tool.failed"]
+    headers:
+      Authorization: "Bearer ${DCC_MCP_WEBHOOK_TOKEN}"
+    delivery:
+      attempts: 3
+      timeout_ms: 2000
+      backoff_ms: [200, 1000, 5000]
+    filters:
+      - attributes.skill_name: "maya-*"
+    payload_template: |
+      {"text":"{{source.dcc_type}} called {{attributes.tool_slug}}"}
+```
+
+By default, each request body is the structured event envelope. When
+`payload_template` is present, `&#123;&#123;path.to.field&#125;&#125;` placeholders are resolved
+against the envelope and sent as the JSON request body. Filters are ORed across
+rules and ANDed within a rule; string values support `*` wildcards. The
+delivery worker uses a bounded queue and drops new events when full rather than
+blocking tool execution. If all retry attempts fail, the server emits
+`webhook.delivery_failed` with the original event id/name and final error.
+
 ## Wildcard Subscriptions
 
 Use dotted event names and subscribe to either an exact name, a prefix wildcard,

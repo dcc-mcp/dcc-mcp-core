@@ -1332,6 +1332,7 @@ dependencies = [
  "reqwest 0.13.3",
  "serde",
  "serde_json",
+ "serde_yaml_ng",
  "sysinfo",
  "tempfile",
  "tokio",
