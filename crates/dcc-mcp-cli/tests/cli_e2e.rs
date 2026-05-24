@@ -2,6 +2,7 @@ use std::process::Command;
 
 use axum::Router;
 use axum::extract::Json;
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::routing::{get, post};
 use serde_json::{Value, json};
 use tempfile::{NamedTempFile, TempDir};
@@ -32,42 +33,66 @@ fn spawn_gateway_fixture() -> GatewayFixture {
         )
         .route(
             "/mcp",
-            post(|Json(body): Json<Value>| async move {
+            post(|headers: HeaderMap, Json(body): Json<Value>| async move {
+                let accept = headers
+                    .get(header::ACCEPT)
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or_default();
+                if !(accept.contains("application/json") && accept.contains("text/event-stream"))
+                {
+                    return (
+                        StatusCode::NOT_ACCEPTABLE,
+                        Json(json!({
+                            "error": "not_acceptable",
+                            "message": "Client must accept both application/json and text/event-stream"
+                        })),
+                    );
+                }
+
                 let method = body.get("method").and_then(Value::as_str).unwrap_or("");
                 match method {
-                    "initialize" => Json(json!({
-                        "jsonrpc": "2.0",
-                        "id": body.get("id").cloned().unwrap_or(json!(null)),
-                        "result": {
-                            "protocolVersion": "2025-03-26",
-                            "capabilities": {
-                                "tools": {"listChanged": true}
-                            },
-                            "serverInfo": {
-                                "name": "fixture-gateway",
-                                "version": "0.0.0-test"
+                    "initialize" => (
+                        StatusCode::OK,
+                        Json(json!({
+                            "jsonrpc": "2.0",
+                            "id": body.get("id").cloned().unwrap_or(json!(null)),
+                            "result": {
+                                "protocolVersion": "2025-03-26",
+                                "capabilities": {
+                                    "tools": {"listChanged": true}
+                                },
+                                "serverInfo": {
+                                    "name": "fixture-gateway",
+                                    "version": "0.0.0-test"
+                                }
                             }
-                        }
-                    })),
-                    "tools/list" => Json(json!({
-                        "jsonrpc": "2.0",
-                        "id": body.get("id").cloned().unwrap_or(json!(null)),
-                        "result": {
-                            "tools": [{
-                                "name": "search_tools",
-                                "description": "Search tools",
-                                "inputSchema": {"type": "object"}
-                            }]
-                        }
-                    })),
-                    _ => Json(json!({
-                        "jsonrpc": "2.0",
-                        "id": body.get("id").cloned().unwrap_or(json!(null)),
-                        "error": {
-                            "code": -32601,
-                            "message": "method not found"
-                        }
-                    })),
+                        })),
+                    ),
+                    "tools/list" => (
+                        StatusCode::OK,
+                        Json(json!({
+                            "jsonrpc": "2.0",
+                            "id": body.get("id").cloned().unwrap_or(json!(null)),
+                            "result": {
+                                "tools": [{
+                                    "name": "search_tools",
+                                    "description": "Search tools",
+                                    "inputSchema": {"type": "object"}
+                                }]
+                            }
+                        })),
+                    ),
+                    _ => (
+                        StatusCode::OK,
+                        Json(json!({
+                            "jsonrpc": "2.0",
+                            "id": body.get("id").cloned().unwrap_or(json!(null)),
+                            "error": {
+                                "code": -32601,
+                                "message": "method not found"
+                            }
+                        })),
+                    ),
                 }
             }),
         )
