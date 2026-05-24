@@ -1,6 +1,6 @@
 //! Data types for the skill catalog: state, entries, summary, and detail.
 
-use dcc_mcp_models::{RegistryEntry, SkillMetadata, SkillScope, ToolDeclaration};
+use dcc_mcp_models::{RegistryEntry, SkillGroup, SkillMetadata, SkillScope, ToolDeclaration};
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 use serde::Serializer;
@@ -149,6 +149,8 @@ pub struct SkillDetail {
     pub markdown: Option<String>,
     pub scripts: Vec<String>,
     pub tools: Vec<ToolDeclaration>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub groups: Vec<SkillGroup>,
     pub state: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub missing_dependencies: Vec<String>,

@@ -144,6 +144,22 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_load_skill(
 
     let loaded_ok = !all_registered_tools.is_empty();
     let partial = loaded_ok && !errors.is_empty();
+    let available_groups = group_state_payloads(&state.catalog, &requested);
+    let activated_groups: Vec<String> = available_groups
+        .iter()
+        .filter(|group| {
+            group
+                .get("active")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+        .filter_map(|group| {
+            group
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .collect();
 
     let mut body = json!({
         "loaded":           loaded_ok,
@@ -152,6 +168,8 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_load_skill(
         "tool_count":       all_registered_tools.len(),
         "newly_loaded":     newly_loaded,
         "already_loaded":   already_loaded,
+        "available_groups":  available_groups,
+        "activated_groups":  activated_groups,
         "tools":            tool_schemas,
     });
     if !errors.is_empty()
@@ -166,6 +184,40 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_load_skill(
     } else {
         CallToolResult::error(text)
     }
+}
+
+fn group_state_payloads(
+    catalog: &dcc_mcp_skills::SkillCatalog,
+    skill_names: &[String],
+) -> Vec<Value> {
+    let active_by_skill_group: std::collections::HashMap<(String, String), bool> = catalog
+        .list_groups()
+        .into_iter()
+        .map(|(skill, group, active)| ((skill, group), active))
+        .collect();
+    let mut groups = Vec::new();
+    for skill_name in skill_names {
+        let Some(detail) = catalog.get_skill_info(skill_name) else {
+            continue;
+        };
+        for group in detail.groups {
+            if group.name.is_empty() {
+                continue;
+            }
+            let active = active_by_skill_group
+                .get(&(detail.name.clone(), group.name.clone()))
+                .copied()
+                .unwrap_or(false);
+            groups.push(json!({
+                "name": group.name,
+                "description": group.description,
+                "tools": group.tools,
+                "default_active": group.default_active,
+                "active": active,
+            }));
+        }
+    }
+    groups
 }
 
 pub(in crate::rmcp_tool_call_dispatch) fn handle_unload_skill(

@@ -428,6 +428,13 @@ class TestMcpcallGatewayCanonicalWorkflow:
             _mcpcall_call(url, name, "load_skill", {"skill_name": "hello-world", "dcc_type": "python"})
         )
         assert load.get("loaded") is True
+        assert load.get("skill_name") == "hello-world"
+        assert load.get("dcc_type") == "python"
+        assert load.get("instance_id")
+        assert isinstance(load.get("new_tool_slugs"), list)
+        assert load.get("index_generation")
+        assert load.get("next_step", {}).get("mcp", {}).get("tool") in {"describe", "search"}
+        assert load.get("next_step", {}).get("rest", {}).get("path") in {"/v1/describe", "/v1/search"}
 
         greet_search = _parse_gateway_payload(
             _mcpcall_call(url, name, "search", {"query": "greet", "dcc_type": "python", "limit": 5})

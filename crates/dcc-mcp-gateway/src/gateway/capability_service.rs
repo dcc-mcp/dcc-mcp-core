@@ -116,24 +116,65 @@ pub fn search_service_rows(index: &CapabilityIndex, query: &SearchQuery) -> Vec<
 
 pub fn search_hit_to_value(hit: SearchHit) -> Value {
     let mut value = serde_json::to_value(&hit).unwrap_or(Value::Null);
-    if !hit.record.loaded
-        && let Some(skill_name) = &hit.record.skill_name
-    {
-        value["next_step"] = json!({
-            "action": "load_skill",
-            "arguments": {
+    if !hit.record.loaded {
+        value["load_state"] = json!("unloaded");
+        if let Some(skill_name) = &hit.record.skill_name {
+            let arguments = json!({
                 "skill_name": skill_name,
                 "dcc": &hit.record.dcc_type,
                 "dcc_type": &hit.record.dcc_type,
                 "instance_id": hit.record.instance_id.to_string(),
-            },
-            "rest": {
-                "method": "POST",
-                "path": "/v1/load_skill",
-            },
-        });
+            });
+            value["next_step"] = json!({
+                "action": "load_skill",
+                "arguments": arguments.clone(),
+                "mcp": {
+                    "tool": "load_skill",
+                    "arguments": arguments.clone(),
+                },
+                "rest": {
+                    "method": "POST",
+                    "path": "/v1/load_skill",
+                    "body": arguments,
+                },
+            });
+        }
+    } else if hit.record.loaded {
+        value["load_state"] = json!("loaded");
     }
     value
+}
+
+/// Compute a stable, compact fingerprint for the current capability index.
+///
+/// The value is intentionally opaque. Clients can compare it for equality to
+/// detect that a cached `tool_slug` came from an older search view.
+pub fn index_generation(index: &CapabilityIndex) -> String {
+    index_snapshot_generation(&index.snapshot())
+}
+
+fn index_snapshot_generation(snapshot: &super::capability::IndexSnapshot) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    let mut fingerprints: Vec<_> = snapshot.fingerprints.iter().collect();
+    fingerprints.sort_by_key(|(id, _)| id.to_string());
+    for (id, fp) in fingerprints {
+        id.hash(&mut hasher);
+        fp.0.hash(&mut hasher);
+    }
+    for record in snapshot.records.iter() {
+        record.tool_slug.hash(&mut hasher);
+        record.loaded.hash(&mut hasher);
+        record.has_schema.hash(&mut hasher);
+        for group in &record.available_groups {
+            group.name.hash(&mut hasher);
+            group.default_active.hash(&mut hasher);
+            group.active.hash(&mut hasher);
+        }
+    }
+    format!("{:016x}", hasher.finish())
 }
 
 /// Resolve `slug` to its record. Returns a structured error when the
@@ -630,7 +671,14 @@ mod unit_tests {
             iid,
             true,
             false,
-        );
+        )
+        .with_available_groups(vec![crate::gateway::capability::CapabilityGroupInfo {
+            name: "core".to_string(),
+            description: "Default modeling primitives".to_string(),
+            tools: vec!["create_sphere".to_string()],
+            default_active: true,
+            active: Some(false),
+        }]);
         idx.upsert_instance(iid, vec![rec], InstanceFingerprint(1));
 
         let rows = search_service_rows(
@@ -643,17 +691,60 @@ mod unit_tests {
         );
 
         assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["load_state"], "unloaded");
+        assert_eq!(rows[0]["available_groups"][0]["name"], "core");
         assert_eq!(rows[0]["next_step"]["action"], "load_skill");
         assert_eq!(
             rows[0]["next_step"]["arguments"]["skill_name"],
             "maya-primitives"
         );
+        assert_eq!(rows[0]["next_step"]["mcp"]["tool"], "load_skill");
         assert_eq!(rows[0]["next_step"]["arguments"]["dcc"], "maya");
         assert_eq!(
             rows[0]["next_step"]["arguments"]["instance_id"],
             iid.to_string()
         );
         assert_eq!(rows[0]["next_step"]["rest"]["path"], "/v1/load_skill");
+        assert_eq!(
+            rows[0]["next_step"]["rest"]["body"]["instance_id"],
+            iid.to_string()
+        );
+    }
+
+    #[test]
+    fn search_service_rows_carry_load_state_for_two_dcc_families() {
+        let idx = CapabilityIndex::new();
+        let maya = Uuid::from_u128(1);
+        let photoshop = Uuid::from_u128(2);
+        push(&idx, "maya", maya, "maya_workflow__cube", false);
+        push(
+            &idx,
+            "photoshop",
+            photoshop,
+            "photoshop_workflow__select",
+            true,
+        );
+
+        let rows = search_service_rows(
+            &idx,
+            &SearchQuery {
+                query: "workflow".to_string(),
+                loaded_only: Some(false),
+                ..Default::default()
+            },
+        );
+
+        let states: std::collections::HashMap<_, _> = rows
+            .iter()
+            .filter_map(|row| {
+                Some((
+                    row.get("dcc_type")?.as_str()?.to_string(),
+                    row.get("load_state")?.as_str()?.to_string(),
+                ))
+            })
+            .collect();
+        assert_eq!(states.get("maya").map(String::as_str), Some("unloaded"));
+        assert_eq!(states.get("photoshop").map(String::as_str), Some("loaded"));
     }
 
     #[test]
