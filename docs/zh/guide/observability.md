@@ -43,6 +43,33 @@ OTEL_SERVICE_NAME=dcc-mcp-gateway \
 | `mcp.session_id` | `"sess-..."` | MCP 会话 ID |
 | `mcp.request_id` | `"req-..."` | 每次请求的唯一 ID |
 
+### Gateway Agent Workflow Spans（#1180）
+
+当 agent 通过 REST 或 MCP 进行动态能力发现与调用时，网关会额外发送有界工作流 span：
+
+| Span | 含义 |
+|------|------|
+| `gateway.search` | Agent 搜索工具或技能。 |
+| `gateway.describe` | Agent 查看选中工具的 schema/说明。 |
+| `gateway.load_skill` | Agent 加载搜索得到的技能。 |
+| `gateway.call` | Agent 调用一个后端工具。 |
+| `gateway.call_batch` | Agent 执行有序批量调用。 |
+
+这些 span 使用 `openinference.span.kind`（search 为 `CHAIN`，describe/load/call 为 `TOOL`），并用 `dcc_mcp.*` 命名空间记录网关语义字段：
+
+| 属性 | 说明 |
+|------|------|
+| `dcc_mcp.workflow.operation` | 上表中的 span 名称。 |
+| `dcc_mcp.transport` | `rest` 或 `mcp`。 |
+| `dcc_mcp.trace_id`、`dcc_mcp.request_id`、`dcc_mcp.parent_request_id`、`dcc_mcp.session_id` | 与 Admin trace/debug bundle 对齐的关联 ID。 |
+| `dcc_mcp.agent.id`、`.name`、`.kind`、`.model`、`.task`、`.tags` | 有界的 `agent_context` / caller 元数据。 |
+| `dcc_mcp.dcc.type`、`dcc_mcp.instance.id`、`dcc_mcp.skill.name`、`dcc_mcp.tool.slug` | 选中的 DCC 路由与技能/工具身份。 |
+| `dcc_mcp.search.id`、`.ranker_version`、`.selected_rank`、`.score`、`.match_reasons`、`.total`、`.zero_results` | 从 `/v1/search` 或 gateway `search` 继承的搜索质量上下文。 |
+| `dcc_mcp.policy.outcome`、`.reason` | 网关策略是否允许/拒绝以及原因。 |
+| `dcc_mcp.success`、`dcc_mcp.error.kind`、`dcc_mcp.batch.size` | 执行结果字段。 |
+
+网关不会导出隐藏推理、原始 prompt、无界请求体、secret 或任意 `agent_context` metadata。Agent 从搜索结果继续调用 `describe`、`load_skill`、`call` 或 `call_batch` 时，应保留 REST `meta.search_id` 或 MCP `_meta.search_id`，这样 OTLP trace 才能把 selected rank/score 和真实工具结果关联起来。
+
 ### Rust 编程式配置
 
 ```rust
@@ -86,6 +113,40 @@ services:
 
 ```bash
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 dcc-mcp-server ...
+```
+
+### 快速启动：通过 OTLP Collector 写入 Phoenix
+
+Phoenix 可在 `/v1/traces` 接收 OTLP/HTTP traces。当前 Rust 网关 exporter 使用 OTLP/gRPC，因此建议用 OpenTelemetry Collector 做 gRPC 到 HTTP 的桥接：
+
+```yaml
+# otel-collector.yaml
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+exporters:
+  otlphttp/phoenix:
+    traces_endpoint: http://phoenix:6006/v1/traces
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [otlphttp/phoenix]
+```
+
+```bash
+docker run -d --name phoenix -p 6006:6006 arizephoenix/phoenix:latest
+docker run --rm -p 4317:4317 \
+  -v "$PWD/otel-collector.yaml:/etc/otelcol-contrib/config.yaml" \
+  otel/opentelemetry-collector-contrib:latest
+
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
+OTEL_SERVICE_NAME=dcc-mcp-gateway \
+  dcc-mcp-server ...
 ```
 
 ---

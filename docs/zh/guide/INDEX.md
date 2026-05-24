@@ -67,7 +67,7 @@
 | [usd.md](usd.md) | OpenUSD 桥接：UsdStage、场景信息 JSON |
 | [artefacts.md](artefacts.md) | FileRef + ArtefactStore — 跨工具文件交接 |
 | [telemetry.md](telemetry.md) | ToolMetrics、ToolRecorder、RecordingGuard |
-| [observability.md](observability.md) | OTLP exporter、网关事件日志（`resources://gateway/events`）、Prometheus 计数器 |
+| [observability.md](observability.md) | OTLP exporter、agent workflow spans、网关事件日志（`resources://gateway/events`）、Prometheus 计数器 |
 | [scheduler.md](scheduler.md) | ScheduleSpec、TriggerSpec、cron/webhook 调度 |
 | [workflows.md](workflows.md) | WorkflowSpec 引擎：步骤类型、策略、持久化 |
 | [job-persistence.md](job-persistence.md) | SQLite 支持的作业/工作流持久化与恢复 |

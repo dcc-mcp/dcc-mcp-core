@@ -43,6 +43,41 @@ Every `tools/call` trace includes:
 | `mcp.session_id` | `"sess-..."` | MCP session ID |
 | `mcp.request_id` | `"req-..."` | Per-request unique ID |
 
+### Gateway Agent Workflow Spans (#1180)
+
+The gateway also emits bounded agent workflow spans when discovery and dynamic
+capability calls pass through REST or MCP:
+
+| Span | Meaning |
+|------|---------|
+| `gateway.search` | Agent searched for a tool or skill. |
+| `gateway.describe` | Agent inspected a selected tool. |
+| `gateway.load_skill` | Agent loaded a skill discovered through search. |
+| `gateway.call` | Agent invoked one selected backend tool. |
+| `gateway.call_batch` | Agent invoked an ordered batch. |
+
+These spans use `openinference.span.kind` (`CHAIN` for search and `TOOL` for
+describe/load/call) plus a documented `dcc_mcp.*` attribute namespace for
+gateway-specific fields:
+
+| Attribute | Description |
+|-----------|-------------|
+| `dcc_mcp.workflow.operation` | One of the span names above. |
+| `dcc_mcp.transport` | `rest` or `mcp`. |
+| `dcc_mcp.trace_id`, `dcc_mcp.request_id`, `dcc_mcp.parent_request_id`, `dcc_mcp.session_id` | Correlation IDs that match Admin trace/debug-bundle surfaces. |
+| `dcc_mcp.agent.id`, `.name`, `.kind`, `.model`, `.task`, `.tags` | Bounded `agent_context` / caller metadata. |
+| `dcc_mcp.dcc.type`, `dcc_mcp.instance.id`, `dcc_mcp.skill.name`, `dcc_mcp.tool.slug` | Selected DCC route and skill/tool identity. |
+| `dcc_mcp.search.id`, `.ranker_version`, `.selected_rank`, `.score`, `.match_reasons`, `.total`, `.zero_results` | Search-quality context carried from `/v1/search` or gateway `search`. |
+| `dcc_mcp.policy.outcome`, `.reason` | Whether gateway policy allowed or denied the action and why. |
+| `dcc_mcp.success`, `dcc_mcp.error.kind`, `dcc_mcp.batch.size` | Execution outcome fields. |
+
+The gateway intentionally does **not** export hidden chain-of-thought, raw
+prompts, unbounded request bodies, secrets, or arbitrary `agent_context`
+metadata. Put `search_id` in REST `meta.search_id` or MCP `_meta.search_id`
+when following a search hit into `describe`, `load_skill`, `call`, or
+`call_batch`; that is what lets OTLP traces connect selected rank and score to
+actual tool outcomes.
+
 ### Trace Context
 
 Gateway observability keeps these identifiers separate:
@@ -103,6 +138,41 @@ services:
 
 ```bash
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 dcc-mcp-server ...
+```
+
+### Quick Start: Phoenix Through an OTLP Collector
+
+Phoenix accepts OTLP/HTTP traces at `/v1/traces`. The Rust gateway exporter
+uses OTLP/gRPC today, so route it through the OpenTelemetry Collector:
+
+```yaml
+# otel-collector.yaml
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+exporters:
+  otlphttp/phoenix:
+    traces_endpoint: http://phoenix:6006/v1/traces
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [otlphttp/phoenix]
+```
+
+```bash
+docker run -d --name phoenix -p 6006:6006 arizephoenix/phoenix:latest
+docker run --rm -p 4317:4317 \
+  -v "$PWD/otel-collector.yaml:/etc/otelcol-contrib/config.yaml" \
+  otel/opentelemetry-collector-contrib:latest
+
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
+OTEL_SERVICE_NAME=dcc-mcp-gateway \
+  dcc-mcp-server ...
 ```
 
 ---
