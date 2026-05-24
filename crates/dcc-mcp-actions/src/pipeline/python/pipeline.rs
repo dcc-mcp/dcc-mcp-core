@@ -178,19 +178,19 @@ impl PyToolPipeline {
         before_fn: Option<Py<PyAny>>,
         after_fn: Option<Py<PyAny>>,
     ) -> PyResult<()> {
-        if let Some(ref f) = before_fn {
-            if !f.bind(py).is_callable() {
-                return Err(pyo3::exceptions::PyTypeError::new_err(
-                    "before_fn must be callable",
-                ));
-            }
+        if let Some(ref f) = before_fn
+            && !f.bind(py).is_callable()
+        {
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "before_fn must be callable",
+            ));
         }
-        if let Some(ref f) = after_fn {
-            if !f.bind(py).is_callable() {
-                return Err(pyo3::exceptions::PyTypeError::new_err(
-                    "after_fn must be callable",
-                ));
-            }
+        if let Some(ref f) = after_fn
+            && !f.bind(py).is_callable()
+        {
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "after_fn must be callable",
+            ));
         }
         self.callable_hooks.push(PyCallableHook {
             before_fn,

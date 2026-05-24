@@ -531,6 +531,78 @@ impl PyMcpHttpConfig {
         self.inner.gateway.allow_unknown_tools = v;
     }
 
+    /// Enable gateway read-only policy mode. Blocks load_skill and non-read-only calls.
+    #[getter]
+    fn gateway_read_only(&self) -> bool {
+        self.inner.gateway.policy.read_only
+    }
+
+    /// Enable gateway read-only policy mode. Blocks load_skill and non-read-only calls.
+    #[setter]
+    fn set_gateway_read_only(&mut self, v: bool) {
+        self.inner.gateway.policy.read_only = v;
+    }
+
+    /// Allowed gateway DCC types. Empty means unrestricted.
+    #[getter]
+    fn allowed_dcc_types(&self) -> Vec<String> {
+        self.inner.gateway.policy.allowed_dcc_types.clone()
+    }
+
+    /// Allowed gateway DCC types. Empty means unrestricted.
+    #[setter]
+    fn set_allowed_dcc_types(&mut self, values: Vec<String>) {
+        self.inner.gateway.policy.allowed_dcc_types = values;
+    }
+
+    /// Exact allowed gateway skill names. Empty with no families means unrestricted.
+    #[getter]
+    fn allowed_skill_names(&self) -> Vec<String> {
+        self.inner.gateway.policy.allowed_skill_names.clone()
+    }
+
+    /// Exact allowed gateway skill names. Empty with no families means unrestricted.
+    #[setter]
+    fn set_allowed_skill_names(&mut self, values: Vec<String>) {
+        self.inner.gateway.policy.allowed_skill_names = values;
+    }
+
+    /// Allowed gateway skill-family prefixes. Empty with no names means unrestricted.
+    #[getter]
+    fn allowed_skill_families(&self) -> Vec<String> {
+        self.inner.gateway.policy.allowed_skill_families.clone()
+    }
+
+    /// Allowed gateway skill-family prefixes. Empty with no names means unrestricted.
+    #[setter]
+    fn set_allowed_skill_families(&mut self, values: Vec<String>) {
+        self.inner.gateway.policy.allowed_skill_families = values;
+    }
+
+    /// Exact allowed canonical gateway tool slugs. Empty with no prefixes means unrestricted.
+    #[getter]
+    fn allowed_tool_slugs(&self) -> Vec<String> {
+        self.inner.gateway.policy.allowed_tool_slugs.clone()
+    }
+
+    /// Exact allowed canonical gateway tool slugs. Empty with no prefixes means unrestricted.
+    #[setter]
+    fn set_allowed_tool_slugs(&mut self, values: Vec<String>) {
+        self.inner.gateway.policy.allowed_tool_slugs = values;
+    }
+
+    /// Allowed canonical gateway tool slug prefixes.
+    #[getter]
+    fn allowed_tool_slug_prefixes(&self) -> Vec<String> {
+        self.inner.gateway.policy.allowed_tool_slug_prefixes.clone()
+    }
+
+    /// Allowed canonical gateway tool slug prefixes.
+    #[setter]
+    fn set_allowed_tool_slug_prefixes(&mut self, values: Vec<String>) {
+        self.inner.gateway.policy.allowed_tool_slug_prefixes = values;
+    }
+
     // ── QueueConfig getters/setters ──────────────────────────────────
 
     /// Capacity of the HTTP → DccExecutor mpsc channel (issue #715).

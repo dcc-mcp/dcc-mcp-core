@@ -55,6 +55,9 @@ pub mod state;
 pub mod tools;
 pub mod traffic;
 
+pub use dcc_mcp_gateway_core::policy::{
+    GatewayPolicy, GatewayPolicyDenial, GatewayPolicyDenyReason, GatewayPolicyOperation,
+};
 pub use middleware::MiddlewareChain;
 
 pub mod metrics;

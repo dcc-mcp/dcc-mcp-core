@@ -4,7 +4,7 @@ use crate::gateway::admin::trace::TraceContext;
 use crate::gateway::capability::{RefreshReason, parse_slug, tool_slug};
 use crate::gateway::capability_service::{
     ServiceError, call_service, describe_tool_full, index_generation, parse_search_payload,
-    refresh_all_live_backends, search_service_rows, service_error_to_json,
+    refresh_all_live_backends, search_service_rows_for_policy, service_error_to_json,
 };
 use crate::gateway::response_codec::{
     compact_call_batch_payload, compact_describe_payload, compact_search_payload,
@@ -212,6 +212,14 @@ pub async fn handle_v1_skills(State(gs): State<GatewayState>) -> impl IntoRespon
     let records = gs.capability_index.snapshot().records;
     let skills: Vec<Value> = records
         .iter()
+        .filter(|record| {
+            gs.policy
+                .enforce_record(
+                    dcc_mcp_gateway_core::policy::GatewayPolicyOperation::Search,
+                    record,
+                )
+                .is_ok()
+        })
         .map(|record| {
             json!({
                 "slug": record.tool_slug,
@@ -241,7 +249,18 @@ pub async fn handle_v1_context(State(gs): State<GatewayState>) -> impl IntoRespo
     let instances: Vec<Value> = live_instances.iter().map(|e| gs.instance_json(e)).collect();
     drop(registry);
     let records = gs.capability_index.snapshot().records;
-    let loaded_skill_count = records
+    let policy_visible_records: Vec<_> = records
+        .iter()
+        .filter(|record| {
+            gs.policy
+                .enforce_record(
+                    dcc_mcp_gateway_core::policy::GatewayPolicyOperation::Search,
+                    record,
+                )
+                .is_ok()
+        })
+        .collect();
+    let loaded_skill_count = policy_visible_records
         .iter()
         .filter_map(|record| record.skill_name.as_deref())
         .collect::<std::collections::HashSet<_>>()
@@ -258,7 +277,7 @@ pub async fn handle_v1_context(State(gs): State<GatewayState>) -> impl IntoRespo
             },
             "documents": [],
             "loaded_skill_count": loaded_skill_count,
-            "action_count": records.len(),
+            "action_count": policy_visible_records.len(),
             "live_instance_count": instances.len(),
             "instances": instances,
         })),
@@ -325,7 +344,7 @@ pub async fn handle_v1_search(
             }
         }
     }
-    let hits = search_service_rows(&gs.capability_index, &query);
+    let hits = search_service_rows_for_policy(&gs.capability_index, &query, &gs.policy);
     let metadata = RestResponseMetadata::from_trace_context(&trace_context)
         .with_index_generation(index_generation(&gs.capability_index));
     search_response_with_metadata(&headers, &body, hits, &metadata)
@@ -361,6 +380,17 @@ async fn skill_lifecycle_response(
     let metadata = RestResponseMetadata::from_trace_context(&trace_context)
         .with_index_generation(index_generation(&gs.capability_index));
     if is_error {
+        if let Ok(legacy) = serde_json::from_str::<Value>(&text)
+            && let Some(kind) = legacy
+                .get("error")
+                .and_then(|error| error.get("kind"))
+                .and_then(Value::as_str)
+        {
+            let status = service_error_status(&ServiceError::new(kind, text));
+            return negotiated_response_with_metadata(
+                headers, &body, status, legacy, None, &metadata, true,
+            );
+        }
         let legacy = service_error_to_json(&ServiceError::new(
             classify_skill_lifecycle_error(tool, &text),
             text,
@@ -1279,6 +1309,7 @@ fn service_error_status(err: &ServiceError) -> StatusCode {
         "unknown-slug" => StatusCode::NOT_FOUND,
         "ambiguous" => StatusCode::CONFLICT,
         "instance-offline" => StatusCode::SERVICE_UNAVAILABLE,
+        "policy-denied" => StatusCode::FORBIDDEN,
         "host-busy" => StatusCode::SERVICE_UNAVAILABLE,
         "host-died" => StatusCode::BAD_GATEWAY,
         "backend-error" | "schema-unavailable" => StatusCode::BAD_GATEWAY,

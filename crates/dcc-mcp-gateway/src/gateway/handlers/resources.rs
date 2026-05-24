@@ -279,6 +279,7 @@ mod tests {
             pending_calls: Arc::new(RwLock::new(HashMap::new())),
             subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
             allow_unknown_tools: false,
+            policy: Arc::new(crate::gateway::GatewayPolicy::default()),
             adapter_version: None,
             adapter_dcc: None,
             capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),

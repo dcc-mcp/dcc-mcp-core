@@ -20,6 +20,7 @@ workspace = true
 # pure-types crate, so depending on it here keeps the dependency
 # direction inward.
 dcc-mcp-models = { path = "../dcc-mcp-models" }
+dcc-mcp-gateway-core = { path = "../dcc-mcp-gateway-core" }
 dcc-mcp-jsonrpc = { path = "../dcc-mcp-jsonrpc" }
 
 # Workspace shared
