@@ -570,6 +570,14 @@ class DccServerBase:
         """Load a skill by name."""
         return self._skill_client.load_skill(name)
 
+    def get_skill(self, name: str) -> Any | None:
+        """Return a detached mutable ``SkillMetadata`` object for a skill."""
+        return self._skill_client.get_skill(name)
+
+    def load_skill_object(self, skill: Any) -> bool:
+        """Load a caller-supplied ``SkillMetadata`` object through core."""
+        return self._skill_client.load_skill_object(skill)
+
     def unload_skill(self, name: str) -> bool:
         """Unload a skill by name."""
         return self._skill_client.unload_skill(name)

@@ -541,6 +541,24 @@ impl PyMcpHttpServer {
             .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
+    /// Return a detached, mutable skill metadata object.
+    ///
+    /// Mutating the returned object does not affect catalog state until it is
+    /// passed back to ``load_skill_object``.
+    fn get_skill(&self, skill_name: &str) -> Option<dcc_mcp_models::SkillMetadata> {
+        self.catalog.get_skill(skill_name)
+    }
+
+    /// Load a caller-supplied skill metadata object through core registration.
+    ///
+    /// Adapters can use this to adjust tool declarations at runtime without
+    /// rewriting ``SKILL.md`` / ``tools.yaml`` files.
+    fn load_skill_object(&self, metadata: dcc_mcp_models::SkillMetadata) -> PyResult<Vec<String>> {
+        self.catalog
+            .load_skill_object(metadata)
+            .map_err(pyo3::exceptions::PyValueError::new_err)
+    }
+
     /// Unload a skill — removes its tools from the ToolRegistry.
     ///
     /// Returns the number of actions removed.
