@@ -124,8 +124,8 @@ When a veto rejects a tool call, the dispatcher returns a structured
 
 ## Gateway Traffic Capture
 
-RFC 0003 P0 adds an opt-in `traffic.frame` stream for local debugging. It is
-off by default. Enable the quick JSONL sink when starting a gateway:
+RFC 0003 adds an opt-in `traffic.frame` stream for local debugging. It is off
+by default. Enable the quick JSONL sink when starting a gateway:
 
 ```bash
 DCC_MCP_TRAFFIC_CAPTURE=jsonl:./capture.jsonl dcc-mcp-server ...
@@ -133,8 +133,9 @@ DCC_MCP_TRAFFIC_CAPTURE=jsonl:./capture.jsonl dcc-mcp-server ...
 
 Each JSONL row is the structured EventBus envelope. The frame payload lives in
 `attributes` and includes `capture_id`, `direction`, `leg`, `transport`, safe
-HTTP metadata, MCP method/id metadata, and a JSON body with `size_bytes`.
-Current P0 frames cover `tools/call` traffic at these gateway boundaries:
+HTTP metadata, MCP method/id metadata, and a JSON body with `size_bytes` and
+`redacted_paths`. Current frames cover `tools/call` traffic at these gateway
+boundaries:
 
 | Leg | Meaning |
 |-----|---------|
@@ -146,6 +147,30 @@ Current P0 frames cover `tools/call` traffic at these gateway boundaries:
 Traffic capture may include scene paths, user prompts, and tool arguments. If
 `DCC_MCP_PROD_PROFILE=1`, the gateway refuses to enable capture unless
 `DCC_MCP_FORCE_TRAFFIC_CAPTURE=1` is also set.
+
+For replay/diff-oriented debugging, use the YAML config path. Redactions run
+before any sink writes:
+
+```yaml
+enabled: true
+sinks:
+  - kind: sqlite
+    path: ./captures/run-${TIMESTAMP}.db
+  - kind: jsonl
+    path: ./captures/run-${TIMESTAMP}.jsonl
+filters:
+  include:
+    - mcp.method: tools/call
+  exclude:
+    - http.url: "*/v1/readyz"
+redact:
+  - body.data.params.arguments.api_key: "[REDACTED]"
+  - body.data.params.arguments.scene_path: "[SCRUBBED:path]"
+```
+
+Start the gateway with `DCC_MCP_TRAFFIC_CONFIG=./traffic_capture.yaml`. Relative
+sink paths resolve from the config file's directory, and `${TIMESTAMP}` expands
+once when the sink opens.
 
 ## Wildcard Subscriptions
 
