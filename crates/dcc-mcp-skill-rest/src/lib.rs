@@ -70,6 +70,7 @@ mod errors;
 pub mod openapi;
 mod readiness;
 mod router;
+mod search_index;
 mod service;
 mod thread_affinity_diagnostics;
 

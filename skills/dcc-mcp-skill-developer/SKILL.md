@@ -49,6 +49,10 @@ into a faster authoring loop.
    safety annotations, and `timeout_hint_secs` for async tools.
    Published MCP tool names must be client-safe
    `^[A-Za-z0-9_-]{1,64}$`; use underscores instead of dotted tool names.
+   Use bounded `metadata.dcc-mcp.search-aliases` and per-tool
+   `search_aliases` in `tools.yaml` for domain synonyms, localized phrases, or
+   common user wording. Do not stuff long prose or schema dumps into tags or
+   summaries just to improve search recall.
 6. Treat `metadata.dcc-mcp.depends` as soft during discovery. Composition
    skills may remain searchable with `status: pending_deps` while host-specific
    dependencies are injected later through `DCC_MCP_*_SKILL_PATHS`. `load_skill`
@@ -88,12 +92,16 @@ into a faster authoring loop.
    per-result `token_accounting` metadata, and batch request items may carry an
    optional `id` that is echoed next to the numeric result `index`.
    Gateway search uses a hybrid ranker in default fuzzy mode: weighted lexical
-   matches over tool names, skill names, tags, summaries, and schema-field
-   tokens take precedence, while fuzzy fallback keeps typo tolerance. Search
+   matches over tool names, skill names, tags, summaries, author-declared
+   aliases, and bounded schema-field tokens take precedence, while fuzzy
+   fallback keeps typo tolerance. Search
    hits may include bounded `match_reasons` such as `tool_lexical`,
-   `summary_fuzzy`, `schema_fuzzy`, and `multi_token_lexical`; use those for
-   debugging relevance, but keep agent logic driven by `tool_slug`,
-   `next_step`, and `describe` rather than hard-coding a single reason string.
+   `alias_lexical`, `schema_lexical`, `summary_fuzzy`, `schema_fuzzy`, and
+   `multi_token_lexical`; use those for debugging relevance, but keep agent
+   logic driven by `tool_slug`, `next_step`, and `describe` rather than
+   hard-coding a single reason string. Full `input_schema` stays behind
+   `describe`; the search path may carry only bounded internal
+   `metadata.dcc.searchAliases` / `metadata.dcc.searchTokens` hints.
    Gateway capability policy is a deployment boundary, not an adapter-local
    convention. Read-only gateway mode still allows discovery and describe, but
    denies `load_skill`, `unload_skill`, tool-group changes, and backend calls

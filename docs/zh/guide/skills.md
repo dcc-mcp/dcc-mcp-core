@@ -30,6 +30,7 @@ metadata:
     version: "1.0.0"
     tags: ["geometry", "create"]
     search-hint: "polygon modeling, sphere, bevel, extrude, mesh editing"
+    search-aliases: [primitive ball, mesh globe]
     tools: tools.yaml
 ---
 # Maya Geometry Skill
@@ -43,12 +44,19 @@ metadata:
 tools:
   - name: create_sphere
     description: "根据给定半径创建多边形球体"
+    search_aliases: [primitive ball, mesh globe]
     source_file: scripts/create_sphere.py
     read_only: false
   - name: export_fbx
     description: "将选中对象导出为 FBX"
     source_file: scripts/export_fbx.bat
 ```
+
+`metadata.dcc-mcp.search-hint` 提供不加载完整工具 schema 也能用于
+`search_skills` 的关键词。`metadata.dcc-mcp.search-aliases` 和 `tools.yaml`
+中的 per-tool `search_aliases` 用来声明有界的搜索同义词、本地化词或常见
+用户说法；它们只改善 gateway/per-DCC 搜索召回，不改变 tool name、summary、
+tag 或实际调用参数。
 
 ### 3. 设置环境变量
 
@@ -150,6 +158,7 @@ tools:
   - name: create_sphere
     description: "创建多边形球体"
     input_schema: '{"type":"object","properties":{"radius":{"type":"number"}}}'
+    search_aliases: [primitive ball, mesh globe]
     read_only: false
     destructive: false
     idempotent: false
@@ -178,6 +187,7 @@ decl = ToolDeclaration(
 | `description` | `str` | `""` | 人类可读的描述 |
 | `input_schema` | `str`（JSON）| `None` | 输入参数的 JSON Schema |
 | `output_schema` | `str`（JSON）| `None` | 输出的 JSON Schema |
+| `search_aliases` | `list[str]` | `[]` | 有界的搜索同义词；会和 schema 字段名一起参与发现索引，但不是工具参数，也不能替代简洁描述。 |
 | `read_only` | `bool` | `False` | 仅读取数据（无副作用）|
 | `destructive` | `bool` | `False` | 可能导致破坏性修改 |
 | `idempotent` | `bool` | `False` | 相同参数始终产生相同结果 |
@@ -492,7 +502,10 @@ def create_skill_server(
 }
 ```
 
-搜索范围：`name`、`description`、`search_hint`、`tool_names`。`search_hint` 字段（来自 SKILL.md `search-hint:`）无需加载完整 schema 即可改善关键词匹配。
+搜索范围：`name`、`description`、`search_hint`、`search_aliases`、`tags`、
+`dcc`，以及同级 `tools.yaml` 中的工具 `name`、`description` 和 per-tool
+`search_aliases`。`search_hint` 字段（来自 SKILL.md `search-hint:`）无需加载
+完整 schema 即可改善关键词匹配。
 
 `create_skill_server()` 启动时只调用 `discover()` — Skills **不会**自动加载。这保持了初始工具列表的精简，让 Agent 按需加载。
 

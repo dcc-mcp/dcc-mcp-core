@@ -53,6 +53,14 @@ impl ToolRegistry {
                 .flatten()
                 .and_then(|v| v.extract().ok())
                 .unwrap_or_default();
+            let search_aliases: Vec<String> = dict
+                .get_item("search_aliases")
+                .ok()
+                .flatten()
+                .or_else(|| dict.get_item("search-aliases").ok().flatten())
+                .or_else(|| dict.get_item("aliases").ok().flatten())
+                .and_then(|v| v.extract().ok())
+                .unwrap_or_default();
             let dcc: String = dict
                 .get_item("dcc")
                 .ok()
@@ -158,6 +166,7 @@ impl ToolRegistry {
                 description,
                 category,
                 tags,
+                search_aliases,
                 dcc,
                 version,
                 input_schema,
@@ -184,7 +193,7 @@ impl ToolRegistry {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (name, description="".to_string(), category="".to_string(), tags=vec![], dcc=DEFAULT_DCC.to_string(), version=DEFAULT_VERSION.to_string(), input_schema=None, output_schema=None, source_file=None, skill_name=None, group="".to_string(), enabled=true, required_capabilities=None, execution="sync".to_string(), timeout_hint_secs=None, thread_affinity="any".to_string(), enforce_thread_affinity=false))]
+    #[pyo3(signature = (name, description="".to_string(), category="".to_string(), tags=vec![], dcc=DEFAULT_DCC.to_string(), version=DEFAULT_VERSION.to_string(), input_schema=None, output_schema=None, source_file=None, skill_name=None, group="".to_string(), enabled=true, required_capabilities=None, execution="sync".to_string(), timeout_hint_secs=None, thread_affinity="any".to_string(), enforce_thread_affinity=false, search_aliases=None))]
     fn register(
         &self,
         name: String,
@@ -204,6 +213,7 @@ impl ToolRegistry {
         timeout_hint_secs: Option<u32>,
         thread_affinity: String,
         enforce_thread_affinity: bool,
+        search_aliases: Option<Vec<String>>,
     ) -> pyo3::PyResult<()> {
         validate_tool_name(&name).map_err(|err| {
             pyo3::exceptions::PyValueError::new_err(format!(
@@ -233,6 +243,7 @@ impl ToolRegistry {
             description,
             category,
             tags,
+            search_aliases: search_aliases.unwrap_or_default(),
             dcc,
             version,
             input_schema,

@@ -80,6 +80,27 @@ fn test_tool_declaration_parses_required_capabilities() {
 }
 
 #[test]
+fn test_skill_and_tool_search_aliases_parse() {
+    let json = r#"{
+            "name": "export-skill",
+            "search-aliases": ["write file", "interchange"],
+            "tools": [{
+                "name": "export_fbx",
+                "search_aliases": ["destination path", "fbx"]
+            }]
+        }"#;
+    let meta: SkillMetadata = serde_json::from_str(json).unwrap();
+    assert_eq!(
+        meta.search_aliases,
+        vec!["write file".to_string(), "interchange".to_string()]
+    );
+    assert_eq!(
+        meta.tools[0].search_aliases,
+        vec!["destination path".to_string(), "fbx".to_string()]
+    );
+}
+
+#[test]
 fn test_tool_declaration_parses_thread_affinity_enforcement() {
     let json = r#"{
             "name": "bake_simulation",
@@ -335,6 +356,7 @@ fn test_skill_metadata_serde_round_trip() {
         dcc: "blender".to_string(),
         tags: vec!["modeling".to_string()],
         search_hint: "mesh, modeling, geometry".to_string(),
+        search_aliases: vec!["mesh authoring".to_string()],
         scripts: vec!["init.py".to_string()],
         skill_path: "/skills/full".to_string(),
         version: "1.2.3".to_string(),

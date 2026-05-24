@@ -436,7 +436,7 @@ Rules:
 
 - `query` (required) — free-text. On the gateway, `mode: "fuzzy"`
   (default) uses a hybrid ranker: weighted lexical matches over tool names,
-  skills, tags, summaries, and schema-field tokens first, then
+  skills, tags, summaries, author-declared aliases, and schema-field tokens first, then
   nucleo-matcher fuzzy fallback for typos and partial names. `mode: "exact"`
   falls back to the pre-#659 substring table.
 - `dcc_type`, `tags`, `loaded_only` — progressive filters. `loaded_only = false` surfaces unloaded skills as search hits so agents can discover `load_skill` candidates.
@@ -445,8 +445,13 @@ Rules:
   hit may mean the capability is absent, unloaded, or intentionally hidden by
   DCC, skill, or tool allowlists.
 - Gateway hits include `score` plus bounded `match_reasons` such as
-  `tool_lexical`, `summary_fuzzy`, `schema_fuzzy`, or `multi_token_lexical`
+  `tool_lexical`, `alias_lexical`, `schema_lexical`, `summary_fuzzy`,
+  `schema_fuzzy`, or `multi_token_lexical`
   so agents and maintainers can understand the rank without fetching schemas.
+- Full `input_schema` remains behind `describe`. Search may carry only bounded
+  `metadata.dcc.searchAliases` / `metadata.dcc.searchTokens` hints from a
+  per-DCC backend to the gateway index; gateway search responses do not expose
+  those internal index tokens as public fields.
 
 Response shape (gateway + per-DCC are identical):
 

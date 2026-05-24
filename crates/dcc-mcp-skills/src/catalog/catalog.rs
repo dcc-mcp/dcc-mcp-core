@@ -131,6 +131,7 @@ impl SkillCatalog {
                 name: e.metadata.name.clone(),
                 description: e.metadata.description.clone(),
                 tags: e.metadata.tags.clone(),
+                search_aliases: e.metadata.search_aliases.clone(),
                 dcc: e.metadata.dcc.clone(),
                 version: e.metadata.version.clone(),
                 depends: e.metadata.depends.clone(),
