@@ -183,7 +183,7 @@ impl PyMcpHttpServer {
             let bridge_runtime = self.runtime.handle();
             let executor = dcc_mcp_http::host_bridge::dispatcher_to_executor_handle_with_capacity(
                 dispatcher,
-                &bridge_runtime,
+                bridge_runtime,
                 depth,
             );
             server = server

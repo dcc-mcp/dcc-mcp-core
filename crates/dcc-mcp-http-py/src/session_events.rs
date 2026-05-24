@@ -31,6 +31,7 @@ impl PySessionEventBuffer {
     }
 
     /// Append one event and return the stored event as a dict.
+    #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (source, stream, message, level="info", session_id=None, tool_call_id=None, job_id=None, correlation_id=None, metadata=None))]
     fn append(
         &self,

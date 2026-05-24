@@ -192,9 +192,52 @@ OpenAPI contract 预留了 `cursor`、`since`、`until` 给后续 normalized env
 - `skill-already-loaded` (502) —— **仅网关 skill lifecycle** —— skill 已处于加载状态。
 - `group-not-found` (502) —— **仅网关 skill lifecycle** —— 请求的 progressive group 不存在。
 - `ambiguous-instance` (502) —— **仅网关 skill lifecycle** —— DCC / instance 选择不唯一。
+- `policy-denied` (403) —— **仅网关** —— gateway policy 在路由到 backend 前拒绝了该操作。查看 `policy.reason`。
 - `instance-offline` (503) —— **仅网关** —— `<id8>` 对应的实例已不在线。
 - `schema-unavailable` (502) —— **仅网关** —— 拥有者 DCC 在 discovery 和 call 之间失联。
 - `internal` (500) —— REST 层自身失败；查服务端日志。
+
+### Gateway Policy
+
+Gateway 可以在客户端看到工具之前、或 backend 调用被路由之前收窄动态能力面。
+Rust 侧通过 `McpHttpConfig::with_gateway_policy(...)` /
+`with_gateway_read_only(...)` 配置 `GatewayPolicy`；Python 侧通过
+`McpHttpConfig.gateway_read_only`、`allowed_dcc_types`、
+`allowed_skill_names`、`allowed_skill_families`、`allowed_tool_slugs` 和
+`allowed_tool_slug_prefixes` 配置。
+
+Policy 规则属于 gateway 对外契约：
+
+- 空 allowlist 表示不限制。非空 allowlist 都是大小写不敏感匹配，可限制
+  DCC type、精确 skill name、skill family 前缀、精确 canonical gateway
+  `tool_slug` 或 `tool_slug` 前缀。
+- `search` 会隐藏被 policy 拒绝的 capability，所以客户端应把搜索结果视为
+  当前部署允许暴露的能力面，而不是完整 backend inventory。
+- `describe` 在 read-only 开启时仍可用于允许的 capability，方便 agent 先
+  读 schema 再决定是否安全调用。
+- `read_only = true` 会拒绝 `load_skill`、`unload_skill`、tool-group 修改，
+  以及未声明 `annotations.readOnlyHint = true` 的 backend 调用。
+- REST 单次拒绝返回 HTTP 403，`kind: "policy-denied"`，并带结构化
+  `policy` 对象。Batch 调用保持 HTTP 200，在对应 result item 上返回同样的
+  `policy-denied` envelope，以保持 batch 顺序稳定。
+
+拒绝示例：
+
+```json
+{
+  "kind": "policy-denied",
+  "message": "gateway policy denied call for tool slug 'maya.a1b2c3d4.create_sphere'",
+  "request_id": "req-7f3c...",
+  "policy": {
+    "reason": "read-only",
+    "operation": "call",
+    "read_only": true,
+    "dcc_type": "maya",
+    "skill_name": "maya-modeling",
+    "tool_slug": "maya.a1b2c3d4.create_sphere"
+  }
+}
+```
 
 ### Request ID
 
@@ -225,6 +268,9 @@ JSON/TOON body 也会包含 `request_id`、`trace_id`、`index_generation`。
 describe/call 路由、`/v1/call` 和 `/v1/call_batch` 默认仍返回旧版 JSON，
 保持现有 REST 客户端兼容。Agent 客户端如果想减少 REST payload，可以显式
 请求 TOON：
+
+Gateway policy 会在返回最终搜索结果前过滤 capability。一个缺失的 hit 可能
+代表能力不存在、skill 未加载，或该能力被 DCC / skill / tool allowlist 有意隐藏。
 
 ```bash
 curl -H 'Accept: application/toon' \
