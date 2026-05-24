@@ -221,8 +221,10 @@ impl PyMcpHttpServer {
     /// Call this **before** :meth:`start`. The same probe instance
     /// backs both the MCP and REST surfaces, so a single
     /// ``probe.set_dispatcher_ready(True); probe.set_dcc_ready(True)``
-    /// from the DCC adapter's boot-complete hook flips readiness
-    /// for every surface at once.
+    /// from the DCC adapter's boot-complete hook flips base routing
+    /// readiness for every surface at once. Adapters that support
+    /// main-thread tools should also flip the host execution bridge and
+    /// main-thread executor bits once those paths are usable.
     ///
     /// Without a probe installed, the server defaults to the legacy
     /// fully-ready behaviour — tests and standalone servers are

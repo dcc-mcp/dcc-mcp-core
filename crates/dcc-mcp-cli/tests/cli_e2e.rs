@@ -1,7 +1,7 @@
 use std::process::Command;
 
 use axum::Router;
-use axum::extract::Json;
+use axum::extract::{Json, Path};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::routing::{get, post};
 use serde_json::{Value, json};
@@ -138,7 +138,27 @@ fn spawn_gateway_fixture() -> GatewayFixture {
                         "instance_id": "abc12345-0000-0000-0000-000000000000",
                         "instance_short": "abc12345",
                         "dcc_type": "maya",
-                        "mcp_url": "http://127.0.0.1:18080/mcp"
+                        "mcp_url": "http://127.0.0.1:18080/mcp",
+                        "metadata": {
+                            "owner": "release-smoke-test",
+                            "session": "test"
+                        },
+                        "lifecycle": {
+                            "owner": "release-smoke-test",
+                            "session": "test",
+                            "supports_safe_stop": true,
+                            "safe_stop_url": "http://127.0.0.1:18080/safe-stop"
+                        },
+                        "diagnostics": {
+                            "readiness": {
+                                "process": true,
+                                "dcc": true,
+                                "skill_catalog": true,
+                                "dispatcher": true,
+                                "host_execution_bridge": true,
+                                "main_thread_executor": true
+                            }
+                        }
                     }]
                 }))
             }),
@@ -150,6 +170,7 @@ fn spawn_gateway_fixture() -> GatewayFixture {
                     "total": 1,
                     "hits": [{
                         "slug": "maya.abc12345.create_sphere",
+                        "instance_id": body.get("instance_id").cloned().unwrap_or(Value::Null),
                         "skill": "modeling",
                         "action": "create_sphere",
                         "dcc": body.get("dcc_type").and_then(Value::as_str).unwrap_or("maya"),
@@ -196,6 +217,37 @@ fn spawn_gateway_fixture() -> GatewayFixture {
                     "arguments": body["arguments"]
                 }))
             }),
+        )
+        .route(
+            "/v1/dcc/{dcc_type}/instances/{instance_id}/call",
+            post(
+                |Path((dcc_type, instance_id)): Path<(String, String)>,
+                 Json(body): Json<Value>| async move {
+                    Json(json!({
+                        "success": true,
+                        "dcc_type": dcc_type,
+                        "instance_id": instance_id,
+                        "backend_tool": body["backend_tool"],
+                        "arguments": body["arguments"]
+                    }))
+                },
+            ),
+        )
+        .route(
+            "/v1/dcc/{dcc_type}/instances/{instance_id}/stop",
+            post(
+                |Path((dcc_type, instance_id)): Path<(String, String)>,
+                 Json(body): Json<Value>| async move {
+                    Json(json!({
+                        "ok": true,
+                        "stopping": true,
+                        "dcc_type": dcc_type,
+                        "instance_id": instance_id,
+                        "expected_owner": body.get("expected_owner").cloned().unwrap_or(Value::Null),
+                        "expected_session": body.get("expected_session").cloned().unwrap_or(Value::Null)
+                    }))
+                },
+            ),
         );
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -275,8 +327,11 @@ fn list_search_describe_and_call_gateway_rest_surface() {
         "sphere",
         "--dcc-type",
         "maya",
+        "--instance-id",
+        "abc12345",
     ]);
     assert_eq!(search["hits"][0]["slug"], "maya.abc12345.create_sphere");
+    assert_eq!(search["hits"][0]["instance_id"], "abc12345");
 
     let describe = run_json(&[
         "--base-url",
@@ -326,6 +381,56 @@ fn list_search_describe_and_call_gateway_rest_surface() {
     ]);
     assert_eq!(call["success"], true);
     assert_eq!(call["arguments"]["radius"], 2);
+
+    let direct_call = run_json(&[
+        "--base-url",
+        &fixture.base_url,
+        "call",
+        "maya_scene__get_session_info",
+        "--dcc-type",
+        "maya",
+        "--instance-id",
+        "abc12345",
+        "--json",
+        r#"{}"#,
+    ]);
+    assert_eq!(direct_call["success"], true);
+    assert_eq!(direct_call["dcc_type"], "maya");
+    assert_eq!(direct_call["instance_id"], "abc12345");
+    assert_eq!(direct_call["backend_tool"], "maya_scene__get_session_info");
+
+    let ready = run_json(&[
+        "--base-url",
+        &fixture.base_url,
+        "wait-ready",
+        "--dcc-type",
+        "maya",
+        "--instance-id",
+        "abc12345",
+        "--require",
+        "skill_catalog,host_execution_bridge",
+        "--timeout-secs",
+        "1",
+    ]);
+    assert_eq!(ready["ready"], true);
+    assert_eq!(ready["missing"].as_array().unwrap().len(), 0);
+
+    let stop = run_json(&[
+        "--base-url",
+        &fixture.base_url,
+        "stop-instance",
+        "--dcc-type",
+        "maya",
+        "--instance-id",
+        "abc12345",
+        "--expected-owner",
+        "release-smoke-test",
+        "--expected-session",
+        "test",
+    ]);
+    assert_eq!(stop["ok"], true);
+    assert_eq!(stop["stopping"], true);
+    assert_eq!(stop["expected_owner"], "release-smoke-test");
 }
 
 #[test]

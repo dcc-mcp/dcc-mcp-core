@@ -472,7 +472,7 @@ fn handles_tools_list_with_malformed_entries_gracefully() {
     assert_eq!(tools[0].name, "good_tool");
 }
 
-// ── #713 integration tests: three-state readiness probe ──────────────
+// ── #713 integration tests: readiness probe ──────────────────────────
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -495,7 +495,7 @@ async fn probe_readiness_parses_200_green_report() {
     let report = probe_readiness(&client, &mcp_url, Duration::from_secs(2))
         .await
         .expect("readyz should answer");
-    assert!(report.is_ready(), "all three bits green -> is_ready()");
+    assert!(report.is_ready(), "base routing bits green -> is_ready()");
     assert_eq!(
         probe_mcp_readiness(&client, &mcp_url, Duration::from_secs(2)).await,
         ProbeOutcome::Ready

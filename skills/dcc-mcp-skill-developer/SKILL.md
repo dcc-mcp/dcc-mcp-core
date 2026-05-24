@@ -95,6 +95,9 @@ into a faster authoring loop.
    process that has not loaded `dcc_mcp_core._core`. Publish package versions
    in registry metadata (`dcc_mcp_core_version`, `dcc_mcp_server_version`,
    `adapter_version`); `ServiceEntry.version` is the DCC application version.
+   Test launchers should mark temporary instances with public metadata such as
+   `owner`, `session`, and `safe_stop_url` when they need automation to target
+   and stop only that instance.
    Stop helpers must respect FileRegistry sentinel locks before trusting PID
    liveness so installer code never terminates a reused PID from a stale row.
 9. For embedded main-thread tools, wire `HostExecutionBridge` with the same
@@ -102,6 +105,10 @@ into a faster authoring loop.
    headless driver ticks. `DccServerBase` will then register both
    `set_in_process_executor` and HTTP `attach_dispatcher` before server start,
    so MCP `tools/call` and REST `/v1/call` satisfy `thread_affinity: main`.
+   Flip `ReadinessProbe.host_execution_bridge` and
+   `ReadinessProbe.main_thread_executor` only after that bridge path is
+   actually usable; smoke tests may require those bits via
+   `dcc-mcp-cli wait-ready --require host_execution_bridge,main_thread_executor`.
 10. Skill script entry points may use either modern `main(**params)` or legacy
     `main(params)` signatures; prefer `main(**params)` for new scripts and keep
     dict-style wrappers only for compatibility during adapter migrations.

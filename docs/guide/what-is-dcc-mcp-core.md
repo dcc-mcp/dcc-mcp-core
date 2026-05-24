@@ -56,7 +56,7 @@ flowchart LR
 
 - **Skills-First** — drop a `SKILL.md` (agentskills.io 1.0 + `metadata.dcc-mcp.*` extensions) beside a scripts directory and it becomes addressable MCP tools *and* REST routes.
 - **Minimal MCP gateway** — `tools/list` is a bounded, cached static set. Agent context footprint stays flat regardless of DCC count.
-- **per-DCC REST** — `/v1/healthz`, `/v1/readyz` (three-state Ready / Booting / Unreachable), `/v1/search`, `/v1/describe`, `/v1/call`, `/v1/context`, `/v1/openapi.json`. Full OpenAPI 3.x.
+- **per-DCC REST** — `/v1/healthz`, `/v1/readyz` (runtime readiness bits), `/v1/search`, `/v1/describe`, `/v1/call`, `/v1/context`, `/v1/openapi.json`. Full OpenAPI 3.x.
 - **Multi-DCC gateway aggregation** — file-based service registry + TCP-probe health checks, auto-evicts instances after 3 consecutive probe failures, prunes ghost rows, arbitrates contention via a three-tier `crate_version → adapter_version → adapter_dcc` election.
 - **Tool slug contract** — `<dcc>.<id8>.<tool>` three-part slugs are the only addressable form; the gateway parses them to route `call_tool` to the owning backend.
 - **Tunnels (#504)** — `dcc-mcp-tunnel-relay` + `dcc-mcp-tunnel-agent` binaries for zero-config remote access from SaaS AI clients to a workstation's DCC.

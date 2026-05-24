@@ -166,16 +166,17 @@ OpenAPI contract 预留了 `cursor`、`since`、`until` 给后续 normalized env
 
 ---
 
-## 三态就绪（`GET /v1/readyz`）
+## 就绪状态（`GET /v1/readyz`）
 
 | 状态 | HTTP | Body | 含义 |
 |---|---|---|---|
-| `Ready` | 200 | `{"status": "ready", "process": "ok", "dispatcher": "ok", "dcc": "ok"}` | 所有就绪位都绿了；`POST /v1/call` 会派发。 |
+| `Ready` | 200 | `{"process": true, "dcc": true, "skill_catalog": true, "dispatcher": true, "host_execution_bridge": true, "main_thread_executor": true}` | 基础路由就绪位已绿；`POST /v1/call` 会派发。 |
 | `Booting` | 503 | `{"status": "booting", ...哪些位红}` | 服务在线但 DCC 主机 / 派发器还没完成初始化。网关保留该实例的注册表行但不路由流量。 |
 | `Unreachable` | 无响应 | — | 5 秒内没应答。网关会回退试 `GET /health`（#660 前的后端兼容）；还没响应 → 算 probe 失败，连续 3 次后从注册表中剔除。 |
 
 区分很重要：agent 看到"我的工具不见了"时，诊断路径和修复手段完全不同。
-监控面板上把 `process` / `dispatcher` / `dcc` 分列展示。
+监控面板上把 `process` / `dcc` / `skill_catalog` / `dispatcher` /
+`host_execution_bridge` / `main_thread_executor` 分列展示。
 
 ---
 

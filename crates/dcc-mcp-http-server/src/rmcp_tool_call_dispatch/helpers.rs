@@ -142,15 +142,18 @@ pub(crate) fn readiness_gate_result(
     tracing::warn!(
         tool = tool_name,
         readiness.process = report.process,
-        readiness.dispatcher = report.dispatcher,
         readiness.dcc = report.dcc,
+        readiness.skill_catalog = report.skill_catalog,
+        readiness.dispatcher = report.dispatcher,
+        readiness.host_execution_bridge = report.host_execution_bridge,
+        readiness.main_thread_executor = report.main_thread_executor,
         "tools/call refused: backend not ready (issue #714)"
     );
     let msg = format!(
-        "Backend is not ready yet: process={}, dispatcher={}, dcc={}. \
+        "Backend is not ready yet: {}. \
          Refusing to queue `tools/call` for `{tool_name}` — retry once \
          `/v1/readyz` reports ready.",
-        report.process, report.dispatcher, report.dcc
+        report.status_hint()
     );
     Some(CallToolResult {
         content: vec![ToolContent::Text { text: msg.clone() }],
@@ -161,8 +164,11 @@ pub(crate) fn readiness_gate_result(
                 "tool": tool_name,
                 "readiness": {
                     "process": report.process,
-                    "dispatcher": report.dispatcher,
                     "dcc": report.dcc,
+                    "skill_catalog": report.skill_catalog,
+                    "dispatcher": report.dispatcher,
+                    "host_execution_bridge": report.host_execution_bridge,
+                    "main_thread_executor": report.main_thread_executor,
                 }
             }
         })),
