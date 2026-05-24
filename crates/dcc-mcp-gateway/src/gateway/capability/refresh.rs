@@ -119,7 +119,8 @@ fn build_unloaded_records(
                 &hint.summary,
                 dcc_type,
             )
-            .with_available_groups(hint.available_groups);
+            .with_available_groups(hint.available_groups)
+            .with_search_tokens(hint.search_tokens);
             rec.instance_id = instance_id;
             rec.tool_slug = tool_slug(dcc_type, &instance_id, &hint.tool_name);
             Some(rec)
@@ -140,6 +141,9 @@ fn compute_fingerprint(records: &[CapabilityRecord]) -> InstanceFingerprint {
             group.active.hash(&mut hasher);
         }
         for t in &r.tags {
+            t.hash(&mut hasher);
+        }
+        for t in &r.search_tokens {
             t.hash(&mut hasher);
         }
     }
@@ -245,6 +249,7 @@ mod unit_tests {
                 skill_name: "maya-primitives".to_string(),
                 tool_name: "maya_primitives__create_sphere".to_string(),
                 summary: "Create a primitive sphere".to_string(),
+                search_tokens: Vec::new(),
                 available_groups: Vec::new(),
             }],
             iid,
@@ -321,6 +326,7 @@ mod unit_tests {
                     skill_name: "maya-primitives".to_string(),
                     tool_name: "maya_primitives__create_sphere".to_string(),
                     summary: "Create a primitive sphere".to_string(),
+                    search_tokens: Vec::new(),
                     available_groups: Vec::new(),
                 }],
                 iid,

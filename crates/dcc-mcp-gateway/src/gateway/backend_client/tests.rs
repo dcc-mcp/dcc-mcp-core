@@ -153,7 +153,21 @@ async fn skill_rest_metadata_survives_fetch_and_describe() {
                                 "affinity": "any",
                                 "execution": "sync",
                                 "timeoutHintSecs": 2,
-                                "risk": "read-only"
+                                "risk": "read-only",
+                                "searchAliases": ["screen capture"],
+                                "searchTokens": ["schema:session_id"]
+                            }
+                        }
+                    }, {
+                        "action": "loadable_export__save",
+                        "skill": "loadable-export",
+                        "summary": "Save the current document",
+                        "has_schema": true,
+                        "loaded": false,
+                        "metadata": {
+                            "dcc": {
+                                "searchAliases": ["write file"],
+                                "searchTokens": ["required:destination_path"]
                             }
                         }
                     }]
@@ -185,7 +199,18 @@ async fn skill_rest_metadata_survives_fetch_and_describe() {
     let (tools, unloaded) = try_fetch_tools(&client, &mcp_url, Duration::from_secs(2))
         .await
         .expect("search");
-    assert!(unloaded.is_empty());
+    assert_eq!(unloaded.len(), 1);
+    assert_eq!(unloaded[0].skill_name, "loadable-export");
+    assert!(
+        unloaded[0]
+            .search_tokens
+            .contains(&"alias:write file".to_string())
+    );
+    assert!(
+        unloaded[0]
+            .search_tokens
+            .contains(&"required:destination_path".to_string())
+    );
     assert_eq!(tools[0].name, "app_ui__snapshot");
     assert_eq!(
         tools[0]
@@ -202,6 +227,17 @@ async fn skill_rest_metadata_survives_fetch_and_describe() {
             .and_then(|dcc| dcc.get("timeoutHintSecs"))
             .and_then(Value::as_u64),
         Some(2)
+    );
+    assert_eq!(
+        tools[0]
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get("dcc"))
+            .and_then(|dcc| dcc.get("searchTokens"))
+            .and_then(Value::as_array)
+            .and_then(|items| items.first())
+            .and_then(Value::as_str),
+        Some("schema:session_id")
     );
 
     let described = try_describe_tool(

@@ -11,8 +11,10 @@
 //! | `name`                                   | 5.0    |
 //! | `tags`                                   | 3.0    |
 //! | `search_hint`                            | 3.0    |
+//! | `search_aliases`                         | 3.0    |
 //! | `description`                            | 2.0    |
 //! | sibling tool names (from `tools.yaml`)   | 2.0    |
+//! | sibling tool search aliases              | 2.0    |
 //! | sibling tool descriptions                | 1.0    |
 //! | `dcc` (exact token match only)           | 4.0    |
 //!
@@ -40,8 +42,10 @@ const B: f64 = 0.75;
 pub const W_NAME: f64 = 5.0;
 pub const W_TAGS: f64 = 3.0;
 pub const W_HINT: f64 = 3.0;
+pub const W_ALIASES: f64 = 3.0;
 pub const W_DESCRIPTION: f64 = 2.0;
 pub const W_TOOL_NAME: f64 = 2.0;
+pub const W_TOOL_ALIAS: f64 = 2.0;
 pub const W_TOOL_DESCRIPTION: f64 = 1.0;
 pub const W_DCC: f64 = 4.0;
 
@@ -70,8 +74,10 @@ pub struct FieldTokens {
     pub name: Vec<String>,
     pub tags: Vec<String>,
     pub hint: Vec<String>,
+    pub aliases: Vec<String>,
     pub description: Vec<String>,
     pub tool_names: Vec<String>,
+    pub tool_aliases: Vec<String>,
     pub tool_descriptions: Vec<String>,
     pub dcc: Vec<String>,
 }
@@ -82,8 +88,10 @@ impl FieldTokens {
         self.name.len()
             + self.tags.len()
             + self.hint.len()
+            + self.aliases.len()
             + self.description.len()
             + self.tool_names.len()
+            + self.tool_aliases.len()
             + self.tool_descriptions.len()
             + self.dcc.len()
     }
@@ -98,9 +106,13 @@ impl FieldTokens {
         };
 
         let mut tool_names = Vec::new();
+        let mut tool_aliases = Vec::new();
         let mut tool_descriptions = Vec::new();
         for t in &meta.tools {
             tool_names.extend(tokenize(&t.name));
+            for alias in &t.search_aliases {
+                tool_aliases.extend(tokenize(alias));
+            }
             tool_descriptions.extend(tokenize(&t.description));
         }
 
@@ -108,13 +120,19 @@ impl FieldTokens {
         for tag in &meta.tags {
             tag_tokens.extend(tokenize(tag));
         }
+        let mut alias_tokens = Vec::new();
+        for alias in &meta.search_aliases {
+            alias_tokens.extend(tokenize(alias));
+        }
 
         Self {
             name: tokenize(&meta.name),
             tags: tag_tokens,
             hint: tokenize(hint_source),
+            aliases: alias_tokens,
             description: tokenize(&meta.description),
             tool_names,
+            tool_aliases,
             tool_descriptions,
             dcc: tokenize(&meta.dcc),
         }
@@ -206,8 +224,10 @@ pub fn score_skills(query: &str, skills: &[&SkillMetadata], scopes: &[SkillScope
                     count_occurrences(&f.name, q) > 0
                         || count_occurrences(&f.tags, q) > 0
                         || count_occurrences(&f.hint, q) > 0
+                        || count_occurrences(&f.aliases, q) > 0
                         || count_occurrences(&f.description, q) > 0
                         || count_occurrences(&f.tool_names, q) > 0
+                        || count_occurrences(&f.tool_aliases, q) > 0
                         || count_occurrences(&f.tool_descriptions, q) > 0
                         || count_occurrences(&f.dcc, q) > 0
                 })
@@ -228,9 +248,12 @@ pub fn score_skills(query: &str, skills: &[&SkillMetadata], scopes: &[SkillScope
             let contrib = W_NAME * field_bm25(count_occurrences(&fields_i.name, q), dl, avgdl)
                 + W_TAGS * field_bm25(count_occurrences(&fields_i.tags, q), dl, avgdl)
                 + W_HINT * field_bm25(count_occurrences(&fields_i.hint, q), dl, avgdl)
+                + W_ALIASES * field_bm25(count_occurrences(&fields_i.aliases, q), dl, avgdl)
                 + W_DESCRIPTION
                     * field_bm25(count_occurrences(&fields_i.description, q), dl, avgdl)
                 + W_TOOL_NAME * field_bm25(count_occurrences(&fields_i.tool_names, q), dl, avgdl)
+                + W_TOOL_ALIAS
+                    * field_bm25(count_occurrences(&fields_i.tool_aliases, q), dl, avgdl)
                 + W_TOOL_DESCRIPTION
                     * field_bm25(count_occurrences(&fields_i.tool_descriptions, q), dl, avgdl)
                 + W_DCC * field_bm25(count_occurrences(&fields_i.dcc, q), dl, avgdl);
@@ -442,6 +465,41 @@ mod tests {
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
         let out = score_skills("turntable", &skills, &scopes);
         assert_eq!(out.len(), 1, "sibling tool name must be scorable");
+        assert_eq!(out[0].name, "scene-utils");
+    }
+
+    #[test]
+    fn test_skill_search_alias_hit() {
+        let mut a = mk_full("geometry-tools", "scene helpers", "", &[], "maya", &[]);
+        a.search_aliases = vec!["primitive ball".to_string()];
+        let b = mk_full("other", "unrelated stuff", "", &[], "maya", &[]);
+        let skills = vec![&a, &b];
+        let scopes = vec![SkillScope::Repo, SkillScope::Repo];
+
+        let out = score_skills("primitive ball", &skills, &scopes);
+
+        assert_eq!(out.len(), 1, "skill search aliases must be scorable");
+        assert_eq!(out[0].name, "geometry-tools");
+    }
+
+    #[test]
+    fn test_sibling_tool_search_alias_hit() {
+        let mut a = mk_full(
+            "scene-utils",
+            "scene helpers",
+            "",
+            &[],
+            "maya",
+            &[("create_sphere", "create mesh")],
+        );
+        a.tools[0].search_aliases = vec!["mesh globe".to_string()];
+        let b = mk_full("other", "unrelated stuff", "", &[], "maya", &[]);
+        let skills = vec![&a, &b];
+        let scopes = vec![SkillScope::Repo, SkillScope::Repo];
+
+        let out = score_skills("mesh globe", &skills, &scopes);
+
+        assert_eq!(out.len(), 1, "tool search aliases must be scorable");
         assert_eq!(out[0].name, "scene-utils");
     }
 

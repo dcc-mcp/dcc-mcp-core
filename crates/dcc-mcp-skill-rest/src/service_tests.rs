@@ -94,6 +94,8 @@ fn sphere_action(loaded: bool) -> CatalogAction {
         dcc: "maya".into(),
         description: "Create a polygon sphere".into(),
         tags: vec!["geometry".into(), "poly".into()],
+        search_aliases: Vec::new(),
+        search_tokens: Vec::new(),
         input_schema: serde_json::json!({"type":"object"}),
         loaded,
         scope: "repo".into(),
@@ -234,6 +236,80 @@ fn search_query_matches_description() {
         ..Default::default()
     };
     assert_eq!(svc.search(&req).total, 0);
+}
+
+#[test]
+fn search_matches_aliases_and_schema_tokens_without_schema_expansion() {
+    let mut maya = sphere_action(true);
+    maya.search_aliases = vec!["primitive ball".into()];
+    maya.input_schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "radius": {"type": "number", "description": "Sphere radius in scene units"}
+        },
+        "required": ["radius"]
+    });
+    maya.search_tokens = vec!["schema:radius".into(), "required:radius".into()];
+
+    let photoshop = CatalogAction {
+        action_name: "resize_canvas".into(),
+        skill_name: "photoshop-canvas".into(),
+        dcc: "photoshop".into(),
+        description: "Resize the active document canvas".into(),
+        tags: vec!["image".into()],
+        search_aliases: vec!["document bounds".into()],
+        search_tokens: vec![
+            "schema:width_pixels".into(),
+            "required:height_pixels".into(),
+        ],
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "width_pixels": {"type": "integer"},
+                "height_pixels": {"type": "integer"}
+            },
+            "required": ["height_pixels"]
+        }),
+        loaded: true,
+        scope: "repo".into(),
+        annotations: Default::default(),
+        execution: Default::default(),
+        timeout_hint_secs: None,
+        thread_affinity: Default::default(),
+        enforce_thread_affinity: false,
+        available_groups: Vec::new(),
+    };
+
+    let (svc, _) = build_service(vec![maya, photoshop]);
+
+    let alias_hits = svc.search(&SearchRequest {
+        query: Some("primitive ball".into()),
+        ..Default::default()
+    });
+    assert_eq!(alias_hits.total, 1);
+    assert_eq!(alias_hits.hits[0].action, "create_sphere");
+    assert_eq!(
+        alias_hits.hits[0].metadata.as_ref().unwrap()["dcc"]["searchAliases"],
+        serde_json::json!(["primitive ball"])
+    );
+
+    let schema_hits = svc.search(&SearchRequest {
+        query: Some("width_pixels".into()),
+        dcc_type: Some("photoshop".into()),
+        ..Default::default()
+    });
+    assert_eq!(schema_hits.total, 1);
+    assert_eq!(schema_hits.hits[0].action, "resize_canvas");
+    assert_eq!(
+        schema_hits.hits[0].metadata.as_ref().unwrap()["dcc"]["searchTokens"],
+        serde_json::json!(["schema:width_pixels", "required:height_pixels"])
+    );
+
+    let serialized = serde_json::to_string(&schema_hits.hits[0]).unwrap();
+    assert!(
+        !serialized.contains("input_schema"),
+        "search hits must stay compact and keep full schemas behind describe"
+    );
 }
 
 #[test]

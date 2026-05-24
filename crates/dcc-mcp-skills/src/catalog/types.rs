@@ -136,6 +136,8 @@ pub struct SkillDetail {
     pub name: String,
     pub description: String,
     pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub search_aliases: Vec<String>,
     pub dcc: String,
     pub version: String,
     pub depends: Vec<String>,
@@ -180,6 +182,7 @@ impl RegistryEntry for SkillEntry {
             self.metadata.search_hint.clone(),
         ];
         tags.extend(self.metadata.tags.iter().cloned());
+        tags.extend(self.metadata.search_aliases.iter().cloned());
         tags.retain(|t| !t.is_empty());
         tags
     }

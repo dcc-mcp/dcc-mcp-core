@@ -18,6 +18,10 @@ pub trait SearchRecord {
     fn skill_name(&self) -> Option<&str>;
     /// Free-form tags.
     fn tags(&self) -> &[String];
+    /// Bounded internal search-only tokens, such as aliases or schema terms.
+    fn search_tokens(&self) -> &[String] {
+        &[]
+    }
     /// DCC bucket (`maya`, `blender`, …).
     fn dcc_type(&self) -> &str;
     /// Owning instance id.

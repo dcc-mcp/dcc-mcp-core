@@ -13,6 +13,9 @@ pub struct ToolMeta {
     pub category: String,
     /// Searchable tags for discovery.
     pub tags: Vec<String>,
+    /// Bounded search-only aliases and synonyms for discovery.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub search_aliases: Vec<String>,
     /// Target DCC application (e.g. "maya", "blender").
     pub dcc: String,
     /// Semantic version string.
@@ -115,6 +118,7 @@ impl Default for ToolMeta {
             description: String::new(),
             category: String::new(),
             tags: Vec::new(),
+            search_aliases: Vec::new(),
             dcc: String::new(),
             version: String::new(),
             input_schema: serde_json::Value::Null,
@@ -151,6 +155,7 @@ impl RegistryEntry for ToolMeta {
             self.description.clone(),
         ];
         tags.extend(self.tags.iter().cloned());
+        tags.extend(self.search_aliases.iter().cloned());
         tags.retain(|t| !t.is_empty());
         tags
     }

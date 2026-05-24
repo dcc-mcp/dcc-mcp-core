@@ -37,6 +37,7 @@ metadata:
     layer: domain
     tags: [geometry, create]
     search-hint: "polygon modeling, sphere, bevel, extrude, mesh editing"
+    search-aliases: [primitive ball, mesh globe]
     tools: tools.yaml
 ---
 # Maya Geometry Skill
@@ -49,6 +50,7 @@ Use these tools to create and modify geometry in Maya.
 tools:
   - name: create_sphere
     description: Create a polygon sphere with the given radius.
+    search_aliases: [primitive ball, mesh globe]
     source_file: scripts/create_sphere.py
     annotations:
       read_only_hint: false
@@ -61,7 +63,7 @@ tools:
     source_file: scripts/export_fbx.bat
 ```
 
-The `metadata.dcc-mcp.search-hint` field provides comma-separated keywords for efficient skill discovery via `search_skills` without loading full tool schemas.
+The `metadata.dcc-mcp.search-hint` field provides comma-separated keywords for efficient skill discovery via `search_skills` without loading full tool schemas. Use bounded `metadata.dcc-mcp.search-aliases` and per-tool `search_aliases` in `tools.yaml` for domain synonyms, localized terms, or common user phrases that should improve gateway/per-DCC search recall without changing tool names, summaries, tags, or dispatch inputs.
 
 ### 3. Set Environment Variable
 
@@ -178,6 +180,8 @@ tools:
       properties:
         radius:
           type: number
+          description: Sphere radius in scene units
+    search_aliases: [primitive ball, mesh globe]
     outputSchema:
       type: object
       properties:
@@ -211,6 +215,7 @@ decl = ToolDeclaration(
 | `description` | `str` | `""` | Human-readable description |
 | `input_schema` | `str` (JSON) | `None` | JSON Schema for input parameters; YAML also accepts `inputSchema` |
 | `output_schema` | `str` (JSON) | `None` | JSON Schema for output; YAML also accepts `outputSchema` |
+| `search_aliases` | `List[str]` | `[]` | Bounded search-only synonyms. These are indexed for discovery with schema field names, but are not tool arguments and are not a replacement for a concise description. |
 | `read_only` | `bool` | `False` | Whether this tool only reads data |
 | `destructive` | `bool` | `False` | Whether this tool may cause destructive changes |
 | `idempotent` | `bool` | `False` | Whether calling with same args always produces same result |
@@ -999,9 +1004,10 @@ Calling an unloaded skill stub (`__skill__<name>`) returns an error with a hint:
 }
 ```
 
-Searches across: `name`, `description`, `search_hint`, `tags`, `dcc`, and the
-sibling `tools.yaml` entries (`name` + `description`). The `search_hint` field
-(from `metadata.dcc-mcp.search-hint`) improves keyword matching without loading full
+Searches across: `name`, `description`, `search_hint`, `search_aliases`,
+`tags`, `dcc`, and the sibling `tools.yaml` entries (`name`, `description`,
+and per-tool `search_aliases`). The `search_hint` field (from
+`metadata.dcc-mcp.search-hint`) improves keyword matching without loading full
 schemas.
 
 #### How `search_skills` ranks results
@@ -1022,8 +1028,10 @@ fuzzy match.
 | `dcc` (exact token match only)           | 4.0 |
 | `tags`                                   | 3.0 |
 | `search_hint`                            | 3.0 |
+| `search_aliases`                         | 3.0 |
 | `description`                            | 2.0 |
 | sibling tool names (from `tools.yaml`)   | 2.0 |
+| sibling tool search aliases              | 2.0 |
 | sibling tool descriptions                | 1.0 |
 
 **Scoring** — standard BM25 per query token with `k1=1.2`, `b=0.75`, document

@@ -181,7 +181,13 @@ pub fn build_tool_meta(
     let has_timeout = meta.timeout_hint_secs.is_some();
     let missing = missing_capabilities(&meta.required_capabilities, declared_capabilities);
     let has_required_caps = !meta.required_capabilities.is_empty();
-    if !has_timeout && !deferred && !has_required_caps && !schema_is_incomplete {
+    let has_search_aliases = !meta.search_aliases.is_empty();
+    if !has_timeout
+        && !deferred
+        && !has_required_caps
+        && !schema_is_incomplete
+        && !has_search_aliases
+    {
         return None;
     }
 
@@ -203,6 +209,12 @@ pub fn build_tool_meta(
                 serde_json::json!(missing),
             );
         }
+    }
+    if has_search_aliases {
+        dcc_meta.insert(
+            "searchAliases".to_string(),
+            serde_json::json!(meta.search_aliases),
+        );
     }
     if schema_is_incomplete {
         dcc_meta.insert("incompleteSchema".to_string(), serde_json::json!(true));

@@ -272,11 +272,14 @@ describe/call 路由、`/v1/call` 和 `/v1/call_batch` 默认仍返回旧版 JSO
 Gateway policy 会在返回最终搜索结果前过滤 capability。一个缺失的 hit 可能
 代表能力不存在、skill 未加载，或该能力被 DCC / skill / tool allowlist 有意隐藏。
 Gateway 默认 `mode: "fuzzy"` 使用 hybrid ranker：先对 tool name、skill、
-tag、summary 和 schema-field token 做加权 lexical 匹配，再用
+tag、summary、作者声明的 alias 和 schema-field token 做加权 lexical 匹配，再用
 nucleo-matcher fuzzy fallback 保留 typo / partial-name 容错；`mode: "exact"`
 仍是旧 substring 表。Gateway hit 会带 `score` 和 bounded `match_reasons`
-（例如 `tool_lexical`、`summary_fuzzy`、`schema_fuzzy`、
+（例如 `tool_lexical`、`alias_lexical`、`schema_lexical`、`summary_fuzzy`、`schema_fuzzy`、
 `multi_token_lexical`），让 agent 和维护者不取完整 schema 也能理解排序原因。
+完整 `input_schema` 仍只通过 `describe` 返回；搜索阶段只允许 per-DCC backend
+通过 bounded `metadata.dcc.searchAliases` / `metadata.dcc.searchTokens` 把小型
+索引提示交给 gateway，gateway 搜索响应不会把这些内部 token 暴露成公开字段。
 
 ```bash
 curl -H 'Accept: application/toon' \
