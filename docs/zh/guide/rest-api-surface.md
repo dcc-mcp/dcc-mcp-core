@@ -150,6 +150,7 @@ OpenAPI contract 预留了 `cursor`、`since`、`until` 给后续 normalized env
 - `invalid-params` (400) —— JSON-Schema 校验 `arguments` / `params` 失败。
 - `unauthorized` (401) —— `AuthGate` 拒绝。per-DCC 默认仅本机；远程访问需装 `BearerTokenGate`。
 - `not-ready` (503) —— `/v1/readyz` 红灯；DCC 还在启动中。
+- `host-busy` (503) —— DCC 宿主仍在线，但分发队列已饱和；请退避重试或路由到另一个在线实例。
 - `affinity-violation` (409) —— 从 worker 线程调用了主线程独占的工具。
 - `bad-request` (400) —— envelope 有误（缺 `tool_slug`、JSON 坏、等）。
 - `backend-error` (502) —— 拥有者 DCC 进程响应了但工具失败。

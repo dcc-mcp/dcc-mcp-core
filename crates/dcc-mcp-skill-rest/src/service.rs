@@ -665,12 +665,24 @@ pub fn dispatch_error_to_service_error(err: DispatchError) -> ServiceError {
                     crate::thread_affinity_diagnostics::build_affinity_unavailable_context(action),
                 )
         }
+        DispatchError::HandlerError(m) if is_host_busy_dispatch_error(&m) => {
+            ServiceError::new(ServiceErrorKind::HostBusy, m).with_hint(
+                "retry after a short backoff or route the call to another live DCC instance",
+            )
+        }
         DispatchError::HandlerError(m) if m == "CANCELLED" => {
             ServiceError::new(ServiceErrorKind::BackendError, m)
         }
         DispatchError::HandlerError(m) => ServiceError::new(ServiceErrorKind::BackendError, m),
         DispatchError::MetadataNotFound(m) => ServiceError::new(ServiceErrorKind::Internal, m),
     }
+}
+
+fn is_host_busy_dispatch_error(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("host-busy")
+        || lower.contains("queue-overloaded")
+        || lower.contains("queue overloaded")
 }
 
 impl ToolInvoker for DispatcherInvoker {
