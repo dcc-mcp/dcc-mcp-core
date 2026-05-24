@@ -31,6 +31,7 @@
 //! # }
 //! ```
 
+pub(crate) mod agent_telemetry;
 pub mod aggregator;
 pub mod backend_client;
 pub mod capability;

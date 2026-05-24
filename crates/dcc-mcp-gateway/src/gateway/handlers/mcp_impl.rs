@@ -445,6 +445,20 @@ async fn handle_tools_call(
     )
     .await;
 
+    crate::gateway::agent_telemetry::emit_mcp_tool_event(
+        crate::gateway::agent_telemetry::McpToolTelemetryInput {
+            search_telemetry: &gs.search_telemetry,
+            tool,
+            args: &effective_args,
+            meta: meta.as_ref(),
+            trace_context: Some(&ctx.trace_context),
+            agent_context: ctx.agent_context.as_ref(),
+            session_id: Some(session_id),
+            text: &text,
+            is_error,
+        },
+    );
+
     {
         use crate::gateway::admin::trace::{MAX_OUTPUT_BYTES, TracePayload};
         let response_ns = std::time::SystemTime::now()
