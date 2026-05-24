@@ -34,6 +34,7 @@ pub(crate) async fn skill_mgmt_dispatch(
         "load_skill" | "unload_skill" | "activate_tool_group" | "deactivate_tool_group" => {
             match resolve_target(gs, target_instance, dcc_filter).await {
                 Ok(entry) => {
+                    let search_id = crate::gateway::search_telemetry::search_id_from_payload(&args);
                     let skill_names = requested_skill_names(&args);
                     if let Err(denial) = gs.policy.enforce_skill_operation(
                         GatewayPolicyOperation::LoadSkill,
@@ -46,6 +47,8 @@ pub(crate) async fn skill_mgmt_dispatch(
                     let mut forward_args = args.clone();
                     if let Some(obj) = forward_args.as_object_mut() {
                         obj.remove("instance_id");
+                        obj.remove("meta");
+                        obj.remove("_meta");
                         if tool == "load_skill" && !obj.contains_key("activate_groups") {
                             obj.insert("activate_groups".to_string(), Value::Bool(false));
                         }
@@ -104,7 +107,13 @@ pub(crate) async fn skill_mgmt_dispatch(
                                 }
                             }
                             let text = if !is_error && tool == "load_skill" {
-                                decorate_load_skill_success(gs, &entry, &forward_args, &text)
+                                decorate_load_skill_success(
+                                    gs,
+                                    &entry,
+                                    &forward_args,
+                                    &text,
+                                    search_id.as_deref(),
+                                )
                             } else {
                                 text
                             };
@@ -454,6 +463,7 @@ fn decorate_load_skill_success(
     entry: &ServiceEntry,
     forwarded_args: &Value,
     text: &str,
+    search_id: Option<&str>,
 ) -> String {
     let mut payload = serde_json::from_str::<Value>(text).unwrap_or_else(|_| {
         json!({
@@ -529,6 +539,8 @@ fn decorate_load_skill_success(
             .and_then(Value::as_array)
             .and_then(|items| items.first())
             .and_then(Value::as_str),
+        search_id,
+        obj.get("index_generation").and_then(Value::as_str),
     );
     obj.insert("next_step".to_string(), next_step);
 
@@ -565,15 +577,19 @@ fn suggested_post_load_next_step(
     dcc_type: &str,
     instance_id: Uuid,
     first_tool_slug: Option<&str>,
+    search_id: Option<&str>,
+    index_generation: Option<&str>,
 ) -> Value {
     if let Some(tool_slug) = first_tool_slug {
-        let arguments = json!({ "tool_slug": tool_slug });
+        let mut arguments = json!({ "tool_slug": tool_slug });
+        attach_search_meta(&mut arguments, search_id, index_generation);
         return json!({
             "action": "describe",
             "arguments": arguments.clone(),
             "mcp": {
                 "tool": "describe",
                 "arguments": arguments.clone(),
+                "_meta": arguments.get("meta").cloned().unwrap_or(Value::Null),
             },
             "rest": {
                 "method": "POST",
@@ -583,19 +599,21 @@ fn suggested_post_load_next_step(
         });
     }
 
-    let arguments = json!({
+    let mut arguments = json!({
         "query": skill_name.unwrap_or_default(),
         "skill_hint": skill_name.unwrap_or_default(),
         "dcc_type": dcc_type,
         "instance_id": instance_id.to_string(),
         "loaded_only": true,
     });
+    attach_search_meta(&mut arguments, search_id, index_generation);
     json!({
         "action": "search",
         "arguments": arguments.clone(),
         "mcp": {
             "tool": "search",
             "arguments": arguments.clone(),
+            "_meta": arguments.get("meta").cloned().unwrap_or(Value::Null),
         },
         "rest": {
             "method": "POST",
@@ -603,4 +621,24 @@ fn suggested_post_load_next_step(
             "body": arguments,
         },
     })
+}
+
+fn attach_search_meta(
+    arguments: &mut Value,
+    search_id: Option<&str>,
+    index_generation: Option<&str>,
+) {
+    let Some(search_id) = search_id else {
+        return;
+    };
+    let mut meta = json!({
+        "search_id": search_id,
+        "ranker_version": crate::gateway::search_telemetry::RANKER_VERSION,
+    });
+    if let Some(generation) = index_generation.filter(|value| !value.is_empty()) {
+        meta["index_generation"] = json!(generation);
+    }
+    if let Some(obj) = arguments.as_object_mut() {
+        obj.insert("meta".to_string(), meta);
+    }
 }

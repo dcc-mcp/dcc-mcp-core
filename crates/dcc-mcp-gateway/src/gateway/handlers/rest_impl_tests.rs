@@ -77,6 +77,7 @@ fn test_gateway_state_with_debug_routes(
             crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new(),
         ),
         traffic_capture: Arc::new(crate::gateway::traffic::TrafficCapture::disabled()),
+        search_telemetry: Arc::new(crate::gateway::search_telemetry::SearchTelemetryStore::new()),
         debug_routes_enabled,
         #[cfg(feature = "prometheus")]
         gateway_metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
@@ -475,6 +476,7 @@ async fn gateway_openapi_lists_stable_debug_routes() {
         "/v1/debug/logs",
         "/v1/debug/deregistered",
         "/v1/debug/stats",
+        "/v1/debug/search-telemetry",
         "/v1/debug/health",
     ] {
         assert!(
@@ -561,16 +563,42 @@ async fn gateway_rest_workflow_responses_expose_trace_and_index_metadata() {
     assert_eq!(status, StatusCode::OK);
     assert_trace_headers(&response_headers);
     assert_body_metadata(&search);
+    let search_id = search["search_id"]
+        .as_str()
+        .expect("search response should expose search_id")
+        .to_string();
+    assert_eq!(
+        response_headers
+            .get(crate::gateway::response_codec::HEADER_SEARCH_ID)
+            .and_then(|value| value.to_str().ok()),
+        Some(search_id.as_str())
+    );
+    assert_eq!(
+        response_headers
+            .get(crate::gateway::response_codec::HEADER_RANKER_VERSION)
+            .and_then(|value| value.to_str().ok()),
+        Some(crate::gateway::search_telemetry::RANKER_VERSION)
+    );
+    assert_eq!(
+        search["ranker_version"],
+        crate::gateway::search_telemetry::RANKER_VERSION
+    );
+    assert_eq!(search["hits"][0]["rank"], 1);
+    assert_eq!(
+        search["hits"][0]["next_step"]["arguments"]["meta"]["search_id"],
+        search_id
+    );
     let slug = search["hits"][0]["tool_slug"]
         .as_str()
         .expect("search should return seeded render capability")
         .to_string();
+    let search_meta = json!({"search_id": search_id});
 
     let (status, response_headers, describe) = response_json_with_headers(
         handle_v1_describe(
             State(gs.clone()),
             trace_headers(),
-            Json(json!({"tool_slug": slug})),
+            Json(json!({"tool_slug": slug.clone(), "meta": search_meta.clone()})),
         )
         .await,
     )
@@ -583,7 +611,7 @@ async fn gateway_rest_workflow_responses_expose_trace_and_index_metadata() {
         handle_v1_load_skill(
             State(gs.clone()),
             trace_headers(),
-            Json(json!({"skill_name": "maya-render", "dcc_type": "maya"})),
+            Json(json!({"skill_name": "maya-render", "dcc_type": "maya", "meta": search_meta.clone()})),
         )
         .await,
     )
@@ -596,7 +624,7 @@ async fn gateway_rest_workflow_responses_expose_trace_and_index_metadata() {
         handle_v1_call(
             State(gs.clone()),
             trace_headers(),
-            Json(json!({"tool_slug": "maya.00000000.render", "arguments": {}})),
+            Json(json!({"tool_slug": slug.clone(), "arguments": {}, "meta": search_meta.clone()})),
         )
         .await,
     )
@@ -610,9 +638,9 @@ async fn gateway_rest_workflow_responses_expose_trace_and_index_metadata() {
 
     let (status, response_headers, batch) = response_json_with_headers(
         handle_v1_call_batch(
-            State(gs),
+            State(gs.clone()),
             trace_headers(),
-            Json(json!({"calls": [{"id": "client-step-1"}]})),
+            Json(json!({"calls": [{"id": "client-step-1", "tool_slug": slug.clone(), "arguments": {}, "meta": search_meta.clone()}]})),
         )
         .await,
     )
@@ -623,6 +651,117 @@ async fn gateway_rest_workflow_responses_expose_trace_and_index_metadata() {
     assert_eq!(batch["results"][0]["index"], 0);
     assert_eq!(batch["results"][0]["id"], "client-step-1");
     assert_eq!(batch["results"][0]["ok"], false);
+
+    let telemetry = gs.search_telemetry.snapshot(10);
+    assert_eq!(telemetry.stats.total_searches, 1);
+    assert_eq!(telemetry.stats.describe_after_search_rate, 1.0);
+    assert_eq!(telemetry.stats.load_after_search_rate, 1.0);
+    assert_eq!(telemetry.stats.call_after_search_rate, 1.0);
+    assert_eq!(telemetry.stats.success_after_search_rate, 0.0);
+    assert_eq!(telemetry.stats.top1_hit_rate, 1.0);
+    assert!(
+        telemetry.recent[0]
+            .followups
+            .iter()
+            .any(|followup| followup.kind == "call")
+    );
+}
+
+#[tokio::test]
+async fn mcp_search_followups_correlate_describe_load_call_and_batch() {
+    let gs = test_gateway_state("1.2.3");
+    seed_unloaded_render_capability(&gs);
+    let trace = crate::gateway::admin::trace::TraceContext::from_headers(&trace_headers());
+
+    let search_args = json!({"query": "render"});
+    let (search_text, search_is_error) = crate::gateway::aggregator::route_tools_call(
+        &gs,
+        "search",
+        &search_args,
+        None,
+        Some("req-mcp-search".to_string()),
+        Some("session-mcp"),
+        Some(&trace),
+    )
+    .await;
+    assert!(!search_is_error);
+    let search: Value = serde_json::from_str(&search_text).unwrap();
+    let search_id = search["search_id"].as_str().unwrap().to_string();
+    let slug = search["hits"][0]["tool_slug"].as_str().unwrap().to_string();
+    assert_eq!(search["hits"][0]["rank"], 1);
+    assert_eq!(
+        search["hits"][0]["next_step"]["arguments"]["meta"]["search_id"],
+        search_id
+    );
+
+    let meta = json!({"search_id": search_id});
+    let describe_args = json!({"tool_slug": slug.clone()});
+    let (_describe_text, describe_is_error) = crate::gateway::aggregator::route_tools_call(
+        &gs,
+        "describe",
+        &describe_args,
+        Some(&meta),
+        Some("req-mcp-describe".to_string()),
+        Some("session-mcp"),
+        Some(&trace),
+    )
+    .await;
+    assert!(describe_is_error);
+
+    let load_args = json!({"skill_name": "maya-render", "dcc_type": "maya"});
+    let (_load_text, load_is_error) = crate::gateway::aggregator::route_tools_call(
+        &gs,
+        "load_skill",
+        &load_args,
+        Some(&meta),
+        Some("req-mcp-load".to_string()),
+        Some("session-mcp"),
+        Some(&trace),
+    )
+    .await;
+    assert!(load_is_error);
+
+    let call_args = json!({"tool_slug": slug.clone(), "arguments": {}});
+    let (_call_text, call_is_error) = crate::gateway::aggregator::route_tools_call(
+        &gs,
+        "call",
+        &call_args,
+        Some(&meta),
+        Some("req-mcp-call".to_string()),
+        Some("session-mcp"),
+        Some(&trace),
+    )
+    .await;
+    assert!(call_is_error);
+
+    let batch_args =
+        json!({"calls": [{"id": "batch-1", "tool_slug": slug, "arguments": {}, "meta": meta}]});
+    let (_batch_text, batch_is_error) = crate::gateway::aggregator::route_tools_call(
+        &gs,
+        "call",
+        &batch_args,
+        None,
+        Some("req-mcp-batch".to_string()),
+        Some("session-mcp"),
+        Some(&trace),
+    )
+    .await;
+    assert!(batch_is_error);
+
+    let telemetry = gs.search_telemetry.snapshot(10);
+    assert_eq!(telemetry.stats.total_searches, 1);
+    assert_eq!(telemetry.stats.describe_after_search_rate, 1.0);
+    assert_eq!(telemetry.stats.load_after_search_rate, 1.0);
+    assert_eq!(telemetry.stats.call_after_search_rate, 1.0);
+    assert_eq!(telemetry.stats.top1_hit_rate, 1.0);
+    assert!(
+        telemetry.recent[0]
+            .followups
+            .iter()
+            .filter(|followup| followup.kind == "call")
+            .count()
+            >= 2
+    );
 }
 
 #[tokio::test]

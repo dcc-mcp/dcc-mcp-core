@@ -589,6 +589,7 @@ pub(crate) async fn start_gateway_tasks(
         middleware_chain: Arc::new(middleware_chain),
         instance_diagnostics: instance_diagnostics.clone(),
         traffic_capture,
+        search_telemetry: Arc::new(crate::gateway::search_telemetry::SearchTelemetryStore::new()),
         debug_routes_enabled: false,
     };
 
