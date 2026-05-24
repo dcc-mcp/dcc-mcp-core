@@ -69,6 +69,11 @@ into a faster authoring loop.
    the shipped server paths enable the required gateway `admin` feature and
    Admin telemetry runtime state, while minimal direct `dcc-mcp-gateway` builds
    or runtimes started with Admin disabled may omit those debug routes.
+   Gateway `GET /v1/openapi.json` is gateway-specific: it documents only the
+   mounted aggregating routes and intentionally omits per-DCC-only resources,
+   prompts, jobs, and adapter-local `/v1/dcc/{dcc_type}/call`. Use a concrete
+   adapter's own `mcp_url` / `/v1/openapi.json` when examples need those
+   per-DCC endpoints.
    For REST discovery, describe, call, and batch examples, keep `/v1/search`,
    `/v1/describe`, `/v1/call`, and `/v1/call_batch` legacy JSON-compatible by
    default and request compact TOON only explicitly with

@@ -177,8 +177,7 @@ fn readiness_value_is_ready(readiness: &Value) -> bool {
 
 /// `GET /v1/openapi.json` — gateway REST contract.
 pub async fn handle_v1_openapi(State(gs): State<GatewayState>) -> impl IntoResponse {
-    let doc =
-        dcc_mcp_skill_rest::openapi::build_openapi_document("dcc-mcp-gateway", &gs.server_version);
+    let doc = crate::gateway::rest_openapi::build_gateway_openapi_document(&gs.server_version);
     #[cfg(feature = "admin")]
     let doc = {
         let mut doc = doc;
@@ -192,8 +191,7 @@ pub async fn handle_v1_openapi(State(gs): State<GatewayState>) -> impl IntoRespo
 
 /// `GET /docs` — gateway REST API reference.
 pub async fn handle_v1_docs(State(gs): State<GatewayState>) -> Response {
-    let doc =
-        dcc_mcp_skill_rest::openapi::build_openapi_document("dcc-mcp-gateway", &gs.server_version);
+    let doc = crate::gateway::rest_openapi::build_gateway_openapi_document(&gs.server_version);
     #[cfg(feature = "admin")]
     let doc = {
         let mut doc = doc;
