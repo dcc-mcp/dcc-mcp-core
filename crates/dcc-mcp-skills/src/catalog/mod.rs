@@ -48,7 +48,7 @@ use pyo3_stub_gen_derive::gen_stub_pyclass;
 
 use dashmap::{DashMap, DashSet};
 use dcc_mcp_actions::{
-    EventBus, ToolDispatcher,
+    EventBus, EventVeto, ToolDispatcher,
     registry::{ToolMeta, ToolRegistry},
 };
 use dcc_mcp_models::registry::{Registry, SearchQuery};

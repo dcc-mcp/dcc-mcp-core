@@ -68,8 +68,31 @@ bus.publish("scene.saved", file_path="/tmp/scene.usda", size_kb=1024)
 bus.publish("scene.opened", file_path="/tmp/scene.usda")
 ```
 
+## Before Hook 与 Veto
+
+`before()` 用于注册阻塞式策略 hook，只能绑定到支持 veto 的生命周期事件。
+回调返回 `None` 或 `False` 表示放行；返回字符串、dict 或
+`EventBus.veto(reason, code)` 表示拒绝该操作。
+
+```python
+from dcc_mcp_core import EventBus
+
+def policy(event):
+    if event["attributes"].get("tool_slug") == "delete_scene":
+        return EventBus.veto("destructive tools are disabled", "policy_denied")
+    return None
+
+sub_id = bus.before("tool.dispatched", policy)
+bus.unsubscribe_before("tool.dispatched", sub_id)
+```
+
+当前支持 veto 的事件包括 `skill.loading`、`tool.dispatched`、
+`resource.subscribed` 和 `client.initialize`。工具调用被 veto 时会返回
+`EVENT_VETOED`，并发布带 `error_kind="event_vetoed"`、`veto_code`、
+`veto_reason` 的 `tool.failed` 事件。
+
 ## Dunder 方法
 
 | 方法 | 说明 |
 |------|------|
-| `__repr__` | `EventBus(subscribers=N)` |
+| `__repr__` | `EventBus(subscriptions=N)` |

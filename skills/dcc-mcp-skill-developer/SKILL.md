@@ -73,6 +73,10 @@ into a faster authoring loop.
    needs programmatic lifecycle hooks: use `skill.*` events for load/unload
    visibility and `tool.*` events for dispatch/completion/failure metrics
    instead of scraping logs or wrapping every handler manually.
+   For policy enforcement, register `EventBus.before(...)` only on vetoable
+   lifecycle points (`skill.loading`, `tool.dispatched`,
+   `resource.subscribed`, `client.initialize`); keep callbacks fast and return
+   `EventBus.veto(reason, code)` instead of raising for expected denials.
    For local traffic debugging, prefer the gateway `traffic.frame` capture
    stream (`DCC_MCP_TRAFFIC_CAPTURE=jsonl:<path>`) over ad-hoc print logging;
    capture files can contain prompts, scene paths, and tool arguments, so keep

@@ -586,6 +586,20 @@ pub fn dispatch_error_to_service_error(err: DispatchError) -> ServiceError {
             format!("action '{action}' is disabled (group '{group}')"),
         )
         .with_hint("call load_skill / activate the owning tool group first"),
+        DispatchError::Vetoed {
+            action,
+            code,
+            reason,
+        } => ServiceError::new(
+            ServiceErrorKind::PolicyDenied,
+            format!("EVENT_VETOED: action '{action}' was vetoed ({code}): {reason}"),
+        )
+        .with_hint("inspect the registered EventBus before hook policy for this DCC instance")
+        .with_context(serde_json::json!({
+            "action": action,
+            "veto_code": code,
+            "veto_reason": reason,
+        })),
         DispatchError::ThreadAffinityViolation {
             action,
             declared,

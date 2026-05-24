@@ -26,33 +26,29 @@ impl SkillCatalog {
             return;
         }
 
-        let mut source = Map::new();
-        let mut attrs = attributes.as_object().cloned().unwrap_or_default();
-        attrs.insert("skill_name".to_string(), json!(skill_name));
+        let (source, attributes) = skill_event_payload(skill_name, metadata, attributes);
 
-        if let Some(metadata) = metadata {
-            if !metadata.dcc.is_empty() {
-                source.insert("dcc_type".to_string(), json!(metadata.dcc));
-                attrs.insert("dcc_type".to_string(), json!(metadata.dcc));
-            }
-            if !metadata.version.is_empty() {
-                attrs.insert("version".to_string(), json!(metadata.version));
-            }
-            if !metadata.skill_path.is_empty() {
-                attrs.insert("skill_path".to_string(), json!(metadata.skill_path));
-            }
-            attrs.insert(
-                "declared_tool_count".to_string(),
-                json!(metadata.tools.len()),
-            );
-        }
+        let _ = self
+            .event_bus
+            .emit(event_name, source, Value::Object(Map::new()), attributes);
+    }
 
-        let _ = self.event_bus.emit(
+    fn emit_vetoable_skill_event(
+        &self,
+        event_name: &str,
+        skill_name: &str,
+        metadata: Option<&SkillMetadata>,
+        attributes: Value,
+    ) -> Result<(), EventVeto> {
+        let (source, attributes) = skill_event_payload(skill_name, metadata, attributes);
+        let event = self.event_bus.before_event(
             event_name,
-            Value::Object(source),
+            source,
             Value::Object(Map::new()),
-            Value::Object(attrs),
-        );
+            attributes,
+        )?;
+        self.event_bus.publish_event(&event);
+        Ok(())
     }
 
     /// Load a skill by name — registers its tools into ToolRegistry and,
@@ -205,14 +201,31 @@ impl SkillCatalog {
         let mut registered = Vec::new();
         let skill_base = metadata.name.replace('-', "_");
         let skill_path = std::path::Path::new(&metadata.skill_path);
-        self.emit_skill_event(
+        if let Err(veto) = self.emit_vetoable_skill_event(
             "skill.loading",
             skill_name,
             Some(metadata),
             json!({
                 "activate_groups": activate_groups,
             }),
-        );
+        ) {
+            let err = format!(
+                "Skill '{skill_name}' loading vetoed ({}): {}",
+                veto.code, veto.reason
+            );
+            self.emit_skill_event(
+                "skill.validation_failed",
+                skill_name,
+                Some(metadata),
+                json!({
+                    "error_kind": "event_vetoed",
+                    "error_message": err,
+                    "veto_code": veto.code,
+                    "veto_reason": veto.reason,
+                }),
+            );
+            return Err(err);
+        }
 
         if activate_groups {
             activate_skill_groups(self, metadata);
@@ -513,4 +526,33 @@ impl SkillCatalog {
         }
         self.entries.clear();
     }
+}
+
+fn skill_event_payload(
+    skill_name: &str,
+    metadata: Option<&SkillMetadata>,
+    attributes: Value,
+) -> (Value, Value) {
+    let mut source = Map::new();
+    let mut attrs = attributes.as_object().cloned().unwrap_or_default();
+    attrs.insert("skill_name".to_string(), json!(skill_name));
+
+    if let Some(metadata) = metadata {
+        if !metadata.dcc.is_empty() {
+            source.insert("dcc_type".to_string(), json!(metadata.dcc));
+            attrs.insert("dcc_type".to_string(), json!(metadata.dcc));
+        }
+        if !metadata.version.is_empty() {
+            attrs.insert("version".to_string(), json!(metadata.version));
+        }
+        if !metadata.skill_path.is_empty() {
+            attrs.insert("skill_path".to_string(), json!(metadata.skill_path));
+        }
+        attrs.insert(
+            "declared_tool_count".to_string(),
+            json!(metadata.tools.len()),
+        );
+    }
+
+    (Value::Object(source), Value::Object(attrs))
 }
