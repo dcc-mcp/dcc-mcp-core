@@ -1,12 +1,14 @@
 use super::*;
 
+use crate::gateway::admin::trace::TraceContext;
 use crate::gateway::capability::{RefreshReason, parse_slug, tool_slug};
 use crate::gateway::capability_service::{
-    ServiceError, call_service, describe_tool_full, parse_search_payload,
+    ServiceError, call_service, describe_tool_full, index_generation, parse_search_payload,
     refresh_all_live_backends, search_service_rows, service_error_to_json,
 };
 use crate::gateway::response_codec::{
-    compact_call_batch_payload, compact_describe_payload, negotiated_response, search_response,
+    compact_call_batch_payload, compact_describe_payload, compact_search_payload,
+    negotiated_response,
 };
 
 #[derive(Debug, Deserialize)]
@@ -300,6 +302,7 @@ pub async fn handle_v1_search(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
+    let trace_context = TraceContext::from_headers(&headers);
     // Refresh-on-demand so the first call after startup or a skill
     // load sees fresh capabilities without waiting for a watcher tick.
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
@@ -323,40 +326,70 @@ pub async fn handle_v1_search(
         }
     }
     let hits = search_service_rows(&gs.capability_index, &query);
-    search_response(&headers, &body, hits)
+    let metadata = RestResponseMetadata::from_trace_context(&trace_context)
+        .with_index_generation(index_generation(&gs.capability_index));
+    search_response_with_metadata(&headers, &body, hits, &metadata)
 }
 
 /// `POST /v1/load_skill` — load a skill on a target backend instance
 /// using the same routing arguments surfaced by `/v1/search.next_step`.
 pub async fn handle_v1_load_skill(
     State(gs): State<GatewayState>,
+    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
-    skill_lifecycle_response(&gs, "load_skill", body).await
+    skill_lifecycle_response(&gs, &headers, "load_skill", body).await
 }
 
 /// `POST /v1/unload_skill` — unload a skill on a target backend instance.
 pub async fn handle_v1_unload_skill(
     State(gs): State<GatewayState>,
+    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
-    skill_lifecycle_response(&gs, "unload_skill", body).await
+    skill_lifecycle_response(&gs, &headers, "unload_skill", body).await
 }
 
-async fn skill_lifecycle_response(gs: &GatewayState, tool: &str, body: Value) -> Response {
+async fn skill_lifecycle_response(
+    gs: &GatewayState,
+    headers: &HeaderMap,
+    tool: &str,
+    body: Value,
+) -> Response {
+    let trace_context = TraceContext::from_headers(headers);
     let (text, is_error) = crate::gateway::aggregator::skill_mgmt_dispatch(gs, tool, &body).await;
+    let metadata = RestResponseMetadata::from_trace_context(&trace_context)
+        .with_index_generation(index_generation(&gs.capability_index));
     if is_error {
-        return (
+        let legacy = service_error_to_json(&ServiceError::new(
+            classify_skill_lifecycle_error(tool, &text),
+            text,
+        ));
+        return negotiated_response_with_metadata(
+            headers,
+            &body,
             StatusCode::BAD_GATEWAY,
-            Json(service_error_to_json(&ServiceError::new(
-                classify_skill_lifecycle_error(tool, &text),
-                text,
-            ))),
-        )
-            .into_response();
+            legacy,
+            None,
+            &metadata,
+            true,
+        );
     }
-    let parsed = serde_json::from_str::<Value>(&text).unwrap_or_else(|_| json!({"message": text}));
-    (StatusCode::OK, Json(parsed)).into_response()
+    let mut parsed =
+        serde_json::from_str::<Value>(&text).unwrap_or_else(|_| json!({"message": text}));
+    if let Some(obj) = parsed.as_object_mut() {
+        obj.entry("index_generation".to_string())
+            .or_insert_with(|| json!(metadata.index_generation.as_deref().unwrap_or("")));
+    }
+    negotiated_response_with_metadata(
+        headers,
+        &body,
+        StatusCode::OK,
+        parsed,
+        None,
+        &metadata,
+        true,
+    )
 }
 
 fn classify_skill_lifecycle_error(tool: &str, text: &str) -> &'static str {
@@ -396,16 +429,23 @@ pub async fn handle_v1_describe(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
+    let trace_context = TraceContext::from_headers(&headers);
     let Some(slug) = body.get("tool_slug").and_then(Value::as_str) else {
-        return service_error_response(
+        let metadata = RestResponseMetadata::from_trace_context(&trace_context)
+            .with_index_generation(index_generation(&gs.capability_index));
+        return service_error_response_with_metadata(
             &headers,
             &body,
             &ServiceError::new("bad-request", "missing required field: tool_slug"),
+            &metadata,
+            true,
         );
     };
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
+    let metadata = RestResponseMetadata::from_trace_context(&trace_context)
+        .with_index_generation(index_generation(&gs.capability_index));
 
-    describe_slug_response(&gs, &headers, &body, slug).await
+    describe_slug_response(&gs, &headers, &body, slug, &metadata).await
 }
 
 /// `GET /v1/tools/{slug}` — path form of describe.
@@ -414,9 +454,12 @@ pub async fn handle_v1_describe_path(
     headers: HeaderMap,
     Path(slug): Path<String>,
 ) -> Response {
+    let trace_context = TraceContext::from_headers(&headers);
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
     let body = json!({});
-    describe_slug_response(&gs, &headers, &body, &slug).await
+    let metadata = RestResponseMetadata::from_trace_context(&trace_context)
+        .with_index_generation(index_generation(&gs.capability_index));
+    describe_slug_response(&gs, &headers, &body, &slug, &metadata).await
 }
 
 async fn describe_slug_response(
@@ -424,6 +467,7 @@ async fn describe_slug_response(
     headers: &HeaderMap,
     body: &Value,
     slug: &str,
+    metadata: &RestResponseMetadata,
 ) -> Response {
     match describe_tool_full(gs, slug).await {
         Ok((record, tool)) => {
@@ -432,9 +476,17 @@ async fn describe_slug_response(
                 "tool": tool,
             });
             let compact = compact_describe_payload(&legacy);
-            negotiated_response(headers, body, StatusCode::OK, legacy, Some(compact))
+            negotiated_response_with_metadata(
+                headers,
+                body,
+                StatusCode::OK,
+                legacy,
+                Some(compact),
+                metadata,
+                true,
+            )
         }
-        Err(err) => service_error_response(headers, body, &err),
+        Err(err) => service_error_response_with_metadata(headers, body, &err, metadata, true),
     }
 }
 
@@ -453,17 +505,24 @@ pub async fn handle_v1_dcc_instance_describe(
     let body = json!({});
     let backend_tool = q.backend_tool.trim();
     if backend_tool.is_empty() {
-        return service_error_response(
+        let metadata = RestResponseMetadata::from_headers(&headers)
+            .with_index_generation(index_generation(&gs.capability_index));
+        return service_error_response_with_metadata(
             &headers,
             &body,
             &ServiceError::new(
                 "bad-request",
                 "missing or empty required query parameter: backend_tool (aliases: tool, action)",
             ),
+            &metadata,
+            true,
         );
     }
 
+    let trace_context = TraceContext::from_headers(&headers);
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
+    let metadata = RestResponseMetadata::from_trace_context(&trace_context)
+        .with_index_generation(index_generation(&gs.capability_index));
 
     let registry = gs.registry.read().await;
     let entry = match gs.resolve_instance(
@@ -480,18 +539,20 @@ pub async fn handle_v1_dcc_instance_describe(
     drop(registry);
 
     if !entry.dcc_type.eq_ignore_ascii_case(dcc_type.as_str()) {
-        return service_error_response(
+        return service_error_response_with_metadata(
             &headers,
             &body,
             &ServiceError::new(
                 "bad-request",
                 "path dcc_type does not match resolved registry row",
             ),
+            &metadata,
+            true,
         );
     }
 
     let slug = tool_slug(&entry.dcc_type, &entry.instance_id, backend_tool);
-    describe_slug_response(&gs, &headers, &body, &slug).await
+    describe_slug_response(&gs, &headers, &body, &slug, &metadata).await
 }
 
 /// `POST /v1/call` — invoke a backend action by slug.
@@ -503,31 +564,67 @@ pub async fn handle_v1_call(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
+    let trace_context = TraceContext::from_headers(&headers);
     let Some(slug) = body.get("tool_slug").and_then(Value::as_str) else {
-        return service_error_response(
+        let metadata = RestResponseMetadata::from_trace_context(&trace_context)
+            .with_index_generation(index_generation(&gs.capability_index));
+        return service_error_response_with_metadata(
             &headers,
             &body,
             &ServiceError::new("bad-request", "missing required field: tool_slug"),
+            &metadata,
+            false,
         );
     };
     let arguments =
         match dcc_mcp_jsonrpc::coerce_tool_arguments_object(body.get("arguments").cloned()) {
             Ok(v) => v,
             Err(msg) => {
-                return service_error_response(
+                let metadata = RestResponseMetadata::from_trace_context(&trace_context)
+                    .with_index_generation(index_generation(&gs.capability_index));
+                return service_error_response_with_metadata(
                     &headers,
                     &body,
                     &ServiceError::new("bad-request", msg),
+                    &metadata,
+                    false,
                 );
             }
         };
     let meta = body.get("meta").cloned();
 
-    match call_service_with_admin_trace(&gs, &headers, "v1/call", slug, arguments, meta, &body)
-        .await
+    match call_service_with_admin_trace(
+        &gs,
+        &headers,
+        RestCallTraceRequest {
+            method: "v1/call",
+            slug,
+            arguments,
+            meta,
+            request_body: &body,
+            trace_context: trace_context.clone(),
+        },
+    )
+    .await
     {
-        Ok(result) => negotiated_response(&headers, &body, StatusCode::OK, result, None),
-        Err(err) => service_error_response(&headers, &body, &err),
+        Ok(result) => {
+            let metadata = RestResponseMetadata::from_trace_context(&trace_context)
+                .with_index_generation(index_generation(&gs.capability_index));
+            negotiated_response_with_metadata(
+                &headers,
+                &body,
+                StatusCode::OK,
+                result,
+                None,
+                &metadata,
+                false,
+            )
+        }
+        Err(err) => {
+            let metadata = RestResponseMetadata::from_trace_context(&trace_context)
+                .with_index_generation(index_generation(&gs.capability_index));
+            service_error_response_with_metadata(&headers, &body, &err, &metadata, false)
+        }
     }
 }
 
@@ -548,6 +645,7 @@ pub async fn handle_v1_dcc_instance_call(
     Path((dcc_type, instance_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Response {
+    let trace_context = TraceContext::from_headers(&headers);
     let backend_tool = body
         .get("backend_tool")
         .or_else(|| body.get("tool"))
@@ -556,17 +654,23 @@ pub async fn handle_v1_dcc_instance_call(
         .map(str::trim)
         .filter(|s| !s.is_empty());
     let Some(backend_tool) = backend_tool else {
-        return service_error_response(
+        let metadata = RestResponseMetadata::from_trace_context(&trace_context)
+            .with_index_generation(index_generation(&gs.capability_index));
+        return service_error_response_with_metadata(
             &headers,
             &body,
             &ServiceError::new(
                 "bad-request",
                 "missing required field: backend_tool (accepted aliases: tool, action)",
             ),
+            &metadata,
+            false,
         );
     };
 
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
+    let metadata = RestResponseMetadata::from_trace_context(&trace_context)
+        .with_index_generation(index_generation(&gs.capability_index));
 
     let registry = gs.registry.read().await;
     let entry = match gs.resolve_instance(
@@ -583,13 +687,15 @@ pub async fn handle_v1_dcc_instance_call(
     drop(registry);
 
     if !entry.dcc_type.eq_ignore_ascii_case(dcc_type.as_str()) {
-        return service_error_response(
+        return service_error_response_with_metadata(
             &headers,
             &body,
             &ServiceError::new(
                 "bad-request",
                 "path dcc_type does not match resolved registry row",
             ),
+            &metadata,
+            false,
         );
     }
 
@@ -598,10 +704,12 @@ pub async fn handle_v1_dcc_instance_call(
         match dcc_mcp_jsonrpc::coerce_tool_arguments_object(body.get("arguments").cloned()) {
             Ok(v) => v,
             Err(msg) => {
-                return service_error_response(
+                return service_error_response_with_metadata(
                     &headers,
                     &body,
                     &ServiceError::new("bad-request", msg),
+                    &metadata,
+                    false,
                 );
             }
         };
@@ -610,16 +718,27 @@ pub async fn handle_v1_dcc_instance_call(
     match call_service_with_admin_trace(
         &gs,
         &headers,
-        "v1/dcc/instances/call",
-        &slug,
-        arguments,
-        meta,
-        &body,
+        RestCallTraceRequest {
+            method: "v1/dcc/instances/call",
+            slug: &slug,
+            arguments,
+            meta,
+            request_body: &body,
+            trace_context: trace_context.clone(),
+        },
     )
     .await
     {
-        Ok(result) => negotiated_response(&headers, &body, StatusCode::OK, result, None),
-        Err(err) => service_error_response(&headers, &body, &err),
+        Ok(result) => negotiated_response_with_metadata(
+            &headers,
+            &body,
+            StatusCode::OK,
+            result,
+            None,
+            &metadata,
+            false,
+        ),
+        Err(err) => service_error_response_with_metadata(&headers, &body, &err, &metadata, false),
     }
 }
 
@@ -634,7 +753,8 @@ fn resolve_instance_negotiated_response(
     err: ResolveInstanceError,
 ) -> Response {
     let (status, legacy) = resolve_instance_error_parts(&err);
-    negotiated_response(headers, body, status, legacy, None)
+    let metadata = RestResponseMetadata::from_headers(headers);
+    negotiated_response_with_metadata(headers, body, status, legacy, None, &metadata, false)
 }
 
 fn resolve_instance_error_parts(err: &ResolveInstanceError) -> (StatusCode, Value) {
@@ -669,36 +789,70 @@ pub async fn handle_v1_call_batch(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
-    match call_batch_with_admin_trace(&gs, &headers, &body).await {
+    let trace_context = TraceContext::from_headers(&headers);
+    match call_batch_with_admin_trace(&gs, &headers, &body, trace_context.clone()).await {
         Ok(value) => {
             let compact = compact_call_batch_payload(&value);
-            negotiated_response(&headers, &body, StatusCode::OK, value, Some(compact))
+            let metadata = RestResponseMetadata::from_trace_context(&trace_context)
+                .with_index_generation(index_generation(&gs.capability_index));
+            negotiated_response_with_metadata(
+                &headers,
+                &body,
+                StatusCode::OK,
+                value,
+                Some(compact),
+                &metadata,
+                true,
+            )
         }
         Err(message) => {
             let legacy = json!({
                 "success": false,
                 "error": {"kind": "bad-request", "message": message},
             });
-            negotiated_response(&headers, &body, StatusCode::BAD_REQUEST, legacy, None)
+            let metadata = RestResponseMetadata::from_trace_context(&trace_context)
+                .with_index_generation(index_generation(&gs.capability_index));
+            negotiated_response_with_metadata(
+                &headers,
+                &body,
+                StatusCode::BAD_REQUEST,
+                legacy,
+                None,
+                &metadata,
+                true,
+            )
         }
     }
+}
+
+struct RestCallTraceRequest<'a> {
+    method: &'a str,
+    slug: &'a str,
+    arguments: Value,
+    meta: Option<Value>,
+    request_body: &'a Value,
+    trace_context: TraceContext,
 }
 
 async fn call_service_with_admin_trace(
     gs: &GatewayState,
     headers: &HeaderMap,
-    method: &str,
-    slug: &str,
-    arguments: Value,
-    meta: Option<Value>,
-    request_body: &Value,
+    request: RestCallTraceRequest<'_>,
 ) -> Result<Value, ServiceError> {
     use crate::gateway::admin::trace::{
-        AgentContext, MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, TraceContext, TracePayload,
+        AgentContext, MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, TracePayload,
     };
     use crate::gateway::middleware::{CallContext, CallResult};
 
-    let trace_context = TraceContext::from_headers(headers);
+    let RestCallTraceRequest {
+        method,
+        slug,
+        arguments,
+        meta,
+        request_body,
+        trace_context,
+    } = request;
+
     let mut ctx = CallContext::new(method, trace_context.request_id.clone(), arguments.clone())
         .with_tool_slug(slug)
         .with_transport("rest")
@@ -816,13 +970,13 @@ async fn call_batch_with_admin_trace(
     gs: &GatewayState,
     headers: &HeaderMap,
     request_body: &Value,
+    trace_context: TraceContext,
 ) -> Result<Value, String> {
     use crate::gateway::admin::trace::{
-        AgentContext, MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, TraceContext, TracePayload,
+        AgentContext, MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, TracePayload,
     };
     use crate::gateway::middleware::{CallContext, CallResult};
 
-    let trace_context = TraceContext::from_headers(headers);
     let mut ctx = CallContext::new(
         "v1/call_batch",
         trace_context.request_id.clone(),
@@ -922,6 +1076,132 @@ async fn call_batch_with_admin_trace(
     result
 }
 
+#[derive(Debug, Clone)]
+struct RestResponseMetadata {
+    request_id: String,
+    trace_id: String,
+    traceparent: Option<String>,
+    index_generation: Option<String>,
+}
+
+impl RestResponseMetadata {
+    fn from_headers(headers: &HeaderMap) -> Self {
+        Self::from_trace_context(&TraceContext::from_headers(headers))
+    }
+
+    fn from_trace_context(trace_context: &TraceContext) -> Self {
+        Self {
+            request_id: trace_context.request_id.clone(),
+            trace_id: trace_context.trace_id.clone(),
+            traceparent: trace_context.traceparent(),
+            index_generation: None,
+        }
+    }
+
+    fn with_index_generation(mut self, generation: String) -> Self {
+        if !generation.is_empty() {
+            self.index_generation = Some(generation);
+        }
+        self
+    }
+
+    fn insert_body_fields(&self, value: &mut Value) {
+        if let Some(obj) = value.as_object_mut() {
+            obj.entry("request_id".to_string())
+                .or_insert_with(|| json!(self.request_id));
+            obj.entry("trace_id".to_string())
+                .or_insert_with(|| json!(self.trace_id));
+            if let Some(generation) = self.index_generation.as_deref() {
+                obj.entry("index_generation".to_string())
+                    .or_insert_with(|| json!(generation));
+            }
+        }
+    }
+
+    fn attach_headers(&self, headers: &mut HeaderMap) {
+        insert_header(
+            headers,
+            crate::gateway::response_codec::HEADER_REQUEST_ID,
+            &self.request_id,
+        );
+        insert_header(headers, "x-request-id", &self.request_id);
+        insert_header(
+            headers,
+            crate::gateway::response_codec::HEADER_TRACE_ID,
+            &self.trace_id,
+        );
+        if let Some(traceparent) = self.traceparent.as_deref() {
+            insert_header(headers, "traceparent", traceparent);
+        }
+        if let Some(generation) = self.index_generation.as_deref() {
+            insert_header(
+                headers,
+                crate::gateway::response_codec::HEADER_INDEX_GENERATION,
+                generation,
+            );
+        }
+    }
+}
+
+fn insert_header(headers: &mut HeaderMap, name: &'static str, value: &str) {
+    if let Ok(value) = axum::http::HeaderValue::from_str(value) {
+        headers.insert(name, value);
+    }
+}
+
+fn negotiated_response_with_metadata(
+    headers: &HeaderMap,
+    request_body: &Value,
+    status: StatusCode,
+    mut legacy_json: Value,
+    compact_json: Option<Value>,
+    metadata: &RestResponseMetadata,
+    include_body_metadata: bool,
+) -> Response {
+    let mut compact_json = compact_json;
+    if include_body_metadata {
+        metadata.insert_body_fields(&mut legacy_json);
+        if let Some(compact) = compact_json.as_mut() {
+            metadata.insert_body_fields(compact);
+        }
+    }
+    let mut response =
+        negotiated_response(headers, request_body, status, legacy_json, compact_json);
+    metadata.attach_headers(response.headers_mut());
+    response
+}
+
+fn search_response_with_metadata(
+    headers: &HeaderMap,
+    body: &Value,
+    hits: Vec<Value>,
+    metadata: &RestResponseMetadata,
+) -> Response {
+    let total = hits.len();
+    let mut legacy = json!({
+        "total": total,
+        "hits": hits,
+    });
+    metadata.insert_body_fields(&mut legacy);
+    let mut compact = compact_search_payload(
+        total,
+        legacy["hits"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default(),
+    );
+    metadata.insert_body_fields(&mut compact);
+    negotiated_response_with_metadata(
+        headers,
+        body,
+        StatusCode::OK,
+        legacy,
+        Some(compact),
+        metadata,
+        false,
+    )
+}
+
 struct RestTrafficFrame<'a> {
     path: &'a str,
     direction: &'static str,
@@ -1006,13 +1286,21 @@ fn service_error_status(err: &ServiceError) -> StatusCode {
     }
 }
 
-fn service_error_response(headers: &HeaderMap, body: &Value, err: &ServiceError) -> Response {
-    negotiated_response(
+fn service_error_response_with_metadata(
+    headers: &HeaderMap,
+    body: &Value,
+    err: &ServiceError,
+    metadata: &RestResponseMetadata,
+    include_body_metadata: bool,
+) -> Response {
+    negotiated_response_with_metadata(
         headers,
         body,
         service_error_status(err),
         service_error_to_json(err),
         None,
+        metadata,
+        include_body_metadata,
     )
 }
 

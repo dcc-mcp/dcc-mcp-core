@@ -89,6 +89,14 @@ async fn response_json(resp: Response) -> (StatusCode, Value) {
     (status, body)
 }
 
+async fn response_json_with_headers(resp: Response) -> (StatusCode, HeaderMap, Value) {
+    let status = resp.status();
+    let headers = resp.headers().clone();
+    let bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+    let body = serde_json::from_slice(&bytes).unwrap();
+    (status, headers, body)
+}
+
 async fn response_text(resp: Response) -> (StatusCode, String) {
     let status = resp.status();
     let bytes = to_bytes(resp.into_body(), 4 * 1024 * 1024).await.unwrap();
@@ -100,6 +108,60 @@ async fn response_text_with_headers(resp: Response) -> (StatusCode, HeaderMap, S
     let headers = resp.headers().clone();
     let bytes = to_bytes(resp.into_body(), 4 * 1024 * 1024).await.unwrap();
     (status, headers, String::from_utf8_lossy(&bytes).to_string())
+}
+
+fn trace_headers() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert("x-request-id", "req-rest-meta".parse().unwrap());
+    headers.insert(
+        "traceparent",
+        "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+            .parse()
+            .unwrap(),
+    );
+    headers
+}
+
+fn assert_trace_headers(headers: &HeaderMap) {
+    assert_eq!(
+        headers
+            .get(crate::gateway::response_codec::HEADER_REQUEST_ID)
+            .and_then(|value| value.to_str().ok()),
+        Some("req-rest-meta")
+    );
+    assert_eq!(
+        headers
+            .get(crate::gateway::response_codec::HEADER_TRACE_ID)
+            .and_then(|value| value.to_str().ok()),
+        Some("4bf92f3577b34da6a3ce929d0e0e4736")
+    );
+    assert!(
+        headers
+            .get(crate::gateway::response_codec::HEADER_INDEX_GENERATION)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| !value.is_empty())
+    );
+}
+
+fn assert_body_metadata(body: &Value) {
+    assert_eq!(body["request_id"], "req-rest-meta");
+    assert_eq!(body["trace_id"], "4bf92f3577b34da6a3ce929d0e0e4736");
+    assert!(
+        body["index_generation"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty())
+    );
+}
+
+fn seed_unloaded_render_capability(gs: &GatewayState) {
+    gs.capability_index.set_unloaded_records(vec![
+        crate::gateway::capability::CapabilityRecord::from_skill_tool(
+            "maya-render",
+            "render",
+            "Render the current scene",
+            "maya",
+        ),
+    ]);
 }
 
 #[tokio::test]
@@ -359,6 +421,87 @@ async fn gateway_openapi_omits_debug_routes_without_admin_feature() {
 }
 
 #[tokio::test]
+async fn gateway_rest_workflow_responses_expose_trace_and_index_metadata() {
+    let gs = test_gateway_state("1.2.3");
+    seed_unloaded_render_capability(&gs);
+
+    let (status, response_headers, search) = response_json_with_headers(
+        handle_v1_search(
+            State(gs.clone()),
+            trace_headers(),
+            Json(json!({"query": "render"})),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_trace_headers(&response_headers);
+    assert_body_metadata(&search);
+    let slug = search["hits"][0]["tool_slug"]
+        .as_str()
+        .expect("search should return seeded render capability")
+        .to_string();
+
+    let (status, response_headers, describe) = response_json_with_headers(
+        handle_v1_describe(
+            State(gs.clone()),
+            trace_headers(),
+            Json(json!({"tool_slug": slug})),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_trace_headers(&response_headers);
+    assert_body_metadata(&describe);
+
+    let (status, response_headers, load) = response_json_with_headers(
+        handle_v1_load_skill(
+            State(gs.clone()),
+            trace_headers(),
+            Json(json!({"skill_name": "maya-render", "dcc_type": "maya"})),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert_trace_headers(&response_headers);
+    assert_body_metadata(&load);
+
+    let (status, response_headers, call) = response_json_with_headers(
+        handle_v1_call(
+            State(gs.clone()),
+            trace_headers(),
+            Json(json!({"tool_slug": "maya.00000000.render", "arguments": {}})),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_trace_headers(&response_headers);
+    assert!(
+        call.get("request_id").is_none(),
+        "/v1/call must keep backend/error envelope bodies unwrapped"
+    );
+
+    let (status, response_headers, batch) = response_json_with_headers(
+        handle_v1_call_batch(
+            State(gs),
+            trace_headers(),
+            Json(json!({"calls": [{"id": "client-step-1"}]})),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_trace_headers(&response_headers);
+    assert_body_metadata(&batch);
+    assert_eq!(batch["results"][0]["index"], 0);
+    assert_eq!(batch["results"][0]["id"], "client-step-1");
+    assert_eq!(batch["results"][0]["ok"], false);
+}
+
+#[tokio::test]
 async fn gateway_yield_missing_challenger_is_structured_optional_capability() {
     let (status, body) = response_json(
         handle_gateway_yield(
@@ -517,15 +660,19 @@ async fn rest_trace_input_payload_uses_redacted_arguments() {
         },
         "meta": {}
     });
+    let headers = HeaderMap::new();
 
     let result = call_service_with_admin_trace(
         &gs,
-        &HeaderMap::new(),
-        "v1/call",
-        "maya.abcdef01.render",
-        request_body["arguments"].clone(),
-        request_body.get("meta").cloned(),
-        &request_body,
+        &headers,
+        RestCallTraceRequest {
+            method: "v1/call",
+            slug: "maya.abcdef01.render",
+            arguments: request_body["arguments"].clone(),
+            meta: request_body.get("meta").cloned(),
+            request_body: &request_body,
+            trace_context: crate::gateway::admin::trace::TraceContext::from_headers(&headers),
+        },
     )
     .await;
 
@@ -564,11 +711,14 @@ async fn rest_traceparent_does_not_replace_request_id() {
     let _ = call_service_with_admin_trace(
         &gs,
         &headers,
-        "v1/call",
-        "maya.abcdef01.render",
-        json!({}),
-        request_body.get("meta").cloned(),
-        &request_body,
+        RestCallTraceRequest {
+            method: "v1/call",
+            slug: "maya.abcdef01.render",
+            arguments: json!({}),
+            meta: request_body.get("meta").cloned(),
+            request_body: &request_body,
+            trace_context: crate::gateway::admin::trace::TraceContext::from_headers(&headers),
+        },
     )
     .await;
 
@@ -621,7 +771,14 @@ async fn rest_call_batch_uses_arguments_mutated_by_before_middleware() {
     let mut gs = test_gateway_state("1.2.3");
     gs.middleware_chain = Arc::new(chain);
 
-    let result = call_batch_with_admin_trace(&gs, &HeaderMap::new(), &json!({"calls": []})).await;
+    let headers = HeaderMap::new();
+    let result = call_batch_with_admin_trace(
+        &gs,
+        &headers,
+        &json!({"calls": []}),
+        crate::gateway::admin::trace::TraceContext::from_headers(&headers),
+    )
+    .await;
 
     let body = result.expect("batch should use middleware-mutated args");
     assert_eq!(body["results"][0]["tool_slug"], "maya.abcdef01.render");
