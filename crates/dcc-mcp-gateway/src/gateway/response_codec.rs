@@ -24,6 +24,8 @@ pub(crate) const HEADER_SAVINGS_PERCENT: &str = "x-dcc-mcp-savings-pct";
 pub(crate) const HEADER_REQUEST_ID: &str = "x-dcc-mcp-request-id";
 pub(crate) const HEADER_TRACE_ID: &str = "x-dcc-mcp-trace-id";
 pub(crate) const HEADER_INDEX_GENERATION: &str = "x-dcc-mcp-index-generation";
+pub(crate) const HEADER_SEARCH_ID: &str = "x-dcc-mcp-search-id";
+pub(crate) const HEADER_RANKER_VERSION: &str = "x-dcc-mcp-ranker-version";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ResponseFormat {
@@ -229,6 +231,7 @@ pub(crate) fn compact_describe_payload(legacy: &Value) -> Value {
     copy_field(&mut out, legacy, "request_id");
     copy_field(&mut out, legacy, "trace_id");
     copy_field(&mut out, legacy, "index_generation");
+    copy_field(&mut out, legacy, "next_step");
     if let Some(record) = legacy.get("record") {
         out.insert("record".to_string(), compact_record(record));
     }
@@ -273,6 +276,7 @@ fn compact_record(record: &Value) -> Value {
     copy_field(&mut out, record, "loaded");
     copy_field(&mut out, record, "load_state");
     copy_field(&mut out, record, "available_groups");
+    copy_field(&mut out, record, "rank");
     copy_field(&mut out, record, "score");
     copy_field(&mut out, record, "match_reasons");
     copy_field(&mut out, record, "annotations");

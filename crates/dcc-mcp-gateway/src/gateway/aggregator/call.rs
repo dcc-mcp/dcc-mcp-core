@@ -20,8 +20,12 @@ pub async fn route_tools_call(
 ) -> (String, bool) {
     // ── Advertised gateway surface (read-only) ───────────────────────
     match tool {
-        "search" => return to_text_result(tool_search(gs, args).await),
-        "describe" => return to_text_result(tool_describe(gs, args).await),
+        "search" => {
+            return to_text_result(
+                tool_search(gs, args, meta, trace_context, _client_session_id).await,
+            );
+        }
+        "describe" => return to_text_result(tool_describe(gs, args, meta, trace_context).await),
         _ => {}
     }
 
@@ -29,7 +33,17 @@ pub async fn route_tools_call(
     match tool {
         "call" => return tool_call(gs, args, meta, trace_context).await,
         "lease" => return to_text_result(tool_lease(gs, args).await),
-        "load_skill" => return tool_load_skill(gs, args).await,
+        "load_skill" => {
+            let (text, is_error) = tool_load_skill(gs, args).await;
+            crate::gateway::tools::record_load_skill_search_followup(
+                gs,
+                args,
+                meta,
+                trace_context,
+                !is_error,
+            );
+            return (text, is_error);
+        }
         "unload_skill" => return skill_mgmt_dispatch(gs, "unload_skill", args).await,
         _ => {}
     }
@@ -38,8 +52,14 @@ pub async fn route_tools_call(
     match tool {
         "acquire_dcc_instance" => return to_text_result(tool_acquire_instance(gs, args).await),
         "release_dcc_instance" => return to_text_result(tool_release_instance(gs, args).await),
-        "search_tools" => return to_text_result(tool_search_tools(gs, args).await),
-        "describe_tool" => return to_text_result(tool_describe_tool(gs, args).await),
+        "search_tools" => {
+            return to_text_result(
+                tool_search_tools(gs, args, trace_context, _client_session_id).await,
+            );
+        }
+        "describe_tool" => {
+            return to_text_result(tool_describe_tool(gs, args, meta, trace_context).await);
+        }
         "call_tool" => return tool_call_tool(gs, args, meta, trace_context).await,
         "call_tools" => return tool_call_tools(gs, args, meta, trace_context).await,
         _ => {}

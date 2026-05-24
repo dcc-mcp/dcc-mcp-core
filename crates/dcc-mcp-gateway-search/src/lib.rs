@@ -19,7 +19,9 @@ mod ranking;
 mod record;
 
 pub use engine::{search, search_page};
-pub use query::{DEFAULT_LIMIT, MAX_LIMIT, SearchHit, SearchMode, SearchPage, SearchQuery};
+pub use query::{
+    DEFAULT_LIMIT, MAX_LIMIT, RANKER_VERSION, SearchHit, SearchMode, SearchPage, SearchQuery,
+};
 pub use ranking::{
     ExactScorer, FuzzyScorer, Scorer, ScorerFactory, StrategyExactScorer, StrategyFuzzyScorer,
     StrategyScorer, SubstringScorer,

@@ -7,7 +7,9 @@
 use super::index::IndexSnapshot;
 use super::record::CapabilityRecord;
 
-pub use dcc_mcp_gateway_search::{DEFAULT_LIMIT, MAX_LIMIT, SearchMode, SearchQuery};
+pub use dcc_mcp_gateway_search::{
+    DEFAULT_LIMIT, MAX_LIMIT, RANKER_VERSION, SearchMode, SearchQuery,
+};
 
 /// One result row (flattened [`CapabilityRecord`] + score).
 pub type SearchHit = dcc_mcp_gateway_search::SearchHit<CapabilityRecord>;
@@ -139,11 +141,13 @@ mod tests {
                 false,
                 true,
             ),
+            rank: 1,
             score: 42,
             match_reasons: vec!["tool_exact".to_string()],
         };
         let v: serde_json::Value = serde_json::to_value(&hit).unwrap();
         assert_eq!(v["tool_slug"], "maya.abcdef01.create_sphere");
+        assert_eq!(v["rank"], 1);
         assert_eq!(v["score"], 42);
         assert_eq!(v["match_reasons"], serde_json::json!(["tool_exact"]));
         assert!(v.get("record").is_none());

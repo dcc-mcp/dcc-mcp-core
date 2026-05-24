@@ -9,7 +9,7 @@
 ## Use MCP the way the gateway expects
 
 1. **`tools/list`** — Small, stable set: exactly **`search`**, **`describe`**, **`load_skill`**, and **`call`**. Treat it as an **index of gateway verbs**, not the full catalog of every backend action.
-2. **Discover backend work** — `search(kind="tool")` → **`describe`** (read schema, descriptions, safety hints, **`affinity`**, **`execution`**, timeouts) → **`call`**. On REST, use `/v1/search`, `/v1/describe`, `/v1/call` (or the path-style `POST /v1/dcc/{dcc}/instances/{id}/call` from **REST clients** below). Skipping `describe` wastes retries and breaks validation.
+2. **Discover backend work** — `search(kind="tool")` → **`describe`** (read schema, descriptions, safety hints, **`affinity`**, **`execution`**, timeouts) → **`call`**. On REST, use `/v1/search`, `/v1/describe`, `/v1/call` (or the path-style `POST /v1/dcc/{dcc}/instances/{id}/call` from **REST clients** below). Skipping `describe` wastes retries and breaks validation. Preserve the returned `next_step.arguments.meta.search_id` (or the same object as MCP `_meta`) on `describe`, `load_skill`, and `call`; this lets the gateway measure selected rank and hit rate without storing full prompts.
 3. **Chaining** — **`call({calls:[...]})`** / **`POST /v1/call_batch`** runs up to **25** ordered calls when you have several **different** validated steps. Prefer fewer, well-formed calls over chatty micro-steps.
 4. **Skills vs tools** — `search(kind="skill")` / `load_skill` load packaged workflows on a host; `search(kind="tool")` resolves a **`tool_slug`** for the dynamic surface. Keep names straight; use `describe` before calling an unfamiliar slug. Unloaded hits carry `load_state`, `available_groups` when known, and `next_step` with both MCP and REST call shapes.
 5. **Progressive groups** — gateway `load_skill` defaults to lazy group activation (`activate_groups=false` unless you opt in). Default-active/core groups may become active; heavier groups should be activated explicitly through `load_skill(..., tool_group="...")`.
@@ -34,7 +34,7 @@ For Maya behind the gateway, prefer **`search(kind="skill")`** → **`load_skill
 
 ### `tool_slug` shape (and why it is not slash-separated yet)
 
-- Every `search(kind="tool")` hit includes **`tool_slug`**. Treat it as an opaque **routing token**: copy it **verbatim** into `describe` and `call` (and into REST `POST /v1/describe` / `/v1/call` bodies as the `tool_slug` field).
+- Every `search(kind="tool")` hit includes **`rank`**, **`tool_slug`**, and bounded **`match_reasons`**. Treat `tool_slug` as an opaque **routing token**: copy it **verbatim** into `describe` and `call` (and into REST `POST /v1/describe` / `/v1/call` bodies as the `tool_slug` field).
 - Format: **`<dcc_type>.<instance_prefix_or_uuid>.<backend_tool>`** — three dot-separated routing segments. Example: `maya.277685a7.maya_primitives__create_sphere`. This encodes the same tuple a path-style URL would use (`/<dcc>/<instance>/<backend_tool>`); the final `backend_tool` segment is the client-safe MCP name such as `project_save` or `maya_primitives__create_sphere`.
 - **Common agent mistake:** calling `call` with only `code` / `python` / `mel` at the **top level**. That shape belongs to **specific backend tools** inside **`arguments`**, only when their schema says so — the gateway wrapper **always** requires **`tool_slug`** plus optional **`arguments`** / **`meta`**.
 

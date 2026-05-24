@@ -72,7 +72,8 @@ pub use record::{
 };
 pub use refresh::{RefreshReason, refresh_instance, remove_instance};
 pub use search::{
-    DEFAULT_LIMIT, MAX_LIMIT, SearchHit, SearchMode, SearchPage, SearchQuery, search, search_page,
+    DEFAULT_LIMIT, MAX_LIMIT, RANKER_VERSION, SearchHit, SearchMode, SearchPage, SearchQuery,
+    search, search_page,
 };
 // Ranking strategies migrated to `dcc-mcp-gateway-core::capability::
 // search_ranking` (issue #845). Re-exported here so historical paths

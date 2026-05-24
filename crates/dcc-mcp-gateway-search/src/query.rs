@@ -45,6 +45,11 @@ pub struct SearchQuery {
 pub const DEFAULT_LIMIT: u32 = 25;
 /// Upper bound on the number of results returned in a single page.
 pub const MAX_LIMIT: u32 = 100;
+/// Stable identifier for the current gateway ranking contract.
+///
+/// Bump this when score weights, match-reason vocabulary, or indexed fields
+/// change in ways that can affect search telemetry dashboards.
+pub const RANKER_VERSION: &str = "gateway-hybrid-v2";
 
 /// Score plus bounded explanation metadata for one ranking decision.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -64,10 +69,17 @@ pub struct ScoreBreakdown {
 pub struct SearchHit<R> {
     #[serde(flatten)]
     pub record: R,
+    /// 1-based rank within the full filtered result set, after scoring.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub rank: u32,
     pub score: u32,
     /// Stable, low-cardinality reasons explaining why the row matched.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub match_reasons: Vec<String>,
+}
+
+fn is_zero(value: &u32) -> bool {
+    *value == 0
 }
 
 /// Paginated search response envelope (issue #659).

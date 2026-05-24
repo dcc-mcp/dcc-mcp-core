@@ -28,11 +28,30 @@ use crate::gateway::admin::trace::TraceContext;
 
 use super::backend_client::{ForwardToolsCallRequest, forward_tools_call, try_describe_tool};
 use super::capability::{
-    CapabilityIndex, CapabilityRecord, RefreshReason, SearchHit, SearchQuery, parse_slug,
-    refresh_instance, remove_instance, search,
+    CapabilityIndex, CapabilityRecord, RANKER_VERSION, RefreshReason, SearchHit, SearchQuery,
+    parse_slug, refresh_instance, remove_instance, search,
 };
 use super::state::GatewayState;
 use dcc_mcp_gateway_core::naming::instance_short;
+
+/// Metadata attached to one gateway search response for follow-up correlation.
+#[derive(Debug, Clone)]
+pub struct SearchResponseContext {
+    pub search_id: String,
+    pub ranker_version: &'static str,
+    pub index_generation: String,
+}
+
+impl SearchResponseContext {
+    #[must_use]
+    pub fn new(search_id: String, index_generation: String) -> Self {
+        Self {
+            search_id,
+            ranker_version: RANKER_VERSION,
+            index_generation,
+        }
+    }
+}
 
 /// Shape of a structured error emitted by the call / describe paths.
 ///
@@ -135,6 +154,21 @@ pub fn search_service_rows_for_policy(
     query: &SearchQuery,
     policy: &GatewayPolicy,
 ) -> Vec<Value> {
+    search_service_hits_for_policy(index, query, policy)
+        .into_iter()
+        .map(search_hit_to_value)
+        .collect()
+}
+
+pub fn search_hit_to_value(hit: SearchHit) -> Value {
+    search_hit_to_value_with_context(hit, None)
+}
+
+pub fn search_service_hits_for_policy(
+    index: &CapabilityIndex,
+    query: &SearchQuery,
+    policy: &GatewayPolicy,
+) -> Vec<SearchHit> {
     search_service(index, query)
         .into_iter()
         .filter(|hit| {
@@ -142,27 +176,43 @@ pub fn search_service_rows_for_policy(
                 .enforce_record(GatewayPolicyOperation::Search, &hit.record)
                 .is_ok()
         })
-        .map(search_hit_to_value)
         .collect()
 }
 
-pub fn search_hit_to_value(hit: SearchHit) -> Value {
+pub fn search_service_rows_for_policy_with_context(
+    index: &CapabilityIndex,
+    query: &SearchQuery,
+    policy: &GatewayPolicy,
+    context: &SearchResponseContext,
+) -> Vec<Value> {
+    search_service_hits_for_policy(index, query, policy)
+        .into_iter()
+        .map(|hit| search_hit_to_value_with_context(hit, Some(context)))
+        .collect()
+}
+
+pub fn search_hit_to_value_with_context(
+    hit: SearchHit,
+    context: Option<&SearchResponseContext>,
+) -> Value {
     let mut value = serde_json::to_value(&hit).unwrap_or(Value::Null);
     if !hit.record.loaded {
         value["load_state"] = json!("unloaded");
         if let Some(skill_name) = &hit.record.skill_name {
-            let arguments = json!({
+            let mut arguments = json!({
                 "skill_name": skill_name,
                 "dcc": &hit.record.dcc_type,
                 "dcc_type": &hit.record.dcc_type,
                 "instance_id": hit.record.instance_id.to_string(),
             });
+            attach_search_meta(&mut arguments, context);
             value["next_step"] = json!({
                 "action": "load_skill",
                 "arguments": arguments.clone(),
                 "mcp": {
                     "tool": "load_skill",
                     "arguments": arguments.clone(),
+                    "_meta": search_meta(context),
                 },
                 "rest": {
                     "method": "POST",
@@ -173,8 +223,45 @@ pub fn search_hit_to_value(hit: SearchHit) -> Value {
         }
     } else if hit.record.loaded {
         value["load_state"] = json!("loaded");
+        let mut arguments = json!({
+            "tool_slug": hit.record.tool_slug,
+        });
+        attach_search_meta(&mut arguments, context);
+        value["next_step"] = json!({
+            "action": "describe",
+            "arguments": arguments.clone(),
+            "mcp": {
+                "tool": "describe",
+                "arguments": arguments.clone(),
+                "_meta": search_meta(context),
+            },
+            "rest": {
+                "method": "POST",
+                "path": "/v1/describe",
+                "body": arguments,
+            },
+        });
     }
     value
+}
+
+fn attach_search_meta(arguments: &mut Value, context: Option<&SearchResponseContext>) {
+    let Some(meta) = search_meta(context) else {
+        return;
+    };
+    if let Some(obj) = arguments.as_object_mut() {
+        obj.insert("meta".to_string(), meta);
+    }
+}
+
+fn search_meta(context: Option<&SearchResponseContext>) -> Option<Value> {
+    context.map(|ctx| {
+        json!({
+            "search_id": ctx.search_id,
+            "ranker_version": ctx.ranker_version,
+            "index_generation": ctx.index_generation,
+        })
+    })
 }
 
 /// Compute a stable, compact fingerprint for the current capability index.

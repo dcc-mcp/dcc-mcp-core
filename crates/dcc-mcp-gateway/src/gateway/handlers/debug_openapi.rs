@@ -136,6 +136,12 @@ pub(crate) fn add_gateway_debug_openapi_paths(doc: &mut Value) {
             )],
         ),
         (
+            "/v1/debug/search-telemetry",
+            "Get search-quality telemetry",
+            "Recent prompt-safe search records and aggregate search-to-describe/load/call hit-rate metrics.",
+            limit_params.clone(),
+        ),
+        (
             "/v1/debug/health",
             "Get debug subsystem health",
             "Compact health and readiness summary for debug providers.",

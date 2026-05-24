@@ -7,5 +7,6 @@
 //! path for source compatibility.
 
 pub use dcc_mcp_gateway_core::capability::search::{
-    DEFAULT_LIMIT, MAX_LIMIT, SearchHit, SearchMode, SearchPage, SearchQuery, search, search_page,
+    DEFAULT_LIMIT, MAX_LIMIT, RANKER_VERSION, SearchHit, SearchMode, SearchPage, SearchQuery,
+    search, search_page,
 };
