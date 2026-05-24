@@ -325,6 +325,55 @@ fn test_load_skill_propagates_thread_affinity_enforcement() {
 }
 
 #[test]
+fn test_get_skill_returns_detached_metadata_copy() {
+    let catalog = make_test_catalog();
+    catalog.add_skill(make_test_skill("mutable-skill", "maya", &["host_scene"]));
+
+    let mut metadata = catalog
+        .get_skill("mutable-skill")
+        .expect("skill metadata should be available");
+    metadata.description = "adapter-local change".to_string();
+
+    let info = catalog.get_skill_info("mutable-skill").unwrap();
+    assert_eq!(
+        info.description, "Test skill: mutable-skill",
+        "mutating the returned copy must not alter catalog state"
+    );
+}
+
+#[test]
+fn test_load_skill_object_applies_tool_declaration_overrides() {
+    let (catalog, dispatcher) = make_catalog_with_dispatcher();
+    catalog.set_in_process_executor(|_, _, _| Ok(serde_json::json!({"ok": true})));
+    let mut skill = make_test_skill("mutable-affinity", "maya", &[]);
+    skill.tools = vec![ToolDeclaration {
+        name: "host_scene".to_string(),
+        source_file: "scripts/host_scene.py".to_string(),
+        thread_affinity: ThreadAffinity::Main,
+        enforce_thread_affinity: true,
+        ..Default::default()
+    }];
+    catalog.add_skill(skill);
+
+    let mut metadata = catalog.get_skill("mutable-affinity").unwrap();
+    metadata.tools[0].enforce_thread_affinity = false;
+    let registered = catalog.load_skill_object(metadata).unwrap();
+
+    assert_eq!(registered, vec!["mutable_affinity__host_scene".to_string()]);
+    let meta = catalog
+        .registry()
+        .get_action("mutable_affinity__host_scene", None)
+        .expect("action registered from modified skill object");
+    assert_eq!(meta.thread_affinity, ThreadAffinity::Main);
+    assert!(!meta.enforce_thread_affinity);
+
+    let ok = dispatcher
+        .dispatch("mutable_affinity__host_scene", serde_json::json!({}))
+        .expect("worker dispatch should be allowed after override");
+    assert_eq!(ok.output, serde_json::json!({"ok": true}));
+}
+
+#[test]
 fn test_load_main_affinity_script_requires_in_process_executor() {
     let (catalog, _dispatcher) = make_catalog_with_dispatcher();
     let mut skill = make_test_skill("main-thread", "maya", &[]);

@@ -131,7 +131,21 @@ catalog.list_skills("unloaded")    # only unloaded
 
 # Detail
 info = catalog.get_skill_info("maya-geometry")  # dict with full details or None
+
+# Adapter-side runtime policy changes
+skill = catalog.get_skill("maya-geometry")  # detached SkillMetadata copy
+for tool in skill.tools:
+    if tool.thread_affinity == "main":
+        tool.enforce_thread_affinity = False
+catalog.load_skill_object(skill)  # registers through the normal core path
 ```
+
+Use `get_skill()` / `load_skill_object()` when an adapter must adjust skill
+metadata at runtime before registration, for example standalone/headless
+compatibility for main-thread tools. Do not parse or rewrite `SKILL.md` or
+`tools.yaml` from adapter code for those runtime overrides. `get_skill_info()`
+remains the serialized inspection view; mutating the returned dict does not
+change catalog state.
 
 ### SkillSummary Fields
 
