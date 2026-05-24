@@ -190,6 +190,68 @@ mod tests {
     }
 
     #[test]
+    fn search_matches_alias_and_schema_tokens_with_reasons() {
+        let iid = Uuid::from_u128(11);
+        let snap = snapshot(vec![
+            record(
+                "maya",
+                iid,
+                "create_sphere",
+                "Create polygon mesh",
+                &[],
+                true,
+                true,
+            )
+            .with_search_tokens(vec!["alias:primitive ball".into(), "schema:radius".into()]),
+            record(
+                "photoshop",
+                iid,
+                "resize_canvas",
+                "Resize document",
+                &[],
+                true,
+                true,
+            )
+            .with_search_tokens(vec![
+                "alias:document bounds".into(),
+                "required:height_pixels".into(),
+            ]),
+        ]);
+
+        let alias_hits = search(
+            &snap,
+            &SearchQuery {
+                query: "primitive ball".into(),
+                dcc_type: Some("maya".into()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(alias_hits.len(), 1);
+        assert_eq!(alias_hits[0].record.backend_tool, "create_sphere");
+        assert!(
+            alias_hits[0]
+                .match_reasons
+                .contains(&"alias_lexical".to_string())
+        );
+
+        let schema_hits = search(
+            &snap,
+            &SearchQuery {
+                query: "height_pixels".into(),
+                dcc_type: Some("photoshop".into()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(schema_hits.len(), 1);
+        assert_eq!(schema_hits[0].record.backend_tool, "resize_canvas");
+        assert!(
+            schema_hits[0]
+                .match_reasons
+                .contains(&"schema_lexical".to_string())
+        );
+    }
+
+    #[test]
     fn exact_mode_preserves_legacy_table() {
         let a = Uuid::from_u128(1);
         let b = Uuid::from_u128(2);

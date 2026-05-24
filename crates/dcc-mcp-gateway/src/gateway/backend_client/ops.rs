@@ -25,6 +25,7 @@ pub struct UnloadedCapabilityHint {
     pub skill_name: String,
     pub tool_name: String,
     pub summary: String,
+    pub search_tokens: Vec<String>,
     pub available_groups: Vec<CapabilityGroupInfo>,
 }
 
@@ -222,7 +223,8 @@ pub async fn try_fetch_tools(
 
             if loaded {
                 let annotations = parse_tool_annotations(v.get("annotations"));
-                let meta = mcp_meta_from_rest_metadata(v.get("metadata"), v.get("skill"));
+                let metadata = v.get("metadata");
+                let meta = mcp_meta_from_rest_metadata(metadata, v.get("skill"));
                 loaded_tools.push(McpTool {
                     name: action,
                     description,
@@ -244,6 +246,7 @@ pub async fn try_fetch_tools(
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_owned();
+                let metadata = v.get("metadata");
                 let available_groups = v
                     .get("available_groups")
                     .cloned()
@@ -253,6 +256,7 @@ pub async fn try_fetch_tools(
                     skill_name,
                     tool_name: action,
                     summary: description,
+                    search_tokens: rest_metadata_search_tokens(metadata),
                     available_groups,
                 });
             }
@@ -363,6 +367,57 @@ fn mcp_meta_from_rest_metadata(
         }
     }
     (!map.is_empty()).then_some(map)
+}
+
+fn rest_metadata_search_tokens(value: Option<&Value>) -> Vec<String> {
+    let Some(dcc) = value
+        .and_then(Value::as_object)
+        .and_then(|map| map.get("dcc"))
+        .and_then(Value::as_object)
+    else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    append_metadata_values(dcc.get("searchAliases"), "alias:", &mut out);
+    append_metadata_values(dcc.get("search_aliases"), "alias:", &mut out);
+    append_metadata_values(dcc.get("aliases"), "alias:", &mut out);
+    append_metadata_values(dcc.get("searchTokens"), "", &mut out);
+    append_metadata_values(dcc.get("search_tokens"), "", &mut out);
+    out
+}
+
+fn append_metadata_values(value: Option<&Value>, prefix: &str, out: &mut Vec<String>) {
+    match value {
+        Some(Value::String(s)) => {
+            for item in s.split(',') {
+                let item = item.trim();
+                if !item.is_empty() {
+                    out.push(prefixed_search_token(prefix, item));
+                }
+            }
+        }
+        Some(Value::Array(items)) => {
+            for item in items {
+                if let Some(s) = item.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+                    out.push(prefixed_search_token(prefix, s));
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn prefixed_search_token(prefix: &str, value: &str) -> String {
+    if prefix.is_empty()
+        || value.starts_with("alias:")
+        || value.starts_with("schema:")
+        || value.starts_with("required:")
+    {
+        value.to_string()
+    } else {
+        format!("{prefix}{value}")
+    }
 }
 
 /// Fetch tool list from a backend; fail-soft on errors.

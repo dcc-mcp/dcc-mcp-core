@@ -29,6 +29,10 @@ use dcc_mcp_models::{ExecutionMode, ThreadAffinity, ToolAnnotations};
 use dcc_mcp_skills::SkillCatalog;
 
 use super::errors::{ServiceError, ServiceErrorKind};
+use crate::search_index::{
+    action_metadata, merged_search_aliases, normalise_search_values, schema_search_tokens,
+    search_haystack, search_metadata,
+};
 
 // ── Requests / responses ─────────────────────────────────────────────
 
@@ -303,6 +307,8 @@ pub struct CatalogAction {
     pub dcc: String,
     pub description: String,
     pub tags: Vec<String>,
+    pub search_aliases: Vec<String>,
+    pub search_tokens: Vec<String>,
     pub input_schema: Value,
     pub loaded: bool,
     pub scope: String,
@@ -555,12 +561,15 @@ impl SkillCatalogSource for CatalogSource {
                     (true, "core".to_string(), meta.dcc.clone())
                 });
             seen.insert(meta.name.clone());
+            let search_tokens = schema_search_tokens(&meta.input_schema);
             out.push(CatalogAction {
                 action_name: meta.name,
                 skill_name: skill_name.clone(),
                 dcc: meta.dcc,
                 description: meta.description,
                 tags: meta.tags,
+                search_aliases: normalise_search_values(meta.search_aliases, 24),
+                search_tokens,
                 input_schema: meta.input_schema,
                 loaded,
                 scope,
@@ -601,12 +610,17 @@ impl SkillCatalogSource for CatalogSource {
                 } else {
                     tool_decl.input_schema.clone()
                 };
+                let search_aliases =
+                    merged_search_aliases(&detail.search_aliases, &tool_decl.search_aliases);
+                let search_tokens = schema_search_tokens(&input_schema);
                 out.push(CatalogAction {
                     action_name,
                     skill_name: detail.name.clone(),
                     dcc: detail.dcc.clone(),
                     description,
                     tags: detail.tags.clone(),
+                    search_aliases,
+                    search_tokens,
                     input_schema,
                     loaded: false,
                     scope: detail.scope.clone(),
@@ -893,13 +907,7 @@ impl SkillRestService {
                     }
                 }
                 if !query.is_empty() {
-                    let hay = format!(
-                        "{} {} {} {}",
-                        a.action_name.to_ascii_lowercase(),
-                        a.skill_name.to_ascii_lowercase(),
-                        a.description.to_ascii_lowercase(),
-                        a.tags.join(" ").to_ascii_lowercase(),
-                    );
+                    let hay = search_haystack(a);
                     if !hay.contains(&query) {
                         return false;
                     }
@@ -1209,60 +1217,6 @@ fn safety_annotations(annotations: &ToolAnnotations) -> Option<Value> {
         out.insert("openWorldHint".to_string(), Value::Bool(open_world));
     }
     (!out.is_empty()).then_some(Value::Object(out))
-}
-
-fn action_metadata(action: &CatalogAction) -> Value {
-    let mut dcc = serde_json::Map::new();
-    dcc.insert(
-        "affinity".to_string(),
-        Value::String(action.thread_affinity.as_str().to_string()),
-    );
-    dcc.insert(
-        "execution".to_string(),
-        Value::String(
-            match action.execution {
-                ExecutionMode::Sync => "sync",
-                ExecutionMode::Async => "async",
-            }
-            .to_string(),
-        ),
-    );
-    if let Some(timeout) = action.timeout_hint_secs {
-        dcc.insert("timeoutHintSecs".to_string(), serde_json::json!(timeout));
-    }
-    dcc.insert(
-        "enforceThreadAffinity".to_string(),
-        Value::Bool(action.enforce_thread_affinity),
-    );
-    dcc.insert(
-        "risk".to_string(),
-        Value::String(action_risk(&action.annotations).to_string()),
-    );
-
-    let mut out = serde_json::Map::new();
-    out.insert("dcc".to_string(), Value::Object(dcc));
-    Value::Object(out)
-}
-
-fn search_metadata(action: &CatalogAction) -> Option<Value> {
-    let has_non_default_execution = action.thread_affinity.is_main()
-        || action.execution.is_deferred()
-        || action.timeout_hint_secs.is_some()
-        || action.enforce_thread_affinity
-        || !action.annotations.is_empty();
-    has_non_default_execution.then(|| action_metadata(action))
-}
-
-fn action_risk(annotations: &ToolAnnotations) -> &'static str {
-    if annotations.destructive_hint == Some(true) {
-        "destructive"
-    } else if annotations.open_world_hint == Some(true) {
-        "open-world"
-    } else if annotations.read_only_hint == Some(true) {
-        "read-only"
-    } else {
-        "mutation"
-    }
 }
 
 fn truncate(s: &str, n: usize) -> String {

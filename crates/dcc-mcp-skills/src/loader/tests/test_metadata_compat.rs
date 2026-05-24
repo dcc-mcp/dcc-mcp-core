@@ -70,6 +70,7 @@ metadata:
     version: "2.0.0"
     tags: "a, b"
     search-hint: "hint words"
+    search-aliases: [make sphere, primitive ball]
     depends: "other-skill"
 ---
 # body
@@ -80,6 +81,10 @@ metadata:
     assert_eq!(meta.version, "2.0.0");
     assert_eq!(meta.tags, vec!["a".to_string(), "b".to_string()]);
     assert_eq!(meta.search_hint, "hint words");
+    assert_eq!(
+        meta.search_aliases,
+        vec!["make sphere".to_string(), "primitive ball".to_string()]
+    );
     assert_eq!(meta.depends, vec!["other-skill".to_string()]);
 }
 
@@ -91,7 +96,7 @@ fn nested_form_with_inline_tools_list_parses() {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
         dir.join("tools.yaml"),
-        "tools:\n  - name: create_sphere\n    description: make a sphere\n",
+        "tools:\n  - name: create_sphere\n    description: make a sphere\n    search_aliases: [primitive ball, mesh globe]\n",
     )
     .unwrap();
     let body = r#"---
@@ -115,6 +120,10 @@ metadata:
     assert_eq!(meta.search_hint, "keyframe, timeline");
     assert_eq!(meta.tools.len(), 1);
     assert_eq!(meta.tools[0].name, "create_sphere");
+    assert_eq!(
+        meta.tools[0].search_aliases,
+        vec!["primitive ball".to_string(), "mesh globe".to_string()]
+    );
 }
 
 #[test]

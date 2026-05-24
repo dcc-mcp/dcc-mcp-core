@@ -114,6 +114,10 @@ fn relaxed_multiword_haystack_score(r: &dyn SearchRecord, q: &str) -> u32 {
         hay.push(' ');
         hay.push_str(&t.to_ascii_lowercase());
     }
+    for t in r.search_tokens() {
+        hay.push(' ');
+        hay.push_str(&search_token_text(t).to_ascii_lowercase());
+    }
 
     let words: Vec<&str> = q.split_whitespace().filter(|w| w.len() >= 2).collect();
     if words.len() < 2 {
@@ -144,6 +148,25 @@ fn relaxed_multiword_haystack_score(r: &dyn SearchRecord, q: &str) -> u32 {
         return 0;
     }
     (matched * 5).min(30)
+}
+
+fn search_token_text(token: &str) -> &str {
+    token
+        .strip_prefix("alias:")
+        .or_else(|| token.strip_prefix("schema:"))
+        .or_else(|| token.strip_prefix("required:"))
+        .unwrap_or(token)
+}
+
+fn search_tokens_joined<'a>(tokens: impl Iterator<Item = &'a String>) -> String {
+    let mut out = String::new();
+    for token in tokens {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(search_token_text(token));
+    }
+    out
 }
 
 fn search_tokens(value: &str) -> Vec<String> {
@@ -288,9 +311,29 @@ impl Scorer for FuzzyScorer {
         if !q.is_empty() {
             let tool_lexical = token_match_score(q, r.backend_tool(), 18, 12, 8);
             let summary_lexical = token_match_score(q, r.summary(), 8, 5, 3);
-            let mut deterministic = tool_lexical + summary_lexical;
+            let alias_tokens =
+                search_tokens_joined(r.search_tokens().iter().filter(|t| t.starts_with("alias:")));
+            let schema_tokens = search_tokens_joined(
+                r.search_tokens()
+                    .iter()
+                    .filter(|t| t.starts_with("schema:") || t.starts_with("required:")),
+            );
+            let generic_tokens = search_tokens_joined(r.search_tokens().iter().filter(|t| {
+                !t.starts_with("alias:") && !t.starts_with("schema:") && !t.starts_with("required:")
+            }));
+            let alias_lexical = token_match_score(q, &alias_tokens, 14, 10, 6);
+            let schema_lexical = token_match_score(q, &schema_tokens, 12, 8, 5);
+            let search_token_lexical = token_match_score(q, &generic_tokens, 10, 7, 4);
+            let mut deterministic = tool_lexical
+                + summary_lexical
+                + alias_lexical
+                + schema_lexical
+                + search_token_lexical;
             add_component(&mut out, tool_lexical, "tool_lexical");
             add_component(&mut out, summary_lexical, "summary_lexical");
+            add_component(&mut out, alias_lexical, "alias_lexical");
+            add_component(&mut out, schema_lexical, "schema_lexical");
+            add_component(&mut out, search_token_lexical, "search_token_lexical");
             if deterministic == 0 {
                 let multiword = relaxed_multiword_haystack_score(r, q);
                 deterministic = deterministic.max(multiword);
@@ -344,7 +387,26 @@ impl Scorer for FuzzyScorer {
                     }
                 }
             }
+            for token in r.search_tokens() {
+                if token.starts_with("schema:") || token.starts_with("required:") {
+                    let s = self.score_field(&pattern, search_token_text(token), 4, false);
+                    if s > best_schema {
+                        best_schema = s;
+                    }
+                }
+            }
             add_component(&mut out, best_schema, "schema_fuzzy");
+
+            let mut best_alias = 0;
+            for token in r.search_tokens() {
+                if let Some(alias) = token.strip_prefix("alias:") {
+                    let s = self.score_field(&pattern, alias, 5, false);
+                    if s > best_alias {
+                        best_alias = s;
+                    }
+                }
+            }
+            add_component(&mut out, best_alias, "alias_fuzzy");
 
             // Issue #994: meta-tools are excluded from results unless the
             // query directly targets the tool by name. This prevents verbose

@@ -24,6 +24,7 @@ impl SkillMetadata {
         dcc = DEFAULT_DCC.to_string(),
         tags = vec![],
         search_hint = "".to_string(),
+        search_aliases = vec![],
         scripts = vec![],
         skill_path = "".to_string(),
         version = DEFAULT_VERSION.to_string(),
@@ -41,6 +42,7 @@ impl SkillMetadata {
         dcc: String,
         tags: Vec<String>,
         search_hint: String,
+        search_aliases: Vec<String>,
         scripts: Vec<String>,
         skill_path: String,
         version: String,
@@ -57,6 +59,7 @@ impl SkillMetadata {
             dcc,
             tags,
             search_hint,
+            search_aliases,
             scripts,
             skill_path,
             version,
@@ -91,7 +94,7 @@ impl SkillMetadata {
 
     // ── Trivial accessors emitted by `#[derive(PyWrapper)]` (#528 M3.3) ─
     // `name`, `description`, `dcc`, `version`, `license`, `compatibility`,
-    // `skill_path`, `search_hint` (String → &str + setter), `tags`,
+    // `skill_path`, `search_hint` (String → &str + setter), `tags`, `search_aliases`,
     // `scripts`, `depends`, `metadata_files`, `allowed_tools`, `tools`,
     // `groups`, `layer`, `stage` (Vec<T> / Option<T> clone + setter).
     // See `crate::skill_metadata::SkillMetadata`'s `#[py_wrapper(...)]`

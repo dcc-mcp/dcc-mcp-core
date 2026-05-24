@@ -153,6 +153,7 @@ impl ToolAnnotations {
         timeout_hint_secs: Option<u32> => [get, set],
         enforce_thread_affinity: bool => [get, set],
         required_capabilities: Vec<String> => [get(clone), set],
+        search_aliases: Vec<String> => [get(clone), set],
     ))
 )]
 pub struct ToolDeclaration {
@@ -340,6 +341,25 @@ pub struct ToolDeclaration {
         skip_serializing_if = "Vec::is_empty"
     )]
     pub required_capabilities: Vec<String>,
+
+    /// Bounded search-only aliases and synonyms for discovery.
+    ///
+    /// These terms improve gateway/per-DCC search recall without changing the
+    /// tool name, summary, tags, or full schema. They are not dispatch inputs.
+    ///
+    /// ```yaml
+    /// tools:
+    ///   - name: export_fbx
+    ///     search_aliases: [destination path, interchange, fbx]
+    /// ```
+    #[serde(
+        default,
+        rename = "search_aliases",
+        alias = "search-aliases",
+        alias = "aliases",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub search_aliases: Vec<String>,
 }
 
 // ── ToolDeclaration custom deserializer (issue #344) ──────────────────────
@@ -441,6 +461,14 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
                 alias = "required-capabilities"
             )]
             required_capabilities: Vec<String>,
+
+            #[serde(
+                default,
+                rename = "search_aliases",
+                alias = "search-aliases",
+                alias = "aliases"
+            )]
+            search_aliases: Vec<String>,
         }
 
         let w = Wire::deserialize(deserializer)?;
@@ -490,6 +518,7 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
             _deferred_guard: None,
             annotations,
             required_capabilities: w.required_capabilities,
+            search_aliases: w.search_aliases,
         })
     }
 }
