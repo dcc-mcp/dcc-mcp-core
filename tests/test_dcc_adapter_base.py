@@ -296,6 +296,12 @@ class _FakeDccServer:
     def load_skill(self, name):
         pass
 
+    def get_skill(self, name):
+        return None
+
+    def load_skill_object(self, skill):
+        pass
+
     def unload_skill(self, name):
         pass
 
@@ -573,9 +579,18 @@ class TestDccServerBase:
         result = server.get_skill_info("nonexistent-skill")
         assert result is None
 
+    def test_get_skill_returns_none_when_missing(self, tmp_path):
+        server = self._make_server(tmp_path)
+        result = server.get_skill("nonexistent-skill")
+        assert result is None
+
     def test_load_skill_returns_bool(self, tmp_path):
         server = self._make_server(tmp_path)
         assert server.load_skill("some-skill") is True
+
+    def test_load_skill_object_returns_bool(self, tmp_path):
+        server = self._make_server(tmp_path)
+        assert server.load_skill_object(object()) is True
 
     def test_unload_skill_returns_bool(self, tmp_path):
         server = self._make_server(tmp_path)

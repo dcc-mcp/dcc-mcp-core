@@ -159,6 +159,17 @@ impl SkillCatalog {
         })
     }
 
+    /// Get a mutable-by-copy skill metadata object for adapter-side policy changes.
+    ///
+    /// The returned [`SkillMetadata`] is detached from the catalog. Mutating it
+    /// does not affect discovery state or registered tools until the caller
+    /// passes it back through [`load_skill_object`](Self::load_skill_object).
+    pub fn get_skill(&self, skill_name: &str) -> Option<SkillMetadata> {
+        self.entries
+            .get(skill_name)
+            .map(|entry| entry.metadata.clone())
+    }
+
     /// Get the number of skills in the catalog.
     #[must_use]
     pub fn len(&self) -> usize {

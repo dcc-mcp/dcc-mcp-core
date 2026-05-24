@@ -103,11 +103,18 @@ into a faster authoring loop.
    `set_in_process_executor` and HTTP `attach_dispatcher` before server start,
    so MCP `tools/call` and REST `/v1/call` satisfy `thread_affinity: main`.
 10. Skill script entry points may use either modern `main(**params)` or legacy
-   `main(params)` signatures; prefer `main(**params)` for new scripts and keep
-   dict-style wrappers only for compatibility during adapter migrations.
-11. Add tests at the lowest executable layer, then one discovery/load/call or
-   gateway REST path when behavior crosses MCP or REST boundaries.
-12. For application UI automation, use the generic `app_ui__*` contract rather
+    `main(params)` signatures; prefer `main(**params)` for new scripts and keep
+    dict-style wrappers only for compatibility during adapter migrations.
+11. When an adapter must adjust discovered skill metadata before registration
+    (for example disabling thread-affinity enforcement for a standalone path),
+    use `catalog.get_skill(name)` to obtain a detached `SkillMetadata` copy,
+    mutate its `tools` / `groups` / policy fields, then call
+    `catalog.load_skill_object(skill)` or `server.load_skill_object(skill)`.
+    Do not parse or rewrite `SKILL.md` / `tools.yaml` at adapter runtime.
+    Keep `get_skill_info()` for serialized inspection only.
+12. Add tests at the lowest executable layer, then one discovery/load/call or
+    gateway REST path when behavior crosses MCP or REST boundaries.
+13. For application UI automation, use the generic `app_ui__*` contract rather
     than DCC-specific names: snapshot -> find -> act -> wait_for -> verify.
     The Rust contract types live in `dcc-mcp-app-ui`; do not add Qt, OS
     accessibility, webview, PyO3, or HTTP runtime dependencies there.

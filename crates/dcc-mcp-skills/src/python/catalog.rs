@@ -9,6 +9,7 @@ use pyo3_stub_gen_derive::gen_stub_pymethods;
 use crate::catalog::{SkillCatalog, SkillSummary, helpers};
 use dcc_mcp_actions::EventBus;
 use dcc_mcp_actions::registry::ToolRegistry;
+use dcc_mcp_models::SkillMetadata;
 
 #[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
@@ -175,6 +176,25 @@ impl SkillCatalog {
     #[pyo3(name = "load_skill")]
     fn py_load_skill(&self, skill_name: &str) -> PyResult<Vec<String>> {
         self.load_skill(skill_name)
+            .map_err(pyo3::exceptions::PyValueError::new_err)
+    }
+
+    /// Return a detached, mutable skill metadata object.
+    ///
+    /// Mutating the returned object does not affect catalog state until it is
+    /// passed back to ``load_skill_object``.
+    #[pyo3(name = "get_skill")]
+    fn py_get_skill(&self, skill_name: &str) -> Option<SkillMetadata> {
+        self.get_skill(skill_name)
+    }
+
+    /// Load a caller-supplied skill metadata object through core registration.
+    ///
+    /// This lets adapters adjust tool declarations at runtime without parsing
+    /// or rewriting ``SKILL.md`` / ``tools.yaml`` sidecar files.
+    #[pyo3(name = "load_skill_object")]
+    fn py_load_skill_object(&self, metadata: SkillMetadata) -> PyResult<Vec<String>> {
+        self.load_skill_object(metadata)
             .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
