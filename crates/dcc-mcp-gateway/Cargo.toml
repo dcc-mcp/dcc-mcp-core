@@ -26,6 +26,7 @@ prometheus = { version = "0.14", default-features = false, optional = true }
 # Workspace shared
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml_ng = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
@@ -34,6 +35,7 @@ dashmap = { workspace = true }
 reqwest = { workspace = true }
 socket2 = { workspace = true }
 parking_lot = { workspace = true }
+rusqlite = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 

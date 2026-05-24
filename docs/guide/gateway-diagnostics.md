@@ -35,10 +35,33 @@ DCC_MCP_TRAFFIC_CAPTURE=jsonl:./capture.jsonl dcc-mcp-server ...
 ```
 
 The JSONL file receives `traffic.frame` EventBus envelopes for `tools/call`
-traffic through the gateway. P0 records MCP/REST client-to-gateway frames,
+traffic through the gateway. Capture records MCP/REST client-to-gateway frames,
 gateway-to-client responses, and forwarded gateway-to-adapter `/v1/call`
 frames. Capture is intentionally off by default and is blocked when
 `DCC_MCP_PROD_PROFILE=1` unless `DCC_MCP_FORCE_TRAFFIC_CAPTURE=1` is also set.
+
+For capture sessions that need replay or diff tooling later, use a YAML config
+instead:
+
+```yaml
+enabled: true
+sinks:
+  - kind: sqlite
+    path: ./captures/run-${TIMESTAMP}.db
+filters:
+  include:
+    - mcp.method: tools/call
+  exclude:
+    - http.url: "*/v1/readyz"
+redact:
+  - body.data.params.arguments.api_key: "[REDACTED]"
+```
+
+Start with `DCC_MCP_TRAFFIC_CONFIG=./traffic_capture.yaml`. Include rules are
+ORed, exclude rules win over includes, and simple `*` wildcards are supported
+for string fields such as `http.url`. Redaction paths are exact JSON paths under
+the frame attributes and are applied before JSONL or SQLite writes; changed
+paths are recorded in `attributes.body.redacted_paths`.
 
 Because frames can contain prompts, tool arguments, scene paths, and result
 payloads, treat capture files like debugging artifacts, not production audit
