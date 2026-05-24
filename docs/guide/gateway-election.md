@@ -7,9 +7,9 @@
 The **gateway** is a single Rust HTTP server (running on `localhost:9765` by default) that:
 
 - Discovers all running DCC instances (Maya, Blender, Houdini, Photoshop, etc.)
-- Keeps one unified, bounded `/mcp` endpoint with discover+dispatch primitives instead of fanning out every backend action
-- Routes `search_tools` / `describe_tool` / `call_tool` and `/v1/*` REST calls to the selected backend capability
-- Fans out skill-management calls (`search_skills`, `list_skills`) and routes targeted calls (`load_skill`) to a specific instance
+- Keeps one unified, bounded `/mcp` endpoint with read-only discovery primitives instead of fanning out every backend action
+- Routes gateway MCP `search` / `describe` and `/v1/*` REST calls to the selected backend capability
+- Exposes skill lifecycle and execution through REST (`/v1/load_skill`, `/v1/unload_skill`, `/v1/call`) while retaining hidden MCP compatibility routes for pinned clients
 - Pushes progress, job/workflow, resource, and prompt notifications over SSE as instances come and go
 
 **One gateway per machine**. It's started automatically when the first DCC instance registers.

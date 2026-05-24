@@ -69,6 +69,6 @@ Extend `tools/lint_skills.py` when you add new cross-cutting conventions.
 
 ## Gateway-facing agents
 
-- Prefer `search_tools` → `describe_tool` → `call_tool` (or per-host
-  `load_skill` then typed tools). Long prose belongs in `recipes` /
+- Prefer gateway MCP `search` → `describe` followed by REST `/v1/call`
+  (or per-host `load_skill` then typed tools). Long prose belongs in `recipes` /
   `skill-reference-docs`, not only in SKILL.md body below the frontmatter.

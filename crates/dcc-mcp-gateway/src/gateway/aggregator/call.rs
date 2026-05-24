@@ -5,12 +5,11 @@ use super::*;
 /// Returns `(text_body, is_error)` so the caller can wrap into an MCP
 /// `CallToolResult`.
 ///
-/// The gateway MCP surface is intentionally minimal: only meta-tools,
-/// skill-management tools, and the dynamic `search_tools` /
-/// `describe_tool` / `call_tool` / `call_tools` wrappers are accepted here. Per-action
-/// backend tools are not published in `tools/list`, so any other name is
-/// rejected with an error that points the caller at the canonical
-/// discovery path.
+/// The advertised gateway MCP surface is intentionally minimal: `tools/list`
+/// only exposes the read-only `search` and `describe` tools. This router keeps
+/// execution, skill lifecycle, lease, and legacy wrapper names callable as
+/// hidden compatibility routes, while steering new clients toward REST for
+/// state-changing work.
 pub async fn route_tools_call(
     gs: &GatewayState,
     tool: &str,
@@ -20,12 +19,17 @@ pub async fn route_tools_call(
     _client_session_id: Option<&str>,
     trace_context: Option<&crate::gateway::admin::trace::TraceContext>,
 ) -> (String, bool) {
-    // ── Consolidated gateway surface (6 tools) ───────────────────────
+    // ── Advertised gateway surface (read-only) ───────────────────────
     match tool {
-        "lease" => return to_text_result(tool_lease(gs, args).await),
         "search" => return to_text_result(tool_search(gs, args).await),
         "describe" => return to_text_result(tool_describe(gs, args).await),
+        _ => {}
+    }
+
+    // ── Hidden compatibility routes ──────────────────────────────────
+    match tool {
         "call" => return tool_call(gs, args, meta, trace_context).await,
+        "lease" => return to_text_result(tool_lease(gs, args).await),
         "load_skill" => return tool_load_skill(gs, args).await,
         "unload_skill" => return skill_mgmt_dispatch(gs, "unload_skill", args).await,
         _ => {}
@@ -59,11 +63,11 @@ pub async fn route_tools_call(
     // redirect the caller to the dynamic-capability wrappers that own
     // that namespace.
     let hint = format!(
-        "Unknown gateway tool '{tool}'. The gateway MCP surface exposes six tools: \
-         `search` (tools and/or skills), `describe` (tool schema or skill detail), \
-         `call` (single slug or ordered `calls` batch), `load_skill` / `unload_skill`, \
-         and `lease` (acquire/release instance pooling). Use `search` → `describe` → \
-         `call`; put backend parameters inside `call.arguments` (e.g. export_fbx uses `path`)."
+        "Unknown gateway tool '{tool}'. The advertised gateway MCP surface exposes \
+         only read-only discovery: `search` (tools and/or skills) and `describe` \
+         (tool schema or skill detail). Use `search` → `describe`, then call \
+         `POST /v1/call` or `POST /v1/call_batch`; put backend parameters inside \
+         the REST `arguments` object (e.g. export_fbx uses `path`)."
     );
     (hint, true)
 }

@@ -2,7 +2,7 @@
 
 **DCC-MCP-Core** 是一套 Rust 基础库（含 Python 绑定），把 DCC（数字内容创作）软件中的"能力"—— Maya、Blender、Houdini、Photoshop、ZBrush、Unreal、Unity、Figma 等 ——分层暴露给两类消费者：
 
-- **AI 助手** → 通过**少量、固定、可渐进发现**的 **MCP 工具**（`search_skills` / `load_skill` / `search_tools` / `describe_tool` / `call_tool` …）。
+- **AI 助手** → 通过 gateway 的**少量、固定、只读** **MCP 发现工具**（`search` / `describe`），再用 REST `/v1/*` 执行。
 - **传统调用方** →（cURL / CI / 任意 HTTP 客户端）通过**完整的 `/v1/*` REST 服务**。
 
 底层是 Rust，通过 [PyO3](https://pyo3.rs/) + [maturin](https://github.com/PyO3/maturin) 编译成一个 Python 扩展模块。零 Python 运行时依赖。
@@ -32,7 +32,8 @@ flowchart LR
     AGENT([AI 助手]):::client
     TRAD([cURL / CI / 传统后端]):::client
 
-    AGENT -->|MCP: search_tools<br/>describe_tool<br/>call_tool| GW
+    AGENT -->|MCP: search<br/>describe| GW
+    AGENT -->|REST: POST /v1/call| GW
     TRAD -->|REST: POST /v1/search<br/>/describe /call| GW
     TRAD -.->|直连 per-DCC REST| PERDCC
     GW -->|/v1/call 路由到具体 DCC| PERDCC
@@ -45,10 +46,10 @@ flowchart LR
 
 **关键架构决策**：
 
-1. **MCP 表面最小化（#657/#674，PR A 落地）** —— 网关的 `tools/list` **永远**只返回发现+派发的基础工具集，不管连了多少 DCC。per-tool 的后端工具通过 `search_tools` / `describe_tool` / `call_tool` 动态发现和调用，绝不在 `tools/list` 里扇出。
+1. **MCP 表面最小化（#657/#674，PR A 落地）** —— 网关的 `tools/list` **永远**只返回只读发现原语，不管连了多少 DCC。per-tool 后端工具通过 MCP `search` / `describe` 或 REST `/v1/search` / `/v1/describe` 动态发现；执行走 REST `/v1/call` / `/v1/call_batch`，绝不在 `tools/list` 里扇出。
 2. **REST 是调用面** —— 每个 per-DCC 服务都暴露完整的 `/v1/*` REST API，网关也把同样形状作为汇聚面板暴露。任何语言、任何客户端都能直接调用，不需要 MCP 协议栈。
-3. **单一契约** —— 网关 MCP 的 `call_tool` 和 REST `POST /v1/call` 走同一条 `call_service` 代码路径，输入/输出 envelope 完全一致（由 OpenAPI snapshot 测试锁定）。
-4. **渐进式发现** —— Agent 按需付费：`search_skills` → `load_skill` → `search_tools` → `describe_tool` → `call_tool`。
+3. **单一契约** —— REST `POST /v1/call` 和隐藏 MCP 兼容路由走同一条 `call_service` 代码路径，输入/输出 envelope 完全一致（由 OpenAPI snapshot 测试锁定）。
+4. **渐进式发现** —— Agent 按需付费：`search(kind="skill")` 或 `/v1/search` → 必要时 `/v1/load_skill` → `search` → `describe` → `/v1/call`。
 
 ---
 
@@ -58,7 +59,7 @@ flowchart LR
 - **最小 MCP 网关** —— `tools/list` 是静态的少量工具，缓存一次。上下文占用随 DCC 数量变化为 0。
 - **per-DCC REST** —— `/v1/healthz`、`/v1/readyz`（三态 Ready / Booting / Unreachable）、`/v1/search`、`/v1/describe`、`/v1/call`、`/v1/context`、`/v1/openapi.json`。完整的 OpenAPI 3.x。
 - **多 DCC 网关汇聚** —— 文件型服务注册表 + TCP 心跳探测，自动剔除 3 连失败的实例、清理 ghost 行，基于 `crate_version → adapter_version → adapter_dcc` 的三级选举仲裁。
-- **Tool Slug 契约** —— `<dcc>.<id8>.<tool>` 三段 slug 是唯一的全局寻址方式，网关据此路由 `call_tool` 到正确的后端。
+- **Tool Slug 契约** —— `<dcc>.<id8>.<tool>` 三段 slug 是唯一的全局寻址方式，网关据此把 REST `/v1/call` 路由到正确的后端。
 - **Tunnel（#504）** —— `dcc-mcp-tunnel-relay` + `dcc-mcp-tunnel-agent` 两个可执行二进制，让远程 AI 客户端直接访问工作站上的 DCC。
 - **PyO3 绑定** —— Rust 加速的一切从 Python 透明可用；零 Python 运行时依赖。
 
