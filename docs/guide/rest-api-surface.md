@@ -378,8 +378,10 @@ the gateway includes it so same-DCC multi-instance calls stay routed.
 
 ### Compact output
 
-`/v1/search` keeps legacy JSON as the default response format. Agent clients
-that want a smaller discovery payload can request TOON explicitly:
+`/v1/search`, `/v1/describe`, `/v1/tools/{slug}`, the direct per-instance
+describe/call routes, `/v1/call`, and `/v1/call_batch` keep legacy JSON as the
+default response format. Agent clients that want smaller REST payloads can
+request TOON explicitly:
 
 ```bash
 curl -H 'Accept: application/toon' \
@@ -391,7 +393,8 @@ The request body may also set `"response_format": "toon"` or `"compact": true`.
 Set `"response_format": "json"` to force the legacy JSON body even when the
 `Accept` header prefers TOON.
 
-Every search response includes approximate token accounting headers:
+Every compact-capable REST response includes approximate token accounting
+headers:
 
 | Header | Meaning |
 |---|---|
@@ -409,6 +412,14 @@ empty objects. RTK's compaction model is treated as design guidance here; the
 gateway uses the deterministic in-process `toon-format` library so
 `serde_json::Value` payloads round-trip inside Rust tests without spawning an
 external codec process.
+
+Compact describe output applies the same small-record rules to `record` while
+preserving the full `tool` definition verbatim, including `inputSchema`,
+annotations, and validation hints. Compact call output preserves the same
+success/error envelope and HTTP status as JSON, just encoded as TOON. Compact
+batch output preserves request order and includes per-result `token_accounting`
+metadata when compact output is requested, while the response headers report the
+aggregate body savings.
 
 ## `POST /v1/load_skill` and `/v1/unload_skill`
 

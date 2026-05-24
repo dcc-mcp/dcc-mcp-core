@@ -169,8 +169,10 @@ OpenAPI contract 预留了 `cursor`、`since`、`until` 给后续 normalized env
 
 ## `POST /v1/search` —— compact discovery
 
-`/v1/search` 默认仍返回旧版 JSON，保持现有 REST 客户端兼容。Agent 客户端
-如果想减少 discovery payload，可以显式请求 TOON：
+`/v1/search`、`/v1/describe`、`/v1/tools/{slug}`、直接 per-instance
+describe/call 路由、`/v1/call` 和 `/v1/call_batch` 默认仍返回旧版 JSON，
+保持现有 REST 客户端兼容。Agent 客户端如果想减少 REST payload，可以显式
+请求 TOON：
 
 ```bash
 curl -H 'Accept: application/toon' \
@@ -182,7 +184,7 @@ curl -H 'Accept: application/toon' \
 `Accept` 头偏好 TOON，但当前调用必须保持旧 JSON，传
 `"response_format": "json"` 即可强制回退。
 
-每个 search 响应都会带近似 token 统计头：
+每个支持 compact 的 REST 响应都会带近似 token 统计头：
 
 | Header | 含义 |
 |---|---|
@@ -199,6 +201,12 @@ compact search 仍保留 agent 后续工作需要的字段：`tool_slug`、
 语义压缩模型作为设计参考；gateway 内部直接使用确定性的 `toon-format`
 库，让 `serde_json::Value` payload 在 Rust 测试中可 round-trip，不需要
 派生外部 codec 进程。
+
+compact describe 会对 `record` 应用相同的小记录规则，但完整保留 `tool`
+定义，包括 `inputSchema`、annotations 和 validation hints。compact call
+保留与 JSON 相同的成功 / 失败 envelope 和 HTTP 状态，只是用 TOON 编码。
+compact batch 保留结果顺序；请求 compact 输出时，每个 result 会带
+`token_accounting`，响应头则给出整个响应体的聚合节省。
 
 ---
 
