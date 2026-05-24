@@ -46,6 +46,15 @@ pub const DEFAULT_LIMIT: u32 = 25;
 /// Upper bound on the number of results returned in a single page.
 pub const MAX_LIMIT: u32 = 100;
 
+/// Score plus bounded explanation metadata for one ranking decision.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ScoreBreakdown {
+    /// Final score used for ordering.
+    pub score: u32,
+    /// Stable, low-cardinality reasons explaining which fields matched.
+    pub match_reasons: Vec<String>,
+}
+
 /// One ranked hit row.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(
@@ -56,6 +65,9 @@ pub struct SearchHit<R> {
     #[serde(flatten)]
     pub record: R,
     pub score: u32,
+    /// Stable, low-cardinality reasons explaining why the row matched.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub match_reasons: Vec<String>,
 }
 
 /// Paginated search response envelope (issue #659).
