@@ -493,6 +493,44 @@ fn lifecycle_json(e: &ServiceEntry) -> Value {
         first_metadata_value(&e.metadata, &["restart_command", "dcc_mcp_restart_command"]);
     let launch_command =
         first_metadata_value(&e.metadata, &["launch_command", "dcc_mcp_launch_command"]);
+    let owner = first_metadata_value(
+        &e.metadata,
+        &[
+            "owner",
+            "test_owner",
+            "dcc_mcp_owner",
+            "dcc_mcp_test_owner",
+            "dcc_mcp.owner",
+        ],
+    );
+    let session = first_metadata_value(
+        &e.metadata,
+        &[
+            "session",
+            "test_session",
+            "dcc_mcp_session",
+            "dcc_mcp_test_session",
+            "dcc_mcp.session",
+        ],
+    );
+    let safe_stop_url = first_metadata_value(
+        &e.metadata,
+        &[
+            "safe_stop_url",
+            "dcc_mcp_safe_stop_url",
+            "dcc_mcp.safe_stop_url",
+            "stop_url",
+        ],
+    );
+    let safe_stop_method = first_metadata_value(
+        &e.metadata,
+        &[
+            "safe_stop_method",
+            "dcc_mcp_safe_stop_method",
+            "dcc_mcp.safe_stop_method",
+        ],
+    )
+    .unwrap_or("POST");
     let install_root = first_metadata_value(
         &e.metadata,
         &[
@@ -506,8 +544,12 @@ fn lifecycle_json(e: &ServiceEntry) -> Value {
 
     json!({
         "role": role,
+        "owner": owner,
+        "session": session,
         "sidecar_pid": sidecar_pid,
-        "supports_safe_stop": sidecar_pid.is_some(),
+        "supports_safe_stop": sidecar_pid.is_some() || safe_stop_url.is_some(),
+        "safe_stop_url": safe_stop_url,
+        "safe_stop_method": safe_stop_method,
         "restartable": sidecar_pid.is_some() || restart_command.is_some() || launch_command.is_some(),
         "restart_command": restart_command,
         "launch_command": launch_command,

@@ -45,7 +45,7 @@ pub enum PyServiceStatus {
     #[pyo3(name = "SHUTTING_DOWN")]
     ShuttingDown,
     /// Service process is alive but its embedded DCC host is still
-    /// initialising (three-state readiness probe returns red).
+    /// initialising (readiness probe returns red).
     /// Introduced in dcc-mcp-core#713.
     #[pyo3(name = "BOOTING")]
     Booting,

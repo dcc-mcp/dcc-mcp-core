@@ -444,7 +444,7 @@ dcc-mcp-app-ui (independent pure app_ui observation/action/wait/policy/audit con
 
 ### dcc-mcp-cli
 
-**Purpose**: Client-side control-plane CLI for users, CI, and shell-capable skills. It talks to the gateway REST surface for `health`, `list`, `search`, `load-skill`, `describe`, `call`, and adapter install planning; it does not host skills or replace per-DCC servers.
+**Purpose**: Client-side control-plane CLI for users, CI, and shell-capable skills. It talks to the gateway REST surface for `health`, `list`, instance-scoped `search`, `load-skill`, `describe`, slug or direct backend `call`, `wait-ready`, guarded `stop-instance`, and adapter install planning; it does not host skills or replace per-DCC servers.
 
 **Key Components**:
 - `main.rs` — CLI entry point using `GatewayRunner` and `McpHttpServer` library APIs

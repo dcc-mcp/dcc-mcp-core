@@ -423,17 +423,18 @@ Async jobs can be watched with `GET /v1/jobs/{id}/events` and cancelled with
 
 ---
 
-## Three-state readiness (`GET /v1/readyz`)
+## Readiness (`GET /v1/readyz`)
 
 | State | HTTP | Body | Meaning |
 |---|---|---|---|
-| `Ready` | 200 | `{ "status": "ready", "process": "ok", "dispatcher": "ok", "dcc": "ok" }` | Every readiness bit is green; `POST /v1/call` will dispatch. |
+| `Ready` | 200 | `{ "process": true, "dcc": true, "skill_catalog": true, "dispatcher": true, "host_execution_bridge": true, "main_thread_executor": true }` | Base routing bits are green; `POST /v1/call` will dispatch. |
 | `Booting` | 503 | `{ "status": "booting", ... which bits are red }` | The server is up but the DCC host or dispatcher hasn't finished initialising. The gateway keeps the instance's registry row but won't route traffic there. |
 | `Unreachable` | no response | — | `/v1/readyz` didn't answer in 5 s. Gateway falls back to `GET /health` for pre-#660 backends; still nothing → the instance is counted as a probe failure and deregistered after 3 consecutive misses. |
 
 The distinction matters: "my tool disappeared" has two very different
-diagnoses and fixes. Surface `process`, `dispatcher`, `dcc` separately in
-your dashboards.
+diagnoses and fixes. Surface `process`, `dcc`, `skill_catalog`, `dispatcher`,
+`host_execution_bridge`, and `main_thread_executor` separately in your
+dashboards.
 
 ---
 

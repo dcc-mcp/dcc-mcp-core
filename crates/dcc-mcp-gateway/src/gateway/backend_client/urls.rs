@@ -20,7 +20,7 @@ pub(crate) fn healthz_url_from_mcp_url(mcp_url: &str) -> String {
         .unwrap_or_else(|| format!("{}/healthz", mcp_url.trim_end_matches('/')))
 }
 
-/// Build the three-state readiness URL exposed by `dcc-mcp-skill-rest`
+/// Build the readiness URL exposed by `dcc-mcp-skill-rest`
 /// (issue #660 — `GET /v1/readyz`).
 ///
 /// Mirrors [`health_url_from_mcp_url`]: strip the trailing `/mcp` segment

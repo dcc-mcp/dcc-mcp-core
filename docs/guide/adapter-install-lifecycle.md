@@ -142,13 +142,23 @@ The gateway Admin JSON already exposes these operator hints on each instance:
 {
   "lifecycle": {
     "role": "per-dcc-sidecar",
+    "owner": "release-smoke-test",
+    "session": "test",
     "sidecar_pid": 31337,
     "supports_safe_stop": true,
+    "safe_stop_url": "http://127.0.0.1:19000/safe-stop",
+    "safe_stop_method": "POST",
     "restartable": true,
     "restart_command": "rez-env dcc_mcp_maya -- maya-sidecar"
   }
 }
 ```
+
+Release smoke tests that launch their own DCC process should publish stable,
+public lifecycle metadata (`owner`, `session`) and, when supported, a
+`safe_stop_url` callback. The gateway and `dcc-mcp-cli stop-instance` only
+forward safe-stop requests to that explicit callback and never terminate a
+process directly.
 
 ## Safe Remove Or Replace
 
