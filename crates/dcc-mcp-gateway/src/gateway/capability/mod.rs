@@ -67,8 +67,8 @@ mod tests;
 pub use builder::{BuildInput, BuildOutcome, build_records_from_backend};
 pub use index::{CapabilityIndex, IndexSnapshot, InstanceFingerprint};
 pub use record::{
-    CapabilityAnnotations, CapabilityMetadata, CapabilityRecord, SCHEMA_AVAILABLE, parse_slug,
-    tool_slug,
+    CapabilityAnnotations, CapabilityGroupInfo, CapabilityMetadata, CapabilityRecord,
+    SCHEMA_AVAILABLE, parse_slug, tool_slug,
 };
 pub use refresh::{RefreshReason, refresh_instance, remove_instance};
 pub use search::{

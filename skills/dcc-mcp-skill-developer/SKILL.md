@@ -102,6 +102,11 @@ into a faster authoring loop.
    `describe_tool`, `call_tool`, `call_tools`, lease helpers) may appear in old
    clients, but new docs and skills should not advertise them in `tools/list`
    workflows.
+   Unloaded gateway search hits now carry `load_state`, `available_groups`
+   when the backend knows them, and `next_step` with both MCP and REST call
+   shapes. Keep group metadata concise (`name`, short `description`, `tools`,
+   `default-active`) so agents can decide whether to call `load_skill` directly
+   or explicitly activate a heavier `tool_group` after the lazy default load.
 8. For adapter install, uninstall, or upgrade flows, use
    `dcc_mcp_core.install_lifecycle` before importing Rust-backed public API:
    query/stop registered sidecars, inspect install roots, classify locked

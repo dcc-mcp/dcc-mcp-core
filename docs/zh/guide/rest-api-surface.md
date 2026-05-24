@@ -155,6 +155,10 @@ OpenAPI contract 预留了 `cursor`、`since`、`until` 给后续 normalized env
 - `affinity-violation` (409) —— 从 worker 线程调用了主线程独占的工具。
 - `bad-request` (400) —— envelope 有误（缺 `tool_slug`、JSON 坏、等）。
 - `backend-error` (502) —— 拥有者 DCC 进程响应了但工具失败。
+- `skill-not-found` (502) —— **仅网关 skill lifecycle** —— 请求的 skill 不存在。
+- `skill-already-loaded` (502) —— **仅网关 skill lifecycle** —— skill 已处于加载状态。
+- `group-not-found` (502) —— **仅网关 skill lifecycle** —— 请求的 progressive group 不存在。
+- `ambiguous-instance` (502) —— **仅网关 skill lifecycle** —— DCC / instance 选择不唯一。
 - `instance-offline` (503) —— **仅网关** —— `<id8>` 对应的实例已不在线。
 - `schema-unavailable` (502) —— **仅网关** —— 拥有者 DCC 在 discovery 和 call 之间失联。
 - `internal` (500) —— REST 层自身失败；查服务端日志。
@@ -195,12 +199,17 @@ curl -H 'Accept: application/toon' \
 | `x-dcc-mcp-saved-tokens` / `x-dcc-mcp-savings-pct` | 相比旧 JSON 的估算节省。 |
 
 compact search 仍保留 agent 后续工作需要的字段：`tool_slug`、
-`backend_tool`、`dcc_type`、`instance_id`、`loaded`、`has_schema`、`score`，
-以及 unloaded skill 的 `next_step`。它会省略冗余默认值，例如与
+`backend_tool`、`dcc_type`、`instance_id`、`loaded`、`load_state`、
+`available_groups`、`has_schema`、`score`，以及 unloaded skill 的
+`next_step`。`next_step` 同时带 MCP (`tool` + `arguments`) 和 REST
+(`method` + `path` + `body`) 形态；Gateway REST 调用方可以直接 POST
+`next_step.arguments` 到 `/v1/load_skill`。它会省略冗余默认值，例如与
 `backend_tool` 相同的 `callable_id`、空数组和空 object。这里把 RTK 的
 语义压缩模型作为设计参考；gateway 内部直接使用确定性的 `toon-format`
 库，让 `serde_json::Value` payload 在 Rust 测试中可 round-trip，不需要
-派生外部 codec 进程。
+派生外部 codec 进程。Gateway `load_skill` 默认惰性激活 group
+（未传入时等价于 `activate_groups=false`）：默认/core group 可自动可用，
+更重的 group 需要显式 `tool_group` 激活。
 
 compact describe 会对 `record` 应用相同的小记录规则，但完整保留 `tool`
 定义，包括 `inputSchema`、annotations 和 validation hints。compact call

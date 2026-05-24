@@ -139,6 +139,7 @@ impl SkillCatalog {
                 markdown,
                 scripts: e.metadata.scripts.clone(),
                 tools: e.metadata.tools.clone(),
+                groups: e.metadata.groups.clone(),
                 state: e.state.to_string(),
                 missing_dependencies: e.state.missing_dependencies(),
                 registered_tools: e.registered_tools.clone(),
