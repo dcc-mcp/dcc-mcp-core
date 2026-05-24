@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.29](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.28...v0.17.29) (2026-05-24)
+
+
+### Features
+
+* add compact search response codec ([1c1fd0b](https://github.com/loonghao/dcc-mcp-core/commit/1c1fd0b90b1fc97be1612cc34b69bcd532155343))
+* expose canonical gateway MCP tools ([f38d433](https://github.com/loonghao/dcc-mcp-core/commit/f38d43393697e13ae6edef23b63e1c2650220686))
+* extend compact REST responses ([be79fb4](https://github.com/loonghao/dcc-mcp-core/commit/be79fb4114d479bc13fbd985e5776eae24b7fdc5)), closes [#1153](https://github.com/loonghao/dcc-mcp-core/issues/1153)
+* make skill loading self describing ([e6556c1](https://github.com/loonghao/dcc-mcp-core/commit/e6556c1f3ffd0def7c195378e733819384c50fb1))
+* streamline gateway MCP surface and admin UI ([f0fc1d1](https://github.com/loonghao/dcc-mcp-core/commit/f0fc1d11fdd7882c63a5463504108abfad72fd1a))
+
+
+### Bug Fixes
+
+* update clawhub publish cli ([1b4cba6](https://github.com/loonghao/dcc-mcp-core/commit/1b4cba6ade64e951578ace9b4ce096231431bd0b))
+
 ## [0.17.28](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.27...v0.17.28) (2026-05-24)
 
 
