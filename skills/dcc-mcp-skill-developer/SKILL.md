@@ -88,7 +88,13 @@ into a faster authoring loop.
    `request_id`, `trace_id`, and `index_generation`; `/v1/call` keeps the
    backend envelope body compatible and exposes those values through
    `x-dcc-mcp-request-id`, `x-dcc-mcp-trace-id`, `traceparent`, and
-   `x-dcc-mcp-index-generation`. Compact batch examples may also read
+   `x-dcc-mcp-index-generation`. Gateway search responses also carry
+   `search_id`, `ranker_version`, `index_generation`, and per-hit `rank`; when
+   examples follow a search result into `describe`, `load_skill`, `call`, or
+   batch `call`, preserve the generated `next_step.arguments.meta.search_id`
+   (or the same object as MCP `_meta`) so search-quality telemetry can
+   correlate selected rank, hit-rate, and time-to-first-success without storing
+   full prompts. Compact batch examples may also read
    per-result `token_accounting` metadata, and batch request items may carry an
    optional `id` that is echoed next to the numeric result `index`.
    Gateway search uses a hybrid ranker in default fuzzy mode: weighted lexical

@@ -17,7 +17,7 @@ mod admin_tests {
 
     use dcc_mcp_gateway_core::naming::instance_short;
 
-    use crate::gateway::admin::router::build_admin_router;
+    use crate::gateway::admin::router::{build_admin_router, build_v1_debug_router};
     use crate::gateway::admin::state::{AdminAuditRecord, AdminState, AuditLog};
     use crate::gateway::router::build_gateway_router_with_admin;
     use crate::gateway::state::GatewayState;
@@ -129,6 +129,9 @@ mod admin_tests {
                 crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new(),
             ),
             traffic_capture: Arc::new(crate::gateway::traffic::TrafficCapture::disabled()),
+            search_telemetry: Arc::new(
+                crate::gateway::search_telemetry::SearchTelemetryStore::new(),
+            ),
             debug_routes_enabled: false,
         }
     }
@@ -744,6 +747,70 @@ mod admin_tests {
             "expected trace event in activity payload"
         );
         assert_eq!(body["total"].as_u64(), Some(events.len() as u64));
+    }
+
+    #[tokio::test]
+    async fn test_admin_search_telemetry_exposes_prompt_safe_stats() {
+        use crate::gateway::search_telemetry::{
+            RANKER_VERSION, SearchFollowupInput, SearchTelemetryHit, SearchTelemetryInput,
+            SearchTelemetryStore,
+        };
+
+        let gs = make_gateway_state();
+        let search_id = SearchTelemetryStore::new_search_id();
+        gs.search_telemetry.record_search(SearchTelemetryInput {
+            search_id: search_id.clone(),
+            transport: "rest".to_string(),
+            kind: "tool".to_string(),
+            query: "token=abc123 render".to_string(),
+            dcc_type: Some("maya".to_string()),
+            instance_id: None,
+            limit: Some(5),
+            total: 1,
+            ranker_version: RANKER_VERSION.to_string(),
+            index_generation: "idx-admin".to_string(),
+            hits: vec![SearchTelemetryHit {
+                tool_slug: "maya.abcdef01.render_frame".to_string(),
+                skill_name: Some("maya-render".to_string()),
+                dcc_type: "maya".to_string(),
+                rank: 1,
+                score: 100,
+                match_reasons: vec!["tool_lexical".to_string()],
+                loaded: true,
+            }],
+            trace_context: None,
+            session_id: None,
+        });
+        assert!(gs.search_telemetry.record_followup(SearchFollowupInput {
+            search_id,
+            kind: "call".to_string(),
+            tool_slug: Some("maya.abcdef01.render_frame".to_string()),
+            skill_name: None,
+            success: true,
+            trace_context: None,
+        }));
+
+        let state = AdminState::new(gs);
+        let (admin_status, admin_body) = body_json(
+            build_admin_router(state.clone()),
+            "/api/search-telemetry?limit=5",
+        )
+        .await;
+        assert_eq!(admin_status, StatusCode::OK);
+        assert_eq!(admin_body["stats"]["total_searches"], 1);
+        assert_eq!(admin_body["stats"]["success_after_search_rate"], 1.0);
+        assert_eq!(
+            admin_body["recent"][0]["query_preview"],
+            "[redacted] render"
+        );
+
+        let (debug_status, debug_body) = body_json(
+            build_v1_debug_router(state),
+            "/v1/debug/search-telemetry?limit=5",
+        )
+        .await;
+        assert_eq!(debug_status, StatusCode::OK);
+        assert_eq!(debug_body["stats"]["top1_hit_rate"], 1.0);
     }
 
     #[tokio::test]

@@ -35,6 +35,64 @@ pub fn record_gateway_backend_error_kind(kind: &str) {
     }
 }
 
+/// Increment `dcc_mcp_gateway_searches_total` when the `prometheus`
+/// feature is enabled.
+#[inline]
+pub fn record_gateway_search(result: &str) {
+    #[cfg(feature = "prometheus")]
+    {
+        if let Some(exp) = GATEWAY_PROMETHEUS_EXPORTER.get() {
+            exp.record_gateway_search(result);
+        }
+    }
+    #[cfg(not(feature = "prometheus"))]
+    {
+        let _ = result;
+    }
+}
+
+/// Increment `dcc_mcp_gateway_search_followups_total` when the `prometheus`
+/// feature is enabled.
+#[inline]
+pub fn record_gateway_search_followup(kind: &str, rank_bucket: &str) {
+    #[cfg(feature = "prometheus")]
+    {
+        if let Some(exp) = GATEWAY_PROMETHEUS_EXPORTER.get() {
+            exp.record_gateway_search_followup(kind, rank_bucket);
+        }
+    }
+    #[cfg(not(feature = "prometheus"))]
+    {
+        let _ = (kind, rank_bucket);
+    }
+}
+
+/// Increment `dcc_mcp_gateway_search_reformulations_total` when enabled.
+#[inline]
+pub fn record_gateway_search_reformulation() {
+    #[cfg(feature = "prometheus")]
+    {
+        if let Some(exp) = GATEWAY_PROMETHEUS_EXPORTER.get() {
+            exp.record_gateway_search_reformulation();
+        }
+    }
+}
+
+/// Observe `dcc_mcp_gateway_search_time_to_first_success_seconds` when enabled.
+#[inline]
+pub fn observe_gateway_search_time_to_first_success(duration: std::time::Duration) {
+    #[cfg(feature = "prometheus")]
+    {
+        if let Some(exp) = GATEWAY_PROMETHEUS_EXPORTER.get() {
+            exp.observe_gateway_search_time_to_first_success(duration);
+        }
+    }
+    #[cfg(not(feature = "prometheus"))]
+    {
+        let _ = duration;
+    }
+}
+
 /// Attach the `/metrics` route to the gateway router.
 #[cfg(feature = "prometheus")]
 pub fn attach_gateway_metrics_route(router: Router) -> Router {

@@ -158,6 +158,9 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
             crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new(),
         ),
         traffic_capture: std::sync::Arc::new(crate::gateway::traffic::TrafficCapture::disabled()),
+        search_telemetry: std::sync::Arc::new(
+            crate::gateway::search_telemetry::SearchTelemetryStore::new(),
+        ),
         debug_routes_enabled: false,
     };
 
@@ -319,6 +322,9 @@ async fn make_gateway_state(
             crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new(),
         ),
         traffic_capture: std::sync::Arc::new(crate::gateway::traffic::TrafficCapture::disabled()),
+        search_telemetry: std::sync::Arc::new(
+            crate::gateway::search_telemetry::SearchTelemetryStore::new(),
+        ),
         debug_routes_enabled: false,
     }
 }
@@ -1187,6 +1193,9 @@ async fn gateway_state_with_instances(
             crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new(),
         ),
         traffic_capture: std::sync::Arc::new(crate::gateway::traffic::TrafficCapture::disabled()),
+        search_telemetry: std::sync::Arc::new(
+            crate::gateway::search_telemetry::SearchTelemetryStore::new(),
+        ),
         debug_routes_enabled: false,
     };
     (state, dir, ids)

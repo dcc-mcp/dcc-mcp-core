@@ -31,15 +31,19 @@
 //! | `dcc_mcp_notifications_sent_total`  | counter   | `channel` |
 //! | `dcc_mcp_active_sessions`           | gauge     | — |
 //! | `dcc_mcp_registered_tools`          | gauge     | — |
-//! | `dcc_mcp_gateway_backend_errors_total` | counter | `kind` (gateway → backend hop) |
+//! | `dcc_mcp_gateway_backend_errors_total` | counter | `kind` (gateway -> backend hop) |
+//! | `dcc_mcp_gateway_searches_total` | counter | `result` (`zero`, `nonzero`) |
+//! | `dcc_mcp_gateway_search_followups_total` | counter | `kind`, `rank_bucket` |
+//! | `dcc_mcp_gateway_search_reformulations_total` | counter | - |
+//! | `dcc_mcp_gateway_search_time_to_first_success_seconds` | histogram | - |
 //! | `dcc_mcp_build_info`                | gauge     | `version`, `crate` (always 1) |
 
 use std::sync::Arc;
 
 use parking_lot::Mutex;
 use prometheus::{
-    Encoder, Gauge, GaugeVec, HistogramOpts, HistogramVec, IntCounterVec, IntGauge, IntGaugeVec,
-    Opts, Registry, TextEncoder,
+    Encoder, Gauge, GaugeVec, Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec,
+    IntGauge, IntGaugeVec, Opts, Registry, TextEncoder,
 };
 
 use crate::recorder::ToolRecorder;
@@ -88,6 +92,10 @@ struct Inner {
     /// Gateway-only: backend hop failures by coarse error class (`transport`,
     /// `http_5xx`, `jsonrpc_backend`, …). See `PrometheusExporter::record_gateway_backend_error`.
     gateway_backend_errors_total: IntCounterVec,
+    gateway_searches_total: IntCounterVec,
+    gateway_search_followups_total: IntCounterVec,
+    gateway_search_reformulations_total: IntCounter,
+    gateway_search_time_to_first_success_seconds: Histogram,
 
     #[allow(dead_code)]
     build_info: GaugeVec,
@@ -281,6 +289,53 @@ impl PrometheusExporter {
             .register(Box::new(gateway_backend_errors_total.clone()))
             .expect("unique registration");
 
+        let gateway_searches_total = IntCounterVec::new(
+            Opts::new(
+                "dcc_mcp_gateway_searches_total",
+                "Gateway search requests by bounded result class.",
+            ),
+            &["result"],
+        )
+        .expect("static metric definition");
+        registry
+            .register(Box::new(gateway_searches_total.clone()))
+            .expect("unique registration");
+
+        let gateway_search_followups_total = IntCounterVec::new(
+            Opts::new(
+                "dcc_mcp_gateway_search_followups_total",
+                "Gateway search follow-up operations by type and selected-rank bucket.",
+            ),
+            &["kind", "rank_bucket"],
+        )
+        .expect("static metric definition");
+        registry
+            .register(Box::new(gateway_search_followups_total.clone()))
+            .expect("unique registration");
+
+        let gateway_search_reformulations_total = IntCounter::with_opts(Opts::new(
+            "dcc_mcp_gateway_search_reformulations_total",
+            "Gateway searches that reformulate a recent unsuccessful query.",
+        ))
+        .expect("static metric definition");
+        registry
+            .register(Box::new(gateway_search_reformulations_total.clone()))
+            .expect("unique registration");
+
+        let gateway_search_time_to_first_success_seconds = Histogram::with_opts(
+            HistogramOpts::new(
+                "dcc_mcp_gateway_search_time_to_first_success_seconds",
+                "Seconds from a gateway search to the first successful correlated tool call.",
+            )
+            .buckets(DURATION_BUCKETS_SECONDS.to_vec()),
+        )
+        .expect("static metric definition");
+        registry
+            .register(Box::new(
+                gateway_search_time_to_first_success_seconds.clone(),
+            ))
+            .expect("unique registration");
+
         Self {
             inner: Arc::new(Inner {
                 registry,
@@ -297,6 +352,10 @@ impl PrometheusExporter {
                 request_duration_seconds,
                 requests_failed_total,
                 gateway_backend_errors_total,
+                gateway_searches_total,
+                gateway_search_followups_total,
+                gateway_search_reformulations_total,
+                gateway_search_time_to_first_success_seconds,
                 build_info,
                 recorder: Mutex::new(None),
             }),
@@ -421,6 +480,34 @@ impl PrometheusExporter {
             .inc();
     }
 
+    /// Record a gateway search request by bounded result class (`zero` or `nonzero`).
+    pub fn record_gateway_search(&self, result: &str) {
+        self.inner
+            .gateway_searches_total
+            .with_label_values(&[result])
+            .inc();
+    }
+
+    /// Record a follow-up selected from a prior search.
+    pub fn record_gateway_search_followup(&self, kind: &str, rank_bucket: &str) {
+        self.inner
+            .gateway_search_followups_total
+            .with_label_values(&[kind, rank_bucket])
+            .inc();
+    }
+
+    /// Record a query reformulation after a recent unsuccessful search.
+    pub fn record_gateway_search_reformulation(&self) {
+        self.inner.gateway_search_reformulations_total.inc();
+    }
+
+    /// Observe the time from search response to first successful correlated call.
+    pub fn observe_gateway_search_time_to_first_success(&self, duration: std::time::Duration) {
+        self.inner
+            .gateway_search_time_to_first_success_seconds
+            .observe(duration.as_secs_f64());
+    }
+
     /// Render the current metric state as a Prometheus text-exposition
     /// payload. This is what `/metrics` hands back to scrapers.
     ///
@@ -521,6 +608,10 @@ mod tests {
         exp.observe_job_wait("seed", Duration::from_millis(1));
         exp.record_notification_sent("seed");
         exp.record_gateway_backend_error("seed");
+        exp.record_gateway_search("nonzero");
+        exp.record_gateway_search_followup("describe", "top1");
+        exp.record_gateway_search_reformulation();
+        exp.observe_gateway_search_time_to_first_success(Duration::from_millis(10));
     }
 
     #[test]
@@ -539,6 +630,10 @@ mod tests {
             "dcc_mcp_active_sessions",
             "dcc_mcp_registered_tools",
             "dcc_mcp_gateway_backend_errors_total",
+            "dcc_mcp_gateway_searches_total",
+            "dcc_mcp_gateway_search_followups_total",
+            "dcc_mcp_gateway_search_reformulations_total",
+            "dcc_mcp_gateway_search_time_to_first_success_seconds",
             "dcc_mcp_build_info",
         ] {
             assert!(
@@ -559,6 +654,27 @@ mod tests {
         assert!(out.contains("# TYPE dcc_mcp_tool_calls_total counter"));
         assert!(out.contains("# TYPE dcc_mcp_tool_duration_seconds histogram"));
         assert!(out.contains("# TYPE dcc_mcp_active_sessions gauge"));
+        assert!(out.contains("# TYPE dcc_mcp_gateway_searches_total counter"));
+        assert!(
+            out.contains("# TYPE dcc_mcp_gateway_search_time_to_first_success_seconds histogram")
+        );
+    }
+
+    #[test]
+    fn gateway_search_metrics_are_recorded() {
+        let exp = PrometheusExporter::new();
+        exp.record_gateway_search("zero");
+        exp.record_gateway_search_followup("call", "top3");
+        exp.record_gateway_search_reformulation();
+        exp.observe_gateway_search_time_to_first_success(Duration::from_millis(250));
+
+        let out = exp.render().unwrap();
+        assert!(out.contains(r#"dcc_mcp_gateway_searches_total{result="zero"} 1"#));
+        assert!(out.contains(
+            r#"dcc_mcp_gateway_search_followups_total{kind="call",rank_bucket="top3"} 1"#
+        ));
+        assert!(out.contains("dcc_mcp_gateway_search_reformulations_total 1"));
+        assert!(out.contains("dcc_mcp_gateway_search_time_to_first_success_seconds_count 1"));
     }
 
     #[test]

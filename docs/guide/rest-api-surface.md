@@ -383,11 +383,17 @@ single-call, and batch execution also expose stable observability headers:
 | `x-dcc-mcp-trace-id` | End-to-end trace id for gateway, sidecar, and host correlation. |
 | `traceparent` | W3C trace context for clients that continue the HTTP trace. |
 | `x-dcc-mcp-index-generation` | Opaque capability-index fingerprint when the route touches discovery/call state. |
+| `x-dcc-mcp-search-id` | Search-quality correlation id when a route creates or consumes a search result set. |
+| `x-dcc-mcp-ranker-version` | Bounded ranker identifier for the correlated search result set. |
 
 `/v1/search`, `/v1/describe`, `/v1/load_skill`, and `/v1/call_batch` also include
 `request_id`, `trace_id`, and `index_generation` in JSON/TOON bodies. `/v1/call`
 keeps the backend result envelope byte-shape compatible and exposes this metadata
 through headers only.
+Search responses also include `search_id`, `ranker_version`, and
+`index_generation`; pass `meta.search_id` from the returned `next_step` into
+`/v1/describe`, `/v1/load_skill`, `/v1/call`, or `/v1/call_batch` so gateway
+telemetry can measure the search-to-action path without storing full prompts.
 
 ---
 
@@ -448,18 +454,25 @@ Rules:
   `tool_lexical`, `alias_lexical`, `schema_lexical`, `summary_fuzzy`,
   `schema_fuzzy`, or `multi_token_lexical`
   so agents and maintainers can understand the rank without fetching schemas.
+- Gateway hits include one-based `rank`. Generated `next_step` payloads carry
+  `meta.search_id`, `meta.ranker_version`, and `meta.index_generation` for
+  follow-up calls; clients may also pass the same object as MCP `_meta`.
 - Full `input_schema` remains behind `describe`. Search may carry only bounded
   `metadata.dcc.searchAliases` / `metadata.dcc.searchTokens` hints from a
   per-DCC backend to the gateway index; gateway search responses do not expose
   those internal index tokens as public fields.
 
-Response shape (gateway + per-DCC are identical):
+Gateway response shape:
 
 ```json
 {
+  "search_id": "9c8a1e9f-8d6f-4f3f-86e5-a9caa9138a5d",
+  "ranker_version": "gateway-hybrid-v2",
+  "index_generation": "1:ab12cd34",
   "total": 3,
   "hits": [
     {
+      "rank": 1,
       "slug": "maya.a1b2c3d4.render_frame",
       "skill_name": "maya-render",
       "action_name": "render_frame",
@@ -481,14 +494,29 @@ Response shape (gateway + per-DCC are identical):
           "skill_name": "maya-render",
           "dcc": "maya",
           "dcc_type": "maya",
-          "instance_id": "a1b2c3d4-0000-0000-0000-000000000001"
+          "instance_id": "a1b2c3d4-0000-0000-0000-000000000001",
+          "meta": {
+            "search_id": "9c8a1e9f-8d6f-4f3f-86e5-a9caa9138a5d",
+            "ranker_version": "gateway-hybrid-v2",
+            "index_generation": "1:ab12cd34"
+          }
         },
         "mcp": {
           "tool": "load_skill",
           "arguments": {
             "skill_name": "maya-render",
             "dcc_type": "maya",
-            "instance_id": "a1b2c3d4-0000-0000-0000-000000000001"
+            "instance_id": "a1b2c3d4-0000-0000-0000-000000000001",
+            "meta": {
+              "search_id": "9c8a1e9f-8d6f-4f3f-86e5-a9caa9138a5d",
+              "ranker_version": "gateway-hybrid-v2",
+              "index_generation": "1:ab12cd34"
+            }
+          },
+          "_meta": {
+            "search_id": "9c8a1e9f-8d6f-4f3f-86e5-a9caa9138a5d",
+            "ranker_version": "gateway-hybrid-v2",
+            "index_generation": "1:ab12cd34"
           }
         },
         "rest": {
@@ -497,7 +525,12 @@ Response shape (gateway + per-DCC are identical):
           "body": {
             "skill_name": "maya-render",
             "dcc_type": "maya",
-            "instance_id": "a1b2c3d4-0000-0000-0000-000000000001"
+            "instance_id": "a1b2c3d4-0000-0000-0000-000000000001",
+            "meta": {
+              "search_id": "9c8a1e9f-8d6f-4f3f-86e5-a9caa9138a5d",
+              "ranker_version": "gateway-hybrid-v2",
+              "index_generation": "1:ab12cd34"
+            }
           }
         }
       }
@@ -544,7 +577,7 @@ headers:
 The compact search shape preserves the workflow fields agents need next:
 `tool_slug`, `backend_tool`, `dcc_type`, `instance_id`, `loaded`,
 `load_state`, `available_groups`, `has_schema`, `score`, `match_reasons`, and
-`next_step` for unloaded skills. It omits redundant defaults such as `callable_id` when it
+`rank`, `search_id`, `ranker_version`, `index_generation`, and `next_step` for unloaded skills. It omits redundant defaults such as `callable_id` when it
 matches `backend_tool`, empty arrays, and empty objects. RTK's compaction model
 is treated as design guidance here; the
 gateway uses the deterministic in-process `toon-format` library so
@@ -587,7 +620,9 @@ definition (`input_schema`, annotations, next-tool hints). `include_schema`
 defaults to `true`; set `false` on follow-up calls where only the metadata
 has changed.
 The response includes the current `index_generation` so generated clients can
-detect stale describe/call sequences without parsing logs.
+detect stale describe/call sequences without parsing logs. When the describe
+request includes `meta.search_id`, the response `next_step` for `call` carries
+that search id forward and the gateway records selected-rank telemetry.
 
 ---
 

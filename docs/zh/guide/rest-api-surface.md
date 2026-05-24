@@ -254,11 +254,17 @@ Gateway REST 响应也会带稳定观测头：
 | `x-dcc-mcp-trace-id` | 跨 gateway、sidecar、host 的 end-to-end trace id。 |
 | `traceparent` | W3C trace context，方便 HTTP 客户端继续传播 trace。 |
 | `x-dcc-mcp-index-generation` | 触及 discovery/call 状态时返回的 capability-index opaque fingerprint。 |
+| `x-dcc-mcp-search-id` | 创建或消费 search result set 时返回的 search-quality 关联 id。 |
+| `x-dcc-mcp-ranker-version` | 关联 search result set 使用的 bounded ranker id。 |
 
 `/v1/search`、`/v1/describe`、`/v1/load_skill` 和 `/v1/call_batch` 的
 JSON/TOON body 也会包含 `request_id`、`trace_id`、`index_generation`。
 `/v1/call` 为保持 backend result envelope 向后兼容，只通过 headers 暴露
 这些 metadata。
+Search response 还会包含 `search_id`、`ranker_version` 和
+`index_generation`；后续 `/v1/describe`、`/v1/load_skill`、`/v1/call` 或
+`/v1/call_batch` 应把 `next_step` 中的 `meta.search_id` 原样传回，
+这样 gateway 可以统计 search-to-action 质量，同时不记录完整 prompt。
 
 ---
 
@@ -277,6 +283,10 @@ nucleo-matcher fuzzy fallback 保留 typo / partial-name 容错；`mode: "exact"
 仍是旧 substring 表。Gateway hit 会带 `score` 和 bounded `match_reasons`
 （例如 `tool_lexical`、`alias_lexical`、`schema_lexical`、`summary_fuzzy`、`schema_fuzzy`、
 `multi_token_lexical`），让 agent 和维护者不取完整 schema 也能理解排序原因。
+Gateway hit 还带 1-based `rank`。生成的 `next_step` 会携带
+`meta.search_id`、`meta.ranker_version` 和 `meta.index_generation`，REST
+调用方把它放进 body，MCP 调用方也可以把同一对象作为 `_meta` 传给
+后续 `describe` / `load_skill` / `call`。
 完整 `input_schema` 仍只通过 `describe` 返回；搜索阶段只允许 per-DCC backend
 通过 bounded `metadata.dcc.searchAliases` / `metadata.dcc.searchTokens` 把小型
 索引提示交给 gateway，gateway 搜索响应不会把这些内部 token 暴露成公开字段。
@@ -303,8 +313,9 @@ curl -H 'Accept: application/toon' \
 
 compact search 仍保留 agent 后续工作需要的字段：`tool_slug`、
 `backend_tool`、`dcc_type`、`instance_id`、`loaded`、`load_state`、
-`available_groups`、`has_schema`、`score`、`match_reasons`，以及 unloaded
-skill 的 `next_step`。`next_step` 同时带 MCP (`tool` + `arguments`) 和 REST
+`available_groups`、`has_schema`、`score`、`match_reasons`、`rank`、
+`search_id`、`ranker_version`、`index_generation`，以及 unloaded skill 的
+`next_step`。`next_step` 同时带 MCP (`tool` + `arguments`) 和 REST
 (`method` + `path` + `body`) 形态；Gateway REST 调用方可以直接 POST
 `next_step.arguments` 到 `/v1/load_skill`。它会省略冗余默认值，例如与
 `backend_tool` 相同的 `callable_id`、空数组和空 object。这里把 RTK 的

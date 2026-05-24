@@ -288,6 +288,7 @@ fn common_schemas() -> Map<String, Value> {
         schemas.insert(name.to_string(), schema);
     }
     annotate_service_error_policy(&mut schemas);
+    annotate_search_quality_contract(&mut schemas);
 
     schemas
 }
@@ -315,6 +316,70 @@ fn annotate_service_error_policy(schemas: &mut Map<String, Value>) {
         "additionalProperties": true
     });
     schemas.insert("ServiceError".to_string(), gateway_error);
+}
+
+fn annotate_search_quality_contract(schemas: &mut Map<String, Value>) {
+    if let Some(search_response) = schemas.get_mut("SearchResponse")
+        && let Some(properties) = search_response
+            .get_mut("properties")
+            .and_then(Value::as_object_mut)
+    {
+        properties.insert(
+            "search_id".to_string(),
+            json!({
+                "type": "string",
+                "description": "Stable correlation id for this search result set. Pass it as meta.search_id on describe, load_skill, call, or batch follow-ups."
+            }),
+        );
+        properties.insert(
+            "ranker_version".to_string(),
+            json!({
+                "type": "string",
+                "description": "Bounded ranker identifier used for the response."
+            }),
+        );
+        properties.insert(
+            "index_generation".to_string(),
+            json!({
+                "type": "string",
+                "description": "Opaque capability-index fingerprint used to produce the result set."
+            }),
+        );
+    }
+
+    if let Some(skill_entry) = schemas.get_mut("SkillListEntry")
+        && let Some(properties) = skill_entry
+            .get_mut("properties")
+            .and_then(Value::as_object_mut)
+    {
+        properties.insert(
+            "rank".to_string(),
+            json!({
+                "type": "integer",
+                "minimum": 1,
+                "description": "One-based rank within the returned search result set."
+            }),
+        );
+        properties.insert(
+            "score".to_string(),
+            json!({"type": "integer", "minimum": 0}),
+        );
+        properties.insert(
+            "match_reasons".to_string(),
+            json!({
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Bounded ranking reason labels, for example tool_lexical or schema_fuzzy."
+            }),
+        );
+        properties.insert(
+            "next_step".to_string(),
+            json!({
+                "$ref": "#/components/schemas/ProgressiveNextStep",
+                "description": "Suggested follow-up with meta.search_id attached when the hit is unloaded or ready for describe/call."
+            }),
+        );
+    }
 }
 
 fn gateway_schemas() -> Vec<(&'static str, Value)> {
@@ -711,6 +776,14 @@ fn gateway_metadata_headers() -> Value {
             "description": "Opaque capability-index fingerprint when the route touches discovery, describe, load, or call state.",
             "schema": {"type": "string"}
         },
+        "x-dcc-mcp-search-id": {
+            "description": "Stable search correlation id when a route creates or consumes search-quality telemetry.",
+            "schema": {"type": "string"}
+        },
+        "x-dcc-mcp-ranker-version": {
+            "description": "Bounded search ranker identifier when a route creates or consumes search-quality telemetry.",
+            "schema": {"type": "string"}
+        },
         "traceparent": {
             "description": "W3C trace context for downstream HTTP clients.",
             "schema": {"type": "string"}
@@ -832,7 +905,20 @@ mod tests {
         assert!(search_headers.get("x-dcc-mcp-request-id").is_some());
         assert!(search_headers.get("x-dcc-mcp-trace-id").is_some());
         assert!(search_headers.get("x-dcc-mcp-index-generation").is_some());
+        assert!(search_headers.get("x-dcc-mcp-search-id").is_some());
+        assert!(search_headers.get("x-dcc-mcp-ranker-version").is_some());
         assert!(search_headers.get("traceparent").is_some());
+
+        let search_response = &doc["components"]["schemas"]["SearchResponse"];
+        assert!(search_response["properties"].get("search_id").is_some());
+        assert!(
+            search_response["properties"]
+                .get("ranker_version")
+                .is_some()
+        );
+        let search_hit = &doc["components"]["schemas"]["SkillListEntry"];
+        assert!(search_hit["properties"].get("rank").is_some());
+        assert!(search_hit["properties"].get("match_reasons").is_some());
 
         let batch_item = &doc["components"]["schemas"]["GatewayBatchCallItem"];
         assert!(batch_item["properties"].get("id").is_some());

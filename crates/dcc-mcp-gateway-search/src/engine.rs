@@ -103,11 +103,14 @@ pub fn search_page<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) 
     let effective_limit = effective_limit(query.limit);
     let offset = query.offset.unwrap_or(0).min(total);
     let end = offset.saturating_add(effective_limit).min(total);
-    let page = if offset < total {
+    let mut page = if offset < total {
         hits[offset as usize..end as usize].to_vec()
     } else {
         Vec::new()
     };
+    for (idx, hit) in page.iter_mut().enumerate() {
+        hit.rank = offset + idx as u32 + 1;
+    }
 
     SearchPage {
         hits: page,
@@ -162,6 +165,7 @@ fn rank_multi<R: SearchRecord + Clone, S: Scorer>(
             };
             SearchHit {
                 record: (*r).clone(),
+                rank: 0,
                 score: breakdown.score,
                 match_reasons: breakdown.match_reasons,
             }
