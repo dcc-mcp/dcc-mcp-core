@@ -55,7 +55,7 @@ regex-automata = { version = "0.4.14", default-features = false, features = ["df
 regex-syntax = { version = "0.8.10" }
 serde = { version = "1.0.228", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1.0.228", features = ["alloc", "rc"] }
-serde_json = { version = "1.0.149", features = ["alloc", "raw_value"] }
+serde_json = { version = "1.0.149", features = ["alloc", "preserve_order", "raw_value"] }
 slab = { version = "0.4.12" }
 smallvec = { version = "1.15.1", default-features = false, features = ["const_new"] }
 subtle = { version = "2.6.1" }
@@ -118,7 +118,7 @@ regex-automata = { version = "0.4.14", default-features = false, features = ["df
 regex-syntax = { version = "0.8.10" }
 serde = { version = "1.0.228", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1.0.228", features = ["alloc", "rc"] }
-serde_json = { version = "1.0.149", features = ["alloc", "raw_value"] }
+serde_json = { version = "1.0.149", features = ["alloc", "preserve_order", "raw_value"] }
 slab = { version = "0.4.12" }
 smallvec = { version = "1.15.1", default-features = false, features = ["const_new"] }
 subtle = { version = "2.6.1" }

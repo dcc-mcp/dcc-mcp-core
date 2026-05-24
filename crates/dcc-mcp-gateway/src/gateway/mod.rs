@@ -47,6 +47,7 @@ pub mod native_resources;
 pub mod openapi;
 pub mod proxy;
 pub mod resilience;
+pub(crate) mod response_codec;
 pub mod router;
 pub mod sse_subscriber;
 pub mod state;
