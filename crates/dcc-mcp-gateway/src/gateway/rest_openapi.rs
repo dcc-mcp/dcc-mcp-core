@@ -152,7 +152,7 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
             "Search gateway capabilities",
             "Searches loaded and unloaded capabilities across live DCC instances.",
             request_body_ref("SearchRequest"),
-            json_response_ref("SearchResponse"),
+            gateway_json_response_ref("SearchResponse"),
         ),
     );
     paths.insert(
@@ -162,7 +162,7 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
             "Load a backend skill",
             "Loads a skill on a selected backend instance. Gateway load_skill defaults to lazy group activation.",
             request_body_ref("LoadSkillRequest"),
-            json_response_ref("SkillLifecycleResponse"),
+            gateway_json_response_ref("SkillLifecycleResponse"),
         ),
     );
     paths.insert(
@@ -172,7 +172,7 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
             "Unload a backend skill",
             "Unloads a skill from a selected backend instance.",
             request_body_ref("UnloadSkillRequest"),
-            json_response_ref("SkillLifecycleResponse"),
+            gateway_json_response_ref("SkillLifecycleResponse"),
         ),
     );
     paths.insert(
@@ -182,7 +182,7 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
             "Describe a gateway capability",
             "Resolves a gateway tool_slug and returns its schema, annotations, backend owner, and loading state.",
             request_body_ref("DescribeRequest"),
-            json_response_ref("DescribeResponse"),
+            gateway_json_response_ref("DescribeResponse"),
         ),
     );
     paths.insert(
@@ -192,7 +192,7 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
             "Describe a gateway capability by URL slug",
             "URL alias for /v1/describe.",
             vec![path_param("slug", "Gateway capability slug.")],
-            json_response_ref("DescribeResponse"),
+            gateway_json_response_ref("DescribeResponse"),
         ),
     );
     paths.insert(
@@ -202,7 +202,7 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
             "Call a gateway capability",
             "Invokes one gateway capability by tool_slug.",
             request_body_ref("CallRequest"),
-            json_response_ref("CallOutcome"),
+            gateway_json_response_ref("CallOutcome"),
         ),
     );
     paths.insert(
@@ -212,7 +212,7 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
             "Call multiple gateway capabilities",
             "Invokes up to 25 gateway capabilities in order with optional stop_on_error semantics.",
             request_body_ref("GatewayCallBatchRequest"),
-            json_response_ref("GatewayCallBatchResponse"),
+            gateway_json_response_ref("GatewayCallBatchResponse"),
         ),
     );
     paths.insert(
@@ -238,7 +238,7 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
                 ),
                 query_param("backend_tool", true, "Backend callable id to describe."),
             ],
-            json_response_ref("DescribeResponse"),
+            gateway_json_response_ref("DescribeResponse"),
         ),
     );
     paths.insert(
@@ -255,7 +255,7 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
                 ),
             ],
             request_body_ref("GatewayDirectCallRequest"),
-            json_response_ref("CallOutcome"),
+            gateway_json_response_ref("CallOutcome"),
         ),
     );
     paths.insert(
@@ -418,6 +418,29 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
             }),
         ),
         (
+            "GatewayBatchCallItem",
+            json!({
+                "type": "object",
+                "required": ["tool_slug"],
+                "properties": {
+                    "id": {
+                        "description": "Optional client correlation id echoed unchanged in the matching result item.",
+                        "oneOf": [
+                            {"type": "string"},
+                            {"type": "integer"},
+                            {"type": "number"},
+                            {"type": "boolean"}
+                        ]
+                    },
+                    "tool_slug": {"type": "string"},
+                    "arguments": {"type": "object", "additionalProperties": true},
+                    "params": {"type": "object", "additionalProperties": true},
+                    "meta": {"type": "object", "additionalProperties": true}
+                },
+                "additionalProperties": false,
+            }),
+        ),
+        (
             "GatewayCallBatchRequest",
             json!({
                 "type": "object",
@@ -426,7 +449,7 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
                     "calls": {
                         "type": "array",
                         "maxItems": 25,
-                        "items": {"$ref": "#/components/schemas/CallRequest"}
+                        "items": {"$ref": "#/components/schemas/GatewayBatchCallItem"}
                     },
                     "stop_on_error": {"type": "boolean"},
                     "meta": {"type": "object", "additionalProperties": true},
@@ -442,12 +465,29 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
                 "type": "object",
                 "required": ["results"],
                 "properties": {
+                    "request_id": {"type": "string"},
+                    "trace_id": {"type": "string"},
+                    "index_generation": {
+                        "type": "string",
+                        "description": "Opaque capability-index fingerprint after the batch completes."
+                    },
                     "results": {
                         "type": "array",
-                        "items": {"type": "object", "additionalProperties": true}
+                        "items": {
+                            "type": "object",
+                            "required": ["index", "ok"],
+                            "properties": {
+                                "index": {"type": "integer", "minimum": 0},
+                                "id": {"description": "Client id echoed from the corresponding request item."},
+                                "tool_slug": {"type": "string"},
+                                "ok": {"type": "boolean"},
+                                "result": {"type": "object", "additionalProperties": true},
+                                "error": {"type": "object", "additionalProperties": true}
+                            },
+                            "additionalProperties": true
+                        }
                     },
-                    "stopped_on_error": {"type": "boolean"},
-                    "request_id": {"type": "string"}
+                    "stop_on_error": {"type": "boolean"}
                 },
                 "additionalProperties": true,
             }),
@@ -601,6 +641,33 @@ fn json_response_ref(schema: &str) -> Value {
     })
 }
 
+fn gateway_json_response_ref(schema: &str) -> Value {
+    let mut response = json_response_ref(schema);
+    response["headers"] = gateway_metadata_headers();
+    response
+}
+
+fn gateway_metadata_headers() -> Value {
+    json!({
+        "x-dcc-mcp-request-id": {
+            "description": "Gateway request id. Mirrors client X-Request-Id when supplied.",
+            "schema": {"type": "string"}
+        },
+        "x-dcc-mcp-trace-id": {
+            "description": "End-to-end trace id propagated through gateway, sidecar, and host calls.",
+            "schema": {"type": "string"}
+        },
+        "x-dcc-mcp-index-generation": {
+            "description": "Opaque capability-index fingerprint when the route touches discovery, describe, load, or call state.",
+            "schema": {"type": "string"}
+        },
+        "traceparent": {
+            "description": "W3C trace context for downstream HTTP clients.",
+            "schema": {"type": "string"}
+        }
+    })
+}
+
 fn text_response(content_type: &str) -> Value {
     json!({
         "description": "Text response",
@@ -697,6 +764,7 @@ mod tests {
             "CallRequest",
             "CallOutcome",
             "GatewayDirectCallRequest",
+            "GatewayBatchCallItem",
             "GatewayCallBatchRequest",
         ] {
             assert!(
@@ -704,5 +772,27 @@ mod tests {
                 "gateway OpenAPI schema set missing {schema}"
             );
         }
+    }
+
+    #[test]
+    fn gateway_openapi_documents_metadata_headers_and_batch_ids() {
+        let doc = build_gateway_openapi_document("1.2.3");
+        let search_headers = &doc["paths"]["/v1/search"]["post"]["responses"]["200"]["headers"];
+        assert!(search_headers.get("x-dcc-mcp-request-id").is_some());
+        assert!(search_headers.get("x-dcc-mcp-trace-id").is_some());
+        assert!(search_headers.get("x-dcc-mcp-index-generation").is_some());
+        assert!(search_headers.get("traceparent").is_some());
+
+        let batch_item = &doc["components"]["schemas"]["GatewayBatchCallItem"];
+        assert!(batch_item["properties"].get("id").is_some());
+        let response = &doc["components"]["schemas"]["GatewayCallBatchResponse"];
+        assert!(
+            response["properties"]["results"]["items"]["properties"]
+                .get("id")
+                .is_some()
+        );
+        assert!(response["properties"].get("request_id").is_some());
+        assert!(response["properties"].get("trace_id").is_some());
+        assert!(response["properties"].get("index_generation").is_some());
     }
 }

@@ -21,6 +21,9 @@ pub(crate) const HEADER_ORIGINAL_TOKENS: &str = "x-dcc-mcp-original-tokens";
 pub(crate) const HEADER_RETURNED_TOKENS: &str = "x-dcc-mcp-returned-tokens";
 pub(crate) const HEADER_SAVED_TOKENS: &str = "x-dcc-mcp-saved-tokens";
 pub(crate) const HEADER_SAVINGS_PERCENT: &str = "x-dcc-mcp-savings-pct";
+pub(crate) const HEADER_REQUEST_ID: &str = "x-dcc-mcp-request-id";
+pub(crate) const HEADER_TRACE_ID: &str = "x-dcc-mcp-trace-id";
+pub(crate) const HEADER_INDEX_GENERATION: &str = "x-dcc-mcp-index-generation";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ResponseFormat {
@@ -185,6 +188,7 @@ pub(crate) fn negotiated_response(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn search_response(headers: &HeaderMap, body: &Value, hits: Vec<Value>) -> Response {
     let total = hits.len();
     let legacy = json!({
@@ -222,6 +226,9 @@ pub(crate) fn compact_search_payload(total: usize, hits: &[Value]) -> Value {
 
 pub(crate) fn compact_describe_payload(legacy: &Value) -> Value {
     let mut out = Map::new();
+    copy_field(&mut out, legacy, "request_id");
+    copy_field(&mut out, legacy, "trace_id");
+    copy_field(&mut out, legacy, "index_generation");
     if let Some(record) = legacy.get("record") {
         out.insert("record".to_string(), compact_record(record));
     }
