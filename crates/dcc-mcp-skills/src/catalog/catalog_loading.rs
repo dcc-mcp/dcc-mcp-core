@@ -67,6 +67,42 @@ impl SkillCatalog {
         self.load_skill_recursive(skill_name, activate_groups, &mut visiting)
     }
 
+    /// Load a caller-supplied skill metadata object through the normal catalog path.
+    ///
+    /// This is the adapter-facing escape hatch for runtime metadata policy
+    /// changes. Adapters can call [`get_skill`](Self::get_skill), modify the
+    /// returned copy, then pass it here so registration, dispatcher wiring,
+    /// group activation, dependency checks, and lifecycle events remain
+    /// centralized in core.
+    pub fn load_skill_object(&self, metadata: SkillMetadata) -> Result<Vec<String>, String> {
+        let skill_name = metadata.name.clone();
+        if skill_name.trim().is_empty() {
+            return Err("Cannot load a skill object with an empty name".to_string());
+        }
+
+        let scope = self
+            .entries
+            .get(&skill_name)
+            .map(|entry| entry.scope)
+            .unwrap_or(SkillScope::Repo);
+
+        if self.loaded.contains(skill_name.as_str()) {
+            self.unload_skill(&skill_name)?;
+        }
+
+        self.entries.insert(
+            skill_name.clone(),
+            SkillEntry {
+                metadata,
+                state: SkillState::Discovered,
+                registered_tools: Vec::new(),
+                scope,
+            },
+        );
+        self.refresh_dependency_states();
+        self.load_skill(&skill_name)
+    }
+
     fn load_skill_recursive(
         &self,
         skill_name: &str,

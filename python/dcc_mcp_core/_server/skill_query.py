@@ -2,9 +2,9 @@
 
 Bundles the 11 read-mostly methods that were previously inline on
 ``DccServerBase``: ``list_actions``, ``list_skills``, ``search_skills``,
-``load_skill``, ``unload_skill``, ``search_actions``, ``get_skill_categories``,
-``get_skill_tags``, ``unregister_skill``, ``is_skill_loaded``,
-``get_skill_info``.
+``load_skill``, ``get_skill``, ``load_skill_object``, ``unload_skill``,
+``search_actions``, ``get_skill_categories``, ``get_skill_tags``,
+``unregister_skill``, ``is_skill_loaded``, ``get_skill_info``.
 
 All methods preserve the original tolerant-of-failure semantics: any
 underlying exception is logged at DEBUG level and a sensible empty value
@@ -73,6 +73,23 @@ class SkillQueryClient:
             return True
         except Exception as exc:
             logger.debug("[%s] load_skill(%r) failed: %s", self._dcc_name, name, exc)
+            return False
+
+    def get_skill(self, name: str) -> Any | None:
+        """Return a detached mutable ``SkillMetadata`` object, if present."""
+        try:
+            return self._server.get_skill(name)
+        except Exception as exc:
+            logger.debug("[%s] get_skill(%r) failed: %s", self._dcc_name, name, exc)
+            return None
+
+    def load_skill_object(self, skill: Any) -> bool:
+        """Load a caller-supplied ``SkillMetadata`` object through core."""
+        try:
+            self._server.load_skill_object(skill)
+            return True
+        except Exception as exc:
+            logger.debug("[%s] load_skill_object failed: %s", self._dcc_name, exc)
             return False
 
     def unload_skill(self, name: str) -> bool:

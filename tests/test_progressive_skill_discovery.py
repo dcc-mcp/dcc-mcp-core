@@ -51,6 +51,46 @@ def make_skill_dir(tmp_path: Path, name: str, dcc: str = "maya") -> Path:
     return skill_dir
 
 
+def make_mutable_tool_skill_dir(tmp_path: Path, name: str, dcc: str = "maya") -> Path:
+    """Create a skill with a main-thread tool declaration."""
+    skill_dir = tmp_path / name
+    (skill_dir / "scripts").mkdir(parents=True)
+    (skill_dir / "scripts" / "host_scene.py").write_text(
+        'import json,sys; print(json.dumps({"success":True,"message":"ok"}))',
+        encoding="utf-8",
+    )
+    (skill_dir / "SKILL.md").write_text(
+        "\n".join(
+            [
+                "---",
+                f"name: {name}",
+                "description: Mutable test skill",
+                "metadata:",
+                "  dcc-mcp:",
+                f"    dcc: {dcc}",
+                "    tools: tools.yaml",
+                "---",
+                f"# {name}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (skill_dir / "tools.yaml").write_text(
+        "\n".join(
+            [
+                "tools:",
+                "  - name: host_scene",
+                "    description: Host scene tool",
+                "    source_file: scripts/host_scene.py",
+                "    thread_affinity: main",
+                "    enforce_thread_affinity: true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return skill_dir
+
+
 def make_catalog(extra_paths: list[str]) -> SkillCatalog:
     """Create a fresh SkillCatalog and run discover()."""
     cat = SkillCatalog(ToolRegistry())
@@ -330,6 +370,42 @@ class TestSkillCatalogProgressivePipeline:
         cat.load_skill("info-skill")
         info = cat.get_skill_info("info-skill")
         assert info is not None
+
+    def test_get_skill_returns_mutable_copy_for_runtime_tool_overrides(self, tmp_path: Path) -> None:
+        """Adapters can mutate a skill object then load it through core."""
+        make_mutable_tool_skill_dir(tmp_path, "mutable-affinity", dcc="maya")
+        registry = ToolRegistry()
+        cat = SkillCatalog(registry)
+        cat.set_in_process_executor(lambda *_args, **_kwargs: {"success": True})
+        cat.discover(extra_paths=[str(tmp_path)])
+
+        skill = cat.get_skill("mutable-affinity")
+        assert isinstance(skill, SkillMetadata)
+        tools = skill.tools
+        assert tools[0].enforce_thread_affinity is True
+        tools[0].enforce_thread_affinity = False
+        skill.tools = tools
+
+        loaded = cat.load_skill_object(skill)
+
+        assert loaded == ["mutable_affinity__host_scene"]
+        meta = registry.get_action("mutable_affinity__host_scene")
+        assert meta is not None
+        assert meta["thread_affinity"] == "main"
+        assert meta.get("enforce_thread_affinity", False) is False
+
+    def test_get_skill_info_remains_serialized_view(self, tmp_path: Path) -> None:
+        """Mutating get_skill_info() output does not change catalog metadata."""
+        make_mutable_tool_skill_dir(tmp_path, "readonly-info", dcc="photoshop")
+        cat = make_catalog(extra_paths=[str(tmp_path)])
+
+        info = cat.get_skill_info("readonly-info")
+        assert info is not None
+        info["tools"][0]["enforce_thread_affinity"] = False
+
+        skill = cat.get_skill("readonly-info")
+        assert isinstance(skill, SkillMetadata)
+        assert skill.tools[0].enforce_thread_affinity is True
 
     def test_load_unknown_skill_raises(self, tmp_path: Path) -> None:
         """load_skill() raises for an unknown skill name."""
