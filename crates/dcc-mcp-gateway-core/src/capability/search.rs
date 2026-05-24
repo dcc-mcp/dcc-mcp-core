@@ -140,10 +140,12 @@ mod tests {
                 true,
             ),
             score: 42,
+            match_reasons: vec!["tool_exact".to_string()],
         };
         let v: serde_json::Value = serde_json::to_value(&hit).unwrap();
         assert_eq!(v["tool_slug"], "maya.abcdef01.create_sphere");
         assert_eq!(v["score"], 42);
+        assert_eq!(v["match_reasons"], serde_json::json!(["tool_exact"]));
         assert!(v.get("record").is_none());
     }
 

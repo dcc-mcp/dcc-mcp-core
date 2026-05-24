@@ -271,6 +271,12 @@ describe/call 路由、`/v1/call` 和 `/v1/call_batch` 默认仍返回旧版 JSO
 
 Gateway policy 会在返回最终搜索结果前过滤 capability。一个缺失的 hit 可能
 代表能力不存在、skill 未加载，或该能力被 DCC / skill / tool allowlist 有意隐藏。
+Gateway 默认 `mode: "fuzzy"` 使用 hybrid ranker：先对 tool name、skill、
+tag、summary 和 schema-field token 做加权 lexical 匹配，再用
+nucleo-matcher fuzzy fallback 保留 typo / partial-name 容错；`mode: "exact"`
+仍是旧 substring 表。Gateway hit 会带 `score` 和 bounded `match_reasons`
+（例如 `tool_lexical`、`summary_fuzzy`、`schema_fuzzy`、
+`multi_token_lexical`），让 agent 和维护者不取完整 schema 也能理解排序原因。
 
 ```bash
 curl -H 'Accept: application/toon' \
@@ -294,8 +300,8 @@ curl -H 'Accept: application/toon' \
 
 compact search 仍保留 agent 后续工作需要的字段：`tool_slug`、
 `backend_tool`、`dcc_type`、`instance_id`、`loaded`、`load_state`、
-`available_groups`、`has_schema`、`score`，以及 unloaded skill 的
-`next_step`。`next_step` 同时带 MCP (`tool` + `arguments`) 和 REST
+`available_groups`、`has_schema`、`score`、`match_reasons`，以及 unloaded
+skill 的 `next_step`。`next_step` 同时带 MCP (`tool` + `arguments`) 和 REST
 (`method` + `path` + `body`) 形态；Gateway REST 调用方可以直接 POST
 `next_step.arguments` 到 `/v1/load_skill`。它会省略冗余默认值，例如与
 `backend_tool` 相同的 `callable_id`、空数组和空 object。这里把 RTK 的
