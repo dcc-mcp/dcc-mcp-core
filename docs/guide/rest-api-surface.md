@@ -6,10 +6,11 @@ for **traditional callers** (cURL, CI pipelines, studio automation, non-MCP
 tooling) — anything that can speak HTTP can drive a DCC through these routes
 without touching the MCP protocol stack.
 
-> **Relationship to MCP** — Gateway MCP's `call_tool` / `describe_tool` /
-> `search_tools` wrappers route through the same code path as the REST
-> endpoints. Choosing MCP vs REST is a transport decision, not a feature
-> decision; the envelopes are identical.
+> **Relationship to MCP** — The gateway advertises only read-only MCP
+> discovery tools (`search`, `describe`). State-changing work uses the REST
+> invocation plane (`POST /v1/call`, `POST /v1/call_batch`, `/v1/load_skill`).
+> Hidden MCP compatibility routes still share the same service code, but new
+> integrations should treat REST as the canonical execution transport.
 
 ---
 
@@ -363,8 +364,7 @@ Response shape (gateway + per-DCC are identical):
           "dcc_type": "maya",
           "instance_id": "a1b2c3d4-0000-0000-0000-000000000001"
         },
-        "rest": {"method": "POST", "path": "/v1/load_skill"},
-        "mcp": {"name": "load_skill"}
+        "rest": {"method": "POST", "path": "/v1/load_skill"}
       }
     }
   ]
@@ -494,7 +494,7 @@ indicates a downstream-visible envelope break.
 
 | You are … | Prefer |
 |---|---|
-| Writing an **AI agent** (Claude, Cursor, ChatGPT desktop, custom) | **MCP**. Use `search_tools` / `describe_tool` / `call_tool` against the gateway; get streaming events, progressive discovery, and the MCP capability registry. |
+| Writing an **AI agent** (Claude, Cursor, ChatGPT desktop, custom) | **MCP + REST**. Use gateway MCP `search` / `describe` for low-token discovery, then REST `/v1/call` or `/v1/call_batch` for execution. |
 | Writing a **cURL script** / cron job / CI pipeline | **REST**. Pure HTTP + JSON, no MCP library required. |
 | Writing an **enterprise backend** that talks to many DCCs | **REST on the gateway**. Single endpoint, same envelope across all DCCs, OpenAPI doc for code generation. |
 | Writing an **in-host plugin** (Maya plug-in, Blender add-on) | Neither — call `DccServerBase.register_*` directly. REST / MCP are for external callers. |

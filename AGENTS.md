@@ -32,6 +32,15 @@
 - If the user explicitly requests another language for a specific reply,
   follow that request for that turn.
 
+## Command Efficiency
+
+- Prefer `vx rg`, `vx git`, and `vx gh` for routine repository search, git,
+  and GitHub CLI operations in this repo. These wrappers keep tool resolution
+  stable and produce compact, predictable output for agents.
+- Use direct `rg`, `git`, or `gh` only when the `vx` wrapper would hide behavior
+  you need to inspect or is unavailable; mention that deviation in validation
+  notes when it matters.
+
 ## PR / Commit Authorship
 
 - **Do not append AI-attribution footers** to PR bodies, commit messages,
@@ -97,14 +106,14 @@ Per-DCC MCP server:
 5. Debug on failure: use dcc_diagnostics__screenshot or audit_log
 
 Gateway dynamic-capability / REST exposure:
-1. Discover: search_tools(query="keyword", dcc_type="maya") → get tool_slug; names/summaries are tokenized, so underscores are optional (`create_sphere` and `sphere` both work)
-2. Inspect: describe_tool(tool_slug) → read schema + annotations
-3. Execute: call_tool(tool_slug, arguments={...}), or call_tools({calls:[...], stop_on_error?}) for ordered batches (max 25) to save MCP round-trips
-4. The gateway never fans out per-tool backend tools into tools/list.
-5. For non-MCP clients, use the matching /v1/search, /v1/describe, /v1/call REST endpoints (or POST /v1/call_batch for batches).
+1. Discover: MCP `search(query="keyword", dcc_type="maya")` or REST `POST /v1/search` → get `tool_slug`; names/summaries are tokenized, so underscores are optional (`create_sphere` and `sphere` both work).
+2. Inspect: MCP `describe(tool_slug=...)` or REST `POST /v1/describe` → read schema + annotations.
+3. Execute through HTTP: `POST /v1/call` with `{tool_slug, arguments}` or `POST /v1/call_batch` for ordered batches (max 25).
+4. The gateway never fans out per-tool backend tools into `tools/list`; the advertised gateway MCP surface is read-only discovery (`search`, `describe`) only.
+5. Hidden MCP compatibility routes still accept older `search_tools` / `describe_tool` / `call_tool` / `call_tools` names, but new agent workflows should prefer the REST invocation plane.
 
 Gateway instance discovery:
-1. Usually skip instance discovery and go straight to search_tools → describe_tool → call_tool (or call_tools when invoking several slugs in order).
+1. Usually skip instance discovery and go straight to `search` / `POST /v1/search` → `describe` / `POST /v1/describe` → `POST /v1/call` (or `/v1/call_batch` when invoking several slugs in order).
 2. When you need a concrete DCC session or direct MCP URL, call resources/read with uri="gateway://instances".
 3. For one instance, read gateway://instances/{instance_id}; full UUID, `instance_short`, or any unique ≥4-char UUID prefix works across gateway tools and tool slugs.
 4. Do not call legacy list_dcc_instances / get_dcc_instance / connect_to_dcc; #813 removed them from tools/list.
@@ -167,7 +176,7 @@ Gateway resources/prompts:
 | Hand off files between tools | `FileRef` + `artefact_put_file()` / `artefact_get_bytes()` |
 | Multi-DCC gateway | `McpHttpConfig(gateway_port=9765)` |
 | Discover gateway DCC instances / direct MCP URLs | `resources/read uri="gateway://instances"` or `gateway://instances/{id}`; entries carry `mcp_url` and replace the removed `list_dcc_instances` / `get_dcc_instance` / `connect_to_dcc` tools |
-| Gateway dynamic capabilities | `search_tools` → `describe_tool` → `call_tool` / `call_tools` or REST `/v1/search` → `/v1/describe` → `/v1/call` / `POST /v1/call_batch` |
+| Gateway dynamic capabilities | MCP `search` → `describe` for read-only discovery, then REST `/v1/call` / `POST /v1/call_batch` for execution |
 | Gateway resources/prompts | `resources/list` / `resources/read` with exact gateway-returned URIs; `prompts/list` / `prompts/get` for aggregated backend prompt templates |
 
 | Persist project state | `DccProject.open/load(...)` + `register_project_tools(server, ...)` exposing `project.save/load/resume/status` |
@@ -288,7 +297,7 @@ Gateway resources/prompts:
 5. **SKILL.md extensions use `metadata.dcc-mcp.<feature>`** → sibling files, never top-level keys (v0.15+ / #356)
 6. **Use `dcc_mcp_core.METADATA_*` / `LAYER_*` / `CATEGORY_*`** → re-exported at top level (also in `constants` sub-module); no inline `"dcc-mcp.recipes"` / `"thin-harness"` literals (#487)
 7. **Return `ToolResult` from Python tool handlers** → `ToolResult.ok("...", **ctx).to_dict()` (or `success_(...)`); `success`/`error` are dataclass *fields*, the factories are `success_`/`error_` / `ok`/`fail` (#487)
-8. **Gateway `call_tool` / `call_tools` wrappers accept only `tool_slug`, `arguments`, and `meta`** → put backend fields (`code`, `file_path`, `radius`, …) inside `arguments`; use `dcc-mcp-wire` / `dcc_mcp_core.host.normalize_tool_arguments()` for shared normalization
+8. **Gateway REST `/v1/call` / `/v1/call_batch` payloads accept only `tool_slug`, `arguments`, and `meta`** → put backend fields (`code`, `file_path`, `radius`, …) inside `arguments`; use `dcc-mcp-wire` / `dcc_mcp_core.host.normalize_tool_arguments()` for shared normalization
 
 Full trap list + code examples → [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md)
 

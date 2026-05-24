@@ -33,7 +33,7 @@ Use it when you want agents to operate production DCC sessions without flooding 
 | Need | dcc-mcp-core gives you |
 |---|---|
 | Let agents operate real DCC sessions | MCP + REST endpoints for Maya, Blender, Houdini, Photoshop, and custom hosts |
-| Keep tool context small | Gateway discovery: `search_tools` -> `describe_tool` -> `call_tool` |
+| Keep tool context small | Gateway discovery: MCP `search` -> `describe`, then REST `POST /v1/call` |
 | Add tools without framework glue | `SKILL.md` + sibling YAML/scripts, aligned with agentskills.io |
 | Debug live workstation state | Admin UI, viewport diagnostics, audit logs, traces, metrics |
 | Survive production constraints | Main-thread dispatch, async jobs, sidecar/server binaries, workflow and artefact primitives |
@@ -89,7 +89,7 @@ handle = server.start()
 print(handle.mcp_url())   # "http://127.0.0.1:8765/mcp"
 ```
 
-Agents then use `search_skills` -> `load_skill` on a per-DCC server, or `search_tools` -> `describe_tool` -> `call_tool` through the gateway.
+Agents then use `search_skills` -> `load_skill` on a per-DCC server, or MCP `search` -> `describe` through the gateway before executing via REST `POST /v1/call`.
 
 ---
 
@@ -584,7 +584,7 @@ tools/list response (Maya session, nothing loaded yet):
 | `dcc-mcp-job` | Async job tracking | `JobManager`, persistence traits |
 | `dcc-mcp-skill-rest` | Per-DCC REST skill API | `SkillRestService`, `SkillRestConfig`, `/v1/*` router |
 | `dcc-mcp-gateway-core` | Pure gateway domain layer | `CapabilityRecord`, `SearchQuery`, `SearchHit`, ranking scorers, slug helpers |
-| `dcc-mcp-gateway` | Multi-DCC gateway app/infra | registry probing, dynamic `search_tools` / `describe_tool` / `call_tool`, REST facade |
+| `dcc-mcp-gateway` | Multi-DCC gateway app/infra | registry probing, MCP `search` / `describe`, REST `/v1/*` facade |
 | `dcc-mcp-http-types` | Pure HTTP wire/config/value types | `HttpError`, `JobConfig`, `InstanceConfig`, `PromptSpec`, `ProducerContent`, `SessionLogMessage` |
 | `dcc-mcp-http-server` | Reusable HTTP runtime support | core tool builders, executor, sessions, in-flight requests, notifications, workspace roots |
 | `dcc-mcp-catalog` | Public adapter catalog | catalog search / describe CLI and MCP tools |

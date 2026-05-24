@@ -4,9 +4,9 @@ The gateway (`McpHttpConfig::gateway_port > 0`) is a first-wins HTTP
 façade that presents every live DCC instance under one MCP endpoint.
 A single client can talk to Maya, Blender and Houdini through the same
 `/mcp` URL; the gateway discovers live backends via `FileRegistry`,
-keeps its MCP `tools/list` bounded to discover+dispatch primitives,
-indexes backend capabilities on demand, routes `search_tools` /
-`describe_tool` / `call_tool` (or REST `/v1/*`) to the right backend,
+keeps its MCP `tools/list` bounded to read-only discovery primitives,
+indexes backend capabilities on demand, advertises MCP `search` /
+`describe` for discovery, routes REST `/v1/*` calls to the right backend,
 and multiplexes server-pushed notifications back to the originating
 client session.
 
@@ -131,7 +131,7 @@ resource can connect directly. Optional URI query parameters
 (`?include_stale=false`, `?include_dead=true`) match the legacy tool
 flags. `resources/list` advertises only root pointers for gateway-native
 families; it does not enumerate every instance-specific URI. Backend
-capability indexes refresh on demand before `search_tools` / `describe_tool`,
+capability indexes refresh on demand before gateway `search` / `describe`,
 so instances registered after gateway startup are picked up without a restart.
 
 ### Optional Instance Pooling
@@ -152,12 +152,13 @@ under `pool` in the `gateway://instances` resource:
 }
 ```
 
-Gateway-local tools manage these leases:
+Hidden gateway compatibility tools manage these leases; new integrations should
+prefer registry resources plus REST orchestration around `/v1/call`:
 
 | Tool | Purpose |
 |------|---------|
-| `acquire_dcc_instance` | Reserve an idle instance by `dcc_type` (or a specific `instance_id`) and mark it `busy` |
-| `release_dcc_instance` | Release the lease and mark the instance `available` again |
+| `lease action=acquire` / `acquire_dcc_instance` | Reserve an idle instance by `dcc_type` (or a specific `instance_id`) and mark it `busy` |
+| `lease action=release` / `release_dcc_instance` | Release the lease and mark the instance `available` again |
 
 Pooling is optional. Adapters that never call these tools keep the previous
 single-instance behavior: entries default to `capacity: 1`, no lease owner, and
@@ -269,36 +270,36 @@ unconditional surface:
 
 | Surface | What appears in `tools/list` | Agent workflow |
 |---------|------------------------------|----------------|
-| Gateway MCP | Fixed discover+dispatch primitives: `search_skills`, `load_skill`, `search_tools`, `describe_tool`, `call_tool`, `call_tools`, and pooling tools. Instance registry, diagnostics, catalog, and the **agent workflow guide** are gateway-native resources (`gateway://instances`, `gateway://diagnostics/*`, `gateway://catalog`, `gateway://docs/agent-workflows`) read via `resources/read`, not tools | `resources/read uri=gateway://instances` (or skip it and go straight to `search_tools` → `describe_tool` → `call_tool` / `call_tools`). Optional: `resources/read uri=gateway://docs/agent-workflows` for MCP+resources+efficiency guidance |
+| Gateway MCP | Fixed read-only discovery primitives: `search`, `describe`. Instance registry, diagnostics, catalog, and the **agent workflow guide** are gateway-native resources (`gateway://instances`, `gateway://diagnostics/*`, `gateway://catalog`, `gateway://docs/agent-workflows`) read via `resources/read`, not tools | `resources/read uri=gateway://instances` (or skip it and go straight to `search` → `describe`), then execute through REST `/v1/call` / `/v1/call_batch`. Optional: `resources/read uri=gateway://docs/agent-workflows` for MCP+resources+efficiency guidance |
 | Gateway REST | `/v1/search`, `/v1/load_skill`, `/v1/unload_skill`, `/v1/describe`, `/v1/call`, `/v1/call_batch`, `/v1/instances`, plus `/v1/resources*`, `/v1/prompts*`, and `/v1/jobs*` | `POST /v1/search` → optional `/v1/load_skill` from `next_step.arguments` → `/v1/describe` → `/v1/call` (or `POST /v1/call_batch` for ordered batches); use resources/prompts/jobs routes for non-tool MCP primitives |
 | Direct per-DCC MCP | One DCC server's skills and loaded tools | `search_skills` → `load_skill` → tool call |
 
 The gateway capability index stores compact records keyed by
 `<dcc>.<id8>.<tool>` and refreshes on demand, so the first agent query after
 startup or `load_skill` sees fresh results without a polling delay. The fixed
-MCP wrappers are cursor-safe and stable:
+MCP discovery tools are cursor-safe and stable; hidden compatibility wrappers
+remain callable for pinned clients but are no longer advertised:
 
 | Tool | Purpose |
 |------|---------|
-| `search_tools` | Search compact capability records by query, DCC type, tags, instance, scene hint, and pagination options |
-| `describe_tool` | Fetch the full schema, annotations, and routing record for a selected `tool_slug` |
-| `call_tool` | Invoke the selected backend capability with validated arguments and optional MCP `_meta` |
-| `call_tools` | Ordered multi-invocation (max 25 items); optional `stop_on_error`. REST twin: `POST /v1/call_batch` |
+| `search` | Search compact capability records by query, DCC type, tags, instance, scene hint, and pagination options; `kind=skill` searches skills |
+| `describe` | Fetch the full schema, annotations, and routing record for a selected `tool_slug`, or skill detail for `skill_name` |
+| `call` / `call_tool` / `call_tools` | Hidden compatibility only. Prefer REST `POST /v1/call` / `/v1/call_batch` for execution |
 
-Use this dynamic-capability flow whenever an agent is connected to the gateway.
+Use this discovery + REST dynamic-capability flow whenever an agent is connected to the gateway.
 Use the per-DCC Skills-First flow (`search_skills` → `load_skill` → tool call)
 when the agent is connected directly to one DCC server.
 
 For REST-only clients, `POST /v1/search` with `loaded_only=false` returns
 unloaded hits with a machine-executable `next_step`. POST that
 `next_step.arguments` object to `/v1/load_skill`, then search or describe again.
-The same shape is included in MCP `search_tools` results, so REST and MCP agents
+The same shape is included in MCP `search` results, so REST and MCP agents
 can share the same progressive-loading planner.
 
 ### Gateway call wrapper payloads
 
-`call_tool`, `call_tools`, `POST /v1/call`, and `POST /v1/call_batch` all share
-the same wrapper contract:
+Hidden MCP compatibility routes (`call_tool`, `call_tools`) and REST
+`POST /v1/call` / `POST /v1/call_batch` all share the same wrapper contract:
 
 ```json
 {
