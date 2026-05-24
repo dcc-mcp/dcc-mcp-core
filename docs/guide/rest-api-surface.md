@@ -376,6 +376,40 @@ When `loaded=false`, clients may POST `next_step.arguments` directly to
 tool. Per-DCC REST omits `instance_id` because there is only one owning server;
 the gateway includes it so same-DCC multi-instance calls stay routed.
 
+### Compact output
+
+`/v1/search` keeps legacy JSON as the default response format. Agent clients
+that want a smaller discovery payload can request TOON explicitly:
+
+```bash
+curl -H 'Accept: application/toon' \
+  -d '{"query":"render","limit":20}' \
+  http://127.0.0.1:9765/v1/search
+```
+
+The request body may also set `"response_format": "toon"` or `"compact": true`.
+Set `"response_format": "json"` to force the legacy JSON body even when the
+`Accept` header prefers TOON.
+
+Every search response includes approximate token accounting headers:
+
+| Header | Meaning |
+|---|---|
+| `x-dcc-mcp-response-format` | `json` or `toon`. |
+| `x-dcc-mcp-token-estimator` | Estimator id; currently `dcc-mcp-byte4-v1`. |
+| `x-dcc-mcp-original-bytes` / `x-dcc-mcp-returned-bytes` | Serialized legacy JSON bytes vs returned bytes. |
+| `x-dcc-mcp-original-tokens` / `x-dcc-mcp-returned-tokens` | Approximate bytes/4 token estimates for planning context budget, not billing. |
+| `x-dcc-mcp-saved-tokens` / `x-dcc-mcp-savings-pct` | Estimated savings compared with legacy JSON. |
+
+The compact search shape preserves the workflow fields agents need next:
+`tool_slug`, `backend_tool`, `dcc_type`, `instance_id`, `loaded`,
+`has_schema`, `score`, and `next_step` for unloaded skills. It omits redundant
+defaults such as `callable_id` when it matches `backend_tool`, empty arrays, and
+empty objects. RTK's compaction model is treated as design guidance here; the
+gateway uses the deterministic in-process `toon-format` library so
+`serde_json::Value` payloads round-trip inside Rust tests without spawning an
+external codec process.
+
 ## `POST /v1/load_skill` and `/v1/unload_skill`
 
 ```json

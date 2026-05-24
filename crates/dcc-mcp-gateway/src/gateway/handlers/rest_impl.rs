@@ -5,6 +5,7 @@ use crate::gateway::capability_service::{
     ServiceError, call_service, describe_tool_full, parse_search_payload,
     refresh_all_live_backends, search_service_rows, service_error_to_json,
 };
+use crate::gateway::response_codec::search_response;
 
 #[derive(Debug, Deserialize)]
 pub struct DccInstanceDescribeQuery {
@@ -294,7 +295,11 @@ pub async fn handle_v1_list_skills(
 /// ```
 ///
 /// Response body: `{"total": n, "hits": [SearchHit, ...]}`.
-pub async fn handle_v1_search(State(gs): State<GatewayState>, Json(body): Json<Value>) -> Response {
+pub async fn handle_v1_search(
+    State(gs): State<GatewayState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
     // Refresh-on-demand so the first call after startup or a skill
     // load sees fresh capabilities without waiting for a watcher tick.
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
@@ -318,14 +323,7 @@ pub async fn handle_v1_search(State(gs): State<GatewayState>, Json(body): Json<V
         }
     }
     let hits = search_service_rows(&gs.capability_index, &query);
-    (
-        StatusCode::OK,
-        Json(json!({
-            "total": hits.len(),
-            "hits": hits,
-        })),
-    )
-        .into_response()
+    search_response(&headers, &body, hits)
 }
 
 /// `POST /v1/load_skill` — load a skill on a target backend instance

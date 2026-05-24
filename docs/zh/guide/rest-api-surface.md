@@ -166,6 +166,41 @@ OpenAPI contract 预留了 `cursor`、`since`、`until` 给后续 normalized env
 
 ---
 
+## `POST /v1/search` —— compact discovery
+
+`/v1/search` 默认仍返回旧版 JSON，保持现有 REST 客户端兼容。Agent 客户端
+如果想减少 discovery payload，可以显式请求 TOON：
+
+```bash
+curl -H 'Accept: application/toon' \
+  -d '{"query":"render","limit":20}' \
+  http://127.0.0.1:9765/v1/search
+```
+
+请求体也可以传 `"response_format": "toon"` 或 `"compact": true`。如果
+`Accept` 头偏好 TOON，但当前调用必须保持旧 JSON，传
+`"response_format": "json"` 即可强制回退。
+
+每个 search 响应都会带近似 token 统计头：
+
+| Header | 含义 |
+|---|---|
+| `x-dcc-mcp-response-format` | `json` 或 `toon`。 |
+| `x-dcc-mcp-token-estimator` | 估算器 id；当前是 `dcc-mcp-byte4-v1`。 |
+| `x-dcc-mcp-original-bytes` / `x-dcc-mcp-returned-bytes` | 旧 JSON 序列化字节数 vs 实际返回字节数。 |
+| `x-dcc-mcp-original-tokens` / `x-dcc-mcp-returned-tokens` | 近似 bytes/4 token 估算，用于上下文预算，不代表计费。 |
+| `x-dcc-mcp-saved-tokens` / `x-dcc-mcp-savings-pct` | 相比旧 JSON 的估算节省。 |
+
+compact search 仍保留 agent 后续工作需要的字段：`tool_slug`、
+`backend_tool`、`dcc_type`、`instance_id`、`loaded`、`has_schema`、`score`，
+以及 unloaded skill 的 `next_step`。它会省略冗余默认值，例如与
+`backend_tool` 相同的 `callable_id`、空数组和空 object。这里把 RTK 的
+语义压缩模型作为设计参考；gateway 内部直接使用确定性的 `toon-format`
+库，让 `serde_json::Value` payload 在 Rust 测试中可 round-trip，不需要
+派生外部 codec 进程。
+
+---
+
 ## 就绪状态（`GET /v1/readyz`）
 
 | 状态 | HTTP | Body | 含义 |
