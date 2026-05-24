@@ -18,8 +18,13 @@ bus = EventBus()
 | 方法 | 返回值 | 说明 |
 |------|--------|------|
 | `subscribe(event_name, callback)` | `int` | 订阅事件，返回订阅者 ID |
+| `before(event_name, callback)` | `int` | 为支持 veto 的生命周期事件注册阻塞式策略 hook |
 | `unsubscribe(event_name, subscriber_id)` | `bool` | 按 ID 取消订阅，返回是否找到 |
+| `unsubscribe_before(event_name, subscriber_id)` | `bool` | 按 ID 移除 before hook |
 | `publish(event_name, **kwargs)` | — | 调用所有订阅者，传递关键字参数 |
+| `emit(event_name, source=None, correlation=None, attributes=None)` | `dict` | 发布结构化事件 envelope |
+| `veto(reason, code="vetoed")` | `dict` | 为 before hook 构造 veto 结果 |
+| `vetoable_events()` | `list[str]` | 返回允许 before hook 的事件名 |
 
 ### Dunder 方法
 
@@ -30,7 +35,12 @@ bus = EventBus()
 ### 行为
 
 - 订阅者通过 `publish(event_name, **kwargs)` 接收关键字参数
+- 订阅者通过 `emit(...)` 接收结构化事件 dict
 - 订阅者中的异常会通过 `tracing` 记录日志，但不会传播
+- before hook 仅支持 `skill.loading`、`tool.dispatched`、
+  `resource.subscribed` 和 `client.initialize`
+- before hook 返回 `None`/`False` 表示放行，返回字符串、dict 或
+  `veto(...)` 结果表示拒绝
 - 回调在调用前会先收集，以避免 DashMap 死锁
 - 每个事件支持多个订阅者
 - 订阅者 ID 单调递增（从 1 开始）
@@ -47,6 +57,22 @@ sid = bus.subscribe("action.executed", on_action)
 bus.publish("action.executed", action_name="create_sphere")
 bus.unsubscribe("action.executed", sid)
 ```
+
+### Before Hook Veto
+
+```python
+def policy(event):
+    if event["attributes"]["tool_slug"] == "delete_scene":
+        return EventBus.veto("destructive tools are disabled", "policy_denied")
+    return None
+
+sid = bus.before("tool.dispatched", policy)
+bus.unsubscribe_before("tool.dispatched", sid)
+```
+
+Tool veto 会表现为 `EVENT_VETOED` dispatch error，并发布带有
+`error_kind="event_vetoed"`、`veto_code` 和 `veto_reason` 的 `tool.failed`
+事件。
 
 ---
 

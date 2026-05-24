@@ -18,9 +18,13 @@ bus = EventBus()
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `subscribe(event_name, callback)` | `int` | Subscribe a callable. Returns subscriber ID |
+| `before(event_name, callback)` | `int` | Register a blocking veto hook for a supported lifecycle event |
 | `unsubscribe(event_name, subscriber_id)` | `bool` | Unsubscribe by ID. Returns True if found |
+| `unsubscribe_before(event_name, subscriber_id)` | `bool` | Remove a before hook by ID |
 | `publish(event_name, **kwargs)` | `None` | Call all matching subscribers with kwargs |
 | `emit(event_name, source=None, correlation=None, attributes=None)` | `dict` | Emit a structured event envelope and pass it to all matching subscribers |
+| `veto(reason, code="vetoed")` | `dict` | Build a veto payload for a before hook |
+| `vetoable_events()` | `list[str]` | Return lifecycle events that accept before hooks |
 
 ### Dunder Methods
 
@@ -34,6 +38,10 @@ bus = EventBus()
 - Subscribers receive one event-envelope dict from `emit(...)`
 - Event names support exact matches, `prefix.*` wildcards, and a catch-all `*`
 - Exceptions in subscribers are logged via `tracing` but do not propagate
+- Before hooks support only `skill.loading`, `tool.dispatched`,
+  `resource.subscribed`, and `client.initialize`
+- Before hooks return `None`/`False` to allow, or a string/dict/`veto(...)`
+  payload to reject
 - Callbacks are collected before invocation to avoid DashMap deadlocks
 - Multiple subscribers per event are supported
 - Subscriber IDs are monotonically increasing (starting at 1)
@@ -67,6 +75,21 @@ event = bus.emit(
 assert event["schema_version"] == 1
 assert events == [event]
 ```
+
+### Before Hook Veto
+
+```python
+def policy(event):
+    if event["attributes"]["tool_slug"] == "delete_scene":
+        return EventBus.veto("destructive tools are disabled", "policy_denied")
+    return None
+
+sid = bus.before("tool.dispatched", policy)
+bus.unsubscribe_before("tool.dispatched", sid)
+```
+
+Tool vetoes surface as `EVENT_VETOED` dispatch errors and `tool.failed` events
+with `error_kind="event_vetoed"`, `veto_code`, and `veto_reason`.
 
 Envelope fields:
 

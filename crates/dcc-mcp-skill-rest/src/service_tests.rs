@@ -339,6 +339,19 @@ fn call_rejects_unloaded_skill() {
 }
 
 #[test]
+fn dispatch_veto_maps_to_policy_denied() {
+    let err = dispatch_error_to_service_error(DispatchError::Vetoed {
+        action: "delete_scene".into(),
+        code: "policy_denied".into(),
+        reason: "destructive tools are disabled".into(),
+    });
+
+    assert_eq!(err.kind, ServiceErrorKind::PolicyDenied);
+    assert_eq!(err.http_status(), 403);
+    assert_eq!(err.context.as_ref().unwrap()["veto_code"], "policy_denied");
+}
+
+#[test]
 fn call_dispatches_and_normalises_slug() {
     let (svc, inv) = build_service(vec![sphere_action(true)]);
     inv.set_next(Ok(serde_json::json!({"created": 1})));
