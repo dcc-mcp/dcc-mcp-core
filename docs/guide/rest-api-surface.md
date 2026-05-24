@@ -316,9 +316,56 @@ Error-kind vocabulary (HTTP status in parentheses):
 - `affinity-violation` (409) — the caller tried to invoke a main-thread tool from a worker thread.
 - `bad-request` (400) — malformed envelope (missing `tool_slug`, bad JSON, etc.).
 - `backend-error` (502) — the owning DCC process responded but the tool failed.
+- `policy-denied` (403) — **gateway only** — gateway policy rejected the
+  operation before routing it to a backend. Inspect `policy.reason`.
 - `instance-offline` (503) — **gateway only** — the `<id8>` prefix resolves to an instance that is no longer live.
 - `schema-unavailable` (502) — **gateway only** — the owning DCC stopped answering `tools/list` between discovery and call.
 - `internal` (500) — the REST layer itself failed; check server logs.
+
+### Gateway Policy
+
+The gateway can narrow the dynamic capability surface before clients see tools
+or before backend calls are routed. Configure `GatewayPolicy` from Rust through
+`McpHttpConfig::with_gateway_policy(...)` / `with_gateway_read_only(...)`, or
+from Python through `McpHttpConfig.gateway_read_only`,
+`allowed_dcc_types`, `allowed_skill_names`, `allowed_skill_families`,
+`allowed_tool_slugs`, and `allowed_tool_slug_prefixes`.
+
+Policy rules are part of the gateway contract:
+
+- Empty allowlists are unrestricted. Non-empty allowlists are
+  case-insensitive and match DCC type, exact skill name, skill family prefix,
+  exact canonical gateway `tool_slug`, or `tool_slug` prefix.
+- `search` hides policy-denied capabilities, so clients should treat the
+  result set as the deployer's allowed surface rather than a complete backend
+  inventory.
+- `describe` remains available for allowed capabilities even when read-only is
+  enabled, so agents can inspect schemas before deciding what is safe.
+- `read_only = true` rejects `load_skill`, `unload_skill`, tool-group changes,
+  and backend calls unless the backend record declares
+  `annotations.readOnlyHint = true`.
+- Denied REST operations return HTTP 403 with `kind: "policy-denied"` and a
+  structured `policy` object. Batch calls keep HTTP 200 and place the same
+  `policy-denied` envelope on the denied result item so batch ordering remains
+  stable.
+
+Example denial:
+
+```json
+{
+  "kind": "policy-denied",
+  "message": "gateway policy denied call for tool slug 'maya.a1b2c3d4.create_sphere'",
+  "request_id": "req-7f3c...",
+  "policy": {
+    "reason": "read-only",
+    "operation": "call",
+    "read_only": true,
+    "dcc_type": "maya",
+    "skill_name": "maya-modeling",
+    "tool_slug": "maya.a1b2c3d4.create_sphere"
+  }
+}
+```
 
 ### Request ID
 
@@ -390,6 +437,9 @@ Rules:
 - `query` (required) — free-text. `mode: "fuzzy"` (default) uses a nucleo-matcher-backed scorer with typo / prefix tolerance; `mode: "exact"` falls back to the pre-#659 substring table.
 - `dcc_type`, `tags`, `loaded_only` — progressive filters. `loaded_only = false` surfaces unloaded skills as search hits so agents can discover `load_skill` candidates.
 - `limit` — the server enforces a ~512 B/hit token budget so search stays cheap for large catalogues.
+- Gateway policy filters run before the final hit list is returned. A missing
+  hit may mean the capability is absent, unloaded, or intentionally hidden by
+  DCC, skill, or tool allowlists.
 
 Response shape (gateway + per-DCC are identical):
 

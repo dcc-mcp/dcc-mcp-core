@@ -73,6 +73,12 @@ fn all_mcp_http_config_fields_have_py_getters() {
     let _ = cfg.adapter_version();
     let _ = cfg.adapter_dcc();
     let _ = cfg.allow_unknown_tools();
+    let _ = cfg.gateway_read_only();
+    let _ = cfg.allowed_dcc_types();
+    let _ = cfg.allowed_skill_names();
+    let _ = cfg.allowed_skill_families();
+    let _ = cfg.allowed_tool_slugs();
+    let _ = cfg.allowed_tool_slug_prefixes();
 
     // ── QueueConfig ─────────────────────────────────────────────
     let _ = cfg.deferred_queue_depth();

@@ -34,6 +34,7 @@ pub(crate) async fn start_gateway_runner(
         route_ttl_secs: config.gateway.gateway_route_ttl_secs,
         max_routes_per_session: config.gateway.gateway_max_routes_per_session,
         allow_unknown_tools: config.gateway.allow_unknown_tools,
+        policy: config.gateway.policy.clone(),
         adapter_version: config.gateway.adapter_version.clone(),
         adapter_dcc: config
             .gateway

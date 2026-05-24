@@ -1,4 +1,5 @@
 use super::*;
+use dcc_mcp_gateway_core::policy::GatewayPolicyOperation;
 
 /// Dispatch a skill-management tool across backends.
 ///
@@ -33,6 +34,14 @@ pub(crate) async fn skill_mgmt_dispatch(
         "load_skill" | "unload_skill" | "activate_tool_group" | "deactivate_tool_group" => {
             match resolve_target(gs, target_instance, dcc_filter).await {
                 Ok(entry) => {
+                    let skill_names = requested_skill_names(&args);
+                    if let Err(denial) = gs.policy.enforce_skill_operation(
+                        GatewayPolicyOperation::LoadSkill,
+                        Some(&entry.dcc_type),
+                        skill_names.iter().map(String::as_str),
+                    ) {
+                        return (policy_error_text(denial), true);
+                    }
                     // Strip gateway-only routing keys before forwarding.
                     let mut forward_args = args.clone();
                     if let Some(obj) = forward_args.as_object_mut() {
@@ -109,7 +118,7 @@ pub(crate) async fn skill_mgmt_dispatch(
         }
         _ => {
             // Fan-out aggregation.
-            let targets = targets_for_fanout(gs, dcc_filter).await;
+            let mut targets = targets_for_fanout(gs, dcc_filter).await;
             if targets.is_empty() {
                 return (
                     "No live DCC instances. Start dcc-mcp-server (or your DCC adapter) so the gateway can fan out skill tools. \
@@ -118,6 +127,28 @@ Standalone `dcc-mcp-server` without `--app` registers as `dcc_type` from DCC_MCP
                         .to_string(),
                     true,
                 );
+            }
+            targets.retain(|entry| gs.policy.allows_dcc(&entry.dcc_type));
+            if targets.is_empty() {
+                return (
+                    serde_json::to_string_pretty(&json!({
+                        "skills": [],
+                        "total": 0,
+                        "instances": [],
+                    }))
+                    .unwrap_or_default(),
+                    false,
+                );
+            }
+            if tool == "get_skill_info" {
+                let skill_names = requested_skill_names(&args);
+                if let Err(denial) = gs.policy.enforce_skill_operation(
+                    GatewayPolicyOperation::Describe,
+                    dcc_filter,
+                    skill_names.iter().map(String::as_str),
+                ) {
+                    return (policy_error_text(denial), true);
+                }
             }
 
             let client = &gs.http_client;
@@ -142,10 +173,10 @@ Standalone `dcc-mcp-server` without `--app` registers as `dcc_type` from DCC_MCP
             let results = join_all(futs).await;
 
             if tool == "list_skills" {
-                return flatten_skill_list_results(results, &args, true);
+                return flatten_skill_list_results(results, &args, true, &gs.policy);
             }
             if tool == "search_skills" {
-                return flatten_skill_list_results(results, &args, false);
+                return flatten_skill_list_results(results, &args, false, &gs.policy);
             }
 
             let merged: Vec<Value> = results
@@ -193,6 +224,7 @@ fn flatten_skill_list_results(
     results: Vec<(Uuid, String, Result<Value, String>)>,
     args: &Value,
     apply_projection: bool,
+    policy: &crate::gateway::GatewayPolicy,
 ) -> (String, bool) {
     let mut skills: Vec<Value> = Vec::new();
     let mut instances: Vec<Value> = Vec::new();
@@ -213,7 +245,9 @@ fn flatten_skill_list_results(
                             for item in items {
                                 let mut skill = item.clone();
                                 inject_instance_metadata(&mut skill, &iid, &dcc);
-                                skills.push(skill);
+                                if skill_allowed_by_policy(policy, &skill) {
+                                    skills.push(skill);
+                                }
                             }
                         }
                         let skill_count = skills.len() - before;
@@ -261,6 +295,38 @@ fn flatten_skill_list_results(
         serde_json::to_string_pretty(&payload).unwrap_or_default(),
         ok_count == 0,
     )
+}
+
+fn requested_skill_names(args: &Value) -> Vec<String> {
+    let mut names = Vec::new();
+    if let Some(name) = args.get("skill_name").and_then(Value::as_str) {
+        names.push(name.to_string());
+    }
+    if let Some(items) = args.get("skill_names").and_then(Value::as_array) {
+        names.extend(items.iter().filter_map(Value::as_str).map(str::to_string));
+    }
+    names
+}
+
+fn skill_allowed_by_policy(policy: &crate::gateway::GatewayPolicy, skill: &Value) -> bool {
+    let dcc_allowed = skill
+        .get("_dcc_type")
+        .and_then(Value::as_str)
+        .is_none_or(|dcc| policy.allows_dcc(dcc));
+    let name = skill
+        .get("name")
+        .or_else(|| skill.get("skill_name"))
+        .or_else(|| skill.get("skill"))
+        .and_then(Value::as_str);
+    dcc_allowed && policy.allows_skill(name)
+}
+
+fn policy_error_text(denial: crate::gateway::GatewayPolicyDenial) -> String {
+    let err = crate::gateway::capability_service::policy_denied_error(denial);
+    serde_json::to_string_pretty(&crate::gateway::capability_service::service_error_to_json(
+        &err,
+    ))
+    .unwrap_or_else(|_| "policy-denied".to_string())
 }
 
 fn call_tool_text(value: &Value) -> Option<&str> {

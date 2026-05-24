@@ -45,6 +45,7 @@ pub mod capability;
 pub mod event;
 pub mod naming;
 pub mod openapi;
+pub mod policy;
 pub mod resource_uri;
 
 /// A call that the gateway has forwarded to a backend and is still awaiting

@@ -287,8 +287,34 @@ fn common_schemas() -> Map<String, Value> {
     for (name, schema) in gateway_schemas() {
         schemas.insert(name.to_string(), schema);
     }
+    annotate_service_error_policy(&mut schemas);
 
     schemas
+}
+
+fn annotate_service_error_policy(schemas: &mut Map<String, Value>) {
+    let gateway_error = json!({
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+            "error": {
+                "type": "object",
+                "required": ["kind", "message"],
+                "properties": {
+                    "kind": {"type": "string"},
+                    "message": {"type": "string"},
+                    "candidates": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+                    "previous_status": {"type": "string"},
+                    "previous_instance_id": {"type": "string"},
+                    "backend": {"type": "object", "additionalProperties": true},
+                    "policy": {"$ref": "#/components/schemas/GatewayPolicyDenial"}
+                },
+                "additionalProperties": true
+            }
+        },
+        "additionalProperties": true
+    });
+    schemas.insert("ServiceError".to_string(), gateway_error);
 }
 
 fn gateway_schemas() -> Vec<(&'static str, Value)> {
@@ -401,6 +427,29 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
                     "query": {"type": "string"}
                 },
                 "additionalProperties": true,
+            }),
+        ),
+        (
+            "GatewayPolicyDenial",
+            json!({
+                "type": "object",
+                "required": ["reason", "operation", "message", "read_only"],
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "enum": ["read-only", "dcc-allowlist", "skill-allowlist", "tool-allowlist"]
+                    },
+                    "operation": {
+                        "type": "string",
+                        "enum": ["search", "describe", "load_skill", "call"]
+                    },
+                    "message": {"type": "string"},
+                    "read_only": {"type": "boolean"},
+                    "dcc_type": {"type": "string"},
+                    "skill_name": {"type": "string"},
+                    "tool_slug": {"type": "string"}
+                },
+                "additionalProperties": false,
             }),
         ),
         (
@@ -604,6 +653,7 @@ fn operation(
         "responses": {
             "200": response,
             "400": error_response("Bad request"),
+            "403": error_response("Gateway policy denied"),
             "404": error_response("Not found"),
             "409": error_response("Conflict"),
             "502": error_response("Backend error"),
@@ -764,6 +814,7 @@ mod tests {
             "CallRequest",
             "CallOutcome",
             "GatewayDirectCallRequest",
+            "GatewayPolicyDenial",
             "GatewayBatchCallItem",
             "GatewayCallBatchRequest",
         ] {
@@ -794,5 +845,15 @@ mod tests {
         assert!(response["properties"].get("request_id").is_some());
         assert!(response["properties"].get("trace_id").is_some());
         assert!(response["properties"].get("index_generation").is_some());
+        assert!(
+            doc["paths"]["/v1/call"]["post"]["responses"]
+                .get("403")
+                .is_some()
+        );
+        assert!(
+            doc["components"]["schemas"]["ServiceError"]["properties"]["error"]["properties"]
+                .get("policy")
+                .is_some()
+        );
     }
 }

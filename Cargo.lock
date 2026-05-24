@@ -1111,6 +1111,7 @@ name = "dcc-mcp-http-types"
 version = "0.17.29"
 dependencies = [
  "base64",
+ "dcc-mcp-gateway-core",
  "dcc-mcp-jsonrpc",
  "dcc-mcp-models",
  "serde",

@@ -314,8 +314,11 @@ pub async fn tool_search_tools(gs: &GatewayState, args: &Value) -> Result<String
     )
     .await;
     let query = crate::gateway::capability_service::parse_search_payload(args);
-    let annotated =
-        crate::gateway::capability_service::search_service_rows(&gs.capability_index, &query);
+    let annotated = crate::gateway::capability_service::search_service_rows_for_policy(
+        &gs.capability_index,
+        &query,
+        &gs.policy,
+    );
 
     serde_json::to_string_pretty(&json!({
         "total": annotated.len(),
