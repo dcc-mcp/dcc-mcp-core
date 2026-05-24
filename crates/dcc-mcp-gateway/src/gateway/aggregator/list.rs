@@ -1,21 +1,17 @@
 use super::*;
 
-/// Build the unified `tools/list` result — gateway meta-tools + skill-management tools only.
+/// Build the unified `tools/list` result — read-only gateway discovery only.
 ///
 /// The gateway MCP surface is intentionally **minimal + static**: `tools/list`
-/// returns only the discover+dispatch primitives (the "few basic MCP tools"
-/// listed in [`GATEWAY_LOCAL_TOOLS`]). Per-action backend tools are never
-/// fanned out here — agents discover them dynamically through `search_tools`
-/// / `describe_tool` and invoke them through `call_tool` or `call_tools` (which
-/// route to the per-DCC REST `POST /v1/call`). This keeps the agent-facing context
-/// bounded regardless of how many DCC instances are registered.
+/// returns only the read-only discover/inspect primitives. Per-action backend
+/// tools are never fanned out here; agents discover them dynamically through
+/// `search` / `describe`, then invoke through the canonical REST plane
+/// (`POST /v1/call` or `/v1/call_batch`). Hidden MCP compatibility routes still
+/// accept older gateway calls, but they are not advertised.
 ///
 /// Tool order:
-/// 1. Gateway discovery / pooling meta-tools (`list_dcc_instances`,
-///    `get_dcc_instance`, `connect_to_dcc`, `acquire_dcc_instance`,
-///    `release_dcc_instance`).
-/// 2. Skill-management + dispatch tools (one canonical set for the whole
-///    gateway).
+/// 1. `search` — compact capability and skill discovery.
+/// 2. `describe` — schema/detail lookup for one discovered item.
 ///
 /// Pagination uses the same cursor scheme as the per-DCC server:
 /// `cursor` is an opaque hex-encoded offset into the flat tool list.
@@ -28,8 +24,7 @@ pub async fn aggregate_tools_list(gs: &GatewayState, cursor: Option<&str>) -> Va
 
     let mut tools: Vec<Value> = Vec::new();
 
-    // Tier 1 + 2: local gateway tools (meta + skill management + dynamic
-    // discovery/dispatch wrappers). This is the entire gateway MCP surface.
+    // Local gateway tools. This is the entire advertised gateway MCP surface.
     if let Value::Array(local) = gateway_tool_defs() {
         tools.extend(local);
     }

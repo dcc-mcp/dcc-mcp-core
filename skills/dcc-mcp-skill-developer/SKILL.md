@@ -88,6 +88,11 @@ into a faster authoring loop.
    paths such as `body.data.params.arguments.api_key`, and capture files can
    contain prompts, scene paths, and tool arguments, so keep them as local
    debugging artifacts unless redaction has been applied.
+   For gateway-facing examples, keep MCP discovery-only: use gateway MCP
+   `search` / `describe` to find and inspect capabilities, then execute via
+   REST `/v1/call` or `/v1/call_batch`. Hidden gateway MCP call/load/lease
+   compatibility routes may appear in old clients, but new docs and skills
+   should not advertise them in `tools/list` workflows.
 8. For adapter install, uninstall, or upgrade flows, use
    `dcc_mcp_core.install_lifecycle` before importing Rust-backed public API:
    query/stop registered sidecars, inspect install roots, classify locked

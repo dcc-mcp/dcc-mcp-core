@@ -2,7 +2,7 @@
 
 **DCC-MCP-Core** is a Rust-first library (with Python bindings) that exposes capabilities inside DCC (Digital Content Creation) tools — Maya, Blender, Houdini, Photoshop, ZBrush, Unreal, Unity, Figma, and custom studio hosts — through a **layered surface**:
 
-- **AI assistants** → a small, static **MCP** tool set (`search_skills`, `load_skill`, `search_tools`, `describe_tool`, `call_tool`, …) progressively-disclosed via the gateway.
+- **AI assistants** → a small, static **MCP** discovery set (`search`, `describe`) via the gateway, plus REST `/v1/*` for execution.
 - **Traditional callers** (cURL, CI, any HTTP client) → a full **`/v1/*` REST API** on every per-DCC server and on the gateway facade.
 
 The core is Rust, compiled to a Python extension via [PyO3](https://pyo3.rs/) + [maturin](https://github.com/PyO3/maturin). Zero Python runtime dependencies.
@@ -32,7 +32,8 @@ flowchart LR
     AGENT([AI assistant]):::client
     TRAD([cURL / CI / traditional backends]):::client
 
-    AGENT -->|MCP: search_tools<br/>describe_tool<br/>call_tool| GW
+    AGENT -->|MCP: search<br/>describe| GW
+    AGENT -->|REST: POST /v1/call| GW
     TRAD -->|REST: POST /v1/search<br/>/describe /call| GW
     TRAD -.->|direct REST to per-DCC| PERDCC
     GW -->|/v1/call routes to owning DCC| PERDCC
@@ -45,10 +46,10 @@ flowchart LR
 
 **Architectural decisions that shape the whole repo**:
 
-1. **Minimal MCP surface (#657 / #674, landed in PR A)** — the gateway's `tools/list` *always* returns only the discovery + dispatch primitives, no matter how many DCCs are connected. Per-tool backend tools are discovered and invoked through `search_tools` / `describe_tool` / `call_tool`; they never fan out into `tools/list`.
+1. **Minimal MCP surface (#657 / #674, landed in PR A)** — the gateway's `tools/list` *always* returns only read-only discovery primitives, no matter how many DCCs are connected. Per-tool backend tools are discovered through MCP `search` / `describe` or REST `/v1/search` / `/v1/describe`; execution happens through REST `/v1/call` / `/v1/call_batch`.
 2. **REST is the invocation plane** — every per-DCC server exposes a full `/v1/*` REST surface, and the gateway mirrors it as an aggregating facade. Any language / any client integrates here without touching MCP.
-3. **Single contract** — the gateway MCP `call_tool` and the REST `POST /v1/call` share one `call_service` code path. Request/response envelopes are identical, locked down by an OpenAPI snapshot test.
-4. **Progressive discovery** — agents pay only for what they ask for: `search_skills` → `load_skill` → `search_tools` → `describe_tool` → `call_tool`.
+3. **Single contract** — REST `POST /v1/call` and hidden MCP compatibility routes share one `call_service` code path. Request/response envelopes are identical, locked down by an OpenAPI snapshot test.
+4. **Progressive discovery** — agents pay only for what they ask for: `search(kind="skill")` or `/v1/search` → `/v1/load_skill` when needed → `search` → `describe` → `/v1/call`.
 
 ---
 
@@ -58,7 +59,7 @@ flowchart LR
 - **Minimal MCP gateway** — `tools/list` is a bounded, cached static set. Agent context footprint stays flat regardless of DCC count.
 - **per-DCC REST** — `/v1/healthz`, `/v1/readyz` (three-state Ready / Booting / Unreachable), `/v1/search`, `/v1/describe`, `/v1/call`, `/v1/context`, `/v1/openapi.json`. Full OpenAPI 3.x.
 - **Multi-DCC gateway aggregation** — file-based service registry + TCP-probe health checks, auto-evicts instances after 3 consecutive probe failures, prunes ghost rows, arbitrates contention via a three-tier `crate_version → adapter_version → adapter_dcc` election.
-- **Tool slug contract** — `<dcc>.<id8>.<tool>` three-part slugs are the only addressable form; the gateway parses them to route `call_tool` to the owning backend.
+- **Tool slug contract** — `<dcc>.<id8>.<tool>` three-part slugs are the only addressable form; the gateway parses them to route REST `/v1/call` to the owning backend.
 - **Tunnels (#504)** — `dcc-mcp-tunnel-relay` + `dcc-mcp-tunnel-agent` binaries for zero-config remote access from SaaS AI clients to a workstation's DCC.
 - **PyO3 bindings** — every Rust-accelerated API transparent to Python. Zero Python runtime deps.
 

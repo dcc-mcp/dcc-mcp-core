@@ -9,7 +9,7 @@ DCC-MCP-Core is a **Rust-powered DCC automation framework** with Python bindings
 ```
 +--------------------------------------------------------------------------------+
 | Agent / operator surfaces                                                       |
-| - MCP clients: search_tools -> describe_tool -> call_tool                       |
+| - MCP clients: search -> describe; REST clients execute via /v1/call            |
 | - CLI users: dcc-mcp-cli list/search/describe/call                              |
 | - ClawHub/OpenClaw skills: dcc-cli-gateway or dcc-rest-gateway                  |
 | - CI and custom clients: REST /v1/*                                             |
@@ -375,7 +375,7 @@ dcc-mcp-app-ui (independent pure app_ui observation/action/wait/policy/audit con
 
 **Key Components**:
 - `CapabilityIndex` + refresh tasks — build records from live per-DCC instances and evict stale ones.
-- `search_tools`, `describe_tool`, `call_tool` — fixed gateway MCP wrappers over the dynamic capability index.
+- `search`, `describe` — fixed read-only gateway MCP discovery tools over the dynamic capability index; `/v1/call` and `/v1/call_batch` are the execution plane.
 - Gateway REST facade — `POST /v1/search`, `/v1/describe`, `/v1/call`, `/v1/call_batch`, plus diagnostics/resources/prompts aggregation.
 - Admin/dashboard support — read-only `/admin/api/*` inspection for instances, tools, calls, traces, stats, workers, logs, and health.
 

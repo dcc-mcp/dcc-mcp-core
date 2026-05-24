@@ -3,7 +3,7 @@
 //!
 //! Keeping REST and MCP on top of a single service guarantees parity
 //! without duplication — the only difference between a
-//! `POST /v1/call` and a `call_tool` MCP invocation is the transport
+//! `POST /v1/call` and a hidden compatibility MCP invocation is the transport
 //! adapter. That is the same invariant the tracking issue #657 calls
 //! out as the "success criterion":
 //!
@@ -130,9 +130,6 @@ pub fn search_hit_to_value(hit: SearchHit) -> Value {
             "rest": {
                 "method": "POST",
                 "path": "/v1/load_skill",
-            },
-            "mcp": {
-                "name": "load_skill",
             },
         });
     }

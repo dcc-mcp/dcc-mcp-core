@@ -229,7 +229,7 @@ print(f"Maya MCP 服务器: {handle.mcp_url()}")
 | `/instances` | GET | 所有活跃实例的 JSON 列表 |
 | `/v1/instances` | GET | 实例发现的 REST 别名 |
 | `/health` | GET | `{"ok": true}` 健康检查 |
-| `/mcp` | POST | 有界 MCP 端点，只暴露网关发现+派发原语 |
+| `/mcp` | POST | 有界 MCP 端点，只暴露网关发现原语（`search`、`describe`） |
 | `/mcp` | GET | SSE 事件流 — 进度、作业/工作流、资源、prompt 通知 |
 | `/v1/search` | POST | 搜索紧凑后端能力记录 |
 | `/v1/describe` | POST | 获取一个 `tool_slug` 的 schema、annotations 与路由记录 |
@@ -239,15 +239,13 @@ print(f"Maya MCP 服务器: {handle.mcp_url()}")
 
 ### 有界 Facade
 
-网关的 `POST /mcp` 是一个统一 MCP 服务器，在 `tools/list` 中只暴露固定网关工具：
+网关的 `POST /mcp` 是一个统一 MCP 服务器，在 `tools/list` 中只广告只读网关工具：
 
 | 层级 | 工具 | 用途 |
 |------|------|------|
-| 技能管理 | `list_skills`、`search_skills`、`get_skill_info`、`load_skill`、`unload_skill` | 跨 DCC 搜索/加载 skills，或用 `instance_id` / `dcc` 指向具体实例 |
-| 动态能力 wrapper | `search_tools`、`describe_tool`、`call_tool` | 发现紧凑后端记录、拉取单个 schema、再按 `tool_slug` 调用 |
-| 运维工具 | `acquire_dcc_instance`、`release_dcc_instance`、诊断工具 | 预热实例池化和网关健康排障 |
+| 发现 | `search`、`describe` | 搜索紧凑后端能力记录，并为一个 `tool_slug` 或 `skill_name` 拉取 schema/detail |
 
-后端 action 通过 `tool_slug`（`<dcc>.<id8>.<tool>`）寻址。Agent 不应手写 slug；应从 `search_tools` 或 `POST /v1/search` 获取，然后调用 `describe_tool` / `call_tool` 或等价 REST 端点。
+后端 action 通过 `tool_slug`（`<dcc>.<id8>.<tool>`）寻址。Agent 不应手写 slug；应从 MCP `search` 或 `POST /v1/search` 获取，用 MCP `describe` 或 `POST /v1/describe` 检查 schema，然后通过 `POST /v1/call` 或 `POST /v1/call_batch` 执行。隐藏 MCP 兼容路由仍接受旧的 `search_tools` / `describe_tool` / `call_tool` / `call_tools` 名称，但它们不再出现在 `tools/list`。
 
 #### `gateway://instances` —— 把 DCC 注册表暴露为 MCP 资源（#813 phase 1）
 
@@ -324,7 +322,7 @@ print(handle.mcp_url())         # 本实例的直接 MCP URL
 ```
 
 ::: tip 多 DCC、单入口
-启动任意数量的 DCC 服务器 — 第一个赢得网关端口。Agent 连接 `http://localhost:9765/mcp` 后，先用 `search_tools` 发现后端能力，再用 `describe_tool` / `call_tool` 使用其中一个能力。需要直连、不经代理时，读取 `gateway://instances` MCP 资源即可拿到每个后端的 `mcp_url`。
+启动任意数量的 DCC 服务器 — 第一个赢得网关端口。Agent 连接 `http://localhost:9765/mcp` 后，先用 `search` 发现后端能力，用 `describe` 检查 schema，再通过 `POST /v1/call` 执行。需要直连、不经代理时，读取 `gateway://instances` MCP 资源即可拿到每个后端的 `mcp_url`。
 :::
 
 ::: info Skills-First + 网关

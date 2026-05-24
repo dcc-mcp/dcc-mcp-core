@@ -142,7 +142,7 @@ pub async fn tool_release_instance(gs: &GatewayState, args: &Value) -> Result<St
     .map_err(|e| e.to_string())
 }
 
-// ── Consolidated gateway MCP tools (6-tool surface) ─────────────────────
+// ── Gateway MCP tools ────────────────────────────────────────────────────
 
 /// Unified search: backend capabilities (`kind=tool`, default) or skills (`kind=skill`).
 pub async fn tool_search(gs: &GatewayState, args: &Value) -> Result<String, String> {
@@ -314,89 +314,14 @@ pub async fn tool_search_tools(gs: &GatewayState, args: &Value) -> Result<String
     )
     .await;
     let query = crate::gateway::capability_service::parse_search_payload(args);
-    let mut annotated =
+    let annotated =
         crate::gateway::capability_service::search_service_rows(&gs.capability_index, &query);
-    annotated.extend(local_gateway_tool_hits(&query));
 
     serde_json::to_string_pretty(&json!({
         "total": annotated.len(),
         "hits":  annotated,
     }))
     .map_err(|e| e.to_string())
-}
-
-fn local_gateway_tool_hits(query: &crate::gateway::capability::SearchQuery) -> Vec<Value> {
-    let mut clauses: Vec<String> = Vec::new();
-    let q = query.query.trim().to_ascii_lowercase();
-    if !q.is_empty() {
-        clauses.push(q);
-    }
-    for o in &query.or_queries {
-        let t = o.trim().to_ascii_lowercase();
-        if !t.is_empty() && !clauses.contains(&t) {
-            clauses.push(t);
-        }
-    }
-    let exclude: Vec<String> = query
-        .exclude_tags
-        .iter()
-        .map(|t| t.trim().to_ascii_lowercase())
-        .filter(|t| !t.is_empty())
-        .collect();
-
-    gateway_tool_defs()
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|tool| {
-            let name = tool.get("name")?.as_str()?;
-            let summary = tool
-                .get("description")
-                .and_then(Value::as_str)
-                .unwrap_or(name);
-            let tags: Vec<&str> = match name {
-                "load_skill" | "unload_skill" => vec!["gateway", "skill-management"],
-                "call" => vec!["gateway", "batch", "dispatch"],
-                "lease" => vec!["gateway", "pool"],
-                _ => vec!["gateway"],
-            };
-            Some((name, summary, tags))
-        })
-        .filter(|(_, _, tags)| {
-            !exclude
-                .iter()
-                .any(|ex| tags.iter().any(|t| t.to_ascii_lowercase() == *ex))
-        })
-        .filter(|(name, summary, _)| {
-            clauses.is_empty()
-                || clauses.iter().any(|c| {
-                    c.is_empty()
-                        || name.contains(c)
-                        || summary.to_ascii_lowercase().contains(c)
-                        || (c == "group" && (*name == "load_skill" || *name == "unload_skill"))
-                        || (c.contains("batch") && *name == "call")
-                })
-        })
-        .map(|(name, summary, tags)| {
-            json!({
-                "tool_slug": format!("gateway.{name}"),
-                "backend_tool": name,
-                "callable_id": name,
-                "skill_name": null,
-                "summary": summary,
-                "tags": tags,
-                "dcc_type": "gateway",
-                "instance_id": uuid::Uuid::nil(),
-                "has_schema": true,
-                "loaded": true,
-                "score": 100,
-                "next_step": {
-                    "action": "tools/call",
-                    "name": name,
-                },
-            })
-        })
-        .collect()
 }
 
 /// `describe_tool` — MCP wrapper around
@@ -668,7 +593,12 @@ pub async fn tool_call_tools(
 
 // ── private helpers ────────────────────────────────────────────────────────
 
-/// Return the JSON schema for the consolidated six-tool gateway MCP surface.
+/// Return the advertised gateway MCP surface.
+///
+/// The gateway intentionally advertises only read-only discovery tools. Tool
+/// execution, skill lifecycle, batching, and instance leases stay available
+/// through `/v1/*` REST endpoints (and hidden MCP compatibility routes), but
+/// they do not consume model context in `tools/list`.
 pub fn gateway_tool_defs() -> serde_json::Value {
     json!([
         {
@@ -704,86 +634,6 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                 }
             },
             "annotations": {"readOnlyHint": true, "openWorldHint": true}
-        },
-        {
-            "name": "call",
-            "description": "Invoke backend work. Single call: `tool_slug` + `arguments` object (all backend \
-                fields inside `arguments`). Batch: `calls` array (max 25) with optional `stop_on_error`. \
-                Never put `code`/`python` at the top level unless the described schema says so.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "tool_slug": {"type": "string"},
-                    "arguments": {"type": "object"},
-                    "meta": {"type": "object"},
-                    "calls": {
-                        "type": "array",
-                        "maxItems": 25,
-                        "items": {
-                            "type": "object",
-                            "required": ["tool_slug"],
-                            "properties": {
-                                "tool_slug": {"type": "string"},
-                                "arguments": {"type": "object"},
-                                "meta": {"type": "object"}
-                            }
-                        }
-                    },
-                    "stop_on_error": {"type": "boolean", "default": false}
-                }
-            },
-            "annotations": {"destructiveHint": true, "openWorldHint": true, "idempotentHint": false}
-        },
-        {
-            "name": "lease",
-            "description": "Acquire or release a DCC instance pool lease (`action=acquire` default, \
-                `action=release` clears registry metadata only — does not kill the DCC process).",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "action": {"type": "string", "enum": ["acquire", "release"], "default": "acquire"},
-                    "dcc_type": {"type": "string"},
-                    "instance_id": {"type": "string"},
-                    "lease_owner": {"type": "string"},
-                    "current_job_id": {"type": "string"},
-                    "ttl_secs": {"type": "integer", "minimum": 1}
-                }
-            },
-            "annotations": {"destructiveHint": false, "openWorldHint": true}
-        },
-        {
-            "name": "load_skill",
-            "description": "Load a skill on a target instance. Optional `tool_group` + `group_action` \
-                (`activate` default, `deactivate` to drop a progressive group) replace activate_tool_group / \
-                deactivate_tool_group. Pass `instance_id` or `dcc` when multiple instances are live.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "skill_name": {"type": "string"},
-                    "skill_names": {"type": "array", "items": {"type": "string"}},
-                    "activate_groups": {"type": "boolean", "default": true},
-                    "tool_group": {"type": "string"},
-                    "group_action": {"type": "string", "enum": ["activate", "deactivate"]},
-                    "instance_id": {"type": "string"},
-                    "dcc": {"type": "string"}
-                },
-                "required": ["skill_name"]
-            },
-            "annotations": {"destructiveHint": false, "openWorldHint": true}
-        },
-        {
-            "name": "unload_skill",
-            "description": "Unload a skill on a target instance (same routing as load_skill).",
-            "inputSchema": {
-                "type": "object",
-                "required": ["skill_name"],
-                "properties": {
-                    "skill_name": {"type": "string"},
-                    "instance_id": {"type": "string"},
-                    "dcc": {"type": "string"}
-                }
-            },
-            "annotations": {"destructiveHint": false, "openWorldHint": true}
         }
     ])
 }
@@ -814,24 +664,22 @@ mod tests {
     }
 
     #[test]
-    fn local_gateway_tool_hits_find_load_skill() {
-        let q = crate::gateway::capability::SearchQuery {
-            query: "load".into(),
-            ..Default::default()
-        };
-        let hits = local_gateway_tool_hits(&q);
-        let names: Vec<&str> = hits
+    fn gateway_tool_defs_advertise_read_only_discovery_only() {
+        let defs = gateway_tool_defs();
+        let names: Vec<&str> = defs
+            .as_array()
+            .expect("gateway_tool_defs returns an array")
             .iter()
-            .filter_map(|hit| hit.get("backend_tool").and_then(Value::as_str))
+            .filter_map(|tool| tool.get("name").and_then(Value::as_str))
             .collect();
 
-        assert!(names.contains(&"load_skill"));
+        assert_eq!(names, ["search", "describe"]);
     }
 
     #[test]
     fn gateway_tool_defs_all_have_annotations() {
         let annotations = annotations_by_tool();
-        assert_eq!(annotations.len(), 6);
+        assert_eq!(annotations.len(), 2);
 
         for (name, value) in annotations {
             let hints = value
@@ -856,24 +704,12 @@ mod tests {
         let annotations = annotations_by_tool();
 
         assert_eq!(
-            annotations.get("lease"),
-            Some(&json!({"destructiveHint": false, "openWorldHint": true}))
-        );
-        assert_eq!(
             annotations.get("search"),
             Some(&json!({"readOnlyHint": true, "openWorldHint": true}))
         );
         assert_eq!(
             annotations.get("describe"),
             Some(&json!({"readOnlyHint": true, "openWorldHint": true}))
-        );
-        assert_eq!(
-            annotations.get("call"),
-            Some(&json!({
-                "destructiveHint": true,
-                "openWorldHint": true,
-                "idempotentHint": false,
-            }))
         );
     }
 }

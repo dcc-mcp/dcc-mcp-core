@@ -196,6 +196,6 @@ See [`references/REST_CHEATSHEET.md`](references/REST_CHEATSHEET.md) for the ful
 ## What this skill does NOT use
 
 - MCP JSON-RPC (`POST /mcp`, `tools/call`, `resources/read`)
-- Gateway MCP wrappers (`search_tools`, `call_tool`) unless your host maps them to REST internally
+- Gateway MCP wrappers (including hidden `call_tool`) unless your host maps them to REST internally
 
 REST and MCP share the same backend; this skill is for agents that only have HTTP.

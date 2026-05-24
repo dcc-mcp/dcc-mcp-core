@@ -4,9 +4,10 @@
 这个页面是面向**传统调用方**（cURL、CI 流水线、片场自动化、非-MCP 工具）的
 接入契约 —— 任何能讲 HTTP 的客户端都能用这些路由驱动 DCC，不需要碰 MCP 协议栈。
 
-> **和 MCP 的关系** —— 网关 MCP 的 `call_tool` / `describe_tool` / `search_tools`
-> 与 REST 端点走同一条 `call_service` 代码路径。选 MCP 还是 REST 是传输决定，
-> 不是功能决定；envelope 完全一致。
+> **和 MCP 的关系** —— 网关只在 MCP `tools/list` 里广告只读发现工具
+>（`search`、`describe`）。会改变状态的工作走 REST 调用面：
+> `POST /v1/call`、`POST /v1/call_batch`、`/v1/load_skill`。隐藏的 MCP
+> 兼容路由仍复用同一套 service 代码，但新集成应把 REST 当作规范执行传输。
 
 ---
 
@@ -199,7 +200,7 @@ OpenAPI contract 预留了 `cursor`、`since`、`until` 给后续 normalized env
 
 | 你是 … | 选 |
 |---|---|
-| 写 **AI Agent**（Claude、Cursor、ChatGPT 桌面版、自研） | **MCP**。用网关的 `search_tools` / `describe_tool` / `call_tool`；拿到流式事件、渐进式发现、MCP 能力注册表。 |
+| 写 **AI Agent**（Claude、Cursor、ChatGPT 桌面版、自研） | **MCP + REST**。用网关 MCP `search` / `describe` 做低 token 发现，再用 REST `/v1/call` 或 `/v1/call_batch` 执行。 |
 | 写 **cURL 脚本** / cron / CI 流水线 | **REST**。纯 HTTP + JSON，不需要 MCP 库。 |
 | 写对接多个 DCC 的**企业后端** | **网关上的 REST**。单一端点、跨 DCC 一致 envelope、OpenAPI 文档供代码生成。 |
 | 写**宿主内插件**（Maya 插件、Blender add-on） | 两者都不是 —— 直接调 `DccServerBase.register_*`。REST / MCP 是给外部调用方的。 |
