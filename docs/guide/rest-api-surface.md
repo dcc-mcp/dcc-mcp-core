@@ -1,10 +1,15 @@
 # REST API Surface
 
-Every per-DCC server and the multi-DCC gateway expose the same `/v1/*` REST
-surface, alongside their MCP endpoint. This page is the integration contract
-for **traditional callers** (cURL, CI pipelines, studio automation, non-MCP
-tooling) — anything that can speak HTTP can drive a DCC through these routes
-without touching the MCP protocol stack.
+Per-DCC adapter servers and the multi-DCC gateway expose overlapping, but not
+identical, `/v1/*` REST surfaces alongside their MCP endpoint. This page is the
+integration contract for **traditional callers** (cURL, CI pipelines, studio
+automation, non-MCP tooling) — anything that can speak HTTP can drive a DCC
+through these routes without touching the MCP protocol stack.
+
+The gateway now publishes a gateway-specific `GET /v1/openapi.json` contract.
+It documents only the routes mounted by the gateway router and deliberately
+omits per-DCC-only resource, prompt, and job routes. Per-DCC adapter servers
+continue to serve their own adapter OpenAPI contract from the same path.
 
 > **Relationship to MCP** — The gateway advertises the same bounded workflow
 > over MCP as four tools: `search`, `describe`, `load_skill`, and `call`.
@@ -14,28 +19,26 @@ without touching the MCP protocol stack.
 
 ---
 
-## Endpoints
+## Gateway Endpoints
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/v1/healthz` | Liveness probe. `200 {"status": "ok"}` as long as the HTTP handler is up. |
-| `GET` | `/v1/readyz` | Three-state readiness: `200 Ready` / `503 Booting` / body omitted `Unreachable` (see below). |
-| `GET` | `/v1/skills` | Flat listing of loaded tools, deterministically sorted. |
+| `GET` | `/v1/instances` | Live DCC instance rows known to the elected gateway. |
+| `GET` | `/v1/healthz` | Gateway liveness probe. Returns `200 {"ok": true}` when the HTTP handler is up. |
+| `GET` | `/v1/readyz` | Gateway readiness summary with per-instance readiness bits; the route stays `200` even when no instance is ready. |
+| `GET` | `/v1/skills` | Loaded gateway capability records projected as skill entries. |
+| `POST` | `/v1/list_skills` | Forward a skill-list request to a selected backend instance. |
 | `POST` | `/v1/search` | Fuzzy / exact search across loaded + unloaded skills. |
-| `POST` | `/v1/load_skill` | Load a discovered skill without using MCP `tools/call`. |
-| `POST` | `/v1/unload_skill` | Unload a skill without using MCP `tools/call`. |
+| `POST` | `/v1/load_skill` | Load a discovered backend skill without using MCP `tools/call`; gateway default is lazy group activation. |
+| `POST` | `/v1/unload_skill` | Unload a backend skill without using MCP `tools/call`. |
 | `POST` | `/v1/describe` | Return the full input schema + annotations for one `tool_slug`. |
 | `GET` | `/v1/tools/{slug}` | Alias of `/v1/describe` (read-only lookup via URL). |
-| `POST` | `/v1/call` | **Invoke** a tool by slug. This is the canonical invocation plane. |
-| `POST` | `/v1/call_batch` | Gateway only: invoke up to 25 ordered tool calls with optional `stop_on_error`. |
-| `GET` | `/v1/context` | Scene / document snapshot (per-DCC or gateway-aggregated). |
-| `GET` | `/v1/resources` | MCP-style resource list. |
-| `GET` | `/v1/resources/{uri}` | Read one percent-encoded resource URI. |
-| `GET` | `/v1/resources/{uri}/events` | Server-Sent Events for resource changes. |
-| `GET` | `/v1/prompts` | MCP-style prompt template list. |
-| `GET` | `/v1/prompts/{name}` | Render one prompt; pass JSON object arguments in `?args=...`. |
-| `GET` | `/v1/jobs/{id}/events` | Server-Sent Events for one async job. |
-| `DELETE` | `/v1/jobs/{id}` | Cancel one async job. |
+| `POST` | `/v1/call` | Invoke one gateway capability by slug. This is the canonical gateway invocation plane. |
+| `POST` | `/v1/call_batch` | Invoke up to 25 ordered gateway capability calls with optional `stop_on_error`. |
+| `GET` | `/v1/context` | Gateway snapshot with live instances and aggregate capability counts. |
+| `GET` | `/v1/dcc/{dcc_type}/instances/{instance_id}/describe` | Describe a backend tool on one DCC instance; accepts `backend_tool` / `tool` / `action` query keys. |
+| `POST` | `/v1/dcc/{dcc_type}/instances/{instance_id}/call` | Call a backend tool on one DCC instance using `{backend_tool, arguments, meta}`. |
+| `POST` | `/v1/dcc/{dcc_type}/instances/{instance_id}/stop` | Safe-stop route for test-owned instances that advertise `safe_stop_url` metadata. |
 | `GET` | `/v1/debug/instances` | Gateway only: stable agent-facing instance diagnostics. |
 | `GET` | `/v1/debug/activity` | Gateway only: stable activity feed from audits, traces, and gateway events. |
 | `GET` | `/v1/debug/traces` | Gateway only: recent dispatch trace list. |
@@ -48,12 +51,40 @@ without touching the MCP protocol stack.
 | `GET` | `/v1/debug/logs` | Gateway only: merged gateway events, file logs, and audit summaries. |
 | `GET` | `/v1/debug/stats` | Gateway only: aggregated call statistics. |
 | `GET` | `/v1/debug/health` | Gateway only: debug subsystem health summary. |
-| `GET` | `/v1/openapi.json` | Auto-generated OpenAPI 3.x document for code-gen clients. |
+| `GET` | `/v1/openapi.json` | Gateway-specific OpenAPI 3.x document for code-gen clients. |
+| `GET` | `/docs` | Scalar API reference rendered from the same gateway-specific OpenAPI document. |
 
-The gateway exposes the same paths as an aggregating facade. Gateway capability
-slugs use `<dcc>.<id8>.<tool>` and are obtained from `POST /v1/search`; direct
-per-DCC REST slugs use `<dcc>.<skill>.<action>` and do not include an instance
-id prefix.
+Gateway capability slugs use `<dcc>.<id8>.<tool>` and are obtained from
+`POST /v1/search`. Instance-scoped describe/call routes are for callers that
+already know the target `dcc_type`, `instance_id`, and backend tool id.
+
+## Per-DCC Adapter Endpoints
+
+Per-DCC adapter servers expose the skill REST API for one host process. Their
+OpenAPI document may include routes that the gateway does not mount:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/v1/healthz` | Adapter liveness probe. |
+| `GET` | `/v1/readyz` | Adapter readiness: may report `Ready`, `Booting`, or be unreachable while the DCC starts. |
+| `GET` | `/v1/skills` | Skills already discovered by that adapter. |
+| `POST` | `/v1/search` | Search skills in that adapter's catalog. |
+| `POST` | `/v1/load_skill` | Load one adapter skill. |
+| `POST` | `/v1/unload_skill` | Unload one adapter skill. |
+| `POST` | `/v1/describe` | Describe an adapter-local tool slug. |
+| `GET` | `/v1/tools/{slug}` | URL alias of adapter `/v1/describe`. |
+| `POST` | `/v1/call` | Call an adapter-local tool slug. |
+| `POST` | `/v1/dcc/{dcc_type}/call` | Adapter-local backend call helper; not mounted by the gateway. |
+| `GET` | `/v1/context` | Host scene/document snapshot. |
+| `GET` | `/v1/resources` | MCP-style resource list for that adapter. |
+| `GET` | `/v1/resources/{uri}` | Read one percent-encoded adapter resource URI. |
+| `GET` | `/v1/resources/{uri}/events` | Resource update SSE stream. |
+| `GET` | `/v1/prompts` | MCP-style prompt template list. |
+| `GET` | `/v1/prompts/{name}` | Render one prompt; pass JSON object arguments in `?args=...`. |
+| `GET` | `/v1/jobs/{id}/events` | Async job SSE stream. |
+| `DELETE` | `/v1/jobs/{id}` | Cancel one async job. |
+| `GET` | `/v1/openapi.json` | Per-DCC adapter OpenAPI document. |
+| `GET` | `/docs` | Scalar API reference rendered from the adapter OpenAPI document. |
 
 ---
 
