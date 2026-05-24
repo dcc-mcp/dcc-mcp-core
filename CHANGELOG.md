@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.26](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.25...v0.17.26) (2026-05-24)
+
+
+### Features
+
+* add event bus veto hooks ([a34e58c](https://github.com/loonghao/dcc-mcp-core/commit/a34e58cb11c5176313d81023498a505b3850d312))
+* add event webhook delivery ([2f5d4c3](https://github.com/loonghao/dcc-mcp-core/commit/2f5d4c314ad8fb8713846f82b616f08e0e1bc673))
+* add gateway traffic JSONL capture ([2f0fb56](https://github.com/loonghao/dcc-mcp-core/commit/2f0fb56e1697805183b9ae210846afa5a0ffd61d))
+* add traffic capture sqlite filters ([740963c](https://github.com/loonghao/dcc-mcp-core/commit/740963c713bae08705269e356a61de13db395599))
+
 ## [0.17.25](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.24...v0.17.25) (2026-05-23)
 
 
