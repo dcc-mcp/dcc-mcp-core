@@ -245,18 +245,18 @@ async fn handle_initialize(gs: &GatewayState, id: Value, req: &JsonRpcRequest) -
             "instructions":
                 "DCC-MCP Gateway — unified MCP endpoint across every live DCC.\n\
                  \n\
-                 tools/list is intentionally bounded. It returns gateway discovery,\n\
-                 skill lifecycle, pooling, and dynamic capability wrapper tools; it\n\
-                 never fans out every backend action. Instance registry, diagnostics,\n\
+                 tools/list is intentionally bounded. It returns exactly four gateway\n\
+                 workflow tools: search, describe, load_skill, and call. It never\n\
+                 fans out every backend action. Instance registry, diagnostics,\n\
                  and catalog views are MCP resources such as gateway://instances,\n\
                  gateway://diagnostics/*, gateway://catalog, and gateway://docs/agent-workflows.\n\
                  \n\
                  Workflow:\n\
                  1. Optional: resources/read uri=gateway://instances to inspect live DCCs\n\
                  1b. Optional: resources/read uri=gateway://docs/agent-workflows (MCP+REST patterns, path /v1/dcc/.../call, re-list instances after DCC restart)\n\
-                 2. search_skills(...) then load_skill(..., instance_id=... when needed)\n\
-                 3. search_tools(...) -> describe_tool(tool_slug=...) -> call_tool(tool_slug=..., arguments={...}); never put code/python/mel at the call_tool top level\n\
-                 4. Optional: call_tools({calls:[{tool_slug, arguments}, ...], stop_on_error?}) for ordered batches (max 25)\n\
+                 2. search(kind=\"skill\", ...) then load_skill(skill_name=..., instance_id=... when needed)\n\
+                 3. search(kind=\"tool\", ...) -> describe(tool_slug=...) -> call(tool_slug=..., arguments={...}); never put code/python/mel at the call top level\n\
+                 4. Optional: call({calls:[{tool_slug, arguments}, ...], stop_on_error?}) for ordered batches (max 25)\n\
                  \n\
                  Subscribe to GET /mcp (SSE) for push notifications."
         }
@@ -336,16 +336,21 @@ async fn handle_tools_call(
         headers,
         id_str.to_string(),
     );
-    let resolved_slug = if tool == "call_tool" {
-        args.get("tool_slug").and_then(Value::as_str)
-    } else if tool == "call_tools" {
+    let first_batch_slug = || {
         args.get("calls")
             .and_then(Value::as_array)
             .and_then(|arr| arr.first())
             .and_then(|obj| obj.get("tool_slug"))
             .and_then(Value::as_str)
-    } else {
-        None
+    };
+    let resolved_slug = match tool {
+        "call" => args
+            .get("tool_slug")
+            .and_then(Value::as_str)
+            .or_else(first_batch_slug),
+        "call_tool" => args.get("tool_slug").and_then(Value::as_str),
+        "call_tools" => first_batch_slug(),
+        _ => None,
     };
 
     {

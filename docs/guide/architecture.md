@@ -9,7 +9,7 @@ DCC-MCP-Core is a **Rust-powered DCC automation framework** with Python bindings
 ```
 +--------------------------------------------------------------------------------+
 | Agent / operator surfaces                                                       |
-| - MCP clients: search -> describe; REST clients execute via /v1/call            |
+| - MCP clients: search -> describe -> load_skill? -> call                       |
 | - CLI users: dcc-mcp-cli list/search/describe/call                              |
 | - ClawHub/OpenClaw skills: dcc-cli-gateway or dcc-rest-gateway                  |
 | - CI and custom clients: REST /v1/*                                             |
@@ -19,7 +19,7 @@ DCC-MCP-Core is a **Rust-powered DCC automation framework** with Python bindings
                                          |
 +----------------------------------------v---------------------------------------+
 | Elected gateway (Rust HTTP control plane)                                       |
-| - Minimal MCP tools/list: discovery and dispatch primitives only                |
+| - Minimal MCP tools/list: four canonical workflow primitives only               |
 | - Dynamic capability search, schema describe, single/batch call routing         |
 | - Instance registry, TCP liveness probes, version-aware election, failover      |
 | - Admin UI, OpenAPI, audit logs, traces, metrics, jobs, workflows, artefacts    |
@@ -40,7 +40,7 @@ DCC-MCP-Core is a **Rust-powered DCC automation framework** with Python bindings
 
 ### Core Principles
 
-1. **Minimal MCP surface** — `tools/list` exposes discovery and dispatch primitives; backend tools are found through search/describe/call.
+1. **Minimal MCP surface** — `tools/list` exposes `search`, `describe`, `load_skill`, and `call`; backend tools are never fanned out directly.
 2. **Version-aware election** — The gateway is elected and can fail over without hard-coding a single DCC host.
 3. **Zero-code skills** — `SKILL.md` + sibling YAML/scripts become MCP tools and REST-callable capabilities.
 4. **Structured results** — Every tool returns AI-friendly success/error, message, context, and follow-up hints.
@@ -375,7 +375,7 @@ dcc-mcp-app-ui (independent pure app_ui observation/action/wait/policy/audit con
 
 **Key Components**:
 - `CapabilityIndex` + refresh tasks — build records from live per-DCC instances and evict stale ones.
-- `search`, `describe` — fixed read-only gateway MCP discovery tools over the dynamic capability index; `/v1/call` and `/v1/call_batch` are the execution plane.
+- `search`, `describe`, `load_skill`, `call` — fixed gateway MCP workflow tools over the dynamic capability index; `/v1/*` routes are the pure HTTP twin.
 - Gateway REST facade — `POST /v1/search`, `/v1/describe`, `/v1/call`, `/v1/call_batch`, plus diagnostics/resources/prompts aggregation.
 - Admin/dashboard support — read-only `/admin/api/*` inspection for instances, tools, calls, traces, stats, workers, logs, and health.
 

@@ -68,37 +68,34 @@ When an MCP `tools/call` response includes `CallToolResult._meta["dcc.next_tools
 If your MCP connection is the multi-DCC gateway, do not expect backend actions to appear directly in `tools/list`. The gateway surface is intentionally fixed and bounded; use the dynamic-capability workflow instead:
 
 ```python
-# Gateway MCP discovery + REST execution flow
-hits = search(query="create sphere", dcc_type="maya", limit=5)
+# Gateway MCP four-tool workflow
+hits = search(kind="tool", query="create sphere", dcc_type="maya", limit=5)
 info = describe(tool_slug=hits["hits"][0]["tool_slug"])
-result = post_json("/v1/call", {
-    "tool_slug": info["record"]["tool_slug"],
-    "arguments": {"radius": 2.0},
-})
+result = call(tool_slug=info["record"]["tool_slug"], arguments={"radius": 2.0})
 
-# Ordered REST batch flow (max 25 calls)
-batch = post_json("/v1/call_batch", {
-    "calls": [
+# Ordered MCP batch flow (max 25 calls)
+batch = call(
+    calls=[
         {"tool_slug": info["record"]["tool_slug"], "arguments": {"radius": 2.0}},
         {"tool_slug": "maya.a1b2c3d4.assign_material", "arguments": {"name": "mat_blue"}},
     ],
-    "stop_on_error": True,
-})
+    stop_on_error=True,
+)
 ```
 
-Gateway `tools/list` advertises only read-only `search` and `describe`. Hidden MCP compatibility routes still accept older `search_tools` / `describe_tool` / `call_tool` / `call_tools` names, but new agent workflows should execute through REST.
+Use `search(kind="skill", ...)` to find unloaded skills, then `load_skill(skill_name="...", instance_id="...")` when a search hit's `next_step` asks for activation. Gateway `tools/list` advertises exactly `search`, `describe`, `load_skill`, and `call`. Hidden MCP compatibility routes still accept older `search_tools` / `describe_tool` / `call_tool` / `call_tools` names, but new agent workflows should use the four canonical tools.
 
-REST wrapper payloads accept only `tool_slug`, `arguments`, and optional `meta`. Put backend-specific inputs such as `code`, `script`, `file_path`, or `radius` inside `arguments`, never at the wrapper top level. `dcc-mcp-wire` normalizes missing / `null` / empty-string arguments to `{}` and rejects non-object roots; Python host wrappers can call `dcc_mcp_core.host.normalize_tool_arguments()` / `normalize_tool_meta()`.
+Wrapper payloads accept only `tool_slug`, `arguments`, and optional `meta`. Put backend-specific inputs such as `code`, `script`, `file_path`, or `radius` inside `arguments`, never at the wrapper top level. `dcc-mcp-wire` normalizes missing / `null` / empty-string arguments to `{}` and rejects non-object roots; Python host wrappers can call `dcc_mcp_core.host.normalize_tool_arguments()` / `normalize_tool_meta()`.
 
 Pure HTTP clients use the same REST endpoints directly: `POST /v1/search`, `POST /v1/describe`, `POST /v1/call`, and gateway `POST /v1/call_batch`. See `docs/guide/gateway.md` and `docs/guide/rest-api-surface.md`.
 
 ### Gateway workflow guide (`gateway://docs/agent-workflows`)
 
-**`resources/read`** with **`uri=gateway://docs/agent-workflows`** is the **platform-agnostic** copy bundled with the gateway: MCP **tools** vs **`resources/list`/`read`** / **`prompts`**, using **`describe`** (schema, **affinity**, execution mode, timeouts), fewer redundant round-trips, optional **`POST /v1/call_batch`** (≤25 ordered steps), and reading **host-published help** URIs exactly as listed—never inventing schemes. Re-fetch in very long sessions if the contract might have fallen out of context.
+**`resources/read`** with **`uri=gateway://docs/agent-workflows`** is the **platform-agnostic** copy bundled with the gateway: MCP **tools** vs **`resources/list`/`read`** / **`prompts`**, using **`describe`** (schema, **affinity**, execution mode, timeouts), fewer redundant round-trips, optional **`call({calls:[...]})`** / **`POST /v1/call_batch`** (≤25 ordered steps), and reading **host-published help** URIs exactly as listed—never inventing schemes. Re-fetch in very long sessions if the contract might have fallen out of context.
 
 ### Gateway Instance Discovery
 
-Usually you do **not** need to enumerate instances: let `search` and REST `/v1/call` route for you. When you must pick a concrete DCC session, inspect context metadata, or connect directly, read the gateway-native MCP resource instead of looking for instance-discovery tools:
+Usually you do **not** need to enumerate instances: let gateway `search` and `call` route for you. When you must pick a concrete DCC session, inspect context metadata, or connect directly, read the gateway-native MCP resource instead of looking for instance-discovery tools:
 
 ```python
 # MCP request shape; use your client's resources/read helper if it has one.

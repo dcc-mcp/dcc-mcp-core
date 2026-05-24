@@ -3,10 +3,10 @@
 //! This module is the core of the "one endpoint, every DCC" façade:
 //!
 //! * `aggregate_tools_list` — return the **minimal** gateway MCP surface
-//!   (read-only discovery primitives). Backend per-action tools are
+//!   (four canonical workflow primitives). Backend per-action tools are
 //!   intentionally NOT published here — agents discover them through
-//!   `search` / `describe`, then invoke through the per-DCC REST `/v1/call`
-//!   or gateway `/v1/call_batch` plane.
+//!   `search` / `describe`, optionally activate skills with `load_skill`,
+//!   then invoke through `call` (or the equivalent REST `/v1/*` plane).
 //! * `route_tools_call` — dispatch a `tools/call` to the matching local
 //!   handler. Hidden compatibility routes still accept the older MCP dispatch
 //!   wrappers, but any unknown name is rejected with a hint pointing at the

@@ -270,7 +270,7 @@ print(f"Maya MCP server: {handle.mcp_url()}")
 
 ## Gateway
 
-When multiple DCC instances start simultaneously, one automatically becomes the **gateway** — a single well-known `/mcp` endpoint and `/v1/*` REST facade for all running instances. Since v0.15, the gateway does **not** merge every backend action into `tools/list`; it keeps MCP bounded and advertises only read-only search/describe primitives while execution goes through the HTTP API.
+When multiple DCC instances start simultaneously, one automatically becomes the **gateway** — a single well-known `/mcp` endpoint and `/v1/*` REST facade for all running instances. Since v0.15, the gateway does **not** merge every backend action into `tools/list`; it keeps MCP bounded and advertises only four canonical workflow tools: `search`, `describe`, `load_skill`, and `call`.
 
 ### How it works
 
@@ -287,7 +287,7 @@ When multiple DCC instances start simultaneously, one automatically becomes the 
 | `/instances` | GET | JSON list of all live instances |
 | `/v1/instances` | GET | REST alias for instance discovery |
 | `/health` | GET | `{"ok": true}` health check |
-| `/mcp` | POST | Bounded MCP endpoint with gateway discovery primitives (`search`, `describe`) |
+| `/mcp` | POST | Bounded MCP endpoint with gateway workflow primitives (`search`, `describe`, `load_skill`, `call`) |
 | `/mcp` | GET | SSE stream for progress, job/workflow, resource, and prompt notifications |
 | `/v1/search` | POST | Search compact backend capability records |
 | `/v1/describe` | POST | Fetch schema, annotations, and routing record for one `tool_slug` |
@@ -303,13 +303,15 @@ When multiple DCC instances start simultaneously, one automatically becomes the 
 
 ### Bounded facade
 
-`POST /mcp` on the gateway is a single MCP server that advertises only read-only gateway tools in `tools/list`:
+`POST /mcp` on the gateway is a single MCP server that advertises only four canonical gateway tools in `tools/list`:
 
 | Tier | Tools | Purpose |
 |------|-------|---------|
 | Discovery | `search`, `describe` | Search compact backend capability records and fetch schema/detail for one discovered `tool_slug` or `skill_name` |
+| Activation | `load_skill` | Load a discovered skill or activate/deactivate a progressive tool group |
+| Execution | `call` | Invoke one `tool_slug` or an ordered `{calls:[...]}` batch |
 
-Gateway backend actions are addressed by `tool_slug` (`<dcc>.<id8>.<tool>`). Direct per-DCC REST uses `<dcc>.<skill>.<action>` without the instance id. Agents should not construct slugs by hand; obtain them from MCP `search` or `POST /v1/search`, inspect with MCP `describe` or `POST /v1/describe`, then execute via `POST /v1/call` or `POST /v1/call_batch`. Hidden MCP compatibility routes still accept older `search_tools` / `describe_tool` / `call_tool` / `call_tools` names, but they are not advertised.
+Gateway backend actions are addressed by `tool_slug` (`<dcc>.<id8>.<tool>`). Direct per-DCC REST uses `<dcc>.<skill>.<action>` without the instance id. Agents should not construct slugs by hand; obtain them from MCP `search` or `POST /v1/search`, inspect with MCP `describe` or `POST /v1/describe`, then execute via MCP `call`, `POST /v1/call`, or `POST /v1/call_batch`. Hidden MCP compatibility routes still accept older `search_tools` / `describe_tool` / `call_tool` / `call_tools` names, but they are not advertised.
 
 #### `gateway://instances` — DCC registry as an MCP resource (#813 phase 1)
 
@@ -583,7 +585,7 @@ you control how much of the schema surface is pushed into the agent's context.
 | Default (eager) | All tool definitions + schemas | High | ≤ 20 tools |
 | `lazy_actions = True` | 3 meta-tools only | Very low | Large static catalogs |
 | Skill stubs (default) | `__skill__<name>` stubs for unloaded skills | Low | Dynamic loading workflows |
-| `search_tools` (direct server / gateway) | Compact search results; fetch schema with `describe_tool` on the gateway | Low | Large catalogs and multi-DCC gateways |
+| `search` (gateway) / `search_tools` (direct server) | Compact search results; fetch schema with gateway `describe` or direct-server `describe_tool` | Low | Large catalogs and multi-DCC gateways |
 
 ### 1. Default: Skill Stubs
 
@@ -636,14 +638,15 @@ cfg.lazy_tool_schemas = True  # omit inputSchema from tools/list (planned)
 ### 4. `search_tools` and gateway dynamic search
 
 Direct per-DCC servers expose `search_tools` for enabled tools, while the
-gateway advertises the read-only MCP pair `search` → `describe` and leaves
-state-changing invocation to REST `POST /v1/call` / `/v1/call_batch`. Gateway
-search returns compact records only; `describe` fetches one full schema on
-demand, keeping `tools/list` bounded even when many backends are live.
+gateway advertises the canonical MCP workflow `search` → `describe` →
+`load_skill` (when needed) → `call`. REST `/v1/search`, `/v1/describe`,
+`/v1/load_skill`, `/v1/call`, and `/v1/call_batch` remain the pure HTTP twin.
+Gateway search returns compact records only; `describe` fetches one full schema
+on demand, keeping `tools/list` bounded even when many backends are live.
 
 For unloaded skills, keep using the Skills-First workflow:
-MCP `search(kind="skill", query=...)` or REST `/v1/search`, then REST
-`/v1/load_skill`, `/v1/describe`, and `/v1/call`.
+MCP `search(kind="skill", query=...)` or REST `/v1/search`, then `load_skill`
+or `/v1/load_skill`, `describe`, and `call`.
 
 ### Token Usage Decision Guide
 
