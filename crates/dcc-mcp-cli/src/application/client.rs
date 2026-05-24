@@ -6,6 +6,9 @@ use crate::domain::rest::{
 };
 use crate::infra::http::{HttpError, HttpGateway};
 
+const MCP_STREAMABLE_HTTP_ACCEPT: &str = "application/json, text/event-stream";
+const MCP_PROTOCOL_VERSION: &str = "2025-03-26";
+
 #[derive(Debug, Error)]
 pub enum ClientError {
     #[error(transparent)]
@@ -121,7 +124,7 @@ impl DccMcpClient {
                     "id": "smoke-initialize",
                     "method": "initialize",
                     "params": {
-                        "protocolVersion": "2025-03-26",
+                        "protocolVersion": MCP_PROTOCOL_VERSION,
                         "capabilities": {},
                         "clientInfo": {
                             "name": "dcc-mcp-cli",
@@ -129,7 +132,10 @@ impl DccMcpClient {
                         }
                     }
                 }),
-                &[("Mcp-Protocol-Version", "2025-03-26")],
+                &[
+                    ("Mcp-Protocol-Version", MCP_PROTOCOL_VERSION),
+                    ("Accept", MCP_STREAMABLE_HTTP_ACCEPT),
+                ],
             )
             .await;
         checks.push(check_json("mcp_initialize", &mcp_url, initialize));
@@ -144,7 +150,10 @@ impl DccMcpClient {
                     "method": "tools/list",
                     "params": {}
                 }),
-                &[("Mcp-Protocol-Version", "2025-03-26")],
+                &[
+                    ("Mcp-Protocol-Version", MCP_PROTOCOL_VERSION),
+                    ("Accept", MCP_STREAMABLE_HTTP_ACCEPT),
+                ],
             )
             .await;
         checks.push(check_json("mcp_tools_list", &mcp_url, tools_list));
