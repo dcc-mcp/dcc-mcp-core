@@ -1,0 +1,4 @@
+{"_vrs": {"version": 1}, "trace_id": "core-1153-rest-compact-errors", "title": "REST compact negotiation preserves error contracts for describe/call/call_batch"}
+{"id": "describe_missing_slug_toon", "http": {"method": "POST", "path": "/v1/describe", "headers": {"Accept": "application/toon"}, "json": {}}, "expect": {"status": 400, "body_contains_all": ["bad-request", "missing required field: tool_slug"]}}
+{"id": "call_missing_slug_json_override", "http": {"method": "POST", "path": "/v1/call", "headers": {"Accept": "application/toon"}, "json": {"response_format": "json", "arguments": {}}}, "expect": {"status": 400, "json_subset": {"error": {"kind": "bad-request"}}}}
+{"id": "call_batch_empty_toon", "http": {"method": "POST", "path": "/v1/call_batch", "headers": {"Accept": "application/toon"}, "json": {"calls": []}}, "expect": {"status": 400, "body_contains_all": ["bad-request", "calls must be a non-empty array"]}}
