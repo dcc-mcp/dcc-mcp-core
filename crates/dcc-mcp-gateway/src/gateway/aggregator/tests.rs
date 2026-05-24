@@ -170,10 +170,9 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
         .filter_map(|tool| tool["name"].as_str())
         .collect();
 
-    // The gateway MCP surface is minimal: only discover+dispatch
-    // primitives and skill-management tools. Per-action backend tools
-    // are NOT published here — agents discover them through
-    // `search_tools` / `describe_tool` / `call_tool`.
+    // The gateway MCP surface is discovery-only. Per-action backend tools
+    // are NOT published here — agents discover them through `search` /
+    // `describe`, then execute via the REST plane.
     let prefix = format!("i_{}__", &instance_id.to_string().replace('-', "")[..8]);
     assert!(
         !names.iter().any(|name| name.starts_with(&prefix)),
@@ -183,15 +182,8 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
         !names.contains(&"create_sphere"),
         "bare backend tool name must not appear on the gateway surface: {names:?}"
     );
-    // Positive assertion: consolidated gateway MCP surface (RFC #998).
-    for expected in [
-        "search",
-        "describe",
-        "call",
-        "lease",
-        "load_skill",
-        "unload_skill",
-    ] {
+    // Positive assertion: advertised gateway MCP surface is read-only.
+    for expected in ["search", "describe"] {
         assert!(
             names.contains(&expected),
             "missing core gateway tool {expected} in: {names:?}",
@@ -199,8 +191,8 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
     }
     assert_eq!(
         names.len(),
-        6,
-        "gateway tools/list must expose exactly the six consolidated tools: {names:?}"
+        2,
+        "gateway tools/list must expose exactly the two discovery tools: {names:?}"
     );
 
     let _ = shutdown_tx.send(());

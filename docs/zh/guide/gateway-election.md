@@ -7,9 +7,9 @@
 **网关**是一个单一的 Rust HTTP 服务器（默认运行在 `localhost:9765`），负责：
 
 - 发现所有运行中的 DCC 实例（Maya、Blender、Houdini、Photoshop 等）
-- 提供统一且有界的 `/mcp` 端点，只暴露发现+派发原语，而不是扇出每个后端 action
-- 将 `search_tools` / `describe_tool` / `call_tool` 以及 `/v1/*` REST 调用路由到选中的后端能力
-- 对 skill 管理调用做扇出（`search_skills`、`list_skills`）或按实例路由（`load_skill`）
+- 提供统一且有界的 `/mcp` 端点，只暴露只读发现原语，而不是扇出每个后端 action
+- 将 gateway MCP `search` / `describe` 以及 `/v1/*` REST 调用路由到选中的后端能力
+- 通过 REST（`/v1/load_skill`、`/v1/unload_skill`、`/v1/call`）暴露 skill 生命周期和执行，同时为已固定的旧客户端保留隐藏 MCP 兼容路由
 - 当实例进出时，通过 SSE 推送进度、作业/工作流、资源与 prompt 通知
 
 **每台机器只有一个网关**。当第一个 DCC 实例注册时自动启动。

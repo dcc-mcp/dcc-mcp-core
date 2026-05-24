@@ -697,13 +697,13 @@ handle = server.start()
 ### Multiple DCC instances
 
 The Gateway automatically discovers all running DCC instances, but it keeps
-`tools/list` bounded to fixed discover+dispatch primitives. Each instance
+`tools/list` bounded to fixed read-only discovery primitives. Each instance
 registers with a unique `instance_id`; backend actions are addressed by
-`tool_slug` values returned from `search_tools` / `/v1/search`.
+`tool_slug` values returned from MCP `search` or REST `/v1/search`.
 
 ```python
 # AI agent flow:
-# hits = search_tools(query="create sphere", dcc_type="maya")
-# info = describe_tool(tool_slug=hits["hits"][0]["tool_slug"])
-# result = call_tool(tool_slug=info["record"]["tool_slug"], arguments={"radius": 1.0})
+# hits = search(query="create sphere", dcc_type="maya")
+# info = describe(tool_slug=hits["hits"][0]["tool_slug"])
+# result = POST /v1/call {"tool_slug": info["record"]["tool_slug"], "arguments": {"radius": 1.0}}
 ```

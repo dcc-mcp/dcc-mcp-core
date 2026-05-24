@@ -175,7 +175,8 @@ def test_my_host_drives_dispatcher(live_dcc_fixture):
 
 ## Gateway wrapper normalization
 
-If your adapter or connector proxies gateway `call_tool` / `call_tools` requests,
+If your adapter or connector proxies gateway REST `/v1/call` / `/v1/call_batch`
+requests (or hidden MCP compatibility `call_tool` / `call_tools` requests),
 normalize wrapper payloads with the shared helpers instead of reimplementing JSON
 coercion:
 

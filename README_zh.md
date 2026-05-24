@@ -33,7 +33,7 @@
 | 需求 | dcc-mcp-core 提供 |
 |---|---|
 | 让 Agent 操作真实 DCC 会话 | 面向 Maya、Blender、Houdini、Photoshop 和自定义宿主的 MCP + REST 端点 |
-| 控制工具上下文大小 | Gateway 发现流程：`search_tools` -> `describe_tool` -> `call_tool` |
+| 控制工具上下文大小 | Gateway 发现流程：MCP `search` -> `describe`，再用 REST `POST /v1/call` |
 | 不写框架胶水也能加工具 | `SKILL.md` + 同级 YAML / 脚本，遵循 agentskills.io |
 | 调试真实工作站状态 | Admin UI、视口诊断、审计日志、trace、metrics |
 | 扛住生产约束 | 主线程调度、异步 job、sidecar/server 二进制、workflow 与 artefact 原语 |
@@ -87,7 +87,7 @@ handle = server.start()
 print(handle.mcp_url())   # "http://127.0.0.1:8765/mcp"
 ```
 
-Agent 可以在 per-DCC server 上使用 `search_skills` -> `load_skill`，也可以通过 gateway 使用 `search_tools` -> `describe_tool` -> `call_tool`。
+Agent 可以在 per-DCC server 上使用 `search_skills` -> `load_skill`，也可以通过 gateway 使用 MCP `search` -> `describe`，再用 REST `POST /v1/call` 执行。
 
 ---
 
@@ -152,6 +152,8 @@ AI 友好文档：[AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](d
 ### Gateway Admin UI
 
 获选的 gateway 内置一套浏览器 admin 控制台，方便运维在不离开浏览器的情况下查看实时 DCC 会话、路由健康、审计调用、traces、日志、skill 路径和延迟趋势。下面的示例使用代表性演示数据，展示繁忙多 DCC 工作站上的主要面板。
+
+![Gateway admin Connect IDE panel](docs/assets/admin-ui/admin-connect-ide.png)
 
 ![Gateway admin health panel](docs/assets/admin-ui/admin-health.png)
 
@@ -555,7 +557,7 @@ tools/list 响应（Maya 会话、尚未加载任何 skill）：
 | `dcc-mcp-job` | 异步 Job 追踪 | `JobManager`、持久化 trait |
 | `dcc-mcp-skill-rest` | per-DCC REST skill API | `SkillRestService`、`SkillRestConfig`、`/v1/*` router |
 | `dcc-mcp-gateway-core` | 纯 gateway 领域层 | `CapabilityRecord`、`SearchQuery`、`SearchHit`、ranking scorers、slug helpers |
-| `dcc-mcp-gateway` | 多 DCC 网关应用/基础设施 | registry probe、动态 `search_tools` / `describe_tool` / `call_tool`、REST facade |
+| `dcc-mcp-gateway` | 多 DCC 网关应用/基础设施 | registry probe、MCP `search` / `describe`、REST `/v1/*` facade |
 | `dcc-mcp-http-types` | 纯 HTTP 线协议/配置/值类型 | `HttpError`、`JobConfig`、`InstanceConfig`、`PromptSpec`、`ProducerContent`、`SessionLogMessage` |
 | `dcc-mcp-http-server` | 可复用 HTTP 运行时支撑层 | core tool builders、executor、sessions、in-flight requests、notifications、workspace roots |
 | `dcc-mcp-catalog` | 公开适配器目录 | catalog search / describe CLI 与 MCP tools |
