@@ -434,12 +434,19 @@ Rules:
 }
 ```
 
-- `query` (required) — free-text. `mode: "fuzzy"` (default) uses a nucleo-matcher-backed scorer with typo / prefix tolerance; `mode: "exact"` falls back to the pre-#659 substring table.
+- `query` (required) — free-text. On the gateway, `mode: "fuzzy"`
+  (default) uses a hybrid ranker: weighted lexical matches over tool names,
+  skills, tags, summaries, and schema-field tokens first, then
+  nucleo-matcher fuzzy fallback for typos and partial names. `mode: "exact"`
+  falls back to the pre-#659 substring table.
 - `dcc_type`, `tags`, `loaded_only` — progressive filters. `loaded_only = false` surfaces unloaded skills as search hits so agents can discover `load_skill` candidates.
 - `limit` — the server enforces a ~512 B/hit token budget so search stays cheap for large catalogues.
 - Gateway policy filters run before the final hit list is returned. A missing
   hit may mean the capability is absent, unloaded, or intentionally hidden by
   DCC, skill, or tool allowlists.
+- Gateway hits include `score` plus bounded `match_reasons` such as
+  `tool_lexical`, `summary_fuzzy`, `schema_fuzzy`, or `multi_token_lexical`
+  so agents and maintainers can understand the rank without fetching schemas.
 
 Response shape (gateway + per-DCC are identical):
 
@@ -531,8 +538,8 @@ headers:
 
 The compact search shape preserves the workflow fields agents need next:
 `tool_slug`, `backend_tool`, `dcc_type`, `instance_id`, `loaded`,
-`load_state`, `available_groups`, `has_schema`, `score`, and `next_step` for
-unloaded skills. It omits redundant defaults such as `callable_id` when it
+`load_state`, `available_groups`, `has_schema`, `score`, `match_reasons`, and
+`next_step` for unloaded skills. It omits redundant defaults such as `callable_id` when it
 matches `backend_tool`, empty arrays, and empty objects. RTK's compaction model
 is treated as design guidance here; the
 gateway uses the deterministic in-process `toon-format` library so

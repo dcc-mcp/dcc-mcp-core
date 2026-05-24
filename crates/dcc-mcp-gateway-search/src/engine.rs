@@ -84,7 +84,7 @@ pub fn search_page<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) 
     };
 
     for hit in &mut hits {
-        hit.score = apply_skill_hint_boost(&hit.record, query.skill_hint.as_deref(), hit.score);
+        apply_skill_hint_boost(hit, query.skill_hint.as_deref());
     }
 
     if let Some(min) = query.min_score
@@ -117,20 +117,27 @@ pub fn search_page<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) 
     }
 }
 
-fn apply_skill_hint_boost<R: SearchRecord>(r: &R, hint: Option<&str>, score: u32) -> u32 {
+fn apply_skill_hint_boost<R: SearchRecord>(hit: &mut SearchHit<R>, hint: Option<&str>) {
     let Some(h) = hint.map(str::trim).filter(|s| !s.is_empty()) else {
-        return score;
+        return;
     };
     let h = h.to_ascii_lowercase();
     if h.len() < 2 {
-        return score;
+        return;
     }
-    if r.skill_name()
+    if hit
+        .record
+        .skill_name()
         .is_some_and(|s| s.to_ascii_lowercase().contains(h.as_str()))
     {
-        score.saturating_add(8)
-    } else {
-        score
+        hit.score = hit.score.saturating_add(8);
+        if !hit
+            .match_reasons
+            .iter()
+            .any(|reason| reason == "skill_hint")
+        {
+            hit.match_reasons.push("skill_hint".to_string());
+        }
     }
 }
 
@@ -144,18 +151,19 @@ fn rank_multi<R: SearchRecord + Clone, S: Scorer>(
     candidates
         .iter()
         .map(|r| {
-            let score = if has_clauses {
+            let breakdown = if has_clauses {
                 clauses
                     .iter()
-                    .map(|c| scorer.score(*r as &dyn SearchRecord, c, scene))
-                    .max()
-                    .unwrap_or(0)
+                    .map(|c| scorer.explain(*r as &dyn SearchRecord, c, scene))
+                    .max_by(|a, b| a.score.cmp(&b.score))
+                    .unwrap_or_default()
             } else {
-                0
+                Default::default()
             };
             SearchHit {
                 record: (*r).clone(),
-                score,
+                score: breakdown.score,
+                match_reasons: breakdown.match_reasons,
             }
         })
         .filter(|hit| !has_clauses || hit.score > 0)
@@ -379,6 +387,44 @@ mod tests {
         assert_eq!(
             hits[0].record.backend_tool(),
             "maya_scene__export_selection"
+        );
+        assert!(hits[0].match_reasons.contains(&"skill_hint".to_string()));
+    }
+
+    #[test]
+    fn fuzzy_hits_carry_match_reasons() {
+        let records = vec![
+            mk(
+                "m.1.sphere",
+                "maya_primitives__create_sphere",
+                "Create a polygon sphere.",
+                &["modeling"],
+                true,
+            ),
+            mk(
+                "m.1.fbx",
+                "maya_geometry__export_fbx",
+                "Export the current Maya scene to FBX.",
+                &["interchange"],
+                true,
+            ),
+        ];
+
+        let hits = search(
+            &records,
+            &SearchQuery {
+                query: "create sphere".into(),
+                ..Default::default()
+            },
+        );
+        assert!(!hits.is_empty());
+        assert!(
+            hits[0]
+                .match_reasons
+                .iter()
+                .any(|reason| reason == "tool_lexical" || reason == "summary_lexical"),
+            "expected bounded explanation reasons on top hit: {:?}",
+            hits[0].match_reasons
         );
     }
 
