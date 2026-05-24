@@ -43,7 +43,7 @@
 //! | POST   | `/v1/dcc/{dcc_type}/call` | Invoke by `backend_tool` + DCC guard (no dotted slug) |
 //! | GET    | `/v1/context`             | Current DCC scene/document summary  |
 //! | GET    | `/v1/healthz`             | Liveness                            |
-//! | GET    | `/v1/readyz`              | Three-state readiness               |
+//! | GET    | `/v1/readyz`              | Runtime readiness bits              |
 //! | GET    | `/v1/openapi.json`        | Machine-readable API contract       |
 //!
 //! # Enterprise standards (#660)
@@ -57,8 +57,9 @@
 //!   [`BearerTokenGate`].
 //! - **Audit sink** — every call produces a structured [`AuditEvent`]
 //!   with `request_id`, `slug`, `outcome`, latency.
-//! - **Readiness three-state** — distinguishes process alive vs DCC
-//!   ready vs dispatcher ready.
+//! - **Readiness bits** — distinguishes process, DCC, skill catalog,
+//!   dispatcher, host execution bridge, and main-thread executor
+//!   readiness.
 //! - **Low token overhead** — `/v1/search` returns compact hits
 //!   (≤ `SEARCH_HIT_BUDGET_BYTES` per hit); describe is opt-in for the
 //!   full schema via `{"include_schema": true}`.

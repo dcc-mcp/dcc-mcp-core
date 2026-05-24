@@ -348,13 +348,15 @@ impl McpHttpServer {
         self
     }
 
-    /// Install a shared three-state [`ReadinessProbe`] (issue #714).
+    /// Install a shared [`ReadinessProbe`] (issue #714).
     ///
     /// The same probe is wired into **both** the MCP `tools/call`
     /// handler and the REST `POST /v1/call` handler, so a single
     /// `probe.set_dispatcher_ready(true); probe.set_dcc_ready(true)`
-    /// from the hosting DCC adapter (e.g. `dcc-mcp-maya`) flips
-    /// readiness for every surface at once.
+    /// from the hosting DCC adapter (e.g. `dcc-mcp-maya`) flips base
+    /// routing readiness for every surface at once. Adapters that run
+    /// main-thread tools should also flip the host execution bridge and
+    /// main-thread executor bits when those paths are usable.
     ///
     /// When not installed, the server defaults to
     /// [`AppState::default_readiness`] (fully-ready) so existing

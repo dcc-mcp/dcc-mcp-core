@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SearchRequest {
@@ -7,6 +8,8 @@ pub struct SearchRequest {
     pub query: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dcc_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<usize>,
 }
@@ -27,6 +30,35 @@ pub struct CallRequest {
     pub arguments: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meta: Option<Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DirectCallRequest {
+    pub dcc_type: String,
+    pub instance_id: String,
+    pub backend_tool: String,
+    pub arguments: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meta: Option<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WaitReadyRequest {
+    pub dcc_type: Option<String>,
+    pub instance_id: Option<String>,
+    pub required: Vec<String>,
+    pub timeout: Duration,
+    pub interval: Duration,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StopInstanceRequest {
+    pub dcc_type: String,
+    pub instance_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_owner: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_session: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -85,6 +117,7 @@ mod tests {
         let body = serde_json::to_value(SearchRequest {
             query: Some("sphere".into()),
             dcc_type: None,
+            instance_id: None,
             limit: Some(10),
         })
         .unwrap();

@@ -9,9 +9,9 @@ use super::handlers::{
     handle_gateway_get, handle_gateway_mcp, handle_gateway_yield, handle_health, handle_instances,
     handle_proxy_dcc, handle_proxy_instance, handle_v1_call, handle_v1_call_batch,
     handle_v1_context, handle_v1_dcc_instance_call, handle_v1_dcc_instance_describe,
-    handle_v1_describe, handle_v1_describe_path, handle_v1_docs, handle_v1_healthz,
-    handle_v1_list_skills, handle_v1_load_skill, handle_v1_openapi, handle_v1_readyz,
-    handle_v1_search, handle_v1_skills, handle_v1_unload_skill,
+    handle_v1_dcc_instance_stop, handle_v1_describe, handle_v1_describe_path, handle_v1_docs,
+    handle_v1_healthz, handle_v1_list_skills, handle_v1_load_skill, handle_v1_openapi,
+    handle_v1_readyz, handle_v1_search, handle_v1_skills, handle_v1_unload_skill,
 };
 use super::http_limits::rate_limit_middleware;
 use super::resilience::gateway_limits;
@@ -39,6 +39,8 @@ use super::state::GatewayState;
 ///   body carries `backend_tool` (+ optional `arguments` / `meta`) instead of a dotted `tool_slug`
 /// - `GET /v1/dcc/{dcc_type}/instances/{instance_id}/describe?backend_tool=...` — same payload as
 ///   `GET /v1/tools/{slug}` after composing the dotted `tool_slug` (aliases `tool`, `action` query keys)
+/// - `POST /v1/dcc/{dcc_type}/instances/{instance_id}/stop` — guarded safe-stop callback for
+///   test-owned instances that advertise `safe_stop_url` metadata
 /// - `POST /v1/call_batch` — ordered multi-invocation (same contract as MCP `call_tools`)
 ///
 /// Admin UI (#772, `admin` feature):
@@ -136,6 +138,10 @@ fn build_base_router(state: GatewayState) -> Router {
         .route(
             "/v1/dcc/{dcc_type}/instances/{instance_id}/describe",
             routing::get(handle_v1_dcc_instance_describe),
+        )
+        .route(
+            "/v1/dcc/{dcc_type}/instances/{instance_id}/stop",
+            routing::post(handle_v1_dcc_instance_stop),
         )
         .route("/v1/call", routing::post(handle_v1_call))
         .route("/v1/call_batch", routing::post(handle_v1_call_batch))

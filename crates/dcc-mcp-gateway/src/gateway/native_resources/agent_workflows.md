@@ -52,9 +52,9 @@ For Maya behind the gateway, prefer **`search_skills`** → **`load_skill`** →
 | `gateway://instances` | Live DCC rows: `dcc_type`, `mcp_url`, health — use when routing or when the user names a product (Maya, Photoshop, Blender, …): map the name to **`dcc_type`** / a concrete instance, not to extra `tools/list` entries. |
 | `gateway://instances/{id}` | One row (full UUID or unique prefix). |
 | `gateway://diagnostics/*` | Gateway/backend health signals for operators and agents. |
-| `gateway://instances` rows | Each instance may include a `diagnostics` object (`readiness` bits from `/v1/readyz`, `last_error` from the most recent failed gateway-proxied call). |
+| `gateway://instances` rows | Each instance may include a `diagnostics` object (`readiness` bits from `/v1/readyz`, `last_error` from the most recent failed gateway-proxied call). Readiness includes `process`, `dcc`, `skill_catalog`, `dispatcher`, `host_execution_bridge`, and `main_thread_executor`. |
 
-When a gateway-proxied `call_tool` / `POST /v1/call` fails with `thread-affinity-violation`, read `error.backend` for the selected instance id, direct `mcp_url` vs `gateway_mcp_url`, readiness (`process` / `dispatcher` / `dcc`), and the backend's structured `context` before retrying.
+When a gateway-proxied `call_tool` / `POST /v1/call` fails with `thread-affinity-violation`, read `error.backend` for the selected instance id, direct `mcp_url` vs `gateway_mcp_url`, readiness (`process` / `dcc` / `skill_catalog` / `dispatcher` / `host_execution_bridge` / `main_thread_executor`), and the backend's structured `context` before retrying.
 | `gateway://catalog` | Public package index (optional discovery). |
 | `gateway://docs/agent-workflows` | **This** guide — re-fetch when instructions drift in a long session. |
 

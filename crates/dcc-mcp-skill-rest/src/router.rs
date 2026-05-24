@@ -481,10 +481,7 @@ async fn handle_call(
     if !report.is_ready() {
         let err = ServiceError::new(ServiceErrorKind::NotReady, "DCC backend is not ready yet")
             .with_request_id(&rid)
-            .with_hint(format!(
-                "readiness: process={}, dispatcher={}, dcc={}",
-                report.process, report.dispatcher, report.dcc
-            ));
+            .with_hint(report.status_hint());
         emit_audit(
             &cfg,
             &rid,
@@ -572,10 +569,7 @@ async fn handle_dcc_backend_call(
     if !report.is_ready() {
         let err = ServiceError::new(ServiceErrorKind::NotReady, "DCC backend is not ready yet")
             .with_request_id(&rid)
-            .with_hint(format!(
-                "readiness: process={}, dispatcher={}, dcc={}",
-                report.process, report.dispatcher, report.dcc
-            ));
+            .with_hint(report.status_hint());
         emit_audit(
             &cfg,
             &rid,
@@ -934,9 +928,9 @@ pub fn op_healthz() {}
     path = "/v1/readyz",
     tag = "health",
     responses(
-        (status = 200, description = "all three readiness bits are green",
+        (status = 200, description = "base readiness bits are green",
          body = super::readiness::ReadinessReport),
-        (status = 503, description = "one or more readiness bits are red",
+        (status = 503, description = "one or more base readiness bits are red",
          body = super::readiness::ReadinessReport),
     )
 )]

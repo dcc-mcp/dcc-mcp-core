@@ -322,9 +322,27 @@ pub async fn call_service(
 }
 
 /// Helper — materialise a `SearchQuery` from the REST / MCP JSON
-/// payload shape (`{query, dcc_type, tags, scene_hint, limit}`).
+/// payload shape (`{query, dcc_type, instance_id, tags, scene_hint,
+/// limit}`).
 pub fn parse_search_payload(payload: &Value) -> SearchQuery {
-    serde_json::from_value(payload.clone()).unwrap_or_default()
+    let raw_instance_id = payload
+        .get("instance_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    let mut sanitized = payload.clone();
+    if let Some(obj) = sanitized.as_object_mut() {
+        obj.remove("instance_id");
+    }
+    let mut query: SearchQuery = serde_json::from_value(sanitized).unwrap_or_default();
+    if let Some(raw) = raw_instance_id
+        && let Ok(uuid) = Uuid::parse_str(&raw)
+    {
+        query.instance_id = Some(uuid);
+    }
+    query
 }
 
 /// Refresh the capability index for every currently-live backend.
@@ -680,8 +698,11 @@ mod unit_tests {
         let diag = crate::gateway::instance_diagnostics::InstanceDiagnostics {
             readiness: Some(dcc_mcp_skill_rest::ReadinessReport {
                 process: true,
-                dispatcher: false,
                 dcc: true,
+                skill_catalog: true,
+                dispatcher: false,
+                host_execution_bridge: false,
+                main_thread_executor: false,
             }),
             ..Default::default()
         };
@@ -761,5 +782,30 @@ mod unit_tests {
         assert!(q.tags.is_empty());
         assert!(q.scene_hint.is_none());
         assert!(q.limit.is_none());
+    }
+
+    #[test]
+    fn parse_search_payload_preserves_filters_when_instance_prefix_needs_resolution() {
+        let q = parse_search_payload(&json!({
+            "query": "sphere",
+            "dcc_type": "maya",
+            "instance_id": "abc12345",
+            "limit": 5,
+        }));
+
+        assert_eq!(q.query, "sphere");
+        assert_eq!(q.dcc_type.as_deref(), Some("maya"));
+        assert_eq!(q.limit, Some(5));
+        assert!(q.instance_id.is_none());
+    }
+
+    #[test]
+    fn parse_search_payload_accepts_full_instance_uuid() {
+        let iid = Uuid::parse_str("abcdef01-2345-6789-abcd-ef0123456789").unwrap();
+        let q = parse_search_payload(&json!({
+            "instance_id": iid.to_string(),
+        }));
+
+        assert_eq!(q.instance_id, Some(iid));
     }
 }

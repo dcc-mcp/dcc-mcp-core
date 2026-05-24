@@ -126,15 +126,50 @@ pub async fn handle_v1_healthz() -> impl IntoResponse {
 /// `GET /v1/readyz` — gateway readiness probe.
 pub async fn handle_v1_readyz(State(gs): State<GatewayState>) -> impl IntoResponse {
     let registry = gs.registry.read().await;
-    let live_instances = gs.live_instances(&registry).len();
+    let instances: Vec<Value> = gs
+        .live_instances(&registry)
+        .into_iter()
+        .map(|entry| {
+            let row = gs.instance_json(&entry);
+            let instance_short = entry.instance_id.simple().to_string()[..8].to_string();
+            json!({
+                "instance_id": row["instance_id"].clone(),
+                "instance_short": instance_short,
+                "display_id": row["display_id"].clone(),
+                "dcc_type": row["dcc_type"].clone(),
+                "status": row["status"].clone(),
+                "mcp_url": row["mcp_url"].clone(),
+                "readiness": row
+                    .get("diagnostics")
+                    .and_then(|diag| diag.get("readiness"))
+                    .cloned()
+                    .unwrap_or(Value::Null),
+                "lifecycle": row["lifecycle"].clone(),
+            })
+        })
+        .collect();
+    let ready_instance_count = instances
+        .iter()
+        .filter(|instance| readiness_value_is_ready(&instance["readiness"]))
+        .count();
     (
         StatusCode::OK,
         Json(json!({
             "ok": true,
             "checks": [{"name": "gateway", "ok": true}],
-            "live_instance_count": live_instances,
+            "live_instance_count": instances.len(),
+            "ready_instance_count": ready_instance_count,
+            "not_ready_instance_count": instances.len().saturating_sub(ready_instance_count),
+            "instances": instances,
         })),
     )
+}
+
+fn readiness_value_is_ready(readiness: &Value) -> bool {
+    readiness.get("process").and_then(Value::as_bool) == Some(true)
+        && readiness.get("dcc").and_then(Value::as_bool) == Some(true)
+        && readiness.get("skill_catalog").and_then(Value::as_bool) == Some(true)
+        && readiness.get("dispatcher").and_then(Value::as_bool) == Some(true)
 }
 
 /// `GET /v1/openapi.json` — gateway REST contract.
@@ -254,19 +289,34 @@ pub async fn handle_v1_list_skills(
 /// Request body (every field optional):
 ///
 /// ```json
-/// {"query": "sphere", "dcc_type": "maya", "tags": ["geo"],
+/// {"query": "sphere", "dcc_type": "maya", "instance_id": "abc12345", "tags": ["geo"],
 ///  "scene_hint": "rig", "limit": 20}
 /// ```
 ///
 /// Response body: `{"total": n, "hits": [SearchHit, ...]}`.
-pub async fn handle_v1_search(
-    State(gs): State<GatewayState>,
-    Json(body): Json<Value>,
-) -> impl IntoResponse {
+pub async fn handle_v1_search(State(gs): State<GatewayState>, Json(body): Json<Value>) -> Response {
     // Refresh-on-demand so the first call after startup or a skill
     // load sees fresh capabilities without waiting for a watcher tick.
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
-    let query = parse_search_payload(&body);
+    let mut query = parse_search_payload(&body);
+    if query.instance_id.is_none()
+        && let Some(raw_instance_id) = body
+            .get("instance_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    {
+        let registry = gs.registry.read().await;
+        match gs.resolve_instance(&registry, Some(raw_instance_id), query.dcc_type.as_deref()) {
+            Ok(entry) => {
+                query.instance_id = Some(entry.instance_id);
+            }
+            Err(err) => {
+                drop(registry);
+                return resolve_instance_http_response(err).into_response();
+            }
+        }
+    }
     let hits = search_service_rows(&gs.capability_index, &query);
     (
         StatusCode::OK,
@@ -275,6 +325,7 @@ pub async fn handle_v1_search(
             "hits": hits,
         })),
     )
+        .into_response()
 }
 
 /// `POST /v1/load_skill` — load a skill on a target backend instance
@@ -548,7 +599,7 @@ pub async fn handle_v1_dcc_instance_call(
     }
 }
 
-fn resolve_instance_http_response(err: ResolveInstanceError) -> impl IntoResponse {
+pub(crate) fn resolve_instance_http_response(err: ResolveInstanceError) -> impl IntoResponse {
     let refresh_hint = " After a DCC crash or reconnect the instance UUID usually changes — call \
         GET /v1/instances (or resources/read gateway://instances), then search_tools / POST /v1/search \
         again; do not reuse old tool_slug strings.";
@@ -927,6 +978,7 @@ mod tests {
     use super::*;
     use axum::body::to_bytes;
     use dcc_mcp_transport::discovery::file_registry::FileRegistry;
+    use dcc_mcp_transport::discovery::types::ServiceEntry;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -1016,6 +1068,40 @@ mod tests {
         let status = resp.status();
         let bytes = to_bytes(resp.into_body(), 4 * 1024 * 1024).await.unwrap();
         (status, String::from_utf8_lossy(&bytes).to_string())
+    }
+
+    #[tokio::test]
+    async fn gateway_readyz_summarises_instance_readiness_bits() {
+        let gs = test_gateway_state("1.2.3");
+        let mut entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        entry.instance_id = uuid::Uuid::parse_str("abcdef01-2345-6789-abcd-ef0123456789").unwrap();
+        {
+            let registry = gs.registry.read().await;
+            registry.register(entry.clone()).unwrap();
+        }
+        gs.instance_diagnostics.record_readiness(
+            entry.instance_id,
+            dcc_mcp_skill_rest::ReadinessReport {
+                process: true,
+                dcc: true,
+                skill_catalog: true,
+                dispatcher: true,
+                host_execution_bridge: false,
+                main_thread_executor: false,
+            },
+        );
+
+        let (status, body) = response_json(handle_v1_readyz(State(gs)).await.into_response()).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["live_instance_count"], 1);
+        assert_eq!(body["ready_instance_count"], 1);
+        assert_eq!(body["instances"][0]["instance_short"], "abcdef01");
+        assert_eq!(body["instances"][0]["readiness"]["skill_catalog"], true);
+        assert_eq!(
+            body["instances"][0]["readiness"]["host_execution_bridge"],
+            false
+        );
     }
 
     #[tokio::test]

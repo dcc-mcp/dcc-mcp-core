@@ -314,6 +314,40 @@ mod tests {
     }
 
     #[test]
+    fn instance_id_filter_limits_rows_before_scoring() {
+        let target = Uuid::from_u128(2);
+        let mut other = mk(
+            "m.1.sphere",
+            "maya_primitives__create_sphere",
+            "Create a sphere in another instance.",
+            &[],
+            true,
+        );
+        other.instance_id = Uuid::from_u128(1);
+        let mut selected = mk(
+            "m.2.session",
+            "maya_scene__get_session_info",
+            "Read scene session info.",
+            &[],
+            true,
+        );
+        selected.instance_id = target;
+
+        let hits = search(
+            &[other, selected],
+            &SearchQuery {
+                query: "scene".into(),
+                instance_id: Some(target),
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].record.instance_id, target);
+        assert_eq!(hits[0].record.backend_tool, "maya_scene__get_session_info");
+    }
+
+    #[test]
     fn skill_hint_boost_prefers_matching_skill() {
         let records = vec![
             mk(

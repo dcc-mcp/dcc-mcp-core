@@ -4,9 +4,9 @@ use dcc_mcp_skill_rest::ReadinessReport;
 
 use super::urls::{health_url_from_mcp_url, healthz_url_from_mcp_url, readyz_url_from_mcp_url};
 
-/// Outcome of the gateway's three-state readiness probe (#713).
+/// Outcome of the gateway's readiness probe (#713).
 ///
-/// * [`Ready`] — `/v1/readyz` answered `200` with all three bits
+/// * [`Ready`] — `/v1/readyz` answered `200` with base routing bits
 ///   green, or a pre-#660 backend answered `/health` or `/healthz`.
 ///   Safe to forward `tools/call`.
 /// * [`Booting`] — `/v1/readyz` answered (typically `503`) with at
@@ -45,7 +45,7 @@ impl ProbeOutcome {
     }
 }
 
-/// Three-state probe of a backend's `/v1/readyz` surface (#713 / #660).
+/// Probe a backend's `/v1/readyz` readiness surface (#713 / #660).
 ///
 /// Returns a [`ReadinessReport`] when the backend answered `/v1/readyz`
 /// with a parseable JSON body (on either `200` or `503`), and `None`
@@ -65,8 +65,8 @@ pub(crate) async fn probe_readiness(
         .await
         .ok()?;
 
-    // `/v1/readyz` returns 200 when all three bits are green and 503 when
-    // any bit is red — in **both** cases the body is a full
+    // `/v1/readyz` returns 200 when base routing bits are green and 503
+    // when any base bit is red — in **both** cases the body is a full
     // `ReadinessReport` (see `dcc-mcp-skill-rest/src/router.rs::handle_readyz`).
     // Any other status (404, 500 without body, …) means "no readiness
     // surface", not "backend is red".
@@ -123,7 +123,7 @@ async fn legacy_health_ok(client: &reqwest::Client, url: &str, timeout: Duration
 }
 
 /// Classify a backend as [`Ready`] / [`Booting`] / [`Unreachable`] using
-/// the three-state probe introduced in #713.
+/// the readiness probe introduced in #713.
 ///
 /// Order of checks:
 /// 1. `GET /v1/readyz` — if the backend answered (200 *or* 503 with a

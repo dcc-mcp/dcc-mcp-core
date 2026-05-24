@@ -74,10 +74,11 @@ pub mod error_codes {
     /// `tools/call` that would otherwise be queued on the
     /// `DeferredExecutor` / `QueueDispatcher` is refused synchronously.
     ///
-    /// The error `data` payload carries the three-state
+    /// The error `data` payload carries the runtime readiness
     /// [`ReadinessReport`](../../dcc_mcp_skill_rest/readiness/struct.ReadinessReport.html)
-    /// (`process`, `dispatcher`, `dcc`) plus the requested `tool` name so
-    /// clients can surface context in their back-off messaging.
+    /// (`process`, `dcc`, `skill_catalog`, `dispatcher`,
+    /// `host_execution_bridge`, `main_thread_executor`) plus the requested
+    /// `tool` name so clients can surface context in their back-off messaging.
     pub const BACKEND_NOT_READY: i64 = -32002;
 
     /// Issue #1009 — gateway `initialize` did not complete within the server-side
