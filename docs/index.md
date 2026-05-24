@@ -22,7 +22,7 @@ hero:
 features:
   - icon: 🎯
     title: Dynamic Capability Routing
-    details: Agents search, describe, and call tools through one gateway instead of carrying every backend tool in context.
+    details: Agents search, describe, load skills, and call tools through one gateway instead of carrying every backend tool in context.
   - icon: 🔌
     title: Zero-Code Skill Registration
     details: Write SKILL.md + scripts/ → instant MCP tools. No Python glue code needed. Supports Python, MEL, MaxScript, Bash, PowerShell, and more.

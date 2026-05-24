@@ -4,8 +4,8 @@ Gateway（`McpHttpConfig::gateway_port > 0`）是一个 first-wins HTTP
 门面，将所有在线的 DCC 实例呈现在一个 MCP 端点下。
 单个客户端可以通过同一个 `/mcp` URL 与 Maya、Blender 和 Houdini
 通信；Gateway 通过 `FileRegistry` 发现在线后端，将自身 MCP
-`tools/list` 固定为只读发现原语，按需索引后端能力，用 MCP
-`search` / `describe` 做发现，并把 REST `/v1/*` 调用路由到正确的后端，
+`tools/list` 固定为四个规范工作流原语，按需索引后端能力，用 MCP
+`search` / `describe` / `load_skill` / `call` 完成发现、加载与执行，并把 REST `/v1/*` 调用路由到正确的后端，
 同时将服务器推送的通知多路复用回原始客户端会话。
 
 可以在每个候选进程上设置 `gateway_name`、`--gateway-name` 或
@@ -133,22 +133,23 @@ Gateway 启动后新注册的实例不需要重启即可被发现。
 
 | 表面 | `tools/list` 中出现什么 | Agent 工作流 |
 |------|--------------------------|--------------|
-| Gateway MCP | 固定的只读发现原语：`search`、`describe`。实例注册表通过 `gateway://instances` MCP resource 暴露（用 `resources/read` 读取），而不是工具 — 见 #813 phase 1 | `resources/read uri=gateway://instances`（或跳过它，直接 `search` → `describe`），然后通过 REST `/v1/call` / `/v1/call_batch` 执行 |
+| Gateway MCP | 固定工作流原语：`search`、`describe`、`load_skill`、`call`。实例注册表通过 `gateway://instances` MCP resource 暴露（用 `resources/read` 读取），而不是工具 — 见 #813 phase 1 | `resources/read uri=gateway://instances`（或跳过它，直接 `search` → `describe`），必要时按 `next_step.arguments` 调 `load_skill`，然后用 `call` 执行单个 `tool_slug` 或有序 `calls` 批处理 |
 
 | Gateway REST | `/v1/search`、`/v1/load_skill`、`/v1/unload_skill`、`/v1/describe`、`/v1/call`、`/v1/call_batch`、`/v1/instances` | `POST /v1/search` → 必要时用 `next_step.arguments` 调 `/v1/load_skill` → `/v1/describe` → `/v1/call` |
 | 直连 per-DCC MCP | 单个 DCC 服务的 skills 与已加载工具 | `search_skills` → `load_skill` → 调用工具 |
 
 Gateway capability index 使用 `<dcc>.<id8>.<tool>` 作为紧凑记录键，并按需刷新。
 因此启动后或 `load_skill` 后的第一次 agent 查询就能看到最新能力，不需要等待轮询。
-固定 MCP 发现工具是 cursor-safe 且稳定的；隐藏兼容 wrapper 仍可被已固定的旧客户端调用，但不再广告：
+固定 MCP 工作流工具是 cursor-safe 且稳定的；隐藏兼容 wrapper 仍可被已固定的旧客户端调用，但不再广告：
 
 | 工具 | 用途 |
 |------|------|
 | `search` | 按 query、DCC 类型、tag、实例、scene hint、分页参数搜索紧凑能力记录；`kind=skill` 搜索 skills |
 | `describe` | 获取选中 `tool_slug` 的完整 schema、annotations 与路由记录，或按 `skill_name` 获取 skill 详情 |
-| `call` / `call_tool` / `call_tools` | 仅隐藏兼容。执行请优先使用 REST `POST /v1/call` / `/v1/call_batch` |
+| `load_skill` | 在目标后端加载已发现的 skill，或激活/停用一个渐进式工具组 |
+| `call` | 调用单个 `tool_slug`，或执行有序 `{calls:[...]}` 批处理；批处理沿用 `/v1/call_batch` 的最大 25 条 guardrail |
 
-Agent 连接到 Gateway 时使用这条发现 + REST 动态能力流程；直接连接某个 DCC 服务时使用
+Agent 连接到 Gateway 时使用这条四工具动态能力流程；直接连接某个 DCC 服务时使用
 per-DCC Skills-First 流程（`search_skills` → `load_skill` → 调用工具）。
 
 ## 代码指针

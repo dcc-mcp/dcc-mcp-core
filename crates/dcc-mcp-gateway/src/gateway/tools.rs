@@ -351,7 +351,7 @@ pub async fn tool_describe_tool(gs: &GatewayState, args: &Value) -> Result<Strin
                 "input_schema": input_schema,
                 "required": required,
                 "properties": properties,
-                "hint": "Copy parameter names from `properties` / `required` into call_tool.arguments (e.g. export_fbx uses `path`, not `destination`).",
+                "hint": "Copy parameter names from `properties` / `required` into call.arguments (e.g. export_fbx uses `path`, not `destination`).",
             }))
             .map_err(|e| e.to_string())
         }
@@ -593,12 +593,12 @@ pub async fn tool_call_tools(
 
 // ── private helpers ────────────────────────────────────────────────────────
 
-/// Return the advertised gateway MCP surface.
+/// Return the advertised gateway MCP workflow surface.
 ///
-/// The gateway intentionally advertises only read-only discovery tools. Tool
-/// execution, skill lifecycle, batching, and instance leases stay available
-/// through `/v1/*` REST endpoints (and hidden MCP compatibility routes), but
-/// they do not consume model context in `tools/list`.
+/// The gateway intentionally advertises only four canonical workflow tools.
+/// Backend per-action tools are discovered by `search` / `describe` and
+/// invoked by `call`; older wrapper names remain callable as hidden
+/// compatibility routes but do not consume model context in `tools/list`.
 pub fn gateway_tool_defs() -> serde_json::Value {
     json!([
         {
@@ -634,6 +634,71 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                 }
             },
             "annotations": {"readOnlyHint": true, "openWorldHint": true}
+        },
+        {
+            "name": "load_skill",
+            "description": "Load a discovered skill on a target DCC instance, or activate/deactivate a \
+                progressive tool group. Use `skill_name` from search results and pass `instance_id` or \
+                `dcc`/`dcc_type` when more than one backend is live.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "skill_name": {"type": "string"},
+                    "skill_names": {"type": "array", "items": {"type": "string"}},
+                    "activate_groups": {"type": "boolean", "default": true},
+                    "tool_group": {"type": "string", "description": "Progressive group to activate after loading."},
+                    "group_name": {"type": "string", "description": "Alias of tool_group."},
+                    "group_action": {"type": "string", "enum": ["activate", "deactivate"], "default": "activate"},
+                    "instance_id": {"type": "string", "description": "Target instance UUID or unique prefix."},
+                    "dcc": {"type": "string", "description": "DCC type filter such as maya, blender, or a custom host."},
+                    "dcc_type": {"type": "string", "description": "Alias of dcc."}
+                },
+                "required": ["skill_name"]
+            },
+            "annotations": {
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": false,
+                "openWorldHint": true
+            }
+        },
+        {
+            "name": "call",
+            "description": "Invoke one backend capability by `tool_slug`, or run an ordered batch with \
+                `calls` (maximum 25). Always copy parameter names from `describe` into `arguments`; \
+                backend-specific fields never belong at this wrapper's top level.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "tool_slug": {"type": "string"},
+                    "arguments": {"type": "object", "additionalProperties": true, "default": {}},
+                    "meta": {"type": "object", "additionalProperties": true},
+                    "calls": {
+                        "type": "array",
+                        "maxItems": 25,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "tool_slug": {"type": "string"},
+                                "arguments": {"type": "object", "additionalProperties": true, "default": {}},
+                                "meta": {"type": "object", "additionalProperties": true}
+                            },
+                            "required": ["tool_slug"]
+                        }
+                    },
+                    "stop_on_error": {"type": "boolean", "default": false}
+                },
+                "anyOf": [
+                    {"required": ["tool_slug"]},
+                    {"required": ["calls"]}
+                ]
+            },
+            "annotations": {
+                "readOnlyHint": false,
+                "destructiveHint": true,
+                "idempotentHint": false,
+                "openWorldHint": true
+            }
         }
     ])
 }
@@ -664,7 +729,7 @@ mod tests {
     }
 
     #[test]
-    fn gateway_tool_defs_advertise_read_only_discovery_only() {
+    fn gateway_tool_defs_advertise_canonical_workflow_tools_only() {
         let defs = gateway_tool_defs();
         let names: Vec<&str> = defs
             .as_array()
@@ -673,13 +738,13 @@ mod tests {
             .filter_map(|tool| tool.get("name").and_then(Value::as_str))
             .collect();
 
-        assert_eq!(names, ["search", "describe"]);
+        assert_eq!(names, ["search", "describe", "load_skill", "call"]);
     }
 
     #[test]
     fn gateway_tool_defs_all_have_annotations() {
         let annotations = annotations_by_tool();
-        assert_eq!(annotations.len(), 2);
+        assert_eq!(annotations.len(), 4);
 
         for (name, value) in annotations {
             let hints = value
@@ -697,6 +762,28 @@ mod tests {
                 "{name} annotations must include at least one MCP ToolAnnotations hint"
             );
         }
+    }
+
+    #[test]
+    fn gateway_call_schema_accepts_single_and_batch_shapes() {
+        let defs = gateway_tool_defs();
+        let call = defs
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tool| tool["name"] == "call")
+            .expect("call tool advertised");
+
+        assert_eq!(
+            call["inputSchema"]["anyOf"][0]["required"],
+            json!(["tool_slug"])
+        );
+        assert_eq!(
+            call["inputSchema"]["anyOf"][1]["required"],
+            json!(["calls"])
+        );
+        assert_eq!(call["inputSchema"]["properties"]["calls"]["maxItems"], 25);
+        assert_eq!(call["annotations"]["destructiveHint"], true);
     }
 
     #[test]

@@ -204,9 +204,9 @@ The metrics server refreshes counts every 5 seconds:
 
 ### Scenario 1 — "One DCC server is missing from `tools/list`"
 
-Remember: the gateway `tools/list` only contains the read-only discovery
-primitives. Per-tool tools live behind MCP `search` / `describe` and REST
-`/v1/call`.
+Remember: the gateway `tools/list` only contains the four canonical workflow
+tools (`search`, `describe`, `load_skill`, `call`). Per-tool backend tools
+live behind MCP `search` / `describe` and REST `/v1/search` / `/v1/describe`.
 What's missing is probably the **instance**, not its tools.
 
 ```bash
@@ -252,12 +252,12 @@ backend-qualified `<skill>__<action>` / `i_<id8>__<escaped>` /
 `<id8>__<tool>` forms — now returns the redirect message:
 
 > Unknown gateway tool 'X'. The gateway MCP surface is intentionally
-> minimal — it only exposes read-only discovery primitives. Use `search`
-> to find backend capabilities and `describe` to get a schema, then invoke
-> one by slug through REST `POST /v1/call`.
+> minimal — it only exposes search, describe, load_skill, and call. Use
+> `search` to find backend capabilities and `describe` to get a schema,
+> then invoke one by slug through MCP `call` or REST `POST /v1/call`.
 
-Fix: update the caller to the new flow — MCP `search` → `describe`, then
-REST `POST /v1/call` with a `tool_slug`.
+Fix: update the caller to the new flow — MCP `search` → `describe` → `call`
+with a `tool_slug`.
 
 ### Scenario 4 — Gateway auto-deregistered my server but it's still running
 

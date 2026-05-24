@@ -170,9 +170,10 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
         .filter_map(|tool| tool["name"].as_str())
         .collect();
 
-    // The gateway MCP surface is discovery-only. Per-action backend tools
-    // are NOT published here — agents discover them through `search` /
-    // `describe`, then execute via the REST plane.
+    // The gateway MCP surface is the canonical four-tool workflow. Per-action
+    // backend tools are NOT published here — agents discover them through
+    // `search` / `describe`, activate with `load_skill`, then execute via
+    // `call` (or the equivalent REST plane).
     let prefix = format!("i_{}__", &instance_id.to_string().replace('-', "")[..8]);
     assert!(
         !names.iter().any(|name| name.starts_with(&prefix)),
@@ -182,8 +183,8 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
         !names.contains(&"create_sphere"),
         "bare backend tool name must not appear on the gateway surface: {names:?}"
     );
-    // Positive assertion: advertised gateway MCP surface is read-only.
-    for expected in ["search", "describe"] {
+    // Positive assertion: advertised gateway MCP surface is bounded and stable.
+    for expected in ["search", "describe", "load_skill", "call"] {
         assert!(
             names.contains(&expected),
             "missing core gateway tool {expected} in: {names:?}",
@@ -191,8 +192,8 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
     }
     assert_eq!(
         names.len(),
-        2,
-        "gateway tools/list must expose exactly the two discovery tools: {names:?}"
+        4,
+        "gateway tools/list must expose exactly the four workflow tools: {names:?}"
     );
 
     let _ = shutdown_tx.send(());
@@ -318,6 +319,159 @@ async fn make_gateway_state(
         traffic_capture: std::sync::Arc::new(crate::gateway::traffic::TrafficCapture::disabled()),
         debug_routes_enabled: false,
     }
+}
+
+async fn spawn_canonical_workflow_backend() -> (u16, tokio::sync::oneshot::Sender<()>) {
+    let app = axum::Router::new()
+        .route(
+            "/health",
+            axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
+        )
+        .route(
+            "/v1/search",
+            axum::routing::post(|| async {
+                axum::Json(json!({
+                    "total": 1,
+                    "hits": [{
+                        "action": "create_sphere",
+                        "skill": "maya-primitives",
+                        "summary": "Create a polygon sphere in the current scene.",
+                        "loaded": true,
+                        "has_schema": true,
+                        "annotations": {
+                            "readOnlyHint": false,
+                            "destructiveHint": false,
+                            "openWorldHint": true
+                        },
+                        "metadata": {
+                            "dcc": {
+                                "affinity": "main",
+                                "execution": "in-process"
+                            }
+                        }
+                    }]
+                }))
+            }),
+        )
+        .route(
+            "/v1/describe",
+            axum::routing::post(|axum::Json(body): axum::Json<Value>| async move {
+                let tool_slug = body
+                    .get("tool_slug")
+                    .and_then(Value::as_str)
+                    .unwrap_or("create_sphere");
+                axum::Json(json!({
+                    "entry": {
+                        "slug": tool_slug,
+                        "skill": "maya-primitives",
+                        "action": "create_sphere",
+                        "dcc": "maya",
+                        "loaded": true
+                    },
+                    "description": "Create a polygon sphere in the current scene.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "radius": {"type": "number", "minimum": 0.0}
+                        },
+                        "required": ["radius"]
+                    },
+                    "annotations": {
+                        "readOnlyHint": false,
+                        "destructiveHint": false,
+                        "openWorldHint": true
+                    },
+                    "metadata": {
+                        "dcc": {
+                            "affinity": "main",
+                            "execution": "in-process"
+                        }
+                    }
+                }))
+            }),
+        )
+        .route(
+            "/v1/call",
+            axum::routing::post(|axum::Json(body): axum::Json<Value>| async move {
+                axum::Json(json!({
+                    "content": [{
+                        "type": "text",
+                        "text": format!(
+                            "called {} with {}",
+                            body.get("tool_slug").and_then(Value::as_str).unwrap_or(""),
+                            body.get("arguments").cloned().unwrap_or_else(|| json!({}))
+                        )
+                    }],
+                    "isError": false
+                }))
+            }),
+        )
+        .route(
+            "/mcp",
+            axum::routing::post(|axum::Json(body): axum::Json<Value>| async move {
+                let id = body.get("id").cloned().unwrap_or(Value::Null);
+                let name = body
+                    .get("params")
+                    .and_then(|params| params.get("name"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let result = if name == "load_skill" {
+                    json!({
+                        "content": [{
+                            "type": "text",
+                            "text": serde_json::to_string_pretty(&json!({
+                                "loaded": true,
+                                "skill_name": "maya-primitives",
+                                "dcc_type": "maya",
+                                "activated_groups": ["core"],
+                            })).unwrap()
+                        }],
+                        "isError": false
+                    })
+                } else {
+                    json!({
+                        "content": [{
+                            "type": "text",
+                            "text": format!("unexpected backend MCP tool: {name}")
+                        }],
+                        "isError": true
+                    })
+                };
+                axum::Json(json!({"jsonrpc": "2.0", "id": id, "result": result}))
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async {
+                let _ = rx.await;
+            })
+            .await
+            .ok();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    (port, tx)
+}
+
+async fn post_mcp_json(client: &reqwest::Client, url: &str, body: Value) -> Value {
+    client
+        .post(url)
+        .json(&body)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap()
+}
+
+fn mcp_call_text_json(response: &Value) -> Value {
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .expect("tools/call response text");
+    serde_json::from_str(text).unwrap_or_else(|_| json!({"text": text}))
 }
 
 #[tokio::test]
@@ -523,6 +677,171 @@ async fn gateway_mcp_initialize_advertises_prompts_capability() {
 
     let _ = shutdown_tx.send(());
     server.await.unwrap();
+}
+
+#[tokio::test]
+async fn gateway_mcp_four_tool_workflow_covers_search_describe_load_and_call() {
+    let (backend_port, stop_backend) = spawn_canonical_workflow_backend().await;
+    let dir = tempfile::tempdir().unwrap();
+    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+        dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
+    ));
+    {
+        let r = registry.read().await;
+        let entry = dcc_mcp_transport::discovery::types::ServiceEntry::new(
+            "maya",
+            "127.0.0.1",
+            backend_port,
+        );
+        r.register(entry).unwrap();
+    }
+
+    let gs = make_gateway_state(registry).await;
+    let router = crate::gateway::build_gateway_router(gs);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let gateway_port = listener.local_addr().unwrap().port();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router)
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let client = reqwest::Client::new();
+    let url = format!("http://127.0.0.1:{gateway_port}/mcp");
+
+    let list = post_mcp_json(
+        &client,
+        &url,
+        json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+    )
+    .await;
+    let names: Vec<&str> = list["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect();
+    assert_eq!(names, ["search", "describe", "load_skill", "call"]);
+
+    let search = post_mcp_json(
+        &client,
+        &url,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "search",
+                "arguments": {"query": "sphere", "dcc_type": "maya", "limit": 5}
+            }
+        }),
+    )
+    .await;
+    assert_eq!(search["result"]["isError"], false);
+    let search_payload = mcp_call_text_json(&search);
+    let tool_slug = search_payload["hits"][0]["tool_slug"]
+        .as_str()
+        .expect("search returns a tool_slug")
+        .to_string();
+
+    let describe = post_mcp_json(
+        &client,
+        &url,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": "describe",
+                "arguments": {"tool_slug": tool_slug.clone()}
+            }
+        }),
+    )
+    .await;
+    assert_eq!(describe["result"]["isError"], false);
+    let describe_payload = mcp_call_text_json(&describe);
+    assert_eq!(describe_payload["required"], json!(["radius"]));
+    assert_eq!(
+        describe_payload["tool"]["inputSchema"]["properties"]["radius"]["type"],
+        "number"
+    );
+
+    let load = post_mcp_json(
+        &client,
+        &url,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": {
+                "name": "load_skill",
+                "arguments": {"skill_name": "maya-primitives", "dcc_type": "maya"}
+            }
+        }),
+    )
+    .await;
+    assert_eq!(load["result"]["isError"], false);
+    let load_payload = mcp_call_text_json(&load);
+    assert_eq!(load_payload["loaded"], true);
+    assert_eq!(load_payload["skill_name"], "maya-primitives");
+
+    let single = post_mcp_json(
+        &client,
+        &url,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "tools/call",
+            "params": {
+                "name": "call",
+                "arguments": {"tool_slug": tool_slug.clone(), "arguments": {"radius": 2.0}}
+            }
+        }),
+    )
+    .await;
+    assert_eq!(single["result"]["isError"], false);
+    let single_payload = mcp_call_text_json(&single);
+    assert_eq!(single_payload["isError"], false);
+    assert!(
+        single_payload["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("radius")
+    );
+
+    let batch = post_mcp_json(
+        &client,
+        &url,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "tools/call",
+            "params": {
+                "name": "call",
+                "arguments": {
+                    "calls": [
+                        {"tool_slug": tool_slug.clone(), "arguments": {"radius": 1.0}},
+                        {"tool_slug": tool_slug, "arguments": {"radius": 3.0}}
+                    ],
+                    "stop_on_error": true
+                }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(batch["result"]["isError"], false);
+    let batch_payload = mcp_call_text_json(&batch);
+    assert_eq!(batch_payload["success"], true);
+    assert_eq!(batch_payload["results"].as_array().unwrap().len(), 2);
+
+    let _ = shutdown_tx.send(());
+    server.await.unwrap();
+    let _ = stop_backend.send(());
 }
 
 #[tokio::test]
