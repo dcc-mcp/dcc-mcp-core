@@ -107,6 +107,15 @@ For `tool.completed`, `attributes.result_success` follows the handler output's
 `success` boolean when present. If the output has no `success` field, a handler
 that returned normally is treated as successful.
 
+### Standalone Server Webhooks
+
+`dcc-mcp-server` can forward structured EventBus envelopes to HTTP webhooks.
+Set `DCC_MCP_WEBHOOKS_CONFIG` to a YAML file containing `webhooks` entries with
+`name`, `url`, `events`, optional `headers`, optional `delivery` retry
+settings, optional dotted-path `filters`, and optional `payload_template`.
+Delivery is asynchronous and bounded; when all attempts fail the server emits
+`webhook.delivery_failed` on the same EventBus.
+
 ---
 
 ## ToolRecorder
