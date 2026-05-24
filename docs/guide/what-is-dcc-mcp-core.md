@@ -46,10 +46,10 @@ flowchart LR
 
 **Architectural decisions that shape the whole repo**:
 
-1. **Minimal MCP surface (#657 / #674, landed in PR A)** — the gateway's `tools/list` *always* returns only read-only discovery primitives, no matter how many DCCs are connected. Per-tool backend tools are discovered through MCP `search` / `describe` or REST `/v1/search` / `/v1/describe`; execution happens through REST `/v1/call` / `/v1/call_batch`.
-2. **REST is the invocation plane** — every per-DCC server exposes a full `/v1/*` REST surface, and the gateway mirrors it as an aggregating facade. Any language / any client integrates here without touching MCP.
-3. **Single contract** — REST `POST /v1/call` and hidden MCP compatibility routes share one `call_service` code path. Request/response envelopes are identical, locked down by an OpenAPI snapshot test.
-4. **Progressive discovery** — agents pay only for what they ask for: `search(kind="skill")` or `/v1/search` → `/v1/load_skill` when needed → `search` → `describe` → `/v1/call`.
+1. **Minimal MCP surface (#657 / #674, landed in PR A)** — the gateway's `tools/list` *always* returns only four workflow primitives (`search`, `describe`, `load_skill`, `call`), no matter how many DCCs are connected. Per-tool backend tools are discovered through MCP `search` / `describe` or REST `/v1/search` / `/v1/describe`; execution happens through MCP `call` or REST `/v1/call` / `/v1/call_batch`.
+2. **REST is the pure HTTP twin** — every per-DCC server exposes a full `/v1/*` REST surface, and the gateway mirrors it as an aggregating facade. Any language / any client can integrate here without touching MCP.
+3. **Single contract** — MCP `call`, REST `POST /v1/call`, and hidden MCP compatibility routes share one `call_service` code path. Request/response envelopes are identical, locked down by an OpenAPI snapshot test.
+4. **Progressive discovery** — agents pay only for what they ask for: `search(kind="skill")` or `/v1/search` → `load_skill` or `/v1/load_skill` when needed → `search` → `describe` → `call` or `/v1/call`.
 
 ---
 
@@ -178,7 +178,7 @@ Full symbol listing lives in the [API reference](/api/actions).
 | Change | Impact | Migration |
 |---|---|---|
 | **Gateway MCP surface converged** | `GatewayToolExposure` enum, `tool_exposure` / `publishes_backend_tools` config, `--gateway-tool-exposure` CLI flag all removed | Drop the code/config/env var; the gateway has a single (minimal) surface now |
-| **Gateway wrapper payloads are strict** | `call_tool`, `call_tools`, `/v1/call`, and `/v1/call_batch` normalize through `dcc-mcp-wire`; backend fields at the wrapper top level are ignored/rejected | Send `{tool_slug, arguments?, meta?}` and put tool input inside `arguments`; use `normalize_tool_arguments()` in Python host wrappers |
+| **Gateway wrapper payloads are strict** | MCP `call`, hidden `call_tool` / `call_tools`, `/v1/call`, and `/v1/call_batch` normalize through `dcc-mcp-wire`; backend fields at the wrapper top level are ignored/rejected | Send `{tool_slug, arguments?, meta?}` or `{calls:[...]}` and put tool input inside `arguments`; use `normalize_tool_arguments()` in Python host wrappers |
 | **Gateway prompt names are cursor-safe** | Aggregated prompt names use `i_<id8>__<escaped>` instead of raw backend names | Store the returned prompt name exactly as listed; do not reconstruct it from DCC/tool names |
 | **Flat-form SKILL.md parser dropped** | `metadata: { "dcc-mcp.dcc": ... }` no longer populates typed fields | Use the nested form: `metadata: { dcc-mcp: { dcc: ... } }` |
 | **`register_dcc_api_docs` / `DccApiDoc*` removed** | Related Python API is gone | Use `register_docs_resource()` instead |

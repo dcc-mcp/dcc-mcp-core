@@ -7,9 +7,9 @@
 The **gateway** is a single Rust HTTP server (running on `localhost:9765` by default) that:
 
 - Discovers all running DCC instances (Maya, Blender, Houdini, Photoshop, etc.)
-- Keeps one unified, bounded `/mcp` endpoint with read-only discovery primitives instead of fanning out every backend action
-- Routes gateway MCP `search` / `describe` and `/v1/*` REST calls to the selected backend capability
-- Exposes skill lifecycle and execution through REST (`/v1/load_skill`, `/v1/unload_skill`, `/v1/call`) while retaining hidden MCP compatibility routes for pinned clients
+- Keeps one unified, bounded `/mcp` endpoint with four canonical workflow tools instead of fanning out every backend action
+- Routes gateway MCP `search` / `describe` / `load_skill` / `call` and `/v1/*` REST calls to the selected backend capability
+- Exposes skill lifecycle and execution through the canonical MCP tools plus REST (`/v1/load_skill`, `/v1/unload_skill`, `/v1/call`) while retaining hidden MCP compatibility routes for pinned clients
 - Pushes progress, job/workflow, resource, and prompt notifications over SSE as instances come and go
 
 **One gateway per machine**. It's started automatically when the first DCC instance registers.
@@ -302,7 +302,7 @@ session_b = mgr.get_or_create_session("maya", iid_rig)
 assert session_a != session_b
 
 # Through the gateway, the agent targets an instance by choosing a
-# tool_slug returned from search_tools / /v1/search:
+# tool_slug returned from MCP search or /v1/search:
 #   maya.a1b2c3d4.set_keyframe   ← maya-animation
 #   maya.e5f6g7h8.mirror_joints  ← maya-rigging
 ```

@@ -1,17 +1,18 @@
-"""E2E tests for McpHttpServer using mcpcall CLI as the MCP client.
+"""E2E tests for MCP servers using mcpcall CLI as the client.
 
 mcpcall (https://github.com/loonghao/mcpcall) is a Rust CLI that connects to
 MCP servers over Streamable HTTP or stdio and can list/call tools from shell
 scripts and CI.
 
-These tests start a real McpHttpServer, then exercise it through ``mcpcall`` to
-validate the full MCP protocol stack including:
+These tests start real McpHttpServer instances, then exercise them through
+``mcpcall`` to validate the full MCP protocol stack including:
 
 - Protocol methods: initialize, ping, tools/list
 - Core discovery tools: search_skills, list_skills, get_skill_info, load_skill, unload_skill
 - Progressive loading flow: discover -> load -> call tool -> unload
 - tools/call on registered handlers and skill-backed actions
 - Batch requests, session lifecycle, notifications
+- Gateway facade discovery through the canonical search/describe/load/call flow
 
 Requirements:
     mcpcall binary available in PATH, or MCPCALL_BIN pointing to the binary
@@ -30,10 +31,12 @@ file to local ``--ignore`` lists in CI workflows or shared scripts.
 from __future__ import annotations
 
 # Import built-in modules
+import contextlib
 import json
 import os
 from pathlib import Path
 import platform
+import socket
 import subprocess
 import sys
 import time
@@ -82,6 +85,25 @@ def _run_mcpcall(*args: str, timeout: int | None = None) -> subprocess.Completed
     t = timeout if timeout is not None else _MCPCALL_TIMEOUT
     cmd = [_MCPCALL_BIN, *args]
     return subprocess.run(cmd, capture_output=True, text=True, timeout=t)
+
+
+def _pick_free_port() -> int:
+    """Reserve a free localhost port for a short-lived test server."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _wait_tcp_reachable(host: str, port: int, budget: float = 5.0) -> bool:
+    """Return True once ``host:port`` accepts TCP connections."""
+    deadline = time.time() + budget
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=0.3):
+                return True
+        except OSError:
+            time.sleep(0.05)
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +157,13 @@ def _parse_content_json(result: dict[str, Any]) -> Any:
     # Otherwise it's a wrapped response with content array
     text = _extract_content_text(result)
     return json.loads(text)
+
+
+def _parse_gateway_payload(result: dict[str, Any]) -> dict[str, Any]:
+    """Parse a gateway wrapper tool's JSON text payload."""
+    payload = json.loads(_extract_content_text(result))
+    assert isinstance(payload, dict), f"Expected gateway payload object, got: {payload!r}"
+    return payload
 
 
 def _parse_mcpcall_json(stdout: str) -> Any:
@@ -281,6 +310,51 @@ def simple_server():
     handle.shutdown()
 
 
+@pytest.fixture(scope="module")
+def gateway_with_catalog(tmp_path_factory):
+    """Start a backend that wins gateway election and is driven via mcpcall."""
+    if not Path(EXAMPLES_SKILLS_DIR).is_dir():
+        pytest.skip("examples/skills directory not found")
+
+    registry_dir = tmp_path_factory.mktemp("mcpcall-gateway-registry")
+    gateway_port = _pick_free_port()
+
+    reg = ToolRegistry()
+    reg.register(
+        "ping_action",
+        description="A simple echo action for gateway testing",
+        category="test",
+        tags=["test", "ping"],
+        dcc="python",
+        version="1.0.0",
+    )
+
+    config = McpHttpConfig(port=0, server_name="mcpcall-gateway-e2e")
+    config.gateway_port = gateway_port
+    config.registry_dir = str(registry_dir)
+    config.dcc_type = "python"
+    config.heartbeat_secs = 1
+    config.stale_timeout_secs = 10
+
+    server = McpHttpServer(reg, config)
+    server.register_handler("ping_action", lambda params: {"pong": True, "echo": params})
+    server.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
+    handle = server.start()
+
+    try:
+        if not _wait_tcp_reachable("127.0.0.1", handle.port):
+            pytest.skip(f"backend port {handle.port} is not reachable")
+        if not handle.is_gateway:
+            pytest.skip(f"backend did not win gateway election on {gateway_port}")
+        if not _wait_tcp_reachable("127.0.0.1", gateway_port):
+            pytest.skip(f"gateway port {gateway_port} is not reachable")
+
+        yield server, handle, f"http://127.0.0.1:{gateway_port}/mcp", "mcpcall-gateway-e2e"
+    finally:
+        with contextlib.suppress(Exception):
+            handle.shutdown()
+
+
 # ---------------------------------------------------------------------------
 # Basic tools/list via mcpcall
 # ---------------------------------------------------------------------------
@@ -313,6 +387,85 @@ class TestMcpcallToolsList:
                 continue
             assert "name" in tool, f"Tool missing 'name': {tool}"
             assert "description" in tool, f"Tool '{tool['name']}' missing 'description'"
+
+
+# ---------------------------------------------------------------------------
+# Gateway canonical workflow via mcpcall
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not MCPCALL_AVAILABLE, reason="mcpcall not available")
+class TestMcpcallGatewayCanonicalWorkflow:
+    """Validate the gateway's four-tool MCP workflow with a real mcpcall client."""
+
+    def test_gateway_tools_list_exposes_canonical_surface(self, gateway_with_catalog):
+        _, _, url, name = gateway_with_catalog
+        tools = _mcpcall_list_tools(url, name)
+        tool_names = [t["name"] if isinstance(t, dict) else t for t in tools]
+        assert tool_names == ["search", "describe", "load_skill", "call"]
+
+    def test_gateway_search_describe_load_and_call(self, gateway_with_catalog):
+        _, _, url, name = gateway_with_catalog
+
+        search = _parse_gateway_payload(
+            _mcpcall_call(url, name, "search", {"query": "ping", "dcc_type": "python", "limit": 5})
+        )
+        hit = next(
+            (
+                item
+                for item in search.get("hits", [])
+                if item.get("backend_tool") == "ping_action" or item.get("name") == "ping_action"
+            ),
+            None,
+        )
+        assert hit is not None, f"ping_action not found in gateway search: {search}"
+        ping_slug = hit["tool_slug"]
+
+        describe = _parse_gateway_payload(_mcpcall_call(url, name, "describe", {"tool_slug": ping_slug}))
+        assert describe["tool"]["name"] == "ping_action"
+
+        load = _parse_gateway_payload(
+            _mcpcall_call(url, name, "load_skill", {"skill_name": "hello-world", "dcc_type": "python"})
+        )
+        assert load.get("loaded") is True
+
+        greet_search = _parse_gateway_payload(
+            _mcpcall_call(url, name, "search", {"query": "greet", "dcc_type": "python", "limit": 5})
+        )
+        greet_hit = next(
+            (
+                item
+                for item in greet_search.get("hits", [])
+                if item.get("backend_tool") in {"greet", "hello_world__greet"}
+                or str(item.get("backend_tool", "")).endswith("__greet")
+                or item.get("name") == "greet"
+            ),
+            None,
+        )
+        assert greet_hit is not None, f"greet not found after load_skill: {greet_search}"
+        greet_slug = greet_hit["tool_slug"]
+
+        single = _parse_gateway_payload(
+            _mcpcall_call(url, name, "call", {"tool_slug": greet_slug, "arguments": {"name": "mcpcall gateway"}})
+        )
+        assert "mcpcall gateway" in _extract_content_text(single)
+
+        batch = _parse_gateway_payload(
+            _mcpcall_call(
+                url,
+                name,
+                "call",
+                {
+                    "calls": [
+                        {"tool_slug": ping_slug, "arguments": {}},
+                        {"tool_slug": greet_slug, "arguments": {"name": "batch"}},
+                    ],
+                    "stop_on_error": True,
+                },
+            )
+        )
+        assert batch["success"] is True
+        assert len(batch["results"]) == 2
 
 
 # ---------------------------------------------------------------------------
