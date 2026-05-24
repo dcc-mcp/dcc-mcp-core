@@ -356,6 +356,15 @@ Response shape (gateway + per-DCC are identical):
       "dcc": "maya",
       "tags": ["batch"],
       "loaded": false,
+      "load_state": "unloaded",
+      "available_groups": [
+        {
+          "name": "core",
+          "tools": ["render_frame"],
+          "default_active": true,
+          "active": false
+        }
+      ],
       "next_step": {
         "action": "load_skill",
         "arguments": {
@@ -364,7 +373,23 @@ Response shape (gateway + per-DCC are identical):
           "dcc_type": "maya",
           "instance_id": "a1b2c3d4-0000-0000-0000-000000000001"
         },
-        "rest": {"method": "POST", "path": "/v1/load_skill"}
+        "mcp": {
+          "tool": "load_skill",
+          "arguments": {
+            "skill_name": "maya-render",
+            "dcc_type": "maya",
+            "instance_id": "a1b2c3d4-0000-0000-0000-000000000001"
+          }
+        },
+        "rest": {
+          "method": "POST",
+          "path": "/v1/load_skill",
+          "body": {
+            "skill_name": "maya-render",
+            "dcc_type": "maya",
+            "instance_id": "a1b2c3d4-0000-0000-0000-000000000001"
+          }
+        }
       }
     }
   ]
@@ -374,7 +399,9 @@ Response shape (gateway + per-DCC are identical):
 When `loaded=false`, clients may POST `next_step.arguments` directly to
 `/v1/load_skill`, then repeat `/v1/search` or call `/v1/describe` for the same
 tool. Per-DCC REST omits `instance_id` because there is only one owning server;
-the gateway includes it so same-DCC multi-instance calls stay routed.
+the gateway includes it so same-DCC multi-instance calls stay routed. Gateway
+`load_skill` defaults to lazy group activation (`activate_groups=false` unless
+supplied), so heavier groups should be activated explicitly.
 
 ### Compact output
 
@@ -406,9 +433,10 @@ headers:
 
 The compact search shape preserves the workflow fields agents need next:
 `tool_slug`, `backend_tool`, `dcc_type`, `instance_id`, `loaded`,
-`has_schema`, `score`, and `next_step` for unloaded skills. It omits redundant
-defaults such as `callable_id` when it matches `backend_tool`, empty arrays, and
-empty objects. RTK's compaction model is treated as design guidance here; the
+`load_state`, `available_groups`, `has_schema`, `score`, and `next_step` for
+unloaded skills. It omits redundant defaults such as `callable_id` when it
+matches `backend_tool`, empty arrays, and empty objects. RTK's compaction model
+is treated as design guidance here; the
 gateway uses the deterministic in-process `toon-format` library so
 `serde_json::Value` payloads round-trip inside Rust tests without spawning an
 external codec process.
@@ -430,7 +458,9 @@ aggregate body savings.
 `skill_name` is required. Gateway callers should pass the `dcc` / `dcc_type`
 and `instance_id` returned in `/v1/search.next_step.arguments` when more than
 one DCC instance is live. A successful load refreshes the gateway capability
-index, so the next `/v1/search` sees the newly callable actions.
+index and returns `loaded`, `skill_name`, `dcc_type`, `instance_id`,
+`activated_groups`, `new_tool_slugs`, `index_generation`, and a suggested
+`next_step` (`describe` when a new slug is known, otherwise `search`).
 
 ---
 

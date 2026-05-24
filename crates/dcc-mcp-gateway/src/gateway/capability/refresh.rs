@@ -24,7 +24,7 @@ use std::time::Duration;
 
 use uuid::Uuid;
 
-use crate::gateway::backend_client::fetch_tools;
+use crate::gateway::backend_client::{UnloadedCapabilityHint, fetch_tools};
 
 use super::builder::{BuildInput, build_records_from_backend};
 use super::index::{CapabilityIndex, InstanceFingerprint};
@@ -103,20 +103,25 @@ pub async fn refresh_instance(
 }
 
 fn build_unloaded_records(
-    unloaded_hints: Vec<(String, String, String)>,
+    unloaded_hints: Vec<UnloadedCapabilityHint>,
     instance_id: Uuid,
     dcc_type: &str,
 ) -> Vec<CapabilityRecord> {
     unloaded_hints
         .into_iter()
-        .filter_map(|(skill_name, tool_name, summary)| {
-            if tool_name.is_empty() {
+        .filter_map(|hint| {
+            if hint.tool_name.is_empty() {
                 return None;
             }
-            let mut rec =
-                CapabilityRecord::from_skill_tool(&skill_name, &tool_name, &summary, dcc_type);
+            let mut rec = CapabilityRecord::from_skill_tool(
+                &hint.skill_name,
+                &hint.tool_name,
+                &hint.summary,
+                dcc_type,
+            )
+            .with_available_groups(hint.available_groups);
             rec.instance_id = instance_id;
-            rec.tool_slug = tool_slug(dcc_type, &instance_id, &tool_name);
+            rec.tool_slug = tool_slug(dcc_type, &instance_id, &hint.tool_name);
             Some(rec)
         })
         .collect()
@@ -129,6 +134,11 @@ fn compute_fingerprint(records: &[CapabilityRecord]) -> InstanceFingerprint {
         r.has_schema.hash(&mut hasher);
         r.summary.hash(&mut hasher);
         r.loaded.hash(&mut hasher);
+        for group in &r.available_groups {
+            group.name.hash(&mut hasher);
+            group.default_active.hash(&mut hasher);
+            group.active.hash(&mut hasher);
+        }
         for t in &r.tags {
             t.hash(&mut hasher);
         }
@@ -205,6 +215,7 @@ mod unit_tests {
     /// covered by the integration tests in `crates/dcc-mcp-http/tests/http/`.
     #[test]
     fn unloaded_hints_use_instance_scoped_slugs() {
+        use crate::gateway::backend_client::UnloadedCapabilityHint;
         use crate::gateway::capability::{CapabilityRecord, search, search::SearchQuery};
 
         let idx = CapabilityIndex::new();
@@ -230,11 +241,12 @@ mod unit_tests {
 
         let mut records = idx.snapshot().records.to_vec();
         records.extend(build_unloaded_records(
-            vec![(
-                "maya-primitives".to_string(),
-                "maya_primitives__create_sphere".to_string(),
-                "Create a primitive sphere".to_string(),
-            )],
+            vec![UnloadedCapabilityHint {
+                skill_name: "maya-primitives".to_string(),
+                tool_name: "maya_primitives__create_sphere".to_string(),
+                summary: "Create a primitive sphere".to_string(),
+                available_groups: Vec::new(),
+            }],
             iid,
             "maya",
         ));
@@ -297,17 +309,20 @@ mod unit_tests {
 
     #[test]
     fn unloaded_hints_from_two_maya_instances_remain_distinct() {
+        use crate::gateway::backend_client::UnloadedCapabilityHint;
+
         let a = Uuid::from_u128(0xaaaa_0000_0000_0000_0000_0000_0000_0001);
         let b = Uuid::from_u128(0xbbbb_0000_0000_0000_0000_0000_0000_0001);
         let idx = CapabilityIndex::new();
 
         for iid in [a, b] {
             let records = build_unloaded_records(
-                vec![(
-                    "maya-primitives".to_string(),
-                    "maya_primitives__create_sphere".to_string(),
-                    "Create a primitive sphere".to_string(),
-                )],
+                vec![UnloadedCapabilityHint {
+                    skill_name: "maya-primitives".to_string(),
+                    tool_name: "maya_primitives__create_sphere".to_string(),
+                    summary: "Create a primitive sphere".to_string(),
+                    available_groups: Vec::new(),
+                }],
                 iid,
                 "maya",
             );

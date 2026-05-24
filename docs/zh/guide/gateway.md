@@ -151,6 +151,11 @@ Gateway capability index 使用 `<dcc>.<id8>.<tool>` 作为紧凑记录键，并
 
 Agent 连接到 Gateway 时使用这条四工具动态能力流程；直接连接某个 DCC 服务时使用
 per-DCC Skills-First 流程（`search_skills` → `load_skill` → 调用工具）。
+当 `/v1/search` 或 MCP `search` 返回未加载 skill 命中时，结果会带
+`load_state`、已知的 `available_groups`，以及同时包含 MCP/REST 形态的
+`next_step`。Gateway `load_skill` 默认使用惰性 group 激活
+（未显式传入时等价于 `activate_groups=false`），只让默认/core group 自动可用；
+更重或有破坏性的 group 应通过显式 `tool_group` 激活。
 
 ## 代码指针
 

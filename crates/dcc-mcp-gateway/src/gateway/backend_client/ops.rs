@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 use dcc_mcp_jsonrpc::{McpPrompt, McpTool};
 
 use crate::gateway::admin::trace::TraceContext;
+use crate::gateway::capability::CapabilityGroupInfo;
 use crate::gateway::metrics::record_gateway_backend_error_kind;
 use crate::gateway::resilience::{
     circuits, is_circuit_worthy_rest_error, is_retryable_rest_error, jittered_backoff,
@@ -18,6 +19,14 @@ use super::http::{
 };
 use super::probe::{ProbeOutcome, probe_mcp_readiness};
 use super::urls::rest_base_from_mcp_url;
+
+#[derive(Debug, Clone)]
+pub struct UnloadedCapabilityHint {
+    pub skill_name: String,
+    pub tool_name: String,
+    pub summary: String,
+    pub available_groups: Vec<CapabilityGroupInfo>,
+}
 
 async fn rest_get_idempotent(
     client: &reqwest::Client,
@@ -165,7 +174,7 @@ pub async fn try_fetch_tools(
     client: &reqwest::Client,
     mcp_url: &str,
     timeout: Duration,
-) -> Result<(Vec<McpTool>, Vec<(String, String, String)>), String> {
+) -> Result<(Vec<McpTool>, Vec<UnloadedCapabilityHint>), String> {
     let base = rest_base_from_mcp_url(mcp_url);
     let key = base.as_str();
     let url = format!("{base}/v1/search");
@@ -180,7 +189,7 @@ pub async fn try_fetch_tools(
     .await?;
 
     let mut loaded_tools: Vec<McpTool> = Vec::new();
-    let mut unloaded_hints: Vec<(String, String, String)> = Vec::new();
+    let mut unloaded_hints: Vec<UnloadedCapabilityHint> = Vec::new();
 
     if let Some(arr) = val.get("hits").and_then(Value::as_array) {
         for v in arr {
@@ -213,7 +222,7 @@ pub async fn try_fetch_tools(
 
             if loaded {
                 let annotations = parse_tool_annotations(v.get("annotations"));
-                let meta = mcp_meta_from_rest_metadata(v.get("metadata"));
+                let meta = mcp_meta_from_rest_metadata(v.get("metadata"), v.get("skill"));
                 loaded_tools.push(McpTool {
                     name: action,
                     description,
@@ -235,7 +244,17 @@ pub async fn try_fetch_tools(
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_owned();
-                unloaded_hints.push((skill_name, action, description));
+                let available_groups = v
+                    .get("available_groups")
+                    .cloned()
+                    .and_then(|value| serde_json::from_value(value).ok())
+                    .unwrap_or_default();
+                unloaded_hints.push(UnloadedCapabilityHint {
+                    skill_name,
+                    tool_name: action,
+                    summary: description,
+                    available_groups,
+                });
             }
         }
     }
@@ -294,7 +313,10 @@ pub async fn try_describe_tool(
         .cloned()
         .unwrap_or_else(|| json!({"type": "object"}));
     let annotations = parse_tool_annotations(val.get("annotations"));
-    let meta = mcp_meta_from_rest_metadata(val.get("metadata"));
+    let meta = mcp_meta_from_rest_metadata(
+        val.get("metadata"),
+        val.get("entry").and_then(|entry| entry.get("skill")),
+    );
 
     Ok(McpTool {
         name,
@@ -321,8 +343,25 @@ fn parse_tool_annotations(value: Option<&Value>) -> Option<dcc_mcp_jsonrpc::McpT
     }
 }
 
-fn mcp_meta_from_rest_metadata(value: Option<&Value>) -> Option<serde_json::Map<String, Value>> {
-    let map = value?.as_object()?.clone();
+fn mcp_meta_from_rest_metadata(
+    value: Option<&Value>,
+    skill: Option<&Value>,
+) -> Option<serde_json::Map<String, Value>> {
+    let mut map = value
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    if let Some(skill_name) = skill
+        .and_then(Value::as_str)
+        .filter(|name| !name.is_empty())
+    {
+        let dcc = map.entry("dcc".to_string()).or_insert_with(|| json!({}));
+        if let Some(dcc_obj) = dcc.as_object_mut() {
+            dcc_obj
+                .entry("skill".to_string())
+                .or_insert_with(|| Value::String(skill_name.to_string()));
+        }
+    }
     (!map.is_empty()).then_some(map)
 }
 
@@ -338,7 +377,7 @@ pub async fn fetch_tools(
     client: &reqwest::Client,
     mcp_url: &str,
     timeout: Duration,
-) -> (Vec<McpTool>, Vec<(String, String, String)>) {
+) -> (Vec<McpTool>, Vec<UnloadedCapabilityHint>) {
     match try_fetch_tools(client, mcp_url, timeout).await {
         Ok(pair) => pair,
         Err(e) => {

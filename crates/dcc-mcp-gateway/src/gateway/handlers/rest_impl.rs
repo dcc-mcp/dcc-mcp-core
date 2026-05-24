@@ -351,7 +351,7 @@ async fn skill_lifecycle_response(gs: &GatewayState, tool: &str, body: Value) ->
         return (
             StatusCode::BAD_GATEWAY,
             Json(service_error_to_json(&ServiceError::new(
-                "backend-error",
+                classify_skill_lifecycle_error(tool, &text),
                 text,
             ))),
         )
@@ -359,6 +359,34 @@ async fn skill_lifecycle_response(gs: &GatewayState, tool: &str, body: Value) ->
     }
     let parsed = serde_json::from_str::<Value>(&text).unwrap_or_else(|_| json!({"message": text}));
     (StatusCode::OK, Json(parsed)).into_response()
+}
+
+fn classify_skill_lifecycle_error(tool: &str, text: &str) -> &'static str {
+    let lowered = text.to_ascii_lowercase();
+    if lowered.contains("multiple-instances-match") || lowered.contains("ambiguous") {
+        return "ambiguous-instance";
+    }
+    if lowered.contains("no-live-instance-match")
+        || lowered.contains("unreachable")
+        || lowered.contains("booting")
+    {
+        return "instance-offline";
+    }
+    if lowered.contains("schema") {
+        return "schema-unavailable";
+    }
+    if lowered.contains("group")
+        && (tool.contains("group") || lowered.contains("not found") || lowered.contains("unknown"))
+    {
+        return "group-not-found";
+    }
+    if lowered.contains("already loaded") || lowered.contains("already_loaded") {
+        return "skill-already-loaded";
+    }
+    if lowered.contains("not found") || lowered.contains("unknown skill") {
+        return "skill-not-found";
+    }
+    "backend-error"
 }
 
 /// `POST /v1/describe` — return the compact record and (optionally)

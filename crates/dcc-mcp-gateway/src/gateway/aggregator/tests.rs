@@ -688,11 +688,12 @@ async fn gateway_mcp_four_tool_workflow_covers_search_describe_load_and_call() {
     ));
     {
         let r = registry.read().await;
-        let entry = dcc_mcp_transport::discovery::types::ServiceEntry::new(
+        let mut entry = dcc_mcp_transport::discovery::types::ServiceEntry::new(
             "maya",
             "127.0.0.1",
             backend_port,
         );
+        entry.instance_id = uuid::Uuid::parse_str("aaaaaaaa-0000-0000-0000-000000000001").unwrap();
         r.register(entry).unwrap();
     }
 
@@ -789,6 +790,20 @@ async fn gateway_mcp_four_tool_workflow_covers_search_describe_load_and_call() {
     let load_payload = mcp_call_text_json(&load);
     assert_eq!(load_payload["loaded"], true);
     assert_eq!(load_payload["skill_name"], "maya-primitives");
+    assert_eq!(load_payload["dcc_type"], "maya");
+    assert_eq!(
+        load_payload["instance_id"],
+        "aaaaaaaa-0000-0000-0000-000000000001"
+    );
+    assert_eq!(load_payload["activated_groups"], json!(["core"]));
+    assert_eq!(
+        load_payload["new_tool_slugs"][0],
+        "maya.aaaaaaaa.create_sphere"
+    );
+    assert!(load_payload["index_generation"].as_str().is_some());
+    assert_eq!(load_payload["next_step"]["action"], "describe");
+    assert_eq!(load_payload["next_step"]["mcp"]["tool"], "describe");
+    assert_eq!(load_payload["next_step"]["rest"]["path"], "/v1/describe");
 
     let single = post_mcp_json(
         &client,
