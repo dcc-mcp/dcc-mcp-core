@@ -274,6 +274,7 @@ fn compact_record(record: &Value) -> Value {
     copy_field(&mut out, record, "load_state");
     copy_field(&mut out, record, "available_groups");
     copy_field(&mut out, record, "score");
+    copy_field(&mut out, record, "match_reasons");
     copy_field(&mut out, record, "annotations");
     copy_field(&mut out, record, "metadata");
     copy_field(&mut out, record, "next_step");
@@ -426,6 +427,7 @@ mod tests {
                 "has_schema": true,
                 "loaded": true,
                 "score": 93,
+                "match_reasons": ["tool_lexical", "summary_fuzzy"],
                 "annotations": {
                     "readOnlyHint": false,
                     "destructiveHint": false
@@ -576,6 +578,10 @@ mod tests {
         assert_eq!(body["hits"][0]["dcc_type"], "maya");
         assert_eq!(body["hits"][1]["dcc_type"], "photoshop");
         assert_eq!(body["hits"][0]["tool_slug"], "maya.abcdef01.create_sphere");
+        assert_eq!(
+            body["hits"][0]["match_reasons"],
+            json!(["tool_lexical", "summary_fuzzy"])
+        );
         assert_eq!(body["hits"][1]["next_step"]["action"], "load_skill");
         assert!(body["hits"][0].get("callable_id").is_none());
         assert_eq!(body["hits"][1]["callable_id"], "select_layer_by_name");

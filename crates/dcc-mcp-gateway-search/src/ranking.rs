@@ -8,14 +8,39 @@ use nucleo_matcher::{
     pattern::{AtomKind, CaseMatching, Normalization, Pattern},
 };
 
-use crate::query::SearchMode;
+use crate::query::{ScoreBreakdown, SearchMode};
 use crate::record::SearchRecord;
 
 /// A pluggable scoring strategy for the capability index.
 pub trait Scorer {
+    /// Return the score and match reasons of `record` against the pre-lowercased
+    /// query `q`. A score of `0` means no match.
+    fn explain(
+        &mut self,
+        record: &dyn SearchRecord,
+        q: &str,
+        scene_hint: Option<&str>,
+    ) -> ScoreBreakdown;
+
     /// Return the score of `record` against the pre-lowercased query `q`.
     /// `0` means no match — search drops the row.
-    fn score(&mut self, record: &dyn SearchRecord, q: &str, scene_hint: Option<&str>) -> u32;
+    fn score(&mut self, record: &dyn SearchRecord, q: &str, scene_hint: Option<&str>) -> u32 {
+        self.explain(record, q, scene_hint).score
+    }
+}
+
+fn add_reason(reasons: &mut Vec<String>, reason: &'static str) {
+    if !reasons.iter().any(|existing| existing == reason) {
+        reasons.push(reason.to_string());
+    }
+}
+
+fn add_component(breakdown: &mut ScoreBreakdown, amount: u32, reason: &'static str) {
+    if amount == 0 {
+        return;
+    }
+    breakdown.score = breakdown.score.saturating_add(amount);
+    add_reason(&mut breakdown.match_reasons, reason);
 }
 
 /// Legacy substring scorer (pre-#659 table).
@@ -23,26 +48,31 @@ pub trait Scorer {
 pub struct SubstringScorer;
 
 impl Scorer for SubstringScorer {
-    fn score(&mut self, r: &dyn SearchRecord, q: &str, scene_hint: Option<&str>) -> u32 {
-        let mut score: u32 = 0;
+    fn explain(
+        &mut self,
+        r: &dyn SearchRecord,
+        q: &str,
+        scene_hint: Option<&str>,
+    ) -> ScoreBreakdown {
+        let mut out = ScoreBreakdown::default();
 
         if !q.is_empty() {
             let tool_lower = r.backend_tool().to_ascii_lowercase();
             if tool_lower == q {
-                score += 10;
+                add_component(&mut out, 10, "tool_exact");
             } else if tool_lower.contains(q) {
-                score += 6;
+                add_component(&mut out, 6, "tool_substring");
             }
             if r.tags().iter().any(|t| t.to_ascii_lowercase() == *q) {
-                score += 5;
+                add_component(&mut out, 5, "tag_exact");
             }
             if r.skill_name()
                 .is_some_and(|s| s.to_ascii_lowercase().contains(q))
             {
-                score += 4;
+                add_component(&mut out, 4, "skill_substring");
             }
             if r.summary().to_ascii_lowercase().contains(q) {
-                score += 2;
+                add_component(&mut out, 2, "summary_substring");
             }
         }
 
@@ -50,10 +80,10 @@ impl Scorer for SubstringScorer {
             && (r.summary().to_ascii_lowercase().contains(hint)
                 || r.tags().iter().any(|t| t.to_ascii_lowercase() == *hint))
         {
-            score += 2;
+            add_component(&mut out, 2, "scene_hint");
         }
 
-        score
+        out
     }
 }
 
@@ -247,35 +277,47 @@ impl Default for FuzzyScorer {
 }
 
 impl Scorer for FuzzyScorer {
-    fn score(&mut self, r: &dyn SearchRecord, q: &str, scene_hint: Option<&str>) -> u32 {
-        let mut score: u32 = 0;
+    fn explain(
+        &mut self,
+        r: &dyn SearchRecord,
+        q: &str,
+        scene_hint: Option<&str>,
+    ) -> ScoreBreakdown {
+        let mut out = ScoreBreakdown::default();
 
         if !q.is_empty() {
-            let mut deterministic = token_match_score(q, r.backend_tool(), 18, 12, 8)
-                + token_match_score(q, r.summary(), 8, 5, 3);
+            let tool_lexical = token_match_score(q, r.backend_tool(), 18, 12, 8);
+            let summary_lexical = token_match_score(q, r.summary(), 8, 5, 3);
+            let mut deterministic = tool_lexical + summary_lexical;
+            add_component(&mut out, tool_lexical, "tool_lexical");
+            add_component(&mut out, summary_lexical, "summary_lexical");
             if deterministic == 0 {
-                deterministic = deterministic.max(relaxed_multiword_haystack_score(r, q));
+                let multiword = relaxed_multiword_haystack_score(r, q);
+                deterministic = deterministic.max(multiword);
+                add_component(&mut out, multiword, "multi_token_lexical");
             }
-            score += deterministic;
+
+            if q.len() == AMBIGUOUS_SHORT_QUERY_LEN && deterministic == 0 {
+                return ScoreBreakdown::default();
+            }
 
             let pattern = Self::compile_pattern(q);
             let tool_lower = r.backend_tool().to_ascii_lowercase();
             let exact_tool = tool_lower == q;
             let prefix_tool = !exact_tool && tool_lower.starts_with(q);
 
-            score += self.score_field(&pattern, r.backend_tool(), FUZZY_FIELD_CAP, exact_tool);
+            let tool_fuzzy =
+                self.score_field(&pattern, r.backend_tool(), FUZZY_FIELD_CAP, exact_tool);
+            add_component(&mut out, tool_fuzzy, "tool_fuzzy");
             if exact_tool {
-                score += EXACT_BONUS;
+                add_component(&mut out, EXACT_BONUS, "tool_exact");
             } else if prefix_tool {
-                score += PREFIX_BONUS;
-            }
-
-            if q.len() == AMBIGUOUS_SHORT_QUERY_LEN && deterministic == 0 {
-                return 0;
+                add_component(&mut out, PREFIX_BONUS, "tool_prefix");
             }
 
             if let Some(skill) = r.skill_name() {
-                score += self.score_field(&pattern, skill, 7, false);
+                let skill_score = self.score_field(&pattern, skill, 7, false);
+                add_component(&mut out, skill_score, "skill_fuzzy");
             }
 
             let mut best_tag = 0;
@@ -288,9 +330,10 @@ impl Scorer for FuzzyScorer {
                     best_tag = s;
                 }
             }
-            score += best_tag;
+            add_component(&mut out, best_tag, "tag_fuzzy");
 
-            score += self.score_field(&pattern, r.summary(), 5, false);
+            let summary_fuzzy = self.score_field(&pattern, r.summary(), 5, false);
+            add_component(&mut out, summary_fuzzy, "summary_fuzzy");
 
             let mut best_schema = 0;
             for tag in r.tags() {
@@ -301,25 +344,26 @@ impl Scorer for FuzzyScorer {
                     }
                 }
             }
-            score += best_schema;
+            add_component(&mut out, best_schema, "schema_fuzzy");
 
             // Issue #994: meta-tools are excluded from results unless the
             // query directly targets the tool by name. This prevents verbose
             // meta-tool descriptions from leaking into the top-N for domain
             // queries. A "direct target" means `token_match_score` on the
             // backend_tool name returned a non-zero value.
-            if score > 0 && is_meta_tool(r.backend_tool()) {
+            if out.score > 0 && is_meta_tool(r.backend_tool()) {
                 let tool_name_score = token_match_score(q, r.backend_tool(), 18, 12, 8);
                 if tool_name_score == 0 {
                     // Query doesn't reference the meta-tool's name at all —
                     // all score came from description/tag token noise. Drop it.
-                    return 0;
+                    return ScoreBreakdown::default();
                 }
                 // Query does reference the tool name — keep it but demoted.
-                score /= META_TOOL_DIVISOR;
-                if score == 0 {
-                    score = 1;
+                out.score /= META_TOOL_DIVISOR;
+                if out.score == 0 {
+                    out.score = 1;
                 }
+                add_reason(&mut out.match_reasons, "meta_tool_demoted");
             }
         }
 
@@ -327,10 +371,10 @@ impl Scorer for FuzzyScorer {
             && (r.summary().to_ascii_lowercase().contains(hint)
                 || r.tags().iter().any(|t| t.to_ascii_lowercase() == *hint))
         {
-            score += 2;
+            add_component(&mut out, 2, "scene_hint");
         }
 
-        score
+        out
     }
 }
 
@@ -642,6 +686,30 @@ mod tests {
         assert!(
             via_tool > via_summary,
             "tool-name match ({via_tool}) should outweigh summary-only match ({via_summary})",
+        );
+    }
+
+    #[test]
+    fn fuzzy_scorer_explains_weighted_match_reasons() {
+        let mut s = FuzzyScorer::new();
+        let row = rec(
+            "maya_primitives__set_radius",
+            "Set primitive radius.",
+            Some("maya-primitives"),
+            &["modeling", "schema:radius"],
+            true,
+        );
+        let breakdown = s.explain(&row, "radius", None);
+        assert!(breakdown.score > 0);
+        assert!(
+            breakdown
+                .match_reasons
+                .contains(&"tool_lexical".to_string())
+        );
+        assert!(
+            breakdown
+                .match_reasons
+                .contains(&"schema_fuzzy".to_string())
         );
     }
 

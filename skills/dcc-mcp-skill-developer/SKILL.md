@@ -87,6 +87,13 @@ into a faster authoring loop.
    `x-dcc-mcp-index-generation`. Compact batch examples may also read
    per-result `token_accounting` metadata, and batch request items may carry an
    optional `id` that is echoed next to the numeric result `index`.
+   Gateway search uses a hybrid ranker in default fuzzy mode: weighted lexical
+   matches over tool names, skill names, tags, summaries, and schema-field
+   tokens take precedence, while fuzzy fallback keeps typo tolerance. Search
+   hits may include bounded `match_reasons` such as `tool_lexical`,
+   `summary_fuzzy`, `schema_fuzzy`, and `multi_token_lexical`; use those for
+   debugging relevance, but keep agent logic driven by `tool_slug`,
+   `next_step`, and `describe` rather than hard-coding a single reason string.
    Gateway capability policy is a deployment boundary, not an adapter-local
    convention. Read-only gateway mode still allows discovery and describe, but
    denies `load_skill`, `unload_skill`, tool-group changes, and backend calls
