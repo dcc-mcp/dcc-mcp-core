@@ -67,6 +67,7 @@ fn test_gateway_state_with_debug_routes(
         pending_calls: Arc::new(RwLock::new(HashMap::new())),
         subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
         allow_unknown_tools: false,
+        policy: Arc::new(crate::gateway::GatewayPolicy::default()),
         adapter_version: None,
         adapter_dcc: None,
         capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
@@ -162,6 +163,129 @@ fn seed_unloaded_render_capability(gs: &GatewayState) {
             "maya",
         ),
     ]);
+}
+
+fn policy_record(
+    dcc_type: &str,
+    instance_id: uuid::Uuid,
+    tool: &str,
+    skill_name: &str,
+    read_only: bool,
+) -> crate::gateway::capability::CapabilityRecord {
+    crate::gateway::capability::CapabilityRecord::new(
+        crate::gateway::capability::tool_slug(dcc_type, &instance_id, tool),
+        tool.to_string(),
+        tool.to_string(),
+        Some(skill_name.to_string()),
+        "Policy test capability",
+        Vec::new(),
+        dcc_type.to_string(),
+        instance_id,
+        true,
+        true,
+    )
+    .with_surface_metadata(
+        Some(crate::gateway::capability::CapabilityAnnotations {
+            title: None,
+            read_only_hint: Some(read_only),
+            destructive_hint: Some(!read_only),
+            idempotent_hint: None,
+            open_world_hint: None,
+        }),
+        None,
+    )
+}
+
+async fn seed_policy_records(gs: &GatewayState) -> (String, String, String, String) {
+    let maya = uuid::Uuid::parse_str("abcdef01-2345-6789-abcd-ef0123456789").unwrap();
+    let custom = uuid::Uuid::parse_str("12345678-1234-5678-9abc-123456789abc").unwrap();
+    {
+        let registry = gs.registry.read().await;
+        let mut maya_entry = ServiceEntry::new("maya", "127.0.0.1", 18801);
+        maya_entry.instance_id = maya;
+        registry.register(maya_entry).unwrap();
+        let mut custom_entry = ServiceEntry::new("customhost", "127.0.0.1", 18802);
+        custom_entry.instance_id = custom;
+        registry.register(custom_entry).unwrap();
+    }
+    let maya_read = policy_record("maya", maya, "safe_read_scene", "safe-maya", true);
+    let custom_read = policy_record("customhost", custom, "safe_read_state", "safe-custom", true);
+    let maya_write = policy_record("maya", maya, "unsafe_write_scene", "unsafe-maya", false);
+    let custom_write = policy_record(
+        "customhost",
+        custom,
+        "safe_write_state",
+        "safe-custom",
+        false,
+    );
+    let maya_read_slug = maya_read.tool_slug.clone();
+    let custom_read_slug = custom_read.tool_slug.clone();
+    let maya_write_slug = maya_write.tool_slug.clone();
+    let custom_write_slug = custom_write.tool_slug.clone();
+    gs.capability_index.upsert_instance(
+        maya,
+        vec![maya_read, maya_write],
+        crate::gateway::capability::InstanceFingerprint(1),
+    );
+    gs.capability_index.upsert_instance(
+        custom,
+        vec![custom_read, custom_write],
+        crate::gateway::capability::InstanceFingerprint(2),
+    );
+    (
+        maya_read_slug,
+        custom_read_slug,
+        maya_write_slug,
+        custom_write_slug,
+    )
+}
+
+fn seed_policy_unloaded_records(gs: &GatewayState) -> (String, String, String, String) {
+    let maya = uuid::Uuid::parse_str("abcdef01-2345-6789-abcd-ef0123456789").unwrap();
+    let custom = uuid::Uuid::parse_str("12345678-1234-5678-9abc-123456789abc").unwrap();
+    let mut maya_read = policy_record("maya", maya, "safe_read_scene", "safe-maya", true);
+    let mut custom_read =
+        policy_record("customhost", custom, "safe_read_state", "safe-custom", true);
+    let mut maya_write = policy_record("maya", maya, "unsafe_write_scene", "unsafe-maya", false);
+    let mut custom_write = policy_record(
+        "customhost",
+        custom,
+        "safe_write_state",
+        "safe-custom",
+        false,
+    );
+    maya_read.loaded = false;
+    custom_read.loaded = false;
+    maya_write.loaded = false;
+    custom_write.loaded = false;
+    let maya_read_slug = maya_read.tool_slug.clone();
+    let custom_read_slug = custom_read.tool_slug.clone();
+    let maya_write_slug = maya_write.tool_slug.clone();
+    let custom_write_slug = custom_write.tool_slug.clone();
+    gs.capability_index.set_unloaded_records(vec![
+        maya_read,
+        custom_read,
+        maya_write,
+        custom_write,
+    ]);
+    (
+        maya_read_slug,
+        custom_read_slug,
+        maya_write_slug,
+        custom_write_slug,
+    )
+}
+
+fn policy_for_safe_reads() -> crate::gateway::GatewayPolicy {
+    crate::gateway::GatewayPolicy {
+        allowed_dcc_types: vec!["maya".to_string(), "customhost".to_string()],
+        allowed_skill_families: vec!["safe-".to_string()],
+        allowed_tool_slug_prefixes: vec![
+            "maya.abcdef01.safe_read".to_string(),
+            "customhost.12345678.safe_read".to_string(),
+        ],
+        ..Default::default()
+    }
 }
 
 #[tokio::test]
@@ -787,4 +911,181 @@ async fn rest_call_batch_uses_arguments_mutated_by_before_middleware() {
     let input = entries[0].input_payload.as_ref().unwrap().content.clone();
     assert!(input.contains("[REDACTED]"));
     assert!(!input.contains("secret-token"));
+}
+
+#[tokio::test]
+async fn rest_search_hides_capabilities_denied_by_gateway_policy() {
+    let mut gs = test_gateway_state("1.2.3");
+    gs.policy = Arc::new(policy_for_safe_reads());
+    let (maya_read, custom_read, maya_write, custom_write) = seed_policy_unloaded_records(&gs);
+
+    let (status, body) =
+        response_json(handle_v1_search(State(gs), HeaderMap::new(), Json(json!({}))).await).await;
+
+    assert_eq!(status, StatusCode::OK);
+    let slugs: Vec<&str> = body["hits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|hit| hit["tool_slug"].as_str())
+        .collect();
+    assert!(slugs.contains(&maya_read.as_str()));
+    assert!(slugs.contains(&custom_read.as_str()));
+    assert!(!slugs.contains(&maya_write.as_str()));
+    assert!(!slugs.contains(&custom_write.as_str()));
+}
+
+#[tokio::test]
+async fn rest_describe_rejects_direct_slug_denied_by_gateway_policy() {
+    let mut gs = test_gateway_state("1.2.3");
+    gs.policy = Arc::new(policy_for_safe_reads());
+    let (_, _, maya_write, _) = seed_policy_unloaded_records(&gs);
+
+    let (status, body) = response_json(
+        handle_v1_describe(
+            State(gs),
+            HeaderMap::new(),
+            Json(json!({"tool_slug": maya_write})),
+        )
+        .await,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body["error"]["kind"], "policy-denied");
+    assert_eq!(body["error"]["policy"]["reason"], "skill-allowlist");
+    assert_eq!(body["error"]["policy"]["operation"], "describe");
+}
+
+#[tokio::test]
+async fn rest_load_skill_is_denied_in_read_only_gateway_policy() {
+    let mut gs = test_gateway_state("1.2.3");
+    gs.policy = Arc::new(crate::gateway::GatewayPolicy {
+        read_only: true,
+        ..Default::default()
+    });
+    let iid = uuid::Uuid::parse_str("abcdef01-2345-6789-abcd-ef0123456789").unwrap();
+    {
+        let registry = gs.registry.read().await;
+        let mut entry = ServiceEntry::new("maya", "127.0.0.1", 18801);
+        entry.instance_id = iid;
+        registry.register(entry).unwrap();
+    }
+
+    let (status, body) = response_json(
+        handle_v1_load_skill(
+            State(gs),
+            HeaderMap::new(),
+            Json(json!({
+                "skill_name": "maya-modeling",
+                "dcc_type": "maya",
+                "instance_id": iid.to_string()
+            })),
+        )
+        .await,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body["error"]["kind"], "policy-denied");
+    assert_eq!(body["error"]["policy"]["reason"], "read-only");
+    assert_eq!(body["error"]["policy"]["operation"], "load_skill");
+}
+
+#[tokio::test]
+async fn rest_call_batch_preserves_batch_shape_for_policy_denied_items() {
+    let mut gs = test_gateway_state("1.2.3");
+    gs.policy = Arc::new(crate::gateway::GatewayPolicy {
+        read_only: true,
+        allowed_dcc_types: vec!["maya".to_string()],
+        allowed_skill_families: vec!["unsafe-".to_string()],
+        allowed_tool_slug_prefixes: vec!["maya.abcdef01.unsafe_write".to_string()],
+        ..Default::default()
+    });
+    let (_, _, maya_write, _) = seed_policy_records(&gs).await;
+
+    let (status, body) = response_json(
+        handle_v1_call_batch(
+            State(gs),
+            HeaderMap::new(),
+            Json(json!({
+                "calls": [{
+                    "id": "write-1",
+                    "tool_slug": maya_write,
+                    "arguments": {}
+                }],
+                "stop_on_error": true
+            })),
+        )
+        .await,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["success"], false);
+    assert_eq!(body["results"][0]["id"], "write-1");
+    assert_eq!(body["results"][0]["ok"], false);
+    assert_eq!(
+        body["results"][0]["error"]["error"]["kind"],
+        "policy-denied"
+    );
+    assert_eq!(
+        body["results"][0]["error"]["error"]["policy"]["reason"],
+        "read-only"
+    );
+}
+
+#[tokio::test]
+async fn mcp_search_and_call_apply_gateway_policy() {
+    let mut search_gs = test_gateway_state("1.2.3");
+    search_gs.policy = Arc::new(crate::gateway::GatewayPolicy {
+        read_only: true,
+        ..policy_for_safe_reads()
+    });
+    let (maya_read, custom_read, maya_write, custom_write) =
+        seed_policy_unloaded_records(&search_gs);
+
+    let (search_text, search_is_error) = crate::gateway::aggregator::route_tools_call(
+        &search_gs,
+        "search",
+        &json!({}),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert!(!search_is_error);
+    let search_body: Value = serde_json::from_str(&search_text).unwrap();
+    let slugs: Vec<&str> = search_body["hits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|hit| hit["tool_slug"].as_str())
+        .collect();
+    assert!(slugs.contains(&maya_read.as_str()));
+    assert!(slugs.contains(&custom_read.as_str()));
+    assert!(!slugs.contains(&maya_write.as_str()));
+    assert!(!slugs.contains(&custom_write.as_str()));
+
+    let mut call_gs = test_gateway_state("1.2.3");
+    call_gs.policy = Arc::new(crate::gateway::GatewayPolicy {
+        read_only: true,
+        ..policy_for_safe_reads()
+    });
+    let (_, _, maya_write, _) = seed_policy_records(&call_gs).await;
+    let (call_text, call_is_error) = crate::gateway::aggregator::route_tools_call(
+        &call_gs,
+        "call",
+        &json!({"tool_slug": maya_write, "arguments": {}}),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert!(call_is_error);
+    let call_body: Value = serde_json::from_str(&call_text).unwrap();
+    assert_eq!(call_body["error"]["kind"], "policy-denied");
+    assert_eq!(call_body["error"]["policy"]["reason"], "skill-allowlist");
 }

@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use dcc_mcp_gateway_core::policy::GatewayPolicy;
+
 /// Gateway election, routing, and discovery configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -88,6 +90,13 @@ pub struct GatewayConfig {
     /// or when intentionally running a standalone server without a real DCC.
     pub allow_unknown_tools: bool,
 
+    /// Gateway capability policy applied before dynamic tools reach clients
+    /// and before routed backend calls execute.
+    ///
+    /// Default is unrestricted. Configure read-only mode plus DCC, skill, and
+    /// canonical `tool_slug` allowlists for locked-down deployments.
+    pub policy: GatewayPolicy,
+
     /// Enable the read-only gateway admin dashboard.
     ///
     /// Default: `true`. Only the elected gateway process mounts this path,
@@ -116,6 +125,7 @@ impl Default for GatewayConfig {
             adapter_dcc: None,
             gateway_name: None,
             allow_unknown_tools: false,
+            policy: GatewayPolicy::default(),
             admin_enabled: true,
             admin_path: "/admin".to_string(),
         }

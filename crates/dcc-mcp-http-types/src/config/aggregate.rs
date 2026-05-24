@@ -6,6 +6,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use dcc_mcp_gateway_core::policy::GatewayPolicy;
+
 use super::{
     FeatureFlags, GatewayConfig, InstanceConfig, JobConfig, JobRecoveryPolicy, QueueConfig,
     ServerConfig, ServerSpawnMode, SessionConfig, TelemetryConfig, WorkflowConfig,
@@ -238,6 +240,12 @@ impl McpHttpConfig {
     pub fn set_allow_unknown_tools(&mut self, v: bool) {
         self.gateway.allow_unknown_tools = v;
     }
+    pub fn gateway_policy(&self) -> GatewayPolicy {
+        self.gateway.policy.clone()
+    }
+    pub fn set_gateway_policy(&mut self, policy: GatewayPolicy) {
+        self.gateway.policy = policy;
+    }
     pub fn deferred_queue_depth(&self) -> usize {
         self.queue.deferred_queue_depth
     }
@@ -430,6 +438,18 @@ impl McpHttpConfig {
     /// admin diagnostics and the `__gateway__` sentinel row.
     pub fn with_gateway_name(mut self, name: impl Into<String>) -> Self {
         self.gateway.gateway_name = Some(name.into());
+        self
+    }
+
+    /// Builder: apply a gateway capability policy to MCP and REST surfaces.
+    pub fn with_gateway_policy(mut self, policy: GatewayPolicy) -> Self {
+        self.gateway.policy = policy;
+        self
+    }
+
+    /// Builder: enable or disable gateway read-only mode.
+    pub fn with_gateway_read_only(mut self, read_only: bool) -> Self {
+        self.gateway.policy.read_only = read_only;
         self
     }
 

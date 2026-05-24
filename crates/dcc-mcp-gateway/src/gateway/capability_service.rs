@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
+use dcc_mcp_gateway_core::policy::{GatewayPolicy, GatewayPolicyDenial, GatewayPolicyOperation};
 use dcc_mcp_jsonrpc::McpTool;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 
@@ -58,6 +59,9 @@ pub struct ServiceError {
     /// Backend identity + readiness/dispatcher diagnostics (#1076).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backend: Option<Box<Value>>,
+    /// Gateway policy denial details when `kind = "policy-denied"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<GatewayPolicyDenial>,
 }
 
 impl ServiceError {
@@ -70,12 +74,19 @@ impl ServiceError {
             previous_status: None,
             previous_instance_id: None,
             backend: None,
+            policy: None,
         }
     }
 
     /// Attach backend routing/diagnostics context (#1076).
     pub fn with_backend(mut self, backend: Value) -> Self {
         self.backend = Some(Box::new(backend));
+        self
+    }
+
+    /// Attach gateway policy denial context.
+    pub fn with_policy_denial(mut self, denial: GatewayPolicyDenial) -> Self {
+        self.policy = Some(denial);
         self
     }
 
@@ -110,6 +121,27 @@ pub fn search_service(index: &CapabilityIndex, query: &SearchQuery) -> Vec<Searc
 pub fn search_service_rows(index: &CapabilityIndex, query: &SearchQuery) -> Vec<Value> {
     search_service(index, query)
         .into_iter()
+        .map(search_hit_to_value)
+        .collect()
+}
+
+/// Search and materialise rows after applying gateway policy surface filters.
+///
+/// Policy allowlists hide disallowed capabilities from search. Read-only mode
+/// is intentionally not a search filter: agents may still discover actions,
+/// but execution of non-read-only records is denied by `call_service`.
+pub fn search_service_rows_for_policy(
+    index: &CapabilityIndex,
+    query: &SearchQuery,
+    policy: &GatewayPolicy,
+) -> Vec<Value> {
+    search_service(index, query)
+        .into_iter()
+        .filter(|hit| {
+            policy
+                .enforce_record(GatewayPolicyOperation::Search, &hit.record)
+                .is_ok()
+        })
         .map(search_hit_to_value)
         .collect()
 }
@@ -248,6 +280,7 @@ pub async fn describe_tool_full(
     slug: &str,
 ) -> Result<(CapabilityRecord, McpTool), ServiceError> {
     let record = describe_service(&gs.capability_index, slug)?;
+    enforce_record_policy(&gs.policy, GatewayPolicyOperation::Describe, &record)?;
     let reg = gs.registry.read().await;
     let all = gs.live_instances(&reg);
     let Some(entry) = all.iter().find(|e| e.instance_id == record.instance_id) else {
@@ -293,6 +326,7 @@ pub async fn call_service(
     trace_context: Option<&TraceContext>,
 ) -> Result<Value, ServiceError> {
     let record = describe_service(&gs.capability_index, slug)?;
+    enforce_record_policy(&gs.policy, GatewayPolicyOperation::Call, &record)?;
     // Resolve the backend endpoint using the live registry — the
     // capability record's `instance_id` is authoritative even if the
     // backend's port changed since indexing, because we always
@@ -453,7 +487,24 @@ pub fn service_error_to_json(err: &ServiceError) -> Value {
     if let Some(backend) = &err.backend {
         error["backend"] = (**backend).clone();
     }
+    if let Some(policy) = &err.policy {
+        error["policy"] = serde_json::to_value(policy).unwrap_or(Value::Null);
+    }
     json!({ "error": error })
+}
+
+pub(crate) fn policy_denied_error(denial: GatewayPolicyDenial) -> ServiceError {
+    ServiceError::new("policy-denied", denial.message.clone()).with_policy_denial(denial)
+}
+
+fn enforce_record_policy(
+    policy: &GatewayPolicy,
+    operation: GatewayPolicyOperation,
+    record: &CapabilityRecord,
+) -> Result<(), ServiceError> {
+    policy
+        .enforce_record(operation, record)
+        .map_err(policy_denied_error)
 }
 
 fn inject_call_instance_meta(result: &mut Value, entry: &ServiceEntry) {

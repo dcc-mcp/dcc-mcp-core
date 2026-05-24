@@ -87,6 +87,15 @@ into a faster authoring loop.
    `x-dcc-mcp-index-generation`. Compact batch examples may also read
    per-result `token_accounting` metadata, and batch request items may carry an
    optional `id` that is echoed next to the numeric result `index`.
+   Gateway capability policy is a deployment boundary, not an adapter-local
+   convention. Read-only gateway mode still allows discovery and describe, but
+   denies `load_skill`, `unload_skill`, tool-group changes, and backend calls
+   unless the capability record declares `annotations.readOnlyHint = true`.
+   DCC, skill, and canonical `tool_slug` allowlists filter search results and
+   return stable `policy-denied` errors with `policy.reason` on describe, call,
+   load, and batch result items. Adapter docs and examples should teach callers
+   to respect that surface instead of working around it, and tool declarations
+   must keep read-only annotations accurate because the gateway enforces them.
    Subscribe to the shared `EventBus` when an adapter or studio integration
    needs programmatic lifecycle hooks: use `skill.*` events for load/unload
    visibility and `tool.*` events for dispatch/completion/failure metrics

@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use dcc_mcp_gateway_core::policy::GatewayPolicy;
+
 /// Admin persistence configuration (SQLite + skill-path reload hook).
 ///
 /// Grouped to satisfy the Open/Closed Principle: adding new admin-persist
@@ -122,6 +124,10 @@ pub struct GatewayConfig {
     /// Pre-registered middleware chain applied to every `tools/call` (issue #770).
     pub middleware_chain: super::middleware::MiddlewareChain,
 
+    /// Policy applied to gateway dynamic-capability discovery, describe,
+    /// skill loading, and calls.
+    pub policy: GatewayPolicy,
+
     /// Enable the read-only `/admin` web UI (issue #772).
     ///
     /// Default: `true`. Disable explicitly for locked-down deployments.
@@ -176,6 +182,7 @@ impl Default for GatewayConfig {
             adapter_version: None,
             adapter_dcc: None,
             middleware_chain: super::middleware::MiddlewareChain::new(),
+            policy: GatewayPolicy::default(),
             admin_enabled: true,
             admin_path: "/admin".to_string(),
             health_check_interval_secs: 5,

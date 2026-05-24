@@ -49,6 +49,8 @@ use serde_json::{Value, json};
 use tokio::sync::{RwLock, broadcast, watch};
 use uuid::Uuid;
 
+use dcc_mcp_gateway_core::policy::GatewayPolicy;
+
 use super::event_log::EventLog;
 use super::instance_diagnostics::{InstanceDiagnostics, InstanceDiagnosticsStore};
 
@@ -201,6 +203,8 @@ pub struct GatewayState {
     ///
     /// When `false` (default), `live_instances` filters them out.
     pub allow_unknown_tools: bool,
+    /// Gateway-scoped dynamic capability policy.
+    pub policy: Arc<GatewayPolicy>,
     /// Adapter package version (e.g. `dcc_mcp_maya = "0.3.0"`) advertised
     /// by this gateway on its `__gateway__` sentinel and used by the
     /// version-aware election comparison (issue maya#137).
