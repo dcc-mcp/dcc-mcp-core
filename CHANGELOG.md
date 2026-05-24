@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.28](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.27...v0.17.28) (2026-05-24)
+
+
+### Features
+
+* add mutable skill object loading ([ea5e7be](https://github.com/loonghao/dcc-mcp-core/commit/ea5e7bef7acd995afc7caeba076cbf5a1e0e2453))
+* add release smoke instance targeting ([67c7385](https://github.com/loonghao/dcc-mcp-core/commit/67c7385fb468c4503d1899cd3dbbd006b4ec1ce8)), closes [#1158](https://github.com/loonghao/dcc-mcp-core/issues/1158)
+
 ## [0.17.27](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.26...v0.17.27) (2026-05-24)
 
 
