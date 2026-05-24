@@ -296,16 +296,7 @@ pub async fn call_service(
         }
         Err(e) => {
             let backend_body = super::instance_diagnostics::parse_rest_error_json(&e);
-            let kind = if is_host_died_backend_error(&e) {
-                "host-died"
-            } else {
-                backend_body
-                    .as_ref()
-                    .and_then(|b| b.get("kind"))
-                    .and_then(|k| k.as_str())
-                    .filter(|k| *k == "thread-affinity-violation")
-                    .unwrap_or("backend-error")
-            };
+            let kind = backend_failure_kind(&e, backend_body.as_ref());
             gs.instance_diagnostics.record_call_error(
                 entry.instance_id,
                 kind,
@@ -436,6 +427,34 @@ fn inject_call_instance_meta(result: &mut Value, entry: &ServiceEntry) {
         json!(instance_short(&entry.instance_id)),
     );
     dcc_obj.insert("display_id".to_string(), json!(entry.display_id()));
+}
+
+fn backend_failure_kind(message: &str, backend_body: Option<&Value>) -> &'static str {
+    if let Some(kind) = backend_body
+        .and_then(|b| b.get("kind"))
+        .and_then(Value::as_str)
+    {
+        match kind {
+            "host-busy" => return "host-busy",
+            "host-died" => return "host-died",
+            "thread-affinity-violation" => return "thread-affinity-violation",
+            _ => {}
+        }
+    }
+    if is_host_busy_backend_error(message) {
+        "host-busy"
+    } else if is_host_died_backend_error(message) {
+        "host-died"
+    } else {
+        "backend-error"
+    }
+}
+
+fn is_host_busy_backend_error(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("host-busy")
+        || lower.contains("queue-overloaded")
+        || lower.contains("queue overloaded")
 }
 
 fn is_host_died_backend_error(message: &str) -> bool {
@@ -706,6 +725,29 @@ mod unit_tests {
         assert!(!is_host_died_backend_error(
             "transport error: connection refused"
         ));
+    }
+
+    #[test]
+    fn backend_failure_kind_preserves_host_busy_and_host_died() {
+        assert_eq!(
+            backend_failure_kind("HTTP 503", Some(&json!({"kind": "host-busy"}))),
+            "host-busy"
+        );
+        assert_eq!(
+            backend_failure_kind("HTTP 502", Some(&json!({"kind": "host-died"}))),
+            "host-died"
+        );
+        assert_eq!(
+            backend_failure_kind("queue overloaded (depth=16/16)", None),
+            "host-busy"
+        );
+        assert_eq!(
+            backend_failure_kind(
+                "HTTP 409",
+                Some(&json!({"kind": "thread-affinity-violation"}))
+            ),
+            "thread-affinity-violation"
+        );
     }
 
     #[test]

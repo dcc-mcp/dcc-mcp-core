@@ -390,6 +390,19 @@ fn dispatch_veto_maps_to_policy_denied() {
 }
 
 #[test]
+fn queue_overload_maps_to_host_busy() {
+    for message in [
+        "host-busy",
+        "queue-overloaded: depth=16/16; retry in 1s",
+        "queue overloaded (depth=16/16); retry in 1s",
+    ] {
+        let err = dispatch_error_to_service_error(DispatchError::HandlerError(message.into()));
+        assert_eq!(err.kind, ServiceErrorKind::HostBusy);
+        assert_eq!(err.http_status(), 503);
+    }
+}
+
+#[test]
 fn call_dispatches_and_normalises_slug() {
     let (svc, inv) = build_service(vec![sphere_action(true)]);
     inv.set_next(Ok(serde_json::json!({"created": 1})));

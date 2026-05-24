@@ -80,7 +80,7 @@ is fetched on demand by `POST /v1/describe` with `include_schema: true`
 - **Structured errors** — single envelope `{kind, message, hint, request_id, candidates?}`,
   `kind` is kebab-case (`unknown-slug`, `ambiguous`, `skill-not-loaded`,
   `invalid-params`, `unauthorized`, `bad-request`, `affinity-violation`,
-  `not-ready`, `backend-error`, `internal`).
+  `not-ready`, `host-busy`, `backend-error`, `internal`).
 - **Auth gate** — pluggable `AuthGate`. Default `AllowLocalhostGate`
   rejects non-loopback peers. Enable remote calls by installing
   `BearerTokenGate::new(vec![token])` and binding the listener to a
