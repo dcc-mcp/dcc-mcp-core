@@ -11,6 +11,7 @@ fn test_action_meta_serde_round_trip() {
         description: "Renders the active scene".into(),
         category: "rendering".into(),
         tags: vec!["render".into(), "output".into()],
+        search_aliases: vec!["batch render".into()],
         dcc: "houdini".into(),
         version: "3.1.0".into(),
         input_schema: serde_json::json!({"type": "object"}),

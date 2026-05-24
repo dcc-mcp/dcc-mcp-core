@@ -241,6 +241,11 @@ pub struct CapabilityRecord {
     /// keywords the description itself might lack.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
+    /// Bounded search-only tokens derived from aliases and schemas.
+    ///
+    /// These improve recall without expanding the public search response.
+    #[serde(default, skip_serializing, skip_deserializing)]
+    pub search_tokens: Vec<String>,
     /// DCC type bucket (e.g. `"maya"`).
     pub dcc_type: String,
     /// UUID of the owning instance, serialised as a canonical string.
@@ -303,6 +308,7 @@ impl CapabilityRecord {
             skill_name,
             summary: normalise_summary(summary),
             tags,
+            search_tokens: Vec::new(),
             dcc_type,
             instance_id,
             has_schema,
@@ -338,6 +344,13 @@ impl CapabilityRecord {
         self
     }
 
+    /// Attach bounded internal search tokens derived from aliases/schemas.
+    #[must_use]
+    pub fn with_search_tokens(mut self, tokens: Vec<String>) -> Self {
+        self.search_tokens = normalise_search_tokens(tokens);
+        self
+    }
+
     /// Build a record for a tool from an **unloaded** skill's metadata.
     ///
     /// Used by the gateway's `update_unloaded_skills` refresh path to
@@ -365,6 +378,7 @@ impl CapabilityRecord {
             skill_name: Some(skill_name.to_string()),
             summary: normalise_summary(tool_description),
             tags: Vec::new(),
+            search_tokens: Vec::new(),
             dcc_type: dcc_type.to_string(),
             instance_id: nil,
             has_schema: false, // unknown until loaded
@@ -397,6 +411,10 @@ impl dcc_mcp_gateway_search::SearchRecord for CapabilityRecord {
         &self.tags
     }
 
+    fn search_tokens(&self) -> &[String] {
+        &self.search_tokens
+    }
+
     fn dcc_type(&self) -> &str {
         &self.dcc_type
     }
@@ -408,6 +426,26 @@ impl dcc_mcp_gateway_search::SearchRecord for CapabilityRecord {
     fn loaded(&self) -> bool {
         self.loaded
     }
+}
+
+fn normalise_search_tokens(tokens: Vec<String>) -> Vec<String> {
+    let mut out = Vec::with_capacity(tokens.len().min(64));
+    let mut seen = std::collections::HashSet::new();
+    for raw in tokens {
+        let token = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+        let token = token.trim();
+        if token.len() < 2 || token.len() > 64 {
+            continue;
+        }
+        let key = token.to_ascii_lowercase();
+        if seen.insert(key) {
+            out.push(token.to_string());
+        }
+        if out.len() >= 64 {
+            break;
+        }
+    }
+    out
 }
 
 /// Truncate a description to [`CapabilityRecord::MAX_SUMMARY_LEN`] and

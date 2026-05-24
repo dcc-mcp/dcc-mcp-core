@@ -95,6 +95,7 @@ use serde_impl::{
         dcc: String => [get(by_str), set],
         tags: Vec<String> => [get(clone), set],
         search_hint: String => [get(by_str), set],
+        search_aliases: Vec<String> => [get(clone), set],
         scripts: Vec<String> => [get(clone), set],
         skill_path: String => [get(by_str), set],
         version: String => [get(by_str), set],
@@ -188,6 +189,18 @@ pub struct SkillMetadata {
     /// Falls back to `description` if not set.
     #[serde(default, rename = "search-hint", alias = "search_hint")]
     pub search_hint: String,
+
+    /// Bounded search-only aliases and synonyms shared by every tool in the
+    /// skill. Tool declarations can add their own `search_aliases`.
+    ///
+    /// Set from `metadata.dcc-mcp.search-aliases` in SKILL.md frontmatter.
+    #[serde(
+        default,
+        rename = "search-aliases",
+        alias = "search_aliases",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub search_aliases: Vec<String>,
 
     /// MCP tool declarations — defines the tools this skill exposes.
     ///

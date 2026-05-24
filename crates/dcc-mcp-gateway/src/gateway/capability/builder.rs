@@ -88,6 +88,7 @@ pub fn build_records_from_backend(input: BuildInput<'_>) -> BuildOutcome {
         let skill_name = skill_name_from_meta(tool.meta.as_ref()).or(name_skill);
         let callable_id = tool.name.clone();
         let tags = extract_tags(&tool.annotations, tool.meta.as_ref());
+        let search_tokens = extract_search_tokens(tool);
         let has_schema = has_meaningful_schema(&tool.input_schema);
         let summary = if tool.description.is_empty() && has_schema {
             // Keep the search text non-empty even when the backend
@@ -115,7 +116,8 @@ pub fn build_records_from_backend(input: BuildInput<'_>) -> BuildOutcome {
             .with_surface_metadata(
                 extract_annotations(&tool.annotations),
                 extract_metadata(tool.meta.as_ref()),
-            ),
+            )
+            .with_search_tokens(search_tokens),
         );
     }
 
@@ -256,8 +258,135 @@ fn compute_fingerprint(records: &[CapabilityRecord]) -> InstanceFingerprint {
         for t in &r.tags {
             t.hash(&mut hasher);
         }
+        for t in &r.search_tokens {
+            t.hash(&mut hasher);
+        }
     }
     InstanceFingerprint(hasher.finish())
+}
+
+fn extract_search_tokens(tool: &McpTool) -> Vec<String> {
+    let mut tokens = Vec::new();
+    if let Some(meta) = tool.meta.as_ref() {
+        tokens.extend(meta_search_values(
+            meta,
+            &["searchAliases", "search_aliases", "aliases"],
+            "alias:",
+        ));
+        tokens.extend(meta_search_values(
+            meta,
+            &["searchTokens", "search_tokens"],
+            "",
+        ));
+    }
+    tokens.extend(schema_search_tokens(&tool.input_schema));
+    tokens
+}
+
+fn meta_search_values(
+    meta: &serde_json::Map<String, Value>,
+    keys: &[&str],
+    nested_prefix: &str,
+) -> Vec<String> {
+    let Some(dcc) = meta.get("dcc").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for key in keys {
+        if let Some(value) = dcc.get(*key) {
+            append_search_values(value, nested_prefix, &mut out);
+        }
+    }
+    out
+}
+
+fn append_search_values(value: &Value, prefix: &str, out: &mut Vec<String>) {
+    match value {
+        Value::String(s) => {
+            for item in s.split(',') {
+                let item = item.trim();
+                if !item.is_empty() {
+                    out.push(prefixed(prefix, item));
+                }
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                if let Some(s) = item.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+                    out.push(prefixed(prefix, s));
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn prefixed(prefix: &str, value: &str) -> String {
+    if prefix.is_empty()
+        || value.starts_with("alias:")
+        || value.starts_with("schema:")
+        || value.starts_with("required:")
+    {
+        value.to_string()
+    } else {
+        format!("{prefix}{value}")
+    }
+}
+
+fn schema_search_tokens(schema: &Value) -> Vec<String> {
+    let mut out = Vec::new();
+    collect_schema_search_tokens(schema, 0, &mut out);
+    out
+}
+
+fn collect_schema_search_tokens(schema: &Value, depth: usize, out: &mut Vec<String>) {
+    if depth > 2 || out.len() >= 48 {
+        return;
+    }
+    let Some(obj) = schema.as_object() else {
+        return;
+    };
+
+    if let Some(required) = obj.get("required").and_then(Value::as_array) {
+        for field in required.iter().filter_map(Value::as_str) {
+            push_schema_token(out, "required:", field);
+        }
+    }
+
+    let Some(props) = obj.get("properties").and_then(Value::as_object) else {
+        return;
+    };
+    let mut names: Vec<&String> = props.keys().collect();
+    names.sort();
+    for name in names {
+        push_schema_token(out, "schema:", name);
+        let Some(prop) = props.get(name) else {
+            continue;
+        };
+        if let Some(description) = prop.get("description").and_then(Value::as_str) {
+            push_schema_token(out, "schema:", &short_description(description));
+        }
+        collect_schema_search_tokens(prop, depth + 1, out);
+        if out.len() >= 48 {
+            break;
+        }
+    }
+}
+
+fn push_schema_token(out: &mut Vec<String>, prefix: &str, value: &str) {
+    let value = value.trim();
+    if value.is_empty() {
+        return;
+    }
+    out.push(prefixed(prefix, value));
+}
+
+fn short_description(description: &str) -> String {
+    description
+        .split_whitespace()
+        .take(8)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn extract_annotations(
@@ -422,6 +551,104 @@ mod unit_tests {
             out.records[0].skill_name.as_deref(),
             Some("maya-primitives")
         );
+    }
+
+    #[test]
+    fn indexes_aliases_and_schema_tokens_without_serializing_them() {
+        let iid = Uuid::from_u128(33);
+        let tools = vec![tool_with_meta(
+            "photoshop-export__save_document",
+            "Save the active Photoshop document.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "destination_path": {
+                        "type": "string",
+                        "description": "Absolute output file path"
+                    },
+                    "flatten_layers": {"type": "boolean"}
+                },
+                "required": ["destination_path"]
+            }),
+            json!({
+                "dcc": {
+                    "skill": "photoshop-export",
+                    "searchAliases": ["write file", "export image"],
+                    "searchTokens": ["schema:existing_hint"]
+                }
+            }),
+        )];
+        let out = build_records_from_backend(BuildInput {
+            instance_id: iid,
+            dcc_type: "photoshop",
+            backend_tools: &tools,
+        });
+
+        let record = &out.records[0];
+        assert!(
+            record
+                .search_tokens
+                .contains(&"alias:write file".to_string())
+        );
+        assert!(
+            record
+                .search_tokens
+                .contains(&"alias:export image".to_string())
+        );
+        assert!(
+            record
+                .search_tokens
+                .contains(&"required:destination_path".to_string())
+        );
+        assert!(
+            record
+                .search_tokens
+                .contains(&"schema:destination_path".to_string())
+        );
+        assert!(
+            record
+                .search_tokens
+                .contains(&"schema:existing_hint".to_string())
+        );
+
+        let serialized = serde_json::to_value(record).unwrap();
+        assert!(
+            serialized.get("search_tokens").is_none(),
+            "search-only tokens must not become public gateway search fields"
+        );
+    }
+
+    #[test]
+    fn fingerprint_changes_when_search_tokens_change() {
+        let iid = Uuid::from_u128(34);
+        let schema = json!({"type": "object"});
+        let before = vec![tool_with_meta(
+            "custom-export__write",
+            "Write custom payload",
+            schema.clone(),
+            json!({"dcc": {"searchAliases": ["old alias"]}}),
+        )];
+        let after = vec![tool_with_meta(
+            "custom-export__write",
+            "Write custom payload",
+            schema,
+            json!({"dcc": {"searchAliases": ["new alias"]}}),
+        )];
+
+        let fp_before = build_records_from_backend(BuildInput {
+            instance_id: iid,
+            dcc_type: "custom",
+            backend_tools: &before,
+        })
+        .fingerprint;
+        let fp_after = build_records_from_backend(BuildInput {
+            instance_id: iid,
+            dcc_type: "custom",
+            backend_tools: &after,
+        })
+        .fingerprint;
+
+        assert_ne!(fp_before, fp_after);
     }
 
     #[test]

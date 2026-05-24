@@ -198,6 +198,9 @@ fn apply_dcc_mcp_metadata_overrides(
                     meta.search_hint = s.to_string();
                 }
             }
+            "search-aliases" | "search_aliases" | "aliases" => {
+                meta.search_aliases = parse_csv_or_list(&value);
+            }
             "depends" => {
                 meta.depends = parse_csv_or_list(&value);
             }

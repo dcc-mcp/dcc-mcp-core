@@ -331,6 +331,10 @@ impl SkillCatalog {
                 },
                 category: metadata.tags.first().cloned().unwrap_or_default(),
                 tags: metadata.tags.clone(),
+                search_aliases: merged_search_aliases(
+                    &metadata.search_aliases,
+                    &tool_decl.search_aliases,
+                ),
                 dcc: metadata.dcc.clone(),
                 version: metadata.version.clone(),
                 input_schema,
@@ -399,6 +403,7 @@ impl SkillCatalog {
                     description: format!("[{}] {}", metadata.name, metadata.description),
                     category: metadata.tags.first().cloned().unwrap_or_default(),
                     tags: metadata.tags.clone(),
+                    search_aliases: metadata.search_aliases.clone(),
                     dcc: metadata.dcc.clone(),
                     version: metadata.version.clone(),
                     input_schema,
@@ -562,6 +567,23 @@ impl SkillCatalog {
         }
         self.entries.clear();
     }
+}
+
+fn merged_search_aliases(skill_aliases: &[String], tool_aliases: &[String]) -> Vec<String> {
+    let mut out = Vec::with_capacity(skill_aliases.len() + tool_aliases.len());
+    let mut seen = std::collections::HashSet::new();
+    for alias in skill_aliases.iter().chain(tool_aliases.iter()) {
+        let trimmed = alias.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let key = trimmed.to_ascii_lowercase();
+        if seen.insert(key) {
+            out.push(trimmed.to_string());
+        }
+    }
+    out.truncate(24);
+    out
 }
 
 fn skill_event_payload(

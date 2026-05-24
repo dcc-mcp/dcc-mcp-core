@@ -40,7 +40,7 @@ impl SkillGroup {
 #[pymethods]
 impl ToolDeclaration {
     #[new]
-    #[pyo3(signature = (name, description="".to_string(), input_schema=None, output_schema=None, read_only=false, destructive=false, idempotent=false, defer_loading=false, source_file="".to_string(), group="".to_string(), execution="sync".to_string(), timeout_hint_secs=None, thread_affinity="any".to_string(), enforce_thread_affinity=false))]
+    #[pyo3(signature = (name, description="".to_string(), input_schema=None, output_schema=None, read_only=false, destructive=false, idempotent=false, defer_loading=false, source_file="".to_string(), group="".to_string(), execution="sync".to_string(), timeout_hint_secs=None, thread_affinity="any".to_string(), enforce_thread_affinity=false, search_aliases=vec![]))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         name: String,
@@ -57,6 +57,7 @@ impl ToolDeclaration {
         timeout_hint_secs: Option<u32>,
         thread_affinity: String,
         enforce_thread_affinity: bool,
+        search_aliases: Vec<String>,
     ) -> pyo3::PyResult<Self> {
         let input_schema = input_schema
             .and_then(|schema| serde_json::from_str(&schema).ok())
@@ -85,6 +86,7 @@ impl ToolDeclaration {
             _deferred_guard: None,
             annotations: ToolAnnotations::default(),
             required_capabilities: Vec::new(),
+            search_aliases,
         })
     }
 
@@ -92,7 +94,7 @@ impl ToolDeclaration {
     // `name`, `description`, `read_only`, `destructive`, `idempotent`,
     // `defer_loading`, `source_file`, `group`, `enforce_thread_affinity`
     // (read+write), plus `timeout_hint_secs` (Option<u32>) and `required_capabilities`
-    // (Vec<String>). See `crate::skill_metadata::ToolDeclaration`'s
+    // (Vec<String>) and `search_aliases` (Vec<String>). See `crate::skill_metadata::ToolDeclaration`'s
     // `#[py_wrapper(...)]` table for the canonical list.
 
     #[getter]
