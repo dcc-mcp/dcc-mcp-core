@@ -736,28 +736,28 @@ const HEALTH_MESSAGES = defineNamespace({
 const INSTANCES_MESSAGES = defineNamespace({
   en: {
     title: 'Instances',
-    description: 'One row per registered DCC backend (same data as the former Workers tab). Use the links to open the adapter HTTP host, MCP streamable endpoint, or /docs when the host exposes it.',
+    description: 'One card per registered DCC backend. Use the links to open the adapter HTTP host, MCP streamable endpoint, or /docs when the host exposes it.',
     'empty.none': 'No instances registered.',
     'empty.search': 'No instances match your search.',
     'group.meta': '{count} instance(s) · {flagged} flagged',
   },
   'zh-CN': {
     title: '实例',
-    description: '每个已注册 DCC 后端一行（与旧 Workers 标签页相同的数据）。可用链接打开适配器 HTTP 主机、MCP streamable 端点，或主机暴露的 /docs。',
+    description: '每个已注册 DCC 后端一张卡片。可用链接打开适配器 HTTP 主机、MCP streamable 端点，或主机暴露的 /docs。',
     'empty.none': '没有已注册实例。',
     'empty.search': '没有匹配搜索的实例。',
     'group.meta': '{count} 个实例 · {flagged} 个已标记',
   },
   ja: {
     title: 'インスタンス',
-    description: '登録済み DCC バックエンドを 1 行ずつ表示します（旧 Workers タブと同じデータ）。リンクからアダプター HTTP ホスト、MCP streamable エンドポイント、またはホストが公開する /docs を開けます。',
+    description: '登録済み DCC バックエンドをカードで表示します。リンクからアダプター HTTP ホスト、MCP streamable エンドポイント、またはホストが公開する /docs を開けます。',
     'empty.none': '登録済みインスタンスはありません。',
     'empty.search': '検索に一致するインスタンスはありません。',
     'group.meta': '{count} 件のインスタンス · {flagged} 件 flagged',
   },
   ko: {
     title: '인스턴스',
-    description: '등록된 DCC 백엔드를 한 행씩 표시합니다(이전 Workers 탭과 동일한 데이터). 링크로 어댑터 HTTP 호스트, MCP streamable 엔드포인트 또는 호스트가 제공하는 /docs를 열 수 있습니다.',
+    description: '등록된 DCC 백엔드를 카드로 표시합니다. 링크로 어댑터 HTTP 호스트, MCP streamable 엔드포인트 또는 호스트가 제공하는 /docs를 열 수 있습니다.',
     'empty.none': '등록된 인스턴스가 없습니다.',
     'empty.search': '검색과 일치하는 인스턴스가 없습니다.',
     'group.meta': '{count}개 인스턴스 · {flagged}개 표시됨',

@@ -631,7 +631,7 @@ type GovernanceDecisionRow = {
   pressure?: { quota_active?: boolean; throttled?: boolean };
 };
 
-type WorkerRow = {
+type InstanceRow = {
   instance_id: string;
   display_name: string | null;
   dcc_type: string;
@@ -651,7 +651,7 @@ type WorkerRow = {
   failure_stage?: string | null;
 };
 
-type WorkerSummary = {
+type InstanceSummary = {
   live: number;
   stale: number;
   unhealthy: number;
@@ -1111,10 +1111,7 @@ function traceLinks(requestId: string, provided?: AdminLinks): AdminLinks {
 
 function readPanelFromUrl(): Panel {
   const u = new URL(window.location.href);
-  const raw = u.searchParams.get('panel') ?? u.searchParams.get('tab');
-  if (raw === 'workers') {
-    return 'instances';
-  }
+  const raw = u.searchParams.get('panel');
   return isPanelId(raw) ? raw : 'setup';
 }
 
@@ -1214,8 +1211,8 @@ function lanGatewayMcpUrl(): string | null {
   return gatewayMcpUrlFromPage();
 }
 
-function workerSetupLabel(worker: WorkerRow): string {
-  return `${worker.display_name || worker.dcc_type} (${worker.instance_id.slice(0, 8)})`;
+function instanceSetupLabel(instance: InstanceRow): string {
+  return `${instance.display_name || instance.dcc_type} (${instance.instance_id.slice(0, 8)})`;
 }
 
 function detectClientPlatform(): ClientPlatform {
@@ -1260,9 +1257,9 @@ function configPathFileUrl(path: string): string | null {
   return normalized.match(/^[A-Za-z]:\//) ? `file:///${normalized}` : null;
 }
 
-function workerOpenApiSource(worker: WorkerRow): OpenApiSource {
-  const urls = backendAccessUrls(worker.mcp_url);
-  const label = `${worker.display_name || worker.dcc_type} ${worker.instance_id.slice(0, 8)}`;
+function instanceOpenApiSource(instance: InstanceRow): OpenApiSource {
+  const urls = backendAccessUrls(instance.mcp_url);
+  const label = `${instance.display_name || instance.dcc_type} ${instance.instance_id.slice(0, 8)}`;
   return {
     label,
     specUrl: urls.openapi,
@@ -1322,9 +1319,9 @@ async function apiJson<T>(path: string): Promise<T> {
   }
 }
 
-function BackendOpenApiLinks({ worker }: { worker: WorkerRow }) {
+function BackendOpenApiLinks({ instance }: { instance: InstanceRow }) {
   try {
-    const source = workerOpenApiSource(worker);
+    const source = instanceOpenApiSource(instance);
     return (
       <span className="mcp-backend-links openapi-backend-links">
         <a href={source.inspectorUrl}>Inspector</a>
@@ -1335,7 +1332,7 @@ function BackendOpenApiLinks({ worker }: { worker: WorkerRow }) {
       </span>
     );
   } catch {
-    return <span className="mono-path">{worker.mcp_url}</span>;
+    return <span className="mono-path">{instance.mcp_url}</span>;
   }
 }
 
@@ -1865,8 +1862,8 @@ function toolGroupLabel(tool: ToolRow): string {
   return appTypeLabel(tool.dcc_type);
 }
 
-function workerGroupLabel(worker: WorkerRow): string {
-  return appTypeLabel(worker.dcc_type);
+function instanceGroupLabel(instance: InstanceRow): string {
+  return appTypeLabel(instance.dcc_type);
 }
 
 function callGroupLabel(call: CallRow): string {
@@ -2761,8 +2758,8 @@ function App() {
   const [openApiSource, setOpenApiSource] = useState<OpenApiSource>(() => readOpenApiSourceFromUrl());
   const [openApiSpec, setOpenApiSpec] = useState<OpenApiSpec | null>(null);
   const [openApiRaw, setOpenApiRaw] = useState('');
-  const [workers, setWorkers] = useState<WorkerRow[]>([]);
-  const [workerSummary, setWorkerSummary] = useState<WorkerSummary>({ live: 0, stale: 0, unhealthy: 0 });
+  const [instanceRows, setInstanceRows] = useState<InstanceRow[]>([]);
+  const [instanceSummary, setInstanceSummary] = useState<InstanceSummary>({ live: 0, stale: 0, unhealthy: 0 });
   const [setupUrlMode, setSetupUrlMode] = useState<SetupUrlMode>('local');
   const [clientPlatform] = useState<ClientPlatform>(() => detectClientPlatform());
   const [directInstanceId, setDirectInstanceId] = useState<string>('');
@@ -2816,14 +2813,6 @@ function App() {
       delete document.documentElement.dataset.adminLocaleMatchedTag;
     }
   }, [localeDetection]);
-
-  useEffect(() => {
-    const u = new URL(window.location.href);
-    if (u.searchParams.get('panel') === 'workers') {
-      u.searchParams.set('panel', 'instances');
-      window.history.replaceState({}, '', `${u.pathname}${u.search}`);
-    }
-  }, []);
 
   useEffect(() => {
     setListSearch('');
@@ -3028,12 +3017,12 @@ function App() {
     );
   }, [workflows, listSearch]);
 
-  const filteredWorkers = useMemo(() => {
+  const filteredInstanceRows = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
     if (!q) {
-      return workers;
+      return instanceRows;
     }
-    return workers.filter((w) =>
+    return instanceRows.filter((w) =>
       matchesListFilter(
         q,
         haystack(
@@ -3049,36 +3038,36 @@ function App() {
         ),
       ),
     );
-  }, [workers, listSearch]);
+  }, [instanceRows, listSearch]);
 
-  const directSetupWorkers = useMemo(
-    () => workers.filter((worker) => !worker.stale && worker.mcp_url && !worker.mcp_url.includes(':0/')),
-    [workers],
+  const directSetupInstanceRows = useMemo(
+    () => instanceRows.filter((instance) => !instance.stale && instance.mcp_url && !instance.mcp_url.includes(':0/')),
+    [instanceRows],
   );
-  const selectedDirectWorker = useMemo(
-    () => directSetupWorkers.find((worker) => worker.instance_id === directInstanceId) ?? directSetupWorkers[0] ?? null,
-    [directInstanceId, directSetupWorkers],
+  const selectedDirectInstance = useMemo(
+    () => directSetupInstanceRows.find((instance) => instance.instance_id === directInstanceId) ?? directSetupInstanceRows[0] ?? null,
+    [directInstanceId, directSetupInstanceRows],
   );
   const lanUrl = useMemo(() => lanGatewayMcpUrl(), []);
   const setupMcpUrl = useMemo(() => {
     if (setupUrlMode === 'lan' && lanUrl) {
       return lanUrl;
     }
-    if (setupUrlMode === 'direct' && selectedDirectWorker) {
+    if (setupUrlMode === 'direct' && selectedDirectInstance) {
       try {
-        return backendAccessUrls(selectedDirectWorker.mcp_url).mcp;
+        return backendAccessUrls(selectedDirectInstance.mcp_url).mcp;
       } catch {
-        return selectedDirectWorker.mcp_url;
+        return selectedDirectInstance.mcp_url;
       }
     }
     return gatewayMcpUrl(health);
-  }, [health, lanUrl, selectedDirectWorker, setupUrlMode]);
+  }, [health, lanUrl, selectedDirectInstance, setupUrlMode]);
 
   useEffect(() => {
-    if (!directInstanceId && directSetupWorkers.length > 0) {
-      setDirectInstanceId(directSetupWorkers[0].instance_id);
+    if (!directInstanceId && directSetupInstanceRows.length > 0) {
+      setDirectInstanceId(directSetupInstanceRows[0].instance_id);
     }
-  }, [directInstanceId, directSetupWorkers]);
+  }, [directInstanceId, directSetupInstanceRows]);
 
   const filteredLogs = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
@@ -3198,9 +3187,9 @@ function App() {
     [logs],
   );
 
-  const unhealthyWorkers = useMemo(
-    () => workers.filter((worker) => worker.stale || !statusClass(worker.status).includes('ok')),
-    [workers],
+  const unhealthyInstanceRows = useMemo(
+    () => instanceRows.filter((instance) => instance.stale || !statusClass(instance.status).includes('ok')),
+    [instanceRows],
   );
 
   const filteredTopTools = useMemo(() => {
@@ -3399,12 +3388,12 @@ function App() {
         traceId: first.request_id,
       });
     }
-    if (unhealthyWorkers.length > 0) {
-      const first = unhealthyWorkers[0];
+    if (unhealthyInstanceRows.length > 0) {
+      const first = unhealthyInstanceRows[0];
       signals.push({
         key: 'instances',
         label: t('debug.signal.instanceHealth'),
-        value: t('debug.detail.flagged', { count: unhealthyWorkers.length }),
+        value: t('debug.detail.flagged', { count: unhealthyInstanceRows.length }),
         detail: first.failure_reason || first.failure_stage || `${first.dcc_type} ${first.status}`,
         tone: 'warn',
         panel: 'instances',
@@ -3473,7 +3462,7 @@ function App() {
       return [{
         key: 'ready',
         label: t('debug.signal.gatewayReady'),
-        value: t('debug.detail.live', { count: workerSummary.live }),
+        value: t('debug.detail.live', { count: instanceSummary.live }),
         detail: t('debug.detail.noWarnings'),
         tone: 'ok',
         panel: 'health',
@@ -3493,8 +3482,8 @@ function App() {
     tokenPressure,
     traceSummary.agentContext,
     traces.length,
-    unhealthyWorkers,
-    workerSummary.live,
+    unhealthyInstanceRows,
+    instanceSummary.live,
     workflowSummary.zeroResults,
   ]);
 
@@ -3597,9 +3586,9 @@ function App() {
 
   const fetchInstanceBackends = useCallback(async () => {
     try {
-      const payload = await apiJson<{ workers: WorkerRow[]; summary: WorkerSummary }>('/workers');
-      setWorkers(payload.workers);
-      setWorkerSummary(payload.summary);
+      const payload = await apiJson<{ workers: InstanceRow[]; summary: InstanceSummary }>('/workers');
+      setInstanceRows(payload.workers);
+      setInstanceSummary(payload.summary);
       markUpdated(
         'instances',
         t('common.updated.instances', { count: payload.workers.length, live: payload.summary.live, stale: payload.summary.stale, unhealthy: payload.summary.unhealthy, time: new Date().toLocaleTimeString() }),
@@ -4062,7 +4051,7 @@ function App() {
             {listSearch.trim() ? (
               <span className="list-search-meta">
                 {activePanel === 'activity' ? `${filteredActivity.length} / ${activity.length}` : ''}
-                {activePanel === 'instances' ? `${filteredWorkers.length} / ${workers.length}` : ''}
+                {activePanel === 'instances' ? `${filteredInstanceRows.length} / ${instanceRows.length}` : ''}
                 {activePanel === 'tools' ? `${filteredTools.length} / ${tools.length}` : ''}
                 {activePanel === 'workflows' ? `${filteredWorkflows.length} / ${workflows.length}` : ''}
                 {activePanel === 'openapi' ? `${filteredOpenApiOperations.length} / ${openApiOperations.length}` : ''}
@@ -4110,8 +4099,8 @@ function App() {
                   className={setupUrlMode === 'direct' ? 'setup-mode active' : 'setup-mode'}
                   type="button"
                   aria-pressed={setupUrlMode === 'direct'}
-                  disabled={directSetupWorkers.length === 0}
-                  onClick={() => directSetupWorkers.length > 0 && setSetupUrlMode('direct')}
+                  disabled={directSetupInstanceRows.length === 0}
+                  onClick={() => directSetupInstanceRows.length > 0 && setSetupUrlMode('direct')}
                 >
                   {t('setup.mode.direct')}
                 </button>
@@ -4127,13 +4116,13 @@ function App() {
                 <label className="setup-instance-picker">
                   <span>Instance</span>
                   <select
-                    value={selectedDirectWorker?.instance_id ?? ''}
+                    value={selectedDirectInstance?.instance_id ?? ''}
                     onChange={(event) => setDirectInstanceId(event.target.value)}
-                    disabled={directSetupWorkers.length === 0}
+                    disabled={directSetupInstanceRows.length === 0}
                   >
-                    {directSetupWorkers.map((worker) => (
-                      <option key={worker.instance_id} value={worker.instance_id}>
-                        {workerSetupLabel(worker)}
+                    {directSetupInstanceRows.map((instance) => (
+                      <option key={instance.instance_id} value={instance.instance_id}>
+                        {instanceSetupLabel(instance)}
                       </option>
                     ))}
                   </select>
@@ -4182,7 +4171,7 @@ function App() {
             </div>
             <div className="debug-grid">
               <HealthCard tone={health?.status === 'ok' ? 'ok' : 'warn'} label={t('debug.metric.gateway')} value={gatewayLabel(health)} />
-              <HealthCard tone={unhealthyWorkers.length ? 'warn' : 'ok'} label={t('debug.metric.instances')} value={t('debug.detail.liveFlagged', { live: workerSummary.live, flagged: unhealthyWorkers.length })} />
+              <HealthCard tone={unhealthyInstanceRows.length ? 'warn' : 'ok'} label={t('debug.metric.instances')} value={t('debug.detail.liveFlagged', { live: instanceSummary.live, flagged: unhealthyInstanceRows.length })} />
               <HealthCard tone={errorRateTone(stats)} label={t('debug.metric.success')} value={stats ? `${stats.success_rate.toFixed(1)}%` : '?'} />
               <HealthCard tone={latencyTone(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} label={t('debug.metric.latency')} value={stats?.latency_ms?.p95_ms ?? stats?.p95_ms ?? '-'} />
               <HealthCard label={t('debug.metric.tokensPerCall')} value={formatTokenCount(tokenPressure.avg)} />
@@ -4277,12 +4266,12 @@ function App() {
                   <h3>{t('debug.section.instanceSignals')}</h3>
                   <button className="linkish" type="button" onClick={() => goToPanel('instances')}>{t('debug.action.openInstances')}</button>
                 </div>
-                {unhealthyWorkers.length === 0 ? <p className="empty">{t('debug.empty.instances')}</p> : unhealthyWorkers.slice(0, 8).map((worker) => (
-                  <div key={worker.instance_id} className="debug-row static">
-                    <span><StatusBadge value={worker.stale ? 'stale' : worker.status} /></span>
-                    <span>{worker.dcc_type}</span>
-                    <span title={worker.failure_reason ?? worker.failure_stage ?? worker.instance_id}>
-                      {worker.display_name} · {worker.failure_reason ?? worker.failure_stage ?? compactId(worker.instance_id)}
+                {unhealthyInstanceRows.length === 0 ? <p className="empty">{t('debug.empty.instances')}</p> : unhealthyInstanceRows.slice(0, 8).map((instance) => (
+                  <div key={instance.instance_id} className="debug-row static">
+                    <span><StatusBadge value={instance.stale ? 'stale' : instance.status} /></span>
+                    <span>{instance.dcc_type}</span>
+                    <span title={instance.failure_reason ?? instance.failure_stage ?? instance.instance_id}>
+                      {instance.display_name} · {instance.failure_reason ?? instance.failure_stage ?? compactId(instance.instance_id)}
                     </span>
                   </div>
                 ))}
@@ -4293,19 +4282,19 @@ function App() {
                   <h3>{t('debug.section.openapiEntryPoints')}</h3>
                   <button className="linkish" type="button" onClick={() => goToPanel('openapi')}>{t('debug.action.gatewaySpec')}</button>
                 </div>
-                {workers.length === 0 ? <p className="empty">{t('debug.empty.openapi')}</p> : (
-                  Array.from(groupRows(workers.slice(0, 8), workerGroupLabel).entries())
+                {instanceRows.length === 0 ? <p className="empty">{t('debug.empty.openapi')}</p> : (
+                  Array.from(groupRows(instanceRows.slice(0, 8), instanceGroupLabel).entries())
                     .sort(([a], [b]) => a.localeCompare(b))
-                    .map(([group, groupWorkers]) => (
+                    .map(([group, groupInstances]) => (
                       <div key={group} className="contract-group">
                         <h4>{group}</h4>
-                        {groupWorkers.map((worker) => (
-                          <div key={worker.instance_id} className="contract-row">
+                        {groupInstances.map((instance) => (
+                          <div key={instance.instance_id} className="contract-row">
                             <span>
-                              <strong>{worker.display_name}</strong>
-                              <em>{worker.dcc_type} · {compactInstanceId(worker.instance_id)}</em>
+                              <strong>{instance.display_name}</strong>
+                              <em>{instance.dcc_type} · {compactInstanceId(instance.instance_id)}</em>
                             </span>
-                            <BackendOpenApiLinks worker={worker} />
+                            <BackendOpenApiLinks instance={instance} />
                           </div>
                         ))}
                       </div>
@@ -4426,47 +4415,47 @@ function App() {
               {t('instances.description')}
             </p>
             <StatusLine text={updatedAt.instances} error={errors.instances} />
-            {workers.length === 0 ? (
+            {instanceRows.length === 0 ? (
               <p className="empty">{t('instances.empty.none')}</p>
-            ) : filteredWorkers.length === 0 ? (
+            ) : filteredInstanceRows.length === 0 ? (
               <p className="empty">{t('instances.empty.search')}</p>
             ) : (
-              <div className="worker-groups">
-                {Array.from(groupRows(filteredWorkers, workerGroupLabel).entries())
+              <div className="instance-groups">
+                {Array.from(groupRows(filteredInstanceRows, instanceGroupLabel).entries())
                   .sort(([a], [b]) => a.localeCompare(b))
-                  .map(([group, groupWorkers]) => {
-                    const flagged = groupWorkers.filter((worker) => worker.stale || !statusClass(worker.status).includes('ok')).length;
+                  .map(([group, groupInstances]) => {
+                    const flagged = groupInstances.filter((instance) => instance.stale || !statusClass(instance.status).includes('ok')).length;
                     return (
-                      <div key={group} className="worker-group">
-                        <div className="worker-group-head">
+                      <div key={group} className="instance-group">
+                        <div className="instance-group-head">
                           <h3>{group}</h3>
-                          <span>{t('instances.group.meta', { count: groupWorkers.length, flagged })}</span>
+                          <span>{t('instances.group.meta', { count: groupInstances.length, flagged })}</span>
                         </div>
-                        <div className="workers-grid">
-                          {groupWorkers.map((worker) => (
-                            <div key={worker.instance_id} className={`worker-card ${worker.stale ? 'stale' : statusClass(worker.status).replace('badge badge-', '')}`}>
-                              <div className="wname">
-                                <img src={resolveDccIcon(worker.dcc_type)} alt="" className="dcc-icon" aria-hidden />
-                                {worker.display_name} <span>{compactInstanceId(worker.instance_id)}</span>
+                        <div className="instances-grid">
+                          {groupInstances.map((instance) => (
+                            <div key={instance.instance_id} className={`instance-card ${instance.stale ? 'stale' : statusClass(instance.status).replace('badge badge-', '')}`}>
+                              <div className="instance-name">
+                                <img src={resolveDccIcon(instance.dcc_type)} alt="" className="dcc-icon" aria-hidden />
+                                {instance.display_name} <span>{compactInstanceId(instance.instance_id)}</span>
                               </div>
-                              <div className="wkv">
-                                <span>App type</span><span>{worker.dcc_type}</span>
-                                <span>Status</span><span><StatusBadge value={worker.status} /></span>
-                                {worker.failure_reason ? (
+                              <div className="instance-kv">
+                                <span>App type</span><span>{instance.dcc_type}</span>
+                                <span>Status</span><span><StatusBadge value={instance.status} /></span>
+                                {instance.failure_reason ? (
                                   <>
-                                    <span>Failure</span><span>{worker.failure_reason}</span>
+                                    <span>Failure</span><span>{instance.failure_reason}</span>
                                   </>
                                 ) : null}
-                                <span>PID</span><span>{worker.pid ?? '-'}</span>
-                                <span>Uptime</span><span>{formatUptime(worker.uptime_secs)}</span>
-                                <span>Version</span><span>{worker.version ?? '-'}</span>
-                                <span>Adapter</span><span>{worker.adapter_version ?? '-'}</span>
-                                <span>Scene</span><span>{worker.scene ?? '-'}</span>
-                                <span>CPU%</span><span>{worker.cpu_percent == null ? '-' : worker.cpu_percent.toFixed(1)}</span>
-                                <span>Memory</span><span>{formatBytes(worker.memory_bytes)}</span>
-                                <span>Access URL</span><span><BackendAccessUrl mcpUrl={worker.mcp_url} /></span>
-                                <span>Endpoints</span><span><McpBackendLinks mcpUrl={worker.mcp_url} /></span>
-                                <span>OpenAPI</span><span><BackendOpenApiLinks worker={worker} /></span>
+                                <span>PID</span><span>{instance.pid ?? '-'}</span>
+                                <span>Uptime</span><span>{formatUptime(instance.uptime_secs)}</span>
+                                <span>Version</span><span>{instance.version ?? '-'}</span>
+                                <span>Adapter</span><span>{instance.adapter_version ?? '-'}</span>
+                                <span>Scene</span><span>{instance.scene ?? '-'}</span>
+                                <span>CPU%</span><span>{instance.cpu_percent == null ? '-' : instance.cpu_percent.toFixed(1)}</span>
+                                <span>Memory</span><span>{formatBytes(instance.memory_bytes)}</span>
+                                <span>Access URL</span><span><BackendAccessUrl mcpUrl={instance.mcp_url} /></span>
+                                <span>Endpoints</span><span><McpBackendLinks mcpUrl={instance.mcp_url} /></span>
+                                <span>OpenAPI</span><span><BackendOpenApiLinks instance={instance} /></span>
                               </div>
                             </div>
                           ))}
@@ -4476,7 +4465,7 @@ function App() {
                   })}
               </div>
             )}
-            <div className="status-bar">Summary: live {workerSummary.live}, stale {workerSummary.stale}, unhealthy {workerSummary.unhealthy}</div>
+            <div className="status-bar">Summary: live {instanceSummary.live}, stale {instanceSummary.stale}, unhealthy {instanceSummary.unhealthy}</div>
             <button className="refresh-btn" type="button" onClick={fetchInstanceBackends}>{t('common.action.refresh')}</button>
           </section>
         )}
