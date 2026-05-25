@@ -515,7 +515,25 @@ pub async fn handle_admin_skill_detail(
     )
 }
 
-fn admin_audit_row_json(r: &AdminAuditRecord, links: Option<AdminLinkBuilder>) -> Value {
+type CallTokenTotals = (Option<usize>, Option<usize>, Option<usize>);
+
+fn call_token_totals(trace: &DispatchTrace) -> CallTokenTotals {
+    let input_tokens = trace.input_tokens();
+    let output_tokens = trace.output_tokens();
+    let total_tokens = match (input_tokens, output_tokens) {
+        (Some(input), Some(output)) => Some(input + output),
+        (Some(input), None) => Some(input),
+        (None, Some(output)) => Some(output),
+        (None, None) => None,
+    };
+    (input_tokens, output_tokens, total_tokens)
+}
+
+fn admin_audit_row_json(
+    r: &AdminAuditRecord,
+    links: Option<AdminLinkBuilder>,
+    token_totals: Option<(Option<usize>, Option<usize>, Option<usize>)>,
+) -> Value {
     let ts = r
         .timestamp
         .duration_since(UNIX_EPOCH)
@@ -543,6 +561,11 @@ fn admin_audit_row_json(r: &AdminAuditRecord, links: Option<AdminLinkBuilder>) -
         "error": r.error,
         "duration_ms": r.duration_ms,
     });
+    if let Some((input_tokens, output_tokens, total_tokens)) = token_totals {
+        row["input_tokens"] = json!(input_tokens);
+        row["output_tokens"] = json!(output_tokens);
+        row["total_tokens"] = json!(total_tokens);
+    }
     if let Some(links) = links {
         row["links"] = links.request_links(&r.request_id);
     }
@@ -560,19 +583,37 @@ pub async fn handle_admin_calls(
 ) -> impl IntoResponse {
     let links = Some(AdminLinkBuilder::from_request(&headers, &uri));
     let limit = params.limit(200, 1_000);
+    let trace_lookback = limit.saturating_mul(4).max(500);
+    let mut trace_tokens_by_rid: HashMap<String, CallTokenTotals> = HashMap::new();
+    if let Some(ref lane) = s.admin_sqlite_lane {
+        let r = lane.reader();
+        for trace in r.list_traces_since(None, trace_lookback) {
+            trace_tokens_by_rid.insert(trace.request_id.clone(), call_token_totals(&trace));
+        }
+    }
+    if let Some(log) = &s.trace_log {
+        for trace in log.recent(trace_lookback) {
+            trace_tokens_by_rid.insert(trace.request_id.clone(), call_token_totals(&trace));
+        }
+    }
     let mut by_rid: HashMap<String, Value> = HashMap::new();
     if let Some(ref lane) = s.admin_sqlite_lane {
         let r = lane.reader();
         for rec in r.list_audits_recent(limit.saturating_mul(4).max(500)) {
+            let tokens = trace_tokens_by_rid.get(&rec.request_id).copied();
             by_rid.insert(
                 rec.request_id.clone(),
-                admin_audit_row_json(&rec, links.clone()),
+                admin_audit_row_json(&rec, links.clone(), tokens),
             );
         }
     }
     if let Some(log) = &s.audit_log {
         for r in log.lock().iter().rev().take(limit) {
-            by_rid.insert(r.request_id.clone(), admin_audit_row_json(r, links.clone()));
+            let tokens = trace_tokens_by_rid.get(&r.request_id).copied();
+            by_rid.insert(
+                r.request_id.clone(),
+                admin_audit_row_json(r, links.clone(), tokens),
+            );
         }
     }
     let mut calls: Vec<Value> = by_rid.into_values().collect();

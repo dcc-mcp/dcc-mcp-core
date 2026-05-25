@@ -77,6 +77,10 @@ type CallRow = {
   agent_name?: string | null;
   agent_model?: string | null;
   parent_request_id?: string | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  total_tokens?: number | null;
+  estimated_tokens?: number | null;
   links?: AdminLinks;
 };
 
@@ -1358,6 +1362,16 @@ function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
   });
 }
 
+function totalCallTokens(row: CallRow): number | null {
+  if (row.total_tokens != null) {
+    return row.total_tokens;
+  }
+  if (row.input_tokens == null && row.output_tokens == null) {
+    return null;
+  }
+  return (row.input_tokens ?? 0) + (row.output_tokens ?? 0);
+}
+
 function SkillMarkdownPreview({ markdown }: { markdown?: string | null }) {
   if (!markdown) {
     return <p className="empty">No SKILL.md markdown was returned by the backend.</p>;
@@ -2136,6 +2150,10 @@ function App() {
           c.agent_name ?? '',
           c.agent_model ?? '',
           c.parent_request_id ?? '',
+          c.input_tokens != null ? String(c.input_tokens) : '',
+          c.output_tokens != null ? String(c.output_tokens) : '',
+          c.total_tokens != null ? String(c.total_tokens) : '',
+          c.estimated_tokens != null ? String(c.estimated_tokens) : '',
         ),
       ),
     );
@@ -3080,6 +3098,7 @@ function App() {
                     <span><StatusBadge value={call.status} /></span>
                     <span>{compactId(call.request_id)}</span>
                     <span title={call.error ?? call.tool}>{call.error ?? call.tool}</span>
+                    <span>{totalCallTokens(call) == null ? '-' : formatTokenCount(totalCallTokens(call))} tok</span>
                   </button>
                 ))}
               </div>
@@ -3405,35 +3424,43 @@ function App() {
               .map(([group, groupCalls]) => (
                 <div key={group} className="group-block">
                   <h3 className="group-title">{group}</h3>
-                  <table>
-                    <thead><tr><th>Time</th><th>Request</th><th>Tool</th><th>DCC</th><th>Agent</th><th>Transport</th><th>Status</th><th>Error</th><th>ms</th><th>Detail</th></tr></thead>
-                    <tbody>
-                      {groupCalls.map((call) => (
-                        <tr key={call.request_id}>
-                          <td><TimeValue value={call.timestamp} /></td>
-                          <td>
-                            <button className="refresh-btn" type="button" title={call.request_id} onClick={() => goToPanel('traces', { traceId: call.request_id })}>
-                              {call.request_id.slice(0, 12)}
-                            </button>
-                          </td>
-                          <td>{call.tool}</td>
-                          <td>{call.dcc_type}</td>
-                          <td title={call.agent_id ?? call.agent_name ?? ''}>{agentLabel(call)}</td>
-                          <td>{call.transport ?? '-'}</td>
-                          <td><StatusBadge value={call.status} /></td>
-                          <td title={call.error ?? ''}>{call.error ? call.error.slice(0, 80) : '-'}</td>
-                          <td>{call.duration_ms ?? '-'}</td>
-                          <td>
-                            <div className="table-actions">
-                              <button className="refresh-btn" type="button" onClick={() => void fetchTraceInto(call.request_id, 'call')}>Expand</button>
-                              <button className="refresh-btn" type="button" onClick={() => void copyText(traceLinks(call.request_id, call.links).admin_trace_url ?? '', 'trace URL')}>Copy URL</button>
-                              <button className="refresh-btn" type="button" onClick={() => void copyIssueReport(call.request_id)}>Copy issue JSON</button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <div className="table-wrap">
+                    <table>
+                      <thead><tr><th>Time</th><th>Request</th><th>Tool</th><th>DCC</th><th>Agent</th><th>Transport</th><th>Status</th><th>Error</th><th>ms</th><th>Input tok</th><th>Output tok</th><th>Total tok</th><th>Detail</th></tr></thead>
+                      <tbody>
+                        {groupCalls.map((call) => {
+                          const callTokens = totalCallTokens(call);
+                          return (
+                            <tr key={call.request_id}>
+                              <td><TimeValue value={call.timestamp} /></td>
+                              <td>
+                                <button className="refresh-btn" type="button" title={call.request_id} onClick={() => goToPanel('traces', { traceId: call.request_id })}>
+                                  {call.request_id.slice(0, 12)}
+                                </button>
+                              </td>
+                              <td>{call.tool}</td>
+                              <td>{call.dcc_type}</td>
+                              <td title={call.agent_id ?? call.agent_name ?? ''}>{agentLabel(call)}</td>
+                              <td>{call.transport ?? '-'}</td>
+                              <td><StatusBadge value={call.status} /></td>
+                              <td title={call.error ?? ''}>{call.error ? call.error.slice(0, 80) : '-'}</td>
+                              <td>{call.duration_ms ?? '-'}</td>
+                              <td>{call.input_tokens == null ? '-' : formatTokenCount(call.input_tokens)}</td>
+                              <td>{call.output_tokens == null ? '-' : formatTokenCount(call.output_tokens)}</td>
+                              <td>{callTokens == null ? '-' : formatTokenCount(callTokens)}</td>
+                              <td>
+                                <div className="table-actions">
+                                  <button className="refresh-btn" type="button" onClick={() => void fetchTraceInto(call.request_id, 'call')}>Expand</button>
+                                  <button className="refresh-btn" type="button" onClick={() => void copyText(traceLinks(call.request_id, call.links).admin_trace_url ?? '', 'trace URL')}>Copy URL</button>
+                                  <button className="refresh-btn" type="button" onClick={() => void copyIssueReport(call.request_id)}>Copy issue JSON</button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )))}
             <pre className="empty">{callDetail}</pre>

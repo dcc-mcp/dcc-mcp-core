@@ -65,6 +65,7 @@ select {
 .app-shell {
   display: flex;
   height: 100vh;
+  min-height: 0;
 }
 
 /* Sidebar — secondary ivory band */
@@ -74,6 +75,8 @@ select {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  min-height: 0;
+  overflow: hidden;
   padding: 1.5rem 0 1rem;
   width: var(--nav-width);
 }
@@ -117,6 +120,9 @@ select {
   display: flex;
   flex-direction: column;
   gap: 0.05rem;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   padding: 0 0.75rem;
 }
 
@@ -188,7 +194,8 @@ a.nav-link {
     linear-gradient(180deg, rgba(112, 165, 255, 0.08), transparent 18rem),
     var(--ivory-light);
   flex: 1;
-  overflow-y: auto;
+  min-height: 0;
+  overflow: auto;
   padding: 2rem clamp(1rem, 3vw, 2.75rem);
 }
 
@@ -660,7 +667,12 @@ table {
   font-family: var(--font-mono);
   font-size: 0.8125rem;
   margin-bottom: 1rem;
+  overflow: auto;
   width: 100%;
+}
+
+.table-wrap {
+  overflow: auto;
 }
 
 th {
