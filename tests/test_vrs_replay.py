@@ -54,6 +54,7 @@ def test_check_expect_any_one_matches():
         200,
         raw,
         parsed,
+        {},
         [
             {"status": 404},
             {"status": 200, "json_subset": {"output": {"success": False}}},
@@ -69,6 +70,7 @@ def test_check_expect_body_contains_all():
         200,
         raw,
         json.loads(raw),
+        {},
         {"status": 200, "body_contains_all": ['"port":0', '"status":"booting"']},
     )
     assert err is None
@@ -78,7 +80,7 @@ def test_skip_preflight_body_not_contains(monkeypatch):
     vr = _load_replay_module()
 
     def fake_request(*_args, **_kwargs):
-        return 200, '{"instances":[]}', {"instances": []}
+        return 200, '{"instances":[]}', {"instances": []}, {}
 
     monkeypatch.setattr(vr, "_do_request", fake_request)
     assert vr._run_skip_preflight(

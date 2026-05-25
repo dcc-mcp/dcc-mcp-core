@@ -87,18 +87,20 @@ into a faster authoring loop.
    prompts, jobs, and adapter-local `/v1/dcc/{dcc_type}/call`. Use a concrete
    adapter's own `mcp_url` / `/v1/openapi.json` when examples need those
    per-DCC endpoints.
-   For REST discovery, describe, call, and batch examples, keep `/v1/search`,
-   `/v1/describe`, `/v1/call`, and `/v1/call_batch` legacy JSON-compatible by
-   default and request compact TOON only explicitly with
-   `Accept: application/toon`, `response_format: "toon"`, or `compact: true`;
-   for MCP examples, request compact TOON through
+   For REST discovery, describe, call, and batch examples, treat compact TOON as
+   the gateway default for `/v1/search`, `/v1/describe`, `/v1/call`, and
+   `/v1/call_batch`; show legacy JSON opt-out with `Accept: application/json`
+   or `response_format: "json"`, and mention the temporary deployment knob
+   `DCC_MCP_GATEWAY_RESPONSE_FORMAT=json` when compatibility windows matter.
+   For MCP examples, compact-capable clients request TOON through
    `params._meta.response_format="toon"` or `params._meta.compact=true` after
    `initialize` advertises
-   `capabilities.experimental["dcc-mcp"].compactResponses`, and keep the outer
-   JSON-RPC envelope JSON-compatible (`jsonrpc`, `id`, `result`, `error`
-   unchanged). `tools/call` compact examples must preserve the MCP
-   `CallToolResult` shape and put TOON under text content with
-   `mimeType: "application/toon"`;
+   `capabilities.experimental["dcc-mcp"].compactResponses`; legacy clients that
+   omit that metadata stay JSON, and `params._meta.response_format="json"`
+   opts out per request. Keep the outer JSON-RPC envelope JSON-compatible
+   (`jsonrpc`, `id`, `result`, `error` unchanged). `tools/call` compact
+   examples must preserve the MCP `CallToolResult` shape and put TOON under
+   text content with `mimeType: "application/toon"`;
    surface the `x-dcc-mcp-*` token accounting and observability headers when
    teaching agents how to budget and correlate discovery, schema, invocation,
    and batch payloads. Gateway REST search/describe/load/batch bodies include

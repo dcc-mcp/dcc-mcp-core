@@ -1,8 +1,8 @@
 //! Response-format negotiation and token accounting for agent-facing REST.
 //!
-//! The gateway keeps legacy JSON as the default wire contract. Compact
-//! responses are explicit and reuse this codec so later REST/MCP slices can
-//! add more routes without reimplementing TOON encoding or accounting.
+//! Compact TOON is the default for gateway REST responses. Legacy JSON remains
+//! an explicit compatibility path via request bodies, `Accept: application/json`,
+//! or `DCC_MCP_GATEWAY_RESPONSE_FORMAT=json`.
 
 use axum::body::Body;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
@@ -12,6 +12,8 @@ use serde_json::{Map, Value, json};
 pub(crate) const TOON_MIME: &str = "application/toon";
 pub(crate) const JSON_MIME: &str = "application/json";
 pub(crate) const TOKEN_ESTIMATOR: &str = "dcc-mcp-byte4-v1";
+pub(crate) const DEFAULT_RESPONSE_FORMAT_ENV: &str = "DCC_MCP_GATEWAY_RESPONSE_FORMAT";
+pub(crate) const LEGACY_RESPONSE_FORMAT_ENV: &str = "DCC_MCP_RESPONSE_FORMAT";
 
 pub(crate) const HEADER_RESPONSE_FORMAT: &str = "x-dcc-mcp-response-format";
 pub(crate) const HEADER_TOKEN_ESTIMATOR: &str = "x-dcc-mcp-token-estimator";
@@ -49,6 +51,8 @@ impl ResponseFormat {
         }
     }
 }
+
+pub(crate) const DEFAULT_REST_RESPONSE_FORMAT: ResponseFormat = ResponseFormat::Toon;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TokenAccounting {
@@ -116,17 +120,29 @@ impl EncodeError {
 }
 
 pub(crate) fn negotiate_response_format(headers: &HeaderMap, body: &Value) -> ResponseFormat {
+    negotiate_response_format_with_default(headers, body, default_rest_response_format())
+}
+
+pub(crate) fn default_rest_response_format() -> ResponseFormat {
+    std::env::var(DEFAULT_RESPONSE_FORMAT_ENV)
+        .ok()
+        .or_else(|| std::env::var(LEGACY_RESPONSE_FORMAT_ENV).ok())
+        .and_then(|value| response_format_from_str(&value))
+        .unwrap_or(DEFAULT_REST_RESPONSE_FORMAT)
+}
+
+fn negotiate_response_format_with_default(
+    headers: &HeaderMap,
+    body: &Value,
+    default: ResponseFormat,
+) -> ResponseFormat {
     if let Some(format) = explicit_format(body) {
         return format;
     }
-    if header_contains(headers, header::ACCEPT.as_str(), TOON_MIME)
-        || header_contains(headers, header::ACCEPT.as_str(), "application/x-toon")
-        || header_contains(headers, header::ACCEPT.as_str(), "text/toon")
-    {
-        ResponseFormat::Toon
-    } else {
-        ResponseFormat::Json
+    if let Some(format) = accept_format(headers) {
+        return format;
     }
+    default
 }
 
 pub(crate) fn encode_response(
@@ -338,42 +354,39 @@ pub(crate) fn explicit_format(body: &Value) -> Option<ResponseFormat> {
         .or_else(|| body.get("responseFormat"))
         .or_else(|| body.get("format"))
         .or_else(|| body.get("output_format"));
-    match raw
+    if let Some(format) = raw
         .and_then(Value::as_str)
-        .map(normalize_format_name)
-        .as_deref()
+        .and_then(response_format_from_str)
     {
-        Some("json") | Some("application/json") => Some(ResponseFormat::Json),
-        Some("toon") | Some("compact") | Some("application/toon") | Some("text/toon") => {
-            Some(ResponseFormat::Toon)
-        }
-        _ => {
-            if body.get("compact").and_then(Value::as_bool) == Some(true) {
-                Some(ResponseFormat::Toon)
-            } else {
-                None
-            }
-        }
+        Some(format)
+    } else if body.get("compact").and_then(Value::as_bool) == Some(true) {
+        Some(ResponseFormat::Toon)
+    } else {
+        None
     }
 }
 
-fn normalize_format_name(value: &str) -> String {
-    value.trim().to_ascii_lowercase()
+fn response_format_from_str(value: &str) -> Option<ResponseFormat> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "json" | "legacy-json" | "legacy_json" | "application/json" => Some(ResponseFormat::Json),
+        "toon" | "compact" | "application/toon" | "application/x-toon" | "text/toon" => {
+            Some(ResponseFormat::Toon)
+        }
+        _ => None,
+    }
 }
 
-fn header_contains(headers: &HeaderMap, name: &str, needle: &str) -> bool {
-    headers
-        .get(name)
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| {
-            value.split(',').any(|part| {
-                part.trim()
-                    .split(';')
-                    .next()
-                    .unwrap_or("")
-                    .eq_ignore_ascii_case(needle)
-            })
-        })
+fn accept_format(headers: &HeaderMap) -> Option<ResponseFormat> {
+    let accept = headers
+        .get(header::ACCEPT)
+        .and_then(|value| value.to_str().ok())?;
+    for part in accept.split(',') {
+        let mime = part.trim().split(';').next().unwrap_or("").trim();
+        if let Some(format) = response_format_from_str(mime) {
+            return Some(format);
+        }
+    }
+    None
 }
 
 fn estimate_tokens(body: &[u8]) -> usize {
@@ -491,9 +504,28 @@ mod tests {
     }
 
     #[test]
-    fn negotiate_defaults_to_json() {
+    fn negotiate_defaults_to_compact_toon() {
         assert_eq!(
-            negotiate_response_format(&HeaderMap::new(), &json!({})),
+            negotiate_response_format_with_default(
+                &HeaderMap::new(),
+                &json!({}),
+                DEFAULT_REST_RESPONSE_FORMAT,
+            ),
+            ResponseFormat::Toon
+        );
+    }
+
+    #[test]
+    fn accept_json_overrides_compact_default() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ACCEPT, HeaderValue::from_static(JSON_MIME));
+
+        assert_eq!(
+            negotiate_response_format_with_default(
+                &headers,
+                &json!({}),
+                DEFAULT_REST_RESPONSE_FORMAT,
+            ),
             ResponseFormat::Json
         );
     }
@@ -510,28 +542,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn search_response_keeps_legacy_json_by_default() {
+    async fn search_response_returns_compact_toon_by_default() {
         let hits = representative_search_hits();
 
         let (status, headers, bytes) =
             response_bytes(search_response(&HeaderMap::new(), &json!({}), hits)).await;
-        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        let text = String::from_utf8(bytes).unwrap();
+        let body: Value = toon_format::decode_default(&text).unwrap();
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(
+        assert!(
             headers
                 .get("content-type")
-                .and_then(|value| value.to_str().ok()),
-            Some(JSON_MIME)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| value.starts_with(TOON_MIME))
         );
         assert_eq!(
             headers
                 .get(HEADER_RESPONSE_FORMAT)
                 .and_then(|value| value.to_str().ok()),
-            Some("json")
+            Some("toon")
         );
         assert_eq!(body["total"], 2);
-        assert_eq!(body["hits"][0]["callable_id"], "create_sphere");
+        assert!(body["hits"][0].get("callable_id").is_none());
         assert_eq!(body["hits"][1]["callable_id"], "select_layer_by_name");
     }
 

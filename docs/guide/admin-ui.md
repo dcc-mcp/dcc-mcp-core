@@ -245,7 +245,7 @@ matching Scalar reference.
   "instances_total": 3,
   "instances_ready": 2,
   "response_format": {
-    "default": "json",
+    "default": "toon",
     "legacy_mime": "application/json",
     "compact_mime": "application/toon",
     "token_estimator": "dcc-mcp-byte4-v1"

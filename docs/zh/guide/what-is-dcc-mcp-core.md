@@ -175,6 +175,7 @@ from dcc_mcp_core import (
 
 | 变更 | 影响 | 迁移 |
 |---|---|---|
+| **网关 REST 默认 compact TOON** | `/v1/search`、`/v1/describe`、`/v1/call`、直接 instance describe/call 和 `/v1/call_batch` 默认返回 `application/toon` | 需要旧 JSON 时发送 `Accept: application/json` 或 body `response_format: "json"`；迁移窗口可临时设置 `DCC_MCP_GATEWAY_RESPONSE_FORMAT=json` |
 | **网关 MCP 表面收敛** | `GatewayToolExposure` 枚举、`tool_exposure` / `publishes_backend_tools` 配置、`--gateway-tool-exposure` CLI 标志全部移除 | 删掉对应代码/配置/环境变量；网关现在只有一种（最小）表面 |
 | **网关 wrapper payload 更严格** | MCP `call`、隐藏 `call_tool` / `call_tools`、`/v1/call`、`/v1/call_batch` 都经过 `dcc-mcp-wire` 归一化；wrapper 顶层的后端字段会被忽略或拒绝 | 发送 `{tool_slug, arguments?, meta?}` 或 `{calls:[...]}`，把工具输入放进 `arguments`；Python host wrapper 使用 `normalize_tool_arguments()` |
 | **网关 prompt 名称对 Cursor 安全** | 聚合 prompt 名称使用 `i_<id8>__<escaped>`，不再暴露原始后端名称 | 原样保存并使用 `prompts/list` 返回的名称，不要从 DCC/tool 名称自行拼接 |

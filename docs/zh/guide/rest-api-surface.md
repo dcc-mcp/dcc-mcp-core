@@ -283,9 +283,10 @@ Search response 还会包含 `search_id`、`ranker_version` 和
 ## `POST /v1/search` —— compact discovery
 
 `/v1/search`、`/v1/describe`、`/v1/tools/{slug}`、直接 per-instance
-describe/call 路由、`/v1/call` 和 `/v1/call_batch` 默认仍返回旧版 JSON，
-保持现有 REST 客户端兼容。Agent 客户端如果想减少 REST payload，可以显式
-请求 TOON：
+describe/call 路由、`/v1/call` 和 `/v1/call_batch` 默认返回 compact
+TOON。需要 JSON-first 兼容窗口的部署可以设置
+`DCC_MCP_GATEWAY_RESPONSE_FORMAT=json`（旧别名：
+`DCC_MCP_RESPONSE_FORMAT=json`）。REST 客户端也可以按请求显式回退 JSON：
 
 Gateway policy 会在返回最终搜索结果前过滤 capability。一个缺失的 hit 可能
 代表能力不存在、skill 未加载，或该能力被 DCC / skill / tool allowlist 有意隐藏。
@@ -304,14 +305,15 @@ Gateway hit 还带 1-based `rank`。生成的 `next_step` 会携带
 索引提示交给 gateway，gateway 搜索响应不会把这些内部 token 暴露成公开字段。
 
 ```bash
-curl -H 'Accept: application/toon' \
+curl -H 'Accept: application/json' \
   -d '{"query":"render","limit":20}' \
   http://127.0.0.1:9765/v1/search
 ```
 
-请求体也可以传 `"response_format": "toon"` 或 `"compact": true`。如果
-`Accept` 头偏好 TOON，但当前调用必须保持旧 JSON，传
-`"response_format": "json"` 即可强制回退。
+请求体可以传 `"response_format": "json"` 强制旧 JSON；也可以传
+`"response_format": "toon"` 或 `"compact": true`，即使 `Accept` 头偏好
+JSON 也强制 compact 输出。若 `Accept` 和请求体都没有指定，REST 返回
+`application/toon`。
 
 每个支持 compact 的 REST 响应都会带近似 token 统计头：
 
@@ -345,16 +347,19 @@ compact search 仍保留 agent 后续工作需要的字段：`tool_slug`、
 compact describe 会对 `record` 应用相同的小记录规则，但完整保留 `tool`
 定义，包括 `inputSchema`、annotations 和 validation hints。compact call
 保留与 JSON 相同的成功 / 失败 envelope 和 HTTP 状态，只是用 TOON 编码。
-compact batch 保留结果顺序；请求 compact 输出时，每个 result 会带
-`token_accounting`，响应头则给出整个响应体的聚合节省。
+compact batch 保留结果顺序；每个 result 会带 `token_accounting`，响应头
+则给出整个响应体的聚合节省。旧 JSON batch 响应保持相同 result 形状，并在
+`x-dcc-mcp-*` 统计头中记录 0 savings。
 `/v1/call_batch.calls[]` 可选 `id`（string/number/boolean），对应 result 会
 原样 echo 该值，同时保留稳定的数字 `index`。
 
 Gateway MCP 端点复用同一个 compact codec，但不会改变 JSON-RPC framing。
-在 `initialize` 广告
-`capabilities.experimental["dcc-mcp"].compactResponses` 之后，可以在
+未携带 response-format metadata 的旧 MCP 客户端仍得到普通 JSON result。
+compact-capable MCP 客户端在 `initialize` 广告
+`capabilities.experimental["dcc-mcp"].compactResponses` 之后，应在
 `tools/list`、`resources/read`、`prompts/get` 或 `tools/call` 请求上设置
-`params._meta.response_format="toon"`（或 `params._meta.compact=true`）。
+`params._meta.response_format="toon"`（或 `params._meta.compact=true`）；
+单次请求可用 `params._meta.response_format="json"` 回退。
 非 `tools/call` 的 result 会变成包含 `response_format`、`mimeType`、
 `text` 和 `_meta.token_accounting` 的 JSON object。`tools/call` 仍保持 MCP
 `CallToolResult` 形状：`content[]`、`type`、`isError` 不变，只是在 text
