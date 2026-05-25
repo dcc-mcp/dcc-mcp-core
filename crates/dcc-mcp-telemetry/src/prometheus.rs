@@ -36,6 +36,7 @@
 //! | `dcc_mcp_gateway_search_followups_total` | counter | `kind`, `rank_bucket` |
 //! | `dcc_mcp_gateway_search_reformulations_total` | counter | - |
 //! | `dcc_mcp_gateway_search_time_to_first_success_seconds` | histogram | - |
+//! | `dcc_mcp_gateway_governance_events_total` | counter | `category`, `outcome` |
 //! | `dcc_mcp_build_info`                | gauge     | `version`, `crate` (always 1) |
 
 use std::sync::Arc;
@@ -96,6 +97,7 @@ struct Inner {
     gateway_search_followups_total: IntCounterVec,
     gateway_search_reformulations_total: IntCounter,
     gateway_search_time_to_first_success_seconds: Histogram,
+    gateway_governance_events_total: IntCounterVec,
 
     #[allow(dead_code)]
     build_info: GaugeVec,
@@ -336,6 +338,18 @@ impl PrometheusExporter {
             ))
             .expect("unique registration");
 
+        let gateway_governance_events_total = IntCounterVec::new(
+            Opts::new(
+                "dcc_mcp_gateway_governance_events_total",
+                "Gateway governance outcomes by bounded category and outcome.",
+            ),
+            &["category", "outcome"],
+        )
+        .expect("static metric definition");
+        registry
+            .register(Box::new(gateway_governance_events_total.clone()))
+            .expect("unique registration");
+
         Self {
             inner: Arc::new(Inner {
                 registry,
@@ -356,6 +370,7 @@ impl PrometheusExporter {
                 gateway_search_followups_total,
                 gateway_search_reformulations_total,
                 gateway_search_time_to_first_success_seconds,
+                gateway_governance_events_total,
                 build_info,
                 recorder: Mutex::new(None),
             }),
@@ -508,6 +523,14 @@ impl PrometheusExporter {
             .observe(duration.as_secs_f64());
     }
 
+    /// Record a bounded governance event for policy, capture, privacy, or pressure controls.
+    pub fn record_gateway_governance_event(&self, category: &str, outcome: &str) {
+        self.inner
+            .gateway_governance_events_total
+            .with_label_values(&[category, outcome])
+            .inc();
+    }
+
     /// Render the current metric state as a Prometheus text-exposition
     /// payload. This is what `/metrics` hands back to scrapers.
     ///
@@ -612,6 +635,7 @@ mod tests {
         exp.record_gateway_search_followup("describe", "top1");
         exp.record_gateway_search_reformulation();
         exp.observe_gateway_search_time_to_first_success(Duration::from_millis(10));
+        exp.record_gateway_governance_event("policy", "denied");
     }
 
     #[test]
@@ -634,6 +658,7 @@ mod tests {
             "dcc_mcp_gateway_search_followups_total",
             "dcc_mcp_gateway_search_reformulations_total",
             "dcc_mcp_gateway_search_time_to_first_success_seconds",
+            "dcc_mcp_gateway_governance_events_total",
             "dcc_mcp_build_info",
         ] {
             assert!(
@@ -655,6 +680,7 @@ mod tests {
         assert!(out.contains("# TYPE dcc_mcp_tool_duration_seconds histogram"));
         assert!(out.contains("# TYPE dcc_mcp_active_sessions gauge"));
         assert!(out.contains("# TYPE dcc_mcp_gateway_searches_total counter"));
+        assert!(out.contains("# TYPE dcc_mcp_gateway_governance_events_total counter"));
         assert!(
             out.contains("# TYPE dcc_mcp_gateway_search_time_to_first_success_seconds histogram")
         );
@@ -667,6 +693,7 @@ mod tests {
         exp.record_gateway_search_followup("call", "top3");
         exp.record_gateway_search_reformulation();
         exp.observe_gateway_search_time_to_first_success(Duration::from_millis(250));
+        exp.record_gateway_governance_event("rate-limit", "throttled");
 
         let out = exp.render().unwrap();
         assert!(out.contains(r#"dcc_mcp_gateway_searches_total{result="zero"} 1"#));
@@ -675,6 +702,11 @@ mod tests {
         ));
         assert!(out.contains("dcc_mcp_gateway_search_reformulations_total 1"));
         assert!(out.contains("dcc_mcp_gateway_search_time_to_first_success_seconds_count 1"));
+        assert!(
+            out.contains(
+                r#"dcc_mcp_gateway_governance_events_total{category="rate-limit",outcome="throttled"} 1"#
+            )
+        );
     }
 
     #[test]

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use serde::Serialize;
 use serde_json::Value;
 
 use super::TrafficCaptureError;
@@ -44,6 +45,17 @@ impl TrafficRedactor {
         }
         redacted_paths
     }
+
+    pub(super) fn snapshot(&self) -> TrafficRedactionSnapshot {
+        TrafficRedactionSnapshot {
+            rule_count: self.rules.len(),
+            paths: self
+                .rules
+                .iter()
+                .map(|rule| rule.display_path.clone())
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -51,6 +63,12 @@ struct RedactRule {
     path: Vec<String>,
     display_path: String,
     replacement: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TrafficRedactionSnapshot {
+    pub rule_count: usize,
+    pub paths: Vec<String>,
 }
 
 fn parse_path(path: &str) -> Vec<String> {

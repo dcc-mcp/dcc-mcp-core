@@ -60,6 +60,15 @@ pub async fn handle_admin_activity(
     Json(crate::gateway::admin::activity::build_activity_payload(&s, limit).await)
 }
 
+/// `GET /admin/api/governance` — effective traffic governance policy and decisions.
+pub async fn handle_admin_governance(
+    State(s): State<AdminState>,
+    axum::extract::Query(params): axum::extract::Query<DebugListQuery>,
+) -> impl IntoResponse {
+    let limit = params.limit(200, 1_000);
+    Json(crate::gateway::admin::governance::build_governance_payload(&s, limit).await)
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub struct DebugListQuery {
     limit: Option<String>,
@@ -936,6 +945,10 @@ pub async fn handle_admin_stats(
             if let Some(obj) = root.as_object_mut() {
                 obj.insert("p50_ms".to_string(), json!(stats.latency_ms.p50_ms));
                 obj.insert("p95_ms".to_string(), json!(stats.latency_ms.p95_ms));
+                obj.insert(
+                    "governance".to_string(),
+                    crate::gateway::admin::governance::build_governance_stats(&s),
+                );
                 // Embedded admin UI expects a 0–100 percentage in `success_rate`.
                 obj.insert(
                     "success_rate".to_string(),
@@ -948,6 +961,7 @@ pub async fn handle_admin_stats(
             "error": "stats aggregator not available — admin feature may be disabled",
             "range": range_str,
             "total_calls": 0,
+            "governance": crate::gateway::admin::governance::build_governance_stats(&s),
         })),
     }
 }

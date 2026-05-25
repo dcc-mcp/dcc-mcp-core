@@ -55,6 +55,7 @@ continue to serve their own adapter OpenAPI contract from the same path.
 | `GET` | `/v1/debug/calls` | Gateway only: recent audited calls. |
 | `GET` | `/v1/debug/logs` | Gateway only: merged gateway events, file logs, and audit summaries. |
 | `GET` | `/v1/debug/stats` | Gateway only: aggregated call statistics. |
+| `GET` | `/v1/debug/governance` | Gateway only: effective policy, traffic capture, redaction, quota, and recent governance decisions. |
 | `GET` | `/v1/debug/health` | Gateway only: debug subsystem health summary. |
 | `GET` | `/v1/openapi.json` | Gateway-specific OpenAPI 3.x document for code-gen clients. |
 | `GET` | `/docs` | Scalar API reference rendered from the same gateway-specific OpenAPI document. |
@@ -123,6 +124,7 @@ so operators and agents can compare results one-to-one:
 | `/v1/debug/calls` | `/admin/api/calls` | Recent audit rows. |
 | `/v1/debug/logs` | `/admin/api/logs` | Merged gateway/file/audit logs. |
 | `/v1/debug/stats` | `/admin/api/stats` | Aggregated call stats. |
+| `/v1/debug/governance?limit=300` | `/admin/api/governance?limit=300` | Effective policy, read-only state, traffic capture/redaction controls, middleware pressure, and recent allow/deny/throttle decisions. |
 | `/v1/debug/health` | `/admin/api/health` | Debug provider health summary. |
 
 Every list endpoint supports the existing `limit` parameter where the Admin
@@ -319,6 +321,7 @@ Error-kind vocabulary (HTTP status in parentheses):
 - `unauthorized` (401) — the `AuthGate` rejected the request. Defaults to localhost-only on per-DCC servers; install `BearerTokenGate` for remote access.
 - `not-ready` (503) — `/v1/readyz` is red; DCC is still starting up.
 - `host-busy` (503) — the DCC host is alive but its dispatcher is saturated; retry with backoff or route to another live instance.
+- `throttled` (429) — gateway middleware rate or concurrency controls rejected the request before backend routing; retry after backoff.
 - `affinity-violation` (409) — the caller tried to invoke a main-thread tool from a worker thread.
 - `bad-request` (400) — malformed envelope (missing `tool_slug`, bad JSON, etc.).
 - `backend-error` (502) — the owning DCC process responded but the tool failed.
@@ -354,6 +357,10 @@ Policy rules are part of the gateway contract:
   structured `policy` object. Batch calls keep HTTP 200 and place the same
   `policy-denied` envelope on the denied result item so batch ordering remains
   stable.
+- `GET /v1/debug/governance` exposes the effective read-only state,
+  allowlists, capture/redaction controls, middleware quota pressure, and recent
+  allow/deny/throttle decisions so agents can inspect the active boundary
+  without probing blocked tools.
 
 Example denial:
 

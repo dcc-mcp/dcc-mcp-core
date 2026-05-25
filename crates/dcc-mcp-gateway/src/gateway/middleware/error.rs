@@ -18,3 +18,25 @@ pub enum MiddlewareError {
     #[error("middleware error: {0}")]
     Internal(String),
 }
+
+impl MiddlewareError {
+    /// Small stable error kind for Admin, REST, Prometheus, and OTLP.
+    #[must_use]
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::QuotaExceeded(_) => "throttled",
+            Self::PolicyViolation(_) => "policy-denied",
+            Self::Internal(_) => "middleware-error",
+        }
+    }
+
+    /// Operator-facing category for governance telemetry.
+    #[must_use]
+    pub fn governance_category(&self) -> &'static str {
+        match self {
+            Self::QuotaExceeded(_) => "rate-limit",
+            Self::PolicyViolation(_) => "policy",
+            Self::Internal(_) => "middleware",
+        }
+    }
+}

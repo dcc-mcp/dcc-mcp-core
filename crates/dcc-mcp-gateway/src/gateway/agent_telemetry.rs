@@ -669,10 +669,10 @@ fn dcc_type_from_args(args: &Value) -> Option<&str> {
 }
 
 fn policy_outcome(error_kind: Option<&str>) -> &'static str {
-    if error_kind == Some("policy-denied") {
-        "denied"
-    } else {
-        "allowed"
+    match error_kind {
+        Some("policy-denied") => "denied",
+        Some("throttled") => "throttled",
+        _ => "allowed",
     }
 }
 

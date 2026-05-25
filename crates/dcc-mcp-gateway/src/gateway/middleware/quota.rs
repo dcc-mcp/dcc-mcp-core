@@ -2,11 +2,14 @@
 
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use super::context::CallContext;
 use super::error::MiddlewareError;
+use super::governance::MiddlewareGovernanceControl;
 use super::traits::{BeforeCallMiddleware, MiddlewareFuture};
+use serde_json::json;
 
 struct BucketState {
     count: u64,
@@ -23,6 +26,8 @@ pub struct QuotaMiddleware {
     limit: u64,
     window: Duration,
     buckets: Mutex<HashMap<String, BucketState>>,
+    allowed_total: AtomicU64,
+    throttled_total: AtomicU64,
 }
 
 impl QuotaMiddleware {
@@ -35,6 +40,8 @@ impl QuotaMiddleware {
             limit,
             window: Duration::from_secs(60),
             buckets: Mutex::new(HashMap::new()),
+            allowed_total: AtomicU64::new(0),
+            throttled_total: AtomicU64::new(0),
         }
     }
 
@@ -81,7 +88,39 @@ impl BeforeCallMiddleware for QuotaMiddleware {
                 Ok(())
             }
         };
+        match &result {
+            Ok(()) => {
+                self.allowed_total.fetch_add(1, Ordering::Relaxed);
+            }
+            Err(MiddlewareError::QuotaExceeded(_)) => {
+                self.throttled_total.fetch_add(1, Ordering::Relaxed);
+            }
+            Err(_) => {}
+        }
 
         Box::pin(async move { result })
+    }
+
+    fn governance(&self) -> Option<MiddlewareGovernanceControl> {
+        let bucket_count = self.buckets.lock().unwrap_or_else(|e| e.into_inner()).len();
+        Some(
+            MiddlewareGovernanceControl::new(
+                "quota",
+                "reject",
+                format!(
+                    "Limits each session to {} calls per {}s window.",
+                    self.limit,
+                    self.window.as_secs()
+                ),
+            )
+            .with_config(json!({
+                "limit": self.limit,
+                "window_secs": self.window.as_secs(),
+                "bucket_key": "session_id_or_global",
+                "active_buckets": bucket_count,
+                "allowed_total": self.allowed_total.load(Ordering::Relaxed),
+                "throttled_total": self.throttled_total.load(Ordering::Relaxed),
+            })),
+        )
     }
 }

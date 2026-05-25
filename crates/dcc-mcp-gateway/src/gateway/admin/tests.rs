@@ -160,6 +160,57 @@ mod admin_tests {
         (status, json)
     }
 
+    fn audit_record(
+        request_id: &str,
+        action: &str,
+        success: bool,
+        error: Option<&str>,
+    ) -> AdminAuditRecord {
+        AdminAuditRecord {
+            timestamp: std::time::UNIX_EPOCH + Duration::from_millis(1),
+            request_id: request_id.to_string(),
+            trace_id: Some("trace-governance".to_string()),
+            span_id: None,
+            parent_span_id: None,
+            method: Some("tools/call".to_string()),
+            instance_id: Some("abcdef01-2345-6789-abcd-ef0123456789".to_string()),
+            session_id: Some("session-governance".to_string()),
+            transport: Some("rest".to_string()),
+            agent_id: Some("agent-governance".to_string()),
+            agent_name: Some("Governance Agent".to_string()),
+            agent_model: Some("gpt-test".to_string()),
+            parent_request_id: None,
+            action: action.to_string(),
+            dcc_type: Some("maya".to_string()),
+            success,
+            error: error.map(str::to_string),
+            duration_ms: Some(12),
+        }
+    }
+
+    fn governance_capture() -> crate::gateway::traffic::TrafficCapture {
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let config_path = std::env::temp_dir().join(format!("dcc-mcp-governance-{suffix}.yaml"));
+        let capture_path = std::env::temp_dir().join(format!("dcc-mcp-governance-{suffix}.jsonl"));
+        let capture_path = capture_path.to_string_lossy().replace('\\', "/");
+        std::fs::write(
+            &config_path,
+            format!(
+                r#"
+enabled: true
+sinks:
+  - kind: jsonl
+    path: '{}'
+redact:
+  - body.data.params.arguments.api_key: "[REDACTED]"
+"#,
+                capture_path
+            ),
+        )
+        .unwrap();
+        crate::gateway::traffic::TrafficCapture::from_config_path(config_path).unwrap()
+    }
+
     async fn spawn_search_backend(hits: Value) -> (u16, oneshot::Sender<()>) {
         let app = Router::new().route(
             "/v1/search",
@@ -676,6 +727,124 @@ mod admin_tests {
             calls[0].get("tool").is_some(),
             "expected 'tool' field in call record"
         );
+    }
+
+    #[tokio::test]
+    async fn test_admin_governance_exposes_policy_capture_redaction_and_pressure() {
+        let mut gs = make_gateway_state();
+        gs.policy = Arc::new(crate::gateway::GatewayPolicy {
+            read_only: true,
+            allowed_dcc_types: vec!["maya".to_string(), "customhost".to_string()],
+            allowed_skill_families: vec!["safe-".to_string()],
+            allowed_tool_slug_prefixes: vec!["maya.abcdef01.safe_read".to_string()],
+            ..Default::default()
+        });
+        gs.middleware_chain = Arc::new(
+            crate::gateway::middleware::MiddlewareChain::new()
+                .with_before(Arc::new(crate::gateway::middleware::QuotaMiddleware::new(
+                    1,
+                )))
+                .with_before(Arc::new(
+                    crate::gateway::middleware::RedactionMiddleware::new(["api_key", "token"]),
+                )),
+        );
+        gs.traffic_capture = Arc::new(governance_capture());
+        gs.traffic_capture.emit_json_frame(
+            crate::gateway::traffic::TrafficFrame::json(
+                crate::gateway::traffic::basic_gateway_source(),
+                crate::gateway::traffic::correlation(
+                    Some("req-policy"),
+                    Some("trace-governance"),
+                    Some("session-governance"),
+                ),
+                "inbound",
+                "client_to_gateway",
+                "http",
+                json!({
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {
+                        "arguments": {
+                            "api_key": "secret",
+                            "keep": "visible"
+                        }
+                    }
+                }),
+            )
+            .with_session_id(Some("session-governance"))
+            .with_http(crate::gateway::traffic::http_post("/mcp", None, Some(200)))
+            .with_mcp(crate::gateway::traffic::mcp_message(
+                "request",
+                "tools/call",
+                Some(json!("req-policy")),
+            )),
+        );
+
+        let audit_log: Arc<AuditLog> = Arc::new(Mutex::new(vec![
+            audit_record(
+                "req-policy",
+                "maya.abcdef01.unsafe_write",
+                false,
+                Some(
+                    "policy-denied: Gateway policy denied call for maya.abcdef01.unsafe_write: read-only",
+                ),
+            ),
+            audit_record(
+                "req-quota",
+                "maya.abcdef01.safe_read_scene",
+                false,
+                Some(
+                    "quota exceeded: session 'session-governance' exceeded 1 calls per 60s window",
+                ),
+            ),
+            audit_record("req-ok", "maya.abcdef01.safe_read_scene", true, None),
+        ]));
+        let state = AdminState::new(gs).with_audit_log(audit_log);
+        let router = build_admin_router(state.clone());
+
+        let (status, body) = body_json(router, "/api/governance").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["schema_version"], "dcc-mcp.admin.governance.v1");
+        assert_eq!(body["policy"]["read_only"], true);
+        assert_eq!(body["traffic_capture"]["enabled"], true);
+        assert_eq!(
+            body["traffic_capture"]["redaction"]["paths"][0],
+            "body.data.params.arguments.api_key"
+        );
+        let controls = body["middleware"]["controls"].as_array().unwrap();
+        assert!(controls.iter().any(|row| row["kind"] == "quota"));
+        assert!(controls.iter().any(|row| row["kind"] == "redaction"));
+        assert!(
+            body["recent_decisions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|row| row["outcome"] == "denied" && row["policy"]["reason"] == "read-only")
+        );
+        assert!(
+            body["recent_decisions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|row| row["outcome"] == "throttled" && row["pressure"]["throttled"] == true)
+        );
+        assert!(
+            body["recent_decisions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|row| row["privacy"]["redacted_paths"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|path| path == "body.data.params.arguments.api_key"))
+        );
+
+        let v1_router = build_v1_debug_router(state);
+        let (debug_status, debug_body) = body_json(v1_router, "/v1/debug/governance").await;
+        assert_eq!(debug_status, StatusCode::OK);
+        assert_eq!(debug_body["stats"]["recent_policy_denied"], 1);
+        assert_eq!(debug_body["stats"]["recent_throttled"], 1);
     }
 
     #[tokio::test]
@@ -1534,6 +1703,7 @@ mod admin_tests {
             "/api/calls",
             "/api/logs",
             "/api/stats",
+            "/api/governance",
             "/api/traces",
             "/api/workflows",
         ] {

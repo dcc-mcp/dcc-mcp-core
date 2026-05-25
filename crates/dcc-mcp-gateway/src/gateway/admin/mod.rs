@@ -44,6 +44,7 @@
 //! See `docs/guide/gateway-admin.md` for screenshots and configuration knobs.
 
 pub mod activity;
+pub mod governance;
 mod html;
 mod links;
 pub mod sqlite_lane;
