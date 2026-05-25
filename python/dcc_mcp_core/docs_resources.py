@@ -443,7 +443,8 @@ def register_docs_resource(
     Parameters
     ----------
     server:
-        An ``McpHttpServer`` exposing ``server.resources()`` (issue #730).
+        An ``McpHttpServer`` or ``DccServerBase`` exposing
+        ``server.resources()`` (issues #730, #1205).
         If ``server.resources`` is unavailable (older wheel), this function
         logs a debug message and returns gracefully so callers do not need
         to guard against older server versions.
