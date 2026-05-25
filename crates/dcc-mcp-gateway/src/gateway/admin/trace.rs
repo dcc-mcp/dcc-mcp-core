@@ -254,6 +254,60 @@ impl TracePayload {
     }
 }
 
+// ── Token telemetry ─────────────────────────────────────────────────────────
+
+/// Bounded token-accounting metadata persisted with trace and audit rows.
+///
+/// This stores derived sizes and token estimates only. It deliberately avoids
+/// storing raw response bodies, so existing trace/audit payload caps remain the
+/// only place where content previews can appear.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TokenTelemetry {
+    /// Response format returned to the client, e.g. `"json"` or `"toon"`.
+    pub response_format: String,
+    /// Stable id for the estimator used to compute token counts.
+    pub token_estimator: String,
+    /// Byte length of the un-compacted JSON response candidate.
+    pub original_bytes: usize,
+    /// Byte length of the response body returned to the client.
+    pub returned_bytes: usize,
+    /// Estimated tokens for the original JSON response candidate.
+    pub original_tokens: usize,
+    /// Estimated tokens for the response returned to the client.
+    pub returned_tokens: usize,
+    /// Estimated tokens saved by compact output. Legacy JSON uses `0`.
+    pub saved_tokens: usize,
+    /// Savings percentage as a numeric value in the range `[0.0, 100.0]`.
+    pub savings_pct: f64,
+}
+
+impl TokenTelemetry {
+    pub(crate) fn from_accounting(
+        format: crate::gateway::response_codec::ResponseFormat,
+        accounting: crate::gateway::response_codec::TokenAccounting,
+    ) -> Self {
+        Self {
+            response_format: format.as_str().to_string(),
+            token_estimator: crate::gateway::response_codec::TOKEN_ESTIMATOR.to_string(),
+            original_bytes: accounting.original_bytes,
+            returned_bytes: accounting.returned_bytes,
+            original_tokens: accounting.original_tokens,
+            returned_tokens: accounting.returned_tokens,
+            saved_tokens: accounting.saved_tokens,
+            savings_pct: round_two(accounting.savings_percent()),
+        }
+    }
+
+    #[must_use]
+    pub fn is_legacy_json(&self) -> bool {
+        self.response_format == "json" && self.saved_tokens == 0
+    }
+}
+
+fn round_two(value: f64) -> f64 {
+    (value * 100.0).round() / 100.0
+}
+
 // ── Agent / caller context ───────────────────────────────────────────────────
 
 /// Optional client-supplied context that explains why a request was made.
@@ -570,6 +624,9 @@ pub struct DispatchTrace {
     /// Captured response content (bounded to [`MAX_OUTPUT_BYTES`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<TracePayload>,
+    /// Token accounting for the client-visible response, if available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_accounting: Option<TokenTelemetry>,
 }
 
 impl DispatchTrace {
@@ -798,6 +855,7 @@ mod tests {
                 spans: vec![],
                 input: None,
                 output: None,
+                token_accounting: None,
             });
         }
         let recent = log.recent(10);
@@ -831,6 +889,7 @@ mod tests {
             spans: vec![],
             input: None,
             output: None,
+            token_accounting: None,
         });
         let found = log.get("abc-123");
         assert!(found.is_some());
@@ -867,6 +926,7 @@ mod tests {
             spans: vec![],
             input: None,
             output: None,
+            token_accounting: None,
         }
     }
 

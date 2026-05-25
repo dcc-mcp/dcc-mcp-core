@@ -102,11 +102,11 @@ Markdown body for developer review.
 | `GET /admin/api/tools` | `application/json` | Registered MCP tools |
 | `GET /admin/api/workflows?limit=200` | `application/json` | Agent session/workflow view reconstructed from search telemetry, traces, and audits |
 | `GET /admin/api/tasks?limit=300` | `application/json` | Task-like snapshots reconstructed from dispatch traces |
-| `GET /admin/api/calls` | `application/json` | Recent tool calls (requires `AuditMiddleware`) |
-| `GET /admin/api/traces` | `application/json` | Recent per-call dispatch traces; accepts `?limit=200` |
-| `GET /admin/api/traces/{request_id}` | `application/json` | Full waterfall for one recorded dispatch trace |
+| `GET /admin/api/calls` | `application/json` | Recent tool calls, including compact/JSON token accounting when available (requires `AuditMiddleware`) |
+| `GET /admin/api/traces` | `application/json` | Recent per-call dispatch traces with payload sizes and token accounting; accepts `?limit=200` |
+| `GET /admin/api/traces/{request_id}` | `application/json` | Full waterfall for one recorded dispatch trace, including token accounting without storing unbounded payloads |
 | `GET /admin/api/debug-bundle/{request_id}` | `application/json` | One-stop debug bundle containing the trace, matching audit row, related activity, and hints |
-| `GET /admin/api/stats?range=1h\|24h\|7d` | `application/json` | Aggregated call counts, success rate, latency, and top tools/instances/agents |
+| `GET /admin/api/stats?range=1h\|24h\|7d` | `application/json` | Aggregated call counts, success rate, latency, top tools/instances/agents, and token-savings totals |
 | `GET /admin/api/governance?limit=300` | `application/json` | Effective gateway policy, traffic capture, redaction, middleware controls, and recent allow/deny/throttle decisions |
 | `GET /admin/api/workers` | `application/json` | Per-instance worker cards from the live registry |
 | `GET /admin/api/logs` | `application/json` | Merged gateway contention events, on-disk `*.log` rows, and audited call summaries |
@@ -323,6 +323,14 @@ matching Scalar reference.
         "openapi_docs_url": "http://127.0.0.1:9765/docs",
         "stats_url": "http://127.0.0.1:9765/admin?panel=stats"
       },
+      "token_accounting": {
+        "response_format": "toon",
+        "token_estimator": "dcc-mcp-byte4-v1",
+        "original_tokens": 120,
+        "returned_tokens": 54,
+        "saved_tokens": 66,
+        "savings_pct": 55.0
+      },
       "success": false,
       "error": "backend timeout",
       "timestamp": "2026-05-05T10:00:00Z"
@@ -345,6 +353,14 @@ matching Scalar reference.
       "slowest_span_ms": 45,
       "input_bytes": 42,
       "output_bytes": 96,
+      "token_accounting": {
+        "response_format": "json",
+        "token_estimator": "dcc-mcp-byte4-v1",
+        "original_tokens": 24,
+        "returned_tokens": 24,
+        "saved_tokens": 0,
+        "savings_pct": 0.0
+      },
       "links": {
         "admin_trace_url": "http://127.0.0.1:9765/admin?panel=traces&trace=req-123",
         "trace_api_url": "http://127.0.0.1:9765/admin/api/traces/req-123",
@@ -463,7 +479,16 @@ matching Scalar reference.
   "total_calls": 42,
   "success_rate": 0.98,
   "latency_ms": { "p50_ms": 12, "p95_ms": 48 },
-  "top_agents": [{ "name": "Layout Inspector", "count": 12 }]
+  "top_agents": [{ "name": "Layout Inspector", "count": 12 }],
+  "token_usage": {
+    "total_returned_tokens": 5400,
+    "total_saved_tokens": 2100,
+    "average_savings_pct": 28.0,
+    "by_response_format": [
+      { "name": "toon", "calls": 24, "returned_tokens": 3200, "saved_tokens": 2100, "savings_pct": 39.62 },
+      { "name": "json", "calls": 18, "returned_tokens": 2200, "saved_tokens": 0, "savings_pct": 0.0 }
+    ]
+  }
 }
 
 // GET /admin/api/governance?limit=300

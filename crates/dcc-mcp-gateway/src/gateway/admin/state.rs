@@ -16,7 +16,7 @@ use crate::gateway::middleware::{AuditEntry, AuditSink};
 use crate::gateway::state::GatewayState;
 
 use super::stats::StatsAggregator;
-use super::trace::{DispatchTrace, TraceLog};
+use super::trace::{DispatchTrace, TokenTelemetry, TraceLog};
 
 type SqliteTracePersistFn = Arc<dyn Fn(&DispatchTrace) + Send + Sync>;
 type SqliteAuditPersistFn = Arc<dyn Fn(&AdminAuditRecord) + Send + Sync>;
@@ -60,6 +60,8 @@ pub struct AdminAuditRecord {
     pub error: Option<String>,
     /// Wall-clock call duration in milliseconds.
     pub duration_ms: Option<u64>,
+    /// Token accounting for the client-visible response, if available.
+    pub token_accounting: Option<TokenTelemetry>,
 }
 
 pub type AuditLog = Mutex<Vec<AdminAuditRecord>>;
@@ -100,6 +102,8 @@ struct PersistedAuditRecord {
     success: bool,
     error: Option<String>,
     duration_ms: Option<u64>,
+    #[serde(default)]
+    token_accounting: Option<TokenTelemetry>,
 }
 
 impl DurableAuditStore {
@@ -257,6 +261,7 @@ impl From<&AdminAuditRecord> for PersistedAuditRecord {
             success: record.success,
             error: record.error.clone(),
             duration_ms: record.duration_ms,
+            token_accounting: record.token_accounting.clone(),
         }
     }
 }
@@ -282,6 +287,7 @@ impl From<PersistedAuditRecord> for AdminAuditRecord {
             success: record.success,
             error: record.error,
             duration_ms: record.duration_ms,
+            token_accounting: record.token_accounting,
         }
     }
 }
@@ -381,6 +387,7 @@ impl AuditSink for AdminAuditSink {
                 None
             },
             duration_ms: entry.duration_ms,
+            token_accounting: entry.token_accounting.clone(),
         };
         if let Some(store) = &self.durable_store {
             store.append_audit(&record);
@@ -419,6 +426,7 @@ impl AuditSink for AdminAuditSink {
                 spans: entry.trace_spans,
                 input: entry.input_payload,
                 output: entry.output_payload,
+                token_accounting: entry.token_accounting,
             };
             if let Some(store) = &self.durable_store {
                 store.append_trace(&trace);
@@ -455,6 +463,20 @@ mod durable_tests {
             success: true,
             error: None,
             duration_ms: Some(7),
+            token_accounting: None,
+        }
+    }
+
+    fn token_telemetry() -> TokenTelemetry {
+        TokenTelemetry {
+            response_format: "toon".to_string(),
+            token_estimator: "dcc-mcp-byte4-v1".to_string(),
+            original_bytes: 400,
+            returned_bytes: 160,
+            original_tokens: 100,
+            returned_tokens: 40,
+            saved_tokens: 60,
+            savings_pct: 60.0,
         }
     }
 
@@ -462,7 +484,8 @@ mod durable_tests {
     fn durable_store_roundtrips_audit_and_traces() {
         let dir = tempfile::tempdir().unwrap();
         let store = DurableAuditStore::new(dir.path(), 10, 10_000_000).unwrap();
-        let audit = audit_record("req-1");
+        let mut audit = audit_record("req-1");
+        audit.token_accounting = Some(token_telemetry());
         store.append_audit(&audit);
         let trace = DispatchTrace {
             request_id: "req-1".to_string(),
@@ -485,6 +508,7 @@ mod durable_tests {
             spans: Vec::new(),
             input: None,
             output: None,
+            token_accounting: Some(token_telemetry()),
         };
         store.append_trace(&trace);
 
@@ -492,9 +516,22 @@ mod durable_tests {
         assert_eq!(audits.len(), 1);
         assert_eq!(audits[0].request_id, "req-1");
         assert_eq!(audits[0].dcc_type.as_deref(), Some("maya"));
+        assert_eq!(
+            audits[0].token_accounting.as_ref().unwrap().saved_tokens,
+            60
+        );
         let traces = store.load_traces();
         assert_eq!(traces.len(), 1);
         assert_eq!(traces[0].request_id, "req-1");
+        assert_eq!(
+            traces[0].token_accounting.as_ref().unwrap().response_format,
+            "toon"
+        );
+        let trace_log = Arc::new(TraceLog::new(10));
+        trace_log.extend(traces);
+        let stats = crate::gateway::admin::stats::StatsAggregator::new(trace_log)
+            .compute(crate::gateway::admin::stats::StatsRange::All);
+        assert_eq!(stats.token_usage.total_saved_tokens, 60);
     }
 
     #[test]

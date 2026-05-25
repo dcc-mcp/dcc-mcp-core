@@ -587,6 +587,12 @@ headers:
 | `x-dcc-mcp-original-tokens` / `x-dcc-mcp-returned-tokens` | Approximate bytes/4 token estimates for planning context budget, not billing. |
 | `x-dcc-mcp-saved-tokens` / `x-dcc-mcp-savings-pct` | Estimated savings compared with legacy JSON. |
 
+The same accounting is copied into retained gateway traces, audited call rows,
+and `/v1/debug/stats` / `/admin/api/stats` aggregates. Legacy JSON responses
+are recorded explicitly with `response_format: "json"` and zero token savings,
+so clients can compare compact and compatibility traffic without fetching full
+trace payloads.
+
 The compact search shape preserves the workflow fields agents need next:
 `tool_slug`, `backend_tool`, `dcc_type`, `instance_id`, `loaded`,
 `load_state`, `available_groups`, `has_schema`, `score`, `match_reasons`, and

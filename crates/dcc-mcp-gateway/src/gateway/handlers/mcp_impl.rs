@@ -2,7 +2,7 @@ use super::*;
 use crate::gateway::capability::parse_slug;
 use crate::gateway::response_codec::{
     ResponseFormat, TOON_MIME, compact_call_batch_payload, compact_describe_payload,
-    compact_search_payload, encode_response, explicit_format,
+    compact_search_payload, encode_response, explicit_format, token_telemetry_for_response,
 };
 use std::time::{Duration, Instant};
 
@@ -371,6 +371,30 @@ fn compact_mcp_tool_result(req: &JsonRpcRequest, result: &Value) -> Option<Value
     Some(compact_result)
 }
 
+fn mcp_tool_token_telemetry(
+    req: &JsonRpcRequest,
+    result: &Value,
+) -> Option<crate::gateway::admin::trace::TokenTelemetry> {
+    let text_content = result
+        .get("content")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|entry| entry.get("type").and_then(Value::as_str) == Some("text"))?;
+    let legacy_text = text_content.get("text").and_then(Value::as_str)?;
+    let legacy_payload =
+        serde_json::from_str::<Value>(legacy_text).unwrap_or_else(|_| json!({"text": legacy_text}));
+    let format = mcp_requested_response_format(req);
+    let compact_payload = if matches!(format, ResponseFormat::Toon) {
+        Some(compact_tool_text_payload(
+            tool_name_from_request(req),
+            &legacy_payload,
+        ))
+    } else {
+        None
+    };
+    token_telemetry_for_response(&legacy_payload, compact_payload.as_ref(), format)
+}
+
 fn compact_tool_text_payload(tool_name: Option<&str>, legacy_payload: &Value) -> Value {
     match tool_name {
         Some("search" | "search_tools") => {
@@ -556,6 +580,9 @@ async fn handle_tools_call(
             ctx.input_payload = Some(TracePayload::from_value(&ctx.args, MAX_INPUT_BYTES));
             ctx.output_payload = Some(TracePayload::from_str(&msg, MAX_OUTPUT_BYTES));
         }
+        let rejected_result =
+            json!({"content": [{"type": "text", "text": msg.clone()}], "isError": true});
+        ctx.token_accounting = mcp_tool_token_telemetry(req, &rejected_result);
         let mut rejected = crate::gateway::middleware::CallResult::from_tuple(&msg, true);
         if let Err(after_err) = gs.middleware_chain.run_after(&ctx, &mut rejected).await {
             tracing::warn!(error = %after_err, "gateway middleware after-call failed for rejected MCP call");
@@ -652,6 +679,11 @@ async fn handle_tools_call(
 
     // ── Middleware: AfterCall ────────────────────────────────────────────
     let mut call_result = crate::gateway::middleware::CallResult::from_tuple(&text, is_error);
+    let audit_result = json!({
+        "content": [{"type": "text", "text": call_result.text.clone()}],
+        "isError": call_result.is_error,
+    });
+    ctx.token_accounting = mcp_tool_token_telemetry(req, &audit_result);
 
     if !gs.middleware_chain.is_empty()
         && let Err(e) = gs.middleware_chain.run_after(&ctx, &mut call_result).await
@@ -800,7 +832,17 @@ mod tests {
     use serde_json::json;
     use std::collections::HashMap;
     use std::sync::Arc;
+    use std::sync::Mutex;
     use tokio::sync::{RwLock, broadcast, watch};
+
+    #[derive(Default)]
+    struct CaptureSink(Mutex<Vec<crate::gateway::middleware::AuditEntry>>);
+
+    impl crate::gateway::middleware::AuditSink for CaptureSink {
+        fn record(&self, entry: crate::gateway::middleware::AuditEntry) {
+            self.0.lock().unwrap().push(entry);
+        }
+    }
 
     fn test_gateway_state() -> GatewayState {
         let dir = tempfile::tempdir().unwrap();
@@ -1000,6 +1042,49 @@ mod tests {
         let decoded: Value = toon_format::decode_default(text).expect("tool content is TOON");
         assert_eq!(decoded["total"], 0);
         assert!(decoded["hits"].as_array().is_some());
+    }
+
+    #[tokio::test]
+    async fn tools_call_audit_records_compact_token_accounting() {
+        let sink = Arc::new(CaptureSink::default());
+        let audit_middleware = Arc::new(crate::gateway::middleware::AuditMiddleware::new(
+            sink.clone(),
+        ));
+        let mut gs = test_gateway_state();
+        gs.middleware_chain = Arc::new(
+            crate::gateway::middleware::MiddlewareChain::new()
+                .with_before(audit_middleware.clone())
+                .with_after(audit_middleware),
+        );
+        let req = request(
+            "tools/call",
+            json!("compact-audit"),
+            Some(json!({
+                "name": "call",
+                "arguments": {
+                    "tool_slug": "maya.abcdef01.render",
+                    "arguments": {}
+                },
+                "_meta": {"response_format": "toon"}
+            })),
+        );
+
+        let response = dispatch_single_request(&gs, &req, "test-session", &HeaderMap::new())
+            .await
+            .expect("request has id");
+
+        assert_eq!(
+            response["result"]["_meta"]["token_accounting"]["response_format"],
+            "toon"
+        );
+        let entries = sink.0.lock().unwrap();
+        let tokens = entries[0]
+            .token_accounting
+            .as_ref()
+            .expect("MCP audit should capture compact token accounting");
+        assert_eq!(tokens.response_format, "toon");
+        assert_eq!(tokens.token_estimator, "dcc-mcp-byte4-v1");
+        assert!(tokens.original_tokens >= tokens.returned_tokens);
     }
 
     #[tokio::test]

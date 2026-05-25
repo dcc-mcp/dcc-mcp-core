@@ -1,8 +1,11 @@
 use super::*;
 
 use crate::gateway::admin::trace::TraceContext;
-use crate::gateway::capability_service::{ServiceError, service_error_to_json};
-use crate::gateway::response_codec::{compact_search_payload, negotiated_response};
+use crate::gateway::capability_service::{ServiceError, index_generation, service_error_to_json};
+use crate::gateway::response_codec::{
+    compact_search_payload, negotiate_response_format, negotiated_response,
+    token_telemetry_for_response,
+};
 use crate::gateway::search_telemetry::{RANKER_VERSION, SearchFollowupInput, SearchTelemetryHit};
 
 #[derive(Debug, Clone)]
@@ -48,7 +51,7 @@ impl RestResponseMetadata {
         self
     }
 
-    fn insert_body_fields(&self, value: &mut Value) {
+    pub(super) fn insert_body_fields(&self, value: &mut Value) {
         if let Some(obj) = value.as_object_mut() {
             obj.entry("request_id".to_string())
                 .or_insert_with(|| json!(self.request_id));
@@ -106,6 +109,49 @@ impl RestResponseMetadata {
             );
         }
     }
+}
+
+fn token_telemetry_with_metadata(
+    headers: &HeaderMap,
+    request_body: &Value,
+    mut legacy_json: Value,
+    compact_json: Option<Value>,
+    metadata: &RestResponseMetadata,
+    include_body_metadata: bool,
+) -> Option<crate::gateway::admin::trace::TokenTelemetry> {
+    let mut compact_json = compact_json;
+    if include_body_metadata {
+        metadata.insert_body_fields(&mut legacy_json);
+        if let Some(compact) = compact_json.as_mut() {
+            metadata.insert_body_fields(compact);
+        }
+    }
+    token_telemetry_for_response(
+        &legacy_json,
+        compact_json.as_ref(),
+        negotiate_response_format(headers, request_body),
+    )
+}
+
+pub(super) fn record_token_accounting(
+    ctx: &mut crate::gateway::middleware::CallContext,
+    gs: &GatewayState,
+    headers: &HeaderMap,
+    request_body: &Value,
+    legacy_json: Value,
+    compact_json: Option<Value>,
+    include_body_metadata: bool,
+) {
+    let metadata = RestResponseMetadata::from_trace_context(&ctx.trace_context)
+        .with_index_generation(index_generation(&gs.capability_index));
+    ctx.token_accounting = token_telemetry_with_metadata(
+        headers,
+        request_body,
+        legacy_json,
+        compact_json,
+        &metadata,
+        include_body_metadata,
+    );
 }
 
 fn insert_header(headers: &mut HeaderMap, name: &'static str, value: &str) {
