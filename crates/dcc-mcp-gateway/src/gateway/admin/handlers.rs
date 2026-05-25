@@ -20,7 +20,9 @@ use crate::gateway::capability::RefreshReason;
 use crate::gateway::capability_service::refresh_all_live_backends;
 use crate::gateway::event_log::{ContendEvent, EventKind};
 use crate::gateway::resilience::{self as gw_resilience, gateway_limits};
-use crate::gateway::response_codec::{JSON_MIME, TOKEN_ESTIMATOR, TOON_MIME};
+use crate::gateway::response_codec::{
+    JSON_MIME, TOKEN_ESTIMATOR, TOON_MIME, default_rest_response_format,
+};
 use dcc_mcp_db::env::ENV_DCC_MCP_LOG_DIR;
 use dcc_mcp_db::read_gateway_log_dir_rows_recent;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};
@@ -659,7 +661,7 @@ pub async fn handle_admin_health(State(s): State<AdminState>) -> impl IntoRespon
             "version": s.gateway.server_version,
             "rss_bytes": rss_bytes,
             "response_format": {
-                "default": "json",
+                "default": default_rest_response_format().as_str(),
                 "legacy_mime": JSON_MIME,
                 "compact_mime": TOON_MIME,
                 "token_estimator": TOKEN_ESTIMATOR,

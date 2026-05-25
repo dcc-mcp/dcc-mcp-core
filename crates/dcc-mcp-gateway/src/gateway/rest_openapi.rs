@@ -147,42 +147,46 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
     );
     paths.insert(
         "/v1/search".to_string(),
-        post_operation(
+        post_operation_with_params(
             &["skills"],
             "Search gateway capabilities",
             "Searches loaded and unloaded capabilities across live DCC instances.",
+            vec![accept_response_format_header()],
             request_body_ref("SearchRequest"),
-            gateway_json_response_ref("SearchResponse"),
+            gateway_response_ref("SearchResponse"),
         ),
     );
     paths.insert(
         "/v1/load_skill".to_string(),
-        post_operation(
+        post_operation_with_params(
             &["skills"],
             "Load a backend skill",
             "Loads a skill on a selected backend instance. Gateway load_skill defaults to lazy group activation.",
+            vec![accept_response_format_header()],
             request_body_ref("LoadSkillRequest"),
-            gateway_json_response_ref("SkillLifecycleResponse"),
+            gateway_response_ref("SkillLifecycleResponse"),
         ),
     );
     paths.insert(
         "/v1/unload_skill".to_string(),
-        post_operation(
+        post_operation_with_params(
             &["skills"],
             "Unload a backend skill",
             "Unloads a skill from a selected backend instance.",
+            vec![accept_response_format_header()],
             request_body_ref("UnloadSkillRequest"),
-            gateway_json_response_ref("SkillLifecycleResponse"),
+            gateway_response_ref("SkillLifecycleResponse"),
         ),
     );
     paths.insert(
         "/v1/describe".to_string(),
-        post_operation(
+        post_operation_with_params(
             &["tools"],
             "Describe a gateway capability",
             "Resolves a gateway tool_slug and returns its schema, annotations, backend owner, and loading state.",
+            vec![accept_response_format_header()],
             request_body_ref("DescribeRequest"),
-            gateway_json_response_ref("DescribeResponse"),
+            gateway_response_ref("DescribeResponse"),
         ),
     );
     paths.insert(
@@ -191,28 +195,33 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
             &["tools"],
             "Describe a gateway capability by URL slug",
             "URL alias for /v1/describe.",
-            vec![path_param("slug", "Gateway capability slug.")],
-            gateway_json_response_ref("DescribeResponse"),
+            vec![
+                path_param("slug", "Gateway capability slug."),
+                accept_response_format_header(),
+            ],
+            gateway_response_ref("DescribeResponse"),
         ),
     );
     paths.insert(
         "/v1/call".to_string(),
-        post_operation(
+        post_operation_with_params(
             &["tools"],
             "Call a gateway capability",
             "Invokes one gateway capability by tool_slug.",
+            vec![accept_response_format_header()],
             request_body_ref("CallRequest"),
-            gateway_json_response_ref("CallOutcome"),
+            gateway_response_ref("CallOutcome"),
         ),
     );
     paths.insert(
         "/v1/call_batch".to_string(),
-        post_operation(
+        post_operation_with_params(
             &["tools"],
             "Call multiple gateway capabilities",
             "Invokes up to 25 gateway capabilities in order with optional stop_on_error semantics.",
+            vec![accept_response_format_header()],
             request_body_ref("GatewayCallBatchRequest"),
-            gateway_json_response_ref("GatewayCallBatchResponse"),
+            gateway_response_ref("GatewayCallBatchResponse"),
         ),
     );
     paths.insert(
@@ -237,8 +246,9 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
                     "Full instance UUID, instance_short, or unique UUID prefix.",
                 ),
                 query_param("backend_tool", true, "Backend callable id to describe."),
+                accept_response_format_header(),
             ],
-            gateway_json_response_ref("DescribeResponse"),
+            gateway_response_ref("DescribeResponse"),
         ),
     );
     paths.insert(
@@ -253,9 +263,10 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
                     "instance_id",
                     "Full instance UUID, instance_short, or unique UUID prefix.",
                 ),
+                accept_response_format_header(),
             ],
             request_body_ref("GatewayDirectCallRequest"),
-            gateway_json_response_ref("CallOutcome"),
+            gateway_response_ref("CallOutcome"),
         ),
     );
     paths.insert(
@@ -289,6 +300,7 @@ fn common_schemas() -> Map<String, Value> {
     }
     annotate_service_error_policy(&mut schemas);
     annotate_search_quality_contract(&mut schemas);
+    annotate_response_format_controls(&mut schemas);
 
     schemas
 }
@@ -379,6 +391,38 @@ fn annotate_search_quality_contract(schemas: &mut Map<String, Value>) {
                 "description": "Suggested follow-up with meta.search_id attached when the hit is unloaded or ready for describe/call."
             }),
         );
+    }
+}
+
+fn annotate_response_format_controls(schemas: &mut Map<String, Value>) {
+    for schema_name in [
+        "SearchRequest",
+        "LoadSkillRequest",
+        "UnloadSkillRequest",
+        "DescribeRequest",
+        "CallRequest",
+        "GatewayDirectCallRequest",
+        "GatewayCallBatchRequest",
+    ] {
+        if let Some(schema) = schemas.get_mut(schema_name)
+            && let Some(properties) = schema.get_mut("properties").and_then(Value::as_object_mut)
+        {
+            properties.insert(
+                "response_format".to_string(),
+                json!({
+                    "type": "string",
+                    "enum": ["toon", "json"],
+                    "description": "Optional response-format override. Omit for the gateway default compact TOON response; set json for legacy compatibility."
+                }),
+            );
+            properties.insert(
+                "compact".to_string(),
+                json!({
+                    "type": "boolean",
+                    "description": "Alias for response_format=toon when true."
+                }),
+            );
+        }
     }
 }
 
@@ -526,7 +570,9 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
                     "backend_tool": {"type": "string"},
                     "arguments": {"type": "object", "additionalProperties": true},
                     "params": {"type": "object", "additionalProperties": true},
-                    "meta": {"type": "object", "additionalProperties": true}
+                    "meta": {"type": "object", "additionalProperties": true},
+                    "response_format": {"type": "string", "enum": ["toon", "json"]},
+                    "compact": {"type": "boolean"}
                 },
                 "additionalProperties": false,
             }),
@@ -756,8 +802,19 @@ fn json_response_ref(schema: &str) -> Value {
     })
 }
 
-fn gateway_json_response_ref(schema: &str) -> Value {
+fn gateway_response_ref(schema: &str) -> Value {
     let mut response = json_response_ref(schema);
+    response["description"] =
+        json!("Compact TOON by default; legacy JSON when the request opts out.");
+    response["content"][crate::gateway::response_codec::TOON_MIME] = json!({
+        "schema": {"type": "string"},
+        "examples": {
+            "toon": {
+                "summary": "TOON-encoded compact payload",
+                "value": "total:1\nhits[1]{tool_slug,summary}:\n  maya.abcdef01.render,Render current frame"
+            }
+        }
+    });
     response["headers"] = gateway_metadata_headers();
     response
 }
@@ -784,9 +841,57 @@ fn gateway_metadata_headers() -> Value {
             "description": "Bounded search ranker identifier when a route creates or consumes search-quality telemetry.",
             "schema": {"type": "string"}
         },
+        "x-dcc-mcp-response-format": {
+            "description": "Returned response format: toon by default, json when explicitly requested for compatibility.",
+            "schema": {"type": "string", "enum": ["toon", "json"]}
+        },
+        "x-dcc-mcp-token-estimator": {
+            "description": "Approximate token estimator id used for x-dcc-mcp-* token counts.",
+            "schema": {"type": "string", "const": crate::gateway::response_codec::TOKEN_ESTIMATOR}
+        },
+        "x-dcc-mcp-original-bytes": {
+            "description": "Serialized legacy JSON byte count before compaction.",
+            "schema": {"type": "integer", "minimum": 0}
+        },
+        "x-dcc-mcp-returned-bytes": {
+            "description": "Returned response body byte count.",
+            "schema": {"type": "integer", "minimum": 0}
+        },
+        "x-dcc-mcp-original-tokens": {
+            "description": "Approximate legacy JSON token count.",
+            "schema": {"type": "integer", "minimum": 0}
+        },
+        "x-dcc-mcp-returned-tokens": {
+            "description": "Approximate returned response token count.",
+            "schema": {"type": "integer", "minimum": 0}
+        },
+        "x-dcc-mcp-saved-tokens": {
+            "description": "Approximate tokens saved compared with legacy JSON.",
+            "schema": {"type": "integer", "minimum": 0}
+        },
+        "x-dcc-mcp-savings-pct": {
+            "description": "Approximate percent saved compared with legacy JSON.",
+            "schema": {"type": "string"}
+        },
         "traceparent": {
             "description": "W3C trace context for downstream HTTP clients.",
             "schema": {"type": "string"}
+        }
+    })
+}
+
+fn accept_response_format_header() -> Value {
+    json!({
+        "name": "Accept",
+        "in": "header",
+        "required": false,
+        "description": "Set application/json to opt out of the default compact TOON response; set application/toon or omit for compact output.",
+        "schema": {
+            "type": "string",
+            "enum": [
+                crate::gateway::response_codec::TOON_MIME,
+                crate::gateway::response_codec::JSON_MIME
+            ]
         }
     })
 }
@@ -907,7 +1012,22 @@ mod tests {
         assert!(search_headers.get("x-dcc-mcp-index-generation").is_some());
         assert!(search_headers.get("x-dcc-mcp-search-id").is_some());
         assert!(search_headers.get("x-dcc-mcp-ranker-version").is_some());
+        assert!(search_headers.get("x-dcc-mcp-response-format").is_some());
+        assert!(search_headers.get("x-dcc-mcp-token-estimator").is_some());
+        assert!(search_headers.get("x-dcc-mcp-saved-tokens").is_some());
         assert!(search_headers.get("traceparent").is_some());
+        assert!(
+            doc["paths"]["/v1/search"]["post"]["responses"]["200"]["content"]
+                .get(crate::gateway::response_codec::TOON_MIME)
+                .is_some()
+        );
+        assert!(
+            doc["paths"]["/v1/search"]["post"]["parameters"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|param| param["name"] == "Accept")
+        );
 
         let search_response = &doc["components"]["schemas"]["SearchResponse"];
         assert!(search_response["properties"].get("search_id").is_some());
@@ -922,6 +1042,18 @@ mod tests {
 
         let batch_item = &doc["components"]["schemas"]["GatewayBatchCallItem"];
         assert!(batch_item["properties"].get("id").is_some());
+        let search_request = &doc["components"]["schemas"]["SearchRequest"];
+        assert!(
+            search_request["properties"]
+                .get("response_format")
+                .is_some()
+        );
+        assert!(search_request["properties"].get("compact").is_some());
+        let call_request = &doc["components"]["schemas"]["CallRequest"];
+        assert_eq!(
+            call_request["properties"]["response_format"]["description"],
+            "Optional response-format override. Omit for the gateway default compact TOON response; set json for legacy compatibility."
+        );
         let response = &doc["components"]["schemas"]["GatewayCallBatchResponse"];
         assert!(
             response["properties"]["results"]["items"]["properties"]

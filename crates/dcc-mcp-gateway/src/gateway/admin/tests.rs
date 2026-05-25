@@ -484,7 +484,7 @@ redact:
         assert!(body.get("limits").is_some(), "expected limits object");
         assert!(body.get("circuits").is_some(), "expected circuits object");
         assert!(body.get("rss_bytes").is_some(), "expected rss_bytes field");
-        assert_eq!(body["response_format"]["default"], "json");
+        assert_eq!(body["response_format"]["default"], "toon");
         assert_eq!(
             body["response_format"]["token_estimator"],
             "dcc-mcp-byte4-v1"

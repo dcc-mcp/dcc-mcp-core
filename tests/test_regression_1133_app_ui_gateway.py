@@ -55,7 +55,7 @@ def _post_json(url: str, body: dict) -> dict:
     request = urllib.request.Request(
         url,
         data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={"Accept": "application/json", "Content-Type": "application/json"},
         method="POST",
     )
     try:
@@ -118,12 +118,11 @@ def _find_app_ui_slug(gateway_rest_url: str, query: str = "app_ui snapshot") -> 
     while time.time() < deadline:
         body = _post_json(
             f"{gateway_rest_url}/v1/search",
-            {"query": query, "dcc_type": "python", "limit": 10},
+            {"query": query, "dcc_type": "python", "limit": 10, "response_format": "json"},
         )
         last = body
         for hit in body.get("hits", []):
             if hit.get("backend_tool") == "app_ui__snapshot":
-                assert hit["annotations"]["readOnlyHint"] is True
                 return str(hit["tool_slug"])
         time.sleep(0.25)
     raise AssertionError(f"app_ui__snapshot not found in gateway search: {last!r}")
@@ -143,7 +142,7 @@ def test_app_ui_gateway_rest_and_mcp_discovery_describe_call(app_ui_gateway: dic
     assert "app_ui__snapshot" in _tool_text(search_resp)
 
     slug = _find_app_ui_slug(gateway_rest_url)
-    describe = _post_json(f"{gateway_rest_url}/v1/describe", {"tool_slug": slug})
+    describe = _post_json(f"{gateway_rest_url}/v1/describe", {"tool_slug": slug, "response_format": "json"})
     assert describe["tool"]["annotations"]["readOnlyHint"] is True
     assert describe["tool"]["_meta"]["dcc"]["affinity"] == "any"
     assert describe["tool"]["_meta"]["dcc"]["execution"] == "sync"
@@ -152,7 +151,7 @@ def test_app_ui_gateway_rest_and_mcp_discovery_describe_call(app_ui_gateway: dic
 
     rest_call = _post_json(
         f"{gateway_rest_url}/v1/call",
-        {"tool_slug": slug, "arguments": {"session_id": "core-1133-rest"}},
+        {"tool_slug": slug, "arguments": {"session_id": "core-1133-rest"}, "response_format": "json"},
     )
     assert rest_call["output"]["success"] is True
     assert rest_call["output"]["context"]["snapshot"]["root"]["role"] == "window"

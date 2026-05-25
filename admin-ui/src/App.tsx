@@ -3844,7 +3844,7 @@ function App() {
               <HealthCard label="Gateway candidates" value={String(health?.gateway?.candidates?.length ?? 0)} />
               <HealthCard
                 label="Response format"
-                value={`${health?.response_format?.default ?? 'json'} / ${health?.response_format?.token_estimator ?? '-'}`}
+                value={`${health?.response_format?.default ?? 'toon'} / ${health?.response_format?.token_estimator ?? '-'}`}
               />
               <HealthCard label="RSS" value={formatBytes(health?.rss_bytes ?? undefined)} />
               <HealthCard label="Body limit" value={health?.limits ? formatBytes(health.limits.body_max_bytes) : '?'} />
@@ -4226,7 +4226,7 @@ function App() {
               />
               <MetricTile
                 label="Response format"
-                value={health?.response_format?.default ?? 'json'}
+                value={health?.response_format?.default ?? 'toon'}
                 detail={health?.response_format?.token_estimator ?? 'token estimator unavailable'}
               />
             </div>

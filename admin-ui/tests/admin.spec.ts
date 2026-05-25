@@ -26,7 +26,7 @@ async function mockAdminApi(page: Page) {
         version: '0.17.7',
         rss_bytes: 2097152,
         response_format: {
-          default: 'json',
+          default: 'toon',
           legacy_mime: 'application/json',
           compact_mime: 'application/toon',
           token_estimator: 'dcc-mcp-byte4-v1',
@@ -753,7 +753,7 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.debug-panel')).toContainText('Traffic Shape');
     await page.getByRole('navigation').getByRole('link', { name: 'Health' }).click();
     await expect(page.locator('.health-panel')).toContainText('0.17.7');
-    await expect(page.locator('.health-panel')).toContainText('json / dcc-mcp-byte4-v1');
+    await expect(page.locator('.health-panel')).toContainText('toon / dcc-mcp-byte4-v1');
   });
 
   test('shows platform-specific IDE config paths', async ({ page }) => {

@@ -249,7 +249,8 @@ async fn handle_initialize(gs: &GatewayState, id: Value, req: &JsonRpcRequest) -
                     "dcc-mcp": {
                         "compactResponses": {
                             "formats": ["json", "toon"],
-                            "request": "Set params._meta.response_format=\"toon\" or params._meta.compact=true. The JSON-RPC envelope stays JSON."
+                            "default": "json-rpc-json",
+                            "request": "Compact-capable clients should set params._meta.response_format=\"toon\" or params._meta.compact=true on high-token requests. Set params._meta.response_format=\"json\" to opt out. The JSON-RPC envelope stays JSON."
                         }
                     }
                 }
@@ -270,7 +271,7 @@ async fn handle_initialize(gs: &GatewayState, id: Value, req: &JsonRpcRequest) -
                  2. search(kind=\"skill\", ...) then load_skill(skill_name=..., instance_id=... when needed)\n\
                  3. search(kind=\"tool\", ...) -> describe(tool_slug=...) -> call(tool_slug=..., arguments={...}); never put code/python/mel at the call top level\n\
                  4. Optional: call({calls:[{tool_slug, arguments}, ...], stop_on_error?}) for ordered batches (max 25)\n\
-                 5. Optional: request compact TOON payloads with params._meta.response_format=\"toon\" or params._meta.compact=true; JSON-RPC jsonrpc/id/result/error stay JSON.\n\
+                 5. Compact-capable clients should request compact TOON payloads on high-token calls with params._meta.response_format=\"toon\" or params._meta.compact=true; use params._meta.response_format=\"json\" to opt out. JSON-RPC jsonrpc/id/result/error stay JSON.\n\
                  \n\
                  Subscribe to GET /mcp (SSE) for push notifications."
         }
@@ -967,6 +968,23 @@ mod tests {
             4,
             "compact mode must not fan out backend tools"
         );
+    }
+
+    #[tokio::test]
+    async fn explicit_mcp_json_opt_out_wins_over_compact_alias() {
+        let req = request(
+            "tools/list",
+            json!("json-opt-out"),
+            Some(json!({"_meta": {"response_format": "json", "compact": true}})),
+        );
+        let response = dispatch(&req).await;
+
+        let tools = response["result"]["tools"]
+            .as_array()
+            .expect("explicit JSON opt-out keeps the legacy tools/list shape");
+        assert_eq!(tools.len(), 4);
+        assert!(response["result"].get("text").is_none());
+        assert!(response["result"].get("response_format").is_none());
     }
 
     #[tokio::test]

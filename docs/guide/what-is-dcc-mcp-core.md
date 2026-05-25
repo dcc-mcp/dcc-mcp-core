@@ -177,6 +177,7 @@ Full symbol listing lives in the [API reference](/api/actions).
 
 | Change | Impact | Migration |
 |---|---|---|
+| **Gateway REST defaults to compact TOON** | `/v1/search`, `/v1/describe`, `/v1/call`, direct instance describe/call, and `/v1/call_batch` return `application/toon` unless the request opts out | Send `Accept: application/json` or body `response_format: "json"` for legacy JSON; operators can temporarily set `DCC_MCP_GATEWAY_RESPONSE_FORMAT=json` during client migrations |
 | **Gateway MCP surface converged** | `GatewayToolExposure` enum, `tool_exposure` / `publishes_backend_tools` config, `--gateway-tool-exposure` CLI flag all removed | Drop the code/config/env var; the gateway has a single (minimal) surface now |
 | **Gateway wrapper payloads are strict** | MCP `call`, hidden `call_tool` / `call_tools`, `/v1/call`, and `/v1/call_batch` normalize through `dcc-mcp-wire`; backend fields at the wrapper top level are ignored/rejected | Send `{tool_slug, arguments?, meta?}` or `{calls:[...]}` and put tool input inside `arguments`; use `normalize_tool_arguments()` in Python host wrappers |
 | **Gateway prompt names are cursor-safe** | Aggregated prompt names use `i_<id8>__<escaped>` instead of raw backend names | Store the returned prompt name exactly as listed; do not reconstruct it from DCC/tool names |
