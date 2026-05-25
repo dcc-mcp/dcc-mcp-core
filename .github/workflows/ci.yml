@@ -94,6 +94,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: loonghao/vx@v0.9.2
+        with:
+          version: "0.9.2"
+          cache-key-prefix: "vx-tools-v0.9.2"
       - name: Build admin UI bundle
         shell: bash
         run: scripts/release/prebuild_admin_ui.sh
@@ -131,6 +134,9 @@ jobs:
           echo "RUSTC=$(rustup which rustc)" >> "$GITHUB_ENV"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - uses: loonghao/vx@v0.9.2
+        with:
+          version: "0.9.2"
+          cache-key-prefix: "vx-tools-v0.9.2"
       - name: Prepare admin UI dependencies
         shell: bash
         run: |
@@ -235,6 +241,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - uses: loonghao/vx@v0.9.2
+        with:
+          version: "0.9.2"
+          cache-key-prefix: "vx-tools-v0.9.2"
       - name: Download wheel
         uses: actions/download-artifact@v8
         with:
@@ -308,6 +317,9 @@ jobs:
           python-version: "3.14"
 
       - uses: loonghao/vx@v0.9.2
+        with:
+          version: "0.9.2"
+          cache-key-prefix: "vx-tools-v0.9.2"
 
       - name: Install dev deps
         run: vx just install-dev-deps
@@ -350,6 +362,9 @@ jobs:
           python-version: "3.14"
 
       - uses: loonghao/vx@v0.9.2
+        with:
+          version: "0.9.2"
+          cache: "false"
 
       - name: Download wheel
         uses: actions/download-artifact@v8
