@@ -176,7 +176,11 @@ into a faster authoring loop.
    capture) over ad-hoc print logging. Redactions are write-time exact JSON
    paths such as `body.data.params.arguments.api_key`, and capture files can
    contain prompts, scene paths, and tool arguments, so keep them as local
-   debugging artifacts unless redaction has been applied. When validating
+   debugging artifacts unless redaction has been applied. Use
+   `dcc-mcp-server capture replay <capture> --target <gateway>/mcp` to replay
+   captured client requests after a skill or prompt change, and
+   `dcc-mcp-server capture diff <before> <after>` to compare observable
+   traffic between two runs. When validating
    annotations, read-only mode, allowlists, quota pressure, or redaction
    behavior through the gateway, inspect `GET /v1/debug/governance` rather than
    guessing from a single failed call; it shows the effective policy, capture

@@ -67,6 +67,29 @@ Because frames can contain prompts, tool arguments, scene paths, and result
 payloads, treat capture files like debugging artifacts, not production audit
 logs.
 
+Replay a captured session against a live gateway after changing a skill,
+prompt, or routing policy:
+
+```bash
+dcc-mcp-server capture replay ./captures/run.sqlite \
+    --target http://127.0.0.1:9765/mcp \
+    --session sess_01HQX \
+    --assert outputs-compatible
+```
+
+Compare two captures when checking whether a prompt or skill change altered
+observable traffic:
+
+```bash
+dcc-mcp-server capture diff ./captures/before.sqlite ./captures/after.sqlite \
+    --before-session sess_before \
+    --after-session sess_after
+```
+
+Use `outputs-equal` only for deterministic fixtures. For live DCC runs,
+`outputs-compatible` is usually the stable contract: status plus JSON-RPC
+result/error shape.
+
 ---
 
 ## Election (three-tier comparison)
