@@ -370,6 +370,26 @@ def test_host_execution_bridge_as_inprocess_executor_uses_runner() -> None:
     assert seen == [("/tmp/skill.py", {"k": "v"})]
 
 
+def test_host_execution_bridge_prepares_file_backed_script_params(tmp_path: Path) -> None:
+    bridge = HostExecutionBridge(
+        script_materialization_policy="auto",
+        script_materialization_root=tmp_path,
+    )
+
+    params = bridge.prepare_script_execution_params(
+        {"code": "result = 3"},
+        dcc_type="custom",
+        instance_id="inst-1",
+        session_id="sess-1",
+        tool_call_id="call-1",
+    )
+
+    assert params.file_path is not None
+    assert Path(params.file_path).is_file()
+    assert params.materialized_script is not None
+    assert params.materialized_script.tool_call_id == "call-1"
+
+
 def test_host_execution_bridge_resolves_deferred_tool_result() -> None:
     attempts = 0
 

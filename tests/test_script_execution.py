@@ -2,26 +2,40 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 import sys
 
 import pytest
 
 import dcc_mcp_core
+from dcc_mcp_core.script_execution import FileBackedScriptExecutionParams
 from dcc_mcp_core.script_execution import ScriptExecutionCapture
 from dcc_mcp_core.script_execution import ScriptExecutionParams
 from dcc_mcp_core.script_execution import ScriptExecutionResult
+from dcc_mcp_core.script_execution import allow_script_materialization_root
+from dcc_mcp_core.script_execution import execute_with_context
+from dcc_mcp_core.script_execution import normalize_file_backed_script_execution_params
 from dcc_mcp_core.script_execution import normalize_script_execution_params
+from dcc_mcp_core.script_execution import validate_script_file_path
 
 
 def test_script_execution_helpers_are_exported() -> None:
     assert dcc_mcp_core.ScriptExecutionCapture is ScriptExecutionCapture
+    assert dcc_mcp_core.FileBackedScriptExecutionParams is FileBackedScriptExecutionParams
     assert dcc_mcp_core.ScriptExecutionParams is ScriptExecutionParams
     assert dcc_mcp_core.ScriptExecutionResult is ScriptExecutionResult
+    assert dcc_mcp_core.allow_script_materialization_root is allow_script_materialization_root
+    assert dcc_mcp_core.normalize_file_backed_script_execution_params is normalize_file_backed_script_execution_params
     assert dcc_mcp_core.normalize_script_execution_params is normalize_script_execution_params
+    assert dcc_mcp_core.validate_script_file_path is validate_script_file_path
     assert "ScriptExecutionCapture" in dcc_mcp_core.__all__
+    assert "FileBackedScriptExecutionParams" in dcc_mcp_core.__all__
     assert "ScriptExecutionParams" in dcc_mcp_core.__all__
     assert "ScriptExecutionResult" in dcc_mcp_core.__all__
+    assert "allow_script_materialization_root" in dcc_mcp_core.__all__
+    assert "normalize_file_backed_script_execution_params" in dcc_mcp_core.__all__
     assert "normalize_script_execution_params" in dcc_mcp_core.__all__
+    assert "validate_script_file_path" in dcc_mcp_core.__all__
 
 
 def test_normalize_script_execution_params_accepts_code() -> None:
@@ -43,6 +57,102 @@ def test_normalize_script_execution_params_validates_input() -> None:
         normalize_script_execution_params({"code": 123})
     with pytest.raises(ValueError, match="greater than zero"):
         normalize_script_execution_params({"code": "pass", "timeout_secs": 0})
+
+
+def test_file_backed_normalizer_auto_materializes_inline_code(tmp_path: Path) -> None:
+    params = normalize_file_backed_script_execution_params(
+        {"code": "result = 21 * 2", "timeout_secs": 5},
+        dcc_type="maya",
+        instance_id="inst-1",
+        session_id="sess-1",
+        materialization_root=tmp_path,
+        tool_call_id="call-1",
+        correlation_id="corr-1",
+    )
+
+    assert params.is_file_backed is True
+    assert params.file_path is not None
+    assert Path(params.file_path).is_file()
+    assert params.timeout_secs == 5
+    assert params.source == "materialized"
+    assert params.materialized_script is not None
+    assert params.materialized_context()["sha256"] == params.materialized_script.sha256
+    assert execute_with_context(params.code, filename=params.file_path) == 42
+
+
+def test_file_backed_normalizer_require_rejects_inline_code(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="policy=require"):
+        normalize_file_backed_script_execution_params(
+            {"code": "pass"},
+            dcc_type="maya",
+            instance_id="inst-1",
+            session_id="sess-1",
+            materialization_root=tmp_path,
+            policy="require",
+        )
+
+
+def test_file_backed_normalizer_accepts_trusted_file_path(tmp_path: Path) -> None:
+    script = tmp_path / "tool.py"
+    script.write_text("result = 'from-file'", encoding="utf-8")
+
+    params = normalize_file_backed_script_execution_params(
+        {"file_path": str(script)},
+        dcc_type="photoshop",
+        instance_id="ps-1",
+        session_id="sess-1",
+        materialization_root=tmp_path / "materialized",
+        trusted_roots=(tmp_path,),
+        policy="require",
+    )
+
+    assert params.file_path == str(script.resolve())
+    assert params.code == "result = 'from-file'"
+    metadata = params.materialized_context()
+    assert metadata["path"] == str(script.resolve())
+    assert metadata["file_ref"]["digest"] == f"sha256:{params.sha256}"
+    assert execute_with_context(params.code, filename=params.file_path) == "from-file"
+
+
+def test_file_backed_normalizer_rejects_untrusted_file_path(tmp_path: Path) -> None:
+    script = tmp_path / "outside.py"
+    script.write_text("result = 'nope'", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="outside trusted roots"):
+        normalize_file_backed_script_execution_params(
+            {"file_path": str(script)},
+            dcc_type="custom",
+            instance_id="inst",
+            session_id="sess",
+            materialization_root=tmp_path / "materialized",
+        )
+
+
+def test_allow_script_materialization_root_extends_sandbox_allowlist(tmp_path: Path) -> None:
+    policy = dcc_mcp_core.SandboxPolicy()
+    trusted = tmp_path / "trusted"
+    trusted.mkdir()
+    root = tmp_path / "materialized"
+    policy.allow_paths([str(trusted)])
+
+    allowed_root = allow_script_materialization_root(policy, root=root)
+    ctx = dcc_mcp_core.SandboxContext(policy)
+
+    assert allowed_root == root.resolve()
+    assert ctx.is_path_allowed(str(root / "custom" / "script.py")) is True
+    assert ctx.is_path_allowed(str(tmp_path / "outside.py")) is False
+
+
+def test_allow_script_materialization_root_preserves_unrestricted_sandbox(tmp_path: Path) -> None:
+    policy = dcc_mcp_core.SandboxPolicy()
+    root = tmp_path / "materialized"
+
+    allowed_root = allow_script_materialization_root(policy, root=root)
+    ctx = dcc_mcp_core.SandboxContext(policy)
+
+    assert allowed_root == root.resolve()
+    assert ctx.is_path_allowed(str(root / "custom" / "script.py")) is True
+    assert ctx.is_path_allowed(str(tmp_path / "outside.py")) is True
 
 
 def test_capture_collects_stdout_and_stderr() -> None:
@@ -82,6 +192,27 @@ def test_result_from_value_returns_standard_success_envelope() -> None:
             "stderr": "err",
         },
     }
+
+
+def test_result_from_value_attaches_materialized_script_context(tmp_path: Path) -> None:
+    params = normalize_file_backed_script_execution_params(
+        {"code": "result = 7"},
+        dcc_type="blender",
+        instance_id="blend-1",
+        session_id="sess-1",
+        materialization_root=tmp_path,
+    )
+
+    result = ScriptExecutionResult.from_value(
+        7,
+        materialized_script=params,
+    )
+
+    metadata = result["context"]["materialized_script"]
+    assert metadata["path"] == params.file_path
+    assert metadata["file_ref"]["digest"] == f"sha256:{params.sha256}"
+    assert metadata["bytes"] == params.bytes
+    assert metadata["reused"] is False
 
 
 def test_strict_json_reports_non_serializable_values() -> None:

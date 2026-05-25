@@ -152,14 +152,21 @@ def test_register_inprocess_executor_attaches_configured_sandbox(tmp_path: Path)
 def test_register_host_execution_bridge_attaches_configured_sandbox(tmp_path: Path) -> None:
     base, captured = _make_base_with_captured_executor(tmp_path)
 
+    trusted_root = tmp_path / "trusted"
+    trusted_root.mkdir()
+    materialization_root = tmp_path / "materialized"
     policy = SandboxPolicy()
     policy.deny_actions(["execute_python"])
+    policy.allow_paths([str(trusted_root)])
     base._config.sandbox_policy = policy
 
-    bridge = HostExecutionBridge()
+    bridge = HostExecutionBridge(script_materialization_root=materialization_root)
     base.register_host_execution_bridge(bridge)
     assert len(captured) == 1
     assert bridge.sandbox_context is not None
+    assert bridge.script_materialization_root == materialization_root.resolve()
+    assert bridge.sandbox_context.is_path_allowed(str(materialization_root / "custom" / "script.py")) is True
+    assert bridge.sandbox_context.is_path_allowed(str(tmp_path / "outside.py")) is False
 
     script = _write_script(
         tmp_path,

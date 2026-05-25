@@ -18,17 +18,24 @@ from collections.abc import Mapping
 import contextlib
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
+import hashlib
 import io
 import json
 from pathlib import Path
 import sys
 import traceback
 from typing import Any
+from typing import Sequence
 from typing import TextIO
 
 from dcc_mcp_core.result_envelope import ToolResult
+from dcc_mcp_core.script_materialization import MaterializedScript
 from dcc_mcp_core.script_materialization import cleanup_materialized_scripts
+from dcc_mcp_core.script_materialization import default_script_materialization_root
 from dcc_mcp_core.script_materialization import materialize_script
+
+ScriptMaterializationPolicy = str
+_SCRIPT_MATERIALIZATION_POLICIES = {"off", "auto", "require"}
 
 
 class ScriptExecutionSerializationError(TypeError):
@@ -43,6 +50,41 @@ class ScriptExecutionParams:
 
     code: str
     timeout_secs: int | None = None
+
+
+@dataclass(frozen=True)
+class FileBackedScriptExecutionParams:
+    """Normalized script execution request after file-backed policy handling."""
+
+    code: str
+    file_path: str | None
+    timeout_secs: int | None = None
+    materialized_script: MaterializedScript | None = None
+    source: str = "inline"
+    sha256: str | None = None
+    bytes: int | None = None
+
+    @property
+    def is_file_backed(self) -> bool:
+        """Return true when execution has a concrete host-local file path."""
+        return self.file_path is not None
+
+    def materialized_context(self) -> dict[str, Any] | None:
+        """Return standardized ToolResult context metadata."""
+        if self.materialized_script is not None:
+            return _materialized_script_context(self.materialized_script)
+        if self.file_path is None:
+            return None
+        path = Path(self.file_path)
+        return {
+            "path": self.file_path,
+            "file_path": self.file_path,
+            "file_ref": _file_ref_for_script_path(path, sha256=self.sha256, bytes_=self.bytes),
+            "sha256": self.sha256,
+            "bytes": self.bytes,
+            "reused": False,
+            "source": self.source,
+        }
 
 
 def normalize_script_execution_params(
@@ -77,6 +119,243 @@ def normalize_script_execution_params(
         timeout_secs = timeout_value
 
     return ScriptExecutionParams(code=code, timeout_secs=timeout_secs)
+
+
+def normalize_file_backed_script_execution_params(
+    params: Mapping[str, Any],
+    *,
+    dcc_type: str,
+    instance_id: str,
+    session_id: str,
+    policy: ScriptMaterializationPolicy = "auto",
+    trusted_roots: Sequence[str | Path] = (),
+    materialization_root: str | Path | None = None,
+    language: str = "python",
+    suffix: str = ".py",
+    default_timeout_secs: int | None = None,
+    ttl_secs: int | None = None,
+    tool_call_id: str | None = None,
+    correlation_id: str | None = None,
+    reuse: bool = False,
+    reuse_key: str | None = None,
+) -> FileBackedScriptExecutionParams:
+    """Normalize script execution params through the file-backed policy.
+
+    ``policy="auto"`` materializes inline ``code`` into the canonical store.
+    ``policy="require"`` rejects raw inline code and accepts only explicit
+    trusted file paths. ``policy="off"`` preserves legacy inline execution.
+    """
+    policy = _normalize_materialization_policy(policy)
+    timeout_secs = _normalize_timeout(params, default_timeout_secs=default_timeout_secs)
+    file_path = _first_string(params, "file_path", "script_path")
+
+    if file_path is not None:
+        trusted_path = validate_script_file_path(
+            file_path,
+            trusted_roots=trusted_roots,
+            materialization_root=materialization_root,
+        )
+        code = trusted_path.read_text(encoding="utf-8")
+        return FileBackedScriptExecutionParams(
+            code=code,
+            file_path=str(trusted_path),
+            timeout_secs=timeout_secs,
+            source="file_path",
+            sha256=_hash_text(code),
+            bytes=len(code.encode("utf-8")),
+        )
+
+    code = _required_code(params)
+    if policy == "require":
+        raise ValueError(
+            "Inline code is not allowed when script_materialization_policy=require; "
+            "materialize the script first and pass file_path",
+        )
+    if policy == "off":
+        return FileBackedScriptExecutionParams(
+            code=code,
+            file_path=None,
+            timeout_secs=timeout_secs,
+            source="inline",
+            sha256=_hash_text(code),
+            bytes=len(code.encode("utf-8")),
+        )
+
+    descriptor = materialize_script(
+        code,
+        dcc_type=dcc_type,
+        instance_id=instance_id,
+        session_id=session_id,
+        language=language,
+        suffix=suffix,
+        ttl_secs=ttl_secs,
+        root=materialization_root,
+        tool_call_id=tool_call_id,
+        correlation_id=correlation_id,
+        reuse=reuse,
+        reuse_key=reuse_key,
+    )
+    path = Path(descriptor.file_path)
+    return FileBackedScriptExecutionParams(
+        code=path.read_text(encoding="utf-8"),
+        file_path=descriptor.file_path,
+        timeout_secs=timeout_secs,
+        materialized_script=descriptor,
+        source="materialized",
+        sha256=descriptor.sha256,
+        bytes=descriptor.bytes,
+    )
+
+
+def validate_script_file_path(
+    file_path: str | Path,
+    *,
+    trusted_roots: Sequence[str | Path] = (),
+    materialization_root: str | Path | None = None,
+) -> Path:
+    """Validate that ``file_path`` exists and belongs to a trusted root."""
+    path = Path(file_path).expanduser()
+    if not path.is_file():
+        raise FileNotFoundError(f"Script file not found: {file_path}")
+
+    resolved = path.resolve()
+    roots = [default_script_materialization_root(materialization_root)]
+    roots.extend(Path(root).expanduser() for root in trusted_roots)
+    for root in roots:
+        root_path = root.resolve() if root.exists() else root
+        try:
+            resolved.relative_to(root_path)
+            return resolved
+        except ValueError:
+            continue
+    raise ValueError(f"Script file is outside trusted roots: {file_path}")
+
+
+def allow_script_materialization_root(
+    policy: Any,
+    *,
+    root: str | Path | None = None,
+) -> Path:
+    """Add the script materialization root to a sandbox policy allowlist."""
+    root_path = default_script_materialization_root(root).resolve()
+    root_path.mkdir(parents=True, exist_ok=True)
+    if _sandbox_allows_path(policy, root_path / "__dcc_mcp_materialization_probe__.py"):
+        return root_path
+    allow_paths = getattr(policy, "allow_paths", None)
+    if not callable(allow_paths):
+        raise TypeError("sandbox policy must expose allow_paths(paths)")
+    allow_paths([str(root_path)])
+    return root_path
+
+
+def _sandbox_allows_path(policy: Any, path: Path) -> bool:
+    try:
+        from dcc_mcp_core import SandboxContext
+
+        return bool(SandboxContext(policy).is_path_allowed(str(path)))
+    except Exception:
+        return False
+
+
+def _normalize_materialization_policy(policy: str) -> ScriptMaterializationPolicy:
+    if policy not in _SCRIPT_MATERIALIZATION_POLICIES:
+        raise ValueError("script_materialization_policy must be one of: off, auto, require")
+    return policy  # type: ignore[return-value]
+
+
+def _normalize_timeout(
+    params: Mapping[str, Any],
+    *,
+    default_timeout_secs: int | None,
+) -> int | None:
+    if default_timeout_secs is not None and default_timeout_secs <= 0:
+        raise ValueError("default_timeout_secs must be greater than zero")
+    timeout_secs = default_timeout_secs
+    if params.get("timeout_secs") is not None:
+        timeout_value = params["timeout_secs"]
+        if isinstance(timeout_value, bool) or not isinstance(timeout_value, int):
+            raise TypeError("timeout_secs must be an integer number of seconds")
+        if timeout_value <= 0:
+            raise ValueError("timeout_secs must be greater than zero")
+        timeout_secs = timeout_value
+    return timeout_secs
+
+
+def _required_code(params: Mapping[str, Any]) -> str:
+    if params.get("code") is None:
+        raise ValueError("Missing required 'code' string")
+    code = params["code"]
+    if not isinstance(code, str):
+        raise TypeError("code must be a string")
+    return code
+
+
+def _first_string(params: Mapping[str, Any], *names: str) -> str | None:
+    for name in names:
+        value = params.get(name)
+        if value is None:
+            continue
+        if not isinstance(value, str):
+            raise TypeError(f"{name} must be a string")
+        if value:
+            return value
+    return None
+
+
+def _hash_text(code: str) -> str:
+    return hashlib.sha256(code.encode("utf-8")).hexdigest()
+
+
+def _materialized_script_context(
+    materialized_script: MaterializedScript | FileBackedScriptExecutionParams | Mapping[str, Any],
+) -> dict[str, Any]:
+    if isinstance(materialized_script, FileBackedScriptExecutionParams):
+        context = materialized_script.materialized_context()
+        return {} if context is None else context
+    if isinstance(materialized_script, MaterializedScript):
+        return {
+            "path": materialized_script.file_path,
+            "file_path": materialized_script.file_path,
+            "file_ref": materialized_script.file_ref,
+            "sha256": materialized_script.sha256,
+            "bytes": materialized_script.bytes,
+            "reused": materialized_script.reused,
+            "expires_at": materialized_script.expires_at,
+            "ttl_secs": materialized_script.ttl_secs,
+            "session_id": materialized_script.session_id,
+            "tool_call_id": materialized_script.tool_call_id,
+            "correlation_id": materialized_script.correlation_id,
+        }
+    return dict(materialized_script)
+
+
+def _file_ref_for_script_path(path: Path, *, sha256: str | None, bytes_: int | None) -> dict[str, Any]:
+    resolved = path.resolve()
+    file_ref = {
+        "uri": resolved.as_uri(),
+        "mime": _mime_for_script_path(resolved),
+        "size_bytes": bytes_,
+        "display_name": resolved.name,
+        "digest": f"sha256:{sha256}" if sha256 else None,
+        "metadata": {
+            "materialization_kind": "script",
+            "source": "file_path",
+        },
+    }
+    return {key: value for key, value in file_ref.items() if value is not None}
+
+
+def _mime_for_script_path(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix == ".py":
+        return "text/x-python"
+    if suffix == ".mel":
+        return "text/x-mel"
+    if suffix == ".js":
+        return "text/javascript"
+    if suffix == ".ps1":
+        return "text/x-powershell"
+    return "text/plain"
 
 
 class _CaptureStream(io.TextIOBase):
@@ -216,6 +495,7 @@ class ScriptExecutionResult:
         strict_json: bool = True,
         repr_fallback: bool | None = None,
         message: str = "Script executed successfully",
+        materialized_script: MaterializedScript | FileBackedScriptExecutionParams | Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Return a success envelope, or a strict serialization error envelope."""
         use_repr = not strict_json if repr_fallback is None else repr_fallback
@@ -233,12 +513,14 @@ class ScriptExecutionResult:
                 stderr=stderr,
             ).to_dict()
 
-        return ToolResult.ok(
-            message,
-            result=normalized,
-            stdout=stdout,
-            stderr=stderr,
-        ).to_dict()
+        context = {
+            "result": normalized,
+            "stdout": stdout,
+            "stderr": stderr,
+        }
+        if materialized_script is not None:
+            context["materialized_script"] = _materialized_script_context(materialized_script)
+        return ToolResult.ok(message, **context).to_dict()
 
     @staticmethod
     def from_exception(
@@ -261,16 +543,20 @@ class ScriptExecutionResult:
 
 
 __all__ = [
+    "FileBackedScriptExecutionParams",
     "ScriptExecutionCapture",
     "ScriptExecutionParams",
     "ScriptExecutionResult",
     "ScriptExecutionSerializationError",
+    "allow_script_materialization_root",
     "cleanup_temp_scripts",
     "clear_script_namespace",
     "execute_with_context",
     "get_script_namespace",
+    "normalize_file_backed_script_execution_params",
     "normalize_script_execution_params",
     "register_dcc_namespace",
+    "validate_script_file_path",
     "write_temp_script",
 ]
 

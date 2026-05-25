@@ -35,7 +35,11 @@ from typing import TYPE_CHECKING
 from typing import Any
 from typing import Callable
 from typing import Mapping
+from typing import Sequence
 import uuid
+
+from dcc_mcp_core.script_execution import FileBackedScriptExecutionParams
+from dcc_mcp_core.script_execution import normalize_file_backed_script_execution_params
 
 if TYPE_CHECKING:
     pass
@@ -293,6 +297,9 @@ class HostExecutionBridge:
     default_thread_affinity: str = "any"
     default_execution: str = "sync"
     default_timeout_hint_secs: int | None = None
+    script_materialization_policy: str = "auto"
+    script_materialization_root: str | Path | None = None
+    trusted_script_roots: tuple[str | Path, ...] = ()
 
     def resolve_host_dispatcher(self) -> Any | None:
         """Return the dispatcher that should back HTTP main-thread routing.
@@ -348,6 +355,44 @@ class HostExecutionBridge:
         )
         result = self._dispatch_raw(func, args, kwargs, context)
         return self._resolve_deferred_result(result, context)
+
+    def prepare_script_execution_params(
+        self,
+        params: Mapping[str, Any],
+        *,
+        dcc_type: str,
+        instance_id: str,
+        session_id: str,
+        policy: str | None = None,
+        trusted_roots: Sequence[str | Path] = (),
+        materialization_root: str | Path | None = None,
+        language: str = "python",
+        suffix: str = ".py",
+        ttl_secs: int | None = None,
+        tool_call_id: str | None = None,
+        correlation_id: str | None = None,
+        reuse: bool = False,
+        reuse_key: str | None = None,
+    ) -> FileBackedScriptExecutionParams:
+        """Normalize inline/file script params through the shared materializer."""
+        roots = (*self.trusted_script_roots, *trusted_roots)
+        root = materialization_root if materialization_root is not None else self.script_materialization_root
+        return normalize_file_backed_script_execution_params(
+            params,
+            dcc_type=dcc_type,
+            instance_id=instance_id,
+            session_id=session_id,
+            policy=policy or self.script_materialization_policy,
+            trusted_roots=roots,
+            materialization_root=root,
+            language=language,
+            suffix=suffix,
+            ttl_secs=ttl_secs,
+            tool_call_id=tool_call_id,
+            correlation_id=correlation_id,
+            reuse=reuse,
+            reuse_key=reuse_key,
+        )
 
     def _dispatch_raw(
         self,

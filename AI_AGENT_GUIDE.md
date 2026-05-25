@@ -96,6 +96,15 @@ store and receive a descriptor with `file_ref`, `file_path`, `sha256`,
 is still available for compatibility, but the structured descriptor is the
 auditable contract.
 
+Core script execution helpers now normalize through
+`script_materialization_policy = off | auto | require`. The default `auto`
+mode transparently turns inline `code` into a materialized host-local
+`file_path` before execution. Use `require` when an adapter boundary must reject
+raw inline code, and use `off` only as a short-lived compatibility escape hatch.
+Execution results should return `context.materialized_script` with `path`,
+`file_ref`, `sha256`, `bytes`, and `reused` metadata; legacy spilled-script
+context keys are migration aliases, not the preferred contract.
+
 Pure HTTP clients use the same REST endpoints directly: `POST /v1/search`, `POST /v1/describe`, `POST /v1/call`, and gateway `POST /v1/call_batch`. Gateway REST returns compact TOON by default; send `Accept: application/json` or body `response_format: "json"` when a legacy JSON client needs compatibility. See `docs/guide/gateway.md` and `docs/guide/rest-api-surface.md`.
 
 ### Gateway workflow guide (`gateway://docs/agent-workflows`)
