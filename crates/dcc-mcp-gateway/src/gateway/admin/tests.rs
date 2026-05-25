@@ -19,6 +19,7 @@ mod admin_tests {
 
     use crate::gateway::admin::router::{build_admin_router, build_v1_debug_router};
     use crate::gateway::admin::state::{AdminAuditRecord, AdminState, AuditLog};
+    use crate::gateway::admin::trace::TokenTelemetry;
     use crate::gateway::router::build_gateway_router_with_admin;
     use crate::gateway::state::GatewayState;
     use dcc_mcp_transport::discovery::file_registry::FileRegistry;
@@ -185,6 +186,25 @@ mod admin_tests {
             success,
             error: error.map(str::to_string),
             duration_ms: Some(12),
+            token_accounting: None,
+        }
+    }
+
+    fn token_telemetry(format: &str, original: usize, returned: usize) -> TokenTelemetry {
+        let saved = original.saturating_sub(returned);
+        TokenTelemetry {
+            response_format: format.to_string(),
+            token_estimator: "dcc-mcp-byte4-v1".to_string(),
+            original_bytes: original * 4,
+            returned_bytes: returned * 4,
+            original_tokens: original,
+            returned_tokens: returned,
+            saved_tokens: saved,
+            savings_pct: if original == 0 {
+                0.0
+            } else {
+                (((saved as f64 / original as f64) * 100.0) * 100.0).round() / 100.0
+            },
         }
     }
 
@@ -637,6 +657,7 @@ redact:
                 success: true,
                 error: None,
                 duration_ms: Some(42),
+                token_accounting: Some(token_telemetry("toon", 100, 40)),
             },
             AdminAuditRecord {
                 timestamp: std::time::SystemTime::now(),
@@ -657,6 +678,7 @@ redact:
                 success: false,
                 error: Some("timeout".to_string()),
                 duration_ms: None,
+                token_accounting: None,
             },
         ]));
         let state = AdminState::new(make_gateway_state()).with_audit_log(audit_log);
@@ -681,6 +703,12 @@ redact:
         assert_eq!(successes[0]["dcc_type"], "maya");
         assert_eq!(successes[0]["duration_ms"], 42);
         assert_eq!(successes[0]["request_id"], "req-ok");
+        assert_eq!(successes[0]["response_format"], "toon");
+        assert_eq!(successes[0]["saved_tokens"], 60);
+        assert_eq!(
+            successes[0]["token_accounting"]["token_estimator"],
+            "dcc-mcp-byte4-v1"
+        );
         assert_eq!(successes[0]["method"], "tools/call");
         assert_eq!(successes[0]["instance_id"], "maya-instance");
         assert_eq!(successes[0]["session_id"], "session-1");
@@ -718,6 +746,7 @@ redact:
             success: true,
             error: None,
             duration_ms: Some(100),
+            token_accounting: None,
         }]));
         let state = AdminState::new(make_gateway_state()).with_audit_log(audit_log);
         let (_, body) = body_json(build_admin_router(state), "/api/calls").await;
@@ -871,6 +900,7 @@ redact:
             success: true,
             error: None,
             duration_ms: Some(11),
+            token_accounting: None,
         }]));
         let traces = Arc::new(TraceLog::new(10));
         traces.push(DispatchTrace {
@@ -898,6 +928,7 @@ redact:
             spans: vec![],
             input: None,
             output: None,
+            token_accounting: None,
         });
         let state = AdminState::new(make_gateway_state())
             .with_audit_log(audit_log)
@@ -1108,6 +1139,7 @@ redact:
             spans: vec![],
             input: None,
             output: None,
+            token_accounting: None,
         });
 
         let zero_id = SearchTelemetryStore::new_search_id();
@@ -1146,6 +1178,7 @@ redact:
             success: false,
             error: Some("document closed".into()),
             duration_ms: Some(9),
+            token_accounting: None,
         }]));
 
         let state = AdminState::new(gs)
@@ -1239,6 +1272,7 @@ redact:
                 1024,
             )),
             output: None,
+            token_accounting: None,
         });
         traces.push(DispatchTrace {
             request_id: "req-task".into(),
@@ -1261,6 +1295,7 @@ redact:
             spans: vec![],
             input: None,
             output: None,
+            token_accounting: None,
         });
         let gateway = make_gateway_state();
         gateway.event_log.push(ContendEvent::new(
@@ -1288,6 +1323,7 @@ redact:
             success: false,
             error: Some("host died".into()),
             duration_ms: Some(25),
+            token_accounting: None,
         }]));
         let state = AdminState::new(gateway)
             .with_audit_log(audit_log)
@@ -1632,6 +1668,7 @@ redact:
                 success: true,
                 error: None,
                 duration_ms: Some(12),
+                token_accounting: Some(token_telemetry("json", 50, 50)),
             },
             AdminAuditRecord {
                 timestamp: UNIX_EPOCH + Duration::from_millis(1),
@@ -1652,6 +1689,7 @@ redact:
                 success: false,
                 error: Some("boom".into()),
                 duration_ms: Some(24),
+                token_accounting: None,
             },
         ]);
         let state = AdminState::new(gs).with_audit_log(Arc::new(audit));
@@ -1667,6 +1705,10 @@ redact:
         assert!(
             logs.iter()
                 .any(|log| log["tool"].as_str() == Some("maya.deadbeef.scene__info"))
+        );
+        assert!(
+            logs.iter()
+                .any(|log| log["token_accounting"]["response_format"].as_str() == Some("json"))
         );
 
         let (limited_status, limited_body) = body_json(router, "/api/logs?limit=1").await;
@@ -1766,6 +1808,7 @@ redact:
             spans: vec![],
             input: None,
             output: None,
+            token_accounting: None,
         });
         log.push(DispatchTrace {
             request_id: "r2".into(),
@@ -1788,6 +1831,7 @@ redact:
             spans: vec![],
             input: None,
             output: None,
+            token_accounting: None,
         });
 
         let state = make_admin_state().with_trace_log(log, None);

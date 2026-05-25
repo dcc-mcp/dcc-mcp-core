@@ -951,7 +951,11 @@ async fn rest_trace_input_payload_uses_redacted_arguments() {
         },
         "meta": {}
     });
-    let headers = HeaderMap::new();
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::ACCEPT,
+        "application/toon".parse().unwrap(),
+    );
 
     let result = call_service_with_admin_trace(
         &gs,
@@ -974,6 +978,13 @@ async fn rest_trace_input_payload_uses_redacted_arguments() {
     assert!(input.contains("[REDACTED]"));
     assert!(!input.contains("secret-key"));
     assert!(!input.contains("secret-token"));
+    let tokens = entries[0]
+        .token_accounting
+        .as_ref()
+        .expect("REST audit should capture compact token accounting");
+    assert_eq!(tokens.response_format, "toon");
+    assert_eq!(tokens.token_estimator, "dcc-mcp-byte4-v1");
+    assert!(tokens.original_tokens >= tokens.returned_tokens);
 }
 
 #[tokio::test]
@@ -1042,6 +1053,13 @@ async fn rest_traceparent_does_not_replace_request_id() {
     assert_eq!(backend_span_id.len(), 16);
     assert_ne!(backend_span_id, root_span_id);
     assert_eq!(backend_span.parent_span_id.as_deref(), Some(root_span_id));
+    let tokens = entries[0]
+        .token_accounting
+        .as_ref()
+        .expect("REST audit should capture legacy JSON token accounting");
+    assert_eq!(tokens.response_format, "json");
+    assert_eq!(tokens.saved_tokens, 0);
+    assert_eq!(tokens.original_tokens, tokens.returned_tokens);
 }
 
 #[tokio::test]

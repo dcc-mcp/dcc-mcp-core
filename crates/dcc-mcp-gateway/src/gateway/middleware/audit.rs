@@ -6,7 +6,9 @@ use std::time::SystemTime;
 use super::context::{CallContext, CallResult};
 use super::governance::MiddlewareGovernanceControl;
 use super::traits::{AfterCallMiddleware, BeforeCallMiddleware, MiddlewareFuture};
-use crate::gateway::admin::trace::{AgentContext, TraceContext, TracePayload, TraceSpan};
+use crate::gateway::admin::trace::{
+    AgentContext, TokenTelemetry, TraceContext, TracePayload, TraceSpan,
+};
 
 /// A single audit record produced for each tool call.
 ///
@@ -63,6 +65,8 @@ pub struct AuditEntry {
     pub input_payload: Option<TracePayload>,
     /// Phase 2: captured output payload (bounded).
     pub output_payload: Option<TracePayload>,
+    /// Token accounting for the client-visible response, when known.
+    pub token_accounting: Option<TokenTelemetry>,
 }
 
 /// Sink that receives completed [`AuditEntry`] records.
@@ -189,6 +193,7 @@ impl AfterCallMiddleware for AuditMiddleware {
             trace_spans: ctx.trace_spans.clone(),
             input_payload: ctx.input_payload.clone(),
             output_payload: ctx.output_payload.clone(),
+            token_accounting: ctx.token_accounting.clone(),
         };
         let sink = self.sink.clone();
         Box::pin(async move {
