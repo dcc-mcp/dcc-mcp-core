@@ -55,6 +55,7 @@ from dcc_mcp_core._server.options import ExecutionOptions
 from dcc_mcp_core._server.options import GatewayOptions
 from dcc_mcp_core._server.options import InlineExecution
 from dcc_mcp_core._server.options import ObservabilityOptions
+from dcc_mcp_core._server.options import StandaloneMainThreadExecution
 from dcc_mcp_core._server.runtime import ServerRuntimeController
 from dcc_mcp_core._server.skill_query import SkillQueryClient
 from dcc_mcp_core._server.tools_list_policy import ENV_EXCLUDE_STUBS_FROM_TOOLS_LIST
@@ -105,6 +106,7 @@ __all__ = [
     "ServerLifecycleController",
     "ServerRuntimeController",
     "SkillQueryClient",
+    "StandaloneMainThreadExecution",
     "TelemetryManager",
     "ToolsListStubPolicy",
     "WindowResolver",

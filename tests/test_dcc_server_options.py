@@ -30,6 +30,7 @@ from dcc_mcp_core._server.options import ExecutionOptions
 from dcc_mcp_core._server.options import GatewayOptions
 from dcc_mcp_core._server.options import InlineExecution
 from dcc_mcp_core._server.options import ObservabilityOptions
+from dcc_mcp_core._server.options import StandaloneMainThreadExecution
 
 # ── GatewayOptions ────────────────────────────────────────────────────────────
 
@@ -124,6 +125,8 @@ class TestResolvedServerConfig:
 
         assert binding.bridge is None
         assert binding.dispatcher is dispatcher
+        assert binding.standalone_main_thread is False
+        assert binding.register_inprocess_executor is True
 
     def test_execution_binding_resolves_bridge_dispatcher(self):
         dispatcher = MagicMock()
@@ -133,6 +136,16 @@ class TestResolvedServerConfig:
 
         assert binding.bridge is bridge
         assert binding.dispatcher is dispatcher
+        assert binding.standalone_main_thread is False
+        assert binding.register_inprocess_executor is True
+
+    def test_execution_binding_resolves_standalone_main_thread(self):
+        binding = resolve_execution_binding(StandaloneMainThreadExecution)
+
+        assert binding.bridge is None
+        assert binding.dispatcher is None
+        assert binding.standalone_main_thread is True
+        assert binding.register_inprocess_executor is True
 
     def test_context_metadata_from_env_includes_dcc_specific_paths(self, monkeypatch):
         monkeypatch.setenv("DCC_MCP_PROJECT", "show-a")
@@ -168,6 +181,23 @@ class TestResolvedServerConfig:
         assert config.dcc_version == "25.0"
         assert config.scene == "C:/scene.psd"
         assert config.dcc_type == "photoshop"
+        assert config.standalone_main_thread_execution is False
+
+    def test_build_mcp_http_config_propagates_standalone_main_thread(self, tmp_path):
+        opts = DccServerOptions.from_env(
+            "maya",
+            tmp_path,
+            port=0,
+            standalone_main_thread=True,
+        )
+
+        config = build_mcp_http_config(
+            opts,
+            package_version="9.9.9",
+            version_provider=lambda: "unused",
+        )
+
+        assert config.standalone_main_thread_execution is True
 
 
 # ── DiagnosticsOptions ────────────────────────────────────────────────────────
@@ -196,6 +226,7 @@ class TestExecutionMode:
         exec_opts = ExecutionOptions()
         assert exec_opts.mode is InlineExecution
         assert InlineExecution.kind == "inline"
+        assert StandaloneMainThreadExecution.kind == "standalone-main-thread"
 
     def test_dispatcher_execution(self):
         dispatcher = MagicMock()
@@ -246,6 +277,10 @@ class TestDccServerOptions:
         assert opts.execution.mode.kind == "bridge"
         assert opts.execution.mode.bridge is bridge
 
+    def test_from_env_standalone_main_thread(self, tmp_path):
+        opts = DccServerOptions.from_env("maya", tmp_path, standalone_main_thread=True)
+        assert opts.execution.mode is StandaloneMainThreadExecution
+
     def test_from_env_mutex_raises(self, tmp_path):
         """Passing both dispatcher and execution_bridge must raise ValueError at build time."""
         with pytest.raises(ValueError, match=r"dispatcher.*execution_bridge|execution_bridge.*dispatcher"):
@@ -254,6 +289,15 @@ class TestDccServerOptions:
                 tmp_path,
                 dispatcher=MagicMock(),
                 execution_bridge=MagicMock(),
+            )
+
+    def test_from_env_standalone_mutex_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="standalone_main_thread"):
+            DccServerOptions.from_env(
+                "maya",
+                tmp_path,
+                dispatcher=MagicMock(),
+                standalone_main_thread=True,
             )
 
     def test_from_env_gateway_port_from_kwarg(self, tmp_path, monkeypatch):
@@ -432,7 +476,9 @@ class TestDccServerBasePublicImport:
         from dcc_mcp_core._server.options import BridgeExecution
         from dcc_mcp_core._server.options import DispatcherExecution
         from dcc_mcp_core._server.options import InlineExecution
+        from dcc_mcp_core._server.options import StandaloneMainThreadExecution
 
         assert InlineExecution is not None
         assert DispatcherExecution is not None
         assert BridgeExecution is not None
+        assert StandaloneMainThreadExecution is not None

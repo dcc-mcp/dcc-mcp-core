@@ -102,27 +102,32 @@ worker thread.
 
 ## Adapter skill-load policy
 
-If a host needs to adjust discovered skill metadata at runtime, install a
-catalog transform before agents can call `load_skill`:
+Do not weaken main-thread metadata in `tools.yaml` just because the host is
+running headless. Main-affinity declarations are part of the skill contract and
+should stay truthful across GUI and batch modes.
 
 ```python
-def adapt_skill_for_runtime(skill):
-    tools = list(skill.tools)
-    for tool in tools:
-        if tool.name in standalone_safe_tools and running_standalone:
-            tool.enforce_thread_affinity = False
-    skill.tools = tools
-    return None  # use the mutated object
+from dcc_mcp_core import DccServerBase, DccServerOptions
 
-server.set_skill_load_transform(adapt_skill_for_runtime)
+opts = DccServerOptions.from_env(
+    "maya",
+    skills_dir,
+    standalone_main_thread=True,  # mayapy/batch only, never GUI sessions
+)
+server = DccServerBase(opts)
+server.register_builtin_actions()
 ```
 
-The hook is owned by the core `SkillCatalog`, so the same policy applies to
-direct Python `load_skill`, MCP `tools/call load_skill`, REST
-`POST /v1/load_skill`, and multi-skill/group activation paths. Raise an
-exception from the transform to veto before tools are registered. Use
-`set_after_load_skill_hook(lambda skill, actions: ...)` only for observation or
-adapter bookkeeping after registration.
+`standalone_main_thread=True` tells core that this interpreter process has no
+GUI dispatcher and that its in-process execution lane is safe for tools that
+declare `thread_affinity: main`. Core then installs the inline in-process skill
+executor before discovery and lets MCP `tools/call` plus REST `/v1/call` satisfy
+enforced main-affinity tools without adapter-local metadata mutation.
+
+Keep using a real `QueueDispatcher` / `BlockingDispatcher` for GUI hosts. Use
+`set_skill_load_transform(...)` only for runtime policy that does not lie about
+thread-affinity, such as vetoing unsupported tools or injecting adapter-specific
+resource paths before registration.
 
 ## Readiness binding
 

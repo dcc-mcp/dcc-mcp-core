@@ -87,8 +87,13 @@ async fn run_async_execution_lane(
 ) -> Result<Value, String> {
     let dispatcher = state.dispatcher.as_ref().clone();
     let use_main_thread = use_main_thread_route(thread_affinity, state.executor.is_some());
+    let standalone_main =
+        state.standalone_main_thread_execution && matches!(thread_affinity, ThreadAffinity::Main);
 
-    if matches!(thread_affinity, ThreadAffinity::Main) && state.executor.is_none() {
+    if matches!(thread_affinity, ThreadAffinity::Main)
+        && state.executor.is_none()
+        && !standalone_main
+    {
         if enforce_thread_affinity {
             return Err(
                 "THREAD_AFFINITY_UNAVAILABLE: tool declares thread_affinity=main, \
@@ -141,8 +146,14 @@ async fn run_async_execution_lane(
             if dispatch_cancel.is_cancelled() {
                 return Err("CANCELLED".to_string());
             }
-            dispatch
-                .dispatch(&dispatch_name, dispatch_params)
+            let result = if standalone_main {
+                dcc_mcp_actions::with_thread_affinity(ThreadAffinity::Main, || {
+                    dispatch.dispatch(&dispatch_name, dispatch_params)
+                })
+            } else {
+                dispatch.dispatch(&dispatch_name, dispatch_params)
+            };
+            result
                 .map(|result| result.output)
                 .map_err(|err| err.to_string())
         });

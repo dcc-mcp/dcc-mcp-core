@@ -337,6 +337,18 @@ impl PyMcpHttpConfig {
         self.inner.features.enable_prompts = v;
     }
 
+    /// Treat this standalone interpreter as the safe main-thread execution lane.
+    #[getter]
+    fn standalone_main_thread_execution(&self) -> bool {
+        self.inner.features.standalone_main_thread_execution
+    }
+
+    /// Treat this standalone interpreter as the safe main-thread execution lane.
+    #[setter]
+    fn set_standalone_main_thread_execution(&mut self, v: bool) {
+        self.inner.features.standalone_main_thread_execution = v;
+    }
+
     // ── GatewayConfig getters/setters ───────────────────────────────
 
     /// Gateway port to compete for. ``0`` disables the gateway.
