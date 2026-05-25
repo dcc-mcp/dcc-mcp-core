@@ -20,6 +20,7 @@ from dcc_mcp_core._server.options import ExecutionMode
 from dcc_mcp_core._server.options import ObservabilityOptions
 from dcc_mcp_core._server.options import _BridgeExecution
 from dcc_mcp_core._server.options import _DispatcherExecution
+from dcc_mcp_core._server.options import _StandaloneMainThreadExecution
 from dcc_mcp_core._server.tools_list_policy import apply_tools_list_stub_policy
 
 if TYPE_CHECKING:
@@ -52,6 +53,8 @@ class ExecutionBinding:
 
     bridge: HostExecutionBridge | None
     dispatcher: BaseDccCallableDispatcher | None
+    standalone_main_thread: bool = False
+    register_inprocess_executor: bool = False
 
 
 CONTEXT_METADATA_ENV: dict[str, str] = {
@@ -98,9 +101,24 @@ def resolve_diagnostics_state(options: DiagnosticsOptions) -> DiagnosticsState:
 def resolve_execution_binding(mode: ExecutionMode) -> ExecutionBinding:
     """Resolve the execution tagged union to concrete collaborators."""
     if isinstance(mode, _BridgeExecution):
-        return ExecutionBinding(bridge=mode.bridge, dispatcher=mode.bridge.dispatcher)
+        return ExecutionBinding(
+            bridge=mode.bridge,
+            dispatcher=mode.bridge.dispatcher,
+            register_inprocess_executor=True,
+        )
     if isinstance(mode, _DispatcherExecution):
-        return ExecutionBinding(bridge=None, dispatcher=mode.dispatcher)
+        return ExecutionBinding(
+            bridge=None,
+            dispatcher=mode.dispatcher,
+            register_inprocess_executor=True,
+        )
+    if isinstance(mode, _StandaloneMainThreadExecution):
+        return ExecutionBinding(
+            bridge=None,
+            dispatcher=None,
+            standalone_main_thread=True,
+            register_inprocess_executor=True,
+        )
     return ExecutionBinding(bridge=None, dispatcher=None)
 
 
@@ -144,6 +162,7 @@ def build_mcp_http_config(
 
     config.dcc_type = options.dcc_name
     config.instance_metadata = collect_context_metadata_from_env(options.dcc_name)
+    config.standalone_main_thread_execution = resolve_execution_binding(options.execution.mode).standalone_main_thread
     apply_tools_list_stub_policy(config, options.dcc_name)
     return config
 

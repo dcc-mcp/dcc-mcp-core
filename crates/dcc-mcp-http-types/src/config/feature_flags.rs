@@ -74,6 +74,15 @@ pub struct FeatureFlags {
     /// full token-budget win documented on Maya issue #174 / #238.
     #[serde(default)]
     pub exclude_group_stubs_from_tools_list: bool,
+
+    /// Treat the current standalone interpreter as a valid main-thread lane.
+    ///
+    /// This is an explicit opt-in for mayapy / hython / batch hosts where no
+    /// GUI dispatcher exists and the adapter has verified that executing DCC
+    /// API calls from the server's in-process lane is safe. GUI hosts should
+    /// keep this false and wire a real dispatcher instead.
+    #[serde(default)]
+    pub standalone_main_thread_execution: bool,
 }
 
 impl Default for FeatureFlags {
@@ -88,6 +97,7 @@ impl Default for FeatureFlags {
             shutdown_on_drop: false,
             exclude_skill_stubs_from_tools_list: false,
             exclude_group_stubs_from_tools_list: false,
+            standalone_main_thread_execution: false,
         }
     }
 }

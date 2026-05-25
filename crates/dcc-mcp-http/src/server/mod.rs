@@ -502,6 +502,11 @@ impl McpHttpServer {
                         self.dispatcher.clone(),
                     ))
                 }
+                _ if self.config.features.standalone_main_thread_execution => std::sync::Arc::new(
+                    dcc_mcp_skill_rest::DispatcherInvoker::new_standalone_main_thread(
+                        self.dispatcher.clone(),
+                    ),
+                ),
                 _ => std::sync::Arc::new(dcc_mcp_skill_rest::DispatcherInvoker::new(
                     self.dispatcher.clone(),
                 )),
@@ -527,6 +532,9 @@ impl McpHttpServer {
             dcc_mcp_http_server::ServerState::builder(self.registry, self.dispatcher, catalog)
                 .with_sessions(sessions)
                 .with_executor(self.executor)
+                .with_standalone_main_thread_execution(
+                    self.config.features.standalone_main_thread_execution,
+                )
                 .with_server_identity(
                     self.config.server.server_name.clone(),
                     self.config.server.server_version.clone(),

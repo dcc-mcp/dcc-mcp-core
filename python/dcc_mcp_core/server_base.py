@@ -102,6 +102,7 @@ class DccServerBase:
         execution = resolve_execution_binding(options.execution.mode)
         self._execution_bridge: HostExecutionBridge | None = execution.bridge
         self._dcc_dispatcher: BaseDccCallableDispatcher | None = execution.dispatcher
+        self._standalone_main_thread: bool = execution.standalone_main_thread
 
         self._inprocess_executor_registered: bool = False
         self._cached_hwnd: int | None = None
@@ -136,6 +137,8 @@ class DccServerBase:
             self.register_host_execution_bridge(execution.bridge)
         elif execution.dispatcher is not None:
             self.register_inprocess_executor(execution.dispatcher)
+        elif execution.register_inprocess_executor:
+            self.register_inprocess_executor(None)
 
         # Composed collaborators
         self._skill_client = SkillQueryClient(self._server, options.dcc_name)
@@ -381,7 +384,9 @@ class DccServerBase:
                 leaving every skill as a stub.
 
         """
-        if self._dcc_dispatcher is not None and not self._inprocess_executor_registered:
+        if (
+            self._dcc_dispatcher is not None or self._standalone_main_thread
+        ) and not self._inprocess_executor_registered:
             self.register_inprocess_executor(self._dcc_dispatcher)
 
         skill_paths = self.collect_skill_search_paths(

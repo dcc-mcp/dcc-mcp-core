@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
 
-use dcc_mcp_actions::dispatcher::{DispatchError, ToolDispatcher};
+use dcc_mcp_actions::dispatcher::{DispatchError, ToolDispatcher, with_thread_affinity};
 use dcc_mcp_actions::{
     DispatchExecutionContext, current_execution_context, with_execution_context,
 };
@@ -671,11 +671,22 @@ impl SkillCatalogSource for CatalogSource {
 /// handler.
 pub struct DispatcherInvoker {
     dispatcher: Arc<ToolDispatcher>,
+    standalone_main_thread_execution: bool,
 }
 
 impl DispatcherInvoker {
     pub fn new(dispatcher: Arc<ToolDispatcher>) -> Self {
-        Self { dispatcher }
+        Self {
+            dispatcher,
+            standalone_main_thread_execution: false,
+        }
+    }
+
+    pub fn new_standalone_main_thread(dispatcher: Arc<ToolDispatcher>) -> Self {
+        Self {
+            dispatcher,
+            standalone_main_thread_execution: true,
+        }
     }
 }
 
@@ -769,8 +780,21 @@ impl ToolInvoker for DispatcherInvoker {
         let exec_ctx = DispatchExecutionContext {
             host_dispatcher_attached: Some(false),
         };
+        let standalone_main = self.standalone_main_thread_execution
+            && self
+                .dispatcher
+                .registry()
+                .get_action(action_name, None)
+                .is_some_and(|meta| matches!(meta.thread_affinity, ThreadAffinity::Main));
         with_execution_context(exec_ctx, || {
-            match self.dispatcher.dispatch(action_name, params) {
+            let dispatched = if standalone_main {
+                with_thread_affinity(ThreadAffinity::Main, || {
+                    self.dispatcher.dispatch(action_name, params)
+                })
+            } else {
+                self.dispatcher.dispatch(action_name, params)
+            };
+            match dispatched {
                 Ok(r) => Ok(CallOutcome {
                     slug: ToolSlug(r.action.clone()),
                     output: r.output,

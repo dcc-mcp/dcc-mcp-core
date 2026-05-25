@@ -330,6 +330,12 @@ impl McpHttpConfig {
     pub fn set_exclude_group_stubs_from_tools_list(&mut self, v: bool) {
         self.features.exclude_group_stubs_from_tools_list = v;
     }
+    pub fn standalone_main_thread_execution(&self) -> bool {
+        self.features.standalone_main_thread_execution
+    }
+    pub fn set_standalone_main_thread_execution(&mut self, v: bool) {
+        self.features.standalone_main_thread_execution = v;
+    }
     /// Set both skill and group stub exclusion flags together (issue #174 / #238).
     pub fn set_exclude_progressive_stubs_from_tools_list(&mut self, v: bool) {
         self.features.exclude_skill_stubs_from_tools_list = v;
@@ -515,6 +521,14 @@ impl McpHttpConfig {
     /// would be unique (#307).
     pub fn without_bare_tool_names(mut self) -> Self {
         self.features.bare_tool_names = false;
+        self
+    }
+
+    /// Builder: allow main-affinity tools without a GUI dispatcher in a
+    /// standalone interpreter where the adapter has verified the current
+    /// in-process execution lane is DCC-safe.
+    pub fn with_standalone_main_thread_execution(mut self) -> Self {
+        self.features.standalone_main_thread_execution = true;
         self
     }
 

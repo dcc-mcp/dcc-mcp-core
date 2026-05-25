@@ -312,6 +312,7 @@ _LAZY: dict[str, str] = {
     "GatewayOptions": "dcc_mcp_core._server.options",
     "InlineExecution": "dcc_mcp_core._server.options",
     "ObservabilityOptions": "dcc_mcp_core._server.options",
+    "StandaloneMainThreadExecution": "dcc_mcp_core._server.options",
     # DccServerBase + factory
     "DccServerBase": "dcc_mcp_core.server_base",
     "create_dcc_server": "dcc_mcp_core.factory",

@@ -82,6 +82,9 @@ pub struct ServerState {
     pub sessions: SessionManager,
     /// Optional DCC main-thread executor.
     pub executor: Option<DccExecutorHandle>,
+    /// Explicit opt-in for standalone/batch hosts where the in-process lane is
+    /// already safe for main-affinity calls even without a GUI dispatcher.
+    pub standalone_main_thread_execution: bool,
     /// Server name surfaced in `initialize`.
     pub server_name: String,
     /// Server version surfaced in `initialize`.
@@ -135,6 +138,7 @@ impl ServerState {
                 catalog,
                 sessions: sessions.clone(),
                 executor: None,
+                standalone_main_thread_execution: false,
                 server_name: "dcc-mcp-http".to_owned(),
                 server_version: env!("CARGO_PKG_VERSION").to_owned(),
                 cancelled_requests: Arc::new(DashMap::new()),
@@ -195,6 +199,14 @@ impl ServerStateBuilder {
     #[must_use]
     pub fn with_executor(mut self, executor: Option<DccExecutorHandle>) -> Self {
         self.state.executor = executor;
+        self
+    }
+
+    /// Allow main-affinity tools to run without a host dispatcher when the
+    /// embedding adapter has explicitly declared a standalone-safe main lane.
+    #[must_use]
+    pub fn with_standalone_main_thread_execution(mut self, enabled: bool) -> Self {
+        self.state.standalone_main_thread_execution = enabled;
         self
     }
 

@@ -158,14 +158,42 @@ Concretely:
 
 - `ThreadAffinity::Main` + executor present → runs on DCC main thread via
   `DeferredExecutor`.
+- `ThreadAffinity::Main` + explicit standalone opt-in → runs through the
+  in-process standalone lane and is marked as main-affinity for enforcement.
 - `ThreadAffinity::Main` + no executor → falls back to `spawn_blocking`
-  with a warning (scene API calls would be unsafe).
+  with a warning, or returns `THREAD_AFFINITY_UNAVAILABLE` when the tool
+  requires enforcement.
 - `ThreadAffinity::Any` → always runs on a Tokio worker via
   `spawn_blocking`, even when an executor is wired.
 
 Sync and async paths share this decision via
 `use_main_thread_route(thread_affinity, executor_present)` in
 `crates/dcc-mcp-http/src/handlers/tools_call/mod.rs`.
+
+### Standalone main-thread mode
+
+Batch interpreters such as `mayapy` or `hython` may have no GUI event loop and
+no dispatcher to pump, while still being safe for DCC API calls from the
+adapter-owned in-process lane. In that case, opt in explicitly:
+
+```python
+from dcc_mcp_core import DccServerBase, DccServerOptions
+
+opts = DccServerOptions.from_env(
+    "maya",
+    skills_dir,
+    standalone_main_thread=True,
+)
+server = DccServerBase(opts)
+server.register_builtin_actions()
+```
+
+This mode is intentionally not automatic. It installs the inline in-process
+skill executor before skill discovery and lets MCP `tools/call` plus REST
+`/v1/call` satisfy `thread_affinity: main` / `enforce_thread_affinity: true`
+without a `DeferredExecutor`. Do not use it for interactive GUI sessions; wire a
+real dispatcher there so the DCC UI thread remains the only scene-mutating
+thread.
 
 #### Long-running async tools (cooperative contract)
 
