@@ -10,11 +10,47 @@ Provides:
 - **USDA serialization**: Export stages as human-readable `.usda` text
 - **JSON transport**: Serialize/deserialize stages for MCP IPC
 - **DCC bridge**: Convert between `SceneInfo` JSON and `UsdStage`
+- **Resource conventions**: DCC-agnostic `openusd://` resources for headless
+  project/stage handoff
 - **Pure Rust**: No dependency on OpenUSD C++ library
 
 ::: warning
 This crate provides a compatible data model and serialization format for lightweight scene description exchange. It does not link against the OpenUSD C++ library.
 :::
+
+## Project Resources
+
+Filesystem-backed USD adapters should expose project artifacts through the
+canonical `openusd://` resource family:
+
+| URI | Content |
+|-----|---------|
+| `openusd://stage` | Primary stage or root layer |
+| `openusd://layers` | JSON manifest of layer resources |
+| `openusd://assets` | JSON manifest of asset dependencies |
+| `openusd://materials` | JSON manifest of material resources |
+| `openusd://validation` | JSON manifest of validation reports |
+| `openusd://snapshots` | JSON manifest of generated snapshots |
+| `openusd://packages` | JSON manifest of package handoffs |
+
+```python
+from dcc_mcp_core import register_usd_project_resources
+
+register_usd_project_resources(
+    server,
+    project_root="/projects/shot010/usd",
+    stage="/projects/shot010/usd/shot.usda",
+    layers=["/projects/shot010/usd/lighting.usda"],
+    validation={"name": "usdchecker.json", "content": {"status": "ok"}},
+    project_label="shot010",
+)
+```
+
+The helper registers a Python resource producer with rich
+`resources/list` metadata. Each filesystem-backed record includes a file-ref
+style `uri`, MIME type, safe display name, size when available, and
+`project_root_label`. Use the same convention from pure OpenUSD, Houdini
+Solaris, Maya USD, Blender USD, Unreal, and Omniverse-style adapters.
 
 ## SdfPath
 
