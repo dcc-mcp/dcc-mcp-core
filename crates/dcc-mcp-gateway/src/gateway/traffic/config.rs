@@ -16,7 +16,6 @@ pub(super) struct TrafficCaptureDocument {
 pub(super) struct TrafficSinkDocument {
     pub(super) kind: String,
     pub(super) path: Option<String>,
-    #[allow(dead_code)]
     pub(super) ring_buffer: Option<usize>,
 }
 

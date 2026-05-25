@@ -44,6 +44,10 @@ fn issue_report_filename(request_id: &str) -> String {
     format!("dcc-mcp-issue-report-{safe}.json")
 }
 
+fn traffic_export_filename() -> &'static str {
+    "dcc-mcp-traffic-capture.jsonl"
+}
+
 /// `GET /admin` — serve the inline HTML dashboard.
 pub async fn handle_admin_ui() -> impl IntoResponse {
     let mut resp = axum::response::Html(ADMIN_HTML).into_response();
@@ -70,6 +74,62 @@ pub async fn handle_admin_governance(
 ) -> impl IntoResponse {
     let limit = params.limit(200, 1_000);
     Json(crate::gateway::admin::governance::build_governance_payload(&s, limit).await)
+}
+
+/// `GET /admin/api/traffic?limit=200` — retained live traffic frames.
+pub async fn handle_admin_traffic(
+    State(s): State<AdminState>,
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+    Query(params): Query<DebugListQuery>,
+) -> impl IntoResponse {
+    let links = AdminLinkBuilder::from_request(&headers, &uri);
+    let limit = params.limit(200, 1_000);
+    let frames: Vec<Value> = s
+        .gateway
+        .traffic_capture
+        .recent_frames(limit)
+        .into_iter()
+        .map(|frame| frame.to_value())
+        .collect();
+    Json(json!({
+        "total": frames.len(),
+        "frames": frames,
+        "links": {
+            "admin_traffic_url": links.panel_url("traffic"),
+            "traffic_api_url": links.api_url("/traffic"),
+            "traffic_export_jsonl_url": links.api_url("/traffic/export"),
+        }
+    }))
+}
+
+/// `GET /admin/api/traffic/export?limit=1000` — retained live frames as JSONL.
+pub async fn handle_admin_traffic_export(
+    State(s): State<AdminState>,
+    Query(params): Query<DebugListQuery>,
+) -> impl IntoResponse {
+    let limit = params.limit(1_000, 10_000);
+    let mut body = String::new();
+    for frame in s.gateway.traffic_capture.recent_frames(limit) {
+        if let Ok(line) = serde_json::to_string(&frame.to_value()) {
+            body.push_str(&line);
+            body.push('\n');
+        }
+    }
+    let mut response = (StatusCode::OK, body).into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/x-ndjson; charset=utf-8"),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&format!(
+            "attachment; filename=\"{}\"",
+            traffic_export_filename()
+        ))
+        .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
+    );
+    response
 }
 
 #[derive(Debug, Default, Deserialize)]

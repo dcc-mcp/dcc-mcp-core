@@ -62,6 +62,15 @@ impl AdminLinkBuilder {
     pub(super) fn panel_url(&self, panel: &str) -> String {
         format!("{}{}?panel={panel}", self.origin, self.admin_base)
     }
+
+    pub(super) fn api_url(&self, path: &str) -> String {
+        let suffix = if path.starts_with('/') {
+            path.to_string()
+        } else {
+            format!("/{path}")
+        };
+        format!("{}{}/api{suffix}", self.origin, self.admin_base)
+    }
 }
 
 fn header_value(headers: &HeaderMap, name: &str) -> Option<String> {
