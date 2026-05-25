@@ -16,6 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = REPO_ROOT / ".github" / "clawhub-skills.json"
 DEFAULT_CLI = os.environ.get("CLAWHUB_CLI_PACKAGE", "clawhub@0.17.0")
 CLAWHUB_LICENSE = "MIT-0"
+VERSION_EXISTS_MARKER = "Version already exists"
 
 
 def parse_args() -> argparse.Namespace:
@@ -80,6 +81,20 @@ def npx_cmd(cli: str, *args: str) -> list[str]:
     return [npx, cli, *args]
 
 
+def print_completed_process_output(proc: subprocess.CompletedProcess[str]) -> None:
+    """Forward captured child-process output to the current process streams."""
+    if proc.stdout:
+        print(proc.stdout, end="")
+    if proc.stderr:
+        print(proc.stderr, end="", file=sys.stderr)
+
+
+def version_already_exists(proc: subprocess.CompletedProcess[str]) -> bool:
+    """Return True when ClawHub reports that the immutable version exists."""
+    output = "\n".join(part for part in (proc.stdout, proc.stderr) if part)
+    return VERSION_EXISTS_MARKER in output
+
+
 def publish_one(
     entry: dict[str, Any],
     *,
@@ -130,8 +145,12 @@ def publish_one(
         print("DRY-RUN:", " ".join(cmd))
         return 0
 
-    print(f"Publishing {slug}@{version} from {skill_dir} ...")
-    proc = subprocess.run(cmd, check=False)
+    print(f"Publishing {slug}@{version} from {skill_dir} ...", flush=True)
+    proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    print_completed_process_output(proc)
+    if proc.returncode != 0 and version_already_exists(proc):
+        print(f"{slug}@{version} already exists on ClawHub; skipping.")
+        return 0
     return int(proc.returncode)
 
 
