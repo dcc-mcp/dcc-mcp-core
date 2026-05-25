@@ -317,9 +317,10 @@ fn is_empty_object(value: &Value) -> bool {
     value.as_object().is_some_and(Map::is_empty)
 }
 
-fn explicit_format(body: &Value) -> Option<ResponseFormat> {
+pub(crate) fn explicit_format(body: &Value) -> Option<ResponseFormat> {
     let raw = body
         .get("response_format")
+        .or_else(|| body.get("responseFormat"))
         .or_else(|| body.get("format"))
         .or_else(|| body.get("output_format"));
     match raw
