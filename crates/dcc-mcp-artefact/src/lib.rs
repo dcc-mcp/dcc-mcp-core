@@ -48,6 +48,13 @@ use uuid::Uuid;
 
 #[cfg(feature = "python-bindings")]
 pub mod python;
+pub mod script_materialization;
+
+pub use script_materialization::{
+    MaterializedScript, SCRIPT_MATERIALIZATION_ROOT_ENV, ScriptMaterializationError,
+    ScriptMaterializationRequest, ScriptMaterializationResult, ScriptMaterializationStore,
+    default_script_materialization_root, sanitize_segment,
+};
 
 /// Reference to a stored artefact.
 ///
