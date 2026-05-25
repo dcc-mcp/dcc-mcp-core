@@ -98,6 +98,36 @@ so missing keys are caught before release. Future manual language selection
 should pass an explicit override through the same detection helper instead of
 bypassing the runtime.
 
+### Maintaining Admin UI Translations
+
+When adding a panel or changing visible UI chrome:
+
+1. Add or update the feature namespace in `admin-ui/src/i18n.ts`.
+2. Provide every key for all supported locales: `en`, `zh-CN`, `ja`, and `ko`.
+3. Keep shared actions, table labels, status notices, and search metadata in
+   `common` or `search` when they are reused across panels.
+4. Use interpolation placeholders such as `{count}` or `{value}` for dynamic
+   grammar instead of assembling translated sentences with string
+   concatenation in React code.
+5. Do not translate machine identifiers or raw technical payloads: tool slugs,
+   request IDs, trace IDs, DCC types, file paths, JSON keys, HTTP methods,
+   status codes, log messages, and backend-provided payload text must remain
+   exact.
+
+Validation for i18n changes:
+
+```bash
+vx npm run build
+vx npx playwright test tests/i18n.spec.ts tests/admin.spec.ts
+vx just admin-build
+vx git diff --check
+```
+
+`tests/i18n.spec.ts` verifies locale normalization and namespace parity for all
+supported locales. `tests/admin.spec.ts` includes mocked admin API flows in both
+English and non-English browser locales so UI chrome is localized while machine
+data remains stable.
+
 ## Dashboard Screenshots
 
 The screenshots below use representative demo data and show the browser-first

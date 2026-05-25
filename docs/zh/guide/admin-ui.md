@@ -69,6 +69,46 @@ let config = GatewayConfig {
 
 直接使用 `dcc-mcp-gateway` 时需要启用 `admin` Cargo feature。`dcc-mcp-http` 与发布的 server 二进制已在内嵌网关路径中启用。
 
+## Locale 检测
+
+内嵌 Admin UI 带有一个随 bundle 发布的小型 i18n runtime。它读取
+`navigator.languages` / `navigator.language`，把浏览器语言标签规范化为
+受支持的 locale；没有匹配项时回退到英文。运行时不会从网络加载额外翻译资产。
+
+当前支持的 runtime locale：
+
+- `en`
+- `zh-CN`，覆盖 `zh`、`zh-Hans`、`zh-CN` 等简体中文标签
+- `ja`，覆盖 `ja` / `ja-JP`
+- `ko`，覆盖 `ko` / `ko-KR`
+
+翻译条目按 feature namespace 放在 `admin-ui/src/i18n.ts`。共享按钮、表格、
+状态提示和搜索元数据优先放在 `common` 或 `search`；面板自己的文案放在
+对应 namespace（例如 `setup`、`health`、`openapi`、`traces`、`stats`、
+`governance`、`logs`、`skillPaths`）。
+
+维护翻译时：
+
+1. 新增或修改面板时，先新增/更新对应 feature namespace。
+2. 每个 key 都必须同时提供 `en`、`zh-CN`、`ja`、`ko`。
+3. 动态文本使用 `{count}` / `{value}` 等插值占位，不要在 React 里拼接翻译句子。
+4. 不要翻译机器标识或原始技术 payload：tool slug、request ID、trace ID、
+   DCC 类型、文件路径、JSON key、HTTP method、status code、日志消息和后端返回的
+   payload 文本都应保持原样。
+
+i18n 相关修改建议运行：
+
+```bash
+vx npm run build
+vx npx playwright test tests/i18n.spec.ts tests/admin.spec.ts
+vx just admin-build
+vx git diff --check
+```
+
+`tests/i18n.spec.ts` 会验证所有支持 locale 的检测和 namespace key parity；
+`tests/admin.spec.ts` 使用 mock admin API 覆盖英文与非英文浏览器 locale 下的
+真实面板流程，确保 UI chrome 被本地化，同时机器数据保持稳定。
+
 ## 仪表盘截图
 
 以下截图使用代表性的演示数据，展示嵌入式 Admin Dashboard 中面向浏览器的运维工作流。

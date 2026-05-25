@@ -809,6 +809,34 @@ test.describe('Admin Page', () => {
     await context.close();
   });
 
+  test('renders an admin flow under Simplified Chinese without translating machine data', async ({ browser }) => {
+    const context = await browser.newContext({ locale: 'zh-CN' });
+    const page = await context.newPage();
+    await mockAdminApi(page);
+
+    await page.goto('/admin/?panel=governance');
+
+    await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN');
+    await expect(page.getByRole('navigation').getByRole('link', { name: '治理' })).toHaveClass(/active/);
+    const panel = page.locator('.governance-panel');
+    await expect(panel).toContainText('流量治理');
+    await expect(panel).toContainText('生效策略');
+    await expect(panel).toContainText('最近请求决策');
+    await expect(panel).toContainText('结果');
+    await expect(panel).toContainText('捕获');
+
+    await expect(panel).toContainText('req-policy');
+    await expect(panel).toContainText('maya, customhost');
+    await expect(panel).toContainText('body.data.params.arguments.api_key');
+
+    await page.getByLabel('筛选当前面板').fill('quota');
+    await expect(page.locator('.list-search-meta')).toContainText('1 / 2');
+    await expect(panel).toContainText('req-quota');
+    await expect(panel).not.toContainText('req-policy');
+
+    await context.close();
+  });
+
   test('shows platform-specific IDE config paths', async ({ page }) => {
     await page.addInitScript(() => {
       Object.defineProperty(navigator, 'userAgentData', {

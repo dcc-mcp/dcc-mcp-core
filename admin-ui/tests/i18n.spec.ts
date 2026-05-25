@@ -22,6 +22,13 @@ test.describe('i18n locale detection', () => {
     expect(normalizeLocaleTag('ko-KR')).toBe('ko');
   });
 
+  test('detects every supported runtime locale from browser preferences', () => {
+    expect(detectLocale({ navigatorLanguages: ['en-US'] })).toMatchObject({ locale: 'en', source: 'navigator' });
+    expect(detectLocale({ navigatorLanguages: ['zh-Hans-CN'] })).toMatchObject({ locale: 'zh-CN', source: 'navigator' });
+    expect(detectLocale({ navigatorLanguages: ['ja-JP'] })).toMatchObject({ locale: 'ja', source: 'navigator' });
+    expect(detectLocale({ navigatorLanguages: ['ko-KR'] })).toMatchObject({ locale: 'ko', source: 'navigator' });
+  });
+
   test('falls back to English when preferences are unsupported', () => {
     expect(detectLocale({ navigatorLanguages: ['fr-FR', 'de-DE'] })).toEqual({
       locale: 'en',
