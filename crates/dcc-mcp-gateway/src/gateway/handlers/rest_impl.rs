@@ -1,5 +1,7 @@
 use super::*;
 
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 use crate::gateway::admin::trace::{AgentContext, TraceContext};
 use crate::gateway::agent_telemetry::{
     AgentWorkflowEvent, error_kind_from_text, policy_reason_from_value,
@@ -12,9 +14,12 @@ use crate::gateway::capability_service::{
 };
 use crate::gateway::response_codec::{compact_call_batch_payload, compact_describe_payload};
 use crate::gateway::search_telemetry::{SearchTelemetryInput, search_id_from_payload};
+use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};
 
 use super::rest_support::*;
 use super::rest_trace::*;
+
+const GATEWAY_HANDOFF_GRACE: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Deserialize)]
 pub struct DccInstanceDescribeQuery {
@@ -36,6 +41,8 @@ pub async fn handle_gateway_yield(
     #[derive(Deserialize)]
     struct YieldRequest {
         challenger_version: Option<String>,
+        reason: Option<String>,
+        suggested_successor: Option<String>,
     }
 
     let request: YieldRequest = match serde_json::from_slice(&body) {
@@ -59,14 +66,28 @@ pub async fn handle_gateway_yield(
     }
 
     if is_newer_version(&challenger_version, &gs.server_version) {
+        let reason = request
+            .reason
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or("version_preempt");
         tracing::info!(
             challenger = %challenger_version,
             current = %gs.server_version,
+            reason = %reason,
             "Gateway yield requested — initiating graceful handoff"
         );
+        announce_gateway_handoff(
+            &gs,
+            &challenger_version,
+            reason,
+            request.suggested_successor.as_deref(),
+        )
+        .await;
         let _ = gs.yield_tx.send(true);
         Json(json!({
             "ok": true,
+            "handoff": true,
             "message": format!(
                 "Gateway v{} yielding to challenger v{}. Port will be free shortly.",
                 gs.server_version, challenger_version
@@ -83,6 +104,117 @@ pub async fn handle_gateway_yield(
             ),
         )
     }
+}
+
+async fn announce_gateway_handoff(
+    gs: &GatewayState,
+    challenger_version: &str,
+    reason: &str,
+    suggested_successor: Option<&str>,
+) {
+    let issued = SystemTime::now();
+    let deadline = issued + GATEWAY_HANDOFF_GRACE;
+    let sentinel = mark_active_gateway_sentinel_shutting_down(gs).await;
+    let from_instance_id = sentinel
+        .as_ref()
+        .map(|entry| entry.instance_id.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    let in_flight_calls = gs.pending_calls.read().await.len();
+    let subscribed_clients = gs.events_tx.receiver_count();
+
+    crate::gateway::event_log::record_event(
+        &gs.event_log,
+        #[cfg(feature = "prometheus")]
+        &gs.gateway_metrics,
+        crate::gateway::event_log::EventKind::VoluntaryYield,
+        GATEWAY_SENTINEL_DCC_TYPE,
+        short_instance_id(&from_instance_id),
+        Some(format!(
+            "handoff reason={reason}; challenger_version={challenger_version}"
+        )),
+    );
+
+    let notification = json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/gateway/handoff",
+        "params": {
+            "from": from_instance_id,
+            "reason": reason,
+            "challenger_version": challenger_version,
+            "issued_unix_secs": unix_secs(issued),
+            "deadline_unix_secs": unix_secs(deadline),
+            "grace_ms": GATEWAY_HANDOFF_GRACE.as_millis() as u64,
+            "endpoint_after_handoff_will_be_same": true,
+            "in_flight_calls": in_flight_calls,
+            "subscribed_clients": subscribed_clients,
+            "suggested_successor": suggested_successor,
+        }
+    });
+
+    if gs.events_tx.receiver_count() > 0 {
+        let _ = gs.events_tx.send(notification.to_string());
+    }
+}
+
+async fn mark_active_gateway_sentinel_shutting_down(gs: &GatewayState) -> Option<ServiceEntry> {
+    let sentinel = {
+        let registry = gs.registry.read().await;
+        select_active_gateway_sentinel(
+            registry.list_instances(GATEWAY_SENTINEL_DCC_TYPE),
+            &gs.own_host,
+            gs.own_port,
+        )
+    }?;
+    let key = sentinel.key();
+    {
+        let registry = gs.registry.read().await;
+        if let Err(err) = registry.update_status(&key, ServiceStatus::ShuttingDown) {
+            tracing::warn!(
+                error = %err,
+                instance_id = %sentinel.instance_id,
+                "Failed to mark gateway sentinel as shutting down"
+            );
+            return Some(sentinel);
+        }
+    }
+    let mut updated = sentinel;
+    updated.status = ServiceStatus::ShuttingDown;
+    Some(updated)
+}
+
+fn select_active_gateway_sentinel(
+    sentinels: Vec<ServiceEntry>,
+    own_host: &str,
+    own_port: u16,
+) -> Option<ServiceEntry> {
+    sentinels
+        .iter()
+        .find(|entry| {
+            entry.host == own_host
+                && entry.port == own_port
+                && entry
+                    .metadata
+                    .get("gateway_role")
+                    .is_some_and(|role| role == "active")
+        })
+        .cloned()
+        .or_else(|| {
+            sentinels
+                .iter()
+                .find(|entry| entry.host == own_host && entry.port == own_port)
+                .cloned()
+        })
+        .or_else(|| sentinels.into_iter().next())
+}
+
+fn unix_secs(time: SystemTime) -> f64 {
+    time.duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs_f64())
+        .unwrap_or_default()
+}
+
+fn short_instance_id(instance_id: &str) -> String {
+    instance_id.chars().take(8).collect()
 }
 
 fn gateway_yield_unavailable_response(

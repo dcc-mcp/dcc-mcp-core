@@ -2,7 +2,7 @@ use super::*;
 use axum::body::{Body, to_bytes};
 use axum::http::Request;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
-use dcc_mcp_transport::discovery::types::ServiceEntry;
+use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -830,6 +830,70 @@ async fn gateway_yield_newer_challenger_still_accepts() {
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["ok"], true);
+}
+
+#[tokio::test]
+async fn gateway_yield_broadcasts_handoff_and_marks_sentinel_shutting_down() {
+    let gs = test_gateway_state("1.2.3");
+    let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
+    sentinel.version = Some("1.2.3".to_string());
+    sentinel
+        .metadata
+        .insert("gateway_role".to_string(), "active".to_string());
+    let sentinel_key = sentinel.key();
+    let sentinel_id = sentinel.instance_id.to_string();
+    {
+        let registry = gs.registry.read().await;
+        registry.register(sentinel).unwrap();
+    }
+
+    let mut events_rx = gs.events_tx.subscribe();
+    let (status, body) = response_json(
+        handle_gateway_yield(
+            State(gs.clone()),
+            axum::body::Bytes::from_static(
+                br#"{"challenger_version":"1.2.4","suggested_successor":"peer-123"}"#,
+            ),
+        )
+        .await,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["handoff"], true);
+
+    let raw_event = tokio::time::timeout(Duration::from_secs(1), events_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    let event: Value = serde_json::from_str(&raw_event).unwrap();
+    assert_eq!(event["method"], "notifications/gateway/handoff");
+    assert_eq!(event["params"]["from"], sentinel_id);
+    assert_eq!(event["params"]["reason"], "version_preempt");
+    assert_eq!(event["params"]["challenger_version"], "1.2.4");
+    assert_eq!(event["params"]["suggested_successor"], "peer-123");
+    assert_eq!(event["params"]["endpoint_after_handoff_will_be_same"], true);
+    assert!(event["params"]["deadline_unix_secs"].as_f64().unwrap() > 0.0);
+
+    {
+        let registry = gs.registry.read().await;
+        let updated = registry.get(&sentinel_key).unwrap();
+        assert_eq!(updated.status, ServiceStatus::ShuttingDown);
+    }
+
+    let events = gs.event_log.recent_events(1);
+    assert_eq!(
+        events[0].event,
+        crate::gateway::event_log::EventKind::VoluntaryYield
+    );
+    assert_eq!(events[0].dcc_type, GATEWAY_SENTINEL_DCC_TYPE);
+    assert!(
+        events[0]
+            .reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("challenger_version=1.2.4")
+    );
 }
 
 #[tokio::test]
