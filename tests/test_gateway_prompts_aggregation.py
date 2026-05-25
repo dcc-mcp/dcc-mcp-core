@@ -238,7 +238,10 @@ class TestPromptsListEmptyGateway:
         """Hard acceptance criterion from #731 — must not be -32601."""
         resp = _post_mcp(empty_gateway, "prompts/list")
         assert "error" not in resp, f"unexpected JSON-RPC error: {resp.get('error')}"
-        assert resp["result"] == {"prompts": []}
+        assert resp["result"]["prompts"] == []
+        diagnostics = resp["result"]["_meta"]["dcc.prompt_diagnostics"]
+        assert diagnostics["prompt_count"] == 0
+        assert diagnostics["backend_count"] >= 0
 
     def test_initialize_advertises_prompts_capability(self, empty_gateway):
         """`prompts: {listChanged: true}` must appear in the capabilities object."""
@@ -277,6 +280,7 @@ class TestPromptsListAggregatesBackends:
             assert "_instance_id" in prompt, f"prompt missing _instance_id: {prompt!r}"
             assert "_instance_short" in prompt
             assert "_dcc_type" in prompt
+            assert prompt["_meta"]["dcc.prompt_source"]["source"] in {"explicit", "workflow"}
             split = _split_gateway_prefixed(prompt["name"])
             assert split is not None, f"prompt name not cursor-safe-prefixed: {prompt['name']}"
             prefix, _ = split

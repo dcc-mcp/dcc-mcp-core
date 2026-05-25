@@ -375,6 +375,9 @@ pub struct PromptListEntry {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub arguments: Vec<PromptArgumentSpec>,
+    #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<Object>)]
+    pub meta: Option<Value>,
 }
 
 /// One declared argument on a prompt.
@@ -437,6 +440,9 @@ pub trait ResourceProvider: Send + Sync {
 pub trait PromptProvider: Send + Sync {
     fn list(&self) -> Vec<PromptListEntry>;
     fn get(&self, name: &str, arguments: &Value) -> Result<PromptGetResponse, ServiceError>;
+    fn diagnostics(&self) -> Option<Value> {
+        None
+    }
 }
 
 /// Default `ResourceProvider` returning an empty list — used when the
@@ -471,6 +477,13 @@ impl PromptProvider for EmptyPromptProvider {
             ServiceErrorKind::NotFound,
             format!("prompt not found: {name}"),
         ))
+    }
+    fn diagnostics(&self) -> Option<Value> {
+        Some(serde_json::json!({
+            "enabled": false,
+            "prompt_count": 0,
+            "notes": ["No prompt provider is configured for this REST service."]
+        }))
     }
 }
 

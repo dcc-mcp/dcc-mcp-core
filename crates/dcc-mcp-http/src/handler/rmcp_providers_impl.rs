@@ -59,6 +59,13 @@ impl PromptProvider for PromptRegistryProvider {
         })
     }
 
+    fn prompt_diagnostics(&self, catalog: &Arc<SkillCatalog>) -> Option<serde_json::Value> {
+        serde_json::to_value(self.registry.diagnostics(|visit| {
+            catalog.for_each_loaded_metadata(|md| visit(md));
+        }))
+        .ok()
+    }
+
     fn get_prompt(
         &self,
         name: &str,

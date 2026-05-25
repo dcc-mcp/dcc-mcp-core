@@ -17,7 +17,7 @@
 
 use super::*;
 
-use super::super::backend_client::{fetch_prompts, forward_prompts_get};
+use super::super::backend_client::{fetch_prompts, forward_prompts_get, try_fetch_prompts};
 use super::super::namespace::{decode_tool_name, encode_tool_name_cursor_safe};
 
 /// Build the unified `prompts/list` result by aggregating every live backend.
@@ -47,30 +47,67 @@ pub async fn aggregate_prompts_list(gs: &GatewayState) -> Value {
     let backend_timeout = gs.backend_timeout;
     let futs = instances.iter().map(|entry| async move {
         let url = format!("http://{}:{}/mcp", entry.host, entry.port);
-        let prompts = fetch_prompts(client, &url, backend_timeout).await;
+        let prompts = try_fetch_prompts(client, &url, backend_timeout).await;
         (entry.instance_id, entry.dcc_type.clone(), prompts)
     });
     let results = join_all(futs).await;
 
     let mut prompts: Vec<Value> = Vec::new();
-    for (iid, dcc_type, backend_prompts) in results {
-        for mut prompt in backend_prompts {
-            let encoded = encode_tool_name_cursor_safe(&iid, &prompt.name);
-            prompt.name = encoded;
-            let mut json_val = serde_json::to_value(&prompt).unwrap_or(Value::Null);
-            if let Some(obj) = json_val.as_object_mut() {
-                obj.insert("_instance_id".to_string(), Value::String(iid.to_string()));
-                obj.insert(
-                    "_instance_short".to_string(),
-                    Value::String(instance_short(&iid)),
-                );
-                obj.insert("_dcc_type".to_string(), Value::String(dcc_type.clone()));
+    let mut backend_diagnostics: Vec<Value> = Vec::new();
+    let mut failed_backend_count = 0usize;
+    for (iid, dcc_type, backend_result) in results {
+        let short = instance_short(&iid);
+        match backend_result {
+            Ok(backend_prompts) => {
+                backend_diagnostics.push(json!({
+                    "instance_id": iid.to_string(),
+                    "instance_short": short.clone(),
+                    "dcc_type": dcc_type.clone(),
+                    "status": "ok",
+                    "prompt_count": backend_prompts.len(),
+                }));
+                for mut prompt in backend_prompts {
+                    let encoded = encode_tool_name_cursor_safe(&iid, &prompt.name);
+                    prompt.name = encoded;
+                    let mut json_val = serde_json::to_value(&prompt).unwrap_or(Value::Null);
+                    if let Some(obj) = json_val.as_object_mut() {
+                        obj.insert("_instance_id".to_string(), Value::String(iid.to_string()));
+                        obj.insert("_instance_short".to_string(), Value::String(short.clone()));
+                        obj.insert("_dcc_type".to_string(), Value::String(dcc_type.clone()));
+                    }
+                    prompts.push(json_val);
+                }
             }
-            prompts.push(json_val);
+            Err(error) => {
+                failed_backend_count += 1;
+                tracing::warn!(
+                    instance_id = %iid,
+                    dcc_type = %dcc_type,
+                    error = %error,
+                    "Backend GET /v1/prompts failed during aggregation"
+                );
+                backend_diagnostics.push(json!({
+                    "instance_id": iid.to_string(),
+                    "instance_short": short,
+                    "dcc_type": dcc_type.clone(),
+                    "status": "error",
+                    "error": error,
+                }));
+            }
         }
     }
 
-    json!({ "prompts": prompts })
+    json!({
+        "_meta": {
+            "dcc.prompt_diagnostics": {
+                "backend_count": backend_diagnostics.len(),
+                "failed_backend_count": failed_backend_count,
+                "prompt_count": prompts.len(),
+                "backends": backend_diagnostics,
+            }
+        },
+        "prompts": prompts
+    })
 }
 
 /// Forward a gateway `prompts/get` to the owning backend.

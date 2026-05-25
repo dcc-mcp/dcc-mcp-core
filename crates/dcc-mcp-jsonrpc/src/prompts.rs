@@ -10,6 +10,8 @@ pub struct McpPrompt {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub arguments: Vec<McpPromptArgument>,
+    #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<serde_json::Value>,
 }
 
 /// Declared argument for a prompt (surfaced through `prompts/list`).
@@ -26,6 +28,8 @@ pub struct McpPromptArgument {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ListPromptsResult {
+    #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<serde_json::Value>,
     pub prompts: Vec<McpPrompt>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_cursor: Option<String>,

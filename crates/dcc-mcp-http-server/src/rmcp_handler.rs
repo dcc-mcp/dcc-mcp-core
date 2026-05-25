@@ -20,9 +20,9 @@ use rmcp::model::{
     ErrorCode, GetPromptRequestParams, GetPromptResult as RmcpGetPromptResult, Implementation,
     InitializeRequestParams, InitializeResult, ListPromptsResult as RmcpListPromptsResult,
     ListResourcesRequestMethod, ListResourcesResult as RmcpListResourcesResult, ListToolsResult,
-    LoggingLevel, PaginatedRequestParams, ReadResourceRequestMethod, ReadResourceRequestParams,
-    ReadResourceResult as RmcpReadResourceResult, ServerCapabilities, ServerInfo,
-    SetLevelRequestParams, SubscribeRequestParams, Tool as RmcpTool, ToolsCapability,
+    LoggingLevel, Meta, PaginatedRequestParams, ReadResourceRequestMethod,
+    ReadResourceRequestParams, ReadResourceResult as RmcpReadResourceResult, ServerCapabilities,
+    ServerInfo, SetLevelRequestParams, SubscribeRequestParams, Tool as RmcpTool, ToolsCapability,
     UnsubscribeRequestParams,
 };
 use rmcp::service::RequestContext;
@@ -333,7 +333,11 @@ impl ServerHandler for DccMcpHandler {
         async {
             let Some(provider) = self.registry_context.prompt_provider.as_ref() else {
                 return Ok(RmcpListPromptsResult {
-                    meta: None,
+                    meta: prompt_diagnostics_meta(Some(serde_json::json!({
+                        "enabled": false,
+                        "prompt_count": 0,
+                        "notes": ["No prompt provider is configured for this server."]
+                    }))),
                     next_cursor: None,
                     prompts: vec![],
                 });
@@ -341,11 +345,16 @@ impl ServerHandler for DccMcpHandler {
 
             let prompts = provider.list_prompts(&self.state.catalog);
             let rmcp_prompts: Vec<_> = prompts.iter().map(rmcp_adapter::prompt_to_rmcp).collect();
+            let meta = if rmcp_prompts.is_empty() {
+                prompt_diagnostics_meta(provider.prompt_diagnostics(&self.state.catalog))
+            } else {
+                None
+            };
 
             debug!(count = rmcp_prompts.len(), "rmcp: listed prompts");
 
             Ok(RmcpListPromptsResult {
-                meta: None,
+                meta,
                 next_cursor: None,
                 prompts: rmcp_prompts,
             })
@@ -432,4 +441,16 @@ fn provider_error_to_mcp(e: &ProviderError) -> McpError {
         }
         ProviderError::Internal(msg) => McpError::internal_error(msg.clone(), None),
     }
+}
+
+fn prompt_diagnostics_meta(diagnostics: Option<Value>) -> Option<Meta> {
+    let Some(Value::Object(diagnostics)) = diagnostics else {
+        return None;
+    };
+    let mut meta = Meta::new();
+    meta.insert(
+        "dcc.prompt_diagnostics".to_string(),
+        Value::Object(diagnostics),
+    );
+    Some(meta)
 }

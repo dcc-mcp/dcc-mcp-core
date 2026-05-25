@@ -36,11 +36,11 @@ Three JSON-RPC methods are exposed:
 | `prompts/get` | Render one prompt by name with caller-supplied arguments. |
 | `notifications/prompts/list_changed` | Server-pushed SSE event whenever a skill is loaded / unloaded. |
 
-## Source: sibling `prompts.yaml`
+## Source: explicit sibling `prompts.yaml`
 
 Following the project-wide **sibling-file rule** ([#356](https://github.com/loonghao/dcc-mcp-core/issues/356)),
-prompt templates never inline into `SKILL.md`. The skill author references
-a sibling file from the `metadata.dcc-mcp` namespace:
+hand-authored prompt templates never inline into `SKILL.md`. The skill author
+references a sibling file from the `metadata.dcc-mcp` namespace:
 
 ```yaml
 ---
@@ -121,6 +121,43 @@ Parsing is **lazy**: the path is recorded at scan / load time; the file
 contents are only read when the server handles `prompts/list` or
 `prompts/get`.
 
+## Derived prompts
+
+If a loaded skill does not declare `metadata.dcc-mcp.prompts`, the registry
+tries conservative, explainable derivation from prompt-worthy metadata:
+
+| Metadata | Source files | Derived prompt name |
+|----------|--------------|---------------------|
+| `metadata.dcc-mcp.examples` | Markdown/text examples such as `references/EXAMPLES.md` or `examples/*.md` | `<skill>.examples` or `<skill>.examples.<file-stem>` |
+| `metadata.dcc-mcp.recipes` | Markdown, YAML, TOML, or text recipe references | `<skill>.recipes` or `<skill>.recipes.<file-stem>` |
+| `metadata.dcc-mcp.workflows` | `*.workflow.yaml` workflow specs | `<skill>.<workflow-name>` |
+
+Derived prompts are meant to make `prompts/list` useful for adapters that
+already ship examples, recipes, or workflow metadata. They are intentionally
+plain: the rendered prompt includes the referenced guidance or a workflow step
+summary and tells the agent to prefer the skill's declared MCP tools.
+
+Use explicit `prompts.yaml` when you need argument schemas, carefully worded
+model instructions, stable prompt names, or curated UX copy. Use derived
+prompts as a zero-adapter-code fallback for existing examples and workflow
+guidance.
+
+Each prompt entry carries source metadata:
+
+```json
+{
+  "_meta": {
+    "dcc.prompt_source": {
+      "skill": "maya-geometry",
+      "source": "examples"
+    }
+  }
+}
+```
+
+The gateway preserves that metadata while also adding `_instance_id`,
+`_instance_short`, and `_dcc_type` for the backend that supplied the prompt.
+
 ## Templating engine
 
 The rendering engine is intentionally minimal — one token only:
@@ -155,6 +192,34 @@ server.start()
 
 When disabled, the server omits the `prompts` capability and rejects
 `prompts/list` / `prompts/get` with `Method not found`.
+
+## Diagnostics
+
+An empty `prompts/list` response includes a diagnostic path in `_meta` so
+clients can distinguish "no loaded skills" from "loaded skills have no prompt
+metadata" and "prompt-capable metadata failed to load":
+
+```json
+{
+  "prompts": [],
+  "_meta": {
+    "dcc.prompt_diagnostics": {
+      "enabled": true,
+      "loaded_skill_count": 1,
+      "prompt_count": 0,
+      "prompt_capable_skill_count": 0,
+      "notes": [
+        "Loaded skills did not declare metadata.dcc-mcp.prompts, examples, recipes, or workflows."
+      ]
+    }
+  }
+}
+```
+
+The REST `GET /v1/prompts` surface exposes the same information under
+`diagnostics`. Gateway aggregation adds backend-level diagnostics under
+`_meta["dcc.prompt_diagnostics"].backends`, including per-backend prompt counts
+and transport/protocol errors, while still returning healthy backend prompts.
 
 ## Dynamic registration from Python
 
@@ -208,6 +273,9 @@ on runtime capabilities.
    `workflow.yaml` and let the server auto-generate the summary prompt.
 4. Don't put secrets or environment-specific paths in templates —
    prompts are surfaced verbatim to the model.
+5. Treat derived prompts as a fallback. Once an example or recipe becomes a
+   product-facing workflow, promote it to an explicit `prompts.yaml` entry with
+   a stable name and argument declarations.
 
 ## Related issues
 

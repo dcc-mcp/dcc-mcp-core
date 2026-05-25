@@ -66,6 +66,14 @@ into a faster authoring loop.
    (`python_package`, `python_extra`, `binary`, `env_var`, or `feature`) with
    actionable guidance; discovery surfaces `available` / `degraded` /
    `missing` states without importing tool scripts or running installers.
+   When a skill has reusable examples, recipes, or workflow metadata, declare
+   them with sibling-file references (`metadata.dcc-mcp.examples`,
+   `metadata.dcc-mcp.recipes`, `metadata.dcc-mcp.workflows`). Core can derive
+   MCP prompts from those files for `prompts/list`; promote them to explicit
+   `metadata.dcc-mcp.prompts` entries when you need stable names, arguments, or
+   curated prompt copy. Prompt diagnostics surface missing files and parse
+   failures, so adapter tests should assert diagnostics for empty prompt lists
+   instead of treating `0 prompts` as self-explanatory.
 7. When changing adapter server wiring or caller examples, keep Admin telemetry
    useful: pass optional `agent_context` / `caller_context` summaries through
    MCP `_meta`, REST `meta`, or `x-dcc-mcp-agent-*` headers when the caller is

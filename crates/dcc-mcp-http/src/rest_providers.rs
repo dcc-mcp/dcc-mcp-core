@@ -122,6 +122,7 @@ impl PromptProvider for PromptRegistryAdapter {
                         required: a.required,
                     })
                     .collect(),
+                meta: p.meta,
             })
             .collect()
     }
@@ -173,5 +174,14 @@ impl PromptProvider for PromptRegistryAdapter {
                     })
                     .collect(),
             })
+    }
+
+    fn diagnostics(&self) -> Option<serde_json::Value> {
+        let catalog = self.catalog.clone();
+        serde_json::to_value(
+            self.registry
+                .diagnostics(|visit| catalog.for_each_loaded_metadata(|md| visit(md))),
+        )
+        .ok()
     }
 }
