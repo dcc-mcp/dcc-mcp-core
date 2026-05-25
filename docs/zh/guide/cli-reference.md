@@ -146,6 +146,39 @@ Admin 审计/trace 持久化只通过环境变量配置：设置 `DCC_MCP_GATEWA
 | `--log-retention-days` | `DCC_MCP_LOG_RETENTION_DAYS` | `7` | 按天保留。`0` 关闭。 |
 | `--log-max-total-size-mb` | `DCC_MCP_LOG_MAX_TOTAL_SIZE_MB` | `100` | 总目录容量上限（MiB）。`0` 关闭。 |
 
+### Capture replay/diff
+
+`dcc-mcp-server capture` 处理由
+`DCC_MCP_TRAFFIC_CAPTURE=jsonl:<path>` 或 `DCC_MCP_TRAFFIC_CONFIG=<yaml>`
+产生的离线 traffic capture 文件。它不会自动开启 capture；只有 `replay`
+模式需要一个在线 gateway。
+
+```bash
+# 把记录下来的 client -> gateway 请求重放到在线 gateway MCP endpoint。
+dcc-mcp-server capture replay ./captures/run.sqlite \
+    --target http://127.0.0.1:9765/mcp \
+    --session sess_01HQX \
+    --assert outputs-compatible
+
+# 逐帧比较两份 capture。
+dcc-mcp-server capture diff ./captures/before.sqlite ./captures/after.sqlite \
+    --before-session sess_before \
+    --after-session sess_after
+```
+
+Replay 断言模式：
+
+| Mode | 契约 |
+|---|---|
+| `outputs-compatible` | HTTP status 与 JSON-RPC result/error 形状必须和记录响应一致。 |
+| `outputs-equal` | HTTP status 与响应 JSON 必须完全一致。 |
+| `outputs-ignored` | 只发送并计数请求，不比较响应 body。 |
+
+当文件扩展名不足以判断格式时，使用 `--format jsonl` 或
+`--format sqlite`。`--rebind-instance-id <id>` 会重写捕获到的 gateway tool
+slug（例如 `maya.old.tool`）以及 `instance_id` 字段，方便把旧记录重放到当前
+在线实例。
+
 ### 典型调用
 
 ```bash

@@ -1333,6 +1333,7 @@ dependencies = [
  "dcc-mcp-transport",
  "futures-util",
  "reqwest 0.13.3",
+ "rusqlite",
  "serde",
  "serde_json",
  "serde_yaml_ng",

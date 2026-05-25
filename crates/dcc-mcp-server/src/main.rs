@@ -99,6 +99,7 @@ use dcc_mcp_skills::constants::{
 };
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 use sysinfo::{Pid, ProcessesToUpdate, System};
+mod capture;
 mod event_webhooks;
 mod gateway_daemon;
 mod sidecar;
@@ -126,6 +127,11 @@ enum SubCmd {
     Sidecar(sidecar::SidecarArgs),
     /// Machine-wide gateway daemon. Per-DCC sidecars auto-launch this when needed.
     Gateway(gateway_daemon::GatewayArgs),
+    /// Replay or diff gateway traffic capture files.
+    Capture {
+        #[command(subcommand)]
+        action: capture::CaptureAction,
+    },
 }
 
 /// DCC-MCP server with integrated auto-gateway.
@@ -593,6 +599,7 @@ async fn main() -> anyhow::Result<()> {
         Some(SubCmd::Catalog { action }) => return run_catalog_cmd(&action),
         Some(SubCmd::Sidecar(sidecar_args)) => return sidecar::run(sidecar_args).await,
         Some(SubCmd::Gateway(gateway_args)) => return gateway_daemon::run(gateway_args).await,
+        Some(SubCmd::Capture { action }) => return capture::run(action).await,
         None => {}
     }
 
