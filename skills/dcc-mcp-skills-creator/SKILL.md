@@ -98,9 +98,9 @@ my-skill/
 |-- tools.yaml            # Required when metadata.dcc-mcp.tools points here
 |-- scripts/              # Optional: tool implementation scripts
 |   `-- create_locator.py
-`-- metadata/             # Optional: documentation and dependencies
-    |-- depends.md
-    `-- help.md
+`-- references/           # Optional: recipes, examples, and long-form docs
+    |-- RECIPES.md
+    `-- NOTES.md
 ```
 
 ## Current Tool Contract
@@ -141,5 +141,5 @@ The validator checks:
 - **Tool declarations**: non-empty names, no duplicates, snake_case client-safe format
 - **Script files**: `source_file` references exist in `scripts/`
 - **Sidecar files**: `metadata.dcc-mcp.tools/groups/prompts` references exist
-- **Dependencies**: `depends` vs `metadata/depends.md` consistency
+- **Dependencies**: `metadata.dcc-mcp.depends` consistency
 - **Spec compliance**: non-standard top-level keys are frontmatter errors; dcc-mcp-core extensions must live under `metadata.dcc-mcp.*` and point to sibling files

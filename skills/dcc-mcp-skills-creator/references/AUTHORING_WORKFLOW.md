@@ -22,6 +22,11 @@ Keep those fields concrete:
 - Say when to use it.
 - Say when not to use it, and name the better skill when one exists.
 
+The `metadata:` configuration block belongs in `SKILL.md` frontmatter. Put
+DCC-MCP extension pointers such as `tools`, `prompts`, `recipes`, `workflows`,
+and `depends` under `metadata.dcc-mcp.*`. Use `references/` for long-form docs,
+recipes, examples, and notes that agents should load only when needed.
+
 ## 3. Keep Runtime Scripts Host-Safe
 
 Scripts should lazy-import host APIs inside the callable function. This keeps
