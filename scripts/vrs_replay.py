@@ -78,7 +78,7 @@ def _do_request(
     body: Optional[Any],
     extra_headers: Optional[Mapping[str, Any]],
     timeout: float,
-) -> Tuple[int, str, Any]:
+) -> Tuple[int, str, Any, Dict[str, str]]:
     url = base.rstrip("/") + path
     data_bytes: Optional[bytes] = None
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
@@ -96,20 +96,21 @@ def _do_request(
                 parsed: Any = json.loads(raw)
             except json.JSONDecodeError:
                 parsed = None
-            return resp.status, raw, parsed
+            return resp.status, raw, parsed, {k.lower(): v for k, v in resp.headers.items()}
     except urllib.error.HTTPError as e:
         raw = e.read().decode("utf-8", errors="replace")
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError:
             parsed = None
-        return e.code, raw, parsed
+        return e.code, raw, parsed, {k.lower(): v for k, v in e.headers.items()}
 
 
 def _check_expect(
     status: int,
     raw_body: str,
     parsed: Any,
+    headers: Mapping[str, str],
     expect: Mapping[str, Any],
 ) -> Optional[str]:
     exp_status = expect.get("status")
@@ -130,6 +131,22 @@ def _check_expect(
             return f"body does not contain substring(s) {missing!r}"
     if "json_subset" in expect and parsed is not None and not _json_subset_match(parsed, expect["json_subset"]):
         return f"json_subset mismatch; got {parsed!r}"
+    if "headers_present" in expect:
+        names = expect["headers_present"]
+        if not isinstance(names, list):
+            return "headers_present must be a list"
+        missing = [str(name).lower() for name in names if str(name).lower() not in headers]
+        if missing:
+            return f"missing response header(s) {missing!r}"
+    if "headers_subset" in expect:
+        wanted = expect["headers_subset"]
+        if not isinstance(wanted, dict):
+            return "headers_subset must be an object"
+        mismatched = {
+            str(name).lower(): value for name, value in wanted.items() if headers.get(str(name).lower()) != str(value)
+        }
+        if mismatched:
+            return f"headers_subset mismatch; expected {mismatched!r}, got {headers!r}"
     return None
 
 
@@ -137,12 +154,13 @@ def _check_expect_any(
     status: int,
     raw_body: str,
     parsed: Any,
+    headers: Mapping[str, str],
     alternatives: List[Mapping[str, Any]],
 ) -> Optional[str]:
     """Return None if any alternative passes; otherwise aggregate error message."""
     errs: List[str] = []
     for alt in alternatives:
-        err = _check_expect(status, raw_body, parsed, alt)
+        err = _check_expect(status, raw_body, parsed, headers, alt)
         if err is None:
             return None
         errs.append(f"({err})")
@@ -165,7 +183,7 @@ def _run_skip_preflight(
     path = str(http["path"])
     body = http.get("json")
     headers = http.get("headers")
-    st, raw, parsed = _do_request(
+    st, raw, parsed, _headers = _do_request(
         base,
         method,
         path,
@@ -267,7 +285,7 @@ def run_trace(base_url: str, trace_path: str, dry_run: bool, verbose: bool) -> i
             print(f"[dry-run] {method} {path}{header_suffix} {suffix}")
             continue
 
-        st, raw, parsed = _do_request(base_url, method, path, body, headers, timeout)
+        st, raw, parsed, response_headers = _do_request(base_url, method, path, body, headers, timeout)
         if verbose:
             print(f"--- step {sid} {method} {path} -> {st}")
 
@@ -277,9 +295,9 @@ def run_trace(base_url: str, trace_path: str, dry_run: bool, verbose: bool) -> i
             if not isinstance(expect_any, list):
                 print(f"FAIL step {sid}: expect_any must be a list", file=sys.stderr)
                 return 1
-            err = _check_expect_any(st, raw, parsed, expect_any)
+            err = _check_expect_any(st, raw, parsed, response_headers, expect_any)
         else:
-            err = _check_expect(st, raw, parsed, expect)
+            err = _check_expect(st, raw, parsed, response_headers, expect)
         if err:
             print(f"FAIL step {sid}: {err}", file=sys.stderr)
             print(f"  status={st} body={raw[:2000]!r}", file=sys.stderr)

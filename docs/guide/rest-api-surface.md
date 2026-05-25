@@ -582,19 +582,21 @@ supplied), so heavier groups should be activated explicitly.
 ### Compact output
 
 `/v1/search`, `/v1/describe`, `/v1/tools/{slug}`, the direct per-instance
-describe/call routes, `/v1/call`, and `/v1/call_batch` keep legacy JSON as the
-default response format. Agent clients that want smaller REST payloads can
-request TOON explicitly:
+describe/call routes, `/v1/call`, and `/v1/call_batch` return compact TOON by
+default. Set `DCC_MCP_GATEWAY_RESPONSE_FORMAT=json` (or the legacy alias
+`DCC_MCP_RESPONSE_FORMAT=json`) when a deployment needs a JSON-first
+compatibility window. REST clients can also opt out per request:
 
 ```bash
-curl -H 'Accept: application/toon' \
+curl -H 'Accept: application/json' \
   -d '{"query":"render","limit":20}' \
   http://127.0.0.1:9765/v1/search
 ```
 
-The request body may also set `"response_format": "toon"` or `"compact": true`.
-Set `"response_format": "json"` to force the legacy JSON body even when the
-`Accept` header prefers TOON.
+The request body may set `"response_format": "json"` to force legacy JSON, or
+`"response_format": "toon"` / `"compact": true` to force compact output even
+when an `Accept` header prefers JSON. If neither `Accept` nor the body says
+otherwise, REST returns `application/toon`.
 
 Every compact-capable REST response includes approximate token accounting
 headers:
@@ -628,16 +630,20 @@ preserving the full `tool` definition verbatim, including `inputSchema`,
 annotations, and validation hints. Compact call output preserves the same
 success/error envelope and HTTP status as JSON, just encoded as TOON. Compact
 batch output preserves request order and includes per-result `token_accounting`
-metadata when compact output is requested, while the response headers report the
-aggregate body savings.
+metadata, while the response headers report the aggregate body savings. Legacy
+JSON batch responses keep the same result shape and still report zero savings in
+the `x-dcc-mcp-*` accounting headers.
 
 The gateway MCP endpoint exposes the same compact codec without changing
-JSON-RPC framing. Set `params._meta.response_format` to `"toon"` (or
-`params._meta.compact=true`) on `tools/list`, `resources/read`, `prompts/get`,
-or `tools/call` requests after `initialize` advertises
-`capabilities.experimental["dcc-mcp"].compactResponses`. Non-`tools/call`
-results become a JSON object with `response_format`, `mimeType`, `text`, and
-`_meta.token_accounting`. `tools/call` keeps the MCP `CallToolResult` shape:
+JSON-RPC framing. Legacy MCP clients that omit response-format metadata keep the
+normal JSON result shape. Compact-capable MCP clients should set
+`params._meta.response_format` to `"toon"` (or `params._meta.compact=true`) on
+`tools/list`, `resources/read`, `prompts/get`, or `tools/call` requests after
+`initialize` advertises
+`capabilities.experimental["dcc-mcp"].compactResponses`; set
+`params._meta.response_format="json"` to opt out for a single request.
+Non-`tools/call` compact results become a JSON object with `response_format`,
+`mimeType`, `text`, and `_meta.token_accounting`. `tools/call` keeps the MCP `CallToolResult` shape:
 `content[]`, `type`, and `isError` stay in place, while text content receives
 `mimeType: "application/toon"` and TOON text. JSON-RPC errors remain normal
 `error` objects so legacy error handling continues to work.

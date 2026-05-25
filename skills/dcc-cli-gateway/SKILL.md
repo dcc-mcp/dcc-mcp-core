@@ -31,7 +31,9 @@ metadata:
 
 Use this skill when an agent host can run shell commands and should connect to
 DCC-MCP through **`dcc-mcp-cli`** instead of MCP JSON-RPC. The CLI wraps the
-gateway REST API and returns JSON by default.
+gateway REST API and returns JSON by default. The bundled Python fallback sends
+`Accept: application/json` because the gateway REST API itself now defaults to
+compact TOON for agent-facing routes.
 
 Connection order:
 

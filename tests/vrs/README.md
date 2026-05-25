@@ -80,6 +80,7 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 | `traces/gateway-rest-call-missing-tool-slug.jsonl` | No | `POST /v1/call` without `tool_slug` → `400`, `bad-request`. |
 | `traces/gateway-rest-call-unknown-slug.jsonl` | No | Unknown slug on call path → `404`, `unknown-slug` (matches refresh-retry semantics). |
 | `traces/core-1153-rest-compact-errors.jsonl` | No | Compact TOON negotiation on `/v1/describe` and `/v1/call_batch` preserves bad-request details; `/v1/call` can still force JSON. |
+| `traces/core-1157-rest-compact-default.jsonl` | No | REST defaults to compact TOON, explicit JSON opt-out still works, and token accounting headers are present. |
 | `traces/maya-215-execute-python-regression.jsonl` | Yes (Maya) | After harmless `execute_python`, triggers `TypeError` via bad `polySphere` arg; follow-up call must still succeed (maya#215 / #199 class). |
 | `traces/maya-235-capture-then-playblast-survives.jsonl` | Yes (Maya) | `capture_viewport` → `playblast` → `capture_viewport`; the third call MUST still return a JSON envelope (not transport error / instance-offline) — generalises the maya#215 watchdog to any `affinity:main` async action (maya#235). |
 | `traces/maya-export-fbx-describe-path-schema.jsonl` | Yes (Maya, minimal mode) | `export_fbx` MUST appear in `POST /v1/search` with `has_schema: true` before `load_skill`; `POST /v1/describe` MUST expose `inputSchema.properties.path` + `required: ["path"]`; `destination` alone MUST NOT succeed on `POST /v1/call`. |
