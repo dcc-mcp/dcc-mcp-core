@@ -65,7 +65,7 @@ OTEL_SERVICE_NAME=dcc-mcp-gateway \
 | `dcc_mcp.agent.id`、`.name`、`.kind`、`.model`、`.task`、`.tags` | 有界的 `agent_context` / caller 元数据。 |
 | `dcc_mcp.dcc.type`、`dcc_mcp.instance.id`、`dcc_mcp.skill.name`、`dcc_mcp.tool.slug` | 选中的 DCC 路由与技能/工具身份。 |
 | `dcc_mcp.search.id`、`.ranker_version`、`.selected_rank`、`.score`、`.match_reasons`、`.total`、`.zero_results` | 从 `/v1/search` 或 gateway `search` 继承的搜索质量上下文。 |
-| `dcc_mcp.policy.outcome`、`.reason` | 网关策略是否允许/拒绝以及原因。 |
+| `dcc_mcp.policy.outcome`、`.reason` | 网关策略是否允许、拒绝或限流，以及原因。 |
 | `dcc_mcp.success`、`dcc_mcp.error.kind`、`dcc_mcp.batch.size` | 执行结果字段。 |
 
 网关不会导出隐藏推理、原始 prompt、无界请求体、secret 或任意 `agent_context` metadata。Agent 从搜索结果继续调用 `describe`、`load_skill`、`call` 或 `call_batch` 时，应保留 REST `meta.search_id` 或 MCP `_meta.search_id`，这样 OTLP trace 才能把 selected rank/score 和真实工具结果关联起来。
@@ -195,6 +195,7 @@ result = resources.read("resources://gateway/events")
 | `GET /admin/api/traces/{request_id}` | 不扫描整个 trace ring，直接下钻某一次调用。 |
 | `GET /admin/api/workflows?limit=200` | 将 retained searches、describes、skill loads、calls、traces 和 audits 聚合为 agent session/workflow 链。 |
 | `GET /admin/api/stats?range=1h\|24h\|7d` | 基于 trace log 计算成功率、延迟分位数和 top tools/instances。 |
+| `GET /admin/api/governance?limit=300` / `GET /v1/debug/governance` | 查看当前 policy、read-only 状态、traffic capture guardrail、redaction paths、中间件 quota 状态，以及最近 allowed/denied/throttled 决策。 |
 | `GET /admin/api/workers` | 查看 live registry 中每个实例的 worker 卡片。 |
 
 默认情况下这些缓冲区只保存在内存中。设置 `DCC_MCP_GATEWAY_AUDIT_DIR` 后会追加有界 JSONL 文件：
@@ -233,6 +234,10 @@ dcc_mcp_gateway_evictions_total{reason="probe_fail"} 2
 dcc_mcp_gateway_probes_total{outcome="ready"}      45
 dcc_mcp_gateway_probes_total{outcome="booting"}     3
 dcc_mcp_gateway_probes_total{outcome="unreachable"} 2
+
+# Gateway governance 结果
+dcc_mcp_gateway_governance_events_total{category="policy",outcome="denied"} 4
+dcc_mcp_gateway_governance_events_total{category="rate-limit",outcome="throttled"} 3
 ```
 
 标签基数有界——不含自由形式的 `instance_id` 标签。

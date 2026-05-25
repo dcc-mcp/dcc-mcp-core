@@ -1045,17 +1045,17 @@ pub async fn handle_v1_call_batch(
                 true,
             )
         }
-        Err(message) => {
-            let legacy = json!({
-                "success": false,
-                "error": {"kind": "bad-request", "message": message},
-            });
+        Err(err) => {
+            let mut legacy = service_error_to_json(&err);
+            if let Some(obj) = legacy.as_object_mut() {
+                obj.insert("success".to_string(), json!(false));
+            }
             let metadata = RestResponseMetadata::from_trace_context(&trace_context)
                 .with_index_generation(index_generation(&gs.capability_index));
             negotiated_response_with_metadata(
                 &headers,
                 &body,
-                StatusCode::BAD_REQUEST,
+                service_error_status(&err),
                 legacy,
                 None,
                 &metadata,
@@ -1112,7 +1112,31 @@ async fn call_service_with_admin_trace(
     if !gs.middleware_chain.is_empty()
         && let Err(err) = gs.middleware_chain.run_before(&mut ctx).await
     {
-        return Err(ServiceError::new("middleware-error", err.to_string()));
+        let message = err.to_string();
+        crate::gateway::metrics::record_gateway_governance_event(
+            err.governance_category(),
+            err.kind(),
+        );
+        ctx.input_payload = Some(TracePayload::from_value(&ctx.args, MAX_INPUT_BYTES));
+        ctx.output_payload = Some(TracePayload::from_str(&message, MAX_OUTPUT_BYTES));
+        let mut rejected = CallResult::from_tuple(&message, true);
+        if let Err(after_err) = gs.middleware_chain.run_after(&ctx, &mut rejected).await {
+            tracing::warn!(error = %after_err, "gateway middleware after-call failed for rejected REST call");
+        }
+        AgentWorkflowEvent::new("gateway.call", "rest")
+            .with_trace_context(Some(&ctx.trace_context))
+            .with_agent_context(ctx.agent_context.as_ref())
+            .with_session_id(ctx.session_id.as_deref())
+            .with_route(
+                Some(slug),
+                None,
+                ctx.dcc_type.as_deref(),
+                ctx.instance_id.as_deref(),
+            )
+            .with_outcome(false, Some(err.kind()))
+            .with_policy_reason(Some(err.governance_category()))
+            .emit();
+        return Err(ServiceError::new(err.kind(), message));
     }
 
     ctx.input_payload = Some(TracePayload::from_value(&ctx.args, MAX_INPUT_BYTES));
@@ -1261,7 +1285,7 @@ async fn call_batch_with_admin_trace(
     headers: &HeaderMap,
     request_body: &Value,
     trace_context: TraceContext,
-) -> Result<Value, String> {
+) -> Result<Value, ServiceError> {
     use crate::gateway::admin::trace::{
         AgentContext, MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, TracePayload,
     };
@@ -1286,7 +1310,26 @@ async fn call_batch_with_admin_trace(
     if !gs.middleware_chain.is_empty()
         && let Err(err) = gs.middleware_chain.run_before(&mut ctx).await
     {
-        return Err(err.to_string());
+        let message = err.to_string();
+        crate::gateway::metrics::record_gateway_governance_event(
+            err.governance_category(),
+            err.kind(),
+        );
+        ctx.input_payload = Some(TracePayload::from_value(&ctx.args, MAX_INPUT_BYTES));
+        ctx.output_payload = Some(TracePayload::from_str(&message, MAX_OUTPUT_BYTES));
+        let mut rejected = CallResult::from_tuple(&message, true);
+        if let Err(after_err) = gs.middleware_chain.run_after(&ctx, &mut rejected).await {
+            tracing::warn!(error = %after_err, "gateway middleware after-call failed for rejected REST batch");
+        }
+        AgentWorkflowEvent::new("gateway.call_batch", "rest")
+            .with_trace_context(Some(&ctx.trace_context))
+            .with_agent_context(ctx.agent_context.as_ref())
+            .with_session_id(ctx.session_id.as_deref())
+            .with_route(Some("call_batch"), None, None, None)
+            .with_outcome(false, Some(err.kind()))
+            .with_policy_reason(Some(err.governance_category()))
+            .emit();
+        return Err(ServiceError::new(err.kind(), message));
     }
 
     ctx.input_payload = Some(TracePayload::from_value(&ctx.args, MAX_INPUT_BYTES));
@@ -1362,7 +1405,7 @@ async fn call_batch_with_admin_trace(
             .with_batch_size(batch_size)
             .with_outcome(false, Some("middleware-error"))
             .emit();
-        return Err(err.to_string());
+        return Err(ServiceError::new(err.kind(), err.to_string()));
     }
 
     let batch_success = result
@@ -1412,7 +1455,7 @@ async fn call_batch_with_admin_trace(
         },
     );
 
-    result
+    result.map_err(|message| ServiceError::new("bad-request", message))
 }
 
 fn selected_search_hit(

@@ -373,6 +373,154 @@ async function mockAdminApi(page: Page) {
         top_tools: [{ name: 'maya-1234__create_sphere', count: 3 }],
         top_instances: [{ name: 'maya-1234567890', count: 3 }],
         hourly_distribution: Array.from({ length: 24 }, (_, i) => (i === 8 ? 4 : 0)),
+        governance: {
+          recent_allowed: 1,
+          recent_policy_denied: 1,
+          recent_throttled: 1,
+          captured_frames: 1,
+          skipped_capture_frames: 2,
+          redacted_path_count: 1,
+          redacted_paths: ['body.data.params.arguments.api_key'],
+        },
+      };
+    } else if (path === '/governance') {
+      body = {
+        schema_version: 'dcc-mcp.admin.governance.v1',
+        generated_at: now,
+        mode: {
+          admin_mutations: 'disabled',
+          reason: 'Admin has no authentication by default, so governance is exposed as an operator-readable control plane.',
+        },
+        policy: {
+          read_only: true,
+          unrestricted: false,
+          allowlists_active: {
+            dcc_types: true,
+            skill_names: false,
+            skill_families: true,
+            tool_slugs: false,
+            tool_slug_prefixes: true,
+          },
+          allowed_dcc_types: ['maya', 'customhost'],
+          allowed_skill_names: [],
+          allowed_skill_families: ['safe-'],
+          allowed_tool_slugs: [],
+          allowed_tool_slug_prefixes: ['maya.abcdef01.safe_read'],
+        },
+        traffic_capture: {
+          enabled: true,
+          mode: 'high_sensitivity_capture',
+          sink_count: 1,
+          subscriber_enabled: false,
+          sinks: [{ kind: 'jsonl', path: 'G:/capture/traffic.jsonl' }],
+          redaction: {
+            rule_count: 1,
+            paths: ['body.data.params.arguments.api_key'],
+          },
+          filter: { include: [], exclude: [] },
+          production_profile: true,
+          force_capture: true,
+          production_guardrail: 'forced',
+          recent_decisions: [
+            {
+              timestamp: now,
+              request_id: 'req-policy',
+              trace_id: 'trace-governance',
+              session_id: 'session-1',
+              direction: 'inbound',
+              leg: 'client_to_gateway',
+              transport: 'http',
+              http_url: '/mcp',
+              mcp_method: 'tools/call',
+              outcome: 'captured',
+              redacted_paths: ['body.data.params.arguments.api_key'],
+              body_size_bytes: 188,
+            },
+          ],
+        },
+        middleware: {
+          before_count: 3,
+          after_count: 1,
+          controls: [
+            {
+              kind: 'quota',
+              mode: 'reject',
+              summary: 'Limits each session to 60 calls per 60s window.',
+              config: {
+                limit: 60,
+                window_secs: 60,
+                bucket_key: 'session_id_or_global',
+                active_buckets: 2,
+                allowed_total: 12,
+                throttled_total: 1,
+              },
+            },
+            {
+              kind: 'redaction',
+              mode: 'mutate',
+              summary: 'Redacts 2 configured field name(s) before dispatch.',
+              config: {
+                fields: ['api_key', 'token'],
+                replacement: '[REDACTED]',
+                redacted_total: 4,
+              },
+            },
+          ],
+        },
+        stats: {
+          recent_allowed: 1,
+          recent_policy_denied: 1,
+          recent_throttled: 1,
+          captured_frames: 1,
+          skipped_capture_frames: 2,
+          redacted_path_count: 1,
+          redacted_paths: ['body.data.params.arguments.api_key'],
+        },
+        recent_decisions: [
+          {
+            timestamp: now,
+            request_id: 'req-policy',
+            trace_id: 'trace-governance',
+            session_id: 'session-1',
+            transport: 'rest',
+            agent_id: 'agent-governance',
+            agent_name: 'Governance Agent',
+            agent_model: 'gpt-test',
+            tool: 'maya.abcdef01.unsafe_write',
+            dcc_type: 'maya',
+            outcome: 'denied',
+            success: false,
+            reason: 'policy-denied: read-only',
+            duration_ms: 12,
+            policy: { read_only: true, denied: true, reason: 'read-only' },
+            traffic_capture: { frame_count: 1, captured: 1, skipped: 0, reasons: [] },
+            privacy: {
+              redaction_middleware_active: true,
+              redacted_paths: ['body.data.params.arguments.api_key'],
+            },
+            pressure: { quota_active: true, throttled: false },
+          },
+          {
+            timestamp: '2026-05-18T08:00:02.000Z',
+            request_id: 'req-quota',
+            trace_id: 'trace-governance',
+            session_id: 'session-1',
+            transport: 'rest',
+            agent_id: 'agent-governance',
+            agent_name: 'Governance Agent',
+            agent_model: 'gpt-test',
+            tool: 'maya.abcdef01.safe_read_scene',
+            dcc_type: 'maya',
+            outcome: 'throttled',
+            success: false,
+            reason: 'quota exceeded',
+            duration_ms: 2,
+            policy: { read_only: false, denied: false, reason: null },
+            traffic_capture: { frame_count: 0, captured: 0, skipped: 0, reasons: [] },
+            privacy: { redaction_middleware_active: true, redacted_paths: [] },
+            pressure: { quota_active: true, throttled: true },
+          },
+        ],
       };
     } else if (path === '/logs') {
       body = {
@@ -482,7 +630,7 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.brand-tag')).toContainText('DCC-MCP Gateway');
     await expect(page.locator('h1')).toContainText('Admin Dashboard');
     await expect(page.getByRole('navigation').getByRole('link', { name: 'Connect IDE' })).toHaveClass(/active/);
-    for (const label of ['Connect IDE', 'Debug', 'Activity', 'Health', 'Instances', 'Tools', 'Workflows', 'Tasks', 'Calls', 'Traces', 'Stats', 'Skills', 'Logs', 'Docs']) {
+    for (const label of ['Connect IDE', 'Debug', 'Activity', 'Health', 'Instances', 'Tools', 'Workflows', 'Tasks', 'Calls', 'Traces', 'Stats', 'Governance', 'Skills', 'Logs', 'Docs']) {
       await expect(page.getByRole('navigation').getByRole('link', { name: label })).toBeVisible();
     }
     await expect(page.getByRole('navigation').getByRole('link', { name: 'Docs' })).toHaveAttribute('href', 'https://github.com/loonghao/dcc-mcp-core/tree/main/docs');
@@ -612,6 +760,26 @@ test.describe('Admin Page', () => {
     await page.getByLabel('Range').selectOption('7d');
     await expect(page).toHaveURL(/range=7d/);
     await expect(page.locator('.stats-panel')).toContainText('Range 7d');
+  });
+
+  test('shows governance controls and request decisions', async ({ page }) => {
+    await page.goto('/admin/?panel=governance');
+    const panel = page.locator('.governance-panel');
+    await expect(panel).toContainText('Traffic Governance');
+    await expect(panel).toContainText('high_sensitivity_capture');
+    await expect(panel).toContainText('Read-only');
+    await expect(panel).toContainText('maya, customhost');
+    await expect(panel).toContainText('safe-');
+    await expect(panel).toContainText('body.data.params.arguments.api_key');
+    await expect(panel.locator('.governance-card').filter({ hasText: 'quota' })).toBeVisible();
+    await expect(panel.locator('.governance-card').filter({ hasText: 'redaction' })).toBeVisible();
+    await expect(panel).toContainText('req-policy');
+    await expect(panel).toContainText('denied');
+    await expect(panel).toContainText('throttled');
+    await page.getByLabel('Filter current panel').fill('quota');
+    await expect(page.locator('.list-search-meta')).toContainText('1 / 2');
+    await expect(panel).toContainText('req-quota');
+    await expect(panel).not.toContainText('req-policy');
   });
 
   test('adds and removes SQLite-backed skill paths', async ({ page }) => {

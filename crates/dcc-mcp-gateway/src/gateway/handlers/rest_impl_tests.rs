@@ -905,6 +905,34 @@ async fn rest_call_batch_bad_request_can_return_compact_toon() {
 }
 
 #[tokio::test]
+async fn rest_call_batch_quota_rejection_returns_throttled_429() {
+    use crate::gateway::middleware::{MiddlewareChain, QuotaMiddleware};
+
+    let mut gs = test_gateway_state("1.2.3");
+    gs.middleware_chain =
+        Arc::new(MiddlewareChain::new().with_before(Arc::new(QuotaMiddleware::new(0))));
+
+    let (status, body) = response_json(
+        handle_v1_call_batch(
+            State(gs),
+            HeaderMap::new(),
+            Json(json!({
+                "calls": [{
+                    "tool_slug": "maya.abcdef01.render",
+                    "arguments": {}
+                }]
+            })),
+        )
+        .await,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(body["success"], false);
+    assert_eq!(body["error"]["kind"], "throttled");
+}
+
+#[tokio::test]
 async fn rest_trace_input_payload_uses_redacted_arguments() {
     use crate::gateway::middleware::{AuditMiddleware, MiddlewareChain, RedactionMiddleware};
 

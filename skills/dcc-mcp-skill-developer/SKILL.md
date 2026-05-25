@@ -156,7 +156,11 @@ into a faster authoring loop.
    capture) over ad-hoc print logging. Redactions are write-time exact JSON
    paths such as `body.data.params.arguments.api_key`, and capture files can
    contain prompts, scene paths, and tool arguments, so keep them as local
-   debugging artifacts unless redaction has been applied.
+   debugging artifacts unless redaction has been applied. When validating
+   annotations, read-only mode, allowlists, quota pressure, or redaction
+   behavior through the gateway, inspect `GET /v1/debug/governance` rather than
+   guessing from a single failed call; it shows the effective policy, capture
+   mode, redaction paths, middleware controls, and recent governance decisions.
    For gateway-facing examples, use the canonical four-tool MCP workflow:
    `search` / `describe` / `load_skill` / `call`. `call` accepts either one
    `tool_slug` with `arguments` or an ordered `{calls:[...]}` batch, matching

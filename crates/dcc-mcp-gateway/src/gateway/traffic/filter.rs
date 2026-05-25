@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use serde::Serialize;
 use serde_json::Value;
 
 use super::TrafficCaptureError;
@@ -30,10 +31,26 @@ impl TrafficFilter {
         let excluded = self.exclude.iter().any(|rule| rule.matches(attributes));
         included && !excluded
     }
+
+    pub(super) fn snapshot(&self) -> TrafficFilterSnapshot {
+        TrafficFilterSnapshot {
+            include: self
+                .include
+                .iter()
+                .map(TrafficMatchRule::snapshot)
+                .collect(),
+            exclude: self
+                .exclude
+                .iter()
+                .map(TrafficMatchRule::snapshot)
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 struct TrafficMatchRule {
+    display_path: String,
     path: Vec<String>,
     pattern: String,
 }
@@ -44,6 +61,25 @@ impl TrafficMatchRule {
             .and_then(value_to_match_string)
             .is_some_and(|value| wildcard_matches(&self.pattern, &value))
     }
+
+    fn snapshot(&self) -> TrafficFilterRuleSnapshot {
+        TrafficFilterRuleSnapshot {
+            path: self.display_path.clone(),
+            pattern: self.pattern.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TrafficFilterSnapshot {
+    pub include: Vec<TrafficFilterRuleSnapshot>,
+    pub exclude: Vec<TrafficFilterRuleSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TrafficFilterRuleSnapshot {
+    pub path: String,
+    pub pattern: String,
 }
 
 fn parse_rules(
@@ -57,6 +93,7 @@ fn parse_rules(
             }
             let (path, pattern) = rule.into_iter().next().expect("length checked");
             Ok(TrafficMatchRule {
+                display_path: path.clone(),
                 path: parse_path(&path),
                 pattern,
             })
@@ -124,6 +161,7 @@ mod tests {
     fn wildcard_rules_match_prefix_and_suffix() {
         let attrs = json!({"http": {"url": "/foo/v1/readyz"}});
         let rule = TrafficMatchRule {
+            display_path: "http.url".to_string(),
             path: parse_path("http.url"),
             pattern: "*/v1/readyz".to_string(),
         };

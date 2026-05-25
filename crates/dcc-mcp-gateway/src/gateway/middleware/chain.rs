@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use super::context::{CallContext, CallResult};
 use super::error::MiddlewareError;
+use super::governance::{MiddlewareGovernanceControl, MiddlewareGovernanceSnapshot};
 use super::traits::{AfterCallMiddleware, BeforeCallMiddleware};
 
 /// An ordered pipeline of [`BeforeCallMiddleware`] and [`AfterCallMiddleware`].
@@ -85,6 +86,26 @@ impl MiddlewareChain {
     /// Returns `true` when no middlewares are registered (fast-path skip).
     pub fn is_empty(&self) -> bool {
         self.before.is_empty() && self.after.is_empty()
+    }
+
+    /// Return bounded governance descriptors for operator UIs.
+    #[must_use]
+    pub fn governance_snapshot(&self) -> MiddlewareGovernanceSnapshot {
+        let mut controls: Vec<MiddlewareGovernanceControl> = self
+            .before
+            .iter()
+            .filter_map(|middleware| middleware.governance())
+            .collect();
+        controls.extend(
+            self.after
+                .iter()
+                .filter_map(|middleware| middleware.governance()),
+        );
+        MiddlewareGovernanceSnapshot {
+            before_count: self.before.len(),
+            after_count: self.after.len(),
+            controls,
+        }
     }
 }
 

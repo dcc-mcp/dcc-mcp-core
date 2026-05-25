@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use super::context::{CallContext, CallResult};
+use super::governance::MiddlewareGovernanceControl;
 use super::traits::{AfterCallMiddleware, BeforeCallMiddleware, MiddlewareFuture};
 use crate::gateway::admin::trace::{AgentContext, TraceContext, TracePayload, TraceSpan};
 
@@ -143,6 +144,14 @@ impl BeforeCallMiddleware for AuditMiddleware {
             Ok(())
         })
     }
+
+    fn governance(&self) -> Option<MiddlewareGovernanceControl> {
+        Some(MiddlewareGovernanceControl::new(
+            "audit",
+            "observe",
+            "Stamps request timing metadata before dispatch.",
+        ))
+    }
 }
 
 impl AfterCallMiddleware for AuditMiddleware {
@@ -186,5 +195,13 @@ impl AfterCallMiddleware for AuditMiddleware {
             sink.record(entry);
             Ok(())
         })
+    }
+
+    fn governance(&self) -> Option<MiddlewareGovernanceControl> {
+        Some(MiddlewareGovernanceControl::new(
+            "audit",
+            "observe",
+            "Records bounded request outcome rows for Admin and durable audit sinks.",
+        ))
     }
 }
