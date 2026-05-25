@@ -679,9 +679,9 @@ async fn mcp_search_followups_correlate_describe_load_call_and_batch() {
         "search",
         &search_args,
         None,
-        Some("req-mcp-search".to_string()),
         Some("session-mcp"),
         Some(&trace),
+        None,
     )
     .await;
     assert!(!search_is_error);
@@ -701,9 +701,9 @@ async fn mcp_search_followups_correlate_describe_load_call_and_batch() {
         "describe",
         &describe_args,
         Some(&meta),
-        Some("req-mcp-describe".to_string()),
         Some("session-mcp"),
         Some(&trace),
+        None,
     )
     .await;
     assert!(describe_is_error);
@@ -714,9 +714,9 @@ async fn mcp_search_followups_correlate_describe_load_call_and_batch() {
         "load_skill",
         &load_args,
         Some(&meta),
-        Some("req-mcp-load".to_string()),
         Some("session-mcp"),
         Some(&trace),
+        None,
     )
     .await;
     assert!(load_is_error);
@@ -727,9 +727,9 @@ async fn mcp_search_followups_correlate_describe_load_call_and_batch() {
         "call",
         &call_args,
         Some(&meta),
-        Some("req-mcp-call".to_string()),
         Some("session-mcp"),
         Some(&trace),
+        None,
     )
     .await;
     assert!(call_is_error);
@@ -741,9 +741,9 @@ async fn mcp_search_followups_correlate_describe_load_call_and_batch() {
         "call",
         &batch_args,
         None,
-        Some("req-mcp-batch".to_string()),
         Some("session-mcp"),
         Some(&trace),
+        None,
     )
     .await;
     assert!(batch_is_error);

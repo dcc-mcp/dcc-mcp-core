@@ -980,6 +980,7 @@ redact:
             }],
             trace_context: None,
             session_id: None,
+            agent_context: None,
         });
         assert!(gs.search_telemetry.record_followup(SearchFollowupInput {
             search_id,
@@ -1058,6 +1059,24 @@ redact:
             }],
             trace_context: Some(search_ctx),
             session_id: Some(session_id.clone()),
+            agent_context: Some(AgentContext {
+                agent_id: Some("agent-workflow".into()),
+                agent_name: Some("Scene Builder".into()),
+                model_provider: Some("openai".into()),
+                model_version: Some("gpt-test".into()),
+                reasoning_effort: Some("medium".into()),
+                session_id: Some(session_id.clone()),
+                turn_id: Some("turn-workflow".into()),
+                user_intent_summary: Some("Create a simple sphere through MCP search.".into()),
+                agent_reply_summary: Some("Selected the ranked sphere tool and called it.".into()),
+                user_input_hash: Some("sha256:user".into()),
+                agent_reply_hash: Some("sha256:reply".into()),
+                user_input_chars: Some(96),
+                agent_reply_chars: Some(128),
+                tags: vec!["smoke".into()],
+                metadata: json!({"workflow_id": "workflow-scene-build"}),
+                ..Default::default()
+            }),
         });
         tokio::time::sleep(Duration::from_millis(2)).await;
         assert!(gs.search_telemetry.record_followup(SearchFollowupInput {
@@ -1157,6 +1176,7 @@ redact:
             hits: vec![],
             trace_context: None,
             session_id: None,
+            agent_context: None,
         });
 
         let audit_log: Arc<AuditLog> = Arc::new(Mutex::new(vec![AdminAuditRecord {
@@ -1198,6 +1218,26 @@ redact:
         assert_eq!(session_workflow["group_kind"], "session");
         assert_eq!(session_workflow["status"], "completed");
         assert_eq!(session_workflow["agent"]["agent_name"], "Scene Builder");
+        assert_eq!(session_workflow["agent"]["model_provider"], "openai");
+        assert_eq!(session_workflow["agent"]["model_version"], "gpt-test");
+        assert_eq!(session_workflow["agent"]["reasoning_effort"], "medium");
+        assert_eq!(session_workflow["agent"]["turn_id"], "turn-workflow");
+        assert_eq!(
+            session_workflow["agent"]["user_intent_summary"],
+            "Create a simple sphere through MCP search."
+        );
+        assert_eq!(
+            session_workflow["agent"]["agent_reply_summary"],
+            "Selected the ranked sphere tool and called it."
+        );
+        assert_eq!(session_workflow["agent"]["user_input_hash"], "sha256:user");
+        assert_eq!(
+            session_workflow["agent"]["agent_reply_hash"],
+            "sha256:reply"
+        );
+        assert_eq!(session_workflow["agent"]["user_input_chars"], 96);
+        assert_eq!(session_workflow["agent"]["agent_reply_chars"], 128);
+        assert_eq!(session_workflow["correlation"]["turn_id"], "turn-workflow");
         assert_eq!(session_workflow["discovery"]["best_selected_rank"], 2);
         assert_eq!(session_workflow["discovery"]["selected_count"], 3);
         assert!(

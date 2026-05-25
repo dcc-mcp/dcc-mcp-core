@@ -449,7 +449,22 @@ Rules:
   "tags": ["batch"],
   "loaded_only": false,
   "limit": 20,
-  "mode": "fuzzy"
+  "mode": "fuzzy",
+  "meta": {
+    "agent_context": {
+      "model_provider": "openai",
+      "model_version": "gpt-5.1",
+      "reasoning_effort": "medium",
+      "session_id": "session-42",
+      "turn_id": "turn-7",
+      "user_intent_summary": "Find the render tool before invoking it.",
+      "agent_reply_summary": "Search first, then describe or load the best hit.",
+      "user_input_hash": "sha256:...",
+      "agent_reply_hash": "sha256:...",
+      "user_input_chars": 128,
+      "agent_reply_chars": 160
+    }
+  }
 }
 ```
 
@@ -470,6 +485,11 @@ Rules:
 - Gateway hits include one-based `rank`. Generated `next_step` payloads carry
   `meta.search_id`, `meta.ranker_version`, and `meta.index_generation` for
   follow-up calls; clients may also pass the same object as MCP `_meta`.
+- Optional `meta.agent_context`, top-level `caller_context`, or
+  `x-dcc-mcp-agent-*` headers carry bounded turn metadata for Admin workflow,
+  search-quality, and OTLP correlation. Send concise summaries, hashes, and
+  character counts only; raw user input and raw agent replies are high
+  sensitivity and belong only in an explicit redacted traffic-capture flow.
 - Full `input_schema` remains behind `describe`. Search may carry only bounded
   `metadata.dcc.searchAliases` / `metadata.dcc.searchTokens` hints from a
   per-DCC backend to the gateway index; gateway search responses do not expose

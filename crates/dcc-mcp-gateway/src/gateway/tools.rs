@@ -2,7 +2,7 @@
 
 use serde_json::{Value, json};
 
-use crate::gateway::admin::trace::TraceContext;
+use crate::gateway::admin::trace::{AgentContext, TraceContext};
 use crate::gateway::capability_service::{SearchResponseContext, search_hit_to_value_with_context};
 use crate::gateway::search_telemetry::{
     RANKER_VERSION, SearchFollowupInput, SearchTelemetryHit, SearchTelemetryInput,
@@ -156,6 +156,7 @@ pub async fn tool_search(
     meta: Option<&Value>,
     trace_context: Option<&TraceContext>,
     session_id: Option<&str>,
+    agent_context: Option<&AgentContext>,
 ) -> Result<String, String> {
     let kind = args
         .get("kind")
@@ -184,19 +185,27 @@ pub async fn tool_search(
                     &text,
                     trace_context,
                     session_id,
+                    agent_context,
                 ))
             }
         }
         "all" => {
-            let tools_json = tool_search_tools(gs, args, trace_context, session_id).await?;
+            let tools_json =
+                tool_search_tools(gs, args, trace_context, session_id, agent_context).await?;
             let (skills_text, skills_err) =
                 crate::gateway::aggregator::skill_mgmt_dispatch(gs, "list_skills", args).await;
             if skills_err {
                 return Err(skills_text);
             }
             let tools_value = serde_json::from_str::<Value>(&tools_json).unwrap_or(Value::Null);
-            let skills_json =
-                annotate_skill_search_payload(gs, args, &skills_text, trace_context, session_id);
+            let skills_json = annotate_skill_search_payload(
+                gs,
+                args,
+                &skills_text,
+                trace_context,
+                session_id,
+                agent_context,
+            );
             let skills_value = serde_json::from_str::<Value>(&skills_json).unwrap_or(Value::Null);
             let search_id = tools_value
                 .get("search_id")
@@ -224,7 +233,7 @@ pub async fn tool_search(
         }
         _ => {
             let _ = meta;
-            tool_search_tools(gs, args, trace_context, session_id).await
+            tool_search_tools(gs, args, trace_context, session_id, agent_context).await
         }
     }
 }
@@ -370,6 +379,7 @@ pub async fn tool_search_tools(
     args: &Value,
     trace_context: Option<&TraceContext>,
     session_id: Option<&str>,
+    agent_context: Option<&AgentContext>,
 ) -> Result<String, String> {
     // Refresh on demand so the first query after startup (or after
     // a skill load/unload) always sees current capabilities.
@@ -408,7 +418,10 @@ pub async fn tool_search_tools(
         index_generation: search_context.index_generation.clone(),
         hits: telemetry_hits,
         trace_context: trace_context.cloned(),
-        session_id: session_id.map(str::to_string),
+        session_id: session_id
+            .map(str::to_string)
+            .or_else(|| agent_context.and_then(|ctx| ctx.session_id.clone())),
+        agent_context: agent_context.cloned(),
     });
 
     serde_json::to_string_pretty(&json!({
@@ -819,6 +832,7 @@ fn annotate_skill_search_payload(
     text: &str,
     trace_context: Option<&TraceContext>,
     session_id: Option<&str>,
+    agent_context: Option<&AgentContext>,
 ) -> String {
     let search_id = crate::gateway::search_telemetry::SearchTelemetryStore::new_search_id();
     let index_generation =
@@ -947,7 +961,10 @@ fn annotate_skill_search_payload(
         index_generation,
         hits: telemetry_hits,
         trace_context: trace_context.cloned(),
-        session_id: session_id.map(str::to_string),
+        session_id: session_id
+            .map(str::to_string)
+            .or_else(|| agent_context.and_then(|ctx| ctx.session_id.clone())),
+        agent_context: agent_context.cloned(),
     });
     serde_json::to_string_pretty(&payload).unwrap_or_else(|_| text.to_string())
 }

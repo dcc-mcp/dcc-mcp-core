@@ -118,8 +118,19 @@ type AgentContext = {
   agent_id?: string | null;
   agent_name?: string | null;
   agent_kind?: string | null;
+  model_provider?: string | null;
+  model_version?: string | null;
   model?: string | null;
+  reasoning_effort?: string | null;
+  session_id?: string | null;
+  turn_id?: string | null;
   task?: string | null;
+  user_intent_summary?: string | null;
+  agent_reply_summary?: string | null;
+  user_input_hash?: string | null;
+  agent_reply_hash?: string | null;
+  user_input_chars?: number | null;
+  agent_reply_chars?: number | null;
   reasoning_summary?: string | null;
   plan?: string[];
   observations?: string[];
@@ -241,8 +252,19 @@ type WorkflowAgent = {
   agent_id?: string | null;
   agent_name?: string | null;
   agent_kind?: string | null;
+  model_provider?: string | null;
+  model_version?: string | null;
   model?: string | null;
+  reasoning_effort?: string | null;
+  session_id?: string | null;
+  turn_id?: string | null;
   task?: string | null;
+  user_intent_summary?: string | null;
+  agent_reply_summary?: string | null;
+  user_input_hash?: string | null;
+  agent_reply_hash?: string | null;
+  user_input_chars?: number | null;
+  agent_reply_chars?: number | null;
   turn_index?: number | null;
   tags?: string[];
 };
@@ -292,6 +314,7 @@ type WorkflowRow = {
     session_id?: string | null;
     trace_id?: string | null;
     agent_id?: string | null;
+    turn_id?: string | null;
     request_ids?: string[];
     trace_ids?: string[];
     session_ids?: string[];
@@ -1844,8 +1867,19 @@ function buildAgentPacket(trace: TraceDetailPayload): string {
     agent_context: agent ? {
       agent_id: agent.agent_id,
       agent_name: agent.agent_name,
+      model_provider: agent.model_provider,
+      model_version: agent.model_version,
       model: agent.model,
+      reasoning_effort: agent.reasoning_effort,
+      session_id: agent.session_id,
+      turn_id: agent.turn_id,
       task: agent.task,
+      user_intent_summary: agent.user_intent_summary,
+      agent_reply_summary: agent.agent_reply_summary,
+      user_input_hash: agent.user_input_hash,
+      agent_reply_hash: agent.agent_reply_hash,
+      user_input_chars: agent.user_input_chars,
+      agent_reply_chars: agent.agent_reply_chars,
       reasoning_summary: agent.reasoning_summary,
       plan: agent.plan ?? [],
       observations: agent.observations ?? [],
@@ -1885,17 +1919,47 @@ function TraceLinks({ links }: { links: AdminLinks }) {
 }
 
 function workflowAgentLabel(agent: WorkflowAgent | null | undefined): string {
-  return agent?.agent_name || agent?.agent_id || agent?.agent_kind || agent?.model || 'unknown agent';
+  return agent?.agent_name || agent?.agent_id || agent?.agent_kind || agentModelLabel(agent) || 'unknown agent';
+}
+
+function agentModelLabel(agent: Pick<AgentContext, 'model' | 'model_provider' | 'model_version'> | null | undefined): string {
+  if (!agent) {
+    return '';
+  }
+  if (agent.model) {
+    return agent.model;
+  }
+  if (agent.model_provider && agent.model_version) {
+    return `${agent.model_provider}/${agent.model_version}`;
+  }
+  return agent.model_version || agent.model_provider || '';
 }
 
 function workflowMeta(workflow: WorkflowRow): string {
   const parts = [
     workflow.group_kind,
     workflow.correlation.session_id ? `session ${compactId(workflow.correlation.session_id)}` : '',
+    workflow.correlation.turn_id ? `turn ${compactId(workflow.correlation.turn_id)}` : '',
     workflow.correlation.trace_id ? `trace ${compactId(workflow.correlation.trace_id)}` : '',
     `${workflow.step_count} steps`,
   ];
   return parts.filter(Boolean).join(' · ');
+}
+
+function agentTurnChips(agent: WorkflowAgent | AgentContext | null | undefined): string[] {
+  if (!agent) {
+    return [];
+  }
+  return [
+    agentModelLabel(agent),
+    agent.reasoning_effort ? `effort ${agent.reasoning_effort}` : '',
+    agent.session_id ? `session ${compactId(agent.session_id)}` : '',
+    agent.turn_id ? `turn ${compactId(agent.turn_id)}` : '',
+    agent.user_input_chars != null ? `user ${agent.user_input_chars} chars` : '',
+    agent.agent_reply_chars != null ? `reply ${agent.agent_reply_chars} chars` : '',
+    agent.user_input_hash ? `user hash ${compactId(agent.user_input_hash)}` : '',
+    agent.agent_reply_hash ? `reply hash ${compactId(agent.agent_reply_hash)}` : '',
+  ].filter(Boolean);
 }
 
 function WorkflowSearchChips({ signal }: { signal: WorkflowSearchSignal | null | undefined }) {
@@ -1990,6 +2054,13 @@ function WorkflowCard({
         </div>
       </div>
       {workflow.agent?.task ? <p className="workflow-agent-task">{workflow.agent.task}</p> : null}
+      {workflow.agent?.user_intent_summary ? <p className="workflow-agent-task">{workflow.agent.user_intent_summary}</p> : null}
+      {workflow.agent?.agent_reply_summary ? <p className="workflow-agent-task muted">{workflow.agent.agent_reply_summary}</p> : null}
+      {agentTurnChips(workflow.agent).length ? (
+        <div className="workflow-chip-row">
+          {agentTurnChips(workflow.agent).map((chip) => <span key={chip}>{chip}</span>)}
+        </div>
+      ) : null}
       <div className="workflow-chip-row">
         <span>{workflow.discovery.search_count} search(es)</span>
         {workflow.discovery.zero_result_count ? <span>{workflow.discovery.zero_result_count} zero-result</span> : null}
@@ -2075,9 +2146,11 @@ function TraceDetailPanel({
         <div className="trace-detail-card agent-context-card">
           <div className="trace-card-head">
             <h3>{agentTitle}</h3>
-            {agent.model ? <span>{agent.model}</span> : null}
+            {agentModelLabel(agent) ? <span>{agentModelLabel(agent)}</span> : null}
           </div>
           {agent.task ? <p className="agent-task">{agent.task}</p> : null}
+          {agent.user_intent_summary ? <p className="agent-summary">{agent.user_intent_summary}</p> : null}
+          {agent.agent_reply_summary ? <p className="agent-summary muted">{agent.agent_reply_summary}</p> : null}
           {agent.reasoning_summary ? <p className="agent-summary">{agent.reasoning_summary}</p> : null}
           {agent.plan?.length ? (
             <div className="agent-list">
@@ -2092,6 +2165,7 @@ function TraceDetailPanel({
             </div>
           ) : null}
           <div className="agent-meta">
+            {agentTurnChips(agent).map((chip) => <span key={chip}>{chip}</span>)}
             {agent.parent_request_id ? <span>parent {compactId(agent.parent_request_id)}</span> : null}
             {agent.trace_id ? <span>trace {compactId(agent.trace_id)}</span> : null}
             {agent.tags?.map((tag) => <span key={tag}>{tag}</span>)}
