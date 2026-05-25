@@ -991,22 +991,22 @@ const IDE_TARGETS: IdeTarget[] = [
 type PanelDefinition = { id: Panel; labelKey: MessageKey; groupKey: MessageKey };
 
 const PANELS: PanelDefinition[] = [
-  { id: 'setup', labelKey: 'panel.setup', groupKey: 'panelGroup.onboarding' },
-  { id: 'debug', labelKey: 'panel.debug', groupKey: 'panelGroup.operations' },
-  { id: 'instances', labelKey: 'panel.instances', groupKey: 'panelGroup.operations' },
-  { id: 'activity', labelKey: 'panel.activity', groupKey: 'panelGroup.operations' },
-  { id: 'health', labelKey: 'panel.health', groupKey: 'panelGroup.operations' },
-  { id: 'workflows', labelKey: 'panel.workflows', groupKey: 'panelGroup.workspace' },
-  { id: 'tasks', labelKey: 'panel.tasks', groupKey: 'panelGroup.workspace' },
-  { id: 'tools', labelKey: 'panel.tools', groupKey: 'panelGroup.workspace' },
-  { id: 'openapi', labelKey: 'panel.openapi', groupKey: 'panelGroup.contracts' },
-  { id: 'stats', labelKey: 'panel.stats', groupKey: 'panelGroup.observability' },
-  { id: 'governance', labelKey: 'panel.governance', groupKey: 'panelGroup.observability' },
-  { id: 'traffic', labelKey: 'panel.traffic', groupKey: 'panelGroup.observability' },
-  { id: 'traces', labelKey: 'panel.traces', groupKey: 'panelGroup.observability' },
-  { id: 'calls', labelKey: 'panel.calls', groupKey: 'panelGroup.observability' },
-  { id: 'logs', labelKey: 'panel.logs', groupKey: 'panelGroup.observability' },
-  { id: 'skill-paths', labelKey: 'panel.skillPaths', groupKey: 'panelGroup.configuration' },
+  { id: 'setup', labelKey: 'navigation.panel.setup', groupKey: 'navigation.group.onboarding' },
+  { id: 'debug', labelKey: 'navigation.panel.debug', groupKey: 'navigation.group.operations' },
+  { id: 'instances', labelKey: 'navigation.panel.instances', groupKey: 'navigation.group.operations' },
+  { id: 'activity', labelKey: 'navigation.panel.activity', groupKey: 'navigation.group.operations' },
+  { id: 'health', labelKey: 'navigation.panel.health', groupKey: 'navigation.group.operations' },
+  { id: 'workflows', labelKey: 'navigation.panel.workflows', groupKey: 'navigation.group.workspace' },
+  { id: 'tasks', labelKey: 'navigation.panel.tasks', groupKey: 'navigation.group.workspace' },
+  { id: 'tools', labelKey: 'navigation.panel.tools', groupKey: 'navigation.group.workspace' },
+  { id: 'openapi', labelKey: 'navigation.panel.openapi', groupKey: 'navigation.group.contracts' },
+  { id: 'stats', labelKey: 'navigation.panel.stats', groupKey: 'navigation.group.observability' },
+  { id: 'governance', labelKey: 'navigation.panel.governance', groupKey: 'navigation.group.observability' },
+  { id: 'traffic', labelKey: 'navigation.panel.traffic', groupKey: 'navigation.group.observability' },
+  { id: 'traces', labelKey: 'navigation.panel.traces', groupKey: 'navigation.group.observability' },
+  { id: 'calls', labelKey: 'navigation.panel.calls', groupKey: 'navigation.group.observability' },
+  { id: 'logs', labelKey: 'navigation.panel.logs', groupKey: 'navigation.group.observability' },
+  { id: 'skill-paths', labelKey: 'navigation.panel.skillPaths', groupKey: 'navigation.group.configuration' },
 ];
 
 const PANEL_ID_SET = new Set<Panel>(PANELS.map((p) => p.id));
@@ -2750,22 +2750,22 @@ function App() {
   const [callDetail, setCallDetail] = useState<string>('Select a call row for trace detail.');
   const [copiedNotice, setCopiedNotice] = useState<string>('');
   const [updatedAt, setUpdatedAt] = useState<Record<Panel, string>>(() => ({
-    setup: t('status.loading'),
-    debug: t('status.loading'),
-    activity: t('status.loading'),
-    health: t('status.loading'),
-    instances: t('status.loading'),
-    tools: t('status.loading'),
-    workflows: t('status.loading'),
-    tasks: t('status.loading'),
-    openapi: t('status.loading'),
-    calls: t('status.loading'),
-    traces: t('status.loading'),
-    traffic: t('status.loading'),
-    stats: t('status.loading'),
-    governance: t('status.loading'),
-    logs: t('status.loading'),
-    'skill-paths': t('status.loading'),
+    setup: t('common.status.loading'),
+    debug: t('common.status.loading'),
+    activity: t('common.status.loading'),
+    health: t('common.status.loading'),
+    instances: t('common.status.loading'),
+    tools: t('common.status.loading'),
+    workflows: t('common.status.loading'),
+    tasks: t('common.status.loading'),
+    openapi: t('common.status.loading'),
+    calls: t('common.status.loading'),
+    traces: t('common.status.loading'),
+    traffic: t('common.status.loading'),
+    stats: t('common.status.loading'),
+    governance: t('common.status.loading'),
+    logs: t('common.status.loading'),
+    'skill-paths': t('common.status.loading'),
   }));
   const [errors, setErrors] = useState<Partial<Record<Panel, string>>>({});
   const [listSearch, setListSearch] = useState('');
@@ -3977,8 +3977,8 @@ function App() {
         <div className="brand-lockup">
           <div className="brand-accent" aria-hidden="true" />
           <div className="brand-text">
-            <h1>{t('app.title')}</h1>
-            <p className="brand-tag">{t('app.subtitle')}</p>
+            <h1>{t('chrome.app.title')}</h1>
+            <p className="brand-tag">{t('chrome.app.subtitle')}</p>
           </div>
         </div>
         <div className="nav-links">
@@ -4008,10 +4008,10 @@ function App() {
               className="nav-link"
               target="_blank"
               rel="noopener noreferrer"
-              title={t('nav.docs.title')}
+              title={t('navigation.docs.title')}
             >
               <DocsIcon />
-              <span>{t('nav.docs')}</span>
+              <span>{t('navigation.docs.label')}</span>
             </a>
           </div>
         </div>
@@ -4022,10 +4022,10 @@ function App() {
             <input
               type="search"
               className="list-search-input"
-              placeholder={activePanel === 'stats' ? t('search.stats') : activePanel === 'openapi' ? t('search.openapi') : t('search.default')}
+              placeholder={activePanel === 'stats' ? t('search.input.stats') : activePanel === 'openapi' ? t('search.input.openapi') : t('search.input.default')}
               value={listSearch}
               onChange={(e) => setListSearch(e.target.value)}
-              aria-label={t('search.ariaLabel')}
+              aria-label={t('search.input.ariaLabel')}
             />
             {listSearch.trim() ? (
               <span className="list-search-meta">
@@ -4050,9 +4050,9 @@ function App() {
         {activePanel === 'setup' && (
           <section className="panel active setup-panel">
             <PanelHeader
-              title={t('panel.setup')}
+              title={t('navigation.panel.setup')}
               meta={setupMcpUrl}
-              action={<button className="refresh-btn" type="button" onClick={fetchSetup}>{t('action.refresh')}</button>}
+              action={<button className="refresh-btn" type="button" onClick={fetchSetup}>{t('common.action.refresh')}</button>}
             />
             <StatusLine text={copiedNotice || updatedAt.setup} error={errors.setup} />
             <div className="setup-controls">
