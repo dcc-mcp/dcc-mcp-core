@@ -51,6 +51,7 @@ from dcc_mcp_core.adapter_context import register_adapter_instruction_resources
 from dcc_mcp_core.hotreload import DccSkillHotReloader
 from dcc_mcp_core.plugin_manifest import build_plugin_manifest
 from dcc_mcp_core.script_execution import allow_script_materialization_root
+from dcc_mcp_core.script_materialization_tools import register_script_materialization_tools
 from dcc_mcp_core.skill import get_bundled_skill_paths
 
 _PKG_VERSION: str = getattr(_core, "__version__", "0.0.0-dev")
@@ -128,6 +129,7 @@ class DccServerBase:
 
         # Create the inner skill manager
         self._server: Any = create_skill_server(options.dcc_name, self._config)
+        self._register_agent_materialization_tools(options)
 
         # Wire execution bridge / dispatcher
         if execution.bridge is not None:
@@ -155,6 +157,17 @@ class DccServerBase:
         self._runtime = ServerRuntimeController(self)
 
     # ── adapter context helpers (#608, #609) ────────────────────────────────
+
+    def _register_agent_materialization_tools(self, options: DccServerOptions) -> None:
+        """Expose host-local script materialization to MCP/REST agents (#1222)."""
+        try:
+            register_script_materialization_tools(
+                self._server,
+                dcc_name=options.dcc_name,
+                instance_id=str(self._dcc_pid or options.dcc_name),
+            )
+        except Exception as exc:
+            logger.warning("[%s] script materialization tool registration failed: %s", options.dcc_name, exc)
 
     def register_adapter_instructions(self, instruction_set: Any) -> list[str]:
         """Register standard adapter instruction/capability resources."""

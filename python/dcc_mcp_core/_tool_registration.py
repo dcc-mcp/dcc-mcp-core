@@ -43,8 +43,12 @@ class ToolSpec:
         (either a JSON string or a Python object, depending on transport).
     category:
         Tool category tag; defaults to ``"general"``.
+    tags:
+        Optional search tags published with the tool metadata.
     version:
         Tool version string; defaults to ``"1.0.0"``.
+    search_aliases:
+        Optional natural-language aliases included in REST / gateway search.
     output_schema:
         Optional JSON Schema for the tool's return payload (MCP 2025-06-18
         ``outputSchema``). When provided, the registry publishes it so
@@ -59,7 +63,9 @@ class ToolSpec:
     input_schema: dict[str, Any]
     handler: Callable[[Any], Any]
     category: str = "general"
+    tags: list[str] | None = None
     version: str = "1.0.0"
+    search_aliases: list[str] | None = None
     output_schema: dict[str, Any] | None = None
 
 
@@ -118,7 +124,9 @@ def register_tools(
             "input_schema": json_dumps(spec.input_schema),
             "dcc": dcc_name,
             "category": spec.category,
+            "tags": spec.tags or [],
             "version": spec.version,
+            "search_aliases": spec.search_aliases or [],
         }
         if spec.output_schema is not None:
             register_kwargs["output_schema"] = json_dumps(spec.output_schema)

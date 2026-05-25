@@ -196,6 +196,41 @@ fn test_unknown_group_reference() {
 }
 
 #[test]
+fn test_inline_only_script_tool_warns_about_file_backed_path() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = make_skill_dir(
+        &tmp,
+        "script-skill",
+        "---\nname: script-skill\ndescription: test\ntools:\n  - name: execute_python\n    description: Execute Python in the host\n    input_schema:\n      type: object\n      properties:\n        code:\n          type: string\n---\n",
+    );
+    let report = validate_skill_dir(&dir);
+    assert!(report.issues.iter().any(|issue| {
+        issue.severity == IssueSeverity::Warning
+            && issue.category == IssueCategory::Tools
+            && issue.message.contains("file_path/script_path")
+    }));
+}
+
+#[test]
+fn test_script_tool_with_file_path_does_not_warn_about_inline_code() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = make_skill_dir(
+        &tmp,
+        "script-skill",
+        "---\nname: script-skill\ndescription: test\ntools:\n  - name: execute_python\n    description: Execute Python in the host\n    input_schema:\n      type: object\n      properties:\n        code:\n          type: string\n        file_path:\n          type: string\n---\n",
+    );
+    let report = validate_skill_dir(&dir);
+    assert!(
+        !report
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("file_path/script_path")),
+        "file-backed schema should not warn, got: {:?}",
+        report.issues
+    );
+}
+
+#[test]
 fn test_empty_dependency_entry() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = make_skill_dir(

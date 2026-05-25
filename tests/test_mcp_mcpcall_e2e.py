@@ -164,6 +164,8 @@ def _parse_content_json(result: dict[str, Any]) -> Any:
         "tool_count",
         "registered_tools",
         "tools_removed",
+        "file_path",
+        "sha256",
         "name",
         "description",
     }
@@ -293,7 +295,7 @@ def server_with_catalog():
 
 
 @pytest.fixture(scope="module")
-def simple_server():
+def simple_server(tmp_path_factory):
     """Minimal server with two registered actions (no catalog)."""
     reg = ToolRegistry()
     reg.register(
@@ -317,6 +319,13 @@ def simple_server():
     server = McpHttpServer(reg, config)
     server.register_handler("ping_action", lambda params: {"pong": True, "echo": params})
     server.register_handler("list_objects", lambda params: {"objects": ["cube", "sphere", "camera"]})
+    dcc_mcp_core.register_script_materialization_tools(
+        server,
+        dcc_name="test",
+        instance_id="mcpcall",
+        session_id="simple",
+        root=tmp_path_factory.mktemp("mcpcall-materialized-scripts"),
+    )
     handle = server.start()
     url = handle.mcp_url()
     time.sleep(0.2)
@@ -515,6 +524,29 @@ class TestMcpcallToolCall:
         raw = result.get("content") or []
         text = raw[0].get("text", "") if raw else json.dumps(result)
         assert "cube" in text
+
+    def test_call_materialize_script_returns_descriptor(self, simple_server):
+        _, _, url, name = simple_server
+        source = "print('mcpcall materialized source')"
+        result = _mcpcall_call(
+            url,
+            name,
+            "materialize_script",
+            {
+                "content": source,
+                "display_name": "mcpcall-script",
+                "reuse": True,
+                "reuse_key": "mcpcall",
+            },
+        )
+        payload = _parse_content_json(result)
+
+        assert payload["file_path"]
+        assert Path(payload["file_path"]).read_text(encoding="utf-8") == source
+        assert payload["file_ref"]["digest"] == f"sha256:{payload['sha256']}"
+        assert payload["bytes"] == len(source.encode("utf-8"))
+        assert payload["reused"] is False
+        assert source not in json.dumps(payload)
 
     def test_call_unknown_tool_returns_error(self, simple_server):
         _, _, url, name = simple_server

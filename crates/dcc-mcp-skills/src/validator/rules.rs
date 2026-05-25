@@ -2,7 +2,8 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use crate::constants::is_supported_extension;
-use dcc_mcp_models::SkillMetadata;
+use dcc_mcp_models::{SkillMetadata, ToolDeclaration};
+use serde_json::Value;
 
 use crate::loader::extract_frontmatter;
 
@@ -251,7 +252,69 @@ fn validate_tools(meta: &SkillMetadata, report: &mut SkillValidationReport) {
             &tool_names,
             report,
         );
+        validate_file_backed_script_schema(tool, report);
     }
+}
+
+fn validate_file_backed_script_schema(tool: &ToolDeclaration, report: &mut SkillValidationReport) {
+    let Some(properties) = tool
+        .input_schema
+        .get("properties")
+        .and_then(Value::as_object)
+    else {
+        return;
+    };
+
+    let has_inline_code = properties
+        .get("code")
+        .is_some_and(schema_property_accepts_string);
+    if !has_inline_code {
+        return;
+    }
+
+    let has_file_backed_path =
+        properties.contains_key("file_path") || properties.contains_key("script_path");
+    if has_file_backed_path {
+        return;
+    }
+
+    if !looks_like_script_execution_tool(tool) {
+        return;
+    }
+
+    let unbounded_code = properties.get("code").is_some_and(|schema| {
+        schema.get("maxLength").is_none() && schema.get("max_length").is_none()
+    });
+    if unbounded_code {
+        report.issues.push(SkillValidationIssue::warn(
+            IssueCategory::Tools,
+            format!(
+                "tool '{}' accepts unbounded inline code but no file_path/script_path; \
+                 support file-backed script execution via materialize_script before dispatch",
+                tool.name
+            ),
+        ));
+    }
+}
+
+fn schema_property_accepts_string(schema: &Value) -> bool {
+    schema.get("type").and_then(Value::as_str) == Some("string")
+        || schema
+            .get("anyOf")
+            .and_then(Value::as_array)
+            .is_some_and(|items| items.iter().any(schema_property_accepts_string))
+        || schema
+            .get("oneOf")
+            .and_then(Value::as_array)
+            .is_some_and(|items| items.iter().any(schema_property_accepts_string))
+}
+
+fn looks_like_script_execution_tool(tool: &ToolDeclaration) -> bool {
+    let haystack =
+        format!("{} {} {}", tool.name, tool.description, tool.source_file).to_ascii_lowercase();
+    ["execute", "eval", "script", "python", "mel"]
+        .iter()
+        .any(|needle| haystack.contains(needle))
 }
 
 fn validate_next_tools(

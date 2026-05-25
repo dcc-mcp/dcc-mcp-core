@@ -60,7 +60,7 @@ pub(super) async fn call_service_with_admin_trace(
             err.governance_category(),
             err.kind(),
         );
-        ctx.input_payload = Some(TracePayload::from_value(&ctx.args, MAX_INPUT_BYTES));
+        ctx.input_payload = Some(TracePayload::from_input_value(&ctx.args, MAX_INPUT_BYTES));
         ctx.output_payload = Some(TracePayload::from_str(&message, MAX_OUTPUT_BYTES));
         record_token_accounting(
             &mut ctx,
@@ -91,7 +91,7 @@ pub(super) async fn call_service_with_admin_trace(
         return Err(ServiceError::new(err.kind(), message));
     }
 
-    ctx.input_payload = Some(TracePayload::from_value(&ctx.args, MAX_INPUT_BYTES));
+    ctx.input_payload = Some(TracePayload::from_input_value(&ctx.args, MAX_INPUT_BYTES));
 
     let effective_arguments = if gs.middleware_chain.is_empty() {
         arguments
@@ -271,7 +271,7 @@ pub(super) async fn call_batch_with_admin_trace(
             err.governance_category(),
             err.kind(),
         );
-        ctx.input_payload = Some(TracePayload::from_value(&ctx.args, MAX_INPUT_BYTES));
+        ctx.input_payload = Some(TracePayload::from_input_value(&ctx.args, MAX_INPUT_BYTES));
         ctx.output_payload = Some(TracePayload::from_str(&message, MAX_OUTPUT_BYTES));
         record_token_accounting(
             &mut ctx,
@@ -297,7 +297,7 @@ pub(super) async fn call_batch_with_admin_trace(
         return Err(ServiceError::new(err.kind(), message));
     }
 
-    ctx.input_payload = Some(TracePayload::from_value(&ctx.args, MAX_INPUT_BYTES));
+    ctx.input_payload = Some(TracePayload::from_input_value(&ctx.args, MAX_INPUT_BYTES));
     emit_rest_traffic_frame(
         gs,
         &ctx,

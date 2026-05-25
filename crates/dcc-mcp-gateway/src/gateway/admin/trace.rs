@@ -230,6 +230,17 @@ impl TracePayload {
         }
     }
 
+    /// Build an input payload with default script-source redaction.
+    ///
+    /// The gateway stores request arguments for admin traces and audit rows.
+    /// Ad-hoc script source can be large and sensitive, so default capture
+    /// keeps the shape and records that source existed without storing it.
+    pub fn from_input_value(v: &Value, cap: usize) -> Self {
+        let mut redacted = v.clone();
+        redact_script_source_fields(&mut redacted);
+        Self::from_value(&redacted, cap)
+    }
+
     pub fn from_str(s: &str, cap: usize) -> Self {
         let original_size = s.len();
         let truncated = original_size > cap;
@@ -252,6 +263,30 @@ impl TracePayload {
             original_size,
         }
     }
+}
+
+fn redact_script_source_fields(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            for (key, child) in map.iter_mut() {
+                if is_script_source_key(key) {
+                    *child = Value::String("[REDACTED_SCRIPT_SOURCE]".to_string());
+                } else {
+                    redact_script_source_fields(child);
+                }
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                redact_script_source_fields(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_script_source_key(key: &str) -> bool {
+    matches!(key, "code" | "content" | "script" | "python" | "mel")
 }
 
 // ── Token telemetry ─────────────────────────────────────────────────────────
@@ -997,6 +1032,27 @@ mod tests {
         let p = TracePayload::from_value(&small, 1024);
         assert!(!p.truncated);
         assert_eq!(p.original_size, p.content.len());
+    }
+
+    #[test]
+    fn input_payload_redacts_script_source_fields() {
+        let raw = json!({
+            "tool_slug": "maya.abc.execute_python",
+            "arguments": {
+                "code": "print('secret')",
+                "nested": {
+                    "content": "raw script body"
+                },
+                "file_path": "/tmp/materialized.py"
+            }
+        });
+
+        let p = TracePayload::from_input_value(&raw, 4096);
+
+        assert!(p.content.contains("[REDACTED_SCRIPT_SOURCE]"));
+        assert!(!p.content.contains("print('secret')"));
+        assert!(!p.content.contains("raw script body"));
+        assert!(p.content.contains("/tmp/materialized.py"));
     }
 
     #[test]

@@ -578,7 +578,7 @@ async fn handle_tools_call(
             .emit();
         {
             use crate::gateway::admin::trace::{MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, TracePayload};
-            ctx.input_payload = Some(TracePayload::from_value(&ctx.args, MAX_INPUT_BYTES));
+            ctx.input_payload = Some(TracePayload::from_input_value(&ctx.args, MAX_INPUT_BYTES));
             ctx.output_payload = Some(TracePayload::from_str(&msg, MAX_OUTPUT_BYTES));
         }
         let rejected_result =
@@ -597,7 +597,7 @@ async fn handle_tools_call(
     // Capture input after before-middlewares so trace storage sees redacted args.
     {
         use crate::gateway::admin::trace::{MAX_INPUT_BYTES, TracePayload};
-        ctx.input_payload = Some(TracePayload::from_value(&ctx.args, MAX_INPUT_BYTES));
+        ctx.input_payload = Some(TracePayload::from_input_value(&ctx.args, MAX_INPUT_BYTES));
     }
 
     // Use potentially-redacted args from context.

@@ -105,6 +105,13 @@ Execution results should return `context.materialized_script` with `path`,
 `file_ref`, `sha256`, `bytes`, and `reused` metadata; legacy spilled-script
 context keys are migration aliases, not the preferred contract.
 
+Agents can also call the `materialize_script` MCP/REST tool exposed by
+`DccServerBase` adapters. Discover it with `search_tools("materialize script")`,
+call it with `content` (or legacy `code`), then pass the returned `file_path`
+to the execution tool. The tool returns FileRef/path/hash/TTL/session metadata
+and never echoes raw source. Gateway traces and admin audit rows redact
+script-source input fields by default and keep the descriptor metadata instead.
+
 Pure HTTP clients use the same REST endpoints directly: `POST /v1/search`, `POST /v1/describe`, `POST /v1/call`, and gateway `POST /v1/call_batch`. Gateway REST returns compact TOON by default; send `Accept: application/json` or body `response_format: "json"` when a legacy JSON client needs compatibility. See `docs/guide/gateway.md` and `docs/guide/rest-api-surface.md`.
 
 ### Gateway workflow guide (`gateway://docs/agent-workflows`)
