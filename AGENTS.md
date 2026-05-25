@@ -213,6 +213,7 @@ Gateway resources/prompts:
 | In-process skill execution (embedded DCC) | `SkillCatalog.set_in_process_executor(callable)` |
 | In-process skill execution wired through DccServerBase | `DccServerBase.register_inprocess_executor(dispatcher=...)` (#521); pass a `BaseDccCallableDispatcher` to route onto the host UI thread |
 | Full callable-payload dispatch protocol for DCC plugins | `BaseDccCallableDispatcherFull` + `BaseDccPump` + `JobOutcome` / `PendingEnvelope` (#520); use `InProcessCallableDispatcher` as reference impl for `mayapy` / headless / pytest |
+| Bind adapter readiness to MCP/REST | `AdapterReadinessBinder.bind_inline(server)`, `.bind_headless(server)`, or `.bind_queue_dispatcher(server, dispatcher, require_first_pump=True)` publish one `ReadinessProbe` through `DccServerBase.set_readiness_probe()` / `McpHttpServer.set_readiness_probe()` so MCP `tools/call`, REST `/v1/readyz`, and REST `/v1/call` share state (#1206) |
 | Skill scanning | `scan_and_load(dcc_name=...)` → always unpack `(skills, skipped)` tuple |
 | Tolerate broken SKILL.md | `scan_and_load_lenient(...)` instead of `scan_and_load` |
 | Fail-fast on broken SKILL.md | `scan_and_load_strict(...)` — raises `ValueError` listing every skipped directory (issue maya#138) |

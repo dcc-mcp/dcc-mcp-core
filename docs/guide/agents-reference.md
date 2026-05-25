@@ -235,6 +235,24 @@ Unreal, and Omniverse-style adapters. It registers canonical `openusd://stage`,
 resources with stable MIME and file-ref metadata. Do not reach into
 `server._server.*` to publish USD resources.
 
+**Adapter readiness binder (issue #1206):**
+```python
+from dcc_mcp_core import AdapterReadinessBinder
+
+readiness = AdapterReadinessBinder.bind_queue_dispatcher(
+    server,
+    dispatcher,
+    dcc_ready_probe=lambda: is_dcc_api_ready(),
+    require_first_pump=True,
+)
+```
+
+Use the binder before `server.start()` so one `ReadinessProbe` gates MCP
+`tools/call`, REST `/v1/readyz`, and REST `/v1/call`. Prefer
+`bind_inline()` / `bind_headless()` for hosts that execute on the current
+thread. In adapter tests, assert `readiness.report_subset(...)` instead of the
+full readiness dict so future core bits do not break stable contracts.
+
 **`Capturer.new_auto()` vs `.new_window_auto()`:**
 ```python
 # ✓ full-screen / display capture (DXGI on Windows, X11 on Linux)
