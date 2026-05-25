@@ -124,6 +124,39 @@ exception from the transform to veto before tools are registered. Use
 `set_after_load_skill_hook(lambda skill, actions: ...)` only for observation or
 adapter bookkeeping after registration.
 
+## Readiness binding
+
+Install one readiness binder before `server.start()` so MCP and REST share the
+same runtime state:
+
+```python
+from dcc_mcp_core import AdapterReadinessBinder
+
+readiness = AdapterReadinessBinder.bind_headless(
+    server,
+    dcc_ready_probe=lambda: is_dcc_api_ready(),
+)
+```
+
+For GUI adapters that use a `QueueDispatcher`, require one real host pump before
+marking DCC and main-thread executor bits ready:
+
+```python
+readiness = AdapterReadinessBinder.bind_queue_dispatcher(
+    server,
+    dispatcher,
+    dcc_ready_probe=lambda: is_dcc_api_ready(),
+    require_first_pump=True,
+)
+```
+
+The binder publishes a core `ReadinessProbe` through
+`DccServerBase.set_readiness_probe()` / `McpHttpServer.set_readiness_probe()`.
+That probe backs MCP `tools/call`, REST `GET /v1/readyz`, and REST
+`POST /v1/call`. Use `readiness.report_subset()` or
+`readiness_report_subset(report, keys=...)` in tests so new core readiness bits
+do not break adapter assertions.
+
 ## Maya example
 
 ```python
