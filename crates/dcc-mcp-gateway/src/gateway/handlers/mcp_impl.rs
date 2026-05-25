@@ -537,6 +537,29 @@ async fn handle_tools_call(
         let mut pending = gs.pending_calls.write().await;
         pending.remove(id_str);
         let msg = e.to_string();
+        crate::gateway::metrics::record_gateway_governance_event(e.governance_category(), e.kind());
+        crate::gateway::agent_telemetry::AgentWorkflowEvent::new("gateway.call", "mcp")
+            .with_trace_context(Some(&ctx.trace_context))
+            .with_agent_context(ctx.agent_context.as_ref())
+            .with_session_id(ctx.session_id.as_deref())
+            .with_route(
+                ctx.tool_slug.as_deref(),
+                None,
+                ctx.dcc_type.as_deref(),
+                ctx.instance_id.as_deref(),
+            )
+            .with_outcome(false, Some(e.kind()))
+            .with_policy_reason(Some(e.governance_category()))
+            .emit();
+        {
+            use crate::gateway::admin::trace::{MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, TracePayload};
+            ctx.input_payload = Some(TracePayload::from_value(&ctx.args, MAX_INPUT_BYTES));
+            ctx.output_payload = Some(TracePayload::from_str(&msg, MAX_OUTPUT_BYTES));
+        }
+        let mut rejected = crate::gateway::middleware::CallResult::from_tuple(&msg, true);
+        if let Err(after_err) = gs.middleware_chain.run_after(&ctx, &mut rejected).await {
+            tracing::warn!(error = %after_err, "gateway middleware after-call failed for rejected MCP call");
+        }
         return json!({
             "jsonrpc": "2.0", "id": id,
             "result": {"content": [{"type": "text", "text": msg}], "isError": true}

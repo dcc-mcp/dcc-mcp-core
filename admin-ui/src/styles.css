@@ -488,6 +488,70 @@ td .refresh-btn:hover {
   margin-top: 0.15rem;
 }
 
+.governance-layout {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.governance-section {
+  min-width: 0;
+}
+
+.governance-section.wide {
+  grid-column: 1 / -1;
+}
+
+.governance-card,
+.governance-card-grid > .empty {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  min-height: 7rem;
+  padding: 1rem;
+}
+
+.governance-card-grid {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.governance-card-head {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+  margin-bottom: 0.7rem;
+}
+
+.governance-card h3 {
+  font-size: 0.95rem;
+  line-height: 1.35;
+  margin: 0 0 0.75rem;
+}
+
+.governance-kv {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.governance-kv span {
+  color: var(--foreground);
+  display: grid;
+  font-size: 0.82rem;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.governance-kv strong {
+  color: var(--muted-foreground);
+  font-size: 0.67rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .debug-hero {
   align-items: flex-start;
   display: flex;
@@ -2338,6 +2402,7 @@ button.linkish:disabled {
 
   .task-card,
   .workflow-card-head,
+  .governance-layout,
   .openapi-layout,
   .trace-layout,
   .trace-item {

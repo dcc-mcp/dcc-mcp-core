@@ -5,6 +5,7 @@ use std::pin::Pin;
 
 use super::context::{CallContext, CallResult};
 use super::error::MiddlewareError;
+use super::governance::MiddlewareGovernanceControl;
 
 /// Type alias for a boxed async middleware future.
 pub type MiddlewareFuture<'a, T> =
@@ -18,6 +19,11 @@ pub type MiddlewareFuture<'a, T> =
 /// - Abort the pipeline by returning `Err(MiddlewareError::*)`.
 pub trait BeforeCallMiddleware: Send + Sync {
     fn before_call<'a>(&'a self, ctx: &'a mut CallContext) -> MiddlewareFuture<'a, ()>;
+
+    /// Optional read-only operator-facing descriptor.
+    fn governance(&self) -> Option<MiddlewareGovernanceControl> {
+        None
+    }
 }
 
 /// Runs **after** a `tools/call` response is available, before it is serialised
@@ -33,4 +39,9 @@ pub trait AfterCallMiddleware: Send + Sync {
         ctx: &'a CallContext,
         result: &'a mut CallResult,
     ) -> MiddlewareFuture<'a, ()>;
+
+    /// Optional read-only operator-facing descriptor.
+    fn governance(&self) -> Option<MiddlewareGovernanceControl> {
+        None
+    }
 }

@@ -16,7 +16,7 @@ import puzzleIcon from './assets/icons/puzzle.svg';
 import vscodeIcon from './assets/icons/vscode.svg';
 import { formatTime, timestampTitle } from './time';
 
-type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'workflows' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'stats' | 'logs' | 'skill-paths';
+type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'workflows' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'stats' | 'governance' | 'logs' | 'skill-paths';
 
 type HealthPayload = {
   status: string;
@@ -332,7 +332,106 @@ type StatsPayload = {
   top_instances?: TopEntry[];
   top_agents?: TopEntry[];
   hourly_distribution?: number[];
+  governance?: GovernanceStats;
   error?: string;
+};
+
+type GovernanceStats = {
+  recent_allowed?: number;
+  recent_policy_denied?: number;
+  recent_throttled?: number;
+  captured_frames?: number;
+  skipped_capture_frames?: number;
+  redacted_path_count?: number;
+  redacted_paths?: string[];
+};
+
+type GovernancePolicyPayload = {
+  read_only?: boolean;
+  unrestricted?: boolean;
+  allowlists_active?: Record<string, boolean>;
+  allowed_dcc_types?: string[];
+  allowed_skill_names?: string[];
+  allowed_skill_families?: string[];
+  allowed_tool_slugs?: string[];
+  allowed_tool_slug_prefixes?: string[];
+};
+
+type GovernanceTrafficPayload = {
+  enabled?: boolean;
+  mode?: string;
+  sink_count?: number;
+  subscriber_enabled?: boolean;
+  sinks?: { kind?: string; path?: string | null }[];
+  redaction?: { rule_count?: number; paths?: string[] };
+  filter?: {
+    include?: { path?: string; pattern?: string }[];
+    exclude?: { path?: string; pattern?: string }[];
+  };
+  production_profile?: boolean;
+  force_capture?: boolean;
+  production_guardrail?: string;
+  recent_decisions?: GovernanceCaptureDecision[];
+};
+
+type GovernanceCaptureDecision = {
+  timestamp?: string;
+  request_id?: string | null;
+  trace_id?: string | null;
+  session_id?: string | null;
+  direction?: string;
+  leg?: string;
+  transport?: string;
+  http_url?: string | null;
+  mcp_method?: string | null;
+  outcome?: string;
+  reason?: string | null;
+  redacted_paths?: string[];
+  body_size_bytes?: number;
+};
+
+type GovernanceMiddlewareControl = {
+  kind: string;
+  mode: string;
+  summary: string;
+  config?: Record<string, unknown>;
+};
+
+type GovernancePayload = {
+  schema_version?: string;
+  generated_at?: string;
+  mode?: { admin_mutations?: string; reason?: string };
+  policy?: GovernancePolicyPayload;
+  traffic_capture?: GovernanceTrafficPayload;
+  middleware?: {
+    before_count?: number;
+    after_count?: number;
+    controls?: GovernanceMiddlewareControl[];
+  };
+  stats?: GovernanceStats;
+  recent_decisions?: GovernanceDecisionRow[];
+};
+
+type GovernanceDecisionRow = {
+  timestamp?: string;
+  request_id?: string | null;
+  trace_id?: string | null;
+  session_id?: string | null;
+  transport?: string | null;
+  agent_id?: string | null;
+  agent_name?: string | null;
+  agent_model?: string | null;
+  parent_request_id?: string | null;
+  tool?: string | null;
+  dcc_type?: string | null;
+  outcome?: string;
+  success?: boolean | null;
+  reason?: string | null;
+  duration_ms?: number | null;
+  policy?: { read_only?: boolean; denied?: boolean; reason?: string | null };
+  traffic_capture?: { frame_count?: number; captured?: number; skipped?: number; reasons?: string[] };
+  privacy?: { redaction_middleware_active?: boolean; redacted_paths?: string[] };
+  pressure?: { quota_active?: boolean; throttled?: boolean };
 };
 
 type WorkerRow = {
@@ -705,6 +804,7 @@ const PANELS: { id: Panel; label: string; group: string }[] = [
   { id: 'tools', label: 'Tools', group: 'Workspace' },
   { id: 'openapi', label: 'OpenAPI Inspector', group: 'Contracts' },
   { id: 'stats', label: 'Stats', group: 'Observability' },
+  { id: 'governance', label: 'Governance', group: 'Observability' },
   { id: 'traces', label: 'Traces', group: 'Observability' },
   { id: 'calls', label: 'Calls', group: 'Observability' },
   { id: 'logs', label: 'Logs', group: 'Observability' },
@@ -1230,6 +1330,7 @@ function NavIcon({ panel }: { panel: Panel }) {
     calls: ['M7 7h10v10H7z', 'M10 10h4v4h-4z'],
     traces: ['M5 7h4v4H5z', 'M15 13h4v4h-4z', 'M9 9l6 6'],
     stats: ['M5 18V9', 'M12 18V5', 'M19 18v-6', 'M4 18h16'],
+    governance: ['M12 4l7 4v5c0 4-3 7-7 8-4-1-7-4-7-8V8z', 'M9 12l2 2 4-5'],
     logs: ['M7 5h8l3 3v11H7z', 'M15 5v4h4', 'M10 13h6', 'M10 16h5'],
     openapi: ['M5 5h14v14H5z', 'M8 9h8', 'M8 13h5', 'M8 17h8'],
     'skill-paths': ['M5 12h14', 'M12 5v14', 'M7 7l10 10', 'M17 7L7 17'],
@@ -1627,6 +1728,17 @@ function compactId(value: string | null | undefined): string {
     return '-';
   }
   return value.length > 12 ? value.slice(0, 12) : value;
+}
+
+function compactList(values: string[] | null | undefined, empty = 'Any'): string {
+  const clean = (values ?? []).filter(Boolean);
+  if (!clean.length) {
+    return empty;
+  }
+  if (clean.length <= 3) {
+    return clean.join(', ');
+  }
+  return `${clean.slice(0, 3).join(', ')} +${clean.length - 3}`;
 }
 
 function gatewayLabel(health: HealthPayload | null): string {
@@ -2028,6 +2140,31 @@ function TraceDetailPanel({
   );
 }
 
+function GovernanceControlCard({ control }: { control: GovernanceMiddlewareControl }) {
+  const config = control.config ?? {};
+  const details = Object.entries(config)
+    .filter(([key]) => key !== 'fields')
+    .slice(0, 4);
+  const fields = Array.isArray(config.fields) ? config.fields.map(String) : [];
+  return (
+    <div className="governance-card">
+      <div className="governance-card-head">
+        <span className="source-pill">{control.kind}</span>
+        <span className="badge badge-muted">{control.mode}</span>
+      </div>
+      <h3>{control.summary}</h3>
+      {fields.length ? <p className="mono-path">{compactList(fields, 'No fields')}</p> : null}
+      {details.length ? (
+        <div className="governance-kv">
+          {details.map(([key, value]) => (
+            <span key={key}><strong>{key}</strong>{String(value)}</span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function componentSchemaCount(spec: OpenApiSpec | null): number {
   const components = spec?.components;
   if (!components || typeof components !== 'object' || Array.isArray(components)) {
@@ -2132,6 +2269,7 @@ function App() {
   const [calls, setCalls] = useState<CallRow[]>([]);
   const [traces, setTraces] = useState<TraceRow[]>([]);
   const [stats, setStats] = useState<StatsPayload | null>(null);
+  const [governance, setGovernance] = useState<GovernancePayload | null>(null);
   const [statsRange, setStatsRange] = useState(() => readStatsRangeFromUrl());
   const [openApiSource, setOpenApiSource] = useState<OpenApiSource>(() => readOpenApiSourceFromUrl());
   const [openApiSpec, setOpenApiSpec] = useState<OpenApiSpec | null>(null);
@@ -2167,6 +2305,7 @@ function App() {
     calls: 'Loading…',
     traces: 'Loading…',
     stats: 'Loading…',
+    governance: 'Loading…',
     logs: 'Loading…',
     'skill-paths': 'Loading…',
   });
@@ -2519,6 +2658,53 @@ function App() {
     return rows.filter((r) => r.name.toLowerCase().includes(q));
   }, [stats, listSearch]);
 
+  const filteredGovernanceDecisions = useMemo(() => {
+    const rows = governance?.recent_decisions ?? [];
+    const q = listSearch.trim().toLowerCase();
+    if (!q) {
+      return rows;
+    }
+    return rows.filter((row) =>
+      matchesListFilter(
+        q,
+        haystack(
+          row.timestamp,
+          row.request_id ?? '',
+          row.trace_id ?? '',
+          row.session_id ?? '',
+          row.transport ?? '',
+          row.agent_id ?? '',
+          row.agent_name ?? '',
+          row.agent_model ?? '',
+          row.tool ?? '',
+          row.dcc_type ?? '',
+          row.outcome ?? '',
+          row.reason ?? '',
+          row.policy?.reason ?? '',
+          row.privacy?.redacted_paths?.join(' ') ?? '',
+          row.traffic_capture?.reasons?.join(' ') ?? '',
+        ),
+      ),
+    );
+  }, [governance, listSearch]);
+
+  const governanceSummary = useMemo(() => {
+    const stats = governance?.stats ?? {};
+    const capture = governance?.traffic_capture;
+    const policy = governance?.policy;
+    return {
+      allowed: stats.recent_allowed ?? 0,
+      denied: stats.recent_policy_denied ?? 0,
+      throttled: stats.recent_throttled ?? 0,
+      captured: stats.captured_frames ?? 0,
+      skipped: stats.skipped_capture_frames ?? 0,
+      redacted: stats.redacted_path_count ?? capture?.redaction?.paths?.length ?? 0,
+      captureEnabled: capture?.enabled ?? false,
+      readOnly: policy?.read_only ?? false,
+      allowlists: Object.values(policy?.allowlists_active ?? {}).filter(Boolean).length,
+    };
+  }, [governance]);
+
   const taskSummary = useMemo(() => {
     const completed = tasks.filter((task) => isOkStatus(task.status)).length;
     const failed = tasks.filter((task) => isErrStatus(task.status)).length;
@@ -2733,6 +2919,16 @@ function App() {
     }
   }, [markError, markUpdated, statsRange]);
 
+  const fetchGovernance = useCallback(async () => {
+    try {
+      const payload = await apiJson<GovernancePayload>('/governance?limit=300');
+      setGovernance(payload);
+      markUpdated('governance', `${payload.recent_decisions?.length ?? 0} decision(s) — ${new Date().toLocaleTimeString()}`);
+    } catch (error) {
+      markError('governance', error);
+    }
+  }, [markError, markUpdated]);
+
   const fetchLogs = useCallback(async () => {
     try {
       const payload = await apiJson<{ logs?: unknown[] }>('/logs');
@@ -2819,10 +3015,11 @@ function App() {
       fetchCalls(),
       fetchTraces(),
       fetchStats(),
+      fetchGovernance(),
       fetchLogs(),
     ]);
     markUpdated('debug', `Debug snapshot — ${new Date().toLocaleTimeString()}`);
-  }, [fetchActivity, fetchCalls, fetchHealth, fetchInstanceBackends, fetchLogs, fetchStats, fetchTraces, markUpdated]);
+  }, [fetchActivity, fetchCalls, fetchGovernance, fetchHealth, fetchInstanceBackends, fetchLogs, fetchStats, fetchTraces, markUpdated]);
 
   const addSkillPath = useCallback(async () => {
     const path = skillPathInput.trim();
@@ -3017,9 +3214,10 @@ function App() {
     if (panel === 'calls') void fetchCalls();
     if (panel === 'traces') void fetchTraces();
     if (panel === 'stats') void fetchStats();
+    if (panel === 'governance') void fetchGovernance();
     if (panel === 'skill-paths') void fetchSkillInventory();
     if (panel === 'logs') void fetchLogs();
-  }, [fetchActivity, fetchCalls, fetchDebug, fetchHealth, fetchInstanceBackends, fetchLogs, fetchOpenApi, fetchSetup, fetchSkillInventory, fetchStats, fetchTasks, fetchTools, fetchTraces, fetchWorkflows]);
+  }, [fetchActivity, fetchCalls, fetchDebug, fetchGovernance, fetchHealth, fetchInstanceBackends, fetchLogs, fetchOpenApi, fetchSetup, fetchSkillInventory, fetchStats, fetchTasks, fetchTools, fetchTraces, fetchWorkflows]);
 
   useEffect(() => {
     fetchPanel(activePanel);
@@ -3093,9 +3291,11 @@ function App() {
                 {activePanel === 'tasks' ? `${filteredTasks.length} / ${tasks.length}` : ''}
                 {activePanel === 'calls' ? `${filteredCalls.length} / ${calls.length}` : ''}
                 {activePanel === 'traces' ? `${filteredTraces.length} / ${traces.length}` : ''}
+                {activePanel === 'governance' ? `${filteredGovernanceDecisions.length} / ${governance?.recent_decisions?.length ?? 0}` : ''}
                 {activePanel === 'skill-paths' ? `${filteredSkills.length} skill(s), ${filteredSkillPaths.length} path(s)` : ''}
                 {activePanel === 'logs' ? `${filteredLogs.length} / ${logs.length}` : ''}
                 {activePanel === 'stats' ? `charts: ${filteredTopTools.length} tools / ${filteredTopInstances.length} instances / ${filteredTopAgents.length} agents` : ''}
+                {activePanel === 'governance' ? `${governanceSummary.denied} denied / ${governanceSummary.throttled} throttled` : ''}
               </span>
             ) : null}
           </div>
@@ -3729,6 +3929,120 @@ function App() {
               <StatBarList title="Top instances" items={filteredTopInstances} />
               <StatBarList title="Top agents" items={filteredTopAgents} />
               {stats?.hourly_distribution?.length ? <HourlyChart buckets={stats.hourly_distribution} /> : null}
+            </div>
+          </section>
+        )}
+
+        {activePanel === 'governance' && (
+          <section className="panel active governance-panel" data-panel="governance">
+            <PanelHeader
+              title="Traffic Governance"
+              meta={governance?.mode?.reason ?? 'Effective capture, privacy, policy, and pressure state.'}
+              action={<button className="refresh-btn" type="button" onClick={fetchGovernance}>Refresh</button>}
+            />
+            <StatusLine text={updatedAt.governance} error={errors.governance} />
+            <div className="metric-grid">
+              <MetricTile
+                tone={governanceSummary.captureEnabled ? 'warn' : 'ok'}
+                label="Capture"
+                value={governanceSummary.captureEnabled ? 'On' : 'Off'}
+                detail={governance?.traffic_capture?.mode ?? 'safe aggregate only'}
+              />
+              <MetricTile
+                tone={governanceSummary.readOnly ? 'warn' : undefined}
+                label="Read-only"
+                value={governanceSummary.readOnly ? 'On' : 'Off'}
+                detail={`${governanceSummary.allowlists} active allowlist(s)`}
+              />
+              <MetricTile label="Denied" value={governanceSummary.denied} detail="recent policy decisions" />
+              <MetricTile tone={governanceSummary.throttled ? 'warn' : undefined} label="Throttled" value={governanceSummary.throttled} detail="recent pressure decisions" />
+            </div>
+            <div className="governance-layout">
+              <section className="governance-section">
+                <h3 className="section-kicker">Effective policy</h3>
+                <div className="governance-card">
+                  <div className="governance-kv">
+                    <span><strong>DCC</strong>{compactList(governance?.policy?.allowed_dcc_types)}</span>
+                    <span><strong>Skills</strong>{compactList([...(governance?.policy?.allowed_skill_names ?? []), ...(governance?.policy?.allowed_skill_families ?? [])])}</span>
+                    <span><strong>Tools</strong>{compactList([...(governance?.policy?.allowed_tool_slugs ?? []), ...(governance?.policy?.allowed_tool_slug_prefixes ?? [])])}</span>
+                    <span><strong>Mode</strong>{governance?.policy?.unrestricted ? 'Unrestricted' : 'Constrained'}</span>
+                  </div>
+                </div>
+              </section>
+              <section className="governance-section">
+                <h3 className="section-kicker">Traffic capture</h3>
+                <div className="governance-card">
+                  <div className="governance-kv">
+                    <span><strong>Sinks</strong>{governance?.traffic_capture?.sink_count ?? 0}</span>
+                    <span><strong>Guardrail</strong>{governance?.traffic_capture?.production_guardrail ?? 'inactive'}</span>
+                    <span><strong>Captured</strong>{governanceSummary.captured}</span>
+                    <span><strong>Skipped</strong>{governanceSummary.skipped}</span>
+                  </div>
+                  <p className="mono-path">{compactList(governance?.traffic_capture?.redaction?.paths, 'No capture redaction rules')}</p>
+                </div>
+              </section>
+              <section className="governance-section wide">
+                <h3 className="section-kicker">Middleware controls</h3>
+                <div className="governance-card-grid">
+                  {(governance?.middleware?.controls ?? []).length === 0 ? (
+                    <p className="empty">No middleware controls registered.</p>
+                  ) : (
+                    (governance?.middleware?.controls ?? []).map((control, index) => (
+                      <GovernanceControlCard key={`${control.kind}-${control.mode}-${index}`} control={control} />
+                    ))
+                  )}
+                </div>
+              </section>
+              <section className="governance-section wide">
+                <h3 className="section-kicker">Recent request decisions</h3>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Request</th>
+                      <th>Outcome</th>
+                      <th>Agent/session</th>
+                      <th>Tool</th>
+                      <th>Capture</th>
+                      <th>Redaction</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(governance?.recent_decisions ?? []).length === 0 ? (
+                      <EmptyRow columns={6}>No governance decisions recorded.</EmptyRow>
+                    ) : filteredGovernanceDecisions.length === 0 ? (
+                      <EmptyRow columns={6}>No decisions match your search.</EmptyRow>
+                    ) : (
+                      filteredGovernanceDecisions.map((row, index) => (
+                        <tr key={`${row.request_id ?? row.trace_id ?? 'decision'}-${index}`}>
+                          <td>
+                            <span className="mono-path">{compactId(row.request_id)}</span>
+                            <div className="muted">{formatTraceDate(row.timestamp)}</div>
+                          </td>
+                          <td>
+                            <span className={`badge ${row.outcome === 'allowed' ? 'badge-ok' : row.outcome === 'throttled' || row.outcome === 'denied' ? 'badge-err' : 'badge-muted'}`}>
+                              {row.outcome ?? 'unknown'}
+                            </span>
+                            {row.reason ? <div className="muted">{row.policy?.reason ?? row.reason}</div> : null}
+                          </td>
+                          <td>
+                            {agentLabel(row)}
+                            <div className="muted">{compactId(row.session_id)}</div>
+                          </td>
+                          <td>
+                            <span className="mono-path">{row.tool ?? '-'}</span>
+                            <div className="muted">{row.dcc_type ?? '-'}</div>
+                          </td>
+                          <td>
+                            {(row.traffic_capture?.captured ?? 0) > 0 ? 'captured' : 'skipped'}
+                            <div className="muted">{compactList(row.traffic_capture?.reasons, 'no reason')}</div>
+                          </td>
+                          <td className="mono-path">{compactList(row.privacy?.redacted_paths, 'none')}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </section>
             </div>
           </section>
         )}

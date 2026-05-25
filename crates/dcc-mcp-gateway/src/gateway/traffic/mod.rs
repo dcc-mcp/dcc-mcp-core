@@ -11,20 +11,24 @@ mod frame;
 mod redaction;
 mod sink;
 
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::SystemTime;
 
 use dcc_mcp_actions::EventBus;
 use dcc_mcp_actions::events::EventEnvelope;
+use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use self::config::{TrafficCaptureDocument, TrafficSinkDocument};
-use self::filter::TrafficFilter;
+use self::filter::{TrafficFilter, TrafficFilterSnapshot};
 pub use self::frame::{
     TrafficFrame, basic_gateway_source, correlation, gateway_source, http_post, mcp_message,
 };
-use self::redaction::TrafficRedactor;
+use self::redaction::{TrafficRedactionSnapshot, TrafficRedactor};
 use self::sink::{JsonlTrafficSink, SqliteTrafficSink, TrafficSink};
 
 pub const TRAFFIC_FRAME_EVENT: &str = "traffic.frame";
@@ -33,14 +37,17 @@ const ENV_CAPTURE: &str = "DCC_MCP_TRAFFIC_CAPTURE";
 const ENV_CONFIG: &str = "DCC_MCP_TRAFFIC_CONFIG";
 const ENV_PROD_PROFILE: &str = "DCC_MCP_PROD_PROFILE";
 const ENV_FORCE_CAPTURE: &str = "DCC_MCP_FORCE_TRAFFIC_CAPTURE";
+const DECISION_LOG_CAPACITY: usize = 200;
 
 /// Gateway traffic capture bus plus optional sinks.
 pub struct TrafficCapture {
     event_bus: EventBus,
     sinks: Vec<Arc<dyn TrafficSink>>,
+    sink_descriptors: Vec<TrafficSinkSnapshot>,
     filter: TrafficFilter,
     redactor: TrafficRedactor,
     next_capture_id: AtomicU64,
+    decisions: Mutex<VecDeque<TrafficCaptureDecision>>,
 }
 
 impl std::fmt::Debug for TrafficCapture {
@@ -48,6 +55,7 @@ impl std::fmt::Debug for TrafficCapture {
         f.debug_struct("TrafficCapture")
             .field("event_bus", &self.event_bus)
             .field("sink_count", &self.sinks.len())
+            .field("sink_descriptors", &self.sink_descriptors)
             .field("filter", &self.filter)
             .field("redactor", &self.redactor)
             .finish()
@@ -66,9 +74,11 @@ impl TrafficCapture {
         Self {
             event_bus: EventBus::new(),
             sinks: Vec::new(),
+            sink_descriptors: Vec::new(),
             filter: TrafficFilter::default(),
             redactor: TrafficRedactor::default(),
             next_capture_id: AtomicU64::new(0),
+            decisions: Mutex::new(VecDeque::with_capacity(DECISION_LOG_CAPACITY)),
         }
     }
 
@@ -116,9 +126,14 @@ impl TrafficCapture {
         Ok(Self {
             event_bus: EventBus::new(),
             sinks: vec![Arc::new(JsonlTrafficSink::open(path.as_ref())?)],
+            sink_descriptors: vec![TrafficSinkSnapshot {
+                kind: "jsonl".to_string(),
+                path: Some(path.as_ref().to_string_lossy().to_string()),
+            }],
             filter: TrafficFilter::default(),
             redactor: TrafficRedactor::default(),
             next_capture_id: AtomicU64::new(0),
+            decisions: Mutex::new(VecDeque::with_capacity(DECISION_LOG_CAPACITY)),
         })
     }
 
@@ -129,19 +144,26 @@ impl TrafficCapture {
         let filter = TrafficFilter::from_document(document.filters)?;
         let redactor = TrafficRedactor::from_document(document.redact)?;
         let mut sinks: Vec<Arc<dyn TrafficSink>> = Vec::new();
+        let mut sink_descriptors = Vec::new();
 
         for sink in document.sinks.unwrap_or_default() {
+            let descriptor = sink_descriptor(&sink, base_dir)?;
             if let Some(sink) = open_sink(sink, base_dir)? {
                 sinks.push(sink);
+                if let Some(descriptor) = descriptor {
+                    sink_descriptors.push(descriptor);
+                }
             }
         }
 
         Ok(Self {
             event_bus: EventBus::new(),
             sinks,
+            sink_descriptors,
             filter,
             redactor,
             next_capture_id: AtomicU64::new(0),
+            decisions: Mutex::new(VecDeque::with_capacity(DECISION_LOG_CAPACITY)),
         })
     }
 
@@ -152,49 +174,213 @@ impl TrafficCapture {
 
     pub fn emit_json_frame(&self, frame: TrafficFrame) -> Option<EventEnvelope> {
         if !self.is_enabled() {
+            self.record_decision(TrafficCaptureDecision::from_frame(
+                &frame,
+                "skipped",
+                Some("capture-disabled"),
+                Vec::new(),
+                0,
+            ));
             return None;
         }
 
         let mut attributes = json!({
             "schema_version": TRAFFIC_FRAME_SCHEMA_VERSION,
             "capture_id": self.next_frame_id(),
-            "session_id": frame.session_id,
+            "session_id": frame.session_id.clone(),
             "direction": frame.direction,
             "leg": frame.leg,
             "transport": frame.transport,
-            "http": frame.http,
-            "mcp": frame.mcp,
+            "http": frame.http.clone(),
+            "mcp": frame.mcp.clone(),
             "body": {
                 "encoding": "json",
-                "data": frame.body,
+                "data": frame.body.clone(),
                 "size_bytes": 0,
                 "redacted_paths": [],
             },
         });
 
         let redacted_paths = self.redactor.redact(&mut attributes);
+        let redacted_for_decision = redacted_paths.clone();
         set_redacted_paths(&mut attributes, redacted_paths);
         set_body_size(&mut attributes);
+        let body_size_bytes = attributes
+            .pointer("/body/size_bytes")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
 
         if !self.filter.allows(&attributes) {
+            self.record_decision(TrafficCaptureDecision::from_frame(
+                &frame,
+                "skipped",
+                Some("filter"),
+                redacted_for_decision,
+                body_size_bytes,
+            ));
             return None;
         }
 
         let event = self.event_bus.emit(
             TRAFFIC_FRAME_EVENT,
-            frame.source,
-            frame.correlation,
+            frame.source.clone(),
+            frame.correlation.clone(),
             attributes,
         );
         for sink in &self.sinks {
             sink.record(&event);
         }
+        self.record_decision(TrafficCaptureDecision::from_frame(
+            &frame,
+            "captured",
+            None,
+            redacted_for_decision,
+            body_size_bytes,
+        ));
         Some(event)
+    }
+
+    #[must_use]
+    pub fn governance_snapshot(&self) -> TrafficCaptureSnapshot {
+        let prod_profile = truthy_env(ENV_PROD_PROFILE);
+        let force_capture = truthy_env(ENV_FORCE_CAPTURE);
+        TrafficCaptureSnapshot {
+            enabled: self.is_enabled(),
+            mode: if self.is_enabled() {
+                "high_sensitivity_capture".to_string()
+            } else {
+                "safe_aggregate_only".to_string()
+            },
+            sinks: self.sink_descriptors.clone(),
+            sink_count: self.sinks.len(),
+            subscriber_enabled: self.event_bus.has_subscribers(TRAFFIC_FRAME_EVENT),
+            filter: self.filter.snapshot(),
+            redaction: self.redactor.snapshot(),
+            production_profile: prod_profile,
+            force_capture,
+            production_guardrail: if prod_profile && !force_capture {
+                "capture-blocked"
+            } else if prod_profile {
+                "forced"
+            } else {
+                "inactive"
+            }
+            .to_string(),
+            recent_decisions: self.recent_decisions(DECISION_LOG_CAPACITY),
+        }
     }
 
     fn next_frame_id(&self) -> String {
         let seq = self.next_capture_id.fetch_add(1, Ordering::Relaxed) + 1;
         format!("cap_{seq:016x}")
+    }
+
+    fn record_decision(&self, decision: TrafficCaptureDecision) {
+        let mut decisions = self.decisions.lock();
+        decisions.push_back(decision);
+        while decisions.len() > DECISION_LOG_CAPACITY {
+            decisions.pop_front();
+        }
+    }
+
+    fn recent_decisions(&self, limit: usize) -> Vec<TrafficCaptureDecision> {
+        let decisions = self.decisions.lock();
+        decisions
+            .iter()
+            .rev()
+            .take(limit)
+            .cloned()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TrafficSinkSnapshot {
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TrafficCaptureSnapshot {
+    pub enabled: bool,
+    pub mode: String,
+    pub sinks: Vec<TrafficSinkSnapshot>,
+    pub sink_count: usize,
+    pub subscriber_enabled: bool,
+    pub filter: TrafficFilterSnapshot,
+    pub redaction: TrafficRedactionSnapshot,
+    pub production_profile: bool,
+    pub force_capture: bool,
+    pub production_guardrail: String,
+    pub recent_decisions: Vec<TrafficCaptureDecision>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TrafficCaptureDecision {
+    pub timestamp: SystemTime,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    pub direction: String,
+    pub leg: String,
+    pub transport: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp_method: Option<String>,
+    pub outcome: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    pub redacted_paths: Vec<String>,
+    pub body_size_bytes: u64,
+}
+
+impl TrafficCaptureDecision {
+    fn from_frame(
+        frame: &TrafficFrame,
+        outcome: &str,
+        reason: Option<&str>,
+        redacted_paths: Vec<String>,
+        body_size_bytes: u64,
+    ) -> Self {
+        Self {
+            timestamp: SystemTime::now(),
+            request_id: frame
+                .correlation
+                .get("request_id")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            trace_id: frame
+                .correlation
+                .get("trace_id")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            session_id: frame.session_id.clone(),
+            direction: frame.direction.to_string(),
+            leg: frame.leg.to_string(),
+            transport: frame.transport.to_string(),
+            http_url: frame
+                .http
+                .get("url")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            mcp_method: frame
+                .mcp
+                .get("method")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            outcome: outcome.to_string(),
+            reason: reason.map(str::to_string),
+            redacted_paths,
+            body_size_bytes,
+        }
     }
 }
 
@@ -246,6 +432,27 @@ fn open_sink(
             );
             Ok(None)
         }
+        other => Err(TrafficCaptureError::UnsupportedSink(other.to_string())),
+    }
+}
+
+fn sink_descriptor(
+    sink: &TrafficSinkDocument,
+    base_dir: &Path,
+) -> Result<Option<TrafficSinkSnapshot>, TrafficCaptureError> {
+    match sink.kind.trim().to_ascii_lowercase().as_str() {
+        "file_jsonl" | "jsonl" | "sqlite" => {
+            let path = sink.path_required()?;
+            Ok(Some(TrafficSinkSnapshot {
+                kind: sink.kind.trim().to_ascii_lowercase(),
+                path: Some(
+                    resolve_capture_path(base_dir, &path)
+                        .to_string_lossy()
+                        .to_string(),
+                ),
+            }))
+        }
+        "admin_live" | "ot_exporter" => Ok(None),
         other => Err(TrafficCaptureError::UnsupportedSink(other.to_string())),
     }
 }
@@ -319,6 +526,9 @@ mod tests {
     use serde_json::Value;
     use std::io::Write;
     use std::path::PathBuf;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn sample_frame(method: &str, url: &str) -> TrafficFrame {
         TrafficFrame::json(
@@ -442,5 +652,81 @@ filters:
         assert_eq!(row.1, "sess-1");
         assert_eq!(row.2, "tools/call");
         assert_eq!(row.3, "/mcp");
+    }
+
+    #[test]
+    fn disabled_capture_records_safe_skip_decision() {
+        let capture = TrafficCapture::disabled();
+        capture.emit_json_frame(sample_frame("tools/call", "/mcp"));
+
+        let snapshot = capture.governance_snapshot();
+        assert!(!snapshot.enabled);
+        assert_eq!(snapshot.mode, "safe_aggregate_only");
+        assert_eq!(snapshot.recent_decisions.len(), 1);
+        assert_eq!(snapshot.recent_decisions[0].outcome, "skipped");
+        assert_eq!(
+            snapshot.recent_decisions[0].reason.as_deref(),
+            Some("capture-disabled")
+        );
+    }
+
+    #[test]
+    fn governance_snapshot_reports_enabled_redaction_and_decisions() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("traffic_capture.yaml");
+        std::fs::write(
+            &config_path,
+            r#"
+enabled: true
+sinks:
+  - kind: jsonl
+    path: capture.jsonl
+redact:
+  - body.data.params.arguments.api_key: "[REDACTED]"
+"#,
+        )
+        .unwrap();
+
+        let capture = TrafficCapture::from_config_path(&config_path).unwrap();
+        capture.emit_json_frame(sample_frame("tools/call", "/mcp"));
+        let snapshot = capture.governance_snapshot();
+
+        assert!(snapshot.enabled);
+        assert_eq!(snapshot.mode, "high_sensitivity_capture");
+        assert_eq!(snapshot.sink_count, 1);
+        assert_eq!(
+            snapshot.redaction.paths,
+            vec!["body.data.params.arguments.api_key"]
+        );
+        assert_eq!(snapshot.recent_decisions[0].outcome, "captured");
+        assert_eq!(
+            snapshot.recent_decisions[0].redacted_paths,
+            vec!["body.data.params.arguments.api_key"]
+        );
+    }
+
+    #[test]
+    fn production_profile_blocks_env_capture_without_force() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let capture_path = dir.path().join("capture.jsonl");
+        // SAFETY: serialized by ENV_LOCK for this test module.
+        unsafe {
+            std::env::set_var(ENV_PROD_PROFILE, "1");
+            std::env::remove_var(ENV_FORCE_CAPTURE);
+            std::env::set_var(ENV_CAPTURE, format!("jsonl:{}", capture_path.display()));
+            std::env::remove_var(ENV_CONFIG);
+        }
+
+        let err = TrafficCapture::from_env().unwrap_err();
+        assert!(matches!(err, TrafficCaptureError::ProdProfileBlocked));
+
+        // SAFETY: serialized by ENV_LOCK for this test module.
+        unsafe {
+            std::env::remove_var(ENV_PROD_PROFILE);
+            std::env::remove_var(ENV_FORCE_CAPTURE);
+            std::env::remove_var(ENV_CAPTURE);
+            std::env::remove_var(ENV_CONFIG);
+        }
     }
 }

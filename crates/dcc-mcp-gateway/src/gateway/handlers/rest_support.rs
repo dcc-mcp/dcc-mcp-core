@@ -330,6 +330,7 @@ pub(super) fn service_error_status(err: &ServiceError) -> StatusCode {
         "ambiguous" => StatusCode::CONFLICT,
         "instance-offline" => StatusCode::SERVICE_UNAVAILABLE,
         "policy-denied" => StatusCode::FORBIDDEN,
+        "throttled" => StatusCode::TOO_MANY_REQUESTS,
         "host-busy" => StatusCode::SERVICE_UNAVAILABLE,
         "host-died" => StatusCode::BAD_GATEWAY,
         "backend-error" | "schema-unavailable" => StatusCode::BAD_GATEWAY,
