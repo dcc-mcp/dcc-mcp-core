@@ -35,6 +35,8 @@ class TestClawhubSync:
         slugs = {e["slug"] for e in entries}
         assert "dcc-rest-gateway" in slugs
         assert "dcc-cli-gateway" in slugs
+        assert "dcc-mcp-skills-creator" in slugs
+        assert "dcc-mcp-creator" in slugs
 
     def test_dry_run_exits_zero(self) -> None:
         proc = subprocess.run(
@@ -50,6 +52,8 @@ class TestClawhubSync:
         assert "clawhub@0.17.0" in proc.stdout
         assert "dcc-rest-gateway" in proc.stdout
         assert "dcc-cli-gateway" in proc.stdout
+        assert "dcc-mcp-skills-creator" in proc.stdout
+        assert "dcc-mcp-creator" in proc.stdout
 
     def test_publish_skips_existing_clawhub_version(self, tmp_path, monkeypatch, capsys) -> None:
         sync = load_sync_module()
