@@ -266,6 +266,13 @@ into a faster authoring loop.
     app_ui roles, keep raw coordinate and keyboard shortcut fallbacks disabled
     by default, and skip live UIA tests cleanly when Windows accessibility APIs
     are unavailable.
+14. For headless USD/OpenUSD-style adapters, expose filesystem-backed project
+    state with `register_usd_project_resources(...)` instead of inventing
+    adapter-local URI shapes. Keep the canonical `openusd://stage`,
+    `openusd://layers`, `openusd://assets`, `openusd://materials`,
+    `openusd://validation`, `openusd://snapshots`, and `openusd://packages`
+    families DCC-agnostic so Houdini Solaris, Maya USD, Blender USD, Unreal,
+    and pure OpenUSD adapters can share tests and agent workflows.
 
 ## Adapter Selection
 
