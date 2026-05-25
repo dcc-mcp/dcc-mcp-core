@@ -109,6 +109,10 @@ Where the gateway mounts them, mirror MCP with **`POST /v1/search`**, **`/v1/des
 
 MCP agents request the same compact TOON payloads through request metadata instead of HTTP `Accept`: compact-capable clients should set `params._meta.response_format="toon"` or `params._meta.compact=true` after `initialize` advertises `capabilities.experimental["dcc-mcp"].compactResponses`, and can set `params._meta.response_format="json"` to opt out for one request. Legacy clients that omit the metadata keep normal JSON results. The outer JSON-RPC envelope stays JSON. `tools/call` keeps the MCP `CallToolResult` shape and adds `mimeType: "application/toon"` to compact text content; JSON-RPC errors stay normal `error` objects.
 
+### Gateway handoff signals
+
+When a gateway accepts a cooperative `/gateway/yield`, connected SSE clients receive `notifications/gateway/handoff` before the listener shuts down. Treat it as a short retry window: pause new requests until `deadline_unix_secs`, refresh `gateway://instances`, then retry through the same stable endpoint. The gateway also marks its `__gateway__` sentinel as `shutting_down`, so registry readers can distinguish graceful handoff from a crash-driven failover.
+
 ### Path-style invocation (optional; for curl / service accounts)
 
 - **Gateway:** `POST /v1/dcc/{dcc_type}/instances/{instance_id}/call` with JSON `{ "backend_tool": "<name>", "arguments": {...}, "meta": {...} }` (aliases: `tool`, `action` for `backend_tool`). Same routing as `POST /v1/call` after composing the dotted `tool_slug`; use when you already know `dcc_type` + **`instance_id`** from **`GET /v1/instances`** or **`GET /v1/context`** (`instances` array mirrors `/v1/instances`).
