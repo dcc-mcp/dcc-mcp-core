@@ -9,7 +9,7 @@ use super::handlers::{
     handle_admin_skill_detail, handle_admin_skill_path_add, handle_admin_skill_path_delete,
     handle_admin_skill_paths, handle_admin_skills, handle_admin_stats, handle_admin_tasks,
     handle_admin_tools, handle_admin_trace_detail, handle_admin_traces, handle_admin_ui,
-    handle_admin_workers, handle_v1_debug_trace_lookup,
+    handle_admin_workers, handle_admin_workflows, handle_v1_debug_trace_lookup,
 };
 use super::state::AdminState;
 
@@ -28,6 +28,7 @@ use super::state::AdminState;
 /// - `GET  /api/traces`             → JSON recent dispatch traces (Phase 2)
 /// - `GET  /api/traces/{request_id}` → full trace waterfall for one call
 /// - `GET  /api/issue-report/{request_id}` → downloadable JSON issue report
+/// - `GET  /api/workflows`          → agent/session workflow projection
 /// - `GET  /api/stats?range=1h|24h|7d` → aggregated call statistics (Phase 3)
 /// - `GET  /api/workers`            → per-instance worker cards (Phase 4)
 /// - `GET  /api/deregistered`       → recently auto-deregistered rows
@@ -48,6 +49,7 @@ pub fn build_admin_router(state: AdminState) -> Router {
             routing::get(handle_admin_trace_detail),
         )
         .route("/api/tasks", routing::get(handle_admin_tasks))
+        .route("/api/workflows", routing::get(handle_admin_workflows))
         .route(
             "/api/debug-bundle/{request_id}",
             routing::get(handle_admin_debug_bundle),
@@ -93,6 +95,7 @@ pub fn build_v1_debug_router(state: AdminState) -> Router {
             routing::get(handle_v1_debug_trace_lookup),
         )
         .route("/v1/debug/tasks", routing::get(handle_admin_tasks))
+        .route("/v1/debug/workflows", routing::get(handle_admin_workflows))
         .route(
             "/v1/debug/issue-reports/{request_id}",
             routing::get(handle_admin_issue_report),

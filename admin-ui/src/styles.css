@@ -806,6 +806,154 @@ tbody tr:hover td {
   border-color: rgba(112, 165, 255, 0.45);
 }
 
+.workflow-board {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.workflow-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--ok);
+  border-radius: var(--radius);
+  display: grid;
+  gap: 0.8rem;
+  min-width: 0;
+  padding: 0.95rem;
+}
+
+.workflow-card.warn {
+  border-left-color: var(--warn);
+}
+
+.workflow-card.err {
+  border-left-color: var(--err);
+}
+
+.workflow-card-head {
+  align-items: start;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.workflow-kicker,
+.workflow-subline,
+.workflow-status,
+.workflow-step-head,
+.workflow-step-meta,
+.workflow-chip-row {
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.workflow-card h3,
+.workflow-step h4 {
+  color: var(--foreground);
+  font-size: 0.94rem;
+  font-weight: 800;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.workflow-subline {
+  margin-top: 0.2rem;
+  overflow-wrap: anywhere;
+}
+
+.workflow-status {
+  display: grid;
+  gap: 0.28rem;
+  justify-items: end;
+  white-space: nowrap;
+}
+
+.workflow-agent-task {
+  color: var(--foreground);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.workflow-chip-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.workflow-chip-row span {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.14rem 0.46rem;
+}
+
+.workflow-steps {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.workflow-step {
+  display: grid;
+  gap: 0.7rem;
+  grid-template-columns: 3px minmax(0, 1fr);
+}
+
+.workflow-step-line {
+  background: var(--muted-foreground);
+  border-radius: 999px;
+  min-height: 100%;
+}
+
+.workflow-step.ok .workflow-step-line {
+  background: var(--ok);
+}
+
+.workflow-step.warn .workflow-step-line {
+  background: var(--warn);
+}
+
+.workflow-step.err .workflow-step-line {
+  background: var(--err);
+}
+
+.workflow-step-body {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.7rem 0.8rem;
+}
+
+.workflow-step-head,
+.workflow-step-meta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.42rem;
+}
+
+.workflow-kind {
+  color: var(--foreground);
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.workflow-step-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.workflow-step-actions .link-chip {
+  border-radius: var(--radius);
+  text-decoration: none;
+}
+
 .openapi-inspector {
   display: grid;
   gap: 1rem;
@@ -2189,6 +2337,7 @@ button.linkish:disabled {
   }
 
   .task-card,
+  .workflow-card-head,
   .openapi-layout,
   .trace-layout,
   .trace-item {

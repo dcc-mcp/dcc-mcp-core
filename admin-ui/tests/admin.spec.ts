@@ -173,6 +173,146 @@ async function mockAdminApi(page: Page) {
           },
         ],
       };
+    } else if (path === '/workflows') {
+      body = {
+        total: 2,
+        summary: { failed: 1, warning: 0, zero_result_workflows: 1 },
+        workflows: [
+          {
+            workflow_id: 'session-1',
+            group_kind: 'session',
+            title: 'Scene Builder: maya-1234__create_sphere',
+            status: 'completed',
+            started_at: now,
+            finished_at: '2026-05-18T08:00:04.000Z',
+            duration_ms: 4000,
+            step_count: 4,
+            failed_steps: 0,
+            agent: {
+              agent_id: 'agent-1',
+              agent_name: 'Scene Builder',
+              model: 'gpt-test',
+              task: 'Create a sphere after discovery.',
+              tags: ['smoke'],
+            },
+            correlation: {
+              session_id: 'session-1',
+              trace_id: 'trace-workflow',
+              agent_id: 'agent-1',
+              request_ids: ['req-search', 'req-describe', 'req-load', 'req-123'],
+              trace_ids: ['trace-workflow'],
+              session_ids: ['session-1'],
+            },
+            discovery: {
+              search_count: 1,
+              zero_result_count: 0,
+              selected_count: 3,
+              best_selected_rank: 2,
+              time_to_first_success_ms: 310,
+              search_ids: ['search-1'],
+            },
+            steps: [
+              {
+                step_id: 'search:search-1',
+                kind: 'search',
+                title: 'search create sphere',
+                timestamp: now,
+                status: 'ok',
+                success: true,
+                request_id: 'req-search',
+                trace_id: 'trace-workflow',
+                session_id: 'session-1',
+                dcc_type: 'maya',
+                transport: 'rest',
+                search: { search_id: 'search-1', zero_results: false, result_count: 2, first_success_ms: 310 },
+              },
+              {
+                step_id: 'describe:req-describe',
+                kind: 'describe',
+                title: 'maya-1234__create_sphere',
+                timestamp: '2026-05-18T08:00:01.000Z',
+                status: 'ok',
+                success: true,
+                request_id: 'req-describe',
+                trace_id: 'trace-workflow',
+                parent_request_id: 'req-search',
+                session_id: 'session-1',
+                dcc_type: 'maya',
+                transport: 'rest',
+                search: { search_id: 'search-1', selected_rank: 2, selected_score: 88, match_reasons: ['skill_match'] },
+              },
+              {
+                step_id: 'load_skill:req-load',
+                kind: 'load_skill',
+                title: 'load_skill maya-modeling',
+                timestamp: '2026-05-18T08:00:02.000Z',
+                status: 'ok',
+                success: true,
+                request_id: 'req-load',
+                trace_id: 'trace-workflow',
+                parent_request_id: 'req-describe',
+                session_id: 'session-1',
+                dcc_type: 'maya',
+                transport: 'rest',
+                search: { search_id: 'search-1', selected_rank: 2, selected_score: 88 },
+              },
+              {
+                step_id: 'call:req-123',
+                kind: 'call',
+                title: 'maya-1234__create_sphere',
+                timestamp: '2026-05-18T08:00:04.000Z',
+                status: 'ok',
+                success: true,
+                request_id: 'req-123',
+                trace_id: 'trace-workflow',
+                parent_request_id: 'req-load',
+                session_id: 'session-1',
+                dcc_type: 'maya',
+                instance_id: 'maya-1234567890',
+                transport: 'rest',
+                duration_ms: 42,
+                search: { search_id: 'search-1', selected_rank: 2, selected_score: 88, first_success_ms: 310 },
+                links: {
+                  debug_bundle_url: 'http://127.0.0.1:3721/admin/api/debug-bundle/req-123',
+                  issue_report_url: 'http://127.0.0.1:3721/admin/api/issue-report/req-123',
+                  openapi_docs_url: 'http://127.0.0.1:3721/docs',
+                },
+              },
+            ],
+          },
+          {
+            workflow_id: 'search-zero',
+            group_kind: 'search',
+            title: 'search missing tool',
+            status: 'warning',
+            started_at: '2026-05-18T08:02:00.000Z',
+            finished_at: '2026-05-18T08:02:00.000Z',
+            duration_ms: 0,
+            step_count: 1,
+            failed_steps: 0,
+            correlation: { request_ids: [], trace_ids: [], session_ids: [] },
+            discovery: {
+              search_count: 1,
+              zero_result_count: 1,
+              selected_count: 0,
+              search_ids: ['search-zero'],
+            },
+            steps: [
+              {
+                step_id: 'search:search-zero',
+                kind: 'search',
+                title: 'search missing tool',
+                timestamp: '2026-05-18T08:02:00.000Z',
+                status: 'zero_results',
+                success: false,
+                dcc_type: 'blender',
+                transport: 'mcp',
+                search: { search_id: 'search-zero', zero_results: true, result_count: 0 },
+              },
+            ],
+          },
+        ],
+      };
     } else if (path === '/calls') {
       body = {
         total: 1,
@@ -342,7 +482,7 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.brand-tag')).toContainText('DCC-MCP Gateway');
     await expect(page.locator('h1')).toContainText('Admin Dashboard');
     await expect(page.getByRole('navigation').getByRole('link', { name: 'Connect IDE' })).toHaveClass(/active/);
-    for (const label of ['Connect IDE', 'Debug', 'Activity', 'Health', 'Instances', 'Tools', 'Tasks', 'Calls', 'Traces', 'Stats', 'Skills', 'Logs', 'Docs']) {
+    for (const label of ['Connect IDE', 'Debug', 'Activity', 'Health', 'Instances', 'Tools', 'Workflows', 'Tasks', 'Calls', 'Traces', 'Stats', 'Skills', 'Logs', 'Docs']) {
       await expect(page.getByRole('navigation').getByRole('link', { name: label })).toBeVisible();
     }
     await expect(page.getByRole('navigation').getByRole('link', { name: 'Docs' })).toHaveAttribute('href', 'https://github.com/loonghao/dcc-mcp-core/tree/main/docs');
@@ -445,6 +585,24 @@ test.describe('Admin Page', () => {
     await expect(page).toHaveURL(/panel=traces/);
     await expect(page).toHaveURL(/trace=req-123/);
     await expect(page.locator('.trace-detail-panel')).toContainText('req-123');
+  });
+
+  test('shows agent workflows with discovery quality and trace links', async ({ page }) => {
+    await page.goto('/admin/?panel=workflows');
+    const panel = page.locator('.workflows-panel');
+    await expect(panel).toContainText('Scene Builder');
+    await expect(panel).toContainText('search create sphere');
+    await expect(panel).toContainText('describe');
+    await expect(panel).toContainText('load_skill');
+    await expect(panel).toContainText('best rank 2');
+    await expect(panel).toContainText('zero-result');
+    await page.getByLabel('Filter current panel').fill('missing tool');
+    await expect(page.locator('.workflow-card')).toHaveCount(1);
+    await expect(panel).toContainText('zero_results');
+    await page.getByLabel('Filter current panel').fill('');
+    await panel.getByRole('button', { name: 'Trace' }).last().click();
+    await expect(page).toHaveURL(/panel=traces/);
+    await expect(page).toHaveURL(/trace=req-123/);
   });
 
   test('updates stats when the range selector changes', async ({ page }) => {

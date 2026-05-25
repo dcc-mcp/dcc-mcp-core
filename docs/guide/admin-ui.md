@@ -100,6 +100,7 @@ Markdown body for developer review.
 | `GET /admin/api/activity?limit=300` | `application/json` | Unified activity timeline built from audits, traces, and gateway events |
 | `GET /admin/api/instances` | `application/json` | Connected DCC instances |
 | `GET /admin/api/tools` | `application/json` | Registered MCP tools |
+| `GET /admin/api/workflows?limit=200` | `application/json` | Agent session/workflow view reconstructed from search telemetry, traces, and audits |
 | `GET /admin/api/tasks?limit=300` | `application/json` | Task-like snapshots reconstructed from dispatch traces |
 | `GET /admin/api/calls` | `application/json` | Recent tool calls (requires `AuditMiddleware`) |
 | `GET /admin/api/traces` | `application/json` | Recent per-call dispatch traces; accepts `?limit=200` |
@@ -128,6 +129,7 @@ compatibility layer; automation should prefer:
 | `GET /v1/debug/trace-context/{lookup_id}` | trace id or request id lookup |
 | `GET /v1/debug/bundles/{request_id_or_trace_id}` | `/admin/api/debug-bundle/{request_id}` |
 | `GET /v1/debug/issue-reports/{request_id}` | `/admin/api/issue-report/{request_id}` |
+| `GET /v1/debug/workflows` | `/admin/api/workflows` |
 | `GET /v1/debug/tasks` | `/admin/api/tasks` |
 | `GET /v1/debug/calls` | `/admin/api/calls` |
 | `GET /v1/debug/logs` | `/admin/api/logs` |
@@ -180,6 +182,12 @@ report JSON, OpenAPI Inspector, OpenAPI spec, OpenAPI docs, and stats page.
 Full trace rows include `agent_context`, request/response payload previews, a
 span waterfall, and the same copyable links. These URLs are designed to be
 pasted directly into an LLM evaluation prompt or another agent's debugging task.
+The Workflows panel and `GET /admin/api/workflows` group the same bounded data
+by session, explicit workflow id, trace id, or request chain. Each workflow row
+shows the readable discovery/execution chain (`search` → `describe` →
+`load_skill` → `call`), selected search rank, zero-result searches,
+time-to-first-success, and per-step links to trace detail, debug bundle, issue
+report JSON, OpenAPI Inspector/spec, and docs where a request id is available.
 
 `request_id` and `trace_id` are intentionally different. `request_id` identifies
 one HTTP/MCP request (or JSON-RPC id), while `trace_id` identifies the
@@ -257,6 +265,33 @@ matching Scalar reference.
         "instance_id": "abcdef01-2345-6789-abcd-ef0123456789",
         "dcc_type": "maya"
       }
+    }
+  ]
+}
+
+// GET /admin/api/workflows?limit=200
+{
+  "total": 1,
+  "workflows": [
+    {
+      "workflow_id": "session-1",
+      "group_kind": "session",
+      "title": "Layout Inspector: maya.abcdef01.scene__inspect",
+      "status": "completed",
+      "discovery": {
+        "search_count": 1,
+        "zero_result_count": 0,
+        "selected_count": 3,
+        "best_selected_rank": 2,
+        "time_to_first_success_ms": 310,
+        "search_ids": ["search-123"]
+      },
+      "steps": [
+        { "kind": "search", "title": "search scene inspect", "status": "ok" },
+        { "kind": "describe", "title": "maya.abcdef01.scene__inspect", "status": "ok" },
+        { "kind": "load_skill", "title": "load_skill scene", "status": "ok" },
+        { "kind": "call", "request_id": "req-123", "title": "maya.abcdef01.scene__inspect", "status": "ok" }
+      ]
     }
   ]
 }
