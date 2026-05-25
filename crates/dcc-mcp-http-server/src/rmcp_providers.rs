@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use dcc_mcp_jsonrpc::{GetPromptResult, McpPrompt, McpResource, ReadResourceResult};
 use dcc_mcp_skills::SkillCatalog;
+use serde_json::Value;
 
 // ── Error type ──────────────────────────────────────────────────────────────
 
@@ -73,6 +74,12 @@ pub trait ResourceProvider: Send + Sync {
 pub trait PromptProvider: Send + Sync {
     /// List all registered prompts.
     fn list_prompts(&self, catalog: &Arc<SkillCatalog>) -> Vec<McpPrompt>;
+
+    /// Optional diagnostics for empty or surprising prompt lists.
+    fn prompt_diagnostics(&self, catalog: &Arc<SkillCatalog>) -> Option<Value> {
+        let _ = catalog;
+        None
+    }
 
     /// Look up and render a prompt by name with the given arguments.
     fn get_prompt(

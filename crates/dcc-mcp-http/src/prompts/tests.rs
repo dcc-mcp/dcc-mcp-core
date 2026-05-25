@@ -1,7 +1,23 @@
 //! Unit tests for [`crate::prompts`].
 
 use super::*;
+use dcc_mcp_jsonrpc::McpPromptContent;
+use dcc_mcp_models::SkillMetadata;
 use std::collections::HashMap;
+use std::fs;
+
+fn skill_metadata(
+    name: &str,
+    skill_path: &std::path::Path,
+    metadata: serde_json::Value,
+) -> SkillMetadata {
+    SkillMetadata {
+        name: name.to_string(),
+        skill_path: skill_path.to_string_lossy().to_string(),
+        metadata,
+        ..Default::default()
+    }
+}
 
 fn argmap(pairs: &[(&str, &str)]) -> HashMap<String, String> {
     pairs
@@ -103,5 +119,108 @@ workflows:
     assert_eq!(
         spec.workflows[0].prompt_name.as_deref(),
         Some("bake_summary")
+    );
+}
+
+#[test]
+fn registry_derives_prompt_from_examples_metadata() {
+    let tmp = tempfile::tempdir().unwrap();
+    let skill_root = tmp.path().join("example-skill");
+    let refs = skill_root.join("references");
+    fs::create_dir_all(&refs).unwrap();
+    fs::write(
+        refs.join("EXAMPLES.md"),
+        "Example: call `example_skill__inspect_scene` before editing.",
+    )
+    .unwrap();
+
+    let md = skill_metadata(
+        "example-skill",
+        &skill_root,
+        serde_json::json!({"dcc-mcp.examples": "references/EXAMPLES.md"}),
+    );
+    let reg = PromptRegistry::new(true);
+
+    let prompts = reg.list(|visit| visit(&md));
+    assert_eq!(prompts.len(), 1);
+    assert_eq!(prompts[0].name, "example-skill.examples");
+    assert_eq!(
+        prompts[0]
+            .meta
+            .as_ref()
+            .and_then(|m| m.get("dcc.prompt_source"))
+            .and_then(|s| s.get("source"))
+            .and_then(serde_json::Value::as_str),
+        Some("examples")
+    );
+
+    let rendered = reg
+        .get("example-skill.examples", &HashMap::new(), |visit| {
+            visit(&md)
+        })
+        .unwrap();
+    let McpPromptContent::Text { text } = &rendered.messages[0].content;
+    assert!(text.contains("example_skill__inspect_scene"));
+}
+
+#[test]
+fn registry_derives_prompt_from_workflow_metadata() {
+    let tmp = tempfile::tempdir().unwrap();
+    let skill_root = tmp.path().join("workflow-skill");
+    let workflows = skill_root.join("workflows");
+    fs::create_dir_all(&workflows).unwrap();
+    fs::write(
+        workflows.join("review.workflow.yaml"),
+        r#"
+name: review_scene
+description: Review the active scene before export.
+steps:
+  - id: inspect
+    tool: maya_scene__inspect
+  - id: export
+    tool: maya_scene__export
+"#,
+    )
+    .unwrap();
+
+    let md = skill_metadata(
+        "workflow-skill",
+        &skill_root,
+        serde_json::json!({"dcc-mcp.workflows": "workflows/*.workflow.yaml"}),
+    );
+    let reg = PromptRegistry::new(true);
+
+    let prompts = reg.list(|visit| visit(&md));
+    assert_eq!(prompts.len(), 1);
+    assert_eq!(prompts[0].name, "workflow-skill.review_scene");
+
+    let rendered = reg
+        .get("workflow-skill.review_scene", &HashMap::new(), |visit| {
+            visit(&md)
+        })
+        .unwrap();
+    let McpPromptContent::Text { text } = &rendered.messages[0].content;
+    assert!(text.contains("maya_scene__inspect"));
+    assert!(text.contains("workflows_run"));
+}
+
+#[test]
+fn empty_prompt_list_reports_diagnostics() {
+    let tmp = tempfile::tempdir().unwrap();
+    let md = skill_metadata("plain-skill", tmp.path(), serde_json::json!({}));
+    let reg = PromptRegistry::new(true);
+
+    let prompts = reg.list(|visit| visit(&md));
+    assert!(prompts.is_empty());
+    let diagnostics = reg.diagnostics(|visit| visit(&md));
+    assert!(diagnostics.enabled);
+    assert_eq!(diagnostics.loaded_skill_count, 1);
+    assert_eq!(diagnostics.prompt_count, 0);
+    assert_eq!(diagnostics.prompt_capable_skill_count, 0);
+    assert!(
+        diagnostics
+            .notes
+            .iter()
+            .any(|note| note.contains("did not declare metadata.dcc-mcp.prompts"))
     );
 }

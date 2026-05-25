@@ -739,11 +739,12 @@ async fn handle_list_prompts(State(cfg): State<SkillRestConfig>, headers: Header
         AuditOutcome::Success,
         started,
     );
-    (
-        StatusCode::OK,
-        Json(json!({"total": entries.len(), "prompts": entries, "request_id": rid})),
-    )
-        .into_response()
+    let diagnostics = cfg.service.prompts().diagnostics();
+    let mut body = json!({"total": entries.len(), "prompts": entries, "request_id": rid});
+    if let Some(diagnostics) = diagnostics {
+        body["diagnostics"] = diagnostics;
+    }
+    (StatusCode::OK, Json(body)).into_response()
 }
 
 async fn handle_get_prompt(

@@ -16,6 +16,8 @@ from __future__ import annotations
 # All extension keys must live under ``metadata.dcc-mcp.<feature>``.
 METADATA_DCC_MCP: str = "dcc-mcp"
 METADATA_RECIPES_KEY: str = f"{METADATA_DCC_MCP}.recipes"
+METADATA_PROMPTS_KEY: str = f"{METADATA_DCC_MCP}.prompts"
+METADATA_EXAMPLES_KEY: str = f"{METADATA_DCC_MCP}.examples"
 METADATA_SKILL_REFERENCE_DOCS_KEY: str = f"{METADATA_DCC_MCP}.skill-reference-docs"
 METADATA_WORKFLOWS_KEY: str = f"{METADATA_DCC_MCP}.workflows"
 METADATA_LAYER_KEY: str = f"{METADATA_DCC_MCP}.layer"
@@ -58,9 +60,11 @@ __all__ = [
     "LAYER_THIN_HARNESS",
     "METADATA_DCC_KEY",
     "METADATA_DCC_MCP",
+    "METADATA_EXAMPLES_KEY",
     "METADATA_EXTERNAL_DEPS_KEY",
     "METADATA_GROUPS_KEY",
     "METADATA_LAYER_KEY",
+    "METADATA_PROMPTS_KEY",
     "METADATA_RECIPES_KEY",
     "METADATA_SEARCH_HINT_KEY",
     "METADATA_SKILL_REFERENCE_DOCS_KEY",

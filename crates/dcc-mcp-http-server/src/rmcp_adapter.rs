@@ -323,7 +323,11 @@ pub fn prompt_to_rmcp(p: &McpPrompt) -> RmcpPrompt {
                 .collect(),
         )
     };
-    RmcpPrompt::new(&p.name, p.description.as_deref(), arguments)
+    let mut prompt = RmcpPrompt::new(&p.name, p.description.as_deref(), arguments);
+    if let Some(Value::Object(obj)) = &p.meta {
+        prompt.meta = Some(Meta(obj.clone()));
+    }
+    prompt
 }
 
 // ── GetPromptResult → rmcp::GetPromptResult ─────────────────────────────────
@@ -433,6 +437,12 @@ mod tests {
                     required: false,
                 },
             ],
+            meta: Some(serde_json::json!({
+                "dcc.prompt_source": {
+                    "skill": "maya-prompts-demo",
+                    "source": "explicit"
+                }
+            })),
         };
 
         let rmcp = prompt_to_rmcp(&prompt);
@@ -447,6 +457,12 @@ mod tests {
         assert_eq!(args[0].required, Some(true));
         assert_eq!(args[1].name, "format");
         assert_eq!(args[1].required, None); // false → not set
+        assert_eq!(
+            rmcp.meta
+                .and_then(|m| m.0.get("dcc.prompt_source").cloned())
+                .and_then(|v| v.get("source").cloned()),
+            Some(Value::String("explicit".to_string()))
+        );
     }
 
     #[test]
