@@ -157,6 +157,76 @@ metadata:
 }
 
 #[test]
+fn nested_form_parses_optional_runtime_descriptors() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("runtime");
+    let body = r#"---
+name: runtime
+metadata:
+  dcc-mcp:
+    runtimes:
+      - name: usd-core
+        type: python_package
+        package: usd-core
+        module: pxr
+        optional: true
+        feature_level: full-usd
+        install_hint: "pip install dcc-mcp-openusd[usd-core]"
+      - name: usdcat
+        type: binary
+        binary: usdcat
+        optional: true
+        guidance: "Install OpenUSD command-line tools."
+      - name: HFS
+        type: env_var
+        env: HFS
+        optional: true
+        description: Houdini Solaris runtime.
+---
+# body
+"#;
+    write_skill(&dir, body);
+    let meta = parse_skill_md(&dir).expect("parsed");
+    assert_eq!(meta.runtimes.len(), 3);
+    assert_eq!(meta.runtimes[0].name, "usd-core");
+    assert_eq!(
+        meta.runtimes[0].kind,
+        dcc_mcp_models::SkillRuntimeKind::PythonPackage
+    );
+    assert_eq!(
+        meta.runtimes[0].guidance.as_deref(),
+        Some("pip install dcc-mcp-openusd[usd-core]")
+    );
+    assert_eq!(meta.runtimes[1].binary.as_deref(), Some("usdcat"));
+    assert_eq!(meta.runtimes[2].env.as_deref(), Some("HFS"));
+}
+
+#[test]
+fn nested_form_parses_runtime_descriptors_from_sibling_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("runtime-sidecar");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("runtimes.yaml"),
+        "runtimes:\n  - name: usdcat\n    type: binary\n    binary: usdcat\n    optional: true\n",
+    )
+    .unwrap();
+    let body = r#"---
+name: runtime-sidecar
+metadata:
+  dcc-mcp:
+    runtimes: runtimes.yaml
+---
+# body
+"#;
+    std::fs::write(dir.join(SKILL_METADATA_FILE), body).unwrap();
+    let meta = parse_skill_md(&dir).expect("parsed");
+    assert_eq!(meta.runtimes.len(), 1);
+    assert_eq!(meta.runtimes[0].name, "usdcat");
+    assert_eq!(meta.runtimes[0].binary.as_deref(), Some("usdcat"));
+}
+
+#[test]
 fn nested_form_products_and_implicit_invocation() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("policy");

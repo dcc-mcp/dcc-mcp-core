@@ -1,6 +1,9 @@
 //! Data types for the skill catalog: state, entries, summary, and detail.
 
-use dcc_mcp_models::{RegistryEntry, SkillGroup, SkillMetadata, SkillScope, ToolDeclaration};
+use dcc_mcp_models::{
+    RegistryEntry, SkillGroup, SkillMetadata, SkillRuntimeReport, SkillRuntimeSummary, SkillScope,
+    ToolDeclaration,
+};
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 use serde::Serializer;
@@ -128,6 +131,9 @@ pub struct SkillSummary {
     /// shadow table.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stage: Option<String>,
+    /// Aggregated optional runtime state from `metadata.dcc-mcp.runtimes`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<SkillRuntimeSummary>,
 }
 
 /// Detailed information about a skill.
@@ -163,6 +169,13 @@ pub struct SkillDetail {
     pub implicit_invocation: bool,
     /// Number of declared external dependencies (MCP servers, env vars, binaries).
     pub dependency_count: usize,
+    /// Resolved optional runtime state. These reports are derived only from
+    /// declarative metadata plus safe env/PATH/module-spec probes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runtimes: Vec<SkillRuntimeReport>,
+    /// Compact aggregate for discovery/detail consumers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<SkillRuntimeSummary>,
 }
 
 // ── RegistryEntry impl ───────────────────────────────────────────────────────

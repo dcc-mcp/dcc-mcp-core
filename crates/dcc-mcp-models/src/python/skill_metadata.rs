@@ -10,7 +10,9 @@
 
 use pyo3::prelude::*;
 
-use crate::skill_metadata::{SkillDependencies, SkillMetadata, SkillPolicy, ToolDeclaration};
+use crate::skill_metadata::{
+    SkillDependencies, SkillMetadata, SkillPolicy, SkillRuntimeDescriptor, ToolDeclaration,
+};
 
 use dcc_mcp_naming::{DEFAULT_DCC, DEFAULT_VERSION};
 
@@ -33,6 +35,7 @@ impl SkillMetadata {
         license = "".to_string(),
         compatibility = "".to_string(),
         allowed_tools = vec![],
+        runtimes = vec![],
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -51,6 +54,7 @@ impl SkillMetadata {
         license: String,
         compatibility: String,
         allowed_tools: Vec<String>,
+        runtimes: Vec<SkillRuntimeDescriptor>,
     ) -> Self {
         Self {
             name,
@@ -71,6 +75,7 @@ impl SkillMetadata {
             metadata: serde_json::Value::Null,
             policy: None,
             external_deps: None,
+            runtimes,
             groups: Vec::new(),
             prompts_file: None,
             layer: None,
@@ -96,7 +101,7 @@ impl SkillMetadata {
     // `name`, `description`, `dcc`, `version`, `license`, `compatibility`,
     // `skill_path`, `search_hint` (String → &str + setter), `tags`, `search_aliases`,
     // `scripts`, `depends`, `metadata_files`, `allowed_tools`, `tools`,
-    // `groups`, `layer`, `stage` (Vec<T> / Option<T> clone + setter).
+    // `groups`, `runtimes`, `layer`, `stage` (Vec<T> / Option<T> clone + setter).
     // See `crate::skill_metadata::SkillMetadata`'s `#[py_wrapper(...)]`
     // table for the canonical list.
 

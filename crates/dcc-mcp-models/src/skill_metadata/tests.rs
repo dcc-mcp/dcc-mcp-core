@@ -310,6 +310,43 @@ fn test_skill_metadata_with_depends() {
 }
 
 #[test]
+fn test_skill_runtime_descriptors_resolve_safe_states() {
+    let json = r#"{
+            "name": "openusd-tools",
+            "runtimes": [
+                {
+                    "name": "usd-core",
+                    "type": "python_package",
+                    "package": "usd-core",
+                    "module": "dcc_mcp_runtime_probe_missing_pxr_1210",
+                    "optional": true,
+                    "feature_level": "full-usd",
+                    "install_hint": "pip install dcc-mcp-openusd[usd-core]"
+                },
+                {
+                    "name": "required-license",
+                    "type": "env_var",
+                    "env": "DCC_MCP_TEST_RUNTIME_DOES_NOT_EXIST",
+                    "guidance": "Set DCC_MCP_TEST_RUNTIME_DOES_NOT_EXIST."
+                }
+            ]
+        }"#;
+    let meta: SkillMetadata = serde_json::from_str(json).unwrap();
+    assert_eq!(meta.runtimes.len(), 2);
+
+    let reports = resolve_runtime_reports(&meta.runtimes);
+    assert_eq!(reports[0].name, "usd-core");
+    assert_eq!(reports[0].state, SkillRuntimeState::Degraded);
+    assert_eq!(reports[1].state, SkillRuntimeState::Missing);
+
+    let summary = summarize_runtime_reports(&reports);
+    assert_eq!(summary.total, 2);
+    assert_eq!(summary.degraded, 1);
+    assert_eq!(summary.missing, 1);
+    assert_eq!(summary.state, SkillRuntimeState::Missing);
+}
+
+#[test]
 fn test_skill_metadata_display() {
     let meta = SkillMetadata {
         name: "my-skill".to_string(),
@@ -364,6 +401,7 @@ fn test_skill_metadata_serde_round_trip() {
         metadata_files: vec!["help.md".to_string()],
         policy: None,
         external_deps: None,
+        runtimes: Vec::new(),
         groups: Vec::new(),
         prompts_file: None,
         layer: Some("domain".to_string()),
