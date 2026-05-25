@@ -818,6 +818,16 @@ Action naming: `{skill_name}__{script_stem}` (hyphens → underscores, `__` sepa
 Workflow: `search_skills(query="keyword")` → `load_skill("skill-name")` → use tools.
 Calling a stub returns a `load_skill` hint, not a missing-handler error.
 
+Adapter-owned load policy belongs on the catalog, not around individual entry
+points. Use `DccServerBase.set_skill_load_transform(fn)` (or
+`McpHttpServer.set_skill_load_transform(fn)` for direct server wiring) when a
+host needs to mutate `SkillMetadata` before registration. The same transform
+runs for direct Python `load_skill`, MCP `tools/call load_skill`, REST
+`POST /v1/load_skill`, multi-skill loads, and group activation options. Return a
+mutated `SkillMetadata` or mutate in place and return `None`; raise an exception
+to veto before tools are registered. Use `set_after_load_skill_hook(fn)` only to
+observe `(skill, registered_actions)` after a successful load.
+
 ### Bundled Skills
 
 Core skills ship inside the wheel under `dcc_mcp_core/skills/`:

@@ -45,6 +45,8 @@ impl SkillCatalog {
             dispatcher: None,
             event_bus: EventBus::new(),
             script_executor: RwLock::new(None),
+            load_transform: RwLock::new(None),
+            after_load_hook: RwLock::new(None),
             active_groups: DashSet::new(),
         }
     }
@@ -62,6 +64,8 @@ impl SkillCatalog {
             dispatcher: Some(dispatcher),
             event_bus,
             script_executor: RwLock::new(None),
+            load_transform: RwLock::new(None),
+            after_load_hook: RwLock::new(None),
             active_groups: DashSet::new(),
         }
     }
@@ -124,6 +128,51 @@ impl SkillCatalog {
     /// Remove the in-process executor, reverting to subprocess execution.
     pub fn clear_in_process_executor(&self) {
         *self.script_executor.write() = None;
+    }
+
+    /// Register an adapter-owned skill metadata transform.
+    ///
+    /// The transform runs for every skill load path before tools are
+    /// registered. Returning `Err` vetoes the load with a structured
+    /// validation event. The returned metadata must keep the original skill
+    /// name so catalog keys, dependency tracking, and tool names remain stable.
+    pub fn set_skill_load_transform<F>(&self, transform: F)
+    where
+        F: Fn(SkillMetadata) -> Result<SkillMetadata, String> + Send + Sync + 'static,
+    {
+        *self.load_transform.write() = Some(Arc::new(transform));
+    }
+
+    /// Register a pre-boxed skill-load transform.
+    pub fn set_skill_load_transform_arc(&self, transform: Arc<SkillLoadTransformFn>) {
+        *self.load_transform.write() = Some(transform);
+    }
+
+    /// Remove the adapter-owned skill metadata transform.
+    pub fn clear_skill_load_transform(&self) {
+        *self.load_transform.write() = None;
+    }
+
+    /// Register an observer that runs after a skill's tools are registered.
+    ///
+    /// Observer errors are emitted as lifecycle events and logged, but they do
+    /// not roll back the load. Use the transform hook when an adapter needs to
+    /// veto a load before registration.
+    pub fn set_after_load_hook<F>(&self, hook: F)
+    where
+        F: Fn(&SkillMetadata, &[String]) -> Result<(), String> + Send + Sync + 'static,
+    {
+        *self.after_load_hook.write() = Some(Arc::new(hook));
+    }
+
+    /// Register a pre-boxed after-load observer.
+    pub fn set_after_load_hook_arc(&self, hook: Arc<AfterSkillLoadFn>) {
+        *self.after_load_hook.write() = Some(hook);
+    }
+
+    /// Remove the after-load observer.
+    pub fn clear_after_load_hook(&self) {
+        *self.after_load_hook.write() = None;
     }
 
     /// Discover skills from the standard scan paths.
