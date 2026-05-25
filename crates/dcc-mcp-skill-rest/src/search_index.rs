@@ -38,6 +38,9 @@ pub(crate) fn action_metadata(action: &CatalogAction) -> Value {
 
     let mut out = serde_json::Map::new();
     out.insert("dcc".to_string(), Value::Object(dcc));
+    if let Some(runtime) = &action.runtime {
+        out.insert("runtime".to_string(), serde_json::json!(runtime));
+    }
     Value::Object(out)
 }
 
@@ -47,7 +50,9 @@ pub(crate) fn search_metadata(action: &CatalogAction) -> Option<Value> {
         || action.timeout_hint_secs.is_some()
         || action.enforce_thread_affinity
         || !action.annotations.is_empty();
+    let has_runtime = action.runtime.is_some();
     if !has_non_default_execution
+        && !has_runtime
         && action.search_aliases.is_empty()
         && action.search_tokens.is_empty()
     {
@@ -72,6 +77,11 @@ pub(crate) fn search_metadata(action: &CatalogAction) -> Option<Value> {
                 serde_json::json!(action.search_tokens),
             );
         }
+    }
+    if let Some(runtime) = &action.runtime
+        && let Some(obj) = metadata.as_object_mut()
+    {
+        obj.insert("runtime".to_string(), serde_json::json!(runtime));
     }
     Some(metadata)
 }

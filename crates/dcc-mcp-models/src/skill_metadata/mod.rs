@@ -103,6 +103,7 @@ use serde_impl::{
         metadata_files: Vec<String> => [get(clone), set],
         tools: Vec<crate::skill_metadata::ToolDeclaration> => [get(clone), set],
         groups: Vec<crate::skill_metadata::SkillGroup> => [get(clone), set],
+        runtimes: Vec<crate::skill_metadata::SkillRuntimeDescriptor> => [get(clone), set],
         layer: Option<String> => [get(clone), set],
         stage: Option<String> => [get(clone), set],
     ))
@@ -255,6 +256,16 @@ pub struct SkillMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external_deps: Option<SkillDependencies>,
 
+    /// Optional adapter runtimes and install extras that affect capability
+    /// level without necessarily making the whole skill unavailable.
+    ///
+    /// Set from `metadata.dcc-mcp.runtimes` in SKILL.md frontmatter. The
+    /// descriptor is declarative and safe: core may probe environment variables,
+    /// `PATH`, or Python module specs for discovery output, but it never runs
+    /// installer commands or skill tool scripts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runtimes: Vec<SkillRuntimeDescriptor>,
+
     /// Declared tool groups for progressive exposure (see [`SkillGroup`]).
     ///
     /// When a tool declares a group name that is not present in this list,
@@ -331,10 +342,12 @@ pub struct SkillMetadata {
 mod execution;
 mod skill_dependency;
 mod skill_policy;
+mod skill_runtime;
 mod tests;
 mod tool_declaration;
 
 pub use execution::*;
 pub use skill_dependency::*;
 pub use skill_policy::*;
+pub use skill_runtime::*;
 pub use tool_declaration::*;

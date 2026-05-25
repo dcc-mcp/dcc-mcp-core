@@ -60,6 +60,12 @@ into a faster authoring loop.
    dependencies are injected later through `DCC_MCP_*_SKILL_PATHS`. `load_skill`
    auto-loads discovered dependencies first and returns a clear missing-dep
    error only when a dependency is still absent.
+   Use inline `metadata.dcc-mcp.runtimes` or a sibling `runtimes.yaml` for
+   optional runtime capabilities such as `usd-core`, USD command-line tools,
+   SDK wheels, or host environment variables. Keep descriptors declarative
+   (`python_package`, `python_extra`, `binary`, `env_var`, or `feature`) with
+   actionable guidance; discovery surfaces `available` / `degraded` /
+   `missing` states without importing tool scripts or running installers.
 7. When changing adapter server wiring or caller examples, keep Admin telemetry
    useful: pass optional `agent_context` / `caller_context` summaries through
    MCP `_meta`, REST `meta`, or `x-dcc-mcp-agent-*` headers when the caller is
