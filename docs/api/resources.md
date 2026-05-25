@@ -145,6 +145,41 @@ The JSON payload includes `events`, `next_cursor`, retained/dropped counts,
 and per-event correlation fields (`session_id`, `tool_call_id`, `job_id`,
 `correlation_id`). Passing `drain=true` removes returned-and-older events.
 
+### USD project resources
+
+Headless USD adapters should use the canonical `openusd://` family instead of
+inventing host-specific URI shapes:
+
+| URI | MIME | Purpose |
+|-----|------|---------|
+| `openusd://stage` | `model/vnd.usd.usda+text` or `model/vnd.usd.usdc` | Primary stage/root layer |
+| `openusd://layers` | `application/json` | Manifest of layer resources |
+| `openusd://assets` | `application/json` | Manifest of external asset dependencies |
+| `openusd://materials` | `application/json` | Manifest of material resources |
+| `openusd://validation` | `application/json` | Manifest of validation reports |
+| `openusd://snapshots` | `application/json` | Manifest of generated snapshots |
+| `openusd://packages` | `application/json` | Manifest of packaged handoffs such as USDZ |
+
+```python
+from dcc_mcp_core import register_usd_project_resources
+
+provider = register_usd_project_resources(
+    server,
+    project_root="/show/shot010/usd",
+    stage="/show/shot010/usd/shot.usda",
+    layers=["/show/shot010/usd/lighting.usda"],
+    validation={"name": "usdchecker.json", "content": {"status": "ok"}},
+    project_label="shot010",
+)
+```
+
+Every record returned from `provider.records` carries stable
+`uri`/`name`/`description`/`mimeType` data for MCP `resources/list`, plus a
+manifest entry with `kind`, `project_root_label`, and a `file_ref` for
+filesystem-backed resources. This convention is DCC-agnostic: OpenUSD,
+Houdini Solaris, Maya USD, Blender USD, Unreal, and Omniverse-style adapters
+can all publish the same project concepts.
+
 ### Updating the scene snapshot
 
 `set_scene()` replaces the snapshot atomically and emits a

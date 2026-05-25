@@ -27,7 +27,7 @@
 use std::sync::Arc;
 
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyIterator};
 use serde_json::Value;
 
 use dcc_mcp_http::resources::{
@@ -90,6 +90,32 @@ impl ResourceProducer for PythonProducer {
     }
 
     fn list(&self) -> Vec<McpResource> {
+        if let Some(resources) = Python::attach(|py| {
+            let bound = self.callable.bind(py);
+            let Ok(list_resources) = bound.getattr("list_resources") else {
+                return None;
+            };
+            if !list_resources.is_callable() {
+                return None;
+            }
+            match list_resources
+                .call0()
+                .and_then(|result| decode_resource_list(&result))
+            {
+                Ok(resources) => Some(resources),
+                Err(err) => {
+                    tracing::warn!(
+                        error = %err,
+                        scheme = self.scheme,
+                        "Python resource producer list_resources() failed"
+                    );
+                    None
+                }
+            }
+        }) {
+            return resources;
+        }
+
         // The callable is the source of truth for reads, but `resources/list`
         // must be non-blocking and deterministic — surface a single entry
         // matching the registered prefix so agents can discover the scheme
@@ -115,6 +141,35 @@ impl ResourceProducer for PythonProducer {
             decode_producer_return(bound, uri)
         })
     }
+}
+
+fn dict_get_string(dict: &Bound<'_, PyDict>, key: &str) -> PyResult<Option<String>> {
+    dict.get_item(key)?
+        .map(|value| value.extract::<String>())
+        .transpose()
+}
+
+fn decode_resource_list(bound: &Bound<'_, PyAny>) -> PyResult<Vec<McpResource>> {
+    let iter = PyIterator::from_object(bound)?;
+    let mut resources = Vec::new();
+    for item in iter {
+        let item = item?;
+        let dict = item.cast::<PyDict>()?;
+        let uri = dict_get_string(dict, "uri")?
+            .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("resource entry missing uri"))?;
+        let name = dict_get_string(dict, "name")?.ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err("resource entry missing name")
+        })?;
+        let description = dict_get_string(dict, "description")?;
+        let mime_type = dict_get_string(dict, "mimeType")?.or(dict_get_string(dict, "mime_type")?);
+        resources.push(McpResource {
+            uri,
+            name,
+            description,
+            mime_type,
+        });
+    }
+    Ok(resources)
 }
 
 /// Turn the Python callable's return value into a [`ProducerContent`].
@@ -496,6 +551,40 @@ mod tests {
             let read = registry.read("test-scheme://hello").unwrap();
             let text = read.contents[0].text.as_deref().unwrap();
             assert_eq!(text, "echo:test-scheme://hello");
+        });
+    }
+
+    #[test]
+    fn register_producer_uses_callable_list_resources_metadata() {
+        Python::attach(|py| {
+            let registry = enabled_registry();
+            let handle = PyResourceHandle::new(registry.clone());
+
+            let code = c"type('Producer', (), {
+    '__call__': lambda self, uri: {'mimeType': 'application/json', 'text': '{}'},
+    'list_resources': lambda self: [{
+        'uri': 'openusd://stage',
+        'name': 'Active USD stage',
+        'description': 'Root layer for the headless USD project.',
+        'mimeType': 'model/vnd.usd.usda+text',
+    }],
+})()";
+            let producer = py.eval(code, None, None).unwrap().unbind();
+            handle
+                .register_producer(py, "openusd://", producer)
+                .unwrap();
+
+            let listed = registry.list();
+            let item = listed
+                .iter()
+                .find(|r| r.uri == "openusd://stage")
+                .expect("custom resource metadata should be listed");
+            assert_eq!(item.name, "Active USD stage");
+            assert_eq!(
+                item.description.as_deref(),
+                Some("Root layer for the headless USD project.")
+            );
+            assert_eq!(item.mime_type.as_deref(), Some("model/vnd.usd.usda+text"));
         });
     }
 
