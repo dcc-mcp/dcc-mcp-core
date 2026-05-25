@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.30](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.29...v0.17.30) (2026-05-25)
+
+
+### Features
+
+* add admin traffic governance view ([89f7fb9](https://github.com/loonghao/dcc-mcp-core/commit/89f7fb963eb5c990b26e23b7c9a852c6a458bbd3))
+* add admin workflow view ([77e69f2](https://github.com/loonghao/dcc-mcp-core/commit/77e69f25cf4a8e5798f4ebb422372ab8529d2afd))
+* add gateway agent workflow spans ([90939b5](https://github.com/loonghao/dcc-mcp-core/commit/90939b53d81b331baeb5d652ed2603e122823e76))
+* add gateway agent workflow spans ([90939b5](https://github.com/loonghao/dcc-mcp-core/commit/90939b53d81b331baeb5d652ed2603e122823e76)), closes [#1180](https://github.com/loonghao/dcc-mcp-core/issues/1180)
+* add gateway openapi contract ([3188afd](https://github.com/loonghao/dcc-mcp-core/commit/3188afd4dceb1a73ede617136624cdce8e3a2e84))
+* add gateway policy gating ([#1188](https://github.com/loonghao/dcc-mcp-core/issues/1188)) ([121b2dc](https://github.com/loonghao/dcc-mcp-core/commit/121b2dc2e93bb669712da996e174c6459f65ca61))
+* add gateway search quality telemetry ([4f9d02c](https://github.com/loonghao/dcc-mcp-core/commit/4f9d02ccbaee7a423d31d5caa8ea809c2ec094cb)), closes [#1179](https://github.com/loonghao/dcc-mcp-core/issues/1179)
+* add hybrid capability ranking explanations ([73abf8f](https://github.com/loonghao/dcc-mcp-core/commit/73abf8f583a549533988afc345238046c0ef0fb3)), closes [#1177](https://github.com/loonghao/dcc-mcp-core/issues/1177)
+* add MCP compact response mode ([8b6c86c](https://github.com/loonghao/dcc-mcp-core/commit/8b6c86cce394ca13dbe107c1d08712b6cba02f2c)), closes [#1154](https://github.com/loonghao/dcc-mcp-core/issues/1154)
+* index capability aliases and schema tokens ([0be6ec6](https://github.com/loonghao/dcc-mcp-core/commit/0be6ec6b993f17843c33167c85f9eda5e15d35ef))
+* normalize gateway rest metadata ([#1187](https://github.com/loonghao/dcc-mcp-core/issues/1187)) ([28cf92d](https://github.com/loonghao/dcc-mcp-core/commit/28cf92d17b8bcca2a1b6b2118b4fdb328314c8f8))
+
 ## [0.17.29](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.28...v0.17.29) (2026-05-24)
 
 
