@@ -1010,6 +1010,10 @@ pub async fn handle_admin_stats(
             if let Some(obj) = root.as_object_mut() {
                 obj.insert("p50_ms".to_string(), json!(stats.latency_ms.p50_ms));
                 obj.insert("p95_ms".to_string(), json!(stats.latency_ms.p95_ms));
+                obj.insert(
+                    "avg_tokens_per_call".to_string(),
+                    json!(stats.avg_total_tokens_per_call),
+                );
                 // Embedded admin UI expects a 0–100 percentage in `success_rate`.
                 obj.insert(
                     "success_rate".to_string(),
@@ -1186,8 +1190,22 @@ pub async fn handle_admin_workers(State(s): State<AdminState>) -> impl IntoRespo
 
 fn trace_detail_json(trace: &DispatchTrace, links: Option<Value>) -> Value {
     let mut value = serde_json::to_value(trace).unwrap_or(json!({}));
+    let input_tokens = trace.input_tokens();
+    let output_tokens = trace.output_tokens();
+    let total_tokens = match (input_tokens, output_tokens) {
+        (Some(input), Some(output)) => Some(input.saturating_add(output)),
+        (Some(input), None) => Some(input),
+        (None, Some(output)) => Some(output),
+        (None, None) => None,
+    };
     if let Some(links) = links {
         value["links"] = links;
+    }
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("input_tokens".to_string(), json!(input_tokens));
+        obj.insert("output_tokens".to_string(), json!(output_tokens));
+        obj.insert("total_tokens".to_string(), json!(total_tokens));
+        obj.insert("estimated_tokens".to_string(), json!(total_tokens));
     }
     value
 }
@@ -1275,6 +1293,14 @@ fn dispatch_trace_to_admin_row(t: &DispatchTrace, links: Option<AdminLinkBuilder
         .slowest_span()
         .map(|(span, ms)| (Some(span.name.clone()), Some(ms)))
         .unwrap_or((None, None));
+    let input_tokens = t.input_tokens();
+    let output_tokens = t.output_tokens();
+    let total_tokens = match (input_tokens, output_tokens) {
+        (Some(a), Some(b)) => Some(a.saturating_add(b)),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
+    };
     let agent_id = t
         .agent_context
         .as_ref()
@@ -1304,6 +1330,9 @@ fn dispatch_trace_to_admin_row(t: &DispatchTrace, links: Option<AdminLinkBuilder
         "span_count": t.span_count(),
         "input_bytes": t.input_bytes(),
         "output_bytes": t.output_bytes(),
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
         "slowest_span_name": slowest_span_name,
         "slowest_span_ms": slowest_span_ms,
     });

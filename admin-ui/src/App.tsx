@@ -98,6 +98,9 @@ type TraceRow = {
   output_bytes?: number | null;
   slowest_span_name?: string | null;
   slowest_span_ms?: number | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  total_tokens?: number | null;
   links?: AdminLinks;
 };
 
@@ -134,6 +137,7 @@ type TracePayload = {
   mime_type: string;
   truncated: boolean;
   original_size: number;
+  estimated_tokens?: number | null;
 };
 
 type TraceSpan = {
@@ -159,6 +163,10 @@ type TraceDetailPayload = {
   spans: TraceSpan[];
   input?: TracePayload | null;
   output?: TracePayload | null;
+  estimated_tokens?: number | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  total_tokens?: number | null;
   links?: AdminLinks;
 };
 
@@ -253,6 +261,12 @@ type StatsPayload = {
   successful_calls?: number;
   failed_calls?: number;
   success_rate: number;
+  total_tokens?: number | null;
+  total_input_tokens?: number | null;
+  total_output_tokens?: number | null;
+  avg_tokens_per_call?: number | null;
+  avg_input_tokens_per_call?: number | null;
+  avg_output_tokens_per_call?: number | null;
   p50_ms?: number | null;
   p95_ms?: number | null;
   latency_ms?: LatencyBlock;
@@ -1070,6 +1084,44 @@ function formatBytes(value: number | null | undefined): string {
   return `${size.toFixed(1)} ${units[index]}`;
 }
 
+function formatTokenCount(value: number | null | undefined, decimalPlaces = 0): string {
+  if (value == null || Number.isNaN(value)) {
+    return '-';
+  }
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: decimalPlaces, minimumFractionDigits: decimalPlaces }).format(value);
+}
+
+function totalTraceTokens(row: TraceRow): number | null {
+  if (row.total_tokens != null) {
+    return row.total_tokens;
+  }
+  if (row.input_tokens == null && row.output_tokens == null) {
+    return null;
+  }
+  return (row.input_tokens ?? 0) + (row.output_tokens ?? 0);
+}
+
+function detailTraceTokens(trace: TraceDetailPayload): {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+  estimatedTokens: number | null;
+} {
+  const inputTokens = trace.input_tokens ?? trace.input?.estimated_tokens ?? null;
+  const outputTokens = trace.output_tokens ?? trace.output?.estimated_tokens ?? null;
+  const totalTokens = (() => {
+    if (trace.total_tokens != null) {
+      return trace.total_tokens;
+    }
+    if (inputTokens == null && outputTokens == null) {
+      return null;
+    }
+    return (inputTokens ?? 0) + (outputTokens ?? 0);
+  })();
+  const estimatedTokens = trace.estimated_tokens ?? null;
+  return { inputTokens, outputTokens, totalTokens, estimatedTokens };
+}
+
 function statusClass(value: string): string {
   const status = value.toLowerCase();
   if (status.includes('fail') || status.includes('error') || status.includes('err') || status.includes('rejected') || status.includes('cancel')) {
@@ -1645,6 +1697,7 @@ function payloadPreview(payload: TracePayload | null | undefined): string {
 function buildAgentPacket(trace: TraceDetailPayload): string {
   const links = traceLinks(trace.request_id, trace.links);
   const agent = trace.agent_context;
+  const tokens = detailTraceTokens(trace);
   return JSON.stringify({
     purpose: 'dcc-mcp admin trace packet for LLM evaluation and code optimization',
     request_id: trace.request_id,
@@ -1655,6 +1708,12 @@ function buildAgentPacket(trace: TraceDetailPayload): string {
     transport: trace.transport,
     status: trace.ok ? 'ok' : 'err',
     total_ms: trace.total_ms,
+    tokens: {
+      input: tokens.inputTokens,
+      output: tokens.outputTokens,
+      total: tokens.totalTokens,
+      estimated: tokens.estimatedTokens,
+    },
     agent_context: agent ? {
       agent_id: agent.agent_id,
       agent_name: agent.agent_name,
@@ -1719,6 +1778,7 @@ function TraceDetailPanel({
   const agent = trace.agent_context ?? null;
   const agentTitle = agent?.agent_name || agent?.agent_id || agent?.agent_kind || 'Caller context';
   const links = traceLinks(trace.request_id, trace.links);
+  const tokens = detailTraceTokens(trace);
   const attrsPreview = (attrs?: Record<string, unknown>) => {
     if (!attrs || Object.keys(attrs).length === 0) {
       return '';
@@ -1751,6 +1811,10 @@ function TraceDetailPanel({
           <span><strong>Tool</strong>{trace.tool_slug ?? trace.method}</span>
           <span><strong>Status</strong>{trace.ok ? 'ok' : 'err'}</span>
           <span><strong>Latency</strong>{formatDurationMs(trace.total_ms)}</span>
+          <span><strong>Input tokens</strong>{tokens.inputTokens == null ? '-' : formatTokenCount(tokens.inputTokens)}</span>
+          <span><strong>Output tokens</strong>{tokens.outputTokens == null ? '-' : formatTokenCount(tokens.outputTokens)}</span>
+          <span><strong>Total tokens</strong>{tokens.totalTokens == null ? '-' : formatTokenCount(tokens.totalTokens)}</span>
+          <span><strong>Est total</strong>{tokens.estimatedTokens == null ? '-' : formatTokenCount(tokens.estimatedTokens)}</span>
           <span><strong>Transport</strong>{trace.transport ?? '-'}</span>
           <span><strong>Started</strong>{formatTraceDate(trace.started_at)}</span>
           <span><strong>Spans</strong>{spans.length}</span>
@@ -1811,14 +1875,20 @@ function TraceDetailPanel({
         <div className="trace-detail-card">
           <div className="trace-card-head">
             <h3>Input</h3>
-            <span>{formatBytes(trace.input?.original_size)}</span>
+            <span>
+              {formatBytes(trace.input?.original_size)}
+              {trace.input ? ` / ${formatTokenCount(trace.input.estimated_tokens)} tok` : ''}
+            </span>
           </div>
           <pre className="payload-pre">{payloadPreview(trace.input)}</pre>
         </div>
         <div className="trace-detail-card">
           <div className="trace-card-head">
             <h3>Output</h3>
-            <span>{formatBytes(trace.output?.original_size)}</span>
+            <span>
+              {formatBytes(trace.output?.original_size)}
+              {trace.output ? ` / ${formatTokenCount(trace.output.estimated_tokens)} tok` : ''}
+            </span>
           </div>
           <pre className="payload-pre">{payloadPreview(trace.output)}</pre>
         </div>
@@ -2092,6 +2162,9 @@ function App() {
           t.agent_name ?? '',
           t.agent_model ?? '',
           t.slowest_span_name ?? '',
+          t.input_tokens != null ? String(t.input_tokens) : '',
+          t.output_tokens != null ? String(t.output_tokens) : '',
+          t.total_tokens != null ? String(t.total_tokens) : '',
         ),
       ),
     );
@@ -2303,14 +2376,40 @@ function App() {
     const p95 = stats?.latency_ms?.p95_ms ?? stats?.p95_ms ?? null;
     const agentContext = traces.filter((trace) => agentLabel(trace) !== '-').length;
     const spans = traces.reduce((sum, trace) => sum + (trace.span_count ?? 0), 0);
-    return { ok, failed, p95, agentContext, spans };
+    const totalTokens = traces.reduce((sum, trace) => {
+      const next = totalTraceTokens(trace);
+      return sum + (next ?? 0);
+    }, 0);
+    const callsWithTokens = traces.filter((trace) => totalTraceTokens(trace) != null).length;
+    const avgTokens = callsWithTokens > 0 ? totalTokens / callsWithTokens : 0;
+    const totalInputTokens = traces.reduce((sum, trace) => sum + (trace.input_tokens ?? 0), 0);
+    const totalOutputTokens = traces.reduce((sum, trace) => sum + (trace.output_tokens ?? 0), 0);
+    return {
+      ok,
+      failed,
+      p95,
+      agentContext,
+      spans,
+      totalTokens,
+      callsWithTokens,
+      avgTokens,
+      totalInputTokens,
+      totalOutputTokens,
+    };
   }, [stats, traces]);
 
   const statsSummary = useMemo(() => {
     const failed = stats?.failed_calls ?? Math.max(0, (stats?.total_calls ?? 0) - (stats?.successful_calls ?? 0));
     const success = stats?.successful_calls ?? Math.max(0, (stats?.total_calls ?? 0) - failed);
-    return { success, failed };
-  }, [stats]);
+    return {
+      success,
+      failed,
+      totalTokens: stats?.total_tokens ?? traceSummary.totalTokens,
+      totalInputTokens: stats?.total_input_tokens ?? traceSummary.totalInputTokens,
+      totalOutputTokens: stats?.total_output_tokens ?? traceSummary.totalOutputTokens,
+      avgTokens: stats?.avg_tokens_per_call ?? traceSummary.avgTokens,
+    };
+  }, [stats, traceSummary]);
 
   const markUpdated = useCallback((panel: Panel, text: string) => {
     setUpdatedAt((current) => ({ ...current, [panel]: text }));
@@ -3343,9 +3442,9 @@ function App() {
         )}
 
         {activePanel === 'traces' && (
-          <section className="panel active traces-panel" data-panel="traces">
-            <PanelHeader
-              title="Traces"
+      <section className="panel active traces-panel" data-panel="traces">
+        <PanelHeader
+          title="Traces"
               meta="Request timeline and latency drill-down for gateway fan-out."
               action={<button className="refresh-btn" type="button" onClick={fetchTraces}>Refresh</button>}
             />
@@ -3354,6 +3453,7 @@ function App() {
               <MetricTile tone="ok" label="OK" value={traceSummary.ok} />
               <MetricTile tone={traceSummary.failed > 0 ? 'err' : undefined} label="Failed" value={traceSummary.failed} />
               <MetricTile tone={latencyTone(traceSummary.p95)} label="p95 latency" value={formatDurationMs(traceSummary.p95)} />
+              <MetricTile label="Total tokens" value={formatTokenCount(traceSummary.totalTokens)} detail={`${formatTokenCount(traceSummary.totalInputTokens)} in / ${formatTokenCount(traceSummary.totalOutputTokens)} out`} />
               <MetricTile label="Agent ctx" value={traceSummary.agentContext} />
               <MetricTile label="Spans" value={traceSummary.spans} />
               <MetricTile label="Visible" value={`${filteredTraces.length} / ${traces.length}`} />
@@ -3387,6 +3487,7 @@ function App() {
                             <StatusBadge value={trace.status} />
                             <span>{formatDurationMs(trace.total_ms)}</span>
                             <span>{trace.span_count ?? 0} spans</span>
+                            <span>{formatTokenCount(totalTraceTokens(trace))} tok</span>
                           </span>
                         </button>
                       ))}
@@ -3439,6 +3540,8 @@ function App() {
             <div className="metric-grid">
               <MetricTile label="Calls" value={stats?.total_calls ?? 0} detail={`${statsRange} window`} />
               <MetricTile tone={errorRateTone(stats)} label="Success" value={stats ? `${stats.success_rate.toFixed(1)}%` : '0.0%'} detail={`${statsSummary.success} ok / ${statsSummary.failed} failed`} />
+              <MetricTile label="Tokens (total)" value={formatTokenCount(stats?.total_tokens ?? statsSummary.totalTokens)} detail={`avg ${formatTokenCount(stats?.avg_tokens_per_call ?? statsSummary.avgTokens)} / call`} />
+              <MetricTile label="Input / Output tokens" value={formatTokenCount(stats?.total_input_tokens ?? statsSummary.totalInputTokens)} detail={`out: ${formatTokenCount(stats?.total_output_tokens ?? statsSummary.totalOutputTokens)}`} />
               <MetricTile tone={latencyTone(stats?.latency_ms?.p50_ms ?? stats?.p50_ms)} label="p50 latency" value={formatDurationMs(stats?.latency_ms?.p50_ms ?? stats?.p50_ms)} />
               <MetricTile tone={latencyTone(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} label="p95 latency" value={formatDurationMs(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} />
             </div>

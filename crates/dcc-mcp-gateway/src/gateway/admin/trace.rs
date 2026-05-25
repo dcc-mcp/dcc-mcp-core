@@ -202,6 +202,13 @@ pub struct TracePayload {
     pub truncated: bool,
     /// Original byte length before truncation.
     pub original_size: usize,
+    /// Approximate token count inferred from the raw JSON/string payload.
+    ///
+    /// This is a deterministic, lightweight estimate intended for
+    /// call-size triage; it intentionally does not require any tokenization
+    /// runtime or model-specific encoder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estimated_tokens: Option<usize>,
 }
 
 impl TracePayload {
@@ -210,6 +217,7 @@ impl TracePayload {
         let raw = serde_json::to_string(v).unwrap_or_default();
         let original_size = raw.len();
         let truncated = original_size > cap;
+        let estimated_tokens = estimate_tokens(&raw);
         let content = if truncated {
             // Truncate at a valid UTF-8 boundary.
             let boundary = raw
@@ -227,6 +235,7 @@ impl TracePayload {
             mime_type: "application/json".to_string(),
             truncated,
             original_size,
+            estimated_tokens: Some(estimated_tokens),
         }
     }
 
@@ -250,8 +259,19 @@ impl TracePayload {
             mime_type: "text/plain".to_string(),
             truncated,
             original_size,
+            estimated_tokens: Some(estimate_tokens(s)),
         }
     }
+}
+
+fn estimate_tokens(value: &str) -> usize {
+    if value.is_empty() {
+        return 0;
+    }
+    // Lightweight approximation: treat 4 UTF-8 bytes as one token. This
+    // keeps token-aware diagnostics usable without adding a model-specific
+    // tokeniser dependency.
+    ((value.len() as f64) / 4.0).ceil() as usize
 }
 
 // ── Agent / caller context ───────────────────────────────────────────────────
@@ -585,6 +605,14 @@ impl DispatchTrace {
         self.output.as_ref().map(|p| p.original_size)
     }
 
+    pub fn input_tokens(&self) -> Option<usize> {
+        self.input.as_ref().and_then(|p| p.estimated_tokens)
+    }
+
+    pub fn output_tokens(&self) -> Option<usize> {
+        self.output.as_ref().and_then(|p| p.estimated_tokens)
+    }
+
     pub fn slowest_span(&self) -> Option<(&TraceSpan, u64)> {
         self.spans
             .iter()
@@ -699,6 +727,13 @@ mod tests {
         assert!(p.truncated);
         assert!(p.content.len() <= 50);
         assert!(p.original_size > 50);
+    }
+
+    #[test]
+    fn payload_estimates_tokens_for_json() {
+        let p = TracePayload::from_value(&json!("hello world"), 1024);
+        assert!(p.estimated_tokens.is_some());
+        assert!(p.estimated_tokens.unwrap() > 0);
     }
 
     #[test]

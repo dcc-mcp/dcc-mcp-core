@@ -896,12 +896,17 @@ tbody tr:hover td {
   display: grid;
   gap: 1rem;
   grid-template-columns: minmax(18rem, 0.95fr) minmax(20rem, 1.25fr);
+  min-height: 0;
+  max-height: calc(100vh - 17rem);
 }
 
 .trace-list {
   display: grid;
   gap: 0.75rem;
   min-width: 0;
+  max-height: calc(100vh - 17rem);
+  overflow-y: auto;
+  padding-right: 0.15rem;
 }
 
 .trace-group {
@@ -1002,6 +1007,9 @@ tbody tr:hover td {
   display: grid;
   gap: 0.85rem;
   min-width: 0;
+  max-height: calc(100vh - 17rem);
+  min-height: 0;
+  overflow: auto;
 }
 
 .trace-detail-card {
@@ -1339,6 +1347,9 @@ tbody tr:hover td {
 .live-log-board {
   display: grid;
   gap: 1rem;
+  max-height: calc(100vh - 16.5rem);
+  overflow: auto;
+  padding-right: 0.15rem;
 }
 
 .request-run {
@@ -2173,6 +2184,13 @@ button.linkish:disabled {
 
   .openapi-spec-card {
     position: static;
+  }
+
+  .trace-layout,
+  .trace-list,
+  .trace-detail-panel,
+  .live-log-board {
+    max-height: calc(100vh - 11rem);
   }
 
   .task-side,

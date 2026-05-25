@@ -1348,6 +1348,134 @@ mod admin_tests {
         assert!(body["range"] == "all" || body.get("error").is_some());
     }
 
+    #[tokio::test]
+    async fn test_admin_traces_returns_rows_with_token_fields() {
+        use crate::gateway::admin::trace::{DispatchTrace, TraceLog, TracePayload};
+        use std::sync::Arc;
+        use std::time::SystemTime;
+        let log = Arc::new(TraceLog::new(100));
+
+        let mut with_input = DispatchTrace {
+            request_id: "trace-row-input".into(),
+            trace_id: "trace-row-input".into(),
+            span_id: None,
+            parent_span_id: None,
+            parent_request_id: None,
+            trace_flags: None,
+            trace_state: None,
+            method: "tools/call".into(),
+            tool_slug: Some("maya.create_sphere".into()),
+            instance_id: None,
+            session_id: None,
+            dcc_type: Some("maya".into()),
+            transport: None,
+            agent_context: None,
+            started_at: SystemTime::now(),
+            total_ms: 123,
+            ok: true,
+            spans: vec![],
+            input: Some(TracePayload::from_value(
+                &serde_json::json!({"prompt": "a short prompt for tracing"}),
+                1024,
+            )),
+            output: None,
+        };
+        with_input.trace_id = "trace-row-input-trace-id".into();
+        log.push(with_input);
+
+        let with_output = DispatchTrace {
+            request_id: "trace-row-output".into(),
+            trace_id: "trace-row-output-trace-id".into(),
+            span_id: None,
+            parent_span_id: None,
+            parent_request_id: None,
+            trace_flags: None,
+            trace_state: None,
+            method: "tools/call".into(),
+            tool_slug: Some("maya.close_file".into()),
+            instance_id: None,
+            session_id: None,
+            dcc_type: Some("maya".into()),
+            transport: None,
+            agent_context: None,
+            started_at: SystemTime::now(),
+            total_ms: 91,
+            ok: false,
+            spans: vec![],
+            input: None,
+            output: Some(TracePayload::from_value(
+                &serde_json::json!({"result": "ok"}),
+                1024,
+            )),
+        };
+        log.push(with_output);
+
+        let state = make_admin_state().with_trace_log(log, None);
+        let router = build_admin_router(state);
+        let (status, body) = body_json(router, "/api/traces?limit=20").await;
+        assert_eq!(status, StatusCode::OK);
+        let traces = body["traces"].as_array().unwrap();
+        assert_eq!(traces.len(), 2);
+
+        let rows_with_inputs: Vec<_> = traces
+            .iter()
+            .filter(|t| t["request_id"] == "trace-row-input")
+            .collect();
+        let rows_with_outputs: Vec<_> = traces
+            .iter()
+            .filter(|t| t["request_id"] == "trace-row-output")
+            .collect();
+        assert_eq!(rows_with_inputs.len(), 1);
+        assert_eq!(rows_with_outputs.len(), 1);
+        assert!(rows_with_inputs[0]["input_tokens"].as_u64().is_some());
+        assert!(rows_with_outputs[0]["output_tokens"].as_u64().is_some());
+        assert!(rows_with_inputs[0]["total_tokens"].as_u64().is_some());
+        assert!(rows_with_outputs[0]["total_tokens"].as_u64().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_admin_trace_detail_returns_token_totals() {
+        use crate::gateway::admin::trace::{DispatchTrace, TraceLog, TracePayload};
+        use std::sync::Arc;
+        use std::time::SystemTime;
+        let log = Arc::new(TraceLog::new(10));
+        let trace = DispatchTrace {
+            request_id: "trace-detail-input".into(),
+            trace_id: "trace-detail-trace-id".into(),
+            span_id: None,
+            parent_span_id: None,
+            parent_request_id: None,
+            trace_flags: None,
+            trace_state: None,
+            method: "tools/call".into(),
+            tool_slug: Some("maya.delete_node".into()),
+            instance_id: None,
+            session_id: None,
+            dcc_type: Some("maya".into()),
+            transport: None,
+            agent_context: None,
+            started_at: SystemTime::now(),
+            total_ms: 42,
+            ok: true,
+            spans: vec![],
+            input: Some(TracePayload::from_str("response body", 1024)),
+            output: Some(TracePayload::from_value(
+                &serde_json::json!({"ok": true}),
+                1024,
+            )),
+        };
+        log.push(trace);
+        let state = make_admin_state().with_trace_log(log, None);
+        let router = build_admin_router(state);
+        let (status, body) = body_json(router, "/api/traces/trace-detail-input").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["request_id"], "trace-detail-input");
+        assert!(body["input_tokens"].as_u64().is_some());
+        assert!(body["output_tokens"].as_u64().is_some());
+        assert!(body["total_tokens"].as_u64().is_some());
+        assert_eq!(body["estimated_tokens"], body["total_tokens"]);
+    }
+
     // ── /api/workers (Phase 4) ────────────────────────────────────────────
 
     fn make_service_entry(
