@@ -32,6 +32,7 @@ from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import PromptHandle
 from dcc_mcp_core import ToolRegistry
+from dcc_mcp_core import create_skill_server
 
 # ── helpers ──────────────────────────────────────────────────────────
 
@@ -136,6 +137,68 @@ def test_python_prompt_registration_e2e():
         )
         assert "error" in err_resp, f"expected error for missing 'end', got {err_resp}"
 
+    finally:
+        with contextlib.suppress(Exception):
+            server_handle.shutdown()
+
+
+def test_skill_examples_metadata_derives_prompt_e2e(tmp_path):
+    """Loaded skills can derive prompts from metadata.dcc-mcp.examples."""
+    skill_parent = tmp_path / "skills"
+    skill_root = skill_parent / "scene-review"
+    references = skill_root / "references"
+    references.mkdir(parents=True)
+    (skill_root / "SKILL.md").write_text(
+        """---
+name: scene-review
+description: "Scene review examples. Use when validating scene state."
+license: MIT
+compatibility: Python 3.7+
+metadata:
+  dcc-mcp:
+    dcc: maya
+    layer: example
+    examples: references/EXAMPLES.md
+---
+
+# Scene review
+""",
+        encoding="utf-8",
+    )
+    (references / "EXAMPLES.md").write_text(
+        "Example: call `scene_review__inspect_scene` before export.",
+        encoding="utf-8",
+    )
+
+    port = _pick_free_port()
+    cfg = McpHttpConfig(port=port)
+    cfg.enable_prompts = True
+    server = create_skill_server("maya", cfg, extra_paths=[str(skill_parent)], accumulated=False)
+    server_handle = server.start()
+    assert _wait_tcp_reachable("127.0.0.1", server_handle.port, budget=3.0), (
+        f"server port {server_handle.port} unreachable"
+    )
+
+    mcp_url = f"http://127.0.0.1:{server_handle.port}/mcp"
+    try:
+        load_resp = _post_mcp(
+            mcp_url,
+            "tools/call",
+            {"name": "load_skill", "arguments": {"skill_name": "scene-review"}},
+        )
+        assert "error" not in load_resp, f"load_skill failed: {load_resp.get('error')}"
+
+        list_resp = _post_mcp(mcp_url, "prompts/list")
+        assert "result" in list_resp, f"prompts/list failed: {list_resp}"
+        prompts = {p["name"]: p for p in list_resp["result"]["prompts"]}
+        prompt = prompts["scene-review.examples"]
+        source = prompt["_meta"]["dcc.prompt_source"]
+        assert source == {"skill": "scene-review", "source": "examples"}
+
+        get_resp = _post_mcp(mcp_url, "prompts/get", {"name": "scene-review.examples"})
+        assert "result" in get_resp, f"prompts/get failed: {get_resp}"
+        text = get_resp["result"]["messages"][0]["content"]["text"]
+        assert "scene_review__inspect_scene" in text
     finally:
         with contextlib.suppress(Exception):
             server_handle.shutdown()

@@ -550,6 +550,61 @@ async fn aggregate_prompts_list_merges_and_prefixes_across_backends() {
 }
 
 #[tokio::test]
+async fn aggregate_prompts_list_reports_failed_backend_without_hiding_healthy_prompts() {
+    let (addr_a, stop_a) = spawn_prompts_backend("bake_animation", "maya-A").await;
+    let (addr_b, stop_b) = spawn_prompts_backend("render_frame", "blender-B").await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+        dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
+    ));
+    {
+        let r = registry.read().await;
+        let (host_a, port_a) = parse_addr(&addr_a);
+        let (host_b, port_b) = parse_addr(&addr_b);
+        r.register(dcc_mcp_transport::discovery::types::ServiceEntry::new(
+            "maya", host_a, port_a,
+        ))
+        .unwrap();
+        r.register(dcc_mcp_transport::discovery::types::ServiceEntry::new(
+            "blender", host_b, port_b,
+        ))
+        .unwrap();
+    }
+
+    let _ = stop_b.send(());
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let gs = make_gateway_state(registry).await;
+    let result = aggregate_prompts_list(&gs).await;
+
+    let prompts = result["prompts"].as_array().unwrap();
+    assert_eq!(
+        prompts.len(),
+        1,
+        "healthy backend prompt must remain visible"
+    );
+    assert!(
+        prompts[0]["name"]
+            .as_str()
+            .unwrap()
+            .ends_with("__bake_U_animation")
+    );
+    let diagnostics = &result["_meta"]["dcc.prompt_diagnostics"];
+    assert_eq!(diagnostics["failed_backend_count"], json!(1));
+    assert_eq!(diagnostics["prompt_count"], json!(1));
+    assert!(
+        diagnostics["backends"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|backend| backend["status"] == json!("error"))
+    );
+
+    let _ = stop_a.send(());
+}
+
+#[tokio::test]
 async fn route_prompts_get_decodes_prefix_and_routes_to_owning_backend() {
     let (addr_a, stop_a) = spawn_prompts_backend("bake_animation", "maya-A").await;
     let (addr_b, stop_b) = spawn_prompts_backend("render_frame", "blender-B").await;

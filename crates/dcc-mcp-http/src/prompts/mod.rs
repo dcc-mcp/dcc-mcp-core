@@ -7,11 +7,14 @@
 //!
 //! # Sibling-file pattern (issue #356)
 //!
-//! Prompts live **outside** `SKILL.md`. A skill opts in by setting
-//! `metadata.dcc-mcp.prompts: prompts.yaml` in its SKILL.md frontmatter;
-//! `prompts.yaml` is a sibling file describing zero or more prompts and,
-//! optionally, a list of workflows whose execution summary should be
-//! rendered as an auto-generated prompt.
+//! Prompts live **outside** `SKILL.md`. A skill can opt in explicitly by
+//! setting `metadata.dcc-mcp.prompts: prompts.yaml` in its SKILL.md
+//! frontmatter; `prompts.yaml` is a sibling file describing zero or more
+//! prompts and, optionally, a list of workflows whose execution summary should
+//! be rendered as an auto-generated prompt. If no explicit prompts file is
+//! declared, the registry can derive fallback prompts from
+//! `metadata.dcc-mcp.examples`, `metadata.dcc-mcp.recipes`, or
+//! `metadata.dcc-mcp.workflows`.
 //!
 //! ```yaml
 //! # my-skill/prompts.yaml
@@ -57,7 +60,9 @@ mod template;
 #[cfg(test)]
 mod tests;
 
-pub use loader::{PromptEntry, PromptSource};
+pub use loader::{
+    PromptDiagnosticFailure, PromptDiagnosticSource, PromptDiagnostics, PromptEntry, PromptSource,
+};
 pub use spec::{
     PromptArgumentSpec, PromptError, PromptResult, PromptSpec, PromptsSpec, WorkflowPromptRef,
 };
@@ -69,7 +74,7 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 
-use self::loader::load_prompts_from_reference;
+use self::loader::{load_derived_prompts_from_skill, load_prompts_from_reference};
 use dcc_mcp_jsonrpc::{GetPromptResult, McpPrompt, McpPromptContent, McpPromptMessage};
 
 /// Thread-safe registry of prompts, rebuilt lazily on demand.
@@ -95,6 +100,8 @@ struct PromptRegistryInner {
     /// Names of the loaded skills this cache was built from. Used to
     /// short-circuit rebuilds — swapping this out atomically invalidates.
     loaded_skills: HashSet<String>,
+    cache_initialized: bool,
+    diagnostics: PromptDiagnostics,
     enabled: bool,
 }
 
@@ -128,6 +135,11 @@ impl PromptRegistry {
         let mut g = self.inner.write();
         g.entries.clear();
         g.loaded_skills.clear();
+        g.cache_initialized = false;
+        g.diagnostics = PromptDiagnostics {
+            enabled: g.enabled,
+            ..Default::default()
+        };
     }
 
     /// Register a prompt manually (e.g. from Python embedding).
@@ -178,6 +190,48 @@ impl PromptRegistry {
             by_name.insert(entry.name.clone(), entry.to_mcp());
         }
         by_name.into_values().collect()
+    }
+
+    /// Build a diagnostic snapshot for empty or surprising `prompts/list`
+    /// results. This uses the same lazy refresh path as `list()` / `get()`.
+    pub fn diagnostics<F>(&self, walk_loaded: F) -> PromptDiagnostics
+    where
+        F: FnOnce(&mut dyn FnMut(&dcc_mcp_models::SkillMetadata)),
+    {
+        if !self.is_enabled() {
+            return PromptDiagnostics {
+                enabled: false,
+                notes: vec!["Prompts are disabled by server configuration.".to_string()],
+                ..Default::default()
+            };
+        }
+        self.refresh_if_needed(walk_loaded);
+        let g = self.inner.read();
+        let manual_prompt_count = g.manual_entries.len();
+        let mut diagnostics = g.diagnostics.clone();
+        diagnostics.enabled = g.enabled;
+        diagnostics.manual_prompt_count = manual_prompt_count;
+        diagnostics.skill_prompt_count = g.entries.len();
+        diagnostics.prompt_count = g.entries.len() + manual_prompt_count;
+        if diagnostics.prompt_count == 0 && diagnostics.notes.is_empty() {
+            if diagnostics.loaded_skill_count == 0 {
+                diagnostics.notes.push(
+                    "No skills are currently loaded; load a prompt-capable skill first."
+                        .to_string(),
+                );
+            } else if diagnostics.prompt_capable_skill_count == 0 {
+                diagnostics.notes.push(
+                    "Loaded skills did not declare metadata.dcc-mcp.prompts, examples, recipes, or workflows."
+                        .to_string(),
+                );
+            } else {
+                diagnostics.notes.push(
+                    "Prompt-capable skills were loaded, but no prompt entries could be produced; inspect failures."
+                        .to_string(),
+                );
+            }
+        }
+        diagnostics
     }
 
     /// Look up + render a single prompt (skill-loaded or manual).
@@ -238,27 +292,60 @@ impl PromptRegistry {
         // Fast path — loaded skill set unchanged and cache populated.
         {
             let g = self.inner.read();
-            if g.loaded_skills == loaded_now && !g.entries.is_empty() {
-                return;
-            }
-            // Empty cache + empty loaded set → still fine, mark set.
-            if g.loaded_skills == loaded_now && loaded_now.is_empty() {
+            if g.cache_initialized && g.loaded_skills == loaded_now {
                 return;
             }
         }
 
         // Slow path — rebuild.
         let mut new_entries: BTreeMap<(String, String), PromptEntry> = BTreeMap::new();
+        let mut diagnostics = PromptDiagnostics {
+            enabled: true,
+            loaded_skill_count: metadatas.len(),
+            ..Default::default()
+        };
         for md in &metadatas {
             if let Some(rel) = md.prompts_file.as_deref() {
                 let skill_path = PathBuf::from(&md.skill_path);
-                for entry in load_prompts_from_reference(&skill_path, rel, &md.name) {
+                diagnostics.explicit_skill_count += 1;
+                let report = load_prompts_from_reference(&skill_path, rel, &md.name);
+                if report.prompt_capable {
+                    diagnostics.prompt_capable_skill_count += 1;
+                }
+                diagnostics.failures.extend(report.failures);
+                for entry in report.entries {
+                    diagnostics.sources.push(PromptDiagnosticSource {
+                        skill: entry.skill.clone(),
+                        prompt: entry.name.clone(),
+                        source: entry.source.as_str().to_string(),
+                    });
+                    new_entries.insert((md.name.clone(), entry.name.clone()), entry);
+                }
+            } else {
+                let report = load_derived_prompts_from_skill(md);
+                if report.prompt_capable {
+                    diagnostics.prompt_capable_skill_count += 1;
+                }
+                if !report.entries.is_empty() {
+                    diagnostics.derived_skill_count += 1;
+                }
+                diagnostics.failures.extend(report.failures);
+                for entry in report.entries {
+                    diagnostics.sources.push(PromptDiagnosticSource {
+                        skill: entry.skill.clone(),
+                        prompt: entry.name.clone(),
+                        source: entry.source.as_str().to_string(),
+                    });
                     new_entries.insert((md.name.clone(), entry.name.clone()), entry);
                 }
             }
         }
+        diagnostics.skill_prompt_count = new_entries.len();
+        diagnostics.prompt_count = new_entries.len();
         let mut g = self.inner.write();
         g.entries = new_entries;
         g.loaded_skills = loaded_now;
+        g.cache_initialized = true;
+        g.diagnostics = diagnostics;
     }
 }

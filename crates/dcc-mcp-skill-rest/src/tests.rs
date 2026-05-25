@@ -916,6 +916,8 @@ async fn list_prompts_default_is_empty() {
     let body: Value = resp.json();
     assert_eq!(body["total"], 0);
     assert!(body["prompts"].is_array());
+    assert_eq!(body["diagnostics"]["prompt_count"], 0);
+    assert_eq!(body["diagnostics"]["enabled"], false);
 }
 
 /// `GET /v1/prompts/{name}` against the default returns a structured 404.
