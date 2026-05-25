@@ -484,6 +484,11 @@ redact:
         assert!(body.get("limits").is_some(), "expected limits object");
         assert!(body.get("circuits").is_some(), "expected circuits object");
         assert!(body.get("rss_bytes").is_some(), "expected rss_bytes field");
+        assert_eq!(body["response_format"]["default"], "json");
+        assert_eq!(
+            body["response_format"]["token_estimator"],
+            "dcc-mcp-byte4-v1"
+        );
     }
 
     // ── /api/tools ────────────────────────────────────────────────────────
@@ -928,7 +933,7 @@ redact:
             spans: vec![],
             input: None,
             output: None,
-            token_accounting: None,
+            token_accounting: Some(token_telemetry("toon", 100, 40)),
         });
         let state = AdminState::new(make_gateway_state())
             .with_audit_log(audit_log)
@@ -1158,7 +1163,7 @@ redact:
             spans: vec![],
             input: None,
             output: None,
-            token_accounting: None,
+            token_accounting: Some(token_telemetry("toon", 100, 40)),
         });
 
         let zero_id = SearchTelemetryStore::new_search_id();
@@ -1363,7 +1368,7 @@ redact:
             success: false,
             error: Some("host died".into()),
             duration_ms: Some(25),
-            token_accounting: None,
+            token_accounting: Some(token_telemetry("toon", 100, 40)),
         }]));
         let state = AdminState::new(gateway)
             .with_audit_log(audit_log)
@@ -1528,6 +1533,18 @@ redact:
         assert_eq!(
             report_body["summary"]["postmortem"]["gateway_event_count"],
             1
+        );
+        assert_eq!(
+            report_body["summary"]["token_accounting"]["response_format"],
+            "toon"
+        );
+        assert_eq!(
+            report_body["summary"]["token_accounting"]["returned_tokens"],
+            40
+        );
+        assert_eq!(
+            report_body["summary"]["token_accounting"]["saved_tokens"],
+            60
         );
         assert_eq!(report_body["debug_bundle"]["request_id"], "req-task");
         assert!(

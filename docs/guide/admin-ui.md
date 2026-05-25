@@ -110,7 +110,7 @@ Markdown body for developer review.
 | `GET /admin/api/governance?limit=300` | `application/json` | Effective gateway policy, traffic capture, redaction, middleware controls, and recent allow/deny/throttle decisions |
 | `GET /admin/api/workers` | `application/json` | Per-instance worker cards from the live registry |
 | `GET /admin/api/logs` | `application/json` | Merged gateway contention events, on-disk `*.log` rows, and audited call summaries |
-| `GET /admin/api/health` | `application/json` | Service health summary |
+| `GET /admin/api/health` | `application/json` | Service health summary, including active response-format defaults and token estimator metadata |
 | `GET /admin/api/skills` | `application/json` | Live skill inventory grouped by DCC type, skill name, load state, tools, and backend instance |
 | `GET /admin/api/skill-detail?name=...` | `application/json` | One skill's backend detail payload, including rendered-review `SKILL.md` markdown when available |
 | `GET /admin/api/skill-paths` | `application/json` | Current skill discovery roots, including environment, local defaults, bundled paths, and admin custom paths |
@@ -243,7 +243,13 @@ matching Scalar reference.
   "status": "ok",
   "uptime_secs": 3600,
   "instances_total": 3,
-  "instances_ready": 2
+  "instances_ready": 2,
+  "response_format": {
+    "default": "json",
+    "legacy_mime": "application/json",
+    "compact_mime": "application/toon",
+    "token_estimator": "dcc-mcp-byte4-v1"
+  }
 }
 
 // GET /admin/api/instances
@@ -479,6 +485,13 @@ matching Scalar reference.
     "tool": "maya.abcdef01.maya__open_scene",
     "dcc_type": "maya",
     "total_ms": 48,
+    "token_accounting": {
+      "response_format": "toon",
+      "token_estimator": "dcc-mcp-byte4-v1",
+      "returned_tokens": 54,
+      "saved_tokens": 66,
+      "savings_pct": 55.0
+    },
     "postmortem": {
       "previous_call_count": 1,
       "gateway_event_count": 0
@@ -507,9 +520,22 @@ matching Scalar reference.
   "latency_ms": { "p50_ms": 12, "p95_ms": 48 },
   "top_agents": [{ "name": "Layout Inspector", "count": 12 }],
   "token_usage": {
+    "total_original_tokens": 7500,
     "total_returned_tokens": 5400,
     "total_saved_tokens": 2100,
     "average_savings_pct": 28.0,
+    "by_tool": [
+      { "name": "maya.a1b2.render_preview", "calls": 8, "returned_tokens": 900, "saved_tokens": 700, "savings_pct": 43.75 }
+    ],
+    "by_instance": [
+      { "name": "maya-a1b2", "calls": 14, "returned_tokens": 1800, "saved_tokens": 900, "savings_pct": 33.33 }
+    ],
+    "by_agent": [
+      { "name": "Layout Inspector", "calls": 12, "returned_tokens": 1500, "saved_tokens": 820, "savings_pct": 35.34 }
+    ],
+    "by_transport": [
+      { "name": "rest", "calls": 18, "returned_tokens": 2500, "saved_tokens": 1300, "savings_pct": 34.21 }
+    ],
     "by_response_format": [
       { "name": "toon", "calls": 24, "returned_tokens": 3200, "saved_tokens": 2100, "savings_pct": 39.62 },
       { "name": "json", "calls": 18, "returned_tokens": 2200, "saved_tokens": 0, "savings_pct": 0.0 }
