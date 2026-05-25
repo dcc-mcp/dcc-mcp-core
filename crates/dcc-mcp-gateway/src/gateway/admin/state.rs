@@ -368,7 +368,7 @@ impl AuditSink for AdminAuditSink {
             agent_model: entry
                 .agent_context
                 .as_ref()
-                .and_then(|ctx| ctx.model.clone()),
+                .and_then(|ctx| ctx.model.clone().or_else(|| ctx.model_version.clone())),
             parent_request_id: entry.trace_context.parent_request_id.clone().or_else(|| {
                 entry
                     .agent_context

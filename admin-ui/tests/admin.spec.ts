@@ -191,14 +191,26 @@ async function mockAdminApi(page: Page) {
             agent: {
               agent_id: 'agent-1',
               agent_name: 'Scene Builder',
+              model_provider: 'openai',
+              model_version: 'gpt-5.1',
               model: 'gpt-test',
+              reasoning_effort: 'medium',
+              session_id: 'session-1',
+              turn_id: 'turn-1',
               task: 'Create a sphere after discovery.',
+              user_intent_summary: 'Create a sphere with the least risky MCP path.',
+              agent_reply_summary: 'I found the tool and executed it successfully.',
+              user_input_hash: 'sha256:user',
+              agent_reply_hash: 'sha256:reply',
+              user_input_chars: 180,
+              agent_reply_chars: 220,
               tags: ['smoke'],
             },
             correlation: {
               session_id: 'session-1',
               trace_id: 'trace-workflow',
               agent_id: 'agent-1',
+              turn_id: 'turn-1',
               request_ids: ['req-search', 'req-describe', 'req-load', 'req-123'],
               trace_ids: ['trace-workflow'],
               session_ids: ['session-1'],
@@ -739,6 +751,9 @@ test.describe('Admin Page', () => {
     await page.goto('/admin/?panel=workflows');
     const panel = page.locator('.workflows-panel');
     await expect(panel).toContainText('Scene Builder');
+    await expect(panel).toContainText('turn turn-1');
+    await expect(panel).toContainText('Create a sphere with the least risky MCP path.');
+    await expect(panel).toContainText('reply 220 chars');
     await expect(panel).toContainText('search create sphere');
     await expect(panel).toContainText('describe');
     await expect(panel).toContainText('load_skill');

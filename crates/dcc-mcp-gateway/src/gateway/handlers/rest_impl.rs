@@ -366,7 +366,11 @@ pub async fn handle_v1_search(
         .into_iter()
         .map(|hit| search_hit_to_value_with_context(hit, Some(&search_context)))
         .collect();
-    let session_id = session_id_from_headers(&headers);
+    let session_id = session_id_from_headers(&headers).or_else(|| {
+        agent_context
+            .as_ref()
+            .and_then(|ctx| ctx.session_id.clone())
+    });
     let query_dcc_type = query.dcc_type.clone();
     let query_instance_id = query.instance_id.as_ref().map(ToString::to_string);
     gs.search_telemetry.record_search(SearchTelemetryInput {
@@ -383,6 +387,7 @@ pub async fn handle_v1_search(
         hits: telemetry_hits,
         trace_context: Some(trace_context.clone()),
         session_id: session_id.clone(),
+        agent_context: agent_context.clone(),
     });
     AgentWorkflowEvent::new("gateway.search", "rest")
         .with_trace_context(Some(&trace_context))
