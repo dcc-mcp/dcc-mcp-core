@@ -228,7 +228,10 @@ into a faster authoring loop.
    headless driver ticks. `DccServerBase` will then register both
    `set_in_process_executor` and HTTP `attach_dispatcher` before server start,
    so MCP `tools/call` and REST `/v1/call` satisfy `thread_affinity: main`.
-   Flip `ReadinessProbe.host_execution_bridge` and
+   Prefer `AdapterReadinessBinder.bind_inline(...)`,
+   `bind_headless(...)`, or `bind_queue_dispatcher(...,
+   require_first_pump=True)` to publish and flip readiness bits. For custom
+   wiring, flip `ReadinessProbe.host_execution_bridge` and
    `ReadinessProbe.main_thread_executor` only after that bridge path is
    actually usable; smoke tests may require those bits via
    `dcc-mcp-cli wait-ready --require host_execution_bridge,main_thread_executor`.

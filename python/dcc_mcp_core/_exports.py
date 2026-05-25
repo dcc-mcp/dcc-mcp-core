@@ -93,6 +93,7 @@ _LAZY: dict[str, str] = {
     "PyStandaloneDispatcher": "dcc_mcp_core._core",
     "RateLimitMiddleware": "dcc_mcp_core._core",
     "ReadinessProbe": "dcc_mcp_core._core",
+    "AdapterReadinessBinder": "dcc_mcp_core.readiness",
     "RecordingGuard": "dcc_mcp_core._core",
     "RenderOutput": "dcc_mcp_core._core",
     "ResourceAnnotations": "dcc_mcp_core._core",
@@ -172,6 +173,10 @@ _LAZY: dict[str, str] = {
     "USD_STAGE_URI": "dcc_mcp_core.usd_resources",
     "USD_TEXT_MIME": "dcc_mcp_core.usd_resources",
     "USD_VALIDATION_URI": "dcc_mcp_core.usd_resources",
+    "DEFAULT_FIRST_PUMP_TIMEOUT_SECS": "dcc_mcp_core.readiness",
+    "READINESS_ALL_BITS": "dcc_mcp_core.readiness",
+    "READINESS_BASE_BITS": "dcc_mcp_core.readiness",
+    "READINESS_EXECUTION_BITS": "dcc_mcp_core.readiness",
     # Functions from _core
     "artefact_get_bytes": "dcc_mcp_core._core",
     "artefact_list": "dcc_mcp_core._core",
@@ -468,6 +473,7 @@ _LAZY: dict[str, str] = {
     "stop_runtime_entries": "dcc_mcp_core.install_lifecycle",
     "normalize_tool_arguments": "dcc_mcp_core.host",
     "normalize_tool_meta": "dcc_mcp_core.host",
+    "readiness_report_subset": "dcc_mcp_core.readiness",
     # skill helpers (pure-Python, used inside skill scripts)
     "get_bundled_skill_paths": "dcc_mcp_core.skill",
     "get_bundled_skills_dir": "dcc_mcp_core.skill",
