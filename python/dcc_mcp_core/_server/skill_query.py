@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,56 @@ class SkillQueryClient:
         except Exception as exc:
             logger.debug("[%s] load_skill_object failed: %s", self._dcc_name, exc)
             return False
+
+    def set_skill_load_transform(self, transform: Callable[[Any], Any] | None) -> bool:
+        """Register a pre-load metadata transform on the inner skill catalog."""
+        setter = getattr(self._server, "set_skill_load_transform", None)
+        if not callable(setter):
+            logger.debug("[%s] set_skill_load_transform unavailable on inner server", self._dcc_name)
+            return False
+        try:
+            setter(transform)
+            return True
+        except Exception as exc:
+            logger.debug("[%s] set_skill_load_transform failed: %s", self._dcc_name, exc)
+            return False
+
+    def clear_skill_load_transform(self) -> bool:
+        """Remove a previously registered pre-load metadata transform."""
+        clearer = getattr(self._server, "clear_skill_load_transform", None)
+        if callable(clearer):
+            try:
+                clearer()
+                return True
+            except Exception as exc:
+                logger.debug("[%s] clear_skill_load_transform failed: %s", self._dcc_name, exc)
+                return False
+        return self.set_skill_load_transform(None)
+
+    def set_after_load_skill_hook(self, hook: Callable[[Any, list[str]], Any] | None) -> bool:
+        """Register an after-load observer on the inner skill catalog."""
+        setter = getattr(self._server, "set_after_load_skill_hook", None)
+        if not callable(setter):
+            logger.debug("[%s] set_after_load_skill_hook unavailable on inner server", self._dcc_name)
+            return False
+        try:
+            setter(hook)
+            return True
+        except Exception as exc:
+            logger.debug("[%s] set_after_load_skill_hook failed: %s", self._dcc_name, exc)
+            return False
+
+    def clear_after_load_skill_hook(self) -> bool:
+        """Remove a previously registered after-load observer."""
+        clearer = getattr(self._server, "clear_after_load_skill_hook", None)
+        if callable(clearer):
+            try:
+                clearer()
+                return True
+            except Exception as exc:
+                logger.debug("[%s] clear_after_load_skill_hook failed: %s", self._dcc_name, exc)
+                return False
+        return self.set_after_load_skill_hook(None)
 
     def unload_skill(self, name: str) -> bool:
         try:

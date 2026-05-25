@@ -303,6 +303,18 @@ class _FakeDccServer:
     def load_skill_object(self, skill):
         pass
 
+    def set_skill_load_transform(self, transform):
+        self.skill_load_transform = transform
+
+    def clear_skill_load_transform(self):
+        self.skill_load_transform = None
+
+    def set_after_load_skill_hook(self, hook):
+        self.after_load_skill_hook = hook
+
+    def clear_after_load_skill_hook(self):
+        self.after_load_skill_hook = None
+
     def unload_skill(self, name):
         pass
 
@@ -630,6 +642,28 @@ class TestDccServerBase:
     def test_load_skill_object_returns_bool(self, tmp_path):
         server = self._make_server(tmp_path)
         assert server.load_skill_object(object()) is True
+
+    def test_set_skill_load_transform_delegates_to_inner_server(self, tmp_path):
+        server = self._make_server(tmp_path)
+
+        def transform(skill):
+            return skill
+
+        assert server.set_skill_load_transform(transform) is True
+        assert server._server.skill_load_transform is transform
+        assert server.clear_skill_load_transform() is True
+        assert server._server.skill_load_transform is None
+
+    def test_set_after_load_skill_hook_delegates_to_inner_server(self, tmp_path):
+        server = self._make_server(tmp_path)
+
+        def hook(skill, registered):
+            return None
+
+        assert server.set_after_load_skill_hook(hook) is True
+        assert server._server.after_load_skill_hook is hook
+        assert server.clear_after_load_skill_hook() is True
+        assert server._server.after_load_skill_hook is None
 
     def test_unload_skill_returns_bool(self, tmp_path):
         server = self._make_server(tmp_path)

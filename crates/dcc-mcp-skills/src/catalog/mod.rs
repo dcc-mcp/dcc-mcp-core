@@ -69,6 +69,10 @@ pub mod list_projection;
 #[cfg(test)]
 pub(crate) use helpers::parse_scope_str;
 
+pub type SkillLoadTransformFn =
+    dyn Fn(SkillMetadata) -> Result<SkillMetadata, String> + Send + Sync;
+pub type AfterSkillLoadFn = dyn Fn(&SkillMetadata, &[String]) -> Result<(), String> + Send + Sync;
+
 // ── SkillCatalog ──
 
 /// Manages discovered skills and their progressive loading.
@@ -108,6 +112,10 @@ pub struct SkillCatalog {
     /// register one of these via [`with_in_process_executor`](Self::with_in_process_executor)
     /// so that `maya.cmds`, `bpy`, `hou`, etc. are available to the scripts.
     pub(super) script_executor: RwLock<Option<Arc<ScriptExecutorFn>>>,
+    /// Optional adapter policy hook applied before a skill registers tools.
+    pub(super) load_transform: RwLock<Option<Arc<SkillLoadTransformFn>>>,
+    /// Optional observer called after tools are registered and the catalog state is loaded.
+    pub(super) after_load_hook: RwLock<Option<Arc<AfterSkillLoadFn>>>,
     /// Tool groups currently active (`"<skill>:<group>"` keys).
     pub(super) active_groups: DashSet<String>,
 }
