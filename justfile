@@ -213,7 +213,7 @@ test:
 test-cov:
     pytest tests/ -q --tb=short --show-capture=no --cov=dcc_mcp_core --cov-report=term --cov-report=xml:coverage.xml
 
-# Run mcpcall MCP end-to-end tests (requires: mcpcall on PATH)
+# Run mcpcall MCP end-to-end tests (set MCPCALL_CMD="vx mcpcall" for vx-managed local runs)
 test-e2e:
     pytest tests/test_mcp_mcpcall_e2e.py -v --tb=short
 

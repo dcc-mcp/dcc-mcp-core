@@ -60,7 +60,7 @@ runs:
         components: clippy rustfmt
 
     - name: Install vx
-      uses: loonghao/vx@v0.8.36
+      uses: loonghao/vx@v0.9.2
       with:
         cache: "false"
 
