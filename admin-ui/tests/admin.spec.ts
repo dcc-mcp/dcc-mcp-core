@@ -759,6 +759,8 @@ test.beforeEach(async ({ page }) => {
 test.describe('Admin Page', () => {
   test('loads the connect panel and navigation', async ({ page }) => {
     await page.goto('/admin/');
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+    await expect(page.locator('html')).toHaveAttribute('data-admin-locale', 'en');
     await expect(page.locator('.brand-tag')).toContainText('DCC-MCP Gateway');
     await expect(page.locator('h1')).toContainText('Admin Dashboard');
     await expect(page.getByRole('navigation').getByRole('link', { name: 'Connect IDE' })).toHaveClass(/active/);
@@ -791,6 +793,20 @@ test.describe('Admin Page', () => {
     await page.getByRole('navigation').getByRole('link', { name: 'Health' }).click();
     await expect(page.locator('.health-panel')).toContainText('0.17.7');
     await expect(page.locator('.health-panel')).toContainText('toon / dcc-mcp-byte4-v1');
+  });
+
+  test('normalizes the browser locale onto the document element', async ({ browser }) => {
+    const context = await browser.newContext({ locale: 'ja-JP' });
+    const page = await context.newPage();
+    await mockAdminApi(page);
+
+    await page.goto('/admin/');
+
+    await expect(page.locator('html')).toHaveAttribute('lang', 'ja');
+    await expect(page.locator('html')).toHaveAttribute('data-admin-locale-source', 'navigator');
+    await expect(page.locator('.brand-tag')).toContainText('DCC-MCP Gateway');
+
+    await context.close();
   });
 
   test('shows platform-specific IDE config paths', async ({ page }) => {

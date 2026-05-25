@@ -69,6 +69,25 @@ let config = GatewayConfig {
 
 When using `dcc-mcp-gateway` directly, compile with the `admin` Cargo feature. `dcc-mcp-http` and the shipped server binary enable this for their embedded gateway path.
 
+## Locale Detection
+
+The embedded Admin UI includes a small in-bundle i18n runtime. It reads
+`navigator.languages` / `navigator.language`, normalizes supported browser tags,
+and falls back to English when no supported preference is present. No
+translation assets are fetched over the network.
+
+Supported runtime locales are:
+
+- `en`
+- `zh-CN` for `zh`, `zh-Hans`, `zh-CN`, and other Simplified Chinese tags
+- `ja` for `ja` / `ja-JP`
+- `ko` for `ko` / `ko-KR`
+
+The runtime exposes a typed translation lookup surface in `admin-ui/src/i18n.ts`.
+Missing localized strings fall back to English so panels never render raw
+message keys. Future manual language selection should pass an explicit override
+through the same detection helper instead of bypassing the runtime.
+
 ## Dashboard Screenshots
 
 The screenshots below use representative demo data and show the browser-first
