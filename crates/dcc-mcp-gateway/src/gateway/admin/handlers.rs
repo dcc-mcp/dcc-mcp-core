@@ -20,6 +20,7 @@ use crate::gateway::capability::RefreshReason;
 use crate::gateway::capability_service::refresh_all_live_backends;
 use crate::gateway::event_log::{ContendEvent, EventKind};
 use crate::gateway::resilience::{self as gw_resilience, gateway_limits};
+use crate::gateway::response_codec::{JSON_MIME, TOKEN_ESTIMATOR, TOON_MIME};
 use dcc_mcp_db::env::ENV_DCC_MCP_LOG_DIR;
 use dcc_mcp_db::read_gateway_log_dir_rows_recent;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};
@@ -657,6 +658,12 @@ pub async fn handle_admin_health(State(s): State<AdminState>) -> impl IntoRespon
             "uptime_secs": uptime_secs,
             "version": s.gateway.server_version,
             "rss_bytes": rss_bytes,
+            "response_format": {
+                "default": "json",
+                "legacy_mime": JSON_MIME,
+                "compact_mime": TOON_MIME,
+                "token_estimator": TOKEN_ESTIMATOR,
+            },
             "gateway": gateway_health_snapshot(&gateway_sentinels),
             "limits": {
                 "body_max_bytes": limits.body_max_bytes,
@@ -1198,6 +1205,11 @@ fn issue_report_json(request_id: &str, bundle: Value, links: Value) -> Value {
         .or_else(|| audit.get("duration_ms"))
         .cloned()
         .unwrap_or(Value::Null);
+    let token_accounting = trace
+        .get("token_accounting")
+        .or_else(|| audit.get("token_accounting"))
+        .cloned()
+        .unwrap_or(Value::Null);
     let trace_id = bundle
         .get("trace_id")
         .cloned()
@@ -1231,6 +1243,7 @@ fn issue_report_json(request_id: &str, bundle: Value, links: Value) -> Value {
             "tool": tool,
             "dcc_type": dcc_type,
             "total_ms": total_ms,
+            "token_accounting": token_accounting,
             "postmortem": {
                 "previous_call_count": previous_call_count,
                 "gateway_event_count": gateway_event_count,
