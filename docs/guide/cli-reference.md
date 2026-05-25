@@ -153,6 +153,39 @@ Admin audit/trace persistence is configured by environment only: set `DCC_MCP_GA
 | `--log-retention-days` | `DCC_MCP_LOG_RETENTION_DAYS` | `7` | Age-based retention. `0` disables. |
 | `--log-max-total-size-mb` | `DCC_MCP_LOG_MAX_TOTAL_SIZE_MB` | `100` | Total directory cap in MiB. `0` disables. |
 
+### Capture replay/diff
+
+`dcc-mcp-server capture` works on offline traffic capture files produced by
+`DCC_MCP_TRAFFIC_CAPTURE=jsonl:<path>` or `DCC_MCP_TRAFFIC_CONFIG=<yaml>`.
+It never enables capture itself and does not need a live DCC unless you use
+`replay`.
+
+```bash
+# Replay recorded client -> gateway requests against a live gateway MCP endpoint.
+dcc-mcp-server capture replay ./captures/run.sqlite \
+    --target http://127.0.0.1:9765/mcp \
+    --session sess_01HQX \
+    --assert outputs-compatible
+
+# Compare two captures frame-by-frame.
+dcc-mcp-server capture diff ./captures/before.sqlite ./captures/after.sqlite \
+    --before-session sess_before \
+    --after-session sess_after
+```
+
+Replay assertion modes:
+
+| Mode | Contract |
+|---|---|
+| `outputs-compatible` | HTTP status and JSON-RPC result/error shape must match the recorded response. |
+| `outputs-equal` | HTTP status and response JSON must match exactly. |
+| `outputs-ignored` | Requests are sent and counted, but response bodies are not compared. |
+
+Use `--format jsonl` or `--format sqlite` when the filename extension is not
+enough for auto-detection. `--rebind-instance-id <id>` rewrites captured
+gateway tool slugs such as `maya.old.tool` plus `instance_id` fields so a
+recording can be replayed against the current live instance.
+
 ### Typical invocations
 
 ```bash
