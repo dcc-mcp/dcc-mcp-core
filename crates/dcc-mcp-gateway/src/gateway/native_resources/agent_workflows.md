@@ -102,6 +102,8 @@ Where the gateway mounts them, mirror MCP with **`POST /v1/search`**, **`/v1/des
 
 `POST /v1/search`, `/v1/describe`, `/v1/call`, direct per-instance describe/call routes, and `/v1/call_batch` return legacy JSON unless compact output is explicit. REST agents can request TOON with `Accept: application/toon`, `response_format: "toon"`, or `compact: true`; use `response_format: "json"` to force compatibility. Compact-capable responses include `x-dcc-mcp-token-estimator`, original/returned byte and token counts, and savings headers so an agent can budget repeated discovery, schema, and invocation calls. Compact batch responses also include per-result `token_accounting` metadata.
 
+MCP agents request the same compact TOON payloads through request metadata instead of HTTP `Accept`: set `params._meta.response_format="toon"` or `params._meta.compact=true` after `initialize` advertises `capabilities.experimental["dcc-mcp"].compactResponses`. The outer JSON-RPC envelope stays JSON. `tools/call` keeps the MCP `CallToolResult` shape and adds `mimeType: "application/toon"` to compact text content; JSON-RPC errors stay normal `error` objects.
+
 ### Path-style invocation (optional; for curl / service accounts)
 
 - **Gateway:** `POST /v1/dcc/{dcc_type}/instances/{instance_id}/call` with JSON `{ "backend_tool": "<name>", "arguments": {...}, "meta": {...} }` (aliases: `tool`, `action` for `backend_tool`). Same routing as `POST /v1/call` after composing the dotted `tool_slug`; use when you already know `dcc_type` + **`instance_id`** from **`GET /v1/instances`** or **`GET /v1/context`** (`instances` array mirrors `/v1/instances`).
