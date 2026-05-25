@@ -1,12 +1,9 @@
 ---
 name: dcc-mcp-skill-developer
 description: >-
-  Infrastructure skill - guide agents through designing, implementing, testing,
-  and reviewing DCC-MCP adapter skill packages for Maya, Blender, 3ds Max,
-  Houdini, Photoshop, ZBrush, Unreal, Unity, and custom studio hosts. Use when
-  adding or changing SKILL.md, tools.yaml, scripts, server wiring, or adapter
-  skill taxonomy in dcc-mcp-* repositories. Not for driving a live DCC scene -
-  use domain skills or dcc-cli-gateway for that.
+  Compatibility skill - legacy guide for designing, implementing, testing, and
+  reviewing DCC-MCP skill packages. Prefer dcc-mcp-skills-creator for new skill
+  package work. Not for full adapter server/runtime work - use dcc-mcp-creator.
 license: MIT
 compatibility: "dcc-mcp-core 0.17+, Python 3.7+"
 allowed-tools: Bash Read Write Edit
@@ -16,14 +13,18 @@ metadata:
     layer: infrastructure
     version: "1.0.0"
     search-hint: >-
-      develop dcc-mcp skill, adapter skill authoring, tools.yaml, SKILL.md,
-      Maya Blender 3ds Max, affinity, execution, stage taxonomy, gateway
-    tags: "skill-authoring, adapter, maya, blender, 3dsmax, future-dcc"
+      legacy dcc-mcp skill developer, skill package authoring, tools.yaml,
+      SKILL.md, affinity, execution, stage taxonomy
+    tags: "skill-authoring, compatibility, maya, blender, 3dsmax, future-dcc"
     skill-reference-docs:
       - "references/*.md"
 ---
 
 # DCC-MCP Skill Developer
+
+Compatibility entrypoint. Prefer `dcc-mcp-skills-creator` for new DCC-MCP
+skill package work, and use `dcc-mcp-creator` for full adapter repository or
+server/runtime work.
 
 Use this skill when you are changing or creating DCC-MCP adapter skill packages.
 It distills patterns from dcc-mcp-maya, dcc-mcp-blender, and dcc-mcp-3dsmax
@@ -31,8 +32,9 @@ into a faster authoring loop.
 
 ## Fast Workflow
 
-1. Classify the work: new host adapter, new domain skill, new infrastructure
-   skill, or porting an existing skill to another DCC.
+1. Classify the work. For a full host adapter or server/runtime change, switch
+   to `dcc-mcp-creator`; continue here only for domain skills, infrastructure
+   skills, or porting an existing skill to another DCC.
 2. Read only the reference you need:
    - [ADAPTER_PATTERNS.md](references/ADAPTER_PATTERNS.md) for server and
      composition-root patterns.

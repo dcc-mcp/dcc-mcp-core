@@ -1,9 +1,10 @@
 ---
-name: dcc-skills-creator
+name: dcc-mcp-skills-creator
 description: >-
-  Compatibility skill - legacy entrypoint for creating, validating, and
-  scaffolding DCC-MCP skills. Prefer dcc-mcp-skills-creator for new work.
-  Not for creating full adapter repositories - use dcc-mcp-creator.
+  Infrastructure skill - create, validate, scaffold, and review DCC-MCP skills
+  for the dcc-mcp-core ecosystem. Use when authoring SKILL.md, tools.yaml,
+  scripts, groups, prompts, or skill taxonomy. Not for creating a full DCC-MCP
+  adapter repository - use dcc-mcp-creator.
 license: MIT
 compatibility: "Python 3.7+, dcc-mcp-core 0.17+"
 allowed-tools: Bash Read Write Edit
@@ -12,19 +13,23 @@ metadata:
     dcc: python
     version: "1.0.0"
     layer: infrastructure
-    search-hint: "legacy skill creator, create skill, validate skill, scaffold skill, SKILL.md, tools.yaml"
+    search-hint: "create dcc mcp skill, validate skill, scaffold skill, SKILL.md, tools.yaml, scripts, groups, prompts, skill taxonomy"
     tools: tools.yaml
+    skill-reference-docs:
+      - "references/*.md"
 ---
 
-# DCC Skills Creator
+# DCC-MCP Skills Creator
 
-Compatibility entrypoint. Prefer `dcc-mcp-skills-creator` for new work; it
-combines this scaffold/validation tooling with the DCC-MCP skill authoring
-workflow.
+A first-class meta-skill for creating, validating, and reviewing DCC-MCP skill
+packages. It combines the scaffold/validation tools from `dcc-skills-creator`
+with agent-facing authoring guidance for `SKILL.md`, `tools.yaml`, scripts,
+groups, prompts, and progressive-loading taxonomy.
 
-A first-class meta-skill for creating and validating DCC skills in the dcc-mcp-core ecosystem.
-It emits the current `metadata.dcc-mcp.*` layout, sibling `tools.yaml`, explicit
-schemas, annotations, execution mode, and thread-affinity metadata.
+Use `dcc-mcp-creator` when the task is to create a full adapter repository for
+a host such as Nuke, Blender, 3ds Max, Unreal, ZBrush, Houdini, or Maya. Use
+this skill when the task is to create or improve the skill packages loaded by
+those adapters.
 
 ## Installation
 
@@ -56,7 +61,7 @@ server = create_skill_server(
 
 ```python
 # Call the loaded MCP tool:
-# dcc_skills_creator__create_skill(
+# dcc_mcp_skills_creator__create_skill(
 #     name="maya-rigging",
 #     parent_dir="/path/to/skills/dir",
 #     dcc="maya",
@@ -82,20 +87,20 @@ else:
 
 ```python
 # Call the loaded MCP tool:
-# dcc_skills_creator__skill_template()
+# dcc_mcp_skills_creator__skill_template()
 ```
 
 ## Skill Directory Structure
 
 ```
 my-skill/
-├── SKILL.md              # Required: metadata frontmatter + instructions
-├── tools.yaml            # Required when metadata.dcc-mcp.tools points here
-├── scripts/              # Optional: tool implementation scripts
-│   └── create_locator.py
-└── metadata/             # Optional: documentation and dependencies
-    ├── depends.md
-    └── help.md
+|-- SKILL.md              # Required: metadata frontmatter + instructions
+|-- tools.yaml            # Required when metadata.dcc-mcp.tools points here
+|-- scripts/              # Optional: tool implementation scripts
+|   `-- create_locator.py
+`-- metadata/             # Optional: documentation and dependencies
+    |-- depends.md
+    `-- help.md
 ```
 
 ## Current Tool Contract
@@ -110,6 +115,20 @@ Generated `tools.yaml` entries follow the modern contract:
 - `enforce_thread_affinity: true` is emitted so adapter dispatch stays honest.
 - `annotations` use MCP hints: read-only, destructive, idempotent, open-world, and deferred.
 
+## Authoring Workflow
+
+1. Decide whether the skill is infrastructure, domain, thin-harness, or example.
+2. Give the skill a kebab-case name and each local tool a snake_case name.
+3. Keep host API calls inside scripts, with lazy imports so discovery works without the host running.
+4. Declare `execution`, `affinity`, `timeout_hint_secs`, schemas, annotations, and failure recovery chains in `tools.yaml`.
+5. Put long examples, recipes, and host-specific notes under `references/`.
+6. Validate with `validate_skill_dir` or `dcc_mcp_core.validate_skill()` before loading it in an adapter.
+7. If the desired behavior requires parsing core internals or adapter-private YAML at runtime, stop and request a core API instead.
+
+Read [AUTHORING_WORKFLOW.md](references/AUTHORING_WORKFLOW.md) and
+[DCC_TOOL_CONTRACTS.md](references/DCC_TOOL_CONTRACTS.md) before changing a
+production skill package.
+
 ## Validation Rules
 
 The validator checks:
@@ -117,8 +136,8 @@ The validator checks:
 - **SKILL.md** exists and is readable
 - **YAML frontmatter** is well-formed
 - **Required fields**: `name`, `description`
-- **Name format**: kebab-case, ≤64 chars, matches directory name
-- **Field lengths**: description ≤1024, compatibility ≤500
+- **Name format**: kebab-case, <=64 chars, matches directory name
+- **Field lengths**: description <=1024, compatibility <=500
 - **Tool declarations**: non-empty names, no duplicates, snake_case client-safe format
 - **Script files**: `source_file` references exist in `scripts/`
 - **Sidecar files**: `metadata.dcc-mcp.tools/groups/prompts` references exist
