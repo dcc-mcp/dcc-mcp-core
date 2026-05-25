@@ -93,6 +93,21 @@ pub fn observe_gateway_search_time_to_first_success(duration: std::time::Duratio
     }
 }
 
+/// Increment `dcc_mcp_gateway_governance_events_total` when enabled.
+#[inline]
+pub fn record_gateway_governance_event(category: &str, outcome: &str) {
+    #[cfg(feature = "prometheus")]
+    {
+        if let Some(exp) = GATEWAY_PROMETHEUS_EXPORTER.get() {
+            exp.record_gateway_governance_event(category, outcome);
+        }
+    }
+    #[cfg(not(feature = "prometheus"))]
+    {
+        let _ = (category, outcome);
+    }
+}
+
 /// Attach the `/metrics` route to the gateway router.
 #[cfg(feature = "prometheus")]
 pub fn attach_gateway_metrics_route(router: Router) -> Router {

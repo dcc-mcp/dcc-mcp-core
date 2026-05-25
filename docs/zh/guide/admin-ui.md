@@ -100,6 +100,7 @@ let config = GatewayConfig {
 | `GET /admin/api/traces/{request_id}` | `application/json` | 某次调用的完整 waterfall trace |
 | `GET /admin/api/debug-bundle/{request_id}` | `application/json` | 单次请求的一站式 debug bundle，包含 trace、匹配审计行、相关活动和提示 |
 | `GET /admin/api/stats?range=1h\|24h\|7d` | `application/json` | 聚合调用数、成功率、延迟和 top tools/instances |
+| `GET /admin/api/governance?limit=300` | `application/json` | 当前 gateway policy、traffic capture、redaction、中间件控制和最近 allow/deny/throttle 决策 |
 | `GET /admin/api/workers` | `application/json` | 来自 live registry 的实例 worker 卡片 |
 | `GET /admin/api/logs` | `application/json` | 合并后的网关竞争事件、磁盘 `*.log` 行和审计调用摘要 |
 | `GET /admin/api/health` | `application/json` | 服务健康摘要 |
@@ -108,6 +109,16 @@ let config = GatewayConfig {
 | `GET /admin/api/skill-paths` | `application/json` | 当前 skill 发现根目录，包括环境变量、本地默认路径、内置路径和 admin custom 路径 |
 | `POST /admin/api/skill-paths` | `application/json` | 添加 SQLite 持久化的自定义 skill 发现根目录，并刷新 live backend skill index |
 | `DELETE /admin/api/skill-paths/{id}` | `application/json` | 删除 SQLite 持久化的自定义 skill 发现根目录，并刷新 live backend skill index |
+
+面向 agent 的稳定镜像位于 `/v1/debug/*`，并会出现在 `GET /v1/openapi.json`。
+Admin 路由仍作为 dashboard 兼容层；自动化调用优先使用：
+
+| 稳定路由 | 镜像 |
+|----------|------|
+| `GET /v1/debug/stats` | `/admin/api/stats` |
+| `GET /v1/debug/governance?limit=300` | `/admin/api/governance` |
+| `GET /v1/debug/search-telemetry` | `/admin/api/search-telemetry` |
+| `GET /v1/debug/health` | `/admin/api/health` |
 
 ## API 响应格式
 
@@ -255,6 +266,44 @@ let config = GatewayConfig {
   "latency": { "p50_ms": 12, "p95_ms": 48 }
 }
 
+// GET /admin/api/governance?limit=300
+{
+  "schema_version": "dcc-mcp.admin.governance.v1",
+  "mode": {
+    "admin_mutations": "disabled",
+    "reason": "Admin is unauthenticated and read-only by default."
+  },
+  "policy": {
+    "read_only": true,
+    "unrestricted": false,
+    "allowlists_active": { "dcc_types": true, "tool_slug_prefixes": true },
+    "allowed_dcc_types": ["maya", "photoshop"],
+    "allowed_tool_slug_prefixes": ["maya.a1b2"]
+  },
+  "traffic_capture": {
+    "enabled": true,
+    "mode": "aggregate",
+    "production_guardrail": "capture only safe aggregate data unless explicitly configured",
+    "redaction": { "paths": ["body.data.params.arguments.api_key"], "redacted_total": 8 }
+  },
+  "middleware": {
+    "controls": [
+      { "kind": "quota", "mode": "rate-limit", "summary": "100 calls / 60s" }
+    ]
+  },
+  "stats": { "recent_allowed": 1200, "recent_policy_denied": 4, "recent_throttled": 3, "redacted_path_count": 8 },
+  "recent_decisions": [
+    {
+      "request_id": "req-123",
+      "outcome": "throttled",
+      "tool": "maya.a1b2.scene__inspect",
+      "traffic_capture": { "captured": 0, "skipped": 1, "reasons": ["filtered-by-rule"] },
+      "privacy": { "redacted_paths": [] },
+      "pressure": { "quota_active": true, "throttled": true }
+    }
+  ]
+}
+
 // GET /admin/api/workers
 {
   "summary": { "live": 2, "stale": 0, "unhealthy": 0 },
@@ -313,6 +362,7 @@ HTML 仪表盘包含：
 - **Worker 卡片**：按实例展示状态、心跳与路由元数据
 - **Calls 表格**：展示 request id、错误摘要与 trace detail 链接；DCC 优先从解析后的 backend slug 展示，其次使用调用参数中的 `dcc` / `dcc_type`
 - **Trace 下钻**：`/admin/api/traces/{request_id}` 暴露单次调用的完整 waterfall，以及有界/已脱敏的输入输出 payload
+- **Governance 面板**：展示 read-only 状态、allowlists、traffic capture 模式/sink、生产 guardrail、redaction path 汇总、中间件限流控制，以及最近 allowed/denied/throttled/capture 决策
 - **Logs 面板**：将标准化的 `contention`、`file`、`audit` 行分组，方便在一条时间线里关联路由事件、滚动日志和工具调用。文件日志读取会限制为最近文件与尾部片段，避免 admin API 扫描无界历史日志
 - **可选持久化**：`DCC_MCP_GATEWAY_AUDIT_DIR` 可让 Calls 与 Traces 面板跨重启保留，且不改变 JSON API 结构
 - **深色主题**：Vite/React 源码，运行时嵌入资产，不要求现场构建
@@ -323,6 +373,7 @@ HTML 仪表盘包含：
 Admin UI 是**只读**的，默认**无认证**。它绑定在赢得选举的 gateway 所使用的 host 上，而默认 host 是 `127.0.0.1`。生产环境建议：
 - 保持 localhost 绑定，或通过反向代理添加 IP 白名单 / Basic Auth
 - 不需要时禁用：`--no-admin`、`DCC_MCP_NO_ADMIN=true` 或 `cfg.admin_enabled = False`
+- 将 Governance 面板视为只读检查面；policy、capture、redaction、quota 的修改仍应通过经过认证的部署配置完成
 - 切勿直接暴露到公网
 
 ## 参见

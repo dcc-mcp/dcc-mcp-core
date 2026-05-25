@@ -581,6 +581,7 @@ pub fn service_error_to_json(err: &ServiceError) -> Value {
 }
 
 pub(crate) fn policy_denied_error(denial: GatewayPolicyDenial) -> ServiceError {
+    crate::gateway::metrics::record_gateway_governance_event("policy", denial.reason.as_str());
     ServiceError::new("policy-denied", denial.message.clone()).with_policy_denial(denial)
 }
 

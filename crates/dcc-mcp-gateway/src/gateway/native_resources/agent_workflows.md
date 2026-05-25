@@ -25,6 +25,11 @@ selected rank, score, match reasons, policy outcome, and success/failure kind.
 Only explicit bounded `agent_context` fields are exported; do not send hidden
 reasoning, secrets, or raw prompt bodies as telemetry metadata.
 
+If a call is denied, throttled, or unexpectedly redacted, inspect
+`GET /v1/debug/governance` before retrying. It reports the effective read-only
+policy, DCC/skill/tool allowlists, traffic capture mode and redaction paths,
+middleware quota pressure, and recent allow/deny/throttle/capture decisions.
+
 ### Host / connector wrappers (common mistakes)
 
 If your IDE or orchestration layer exposes **non-standard** tool names (for example `defer_execute_tool`, `get_sessions`, `tool_search`), they **must** map onto the gateway verbs above — those names are **not** part of `dcc-mcp-gateway`’s native `tools/list`.

@@ -68,7 +68,7 @@ gateway-specific fields:
 | `dcc_mcp.agent.id`, `.name`, `.kind`, `.model`, `.task`, `.tags` | Bounded `agent_context` / caller metadata. |
 | `dcc_mcp.dcc.type`, `dcc_mcp.instance.id`, `dcc_mcp.skill.name`, `dcc_mcp.tool.slug` | Selected DCC route and skill/tool identity. |
 | `dcc_mcp.search.id`, `.ranker_version`, `.selected_rank`, `.score`, `.match_reasons`, `.total`, `.zero_results` | Search-quality context carried from `/v1/search` or gateway `search`. |
-| `dcc_mcp.policy.outcome`, `.reason` | Whether gateway policy allowed or denied the action and why. |
+| `dcc_mcp.policy.outcome`, `.reason` | Whether gateway policy allowed, denied, or throttled the action and why. |
 | `dcc_mcp.success`, `dcc_mcp.error.kind`, `dcc_mcp.batch.size` | Execution outcome fields. |
 
 The gateway intentionally does **not** export hidden chain-of-thought, raw
@@ -223,6 +223,7 @@ The elected gateway exposes a read-only HTML dashboard at `GET /admin` and machi
 | `GET /v1/debug/bundles/{trace_id}` | Full-chain debug bundle across every retained request in a trace. |
 | `GET /admin/api/workflows?limit=200` | Group retained searches, describes, skill loads, calls, traces, and audits into agent session/workflow chains. |
 | `GET /admin/api/stats?range=1h\|24h\|7d` | Compute success rate, latency percentiles, and top tools/instances/agents from the trace log. |
+| `GET /admin/api/governance?limit=300` / `GET /v1/debug/governance` | Inspect effective policy, read-only state, traffic capture guardrails, redaction paths, middleware quota state, and recent allowed/denied/throttled decisions. |
 | `GET /admin/api/workers` | Inspect per-instance worker cards from the live registry. |
 
 By default these buffers are in memory only. Set `DCC_MCP_GATEWAY_AUDIT_DIR` to append bounded JSONL files:
@@ -317,6 +318,10 @@ dcc_mcp_gateway_evictions_total{reason="probe_fail"} 2
 dcc_mcp_gateway_probes_total{outcome="ready"}      45
 dcc_mcp_gateway_probes_total{outcome="booting"}     3
 dcc_mcp_gateway_probes_total{outcome="unreachable"} 2
+
+# Gateway governance outcomes
+dcc_mcp_gateway_governance_events_total{category="policy",outcome="denied"} 4
+dcc_mcp_gateway_governance_events_total{category="rate-limit",outcome="throttled"} 3
 ```
 
 Label cardinality is bounded — no free-form `instance_id` labels.

@@ -53,6 +53,7 @@ OpenAPI 契约。
 | `GET` | `/v1/debug/calls` | 仅网关：最近 audit call rows。 |
 | `GET` | `/v1/debug/logs` | 仅网关：合并 gateway events、file logs、audit summaries。 |
 | `GET` | `/v1/debug/stats` | 仅网关：聚合 call statistics。 |
+| `GET` | `/v1/debug/governance` | 仅网关：当前 policy、traffic capture、redaction、quota 和最近 governance 决策。 |
 | `GET` | `/v1/debug/health` | 仅网关：debug subsystem health summary。 |
 | `GET` | `/v1/openapi.json` | Gateway 专属 OpenAPI 3.x 文档，可供代码生成。 |
 | `GET` | `/docs` | 用同一份 gateway 专属 OpenAPI 文档渲染的 Scalar API reference。 |
@@ -120,6 +121,7 @@ Phase-1 debug routes 会保留现有 Admin payload 字段，让 operator 和 age
 | `/v1/debug/calls` | `/admin/api/calls` | 最近 audit rows。 |
 | `/v1/debug/logs` | `/admin/api/logs` | 合并 gateway/file/audit logs。 |
 | `/v1/debug/stats` | `/admin/api/stats` | 聚合 call stats。 |
+| `/v1/debug/governance?limit=300` | `/admin/api/governance?limit=300` | 当前 policy、read-only 状态、traffic capture/redaction 控制、中间件压力和最近 allow/deny/throttle 决策。 |
 | `/v1/debug/health` | `/admin/api/health` | debug provider health summary。 |
 
 所有 list endpoint 在底层 Admin provider 已支持时都支持 `limit` 参数。
@@ -198,6 +200,7 @@ OpenAPI contract 预留了 `cursor`、`since`、`until` 给后续 normalized env
 - `skill-already-loaded` (502) —— **仅网关 skill lifecycle** —— skill 已处于加载状态。
 - `group-not-found` (502) —— **仅网关 skill lifecycle** —— 请求的 progressive group 不存在。
 - `ambiguous-instance` (502) —— **仅网关 skill lifecycle** —— DCC / instance 选择不唯一。
+- `throttled` (429) —— gateway 中间件限流或并发控制在路由到 backend 前拒绝了请求；按 backoff 重试。
 - `policy-denied` (403) —— **仅网关** —— gateway policy 在路由到 backend 前拒绝了该操作。查看 `policy.reason`。
 - `instance-offline` (503) —— **仅网关** —— `<id8>` 对应的实例已不在线。
 - `schema-unavailable` (502) —— **仅网关** —— 拥有者 DCC 在 discovery 和 call 之间失联。
@@ -226,6 +229,9 @@ Policy 规则属于 gateway 对外契约：
 - REST 单次拒绝返回 HTTP 403，`kind: "policy-denied"`，并带结构化
   `policy` 对象。Batch 调用保持 HTTP 200，在对应 result item 上返回同样的
   `policy-denied` envelope，以保持 batch 顺序稳定。
+- `GET /v1/debug/governance` 会暴露当前 read-only 状态、allowlists、
+  capture/redaction 控制、中间件 quota 压力和最近 allow/deny/throttle 决策，
+  让 agent 不必通过试错调用被阻止的工具来判断部署边界。
 
 拒绝示例：
 

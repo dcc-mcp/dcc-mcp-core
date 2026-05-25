@@ -107,6 +107,7 @@ Markdown body for developer review.
 | `GET /admin/api/traces/{request_id}` | `application/json` | Full waterfall for one recorded dispatch trace |
 | `GET /admin/api/debug-bundle/{request_id}` | `application/json` | One-stop debug bundle containing the trace, matching audit row, related activity, and hints |
 | `GET /admin/api/stats?range=1h\|24h\|7d` | `application/json` | Aggregated call counts, success rate, latency, and top tools/instances/agents |
+| `GET /admin/api/governance?limit=300` | `application/json` | Effective gateway policy, traffic capture, redaction, middleware controls, and recent allow/deny/throttle decisions |
 | `GET /admin/api/workers` | `application/json` | Per-instance worker cards from the live registry |
 | `GET /admin/api/logs` | `application/json` | Merged gateway contention events, on-disk `*.log` rows, and audited call summaries |
 | `GET /admin/api/health` | `application/json` | Service health summary |
@@ -134,6 +135,7 @@ compatibility layer; automation should prefer:
 | `GET /v1/debug/calls` | `/admin/api/calls` |
 | `GET /v1/debug/logs` | `/admin/api/logs` |
 | `GET /v1/debug/stats` | `/admin/api/stats` |
+| `GET /v1/debug/governance?limit=300` | `/admin/api/governance` |
 | `GET /v1/debug/health` | `/admin/api/health` |
 
 ## Optional Agent / Caller Context
@@ -464,6 +466,44 @@ matching Scalar reference.
   "top_agents": [{ "name": "Layout Inspector", "count": 12 }]
 }
 
+// GET /admin/api/governance?limit=300
+{
+  "schema_version": "dcc-mcp.admin.governance.v1",
+  "mode": {
+    "admin_mutations": "disabled",
+    "reason": "Admin is unauthenticated and read-only by default."
+  },
+  "policy": {
+    "read_only": true,
+    "unrestricted": false,
+    "allowlists_active": { "dcc_types": true, "tool_slug_prefixes": true },
+    "allowed_dcc_types": ["maya", "photoshop"],
+    "allowed_tool_slug_prefixes": ["maya.a1b2"]
+  },
+  "traffic_capture": {
+    "enabled": true,
+    "mode": "aggregate",
+    "production_guardrail": "capture only safe aggregate data unless explicitly configured",
+    "redaction": { "paths": ["body.data.params.arguments.api_key"], "redacted_total": 8 }
+  },
+  "middleware": {
+    "controls": [
+      { "kind": "quota", "mode": "rate-limit", "summary": "100 calls / 60s" }
+    ]
+  },
+  "stats": { "recent_allowed": 1200, "recent_policy_denied": 4, "recent_throttled": 3, "redacted_path_count": 8 },
+  "recent_decisions": [
+    {
+      "request_id": "req-123",
+      "outcome": "throttled",
+      "tool": "maya.a1b2.scene__inspect",
+      "traffic_capture": { "captured": 0, "skipped": 1, "reasons": ["filtered-by-rule"] },
+      "privacy": { "redacted_paths": [] },
+      "pressure": { "quota_active": true, "throttled": true }
+    }
+  ]
+}
+
 // GET /admin/api/workers
 {
   "summary": { "live": 2, "stale": 0, "unhealthy": 0 },
@@ -524,6 +564,7 @@ The HTML dashboard includes:
 - **Instance OpenAPI links**: Debug Workbench and instance cards expose `Inspector`, `spec`, and `docs` links generated from each worker `mcp_url`, so an operator can jump from MCP-level telemetry to the lower OpenAPI contract for that exact backend.
 - **Calls table**: request ids, error previews, and trace-detail links; DCC is displayed from the resolved backend slug when available, otherwise from explicit call arguments such as `dcc` / `dcc_type`.
 - **Trace drill-down**: `/admin/api/traces/{request_id}` exposes the full waterfall, optional agent/caller context, and bounded/redacted input/output payloads for one call.
+- **Governance panel**: shows read-only state, allowlists, traffic capture mode/sinks, production guardrails, redaction path summaries, middleware rate-limit controls, and recent allowed/denied/throttled/capture decisions.
 - **Logs panel**: groups normalized `contention`, `file`, and `audit` rows so operators can correlate routing events, rolling files, and tool calls in one timeline. File log reads are bounded to recent files and tail slices so the admin API does not scan unbounded historical logs.
 - **Durable audit option**: `DCC_MCP_GATEWAY_AUDIT_DIR` preserves the Calls and Traces panels across restarts without changing the JSON API shapes.
 - **Dark theme**: Vite/React source with embedded runtime asset and no required runtime build step
@@ -534,6 +575,7 @@ The HTML dashboard includes:
 The admin UI is **read-only** and has **no authentication** by default. It binds to the same host as the elected gateway, which defaults to `127.0.0.1`. For production:
 - Keep it bound to localhost, or place behind a reverse proxy with IP allowlist/basic auth
 - Disable when not needed: `--no-admin`, `DCC_MCP_NO_ADMIN=true`, or `cfg.admin_enabled = False`
+- Treat the Governance panel as an inspection surface only; policy, capture, redaction, and quota changes must still happen through authenticated deployment configuration.
 - Never expose directly to the public internet
 
 ## See also
