@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -16,6 +17,16 @@ RELEASE_PLEASE_CONFIG = REPO_ROOT / "release-please-config.json"
 RELEASE_MANIFEST = REPO_ROOT / ".release-please-manifest.json"
 RELEASE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release.yml"
 SYNC_SCRIPT = REPO_ROOT / "scripts" / "clawhub_sync.py"
+
+
+def load_sync_module():
+    """Load clawhub_sync.py as an importable module for focused unit tests."""
+    spec = importlib.util.spec_from_file_location("clawhub_sync_under_test", SYNC_SCRIPT)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class TestClawhubSync:
@@ -39,6 +50,43 @@ class TestClawhubSync:
         assert "clawhub@0.17.0" in proc.stdout
         assert "dcc-rest-gateway" in proc.stdout
         assert "dcc-cli-gateway" in proc.stdout
+
+    def test_publish_skips_existing_clawhub_version(self, tmp_path, monkeypatch, capsys) -> None:
+        sync = load_sync_module()
+        skill_dir = tmp_path / "skills" / "example"
+        skill_dir.mkdir(parents=True)
+
+        class CleanReport:
+            is_clean = True
+            issues: tuple[str, ...] = ()
+
+        def fake_run(cmd, *, check, capture_output, text):
+            assert check is False
+            assert capture_output is True
+            assert text is True
+            return subprocess.CompletedProcess(
+                cmd,
+                1,
+                stdout="- Preparing example@1.2.3\n",
+                stderr="Error: Uncaught ConvexError: Version already exists\n",
+            )
+
+        monkeypatch.setattr(sync, "REPO_ROOT", tmp_path)
+        monkeypatch.setattr(sync, "skill_version", lambda _skill_dir: "1.2.3")
+        monkeypatch.setattr(sync, "skill_license", lambda _skill_dir: sync.CLAWHUB_LICENSE)
+        monkeypatch.setattr(sync.dcc_mcp_core, "validate_skill", lambda _skill_dir: CleanReport())
+        monkeypatch.setattr(sync.subprocess, "run", fake_run)
+
+        rc = sync.publish_one(
+            {"path": "skills/example", "slug": "example"},
+            dry_run=False,
+            cli="clawhub@test",
+        )
+
+        captured = capsys.readouterr()
+        assert rc == 0
+        assert "Version already exists" in captured.err
+        assert "example@1.2.3 already exists on ClawHub; skipping." in captured.out
 
     def test_clawhub_skill_versions_follow_release_please(self) -> None:
         entries = json.loads(MANIFEST.read_text(encoding="utf-8"))
