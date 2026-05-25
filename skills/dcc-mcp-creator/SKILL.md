@@ -1,0 +1,74 @@
+---
+name: dcc-mcp-creator
+description: >-
+  Infrastructure skill - guide developers and agents through creating or
+  modernizing a full DCC-MCP adapter for Nuke, Blender, 3ds Max, Unreal,
+  ZBrush, Houdini, Maya, and custom studio tools. Use when building server,
+  dispatcher, gateway, packaging, and runtime integration. Not for authoring
+  individual SKILL.md tool packages - use dcc-mcp-skills-creator.
+license: MIT
+compatibility: "dcc-mcp-core 0.17+, Python 3.7+"
+allowed-tools: Bash Read Write Edit
+metadata:
+  dcc-mcp:
+    dcc: python
+    layer: infrastructure
+    version: "1.0.0"
+    search-hint: >-
+      create DCC MCP adapter, Nuke MCP, DccServerBase, HostExecutionBridge,
+      dispatcher, readiness, resources, gateway, Blender, 3ds Max, Unreal,
+      ZBrush, Houdini, Maya
+    tags: "adapter-development, host-runtime, dispatcher, gateway, nuke, blender, 3dsmax, unreal, zbrush"
+    skill-reference-docs:
+      - "references/*.md"
+---
+
+# DCC-MCP Creator
+
+Use this skill when you are creating a new DCC-MCP adapter or modernizing an
+existing adapter repository: server composition, host-thread dispatch,
+sidecar/gateway wiring, readiness, resources, project state, diagnostics,
+install lifecycle, or cross-DCC verification.
+
+For individual skill packages (`SKILL.md`, `tools.yaml`, scripts, groups, and
+skill taxonomy), load `dcc-mcp-skills-creator` instead.
+
+## Fast Workflow
+
+1. Classify the host integration:
+   - Embedded Python host: Blender, 3ds Max Python, Houdini, Maya, Nuke.
+   - External bridge host: ZBrush, Photoshop, Unity, custom tools.
+   - Game/editor host with mixed Python or C++ bridge: Unreal, Unity.
+2. Read the relevant reference:
+   - [ADAPTER_WORKFLOW.md](references/ADAPTER_WORKFLOW.md) for the build path.
+   - [HOST_PATTERN_MATRIX.md](references/HOST_PATTERN_MATRIX.md) for host-specific wiring.
+   - [CORE_ESCALATION_CHECKLIST.md](references/CORE_ESCALATION_CHECKLIST.md) before adding adapter-local glue.
+   - [TESTING_AND_RELEASE.md](references/TESTING_AND_RELEASE.md) before validating or publishing.
+3. Start from `DccServerBase` + `DccServerOptions.from_env(...)`.
+4. Route host API calls through `HostExecutionBridge`; do not hand-roll a second script executor.
+5. Keep DCC identity data-driven: `dcc_name`, `server_name`, env-var prefix, skill names, and gateway metadata.
+6. Use core helpers for skill discovery, `MinimalModeConfig`, project tools, resources, diagnostics, context snapshots, install lifecycle, and gateway failover before writing adapter-local wrappers.
+7. When the adapter needs a lifecycle hook or metadata transform that core cannot express, open a focused core issue/RFC instead of parsing YAML or mutating private state in the adapter.
+8. Add one executable smoke path: unit tests for construction plus either headless DCC, mock dispatcher MCP calls, or gateway REST replay.
+
+## Example: New Nuke Adapter
+
+When asked to create a Nuke MCP adapter, start by mapping the host lifecycle:
+how Python is loaded, how the UI/main thread must be entered, what headless
+mode is available, how plugins are installed, and which operations should be
+bundled as default skills. Then scaffold the adapter around core primitives:
+
+- `DccServerBase` for MCP/HTTP and skill catalog behavior.
+- `DccServerOptions.from_env("NUKE")` or an adapter-specific equivalent for env-driven configuration.
+- `HostExecutionBridge` plus a Nuke dispatcher for all Nuke API calls.
+- Core project, readiness, resource, diagnostics, and gateway helpers before adapter-local glue.
+- `dcc-mcp-skills-creator` for the first `nuke-*` skill packages.
+
+## Non-Negotiables
+
+- Do not touch a DCC API from a Tokio/HTTP worker thread.
+- Do not parse or rewrite `SKILL.md`, `tools.yaml`, `groups.yaml`, or prompt/workflow files in adapter runtime code when core exposes a typed object or catalog API.
+- Do not reach into `server._server` unless no public core API exists; if you must, file a core issue and keep the adapter shim small.
+- Do not create Maya-only abstractions in shared core or adapter templates.
+- Do not expose raw script execution as the primary user workflow when a typed skill can cover the task.
+- Do not publish local paths, private machine names, or source-attribution markers in public issues or PR text.
