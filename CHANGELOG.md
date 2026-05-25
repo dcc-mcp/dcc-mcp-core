@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.34](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.33...v0.17.34) (2026-05-25)
+
+
+### Features
+
+* add admin ui i18n runtime ([350b3e5](https://github.com/loonghao/dcc-mcp-core/commit/350b3e5595c4dd42b3edb8f95b451b4d8ec1dee2))
+* add metadata-driven registration helper ([aedaced](https://github.com/loonghao/dcc-mcp-core/commit/aedaced8a47801e2b2ec52f8c05690dec43c2817))
+* localize admin ui copy ([5db7fa9](https://github.com/loonghao/dcc-mcp-core/commit/5db7fa980204e4b214b87fb8d7a285f41a128b42))
+* namespace admin ui translations ([a1b2937](https://github.com/loonghao/dcc-mcp-core/commit/a1b2937cf875f43775ee68bcc635fcc2ea7996ef))
+
+
+### Bug Fixes
+
+* derive prompts from skill metadata ([73bc467](https://github.com/loonghao/dcc-mcp-core/commit/73bc46711187d63adc2b7d86a093f4f9e3c11b53))
+* support standalone main-affinity execution ([26f55ea](https://github.com/loonghao/dcc-mcp-core/commit/26f55ea30c10e0802b421b0158d5fa3a2b11d964))
+
+
+### Code Refactoring
+
+* clean up admin ui instance naming ([3c6093e](https://github.com/loonghao/dcc-mcp-core/commit/3c6093e5899bf2375e79fb0be9ca42ae63adf87f))
+
 ## [0.17.33](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.32...v0.17.33) (2026-05-25)
 
 
