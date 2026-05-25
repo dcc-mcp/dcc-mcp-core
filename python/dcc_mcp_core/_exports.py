@@ -468,6 +468,7 @@ _LAZY: dict[str, str] = {
     "cleanup_materialized_scripts": "dcc_mcp_core.script_materialization",
     "default_script_materialization_root": "dcc_mcp_core.script_materialization",
     "materialize_script": "dcc_mcp_core.script_materialization",
+    "register_script_materialization_tools": "dcc_mcp_core.script_materialization_tools",
     "sanitize_materialization_segment": "dcc_mcp_core.script_materialization",
     "normalize_file_backed_script_execution_params": "dcc_mcp_core.script_execution",
     "normalize_script_execution_params": "dcc_mcp_core.script_execution",
