@@ -16,7 +16,7 @@ import puzzleIcon from './assets/icons/puzzle.svg';
 import vscodeIcon from './assets/icons/vscode.svg';
 import { formatTime, timestampTitle } from './time';
 
-type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'stats' | 'logs' | 'skill-paths';
+type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'workflows' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'stats' | 'logs' | 'skill-paths';
 
 type HealthPayload = {
   status: string;
@@ -111,6 +111,7 @@ type AdminLinks = {
   openapi_docs_url?: string;
   stats_url?: string;
   admin_traces_url?: string;
+  admin_workflows_url?: string;
 };
 
 type AgentContext = {
@@ -234,6 +235,77 @@ type TaskRow = {
   started_at: string;
   duration_ms?: number | null;
   correlation?: ActivityEvent['correlation'];
+};
+
+type WorkflowAgent = {
+  agent_id?: string | null;
+  agent_name?: string | null;
+  agent_kind?: string | null;
+  model?: string | null;
+  task?: string | null;
+  turn_index?: number | null;
+  tags?: string[];
+};
+
+type WorkflowSearchSignal = {
+  search_id: string;
+  selected_rank?: number | null;
+  selected_score?: number | null;
+  match_reasons?: string[];
+  zero_results?: boolean | null;
+  result_count?: number | null;
+  first_success_ms?: number | null;
+};
+
+type WorkflowStep = {
+  step_id: string;
+  kind: string;
+  title: string;
+  timestamp: string;
+  status: string;
+  success?: boolean | null;
+  request_id?: string | null;
+  trace_id?: string | null;
+  parent_request_id?: string | null;
+  session_id?: string | null;
+  dcc_type?: string | null;
+  instance_id?: string | null;
+  tool?: string | null;
+  transport?: string | null;
+  duration_ms?: number | null;
+  search?: WorkflowSearchSignal | null;
+  links?: AdminLinks;
+};
+
+type WorkflowRow = {
+  workflow_id: string;
+  group_kind: string;
+  title: string;
+  status: string;
+  started_at: string;
+  finished_at: string;
+  duration_ms?: number | null;
+  step_count: number;
+  failed_steps: number;
+  agent?: WorkflowAgent | null;
+  correlation: {
+    session_id?: string | null;
+    trace_id?: string | null;
+    agent_id?: string | null;
+    request_ids?: string[];
+    trace_ids?: string[];
+    session_ids?: string[];
+  };
+  discovery: {
+    search_count: number;
+    zero_result_count: number;
+    selected_count: number;
+    best_selected_rank?: number | null;
+    time_to_first_success_ms?: number | null;
+    search_ids?: string[];
+  };
+  steps: WorkflowStep[];
+  links?: AdminLinks;
 };
 
 type LatencyBlock = {
@@ -628,6 +700,7 @@ const PANELS: { id: Panel; label: string; group: string }[] = [
   { id: 'instances', label: 'Instances', group: 'Operations' },
   { id: 'activity', label: 'Activity', group: 'Operations' },
   { id: 'health', label: 'Health', group: 'Operations' },
+  { id: 'workflows', label: 'Workflows', group: 'Workspace' },
   { id: 'tasks', label: 'Tasks', group: 'Workspace' },
   { id: 'tools', label: 'Tools', group: 'Workspace' },
   { id: 'openapi', label: 'OpenAPI Inspector', group: 'Contracts' },
@@ -1078,7 +1151,7 @@ function statusClass(value: string): string {
   if (status.includes('ok') || status.includes('success') || status.includes('complete') || status.includes('completed') || status.includes('done') || status.includes('ready') || status.includes('available')) {
     return 'badge badge-ok';
   }
-  if (status.includes('stale') || status.includes('booting') || status.includes('warn') || status.includes('pending') || status.includes('running') || status.includes('busy') || status.includes('queued')) {
+  if (status.includes('stale') || status.includes('booting') || status.includes('warn') || status.includes('zero') || status.includes('pending') || status.includes('running') || status.includes('busy') || status.includes('queued')) {
     return 'badge badge-warn';
   }
   return 'badge badge-muted';
@@ -1152,6 +1225,7 @@ function NavIcon({ panel }: { panel: Panel }) {
     health: ['M12 4l7 4v5c0 4-3 7-7 8-4-1-7-4-7-8V8z'],
     instances: ['M6 7h12v10H6z', 'M9 4h6', 'M9 20h6'],
     tools: ['M5 19l5-5', 'M14 5l5 5', 'M12 7l5 5-5 5-5-5z'],
+    workflows: ['M5 6h4v4H5z', 'M15 6h4v4h-4z', 'M5 15h4v4H5z', 'M9 8h6', 'M7 10v5'],
     tasks: ['M6 7h12', 'M6 12h12', 'M6 17h12', 'M4 7h.01', 'M4 12h.01', 'M4 17h.01'],
     calls: ['M7 7h10v10H7z', 'M10 10h4v4h-4z'],
     traces: ['M5 7h4v4H5z', 'M15 13h4v4h-4z', 'M9 9l6 6'],
@@ -1698,6 +1772,133 @@ function TraceLinks({ links }: { links: AdminLinks }) {
   );
 }
 
+function workflowAgentLabel(agent: WorkflowAgent | null | undefined): string {
+  return agent?.agent_name || agent?.agent_id || agent?.agent_kind || agent?.model || 'unknown agent';
+}
+
+function workflowMeta(workflow: WorkflowRow): string {
+  const parts = [
+    workflow.group_kind,
+    workflow.correlation.session_id ? `session ${compactId(workflow.correlation.session_id)}` : '',
+    workflow.correlation.trace_id ? `trace ${compactId(workflow.correlation.trace_id)}` : '',
+    `${workflow.step_count} steps`,
+  ];
+  return parts.filter(Boolean).join(' · ');
+}
+
+function WorkflowSearchChips({ signal }: { signal: WorkflowSearchSignal | null | undefined }) {
+  if (!signal) {
+    return null;
+  }
+  const chips = [
+    `search ${compactId(signal.search_id)}`,
+    signal.result_count != null ? `${signal.result_count} hit(s)` : '',
+    signal.zero_results ? 'zero results' : '',
+    signal.selected_rank != null ? `rank ${signal.selected_rank}` : '',
+    signal.selected_score != null ? `score ${signal.selected_score}` : '',
+    signal.first_success_ms != null ? `first success ${formatDurationMs(signal.first_success_ms)}` : '',
+    ...(signal.match_reasons ?? []).slice(0, 3),
+  ].filter(Boolean);
+  return (
+    <div className="workflow-chip-row">
+      {chips.map((chip) => <span key={chip}>{chip}</span>)}
+    </div>
+  );
+}
+
+function WorkflowStepCard({
+  step,
+  onOpenTrace,
+  onCopyIssueReport,
+}: {
+  step: WorkflowStep;
+  onOpenTrace: (requestId: string) => void;
+  onCopyIssueReport: (requestId: string) => void;
+}) {
+  const requestId = step.request_id ?? undefined;
+  const links = requestId ? traceLinks(requestId, step.links) : step.links;
+  return (
+    <article className={`workflow-step ${isErrStatus(step.status) ? 'err' : isWarnStatus(step.status) ? 'warn' : isOkStatus(step.status) ? 'ok' : ''}`}>
+      <div className="workflow-step-line" />
+      <div className="workflow-step-body">
+        <div className="workflow-step-head">
+          <span className="workflow-kind">{step.kind}</span>
+          <StatusBadge value={step.status} />
+          <TimeValue value={step.timestamp} />
+          <span>{formatDurationMs(step.duration_ms)}</span>
+        </div>
+        <h4 title={step.title}>{step.title}</h4>
+        <div className="workflow-step-meta">
+          <span>{step.dcc_type ?? 'gateway'}</span>
+          <span>{step.transport ?? '-'}</span>
+          <span>{compactId(step.instance_id)}</span>
+          {step.parent_request_id ? <span>parent {compactId(step.parent_request_id)}</span> : null}
+        </div>
+        <WorkflowSearchChips signal={step.search} />
+        <div className="workflow-step-actions">
+          {requestId ? (
+            <button className="refresh-btn" type="button" title={requestId} onClick={() => onOpenTrace(requestId)}>
+              Trace
+            </button>
+          ) : null}
+          {links?.debug_bundle_url ? <a className="link-chip" href={links.debug_bundle_url} target="_blank" rel="noopener noreferrer">Bundle</a> : null}
+          {links?.issue_report_url ? <a className="link-chip" href={links.issue_report_url} target="_blank" rel="noopener noreferrer">Issue JSON</a> : null}
+          {links?.openapi_docs_url ? <a className="link-chip" href={links.openapi_docs_url} target="_blank" rel="noopener noreferrer">Docs</a> : null}
+          {requestId ? (
+            <button className="refresh-btn" type="button" onClick={() => onCopyIssueReport(requestId)}>
+              Copy JSON
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function WorkflowCard({
+  workflow,
+  onOpenTrace,
+  onCopyIssueReport,
+}: {
+  workflow: WorkflowRow;
+  onOpenTrace: (requestId: string) => void;
+  onCopyIssueReport: (requestId: string) => void;
+}) {
+  return (
+    <article className={`workflow-card ${isErrStatus(workflow.status) ? 'err' : isWarnStatus(workflow.status) ? 'warn' : 'ok'}`}>
+      <div className="workflow-card-head">
+        <div>
+          <div className="workflow-kicker">{workflowAgentLabel(workflow.agent)}</div>
+          <h3 title={workflow.title}>{workflow.title}</h3>
+          <div className="workflow-subline">{workflowMeta(workflow)}</div>
+        </div>
+        <div className="workflow-status">
+          <StatusBadge value={workflow.status} />
+          <span>{formatDurationMs(workflow.duration_ms)}</span>
+        </div>
+      </div>
+      {workflow.agent?.task ? <p className="workflow-agent-task">{workflow.agent.task}</p> : null}
+      <div className="workflow-chip-row">
+        <span>{workflow.discovery.search_count} search(es)</span>
+        {workflow.discovery.zero_result_count ? <span>{workflow.discovery.zero_result_count} zero-result</span> : null}
+        {workflow.discovery.best_selected_rank != null ? <span>best rank {workflow.discovery.best_selected_rank}</span> : null}
+        {workflow.discovery.time_to_first_success_ms != null ? <span>first success {formatDurationMs(workflow.discovery.time_to_first_success_ms)}</span> : null}
+        {workflow.failed_steps ? <span>{workflow.failed_steps} failed</span> : null}
+      </div>
+      <div className="workflow-steps">
+        {workflow.steps.map((step) => (
+          <WorkflowStepCard
+            key={step.step_id}
+            step={step}
+            onOpenTrace={onOpenTrace}
+            onCopyIssueReport={onCopyIssueReport}
+          />
+        ))}
+      </div>
+    </article>
+  );
+}
+
 function TraceDetailPanel({
   trace,
   fallback,
@@ -1926,6 +2127,7 @@ function App() {
   const [health, setHealth] = useState<HealthPayload | null>(null);
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
   const [tools, setTools] = useState<ToolRow[]>([]);
+  const [workflows, setWorkflows] = useState<WorkflowRow[]>([]);
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [calls, setCalls] = useState<CallRow[]>([]);
   const [traces, setTraces] = useState<TraceRow[]>([]);
@@ -1959,6 +2161,7 @@ function App() {
     health: 'Loading…',
     instances: 'Loading…',
     tools: 'Loading…',
+    workflows: 'Loading…',
     tasks: 'Loading…',
     openapi: 'Loading…',
     calls: 'Loading…',
@@ -2121,6 +2324,32 @@ function App() {
       ),
     );
   }, [tasks, listSearch]);
+
+  const filteredWorkflows = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    if (!q) {
+      return workflows;
+    }
+    return workflows.filter((workflow) =>
+      matchesListFilter(
+        q,
+        haystack(
+          workflow.workflow_id,
+          workflow.group_kind,
+          workflow.title,
+          workflow.status,
+          workflow.agent?.agent_id ?? '',
+          workflow.agent?.agent_name ?? '',
+          workflow.agent?.model ?? '',
+          workflow.agent?.task ?? '',
+          workflow.correlation.session_id ?? '',
+          workflow.correlation.trace_id ?? '',
+          workflow.discovery.search_ids?.join(' ') ?? '',
+          workflow.steps.map((step) => haystack(step.kind, step.title, step.request_id ?? '', step.search?.search_id ?? '')).join(' '),
+        ),
+      ),
+    );
+  }, [workflows, listSearch]);
 
   const filteredWorkers = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
@@ -2297,6 +2526,14 @@ function App() {
     return { completed, failed, active };
   }, [tasks]);
 
+  const workflowSummary = useMemo(() => {
+    const completed = workflows.filter((workflow) => isOkStatus(workflow.status)).length;
+    const failed = workflows.filter((workflow) => isErrStatus(workflow.status)).length;
+    const warning = workflows.filter((workflow) => isWarnStatus(workflow.status)).length;
+    const zeroResults = workflows.filter((workflow) => workflow.discovery.zero_result_count > 0).length;
+    return { completed, failed, warning, zeroResults };
+  }, [workflows]);
+
   const traceSummary = useMemo(() => {
     const ok = traces.filter((trace) => isOkStatus(trace.status)).length;
     const failed = traces.filter((trace) => isErrStatus(trace.status)).length;
@@ -2472,6 +2709,17 @@ function App() {
       markUpdated('tasks', `${payload.tasks?.length ?? 0} task(s) — ${new Date().toLocaleTimeString()}`);
     } catch (error) {
       markError('tasks', error);
+    }
+  }, [markError, markUpdated]);
+
+  const fetchWorkflows = useCallback(async () => {
+    try {
+      const payload = await apiJson<{ workflows: WorkflowRow[] }>('/workflows?limit=200');
+      const rows = Array.isArray(payload.workflows) ? payload.workflows : [];
+      setWorkflows(rows);
+      markUpdated('workflows', `${rows.length} workflow(s) — ${new Date().toLocaleTimeString()}`);
+    } catch (error) {
+      markError('workflows', error);
     }
   }, [markError, markUpdated]);
 
@@ -2764,13 +3012,14 @@ function App() {
     if (panel === 'instances') void fetchInstanceBackends();
     if (panel === 'tools') void fetchTools();
     if (panel === 'openapi') void fetchOpenApi();
+    if (panel === 'workflows') void fetchWorkflows();
     if (panel === 'tasks') void fetchTasks();
     if (panel === 'calls') void fetchCalls();
     if (panel === 'traces') void fetchTraces();
     if (panel === 'stats') void fetchStats();
     if (panel === 'skill-paths') void fetchSkillInventory();
     if (panel === 'logs') void fetchLogs();
-  }, [fetchActivity, fetchCalls, fetchDebug, fetchHealth, fetchInstanceBackends, fetchLogs, fetchOpenApi, fetchSetup, fetchSkillInventory, fetchStats, fetchTasks, fetchTools, fetchTraces]);
+  }, [fetchActivity, fetchCalls, fetchDebug, fetchHealth, fetchInstanceBackends, fetchLogs, fetchOpenApi, fetchSetup, fetchSkillInventory, fetchStats, fetchTasks, fetchTools, fetchTraces, fetchWorkflows]);
 
   useEffect(() => {
     fetchPanel(activePanel);
@@ -2839,6 +3088,7 @@ function App() {
                 {activePanel === 'activity' ? `${filteredActivity.length} / ${activity.length}` : ''}
                 {activePanel === 'instances' ? `${filteredWorkers.length} / ${workers.length}` : ''}
                 {activePanel === 'tools' ? `${filteredTools.length} / ${tools.length}` : ''}
+                {activePanel === 'workflows' ? `${filteredWorkflows.length} / ${workflows.length}` : ''}
                 {activePanel === 'openapi' ? `${filteredOpenApiOperations.length} / ${openApiOperations.length}` : ''}
                 {activePanel === 'tasks' ? `${filteredTasks.length} / ${tasks.length}` : ''}
                 {activePanel === 'calls' ? `${filteredCalls.length} / ${calls.length}` : ''}
@@ -3238,6 +3488,38 @@ function App() {
               operations={filteredOpenApiOperations}
               source={openApiSource}
             />
+          </section>
+        )}
+
+        {activePanel === 'workflows' && (
+          <section className="panel active workflows-panel">
+            <PanelHeader
+              title="Workflows"
+              meta="Agent sessions reconstructed from search, trace, and audit correlation."
+              action={<button className="refresh-btn" type="button" onClick={fetchWorkflows}>Refresh</button>}
+            />
+            <StatusLine text={copiedNotice || updatedAt.workflows} error={errors.workflows} />
+            <div className="metric-grid compact">
+              <MetricTile tone="ok" label="Completed" value={workflowSummary.completed} />
+              <MetricTile tone={workflowSummary.warning > 0 ? 'warn' : undefined} label="Warnings" value={workflowSummary.warning} />
+              <MetricTile tone={workflowSummary.failed > 0 ? 'err' : undefined} label="Failed" value={workflowSummary.failed} />
+              <MetricTile tone={workflowSummary.zeroResults > 0 ? 'warn' : undefined} label="Zero-result" value={workflowSummary.zeroResults} />
+              <MetricTile label="Visible" value={`${filteredWorkflows.length} / ${workflows.length}`} />
+            </div>
+            {workflows.length === 0 ? <p className="empty">No agent workflows reconstructed yet.</p> : filteredWorkflows.length === 0 ? (
+              <p className="empty">No workflows match your search.</p>
+            ) : (
+              <div className="workflow-board">
+                {filteredWorkflows.map((workflow) => (
+                  <WorkflowCard
+                    key={`${workflow.group_kind}-${workflow.workflow_id}`}
+                    workflow={workflow}
+                    onOpenTrace={(requestId) => goToPanel('traces', { traceId: requestId })}
+                    onCopyIssueReport={(requestId) => void copyIssueReport(requestId)}
+                  />
+                ))}
+              </div>
+            )}
           </section>
         )}
 

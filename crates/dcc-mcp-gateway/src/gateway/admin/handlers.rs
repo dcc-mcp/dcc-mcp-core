@@ -6,13 +6,14 @@ use std::time::UNIX_EPOCH;
 
 use axum::Json;
 use axum::extract::{OriginalUri, Path, Query, State};
-use axum::http::{HeaderMap, HeaderValue, StatusCode, Uri, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::IntoResponse;
 use dcc_mcp_gateway_core::naming::instance_short;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::html::ADMIN_HTML;
+use super::links::AdminLinkBuilder;
 use super::state::{AdminAuditRecord, AdminState};
 use super::trace::DispatchTrace;
 use crate::gateway::capability::RefreshReason;
@@ -24,94 +25,6 @@ use dcc_mcp_db::read_gateway_log_dir_rows_recent;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};
 
 const ADMIN_FILE_LOG_READ_TIMEOUT: Duration = Duration::from_millis(750);
-
-#[derive(Clone)]
-struct AdminLinkBuilder {
-    origin: String,
-    admin_base: String,
-}
-
-impl AdminLinkBuilder {
-    fn from_request(headers: &HeaderMap, uri: &Uri) -> Self {
-        let proto = header_value(headers, "x-forwarded-proto").unwrap_or_else(|| "http".into());
-        let host = header_value(headers, "x-forwarded-host")
-            .or_else(|| header_value(headers, "host"))
-            .unwrap_or_else(|| "127.0.0.1:9765".into());
-        let admin_base = admin_base_path(uri.path());
-        Self {
-            origin: format!("{proto}://{host}"),
-            admin_base,
-        }
-    }
-
-    fn request_links(&self, request_id: &str) -> Value {
-        let encoded = encode_url_component(request_id);
-        json!({
-            "admin_trace_url": format!(
-                "{}{}?panel=traces&trace={}",
-                self.origin, self.admin_base, encoded
-            ),
-            "trace_api_url": format!(
-                "{}{}/api/traces/{}",
-                self.origin, self.admin_base, encoded
-            ),
-            "debug_bundle_url": format!(
-                "{}{}/api/debug-bundle/{}",
-                self.origin, self.admin_base, encoded
-            ),
-            "issue_report_url": format!(
-                "{}{}/api/issue-report/{}",
-                self.origin, self.admin_base, encoded
-            ),
-            "openapi_inspector_url": self.panel_url("openapi"),
-            "openapi_spec_url": format!("{}/v1/openapi.json", self.origin),
-            "openapi_docs_url": format!("{}/docs", self.origin),
-            "stats_url": self.panel_url("stats"),
-        })
-    }
-
-    fn panel_url(&self, panel: &str) -> String {
-        format!("{}{}?panel={panel}", self.origin, self.admin_base)
-    }
-}
-
-fn header_value(headers: &HeaderMap, name: &str) -> Option<String> {
-    headers
-        .get(name)
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-}
-
-fn admin_base_path(path: &str) -> String {
-    if path.starts_with("/v1/debug/") {
-        return "/admin".to_string();
-    }
-    let base = path
-        .find("/api")
-        .map(|idx| &path[..idx])
-        .unwrap_or(path)
-        .trim_end_matches('/');
-    if base.is_empty() {
-        "/admin".to_string()
-    } else {
-        base.to_string()
-    }
-}
-
-fn encode_url_component(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(byte as char);
-            }
-            _ => out.push_str(&format!("%{byte:02X}")),
-        }
-    }
-    out
-}
 
 fn issue_report_filename(request_id: &str) -> String {
     let mut safe = String::with_capacity(request_id.len());
@@ -896,6 +809,19 @@ pub async fn handle_admin_tasks(
 ) -> impl IntoResponse {
     let limit = params.limit(200, 1_000);
     Json(crate::gateway::admin::activity::build_tasks_payload(&s, limit).await)
+}
+
+/// `GET /admin/api/workflows` — agent/session workflow projection over
+/// retained search telemetry, traces, and audit rows.
+pub async fn handle_admin_workflows(
+    State(s): State<AdminState>,
+    axum::extract::Query(params): axum::extract::Query<DebugListQuery>,
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+) -> impl IntoResponse {
+    let limit = params.limit(100, 500);
+    let links = AdminLinkBuilder::from_request(&headers, &uri);
+    Json(crate::gateway::admin::workflows::build_workflows_payload(&s, limit, links).await)
 }
 
 /// `GET /admin/api/debug-bundle/{request_id}` — correlated material for one request.
