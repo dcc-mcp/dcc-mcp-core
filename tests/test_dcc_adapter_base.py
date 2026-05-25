@@ -282,6 +282,7 @@ class _FakeDccServer:
     def __init__(self):
         self.started = False
         self._handle = _FakeHandle()
+        self._resources = _FakeResourceHandle()
 
     def start(self):
         self.started = True
@@ -313,6 +314,25 @@ class _FakeDccServer:
 
     def get_skill_info(self, name):
         return None
+
+    def resources(self):
+        return self._resources
+
+
+class _FakeResourceHandle:
+    def __init__(self):
+        self.producers = []
+        self.scene = None
+        self.updated = []
+
+    def register_producer(self, scheme_or_uri, producer):
+        self.producers.append((scheme_or_uri, producer))
+
+    def set_scene(self, snapshot):
+        self.scene = snapshot
+
+    def notify_updated(self, uri):
+        self.updated.append(uri)
 
 
 class _FakeHandle:
@@ -393,6 +413,25 @@ class TestDccServerBase:
         h2 = server.start()
         assert h1 is h2
         server.stop()
+
+    def test_resources_returns_public_inner_handle(self, tmp_path):
+        server = self._make_server(tmp_path)
+        assert server.resources() is server._server._resources
+
+    def test_resource_helpers_delegate_to_public_handle(self, tmp_path):
+        server = self._make_server(tmp_path)
+
+        def producer(uri):
+            return {"mimeType": "text/plain", "text": uri}
+
+        server.register_resource_producer("docs://adapter", producer)
+        server.set_scene_resource({"name": "demo"})
+        server.notify_resource_updated("docs://adapter")
+
+        handle = server._server._resources
+        assert handle.producers == [("docs://adapter", producer)]
+        assert handle.scene == {"name": "demo"}
+        assert handle.updated == ["docs://adapter"]
 
     def test_quit_hooks_run_lifo_once_on_stop(self, tmp_path):
         server = self._make_server(tmp_path)

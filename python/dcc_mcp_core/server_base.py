@@ -170,6 +170,44 @@ class DccServerBase:
 
         return append_context_snapshot(result, self._snapshot_provider, policy=policy)
 
+    # ── MCP resources ────────────────────────────────────────────────────────
+
+    def resources(self) -> Any:
+        """Return the shared MCP ``ResourceHandle`` for this server.
+
+        Adapters should use this public surface to publish custom resources
+        such as scene snapshots, command documentation, project state, and API
+        references. The returned handle is the same registry used by the inner
+        ``McpHttpServer``, so registrations made before or after ``start()``
+        are reflected by ``resources/list`` and ``resources/read``.
+        """
+        get_resources = getattr(self._server, "resources", None)
+        if not callable(get_resources):
+            raise RuntimeError("inner MCP server does not expose resources()")
+        return get_resources()
+
+    def register_resource_producer(self, scheme_or_uri: str, producer: Callable[[str], Any]) -> None:
+        """Register a Python resource producer on the server resource handle.
+
+        Args:
+            scheme_or_uri: Bare scheme (``"maya-cmds"``) or URI prefix
+                (``"maya-cmds://"`` / ``"maya-cmds://commands"``).
+            producer: Callable accepting ``uri: str`` and returning the
+                ResourceHandle producer dict, typically
+                ``{"mimeType": "text/plain", "text": "..."}`` or
+                ``{"mimeType": "application/octet-stream", "blob": b"..."}``.
+
+        """
+        self.resources().register_producer(scheme_or_uri, producer)
+
+    def set_scene_resource(self, snapshot: Any) -> None:
+        """Publish ``snapshot`` as ``scene://current``."""
+        self.resources().set_scene(snapshot)
+
+    def notify_resource_updated(self, uri: str) -> None:
+        """Emit ``notifications/resources/updated`` for ``uri``."""
+        self.resources().notify_updated(uri)
+
     @staticmethod
     def _context_metadata_from_env(dcc_name: str) -> dict[str, str]:
         """Collect Rez-resolved context metadata for gateway discovery."""
