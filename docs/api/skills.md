@@ -1,6 +1,6 @@
 # Skills API
 
-`dcc_mcp_core.SkillCatalog`, `dcc_mcp_core.SkillScanner`, `dcc_mcp_core.SkillWatcher`, `dcc_mcp_core.SkillMetadata`, `dcc_mcp_core.SkillSummary`, `dcc_mcp_core.ToolDeclaration`, `dcc_mcp_core.parse_skill_md`, `dcc_mcp_core.scan_and_load`
+`dcc_mcp_core.SkillCatalog`, `dcc_mcp_core.SkillScanner`, `dcc_mcp_core.SkillWatcher`, `dcc_mcp_core.SkillMetadata`, `dcc_mcp_core.SkillSummary`, `dcc_mcp_core.ToolDeclaration`, `dcc_mcp_core.parse_skill_md`, `dcc_mcp_core.scan_and_load`, `dcc_mcp_core.register_metadata_driven_tools`
 
 `dcc_mcp_core.skill` (pure-Python): `skill_entry`, `skill_success`, `skill_error`, `skill_warning`, `skill_exception`, `run_main`
 
@@ -380,6 +380,64 @@ scan_and_load_lenient(
 Same as `scan_and_load` but keeps skills with missing soft dependencies in the returned skill list (warns via logging). Missing dependencies are ignored only for ordering; dependencies that are present are still sorted before their dependents. Only cyclic dependencies raise `ValueError`.
 
 Returns `(ordered_skills, skipped_dirs)`.
+
+### register_metadata_driven_tools
+
+```python
+register_metadata_driven_tools(
+    server,
+    *,
+    skills: Sequence[Any] | None = None,
+    skipped: Sequence[Any] | None = None,
+    dcc_name: str = "dcc",
+    extra_paths: Iterable[str] | None = None,
+    registrations: Sequence[MetadataExtensionRegistration | Callable | tuple[str, Callable]] | None = None,
+    scan: Callable | None = None,
+    phase: str = "startup",
+) -> MetadataRegistrationReport
+```
+
+Register optional tools derived from loaded skill metadata. When `skills` is
+omitted the helper calls `scan_and_load_lenient(extra_paths=..., dcc_name=...)`
+once, then invokes each extension callback as
+`callback(server, skills=loaded_skills, dcc_name=dcc_name)`.
+
+Default registrations cover:
+
+- `recipes` → `register_recipes_tools`
+- `skill-reference-docs` → `register_skill_reference_docs_tools`
+
+Adapters can pass custom callbacks or lazy import descriptors:
+
+```python
+from dcc_mcp_core import (
+    imported_metadata_extension,
+    register_metadata_driven_tools,
+)
+
+report = register_metadata_driven_tools(
+    server,
+    dcc_name="maya",
+    extra_paths=[studio_skill_root],
+    registrations=[
+        imported_metadata_extension(
+            "recipes",
+            "dcc_mcp_core.recipes",
+            "register_recipes_tools",
+        ),
+        imported_metadata_extension(
+            "refs",
+            "dcc_mcp_core.skill_reference_docs",
+            "register_skill_reference_docs_tools",
+        ),
+    ],
+)
+logger.info("metadata tools: %s", report.to_dict())
+```
+
+The report records `registered`, `failed`, and `skipped` extension outcomes.
+One optional extension failing to import or register does not prevent later
+extensions from running.
 
 ### resolve_dependencies
 
