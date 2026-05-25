@@ -100,6 +100,9 @@ jobs:
         with:
           python-version: "3.14"
       - uses: loonghao/vx@v0.9.2
+        with:
+          version: "0.9.2"
+          cache-key-prefix: "vx-tools-v0.9.2"
       - name: Cache Cargo
         uses: actions/cache@v5
         with:

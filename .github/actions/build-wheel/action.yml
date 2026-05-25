@@ -62,6 +62,8 @@ runs:
     - name: Install vx
       uses: loonghao/vx@v0.9.2
       with:
+        version: "0.9.2"
+        cache-key-prefix: "vx-tools-v0.9.2"
         cache: "false"
 
     - name: Cache Cargo
