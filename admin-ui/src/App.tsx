@@ -16,7 +16,7 @@ import puzzleIcon from './assets/icons/puzzle.svg';
 import vscodeIcon from './assets/icons/vscode.svg';
 import { formatTime, timestampTitle } from './time';
 
-type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'workflows' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'stats' | 'governance' | 'logs' | 'skill-paths';
+type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'workflows' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'traffic' | 'stats' | 'governance' | 'logs' | 'skill-paths';
 
 type HealthPayload = {
   status: string;
@@ -159,6 +159,58 @@ type AdminLinks = {
   stats_url?: string;
   admin_traces_url?: string;
   admin_workflows_url?: string;
+};
+
+type TrafficLinks = {
+  admin_traffic_url?: string;
+  traffic_api_url?: string;
+  traffic_export_jsonl_url?: string;
+};
+
+type TrafficFrameEnvelope = {
+  schema_version?: number;
+  name?: string;
+  id?: string;
+  timestamp_ns?: number;
+  source?: Record<string, unknown>;
+  correlation?: {
+    request_id?: string;
+    trace_id?: string;
+    session_id?: string;
+    [key: string]: unknown;
+  };
+  attributes?: TrafficFrameAttributes;
+};
+
+type TrafficFrameAttributes = {
+  capture_id?: string;
+  session_id?: string | null;
+  direction?: string;
+  leg?: string;
+  transport?: string;
+  http?: {
+    method?: string;
+    url?: string;
+    status?: number | null;
+    headers?: Record<string, string>;
+  };
+  mcp?: {
+    kind?: string;
+    method?: string;
+    id?: unknown;
+  };
+  body?: {
+    encoding?: string;
+    data?: unknown;
+    size_bytes?: number;
+    redacted_paths?: string[];
+  };
+};
+
+type TrafficPayload = {
+  total?: number;
+  frames?: TrafficFrameEnvelope[];
+  links?: TrafficLinks;
 };
 
 type AgentContext = {
@@ -907,6 +959,7 @@ const PANELS: { id: Panel; label: string; group: string }[] = [
   { id: 'openapi', label: 'OpenAPI Inspector', group: 'Contracts' },
   { id: 'stats', label: 'Stats', group: 'Observability' },
   { id: 'governance', label: 'Governance', group: 'Observability' },
+  { id: 'traffic', label: 'Traffic', group: 'Observability' },
   { id: 'traces', label: 'Traces', group: 'Observability' },
   { id: 'calls', label: 'Calls', group: 'Observability' },
   { id: 'logs', label: 'Logs', group: 'Observability' },
@@ -1431,6 +1484,7 @@ function NavIcon({ panel }: { panel: Panel }) {
     tasks: ['M6 7h12', 'M6 12h12', 'M6 17h12', 'M4 7h.01', 'M4 12h.01', 'M4 17h.01'],
     calls: ['M7 7h10v10H7z', 'M10 10h4v4h-4z'],
     traces: ['M5 7h4v4H5z', 'M15 13h4v4h-4z', 'M9 9l6 6'],
+    traffic: ['M4 8h4l2 8 4-12 2 8h4', 'M4 16h4', 'M16 16h4'],
     stats: ['M5 18V9', 'M12 18V5', 'M19 18v-6', 'M4 18h16'],
     governance: ['M12 4l7 4v5c0 4-3 7-7 8-4-1-7-4-7-8V8z', 'M9 12l2 2 4-5'],
     logs: ['M7 5h8l3 3v11H7z', 'M15 5v4h4', 'M10 13h6', 'M10 16h5'],
@@ -1902,6 +1956,37 @@ function compactId(value: string | null | undefined): string {
     return '-';
   }
   return value.length > 12 ? value.slice(0, 12) : value;
+}
+
+function trafficTimestamp(frame: TrafficFrameEnvelope): string | undefined {
+  if (typeof frame.timestamp_ns === 'number') {
+    return new Date(frame.timestamp_ns / 1_000_000).toISOString();
+  }
+  return undefined;
+}
+
+function trafficMethod(frame: TrafficFrameEnvelope): string {
+  return frame.attributes?.mcp?.method ?? '-';
+}
+
+function trafficRequestId(frame: TrafficFrameEnvelope): string | undefined {
+  return frame.correlation?.request_id;
+}
+
+function trafficSessionId(frame: TrafficFrameEnvelope): string | undefined {
+  return frame.attributes?.session_id ?? frame.correlation?.session_id;
+}
+
+function trafficBodyBytes(frame: TrafficFrameEnvelope): number | undefined {
+  return frame.attributes?.body?.size_bytes;
+}
+
+function trafficRedactedPaths(frame: TrafficFrameEnvelope): string[] {
+  return frame.attributes?.body?.redacted_paths ?? [];
+}
+
+function trafficFrameDetail(frame: TrafficFrameEnvelope): string {
+  return JSON.stringify(frame, null, 2);
 }
 
 function compactList(values: string[] | null | undefined, empty = 'Any'): string {
@@ -2536,6 +2621,7 @@ function App() {
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [calls, setCalls] = useState<CallRow[]>([]);
   const [traces, setTraces] = useState<TraceRow[]>([]);
+  const [traffic, setTraffic] = useState<TrafficPayload | null>(null);
   const [stats, setStats] = useState<StatsPayload | null>(null);
   const [governance, setGovernance] = useState<GovernancePayload | null>(null);
   const [statsRange, setStatsRange] = useState(() => readStatsRangeFromUrl());
@@ -2558,6 +2644,7 @@ function App() {
   const [skillDetailBusy, setSkillDetailBusy] = useState(false);
   const [traceDetail, setTraceDetail] = useState<string>('Select a trace row for detail.');
   const [traceDetailPayload, setTraceDetailPayload] = useState<TraceDetailPayload | null>(null);
+  const [trafficDetail, setTrafficDetail] = useState<string>('Select a traffic frame row for detail.');
   const [callDetail, setCallDetail] = useState<string>('Select a call row for trace detail.');
   const [copiedNotice, setCopiedNotice] = useState<string>('');
   const [updatedAt, setUpdatedAt] = useState<Record<Panel, string>>({
@@ -2572,6 +2659,7 @@ function App() {
     openapi: 'Loading…',
     calls: 'Loading…',
     traces: 'Loading…',
+    traffic: 'Loading…',
     stats: 'Loading…',
     governance: 'Loading…',
     logs: 'Loading…',
@@ -2706,6 +2794,36 @@ function App() {
       ),
     );
   }, [traces, listSearch]);
+
+  const trafficFrames = useMemo(() => traffic?.frames ?? [], [traffic]);
+  const filteredTrafficFrames = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    if (!q) {
+      return trafficFrames;
+    }
+    return trafficFrames.filter((frame) =>
+      matchesListFilter(
+        q,
+        haystack(
+          frame.id ?? '',
+          frame.name ?? '',
+          trafficRequestId(frame) ?? '',
+          frame.correlation?.trace_id ?? '',
+          trafficSessionId(frame) ?? '',
+          frame.attributes?.capture_id ?? '',
+          frame.attributes?.direction ?? '',
+          frame.attributes?.leg ?? '',
+          frame.attributes?.transport ?? '',
+          frame.attributes?.http?.method ?? '',
+          frame.attributes?.http?.url ?? '',
+          String(frame.attributes?.http?.status ?? ''),
+          frame.attributes?.mcp?.kind ?? '',
+          trafficMethod(frame),
+          trafficRedactedPaths(frame).join(' '),
+        ),
+      ),
+    );
+  }, [trafficFrames, listSearch]);
 
   const filteredTasks = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
@@ -3012,6 +3130,14 @@ function App() {
     return { ok, failed, p95, agentContext, spans };
   }, [stats, traces]);
 
+  const trafficSummary = useMemo(() => {
+    const sessions = new Set(trafficFrames.map(trafficSessionId).filter(Boolean)).size;
+    const redacted = trafficFrames.reduce((sum, frame) => sum + trafficRedactedPaths(frame).length, 0);
+    const bytes = trafficFrames.reduce((sum, frame) => sum + (trafficBodyBytes(frame) ?? 0), 0);
+    const transports = new Set(trafficFrames.map((frame) => frame.attributes?.transport).filter(Boolean)).size;
+    return { sessions, redacted, bytes, transports };
+  }, [trafficFrames]);
+
   const statsSummary = useMemo(() => {
     const failed = stats?.failed_calls ?? Math.max(0, (stats?.total_calls ?? 0) - (stats?.successful_calls ?? 0));
     const success = stats?.successful_calls ?? Math.max(0, (stats?.total_calls ?? 0) - failed);
@@ -3171,6 +3297,17 @@ function App() {
     }
   }, [markError, markUpdated]);
 
+  const fetchTraffic = useCallback(async () => {
+    try {
+      const payload = await apiJson<TrafficPayload>('/traffic?limit=300');
+      const rows = Array.isArray(payload.frames) ? payload.frames : [];
+      setTraffic({ ...payload, frames: rows });
+      markUpdated('traffic', `${rows.length} frame(s) — ${new Date().toLocaleTimeString()}`);
+    } catch (error) {
+      markError('traffic', error);
+    }
+  }, [markError, markUpdated]);
+
   const fetchTasks = useCallback(async () => {
     try {
       const payload = await apiJson<{ tasks: TaskRow[] }>('/tasks?limit=300');
@@ -3297,12 +3434,13 @@ function App() {
       fetchActivity(),
       fetchCalls(),
       fetchTraces(),
+      fetchTraffic(),
       fetchStats(),
       fetchGovernance(),
       fetchLogs(),
     ]);
     markUpdated('debug', `Debug snapshot — ${new Date().toLocaleTimeString()}`);
-  }, [fetchActivity, fetchCalls, fetchGovernance, fetchHealth, fetchInstanceBackends, fetchLogs, fetchStats, fetchTraces, markUpdated]);
+  }, [fetchActivity, fetchCalls, fetchGovernance, fetchHealth, fetchInstanceBackends, fetchLogs, fetchStats, fetchTraces, fetchTraffic, markUpdated]);
 
   const addSkillPath = useCallback(async () => {
     const path = skillPathInput.trim();
@@ -3496,11 +3634,12 @@ function App() {
     if (panel === 'tasks') void fetchTasks();
     if (panel === 'calls') void fetchCalls();
     if (panel === 'traces') void fetchTraces();
+    if (panel === 'traffic') void fetchTraffic();
     if (panel === 'stats') void fetchStats();
     if (panel === 'governance') void fetchGovernance();
     if (panel === 'skill-paths') void fetchSkillInventory();
     if (panel === 'logs') void fetchLogs();
-  }, [fetchActivity, fetchCalls, fetchDebug, fetchGovernance, fetchHealth, fetchInstanceBackends, fetchLogs, fetchOpenApi, fetchSetup, fetchSkillInventory, fetchStats, fetchTasks, fetchTools, fetchTraces, fetchWorkflows]);
+  }, [fetchActivity, fetchCalls, fetchDebug, fetchGovernance, fetchHealth, fetchInstanceBackends, fetchLogs, fetchOpenApi, fetchSetup, fetchSkillInventory, fetchStats, fetchTasks, fetchTools, fetchTraces, fetchTraffic, fetchWorkflows]);
 
   useEffect(() => {
     fetchPanel(activePanel);
@@ -3574,6 +3713,7 @@ function App() {
                 {activePanel === 'tasks' ? `${filteredTasks.length} / ${tasks.length}` : ''}
                 {activePanel === 'calls' ? `${filteredCalls.length} / ${calls.length}` : ''}
                 {activePanel === 'traces' ? `${filteredTraces.length} / ${traces.length}` : ''}
+                {activePanel === 'traffic' ? `${filteredTrafficFrames.length} / ${trafficFrames.length}` : ''}
                 {activePanel === 'governance' ? `${filteredGovernanceDecisions.length} / ${governance?.recent_decisions?.length ?? 0}` : ''}
                 {activePanel === 'skill-paths' ? `${filteredSkills.length} skill(s), ${filteredSkillPaths.length} path(s)` : ''}
                 {activePanel === 'logs' ? `${filteredLogs.length} / ${logs.length}` : ''}
@@ -4172,6 +4312,103 @@ function App() {
                   onCopyIssueReport={(requestId) => void copyIssueReport(requestId)}
                   onDownloadIssueReport={(requestId) => void downloadIssueReport(requestId)}
                 />
+              </div>
+            )}
+          </section>
+        )}
+
+        {activePanel === 'traffic' && (
+          <section className="panel active traffic-panel" data-panel="traffic">
+            <PanelHeader
+              title="Traffic"
+              meta="Live retained MCP/HTTP frames from the admin_live traffic sink."
+              action={(
+                <div className="table-actions">
+                  <a
+                    className="refresh-btn"
+                    href={traffic?.links?.traffic_export_jsonl_url ?? `${API_BASE}/traffic/export?limit=1000`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Export JSONL
+                  </a>
+                  <button className="refresh-btn" type="button" onClick={fetchTraffic}>Refresh</button>
+                </div>
+              )}
+            />
+            <StatusLine text={copiedNotice || updatedAt.traffic} error={errors.traffic} />
+            <div className="metric-grid compact">
+              <MetricTile label="Retained" value={trafficFrames.length} detail={`${filteredTrafficFrames.length} visible`} />
+              <MetricTile label="Sessions" value={trafficSummary.sessions} />
+              <MetricTile label="Transports" value={trafficSummary.transports} />
+              <MetricTile tone={trafficSummary.redacted > 0 ? 'warn' : undefined} label="Redactions" value={trafficSummary.redacted} />
+              <MetricTile label="Payload" value={formatBytes(trafficSummary.bytes)} />
+            </div>
+            {trafficFrames.length === 0 ? <p className="empty">No live traffic frames retained. Configure a traffic sink with kind admin_live to populate this panel.</p> : filteredTrafficFrames.length === 0 ? (
+              <p className="empty">No traffic frames match your search.</p>
+            ) : (
+              <div className="trace-layout">
+                <div className="trace-list">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Time</th>
+                        <th>Request</th>
+                        <th>Method</th>
+                        <th>Leg</th>
+                        <th>HTTP</th>
+                        <th>Session</th>
+                        <th>Bytes</th>
+                        <th>Redaction</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredTrafficFrames.map((frame, index) => {
+                        const requestId = trafficRequestId(frame);
+                        return (
+                          <tr key={frame.id ?? `${requestId ?? 'traffic'}-${index}`}>
+                            <td><TimeValue value={trafficTimestamp(frame)} /></td>
+                            <td>
+                              <span className="mono-path">{compactId(requestId)}</span>
+                              <div className="muted">{compactId(frame.correlation?.trace_id)}</div>
+                            </td>
+                            <td>
+                              <span className="mono-path">{trafficMethod(frame)}</span>
+                              <div className="muted">{frame.attributes?.mcp?.kind ?? '-'}</div>
+                            </td>
+                            <td>
+                              {frame.attributes?.leg ?? '-'}
+                              <div className="muted">{frame.attributes?.transport ?? '-'}</div>
+                            </td>
+                            <td>
+                              {frame.attributes?.http?.method ?? '-'} {frame.attributes?.http?.url ?? ''}
+                              <div className="muted">{frame.attributes?.http?.status ?? '-'}</div>
+                            </td>
+                            <td className="mono-path">{compactId(trafficSessionId(frame))}</td>
+                            <td>{formatBytes(trafficBodyBytes(frame))}</td>
+                            <td className="mono-path">{compactList(trafficRedactedPaths(frame), 'none')}</td>
+                            <td>
+                              <div className="table-actions">
+                                <button className="refresh-btn" type="button" onClick={() => setTrafficDetail(trafficFrameDetail(frame))}>View</button>
+                                {requestId ? (
+                                  <button className="refresh-btn" type="button" onClick={() => goToPanel('traces', { traceId: requestId })}>Trace</button>
+                                ) : null}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="trace-detail-card">
+                  <div className="trace-card-head">
+                    <h3>Frame JSON</h3>
+                    <button className="refresh-btn" type="button" onClick={() => void copyText(trafficDetail, 'traffic frame JSON')}>Copy</button>
+                  </div>
+                  <pre className="payload-pre">{trafficDetail}</pre>
+                </div>
               </div>
             )}
           </section>

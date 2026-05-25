@@ -153,6 +153,10 @@ Admin 审计/trace 持久化只通过环境变量配置：设置 `DCC_MCP_GATEWA
 产生的离线 traffic capture 文件。它不会自动开启 capture；只有 `replay`
 模式需要一个在线 gateway。
 
+如果 YAML 配置包含 `admin_live` sink，可以从 `/admin/api/traffic/export`
+（或稳定镜像 `/v1/debug/traffic/export`）把保留在内存里的窗口下载为 JSONL，
+然后像其他 capture 文件一样交给 `capture replay` 或 `capture diff`。
+
 ```bash
 # 把记录下来的 client -> gateway 请求重放到在线 gateway MCP endpoint。
 dcc-mcp-server capture replay ./captures/run.sqlite \

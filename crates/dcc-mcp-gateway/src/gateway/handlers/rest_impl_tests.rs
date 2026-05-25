@@ -486,6 +486,8 @@ async fn gateway_openapi_lists_stable_debug_routes() {
         "/v1/debug/activity",
         "/v1/debug/calls",
         "/v1/debug/traces",
+        "/v1/debug/traffic",
+        "/v1/debug/traffic/export",
         "/v1/debug/traces/{request_id}",
         "/v1/debug/trace-context/{lookup_id}",
         "/v1/debug/tasks",

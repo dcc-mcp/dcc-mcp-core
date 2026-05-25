@@ -45,6 +45,8 @@ OpenAPI 契约。
 | `GET` | `/v1/debug/activity` | 仅网关：来自 audit、trace、gateway event 的稳定 activity feed。 |
 | `GET` | `/v1/debug/traces` | 仅网关：最近的 dispatch trace 列表。 |
 | `GET` | `/v1/debug/traces/{request_id}` | 仅网关：按 request id 查看 dispatch trace 详情。 |
+| `GET` | `/v1/debug/traffic` | 仅网关：显式 `admin_live` sink 保留的 live traffic-capture frames。 |
+| `GET` | `/v1/debug/traffic/export` | 仅网关：把保留的 live traffic-capture frames 导出为 JSONL。 |
 | `GET` | `/v1/debug/trace-context/{lookup_id}` | 仅网关：按 trace id 或 request id 解析 primary trace context。 |
 | `GET` | `/v1/debug/bundles/{request_id}` | 仅网关：按 request id 或 trace id 取 full-chain debug bundle。 |
 | `GET` | `/v1/debug/issue-reports/{request_id}` | 仅网关：可附到 GitHub issue 的 debug report JSON。 |
@@ -113,6 +115,8 @@ Phase-1 debug routes 会保留现有 Admin payload 字段，让 operator 和 age
 | `/v1/debug/activity?limit=200` | `/admin/api/activity?limit=200` | 统一 activity feed。 |
 | `/v1/debug/traces?limit=200` | `/admin/api/traces?limit=200` | 最近 dispatch trace rows。 |
 | `/v1/debug/traces/{request_id}` | `/admin/api/traces/{request_id}` | 精确 request-id trace detail。 |
+| `/v1/debug/traffic?limit=300` | `/admin/api/traffic?limit=300` | 来自 `admin_live` sink 的 live traffic-capture frames。 |
+| `/v1/debug/traffic/export?limit=1000` | `/admin/api/traffic/export?limit=1000` | 保留的 live traffic-capture frames JSONL。 |
 | `/v1/debug/trace-context/{lookup_id}` | n/a | 按 `trace_id` 或 `request_id` 做 trace-context lookup。 |
 | `/v1/debug/bundles/{request_id}` | `/admin/api/debug-bundle/{request_id}` | 接受 request ids 和 retained trace ids。 |
 | `/v1/debug/issue-reports/{request_id}` | `/admin/api/issue-report/{request_id}` | 适合附到 GitHub issue 的 JSON export。 |

@@ -43,6 +43,8 @@ enabled: true
 sinks:
   - kind: sqlite
     path: ./captures/run-${TIMESTAMP}.db
+  - kind: admin_live
+    ring_buffer: 500
 filters:
   include:
     - mcp.method: tools/call
@@ -56,6 +58,11 @@ redact:
 OR 处理，exclude 优先于 include，字符串字段支持简单 `*` 通配符。redact 路径
 是 frame attributes 下的精确 JSON path，并且会在 JSONL / SQLite 写入前应用；
 被改写的路径记录在 `attributes.body.redacted_paths`。
+
+可选的 `admin_live` sink 会保留一个有界内存环形缓冲区，供 Admin Traffic
+面板和稳定 debug API 查看。通过 `GET /admin/api/traffic` 或
+`GET /v1/debug/traffic` 检查，使用 `/admin/api/traffic/export` 或
+`/v1/debug/traffic/export` 将保留窗口导出为 JSONL。
 
 捕获内容可能包含 prompt、工具参数、场景路径和结果 payload；把它当成本地调试
 产物，而不是生产审计日志。

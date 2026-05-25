@@ -98,6 +98,8 @@ let config = GatewayConfig {
 | `GET /admin/api/calls` | `application/json` | 最近的工具调用；可用时包含 compact/JSON token accounting（需要 `AuditMiddleware`） |
 | `GET /admin/api/traces` | `application/json` | 最近的逐调用 dispatch traces，包含 payload size 与 token accounting；支持 `?limit=200` |
 | `GET /admin/api/traces/{request_id}` | `application/json` | 某次调用的完整 waterfall trace，包含 token accounting 且不写入无界 payload |
+| `GET /admin/api/traffic?limit=300` | `application/json` | 显式 `admin_live` traffic sink 保留的 live `traffic.frame` envelopes |
+| `GET /admin/api/traffic/export?limit=1000` | `application/x-ndjson` | 将保留的 live traffic frames 导出为 JSONL，便于本地 replay/diff |
 | `GET /admin/api/debug-bundle/{request_id}` | `application/json` | 单次请求的一站式 debug bundle，包含 trace、匹配审计行、相关活动和提示 |
 | `GET /admin/api/stats?range=1h\|24h\|7d` | `application/json` | 聚合调用数、成功率、延迟、top tools/instances 和 token savings totals |
 | `GET /admin/api/governance?limit=300` | `application/json` | 当前 gateway policy、traffic capture、redaction、中间件控制和最近 allow/deny/throttle 决策 |
@@ -117,6 +119,8 @@ Admin 路由仍作为 dashboard 兼容层；自动化调用优先使用：
 |----------|------|
 | `GET /v1/debug/stats` | `/admin/api/stats` |
 | `GET /v1/debug/governance?limit=300` | `/admin/api/governance` |
+| `GET /v1/debug/traffic?limit=300` | `/admin/api/traffic` |
+| `GET /v1/debug/traffic/export?limit=1000` | `/admin/api/traffic/export` |
 | `GET /v1/debug/search-telemetry` | `/admin/api/search-telemetry` |
 | `GET /v1/debug/health` | `/admin/api/health` |
 
@@ -381,12 +385,13 @@ GatewayConfig {
 HTML 仪表盘包含：
 - **Debug Workbench**：默认首屏会组合 health、instances、calls、traces、stats 和 warning logs，方便排查 gateway 故障时不用在多个面板之间来回跳转
 - **Gateway owner identity**：Health 和 Debug 面板会展示来自 `gateway_name` / `DCC_MCP_GATEWAY_NAME` 的当前 `__gateway__` sentinel 标签，以及 challenger 候选
-- **左侧导航**：Debug / Activity / Health / 实例 / 工具 / Tasks / Calls / Traces / Stats / Skill paths / 日志面板
+- **左侧导航**：Debug / Activity / Health / 实例 / 工具 / Tasks / Calls / Traces / Traffic / Stats / Skill paths / 日志面板
 - **自动刷新**：每个面板每 5 秒轮询对应 JSON 端点
 - **DCC 图标**：Maya/Autodesk、Blender、GIMP、Inkscape、Krita、Unity、Unreal 等常见宿主显示可识别图标，自定义宿主使用安全 fallback
 - **Worker 卡片**：按实例展示状态、心跳与路由元数据
 - **Calls 表格**：展示 request id、错误摘要与 trace detail 链接；DCC 优先从解析后的 backend slug 展示，其次使用调用参数中的 `dcc` / `dcc_type`
 - **Trace 下钻**：`/admin/api/traces/{request_id}` 暴露单次调用的完整 waterfall，以及有界/已脱敏的输入输出 payload
+- **Traffic 面板**：当 traffic config 包含 `kind: admin_live` 时，`/admin/api/traffic` 暴露内存环形缓冲区中的 frame，`/admin/api/traffic/export` 可下载 JSONL
 - **Governance 面板**：展示 read-only 状态、allowlists、traffic capture 模式/sink、生产 guardrail、redaction path 汇总、中间件限流控制，以及最近 allowed/denied/throttled/capture 决策
 - **Logs 面板**：将标准化的 `contention`、`file`、`audit` 行分组，方便在一条时间线里关联路由事件、滚动日志和工具调用。文件日志读取会限制为最近文件与尾部片段，避免 admin API 扫描无界历史日志
 - **可选持久化**：`DCC_MCP_GATEWAY_AUDIT_DIR` 可让 Calls 与 Traces 面板跨重启保留，且不改变 JSON API 结构

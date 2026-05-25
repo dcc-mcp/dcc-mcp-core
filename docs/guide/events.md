@@ -158,6 +158,8 @@ sinks:
     path: ./captures/run-${TIMESTAMP}.db
   - kind: jsonl
     path: ./captures/run-${TIMESTAMP}.jsonl
+  - kind: admin_live
+    ring_buffer: 500
 filters:
   include:
     - mcp.method: tools/call
@@ -171,6 +173,8 @@ redact:
 Start the gateway with `DCC_MCP_TRAFFIC_CONFIG=./traffic_capture.yaml`. Relative
 sink paths resolve from the config file's directory, and `${TIMESTAMP}` expands
 once when the sink opens.
+The optional `admin_live` sink keeps a bounded in-memory ring for
+`/admin/api/traffic`, `/v1/debug/traffic`, and their JSONL export routes.
 
 ## Event Webhooks
 

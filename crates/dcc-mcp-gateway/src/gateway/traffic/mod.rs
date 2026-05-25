@@ -29,7 +29,7 @@ pub use self::frame::{
     TrafficFrame, basic_gateway_source, correlation, gateway_source, http_post, mcp_message,
 };
 use self::redaction::{TrafficRedactionSnapshot, TrafficRedactor};
-use self::sink::{JsonlTrafficSink, SqliteTrafficSink, TrafficSink};
+use self::sink::{JsonlTrafficSink, LiveTrafficSink, SqliteTrafficSink, TrafficSink};
 
 pub const TRAFFIC_FRAME_EVENT: &str = "traffic.frame";
 pub const TRAFFIC_FRAME_SCHEMA_VERSION: u32 = 1;
@@ -38,12 +38,15 @@ const ENV_CONFIG: &str = "DCC_MCP_TRAFFIC_CONFIG";
 const ENV_PROD_PROFILE: &str = "DCC_MCP_PROD_PROFILE";
 const ENV_FORCE_CAPTURE: &str = "DCC_MCP_FORCE_TRAFFIC_CAPTURE";
 const DECISION_LOG_CAPACITY: usize = 200;
+const DEFAULT_LIVE_RING_CAPACITY: usize = 5_000;
+const MAX_LIVE_RING_CAPACITY: usize = 10_000;
 
 /// Gateway traffic capture bus plus optional sinks.
 pub struct TrafficCapture {
     event_bus: EventBus,
     sinks: Vec<Arc<dyn TrafficSink>>,
     sink_descriptors: Vec<TrafficSinkSnapshot>,
+    live_sink: Option<Arc<LiveTrafficSink>>,
     filter: TrafficFilter,
     redactor: TrafficRedactor,
     next_capture_id: AtomicU64,
@@ -56,6 +59,7 @@ impl std::fmt::Debug for TrafficCapture {
             .field("event_bus", &self.event_bus)
             .field("sink_count", &self.sinks.len())
             .field("sink_descriptors", &self.sink_descriptors)
+            .field("live_sink", &self.live_sink.is_some())
             .field("filter", &self.filter)
             .field("redactor", &self.redactor)
             .finish()
@@ -75,6 +79,7 @@ impl TrafficCapture {
             event_bus: EventBus::new(),
             sinks: Vec::new(),
             sink_descriptors: Vec::new(),
+            live_sink: None,
             filter: TrafficFilter::default(),
             redactor: TrafficRedactor::default(),
             next_capture_id: AtomicU64::new(0),
@@ -129,7 +134,9 @@ impl TrafficCapture {
             sink_descriptors: vec![TrafficSinkSnapshot {
                 kind: "jsonl".to_string(),
                 path: Some(path.as_ref().to_string_lossy().to_string()),
+                ring_buffer_capacity: None,
             }],
+            live_sink: None,
             filter: TrafficFilter::default(),
             redactor: TrafficRedactor::default(),
             next_capture_id: AtomicU64::new(0),
@@ -145,14 +152,15 @@ impl TrafficCapture {
         let redactor = TrafficRedactor::from_document(document.redact)?;
         let mut sinks: Vec<Arc<dyn TrafficSink>> = Vec::new();
         let mut sink_descriptors = Vec::new();
+        let mut live_sink = None;
 
         for sink in document.sinks.unwrap_or_default() {
-            let descriptor = sink_descriptor(&sink, base_dir)?;
-            if let Some(sink) = open_sink(sink, base_dir)? {
-                sinks.push(sink);
-                if let Some(descriptor) = descriptor {
-                    sink_descriptors.push(descriptor);
+            if let Some(opened) = open_sink(sink, base_dir)? {
+                if let Some(live) = opened.live_sink.clone() {
+                    live_sink = Some(live);
                 }
+                sink_descriptors.push(opened.descriptor);
+                sinks.push(opened.sink);
             }
         }
 
@@ -160,6 +168,7 @@ impl TrafficCapture {
             event_bus: EventBus::new(),
             sinks,
             sink_descriptors,
+            live_sink,
             filter,
             redactor,
             next_capture_id: AtomicU64::new(0),
@@ -270,6 +279,14 @@ impl TrafficCapture {
         }
     }
 
+    #[must_use]
+    pub fn recent_frames(&self, limit: usize) -> Vec<EventEnvelope> {
+        self.live_sink
+            .as_ref()
+            .map(|sink| sink.recent(limit))
+            .unwrap_or_default()
+    }
+
     fn next_frame_id(&self) -> String {
         let seq = self.next_capture_id.fetch_add(1, Ordering::Relaxed) + 1;
         format!("cap_{seq:016x}")
@@ -302,6 +319,8 @@ pub struct TrafficSinkSnapshot {
     pub kind: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ring_buffer_capacity: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -411,21 +430,49 @@ pub enum TrafficCaptureError {
 fn open_sink(
     sink: TrafficSinkDocument,
     base_dir: &Path,
-) -> Result<Option<Arc<dyn TrafficSink>>, TrafficCaptureError> {
+) -> Result<Option<OpenedTrafficSink>, TrafficCaptureError> {
     match sink.kind.trim().to_ascii_lowercase().as_str() {
         "file_jsonl" | "jsonl" => {
             let path = sink.path_required()?;
-            Ok(Some(Arc::new(JsonlTrafficSink::open(
-                &resolve_capture_path(base_dir, &path),
-            )?)))
+            let resolved = resolve_capture_path(base_dir, &path);
+            Ok(Some(OpenedTrafficSink {
+                sink: Arc::new(JsonlTrafficSink::open(&resolved)?),
+                descriptor: TrafficSinkSnapshot {
+                    kind: sink.kind.trim().to_ascii_lowercase(),
+                    path: Some(resolved.to_string_lossy().to_string()),
+                    ring_buffer_capacity: None,
+                },
+                live_sink: None,
+            }))
         }
         "sqlite" => {
             let path = sink.path_required()?;
-            Ok(Some(Arc::new(SqliteTrafficSink::open(
-                &resolve_capture_path(base_dir, &path),
-            )?)))
+            let resolved = resolve_capture_path(base_dir, &path);
+            Ok(Some(OpenedTrafficSink {
+                sink: Arc::new(SqliteTrafficSink::open(&resolved)?),
+                descriptor: TrafficSinkSnapshot {
+                    kind: "sqlite".to_string(),
+                    path: Some(resolved.to_string_lossy().to_string()),
+                    ring_buffer_capacity: None,
+                },
+                live_sink: None,
+            }))
         }
-        "admin_live" | "ot_exporter" => {
+        "admin_live" => {
+            let capacity = live_ring_capacity(sink.ring_buffer);
+            let live = Arc::new(LiveTrafficSink::new(capacity));
+            let trait_sink: Arc<dyn TrafficSink> = live.clone();
+            Ok(Some(OpenedTrafficSink {
+                sink: trait_sink,
+                descriptor: TrafficSinkSnapshot {
+                    kind: "admin_live".to_string(),
+                    path: None,
+                    ring_buffer_capacity: Some(capacity),
+                },
+                live_sink: Some(live),
+            }))
+        }
+        "ot_exporter" => {
             tracing::warn!(
                 kind = %sink.kind,
                 "traffic capture sink is reserved for a later RFC 0003 phase; skipping"
@@ -436,25 +483,16 @@ fn open_sink(
     }
 }
 
-fn sink_descriptor(
-    sink: &TrafficSinkDocument,
-    base_dir: &Path,
-) -> Result<Option<TrafficSinkSnapshot>, TrafficCaptureError> {
-    match sink.kind.trim().to_ascii_lowercase().as_str() {
-        "file_jsonl" | "jsonl" | "sqlite" => {
-            let path = sink.path_required()?;
-            Ok(Some(TrafficSinkSnapshot {
-                kind: sink.kind.trim().to_ascii_lowercase(),
-                path: Some(
-                    resolve_capture_path(base_dir, &path)
-                        .to_string_lossy()
-                        .to_string(),
-                ),
-            }))
-        }
-        "admin_live" | "ot_exporter" => Ok(None),
-        other => Err(TrafficCaptureError::UnsupportedSink(other.to_string())),
-    }
+struct OpenedTrafficSink {
+    sink: Arc<dyn TrafficSink>,
+    descriptor: TrafficSinkSnapshot,
+    live_sink: Option<Arc<LiveTrafficSink>>,
+}
+
+fn live_ring_capacity(configured: Option<usize>) -> usize {
+    configured
+        .unwrap_or(DEFAULT_LIVE_RING_CAPACITY)
+        .clamp(1, MAX_LIVE_RING_CAPACITY)
 }
 
 fn resolve_capture_path(base_dir: &Path, raw: &str) -> PathBuf {
@@ -652,6 +690,50 @@ filters:
         assert_eq!(row.1, "sess-1");
         assert_eq!(row.2, "tools/call");
         assert_eq!(row.3, "/mcp");
+    }
+
+    #[test]
+    fn admin_live_sink_retains_recent_frames() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("traffic_capture.yaml");
+        std::fs::write(
+            &config_path,
+            r#"
+enabled: true
+sinks:
+  - kind: admin_live
+    ring_buffer: 2
+"#,
+        )
+        .unwrap();
+
+        let capture = TrafficCapture::from_config_path(&config_path).unwrap();
+        capture.emit_json_frame(sample_frame("tools/list", "/mcp"));
+        capture.emit_json_frame(sample_frame("tools/call", "/mcp"));
+        capture.emit_json_frame(sample_frame("resources/read", "/mcp"));
+
+        let frames = capture.recent_frames(10);
+        assert_eq!(frames.len(), 2);
+        assert_eq!(
+            frames[0]
+                .attributes
+                .pointer("/mcp/method")
+                .and_then(Value::as_str),
+            Some("resources/read")
+        );
+        assert_eq!(
+            frames[1]
+                .attributes
+                .pointer("/mcp/method")
+                .and_then(Value::as_str),
+            Some("tools/call")
+        );
+
+        let snapshot = capture.governance_snapshot();
+        assert!(snapshot.enabled);
+        assert_eq!(snapshot.sink_count, 1);
+        assert_eq!(snapshot.sinks[0].kind, "admin_live");
+        assert_eq!(snapshot.sinks[0].ring_buffer_capacity, Some(2));
     }
 
     #[test]
