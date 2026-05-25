@@ -220,6 +220,16 @@ fn apply_dcc_mcp_metadata_overrides(
                     meta.external_deps = Some(deps);
                 }
             }
+            "runtimes" | "runtime-deps" | "optional-runtimes" => {
+                let runtimes = parse_runtime_descriptors_yaml(&value).or_else(|| {
+                    value
+                        .as_str()
+                        .and_then(|rel| load_sibling_runtimes_file(skill_dir, rel))
+                });
+                if let Some(runtimes) = runtimes {
+                    meta.runtimes = runtimes;
+                }
+            }
             "tools" => {
                 if let Some(s) = value.as_str()
                     && let Some((tools, groups)) = load_sibling_tools_file(skill_dir, s)
@@ -395,6 +405,63 @@ fn parse_external_deps_yaml(v: &serde_yaml_ng::Value) -> Option<dcc_mcp_models::
         return serde_json::from_str(s).ok();
     }
     serde_yaml_ng::from_value(v.clone()).ok()
+}
+
+/// Parse optional runtime descriptors from `metadata.dcc-mcp.runtimes`.
+fn parse_runtime_descriptors_yaml(
+    v: &serde_yaml_ng::Value,
+) -> Option<Vec<dcc_mcp_models::SkillRuntimeDescriptor>> {
+    if let Some(s) = v.as_str() {
+        return serde_json::from_str(s).ok();
+    }
+    serde_yaml_ng::from_value(v.clone()).ok()
+}
+
+/// Load optional runtime descriptors from a sibling YAML file referenced by
+/// `metadata.dcc-mcp.runtimes`.
+///
+/// The file may either be a bare list or a mapping with a top-level
+/// `runtimes:` key.
+fn load_sibling_runtimes_file(
+    skill_dir: &Path,
+    rel: &str,
+) -> Option<Vec<dcc_mcp_models::SkillRuntimeDescriptor>> {
+    if !has_yaml_extension(rel) {
+        tracing::warn!(
+            "metadata.dcc-mcp.runtimes references {rel:?} which is not a .yaml/.yml file; ignoring"
+        );
+        return None;
+    }
+    let path = skill_dir.join(rel);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::warn!(
+                "failed to read sibling runtimes file {}: {e}",
+                path.display()
+            );
+            return None;
+        }
+    };
+
+    let value: serde_yaml_ng::Value = match serde_yaml_ng::from_str(&text) {
+        Ok(value) => value,
+        Err(e) => {
+            tracing::warn!(
+                "failed to parse sibling runtimes file {}: {e}",
+                path.display()
+            );
+            return None;
+        }
+    };
+    let runtimes_value = match value {
+        serde_yaml_ng::Value::Mapping(map) => map
+            .get(serde_yaml_ng::Value::String("runtimes".to_string()))
+            .cloned()
+            .unwrap_or(serde_yaml_ng::Value::Mapping(map)),
+        other => other,
+    };
+    parse_runtime_descriptors_yaml(&runtimes_value)
 }
 
 /// Recursively convert a `serde_yaml_ng::Value` into a

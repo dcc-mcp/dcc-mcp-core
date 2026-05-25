@@ -1,7 +1,9 @@
 use super::fixtures::{make_catalog_with_dispatcher, make_test_catalog, make_test_skill};
 use super::*;
 use dcc_mcp_actions::dispatcher::{DispatchError, with_thread_affinity};
-use dcc_mcp_models::{SkillGroup, ThreadAffinity, ToolDeclaration};
+use dcc_mcp_models::{
+    SkillGroup, SkillRuntimeDescriptor, SkillRuntimeKind, ThreadAffinity, ToolDeclaration,
+};
 
 fn write_skill_dir(root: &std::path::Path, name: &str, dcc: &str) {
     let dir = root.join(name);
@@ -67,6 +69,36 @@ fn test_add_dependency_clears_pending_dependency_state() {
     let info = catalog.get_skill_info("shot-publish").unwrap();
     assert_eq!(info.state, "discovered");
     assert!(info.missing_dependencies.is_empty());
+}
+
+#[test]
+fn test_search_and_detail_surface_runtime_state_without_loading() {
+    let catalog = make_test_catalog();
+    let mut skill = make_test_skill("openusd-tools", "python", &["inspect_stage"]);
+    skill.runtimes = vec![SkillRuntimeDescriptor {
+        name: "usd-core".to_string(),
+        kind: SkillRuntimeKind::PythonPackage,
+        package: Some("usd-core".to_string()),
+        module: Some("dcc_mcp_runtime_probe_missing_pxr_1210".to_string()),
+        optional: true,
+        guidance: Some("pip install dcc-mcp-openusd[usd-core]".to_string()),
+        ..Default::default()
+    }];
+    catalog.add_skill(skill);
+
+    let hits = catalog.search_skills(Some("openusd"), &[], Some("python"), None, None);
+    assert_eq!(hits.len(), 1);
+    let runtime = hits[0].runtime.as_ref().expect("summary runtime");
+    assert_eq!(runtime.total, 1);
+    assert_eq!(runtime.degraded, 1);
+
+    let detail = catalog.get_skill_info("openusd-tools").expect("detail");
+    assert_eq!(detail.runtimes.len(), 1);
+    assert_eq!(detail.runtimes[0].name, "usd-core");
+    assert_eq!(
+        detail.runtimes[0].guidance.as_deref(),
+        Some("pip install dcc-mcp-openusd[usd-core]")
+    );
 }
 
 #[test]

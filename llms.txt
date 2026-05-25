@@ -312,9 +312,9 @@ Pure-Python modules: `cancellation`, `checkpoint`, `constants` (#487), `result_e
 - `.active_groups(skill_name) -> List[str]`, `.activate_group(skill, group) -> bool`, `.deactivate_group(skill, group) -> bool`
 - `.list_groups(skill_name) -> List[SkillGroup]`, `.list_tools_catalog(skill_name) -> dict[str, list[str]]`
 
-**SkillSummary fields:** `.name`, `.description`, `.search_hint`, `.version`, `.dcc`, `.tags`, `.tool_count`, `.tool_names`, `.loaded`
+**SkillSummary fields:** `.name`, `.description`, `.search_hint`, `.version`, `.dcc`, `.tags`, `.tool_count`, `.tool_names`, `.loaded`, `.runtime` (optional aggregate `SkillRuntimeSummary`)
 
-**SkillMetadata fields:** `.name`, `.description`, `.search_hint`, `.dcc`, `.version`, `.tags`, `.tools`, `.scripts` (List[str] absolute paths), `.skill_path`, `.depends`, `.metadata_files`, `.groups` (List[SkillGroup]), `.license` (str), `.compatibility` (str), `.allowed_tools` (List[str]), `.external_deps` (str|None — JSON string of external dependency declarations; set via `md.external_deps = json.dumps(deps)`, read via `json.loads(md.external_deps)`)
+**SkillMetadata fields:** `.name`, `.description`, `.search_hint`, `.dcc`, `.version`, `.tags`, `.tools`, `.scripts` (List[str] absolute paths), `.skill_path`, `.depends`, `.metadata_files`, `.groups` (List[SkillGroup]), `.runtimes` (List[SkillRuntimeDescriptor]), `.license` (str), `.compatibility` (str), `.allowed_tools` (List[str]), `.external_deps` (str|None — JSON string of external dependency declarations; set via `md.external_deps = json.dumps(deps)`, read via `json.loads(md.external_deps)`)
 - **SKILL.md description quality**: The `description` field (1-1024 chars) should describe **what the skill does AND when to use it** — include specific keywords so AI agents can match tasks. Bad: "Helps with geometry." Good: "Creates and modifies polygon geometry in Maya. Use when user asks to create spheres, cubes, bevel edges, or extrude faces."
 - **Progressive disclosure**: Keep `SKILL.md` body < 500 lines / < 5000 tokens; move details to `references/` (loaded on demand by agents)
 
@@ -763,6 +763,18 @@ metadata:
     search-hint: "polygon modeling, bevel, extrude"
     tools: tools.yaml
     groups: groups.yaml
+    runtimes:
+      - name: usd-core
+        type: python_package
+        package: usd-core
+        module: pxr
+        optional: true
+        feature_level: full-usd
+        install_hint: "pip install dcc-mcp-openusd[usd-core]"
+      - name: usdcat
+        type: binary
+        binary: usdcat
+        optional: true
     external-deps: external_deps.yaml
 ---
 # Markdown description body (keep < 500 lines, < 5000 tokens recommended)
@@ -770,7 +782,7 @@ metadata:
 
 **agentskills.io standard fields** (V1.0 spec, 2025-12-18): `name` (required), `description` (required), `license`, `compatibility`, `metadata`, `allowed-tools` (experimental — space-separated pre-approved tool strings like `Bash(git:*) Read`).
 
-**dcc-mcp-core extensions**: `metadata.dcc-mcp.dcc`, `.version`, `.tags`, `.search-hint`, `.tools`, `.groups`, `.depends`, `.external-deps`, `.resources`, `.workflows`, `.prompts`. Legacy top-level extension keys such as `dcc:`, `tools:`, `groups:`, `depends:`, `search-hint:`, or `external_deps:` are rejected by the strict loader.
+**dcc-mcp-core extensions**: `metadata.dcc-mcp.dcc`, `.version`, `.tags`, `.search-hint`, `.tools`, `.groups`, `.depends`, `.runtimes`, `.external-deps`, `.resources`, `.workflows`, `.prompts`. Runtime descriptors can be inline or in sibling `runtimes.yaml` and safely surface `available` / `degraded` / `missing` state for optional Python packages/extras, binaries, env vars, and feature levels during search/detail without executing skill scripts. Legacy top-level extension keys such as `dcc:`, `tools:`, `groups:`, `depends:`, `search-hint:`, or `external_deps:` are rejected by the strict loader.
 
 ### Supported Script Types
 

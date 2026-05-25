@@ -24,6 +24,7 @@ const COMPACT_FIELDS: &[&str] = &[
     "dcc",
     "version",
     "layer",
+    "runtime_state",
     "implicit_invocation",
 ];
 
@@ -125,6 +126,16 @@ fn project_summary(summary: &SkillSummary, fields: &[String]) -> Value {
             "stage" => {
                 if let Some(stage) = &summary.stage {
                     obj.insert("stage".into(), json!(stage));
+                }
+            }
+            "runtime" => {
+                if let Some(runtime) = &summary.runtime {
+                    obj.insert("runtime".into(), json!(runtime));
+                }
+            }
+            "runtime_state" => {
+                if let Some(runtime) = &summary.runtime {
+                    obj.insert("runtime_state".into(), json!(runtime.state));
                 }
             }
             _ => {}
@@ -248,6 +259,10 @@ fn skill_summary_from_value(v: &Value) -> Option<SkillSummary> {
             .unwrap_or(true),
         layer: v.get("layer").and_then(Value::as_str).map(str::to_string),
         stage: v.get("stage").and_then(Value::as_str).map(str::to_string),
+        runtime: v
+            .get("runtime")
+            .cloned()
+            .and_then(|value| serde_json::from_value(value).ok()),
     })
 }
 
@@ -272,6 +287,7 @@ mod tests {
             implicit_invocation: true,
             layer: None,
             stage: Some("scene".to_string()),
+            runtime: None,
         }
     }
 

@@ -120,6 +120,9 @@ impl SkillCatalog {
     pub fn get_skill_info(&self, skill_name: &str) -> Option<SkillDetail> {
         self.entries.get(skill_name).map(|entry| {
             let e = entry.value();
+            let runtimes = dcc_mcp_models::resolve_runtime_reports(&e.metadata.runtimes);
+            let runtime = (!runtimes.is_empty())
+                .then(|| dcc_mcp_models::summarize_runtime_reports(&runtimes));
             let skill_md_path = (!e.metadata.skill_path.is_empty()).then(|| {
                 std::path::Path::new(&e.metadata.skill_path)
                     .join(crate::constants::SKILL_METADATA_FILE)
@@ -157,6 +160,8 @@ impl SkillCatalog {
                     .as_ref()
                     .map(|d| d.tools.len())
                     .unwrap_or(0),
+                runtimes,
+                runtime,
             }
         })
     }

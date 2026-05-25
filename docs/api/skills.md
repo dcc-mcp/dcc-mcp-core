@@ -103,6 +103,7 @@ Lightweight summary returned by `SkillCatalog.search_skills()` and `list_skills(
 | `loaded` | `bool` | Whether the skill is currently loaded |
 | `status` | `str` | Machine-readable load status: `"discovered"`, `"pending_deps"`, `"loaded"`, or `"error"` |
 | `missing_dependencies` | `List[str]` | Dependency skill names that are not currently present in the catalog |
+| `runtime` | `SkillRuntimeSummary \| None` | Aggregate optional runtime state from `metadata.dcc-mcp.runtimes` |
 
 ### Dunder Methods
 
@@ -224,6 +225,43 @@ SkillMetadata(
 | `version` | `str` | Skill version |
 | `depends` | `List[str]` | Dependency skill names |
 | `metadata_files` | `List[str]` | Paths to `.md` files in `metadata/` |
+| `runtimes` | `List[SkillRuntimeDescriptor]` | Optional runtime descriptors from `metadata.dcc-mcp.runtimes` |
+
+### Optional Runtime Metadata
+
+Skills may declare optional external runtimes inline in
+`metadata.dcc-mcp.runtimes` or by pointing that field at a sibling
+`runtimes.yaml`. Discovery resolves these descriptors with safe probes only:
+env vars are checked for non-empty values, binaries are resolved on `PATH`, and
+Python packages use `importlib.util.find_spec()` without importing the package
+or running a tool script.
+
+```yaml
+metadata:
+  dcc-mcp:
+    runtimes:
+      - name: usd-core
+        type: python_package
+        package: usd-core
+        module: pxr
+        optional: true
+        feature_level: full-usd
+        install_hint: "pip install dcc-mcp-openusd[usd-core]"
+      - name: usdcat
+        type: binary
+        binary: usdcat
+        optional: true
+        feature_level: usd-cli
+      - name: houdini-solaris
+        type: env_var
+        env: HFS
+        optional: true
+```
+
+`SkillRuntimeSummary.state` is one of `available`, `degraded`, or `missing`.
+Optional absent runtimes resolve to `degraded`; required absent runtimes resolve
+to `missing`. `get_skill_info()` also includes per-runtime reports under the
+`runtimes` key.
 
 ---
 

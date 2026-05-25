@@ -324,7 +324,7 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_skills(
     let compact_skills: Vec<Value> = matches
         .iter()
         .map(|s| {
-            json!({
+            let mut item = json!({
                 "name": s.name,
                 "description": s.description,
                 "tools": s.tool_count,
@@ -333,7 +333,14 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_skills(
                 "scope": s.scope,
                 "tags": s.tags,
                 "search_hint": s.search_hint,
-            })
+            });
+            if let Some(runtime) = &s.runtime
+                && let Some(obj) = item.as_object_mut()
+            {
+                obj.insert("runtime".to_string(), json!(runtime));
+                obj.insert("runtime_state".to_string(), json!(runtime.state));
+            }
+            item
         })
         .collect();
 

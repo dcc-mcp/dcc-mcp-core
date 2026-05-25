@@ -354,6 +354,40 @@ deps = json.loads(md.external_deps) if md.external_deps else None
 - Access via `json.loads(metadata.external_deps)` — returns `None` if not set
 - See [Skill Scopes & Policies](/guide/skill-scopes-policies) for the full schema
 
+**`runtimes` — advertise optional adapter runtime capabilities safely:**
+
+```yaml
+metadata:
+  dcc-mcp:
+    runtimes:
+      - name: usd-core
+        type: python_package
+        package: usd-core
+        module: pxr
+        optional: true
+        feature_level: full-usd
+        install_hint: "pip install dcc-mcp-openusd[usd-core]"
+      - name: usdcat
+        type: binary
+        binary: usdcat
+        optional: true
+      - name: houdini-solaris
+        type: env_var
+        env: HFS
+        optional: true
+```
+
+- Use inline `metadata.dcc-mcp.runtimes` or point it at a sibling
+  `runtimes.yaml`; do not add top-level runtime keys.
+- Supported descriptor `type` values are `python_package`, `python_extra`,
+  `binary`, `env_var`, and `feature`.
+- Discovery probes are read-only: Python packages use
+  `importlib.util.find_spec()`, binaries use `PATH`, env vars check for
+  non-empty values, and no tool script is imported or executed.
+- Optional absent runtimes resolve to `degraded`; required absent runtimes
+  resolve to `missing`. Search, list, detail, gateway search, and REST describe
+  expose those states so agents can avoid calling unavailable capabilities.
+
 **`CompatibilityRouter` — not a standalone Python class:**
 ```python
 # CompatibilityRouter is returned by VersionedRegistry.router()
