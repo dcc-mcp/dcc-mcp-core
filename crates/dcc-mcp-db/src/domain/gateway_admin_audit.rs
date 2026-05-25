@@ -1,6 +1,7 @@
 //! JSON shape persisted in gateway admin SQLite `audits.audit_json` rows.
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// Stable audit envelope stored in SQLite (gateway admin).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,4 +32,6 @@ pub struct GatewayAdminAuditPersistedJson {
     pub success: bool,
     pub error: Option<String>,
     pub duration_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_accounting: Option<Value>,
 }

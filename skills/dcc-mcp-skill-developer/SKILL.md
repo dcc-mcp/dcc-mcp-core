@@ -110,6 +110,10 @@ into a faster authoring loop.
    full prompts. Compact batch examples may also read
    per-result `token_accounting` metadata, and batch request items may carry an
    optional `id` that is echoed next to the numeric result `index`.
+   Gateway traces, audit rows, logs, and stats retain the same token accounting
+   fields (`response_format`, estimator, bytes, tokens, saved tokens, and
+   savings percent) for both compact and legacy JSON traffic; tests should
+   assert those fields without depending on full retained payload bodies.
    Gateway OTLP spans mirror the same agent workflow chain with bounded
    attributes: `gateway.search`, `gateway.describe`, `gateway.load_skill`,
    `gateway.call`, and `gateway.call_batch` use `openinference.span.kind` plus

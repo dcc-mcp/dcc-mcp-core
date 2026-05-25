@@ -88,6 +88,8 @@ pub struct GatewayStats {
     pub top_instances: Vec<TopEntry>,
     /// Top client-supplied agents/callers by call count (up to 10).
     pub top_agents: Vec<TopEntry>,
+    /// Token accounting totals and savings breakdowns.
+    pub token_usage: TokenUsageStats,
     /// Call distribution across the 24 hours of the day (UTC, index 0 = midnight).
     ///
     /// Each element is the number of calls that started in that hour window
@@ -117,6 +119,32 @@ pub struct LatencyStats {
 pub struct TopEntry {
     pub name: String,
     pub count: usize,
+}
+
+/// Aggregate token accounting for the selected stats range.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TokenUsageStats {
+    pub total_original_bytes: usize,
+    pub total_returned_bytes: usize,
+    pub total_original_tokens: usize,
+    pub total_returned_tokens: usize,
+    pub total_saved_tokens: usize,
+    pub average_savings_pct: f64,
+    pub by_tool: Vec<TokenBreakdownEntry>,
+    pub by_instance: Vec<TokenBreakdownEntry>,
+    pub by_agent: Vec<TokenBreakdownEntry>,
+    pub by_transport: Vec<TokenBreakdownEntry>,
+    pub by_response_format: Vec<TokenBreakdownEntry>,
+}
+
+/// Token savings grouped by a stable dimension.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TokenBreakdownEntry {
+    pub name: String,
+    pub calls: usize,
+    pub returned_tokens: usize,
+    pub saved_tokens: usize,
+    pub savings_pct: f64,
 }
 
 /// Computes on-demand statistics from the [`TraceLog`] ring buffer.
@@ -181,6 +209,7 @@ fn compute_from_traces(in_range: &[DispatchTrace], range: StatsRange) -> Gateway
             top_tools: vec![],
             top_instances: vec![],
             top_agents: vec![],
+            token_usage: TokenUsageStats::default(),
             hourly_distribution: vec![0u32; 24],
         };
     }
@@ -219,6 +248,7 @@ fn compute_from_traces(in_range: &[DispatchTrace], range: StatsRange) -> Gateway
         }
     }
     let top_agents = top_n(agent_counts, 10);
+    let token_usage = compute_token_usage(in_range);
 
     let mut hourly = vec![0u32; 24];
     for t in in_range {
@@ -242,7 +272,126 @@ fn compute_from_traces(in_range: &[DispatchTrace], range: StatsRange) -> Gateway
         top_tools,
         top_instances,
         top_agents,
+        token_usage,
         hourly_distribution: hourly,
+    }
+}
+
+fn compute_token_usage(traces: &[DispatchTrace]) -> TokenUsageStats {
+    let mut stats = TokenUsageStats::default();
+    let mut by_tool = HashMap::<String, TokenAccumulator>::new();
+    let mut by_instance = HashMap::<String, TokenAccumulator>::new();
+    let mut by_agent = HashMap::<String, TokenAccumulator>::new();
+    let mut by_transport = HashMap::<String, TokenAccumulator>::new();
+    let mut by_response_format = HashMap::<String, TokenAccumulator>::new();
+
+    for trace in traces {
+        let Some(tokens) = trace.token_accounting.as_ref() else {
+            continue;
+        };
+        stats.total_original_bytes += tokens.original_bytes;
+        stats.total_returned_bytes += tokens.returned_bytes;
+        stats.total_original_tokens += tokens.original_tokens;
+        stats.total_returned_tokens += tokens.returned_tokens;
+        stats.total_saved_tokens += tokens.saved_tokens;
+
+        add_token_group(
+            &mut by_tool,
+            trace
+                .tool_slug
+                .clone()
+                .unwrap_or_else(|| trace.method.clone()),
+            tokens,
+        );
+        add_token_group(
+            &mut by_instance,
+            trace
+                .instance_id
+                .clone()
+                .or_else(|| trace.dcc_type.clone())
+                .unwrap_or_else(|| "unknown".to_string()),
+            tokens,
+        );
+        add_token_group(
+            &mut by_agent,
+            trace
+                .agent_context
+                .as_ref()
+                .and_then(|ctx| ctx.display_name())
+                .unwrap_or("unknown")
+                .to_string(),
+            tokens,
+        );
+        add_token_group(
+            &mut by_transport,
+            trace
+                .transport
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string()),
+            tokens,
+        );
+        add_token_group(
+            &mut by_response_format,
+            tokens.response_format.clone(),
+            tokens,
+        );
+    }
+
+    stats.average_savings_pct = savings_pct(stats.total_saved_tokens, stats.total_original_tokens);
+    stats.by_tool = token_top_n(by_tool, 10);
+    stats.by_instance = token_top_n(by_instance, 10);
+    stats.by_agent = token_top_n(by_agent, 10);
+    stats.by_transport = token_top_n(by_transport, 10);
+    stats.by_response_format = token_top_n(by_response_format, 10);
+    stats
+}
+
+#[derive(Default)]
+struct TokenAccumulator {
+    calls: usize,
+    original_tokens: usize,
+    returned_tokens: usize,
+    saved_tokens: usize,
+}
+
+fn add_token_group(
+    map: &mut HashMap<String, TokenAccumulator>,
+    key: String,
+    tokens: &super::trace::TokenTelemetry,
+) {
+    let entry = map.entry(key).or_default();
+    entry.calls += 1;
+    entry.original_tokens += tokens.original_tokens;
+    entry.returned_tokens += tokens.returned_tokens;
+    entry.saved_tokens += tokens.saved_tokens;
+}
+
+fn token_top_n(map: HashMap<String, TokenAccumulator>, n: usize) -> Vec<TokenBreakdownEntry> {
+    let mut entries: Vec<_> = map
+        .into_iter()
+        .map(|(name, acc)| TokenBreakdownEntry {
+            name,
+            calls: acc.calls,
+            returned_tokens: acc.returned_tokens,
+            saved_tokens: acc.saved_tokens,
+            savings_pct: savings_pct(acc.saved_tokens, acc.original_tokens),
+        })
+        .collect();
+    entries.sort_by(|a, b| {
+        b.saved_tokens
+            .cmp(&a.saved_tokens)
+            .then_with(|| b.returned_tokens.cmp(&a.returned_tokens))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    entries.truncate(n);
+    entries
+}
+
+fn savings_pct(saved_tokens: usize, original_tokens: usize) -> f64 {
+    if original_tokens == 0 {
+        0.0
+    } else {
+        (((saved_tokens as f64 / original_tokens as f64) * 100.0) * 100.0).round() / 100.0
     }
 }
 
@@ -294,7 +443,7 @@ mod tests {
     use std::time::SystemTime;
 
     use super::*;
-    use crate::gateway::admin::trace::{DispatchTrace, TraceLog};
+    use crate::gateway::admin::trace::{AgentContext, DispatchTrace, TokenTelemetry, TraceLog};
 
     fn make_trace(ok: bool, total_ms: u64, tool: &str, instance: &str) -> DispatchTrace {
         DispatchTrace {
@@ -318,6 +467,25 @@ mod tests {
             spans: vec![],
             input: None,
             output: None,
+            token_accounting: None,
+        }
+    }
+
+    fn token_telemetry(
+        response_format: &str,
+        original_tokens: usize,
+        returned_tokens: usize,
+    ) -> TokenTelemetry {
+        let saved_tokens = original_tokens.saturating_sub(returned_tokens);
+        TokenTelemetry {
+            response_format: response_format.to_string(),
+            token_estimator: "dcc-mcp-byte4-v1".to_string(),
+            original_bytes: original_tokens * 4,
+            returned_bytes: returned_tokens * 4,
+            original_tokens,
+            returned_tokens,
+            saved_tokens,
+            savings_pct: savings_pct(saved_tokens, original_tokens),
         }
     }
 
@@ -329,6 +497,7 @@ mod tests {
         assert_eq!(s.total_calls, 0);
         assert_eq!(s.successful_calls, 0);
         assert_eq!(s.success_rate, 0.0);
+        assert_eq!(s.token_usage.total_saved_tokens, 0);
         assert_eq!(s.hourly_distribution.len(), 24);
     }
 
@@ -407,6 +576,61 @@ mod tests {
         let s_1h = agg.compute(StatsRange::Hour1);
         assert_eq!(s_all.total_calls, 2);
         assert_eq!(s_1h.total_calls, 1);
+    }
+
+    #[test]
+    fn token_usage_aggregates_totals_and_breakdowns() {
+        let log = Arc::new(TraceLog::new(100));
+        let mut rest_compact = make_trace(true, 10, "maya.create_sphere", "inst-1");
+        rest_compact.transport = Some("rest".into());
+        rest_compact.agent_context = Some(AgentContext {
+            agent_name: Some("Planner".into()),
+            ..AgentContext::default()
+        });
+        rest_compact.token_accounting = Some(token_telemetry("toon", 100, 40));
+        log.push(rest_compact);
+
+        let mut rest_json = make_trace(true, 12, "maya.create_sphere", "inst-1");
+        rest_json.transport = Some("rest".into());
+        rest_json.agent_context = Some(AgentContext {
+            agent_name: Some("Planner".into()),
+            ..AgentContext::default()
+        });
+        rest_json.token_accounting = Some(token_telemetry("json", 80, 80));
+        log.push(rest_json);
+
+        let mut mcp_compact = make_trace(true, 14, "photoshop.apply_filter", "inst-2");
+        mcp_compact.dcc_type = Some("photoshop".into());
+        mcp_compact.transport = Some("mcp".into());
+        mcp_compact.agent_context = Some(AgentContext {
+            agent_name: Some("Reviewer".into()),
+            ..AgentContext::default()
+        });
+        mcp_compact.token_accounting = Some(token_telemetry("toon", 120, 60));
+        log.push(mcp_compact);
+
+        let stats = StatsAggregator::new(log).compute(StatsRange::All);
+        assert_eq!(stats.token_usage.total_original_tokens, 300);
+        assert_eq!(stats.token_usage.total_returned_tokens, 180);
+        assert_eq!(stats.token_usage.total_saved_tokens, 120);
+        assert_eq!(stats.token_usage.average_savings_pct, 40.0);
+        assert_eq!(stats.token_usage.by_response_format[0].name, "toon");
+        assert_eq!(stats.token_usage.by_response_format[0].calls, 2);
+        assert_eq!(stats.token_usage.by_response_format[0].saved_tokens, 120);
+        assert!(
+            stats
+                .token_usage
+                .by_transport
+                .iter()
+                .any(|entry| entry.name == "rest" && entry.saved_tokens == 60)
+        );
+        assert!(
+            stats
+                .token_usage
+                .by_agent
+                .iter()
+                .any(|entry| entry.name == "Planner" && entry.calls == 2)
+        );
     }
 
     // ── Property-based tests (#846) ────────────────────────────────────────

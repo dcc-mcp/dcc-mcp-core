@@ -161,6 +161,21 @@ pub(crate) fn encode_response(
     })
 }
 
+pub(crate) fn token_telemetry_for_response(
+    legacy_json: &Value,
+    compact_json: Option<&Value>,
+    format: ResponseFormat,
+) -> Option<crate::gateway::admin::trace::TokenTelemetry> {
+    encode_response(legacy_json, compact_json, format)
+        .ok()
+        .map(|encoded| {
+            crate::gateway::admin::trace::TokenTelemetry::from_accounting(
+                encoded.format,
+                encoded.accounting,
+            )
+        })
+}
+
 pub(crate) fn encoded_response(status: StatusCode, encoded: EncodedResponse) -> Response {
     let format = encoded.format;
     let accounting = encoded.accounting;

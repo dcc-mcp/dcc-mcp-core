@@ -31,6 +31,7 @@ mod proxy_impl;
 pub(crate) mod resources;
 mod rest_impl;
 mod rest_support;
+mod rest_trace;
 mod sse_impl;
 
 pub use lifecycle_impl::handle_v1_dcc_instance_stop;

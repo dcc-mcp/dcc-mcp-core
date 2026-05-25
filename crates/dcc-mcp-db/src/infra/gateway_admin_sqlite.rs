@@ -408,6 +408,10 @@ mod tests {
             success: true,
             error: None,
             duration_ms: Some(5),
+            token_accounting: Some(serde_json::json!({
+                "response_format": "toon",
+                "saved_tokens": 12,
+            })),
         };
         lane.try_persist_audit_json(&serde_json::to_string(&row).unwrap());
         drop(lane);
@@ -418,6 +422,7 @@ mod tests {
         assert_eq!(back.request_id, "rid");
         assert_eq!(back.transport.as_deref(), Some("rest"));
         assert_eq!(back.agent_id.as_deref(), Some("agent-1"));
+        assert_eq!(back.token_accounting.unwrap()["saved_tokens"], 12);
     }
 
     #[test]
