@@ -93,7 +93,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: loonghao/vx@v0.8.36
+      - uses: loonghao/vx@v0.9.2
       - name: Build admin UI bundle
         shell: bash
         run: scripts/release/prebuild_admin_ui.sh
@@ -130,7 +130,7 @@ jobs:
           echo "CARGO=${CARGO_BIN}" >> "$GITHUB_ENV"
           echo "RUSTC=$(rustup which rustc)" >> "$GITHUB_ENV"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-      - uses: loonghao/vx@v0.8.36
+      - uses: loonghao/vx@v0.9.2
       - name: Prepare admin UI dependencies
         shell: bash
         run: |
@@ -234,7 +234,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: loonghao/vx@v0.8.36
+      - uses: loonghao/vx@v0.9.2
       - name: Download wheel
         uses: actions/download-artifact@v8
         with:
@@ -307,7 +307,7 @@ jobs:
         with:
           python-version: "3.14"
 
-      - uses: loonghao/vx@v0.8.36
+      - uses: loonghao/vx@v0.9.2
 
       - name: Install dev deps
         run: vx just install-dev-deps
@@ -349,6 +349,8 @@ jobs:
         with:
           python-version: "3.14"
 
+      - uses: loonghao/vx@v0.9.2
+
       - name: Download wheel
         uses: actions/download-artifact@v8
         with:
@@ -359,15 +361,12 @@ jobs:
         run: pip install --no-index --find-links dist dcc-mcp-core && pip install pytest anyio
         shell: bash
 
-      - name: Install mcpcall
-        uses: loonghao/mcpcall/.github/actions/setup-mcpcall@mcpcall-v0.2.0
-        with:
-          version: mcpcall-v0.2.0
-
       - name: Verify mcpcall
-        run: mcpcall --version
+        run: vx mcpcall --version
         shell: bash
 
       - name: Run mcpcall e2e tests
+        env:
+          MCPCALL_CMD: vx mcpcall
         run: pytest tests/test_mcp_mcpcall_e2e.py -v --tb=short
         shell: bash

@@ -15,14 +15,15 @@ These tests start real McpHttpServer instances, then exercise them through
 - Gateway facade discovery through the canonical search/describe/load/call flow
 
 Requirements:
-    mcpcall binary available in PATH, or MCPCALL_BIN pointing to the binary
+    MCPCALL_CMD="vx mcpcall" (requires vx >= 0.9.0), mcpcall binary available
+    in PATH, or MCPCALL_BIN pointing to the binary
     dcc_mcp_core Python package installed (Rust wheel)
 
 The tests are skipped automatically when ``mcpcall`` is not found.
 
 CI status: this file runs in the dedicated ``mcpcall-e2e`` job
-(``.github/workflows/ci.yml``), which installs ``mcpcall`` with the upstream
-setup action and executes ``pytest tests/test_mcp_mcpcall_e2e.py`` against a
+(``.github/workflows/ci.yml``), which runs ``vx mcpcall`` and executes
+``pytest tests/test_mcp_mcpcall_e2e.py`` against a
 Linux wheel built earlier in the run. It also auto-skips inside the standard
 ``pytest tests/`` matrix cells when ``mcpcall`` is absent. Do **not** add this
 file to local ``--ignore`` lists in CI workflows or shared scripts.
@@ -36,6 +37,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import shlex
 import socket
 import subprocess
 import sys
@@ -59,18 +61,31 @@ EXAMPLES_SKILLS_DIR = str(REPO_ROOT / "examples" / "skills")
 # ---------------------------------------------------------------------------
 
 _IS_WINDOWS = platform.system() == "Windows"
-_MCPCALL_BIN = os.environ.get("MCPCALL_BIN") or ("mcpcall.exe" if _IS_WINDOWS else "mcpcall")
 
 # Timeout budget per mcpcall invocation.
 # 120 s is generous enough for slow CI runners but prevents hanging forever.
 _MCPCALL_TIMEOUT = int(os.environ.get("MCPCALL_TIMEOUT", "120"))
 
 
-def _probe_cmd(cmd: str, timeout: int = 10) -> bool:
+def _mcpcall_command() -> tuple[str, ...]:
+    """Resolve the command used to launch mcpcall."""
+    cmd = os.environ.get("MCPCALL_CMD")
+    if cmd:
+        return tuple(shlex.split(cmd, posix=not _IS_WINDOWS))
+    binary = os.environ.get("MCPCALL_BIN")
+    if binary:
+        return (binary,)
+    return ("mcpcall.exe" if _IS_WINDOWS else "mcpcall",)
+
+
+_MCPCALL_CMD = _mcpcall_command()
+
+
+def _probe_cmd(cmd: tuple[str, ...], timeout: int = 10) -> bool:
     """Return True if ``cmd --version`` succeeds within *timeout* seconds."""
     try:
         r = subprocess.run(
-            [cmd, "--version"],
+            [*cmd, "--version"],
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -83,7 +98,7 @@ def _probe_cmd(cmd: str, timeout: int = 10) -> bool:
 def _run_mcpcall(*args: str, timeout: int | None = None) -> subprocess.CompletedProcess:
     """Run mcpcall portably."""
     t = timeout if timeout is not None else _MCPCALL_TIMEOUT
-    cmd = [_MCPCALL_BIN, *args]
+    cmd = [*_MCPCALL_CMD, *args]
     return subprocess.run(cmd, capture_output=True, text=True, timeout=t)
 
 
@@ -113,7 +128,7 @@ def _wait_tcp_reachable(host: str, port: int, budget: float = 5.0) -> bool:
 
 def _mcpcall_available() -> bool:
     """Return True if mcpcall is reachable."""
-    return _probe_cmd(_MCPCALL_BIN, timeout=min(_MCPCALL_TIMEOUT, 10))
+    return _probe_cmd(_MCPCALL_CMD, timeout=min(_MCPCALL_TIMEOUT, 10))
 
 
 MCPCALL_AVAILABLE = _mcpcall_available()
