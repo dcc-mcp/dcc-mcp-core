@@ -389,7 +389,7 @@ fn accept_format(headers: &HeaderMap) -> Option<ResponseFormat> {
     None
 }
 
-fn estimate_tokens(body: &[u8]) -> usize {
+pub(crate) fn estimate_tokens(body: &[u8]) -> usize {
     if body.is_empty() {
         0
     } else {
