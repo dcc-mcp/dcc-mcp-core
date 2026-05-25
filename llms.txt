@@ -60,6 +60,7 @@
 | Apply adapter metadata policy before skills load (#1204) | `DccServerBase.set_skill_load_transform(fn)` / `McpHttpServer.set_skill_load_transform(fn)` — callable receives a mutable `SkillMetadata`, may return `None` or a replacement, and applies consistently to direct Python `load_skill`, MCP `load_skill`, REST `/v1/load_skill`, batch, and group load paths. Use `set_after_load_skill_hook(fn)` only to observe `(skill, registered_actions)` after registration. |
 | Drive a DCC main-thread dispatcher | `from dcc_mcp_core.host import HostAdapter, StandaloneHost, TickableDispatcher, QueueDispatcher, BlockingDispatcher`; `TickableDispatcher` is the public minimal protocol (`tick`, `shutdown`, `is_shutdown`) for adapter typing. Do not import private host protocols. |
 | Write skill scripts | `skill_entry` + `skill_success` / `skill_error` — zero-boilerplate skill authoring |
+| Materialize ad-hoc scripts on the DCC host (#1220) | Python: `materialize_script(content, dcc_type=..., instance_id=..., session_id=..., ttl_secs=None, reuse=False)` returns `MaterializedScript` with `file_ref`, absolute `file_path`, `sha256`, `bytes`, language/suffix, session/tool/correlation metadata, and reuse/expiry fields. Default root: `~/.dcc-mcp/<dcc_type>/temp/<instance_id>/<session_id>/...`, override with `DCC_MCP_SCRIPT_MATERIALIZATION_ROOT`. Rust: `dcc_mcp_artefact::ScriptMaterializationStore`. Legacy `write_temp_script()` remains a thin compatibility wrapper. |
 | Control skill trust level | `SkillScope` (Repo < User < Team < System < Admin) — higher scope shadows lower |
 | Progressive tool exposure | `SkillGroup`; `load_skill()` activates groups by default, or use `load_skill(activate_groups=false)` + `activate_tool_group(group_name=...)` for lazy activation |
 | Remote-accessible MCP server (cloud agents) | `create_skill_server("maya", McpHttpConfig(host="0.0.0.0", port=8765, enable_cors=True))` — bind `0.0.0.0`, CORS on, Bearer auth via `cfg.api_key` |
@@ -116,6 +117,7 @@
 | Discover team-level skills | `scan_and_load_team()` / `scan_and_load_team_lenient()` |
 | Discover user-level skills | `scan_and_load_user()` / `scan_and_load_user_lenient()` |
 | Reference files across tool calls (artefacts) | `FileRef` + `artefact_put_file()` / `artefact_get_bytes()` / `artefact_list()` |
+| Host-local executable script files | `materialize_script(...)` for DCC/session-scoped script files; the returned `file_ref` is compatible with FileRef metadata but the executable path stays on the host filesystem for `execute_python(file_path=...)` style tools. |
 | Capture DCC stdout/stderr/script-editor output | `OutputCapture` |
 | Rich skill error with traceback | `skill_error_with_trace()` |
 | Skill warning / exception helpers | `skill_warning()` / `skill_exception()` |

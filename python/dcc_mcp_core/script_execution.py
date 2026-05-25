@@ -20,15 +20,15 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass
 import io
 import json
-import os
 from pathlib import Path
 import sys
-import tempfile
 import traceback
 from typing import Any
 from typing import TextIO
 
 from dcc_mcp_core.result_envelope import ToolResult
+from dcc_mcp_core.script_materialization import cleanup_materialized_scripts
+from dcc_mcp_core.script_materialization import materialize_script
 
 
 class ScriptExecutionSerializationError(TypeError):
@@ -278,11 +278,10 @@ __all__ = [
 # ---------------------------------------------------------------------------
 # Temp-script file management
 # ---------------------------------------------------------------------------
-# Scripts are written to a single managed directory so that AI agents can
-# call ``write_temp_script(...)`` once and then pass the resulting
-# ``file_path`` to ``execute_python(file_path=...)`` instead of
-# embedding long code strings (with all their escaping pitfalls) inside
-# the MCP tool call.
+# ``write_temp_script(...)`` is the legacy convenience wrapper for callers
+# that only need a path string. New code should use
+# ``script_materialization.materialize_script(...)`` directly so audit,
+# cleanup, reuse, and FileRef-compatible metadata stay available.
 #
 # Cleanup happens automatically on interpreter exit; adapters can also
 # call ``cleanup_temp_scripts()`` explicitly when the DCC server shuts down.
@@ -298,7 +297,7 @@ def write_temp_script(
 ) -> str:
     """Write *content* to a managed temp file and return the absolute path.
 
-    The file is created under ``~/.dcc-mcp-core/temp_scripts/`` so that
+    The file is created through the script materialization store so that
     both the AI agent (producer) and the in-process executor (consumer)
     agree on the location without passing the code over JSON.
 
@@ -311,11 +310,16 @@ def write_temp_script(
         Absolute path of the created temp file.
 
     """
-    _TEMP_SCRIPT_DIR.mkdir(parents=True, exist_ok=True)
-    fd, path = tempfile.mkstemp(suffix=suffix, prefix=prefix, dir=str(_TEMP_SCRIPT_DIR))
-    with os.fdopen(fd, "w", encoding="utf-8") as fp:
-        fp.write(content)
-    return path
+    descriptor = materialize_script(
+        content,
+        dcc_type="generic",
+        instance_id="local",
+        session_id="default",
+        suffix=suffix,
+        root=_TEMP_SCRIPT_DIR,
+        prefix=prefix,
+    )
+    return descriptor.file_path
 
 
 def cleanup_temp_scripts() -> None:
@@ -326,9 +330,11 @@ def cleanup_temp_scripts() -> None:
     """
     if not _TEMP_SCRIPT_DIR.is_dir():
         return
+    cleanup_materialized_scripts(root=_TEMP_SCRIPT_DIR, include_unexpired=True)
     for p in _TEMP_SCRIPT_DIR.iterdir():
         with contextlib.suppress(Exception):
-            p.unlink()
+            if p.is_file() or p.is_symlink():
+                p.unlink()
 
 
 # ---------------------------------------------------------------------------
