@@ -140,6 +140,9 @@ impl CallContext {
 
     /// Builder: attach optional agent/caller telemetry context.
     pub fn with_agent_context(mut self, context: Option<AgentContext>) -> Self {
+        if self.session_id.is_none() {
+            self.session_id = context.as_ref().and_then(|ctx| ctx.session_id.clone());
+        }
         self.agent_context = context;
         self
     }

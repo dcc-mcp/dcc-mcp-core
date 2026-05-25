@@ -62,13 +62,14 @@ OTEL_SERVICE_NAME=dcc-mcp-gateway \
 | `dcc_mcp.workflow.operation` | 上表中的 span 名称。 |
 | `dcc_mcp.transport` | `rest` 或 `mcp`。 |
 | `dcc_mcp.trace_id`、`dcc_mcp.request_id`、`dcc_mcp.parent_request_id`、`dcc_mcp.session_id` | 与 Admin trace/debug bundle 对齐的关联 ID。 |
-| `dcc_mcp.agent.id`、`.name`、`.kind`、`.model`、`.task`、`.tags` | 有界的 `agent_context` / caller 元数据。 |
+| `dcc_mcp.agent.id`、`.name`、`.kind`、`.model`、`.model_provider`、`.model_version`、`.reasoning_effort`、`.turn_id`、`.task`、`.tags` | 有界的 `agent_context` / caller 元数据。 |
+| `dcc_mcp.agent.user_intent_summary`、`.reply_summary`、`.user_input_hash`、`.reply_hash`、`.user_input_chars`、`.reply_chars` | 用于评估关联的低敏 turn 摘要、哈希和长度。 |
 | `dcc_mcp.dcc.type`、`dcc_mcp.instance.id`、`dcc_mcp.skill.name`、`dcc_mcp.tool.slug` | 选中的 DCC 路由与技能/工具身份。 |
 | `dcc_mcp.search.id`、`.ranker_version`、`.selected_rank`、`.score`、`.match_reasons`、`.total`、`.zero_results` | 从 `/v1/search` 或 gateway `search` 继承的搜索质量上下文。 |
 | `dcc_mcp.policy.outcome`、`.reason` | 网关策略是否允许、拒绝或限流，以及原因。 |
 | `dcc_mcp.success`、`dcc_mcp.error.kind`、`dcc_mcp.batch.size` | 执行结果字段。 |
 
-网关不会导出隐藏推理、原始 prompt、无界请求体、secret 或任意 `agent_context` metadata。Agent 从搜索结果继续调用 `describe`、`load_skill`、`call` 或 `call_batch` 时，应保留 REST `meta.search_id` 或 MCP `_meta.search_id`，这样 OTLP trace 才能把 selected rank/score 和真实工具结果关联起来。
+网关不会导出隐藏推理、原始 prompt、原始 agent 回复、无界请求体、secret 或任意 `agent_context` metadata。Agent 从搜索结果继续调用 `describe`、`load_skill`、`call` 或 `call_batch` 时，应保留 REST `meta.search_id` 或 MCP `_meta.search_id`，这样 OTLP trace 才能把 selected rank/score 和真实工具结果关联起来。评估需要关联单个 agent turn 时，在 `agent_context` 中加入 `turn_id` 与模型身份字段。
 
 ### Rust 编程式配置
 

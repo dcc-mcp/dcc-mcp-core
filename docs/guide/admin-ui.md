@@ -143,7 +143,8 @@ compatibility layer; automation should prefer:
 MCP and REST callers may attach optional context so the Admin UI can correlate
 why a request was made with the request waterfall. This is a telemetry contract:
 callers should send concise summaries, plans, observations, tags, and correlation
-ids. The gateway does not attempt to capture hidden model chain-of-thought.
+ids. The gateway does not attempt to capture hidden model chain-of-thought, raw
+user input, or raw agent replies on the default path.
 
 Supported carriers:
 
@@ -151,7 +152,13 @@ Supported carriers:
 - REST body `agent_context`, `agentContext`, `caller_context`, or
   `meta.agent_context`
 - Headers such as `x-dcc-mcp-agent-id`, `x-dcc-mcp-agent-name`,
-  `x-dcc-mcp-agent-model`, `x-dcc-mcp-agent-task`,
+  `x-dcc-mcp-agent-model`, `x-dcc-mcp-agent-model-provider`,
+  `x-dcc-mcp-agent-model-version`, `x-dcc-mcp-agent-reasoning-effort`,
+  `x-dcc-mcp-agent-session-id`, `x-dcc-mcp-agent-turn-id`,
+  `x-dcc-mcp-agent-user-intent-summary`,
+  `x-dcc-mcp-agent-reply-summary`, `x-dcc-mcp-agent-user-input-hash`,
+  `x-dcc-mcp-agent-reply-hash`, `x-dcc-mcp-agent-user-input-chars`,
+  `x-dcc-mcp-agent-reply-chars`, `x-dcc-mcp-agent-task`,
   `x-dcc-mcp-reasoning-summary`, `x-dcc-mcp-parent-request-id`, and
   `x-dcc-mcp-agent-context` (JSON object)
 
@@ -165,8 +172,19 @@ Example REST request:
     "agent_context": {
       "agent_id": "agent-42",
       "agent_name": "Layout Inspector",
+      "model_provider": "openai",
+      "model_version": "gpt-5.1",
       "model": "gpt-5.4",
+      "reasoning_effort": "medium",
+      "session_id": "session-42",
+      "turn_id": "turn-7",
       "task": "Find the cheapest scene inspection path before editing",
+      "user_intent_summary": "User asked for a non-destructive scene inspection before editing.",
+      "agent_reply_summary": "The agent will inspect topology and material counts first.",
+      "user_input_hash": "sha256:...",
+      "agent_reply_hash": "sha256:...",
+      "user_input_chars": 128,
+      "agent_reply_chars": 192,
       "reasoning_summary": "Need scene topology and material counts before selecting an edit tool.",
       "plan": ["inspect scene", "choose edit target"],
       "observations": ["user asked for non-destructive update"],
@@ -186,10 +204,15 @@ span waterfall, and the same copyable links. These URLs are designed to be
 pasted directly into an LLM evaluation prompt or another agent's debugging task.
 The Workflows panel and `GET /admin/api/workflows` group the same bounded data
 by session, explicit workflow id, trace id, or request chain. Each workflow row
-shows the readable discovery/execution chain (`search` → `describe` →
-`load_skill` → `call`), selected search rank, zero-result searches,
+shows model identity, turn id, user/agent summaries, the readable
+discovery/execution chain (`search` → `describe` → `load_skill` → `call`),
+selected search rank, zero-result searches,
 time-to-first-success, and per-step links to trace detail, debug bundle, issue
 report JSON, OpenAPI Inspector/spec, and docs where a request id is available.
+Raw prompts and raw replies are high-sensitivity data: keep them out of
+`agent_context`; use only an explicitly configured traffic capture policy with
+redaction, sampling, retention, and operator visibility when raw text is needed
+for a private investigation.
 
 `request_id` and `trace_id` are intentionally different. `request_id` identifies
 one HTTP/MCP request (or JSON-RPC id), while `trace_id` identifies the
@@ -200,8 +223,11 @@ trace id, parent span id, and flags from `traceparent`.
 The Admin UI also exposes a standalone `GET /admin/api/issue-report/{request_id}`
 export. It returns a GitHub-attachable JSON report with a summary,
 `github_issue` title/body template, absolute links, and the correlated debug
-bundle. Review request/response payloads for secrets or proprietary scene paths
-before uploading the JSON to a public issue.
+bundle. Default exports include bounded summaries, hashes, character counts, and
+payload previews only. Review request/response payload previews for secrets or
+proprietary scene paths before uploading the JSON to a public issue; raw prompt
+or reply text belongs in an explicit safe-export/traffic-capture flow, not in
+default issue reports.
 
 The front-end product name is **Admin Dashboard**. The lower REST/OpenAPI
 contract view is named **OpenAPI Inspector**. It reads the live gateway

@@ -324,10 +324,68 @@ pub struct AgentContext {
     pub agent_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_kind: Option<String>,
+    #[serde(
+        default,
+        alias = "modelProvider",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub model_provider: Option<String>,
+    #[serde(
+        default,
+        alias = "modelVersion",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub model_version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(
+        default,
+        alias = "reasoningEffort",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub reasoning_effort: Option<String>,
+    #[serde(default, alias = "sessionId", skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, alias = "turnId", skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task: Option<String>,
+    #[serde(
+        default,
+        alias = "userIntentSummary",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub user_intent_summary: Option<String>,
+    #[serde(
+        default,
+        alias = "agentReplySummary",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub agent_reply_summary: Option<String>,
+    #[serde(
+        default,
+        alias = "userInputHash",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub user_input_hash: Option<String>,
+    #[serde(
+        default,
+        alias = "agentReplyHash",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub agent_reply_hash: Option<String>,
+    #[serde(
+        default,
+        alias = "userInputChars",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub user_input_chars: Option<u64>,
+    #[serde(
+        default,
+        alias = "agentReplyChars",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub agent_reply_chars: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_summary: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -373,8 +431,19 @@ impl AgentContext {
         self.agent_id.is_none()
             && self.agent_name.is_none()
             && self.agent_kind.is_none()
+            && self.model_provider.is_none()
+            && self.model_version.is_none()
             && self.model.is_none()
+            && self.reasoning_effort.is_none()
+            && self.session_id.is_none()
+            && self.turn_id.is_none()
             && self.task.is_none()
+            && self.user_intent_summary.is_none()
+            && self.agent_reply_summary.is_none()
+            && self.user_input_hash.is_none()
+            && self.agent_reply_hash.is_none()
+            && self.user_input_chars.is_none()
+            && self.agent_reply_chars.is_none()
             && self.reasoning_summary.is_none()
             && self.plan.is_empty()
             && self.observations.is_empty()
@@ -389,8 +458,17 @@ impl AgentContext {
         self.agent_id = self.agent_id.map(bound_context_string);
         self.agent_name = self.agent_name.map(bound_context_string);
         self.agent_kind = self.agent_kind.map(bound_context_string);
+        self.model_provider = self.model_provider.map(bound_context_string);
+        self.model_version = self.model_version.map(bound_context_string);
         self.model = self.model.map(bound_context_string);
+        self.reasoning_effort = self.reasoning_effort.map(bound_context_string);
+        self.session_id = self.session_id.map(bound_context_string);
+        self.turn_id = self.turn_id.map(bound_context_string);
         self.task = self.task.map(bound_context_string);
+        self.user_intent_summary = self.user_intent_summary.map(bound_context_string);
+        self.agent_reply_summary = self.agent_reply_summary.map(bound_context_string);
+        self.user_input_hash = self.user_input_hash.map(bound_context_string);
+        self.agent_reply_hash = self.agent_reply_hash.map(bound_context_string);
         self.reasoning_summary = self.reasoning_summary.map(bound_context_string);
         self.parent_request_id = self.parent_request_id.map(bound_context_string);
         self.trace_id = self.trace_id.map(bound_context_string);
@@ -452,11 +530,104 @@ fn merge_header_agent_context(ctx: &mut AgentContext, headers: &HeaderMap) {
     if ctx.agent_kind.is_none() {
         ctx.agent_kind = header_str(headers, "x-dcc-mcp-agent-kind").map(bound_context_string);
     }
+    if ctx.model_provider.is_none() {
+        ctx.model_provider = header_str_any(
+            headers,
+            &["x-dcc-mcp-agent-model-provider", "x-dcc-mcp-model-provider"],
+        )
+        .map(bound_context_string);
+    }
+    if ctx.model_version.is_none() {
+        ctx.model_version = header_str_any(
+            headers,
+            &["x-dcc-mcp-agent-model-version", "x-dcc-mcp-model-version"],
+        )
+        .map(bound_context_string);
+    }
     if ctx.model.is_none() {
         ctx.model = header_str(headers, "x-dcc-mcp-agent-model").map(bound_context_string);
     }
+    if ctx.reasoning_effort.is_none() {
+        ctx.reasoning_effort = header_str_any(
+            headers,
+            &[
+                "x-dcc-mcp-agent-reasoning-effort",
+                "x-dcc-mcp-reasoning-effort",
+            ],
+        )
+        .map(bound_context_string);
+    }
+    if ctx.session_id.is_none() {
+        ctx.session_id = header_str_any(
+            headers,
+            &["x-dcc-mcp-agent-session-id", "x-dcc-mcp-session-id"],
+        )
+        .map(bound_context_string);
+    }
+    if ctx.turn_id.is_none() {
+        ctx.turn_id = header_str_any(headers, &["x-dcc-mcp-agent-turn-id", "x-dcc-mcp-turn-id"])
+            .map(bound_context_string);
+    }
     if ctx.task.is_none() {
         ctx.task = header_str(headers, "x-dcc-mcp-agent-task").map(bound_context_string);
+    }
+    if ctx.user_intent_summary.is_none() {
+        ctx.user_intent_summary = header_str_any(
+            headers,
+            &[
+                "x-dcc-mcp-agent-user-intent-summary",
+                "x-dcc-mcp-user-intent-summary",
+            ],
+        )
+        .map(bound_context_string);
+    }
+    if ctx.agent_reply_summary.is_none() {
+        ctx.agent_reply_summary = header_str_any(
+            headers,
+            &[
+                "x-dcc-mcp-agent-reply-summary",
+                "x-dcc-mcp-agent-agent-reply-summary",
+            ],
+        )
+        .map(bound_context_string);
+    }
+    if ctx.user_input_hash.is_none() {
+        ctx.user_input_hash = header_str_any(
+            headers,
+            &[
+                "x-dcc-mcp-agent-user-input-hash",
+                "x-dcc-mcp-user-input-hash",
+            ],
+        )
+        .map(bound_context_string);
+    }
+    if ctx.agent_reply_hash.is_none() {
+        ctx.agent_reply_hash = header_str_any(
+            headers,
+            &[
+                "x-dcc-mcp-agent-reply-hash",
+                "x-dcc-mcp-agent-agent-reply-hash",
+            ],
+        )
+        .map(bound_context_string);
+    }
+    if ctx.user_input_chars.is_none() {
+        ctx.user_input_chars = header_u64_any(
+            headers,
+            &[
+                "x-dcc-mcp-agent-user-input-chars",
+                "x-dcc-mcp-user-input-chars",
+            ],
+        );
+    }
+    if ctx.agent_reply_chars.is_none() {
+        ctx.agent_reply_chars = header_u64_any(
+            headers,
+            &[
+                "x-dcc-mcp-agent-reply-chars",
+                "x-dcc-mcp-agent-agent-reply-chars",
+            ],
+        );
     }
     if ctx.reasoning_summary.is_none() {
         ctx.reasoning_summary =
@@ -483,6 +654,14 @@ fn header_str(headers: &HeaderMap, name: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+fn header_str_any(headers: &HeaderMap, names: &[&str]) -> Option<String> {
+    names.iter().find_map(|name| header_str(headers, name))
+}
+
+fn header_u64_any(headers: &HeaderMap, names: &[&str]) -> Option<u64> {
+    header_str_any(headers, names).and_then(|value| value.parse::<u64>().ok())
+}
+
 fn bound_context_string(value: String) -> String {
     truncate_utf8(value, MAX_AGENT_CONTEXT_STRING_BYTES).0
 }
@@ -499,9 +678,10 @@ fn bound_context_metadata(value: Value) -> Value {
     if value.is_null() {
         return Value::Null;
     }
-    let raw = serde_json::to_string(&value).unwrap_or_default();
+    let sanitized = sanitize_context_metadata(value);
+    let raw = serde_json::to_string(&sanitized).unwrap_or_default();
     if raw.len() <= MAX_AGENT_CONTEXT_METADATA_BYTES {
-        return value;
+        return sanitized;
     }
     let (preview, _) = truncate_utf8(raw.clone(), MAX_AGENT_CONTEXT_METADATA_BYTES);
     json!({
@@ -509,6 +689,59 @@ fn bound_context_metadata(value: Value) -> Value {
         "original_size": raw.len(),
         "preview": preview,
     })
+}
+
+fn sanitize_context_metadata(value: Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut sanitized = serde_json::Map::new();
+            let mut redacted = 0usize;
+            for (key, value) in map {
+                if is_high_sensitivity_agent_key(&key) {
+                    redacted += 1;
+                } else {
+                    sanitized.insert(key, sanitize_context_metadata(value));
+                }
+            }
+            if redacted > 0 {
+                sanitized.insert(
+                    "redacted_high_sensitivity_fields".to_string(),
+                    json!(redacted),
+                );
+            }
+            Value::Object(sanitized)
+        }
+        Value::Array(values) => {
+            Value::Array(values.into_iter().map(sanitize_context_metadata).collect())
+        }
+        other => other,
+    }
+}
+
+fn is_high_sensitivity_agent_key(key: &str) -> bool {
+    let normalised = key
+        .chars()
+        .filter(|ch| *ch != '_' && *ch != '-' && *ch != ' ')
+        .flat_map(char::to_lowercase)
+        .collect::<String>();
+    matches!(
+        normalised.as_str(),
+        "agentreply"
+            | "agentresponse"
+            | "chainofthought"
+            | "hiddencot"
+            | "messages"
+            | "prompt"
+            | "prompts"
+            | "rawagentreply"
+            | "rawagentresponse"
+            | "rawprompt"
+            | "rawresponse"
+            | "rawuserinput"
+            | "reply"
+            | "response"
+            | "userinput"
+    ) || normalised.contains("secret")
 }
 
 // ── Span ──────────────────────────────────────────────────────────────────────
@@ -771,10 +1004,21 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("x-dcc-mcp-agent-id", "agent-7".parse().unwrap());
         headers.insert("x-dcc-mcp-agent-model", "gpt-test".parse().unwrap());
+        headers.insert("x-dcc-mcp-agent-model-provider", "openai".parse().unwrap());
+        headers.insert("x-dcc-mcp-agent-turn-id", "turn-9".parse().unwrap());
+        headers.insert("x-dcc-mcp-user-input-chars", "2500".parse().unwrap());
         let meta = json!({
             "agent_context": {
                 "agent_name": "Scene Planner",
+                "modelVersion": "gpt-5.1",
+                "reasoningEffort": "medium",
+                "sessionId": "session-meta",
                 "task": "inspect material bindings",
+                "userIntentSummary": "Inspect scene before editing.",
+                "agentReplySummary": "I will inspect the scene graph first.",
+                "userInputHash": "sha256:user",
+                "agentReplyHash": "sha256:reply",
+                "agentReplyChars": 140,
                 "reasoning_summary": "Need a lightweight scene read before edit.",
                 "plan": ["describe scene", "choose material patch"]
             }
@@ -785,6 +1029,23 @@ mod tests {
         assert_eq!(ctx.agent_id.as_deref(), Some("agent-7"));
         assert_eq!(ctx.agent_name.as_deref(), Some("Scene Planner"));
         assert_eq!(ctx.model.as_deref(), Some("gpt-test"));
+        assert_eq!(ctx.model_provider.as_deref(), Some("openai"));
+        assert_eq!(ctx.model_version.as_deref(), Some("gpt-5.1"));
+        assert_eq!(ctx.reasoning_effort.as_deref(), Some("medium"));
+        assert_eq!(ctx.session_id.as_deref(), Some("session-meta"));
+        assert_eq!(ctx.turn_id.as_deref(), Some("turn-9"));
+        assert_eq!(
+            ctx.user_intent_summary.as_deref(),
+            Some("Inspect scene before editing.")
+        );
+        assert_eq!(
+            ctx.agent_reply_summary.as_deref(),
+            Some("I will inspect the scene graph first.")
+        );
+        assert_eq!(ctx.user_input_hash.as_deref(), Some("sha256:user"));
+        assert_eq!(ctx.agent_reply_hash.as_deref(), Some("sha256:reply"));
+        assert_eq!(ctx.user_input_chars, Some(2500));
+        assert_eq!(ctx.agent_reply_chars, Some(140));
         assert_eq!(ctx.plan.len(), 2);
     }
 
@@ -797,6 +1058,46 @@ mod tests {
 
         assert_eq!(ctx.reasoning_summary.as_deref(), Some("manual smoke test"));
         assert_eq!(ctx.display_name(), None);
+    }
+
+    #[test]
+    fn agent_context_bounds_turn_summaries_and_excludes_raw_text() {
+        let headers = HeaderMap::new();
+        let raw_prompt = "secret production prompt".to_string();
+        let long_summary = "summary ".repeat(MAX_AGENT_CONTEXT_STRING_BYTES);
+        let body = json!({
+            "caller_context": {
+                "agent_id": "agent-raw",
+                "turnId": "turn-raw",
+                "userIntentSummary": long_summary,
+                "user_input": raw_prompt,
+                "agentReply": "raw reply should not be stored",
+                "metadata": {
+                    "workflow_id": "wf-1",
+                    "prompt": "raw prompt in metadata",
+                    "nested": {
+                        "rawAgentReply": "raw reply in nested metadata",
+                        "safe": "kept"
+                    }
+                }
+            }
+        });
+
+        let ctx = AgentContext::from_request_parts(&headers, Some(&body), None).unwrap();
+        let encoded = serde_json::to_string(&ctx).unwrap();
+
+        assert!(ctx.user_intent_summary.unwrap().len() <= MAX_AGENT_CONTEXT_STRING_BYTES);
+        assert!(!encoded.contains("secret production prompt"));
+        assert!(!encoded.contains("raw reply should not be stored"));
+        assert!(!encoded.contains("raw prompt in metadata"));
+        assert!(!encoded.contains("raw reply in nested metadata"));
+        assert_eq!(ctx.metadata["workflow_id"], "wf-1");
+        assert_eq!(ctx.metadata["nested"]["safe"], "kept");
+        assert_eq!(ctx.metadata["redacted_high_sensitivity_fields"], 1);
+        assert_eq!(
+            ctx.metadata["nested"]["redacted_high_sensitivity_fields"],
+            1
+        );
     }
 
     #[test]

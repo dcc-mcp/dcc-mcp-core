@@ -10,7 +10,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::gateway::admin::trace::TraceContext;
+use crate::gateway::admin::trace::{AgentContext, TraceContext};
 
 pub use dcc_mcp_gateway_core::capability::RANKER_VERSION;
 
@@ -67,6 +67,8 @@ pub struct SearchTelemetryRecord {
     pub trace_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_context: Option<AgentContext>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub query_preview: Option<String>,
     pub query_hash: String,
@@ -131,6 +133,7 @@ pub struct SearchTelemetryInput {
     pub hits: Vec<SearchTelemetryHit>,
     pub trace_context: Option<TraceContext>,
     pub session_id: Option<String>,
+    pub agent_context: Option<AgentContext>,
 }
 
 #[derive(Debug, Clone)]
@@ -185,10 +188,17 @@ impl SearchTelemetryStore {
         let mut inner = self.inner.lock();
         let now = SystemTime::now();
         let query_norm = normalise_query(&input.query);
+        let agent_context = input.agent_context.clone();
+        let session_id = input.session_id.or_else(|| {
+            agent_context
+                .as_ref()
+                .and_then(|ctx| ctx.session_id.clone())
+        });
         let correlation_key = correlation_key(
             input.trace_context.as_ref(),
-            input.session_id.as_deref(),
+            session_id.as_deref(),
             input.dcc_type.as_deref(),
+            agent_context.as_ref(),
         );
         let reformulation_of = correlation_key.as_ref().and_then(|key| {
             let previous = inner.last_by_correlation.get(key)?;
@@ -230,7 +240,8 @@ impl SearchTelemetryStore {
                 .as_ref()
                 .map(|ctx| ctx.request_id.clone()),
             trace_id: input.trace_context.as_ref().map(|ctx| ctx.trace_id.clone()),
-            session_id: input.session_id,
+            session_id,
+            agent_context,
             query_preview: query_preview(&input.query),
             query_hash: hash_query(&query_norm),
             dcc_type: input.dcc_type,
@@ -319,6 +330,7 @@ impl SearchTelemetryStore {
                     input.trace_context.as_ref(),
                     record.session_id.as_deref(),
                     record.dcc_type.as_deref(),
+                    record.agent_context.as_ref(),
                 )
             {
                 mark_success_for = Some((key, record.search_id.clone()));
@@ -528,10 +540,16 @@ fn correlation_key(
     trace_context: Option<&TraceContext>,
     session_id: Option<&str>,
     dcc_type: Option<&str>,
+    agent_context: Option<&AgentContext>,
 ) -> Option<String> {
     trace_context
         .map(|ctx| format!("trace:{}", ctx.trace_id))
         .or_else(|| session_id.map(|session| format!("session:{session}")))
+        .or_else(|| {
+            agent_context
+                .and_then(|ctx| ctx.turn_id.as_deref())
+                .map(|turn_id| format!("turn:{turn_id}"))
+        })
         .or_else(|| dcc_type.map(|dcc| format!("dcc:{dcc}")))
 }
 
@@ -682,6 +700,7 @@ mod tests {
             ],
             trace_context: Some(trace("search-1")),
             session_id: Some("sess-1".to_string()),
+            agent_context: None,
         });
         for (kind, slug, skill, success) in [
             ("describe", Some("maya.11111111.create_sphere"), None, true),
@@ -728,6 +747,7 @@ mod tests {
             hits: Vec::new(),
             trace_context: Some(trace("search-a")),
             session_id: None,
+            agent_context: None,
         });
         store.record_search(SearchTelemetryInput {
             search_id: "search-b".to_string(),
@@ -743,6 +763,7 @@ mod tests {
             hits: vec![hit("maya.11111111.create_sphere", "maya-geometry", 1)],
             trace_context: Some(trace("search-b")),
             session_id: None,
+            agent_context: None,
         });
 
         let snapshot = store.snapshot(10);
@@ -752,5 +773,73 @@ mod tests {
             snapshot.recent[1].query_preview.as_deref(),
             Some("[redacted] impossible query")
         );
+    }
+
+    #[test]
+    fn store_correlates_search_quality_with_agent_turn_context() {
+        let store = SearchTelemetryStore::with_capacity(10);
+        let turn_context = AgentContext {
+            model_provider: Some("openai".to_string()),
+            model_version: Some("gpt-5.1".to_string()),
+            turn_id: Some("turn-search".to_string()),
+            user_intent_summary: Some("Find a sphere creation tool.".to_string()),
+            user_input_hash: Some("sha256:user".to_string()),
+            user_input_chars: Some(48),
+            ..AgentContext::default()
+        };
+        store.record_search(SearchTelemetryInput {
+            search_id: "search-turn-a".to_string(),
+            transport: "mcp".to_string(),
+            kind: "tool".to_string(),
+            query: "missing sphere creator".to_string(),
+            dcc_type: Some("maya".to_string()),
+            instance_id: None,
+            limit: Some(5),
+            total: 0,
+            ranker_version: RANKER_VERSION.to_string(),
+            index_generation: "idx1".to_string(),
+            hits: Vec::new(),
+            trace_context: None,
+            session_id: None,
+            agent_context: Some(turn_context.clone()),
+        });
+        store.record_search(SearchTelemetryInput {
+            search_id: "search-turn-b".to_string(),
+            transport: "mcp".to_string(),
+            kind: "tool".to_string(),
+            query: "sphere".to_string(),
+            dcc_type: Some("maya".to_string()),
+            instance_id: None,
+            limit: Some(5),
+            total: 1,
+            ranker_version: RANKER_VERSION.to_string(),
+            index_generation: "idx1".to_string(),
+            hits: vec![hit("maya.11111111.create_sphere", "maya-geometry", 1)],
+            trace_context: None,
+            session_id: None,
+            agent_context: Some(turn_context),
+        });
+        assert!(store.record_followup(SearchFollowupInput {
+            search_id: "search-turn-b".to_string(),
+            kind: "call".to_string(),
+            tool_slug: Some("maya.11111111.create_sphere".to_string()),
+            skill_name: None,
+            success: true,
+            trace_context: None,
+        }));
+
+        let snapshot = store.snapshot(10);
+        let latest = &snapshot.recent[0];
+        let agent = latest.agent_context.as_ref().expect("agent turn context");
+
+        assert_eq!(snapshot.stats.query_reformulation_count, 1);
+        assert_eq!(latest.search_id, "search-turn-b");
+        assert_eq!(latest.reformulation_of.as_deref(), Some("search-turn-a"));
+        assert_eq!(latest.first_success_ms, latest.followups[0].elapsed_ms);
+        assert_eq!(latest.followups[0].selected_rank, Some(1));
+        assert_eq!(agent.model_provider.as_deref(), Some("openai"));
+        assert_eq!(agent.model_version.as_deref(), Some("gpt-5.1"));
+        assert_eq!(agent.turn_id.as_deref(), Some("turn-search"));
+        assert_eq!(agent.user_input_hash.as_deref(), Some("sha256:user"));
     }
 }

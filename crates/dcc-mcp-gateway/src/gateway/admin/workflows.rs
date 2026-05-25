@@ -33,9 +33,31 @@ pub struct WorkflowAgent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub task: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_intent_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_reply_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_input_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_reply_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_input_chars: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_reply_chars: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_index: Option<u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -50,6 +72,8 @@ pub struct WorkflowCorrelation {
     pub trace_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub request_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -331,6 +355,15 @@ impl WorkflowBuilder {
     }
 
     fn note_search(&mut self, search: &SearchTelemetryRecord) {
+        if self.agent.is_none() {
+            self.agent = search.agent_context.as_ref().map(agent_from_context);
+        }
+        if self.agent_id.is_none() {
+            self.agent_id = search
+                .agent_context
+                .as_ref()
+                .and_then(|ctx| ctx.agent_id.clone());
+        }
         if let Some(request_id) = search.request_id.as_deref() {
             self.request_ids.insert(request_id.to_string());
         }
@@ -403,6 +436,7 @@ impl WorkflowBuilder {
             session_id: session_ids.first().cloned(),
             trace_id: trace_ids.first().cloned(),
             agent_id: self.agent_id.clone(),
+            turn_id: self.agent.as_ref().and_then(|agent| agent.turn_id.clone()),
             request_ids,
             trace_ids,
             session_ids,
@@ -507,6 +541,14 @@ fn search_group_key(search: &SearchTelemetryRecord) -> (String, String, String) 
     }
     if let Some(trace_id) = search.trace_id.as_deref().filter(|value| !value.is_empty()) {
         return keyed("trace", trace_id.to_string());
+    }
+    if let Some(turn_id) = search
+        .agent_context
+        .as_ref()
+        .and_then(|ctx| ctx.turn_id.as_deref())
+        .filter(|value| !value.is_empty())
+    {
+        return keyed("turn", turn_id.to_string());
     }
     if let Some(request_id) = search
         .request_id
@@ -807,8 +849,19 @@ fn agent_from_context(ctx: &AgentContext) -> WorkflowAgent {
         agent_id: ctx.agent_id.clone(),
         agent_name: ctx.agent_name.clone(),
         agent_kind: ctx.agent_kind.clone(),
+        model_provider: ctx.model_provider.clone(),
+        model_version: ctx.model_version.clone(),
         model: ctx.model.clone(),
+        reasoning_effort: ctx.reasoning_effort.clone(),
+        session_id: ctx.session_id.clone(),
+        turn_id: ctx.turn_id.clone(),
         task: ctx.task.clone(),
+        user_intent_summary: ctx.user_intent_summary.clone(),
+        agent_reply_summary: ctx.agent_reply_summary.clone(),
+        user_input_hash: ctx.user_input_hash.clone(),
+        agent_reply_hash: ctx.agent_reply_hash.clone(),
+        user_input_chars: ctx.user_input_chars,
+        agent_reply_chars: ctx.agent_reply_chars,
         turn_index: ctx.turn_index,
         tags: ctx.tags.iter().take(MAX_AGENT_TAGS).cloned().collect(),
     }

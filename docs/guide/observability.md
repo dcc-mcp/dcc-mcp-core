@@ -65,18 +65,21 @@ gateway-specific fields:
 | `dcc_mcp.workflow.operation` | One of the span names above. |
 | `dcc_mcp.transport` | `rest` or `mcp`. |
 | `dcc_mcp.trace_id`, `dcc_mcp.request_id`, `dcc_mcp.parent_request_id`, `dcc_mcp.session_id` | Correlation IDs that match Admin trace/debug-bundle surfaces. |
-| `dcc_mcp.agent.id`, `.name`, `.kind`, `.model`, `.task`, `.tags` | Bounded `agent_context` / caller metadata. |
+| `dcc_mcp.agent.id`, `.name`, `.kind`, `.model`, `.model_provider`, `.model_version`, `.reasoning_effort`, `.turn_id`, `.task`, `.tags` | Bounded `agent_context` / caller metadata. |
+| `dcc_mcp.agent.user_intent_summary`, `.reply_summary`, `.user_input_hash`, `.reply_hash`, `.user_input_chars`, `.reply_chars` | Low-sensitivity turn summaries, hashes, and lengths for evaluation correlation. |
 | `dcc_mcp.dcc.type`, `dcc_mcp.instance.id`, `dcc_mcp.skill.name`, `dcc_mcp.tool.slug` | Selected DCC route and skill/tool identity. |
 | `dcc_mcp.search.id`, `.ranker_version`, `.selected_rank`, `.score`, `.match_reasons`, `.total`, `.zero_results` | Search-quality context carried from `/v1/search` or gateway `search`. |
 | `dcc_mcp.policy.outcome`, `.reason` | Whether gateway policy allowed, denied, or throttled the action and why. |
 | `dcc_mcp.success`, `dcc_mcp.error.kind`, `dcc_mcp.batch.size` | Execution outcome fields. |
 
 The gateway intentionally does **not** export hidden chain-of-thought, raw
-prompts, unbounded request bodies, secrets, or arbitrary `agent_context`
-metadata. Put `search_id` in REST `meta.search_id` or MCP `_meta.search_id`
-when following a search hit into `describe`, `load_skill`, `call`, or
-`call_batch`; that is what lets OTLP traces connect selected rank and score to
-actual tool outcomes.
+prompts, raw agent replies, unbounded request bodies, secrets, or arbitrary
+`agent_context` metadata. Put `search_id` in REST `meta.search_id` or MCP
+`_meta.search_id` when following a search hit into `describe`, `load_skill`,
+`call`, or `call_batch`; that is what lets OTLP traces connect selected rank
+and score to actual tool outcomes. Add `turn_id` and model identity to
+`agent_context` when an evaluation needs to correlate search quality,
+time-to-first-success, and downstream call success back to one agent turn.
 
 ### Trace Context
 
@@ -237,9 +240,13 @@ MCP and REST clients can attach optional agent/caller context to correlate an
 operator-visible request with the caller's explicit plan and observations. Use
 `params._meta.agent_context` for MCP, REST `meta.agent_context` or
 `caller_context` fields, or `x-dcc-mcp-agent-*` headers. Fields are bounded and
-intended for concise telemetry such as `agent_id`, `agent_name`, `model`,
-`task`, `reasoning_summary`, `plan`, `observations`, `parent_request_id`, and
-tags; do not send hidden chain-of-thought or secrets. `trace_id`, `request_id`,
+intended for concise telemetry such as `agent_id`, `agent_name`,
+`model_provider`, `model_version`, `model`, `reasoning_effort`, `session_id`,
+`turn_id`, `user_intent_summary`, `agent_reply_summary`, `user_input_hash`,
+`agent_reply_hash`, `user_input_chars`, `agent_reply_chars`, `task`,
+`reasoning_summary`, `plan`, `observations`, `parent_request_id`, and tags; do
+not send hidden chain-of-thought, raw user input, raw agent replies, or secrets.
+`trace_id`, `request_id`,
 `span_id`, and `parent_span_id` are recorded separately so one trace can contain
 multiple request ids without losing per-request compatibility. Admin call and trace rows
 also include absolute `links` for the trace page, trace API, debug bundle,
