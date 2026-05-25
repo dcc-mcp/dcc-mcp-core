@@ -106,7 +106,7 @@ jobs:
           name: admin-ui-bundle
           path: crates/dcc-mcp-gateway/src/gateway/admin/generated/index.html
 
-  # ── Rust checks (check + clippy + fmt + cargo test) ──
+  # ── Rust checks (stub drift + clippy + fmt + cargo test) ──
   rust-check:
     name: Rust (${{ matrix.os }})
     strategy:
@@ -179,8 +179,19 @@ jobs:
           echo ""
           echo "::error::Run 'cargo hakari generate' and commit the changes to fix this CI step."
           exit 1
-      - name: Preflight (check + clippy + fmt + test)
-        run: vx just preflight
+      # `cargo check` is intentionally omitted here: `cargo clippy --workspace`
+      # and `cargo nextest run --workspace` still compile the workspace, while
+      # stub generation and formatting are OS-independent and only need one pass.
+      - name: Stub generation
+        if: runner.os == 'Linux'
+        run: vx just stubgen
+      - name: Rust format check
+        if: runner.os == 'Linux'
+        run: vx just fmt-check
+      - name: Clippy
+        run: vx just clippy
+      - name: Rust tests
+        run: vx just test-rust
 
   # ── Build ABI3 wheel (one per OS, reused by python-test) ──
   # Intentionally does NOT `needs: [rust-check]` — maturin runs its own compile
