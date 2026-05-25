@@ -242,8 +242,7 @@ into a faster authoring loop.
 10. Skill script entry points may use either modern `main(**params)` or legacy
     `main(params)` signatures; prefer `main(**params)` for new scripts and keep
     dict-style wrappers only for compatibility during adapter migrations.
-11. When an adapter must adjust discovered skill metadata before registration
-    (for example disabling thread-affinity enforcement for a standalone path),
+11. When an adapter must adjust discovered skill metadata before registration,
     install `server.set_skill_load_transform(fn)` before exposing the server to
     agents. The transform receives a mutable `SkillMetadata` and applies to
     direct Python `load_skill`, MCP `tools/call load_skill`, REST
@@ -253,7 +252,16 @@ into a faster authoring loop.
     registration, and keep `get_skill()` / `load_skill_object()` for explicit
     one-off object loads. Do not parse or rewrite `SKILL.md` / `tools.yaml` at
     adapter runtime. Keep `get_skill_info()` for serialized inspection only.
-12. For ad-hoc script execution, prefer file-backed boundaries. Use
+    Do not use this hook to clear `enforce_thread_affinity` for batch hosts.
+12. In mayapy/hython/batch hosts where no GUI dispatcher exists but the
+    adapter has verified the in-process lane is safe for DCC API calls, pass
+    `standalone_main_thread=True` to `DccServerOptions.from_env(...)` instead
+    of mutating loaded skill metadata. This core-owned opt-in registers the
+    inline in-process executor before discovery and lets MCP `tools/call` plus
+    REST `/v1/call` satisfy `thread_affinity: main` tools. Do not use it for
+    GUI sessions; wire `HostExecutionBridge(dispatcher=...)`,
+    `QueueDispatcher`, or `BlockingDispatcher` there.
+13. For ad-hoc script execution, prefer file-backed boundaries. Use
     `materialize_script(...)` (Python) or
     `ScriptMaterializationStore` (Rust) to create host-local scripts under the
     DCC/session-scoped root before calling `execute_python(file_path=...)` or
@@ -271,9 +279,9 @@ into a faster authoring loop.
     file before a later execution call. New script execution tool schemas must
     include `file_path` or `script_path` when they accept inline `code`;
     validation warns on unbounded inline-only code schemas.
-13. Add tests at the lowest executable layer, then one discovery/load/call or
+14. Add tests at the lowest executable layer, then one discovery/load/call or
     gateway REST path when behavior crosses MCP or REST boundaries.
-14. For application UI automation, use the generic `app_ui__*` contract rather
+15. For application UI automation, use the generic `app_ui__*` contract rather
     than DCC-specific names: snapshot -> find -> act -> wait_for -> verify.
     The Rust contract types live in `dcc-mcp-app-ui`; do not add Qt, OS
     accessibility, webview, PyO3, or HTTP runtime dependencies there.

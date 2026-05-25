@@ -654,6 +654,45 @@ def test_dcc_server_base_constructor_registers_execution_bridge_before_discovery
     assert events == ["set_in_process_executor", "discover"]
 
 
+def test_dcc_server_base_standalone_main_thread_registers_inline_executor_before_discovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dcc_mcp_core._server.options import DccServerOptions
+    from dcc_mcp_core.server_base import DccServerBase
+
+    events: list[str] = []
+
+    class _Server:
+        def set_in_process_executor(self, executor: Callable[..., Any]) -> None:
+            events.append("set_in_process_executor")
+            self.executor = executor
+
+        def discover(self, extra_paths: list[str]) -> int:
+            events.append("discover")
+            return len(extra_paths)
+
+    fake_server = _Server()
+    import dcc_mcp_core.server_base as server_base
+
+    monkeypatch.setattr(server_base, "create_skill_server", lambda *_args, **_kwargs: fake_server)
+
+    opts = DccServerOptions.from_env(
+        "test_standalone_ctor",
+        tmp_path,
+        port=0,
+        standalone_main_thread=True,
+        enable_file_logging=False,
+        enable_job_persistence=False,
+        enable_telemetry=False,
+    )
+    base = DccServerBase(opts)
+    base.register_builtin_actions(include_bundled=False)
+
+    assert events == ["set_in_process_executor", "discover"]
+    assert base._standalone_main_thread is True
+
+
 def test_dcc_server_base_execution_bridge_attaches_queue_dispatcher_before_discovery(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -160,11 +160,24 @@ class _BridgeExecution:
     kind: str = field(default="bridge", init=False)
 
 
+@dataclass(frozen=True)
+class _StandaloneMainThreadExecution:
+    """Run in-process skills inline and treat that lane as main-thread safe."""
+
+    kind: str = field(default="standalone-main-thread", init=False)
+
+
 #: Tagged union — only one of the three variants is valid at a time.
-ExecutionMode = Union[_InlineExecution, _DispatcherExecution, _BridgeExecution]
+ExecutionMode = Union[
+    _InlineExecution,
+    _DispatcherExecution,
+    _BridgeExecution,
+    _StandaloneMainThreadExecution,
+]
 
 # Convenience constructors (avoids importing the private variants everywhere).
 InlineExecution: _InlineExecution = _InlineExecution()
+StandaloneMainThreadExecution: _StandaloneMainThreadExecution = _StandaloneMainThreadExecution()
 
 
 def DispatcherExecution(dispatcher: BaseDccCallableDispatcher) -> _DispatcherExecution:
@@ -182,7 +195,8 @@ class ExecutionOptions:
     """Execution mode selection.
 
     Args:
-        mode: One of :data:`InlineExecution`, ``DispatcherExecution(d)``,
+        mode: One of :data:`InlineExecution`,
+            :data:`StandaloneMainThreadExecution`, ``DispatcherExecution(d)``,
             or ``BridgeExecution(b)``.  Defaults to :data:`InlineExecution`.
 
     """
@@ -254,6 +268,7 @@ class DccServerOptions:
         # execution kwargs
         dispatcher: BaseDccCallableDispatcher | None = None,
         execution_bridge: HostExecutionBridge | None = None,
+        standalone_main_thread: bool = False,
     ) -> DccServerOptions:
         """Build a :class:`DccServerOptions` from keyword arguments + env vars.
 
@@ -262,11 +277,13 @@ class DccServerOptions:
         producing a fully-resolved frozen object.
 
         Raises:
-            ValueError: If both ``dispatcher`` and ``execution_bridge`` are provided.
+            ValueError: If more than one execution mode is provided.
 
         """
         if dispatcher is not None and execution_bridge is not None:
             raise ValueError("Pass either dispatcher or execution_bridge, not both")
+        if standalone_main_thread and (dispatcher is not None or execution_bridge is not None):
+            raise ValueError("standalone_main_thread cannot be combined with dispatcher or execution_bridge")
 
         gateway = GatewayOptions.from_env(
             port=gateway_port,
@@ -291,6 +308,8 @@ class DccServerOptions:
             exec_mode: ExecutionMode = BridgeExecution(execution_bridge)
         elif dispatcher is not None:
             exec_mode = DispatcherExecution(dispatcher)
+        elif standalone_main_thread:
+            exec_mode = StandaloneMainThreadExecution
         else:
             exec_mode = InlineExecution
 

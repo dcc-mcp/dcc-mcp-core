@@ -235,6 +235,7 @@ fn feature_flags_default_matches_documented_pre_852_surface() {
     assert!(!f.shutdown_on_drop);
     assert!(!f.exclude_skill_stubs_from_tools_list);
     assert!(!f.exclude_group_stubs_from_tools_list);
+    assert!(!f.standalone_main_thread_execution);
 }
 
 #[test]
@@ -257,6 +258,16 @@ fn feature_flags_round_trip() {
         back.exclude_group_stubs_from_tools_list,
         f.exclude_group_stubs_from_tools_list
     );
+    assert_eq!(
+        back.standalone_main_thread_execution,
+        f.standalone_main_thread_execution
+    );
+}
+
+#[test]
+fn standalone_main_thread_execution_builder_opts_in() {
+    let cfg = McpHttpConfig::default().with_standalone_main_thread_execution();
+    assert!(cfg.standalone_main_thread_execution());
 }
 
 /// Critical contract: an empty `{}` body must deserialise into

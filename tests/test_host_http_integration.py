@@ -214,6 +214,69 @@ def test_without_dispatcher_backcompat() -> None:
         handle.shutdown()
 
 
+def test_enforced_main_affinity_without_dispatcher_fails_clearly() -> None:
+    """Default path still rejects main-affinity tools without a dispatcher."""
+    server, reg = _make_server("p2b-no-dispatcher-main-affinity")
+    reg.register(
+        "thread_probe",
+        description="Return the thread id handling the call.",
+        category="test",
+        dcc="test",
+        version="1.0.0",
+        thread_affinity="main",
+        enforce_thread_affinity=True,
+    )
+    server.register_handler("thread_probe", lambda _params: {"ok": True}, thread_affinity="main")
+    handle = server.start()
+    try:
+        time.sleep(0.2)
+        resp = _call_tool(handle.mcp_url(), "thread_probe")
+        assert resp["result"]["isError"] is True, resp
+        assert "THREAD_AFFINITY_UNAVAILABLE" in resp["result"]["content"][0]["text"]
+    finally:
+        handle.shutdown()
+
+
+def test_standalone_main_thread_execution_satisfies_main_affinity_without_dispatcher() -> None:
+    """Mayapy-style standalone hosts can explicitly opt into inline main-affinity execution."""
+    reg = ToolRegistry()
+    cfg = McpHttpConfig(port=0, server_name="standalone-main-affinity")
+    cfg.standalone_main_thread_execution = True
+    server = McpHttpServer(reg, cfg)
+    reg.register(
+        "thread_probe",
+        description="Return the thread id handling the call.",
+        category="test",
+        dcc="test",
+        version="1.0.0",
+        thread_affinity="main",
+        enforce_thread_affinity=True,
+    )
+    captured: dict[str, int | None] = {"tid": None}
+
+    def _probe(_params: dict) -> dict:
+        captured["tid"] = threading.get_ident()
+        return {"ok": True, "tid": captured["tid"]}
+
+    server.register_handler("thread_probe", _probe, thread_affinity="main")
+    handle = server.start()
+    try:
+        time.sleep(0.2)
+
+        resp = _call_tool(handle.mcp_url(), "thread_probe")
+        assert resp.get("error") is None, resp
+        assert resp["result"]["isError"] is False, resp
+        assert "THREAD_AFFINITY_UNAVAILABLE" not in json.dumps(resp)
+        assert captured["tid"] is not None
+
+        status, body = _rest_call(handle.mcp_url(), "test.core.thread_probe", {})
+        assert status == 200, body
+        assert "THREAD_AFFINITY" not in json.dumps(body)
+        assert body["output"]["ok"] is True
+    finally:
+        handle.shutdown()
+
+
 def test_dispatcher_shutdown_during_call_surfaces_error() -> None:
     """If the dispatcher is shut down while a call is in flight, the
     HTTP caller receives a clean error envelope, not a hang.

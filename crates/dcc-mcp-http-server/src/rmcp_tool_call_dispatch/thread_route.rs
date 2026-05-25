@@ -39,10 +39,18 @@ async fn run_on_worker(
     resolved_name: String,
     call_params: Value,
     exec_ctx: DispatchExecutionContext,
+    standalone_main_thread_execution: bool,
+    thread_affinity: ThreadAffinity,
 ) -> Result<DispatchResult, DispatchError> {
     let dispatch_fut = tokio::task::spawn_blocking(move || {
         with_execution_context(exec_ctx, || {
-            dispatcher.dispatch(&resolved_name, call_params)
+            if standalone_main_thread_execution && matches!(thread_affinity, ThreadAffinity::Main) {
+                dcc_mcp_actions::with_thread_affinity(ThreadAffinity::Main, || {
+                    dispatcher.dispatch(&resolved_name, call_params)
+                })
+            } else {
+                dispatcher.dispatch(&resolved_name, call_params)
+            }
         })
     });
     let cancel_wait = async {
@@ -71,14 +79,17 @@ pub async fn dispatch_action_with_thread_routing(
     call_params: Value,
     thread_affinity: ThreadAffinity,
     enforce_thread_affinity: bool,
+    standalone_main_thread_execution: bool,
 ) -> Result<DispatchResult, DispatchError> {
     let executor_present = executor.is_some();
+    let standalone_main =
+        standalone_main_thread_execution && matches!(thread_affinity, ThreadAffinity::Main);
     let on_main = use_main_thread_route(thread_affinity, executor_present);
     let exec_ctx = DispatchExecutionContext {
         host_dispatcher_attached: Some(executor_present),
     };
 
-    if matches!(thread_affinity, ThreadAffinity::Main) && !executor_present {
+    if matches!(thread_affinity, ThreadAffinity::Main) && !executor_present && !standalone_main {
         if enforce_thread_affinity {
             return Err(DispatchError::HandlerError(format!(
                 "THREAD_AFFINITY_UNAVAILABLE: action '{resolved_name}' declares thread_affinity=main, \
@@ -103,7 +114,15 @@ pub async fn dispatch_action_with_thread_routing(
         )
         .await
     } else {
-        run_on_worker(dispatcher, resolved_name.to_string(), call_params, exec_ctx).await
+        run_on_worker(
+            dispatcher,
+            resolved_name.to_string(),
+            call_params,
+            exec_ctx,
+            standalone_main,
+            thread_affinity,
+        )
+        .await
     }
 }
 
@@ -121,6 +140,7 @@ pub(super) async fn execute_threaded_dispatch(
         call_params,
         thread_affinity,
         enforce_thread_affinity,
+        state.standalone_main_thread_execution,
     )
     .await
     .map(|r| r.output)

@@ -85,6 +85,7 @@ impl ToolInvoker for ThreadRoutedInvoker {
                             params,
                             affinity,
                             enforce,
+                            false,
                         ))
                     },
                 )
