@@ -169,7 +169,7 @@ Markdown body for developer review.
 | `GET /admin/api/debug-bundle/{request_id}` | `application/json` | One-stop debug bundle containing the trace, matching audit row, related activity, and hints |
 | `GET /admin/api/stats?range=1h\|24h\|7d` | `application/json` | Aggregated call counts, success rate, latency, top tools/instances/agents, and token-savings totals |
 | `GET /admin/api/governance?limit=300` | `application/json` | Effective gateway policy, traffic capture, redaction, middleware controls, and recent allow/deny/throttle decisions |
-| `GET /admin/api/workers` | `application/json` | Per-instance worker cards from the live registry |
+| `GET /admin/api/workers` | `application/json` | Per-instance cards from the live registry; response field names remain `workers` for compatibility |
 | `GET /admin/api/logs` | `application/json` | Merged gateway contention events, on-disk `*.log` rows, and audited call summaries |
 | `GET /admin/api/health` | `application/json` | Service health summary, including active response-format defaults and token estimator metadata |
 | `GET /admin/api/skills` | `application/json` | Live skill inventory grouped by DCC type, skill name, load state, tools, and backend instance |
@@ -699,9 +699,9 @@ The HTML dashboard includes:
 - **Left navigation**: Debug / Activity / Health / Instances / Tools / Tasks / OpenAPI Inspector / Calls / Traces / Stats / Skill paths / Logs panels
 - **Auto-refresh**: Panels poll their JSON endpoints every 5 seconds
 - **DCC icons**: common hosts such as Maya/Autodesk, Blender, GIMP, Inkscape, Krita, Unity, and Unreal get recognizable icons, with a safe fallback for custom hosts.
-- **Worker cards**: Per-instance status, heartbeat, and routing metadata
+- **Instance cards**: Per-instance status, heartbeat, and routing metadata
 - **OpenAPI Inspector**: summarizes the gateway or selected instance `/v1/openapi.json` contract, filters REST operations by method/path/tag, and exposes copy/download links for the raw JSON plus the matching `/docs`.
-- **Instance OpenAPI links**: Debug Workbench and instance cards expose `Inspector`, `spec`, and `docs` links generated from each worker `mcp_url`, so an operator can jump from MCP-level telemetry to the lower OpenAPI contract for that exact backend.
+- **Instance OpenAPI links**: Debug Workbench and instance cards expose `Inspector`, `spec`, and `docs` links generated from each backend `mcp_url`, so an operator can jump from MCP-level telemetry to the lower OpenAPI contract for that exact backend.
 - **Calls table**: request ids, error previews, and trace-detail links; DCC is displayed from the resolved backend slug when available, otherwise from explicit call arguments such as `dcc` / `dcc_type`.
 - **Trace drill-down**: `/admin/api/traces/{request_id}` exposes the full waterfall, optional agent/caller context, and bounded/redacted input/output payloads for one call.
 - **Traffic panel**: when a traffic config includes `kind: admin_live`, `/admin/api/traffic` exposes the retained in-memory frame ring and `/admin/api/traffic/export` downloads it as JSONL.
