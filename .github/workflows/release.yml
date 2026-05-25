@@ -115,7 +115,7 @@ jobs:
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
 
-      - uses: loonghao/vx@v0.8.36
+      - uses: loonghao/vx@v0.9.2
 
       - name: Build admin UI bundle
         shell: bash
@@ -183,7 +183,7 @@ jobs:
           toolchain: '1.95.0'
           targets: aarch64-apple-darwin  # needed for macOS universal2 lipo
 
-      - uses: loonghao/vx@v0.8.36
+      - uses: loonghao/vx@v0.9.2
 
       - uses: actions/setup-python@v6
         with:
