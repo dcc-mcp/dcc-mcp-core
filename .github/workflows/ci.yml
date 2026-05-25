@@ -246,6 +246,11 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    env:
+      MCP_LOG_LEVEL: warn
+      # Prevent Python 3.13's new REPL from crashing on Windows CI when
+      # there's no interactive console (WinError 123 in _pyrepl).
+      PYTHON_BASIC_REPL: "1"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -261,15 +266,20 @@ jobs:
           name: wheel-${{ matrix.os }}
           path: dist/
       - name: Install wheel + test deps
-        run: pip install --no-index --find-links dist dcc-mcp-core && pip install pytest pytest-cov
+        run: |
+          pip install --no-index --find-links dist dcc-mcp-core
+          if [[ "${{ matrix.os }}" == "ubuntu-latest" && "${{ matrix.python-version }}" == "3.13" ]]; then
+            pip install pytest pytest-cov
+          else
+            pip install pytest
+          fi
         shell: bash
       - name: Test with coverage
-        env:
-          MCP_LOG_LEVEL: warn
-          # Prevent Python 3.13's new REPL from crashing on Windows CI when
-          # there's no interactive console (WinError 123 in _pyrepl).
-          PYTHON_BASIC_REPL: "1"
+        if: matrix.python-version == '3.13' && matrix.os == 'ubuntu-latest'
         run: vx just test-cov
+      - name: Test
+        if: matrix.python-version != '3.13' || matrix.os != 'ubuntu-latest'
+        run: vx just test
       - name: Upload Python coverage to Codecov
         if: matrix.python-version == '3.13' && matrix.os == 'ubuntu-latest'
         uses: codecov/codecov-action@v6
@@ -396,3 +406,121 @@ jobs:
           MCPCALL_CMD: vx mcpcall
         run: pytest tests/test_mcp_mcpcall_e2e.py -v --tb=short
         shell: bash
+
+  # ── DCC integration: reuse the Ubuntu wheel already built by CI ──
+  # The standalone dcc-integration.yml workflow remains for manual/release
+  # runs. PR and push coverage lives here so we do not compile a second Linux
+  # wheel just to run the same headless DCC tests.
+  dcc-blender:
+    name: DCC Blender ${{ matrix.blender-version }}
+    needs: [build-wheel]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - blender-version: "2.83.20"
+            blender-url: "https://download.blender.org/release/Blender2.83/blender-2.83.20-linux-x64.tar.xz"
+            blender-dir: "blender-2.83.20-linux-x64"
+          - blender-version: "3.6.21"
+            blender-url: "https://download.blender.org/release/Blender3.6/blender-3.6.21-linux-x64.tar.xz"
+            blender-dir: "blender-3.6.21-linux-x64"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Install Blender from tarball
+        run: |
+          wget -q "${{ matrix.blender-url }}" -O /tmp/blender.tar.xz
+          tar -xf /tmp/blender.tar.xz -C /opt
+          sudo ln -sf /opt/${{ matrix.blender-dir }}/blender /usr/local/bin/blender
+        shell: bash
+      - uses: actions/download-artifact@v8
+        with:
+          name: wheel-ubuntu-latest
+          path: dist/
+      - name: Install wheel + pytest
+        run: pip install --no-index --find-links dist dcc-mcp-core && pip install pytest
+        shell: bash
+      - name: Verify Blender
+        run: blender --version
+      - name: Test
+        run: pytest tests/test_integration_dcc_blender.py -v --tb=short
+
+  dcc-openscad:
+    name: DCC OpenSCAD
+    needs: [build-wheel]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Install OpenSCAD + Xvfb
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y openscad xvfb
+        shell: bash
+      - uses: actions/download-artifact@v8
+        with:
+          name: wheel-ubuntu-latest
+          path: dist/
+      - name: Install wheel + pytest
+        run: pip install --no-index --find-links dist dcc-mcp-core && pip install pytest
+        shell: bash
+      - name: Verify OpenSCAD
+        run: openscad --version
+      - name: Test
+        run: xvfb-run -a pytest tests/test_integration_dcc_openscad.py -v --tb=short
+
+  dcc-godot:
+    name: DCC Godot
+    needs: [build-wheel]
+    runs-on: ubuntu-latest
+    env:
+      GODOT_VERSION: "4.4.1"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Install Godot (headless)
+        run: |
+          wget -q \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip" \
+            -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          sudo mv /tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64 /usr/local/bin/godot
+          sudo chmod +x /usr/local/bin/godot
+        shell: bash
+      - uses: actions/download-artifact@v8
+        with:
+          name: wheel-ubuntu-latest
+          path: dist/
+      - name: Install wheel + pytest
+        run: pip install --no-index --find-links dist dcc-mcp-core && pip install pytest
+        shell: bash
+      - name: Verify Godot
+        run: godot --version
+      - name: Test
+        run: pytest tests/test_integration_dcc_godot.py -v --tb=short
+
+  dcc-cross:
+    name: DCC Cross-DCC Pipeline
+    needs: [build-wheel]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - uses: actions/download-artifact@v8
+        with:
+          name: wheel-ubuntu-latest
+          path: dist/
+      - name: Install wheel + pytest
+        run: pip install --no-index --find-links dist dcc-mcp-core && pip install pytest
+        shell: bash
+      - name: Test
+        run: pytest tests/test_integration_dcc_cross.py -v --tb=short
