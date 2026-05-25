@@ -72,6 +72,13 @@ When a gateway-proxied `call` / `POST /v1/call` fails with `thread-affinity-viol
 
 **Help and documentation from DCC hosts:** Adapters often expose **read-only** resources (e.g. command help, API signatures, scene snapshots). They appear in **`resources/list`** with stable schemes. Always **`resources/read`** the **exact** URI from the list — do not fabricate paths. If a `describe` response points to follow-up resources, prefer those over web search for DCC-accurate text.
 
+**Debugging an agent chain:** When Admin telemetry is enabled, prefer
+`GET /v1/debug/workflows` for a session-level view of `search` -> `describe`
+-> `load_skill` -> `call`. The payload reuses retained search telemetry,
+dispatch traces, and audit rows, so it shows selected rank, zero-result
+searches, time-to-first-success, and per-step trace/debug-bundle/issue-report
+links without exposing hidden reasoning or raw prompts.
+
 ---
 
 ## Efficiency (without a separate “bulk” playbook)

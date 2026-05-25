@@ -93,6 +93,7 @@ let config = GatewayConfig {
 | `GET /admin/api/activity?limit=300` | `application/json` | 由审计、trace 和 gateway 事件合并得到的统一活动时间线 |
 | `GET /admin/api/instances` | `application/json` | 已连接的 DCC 实例 |
 | `GET /admin/api/tools` | `application/json` | 已注册的 MCP 工具 |
+| `GET /admin/api/workflows?limit=200` | `application/json` | 由 search telemetry、traces 和 audits 重建的 agent session/workflow 视图 |
 | `GET /admin/api/tasks?limit=300` | `application/json` | 从 dispatch traces 重建出的任务视图 |
 | `GET /admin/api/calls` | `application/json` | 最近的工具调用（需要 `AuditMiddleware`） |
 | `GET /admin/api/traces` | `application/json` | 最近的逐调用 dispatch traces；支持 `?limit=200` |
@@ -166,6 +167,33 @@ let config = GatewayConfig {
         "instance_id": "abcdef01-2345-6789-abcd-ef0123456789",
         "dcc_type": "maya"
       }
+    }
+  ]
+}
+
+// GET /admin/api/workflows?limit=200
+{
+  "total": 1,
+  "workflows": [
+    {
+      "workflow_id": "session-1",
+      "group_kind": "session",
+      "title": "Layout Inspector: maya.abcdef01.scene__inspect",
+      "status": "completed",
+      "discovery": {
+        "search_count": 1,
+        "zero_result_count": 0,
+        "selected_count": 3,
+        "best_selected_rank": 2,
+        "time_to_first_success_ms": 310,
+        "search_ids": ["search-123"]
+      },
+      "steps": [
+        { "kind": "search", "title": "search scene inspect", "status": "ok" },
+        { "kind": "describe", "title": "maya.abcdef01.scene__inspect", "status": "ok" },
+        { "kind": "load_skill", "title": "load_skill scene", "status": "ok" },
+        { "kind": "call", "request_id": "req-123", "title": "maya.abcdef01.scene__inspect", "status": "ok" }
+      ]
     }
   ]
 }

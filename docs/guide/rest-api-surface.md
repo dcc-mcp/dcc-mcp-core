@@ -113,6 +113,7 @@ so operators and agents can compare results one-to-one:
 | `/v1/debug/trace-context/{lookup_id}` | n/a | Trace-context lookup by `trace_id` or `request_id`. |
 | `/v1/debug/bundles/{request_id}` | `/admin/api/debug-bundle/{request_id}` | Accepts request ids and retained trace ids. |
 | `/v1/debug/issue-reports/{request_id}` | `/admin/api/issue-report/{request_id}` | JSON export suitable for GitHub issue attachment. |
+| `/v1/debug/workflows` | `/admin/api/workflows` | Agent session/workflow projection from retained search telemetry, traces, and audits. |
 | `/v1/debug/tasks` | `/admin/api/tasks` | Task projection from retained traces. |
 | `/v1/debug/calls` | `/admin/api/calls` | Recent audit rows. |
 | `/v1/debug/logs` | `/admin/api/logs` | Merged gateway/file/audit logs. |

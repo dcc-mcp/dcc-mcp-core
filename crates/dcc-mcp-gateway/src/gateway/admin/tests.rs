@@ -814,6 +814,231 @@ mod admin_tests {
     }
 
     #[tokio::test]
+    async fn test_admin_workflows_group_steps_and_quality_signals() {
+        use crate::gateway::admin::trace::{AgentContext, DispatchTrace, TraceContext, TraceLog};
+        use crate::gateway::search_telemetry::{
+            RANKER_VERSION, SearchFollowupInput, SearchTelemetryHit, SearchTelemetryInput,
+            SearchTelemetryStore,
+        };
+        use std::time::SystemTime;
+
+        let gs = make_gateway_state();
+        let traces = Arc::new(TraceLog::new(20));
+        let trace_id = "4bf92f3577b34da6a3ce929d0e0e4736".to_string();
+        let session_id = "session-agent-1".to_string();
+        let search_id = SearchTelemetryStore::new_search_id();
+        let search_ctx = TraceContext {
+            trace_id: trace_id.clone(),
+            request_id: "req-search".to_string(),
+            span_id: None,
+            parent_span_id: None,
+            parent_request_id: None,
+            trace_flags: None,
+            trace_state: None,
+        };
+        gs.search_telemetry.record_search(SearchTelemetryInput {
+            search_id: search_id.clone(),
+            transport: "rest".to_string(),
+            kind: "tool".to_string(),
+            query: "create sphere".to_string(),
+            dcc_type: Some("maya".to_string()),
+            instance_id: Some("abcdef01-2345-6789-abcd-ef0123456789".to_string()),
+            limit: Some(5),
+            total: 2,
+            ranker_version: RANKER_VERSION.to_string(),
+            index_generation: "idx-workflow".to_string(),
+            hits: vec![SearchTelemetryHit {
+                tool_slug: "maya.abcdef01.create_sphere".to_string(),
+                skill_name: Some("maya-modeling".to_string()),
+                dcc_type: "maya".to_string(),
+                rank: 2,
+                score: 88,
+                match_reasons: vec!["skill_match".to_string(), "tool_lexical".to_string()],
+                loaded: true,
+            }],
+            trace_context: Some(search_ctx),
+            session_id: Some(session_id.clone()),
+        });
+        tokio::time::sleep(Duration::from_millis(2)).await;
+        assert!(gs.search_telemetry.record_followup(SearchFollowupInput {
+            search_id: search_id.clone(),
+            kind: "describe".to_string(),
+            tool_slug: Some("maya.abcdef01.create_sphere".to_string()),
+            skill_name: Some("maya-modeling".to_string()),
+            success: true,
+            trace_context: Some(TraceContext {
+                trace_id: trace_id.clone(),
+                request_id: "req-describe".to_string(),
+                span_id: None,
+                parent_span_id: None,
+                parent_request_id: Some("req-search".to_string()),
+                trace_flags: None,
+                trace_state: None,
+            }),
+        }));
+        tokio::time::sleep(Duration::from_millis(2)).await;
+        assert!(gs.search_telemetry.record_followup(SearchFollowupInput {
+            search_id: search_id.clone(),
+            kind: "load_skill".to_string(),
+            tool_slug: None,
+            skill_name: Some("maya-modeling".to_string()),
+            success: true,
+            trace_context: Some(TraceContext {
+                trace_id: trace_id.clone(),
+                request_id: "req-load".to_string(),
+                span_id: None,
+                parent_span_id: None,
+                parent_request_id: Some("req-describe".to_string()),
+                trace_flags: None,
+                trace_state: None,
+            }),
+        }));
+        tokio::time::sleep(Duration::from_millis(2)).await;
+        assert!(gs.search_telemetry.record_followup(SearchFollowupInput {
+            search_id: search_id.clone(),
+            kind: "call".to_string(),
+            tool_slug: Some("maya.abcdef01.create_sphere".to_string()),
+            skill_name: Some("maya-modeling".to_string()),
+            success: true,
+            trace_context: Some(TraceContext {
+                trace_id: trace_id.clone(),
+                request_id: "req-call".to_string(),
+                span_id: None,
+                parent_span_id: None,
+                parent_request_id: Some("req-load".to_string()),
+                trace_flags: None,
+                trace_state: None,
+            }),
+        }));
+        traces.push(DispatchTrace {
+            request_id: "req-call".into(),
+            trace_id: trace_id.clone(),
+            span_id: None,
+            parent_span_id: None,
+            parent_request_id: Some("req-load".into()),
+            trace_flags: None,
+            trace_state: None,
+            method: "tools/call".into(),
+            tool_slug: Some("maya.abcdef01.create_sphere".into()),
+            instance_id: Some("abcdef01-2345-6789-abcd-ef0123456789".into()),
+            session_id: Some(session_id.clone()),
+            dcc_type: Some("maya".into()),
+            transport: Some("rest".into()),
+            agent_context: Some(AgentContext {
+                agent_id: Some("agent-workflow".into()),
+                agent_name: Some("Scene Builder".into()),
+                model: Some("gpt-test".into()),
+                task: Some("Create a simple sphere".into()),
+                tags: vec!["smoke".into()],
+                metadata: json!({"workflow_id": "workflow-scene-build"}),
+                ..Default::default()
+            }),
+            started_at: SystemTime::now(),
+            total_ms: 31,
+            ok: true,
+            spans: vec![],
+            input: None,
+            output: None,
+        });
+
+        let zero_id = SearchTelemetryStore::new_search_id();
+        gs.search_telemetry.record_search(SearchTelemetryInput {
+            search_id: zero_id.clone(),
+            transport: "mcp".to_string(),
+            kind: "tool".to_string(),
+            query: "missing api".to_string(),
+            dcc_type: Some("blender".to_string()),
+            instance_id: None,
+            limit: Some(5),
+            total: 0,
+            ranker_version: RANKER_VERSION.to_string(),
+            index_generation: "idx-workflow".to_string(),
+            hits: vec![],
+            trace_context: None,
+            session_id: None,
+        });
+
+        let audit_log: Arc<AuditLog> = Arc::new(Mutex::new(vec![AdminAuditRecord {
+            timestamp: SystemTime::now(),
+            request_id: "req-audit-only".into(),
+            trace_id: None,
+            span_id: None,
+            parent_span_id: None,
+            method: Some("tools/call".into()),
+            instance_id: None,
+            session_id: None,
+            transport: Some("mcp".into()),
+            agent_id: Some("agent-audit".into()),
+            agent_name: None,
+            agent_model: Some("gpt-audit".into()),
+            parent_request_id: Some("req-missing-parent".into()),
+            action: "photoshop.12345678.save_document".into(),
+            dcc_type: Some("photoshop".into()),
+            success: false,
+            error: Some("document closed".into()),
+            duration_ms: Some(9),
+        }]));
+
+        let state = AdminState::new(gs)
+            .with_audit_log(audit_log)
+            .with_trace_log(traces, None);
+        let router = build_admin_router(state.clone());
+        let (status, body) = body_json(router, "/api/workflows?limit=10").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["total"].as_u64(), Some(3));
+        assert_eq!(body["summary"]["zero_result_workflows"], 1);
+
+        let workflows = body["workflows"].as_array().unwrap();
+        let session_workflow = workflows
+            .iter()
+            .find(|workflow| workflow["workflow_id"] == session_id)
+            .expect("session workflow");
+        assert_eq!(session_workflow["group_kind"], "session");
+        assert_eq!(session_workflow["status"], "completed");
+        assert_eq!(session_workflow["agent"]["agent_name"], "Scene Builder");
+        assert_eq!(session_workflow["discovery"]["best_selected_rank"], 2);
+        assert_eq!(session_workflow["discovery"]["selected_count"], 3);
+        assert!(
+            session_workflow["discovery"]["time_to_first_success_ms"]
+                .as_u64()
+                .is_some()
+        );
+        let step_kinds: Vec<_> = session_workflow["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|step| step["kind"].as_str().unwrap())
+            .collect();
+        assert_eq!(step_kinds, vec!["search", "describe", "load_skill", "call"]);
+        let call_step = session_workflow["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|step| step["kind"] == "call")
+            .unwrap();
+        assert_eq!(call_step["search"]["selected_rank"], 2);
+        assert_eq!(call_step["search"]["selected_score"], 88);
+        assert!(
+            call_step["links"]["debug_bundle_url"]
+                .as_str()
+                .unwrap()
+                .ends_with("/admin/api/debug-bundle/req-call")
+        );
+
+        let audit_workflow = workflows
+            .iter()
+            .find(|workflow| workflow["workflow_id"] == "req-audit-only")
+            .expect("partial audit workflow");
+        assert_eq!(audit_workflow["status"], "failed");
+        assert_eq!(audit_workflow["agent"]["agent_id"], "agent-audit");
+
+        let (debug_status, debug_body) =
+            body_json(build_v1_debug_router(state), "/v1/debug/workflows?limit=10").await;
+        assert_eq!(debug_status, StatusCode::OK);
+        assert_eq!(debug_body["total"].as_u64(), Some(3));
+    }
+
+    #[tokio::test]
     async fn test_admin_tasks_and_debug_bundle_from_trace() {
         use crate::gateway::admin::trace::{DispatchTrace, TraceLog, TracePayload};
         use crate::gateway::event_log::{ContendEvent, EventKind};
@@ -1310,6 +1535,7 @@ mod admin_tests {
             "/api/logs",
             "/api/stats",
             "/api/traces",
+            "/api/workflows",
         ] {
             let resp = admin_router()
                 .oneshot(
