@@ -5,18 +5,20 @@ description: >-
   for the dcc-mcp-core ecosystem. Use when authoring SKILL.md, tools.yaml,
   scripts, groups, prompts, or skill taxonomy. Not for creating a full DCC-MCP
   adapter repository - use dcc-mcp-creator.
-license: MIT
+license: MIT-0
 compatibility: "Python 3.7+, dcc-mcp-core 0.17+"
 allowed-tools: Bash Read Write Edit
 metadata:
   dcc-mcp:
     dcc: python
-    version: "1.0.0"
+    version: "0.17.30"  # x-release-please-version
     layer: infrastructure
     search-hint: "create dcc mcp skill, validate skill, scaffold skill, SKILL.md, tools.yaml, scripts, groups, prompts, skill taxonomy"
     tools: tools.yaml
     skill-reference-docs:
       - "references/*.md"
+  openclaw:
+    homepage: https://github.com/loonghao/dcc-mcp-core/blob/main/skills/dcc-mcp-skills-creator/SKILL.md
 ---
 
 # DCC-MCP Skills Creator
