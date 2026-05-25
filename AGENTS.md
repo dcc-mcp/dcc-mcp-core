@@ -75,18 +75,21 @@
 | Detailed rules | [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md) | Before writing code — traps, do/don't, code style |
 | Conceptual docs | [`docs/guide/INDEX.md`](docs/guide/INDEX.md) + `docs/api/` | Building a new adapter or skill — see INDEX.md for topic list |
 | Skill authoring | `skills/README.md` + `examples/skills/` | Creating or modifying skills |
-| Skill developer guidance | [`skills/dcc-mcp-skill-developer/SKILL.md`](skills/dcc-mcp-skill-developer/SKILL.md) | After code changes that affect adapter skill authoring, tool schemas, server wiring, testing, or agent-facing workflows |
+| Adapter developer guidance | [`skills/dcc-mcp-creator/SKILL.md`](skills/dcc-mcp-creator/SKILL.md) | Before creating or changing DCC adapter server/runtime wiring, dispatcher bridges, readiness, resources, gateway behavior, or core-escalation plans |
+| Skill creator guidance | [`skills/dcc-mcp-skills-creator/SKILL.md`](skills/dcc-mcp-skills-creator/SKILL.md) | Before creating or changing adapter skill authoring, tool schemas, scripts, skill taxonomy, testing, or agent-facing workflows |
 | Gateway REST regressions (VRS) | [`tests/vrs/README.md`](tests/vrs/README.md) + `scripts/vrs_replay.py` | After gateway `/v1/*` or live-adapter bugs — add a JSONL trace per regression |
 
 ---
 
 ## Agent-Facing Skill Sync
 
-- After any code change, check whether the installed skill developer guidance
-  at `skills/dcc-mcp-skill-developer/SKILL.md` needs to change.
-- If the change affects public APIs, adapter/server wiring, skill authoring
-  rules, tool/resource/prompt schemas, testing expectations, or agent workflow,
-  update that `SKILL.md` in the same PR.
+- After any code change, check whether the installed adapter and skill guidance
+  in `skills/dcc-mcp-creator/` or
+  `skills/dcc-mcp-skills-creator/` needs to change.
+- If the change affects public APIs, adapter/server wiring, dispatcher
+  contracts, readiness, resources, gateway behavior, skill authoring rules,
+  tool/resource/prompt schemas, testing expectations, or agent workflow, update
+  the relevant skill guidance in the same PR.
 - If no update is needed, mention that explicitly in the PR validation notes.
 
 ## Quick Orientation

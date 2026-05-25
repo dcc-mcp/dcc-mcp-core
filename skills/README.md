@@ -13,8 +13,18 @@ Official skills and starter templates for the dcc-mcp-core ecosystem.
 |-------|-------------|----------|
 | [`dcc-rest-gateway`](dcc-rest-gateway/) | Control any DCC via gateway REST only (no MCP); instance inventory and zero-instance setup | `skills/dcc-rest-gateway/` |
 | [`dcc-cli-gateway`](dcc-cli-gateway/) | Control any DCC through `dcc-mcp-cli`; instance inventory, search, describe, and call workflow | `skills/dcc-cli-gateway/` |
-| [`dcc-skills-creator`](dcc-skills-creator/) | Create, validate, and scaffold DCC skills | `skills/dcc-skills-creator/` |
-| [`dcc-mcp-skill-developer`](dcc-mcp-skill-developer/) | Guide agents through DCC-MCP adapter skill design, implementation, and testing | `skills/dcc-mcp-skill-developer/` |
+| [`dcc-mcp-skills-creator`](dcc-mcp-skills-creator/) | Create, validate, scaffold, and review DCC-MCP skill packages | `skills/dcc-mcp-skills-creator/` |
+| [`dcc-mcp-creator`](dcc-mcp-creator/) | Guide developers and agents through full DCC-MCP adapter creation and modernization | `skills/dcc-mcp-creator/` |
+
+### Compatibility Entries
+
+Older entrypoints remain available for existing users while new guidance should
+prefer the unified names above:
+
+| Skill | Preferred Entry |
+|-------|-----------------|
+| [`dcc-skills-creator`](dcc-skills-creator/) | [`dcc-mcp-skills-creator`](dcc-mcp-skills-creator/) |
+| [`dcc-mcp-skill-developer`](dcc-mcp-skill-developer/) | [`dcc-mcp-skills-creator`](dcc-mcp-skills-creator/) |
 
 ### Install and validate
 
@@ -37,13 +47,13 @@ python -c "from dcc_mcp_core import validate_skill; print(validate_skill('skills
 
 ## Quick Start
 
-### Using the dcc-skills-creator
+### Using the dcc-mcp-skills-creator
 
 ```bash
 # Add the skills directory to your path
 export DCC_MCP_SKILL_PATHS="/path/to/dcc-mcp-core/skills"
 
-# Start the MCP server — dcc-skills-creator appears in tools/list
+# Start the MCP server. dcc-mcp-skills-creator appears in tools/list.
 python -c "
 from dcc_mcp_core import create_skill_server, McpHttpConfig
 server = create_skill_server('maya', McpHttpConfig(port=8765))
@@ -298,7 +308,8 @@ skills shipped in `examples/skills/`, or browse them directly:
 | [ffmpeg-media](../examples/skills/ffmpeg-media/) | infrastructure | python | External binary deps |
 | [imagemagick-tools](../examples/skills/imagemagick-tools/) | infrastructure | python | OpenClaw install |
 | [git-automation](../examples/skills/git-automation/) | infrastructure | python | OpenClaw format |
-| [dcc-mcp-skill-developer](dcc-mcp-skill-developer/) | infrastructure | python | Adapter skill authoring guidance |
+| [dcc-mcp-skills-creator](dcc-mcp-skills-creator/) | infrastructure | python | Skill package creation, validation, and authoring guidance |
+| [dcc-mcp-creator](dcc-mcp-creator/) | infrastructure | python | Adapter repository creation, runtime, and core-escalation guidance |
 | [maya-geometry](../examples/skills/maya-geometry/) | domain | maya | Tool groups |
 | [maya-pipeline](../examples/skills/maya-pipeline/) | domain | maya | Dependencies + metadata/ |
 
@@ -321,6 +332,11 @@ paths = get_bundled_skill_paths()  # [".../dcc_mcp_core/skills"]
 
 Building a new MCP adapter for a DCC application? See the
 **[Integration Guide](integration-guide.md)** for complete architecture patterns:
+For agent-facing execution guidance, load
+[`dcc-mcp-creator`](dcc-mcp-creator/) before changing
+adapter server/runtime code, and load
+[`dcc-mcp-skills-creator`](dcc-mcp-skills-creator/) before changing bundled
+skill packages.
 
 | Architecture | For | Base Class | Examples |
 |---|---|---|---|
