@@ -95,11 +95,11 @@ let config = GatewayConfig {
 | `GET /admin/api/tools` | `application/json` | 已注册的 MCP 工具 |
 | `GET /admin/api/workflows?limit=200` | `application/json` | 由 search telemetry、traces 和 audits 重建的 agent session/workflow 视图 |
 | `GET /admin/api/tasks?limit=300` | `application/json` | 从 dispatch traces 重建出的任务视图 |
-| `GET /admin/api/calls` | `application/json` | 最近的工具调用（需要 `AuditMiddleware`） |
-| `GET /admin/api/traces` | `application/json` | 最近的逐调用 dispatch traces；支持 `?limit=200` |
-| `GET /admin/api/traces/{request_id}` | `application/json` | 某次调用的完整 waterfall trace |
+| `GET /admin/api/calls` | `application/json` | 最近的工具调用；可用时包含 compact/JSON token accounting（需要 `AuditMiddleware`） |
+| `GET /admin/api/traces` | `application/json` | 最近的逐调用 dispatch traces，包含 payload size 与 token accounting；支持 `?limit=200` |
+| `GET /admin/api/traces/{request_id}` | `application/json` | 某次调用的完整 waterfall trace，包含 token accounting 且不写入无界 payload |
 | `GET /admin/api/debug-bundle/{request_id}` | `application/json` | 单次请求的一站式 debug bundle，包含 trace、匹配审计行、相关活动和提示 |
-| `GET /admin/api/stats?range=1h\|24h\|7d` | `application/json` | 聚合调用数、成功率、延迟和 top tools/instances |
+| `GET /admin/api/stats?range=1h\|24h\|7d` | `application/json` | 聚合调用数、成功率、延迟、top tools/instances 和 token savings totals |
 | `GET /admin/api/governance?limit=300` | `application/json` | 当前 gateway policy、traffic capture、redaction、中间件控制和最近 allow/deny/throttle 决策 |
 | `GET /admin/api/workers` | `application/json` | 来自 live registry 的实例 worker 卡片 |
 | `GET /admin/api/logs` | `application/json` | 合并后的网关竞争事件、磁盘 `*.log` 行和审计调用摘要 |
@@ -220,6 +220,14 @@ Admin 路由仍作为 dashboard 兼容层；自动化调用优先使用：
       "dcc_type": "maya",
       "instance_id": "abcdef01-2345-6789-abcd-ef0123456789",
       "session_id": "session-1",
+      "token_accounting": {
+        "response_format": "toon",
+        "token_estimator": "dcc-mcp-byte4-v1",
+        "original_tokens": 120,
+        "returned_tokens": 54,
+        "saved_tokens": 66,
+        "savings_pct": 55.0
+      },
       "success": false,
       "error": "backend timeout",
       "timestamp": "2026-05-05T10:00:00Z"
@@ -242,7 +250,15 @@ Admin 路由仍作为 dashboard 兼容层；自动化调用优先使用：
         { "name": "gateway.route", "duration_ns": 1200000, "ok": true, "attributes": {} }
       ],
       "input": { "mime_type": "application/json", "truncated": false, "original_size": 42, "content": "{...}" },
-      "output": { "mime_type": "application/json", "truncated": false, "original_size": 96, "content": "{...}" }
+      "output": { "mime_type": "application/json", "truncated": false, "original_size": 96, "content": "{...}" },
+      "token_accounting": {
+        "response_format": "json",
+        "token_estimator": "dcc-mcp-byte4-v1",
+        "original_tokens": 24,
+        "returned_tokens": 24,
+        "saved_tokens": 0,
+        "savings_pct": 0.0
+      }
     }
   ]
 }
@@ -263,7 +279,16 @@ Admin 路由仍作为 dashboard 兼容层；自动化调用优先使用：
   "range": "24h",
   "total_calls": 42,
   "success_rate": 0.98,
-  "latency": { "p50_ms": 12, "p95_ms": 48 }
+  "latency": { "p50_ms": 12, "p95_ms": 48 },
+  "token_usage": {
+    "total_returned_tokens": 5400,
+    "total_saved_tokens": 2100,
+    "average_savings_pct": 28.0,
+    "by_response_format": [
+      { "name": "toon", "calls": 24, "returned_tokens": 3200, "saved_tokens": 2100, "savings_pct": 39.62 },
+      { "name": "json", "calls": 18, "returned_tokens": 2200, "saved_tokens": 0, "savings_pct": 0.0 }
+    ]
+  }
 }
 
 // GET /admin/api/governance?limit=300

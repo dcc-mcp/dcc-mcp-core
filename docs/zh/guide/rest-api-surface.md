@@ -323,6 +323,11 @@ curl -H 'Accept: application/toon' \
 | `x-dcc-mcp-original-tokens` / `x-dcc-mcp-returned-tokens` | 近似 bytes/4 token 估算，用于上下文预算，不代表计费。 |
 | `x-dcc-mcp-saved-tokens` / `x-dcc-mcp-savings-pct` | 相比旧 JSON 的估算节省。 |
 
+同一份统计也会写入 gateway retained traces、audit call rows，以及
+`/v1/debug/stats` / `/admin/api/stats` 聚合。旧 JSON 响应会明确记录为
+`response_format: "json"` 且 token savings 为 0，便于客户端在不拉取完整
+trace payload 的情况下对比 compact 与兼容流量。
+
 compact search 仍保留 agent 后续工作需要的字段：`tool_slug`、
 `backend_tool`、`dcc_type`、`instance_id`、`loaded`、`load_state`、
 `available_groups`、`has_schema`、`score`、`match_reasons`、`rank`、

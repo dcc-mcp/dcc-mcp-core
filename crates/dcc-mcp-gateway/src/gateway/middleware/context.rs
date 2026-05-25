@@ -4,7 +4,9 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::time::SystemTime;
 
-use crate::gateway::admin::trace::{AgentContext, TraceContext, TracePayload, TraceSpan};
+use crate::gateway::admin::trace::{
+    AgentContext, TokenTelemetry, TraceContext, TracePayload, TraceSpan,
+};
 
 /// Context for one gateway `tools/call` invocation.
 ///
@@ -58,6 +60,8 @@ pub struct CallContext {
     pub input_payload: Option<TracePayload>,
     /// Phase 2: captured output payload (response content).
     pub output_payload: Option<TracePayload>,
+    /// Token accounting for the response that will be visible to the client.
+    pub token_accounting: Option<TokenTelemetry>,
     /// Phase 2: wall-clock timestamp when the call entered the handler.
     pub started_at: SystemTime,
     /// Optional client-supplied agent/caller context for admin telemetry.
@@ -104,6 +108,7 @@ impl CallContext {
             trace_spans: Vec::new(),
             input_payload: None,
             output_payload: None,
+            token_accounting: None,
             started_at: SystemTime::now(),
             agent_context: None,
             transport: None,

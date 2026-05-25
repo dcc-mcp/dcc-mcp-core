@@ -465,10 +465,29 @@ fn admin_audit_row_json(r: &AdminAuditRecord, links: Option<AdminLinkBuilder>) -
         "error": r.error,
         "duration_ms": r.duration_ms,
     });
+    apply_token_fields(&mut row, r.token_accounting.as_ref());
     if let Some(links) = links {
         row["links"] = links.request_links(&r.request_id);
     }
     row
+}
+
+fn apply_token_fields(
+    row: &mut Value,
+    token_accounting: Option<&crate::gateway::admin::trace::TokenTelemetry>,
+) {
+    let Some(tokens) = token_accounting else {
+        return;
+    };
+    row["token_accounting"] = serde_json::to_value(tokens).unwrap_or(Value::Null);
+    row["response_format"] = json!(tokens.response_format.clone());
+    row["token_estimator"] = json!(tokens.token_estimator.clone());
+    row["original_bytes"] = json!(tokens.original_bytes);
+    row["returned_bytes"] = json!(tokens.returned_bytes);
+    row["original_tokens"] = json!(tokens.original_tokens);
+    row["returned_tokens"] = json!(tokens.returned_tokens);
+    row["saved_tokens"] = json!(tokens.saved_tokens);
+    row["savings_pct"] = json!(tokens.savings_pct);
 }
 
 /// `GET /admin/api/calls` — recent calls from the AuditLog ring buffer.
@@ -593,6 +612,7 @@ pub async fn handle_admin_logs(
                 "tool": tool,
                 "success": r.success,
                 "detail": format!("instance={inst}"),
+                "token_accounting": r.token_accounting.as_ref(),
             }));
         }
     }
@@ -961,6 +981,7 @@ pub async fn handle_admin_stats(
             "error": "stats aggregator not available — admin feature may be disabled",
             "range": range_str,
             "total_calls": 0,
+            "token_usage": crate::gateway::admin::stats::TokenUsageStats::default(),
             "governance": crate::gateway::admin::governance::build_governance_stats(&s),
         })),
     }
@@ -1267,6 +1288,7 @@ fn dispatch_trace_to_admin_row(t: &DispatchTrace, links: Option<AdminLinkBuilder
         "slowest_span_name": slowest_span_name,
         "slowest_span_ms": slowest_span_ms,
     });
+    apply_token_fields(&mut row, t.token_accounting.as_ref());
     if let Some(links) = links {
         row["links"] = links.request_links(&t.request_id);
     }
