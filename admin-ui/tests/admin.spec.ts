@@ -25,6 +25,12 @@ async function mockAdminApi(page: Page) {
         uptime_secs: 3723,
         version: '0.17.7',
         rss_bytes: 2097152,
+        response_format: {
+          default: 'json',
+          legacy_mime: 'application/json',
+          compact_mime: 'application/toon',
+          token_estimator: 'dcc-mcp-byte4-v1',
+        },
         gateway: {
           current: {
             name: 'local-gateway',
@@ -327,7 +333,7 @@ async function mockAdminApi(page: Page) {
       };
     } else if (path === '/calls') {
       body = {
-        total: 1,
+        total: 3,
         calls: [
           {
             timestamp: now,
@@ -339,6 +345,46 @@ async function mockAdminApi(page: Page) {
             error: null,
             duration_ms: 42,
             instance_id: 'maya-1234567890',
+            transport: 'rest',
+            token_accounting: {
+              response_format: 'toon',
+              token_estimator: 'dcc-mcp-byte4-v1',
+              original_bytes: 400,
+              returned_bytes: 160,
+              original_tokens: 100,
+              returned_tokens: 40,
+              saved_tokens: 60,
+              savings_pct: 60,
+            },
+          },
+          {
+            timestamp: '2026-05-18T08:00:30.000Z',
+            request_id: 'req-json',
+            tool: 'maya-1234__describe',
+            dcc_type: 'maya',
+            status: 'ok',
+            success: true,
+            error: null,
+            duration_ms: 18,
+            instance_id: 'maya-1234567890',
+            transport: 'mcp',
+            response_format: 'json',
+            token_estimator: 'dcc-mcp-byte4-v1',
+            original_tokens: 50,
+            returned_tokens: 50,
+            saved_tokens: 0,
+            savings_pct: 0,
+          },
+          {
+            timestamp: '2026-05-18T08:01:00.000Z',
+            request_id: 'req-legacy',
+            tool: 'blender-abcd__render_preview',
+            dcc_type: 'blender',
+            status: 'ok',
+            success: true,
+            error: null,
+            duration_ms: 77,
+            instance_id: 'blender-abcdef1234',
           },
         ],
       };
@@ -355,6 +401,16 @@ async function mockAdminApi(page: Page) {
             success: true,
             total_ms: 42,
             instance_id: 'maya-1234567890',
+            token_accounting: {
+              response_format: 'toon',
+              token_estimator: 'dcc-mcp-byte4-v1',
+              original_bytes: 400,
+              returned_bytes: 160,
+              original_tokens: 100,
+              returned_tokens: 40,
+              saved_tokens: 60,
+              savings_pct: 60,
+            },
           },
           {
             timestamp: '2026-05-18T08:01:00.000Z',
@@ -372,7 +428,19 @@ async function mockAdminApi(page: Page) {
       body = {
         request_id: 'req-123',
         method: 'tools/call',
-        spans: [{ name: 'dispatch', duration_ms: 42 }],
+        total_ms: 42,
+        ok: true,
+        spans: [{ name: 'dispatch', duration_ns: 42000000, ok: true }],
+        token_accounting: {
+          response_format: 'toon',
+          token_estimator: 'dcc-mcp-byte4-v1',
+          original_bytes: 400,
+          returned_bytes: 160,
+          original_tokens: 100,
+          returned_tokens: 40,
+          saved_tokens: 60,
+          savings_pct: 60,
+        },
       };
     } else if (path === '/stats') {
       body = {
@@ -384,6 +452,26 @@ async function mockAdminApi(page: Page) {
         latency_ms: { p50_ms: 20, p95_ms: 90 },
         top_tools: [{ name: 'maya-1234__create_sphere', count: 3 }],
         top_instances: [{ name: 'maya-1234567890', count: 3 }],
+        top_agents: [{ name: 'Scene Builder', count: 2 }],
+        token_usage: {
+          total_original_bytes: 1200,
+          total_returned_bytes: 640,
+          total_original_tokens: 300,
+          total_returned_tokens: 160,
+          total_saved_tokens: 140,
+          average_savings_pct: 46.67,
+          by_tool: [{ name: 'maya-1234__create_sphere', calls: 2, returned_tokens: 80, saved_tokens: 120, savings_pct: 60 }],
+          by_instance: [{ name: 'maya-1234567890', calls: 2, returned_tokens: 80, saved_tokens: 120, savings_pct: 60 }],
+          by_agent: [{ name: 'Scene Builder', calls: 2, returned_tokens: 80, saved_tokens: 120, savings_pct: 60 }],
+          by_transport: [
+            { name: 'rest', calls: 2, returned_tokens: 80, saved_tokens: 120, savings_pct: 60 },
+            { name: 'mcp', calls: 1, returned_tokens: 80, saved_tokens: 20, savings_pct: 20 },
+          ],
+          by_response_format: [
+            { name: 'toon', calls: 2, returned_tokens: 110, saved_tokens: 140, savings_pct: 56 },
+            { name: 'json', calls: 1, returned_tokens: 50, saved_tokens: 0, savings_pct: 0 },
+          ],
+        },
         hourly_distribution: Array.from({ length: 24 }, (_, i) => (i === 8 ? 4 : 0)),
         governance: {
           recent_allowed: 1,
@@ -665,6 +753,7 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.debug-panel')).toContainText('Traffic Shape');
     await page.getByRole('navigation').getByRole('link', { name: 'Health' }).click();
     await expect(page.locator('.health-panel')).toContainText('0.17.7');
+    await expect(page.locator('.health-panel')).toContainText('json / dcc-mcp-byte4-v1');
   });
 
   test('shows platform-specific IDE config paths', async ({ page }) => {
@@ -729,11 +818,23 @@ test.describe('Admin Page', () => {
   test('opens trace detail from the calls panel and keeps the URL shareable', async ({ page }) => {
     await page.goto('/admin/');
     await page.getByRole('navigation').getByRole('link', { name: 'Calls' }).click();
+    const callsPanel = page.locator('.calls-panel');
+    await expect(callsPanel).toContainText('toon');
+    await expect(callsPanel).toContainText('40');
+    await expect(callsPanel).toContainText('60 (60.0%)');
+    await expect(callsPanel).toContainText('json');
+    await expect(callsPanel).toContainText('0 (0.0%)');
+    await expect(callsPanel).toContainText('req-legacy');
+    await expect(callsPanel.locator('tr', { hasText: 'req-legacy' })).toContainText('-');
     await page.getByRole('button', { name: 'req-123' }).click();
     await expect(page).toHaveURL(/panel=traces/);
     await expect(page).toHaveURL(/trace=req-123/);
     await expect(page.locator('.trace-detail-panel')).toContainText('req-123');
     await expect(page.locator('.trace-detail-panel')).toContainText('dispatch');
+    await expect(page.locator('.trace-detail-panel')).toContainText('Token accounting');
+    await expect(page.locator('.trace-detail-panel')).toContainText('dcc-mcp-byte4-v1');
+    await expect(page.locator('.trace-detail-panel')).toContainText('Returned40');
+    await expect(page.locator('.trace-detail-panel')).toContainText('Savings60.0%');
   });
 
   test('shows reconstructed tasks and links them to traces', async ({ page }) => {
@@ -772,9 +873,18 @@ test.describe('Admin Page', () => {
     await page.goto('/admin/?panel=stats&range=1h');
     await expect(page.locator('.stats-panel')).toBeVisible();
     await expect(page.getByLabel('Range')).toHaveValue('1h');
+    await expect(page.locator('.stats-panel')).toContainText('Returned tokens');
+    await expect(page.locator('.stats-panel')).toContainText('160');
+    await expect(page.locator('.stats-panel')).toContainText('Saved tokens');
+    await expect(page.locator('.stats-panel')).toContainText('140');
+    await expect(page.locator('.stats-panel')).toContainText('Token savings by transport');
+    await expect(page.locator('.stats-panel')).toContainText('rest');
+    await expect(page.locator('.stats-panel')).toContainText('json');
     await page.getByLabel('Range').selectOption('7d');
     await expect(page).toHaveURL(/range=7d/);
     await expect(page.locator('.stats-panel')).toContainText('Range 7d');
+    await page.getByLabel('Filter current panel').fill('rest');
+    await expect(page.locator('.stats-panel')).toContainText('rest');
   });
 
   test('shows governance controls and request decisions', async ({ page }) => {

@@ -57,6 +57,8 @@ pub struct ActivityEvent {
     pub tool: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_accounting: Option<super::trace::TokenTelemetry>,
     pub correlation: ActivityCorrelation,
 }
 
@@ -279,6 +281,7 @@ fn audit_event(record: &AdminAuditRecord) -> ActivityEvent {
         ),
         tool: Some(record.action.clone()),
         duration_ms: record.duration_ms,
+        token_accounting: record.token_accounting.clone(),
         correlation: ActivityCorrelation {
             trace_id: record.trace_id.clone(),
             span_id: record.span_id.clone(),
@@ -309,6 +312,7 @@ fn trace_event(trace: &DispatchTrace) -> ActivityEvent {
         message: format!("{} completed in {}ms", tool, trace.total_ms),
         tool: Some(tool),
         duration_ms: Some(trace.total_ms),
+        token_accounting: trace.token_accounting.clone(),
         correlation: trace_correlation(trace),
     }
 }
@@ -332,6 +336,7 @@ fn gateway_event(event: &ContendEvent) -> ActivityEvent {
         }),
         tool: None,
         duration_ms: None,
+        token_accounting: None,
         correlation: ActivityCorrelation {
             trace_id: None,
             span_id: None,
