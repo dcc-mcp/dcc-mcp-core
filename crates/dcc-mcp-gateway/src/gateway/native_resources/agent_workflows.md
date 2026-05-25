@@ -121,8 +121,10 @@ When a gateway accepts a cooperative `/gateway/yield`, connected SSE clients rec
 
 ### Long `execute_python` / MEL without giant JSON strings
 
-* **Long `execute_python` payloads** — Prefer `write_temp_file` (skill) or `write_temp_script` then `execute_python(file_path=...)`. The `.py` must exist on the **same machine / filesystem the DCC process reads**; an agent that only writes on its laptop cannot run that path on a remote studio Maya unless a sync or in-host writer places the file.
-* **Maya adapter auto-spill** — Current `dcc-mcp-maya` may copy very long **inline** `code` strings to a host-local temp file under `~/.dcc-mcp-core/temp_scripts/` before `exec`, and returns `context.host_spilled_inline_script_path` when that happens. You still should prefer explicit `file_path` or typed skills for auditability.
+- **Long `execute_python` payloads** — Prefer a typed skill first. If no typed tool fits, materialize the script on the **DCC host filesystem** and call the backend tool with `file_path`. Core exposes `dcc_mcp_core.materialize_script(...)` / `dcc_mcp_core.script_materialization.materialize_script(...)`, returning `{file_ref, file_path, sha256, bytes, ttl, dcc_type, instance_id, session_id, tool_call_id, correlation_id}`. The default root is `~/.dcc-mcp/<dcc_type>/temp/<instance_id>/<session_id>/...` and can be overridden with `DCC_MCP_SCRIPT_MATERIALIZATION_ROOT`.
+- **Compatibility wrapper** — `write_temp_file` (skill) and `write_temp_script(...)` still work, but they are compatibility helpers over the materialization store. Prefer the structured descriptor when you need audit, reuse, TTL cleanup, or FileRef metadata.
+- **Remote agents** — A path written only on the agent laptop is not executable by a remote studio Maya/Photoshop/Blender process. Use an in-host writer/API or a synced workspace before passing `file_path`.
+- **Maya adapter auto-spill** — Some adapter versions may copy very long **inline** `code` strings to a host-local temp file before `exec`, and return a legacy context key such as `host_spilled_inline_script_path`. Treat that as a migration alias; explicit materialize -> execute by path is the auditable contract.
 
 ### After a DCC crash or reconnect
 

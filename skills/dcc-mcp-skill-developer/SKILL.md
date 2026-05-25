@@ -249,9 +249,17 @@ into a faster authoring loop.
     registration, and keep `get_skill()` / `load_skill_object()` for explicit
     one-off object loads. Do not parse or rewrite `SKILL.md` / `tools.yaml` at
     adapter runtime. Keep `get_skill_info()` for serialized inspection only.
-12. Add tests at the lowest executable layer, then one discovery/load/call or
+12. For ad-hoc script execution, prefer file-backed boundaries. Use
+    `materialize_script(...)` (Python) or
+    `ScriptMaterializationStore` (Rust) to create host-local scripts under the
+    DCC/session-scoped root before calling `execute_python(file_path=...)` or
+    equivalent host tools. Keep `write_temp_script()` only as a compatibility
+    wrapper. Tool results and audit contexts should preserve the descriptor's
+    `file_ref`, `file_path`, `sha256`, byte length, TTL, session, tool-call,
+    correlation, and reuse metadata.
+13. Add tests at the lowest executable layer, then one discovery/load/call or
     gateway REST path when behavior crosses MCP or REST boundaries.
-13. For application UI automation, use the generic `app_ui__*` contract rather
+14. For application UI automation, use the generic `app_ui__*` contract rather
     than DCC-specific names: snapshot -> find -> act -> wait_for -> verify.
     The Rust contract types live in `dcc-mcp-app-ui`; do not add Qt, OS
     accessibility, webview, PyO3, or HTTP runtime dependencies there.
@@ -287,7 +295,7 @@ into a faster authoring loop.
     app_ui roles, keep raw coordinate and keyboard shortcut fallbacks disabled
     by default, and skip live UIA tests cleanly when Windows accessibility APIs
     are unavailable.
-14. For headless USD/OpenUSD-style adapters, expose filesystem-backed project
+15. For headless USD/OpenUSD-style adapters, expose filesystem-backed project
     state with `register_usd_project_resources(...)` instead of inventing
     adapter-local URI shapes. Keep the canonical `openusd://stage`,
     `openusd://layers`, `openusd://assets`, `openusd://materials`,

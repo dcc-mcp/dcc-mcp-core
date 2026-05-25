@@ -897,6 +897,41 @@ with server.start() as handle:
 safety net for tests and one-shot scripts that accidentally drop the final
 `McpServerHandle` reference without calling `shutdown()`.
 
+### Script materialization store (issue #1220)
+
+Ad-hoc script execution should cross the DCC boundary as a host-local file
+path, not as a large inline JSON string. Use
+`dcc_mcp_core.materialize_script(...)` when an adapter or agent must create a
+temporary executable script:
+
+```python
+from dcc_mcp_core import materialize_script
+
+script = materialize_script(
+    "print('hello from host')",
+    dcc_type="maya",
+    instance_id="maya-2026-abcd",
+    session_id="mcp-session-1",
+    ttl_secs=3600,
+    tool_call_id="call-42",
+    correlation_id="trace-abc",
+    reuse=True,
+)
+execute_python(file_path=script.file_path)
+```
+
+The descriptor includes `file_ref`, absolute `file_path`, `sha256`, byte
+length, language/suffix, TTL/expiry, DCC type, instance id, session id,
+tool-call id, correlation id, and reuse status. The default root is
+`~/.dcc-mcp/<dcc_type>/temp/<instance_id>/<session_id>/...`; override it with
+`DCC_MCP_SCRIPT_MATERIALIZATION_ROOT` when a studio needs a shared host-visible
+volume. Rust callers use `dcc_mcp_artefact::ScriptMaterializationStore`.
+
+`write_temp_script()` remains compatible and now delegates to the same store
+using a generic local instance/session. New adapter APIs should prefer the
+structured descriptor so audit, replay, sandbox allowlists, and cleanup can use
+the same metadata.
+
 ### MCP HTTP Server Spawn Modes (issue #303)
 
 `McpHttpConfig.spawn_mode` picks how listeners are driven:
