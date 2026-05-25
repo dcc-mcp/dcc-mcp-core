@@ -197,7 +197,7 @@ result = resources.read("resources://gateway/events")
 | `GET /admin/api/workflows?limit=200` | 将 retained searches、describes、skill loads、calls、traces 和 audits 聚合为 agent session/workflow 链。 |
 | `GET /admin/api/stats?range=1h\|24h\|7d` | 基于 trace log 计算成功率、延迟分位数和 top tools/instances。 |
 | `GET /admin/api/governance?limit=300` / `GET /v1/debug/governance` | 查看当前 policy、read-only 状态、traffic capture guardrail、redaction paths、中间件 quota 状态，以及最近 allowed/denied/throttled 决策。 |
-| `GET /admin/api/workers` | 查看 live registry 中每个实例的 worker 卡片。 |
+| `GET /admin/api/workers` | 查看 live registry 中每个实例的卡片。 |
 
 默认情况下这些缓冲区只保存在内存中。设置 `DCC_MCP_GATEWAY_AUDIT_DIR` 后会追加有界 JSONL 文件：
 

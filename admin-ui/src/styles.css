@@ -1564,17 +1564,17 @@ tbody tr:hover td {
   word-break: break-word;
 }
 
-.worker-groups {
+.instance-groups {
   display: grid;
   gap: 1.1rem;
 }
 
-.worker-group {
+.instance-group {
   display: grid;
   gap: 0.75rem;
 }
 
-.worker-group-head {
+.instance-group-head {
   align-items: center;
   border-bottom: 1px solid var(--border);
   display: flex;
@@ -1583,25 +1583,25 @@ tbody tr:hover td {
   padding-bottom: 0.45rem;
 }
 
-.worker-group-head h3 {
+.instance-group-head h3 {
   font-size: 0.85rem;
   font-weight: 800;
 }
 
-.worker-group-head span {
+.instance-group-head span {
   color: var(--muted-foreground);
   font-family: var(--font-mono);
   font-size: 0.75rem;
 }
 
-.workers-grid {
+.instances-grid {
   display: grid;
   gap: 1rem;
   grid-template-columns: repeat(auto-fit, minmax(288px, 1fr));
   margin-bottom: 1rem;
 }
 
-.worker-card {
+.instance-card {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -1611,25 +1611,25 @@ tbody tr:hover td {
   transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
-.worker-card:hover {
+.instance-card:hover {
   border-color: var(--ring);
   box-shadow: 0 10px 32px rgba(20, 20, 19, 0.07);
 }
 
-.worker-card.ok {
+.instance-card.ok {
   border-color: rgba(56, 193, 114, 0.35);
 }
 
-.worker-card.stale,
-.worker-card.warn {
+.instance-card.stale,
+.instance-card.warn {
   border-color: rgba(242, 184, 75, 0.4);
 }
 
-.worker-card.err {
+.instance-card.err {
   border-color: rgba(239, 91, 99, 0.45);
 }
 
-.worker-card .wname {
+.instance-card .instance-name {
   color: var(--foreground);
   font-family: var(--font-sans);
   font-size: 1rem;
@@ -1638,33 +1638,33 @@ tbody tr:hover td {
   word-break: break-all;
 }
 
-.worker-card .wname span {
+.instance-card .instance-name span {
   color: var(--muted-foreground);
   font-family: var(--font-mono);
   font-size: 0.75rem;
   font-weight: 500;
 }
 
-.worker-card .wkv {
+.instance-card .instance-kv {
   color: var(--muted-foreground);
   display: grid;
   gap: 0.2rem 0.75rem;
   grid-template-columns: 5.5rem 1fr;
 }
 
-.worker-card .wkv span:nth-child(2n) {
+.instance-card .instance-kv span:nth-child(2n) {
   color: var(--foreground);
   word-break: break-all;
 }
 
-.worker-card a,
+.instance-card a,
 .mcp-backend-links a {
   color: #9cc3ff;
   font-weight: 700;
   text-decoration: none;
 }
 
-.worker-card a:hover,
+.instance-card a:hover,
 .mcp-backend-links a:hover {
   color: #cfe2ff;
   text-decoration: underline;
@@ -2496,7 +2496,7 @@ button.linkish:disabled {
     height: 112px;
   }
 
-  .workers-grid,
+  .instances-grid,
   .openapi-layout,
   .stats-charts {
     grid-template-columns: 1fr;

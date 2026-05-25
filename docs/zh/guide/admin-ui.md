@@ -143,7 +143,7 @@ vx git diff --check
 | `GET /admin/api/debug-bundle/{request_id}` | `application/json` | 单次请求的一站式 debug bundle，包含 trace、匹配审计行、相关活动和提示 |
 | `GET /admin/api/stats?range=1h\|24h\|7d` | `application/json` | 聚合调用数、成功率、延迟、top tools/instances 和 token savings totals |
 | `GET /admin/api/governance?limit=300` | `application/json` | 当前 gateway policy、traffic capture、redaction、中间件控制和最近 allow/deny/throttle 决策 |
-| `GET /admin/api/workers` | `application/json` | 来自 live registry 的实例 worker 卡片 |
+| `GET /admin/api/workers` | `application/json` | 来自 live registry 的实例卡片；响应字段名保留 `workers` 以兼容现有客户端 |
 | `GET /admin/api/logs` | `application/json` | 合并后的网关竞争事件、磁盘 `*.log` 行和审计调用摘要 |
 | `GET /admin/api/health` | `application/json` | 服务健康摘要 |
 | `GET /admin/api/skills` | `application/json` | 按 DCC 类型、skill 名、加载状态、工具和后端实例聚合的实时 skill 清单 |
@@ -428,7 +428,7 @@ HTML 仪表盘包含：
 - **左侧导航**：Debug / Activity / Health / 实例 / 工具 / Tasks / Calls / Traces / Traffic / Stats / Skill paths / 日志面板
 - **自动刷新**：每个面板每 5 秒轮询对应 JSON 端点
 - **DCC 图标**：Maya/Autodesk、Blender、GIMP、Inkscape、Krita、Unity、Unreal 等常见宿主显示可识别图标，自定义宿主使用安全 fallback
-- **Worker 卡片**：按实例展示状态、心跳与路由元数据
+- **实例卡片**：按实例展示状态、心跳与路由元数据
 - **Calls 表格**：展示 request id、错误摘要与 trace detail 链接；DCC 优先从解析后的 backend slug 展示，其次使用调用参数中的 `dcc` / `dcc_type`
 - **Trace 下钻**：`/admin/api/traces/{request_id}` 暴露单次调用的完整 waterfall，以及有界/已脱敏的输入输出 payload
 - **Traffic 面板**：当 traffic config 包含 `kind: admin_live` 时，`/admin/api/traffic` 暴露内存环形缓冲区中的 frame，`/admin/api/traffic/export` 可下载 JSONL

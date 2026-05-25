@@ -892,11 +892,11 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.instances-panel')).toContainText('Access URL');
     await expect(page.locator('.instances-panel')).toContainText('http://127.0.0.1:8765');
     await expect(page.locator('.instances-panel')).toContainText('host-rpc connect failed');
-    const mayaCard = page.locator('.worker-card').filter({ hasText: 'Maya Layout' });
+    const mayaCard = page.locator('.instance-card').filter({ hasText: 'Maya Layout' });
     await expect(mayaCard.getByRole('link', { name: 'docs' }).first()).toHaveAttribute('href', 'http://127.0.0.1:8765/docs');
     await page.getByLabel('Filter current panel').fill('blender');
-    await expect(page.locator('.worker-card')).toHaveCount(1);
-    await expect(page.locator('.worker-card')).toContainText('Blender Lookdev');
+    await expect(page.locator('.instance-card')).toHaveCount(1);
+    await expect(page.locator('.instance-card')).toContainText('Blender Lookdev');
   });
 
   test('opens trace detail from the calls panel and keeps the URL shareable', async ({ page }) => {
