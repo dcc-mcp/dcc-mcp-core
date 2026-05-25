@@ -262,6 +262,11 @@ into a faster authoring loop.
     descriptor's `file_ref`, `file_path`, `sha256`, byte length, TTL, session,
     tool-call, correlation, and reuse metadata under
     `context.materialized_script`.
+    `DccServerBase` exposes a discoverable `materialize_script` MCP/REST tool
+    for agents; prefer that tool when the agent needs to create the host-local
+    file before a later execution call. New script execution tool schemas must
+    include `file_path` or `script_path` when they accept inline `code`;
+    validation warns on unbounded inline-only code schemas.
 13. Add tests at the lowest executable layer, then one discovery/load/call or
     gateway REST path when behavior crosses MCP or REST boundaries.
 14. For application UI automation, use the generic `app_ui__*` contract rather

@@ -932,6 +932,16 @@ using a generic local instance/session. New adapter APIs should prefer the
 structured descriptor so audit, replay, sandbox allowlists, and cleanup can use
 the same metadata.
 
+`DccServerBase` adapters expose the same workflow as an agent-facing
+`materialize_script` MCP tool, discoverable through `search_tools` and callable
+through MCP `tools/call` or REST `/v1/call`. The tool accepts `content` (or
+legacy `code`), `language`, `suffix`, `display_name`, `reuse`, `reuse_key`,
+`ttl_secs`, `session_id`, `tool_call_id`, and `correlation_id`, and returns the
+descriptor without echoing raw source. Gateway trace input capture redacts
+script-source fields (`code`, `content`, `script`, `python`, `mel`) by default;
+audit/admin consumers should rely on `file_ref`, `file_path`, `sha256`, `bytes`,
+`ttl_secs`, and `reused` metadata.
+
 ### File-backed script execution policy (issue #1221)
 
 Use `normalize_file_backed_script_execution_params(...)` at adapter and
