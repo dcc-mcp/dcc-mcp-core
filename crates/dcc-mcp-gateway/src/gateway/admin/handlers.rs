@@ -1038,6 +1038,14 @@ pub async fn handle_admin_stats(
                     "governance".to_string(),
                     crate::gateway::admin::governance::build_governance_stats(&s),
                 );
+                obj.insert(
+                    "avg_tokens_per_call".to_string(),
+                    json!(stats.avg_total_tokens_per_call),
+                );
+                obj.insert(
+                    "payload_token_estimator".to_string(),
+                    json!(TOKEN_ESTIMATOR),
+                );
                 // Embedded admin UI expects a 0–100 percentage in `success_rate`.
                 obj.insert(
                     "success_rate".to_string(),
@@ -1050,6 +1058,17 @@ pub async fn handle_admin_stats(
             "error": "stats aggregator not available — admin feature may be disabled",
             "range": range_str,
             "total_calls": 0,
+            "successful_calls": 0,
+            "failed_calls": 0,
+            "success_rate": 0.0,
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+            "total_tokens": 0,
+            "avg_input_tokens_per_call": 0.0,
+            "avg_output_tokens_per_call": 0.0,
+            "avg_total_tokens_per_call": 0.0,
+            "avg_tokens_per_call": 0.0,
+            "payload_token_estimator": TOKEN_ESTIMATOR,
             "token_usage": crate::gateway::admin::stats::TokenUsageStats::default(),
             "governance": crate::gateway::admin::governance::build_governance_stats(&s),
         })),
@@ -1236,10 +1255,47 @@ pub async fn handle_admin_workers(State(s): State<AdminState>) -> impl IntoRespo
 
 fn trace_detail_json(trace: &DispatchTrace, links: Option<Value>) -> Value {
     let mut value = serde_json::to_value(trace).unwrap_or(json!({}));
+    let input_tokens = trace.input_tokens();
+    let output_tokens = trace.output_tokens();
+    let total_tokens = trace.total_tokens();
     if let Some(links) = links {
         value["links"] = links;
     }
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("input_tokens".to_string(), json!(input_tokens));
+        obj.insert("output_tokens".to_string(), json!(output_tokens));
+        obj.insert("total_tokens".to_string(), json!(total_tokens));
+        obj.insert("estimated_tokens".to_string(), json!(total_tokens));
+        obj.insert("estimated_total_tokens".to_string(), json!(total_tokens));
+        obj.insert(
+            "payload_token_estimator".to_string(),
+            json!(TOKEN_ESTIMATOR),
+        );
+    }
     value
+}
+
+fn trace_payload_token_summary(trace: &Value) -> Value {
+    let input_tokens = trace
+        .get("input")
+        .and_then(|payload| payload.get("estimated_tokens"))
+        .and_then(Value::as_u64);
+    let output_tokens = trace
+        .get("output")
+        .and_then(|payload| payload.get("estimated_tokens"))
+        .and_then(Value::as_u64);
+    let total_tokens = match (input_tokens, output_tokens) {
+        (Some(input), Some(output)) => Some(input.saturating_add(output)),
+        (Some(input), None) => Some(input),
+        (None, Some(output)) => Some(output),
+        (None, None) => None,
+    };
+    json!({
+        "estimator": TOKEN_ESTIMATOR,
+        "input": input_tokens,
+        "output": output_tokens,
+        "total": total_tokens,
+    })
 }
 
 fn issue_report_json(request_id: &str, bundle: Value, links: Value) -> Value {
@@ -1272,6 +1328,7 @@ fn issue_report_json(request_id: &str, bundle: Value, links: Value) -> Value {
         .or_else(|| audit.get("token_accounting"))
         .cloned()
         .unwrap_or(Value::Null);
+    let payload_tokens = trace_payload_token_summary(&trace);
     let trace_id = bundle
         .get("trace_id")
         .cloned()
@@ -1306,6 +1363,7 @@ fn issue_report_json(request_id: &str, bundle: Value, links: Value) -> Value {
             "dcc_type": dcc_type,
             "total_ms": total_ms,
             "token_accounting": token_accounting,
+            "payload_tokens": payload_tokens,
             "postmortem": {
                 "previous_call_count": previous_call_count,
                 "gateway_event_count": gateway_event_count,
@@ -1331,6 +1389,9 @@ fn dispatch_trace_to_admin_row(t: &DispatchTrace, links: Option<AdminLinkBuilder
         .slowest_span()
         .map(|(span, ms)| (Some(span.name.clone()), Some(ms)))
         .unwrap_or((None, None));
+    let input_tokens = t.input_tokens();
+    let output_tokens = t.output_tokens();
+    let total_tokens = t.total_tokens();
     let agent_id = t
         .agent_context
         .as_ref()
@@ -1363,6 +1424,10 @@ fn dispatch_trace_to_admin_row(t: &DispatchTrace, links: Option<AdminLinkBuilder
         "span_count": t.span_count(),
         "input_bytes": t.input_bytes(),
         "output_bytes": t.output_bytes(),
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+        "payload_token_estimator": TOKEN_ESTIMATOR,
         "slowest_span_name": slowest_span_name,
         "slowest_span_ms": slowest_span_ms,
     });

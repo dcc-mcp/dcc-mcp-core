@@ -639,6 +639,60 @@ td .refresh-btn:hover {
   font-weight: 750;
 }
 
+.debug-signal-list {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+}
+
+.debug-signal {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--foreground);
+  cursor: pointer;
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.75rem;
+  text-align: left;
+}
+
+.debug-signal.ok {
+  border-left-color: var(--ok);
+}
+
+.debug-signal.warn {
+  border-left-color: var(--warn);
+}
+
+.debug-signal.err {
+  border-left-color: var(--err);
+}
+
+.debug-signal span {
+  color: var(--muted-foreground);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.debug-signal strong {
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
+  overflow-wrap: anywhere;
+}
+
+.debug-signal em {
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  font-style: normal;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .contract-row {
   align-items: center;
   border-bottom: 1px solid var(--border);
@@ -672,6 +726,25 @@ td .refresh-btn:hover {
   font-size: 0.72rem;
   font-style: normal;
   overflow-wrap: anywhere;
+}
+
+.contract-group {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.contract-group + .contract-group {
+  border-top: 1px solid var(--border);
+  margin-top: 0.55rem;
+  padding-top: 0.55rem;
+}
+
+.contract-group h4 {
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .openapi-backend-links {
@@ -1131,12 +1204,17 @@ tbody tr:hover td {
   display: grid;
   gap: 1rem;
   grid-template-columns: minmax(18rem, 0.95fr) minmax(20rem, 1.25fr);
+  min-height: 0;
+  max-height: calc(100vh - 17rem);
 }
 
 .trace-list {
   display: grid;
   gap: 0.75rem;
   min-width: 0;
+  max-height: calc(100vh - 17rem);
+  overflow-y: auto;
+  padding-right: 0.15rem;
 }
 
 .trace-group {
@@ -1237,6 +1315,9 @@ tbody tr:hover td {
   display: grid;
   gap: 0.85rem;
   min-width: 0;
+  max-height: calc(100vh - 17rem);
+  min-height: 0;
+  overflow: auto;
 }
 
 .trace-detail-card {
@@ -1483,6 +1564,36 @@ tbody tr:hover td {
   word-break: break-word;
 }
 
+.worker-groups {
+  display: grid;
+  gap: 1.1rem;
+}
+
+.worker-group {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.worker-group-head {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  padding-bottom: 0.45rem;
+}
+
+.worker-group-head h3 {
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.worker-group-head span {
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
 .workers-grid {
   display: grid;
   gap: 1rem;
@@ -1574,6 +1685,9 @@ tbody tr:hover td {
 .live-log-board {
   display: grid;
   gap: 1rem;
+  max-height: calc(100vh - 16.5rem);
+  overflow: auto;
+  padding-right: 0.15rem;
 }
 
 .request-run {
@@ -2411,6 +2525,13 @@ button.linkish:disabled {
 
   .openapi-spec-card {
     position: static;
+  }
+
+  .trace-layout,
+  .trace-list,
+  .trace-detail-panel,
+  .live-log-board {
+    max-height: calc(100vh - 11rem);
   }
 
   .task-side,
