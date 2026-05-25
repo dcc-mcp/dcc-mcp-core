@@ -6,5 +6,13 @@
   {
     "path": "skills/dcc-cli-gateway",
     "slug": "dcc-cli-gateway"
+  },
+  {
+    "path": "skills/dcc-mcp-skills-creator",
+    "slug": "dcc-mcp-skills-creator"
+  },
+  {
+    "path": "skills/dcc-mcp-creator",
+    "slug": "dcc-mcp-creator"
   }
 ]

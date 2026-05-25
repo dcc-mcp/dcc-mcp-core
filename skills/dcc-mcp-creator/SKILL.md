@@ -6,14 +6,14 @@ description: >-
   ZBrush, Houdini, Maya, and custom studio tools. Use when building server,
   dispatcher, gateway, packaging, and runtime integration. Not for authoring
   individual SKILL.md tool packages - use dcc-mcp-skills-creator.
-license: MIT
+license: MIT-0
 compatibility: "dcc-mcp-core 0.17+, Python 3.7+"
 allowed-tools: Bash Read Write Edit
 metadata:
   dcc-mcp:
     dcc: python
     layer: infrastructure
-    version: "1.0.0"
+    version: "0.17.30"  # x-release-please-version
     search-hint: >-
       create DCC MCP adapter, Nuke MCP, DccServerBase, HostExecutionBridge,
       dispatcher, readiness, resources, gateway, Blender, 3ds Max, Unreal,
@@ -21,6 +21,8 @@ metadata:
     tags: "adapter-development, host-runtime, dispatcher, gateway, nuke, blender, 3dsmax, unreal, zbrush"
     skill-reference-docs:
       - "references/*.md"
+  openclaw:
+    homepage: https://github.com/loonghao/dcc-mcp-core/blob/main/skills/dcc-mcp-creator/SKILL.md
 ---
 
 # DCC-MCP Creator
