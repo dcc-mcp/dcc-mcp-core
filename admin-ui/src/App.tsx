@@ -330,6 +330,7 @@ type RequestLogGroup = {
   status: string;
   success?: boolean;
   steps: LogRow[];
+  total_tokens?: number | null;
 };
 
 type SkillPathRow = {
@@ -2292,6 +2293,25 @@ function App() {
 
   const requestLogGroups = useMemo(() => buildRequestLogGroups(filteredLogs), [filteredLogs]);
 
+  const callTokensByRequestId = useMemo(() => {
+    const tokens = new Map<string, number>();
+    for (const call of calls) {
+      if (call.total_tokens == null) {
+        continue;
+      }
+      tokens.set(call.request_id, call.total_tokens);
+    }
+    return tokens;
+  }, [calls]);
+
+  const requestLogGroupsWithTokens = useMemo(
+    () => requestLogGroups.map((run) => ({
+      ...run,
+      total_tokens: callTokensByRequestId.get(run.requestId) ?? null,
+    })),
+    [requestLogGroups, callTokensByRequestId],
+  );
+
   const gatewayLogs = useMemo(
     () => filteredLogs.filter((log) => !log.request_id),
     [filteredLogs],
@@ -3719,7 +3739,7 @@ function App() {
               <p className="empty">No log lines match your search.</p>
             ) : (
               <div className="live-log-board">
-                {requestLogGroups.map((run) => (
+                {requestLogGroupsWithTokens.map((run) => (
                   <div key={run.requestId} className="request-run">
                     <div className="run-header">
                       <div>
@@ -3728,9 +3748,18 @@ function App() {
                         </div>
                         <div className="run-meta">
                           <TimeValue value={run.timestamp} /> · {run.dccType} · {run.tool}
+                          <span className="run-token-meta">
+                            {' · '}
+                            {run.total_tokens == null ? 'tok ?' : `${formatTokenCount(run.total_tokens)} tok`}
+                          </span>
                         </div>
                       </div>
-                      <StatusBadge value={run.status} />
+                      <div className="run-header-actions">
+                        <StatusBadge value={run.status} />
+                        <button className="refresh-btn" type="button" onClick={() => goToPanel('traces', { traceId: run.requestId })}>
+                          Open trace
+                        </button>
+                      </div>
                     </div>
                     <div className="run-steps">
                       {run.steps.map((log, idx) => (

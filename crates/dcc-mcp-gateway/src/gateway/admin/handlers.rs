@@ -518,8 +518,12 @@ pub async fn handle_admin_skill_detail(
 type CallTokenTotals = (Option<usize>, Option<usize>, Option<usize>);
 
 fn call_token_totals(trace: &DispatchTrace) -> CallTokenTotals {
-    let input_tokens = trace.input_tokens();
-    let output_tokens = trace.output_tokens();
+    let input_tokens = trace
+        .input_tokens()
+        .or_else(|| trace.input_bytes().map(bytes_to_estimated_tokens));
+    let output_tokens = trace
+        .output_tokens()
+        .or_else(|| trace.output_bytes().map(bytes_to_estimated_tokens));
     let total_tokens = match (input_tokens, output_tokens) {
         (Some(input), Some(output)) => Some(input + output),
         (Some(input), None) => Some(input),
@@ -565,11 +569,16 @@ fn admin_audit_row_json(
         row["input_tokens"] = json!(input_tokens);
         row["output_tokens"] = json!(output_tokens);
         row["total_tokens"] = json!(total_tokens);
+        row["estimated_tokens"] = json!(total_tokens);
     }
     if let Some(links) = links {
         row["links"] = links.request_links(&r.request_id);
     }
     row
+}
+
+fn bytes_to_estimated_tokens(bytes: usize) -> usize {
+    bytes.saturating_add(3) / 4
 }
 
 /// `GET /admin/api/calls` — recent calls from the AuditLog ring buffer.

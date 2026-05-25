@@ -643,6 +643,79 @@ mod admin_tests {
     }
 
     #[tokio::test]
+    async fn test_admin_calls_populates_token_fields_without_trace_estimates() {
+        use crate::gateway::admin::trace::{DispatchTrace, TraceLog, TracePayload};
+        use std::time::SystemTime;
+
+        let audit_log: Arc<AuditLog> = Arc::new(parking_lot::Mutex::new(vec![AdminAuditRecord {
+            timestamp: std::time::SystemTime::now(),
+            request_id: "req-token-estimate".to_string(),
+            trace_id: Some("trace-token-estimate".to_string()),
+            span_id: None,
+            parent_span_id: None,
+            method: Some("tools/call".to_string()),
+            instance_id: Some("maya-instance".to_string()),
+            session_id: None,
+            transport: None,
+            agent_id: None,
+            agent_name: None,
+            agent_model: None,
+            parent_request_id: None,
+            action: "tools/call:maya__open_scene".to_string(),
+            dcc_type: Some("maya".to_string()),
+            success: true,
+            error: None,
+            duration_ms: Some(10),
+        }]));
+        let trace_log: Arc<TraceLog> = Arc::new(TraceLog::new(10));
+        trace_log.push(DispatchTrace {
+            request_id: "req-token-estimate".to_string(),
+            trace_id: "trace-token-estimate".to_string(),
+            span_id: None,
+            parent_span_id: None,
+            parent_request_id: None,
+            trace_flags: None,
+            trace_state: None,
+            method: "tools/call".into(),
+            tool_slug: Some("maya.open_scene".into()),
+            instance_id: Some("maya-instance".to_string()),
+            session_id: None,
+            dcc_type: Some("maya".into()),
+            transport: None,
+            agent_context: None,
+            started_at: SystemTime::now(),
+            total_ms: 10,
+            ok: true,
+            spans: vec![],
+            input: Some(TracePayload {
+                content: "{\"scene\":\"basic_scene.mb\"}".into(),
+                mime_type: "application/json".into(),
+                truncated: false,
+                original_size: 24,
+                estimated_tokens: None,
+            }),
+            output: Some(TracePayload {
+                content: "{\"ok\":true}".into(),
+                mime_type: "application/json".into(),
+                truncated: false,
+                original_size: 20,
+                estimated_tokens: None,
+            }),
+        });
+        let state = make_admin_state()
+            .with_audit_log(audit_log)
+            .with_trace_log(trace_log, None);
+        let (_, body) = body_json(build_admin_router(state), "/api/calls?limit=10").await;
+
+        let calls = body["calls"].as_array().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["input_tokens"].as_u64(), Some(6));
+        assert_eq!(calls[0]["output_tokens"].as_u64(), Some(5));
+        assert_eq!(calls[0]["total_tokens"].as_u64(), Some(11));
+        assert_eq!(calls[0]["estimated_tokens"].as_u64(), Some(11));
+    }
+
+    #[tokio::test]
     async fn test_admin_calls_single_success_has_action_field() {
         let audit_log: Arc<AuditLog> = Arc::new(parking_lot::Mutex::new(vec![AdminAuditRecord {
             timestamp: std::time::SystemTime::now(),
