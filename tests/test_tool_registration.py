@@ -81,6 +81,23 @@ class TestRegisterTools:
             "properties": {"ok": {"type": "boolean"}},
         }
 
+    def test_passes_tags_and_search_aliases_when_present(self) -> None:
+        server, _handlers = _make_fake_server()
+        spec = ToolSpec(
+            name="demo",
+            description="d",
+            input_schema={"type": "object"},
+            handler=_handler,
+            tags=["script", "materialize"],
+            search_aliases=["materialize script"],
+        )
+
+        register_tools(server, [spec])
+
+        call = server.registry.register.call_args
+        assert call.kwargs["tags"] == ["script", "materialize"]
+        assert call.kwargs["search_aliases"] == ["materialize script"]
+
     def test_retries_without_output_schema_on_typeerror(self) -> None:
         """If the registry rejects the output_schema kwarg, we retry without it
         rather than dropping the whole registration.  Logged as a warning.
