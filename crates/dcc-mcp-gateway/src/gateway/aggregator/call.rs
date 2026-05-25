@@ -14,15 +14,23 @@ pub async fn route_tools_call(
     tool: &str,
     args: &Value,
     meta: Option<&Value>,
-    _request_id: Option<String>,
     _client_session_id: Option<&str>,
     trace_context: Option<&crate::gateway::admin::trace::TraceContext>,
+    agent_context: Option<&crate::gateway::admin::trace::AgentContext>,
 ) -> (String, bool) {
     // ── Advertised gateway surface (read-only) ───────────────────────
     match tool {
         "search" => {
             return to_text_result(
-                tool_search(gs, args, meta, trace_context, _client_session_id).await,
+                tool_search(
+                    gs,
+                    args,
+                    meta,
+                    trace_context,
+                    _client_session_id,
+                    agent_context,
+                )
+                .await,
             );
         }
         "describe" => return to_text_result(tool_describe(gs, args, meta, trace_context).await),
@@ -54,7 +62,7 @@ pub async fn route_tools_call(
         "release_dcc_instance" => return to_text_result(tool_release_instance(gs, args).await),
         "search_tools" => {
             return to_text_result(
-                tool_search_tools(gs, args, trace_context, _client_session_id).await,
+                tool_search_tools(gs, args, trace_context, _client_session_id, agent_context).await,
             );
         }
         "describe_tool" => {

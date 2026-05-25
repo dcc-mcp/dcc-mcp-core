@@ -638,9 +638,9 @@ async fn handle_tools_call(
         tool,
         &effective_args,
         meta.as_ref(),
-        Some(id_str.to_string()),
         Some(session_id),
         Some(&ctx.trace_context),
+        ctx.agent_context.as_ref(),
     )
     .await;
 

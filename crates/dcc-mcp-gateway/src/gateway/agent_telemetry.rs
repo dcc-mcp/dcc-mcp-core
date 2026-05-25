@@ -32,7 +32,17 @@ pub(crate) struct AgentWorkflowEvent {
     agent_id: Option<String>,
     agent_name: Option<String>,
     agent_kind: Option<String>,
+    agent_model_provider: Option<String>,
+    agent_model_version: Option<String>,
     agent_model: Option<String>,
+    agent_reasoning_effort: Option<String>,
+    agent_turn_id: Option<String>,
+    agent_user_intent_summary: Option<String>,
+    agent_reply_summary: Option<String>,
+    agent_user_input_hash: Option<String>,
+    agent_reply_hash: Option<String>,
+    agent_user_input_chars: Option<u64>,
+    agent_reply_chars: Option<u64>,
     agent_task: Option<String>,
     agent_tags: Vec<String>,
     dcc_type: Option<String>,
@@ -65,7 +75,17 @@ impl AgentWorkflowEvent {
             agent_id: None,
             agent_name: None,
             agent_kind: None,
+            agent_model_provider: None,
+            agent_model_version: None,
             agent_model: None,
+            agent_reasoning_effort: None,
+            agent_turn_id: None,
+            agent_user_intent_summary: None,
+            agent_reply_summary: None,
+            agent_user_input_hash: None,
+            agent_reply_hash: None,
+            agent_user_input_chars: None,
+            agent_reply_chars: None,
             agent_task: None,
             agent_tags: Vec::new(),
             dcc_type: None,
@@ -101,9 +121,22 @@ impl AgentWorkflowEvent {
             self.agent_id = ctx.agent_id.clone();
             self.agent_name = ctx.agent_name.clone();
             self.agent_kind = ctx.agent_kind.clone();
+            self.agent_model_provider = ctx.model_provider.clone();
+            self.agent_model_version = ctx.model_version.clone();
             self.agent_model = ctx.model.clone();
+            self.agent_reasoning_effort = ctx.reasoning_effort.clone();
+            self.agent_turn_id = ctx.turn_id.clone();
+            self.agent_user_intent_summary = ctx.user_intent_summary.clone();
+            self.agent_reply_summary = ctx.agent_reply_summary.clone();
+            self.agent_user_input_hash = ctx.user_input_hash.clone();
+            self.agent_reply_hash = ctx.agent_reply_hash.clone();
+            self.agent_user_input_chars = ctx.user_input_chars;
+            self.agent_reply_chars = ctx.agent_reply_chars;
             self.agent_task = ctx.task.clone();
             self.agent_tags = ctx.tags.iter().take(16).cloned().collect();
+            if self.session_id.is_none() {
+                self.session_id = ctx.session_id.clone();
+            }
             if self.parent_request_id.is_none() {
                 self.parent_request_id = ctx.parent_request_id.clone();
             }
@@ -115,7 +148,9 @@ impl AgentWorkflowEvent {
     }
 
     pub(crate) fn with_session_id(mut self, session_id: Option<&str>) -> Self {
-        self.session_id = session_id.map(str::to_string);
+        if let Some(session_id) = session_id.filter(|value| !value.is_empty()) {
+            self.session_id = Some(session_id.to_string());
+        }
         self
     }
 
@@ -265,8 +300,58 @@ impl AgentWorkflowEvent {
         insert_opt(&mut attrs, "dcc_mcp.agent.kind", self.agent_kind.as_deref());
         insert_opt(
             &mut attrs,
+            "dcc_mcp.agent.model_provider",
+            self.agent_model_provider.as_deref(),
+        );
+        insert_opt(
+            &mut attrs,
+            "dcc_mcp.agent.model_version",
+            self.agent_model_version.as_deref(),
+        );
+        insert_opt(
+            &mut attrs,
             "dcc_mcp.agent.model",
             self.agent_model.as_deref(),
+        );
+        insert_opt(
+            &mut attrs,
+            "dcc_mcp.agent.reasoning_effort",
+            self.agent_reasoning_effort.as_deref(),
+        );
+        insert_opt(
+            &mut attrs,
+            "dcc_mcp.agent.turn_id",
+            self.agent_turn_id.as_deref(),
+        );
+        insert_opt(
+            &mut attrs,
+            "dcc_mcp.agent.user_intent_summary",
+            self.agent_user_intent_summary.as_deref(),
+        );
+        insert_opt(
+            &mut attrs,
+            "dcc_mcp.agent.reply_summary",
+            self.agent_reply_summary.as_deref(),
+        );
+        insert_opt(
+            &mut attrs,
+            "dcc_mcp.agent.user_input_hash",
+            self.agent_user_input_hash.as_deref(),
+        );
+        insert_opt(
+            &mut attrs,
+            "dcc_mcp.agent.reply_hash",
+            self.agent_reply_hash.as_deref(),
+        );
+        insert_u64(
+            &mut attrs,
+            "dcc_mcp.agent.user_input_chars",
+            self.agent_user_input_chars,
+        );
+        insert_u64(
+            &mut attrs,
+            "dcc_mcp.agent.reply_chars",
+            self.agent_reply_chars,
         );
         insert_opt(&mut attrs, "dcc_mcp.agent.task", self.agent_task.as_deref());
         if !self.agent_tags.is_empty() {
@@ -334,6 +419,8 @@ impl AgentWorkflowEvent {
         let score = self.score.unwrap_or_default() as u64;
         let total = self.total.unwrap_or_default() as u64;
         let batch_size = self.batch_size.unwrap_or_default() as u64;
+        let user_input_chars = self.agent_user_input_chars.unwrap_or_default();
+        let reply_chars = self.agent_reply_chars.unwrap_or_default();
         let success = self.success.unwrap_or(false);
         let zero_results = self.zero_results.unwrap_or(false);
 
@@ -351,7 +438,23 @@ impl AgentWorkflowEvent {
                     "dcc_mcp.agent.id" = self.agent_id.as_deref().unwrap_or(""),
                     "dcc_mcp.agent.name" = self.agent_name.as_deref().unwrap_or(""),
                     "dcc_mcp.agent.kind" = self.agent_kind.as_deref().unwrap_or(""),
+                    "dcc_mcp.agent.model_provider" =
+                        self.agent_model_provider.as_deref().unwrap_or(""),
+                    "dcc_mcp.agent.model_version" =
+                        self.agent_model_version.as_deref().unwrap_or(""),
                     "dcc_mcp.agent.model" = self.agent_model.as_deref().unwrap_or(""),
+                    "dcc_mcp.agent.reasoning_effort" =
+                        self.agent_reasoning_effort.as_deref().unwrap_or(""),
+                    "dcc_mcp.agent.turn_id" = self.agent_turn_id.as_deref().unwrap_or(""),
+                    "dcc_mcp.agent.user_intent_summary" =
+                        self.agent_user_intent_summary.as_deref().unwrap_or(""),
+                    "dcc_mcp.agent.reply_summary" =
+                        self.agent_reply_summary.as_deref().unwrap_or(""),
+                    "dcc_mcp.agent.user_input_hash" =
+                        self.agent_user_input_hash.as_deref().unwrap_or(""),
+                    "dcc_mcp.agent.reply_hash" = self.agent_reply_hash.as_deref().unwrap_or(""),
+                    "dcc_mcp.agent.user_input_chars" = user_input_chars,
+                    "dcc_mcp.agent.reply_chars" = reply_chars,
                     "dcc_mcp.agent.task" = self.agent_task.as_deref().unwrap_or(""),
                     "dcc_mcp.agent.tags" = %agent_tags,
                     "dcc_mcp.dcc.type" = self.dcc_type.as_deref().unwrap_or(""),
@@ -444,8 +547,58 @@ impl AgentWorkflowEvent {
         push_opt_attr(&mut attrs, "dcc_mcp.agent.kind", self.agent_kind.as_deref());
         push_opt_attr(
             &mut attrs,
+            "dcc_mcp.agent.model_provider",
+            self.agent_model_provider.as_deref(),
+        );
+        push_opt_attr(
+            &mut attrs,
+            "dcc_mcp.agent.model_version",
+            self.agent_model_version.as_deref(),
+        );
+        push_opt_attr(
+            &mut attrs,
             "dcc_mcp.agent.model",
             self.agent_model.as_deref(),
+        );
+        push_opt_attr(
+            &mut attrs,
+            "dcc_mcp.agent.reasoning_effort",
+            self.agent_reasoning_effort.as_deref(),
+        );
+        push_opt_attr(
+            &mut attrs,
+            "dcc_mcp.agent.turn_id",
+            self.agent_turn_id.as_deref(),
+        );
+        push_opt_attr(
+            &mut attrs,
+            "dcc_mcp.agent.user_intent_summary",
+            self.agent_user_intent_summary.as_deref(),
+        );
+        push_opt_attr(
+            &mut attrs,
+            "dcc_mcp.agent.reply_summary",
+            self.agent_reply_summary.as_deref(),
+        );
+        push_opt_attr(
+            &mut attrs,
+            "dcc_mcp.agent.user_input_hash",
+            self.agent_user_input_hash.as_deref(),
+        );
+        push_opt_attr(
+            &mut attrs,
+            "dcc_mcp.agent.reply_hash",
+            self.agent_reply_hash.as_deref(),
+        );
+        push_num_attr(
+            &mut attrs,
+            "dcc_mcp.agent.user_input_chars",
+            self.agent_user_input_chars.map(|value| value as i64),
+        );
+        push_num_attr(
+            &mut attrs,
+            "dcc_mcp.agent.reply_chars",
+            self.agent_reply_chars.map(|value| value as i64),
         );
         push_opt_attr(&mut attrs, "dcc_mcp.agent.task", self.agent_task.as_deref());
         if !self.agent_tags.is_empty() {
@@ -715,6 +868,13 @@ fn insert_num(attrs: &mut Map<String, Value>, key: &str, value: Option<u32>) {
 }
 
 #[cfg(test)]
+fn insert_u64(attrs: &mut Map<String, Value>, key: &str, value: Option<u64>) {
+    if let Some(value) = value {
+        attrs.insert(key.to_string(), json!(value));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -738,7 +898,18 @@ mod tests {
                 agent_id: Some("agent-1".to_string()),
                 agent_name: Some("Codex".to_string()),
                 agent_kind: Some("coding-agent".to_string()),
+                model_provider: Some("openai".to_string()),
+                model_version: Some("gpt-5.1".to_string()),
                 model: Some("gpt-5".to_string()),
+                reasoning_effort: Some("high".to_string()),
+                session_id: Some("session-1".to_string()),
+                turn_id: Some("turn-1".to_string()),
+                user_intent_summary: Some("Fix gateway telemetry.".to_string()),
+                agent_reply_summary: Some("Implemented bounded context.".to_string()),
+                user_input_hash: Some("sha256:user".to_string()),
+                agent_reply_hash: Some("sha256:reply".to_string()),
+                user_input_chars: Some(2048),
+                agent_reply_chars: Some(512),
                 task: Some("fix issue 1180".to_string()),
                 reasoning_summary: Some("do not export me".to_string()),
                 tags: vec!["ci".to_string(), "gateway".to_string()],
@@ -752,7 +923,24 @@ mod tests {
 
         let attrs = event.attributes();
         assert_eq!(attrs["dcc_mcp.workflow.operation"], "gateway.search");
+        assert_eq!(attrs["dcc_mcp.session_id"], "session-1");
         assert_eq!(attrs["dcc_mcp.agent.id"], "agent-1");
+        assert_eq!(attrs["dcc_mcp.agent.model_provider"], "openai");
+        assert_eq!(attrs["dcc_mcp.agent.model_version"], "gpt-5.1");
+        assert_eq!(attrs["dcc_mcp.agent.reasoning_effort"], "high");
+        assert_eq!(attrs["dcc_mcp.agent.turn_id"], "turn-1");
+        assert_eq!(
+            attrs["dcc_mcp.agent.user_intent_summary"],
+            "Fix gateway telemetry."
+        );
+        assert_eq!(
+            attrs["dcc_mcp.agent.reply_summary"],
+            "Implemented bounded context."
+        );
+        assert_eq!(attrs["dcc_mcp.agent.user_input_hash"], "sha256:user");
+        assert_eq!(attrs["dcc_mcp.agent.reply_hash"], "sha256:reply");
+        assert_eq!(attrs["dcc_mcp.agent.user_input_chars"], 2048);
+        assert_eq!(attrs["dcc_mcp.agent.reply_chars"], 512);
         assert_eq!(attrs["dcc_mcp.agent.tags"], json!(["ci", "gateway"]));
         assert_eq!(attrs["dcc_mcp.search.id"], "search-1");
         assert_eq!(attrs["dcc_mcp.search.zero_results"], true);
@@ -854,6 +1042,7 @@ mod tests {
             }],
             trace_context: Some(trace_context()),
             session_id: Some("sess-1".to_string()),
+            agent_context: None,
         });
 
         let load_args =
@@ -928,6 +1117,7 @@ mod tests {
             }],
             trace_context: Some(trace_context()),
             session_id: Some("sess-1".to_string()),
+            agent_context: None,
         });
 
         let args = json!({

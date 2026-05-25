@@ -61,8 +61,11 @@ into a faster authoring loop.
 7. When changing adapter server wiring or caller examples, keep Admin telemetry
    useful: pass optional `agent_context` / `caller_context` summaries through
    MCP `_meta`, REST `meta`, or `x-dcc-mcp-agent-*` headers when the caller is
-   an agent. Include only explicit summaries, plans, observations, and
-   correlation ids; never ask tools to expose hidden chain-of-thought. Preserve
+   an agent. Include only explicit summaries, plans, observations, model
+   identity (`model_provider`, `model_version`, optional legacy `model`),
+   turn correlation (`session_id`, `turn_id`), hashes, character counts, and
+   correlation ids; never ask tools to expose hidden chain-of-thought, raw user
+   input, or raw agent replies. Preserve
    Admin `links` fields in examples so every trace/debug bundle, OpenAPI
    Inspector/spec link, or issue-report JSON export can be copied as a complete
    URL into a follow-up agent, LLM evaluation prompt, or GitHub issue. When an
@@ -77,7 +80,8 @@ into a faster authoring loop.
    of the whole `search` -> `describe` -> `load_skill` -> `call` chain; it is a
    read-only projection over retained search telemetry, dispatch traces, and
    audit rows, including selected rank, zero-result searches, and
-   time-to-first-success without exposing hidden reasoning or raw prompts.
+   time-to-first-success with model/turn summaries, without exposing hidden
+   reasoning or raw prompts.
    Gateway `GET /v1/openapi.json` is gateway-specific: it documents only the
    mounted aggregating routes and intentionally omits per-DCC-only resources,
    prompts, jobs, and adapter-local `/v1/dcc/{dcc_type}/call`. Use a concrete
@@ -117,11 +121,16 @@ into a faster authoring loop.
    Gateway OTLP spans mirror the same agent workflow chain with bounded
    attributes: `gateway.search`, `gateway.describe`, `gateway.load_skill`,
    `gateway.call`, and `gateway.call_batch` use `openinference.span.kind` plus
-   `dcc_mcp.*` fields for agent id/name/kind/model/task/tags, DCC route,
+   `dcc_mcp.*` fields for agent id/name/kind/model provider/model version/
+   reasoning effort/turn id/task/tags, bounded user-intent and reply summaries,
+   user/reply hashes and character counts, DCC route,
    `search_id`, selected rank/score/match reasons, policy outcome, and
    success/error kind. Adapter docs and examples should preserve those
    correlation fields but must not put hidden reasoning, secrets, raw prompts,
-   or unbounded request bodies into `agent_context` metadata.
+   raw agent replies, or unbounded request bodies into `agent_context` metadata.
+   Raw prompt/reply capture belongs only in an explicitly configured traffic
+   capture policy with redaction, sampling, retention, and clear Admin
+   visibility.
    Gateway search uses a hybrid ranker in default fuzzy mode: weighted lexical
    matches over tool names, skill names, tags, summaries, author-declared
    aliases, and bounded schema-field tokens take precedence, while fuzzy

@@ -1264,7 +1264,10 @@ fn dispatch_trace_to_admin_row(t: &DispatchTrace, links: Option<AdminLinkBuilder
         .agent_context
         .as_ref()
         .and_then(|ctx| ctx.agent_name.clone());
-    let agent_model = t.agent_context.as_ref().and_then(|ctx| ctx.model.clone());
+    let agent_model = t
+        .agent_context
+        .as_ref()
+        .and_then(|ctx| ctx.model.clone().or_else(|| ctx.model_version.clone()));
     let mut row = json!({
         "timestamp": ts,
         "request_id": t.request_id,
