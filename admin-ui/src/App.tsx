@@ -25,6 +25,12 @@ type HealthPayload = {
   uptime_secs: number;
   version: string;
   rss_bytes?: number | null;
+  response_format?: {
+    default?: string | null;
+    legacy_mime?: string | null;
+    compact_mime?: string | null;
+    token_estimator?: string | null;
+  };
   gateway?: {
     current?: GatewaySentinel | null;
     candidates?: GatewaySentinel[];
@@ -77,6 +83,15 @@ type CallRow = {
   agent_name?: string | null;
   agent_model?: string | null;
   parent_request_id?: string | null;
+  token_accounting?: TokenAccounting | null;
+  response_format?: string | null;
+  token_estimator?: string | null;
+  original_bytes?: number | null;
+  returned_bytes?: number | null;
+  original_tokens?: number | null;
+  returned_tokens?: number | null;
+  saved_tokens?: number | null;
+  savings_pct?: number | string | null;
   links?: AdminLinks;
 };
 
@@ -98,7 +113,39 @@ type TraceRow = {
   output_bytes?: number | null;
   slowest_span_name?: string | null;
   slowest_span_ms?: number | null;
+  token_accounting?: TokenAccounting | null;
+  response_format?: string | null;
+  token_estimator?: string | null;
+  original_bytes?: number | null;
+  returned_bytes?: number | null;
+  original_tokens?: number | null;
+  returned_tokens?: number | null;
+  saved_tokens?: number | null;
+  savings_pct?: number | string | null;
   links?: AdminLinks;
+};
+
+type TokenAccounting = {
+  response_format?: string | null;
+  token_estimator?: string | null;
+  original_bytes?: number | null;
+  returned_bytes?: number | null;
+  original_tokens?: number | null;
+  returned_tokens?: number | null;
+  saved_tokens?: number | null;
+  savings_pct?: number | string | null;
+};
+
+type TokenCarrier = {
+  token_accounting?: TokenAccounting | null;
+  response_format?: string | null;
+  token_estimator?: string | null;
+  original_bytes?: number | null;
+  returned_bytes?: number | null;
+  original_tokens?: number | null;
+  returned_tokens?: number | null;
+  saved_tokens?: number | null;
+  savings_pct?: number | string | null;
 };
 
 type AdminLinks = {
@@ -171,6 +218,15 @@ type TraceDetailPayload = {
   spans: TraceSpan[];
   input?: TracePayload | null;
   output?: TracePayload | null;
+  token_accounting?: TokenAccounting | null;
+  response_format?: string | null;
+  token_estimator?: string | null;
+  original_bytes?: number | null;
+  returned_bytes?: number | null;
+  original_tokens?: number | null;
+  returned_tokens?: number | null;
+  saved_tokens?: number | null;
+  savings_pct?: number | string | null;
   links?: AdminLinks;
 };
 
@@ -342,6 +398,28 @@ type LatencyBlock = {
 
 type TopEntry = { name: string; count: number };
 
+type TokenBreakdownEntry = {
+  name: string;
+  calls: number;
+  returned_tokens: number;
+  saved_tokens: number;
+  savings_pct: number;
+};
+
+type TokenUsageStats = {
+  total_original_bytes?: number;
+  total_returned_bytes?: number;
+  total_original_tokens?: number;
+  total_returned_tokens?: number;
+  total_saved_tokens?: number;
+  average_savings_pct?: number;
+  by_tool?: TokenBreakdownEntry[];
+  by_instance?: TokenBreakdownEntry[];
+  by_agent?: TokenBreakdownEntry[];
+  by_transport?: TokenBreakdownEntry[];
+  by_response_format?: TokenBreakdownEntry[];
+};
+
 type StatsPayload = {
   range: string;
   total_calls: number;
@@ -354,6 +432,7 @@ type StatsPayload = {
   top_tools?: TopEntry[];
   top_instances?: TopEntry[];
   top_agents?: TopEntry[];
+  token_usage?: TokenUsageStats;
   hourly_distribution?: number[];
   governance?: GovernanceStats;
   error?: string;
@@ -1736,6 +1815,78 @@ function agentLabel(row: { agent_name?: string | null; agent_id?: string | null;
   return row.agent_name || row.agent_id || row.agent_model || '-';
 }
 
+function tokenAccounting(row: TokenCarrier | null | undefined): TokenAccounting | null {
+  if (!row) {
+    return null;
+  }
+  if (row.token_accounting) {
+    return row.token_accounting;
+  }
+  if (
+    row.response_format ||
+    row.token_estimator ||
+    row.original_tokens != null ||
+    row.returned_tokens != null ||
+    row.saved_tokens != null ||
+    row.savings_pct != null
+  ) {
+    return {
+      response_format: row.response_format,
+      token_estimator: row.token_estimator,
+      original_bytes: row.original_bytes,
+      returned_bytes: row.returned_bytes,
+      original_tokens: row.original_tokens,
+      returned_tokens: row.returned_tokens,
+      saved_tokens: row.saved_tokens,
+      savings_pct: row.savings_pct,
+    };
+  }
+  return null;
+}
+
+function numericValue(value: number | string | null | undefined): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function formatTokenCount(value: number | string | null | undefined): string {
+  const n = numericValue(value);
+  if (n == null) {
+    return '-';
+  }
+  return Math.round(n).toLocaleString();
+}
+
+function formatSavingsPct(value: number | string | null | undefined): string {
+  const n = numericValue(value);
+  if (n == null) {
+    return '-';
+  }
+  return `${n.toFixed(1)}%`;
+}
+
+function responseFormatLabel(row: TokenCarrier | null | undefined): string {
+  return tokenAccounting(row)?.response_format || '-';
+}
+
+function returnedTokensLabel(row: TokenCarrier | null | undefined): string {
+  return formatTokenCount(tokenAccounting(row)?.returned_tokens);
+}
+
+function savedTokensLabel(row: TokenCarrier | null | undefined): string {
+  const tokens = tokenAccounting(row);
+  if (!tokens) {
+    return '-';
+  }
+  return `${formatTokenCount(tokens.saved_tokens)} (${formatSavingsPct(tokens.savings_pct)})`;
+}
+
 function formatDurationMs(value: number | null | undefined): string {
   if (value == null) {
     return '-';
@@ -1813,6 +1964,46 @@ function StatBarList({ title, items }: { title: string; items: TopEntry[] }) {
   );
 }
 
+function TokenBreakdownList({ title, items }: { title: string; items: TokenBreakdownEntry[] }) {
+  const max = Math.max(1, ...items.map((row) => row.saved_tokens ?? 0));
+  return (
+    <div className="chart-card">
+      <h3 className="chart-title">{title}</h3>
+      {!items.length ? <p className="empty">No token data in this range.</p> : items.map((row) => (
+        <div className="hbar-row" key={`${title}-${row.name}`}>
+          <div className="hbar-label" title={row.name}>{row.name.length > 48 ? `${row.name.slice(0, 46)}...` : row.name}</div>
+          <div className="hbar-track">
+            <div className="hbar-fill" style={{ width: `${Math.max(2, ((row.saved_tokens ?? 0) / max) * 100)}%` }} />
+          </div>
+          <div className="hbar-count" title={`${row.calls} call(s), ${formatSavingsPct(row.savings_pct)} saved`}>
+            {formatTokenCount(row.saved_tokens)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TokenAccountingDetail({ row }: { row: TokenCarrier | null | undefined }) {
+  const tokens = tokenAccounting(row);
+  return (
+    <div className="trace-detail-card">
+      <div className="trace-card-head">
+        <h3>Token accounting</h3>
+        <span>{tokens?.token_estimator ?? 'no estimator'}</span>
+      </div>
+      <div className="trace-summary-grid">
+        <span><strong>Format</strong>{tokens?.response_format ?? '-'}</span>
+        <span><strong>Returned</strong>{formatTokenCount(tokens?.returned_tokens)}</span>
+        <span><strong>Saved</strong>{formatTokenCount(tokens?.saved_tokens)}</span>
+        <span><strong>Savings</strong>{formatSavingsPct(tokens?.savings_pct)}</span>
+        <span><strong>Original bytes</strong>{formatBytes(tokens?.original_bytes)}</span>
+        <span><strong>Returned bytes</strong>{formatBytes(tokens?.returned_bytes)}</span>
+      </div>
+    </div>
+  );
+}
+
 function HourlyChart({ buckets }: { buckets: number[] }) {
   if (!buckets.length) {
     return null;
@@ -1864,6 +2055,7 @@ function buildAgentPacket(trace: TraceDetailPayload): string {
     transport: trace.transport,
     status: trace.ok ? 'ok' : 'err',
     total_ms: trace.total_ms,
+    token_accounting: tokenAccounting(trace),
     agent_context: agent ? {
       agent_id: agent.agent_id,
       agent_name: agent.agent_name,
@@ -2172,6 +2364,8 @@ function TraceDetailPanel({
           </div>
         </div>
       ) : null}
+
+      <TokenAccountingDetail row={trace} />
 
       <div className="trace-detail-card">
         <div className="trace-card-head">
@@ -2731,6 +2925,21 @@ function App() {
     }
     return rows.filter((r) => r.name.toLowerCase().includes(q));
   }, [stats, listSearch]);
+
+  const filterTokenBreakdowns = useCallback((rows: TokenBreakdownEntry[] | undefined) => {
+    const q = listSearch.trim().toLowerCase();
+    const safeRows = rows ?? [];
+    if (!q) {
+      return safeRows;
+    }
+    return safeRows.filter((r) => r.name.toLowerCase().includes(q));
+  }, [listSearch]);
+
+  const filteredTokenByTool = useMemo(() => filterTokenBreakdowns(stats?.token_usage?.by_tool), [filterTokenBreakdowns, stats]);
+  const filteredTokenByInstance = useMemo(() => filterTokenBreakdowns(stats?.token_usage?.by_instance), [filterTokenBreakdowns, stats]);
+  const filteredTokenByAgent = useMemo(() => filterTokenBreakdowns(stats?.token_usage?.by_agent), [filterTokenBreakdowns, stats]);
+  const filteredTokenByTransport = useMemo(() => filterTokenBreakdowns(stats?.token_usage?.by_transport), [filterTokenBreakdowns, stats]);
+  const filteredTokenByFormat = useMemo(() => filterTokenBreakdowns(stats?.token_usage?.by_response_format), [filterTokenBreakdowns, stats]);
 
   const filteredGovernanceDecisions = useMemo(() => {
     const rows = governance?.recent_decisions ?? [];
@@ -3350,7 +3559,7 @@ function App() {
             <input
               type="search"
               className="list-search-input"
-              placeholder={activePanel === 'stats' ? 'Filter top tools / instances…' : activePanel === 'openapi' ? 'Filter operations, paths, tags…' : 'Search this panel…'}
+              placeholder={activePanel === 'stats' ? 'Filter stats charts...' : activePanel === 'openapi' ? 'Filter operations, paths, tags...' : 'Search this panel...'}
               value={listSearch}
               onChange={(e) => setListSearch(e.target.value)}
               aria-label="Filter current panel"
@@ -3368,7 +3577,7 @@ function App() {
                 {activePanel === 'governance' ? `${filteredGovernanceDecisions.length} / ${governance?.recent_decisions?.length ?? 0}` : ''}
                 {activePanel === 'skill-paths' ? `${filteredSkills.length} skill(s), ${filteredSkillPaths.length} path(s)` : ''}
                 {activePanel === 'logs' ? `${filteredLogs.length} / ${logs.length}` : ''}
-                {activePanel === 'stats' ? `charts: ${filteredTopTools.length} tools / ${filteredTopInstances.length} instances / ${filteredTopAgents.length} agents` : ''}
+                {activePanel === 'stats' ? `charts: ${filteredTopTools.length} tools / ${filteredTopInstances.length} instances / ${filteredTopAgents.length} agents / ${filteredTokenByFormat.length} formats` : ''}
                 {activePanel === 'governance' ? `${governanceSummary.denied} denied / ${governanceSummary.throttled} throttled` : ''}
               </span>
             ) : null}
@@ -3633,6 +3842,10 @@ function App() {
               <HealthCard label="Version" value={health?.version ?? '?'} />
               <HealthCard label="Gateway owner" value={gatewayLabel(health)} />
               <HealthCard label="Gateway candidates" value={String(health?.gateway?.candidates?.length ?? 0)} />
+              <HealthCard
+                label="Response format"
+                value={`${health?.response_format?.default ?? 'json'} / ${health?.response_format?.token_estimator ?? '-'}`}
+              />
               <HealthCard label="RSS" value={formatBytes(health?.rss_bytes ?? undefined)} />
               <HealthCard label="Body limit" value={health?.limits ? formatBytes(health.limits.body_max_bytes) : '?'} />
               <HealthCard
@@ -3863,7 +4076,7 @@ function App() {
                 <div key={group} className="group-block">
                   <h3 className="group-title">{group}</h3>
                   <table>
-                    <thead><tr><th>Time</th><th>Request</th><th>Tool</th><th>DCC</th><th>Agent</th><th>Transport</th><th>Status</th><th>Error</th><th>ms</th><th>Detail</th></tr></thead>
+                    <thead><tr><th>Time</th><th>Request</th><th>Tool</th><th>DCC</th><th>Agent</th><th>Transport</th><th>Format</th><th>Returned</th><th>Saved</th><th>Status</th><th>Error</th><th>ms</th><th>Detail</th></tr></thead>
                     <tbody>
                       {groupCalls.map((call) => (
                         <tr key={call.request_id}>
@@ -3877,6 +4090,9 @@ function App() {
                           <td>{call.dcc_type}</td>
                           <td title={call.agent_id ?? call.agent_name ?? ''}>{agentLabel(call)}</td>
                           <td>{call.transport ?? '-'}</td>
+                          <td>{responseFormatLabel(call)}</td>
+                          <td>{returnedTokensLabel(call)}</td>
+                          <td>{savedTokensLabel(call)}</td>
                           <td><StatusBadge value={call.status} /></td>
                           <td title={call.error ?? ''}>{call.error ? call.error.slice(0, 80) : '-'}</td>
                           <td>{call.duration_ms ?? '-'}</td>
@@ -3997,12 +4213,33 @@ function App() {
               <MetricTile tone={errorRateTone(stats)} label="Success" value={stats ? `${stats.success_rate.toFixed(1)}%` : '0.0%'} detail={`${statsSummary.success} ok / ${statsSummary.failed} failed`} />
               <MetricTile tone={latencyTone(stats?.latency_ms?.p50_ms ?? stats?.p50_ms)} label="p50 latency" value={formatDurationMs(stats?.latency_ms?.p50_ms ?? stats?.p50_ms)} />
               <MetricTile tone={latencyTone(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} label="p95 latency" value={formatDurationMs(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} />
+              <MetricTile
+                label="Returned tokens"
+                value={formatTokenCount(stats?.token_usage?.total_returned_tokens)}
+                detail={`${formatTokenCount(stats?.token_usage?.total_original_tokens)} original`}
+              />
+              <MetricTile
+                tone={(stats?.token_usage?.total_saved_tokens ?? 0) > 0 ? 'ok' : undefined}
+                label="Saved tokens"
+                value={formatTokenCount(stats?.token_usage?.total_saved_tokens)}
+                detail={`${formatSavingsPct(stats?.token_usage?.average_savings_pct)} average`}
+              />
+              <MetricTile
+                label="Response format"
+                value={health?.response_format?.default ?? 'json'}
+                detail={health?.response_format?.token_estimator ?? 'token estimator unavailable'}
+              />
             </div>
             <div className="stats-charts">
               <StatBarList title="Top tools" items={filteredTopTools} />
               <StatBarList title="Top instances" items={filteredTopInstances} />
               <StatBarList title="Top agents" items={filteredTopAgents} />
               {stats?.hourly_distribution?.length ? <HourlyChart buckets={stats.hourly_distribution} /> : null}
+              <TokenBreakdownList title="Token savings by tool" items={filteredTokenByTool} />
+              <TokenBreakdownList title="Token savings by instance" items={filteredTokenByInstance} />
+              <TokenBreakdownList title="Token savings by agent" items={filteredTokenByAgent} />
+              <TokenBreakdownList title="Token savings by transport" items={filteredTokenByTransport} />
+              <TokenBreakdownList title="Token savings by format" items={filteredTokenByFormat} />
             </div>
           </section>
         )}
