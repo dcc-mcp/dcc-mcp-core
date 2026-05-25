@@ -804,7 +804,7 @@ test.describe('Admin Page', () => {
 
     await expect(page.locator('html')).toHaveAttribute('lang', 'ja');
     await expect(page.locator('html')).toHaveAttribute('data-admin-locale-source', 'navigator');
-    await expect(page.locator('.brand-tag')).toContainText('DCC-MCP Gateway');
+    await expect(page.locator('.brand-tag')).toContainText('DCC-MCP ゲートウェイ');
 
     await context.close();
   });
