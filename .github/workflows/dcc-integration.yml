@@ -5,37 +5,14 @@ name: DCC Integration
 # relevant test file (split from the original test_integration_dcc.py).
 #
 # Triggered by:
-#   - pull_request: runs directly on PRs and builds its own wheel so the
-#     DCC jobs are visible as PR checks.
-#   - workflow_run after CI completes: reuses the Ubuntu wheel artifact
-#     from ci.yml's `build-wheel (ubuntu-latest)` job — no rebuild.
-#     Saves ~2-3 min of duplicate maturin work per PR.
 #   - workflow_dispatch: manual run with `dcc` input; builds its own wheel
 #     so the run is self-contained without a prior CI run.
 #   - workflow_call: invoked by release.yml; builds its own wheel.
+#
+# PR and push coverage lives in ci.yml, where the DCC jobs reuse CI's
+# wheel-ubuntu-latest artifact instead of compiling a second Linux wheel.
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - "crates/**"
-      - "python/**"
-      - "scripts/**"
-      - "src/**"
-      - "tests/**"
-      - "examples/**"
-      - "skills/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "justfile"
-      - "pyproject.toml"
-      - "rust-toolchain.toml"
-      - ".github/workflows/ci.yml"
-      - ".github/workflows/dcc-integration.yml"
-      - ".github/actions/build-wheel/**"
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
   workflow_dispatch:
     inputs:
       dcc:
@@ -43,49 +20,26 @@ on:
         required: false
         default: "all"
   workflow_call:
+    inputs:
+      dcc:
+        description: "DCC to test (blender/openscad/godot/cross/all)"
+        required: false
+        type: string
+        default: "all"
 
 concurrency:
-  group: dcc-integration-${{ github.event.workflow_run.head_sha || github.event.pull_request.number || github.ref }}
+  group: dcc-integration-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
-  # Required for actions/download-artifact to fetch artifacts from the
-  # triggering ci.yml run via the GitHub API.
-  actions: read
-
-env:
-  # SHA to check out: prefer the SHA from the triggering CI run so the code
-  # under test matches the wheel. Falls back to github.sha for manual runs.
-  CHECKOUT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
 jobs:
-  # ── workflow_run path: fetch the wheel ci.yml already built. ──
-  # Gated on a successful CI run so we never test against a broken build.
-  fetch-wheel:
-    name: Fetch CI wheel
-    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download wheel-ubuntu-latest from triggering CI run
-        uses: actions/download-artifact@v8
-        with:
-          name: wheel-ubuntu-latest
-          path: dist/
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.event.workflow_run.id }}
-      - name: Re-publish as wheel-dcc-integration
-        uses: actions/upload-artifact@v7
-        with:
-          name: wheel-dcc-integration
-          path: dist/*.whl
-          retention-days: 1
-
-  # ── workflow_dispatch / workflow_call path: build the wheel locally. ──
-  # Skipped on the workflow_run path (ci.yml already built it).
+  # ── Manual / release path: build the wheel locally. ──
+  # The main CI workflow runs these same DCC tests against its existing Ubuntu
+  # wheel artifact for PR/push coverage.
   build-wheel:
     name: Build Wheel (Linux)
-    if: github.event_name != 'workflow_run'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -125,26 +79,14 @@ jobs:
           path: dist/*.whl
           retention-days: 1
 
-  # Shared gate: one of fetch-wheel or build-wheel must have succeeded.
-  # DCC jobs `needs:` this so they don't have to repeat the two-path `if:`.
-  wheel-ready:
-    name: Wheel ready
-    needs: [fetch-wheel, build-wheel]
-    if: |
-      always() &&
-      (needs.fetch-wheel.result == 'success' || needs.build-wheel.result == 'success')
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "wheel-dcc-integration artifact is available"
-
   # ── Blender (headless --background) ──
   # Tests against multiple Blender versions to cover different embedded Python versions:
   #   Blender 2.83 LTS → Python 3.7 (oldest supported)
   #   Blender 3.6 LTS  → Python 3.10
   blender:
     name: Blender ${{ matrix.blender-version }}
-    needs: [wheel-ready]
-    if: always() && needs.wheel-ready.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.dcc == '' || inputs.dcc == 'all' || inputs.dcc == 'blender')
+    needs: [build-wheel]
+    if: github.event_name != 'workflow_dispatch' || inputs.dcc == '' || inputs.dcc == 'all' || inputs.dcc == 'blender'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -160,8 +102,6 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@v6
-        with:
-          ref: ${{ env.CHECKOUT_SHA }}
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
@@ -192,7 +132,7 @@ jobs:
   # Re-enable once a stable CI install method is found (AppImage or PPA).
   # freecad:
   #   name: FreeCAD
-  #   needs: [wheel-ready]
+  #   needs: [build-wheel]
   #   if: github.event.inputs.dcc == 'freecad'
   #   ...
 
@@ -201,13 +141,11 @@ jobs:
   # ── OpenSCAD (CLI geometry compiler) ──
   openscad:
     name: OpenSCAD
-    needs: [wheel-ready]
-    if: always() && needs.wheel-ready.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.dcc == '' || inputs.dcc == 'all' || inputs.dcc == 'openscad')
+    needs: [build-wheel]
+    if: github.event_name != 'workflow_dispatch' || inputs.dcc == '' || inputs.dcc == 'all' || inputs.dcc == 'openscad'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-        with:
-          ref: ${{ env.CHECKOUT_SHA }}
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
@@ -231,15 +169,13 @@ jobs:
   # ── Godot 4 (headless --headless --script) ──
   godot:
     name: Godot
-    needs: [wheel-ready]
-    if: always() && needs.wheel-ready.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.dcc == '' || inputs.dcc == 'all' || inputs.dcc == 'godot')
+    needs: [build-wheel]
+    if: github.event_name != 'workflow_dispatch' || inputs.dcc == '' || inputs.dcc == 'all' || inputs.dcc == 'godot'
     runs-on: ubuntu-latest
     env:
       GODOT_VERSION: "4.4.1"
     steps:
       - uses: actions/checkout@v6
-        with:
-          ref: ${{ env.CHECKOUT_SHA }}
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
@@ -267,13 +203,11 @@ jobs:
   # ── Cross-DCC pipeline (no DCC binary required) ──
   cross-dcc:
     name: Cross-DCC Pipeline
-    needs: [wheel-ready]
-    if: always() && needs.wheel-ready.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.dcc == '' || inputs.dcc == 'all' || inputs.dcc == 'cross')
+    needs: [build-wheel]
+    if: github.event_name != 'workflow_dispatch' || inputs.dcc == '' || inputs.dcc == 'all' || inputs.dcc == 'cross'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-        with:
-          ref: ${{ env.CHECKOUT_SHA }}
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
