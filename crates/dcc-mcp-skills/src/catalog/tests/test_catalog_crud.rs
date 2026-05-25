@@ -406,6 +406,83 @@ fn test_load_skill_object_applies_tool_declaration_overrides() {
 }
 
 #[test]
+fn test_skill_load_transform_applies_to_named_load_and_after_hook_observes_actions() {
+    let catalog = make_test_catalog();
+    catalog.add_skill(make_test_skill("adapter-policy", "maya", &["host_scene"]));
+
+    catalog.set_skill_load_transform(|mut metadata| {
+        metadata.description = "Transformed by adapter policy".to_string();
+        metadata.tools[0].description = "Host-scene tool after policy".to_string();
+        metadata.tags.push("standalone".to_string());
+        Ok(metadata)
+    });
+
+    let observed = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let observed_clone = observed.clone();
+    catalog.set_after_load_hook(move |metadata, registered| {
+        *observed_clone.lock().unwrap() = Some((metadata.name.clone(), registered.to_vec()));
+        Ok(())
+    });
+
+    let registered = catalog.load_skill("adapter-policy").unwrap();
+
+    assert_eq!(registered, vec!["adapter_policy__host_scene".to_string()]);
+    let info = catalog.get_skill_info("adapter-policy").unwrap();
+    assert_eq!(info.description, "Transformed by adapter policy");
+    assert!(info.tags.contains(&"standalone".to_string()));
+    let meta = catalog
+        .registry()
+        .get_action("adapter_policy__host_scene", None)
+        .expect("transformed action should be registered");
+    assert_eq!(meta.description, "Host-scene tool after policy");
+    assert_eq!(
+        *observed.lock().unwrap(),
+        Some((
+            "adapter-policy".to_string(),
+            vec!["adapter_policy__host_scene".to_string()]
+        ))
+    );
+}
+
+#[test]
+fn test_skill_load_transform_can_veto_without_registering_tools() {
+    let catalog = make_test_catalog();
+    catalog.add_skill(make_test_skill("blocked-policy", "maya", &["host_scene"]));
+    catalog.set_skill_load_transform(|_| Err("standalone policy rejected this skill".to_string()));
+
+    let err = catalog
+        .load_skill("blocked-policy")
+        .expect_err("transform veto should fail the load");
+
+    assert!(err.contains("load transform vetoed"));
+    assert!(err.contains("standalone policy rejected this skill"));
+    assert!(!catalog.is_loaded("blocked-policy"));
+    assert!(
+        catalog
+            .registry()
+            .get_action("blocked_policy__host_scene", None)
+            .is_none()
+    );
+}
+
+#[test]
+fn test_skill_load_transform_cannot_rename_skill() {
+    let catalog = make_test_catalog();
+    catalog.add_skill(make_test_skill("stable-name", "maya", &["host_scene"]));
+    catalog.set_skill_load_transform(|mut metadata| {
+        metadata.name = "different-name".to_string();
+        Ok(metadata)
+    });
+
+    let err = catalog
+        .load_skill("stable-name")
+        .expect_err("renaming during load would break catalog contracts");
+
+    assert!(err.contains("changed the skill name"));
+    assert!(!catalog.is_loaded("stable-name"));
+}
+
+#[test]
 fn test_load_main_affinity_script_requires_in_process_executor() {
     let (catalog, _dispatcher) = make_catalog_with_dispatcher();
     let mut skill = make_test_skill("main-thread", "maya", &[]);

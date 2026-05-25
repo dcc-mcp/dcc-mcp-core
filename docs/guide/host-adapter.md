@@ -100,6 +100,30 @@ into the dispatcher and executed on whatever thread drives
 `run_headless` thread in headless mode. Handlers never see a tokio
 worker thread.
 
+## Adapter skill-load policy
+
+If a host needs to adjust discovered skill metadata at runtime, install a
+catalog transform before agents can call `load_skill`:
+
+```python
+def adapt_skill_for_runtime(skill):
+    tools = list(skill.tools)
+    for tool in tools:
+        if tool.name in standalone_safe_tools and running_standalone:
+            tool.enforce_thread_affinity = False
+    skill.tools = tools
+    return None  # use the mutated object
+
+server.set_skill_load_transform(adapt_skill_for_runtime)
+```
+
+The hook is owned by the core `SkillCatalog`, so the same policy applies to
+direct Python `load_skill`, MCP `tools/call load_skill`, REST
+`POST /v1/load_skill`, and multi-skill/group activation paths. Raise an
+exception from the transform to veto before tools are registered. Use
+`set_after_load_skill_hook(lambda skill, actions: ...)` only for observation or
+adapter bookkeeping after registration.
+
 ## Maya example
 
 ```python

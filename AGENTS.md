@@ -170,6 +170,7 @@ Gateway resources/prompts:
 | Need | Use this |
 |------|----------|
 | Expose DCC tools over MCP | `DccServerBase` → subclass → `start()` |
+| Apply adapter policy before any skill load | `DccServerBase.set_skill_load_transform(fn)` — runs for Python, MCP `load_skill`, REST `/v1/load_skill`, batch/group loads; use `set_after_load_skill_hook(fn)` only for observation |
 | Zero-code tool registration | agentskills.io `SKILL.md` + `metadata.dcc-mcp.tools` → sibling `tools.yaml` + `scripts/` |
 | Zero-code static MCP resources | `metadata.dcc-mcp.resources` → `resources/*.resource.yaml` with `source.type: file` |
 | Advertise optional adapter runtimes | `metadata.dcc-mcp.runtimes` descriptors (`python_package`, `python_extra`, `binary`, `env_var`, `feature`) → search/detail runtime state (`available` / `degraded` / `missing`) without executing tool scripts |

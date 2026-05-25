@@ -51,6 +51,95 @@ impl SkillCatalog {
         Ok(())
     }
 
+    fn apply_skill_load_transform(
+        &self,
+        skill_name: &str,
+        metadata: SkillMetadata,
+        activate_groups: bool,
+    ) -> Result<SkillMetadata, String> {
+        let Some(transform) = self.load_transform.read().clone() else {
+            return Ok(metadata);
+        };
+
+        let original_name = metadata.name.clone();
+        let transformed = transform(metadata).map_err(|reason| {
+            let err = format!("Skill '{skill_name}' load transform vetoed: {reason}");
+            self.emit_skill_event(
+                "skill.validation_failed",
+                skill_name,
+                None,
+                json!({
+                    "error_kind": "load_transform_vetoed",
+                    "error_message": err,
+                    "veto_reason": reason,
+                    "activate_groups": activate_groups,
+                }),
+            );
+            err
+        })?;
+
+        if transformed.name != original_name || transformed.name != skill_name {
+            let err = format!(
+                "Skill '{skill_name}' load transform changed the skill name to '{}'; renaming during load is not supported",
+                transformed.name
+            );
+            self.emit_skill_event(
+                "skill.validation_failed",
+                skill_name,
+                Some(&transformed),
+                json!({
+                    "error_kind": "load_transform_renamed_skill",
+                    "error_message": err,
+                    "original_name": original_name,
+                    "transformed_name": transformed.name,
+                    "activate_groups": activate_groups,
+                }),
+            );
+            return Err(err);
+        }
+
+        self.emit_skill_event(
+            "skill.load_transform_applied",
+            skill_name,
+            Some(&transformed),
+            json!({
+                "activate_groups": activate_groups,
+            }),
+        );
+        Ok(transformed)
+    }
+
+    fn notify_after_load_hook(
+        &self,
+        skill_name: &str,
+        metadata: &SkillMetadata,
+        registered: &[String],
+    ) {
+        let Some(hook) = self.after_load_hook.read().clone() else {
+            return;
+        };
+
+        if let Err(reason) = hook(metadata, registered) {
+            let err = format!("Skill '{skill_name}' after-load hook failed: {reason}");
+            self.emit_skill_event(
+                "skill.after_load_failed",
+                skill_name,
+                Some(metadata),
+                json!({
+                    "error_kind": "after_load_hook_failed",
+                    "error_message": err,
+                    "registered_tools": registered,
+                    "registered_tool_count": registered.len(),
+                }),
+            );
+            tracing::warn!(
+                skill_name = skill_name,
+                error = %reason,
+                "SkillCatalog after-load hook failed"
+            );
+        }
+    }
+
     /// Load a skill by name — registers its tools into ToolRegistry and,
     /// if a dispatcher is attached, auto-registers script execution handlers.
     pub fn load_skill(&self, skill_name: &str) -> Result<Vec<String>, String> {
@@ -159,6 +248,7 @@ impl SkillCatalog {
                 return Err(err);
             }
         };
+        let metadata = self.apply_skill_load_transform(skill_name, metadata, activate_groups)?;
 
         let known_names: std::collections::HashSet<String> = self
             .entries
@@ -452,10 +542,12 @@ impl SkillCatalog {
         }
 
         if let Some(mut entry) = self.entries.get_mut(skill_name) {
+            entry.metadata = metadata.clone();
             entry.state = SkillState::Loaded;
             entry.registered_tools = registered.clone();
         }
         self.loaded.insert(skill_name.to_string());
+        self.notify_after_load_hook(skill_name, metadata, &registered);
 
         let handler_mode = match (&self.dispatcher, &*self.script_executor.read()) {
             (Some(_), Some(_)) => "in-process",
