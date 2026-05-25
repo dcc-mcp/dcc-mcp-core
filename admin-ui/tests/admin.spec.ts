@@ -401,6 +401,10 @@ async function mockAdminApi(page: Page) {
             success: true,
             total_ms: 42,
             instance_id: 'maya-1234567890',
+            input_tokens: 28,
+            output_tokens: 18,
+            total_tokens: 46,
+            payload_token_estimator: 'dcc-mcp-byte4-v1',
             token_accounting: {
               response_format: 'toon',
               token_estimator: 'dcc-mcp-byte4-v1',
@@ -431,6 +435,25 @@ async function mockAdminApi(page: Page) {
         total_ms: 42,
         ok: true,
         spans: [{ name: 'dispatch', duration_ns: 42000000, ok: true }],
+        input: {
+          content: '{"radius":1}',
+          mime_type: 'application/json',
+          truncated: false,
+          original_size: 12,
+          estimated_tokens: 3,
+        },
+        output: {
+          content: '{"ok":true}',
+          mime_type: 'application/json',
+          truncated: false,
+          original_size: 11,
+          estimated_tokens: 3,
+        },
+        input_tokens: 3,
+        output_tokens: 3,
+        total_tokens: 6,
+        estimated_total_tokens: 6,
+        payload_token_estimator: 'dcc-mcp-byte4-v1',
         token_accounting: {
           response_format: 'toon',
           token_estimator: 'dcc-mcp-byte4-v1',
@@ -450,6 +473,15 @@ async function mockAdminApi(page: Page) {
         failed_calls: 1,
         success_rate: 75,
         latency_ms: { p50_ms: 20, p95_ms: 90 },
+        total_input_tokens: 120,
+        total_output_tokens: 130,
+        total_tokens: 250,
+        avg_input_tokens_per_call: 30,
+        avg_output_tokens_per_call: 32.5,
+        avg_total_tokens_per_call: 62.5,
+        avg_tokens_per_call: 62.5,
+        payload_token_estimator: 'dcc-mcp-byte4-v1',
+        top_app_types: [{ name: 'maya', count: 3 }, { name: 'blender', count: 1 }],
         top_tools: [{ name: 'maya-1234__create_sphere', count: 3 }],
         top_instances: [{ name: 'maya-1234567890', count: 3 }],
         top_agents: [{ name: 'Scene Builder', count: 2 }],
@@ -750,7 +782,12 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.setup-panel .ide-config-preview').first()).toContainText('http://127.0.0.1:8765/mcp');
     await page.getByRole('navigation').getByRole('link', { name: 'Debug' }).click();
     await expect(page.locator('.debug-panel')).toContainText('Debug Workbench');
+    await expect(page.locator('.debug-panel')).toContainText('Agent Triage');
+    await expect(page.locator('.debug-panel')).toContainText('Failed execution');
+    await expect(page.locator('.debug-panel')).toContainText('req-err');
     await expect(page.locator('.debug-panel')).toContainText('Traffic Shape');
+    await expect(page.locator('.debug-panel')).toContainText('Token Pressure');
+    await expect(page.locator('.debug-panel')).toContainText('250 payload tokens');
     await page.getByRole('navigation').getByRole('link', { name: 'Health' }).click();
     await expect(page.locator('.health-panel')).toContainText('0.17.7');
     await expect(page.locator('.health-panel')).toContainText('toon / dcc-mcp-byte4-v1');
@@ -806,10 +843,13 @@ test.describe('Admin Page', () => {
     await page.getByRole('navigation').getByRole('link', { name: 'Instances' }).click();
     await expect(page.locator('.instances-panel')).toBeVisible();
     await expect(page.locator('.dcc-icon')).toHaveCount(2);
+    await expect(page.locator('.instances-panel')).toContainText('app-type: maya');
+    await expect(page.locator('.instances-panel')).toContainText('app-type: blender');
     await expect(page.locator('.instances-panel')).toContainText('Access URL');
     await expect(page.locator('.instances-panel')).toContainText('http://127.0.0.1:8765');
     await expect(page.locator('.instances-panel')).toContainText('host-rpc connect failed');
-    await expect(page.locator('.instances-panel').getByRole('link', { name: 'docs' }).first()).toHaveAttribute('href', 'http://127.0.0.1:8765/docs');
+    const mayaCard = page.locator('.worker-card').filter({ hasText: 'Maya Layout' });
+    await expect(mayaCard.getByRole('link', { name: 'docs' }).first()).toHaveAttribute('href', 'http://127.0.0.1:8765/docs');
     await page.getByLabel('Filter current panel').fill('blender');
     await expect(page.locator('.worker-card')).toHaveCount(1);
     await expect(page.locator('.worker-card')).toContainText('Blender Lookdev');
@@ -833,6 +873,8 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.trace-detail-panel')).toContainText('dispatch');
     await expect(page.locator('.trace-detail-panel')).toContainText('Token accounting');
     await expect(page.locator('.trace-detail-panel')).toContainText('dcc-mcp-byte4-v1');
+    await expect(page.locator('.trace-detail-panel')).toContainText(/Input tokens\s*3/);
+    await expect(page.locator('.trace-detail-panel')).toContainText(/Total tokens\s*6/);
     await expect(page.locator('.trace-detail-panel')).toContainText('Returned40');
     await expect(page.locator('.trace-detail-panel')).toContainText('Savings60.0%');
   });
@@ -873,10 +915,15 @@ test.describe('Admin Page', () => {
     await page.goto('/admin/?panel=stats&range=1h');
     await expect(page.locator('.stats-panel')).toBeVisible();
     await expect(page.getByLabel('Range')).toHaveValue('1h');
-    await expect(page.locator('.stats-panel')).toContainText('Returned tokens');
+    await expect(page.locator('.stats-panel')).toContainText('Response tokens returned');
     await expect(page.locator('.stats-panel')).toContainText('160');
-    await expect(page.locator('.stats-panel')).toContainText('Saved tokens');
+    await expect(page.locator('.stats-panel')).toContainText('Payload tokens');
+    await expect(page.locator('.stats-panel')).toContainText('250');
+    await expect(page.locator('.stats-panel')).toContainText('Input / Output tokens');
+    await expect(page.locator('.stats-panel')).toContainText('Response tokens saved');
     await expect(page.locator('.stats-panel')).toContainText('140');
+    await expect(page.locator('.stats-panel')).toContainText('Top app types');
+    await expect(page.locator('.stats-panel')).toContainText('maya');
     await expect(page.locator('.stats-panel')).toContainText('Token savings by transport');
     await expect(page.locator('.stats-panel')).toContainText('rest');
     await expect(page.locator('.stats-panel')).toContainText('json');

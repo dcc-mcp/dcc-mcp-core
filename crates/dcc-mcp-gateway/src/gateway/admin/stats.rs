@@ -80,8 +80,22 @@ pub struct GatewayStats {
     pub failed_calls: usize,
     /// Success rate as a fraction [0.0, 1.0].
     pub success_rate: f64,
+    /// Sum of input payload token estimates in the selected range.
+    pub total_input_tokens: u64,
+    /// Sum of output payload token estimates in the selected range.
+    pub total_output_tokens: u64,
+    /// Sum of all payload token estimates in the selected range.
+    pub total_tokens: u64,
+    /// Average input token estimate per call.
+    pub avg_input_tokens_per_call: f64,
+    /// Average output token estimate per call.
+    pub avg_output_tokens_per_call: f64,
+    /// Average combined token estimate per call.
+    pub avg_total_tokens_per_call: f64,
     /// Latency statistics in milliseconds.
     pub latency_ms: LatencyStats,
+    /// Top DCC app types by call count (up to 10).
+    pub top_app_types: Vec<TopEntry>,
     /// Top tools by call count (up to 10).
     pub top_tools: Vec<TopEntry>,
     /// Top DCC instances by call count (up to 10).
@@ -205,7 +219,14 @@ fn compute_from_traces(in_range: &[DispatchTrace], range: StatsRange) -> Gateway
             successful_calls: 0,
             failed_calls: 0,
             success_rate: 0.0,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            total_tokens: 0,
+            avg_input_tokens_per_call: 0.0,
+            avg_output_tokens_per_call: 0.0,
+            avg_total_tokens_per_call: 0.0,
             latency_ms: LatencyStats::default(),
+            top_app_types: vec![],
             top_tools: vec![],
             top_instances: vec![],
             top_agents: vec![],
@@ -217,10 +238,27 @@ fn compute_from_traces(in_range: &[DispatchTrace], range: StatsRange) -> Gateway
     let successful_calls = in_range.iter().filter(|t| t.ok).count();
     let failed_calls = total_calls - successful_calls;
     let success_rate = successful_calls as f64 / total_calls as f64;
+    let mut total_input_tokens = 0u64;
+    let mut total_output_tokens = 0u64;
+    for t in in_range {
+        total_input_tokens += t.input_tokens().unwrap_or(0) as u64;
+        total_output_tokens += t.output_tokens().unwrap_or(0) as u64;
+    }
+    let total_tokens = total_input_tokens + total_output_tokens;
+    let avg_input_tokens_per_call = total_input_tokens as f64 / total_calls as f64;
+    let avg_output_tokens_per_call = total_output_tokens as f64 / total_calls as f64;
+    let avg_total_tokens_per_call = total_tokens as f64 / total_calls as f64;
 
     let mut latencies: Vec<u64> = in_range.iter().map(|t| t.total_ms).collect();
     latencies.sort_unstable();
     let latency_ms = compute_latency_stats(&latencies);
+
+    let mut app_type_counts: HashMap<String, usize> = HashMap::new();
+    for t in in_range {
+        let key = t.dcc_type.clone().unwrap_or_else(|| "unknown".to_string());
+        *app_type_counts.entry(key).or_insert(0) += 1;
+    }
+    let top_app_types = top_n(app_type_counts, 10);
 
     let mut tool_counts: HashMap<String, usize> = HashMap::new();
     for t in in_range {
@@ -268,7 +306,14 @@ fn compute_from_traces(in_range: &[DispatchTrace], range: StatsRange) -> Gateway
         successful_calls,
         failed_calls,
         success_rate,
+        total_input_tokens,
+        total_output_tokens,
+        total_tokens,
+        avg_input_tokens_per_call,
+        avg_output_tokens_per_call,
+        avg_total_tokens_per_call,
         latency_ms,
+        top_app_types,
         top_tools,
         top_instances,
         top_agents,
@@ -443,7 +488,10 @@ mod tests {
     use std::time::SystemTime;
 
     use super::*;
-    use crate::gateway::admin::trace::{AgentContext, DispatchTrace, TokenTelemetry, TraceLog};
+    use crate::gateway::admin::trace::{
+        AgentContext, DispatchTrace, TokenTelemetry, TraceLog, TracePayload,
+    };
+    use serde_json::json;
 
     fn make_trace(ok: bool, total_ms: u64, tool: &str, instance: &str) -> DispatchTrace {
         DispatchTrace {
@@ -610,6 +658,14 @@ mod tests {
         log.push(mcp_compact);
 
         let stats = StatsAggregator::new(log).compute(StatsRange::All);
+        assert_eq!(stats.top_app_types[0].name, "maya");
+        assert_eq!(stats.top_app_types[0].count, 2);
+        assert!(
+            stats
+                .top_app_types
+                .iter()
+                .any(|entry| entry.name == "photoshop" && entry.count == 1)
+        );
         assert_eq!(stats.token_usage.total_original_tokens, 300);
         assert_eq!(stats.token_usage.total_returned_tokens, 180);
         assert_eq!(stats.token_usage.total_saved_tokens, 120);
@@ -631,6 +687,30 @@ mod tests {
                 .iter()
                 .any(|entry| entry.name == "Planner" && entry.calls == 2)
         );
+    }
+
+    #[test]
+    fn token_stats_are_aggregated() {
+        let log = Arc::new(TraceLog::new(10));
+        let mut with_input = make_trace(true, 10, "maya.t", "inst-1");
+        with_input.input = Some(TracePayload::from_value(
+            &json!({"prompt": "a lightweight prompt"}),
+            1024,
+        ));
+        let mut with_output = make_trace(false, 12, "maya.t", "inst-1");
+        with_output.output = Some(TracePayload::from_value(&json!({"result": "ok"}), 1024));
+        log.push(with_input);
+        log.push(with_output);
+
+        let agg = StatsAggregator::new(log);
+        let s = agg.compute(StatsRange::All);
+        assert_eq!(s.total_calls, 2);
+        assert!(s.total_input_tokens > 0);
+        assert!(s.total_output_tokens > 0);
+        assert_eq!(s.total_tokens, s.total_input_tokens + s.total_output_tokens);
+        assert!(s.avg_input_tokens_per_call > 0.0);
+        assert!(s.avg_output_tokens_per_call > 0.0);
+        assert!(s.avg_total_tokens_per_call > 0.0);
     }
 
     // ── Property-based tests (#846) ────────────────────────────────────────
