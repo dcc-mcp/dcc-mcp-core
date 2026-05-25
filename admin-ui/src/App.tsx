@@ -14,6 +14,7 @@ import unrealIcon from './assets/icons/unrealengine.svg';
 import substancePainterIcon from './assets/icons/photoshop.svg';
 import puzzleIcon from './assets/icons/puzzle.svg';
 import vscodeIcon from './assets/icons/vscode.svg';
+import { createTranslator, detectBrowserLocale, type MessageKey } from './i18n';
 import { formatTime, timestampTitle } from './time';
 
 type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'workflows' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'traffic' | 'stats' | 'governance' | 'logs' | 'skill-paths';
@@ -987,23 +988,25 @@ const IDE_TARGETS: IdeTarget[] = [
     build: buildCodexConfig,
   },
 ];
-const PANELS: { id: Panel; label: string; group: string }[] = [
-  { id: 'setup', label: 'Connect IDE', group: 'Onboarding' },
-  { id: 'debug', label: 'Debug', group: 'Operations' },
-  { id: 'instances', label: 'Instances', group: 'Operations' },
-  { id: 'activity', label: 'Activity', group: 'Operations' },
-  { id: 'health', label: 'Health', group: 'Operations' },
-  { id: 'workflows', label: 'Workflows', group: 'Workspace' },
-  { id: 'tasks', label: 'Tasks', group: 'Workspace' },
-  { id: 'tools', label: 'Tools', group: 'Workspace' },
-  { id: 'openapi', label: 'OpenAPI Inspector', group: 'Contracts' },
-  { id: 'stats', label: 'Stats', group: 'Observability' },
-  { id: 'governance', label: 'Governance', group: 'Observability' },
-  { id: 'traffic', label: 'Traffic', group: 'Observability' },
-  { id: 'traces', label: 'Traces', group: 'Observability' },
-  { id: 'calls', label: 'Calls', group: 'Observability' },
-  { id: 'logs', label: 'Logs', group: 'Observability' },
-  { id: 'skill-paths', label: 'Skills', group: 'Configuration' },
+type PanelDefinition = { id: Panel; labelKey: MessageKey; groupKey: MessageKey };
+
+const PANELS: PanelDefinition[] = [
+  { id: 'setup', labelKey: 'panel.setup', groupKey: 'panelGroup.onboarding' },
+  { id: 'debug', labelKey: 'panel.debug', groupKey: 'panelGroup.operations' },
+  { id: 'instances', labelKey: 'panel.instances', groupKey: 'panelGroup.operations' },
+  { id: 'activity', labelKey: 'panel.activity', groupKey: 'panelGroup.operations' },
+  { id: 'health', labelKey: 'panel.health', groupKey: 'panelGroup.operations' },
+  { id: 'workflows', labelKey: 'panel.workflows', groupKey: 'panelGroup.workspace' },
+  { id: 'tasks', labelKey: 'panel.tasks', groupKey: 'panelGroup.workspace' },
+  { id: 'tools', labelKey: 'panel.tools', groupKey: 'panelGroup.workspace' },
+  { id: 'openapi', labelKey: 'panel.openapi', groupKey: 'panelGroup.contracts' },
+  { id: 'stats', labelKey: 'panel.stats', groupKey: 'panelGroup.observability' },
+  { id: 'governance', labelKey: 'panel.governance', groupKey: 'panelGroup.observability' },
+  { id: 'traffic', labelKey: 'panel.traffic', groupKey: 'panelGroup.observability' },
+  { id: 'traces', labelKey: 'panel.traces', groupKey: 'panelGroup.observability' },
+  { id: 'calls', labelKey: 'panel.calls', groupKey: 'panelGroup.observability' },
+  { id: 'logs', labelKey: 'panel.logs', groupKey: 'panelGroup.observability' },
+  { id: 'skill-paths', labelKey: 'panel.skillPaths', groupKey: 'panelGroup.configuration' },
 ];
 
 const PANEL_ID_SET = new Set<Panel>(PANELS.map((p) => p.id));
@@ -2710,6 +2713,8 @@ function groupRows<T>(rows: T[], keyFn: (row: T) => string): Map<string, T[]> {
 }
 
 function App() {
+  const [localeDetection] = useState(() => detectBrowserLocale());
+  const t = useMemo(() => createTranslator(localeDetection.locale), [localeDetection.locale]);
   const [activePanel, setActivePanel] = useState<Panel>(() => readPanelFromUrl());
   const [health, setHealth] = useState<HealthPayload | null>(null);
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
@@ -2744,26 +2749,42 @@ function App() {
   const [trafficDetail, setTrafficDetail] = useState<string>('Select a traffic frame row for detail.');
   const [callDetail, setCallDetail] = useState<string>('Select a call row for trace detail.');
   const [copiedNotice, setCopiedNotice] = useState<string>('');
-  const [updatedAt, setUpdatedAt] = useState<Record<Panel, string>>({
-    setup: 'Loading…',
-    debug: 'Loading…',
-    activity: 'Loading…',
-    health: 'Loading…',
-    instances: 'Loading…',
-    tools: 'Loading…',
-    workflows: 'Loading…',
-    tasks: 'Loading…',
-    openapi: 'Loading…',
-    calls: 'Loading…',
-    traces: 'Loading…',
-    traffic: 'Loading…',
-    stats: 'Loading…',
-    governance: 'Loading…',
-    logs: 'Loading…',
-    'skill-paths': 'Loading…',
-  });
+  const [updatedAt, setUpdatedAt] = useState<Record<Panel, string>>(() => ({
+    setup: t('status.loading'),
+    debug: t('status.loading'),
+    activity: t('status.loading'),
+    health: t('status.loading'),
+    instances: t('status.loading'),
+    tools: t('status.loading'),
+    workflows: t('status.loading'),
+    tasks: t('status.loading'),
+    openapi: t('status.loading'),
+    calls: t('status.loading'),
+    traces: t('status.loading'),
+    traffic: t('status.loading'),
+    stats: t('status.loading'),
+    governance: t('status.loading'),
+    logs: t('status.loading'),
+    'skill-paths': t('status.loading'),
+  }));
   const [errors, setErrors] = useState<Partial<Record<Panel, string>>>({});
   const [listSearch, setListSearch] = useState('');
+
+  const panels = useMemo(
+    () => PANELS.map((panel) => ({ ...panel, label: t(panel.labelKey), group: t(panel.groupKey) })),
+    [t],
+  );
+
+  useEffect(() => {
+    document.documentElement.lang = localeDetection.locale;
+    document.documentElement.dataset.adminLocale = localeDetection.locale;
+    document.documentElement.dataset.adminLocaleSource = localeDetection.source;
+    if (localeDetection.matchedTag) {
+      document.documentElement.dataset.adminLocaleMatchedTag = localeDetection.matchedTag;
+    } else {
+      delete document.documentElement.dataset.adminLocaleMatchedTag;
+    }
+  }, [localeDetection]);
 
   useEffect(() => {
     const u = new URL(window.location.href);
@@ -3956,13 +3977,13 @@ function App() {
         <div className="brand-lockup">
           <div className="brand-accent" aria-hidden="true" />
           <div className="brand-text">
-            <h1>Admin Dashboard</h1>
-            <p className="brand-tag">DCC-MCP Gateway</p>
+            <h1>{t('app.title')}</h1>
+            <p className="brand-tag">{t('app.subtitle')}</p>
           </div>
         </div>
         <div className="nav-links">
-          {PANELS.map((panel, index) => {
-            const showGroup = index === 0 || PANELS[index - 1].group !== panel.group;
+          {panels.map((panel, index) => {
+            const showGroup = index === 0 || panels[index - 1].group !== panel.group;
             return (
               <div className="nav-entry" key={panel.id}>
                 {showGroup ? <div className="nav-section-title">{panel.group}</div> : null}
@@ -3987,10 +4008,10 @@ function App() {
               className="nav-link"
               target="_blank"
               rel="noopener noreferrer"
-              title="Open project docs on GitHub"
+              title={t('nav.docs.title')}
             >
               <DocsIcon />
-              <span>Docs</span>
+              <span>{t('nav.docs')}</span>
             </a>
           </div>
         </div>
@@ -4001,10 +4022,10 @@ function App() {
             <input
               type="search"
               className="list-search-input"
-              placeholder={activePanel === 'stats' ? 'Filter stats charts...' : activePanel === 'openapi' ? 'Filter operations, paths, tags...' : 'Search this panel...'}
+              placeholder={activePanel === 'stats' ? t('search.stats') : activePanel === 'openapi' ? t('search.openapi') : t('search.default')}
               value={listSearch}
               onChange={(e) => setListSearch(e.target.value)}
-              aria-label="Filter current panel"
+              aria-label={t('search.ariaLabel')}
             />
             {listSearch.trim() ? (
               <span className="list-search-meta">
@@ -4029,9 +4050,9 @@ function App() {
         {activePanel === 'setup' && (
           <section className="panel active setup-panel">
             <PanelHeader
-              title="Connect IDE"
+              title={t('panel.setup')}
               meta={setupMcpUrl}
-              action={<button className="refresh-btn" type="button" onClick={fetchSetup}>Refresh</button>}
+              action={<button className="refresh-btn" type="button" onClick={fetchSetup}>{t('action.refresh')}</button>}
             />
             <StatusLine text={copiedNotice || updatedAt.setup} error={errors.setup} />
             <div className="setup-controls">
