@@ -28,7 +28,7 @@ This module provides:
    list.
 2. :class:`DccApiExecutor` — thin 2-tool wrapper:
    - ``dcc_search(query, dcc)`` — semantic search over the DCC API catalog
-   - ``dcc_execute(code, timeout_secs)`` — execute Python in the DCC context
+   - ``dcc_execute(code|file_path, timeout_secs)`` — execute Python in the DCC context
 3. :func:`register_dcc_api_executor` — register the 2 tools on a
    ``ToolRegistry`` / ``McpHttpServer``.
 
@@ -61,11 +61,14 @@ Usage
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import logging
+from pathlib import Path
 import re
 from typing import Any
 
 from dcc_mcp_core import json_dumps
+from dcc_mcp_core.script_execution import normalize_file_backed_script_execution_params
 
 logger = logging.getLogger(__name__)
 
@@ -177,6 +180,9 @@ class DccApiExecutor:
         dispatcher: Optional ``ToolDispatcher`` that ``dcc_execute`` can
             call registered skills through.  When ``None``, code is
             executed via ``EvalContext`` with ``sandbox=True``.
+        script_materialization_policy: ``off`` preserves legacy inline
+            execution; ``auto`` materializes inline code before execution;
+            ``require`` accepts only trusted ``file_path`` / ``script_path``.
 
     """
 
@@ -185,10 +191,21 @@ class DccApiExecutor:
         dcc_name: str,
         catalog: DccApiCatalog | None = None,
         dispatcher: Any | None = None,
+        *,
+        script_materialization_policy: str = "auto",
+        script_materialization_root: str | Path | None = None,
+        trusted_script_roots: tuple[str | Path, ...] = (),
+        instance_id: str | None = None,
+        session_id: str = "default",
     ) -> None:
         self._dcc_name = dcc_name
         self._catalog = catalog or DccApiCatalog(dcc_name)
         self._dispatcher = dispatcher
+        self._script_materialization_policy = script_materialization_policy
+        self._script_materialization_root = script_materialization_root
+        self._trusted_script_roots = trusted_script_roots
+        self._instance_id = instance_id or dcc_name
+        self._session_id = session_id
 
     @property
     def catalog(self) -> DccApiCatalog:
@@ -238,24 +255,56 @@ class DccApiExecutor:
             ``{"success": True, "output": ..., "message": ...}``
 
         """
+        return self.execute_params({"code": code, "timeout_secs": timeout_secs})
+
+    def execute_params(self, params: Mapping[str, Any]) -> dict[str, Any]:
+        """Handle ``dcc_execute`` params using the file-backed policy."""
         from dcc_mcp_core.batch import EvalContext
 
         try:
+            script = normalize_file_backed_script_execution_params(
+                params,
+                dcc_type=self._dcc_name,
+                instance_id=_optional_string(params, "instance_id", default=self._instance_id),
+                session_id=_optional_string(params, "session_id", default=self._session_id),
+                policy=_optional_string(
+                    params,
+                    "script_materialization_policy",
+                    default=self._script_materialization_policy,
+                ),
+                trusted_roots=self._trusted_script_roots,
+                materialization_root=params.get("script_materialization_root") or self._script_materialization_root,
+                default_timeout_secs=30,
+                ttl_secs=_optional_positive_int(params, "ttl_secs"),
+                tool_call_id=_optional_string(params, "tool_call_id"),
+                correlation_id=_optional_string(params, "correlation_id"),
+                reuse=_optional_bool(params, "reuse", default=False),
+                reuse_key=_optional_string(params, "reuse_key"),
+            )
             ctx = EvalContext(
                 self._dispatcher,
                 sandbox=True,
-                timeout_secs=timeout_secs,
+                timeout_secs=script.timeout_secs,
             )
-            result = ctx.run(code)
+            result = ctx.run(script.code)
+            materialized_context = script.materialized_context()
+            context = {"materialized_script": materialized_context} if materialized_context is not None else {}
             return {
                 "success": True,
                 "message": f"Script executed successfully on {self._dcc_name}.",
                 "output": result,
+                "context": context,
+            }
+        except (FileNotFoundError, TypeError, ValueError) as exc:
+            return {
+                "success": False,
+                "message": f"Script parameters are invalid on {self._dcc_name}.",
+                "error": str(exc),
             }
         except TimeoutError as exc:
             return {
                 "success": False,
-                "message": f"Script timed out after {timeout_secs}s on {self._dcc_name}.",
+                "message": f"Script timed out on {self._dcc_name}.",
                 "error": str(exc),
             }
         except RuntimeError as exc:
@@ -306,7 +355,8 @@ def register_dcc_api_executor(
         f"Execute a Python script in the {dcc} context and return stdout + result. "
         f"When to use: when you need to run multiple {dcc} API calls in one round-trip "
         f"to reduce token usage (~37% reduction vs individual calls). "
-        f"How to use: write a Python script; use dispatch() for skill tools. "
+        f"How to use: pass file_path when possible; inline code is materialized "
+        f"before execution unless script_materialization_policy=off. "
         f"Scripts are sandboxed and time-limited."
     )
 
@@ -336,7 +386,21 @@ def register_dcc_api_executor(
             "properties": {
                 "code": {
                     "type": "string",
-                    "description": f"Python script to run in the {dcc} context",
+                    "description": f"Python script to run in the {dcc} context; auto-materialized by default",
+                },
+                "file_path": {
+                    "type": "string",
+                    "description": "Host-local script path under the materialization root or a trusted source root",
+                },
+                "script_path": {
+                    "type": "string",
+                    "description": "Deprecated alias for file_path",
+                },
+                "script_materialization_policy": {
+                    "type": "string",
+                    "enum": ["off", "auto", "require"],
+                    "description": "Policy for inline code: off, auto, or require",
+                    "default": "auto",
                 },
                 "timeout_secs": {
                     "type": "integer",
@@ -346,7 +410,11 @@ def register_dcc_api_executor(
                     "maximum": 300,
                 },
             },
-            "required": ["code"],
+            "anyOf": [
+                {"required": ["code"]},
+                {"required": ["file_path"]},
+                {"required": ["script_path"]},
+            ],
         }
     )
 
@@ -376,10 +444,7 @@ def register_dcc_api_executor(
     )
     server.register_handler(
         execute_tool_name,
-        lambda params: executor.execute(
-            params.get("code", ""),
-            timeout_secs=int(params.get("timeout_secs", 30)),
-        ),
+        lambda params: executor.execute_params(params),
     )
 
     logger.info(
@@ -389,3 +454,30 @@ def register_dcc_api_executor(
         dcc,
         catalog_size,
     )
+
+
+def _optional_string(params: Mapping[str, Any], name: str, *, default: str | None = None) -> str | None:
+    value = params.get(name, default)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise TypeError(f"{name} must be a string")
+    return value
+
+
+def _optional_bool(params: Mapping[str, Any], name: str, *, default: bool) -> bool:
+    value = params.get(name, default)
+    if isinstance(value, bool):
+        return value
+    raise TypeError(f"{name} must be a boolean")
+
+
+def _optional_positive_int(params: Mapping[str, Any], name: str) -> int | None:
+    value = params.get(name)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{name} must be an integer")
+    if value <= 0:
+        raise ValueError(f"{name} must be greater than zero")
+    return value

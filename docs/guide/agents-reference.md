@@ -932,6 +932,31 @@ using a generic local instance/session. New adapter APIs should prefer the
 structured descriptor so audit, replay, sandbox allowlists, and cleanup can use
 the same metadata.
 
+### File-backed script execution policy (issue #1221)
+
+Use `normalize_file_backed_script_execution_params(...)` at adapter and
+host-bridge boundaries that accept ad-hoc Python or MEL snippets. It accepts
+`file_path` / `script_path` when the path is under the materialization root or
+an explicit trusted root, and it applies:
+
+- `script_materialization_policy="auto"` — inline `code` is materialized, then
+  execution proceeds with a host-local `file_path`.
+- `script_materialization_policy="require"` — raw inline `code` is rejected;
+  callers must pass a trusted file path or materialize first.
+- `script_materialization_policy="off"` — legacy inline execution is allowed
+  for adapters that have not migrated yet.
+
+`HostExecutionBridge.prepare_script_execution_params(...)` and
+`DccApiExecutor.execute_params(...)` both use the shared normalizer, so MCP
+tools such as `dcc_execute` and in-process adapter execution keep the same
+contract. When `McpHttpConfig.sandbox_policy` is attached to
+`DccServerBase`, the script materialization root is added to the sandbox path
+allowlist automatically. Return `context.materialized_script` metadata from
+successful executions; it should contain `path` / `file_path`, `file_ref`,
+`sha256`, `bytes`, `reused`, TTL/session/tool/correlation fields when known.
+Legacy context keys such as adapter-local spilled script paths may remain during
+migration, but new code should treat them as deprecated aliases.
+
 ### MCP HTTP Server Spawn Modes (issue #303)
 
 `McpHttpConfig.spawn_mode` picks how listeners are driven:

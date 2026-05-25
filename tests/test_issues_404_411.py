@@ -392,16 +392,57 @@ class TestDccApiExecutor:
         assert result["results"] == []
         assert "hint" in result
 
-    def test_execute_simple(self):
+    def test_execute_simple(self, tmp_path):
         DccApiExecutor = _dcc_api_executor.DccApiExecutor
-        ex = DccApiExecutor("maya", dispatcher=FakeDispatcher())
+        ex = DccApiExecutor("maya", dispatcher=FakeDispatcher(), script_materialization_root=tmp_path)
         result = ex.execute("return 1 + 1")
         assert result["success"] is True
         assert result["output"] == 2
+        metadata = result["context"]["materialized_script"]
+        assert metadata["path"]
+        assert metadata["sha256"]
+        assert metadata["bytes"] == len(b"return 1 + 1")
 
-    def test_execute_error(self):
+    def test_execute_accepts_trusted_file_path_in_require_mode(self, tmp_path):
         DccApiExecutor = _dcc_api_executor.DccApiExecutor
-        ex = DccApiExecutor("maya")
+        trusted = tmp_path / "trusted"
+        trusted.mkdir()
+        script = trusted / "tool.py"
+        script.write_text("return 'from-file'", encoding="utf-8")
+        ex = DccApiExecutor(
+            "photoshop",
+            trusted_script_roots=(trusted,),
+            script_materialization_root=tmp_path / "materialized",
+        )
+
+        result = ex.execute_params(
+            {
+                "file_path": str(script),
+                "script_materialization_policy": "require",
+            }
+        )
+
+        assert result["success"] is True
+        assert result["output"] == "from-file"
+        assert result["context"]["materialized_script"]["path"] == str(script.resolve())
+
+    def test_execute_require_policy_rejects_inline_code(self, tmp_path):
+        DccApiExecutor = _dcc_api_executor.DccApiExecutor
+        ex = DccApiExecutor("custom", script_materialization_root=tmp_path)
+
+        result = ex.execute_params(
+            {
+                "code": "return 1",
+                "script_materialization_policy": "require",
+            }
+        )
+
+        assert result["success"] is False
+        assert "policy=require" in result["error"]
+
+    def test_execute_error(self, tmp_path):
+        DccApiExecutor = _dcc_api_executor.DccApiExecutor
+        ex = DccApiExecutor("maya", script_materialization_root=tmp_path)
         result = ex.execute("raise ValueError('oops')")
         assert result["success"] is False
         assert "oops" in result["error"]

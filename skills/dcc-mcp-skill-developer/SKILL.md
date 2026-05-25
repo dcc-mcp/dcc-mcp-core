@@ -253,10 +253,15 @@ into a faster authoring loop.
     `materialize_script(...)` (Python) or
     `ScriptMaterializationStore` (Rust) to create host-local scripts under the
     DCC/session-scoped root before calling `execute_python(file_path=...)` or
-    equivalent host tools. Keep `write_temp_script()` only as a compatibility
-    wrapper. Tool results and audit contexts should preserve the descriptor's
-    `file_ref`, `file_path`, `sha256`, byte length, TTL, session, tool-call,
-    correlation, and reuse metadata.
+    equivalent host tools. When an adapter accepts inline `code`, call
+    `normalize_file_backed_script_execution_params(...)` or
+    `HostExecutionBridge.prepare_script_execution_params(...)` and choose a
+    policy: `auto` to materialize inline code, `require` to reject inline code,
+    or `off` only for temporary migration. Keep `write_temp_script()` only as a
+    compatibility wrapper. Tool results and audit contexts should preserve the
+    descriptor's `file_ref`, `file_path`, `sha256`, byte length, TTL, session,
+    tool-call, correlation, and reuse metadata under
+    `context.materialized_script`.
 13. Add tests at the lowest executable layer, then one discovery/load/call or
     gateway REST path when behavior crosses MCP or REST boundaries.
 14. For application UI automation, use the generic `app_ui__*` contract rather
