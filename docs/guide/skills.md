@@ -65,6 +65,44 @@ tools:
 
 The `metadata.dcc-mcp.search-hint` field provides comma-separated keywords for efficient skill discovery via `search_skills` without loading full tool schemas. Use bounded `metadata.dcc-mcp.search-aliases` and per-tool `search_aliases` in `tools.yaml` for domain synonyms, localized terms, or common user phrases that should improve gateway/per-DCC search recall without changing tool names, summaries, tags, or dispatch inputs.
 
+Optional adapter runtimes can be declared without turning skill discovery into
+an installer or shell executor. Use inline `metadata.dcc-mcp.runtimes`, or point
+that field at a sibling `runtimes.yaml`, for safe probes that run during
+search/detail: environment variables are checked for non-empty values, binaries
+are resolved on `PATH`, and Python packages use `importlib.util.find_spec()`
+without importing the package or executing tool scripts.
+
+```yaml
+metadata:
+  dcc-mcp:
+    runtimes:
+      - name: usd-core
+        type: python_package
+        package: usd-core
+        module: pxr
+        optional: true
+        feature_level: full-usd
+        install_hint: "pip install dcc-mcp-openusd[usd-core]"
+      - name: usdcat
+        type: binary
+        binary: usdcat
+        optional: true
+        feature_level: usd-cli
+        guidance: "Install OpenUSD command-line tools to enable USD CLI checks."
+      - name: houdini-solaris
+        type: env_var
+        env: HFS
+        optional: true
+        feature_level: solaris
+        guidance: "Start from a Houdini environment or set HFS."
+```
+
+Runtime states are `available`, `degraded`, and `missing`. Optional missing
+runtimes report `degraded`, while required missing runtimes report `missing`.
+`search_skills()`, `list_skills()`, `get_skill_info()`, gateway search, and REST
+describe surfaces expose the resolved state so agents can decide whether to
+load/call a skill before invoking any adapter code.
+
 ### 3. Set Environment Variable
 
 ```bash
@@ -166,6 +204,7 @@ change catalog state.
 | `loaded` | `bool` | Whether the skill is currently loaded |
 | `scope` | `str` | Trust scope such as `repo`, `user`, `system`, or `admin` |
 | `implicit_invocation` | `bool` | Whether tools may be invoked without an explicit `load_skill` step |
+| `runtime` | `SkillRuntimeSummary \| None` | Aggregate optional runtime state from `metadata.dcc-mcp.runtimes` |
 
 ## ToolDeclaration
 
@@ -770,6 +809,7 @@ Parsed from agentskills.io `SKILL.md` frontmatter plus sibling files referenced 
 | `depends` | `List[str]` | Skill dependency names |
 | `metadata_files` | `List[str]` | Paths to `.md` files in `metadata/` |
 | `groups` | `List[SkillGroup]` | Tool groups for progressive exposure (see below) |
+| `runtimes` | `List[SkillRuntimeDescriptor]` | Optional runtime descriptors from inline `metadata.dcc-mcp.runtimes` or a sibling `runtimes.yaml`; resolved into discovery/detail runtime state without executing tool scripts |
 | `license` | `str` | License identifier (agentskills.io spec, e.g. `"MIT"`, `"Apache-2.0"`) |
 | `compatibility` | `str` | Environment requirements, max 500 chars (agentskills.io spec) |
 | `allowed_tools` | `List[str]` | Pre-approved tools (agentskills.io spec, experimental) |

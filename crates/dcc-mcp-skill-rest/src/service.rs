@@ -25,7 +25,7 @@ use dcc_mcp_actions::dispatcher::{DispatchError, ToolDispatcher};
 use dcc_mcp_actions::{
     DispatchExecutionContext, current_execution_context, with_execution_context,
 };
-use dcc_mcp_models::{ExecutionMode, ThreadAffinity, ToolAnnotations};
+use dcc_mcp_models::{ExecutionMode, SkillRuntimeSummary, ThreadAffinity, ToolAnnotations};
 use dcc_mcp_skills::SkillCatalog;
 
 use super::errors::{ServiceError, ServiceErrorKind};
@@ -318,6 +318,7 @@ pub struct CatalogAction {
     pub thread_affinity: ThreadAffinity,
     pub enforce_thread_affinity: bool,
     pub available_groups: Vec<SkillGroupState>,
+    pub runtime: Option<SkillRuntimeSummary>,
 }
 
 /// Anything that can invoke a tool by name and return its output.
@@ -508,10 +509,15 @@ impl SkillCatalogSource for CatalogSource {
         // Merge with the catalog summary so non-loaded skills show up
         // too (their actions simply won't dispatch until `load_skill`).
         let summaries = self.catalog.list_skills(None);
-        let mut skill_info: std::collections::HashMap<String, (bool, String, String)> =
-            std::collections::HashMap::new();
+        let mut skill_info: std::collections::HashMap<
+            String,
+            (bool, String, String, Option<SkillRuntimeSummary>),
+        > = std::collections::HashMap::new();
         for s in &summaries {
-            skill_info.insert(s.name.clone(), (s.loaded, s.scope.clone(), s.dcc.clone()));
+            skill_info.insert(
+                s.name.clone(),
+                (s.loaded, s.scope.clone(), s.dcc.clone(), s.runtime.clone()),
+            );
         }
         let mut active_groups: std::collections::HashMap<(String, String), bool> =
             std::collections::HashMap::new();
@@ -548,7 +554,7 @@ impl SkillCatalogSource for CatalogSource {
                 .skill_name
                 .clone()
                 .unwrap_or_else(|| "core".to_string());
-            let (loaded, scope, _dcc) = meta
+            let (loaded, scope, _dcc, runtime) = meta
                 .skill_name
                 .as_ref()
                 .and_then(|name| skill_info.get(name).cloned())
@@ -558,7 +564,7 @@ impl SkillCatalogSource for CatalogSource {
                     // dispatcher. Give them a stable slug segment and treat them as
                     // loaded so the REST surface works for plain Python
                     // `registry.register(...)` + `server.register_handler(...)` users.
-                    (true, "core".to_string(), meta.dcc.clone())
+                    (true, "core".to_string(), meta.dcc.clone(), None)
                 });
             seen.insert(meta.name.clone());
             let search_tokens = schema_search_tokens(&meta.input_schema);
@@ -582,6 +588,7 @@ impl SkillCatalogSource for CatalogSource {
                     .get(&skill_name)
                     .cloned()
                     .unwrap_or_default(),
+                runtime,
             });
         }
 
@@ -633,6 +640,7 @@ impl SkillCatalogSource for CatalogSource {
                         .get(&detail.name)
                         .cloned()
                         .unwrap_or_default(),
+                    runtime: detail.runtime.clone(),
                 });
             }
         }

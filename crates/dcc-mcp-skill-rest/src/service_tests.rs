@@ -105,6 +105,7 @@ fn sphere_action(loaded: bool) -> CatalogAction {
         thread_affinity: Default::default(),
         enforce_thread_affinity: false,
         available_groups: Vec::new(),
+        runtime: None,
     }
 }
 
@@ -207,6 +208,34 @@ fn search_and_describe_surface_safety_and_execution_metadata() {
 }
 
 #[test]
+fn search_and_describe_surface_runtime_metadata() {
+    let mut action = sphere_action(true);
+    action.runtime = Some(dcc_mcp_models::SkillRuntimeSummary {
+        state: dcc_mcp_models::SkillRuntimeState::Degraded,
+        available: 0,
+        degraded: 1,
+        missing: 0,
+        total: 1,
+    });
+    let (svc, _) = build_service(vec![action]);
+
+    let search = svc.search(&SearchRequest {
+        query: Some("sphere".into()),
+        ..Default::default()
+    });
+    let metadata = search.hits[0].metadata.as_ref().expect("metadata");
+    assert_eq!(metadata["runtime"]["state"], "degraded");
+
+    let desc = svc
+        .describe(&DescribeRequest {
+            tool_slug: search.hits[0].slug.clone(),
+            include_schema: false,
+        })
+        .expect("describe");
+    assert_eq!(desc.metadata.as_ref().unwrap()["runtime"]["degraded"], 1);
+}
+
+#[test]
 fn load_skill_then_search_makes_action_callable() {
     let (svc, _) = build_service(vec![sphere_action(false)]);
 
@@ -278,6 +307,7 @@ fn search_matches_aliases_and_schema_tokens_without_schema_expansion() {
         thread_affinity: Default::default(),
         enforce_thread_affinity: false,
         available_groups: Vec::new(),
+        runtime: None,
     };
 
     let (svc, _) = build_service(vec![maya, photoshop]);

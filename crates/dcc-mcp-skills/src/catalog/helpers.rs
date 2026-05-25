@@ -23,6 +23,9 @@ pub(crate) fn parse_scope_str(s: &str) -> Result<SkillScope, String> {
 ///
 /// The `search_hint` falls back to `description` if not set in SKILL.md.
 pub fn skill_entry_to_summary(e: &SkillEntry) -> SkillSummary {
+    let runtime_reports = dcc_mcp_models::resolve_runtime_reports(&e.metadata.runtimes);
+    let runtime = (!runtime_reports.is_empty())
+        .then(|| dcc_mcp_models::summarize_runtime_reports(&runtime_reports));
     SkillSummary {
         name: e.metadata.name.clone(),
         description: e.metadata.description.clone(),
@@ -48,6 +51,7 @@ pub fn skill_entry_to_summary(e: &SkillEntry) -> SkillSummary {
             .unwrap_or(true),
         layer: e.metadata.layer.clone(),
         stage: e.metadata.stage.clone(),
+        runtime,
     }
 }
 

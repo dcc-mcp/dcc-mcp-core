@@ -108,6 +108,11 @@ fn register_models(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dcc_mcp_models::SerializeFormat,
         dcc_mcp_models::SkillGroup,
         dcc_mcp_models::SkillMetadata,
+        dcc_mcp_models::SkillRuntimeDescriptor,
+        dcc_mcp_models::SkillRuntimeKind,
+        dcc_mcp_models::SkillRuntimeReport,
+        dcc_mcp_models::SkillRuntimeState,
+        dcc_mcp_models::SkillRuntimeSummary,
         dcc_mcp_models::SkillScope,
     );
     add_functions!(
