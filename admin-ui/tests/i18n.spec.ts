@@ -57,8 +57,9 @@ test.describe('i18n locale detection', () => {
   test('returns namespaced strings instead of missing translation keys', () => {
     const t = createTranslator('ja');
 
-    expect(t('navigation.panel.setup')).toBe('Connect IDE');
-    expect(translate('zh-CN', 'search.input.default')).toBe('Search this panel...');
+    expect(t('navigation.panel.setup')).toBe('IDE 接続');
+    expect(translate('zh-CN', 'search.input.default')).toBe('搜索此面板...');
+    expect(translate('ko', 'governance.section.recentRequestDecisions')).toBe('최근 요청 결정');
   });
 
   test('scopes panel translators and interpolates dynamic values', () => {

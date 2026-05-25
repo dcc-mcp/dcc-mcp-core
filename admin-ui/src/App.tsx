@@ -17,6 +17,8 @@ import vscodeIcon from './assets/icons/vscode.svg';
 import { createTranslator, detectBrowserLocale, type MessageKey } from './i18n';
 import { formatTime, timestampTitle } from './time';
 
+type Translator = ReturnType<typeof createTranslator>;
+
 type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'workflows' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'traffic' | 'stats' | 'governance' | 'logs' | 'skill-paths';
 
 type SignalTone = 'ok' | 'warn' | 'err';
@@ -1713,9 +1715,9 @@ function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
   });
 }
 
-function SkillMarkdownPreview({ markdown }: { markdown?: string | null }) {
+function SkillMarkdownPreview({ markdown, t }: { markdown?: string | null; t: Translator }) {
   if (!markdown) {
-    return <p className="empty">No SKILL.md markdown was returned by the backend.</p>;
+    return <p className="empty">{t('skillPaths.detail.noMarkdown')}</p>;
   }
   const { frontmatter, body } = splitSkillMarkdown(markdown);
   const blocks = parseMarkdownBlocks(body);
@@ -1723,11 +1725,11 @@ function SkillMarkdownPreview({ markdown }: { markdown?: string | null }) {
     <div className="skill-markdown-preview">
       {frontmatter ? (
         <details className="skill-frontmatter">
-          <summary>Frontmatter</summary>
+          <summary>{t('skillPaths.label.frontmatter')}</summary>
           <pre>{frontmatter}</pre>
         </details>
       ) : null}
-      {blocks.length === 0 ? <p className="empty">No markdown body.</p> : null}
+      {blocks.length === 0 ? <p className="empty">{t('skillPaths.detail.noBody')}</p> : null}
       {blocks.map((block, index) => {
         const key = `skill-md-${index}`;
         if (block.kind === 'heading') {
@@ -1790,12 +1792,14 @@ function SkillDetailPanel({
   busy,
   onReload,
   onClose,
+  t,
 }: {
   skill: SkillRow;
   detail: SkillDetailPayload | null;
   busy: boolean;
   onReload: () => void;
   onClose: () => void;
+  t: Translator;
 }) {
   const selected = detail?.skill ?? detail?.instances?.[0] ?? null;
   const tools = skillDetailToolNames(selected);
@@ -1806,16 +1810,16 @@ function SkillDetailPanel({
         <div>
           <h3>{selected?.name ?? skill.name}</h3>
           <div className="skill-detail-meta">
-            <span className="source-pill">{dccLabel || 'unknown'}</span>
-            <span className={`badge ${skill.loaded ? 'badge-ok' : 'badge-muted'}`}>{selected?.state ?? (skill.loaded ? 'loaded' : 'unloaded')}</span>
-            {selected?.instance_short ? <span className="mono-path">instance {selected.instance_short}</span> : null}
+            <span className="source-pill">{dccLabel || t('common.status.unknown')}</span>
+            <span className={`badge ${skill.loaded ? 'badge-ok' : 'badge-muted'}`}>{selected?.state ?? (skill.loaded ? t('skillPaths.state.loaded') : t('skillPaths.state.unloaded'))}</span>
+            {selected?.instance_short ? <span className="mono-path">{t('skillPaths.label.instance', { id: selected.instance_short })}</span> : null}
           </div>
         </div>
         <div className="table-actions">
           <button className="refresh-btn" type="button" disabled={busy} onClick={onReload}>
-            {busy ? 'Loading…' : 'Reload'}
+            {busy ? t('common.status.loading') : t('common.action.reload')}
           </button>
-          <button className="linkish" type="button" onClick={onClose}>Close</button>
+          <button className="linkish" type="button" onClick={onClose}>{t('common.action.close')}</button>
         </div>
       </div>
       {selected?.description ? <p className="skill-detail-description">{selected.description}</p> : null}
@@ -1827,7 +1831,7 @@ function SkillDetailPanel({
           {tools.map((tool) => <span className="source-pill" key={tool}>{tool}</span>)}
         </div>
       ) : null}
-      <SkillMarkdownPreview markdown={selected?.markdown} />
+      <SkillMarkdownPreview markdown={selected?.markdown} t={t} />
       {detail?.instances && detail.instances.length > 1 ? (
         <div className="skill-detail-instances">
           {detail.instances.map((instance) => (
@@ -2100,24 +2104,24 @@ function isProblemLog(log: LogRow): boolean {
   return log.success === false || text.includes('error') || text.includes('warn') || text.includes('timeout') || text.includes('failed') || text.includes('stale');
 }
 
-function MiniSparkline({ buckets }: { buckets: number[] }) {
+function MiniSparkline({ buckets, t }: { buckets: number[]; t: Translator }) {
   const values = buckets.length ? buckets : Array.from({ length: 24 }, () => 0);
   const max = Math.max(1, ...values);
   return (
-    <div className="mini-sparkline" role="img" aria-label="Call distribution sparkline">
+    <div className="mini-sparkline" role="img" aria-label={t('stats.chart.callDistribution')}>
       {values.map((value, index) => (
-        <span key={index} style={{ height: `${Math.max(5, (value / max) * 100)}%` }} title={`${index}:00 UTC — ${value} call(s)`} />
+        <span key={index} style={{ height: `${Math.max(5, (value / max) * 100)}%` }} title={t('stats.chart.hourValue', { hour: index, count: value })} />
       ))}
     </div>
   );
 }
 
-function StatBarList({ title, items }: { title: string; items: TopEntry[] }) {
+function StatBarList({ title, items, t }: { title: string; items: TopEntry[]; t: Translator }) {
   const max = maxTopCount(items);
   return (
     <div className="chart-card">
       <h3 className="chart-title">{title}</h3>
-      {!items.length ? <p className="empty">No data in this range.</p> : items.map((row) => (
+      {!items.length ? <p className="empty">{t('stats.empty.data')}</p> : items.map((row) => (
         <div className="hbar-row" key={`${title}-${row.name}`}>
           <div className="hbar-label" title={row.name}>{row.name.length > 48 ? `${row.name.slice(0, 46)}…` : row.name}</div>
           <div className="hbar-track">
@@ -2130,18 +2134,18 @@ function StatBarList({ title, items }: { title: string; items: TopEntry[] }) {
   );
 }
 
-function TokenBreakdownList({ title, items }: { title: string; items: TokenBreakdownEntry[] }) {
+function TokenBreakdownList({ title, items, t }: { title: string; items: TokenBreakdownEntry[]; t: Translator }) {
   const max = Math.max(1, ...items.map((row) => row.saved_tokens ?? 0));
   return (
     <div className="chart-card">
       <h3 className="chart-title">{title}</h3>
-      {!items.length ? <p className="empty">No token data in this range.</p> : items.map((row) => (
+      {!items.length ? <p className="empty">{t('stats.empty.tokens')}</p> : items.map((row) => (
         <div className="hbar-row" key={`${title}-${row.name}`}>
           <div className="hbar-label" title={row.name}>{row.name.length > 48 ? `${row.name.slice(0, 46)}...` : row.name}</div>
           <div className="hbar-track">
             <div className="hbar-fill" style={{ width: `${Math.max(2, ((row.saved_tokens ?? 0) / max) * 100)}%` }} />
           </div>
-          <div className="hbar-count" title={`${row.calls} call(s), ${formatSavingsPct(row.savings_pct)} saved`}>
+          <div className="hbar-count" title={t('stats.chart.savingsDetail', { calls: row.calls, savings: formatSavingsPct(row.savings_pct) })}>
             {formatTokenCount(row.saved_tokens)}
           </div>
         </div>
@@ -2150,37 +2154,37 @@ function TokenBreakdownList({ title, items }: { title: string; items: TokenBreak
   );
 }
 
-function TokenAccountingDetail({ row }: { row: TokenCarrier | null | undefined }) {
+function TokenAccountingDetail({ row, t }: { row: TokenCarrier | null | undefined; t: Translator }) {
   const tokens = tokenAccounting(row);
   return (
     <div className="trace-detail-card">
       <div className="trace-card-head">
-        <h3>Token accounting</h3>
-        <span>{tokens?.token_estimator ?? 'no estimator'}</span>
+        <h3>{t('traces.detail.tokenAccounting')}</h3>
+        <span>{tokens?.token_estimator ?? t('traces.label.noEstimator')}</span>
       </div>
       <div className="trace-summary-grid">
-        <span><strong>Format</strong>{tokens?.response_format ?? '-'}</span>
-        <span><strong>Returned</strong>{formatTokenCount(tokens?.returned_tokens)}</span>
-        <span><strong>Saved</strong>{formatTokenCount(tokens?.saved_tokens)}</span>
-        <span><strong>Savings</strong>{formatSavingsPct(tokens?.savings_pct)}</span>
-        <span><strong>Original bytes</strong>{formatBytes(tokens?.original_bytes)}</span>
-        <span><strong>Returned bytes</strong>{formatBytes(tokens?.returned_bytes)}</span>
+        <span><strong>{t('traces.label.format')}</strong>{tokens?.response_format ?? '-'}</span>
+        <span><strong>{t('traces.label.returned')}</strong>{formatTokenCount(tokens?.returned_tokens)}</span>
+        <span><strong>{t('traces.label.saved')}</strong>{formatTokenCount(tokens?.saved_tokens)}</span>
+        <span><strong>{t('traces.label.savings')}</strong>{formatSavingsPct(tokens?.savings_pct)}</span>
+        <span><strong>{t('traces.label.originalBytes')}</strong>{formatBytes(tokens?.original_bytes)}</span>
+        <span><strong>{t('traces.label.returnedBytes')}</strong>{formatBytes(tokens?.returned_bytes)}</span>
       </div>
     </div>
   );
 }
 
-function HourlyChart({ buckets }: { buckets: number[] }) {
+function HourlyChart({ buckets, t }: { buckets: number[]; t: Translator }) {
   if (!buckets.length) {
     return null;
   }
   const max = Math.max(1, ...buckets);
   return (
     <div className="chart-card">
-      <h3 className="chart-title">Calls by hour (UTC)</h3>
-      <div className="hourly-chart" role="img" aria-label="Hourly call distribution">
+      <h3 className="chart-title">{t('stats.chart.callsByHourUtc')}</h3>
+      <div className="hourly-chart" role="img" aria-label={t('stats.chart.hourlyDistribution')}>
         {buckets.map((v, h) => (
-          <div key={h} className="hour-col" title={`${h}:00 UTC — ${v} call(s)`}>
+          <div key={h} className="hour-col" title={t('stats.chart.hourValue', { hour: h, count: v })}>
             <div className="hour-bar" style={{ height: `${(v / max) * 100}%` }} />
             <span className="hour-tick">{h % 6 === 0 ? String(h) : ''}</span>
           </div>
@@ -2200,11 +2204,11 @@ function formatTraceDate(value: number | string | undefined): string {
   return '-';
 }
 
-function payloadPreview(payload: TracePayload | null | undefined): string {
+function payloadPreview(payload: TracePayload | null | undefined, t: Translator): string {
   if (!payload) {
-    return 'No payload captured.';
+    return t('traces.payload.empty');
   }
-  const suffix = payload.truncated ? `\n\n[truncated from ${formatBytes(payload.original_size)}]` : '';
+  const suffix = payload.truncated ? `\n\n[${t('traces.payload.truncated', { size: formatBytes(payload.original_size) })}]` : '';
   return `${payload.content}${suffix}`;
 }
 
@@ -2261,16 +2265,16 @@ function buildAgentPacket(trace: TraceDetailPayload): string {
   }, null, 2);
 }
 
-function TraceLinks({ links }: { links: AdminLinks }) {
+function TraceLinks({ links, t }: { links: AdminLinks; t: Translator }) {
   const rows = [
-    ['Admin trace', links.admin_trace_url],
-    ['Trace API', links.trace_api_url],
-    ['Debug bundle', links.debug_bundle_url],
-    ['Issue report JSON', links.issue_report_url],
-    ['OpenAPI Inspector', links.openapi_inspector_url],
-    ['OpenAPI spec', links.openapi_spec_url],
-    ['OpenAPI docs', links.openapi_docs_url],
-    ['Stats', links.stats_url],
+    [t('traces.link.adminTrace'), links.admin_trace_url],
+    [t('traces.link.traceApi'), links.trace_api_url],
+    [t('traces.link.debugBundle'), links.debug_bundle_url],
+    [t('traces.link.issueReportJson'), links.issue_report_url],
+    [t('traces.link.openapiInspector'), links.openapi_inspector_url],
+    [t('traces.link.openapiSpec'), links.openapi_spec_url],
+    [t('traces.link.openapiDocs'), links.openapi_docs_url],
+    [t('traces.link.stats'), links.stats_url],
   ].filter(([, url]) => typeof url === 'string' && url.length > 0) as [string, string][];
   return (
     <div className="trace-links">
@@ -2312,33 +2316,33 @@ function workflowMeta(workflow: WorkflowRow): string {
   return parts.filter(Boolean).join(' · ');
 }
 
-function agentTurnChips(agent: WorkflowAgent | AgentContext | null | undefined): string[] {
+function agentTurnChips(agent: WorkflowAgent | AgentContext | null | undefined, t: Translator): string[] {
   if (!agent) {
     return [];
   }
   return [
     agentModelLabel(agent),
-    agent.reasoning_effort ? `effort ${agent.reasoning_effort}` : '',
-    agent.session_id ? `session ${compactId(agent.session_id)}` : '',
-    agent.turn_id ? `turn ${compactId(agent.turn_id)}` : '',
-    agent.user_input_chars != null ? `user ${agent.user_input_chars} chars` : '',
-    agent.agent_reply_chars != null ? `reply ${agent.agent_reply_chars} chars` : '',
-    agent.user_input_hash ? `user hash ${compactId(agent.user_input_hash)}` : '',
-    agent.agent_reply_hash ? `reply hash ${compactId(agent.agent_reply_hash)}` : '',
+    agent.reasoning_effort ? t('traces.agent.effort', { value: agent.reasoning_effort }) : '',
+    agent.session_id ? t('traces.agent.session', { id: compactId(agent.session_id) }) : '',
+    agent.turn_id ? t('traces.agent.turn', { id: compactId(agent.turn_id) }) : '',
+    agent.user_input_chars != null ? t('traces.agent.userChars', { count: agent.user_input_chars }) : '',
+    agent.agent_reply_chars != null ? t('traces.agent.replyChars', { count: agent.agent_reply_chars }) : '',
+    agent.user_input_hash ? t('traces.agent.userHash', { id: compactId(agent.user_input_hash) }) : '',
+    agent.agent_reply_hash ? t('traces.agent.replyHash', { id: compactId(agent.agent_reply_hash) }) : '',
   ].filter(Boolean);
 }
 
-function WorkflowSearchChips({ signal }: { signal: WorkflowSearchSignal | null | undefined }) {
+function WorkflowSearchChips({ signal, t }: { signal: WorkflowSearchSignal | null | undefined; t: Translator }) {
   if (!signal) {
     return null;
   }
   const chips = [
-    `search ${compactId(signal.search_id)}`,
-    signal.result_count != null ? `${signal.result_count} hit(s)` : '',
-    signal.zero_results ? 'zero results' : '',
-    signal.selected_rank != null ? `rank ${signal.selected_rank}` : '',
-    signal.selected_score != null ? `score ${signal.selected_score}` : '',
-    signal.first_success_ms != null ? `first success ${formatDurationMs(signal.first_success_ms)}` : '',
+    t('workflows.chip.search', { id: compactId(signal.search_id) }),
+    signal.result_count != null ? t('workflows.chip.hits', { count: signal.result_count }) : '',
+    signal.zero_results ? t('workflows.chip.zeroResults') : '',
+    signal.selected_rank != null ? t('workflows.chip.rank', { rank: signal.selected_rank }) : '',
+    signal.selected_score != null ? t('workflows.chip.score', { score: signal.selected_score }) : '',
+    signal.first_success_ms != null ? t('workflows.chip.firstSuccess', { duration: formatDurationMs(signal.first_success_ms) }) : '',
     ...(signal.match_reasons ?? []).slice(0, 3),
   ].filter(Boolean);
   return (
@@ -2352,10 +2356,12 @@ function WorkflowStepCard({
   step,
   onOpenTrace,
   onCopyIssueReport,
+  t,
 }: {
   step: WorkflowStep;
   onOpenTrace: (requestId: string) => void;
   onCopyIssueReport: (requestId: string) => void;
+  t: Translator;
 }) {
   const requestId = step.request_id ?? undefined;
   const links = requestId ? traceLinks(requestId, step.links) : step.links;
@@ -2376,19 +2382,19 @@ function WorkflowStepCard({
           <span>{compactId(step.instance_id)}</span>
           {step.parent_request_id ? <span>parent {compactId(step.parent_request_id)}</span> : null}
         </div>
-        <WorkflowSearchChips signal={step.search} />
+        <WorkflowSearchChips signal={step.search} t={t} />
         <div className="workflow-step-actions">
           {requestId ? (
             <button className="refresh-btn" type="button" title={requestId} onClick={() => onOpenTrace(requestId)}>
-              Trace
+              {t('common.action.trace')}
             </button>
           ) : null}
-          {links?.debug_bundle_url ? <a className="link-chip" href={links.debug_bundle_url} target="_blank" rel="noopener noreferrer">Bundle</a> : null}
-          {links?.issue_report_url ? <a className="link-chip" href={links.issue_report_url} target="_blank" rel="noopener noreferrer">Issue JSON</a> : null}
-          {links?.openapi_docs_url ? <a className="link-chip" href={links.openapi_docs_url} target="_blank" rel="noopener noreferrer">Docs</a> : null}
+          {links?.debug_bundle_url ? <a className="link-chip" href={links.debug_bundle_url} target="_blank" rel="noopener noreferrer">{t('workflows.link.bundle')}</a> : null}
+          {links?.issue_report_url ? <a className="link-chip" href={links.issue_report_url} target="_blank" rel="noopener noreferrer">{t('workflows.link.issueJson')}</a> : null}
+          {links?.openapi_docs_url ? <a className="link-chip" href={links.openapi_docs_url} target="_blank" rel="noopener noreferrer">{t('workflows.link.docs')}</a> : null}
           {requestId ? (
             <button className="refresh-btn" type="button" onClick={() => onCopyIssueReport(requestId)}>
-              Copy JSON
+              {t('workflows.action.copyJson')}
             </button>
           ) : null}
         </div>
@@ -2401,10 +2407,12 @@ function WorkflowCard({
   workflow,
   onOpenTrace,
   onCopyIssueReport,
+  t,
 }: {
   workflow: WorkflowRow;
   onOpenTrace: (requestId: string) => void;
   onCopyIssueReport: (requestId: string) => void;
+  t: Translator;
 }) {
   return (
     <article className={`workflow-card ${isErrStatus(workflow.status) ? 'err' : isWarnStatus(workflow.status) ? 'warn' : 'ok'}`}>
@@ -2422,17 +2430,17 @@ function WorkflowCard({
       {workflow.agent?.task ? <p className="workflow-agent-task">{workflow.agent.task}</p> : null}
       {workflow.agent?.user_intent_summary ? <p className="workflow-agent-task">{workflow.agent.user_intent_summary}</p> : null}
       {workflow.agent?.agent_reply_summary ? <p className="workflow-agent-task muted">{workflow.agent.agent_reply_summary}</p> : null}
-      {agentTurnChips(workflow.agent).length ? (
+      {agentTurnChips(workflow.agent, t).length ? (
         <div className="workflow-chip-row">
-          {agentTurnChips(workflow.agent).map((chip) => <span key={chip}>{chip}</span>)}
+          {agentTurnChips(workflow.agent, t).map((chip) => <span key={chip}>{chip}</span>)}
         </div>
       ) : null}
       <div className="workflow-chip-row">
-        <span>{workflow.discovery.search_count} search(es)</span>
-        {workflow.discovery.zero_result_count ? <span>{workflow.discovery.zero_result_count} zero-result</span> : null}
-        {workflow.discovery.best_selected_rank != null ? <span>best rank {workflow.discovery.best_selected_rank}</span> : null}
-        {workflow.discovery.time_to_first_success_ms != null ? <span>first success {formatDurationMs(workflow.discovery.time_to_first_success_ms)}</span> : null}
-        {workflow.failed_steps ? <span>{workflow.failed_steps} failed</span> : null}
+        <span>{t('workflows.chip.searches', { count: workflow.discovery.search_count })}</span>
+        {workflow.discovery.zero_result_count ? <span>{t('workflows.chip.zeroResult', { count: workflow.discovery.zero_result_count })}</span> : null}
+        {workflow.discovery.best_selected_rank != null ? <span>{t('workflows.chip.bestRank', { rank: workflow.discovery.best_selected_rank })}</span> : null}
+        {workflow.discovery.time_to_first_success_ms != null ? <span>{t('workflows.chip.firstSuccess', { duration: formatDurationMs(workflow.discovery.time_to_first_success_ms) })}</span> : null}
+        {workflow.failed_steps ? <span>{t('workflows.chip.failed', { count: workflow.failed_steps })}</span> : null}
       </div>
       <div className="workflow-steps">
         {workflow.steps.map((step) => (
@@ -2441,6 +2449,7 @@ function WorkflowCard({
             step={step}
             onOpenTrace={onOpenTrace}
             onCopyIssueReport={onCopyIssueReport}
+            t={t}
           />
         ))}
       </div>
@@ -2451,12 +2460,14 @@ function WorkflowCard({
 function TraceDetailPanel({
   trace,
   fallback,
+  t,
   onCopy,
   onCopyIssueReport,
   onDownloadIssueReport,
 }: {
   trace: TraceDetailPayload | null;
   fallback: string;
+  t: Translator;
   onCopy: (text: string, label: string) => void;
   onCopyIssueReport: (requestId: string) => void;
   onDownloadIssueReport: (requestId: string) => void;
@@ -2467,7 +2478,7 @@ function TraceDetailPanel({
   const spans = Array.isArray(trace.spans) ? trace.spans : [];
   const maxNs = Math.max(1, ...spans.map((span) => span.duration_ns ?? 0));
   const agent = trace.agent_context ?? null;
-  const agentTitle = agent?.agent_name || agent?.agent_id || agent?.agent_kind || 'Caller context';
+  const agentTitle = agent?.agent_name || agent?.agent_id || agent?.agent_kind || t('traces.label.callerContext');
   const links = traceLinks(trace.request_id, trace.links);
   const tokens = detailTraceTokens(trace);
   const attrsPreview = (attrs?: Record<string, unknown>) => {
@@ -2481,36 +2492,36 @@ function TraceDetailPanel({
     <div className="trace-detail-panel">
       <div className="trace-detail-card trace-summary-card">
         <div>
-          <span className="trace-kicker">Request</span>
+          <span className="trace-kicker">{t('traces.label.request')}</span>
           <h3 title={trace.request_id}>{compactId(trace.request_id)}</h3>
         </div>
         <div className="trace-copy-actions">
           <button className="refresh-btn" type="button" onClick={() => onCopy(links.admin_trace_url ?? '', 'trace URL')}>
-            Copy URL
+            {t('traces.action.copyUrl')}
           </button>
           <button className="refresh-btn" type="button" onClick={() => onCopy(buildAgentPacket(trace), 'agent packet')}>
-            Copy agent packet
+            {t('traces.action.copyAgentPacket')}
           </button>
           <button className="refresh-btn" type="button" onClick={() => onCopyIssueReport(trace.request_id)}>
-            Copy issue JSON
+            {t('traces.action.copyIssueJson')}
           </button>
           <button className="refresh-btn" type="button" onClick={() => onDownloadIssueReport(trace.request_id)}>
-            Download JSON
+            {t('traces.action.downloadJson')}
           </button>
         </div>
         <div className="trace-summary-grid">
-          <span><strong>Tool</strong>{trace.tool_slug ?? trace.method}</span>
-          <span><strong>Status</strong>{trace.ok ? 'ok' : 'err'}</span>
-          <span><strong>Latency</strong>{formatDurationMs(trace.total_ms)}</span>
-          <span><strong>Input tokens</strong>{tokens.inputTokens == null ? '-' : formatTokenCount(tokens.inputTokens)}</span>
-          <span><strong>Output tokens</strong>{tokens.outputTokens == null ? '-' : formatTokenCount(tokens.outputTokens)}</span>
-          <span><strong>Total tokens</strong>{tokens.totalTokens == null ? '-' : formatTokenCount(tokens.totalTokens)}</span>
-          <span><strong>Estimator</strong>{tokens.estimator ?? '-'}</span>
-          <span><strong>Transport</strong>{trace.transport ?? '-'}</span>
-          <span><strong>Started</strong>{formatTraceDate(trace.started_at)}</span>
-          <span><strong>Spans</strong>{spans.length}</span>
+          <span><strong>{t('traces.label.tool')}</strong>{trace.tool_slug ?? trace.method}</span>
+          <span><strong>{t('traces.label.status')}</strong>{trace.ok ? 'ok' : 'err'}</span>
+          <span><strong>{t('traces.label.latency')}</strong>{formatDurationMs(trace.total_ms)}</span>
+          <span><strong>{t('traces.label.inputTokens')}</strong>{tokens.inputTokens == null ? '-' : formatTokenCount(tokens.inputTokens)}</span>
+          <span><strong>{t('traces.label.outputTokens')}</strong>{tokens.outputTokens == null ? '-' : formatTokenCount(tokens.outputTokens)}</span>
+          <span><strong>{t('traces.label.totalTokens')}</strong>{tokens.totalTokens == null ? '-' : formatTokenCount(tokens.totalTokens)}</span>
+          <span><strong>{t('traces.label.estimator')}</strong>{tokens.estimator ?? '-'}</span>
+          <span><strong>{t('traces.label.transport')}</strong>{trace.transport ?? '-'}</span>
+          <span><strong>{t('traces.label.started')}</strong>{formatTraceDate(trace.started_at)}</span>
+          <span><strong>{t('traces.label.spans')}</strong>{spans.length}</span>
         </div>
-        <TraceLinks links={links} />
+        <TraceLinks links={links} t={t} />
       </div>
 
       {agent ? (
@@ -2525,18 +2536,18 @@ function TraceDetailPanel({
           {agent.reasoning_summary ? <p className="agent-summary">{agent.reasoning_summary}</p> : null}
           {agent.plan?.length ? (
             <div className="agent-list">
-              <strong>Plan</strong>
+              <strong>{t('traces.label.plan')}</strong>
               {agent.plan.map((step, index) => <span key={`${step}-${index}`}>{step}</span>)}
             </div>
           ) : null}
           {agent.observations?.length ? (
             <div className="agent-list">
-              <strong>Observations</strong>
+              <strong>{t('traces.label.observations')}</strong>
               {agent.observations.map((step, index) => <span key={`${step}-${index}`}>{step}</span>)}
             </div>
           ) : null}
           <div className="agent-meta">
-            {agentTurnChips(agent).map((chip) => <span key={chip}>{chip}</span>)}
+            {agentTurnChips(agent, t).map((chip) => <span key={chip}>{chip}</span>)}
             {agent.parent_request_id ? <span>parent {compactId(agent.parent_request_id)}</span> : null}
             {agent.trace_id ? <span>trace {compactId(agent.trace_id)}</span> : null}
             {agent.tags?.map((tag) => <span key={tag}>{tag}</span>)}
@@ -2544,15 +2555,15 @@ function TraceDetailPanel({
         </div>
       ) : null}
 
-      <TokenAccountingDetail row={trace} />
+      <TokenAccountingDetail row={trace} t={t} />
 
       <div className="trace-detail-card">
         <div className="trace-card-head">
-          <h3>Span waterfall</h3>
+          <h3>{t('traces.detail.spanWaterfall')}</h3>
           <span>{formatDurationMs(trace.total_ms)}</span>
         </div>
         <div className="span-waterfall">
-          {spans.length === 0 ? <p className="empty">No spans captured.</p> : spans.map((span, index) => (
+          {spans.length === 0 ? <p className="empty">{t('traces.detail.noSpans')}</p> : spans.map((span, index) => (
             <div className={`span-row ${span.ok ? 'ok' : 'err'}`} key={`${span.name}-${index}`}>
               <div className="span-row-label">
                 <strong>{span.name}</strong>
@@ -2570,30 +2581,30 @@ function TraceDetailPanel({
       <div className="payload-grid">
         <div className="trace-detail-card">
           <div className="trace-card-head">
-            <h3>Input</h3>
+            <h3>{t('traces.detail.input')}</h3>
             <span>
               {formatBytes(trace.input?.original_size)}
               {trace.input ? ` / ${formatTokenCount(trace.input.estimated_tokens)} tok` : ''}
             </span>
           </div>
-          <pre className="payload-pre">{payloadPreview(trace.input)}</pre>
+          <pre className="payload-pre">{payloadPreview(trace.input, t)}</pre>
         </div>
         <div className="trace-detail-card">
           <div className="trace-card-head">
-            <h3>Output</h3>
+            <h3>{t('traces.detail.output')}</h3>
             <span>
               {formatBytes(trace.output?.original_size)}
               {trace.output ? ` / ${formatTokenCount(trace.output.estimated_tokens)} tok` : ''}
             </span>
           </div>
-          <pre className="payload-pre">{payloadPreview(trace.output)}</pre>
+          <pre className="payload-pre">{payloadPreview(trace.output, t)}</pre>
         </div>
       </div>
     </div>
   );
 }
 
-function GovernanceControlCard({ control }: { control: GovernanceMiddlewareControl }) {
+function GovernanceControlCard({ control, t }: { control: GovernanceMiddlewareControl; t: Translator }) {
   const config = control.config ?? {};
   const details = Object.entries(config)
     .filter(([key]) => key !== 'fields')
@@ -2606,7 +2617,7 @@ function GovernanceControlCard({ control }: { control: GovernanceMiddlewareContr
         <span className="badge badge-muted">{control.mode}</span>
       </div>
       <h3>{control.summary}</h3>
-      {fields.length ? <p className="mono-path">{compactList(fields, 'No fields')}</p> : null}
+      {fields.length ? <p className="mono-path">{compactList(fields, t('governance.empty.fields'))}</p> : null}
       {details.length ? (
         <div className="governance-kv">
           {details.map(([key, value]) => (
@@ -2635,14 +2646,34 @@ function OpenApiInspectorPanel({
   raw,
   operations,
   source,
+  labels,
+  t,
 }: {
   spec: OpenApiSpec | null;
   raw: string;
   operations: OpenApiOperationRow[];
   source: OpenApiSource;
+  labels: {
+    emptyDocument: string;
+    openapi: string;
+    version: string;
+    paths: string;
+    operations: string;
+    schemas: string;
+    tags: string;
+    operationsSection: string;
+    emptyOperations: string;
+    linksSection: string;
+    body: string;
+    noBody: string;
+    params: (count: number) => string;
+    responses: (codes: string) => string;
+    noResponses: string;
+  };
+  t: Translator;
 }) {
   if (!spec) {
-    return <p className="empty">No OpenAPI document loaded.</p>;
+    return <p className="empty">{labels.emptyDocument}</p>;
   }
   const pathsCount = Object.keys(spec.paths ?? {}).length;
   const tagCount = new Set(operations.flatMap((operation) => operation.tags)).size || (spec.tags?.length ?? 0);
@@ -2656,21 +2687,21 @@ function OpenApiInspectorPanel({
   return (
     <div className="openapi-inspector">
       <div className="metric-grid compact">
-        <MetricTile label="OpenAPI" value={spec.openapi ?? '-'} detail={source.label} />
-        <MetricTile label="Version" value={spec.info?.version ?? '-'} />
-        <MetricTile label="Paths" value={pathsCount} />
-        <MetricTile label="Operations" value={operations.length} />
-        <MetricTile label="Schemas" value={componentSchemaCount(spec)} />
-        <MetricTile label="Tags" value={tagCount} />
+        <MetricTile label={labels.openapi} value={spec.openapi ?? '-'} detail={source.label} />
+        <MetricTile label={labels.version} value={spec.info?.version ?? '-'} />
+        <MetricTile label={labels.paths} value={pathsCount} />
+        <MetricTile label={labels.operations} value={operations.length} />
+        <MetricTile label={labels.schemas} value={componentSchemaCount(spec)} />
+        <MetricTile label={labels.tags} value={tagCount} />
       </div>
 
       <div className="openapi-layout">
         <div className="openapi-operation-list">
           <div className="trace-group-head">
-            <h3>Operations</h3>
+            <h3>{labels.operationsSection}</h3>
             <span>{operations.length} · {methods.join(', ') || '-'}</span>
           </div>
-          {operations.length === 0 ? <p className="empty">No operations match your search.</p> : operations.map((operation) => (
+          {operations.length === 0 ? <p className="empty">{labels.emptyOperations}</p> : operations.map((operation) => (
             <article className="openapi-operation-card" key={operation.key}>
               <div className="openapi-operation-head">
                 <span className={`method-pill ${operation.method.toLowerCase()}`}>{operation.method}</span>
@@ -2679,9 +2710,9 @@ function OpenApiInspectorPanel({
               <h3>{operation.operationId}</h3>
               {operation.summary ? <p>{operation.summary}</p> : null}
               <div className="openapi-meta-row">
-                <span>{operation.hasRequestBody ? 'body' : 'no body'}</span>
-                <span>{operation.parameterCount} params</span>
-                <span>{operation.responseCodes.length ? `responses ${operation.responseCodes.join(', ')}` : 'no responses'}</span>
+                <span>{operation.hasRequestBody ? labels.body : labels.noBody}</span>
+                <span>{labels.params(operation.parameterCount)}</span>
+                <span>{operation.responseCodes.length ? labels.responses(operation.responseCodes.join(', ')) : labels.noResponses}</span>
                 {operation.tags.map((tag) => <span key={tag}>{tag}</span>)}
               </div>
             </article>
@@ -2690,10 +2721,10 @@ function OpenApiInspectorPanel({
 
         <div className="trace-detail-card openapi-spec-card">
           <div className="trace-card-head">
-            <h3>Contract Links</h3>
+            <h3>{labels.linksSection}</h3>
             <span>{formatBytes(raw.length)}</span>
           </div>
-          <TraceLinks links={specLinks} />
+          <TraceLinks links={specLinks} t={t} />
           <pre className="payload-pre openapi-spec-pre">{raw}</pre>
         </div>
       </div>
@@ -3349,9 +3380,9 @@ function App() {
     if (health && !isOkStatus(health.status)) {
       signals.push({
         key: 'gateway',
-        label: 'Gateway health',
+        label: t('debug.signal.gatewayHealth'),
         value: health.status,
-        detail: `${health.instances_ready}/${health.instances_total} instances ready`,
+        detail: t('debug.detail.instancesReady', { ready: health.instances_ready, total: health.instances_total }),
         tone: 'err',
         panel: 'health',
       });
@@ -3360,8 +3391,8 @@ function App() {
       const first = failureSignals[0];
       signals.push({
         key: 'failures',
-        label: 'Failed execution',
-        value: `${failureSignals.length} request(s)`,
+        label: t('debug.signal.failedExecution'),
+        value: t('debug.detail.requestCount', { count: failureSignals.length }),
         detail: `${compactId(first.request_id)} · ${first.detail}`,
         tone: 'err',
         panel: 'traces',
@@ -3372,8 +3403,8 @@ function App() {
       const first = unhealthyWorkers[0];
       signals.push({
         key: 'instances',
-        label: 'Instance health',
-        value: `${unhealthyWorkers.length} flagged`,
+        label: t('debug.signal.instanceHealth'),
+        value: t('debug.detail.flagged', { count: unhealthyWorkers.length }),
         detail: first.failure_reason || first.failure_stage || `${first.dcc_type} ${first.status}`,
         tone: 'warn',
         panel: 'instances',
@@ -3382,9 +3413,9 @@ function App() {
     if (governanceSummary.denied > 0 || governanceSummary.throttled > 0) {
       signals.push({
         key: 'governance',
-        label: 'Governance pressure',
-        value: `${governanceSummary.denied} denied / ${governanceSummary.throttled} throttled`,
-        detail: governanceSummary.redacted ? `${governanceSummary.redacted} redacted path(s)` : 'policy and quota decisions',
+        label: t('debug.signal.governancePressure'),
+        value: t('debug.detail.governancePressure', { denied: governanceSummary.denied, throttled: governanceSummary.throttled }),
+        detail: governanceSummary.redacted ? t('debug.detail.redactedPaths', { count: governanceSummary.redacted }) : t('debug.detail.policyQuota'),
         tone: governanceSummary.denied > 0 ? 'err' : 'warn',
         panel: 'governance',
       });
@@ -3392,9 +3423,9 @@ function App() {
     if (workflowSummary.zeroResults > 0) {
       signals.push({
         key: 'discovery',
-        label: 'Discovery quality',
-        value: `${workflowSummary.zeroResults} zero-result workflow(s)`,
-        detail: 'search/load-skill traces need review',
+        label: t('debug.signal.discoveryQuality'),
+        value: t('debug.detail.zeroResultWorkflows', { count: workflowSummary.zeroResults }),
+        detail: t('debug.detail.discoveryReview'),
         tone: 'warn',
         panel: 'workflows',
       });
@@ -3402,9 +3433,9 @@ function App() {
     if (p95Latency != null && p95Latency > 5_000) {
       signals.push({
         key: 'latency',
-        label: 'Latency',
+        label: t('debug.signal.latency'),
         value: `${formatDurationMs(p95Latency)} p95`,
-        detail: slowTraces[0] ? `${compactId(slowTraces[0].request_id)} · ${slowTraces[0].tool}` : 'retained gateway calls',
+        detail: slowTraces[0] ? `${compactId(slowTraces[0].request_id)} · ${slowTraces[0].tool}` : t('debug.detail.retainedGatewayCalls'),
         tone: 'warn',
         panel: 'traces',
         traceId: slowTraces[0]?.request_id,
@@ -3413,9 +3444,9 @@ function App() {
     if (eventWarnings > 0) {
       signals.push({
         key: 'events',
-        label: 'Warning events',
-        value: `${eventWarnings} retained`,
-        detail: problemLogs[0]?.message || problemActivity[0]?.message || 'logs/activity warnings',
+        label: t('debug.signal.warningEvents'),
+        value: t('debug.detail.retained', { count: eventWarnings }),
+        detail: problemLogs[0]?.message || problemActivity[0]?.message || t('debug.detail.logsActivityWarnings'),
         tone: 'warn',
         panel: problemLogs.length ? 'logs' : 'activity',
       });
@@ -3423,27 +3454,27 @@ function App() {
     if (tokenPressure.total > 0) {
       signals.push({
         key: 'tokens',
-        label: 'Payload budget',
-        value: `${formatTokenCount(tokenPressure.avg)} / call`,
-        detail: `${formatTokenCount(tokenPressure.total)} total · ${formatTokenCount(tokenPressure.saved)} response tokens saved`,
+        label: t('debug.signal.payloadBudget'),
+        value: t('debug.detail.perCall', { value: formatTokenCount(tokenPressure.avg) }),
+        detail: t('debug.detail.payloadBudget', { total: formatTokenCount(tokenPressure.total), saved: formatTokenCount(tokenPressure.saved) }),
         tone: tokenPressure.avg > 4_000 ? 'warn' : 'ok',
         panel: 'stats',
       });
     }
     signals.push({
       key: 'coverage',
-      label: 'Evidence coverage',
-      value: `${traces.length} traces`,
-      detail: `${calls.length} calls · ${traceSummary.agentContext} with agent context`,
+      label: t('debug.signal.evidenceCoverage'),
+      value: t('debug.detail.traceCount', { count: traces.length }),
+      detail: t('debug.detail.callsWithAgentContext', { calls: calls.length, agents: traceSummary.agentContext }),
       tone: traces.length > 0 && traceSummary.agentContext === 0 ? 'warn' : 'ok',
       panel: 'traces',
     });
     if (signals.length === 1 && signals[0].key === 'coverage' && signals[0].tone === 'ok') {
       return [{
         key: 'ready',
-        label: 'Gateway ready',
-        value: `${workerSummary.live} live`,
-        detail: 'no retained warning signals',
+        label: t('debug.signal.gatewayReady'),
+        value: t('debug.detail.live', { count: workerSummary.live }),
+        detail: t('debug.detail.noWarnings'),
         tone: 'ok',
         panel: 'health',
       }, signals[0]];
@@ -3458,6 +3489,7 @@ function App() {
     problemLogs,
     slowTraces,
     stats,
+    t,
     tokenPressure,
     traceSummary.agentContext,
     traces.length,
@@ -3502,66 +3534,66 @@ function App() {
         document.execCommand('copy');
         document.body.removeChild(textarea);
       }
-      setCopiedNotice(`Copied ${label}`);
+      setCopiedNotice(t('common.notice.copied', { label }));
       window.setTimeout(() => setCopiedNotice(''), 1800);
     } catch (error) {
-      setCopiedNotice(`Copy failed: ${error instanceof Error ? error.message : String(error)}`);
+      setCopiedNotice(t('common.notice.copyFailed', { message: error instanceof Error ? error.message : String(error) }));
       window.setTimeout(() => setCopiedNotice(''), 2400);
     }
-  }, []);
+  }, [t]);
 
   const openConfigLocation = useCallback((target: IdeTarget, configPath: string) => {
     const href = configPathFileUrl(configPath);
     if (href) {
       window.open(href, '_blank', 'noopener,noreferrer');
-      setCopiedNotice(`Opened ${target.label} config path`);
+      setCopiedNotice(t('common.notice.openedConfigPath', { label: target.label }));
       window.setTimeout(() => setCopiedNotice(''), 1800);
       return;
     }
     void copyText(configPath, `${target.label} config path`);
-  }, [copyText]);
+  }, [copyText, t]);
 
   const copyIssueReport = useCallback(async (requestId: string) => {
     try {
       const text = await issueReportJsonText(requestId);
       await copyText(text, 'issue report JSON');
     } catch (error) {
-      setCopiedNotice(`Issue report export failed: ${error instanceof Error ? error.message : String(error)}`);
+      setCopiedNotice(t('common.notice.issueReportFailed', { message: error instanceof Error ? error.message : String(error) }));
       window.setTimeout(() => setCopiedNotice(''), 2400);
     }
-  }, [copyText]);
+  }, [copyText, t]);
 
   const downloadIssueReport = useCallback(async (requestId: string) => {
     try {
       const text = await issueReportJsonText(requestId);
       downloadJsonText(issueReportFilename(requestId), text);
-      setCopiedNotice(`Downloaded issue report JSON`);
+      setCopiedNotice(t('common.notice.downloadedIssueReport'));
       window.setTimeout(() => setCopiedNotice(''), 1800);
     } catch (error) {
-      setCopiedNotice(`Issue report export failed: ${error instanceof Error ? error.message : String(error)}`);
+      setCopiedNotice(t('common.notice.issueReportFailed', { message: error instanceof Error ? error.message : String(error) }));
       window.setTimeout(() => setCopiedNotice(''), 2400);
     }
-  }, []);
+  }, [t]);
 
   const fetchActivity = useCallback(async () => {
     try {
       const payload = await apiJson<{ events: ActivityEvent[] }>('/activity?limit=300');
       setActivity(Array.isArray(payload.events) ? payload.events : []);
-      markUpdated('activity', `${payload.events?.length ?? 0} event(s) — ${new Date().toLocaleTimeString()}`);
+      markUpdated('activity', t('common.updated.events', { count: payload.events?.length ?? 0, time: new Date().toLocaleTimeString() }));
     } catch (error) {
       markError('activity', error);
     }
-  }, [markError, markUpdated]);
+  }, [markError, markUpdated, t]);
 
   const fetchHealth = useCallback(async () => {
     try {
       const payload = await apiJson<HealthPayload>('/health');
       setHealth(payload);
-      markUpdated('health', `Last updated: ${new Date().toLocaleTimeString()}`);
+      markUpdated('health', t('common.updated.lastUpdated', { time: new Date().toLocaleTimeString() }));
     } catch (error) {
       markError('health', error);
     }
-  }, [markError, markUpdated]);
+  }, [markError, markUpdated, t]);
 
   const fetchInstanceBackends = useCallback(async () => {
     try {
@@ -3570,22 +3602,22 @@ function App() {
       setWorkerSummary(payload.summary);
       markUpdated(
         'instances',
-        `${payload.workers.length} instance(s) (live ${payload.summary.live}, stale ${payload.summary.stale}, unhealthy ${payload.summary.unhealthy}) — ${new Date().toLocaleTimeString()}`,
+        t('common.updated.instances', { count: payload.workers.length, live: payload.summary.live, stale: payload.summary.stale, unhealthy: payload.summary.unhealthy, time: new Date().toLocaleTimeString() }),
       );
     } catch (error) {
       markError('instances', error);
     }
-  }, [markError, markUpdated]);
+  }, [markError, markUpdated, t]);
 
   const fetchTools = useCallback(async () => {
     try {
       const payload = await apiJson<{ tools: ToolRow[] }>('/tools');
       setTools(payload.tools);
-      markUpdated('tools', `${payload.tools.length} tool(s) — ${new Date().toLocaleTimeString()}`);
+      markUpdated('tools', t('common.updated.tools', { count: payload.tools.length, time: new Date().toLocaleTimeString() }));
     } catch (error) {
       markError('tools', error);
     }
-  }, [markError, markUpdated]);
+  }, [markError, markUpdated, t]);
 
   const fetchOpenApi = useCallback(async () => {
     try {
@@ -3593,96 +3625,96 @@ function App() {
       const operations = flattenOpenApiOperations(spec);
       setOpenApiSpec(spec);
       setOpenApiRaw(raw);
-      markUpdated('openapi', `${openApiSource.label}: ${operations.length} operation(s) — ${new Date().toLocaleTimeString()}`);
+      markUpdated('openapi', t('common.updated.operations', { label: openApiSource.label, count: operations.length, time: new Date().toLocaleTimeString() }));
     } catch (error) {
       markError('openapi', error);
     }
-  }, [markError, markUpdated, openApiSource]);
+  }, [markError, markUpdated, openApiSource, t]);
 
   const fetchCalls = useCallback(async () => {
     try {
       const payload = await apiJson<{ calls: CallRow[] }>('/calls');
       const rows = Array.isArray(payload.calls) ? payload.calls : [];
       setCalls(rows);
-      markUpdated('calls', `${rows.length} call(s) — ${new Date().toLocaleTimeString()}`);
+      markUpdated('calls', t('common.updated.calls', { count: rows.length, time: new Date().toLocaleTimeString() }));
     } catch (error) {
       markError('calls', error);
     }
-  }, [markError, markUpdated]);
+  }, [markError, markUpdated, t]);
 
   const fetchTraces = useCallback(async () => {
     try {
       const payload = await apiJson<{ traces: TraceRow[] }>('/traces?limit=200');
       const rows = Array.isArray(payload.traces) ? payload.traces : [];
       setTraces(rows);
-      markUpdated('traces', `${rows.length} trace(s) — ${new Date().toLocaleTimeString()}`);
+      markUpdated('traces', t('common.updated.traces', { count: rows.length, time: new Date().toLocaleTimeString() }));
     } catch (error) {
       markError('traces', error);
     }
-  }, [markError, markUpdated]);
+  }, [markError, markUpdated, t]);
 
   const fetchTraffic = useCallback(async () => {
     try {
       const payload = await apiJson<TrafficPayload>('/traffic?limit=300');
       const rows = Array.isArray(payload.frames) ? payload.frames : [];
       setTraffic({ ...payload, frames: rows });
-      markUpdated('traffic', `${rows.length} frame(s) — ${new Date().toLocaleTimeString()}`);
+      markUpdated('traffic', t('common.updated.frames', { count: rows.length, time: new Date().toLocaleTimeString() }));
     } catch (error) {
       markError('traffic', error);
     }
-  }, [markError, markUpdated]);
+  }, [markError, markUpdated, t]);
 
   const fetchTasks = useCallback(async () => {
     try {
       const payload = await apiJson<{ tasks: TaskRow[] }>('/tasks?limit=300');
       setTasks(Array.isArray(payload.tasks) ? payload.tasks : []);
-      markUpdated('tasks', `${payload.tasks?.length ?? 0} task(s) — ${new Date().toLocaleTimeString()}`);
+      markUpdated('tasks', t('common.updated.tasks', { count: payload.tasks?.length ?? 0, time: new Date().toLocaleTimeString() }));
     } catch (error) {
       markError('tasks', error);
     }
-  }, [markError, markUpdated]);
+  }, [markError, markUpdated, t]);
 
   const fetchWorkflows = useCallback(async () => {
     try {
       const payload = await apiJson<{ workflows: WorkflowRow[] }>('/workflows?limit=200');
       const rows = Array.isArray(payload.workflows) ? payload.workflows : [];
       setWorkflows(rows);
-      markUpdated('workflows', `${rows.length} workflow(s) — ${new Date().toLocaleTimeString()}`);
+      markUpdated('workflows', t('common.updated.workflows', { count: rows.length, time: new Date().toLocaleTimeString() }));
     } catch (error) {
       markError('workflows', error);
     }
-  }, [markError, markUpdated]);
+  }, [markError, markUpdated, t]);
 
   const fetchStats = useCallback(async () => {
     try {
       const payload = await apiJson<StatsPayload>(`/stats?range=${encodeURIComponent(statsRange)}`);
       setStats(payload);
-      markUpdated('stats', `Range ${payload.range} — ${new Date().toLocaleTimeString()}`);
+      markUpdated('stats', t('common.updated.range', { range: payload.range, time: new Date().toLocaleTimeString() }));
     } catch (error) {
       markError('stats', error);
     }
-  }, [markError, markUpdated, statsRange]);
+  }, [markError, markUpdated, statsRange, t]);
 
   const fetchGovernance = useCallback(async () => {
     try {
       const payload = await apiJson<GovernancePayload>('/governance?limit=300');
       setGovernance(payload);
-      markUpdated('governance', `${payload.recent_decisions?.length ?? 0} decision(s) — ${new Date().toLocaleTimeString()}`);
+      markUpdated('governance', t('common.updated.decisions', { count: payload.recent_decisions?.length ?? 0, time: new Date().toLocaleTimeString() }));
     } catch (error) {
       markError('governance', error);
     }
-  }, [markError, markUpdated]);
+  }, [markError, markUpdated, t]);
 
   const fetchLogs = useCallback(async () => {
     try {
       const payload = await apiJson<{ logs?: unknown[] }>('/logs');
       const raw = Array.isArray(payload.logs) ? payload.logs : [];
       setLogs(raw.map(normalizeLogRow));
-      markUpdated('logs', `${raw.length} event(s) — ${new Date().toLocaleTimeString()}`);
+      markUpdated('logs', t('common.updated.events', { count: raw.length, time: new Date().toLocaleTimeString() }));
     } catch (error) {
       markError('logs', error);
     }
-  }, [markError, markUpdated]);
+  }, [markError, markUpdated, t]);
 
   const fetchSkillPaths = useCallback(async () => {
     try {
@@ -3690,12 +3722,12 @@ function App() {
       setSkillPaths(Array.isArray(payload.paths) ? payload.paths : []);
       markUpdated(
         'skill-paths',
-        `${payload.paths?.length ?? 0} path(s) — ${new Date().toLocaleTimeString()}`,
+        t('common.updated.paths', { count: payload.paths?.length ?? 0, time: new Date().toLocaleTimeString() }),
       );
     } catch (error) {
       markError('skill-paths', error);
     }
-  }, [markError, markUpdated]);
+  }, [markError, markUpdated, t]);
 
   const fetchSkills = useCallback(async () => {
     try {
@@ -3710,12 +3742,12 @@ function App() {
       });
       markUpdated(
         'skill-paths',
-        `${payload.loaded ?? rows.filter((skill) => skill.loaded).length} loaded skill(s), ${payload.action_count ?? rows.reduce((sum, skill) => sum + skill.action_count, 0)} action(s) — ${new Date().toLocaleTimeString()}`,
+        t('common.updated.skillInventory', { loaded: payload.loaded ?? rows.filter((skill) => skill.loaded).length, actions: payload.action_count ?? rows.reduce((sum, skill) => sum + skill.action_count, 0), time: new Date().toLocaleTimeString() }),
       );
     } catch (error) {
       markError('skill-paths', error);
     }
-  }, [markError, markUpdated]);
+  }, [markError, markUpdated, t]);
 
   const fetchSkillDetail = useCallback(async (skill: SkillRow) => {
     setSelectedSkill(skill);
@@ -3732,7 +3764,7 @@ function App() {
       }
       const payload = await apiJson<SkillDetailPayload>(`/skill-detail?${params.toString()}`);
       setSkillDetail(normalizeSkillDetailPayload(payload));
-      markUpdated('skill-paths', `Skill ${skill.name} detail loaded — ${new Date().toLocaleTimeString()}`);
+      markUpdated('skill-paths', t('common.updated.skillDetail', { name: skill.name, time: new Date().toLocaleTimeString() }));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setSkillDetail({ skill: null, instances: [], error: message });
@@ -3740,7 +3772,7 @@ function App() {
     } finally {
       setSkillDetailBusy(false);
     }
-  }, [markError, markUpdated]);
+  }, [markError, markUpdated, t]);
 
   const fetchSkillInventory = useCallback(async () => {
     await Promise.allSettled([fetchSkillPaths(), fetchSkills()]);
@@ -3748,8 +3780,8 @@ function App() {
 
   const fetchSetup = useCallback(async () => {
     await Promise.allSettled([fetchHealth(), fetchInstanceBackends()]);
-    markUpdated('setup', `Gateway target refreshed — ${new Date().toLocaleTimeString()}`);
-  }, [fetchHealth, fetchInstanceBackends, markUpdated]);
+    markUpdated('setup', t('common.updated.gatewayTarget', { time: new Date().toLocaleTimeString() }));
+  }, [fetchHealth, fetchInstanceBackends, markUpdated, t]);
 
   const fetchDebug = useCallback(async () => {
     await Promise.allSettled([
@@ -3763,8 +3795,8 @@ function App() {
       fetchGovernance(),
       fetchLogs(),
     ]);
-    markUpdated('debug', `Debug snapshot — ${new Date().toLocaleTimeString()}`);
-  }, [fetchActivity, fetchCalls, fetchGovernance, fetchHealth, fetchInstanceBackends, fetchLogs, fetchStats, fetchTraces, fetchTraffic, markUpdated]);
+    markUpdated('debug', t('common.updated.debugSnapshot', { time: new Date().toLocaleTimeString() }));
+  }, [fetchActivity, fetchCalls, fetchGovernance, fetchHealth, fetchInstanceBackends, fetchLogs, fetchStats, fetchTraces, fetchTraffic, markUpdated, t]);
 
   const addSkillPath = useCallback(async () => {
     const path = skillPathInput.trim();
@@ -3973,7 +4005,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <nav className="side-rail" aria-label="Admin navigation">
+      <nav className="side-rail" aria-label={t('common.aria.adminNavigation')}>
         <div className="brand-lockup">
           <div className="brand-accent" aria-hidden="true" />
           <div className="brand-text">
@@ -4039,10 +4071,10 @@ function App() {
                 {activePanel === 'traces' ? `${filteredTraces.length} / ${traces.length}` : ''}
                 {activePanel === 'traffic' ? `${filteredTrafficFrames.length} / ${trafficFrames.length}` : ''}
                 {activePanel === 'governance' ? `${filteredGovernanceDecisions.length} / ${governance?.recent_decisions?.length ?? 0}` : ''}
-                {activePanel === 'skill-paths' ? `${filteredSkills.length} skill(s), ${filteredSkillPaths.length} path(s)` : ''}
+                {activePanel === 'skill-paths' ? t('search.meta.skillsPaths', { skills: filteredSkills.length, paths: filteredSkillPaths.length }) : ''}
                 {activePanel === 'logs' ? `${filteredLogs.length} / ${logs.length}` : ''}
-                {activePanel === 'stats' ? `charts: ${filteredTopAppTypes.length} app types / ${filteredTopTools.length} tools / ${filteredTopInstances.length} instances / ${filteredTopAgents.length} agents / ${filteredTokenByFormat.length} formats` : ''}
-                {activePanel === 'governance' ? `${governanceSummary.denied} denied / ${governanceSummary.throttled} throttled` : ''}
+                {activePanel === 'stats' ? t('search.meta.statsCharts', { apps: filteredTopAppTypes.length, tools: filteredTopTools.length, instances: filteredTopInstances.length, agents: filteredTopAgents.length, formats: filteredTokenByFormat.length }) : ''}
+                {activePanel === 'governance' ? t('search.meta.governancePressure', { denied: governanceSummary.denied, throttled: governanceSummary.throttled }) : ''}
               </span>
             ) : null}
           </div>
@@ -4056,14 +4088,14 @@ function App() {
             />
             <StatusLine text={copiedNotice || updatedAt.setup} error={errors.setup} />
             <div className="setup-controls">
-              <div className="setup-mode-group" role="group" aria-label="MCP endpoint">
+              <div className="setup-mode-group" role="group" aria-label={t('setup.aria.endpoint')}>
                 <button
                   className={setupUrlMode === 'local' ? 'setup-mode active' : 'setup-mode'}
                   type="button"
                   aria-pressed={setupUrlMode === 'local'}
                   onClick={() => setSetupUrlMode('local')}
                 >
-                  Local
+                  {t('setup.mode.local')}
                 </button>
                 <button
                   className={setupUrlMode === 'lan' ? 'setup-mode active' : 'setup-mode'}
@@ -4072,7 +4104,7 @@ function App() {
                   disabled={!lanUrl}
                   onClick={() => lanUrl && setSetupUrlMode('lan')}
                 >
-                  LAN
+                  {t('setup.mode.lan')}
                 </button>
                 <button
                   className={setupUrlMode === 'direct' ? 'setup-mode active' : 'setup-mode'}
@@ -4081,14 +4113,14 @@ function App() {
                   disabled={directSetupWorkers.length === 0}
                   onClick={() => directSetupWorkers.length > 0 && setSetupUrlMode('direct')}
                 >
-                  Direct
+                  {t('setup.mode.direct')}
                 </button>
               </div>
               <div className="setup-url-box">
-                <span>URL</span>
+                <span>{t('setup.label.url')}</span>
                 <code>{setupMcpUrl}</code>
                 <button className="copy-btn" type="button" onClick={() => copyText(setupMcpUrl, 'MCP URL')}>
-                  Copy
+                  {t('common.action.copy')}
                 </button>
               </div>
               {setupUrlMode === 'direct' ? (
@@ -4140,26 +4172,26 @@ function App() {
           <section className="panel active debug-panel">
             <div className="debug-hero">
               <div>
-                <h2>Debug Workbench</h2>
+                <h2>{t('debug.title.workbench')}</h2>
                 <StatusLine text={updatedAt.debug} error={errors.debug} />
               </div>
               <div className="debug-pulse">
                 <span className={debugIssues > 0 ? 'pulse-dot warn' : 'pulse-dot ok'} />
-                {debugIssues > 0 ? `${debugIssues} signals need attention` : 'No active warning signals'}
+                {debugIssues > 0 ? t('debug.status.attention', { count: debugIssues }) : t('debug.status.clean')}
               </div>
             </div>
             <div className="debug-grid">
-              <HealthCard tone={health?.status === 'ok' ? 'ok' : 'warn'} label="Gateway" value={gatewayLabel(health)} />
-              <HealthCard tone={unhealthyWorkers.length ? 'warn' : 'ok'} label="Instances" value={`${workerSummary.live} live / ${unhealthyWorkers.length} flagged`} />
-              <HealthCard tone={errorRateTone(stats)} label="Success" value={stats ? `${stats.success_rate.toFixed(1)}%` : '?'} />
-              <HealthCard tone={latencyTone(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} label="p95 latency" value={stats?.latency_ms?.p95_ms ?? stats?.p95_ms ?? '-'} />
-              <HealthCard label="Tokens / call" value={formatTokenCount(tokenPressure.avg)} />
+              <HealthCard tone={health?.status === 'ok' ? 'ok' : 'warn'} label={t('debug.metric.gateway')} value={gatewayLabel(health)} />
+              <HealthCard tone={unhealthyWorkers.length ? 'warn' : 'ok'} label={t('debug.metric.instances')} value={t('debug.detail.liveFlagged', { live: workerSummary.live, flagged: unhealthyWorkers.length })} />
+              <HealthCard tone={errorRateTone(stats)} label={t('debug.metric.success')} value={stats ? `${stats.success_rate.toFixed(1)}%` : '?'} />
+              <HealthCard tone={latencyTone(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} label={t('debug.metric.latency')} value={stats?.latency_ms?.p95_ms ?? stats?.p95_ms ?? '-'} />
+              <HealthCard label={t('debug.metric.tokensPerCall')} value={formatTokenCount(tokenPressure.avg)} />
             </div>
             <div className="debug-map">
               <div className="debug-card debug-wide">
                 <div className="debug-card-head">
-                  <h3>Agent Triage</h3>
-                  <button className="linkish" type="button" onClick={() => goToPanel('traces')}>Open evidence</button>
+                  <h3>{t('debug.section.agentTriage')}</h3>
+                  <button className="linkish" type="button" onClick={() => goToPanel('traces')}>{t('debug.action.openEvidence')}</button>
                 </div>
                 <div className="debug-signal-list">
                   {debugSignals.map((signal) => (
@@ -4179,10 +4211,10 @@ function App() {
 
               <div className="debug-card debug-wide">
                 <div className="debug-card-head">
-                  <h3>Traffic Shape</h3>
-                  <button className="linkish" type="button" onClick={() => goToPanel('stats')}>Open stats</button>
+                  <h3>{t('debug.section.trafficShape')}</h3>
+                  <button className="linkish" type="button" onClick={() => goToPanel('stats')}>{t('debug.action.openStats')}</button>
                 </div>
-                <MiniSparkline buckets={stats?.hourly_distribution ?? []} />
+                <MiniSparkline buckets={stats?.hourly_distribution ?? []} t={t} />
                 <div className="debug-metrics">
                   <span>{stats?.total_calls ?? 0} calls</span>
                   <span>{stats?.latency_ms?.p50_ms ?? stats?.p50_ms ?? '-'} ms p50</span>
@@ -4193,17 +4225,17 @@ function App() {
 
               <div className="debug-card">
                 <div className="debug-card-head">
-                  <h3>Token Pressure</h3>
-                  <button className="linkish" type="button" onClick={() => goToPanel('stats')}>Open stats</button>
+                  <h3>{t('debug.section.tokenPressure')}</h3>
+                  <button className="linkish" type="button" onClick={() => goToPanel('stats')}>{t('debug.action.openStats')}</button>
                 </div>
                 <div className="debug-metrics">
                   <span>{formatTokenCount(tokenPressure.total)} total</span>
                   <span>{formatTokenCount(tokenPressure.input)} in</span>
                   <span>{formatTokenCount(tokenPressure.output)} out</span>
-                  <span>{formatTokenCount(tokenPressure.saved)} saved</span>
+                  <span>{t('debug.detail.saved', { value: formatTokenCount(tokenPressure.saved) })}</span>
                   <span>{tokenPressure.estimator}</span>
                 </div>
-                {tokenHeavyTraces.length === 0 ? <p className="empty">No payload token estimates in the retained traces.</p> : tokenHeavyTraces.map((trace) => (
+                {tokenHeavyTraces.length === 0 ? <p className="empty">{t('debug.empty.tokenPressure')}</p> : tokenHeavyTraces.map((trace) => (
                   <button key={trace.request_id} className="debug-row" type="button" onClick={() => goToPanel('traces', { traceId: trace.request_id })}>
                     <span>{formatTokenCount(totalTraceTokens(trace))} tok</span>
                     <span>{compactId(trace.request_id)}</span>
@@ -4214,10 +4246,10 @@ function App() {
 
               <div className="debug-card">
                 <div className="debug-card-head">
-                  <h3>Failures</h3>
-                  <button className="linkish" type="button" onClick={() => goToPanel('calls')}>Open calls</button>
+                  <h3>{t('debug.section.failures')}</h3>
+                  <button className="linkish" type="button" onClick={() => goToPanel('calls')}>{t('debug.action.openCalls')}</button>
                 </div>
-                {failureSignals.length === 0 ? <p className="empty">No failed calls or traces in the retained window.</p> : failureSignals.map((failure) => (
+                {failureSignals.length === 0 ? <p className="empty">{t('debug.empty.failures')}</p> : failureSignals.map((failure) => (
                   <button key={failure.request_id} className="debug-row" type="button" onClick={() => goToPanel('traces', { traceId: failure.request_id })}>
                     <span><StatusBadge value={failure.status} /></span>
                     <span>{compactId(failure.request_id)}</span>
@@ -4228,10 +4260,10 @@ function App() {
 
               <div className="debug-card">
                 <div className="debug-card-head">
-                  <h3>Slowest Traces</h3>
-                  <button className="linkish" type="button" onClick={() => goToPanel('traces')}>Open traces</button>
+                  <h3>{t('debug.section.slowestTraces')}</h3>
+                  <button className="linkish" type="button" onClick={() => goToPanel('traces')}>{t('debug.action.openTraces')}</button>
                 </div>
-                {slowTraces.length === 0 ? <p className="empty">No latency samples yet.</p> : slowTraces.map((trace) => (
+                {slowTraces.length === 0 ? <p className="empty">{t('debug.empty.latency')}</p> : slowTraces.map((trace) => (
                   <button key={trace.request_id} className="debug-row" type="button" onClick={() => goToPanel('traces', { traceId: trace.request_id })}>
                     <span>{trace.total_ms ?? '-'} ms</span>
                     <span>{compactId(trace.request_id)}</span>
@@ -4242,10 +4274,10 @@ function App() {
 
               <div className="debug-card">
                 <div className="debug-card-head">
-                  <h3>Instance Signals</h3>
-                  <button className="linkish" type="button" onClick={() => goToPanel('instances')}>Open instances</button>
+                  <h3>{t('debug.section.instanceSignals')}</h3>
+                  <button className="linkish" type="button" onClick={() => goToPanel('instances')}>{t('debug.action.openInstances')}</button>
                 </div>
-                {unhealthyWorkers.length === 0 ? <p className="empty">All retained instances look healthy.</p> : unhealthyWorkers.slice(0, 8).map((worker) => (
+                {unhealthyWorkers.length === 0 ? <p className="empty">{t('debug.empty.instances')}</p> : unhealthyWorkers.slice(0, 8).map((worker) => (
                   <div key={worker.instance_id} className="debug-row static">
                     <span><StatusBadge value={worker.stale ? 'stale' : worker.status} /></span>
                     <span>{worker.dcc_type}</span>
@@ -4258,10 +4290,10 @@ function App() {
 
               <div className="debug-card debug-wide">
                 <div className="debug-card-head">
-                  <h3>OpenAPI Entry Points</h3>
-                  <button className="linkish" type="button" onClick={() => goToPanel('openapi')}>Gateway spec</button>
+                  <h3>{t('debug.section.openapiEntryPoints')}</h3>
+                  <button className="linkish" type="button" onClick={() => goToPanel('openapi')}>{t('debug.action.gatewaySpec')}</button>
                 </div>
-                {workers.length === 0 ? <p className="empty">No instance OpenAPI endpoints available yet.</p> : (
+                {workers.length === 0 ? <p className="empty">{t('debug.empty.openapi')}</p> : (
                   Array.from(groupRows(workers.slice(0, 8), workerGroupLabel).entries())
                     .sort(([a], [b]) => a.localeCompare(b))
                     .map(([group, groupWorkers]) => (
@@ -4283,8 +4315,8 @@ function App() {
 
               <div className="debug-card">
                 <div className="debug-card-head">
-                  <h3>Event Warnings</h3>
-                  <button className="linkish" type="button" onClick={() => goToPanel('logs')}>Open logs</button>
+                  <h3>{t('debug.section.eventWarnings')}</h3>
+                  <button className="linkish" type="button" onClick={() => goToPanel('logs')}>{t('debug.action.openLogs')}</button>
                 </div>
                 {[...problemLogs, ...problemActivity.map((event) => ({
                   timestamp: event.timestamp,
@@ -4305,21 +4337,21 @@ function App() {
                     <span title={row.message}>{row.message}</span>
                   </button>
                 ))}
-                {problemLogs.length === 0 && problemActivity.length === 0 ? <p className="empty">No warning events in the retained window.</p> : null}
+                {problemLogs.length === 0 && problemActivity.length === 0 ? <p className="empty">{t('debug.empty.events')}</p> : null}
               </div>
             </div>
-            <button className="refresh-btn" type="button" onClick={fetchDebug}>Refresh snapshot</button>
+            <button className="refresh-btn" type="button" onClick={fetchDebug}>{t('debug.action.refreshSnapshot')}</button>
           </section>
         )}
         {activePanel === 'activity' && (
           <section className="panel active activity-panel">
-            <h2>Activity</h2>
+            <h2>{t('activity.title')}</h2>
             <StatusLine text={updatedAt.activity} error={errors.activity} />
-            {activity.length === 0 ? <p className="empty">No activity recorded yet.</p> : filteredActivity.length === 0 ? (
-              <p className="empty">No activity events match your search.</p>
+            {activity.length === 0 ? <p className="empty">{t('activity.empty.none')}</p> : filteredActivity.length === 0 ? (
+              <p className="empty">{t('activity.empty.search')}</p>
             ) : (
               <table>
-                <thead><tr><th>Time</th><th>Status</th><th>Kind</th><th>Message</th><th>DCC</th><th>Request</th><th>ms</th></tr></thead>
+                <thead><tr><th>{t('common.table.time')}</th><th>{t('common.table.status')}</th><th>{t('common.table.kind')}</th><th>{t('common.table.message')}</th><th>{t('common.table.dcc')}</th><th>{t('common.table.request')}</th><th>{t('common.table.ms')}</th></tr></thead>
                 <tbody>
                   {filteredActivity.map((event) => {
                     const requestId = event.correlation?.request_id;
@@ -4346,58 +4378,58 @@ function App() {
                 </tbody>
               </table>
             )}
-            <button className="refresh-btn" type="button" onClick={fetchActivity}>Refresh</button>
+            <button className="refresh-btn" type="button" onClick={fetchActivity}>{t('common.action.refresh')}</button>
           </section>
         )}
 
         {activePanel === 'health' && (
           <section className="panel active health-panel">
-            <h2>Health</h2>
+            <h2>{t('health.title')}</h2>
             <StatusLine text={updatedAt.health} error={errors.health} />
             <div className="health-grid">
-              <HealthCard tone={health?.status === 'ok' ? 'ok' : 'warn'} label="Status" value={health?.status ?? '?'} />
-              <HealthCard label="Uptime" value={formatUptime(health?.uptime_secs)} />
-              <HealthCard tone={health && health.instances_ready > 0 ? 'ok' : 'warn'} label="Ready" value={`${health?.instances_ready ?? 0} / ${health?.instances_total ?? 0}`} />
-              <HealthCard label="Version" value={health?.version ?? '?'} />
-              <HealthCard label="Gateway owner" value={gatewayLabel(health)} />
-              <HealthCard label="Gateway candidates" value={String(health?.gateway?.candidates?.length ?? 0)} />
+              <HealthCard tone={health?.status === 'ok' ? 'ok' : 'warn'} label={t('health.metric.status')} value={health?.status ?? '?'} />
+              <HealthCard label={t('health.metric.uptime')} value={formatUptime(health?.uptime_secs)} />
+              <HealthCard tone={health && health.instances_ready > 0 ? 'ok' : 'warn'} label={t('health.metric.ready')} value={`${health?.instances_ready ?? 0} / ${health?.instances_total ?? 0}`} />
+              <HealthCard label={t('health.metric.version')} value={health?.version ?? '?'} />
+              <HealthCard label={t('health.metric.gatewayOwner')} value={gatewayLabel(health)} />
+              <HealthCard label={t('health.metric.gatewayCandidates')} value={String(health?.gateway?.candidates?.length ?? 0)} />
               <HealthCard
-                label="Response format"
+                label={t('health.metric.responseFormat')}
                 value={`${health?.response_format?.default ?? 'toon'} / ${health?.response_format?.token_estimator ?? '-'}`}
               />
-              <HealthCard label="RSS" value={formatBytes(health?.rss_bytes ?? undefined)} />
-              <HealthCard label="Body limit" value={health?.limits ? formatBytes(health.limits.body_max_bytes) : '?'} />
+              <HealthCard label={t('health.metric.rss')} value={formatBytes(health?.rss_bytes ?? undefined)} />
+              <HealthCard label={t('health.metric.bodyLimit')} value={health?.limits ? formatBytes(health.limits.body_max_bytes) : '?'} />
               <HealthCard
-                label="Rate / min·IP"
+                label={t('health.metric.rateLimit')}
                 value={health?.limits ? (health.limits.rate_limit_per_minute_per_ip === 0 ? 'off' : String(health.limits.rate_limit_per_minute_per_ip)) : '?'}
               />
               <HealthCard
-                label="XFF trusted depth"
+                label={t('health.metric.xffTrustedDepth')}
                 value={health?.limits ? String(health.limits.xff_trusted_depth) : '?'}
               />
-              <HealthCard label="Read retries (max)" value={health?.limits ? String(health.limits.read_retry_max) : '?'} />
-              <HealthCard label="Circuit limit / open" value={health?.limits ? `${health.limits.circuit_failure_threshold} / ${health.limits.circuit_open_secs}s` : '?'} />
+              <HealthCard label={t('health.metric.readRetries')} value={health?.limits ? String(health.limits.read_retry_max) : '?'} />
+              <HealthCard label={t('health.metric.circuitLimit')} value={health?.limits ? `${health.limits.circuit_failure_threshold} / ${health.limits.circuit_open_secs}s` : '?'} />
               <HealthCard
                 tone={health?.circuits && health.circuits.circuits_open > 0 ? 'warn' : undefined}
-                label="Circuits open / tracked"
+                label={t('health.metric.circuitsOpenTracked')}
                 value={health?.circuits ? `${health.circuits.circuits_open} / ${health.circuits.tracked_backends}` : '?'}
               />
             </div>
-            <button className="refresh-btn" type="button" onClick={fetchHealth}>Refresh</button>
+            <button className="refresh-btn" type="button" onClick={fetchHealth}>{t('common.action.refresh')}</button>
           </section>
         )}
 
         {activePanel === 'instances' && (
           <section className="panel active instances-panel">
-            <h2>Instances</h2>
+            <h2>{t('instances.title')}</h2>
             <p className="empty log-hint">
-              One row per registered DCC backend (same data as the former Workers tab). Use the links to open the adapter HTTP host, MCP streamable endpoint, or <code>/docs</code> when the host exposes it.
+              {t('instances.description')}
             </p>
             <StatusLine text={updatedAt.instances} error={errors.instances} />
             {workers.length === 0 ? (
-              <p className="empty">No instances registered.</p>
+              <p className="empty">{t('instances.empty.none')}</p>
             ) : filteredWorkers.length === 0 ? (
-              <p className="empty">No instances match your search.</p>
+              <p className="empty">{t('instances.empty.search')}</p>
             ) : (
               <div className="worker-groups">
                 {Array.from(groupRows(filteredWorkers, workerGroupLabel).entries())
@@ -4408,7 +4440,7 @@ function App() {
                       <div key={group} className="worker-group">
                         <div className="worker-group-head">
                           <h3>{group}</h3>
-                          <span>{groupWorkers.length} instance(s) · {flagged} flagged</span>
+                          <span>{t('instances.group.meta', { count: groupWorkers.length, flagged })}</span>
                         </div>
                         <div className="workers-grid">
                           {groupWorkers.map((worker) => (
@@ -4445,25 +4477,25 @@ function App() {
               </div>
             )}
             <div className="status-bar">Summary: live {workerSummary.live}, stale {workerSummary.stale}, unhealthy {workerSummary.unhealthy}</div>
-            <button className="refresh-btn" type="button" onClick={fetchInstanceBackends}>Refresh</button>
+            <button className="refresh-btn" type="button" onClick={fetchInstanceBackends}>{t('common.action.refresh')}</button>
           </section>
         )}
 
         {activePanel === 'tools' && (
           <section className="panel active tools-panel">
-            <h2>Tools</h2>
+            <h2>{t('tools.title')}</h2>
             <StatusLine text={updatedAt.tools} error={errors.tools} />
-            {tools.length === 0 ? <p className="empty">No tools registered.</p> : filteredTools.length === 0 ? (
-              <p className="empty">No tools match your search.</p>
+            {tools.length === 0 ? <p className="empty">{t('tools.empty.none')}</p> : filteredTools.length === 0 ? (
+              <p className="empty">{t('tools.empty.search')}</p>
             ) : (
               Array.from(groupRows(filteredTools, toolGroupLabel).entries())
               .sort(([a], [b]) => a.localeCompare(b))
               .map(([group, groupTools]) => (
                 <div key={group} className="group-block">
                   <h3 className="group-title">{group}</h3>
-                  <p className="group-meta">{groupTools.length} tool(s)</p>
+                  <p className="group-meta">{t('tools.group.toolCount', { count: groupTools.length })}</p>
                   <table>
-                    <thead><tr><th>Slug</th><th>App type</th><th>Instance</th><th>Summary</th></tr></thead>
+                    <thead><tr><th>{t('tools.table.slug')}</th><th>{t('common.table.appType')}</th><th>{t('common.table.instance')}</th><th>{t('common.table.summary')}</th></tr></thead>
                     <tbody>
                       {groupTools.map((tool) => (
                         <tr key={tool.slug}>
@@ -4477,29 +4509,29 @@ function App() {
                   </table>
                 </div>
               )))}
-            <button className="refresh-btn" type="button" onClick={fetchTools}>Refresh</button>
+            <button className="refresh-btn" type="button" onClick={fetchTools}>{t('common.action.refresh')}</button>
           </section>
         )}
 
         {activePanel === 'openapi' && (
           <section className="panel active openapi-panel" data-panel="openapi">
             <PanelHeader
-              title="OpenAPI Inspector"
-              meta="Gateway REST contract behind the MCP tool surface."
+              title={t('openapi.title')}
+              meta={t('openapi.meta')}
               action={(
                 <>
-                  <a className="refresh-btn" href={openApiSource.docsUrl} target="_blank" rel="noopener noreferrer">Open Reference</a>
-                  <a className="refresh-btn" href={openApiSource.specUrl} target="_blank" rel="noopener noreferrer">Spec JSON</a>
-                  <button className="refresh-btn" type="button" disabled={!openApiRaw} onClick={() => void copyText(openApiRaw, 'OpenAPI spec JSON')}>Copy JSON</button>
+                  <a className="refresh-btn" href={openApiSource.docsUrl} target="_blank" rel="noopener noreferrer">{t('openapi.action.openReference')}</a>
+                  <a className="refresh-btn" href={openApiSource.specUrl} target="_blank" rel="noopener noreferrer">{t('openapi.action.specJson')}</a>
+                  <button className="refresh-btn" type="button" disabled={!openApiRaw} onClick={() => void copyText(openApiRaw, 'OpenAPI spec JSON')}>{t('openapi.action.copyJson')}</button>
                   <button className="refresh-btn" type="button" disabled={!openApiRaw} onClick={() => {
                     downloadJsonText(openApiSpecFilename(openApiSource.label), openApiRaw);
-                    setCopiedNotice('Downloaded OpenAPI spec JSON');
+                    setCopiedNotice(t('openapi.notice.downloadedSpec'));
                     window.setTimeout(() => setCopiedNotice(''), 1800);
-                  }}>Download JSON</button>
+                  }}>{t('openapi.action.downloadJson')}</button>
                   {openApiSource.kind === 'instance' ? (
-                    <button className="refresh-btn" type="button" onClick={() => goToPanel('openapi', { replace: true })}>Gateway spec</button>
+                    <button className="refresh-btn" type="button" onClick={() => goToPanel('openapi', { replace: true })}>{t('openapi.action.gatewaySpec')}</button>
                   ) : null}
-                  <button className="refresh-btn" type="button" onClick={fetchOpenApi}>Refresh</button>
+                  <button className="refresh-btn" type="button" onClick={fetchOpenApi}>{t('common.action.refresh')}</button>
                 </>
               )}
             />
@@ -4509,6 +4541,24 @@ function App() {
               raw={openApiRaw}
               operations={filteredOpenApiOperations}
               source={openApiSource}
+              labels={{
+                emptyDocument: t('openapi.empty.document'),
+                openapi: t('openapi.metric.openapi'),
+                version: t('openapi.metric.version'),
+                paths: t('openapi.metric.paths'),
+                operations: t('openapi.metric.operations'),
+                schemas: t('openapi.metric.schemas'),
+                tags: t('openapi.metric.tags'),
+                operationsSection: t('openapi.section.operations'),
+                emptyOperations: t('openapi.empty.operations'),
+                linksSection: t('openapi.section.links'),
+                body: t('openapi.label.body'),
+                noBody: t('openapi.label.noBody'),
+                params: (count) => t('openapi.label.params', { count }),
+                responses: (codes) => t('openapi.label.responses', { codes }),
+                noResponses: t('openapi.label.noResponses'),
+              }}
+              t={t}
             />
           </section>
         )}
@@ -4516,20 +4566,20 @@ function App() {
         {activePanel === 'workflows' && (
           <section className="panel active workflows-panel">
             <PanelHeader
-              title="Workflows"
-              meta="Agent sessions reconstructed from search, trace, and audit correlation."
-              action={<button className="refresh-btn" type="button" onClick={fetchWorkflows}>Refresh</button>}
+              title={t('workflows.title')}
+              meta={t('workflows.meta')}
+              action={<button className="refresh-btn" type="button" onClick={fetchWorkflows}>{t('common.action.refresh')}</button>}
             />
             <StatusLine text={copiedNotice || updatedAt.workflows} error={errors.workflows} />
             <div className="metric-grid compact">
-              <MetricTile tone="ok" label="Completed" value={workflowSummary.completed} />
-              <MetricTile tone={workflowSummary.warning > 0 ? 'warn' : undefined} label="Warnings" value={workflowSummary.warning} />
-              <MetricTile tone={workflowSummary.failed > 0 ? 'err' : undefined} label="Failed" value={workflowSummary.failed} />
-              <MetricTile tone={workflowSummary.zeroResults > 0 ? 'warn' : undefined} label="Zero-result" value={workflowSummary.zeroResults} />
-              <MetricTile label="Visible" value={`${filteredWorkflows.length} / ${workflows.length}`} />
+              <MetricTile tone="ok" label={t('workflows.metric.completed')} value={workflowSummary.completed} />
+              <MetricTile tone={workflowSummary.warning > 0 ? 'warn' : undefined} label={t('workflows.metric.warnings')} value={workflowSummary.warning} />
+              <MetricTile tone={workflowSummary.failed > 0 ? 'err' : undefined} label={t('workflows.metric.failed')} value={workflowSummary.failed} />
+              <MetricTile tone={workflowSummary.zeroResults > 0 ? 'warn' : undefined} label={t('workflows.metric.zeroResult')} value={workflowSummary.zeroResults} />
+              <MetricTile label={t('common.metric.visible')} value={`${filteredWorkflows.length} / ${workflows.length}`} />
             </div>
-            {workflows.length === 0 ? <p className="empty">No agent workflows reconstructed yet.</p> : filteredWorkflows.length === 0 ? (
-              <p className="empty">No workflows match your search.</p>
+            {workflows.length === 0 ? <p className="empty">{t('workflows.empty.none')}</p> : filteredWorkflows.length === 0 ? (
+              <p className="empty">{t('workflows.empty.search')}</p>
             ) : (
               <div className="workflow-board">
                 {filteredWorkflows.map((workflow) => (
@@ -4538,6 +4588,7 @@ function App() {
                     workflow={workflow}
                     onOpenTrace={(requestId) => goToPanel('traces', { traceId: requestId })}
                     onCopyIssueReport={(requestId) => void copyIssueReport(requestId)}
+                    t={t}
                   />
                 ))}
               </div>
@@ -4548,19 +4599,19 @@ function App() {
         {activePanel === 'tasks' && (
           <section className="panel active tasks-panel">
             <PanelHeader
-              title="Tasks"
-              meta="Trace-derived work items, grouped for quick operator scanning."
-              action={<button className="refresh-btn" type="button" onClick={fetchTasks}>Refresh</button>}
+              title={t('tasks.title')}
+              meta={t('tasks.meta')}
+              action={<button className="refresh-btn" type="button" onClick={fetchTasks}>{t('common.action.refresh')}</button>}
             />
             <StatusLine text={updatedAt.tasks} error={errors.tasks} />
             <div className="metric-grid compact">
-              <MetricTile tone="ok" label="Completed" value={taskSummary.completed} />
-              <MetricTile tone={taskSummary.failed > 0 ? 'err' : undefined} label="Failed" value={taskSummary.failed} />
-              <MetricTile tone={taskSummary.active > 0 ? 'warn' : undefined} label="Active / waiting" value={taskSummary.active} />
-              <MetricTile label="Visible" value={`${filteredTasks.length} / ${tasks.length}`} />
+              <MetricTile tone="ok" label={t('tasks.metric.completed')} value={taskSummary.completed} />
+              <MetricTile tone={taskSummary.failed > 0 ? 'err' : undefined} label={t('tasks.metric.failed')} value={taskSummary.failed} />
+              <MetricTile tone={taskSummary.active > 0 ? 'warn' : undefined} label={t('tasks.metric.activeWaiting')} value={taskSummary.active} />
+              <MetricTile label={t('common.metric.visible')} value={`${filteredTasks.length} / ${tasks.length}`} />
             </div>
-            {tasks.length === 0 ? <p className="empty">No tasks reconstructed from traces yet.</p> : filteredTasks.length === 0 ? (
-              <p className="empty">No tasks match your search.</p>
+            {tasks.length === 0 ? <p className="empty">{t('tasks.empty.none')}</p> : filteredTasks.length === 0 ? (
+              <p className="empty">{t('tasks.empty.search')}</p>
             ) : (
               <div className="task-board">
                 {filteredTasks.map((task) => {
@@ -4584,7 +4635,7 @@ function App() {
                       <div className="task-side">
                         {requestId ? (
                           <button className="link-chip" type="button" title={requestId} onClick={() => goToPanel('traces', { traceId: requestId })}>
-                            trace {requestId.slice(0, 12)}
+                            {t('tasks.link.trace', { id: requestId.slice(0, 12) })}
                           </button>
                         ) : (
                           <span className="mono-path">{task.task_id.slice(0, 12)}</span>
@@ -4600,10 +4651,10 @@ function App() {
 
         {activePanel === 'calls' && (
           <section className="panel active calls-panel">
-            <h2>Recent Calls</h2>
+            <h2>{t('calls.title')}</h2>
             <StatusLine text={updatedAt.calls} error={errors.calls} />
-            {calls.length === 0 ? <p className="empty">No recent calls. AuditMiddleware may not be active.</p> : filteredCalls.length === 0 ? (
-              <p className="empty">No calls match your search.</p>
+            {calls.length === 0 ? <p className="empty">{t('calls.empty.none')}</p> : filteredCalls.length === 0 ? (
+              <p className="empty">{t('calls.empty.search')}</p>
             ) : (
               Array.from(groupRows(filteredCalls, callGroupLabel).entries())
               .sort(([a], [b]) => a.localeCompare(b))
@@ -4611,7 +4662,7 @@ function App() {
                 <div key={group} className="group-block">
                   <h3 className="group-title">{group}</h3>
                   <table>
-                    <thead><tr><th>Time</th><th>Request</th><th>Tool</th><th>App type</th><th>Instance</th><th>Agent</th><th>Transport</th><th>Format</th><th>Returned</th><th>Saved</th><th>Status</th><th>Error</th><th>ms</th><th>Detail</th></tr></thead>
+                    <thead><tr><th>{t('common.table.time')}</th><th>{t('common.table.request')}</th><th>{t('common.table.tool')}</th><th>{t('common.table.appType')}</th><th>{t('common.table.instance')}</th><th>{t('calls.table.agent')}</th><th>{t('calls.table.transport')}</th><th>{t('calls.table.format')}</th><th>{t('calls.table.returned')}</th><th>{t('calls.table.saved')}</th><th>{t('common.table.status')}</th><th>{t('calls.table.error')}</th><th>{t('common.table.ms')}</th><th>{t('calls.table.detail')}</th></tr></thead>
                     <tbody>
                       {groupCalls.map((call) => (
                         <tr key={call.request_id}>
@@ -4634,9 +4685,9 @@ function App() {
                           <td>{call.duration_ms ?? '-'}</td>
                           <td>
                             <div className="table-actions">
-                              <button className="refresh-btn" type="button" onClick={() => void fetchTraceInto(call.request_id, 'call')}>Expand</button>
-                              <button className="refresh-btn" type="button" onClick={() => void copyText(traceLinks(call.request_id, call.links).admin_trace_url ?? '', 'trace URL')}>Copy URL</button>
-                              <button className="refresh-btn" type="button" onClick={() => void copyIssueReport(call.request_id)}>Copy issue JSON</button>
+                              <button className="refresh-btn" type="button" onClick={() => void fetchTraceInto(call.request_id, 'call')}>{t('calls.action.expand')}</button>
+                              <button className="refresh-btn" type="button" onClick={() => void copyText(traceLinks(call.request_id, call.links).admin_trace_url ?? '', 'trace URL')}>{t('traces.action.copyUrl')}</button>
+                              <button className="refresh-btn" type="button" onClick={() => void copyIssueReport(call.request_id)}>{t('traces.action.copyIssueJson')}</button>
                             </div>
                           </td>
                         </tr>
@@ -4646,29 +4697,29 @@ function App() {
                 </div>
               )))}
             <pre className="empty">{callDetail}</pre>
-            <button className="refresh-btn" type="button" onClick={fetchCalls}>Refresh</button>
+            <button className="refresh-btn" type="button" onClick={fetchCalls}>{t('common.action.refresh')}</button>
           </section>
         )}
 
         {activePanel === 'traces' && (
           <section className="panel active traces-panel" data-panel="traces">
             <PanelHeader
-              title="Traces"
-              meta="Request timeline and latency drill-down for gateway fan-out."
-              action={<button className="refresh-btn" type="button" onClick={fetchTraces}>Refresh</button>}
+              title={t('traces.title')}
+              meta={t('traces.meta')}
+              action={<button className="refresh-btn" type="button" onClick={fetchTraces}>{t('common.action.refresh')}</button>}
             />
             <StatusLine text={copiedNotice || updatedAt.traces} error={errors.traces} />
             <div className="metric-grid compact">
               <MetricTile tone="ok" label="OK" value={traceSummary.ok} />
-              <MetricTile tone={traceSummary.failed > 0 ? 'err' : undefined} label="Failed" value={traceSummary.failed} />
-              <MetricTile tone={latencyTone(traceSummary.p95)} label="p95 latency" value={formatDurationMs(traceSummary.p95)} />
-              <MetricTile label="Total tokens" value={formatTokenCount(traceSummary.totalTokens)} detail={`${formatTokenCount(traceSummary.totalInputTokens)} in / ${formatTokenCount(traceSummary.totalOutputTokens)} out`} />
-              <MetricTile label="Agent ctx" value={traceSummary.agentContext} />
-              <MetricTile label="Spans" value={traceSummary.spans} />
-              <MetricTile label="Visible" value={`${filteredTraces.length} / ${traces.length}`} />
+              <MetricTile tone={traceSummary.failed > 0 ? 'err' : undefined} label={t('workflows.metric.failed')} value={traceSummary.failed} />
+              <MetricTile tone={latencyTone(traceSummary.p95)} label={t('debug.metric.latency')} value={formatDurationMs(traceSummary.p95)} />
+              <MetricTile label={t('traces.metric.totalTokens')} value={formatTokenCount(traceSummary.totalTokens)} detail={t('traces.detail.inputOutput', { input: formatTokenCount(traceSummary.totalInputTokens), output: formatTokenCount(traceSummary.totalOutputTokens) })} />
+              <MetricTile label={t('traces.metric.agentContext')} value={traceSummary.agentContext} />
+              <MetricTile label={t('traces.metric.spans')} value={traceSummary.spans} />
+              <MetricTile label={t('common.metric.visible')} value={`${filteredTraces.length} / ${traces.length}`} />
             </div>
-            {traces.length === 0 ? <p className="empty">No traces recorded.</p> : filteredTraces.length === 0 ? (
-              <p className="empty">No traces match your search.</p>
+            {traces.length === 0 ? <p className="empty">{t('traces.empty.none')}</p> : filteredTraces.length === 0 ? (
+              <p className="empty">{t('traces.empty.search')}</p>
             ) : (
               <div className="trace-layout">
                 <div className="trace-list">
@@ -4690,13 +4741,13 @@ function App() {
                           <span className="trace-item-main">
                             <strong>{trace.tool}</strong>
                             <span>{compactId(trace.request_id)} - {compactInstanceId(trace.instance_id)} - <TimeValue value={trace.timestamp} /> - {trace.transport ?? '?'}</span>
-                            <span>{agentLabel(trace)}{trace.slowest_span_name ? ` - slowest ${trace.slowest_span_name} ${formatDurationMs(trace.slowest_span_ms)}` : ''}</span>
+                            <span>{agentLabel(trace)}{trace.slowest_span_name ? ` - ${t('traces.detail.slowestSpan', { name: trace.slowest_span_name, duration: formatDurationMs(trace.slowest_span_ms) })}` : ''}</span>
                           </span>
                           <span className="trace-item-side">
                             <StatusBadge value={trace.status} />
                             <span>{formatDurationMs(trace.total_ms)}</span>
-                            <span>{trace.span_count ?? 0} spans</span>
-                            <span>{formatTokenCount(totalTraceTokens(trace))} tok</span>
+                            <span>{t('traces.detail.spanCount', { count: trace.span_count ?? 0 })}</span>
+                            <span>{t('traces.detail.tokenCount', { count: formatTokenCount(totalTraceTokens(trace)) })}</span>
                           </span>
                         </button>
                       ))}
@@ -4706,6 +4757,7 @@ function App() {
                 <TraceDetailPanel
                   trace={traceDetailPayload}
                   fallback={traceDetail}
+                  t={t}
                   onCopy={copyText}
                   onCopyIssueReport={(requestId) => void copyIssueReport(requestId)}
                   onDownloadIssueReport={(requestId) => void downloadIssueReport(requestId)}
@@ -4718,8 +4770,8 @@ function App() {
         {activePanel === 'traffic' && (
           <section className="panel active traffic-panel" data-panel="traffic">
             <PanelHeader
-              title="Traffic"
-              meta="Live retained MCP/HTTP frames from the admin_live traffic sink."
+              title={t('traffic.title')}
+              meta={t('traffic.meta')}
               action={(
                 <div className="table-actions">
                   <a
@@ -4728,37 +4780,37 @@ function App() {
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    Export JSONL
+                    {t('common.action.exportJsonl')}
                   </a>
-                  <button className="refresh-btn" type="button" onClick={fetchTraffic}>Refresh</button>
+                  <button className="refresh-btn" type="button" onClick={fetchTraffic}>{t('common.action.refresh')}</button>
                 </div>
               )}
             />
             <StatusLine text={copiedNotice || updatedAt.traffic} error={errors.traffic} />
             <div className="metric-grid compact">
-              <MetricTile label="Retained" value={trafficFrames.length} detail={`${filteredTrafficFrames.length} visible`} />
-              <MetricTile label="Sessions" value={trafficSummary.sessions} />
-              <MetricTile label="Transports" value={trafficSummary.transports} />
-              <MetricTile tone={trafficSummary.redacted > 0 ? 'warn' : undefined} label="Redactions" value={trafficSummary.redacted} />
-              <MetricTile label="Payload" value={formatBytes(trafficSummary.bytes)} />
+              <MetricTile label={t('traffic.metric.retained')} value={trafficFrames.length} detail={t('stats.detail.visible', { visible: filteredTrafficFrames.length })} />
+              <MetricTile label={t('traffic.metric.sessions')} value={trafficSummary.sessions} />
+              <MetricTile label={t('traffic.metric.transports')} value={trafficSummary.transports} />
+              <MetricTile tone={trafficSummary.redacted > 0 ? 'warn' : undefined} label={t('traffic.metric.redactions')} value={trafficSummary.redacted} />
+              <MetricTile label={t('traffic.metric.payload')} value={formatBytes(trafficSummary.bytes)} />
             </div>
-            {trafficFrames.length === 0 ? <p className="empty">No live traffic frames retained. Configure a traffic sink with kind admin_live to populate this panel.</p> : filteredTrafficFrames.length === 0 ? (
-              <p className="empty">No traffic frames match your search.</p>
+            {trafficFrames.length === 0 ? <p className="empty">{t('traffic.empty.none')}</p> : filteredTrafficFrames.length === 0 ? (
+              <p className="empty">{t('traffic.empty.search')}</p>
             ) : (
               <div className="trace-layout">
                 <div className="trace-list">
                   <table>
                     <thead>
                       <tr>
-                        <th>Time</th>
-                        <th>Request</th>
-                        <th>Method</th>
-                        <th>Leg</th>
-                        <th>HTTP</th>
-                        <th>Session</th>
-                        <th>Bytes</th>
-                        <th>Redaction</th>
-                        <th>Actions</th>
+                        <th>{t('common.table.time')}</th>
+                        <th>{t('common.table.request')}</th>
+                        <th>{t('traffic.table.method')}</th>
+                        <th>{t('traffic.table.leg')}</th>
+                        <th>{t('traffic.table.http')}</th>
+                        <th>{t('traffic.table.session')}</th>
+                        <th>{t('traffic.table.bytes')}</th>
+                        <th>{t('traffic.table.redaction')}</th>
+                        <th>{t('common.table.actions')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -4785,12 +4837,12 @@ function App() {
                             </td>
                             <td className="mono-path">{compactId(trafficSessionId(frame))}</td>
                             <td>{formatBytes(trafficBodyBytes(frame))}</td>
-                            <td className="mono-path">{compactList(trafficRedactedPaths(frame), 'none')}</td>
+                            <td className="mono-path">{compactList(trafficRedactedPaths(frame), t('governance.privacy.none'))}</td>
                             <td>
                               <div className="table-actions">
-                                <button className="refresh-btn" type="button" onClick={() => setTrafficDetail(trafficFrameDetail(frame))}>View</button>
+                                <button className="refresh-btn" type="button" onClick={() => setTrafficDetail(trafficFrameDetail(frame))}>{t('common.action.view')}</button>
                                 {requestId ? (
-                                  <button className="refresh-btn" type="button" onClick={() => goToPanel('traces', { traceId: requestId })}>Trace</button>
+                                  <button className="refresh-btn" type="button" onClick={() => goToPanel('traces', { traceId: requestId })}>{t('common.action.trace')}</button>
                                 ) : null}
                               </div>
                             </td>
@@ -4802,8 +4854,8 @@ function App() {
                 </div>
                 <div className="trace-detail-card">
                   <div className="trace-card-head">
-                    <h3>Frame JSON</h3>
-                    <button className="refresh-btn" type="button" onClick={() => void copyText(trafficDetail, 'traffic frame JSON')}>Copy</button>
+                    <h3>{t('traffic.detail.frameJson')}</h3>
+                    <button className="refresh-btn" type="button" onClick={() => void copyText(trafficDetail, 'traffic frame JSON')}>{t('common.action.copy')}</button>
                   </div>
                   <pre className="payload-pre">{trafficDetail}</pre>
                 </div>
@@ -4815,15 +4867,15 @@ function App() {
         {activePanel === 'stats' && (
           <section className="panel active stats-panel" data-panel="stats">
             <PanelHeader
-              title="Stats"
-              meta="Gateway call volume, success rate, latency, and hot paths."
+              title={t('stats.title')}
+              meta={t('stats.meta')}
               action={(
                 <div className="stats-actions">
                   <label className="range-label" htmlFor="stats-range-select">
-                    Range
+                    {t('stats.label.range')}
                     <select
                       id="stats-range-select"
-                      aria-label="Range"
+                      aria-label={t('stats.label.range')}
                       value={statsRange}
                       onChange={(event) => {
                         const v = event.target.value;
@@ -4837,47 +4889,47 @@ function App() {
                       <option value="all">All</option>
                     </select>
                   </label>
-                  <button className="refresh-btn" type="button" onClick={fetchStats}>Refresh</button>
+                  <button className="refresh-btn" type="button" onClick={fetchStats}>{t('common.action.refresh')}</button>
                 </div>
               )}
             />
             <StatusLine text={updatedAt.stats} error={errors.stats} />
             {stats?.error ? <p className="empty">{stats.error}</p> : null}
             <div className="metric-grid">
-              <MetricTile label="Calls" value={stats?.total_calls ?? 0} detail={`${statsRange} window`} />
-              <MetricTile tone={errorRateTone(stats)} label="Success" value={stats ? `${stats.success_rate.toFixed(1)}%` : '0.0%'} detail={`${statsSummary.success} ok / ${statsSummary.failed} failed`} />
-              <MetricTile label="Payload tokens" value={formatTokenCount(stats?.total_tokens ?? statsSummary.totalTokens)} detail={`avg ${formatTokenCount(stats?.avg_tokens_per_call ?? stats?.avg_total_tokens_per_call ?? statsSummary.avgTokens)} / call`} />
-              <MetricTile label="Input / Output tokens" value={formatTokenCount(stats?.total_input_tokens ?? statsSummary.totalInputTokens)} detail={`out: ${formatTokenCount(stats?.total_output_tokens ?? statsSummary.totalOutputTokens)}`} />
-              <MetricTile tone={latencyTone(stats?.latency_ms?.p50_ms ?? stats?.p50_ms)} label="p50 latency" value={formatDurationMs(stats?.latency_ms?.p50_ms ?? stats?.p50_ms)} />
-              <MetricTile tone={latencyTone(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} label="p95 latency" value={formatDurationMs(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} />
+              <MetricTile label={t('stats.metric.calls')} value={stats?.total_calls ?? 0} detail={t('stats.detail.window', { range: statsRange })} />
+              <MetricTile tone={errorRateTone(stats)} label={t('stats.metric.success')} value={stats ? `${stats.success_rate.toFixed(1)}%` : '0.0%'} detail={t('stats.detail.okFailed', { ok: statsSummary.success, failed: statsSummary.failed })} />
+              <MetricTile label={t('stats.metric.payloadTokens')} value={formatTokenCount(stats?.total_tokens ?? statsSummary.totalTokens)} detail={t('stats.detail.avgPerCall', { value: formatTokenCount(stats?.avg_tokens_per_call ?? stats?.avg_total_tokens_per_call ?? statsSummary.avgTokens) })} />
+              <MetricTile label={t('stats.metric.inputOutputTokens')} value={formatTokenCount(stats?.total_input_tokens ?? statsSummary.totalInputTokens)} detail={t('stats.detail.output', { value: formatTokenCount(stats?.total_output_tokens ?? statsSummary.totalOutputTokens) })} />
+              <MetricTile tone={latencyTone(stats?.latency_ms?.p50_ms ?? stats?.p50_ms)} label={t('stats.metric.p50Latency')} value={formatDurationMs(stats?.latency_ms?.p50_ms ?? stats?.p50_ms)} />
+              <MetricTile tone={latencyTone(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} label={t('stats.metric.p95Latency')} value={formatDurationMs(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} />
               <MetricTile
-                label="Response tokens returned"
+                label={t('stats.metric.responseTokensReturned')}
                 value={formatTokenCount(stats?.token_usage?.total_returned_tokens)}
-                detail={`${formatTokenCount(stats?.token_usage?.total_original_tokens)} original`}
+                detail={t('stats.detail.original', { value: formatTokenCount(stats?.token_usage?.total_original_tokens) })}
               />
               <MetricTile
                 tone={(stats?.token_usage?.total_saved_tokens ?? 0) > 0 ? 'ok' : undefined}
-                label="Response tokens saved"
+                label={t('stats.metric.responseTokensSaved')}
                 value={formatTokenCount(stats?.token_usage?.total_saved_tokens)}
-                detail={`${formatSavingsPct(stats?.token_usage?.average_savings_pct)} average`}
+                detail={t('stats.detail.average', { value: formatSavingsPct(stats?.token_usage?.average_savings_pct) })}
               />
               <MetricTile
-                label="Response format"
+                label={t('stats.metric.responseFormat')}
                 value={health?.response_format?.default ?? 'toon'}
-                detail={stats?.payload_token_estimator ?? health?.response_format?.token_estimator ?? 'token estimator unavailable'}
+                detail={stats?.payload_token_estimator ?? health?.response_format?.token_estimator ?? t('stats.detail.tokenEstimatorUnavailable')}
               />
             </div>
             <div className="stats-charts">
-              <StatBarList title="Top app types" items={filteredTopAppTypes} />
-              <StatBarList title="Top tools" items={filteredTopTools} />
-              <StatBarList title="Top instances" items={filteredTopInstances} />
-              <StatBarList title="Top agents" items={filteredTopAgents} />
-              {stats?.hourly_distribution?.length ? <HourlyChart buckets={stats.hourly_distribution} /> : null}
-              <TokenBreakdownList title="Token savings by tool" items={filteredTokenByTool} />
-              <TokenBreakdownList title="Token savings by instance" items={filteredTokenByInstance} />
-              <TokenBreakdownList title="Token savings by agent" items={filteredTokenByAgent} />
-              <TokenBreakdownList title="Token savings by transport" items={filteredTokenByTransport} />
-              <TokenBreakdownList title="Token savings by format" items={filteredTokenByFormat} />
+              <StatBarList title={t('stats.chart.topAppTypes')} items={filteredTopAppTypes} t={t} />
+              <StatBarList title={t('stats.chart.topTools')} items={filteredTopTools} t={t} />
+              <StatBarList title={t('stats.chart.topInstances')} items={filteredTopInstances} t={t} />
+              <StatBarList title={t('stats.chart.topAgents')} items={filteredTopAgents} t={t} />
+              {stats?.hourly_distribution?.length ? <HourlyChart buckets={stats.hourly_distribution} t={t} /> : null}
+              <TokenBreakdownList title={t('stats.chart.savingsByTool')} items={filteredTokenByTool} t={t} />
+              <TokenBreakdownList title={t('stats.chart.savingsByInstance')} items={filteredTokenByInstance} t={t} />
+              <TokenBreakdownList title={t('stats.chart.savingsByAgent')} items={filteredTokenByAgent} t={t} />
+              <TokenBreakdownList title={t('stats.chart.savingsByTransport')} items={filteredTokenByTransport} t={t} />
+              <TokenBreakdownList title={t('stats.chart.savingsByFormat')} items={filteredTokenByFormat} t={t} />
             </div>
           </section>
         )}
@@ -4885,81 +4937,81 @@ function App() {
         {activePanel === 'governance' && (
           <section className="panel active governance-panel" data-panel="governance">
             <PanelHeader
-              title="Traffic Governance"
-              meta={governance?.mode?.reason ?? 'Effective capture, privacy, policy, and pressure state.'}
-              action={<button className="refresh-btn" type="button" onClick={fetchGovernance}>Refresh</button>}
+              title={t('governance.title')}
+              meta={governance?.mode?.reason ?? t('governance.meta')}
+              action={<button className="refresh-btn" type="button" onClick={fetchGovernance}>{t('common.action.refresh')}</button>}
             />
             <StatusLine text={updatedAt.governance} error={errors.governance} />
             <div className="metric-grid">
               <MetricTile
                 tone={governanceSummary.captureEnabled ? 'warn' : 'ok'}
-                label="Capture"
-                value={governanceSummary.captureEnabled ? 'On' : 'Off'}
-                detail={governance?.traffic_capture?.mode ?? 'safe aggregate only'}
+                label={t('governance.metric.capture')}
+                value={governanceSummary.captureEnabled ? t('common.status.on') : t('common.status.off')}
+                detail={governance?.traffic_capture?.mode ?? t('governance.detail.safeAggregateOnly')}
               />
               <MetricTile
                 tone={governanceSummary.readOnly ? 'warn' : undefined}
-                label="Read-only"
-                value={governanceSummary.readOnly ? 'On' : 'Off'}
-                detail={`${governanceSummary.allowlists} active allowlist(s)`}
+                label={t('governance.metric.readOnly')}
+                value={governanceSummary.readOnly ? t('common.status.on') : t('common.status.off')}
+                detail={t('governance.detail.activeAllowlists', { count: governanceSummary.allowlists })}
               />
-              <MetricTile label="Denied" value={governanceSummary.denied} detail="recent policy decisions" />
-              <MetricTile tone={governanceSummary.throttled ? 'warn' : undefined} label="Throttled" value={governanceSummary.throttled} detail="recent pressure decisions" />
+              <MetricTile label={t('governance.metric.denied')} value={governanceSummary.denied} detail={t('governance.detail.recentPolicyDecisions')} />
+              <MetricTile tone={governanceSummary.throttled ? 'warn' : undefined} label={t('governance.metric.throttled')} value={governanceSummary.throttled} detail={t('governance.detail.recentPressureDecisions')} />
             </div>
             <div className="governance-layout">
               <section className="governance-section">
-                <h3 className="section-kicker">Effective policy</h3>
+                <h3 className="section-kicker">{t('governance.section.effectivePolicy')}</h3>
                 <div className="governance-card">
                   <div className="governance-kv">
                     <span><strong>DCC</strong>{compactList(governance?.policy?.allowed_dcc_types)}</span>
-                    <span><strong>Skills</strong>{compactList([...(governance?.policy?.allowed_skill_names ?? []), ...(governance?.policy?.allowed_skill_families ?? [])])}</span>
-                    <span><strong>Tools</strong>{compactList([...(governance?.policy?.allowed_tool_slugs ?? []), ...(governance?.policy?.allowed_tool_slug_prefixes ?? [])])}</span>
-                    <span><strong>Mode</strong>{governance?.policy?.unrestricted ? 'Unrestricted' : 'Constrained'}</span>
+                    <span><strong>{t('governance.label.skills')}</strong>{compactList([...(governance?.policy?.allowed_skill_names ?? []), ...(governance?.policy?.allowed_skill_families ?? [])])}</span>
+                    <span><strong>{t('governance.label.tools')}</strong>{compactList([...(governance?.policy?.allowed_tool_slugs ?? []), ...(governance?.policy?.allowed_tool_slug_prefixes ?? [])])}</span>
+                    <span><strong>{t('governance.label.mode')}</strong>{governance?.policy?.unrestricted ? t('governance.state.unrestricted') : t('governance.state.constrained')}</span>
                   </div>
                 </div>
               </section>
               <section className="governance-section">
-                <h3 className="section-kicker">Traffic capture</h3>
+                <h3 className="section-kicker">{t('governance.section.trafficCapture')}</h3>
                 <div className="governance-card">
                   <div className="governance-kv">
-                    <span><strong>Sinks</strong>{governance?.traffic_capture?.sink_count ?? 0}</span>
-                    <span><strong>Guardrail</strong>{governance?.traffic_capture?.production_guardrail ?? 'inactive'}</span>
-                    <span><strong>Captured</strong>{governanceSummary.captured}</span>
-                    <span><strong>Skipped</strong>{governanceSummary.skipped}</span>
+                    <span><strong>{t('governance.label.sinks')}</strong>{governance?.traffic_capture?.sink_count ?? 0}</span>
+                    <span><strong>{t('governance.label.guardrail')}</strong>{governance?.traffic_capture?.production_guardrail ?? t('governance.state.inactive')}</span>
+                    <span><strong>{t('governance.label.captured')}</strong>{governanceSummary.captured}</span>
+                    <span><strong>{t('governance.label.skipped')}</strong>{governanceSummary.skipped}</span>
                   </div>
-                  <p className="mono-path">{compactList(governance?.traffic_capture?.redaction?.paths, 'No capture redaction rules')}</p>
+                  <p className="mono-path">{compactList(governance?.traffic_capture?.redaction?.paths, t('governance.empty.captureRedactionRules'))}</p>
                 </div>
               </section>
               <section className="governance-section wide">
-                <h3 className="section-kicker">Middleware controls</h3>
+                <h3 className="section-kicker">{t('governance.section.middlewareControls')}</h3>
                 <div className="governance-card-grid">
                   {(governance?.middleware?.controls ?? []).length === 0 ? (
-                    <p className="empty">No middleware controls registered.</p>
+                    <p className="empty">{t('governance.empty.controls')}</p>
                   ) : (
                     (governance?.middleware?.controls ?? []).map((control, index) => (
-                      <GovernanceControlCard key={`${control.kind}-${control.mode}-${index}`} control={control} />
+                      <GovernanceControlCard key={`${control.kind}-${control.mode}-${index}`} control={control} t={t} />
                     ))
                   )}
                 </div>
               </section>
               <section className="governance-section wide">
-                <h3 className="section-kicker">Recent request decisions</h3>
+                <h3 className="section-kicker">{t('governance.section.recentRequestDecisions')}</h3>
                 <table>
                   <thead>
                     <tr>
-                      <th>Request</th>
-                      <th>Outcome</th>
-                      <th>Agent/session</th>
-                      <th>Tool</th>
-                      <th>Capture</th>
-                      <th>Redaction</th>
+                      <th>{t('common.table.request')}</th>
+                      <th>{t('governance.table.outcome')}</th>
+                      <th>{t('governance.table.agentSession')}</th>
+                      <th>{t('common.table.tool')}</th>
+                      <th>{t('governance.table.capture')}</th>
+                      <th>{t('governance.table.redaction')}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {(governance?.recent_decisions ?? []).length === 0 ? (
-                      <EmptyRow columns={6}>No governance decisions recorded.</EmptyRow>
+                      <EmptyRow columns={6}>{t('governance.empty.decisions')}</EmptyRow>
                     ) : filteredGovernanceDecisions.length === 0 ? (
-                      <EmptyRow columns={6}>No decisions match your search.</EmptyRow>
+                      <EmptyRow columns={6}>{t('governance.empty.decisionsSearch')}</EmptyRow>
                     ) : (
                       filteredGovernanceDecisions.map((row, index) => (
                         <tr key={`${row.request_id ?? row.trace_id ?? 'decision'}-${index}`}>
@@ -4982,10 +5034,10 @@ function App() {
                             <div className="muted">{row.dcc_type ?? '-'}</div>
                           </td>
                           <td>
-                            {(row.traffic_capture?.captured ?? 0) > 0 ? 'captured' : 'skipped'}
-                            <div className="muted">{compactList(row.traffic_capture?.reasons, 'no reason')}</div>
+                            {(row.traffic_capture?.captured ?? 0) > 0 ? t('governance.capture.captured') : t('governance.capture.skipped')}
+                            <div className="muted">{compactList(row.traffic_capture?.reasons, t('governance.capture.noReason'))}</div>
                           </td>
-                          <td className="mono-path">{compactList(row.privacy?.redacted_paths, 'none')}</td>
+                          <td className="mono-path">{compactList(row.privacy?.redacted_paths, t('governance.privacy.none'))}</td>
                         </tr>
                       ))
                     )}
@@ -4999,40 +5051,40 @@ function App() {
         {activePanel === 'skill-paths' && (
           <section className="panel active skill-paths-panel">
             <PanelHeader
-              title="Skills & paths"
+              title={t('skillPaths.title')}
               action={
                 <button className="refresh-btn" type="button" disabled={skillPathBusy} onClick={() => void fetchSkillInventory()}>
-                  Refresh
+                  {t('common.action.refresh')}
                 </button>
               }
             />
             <StatusLine text={updatedAt['skill-paths']} error={errors['skill-paths']} />
             <p className="empty log-hint">
-              Current loaded skills come from the live gateway capability index. Search paths show the directories used for skill discovery (CLI, environment variables, local developer defaults, bundled data dir, and optional SQLite-backed custom entries).
+              {t('skillPaths.description')}
             </p>
             <div className="metric-grid compact skill-summary-grid">
-              <MetricTile label="Loaded skills" value={skillTotals.loaded} detail={`${skillTotals.total} indexed`} />
-              <MetricTile label="Actions" value={skillTotals.action_count} detail="from loaded skills" />
-              <MetricTile label="Search paths" value={skillPaths.length} detail="active discovery roots" />
+              <MetricTile label={t('skillPaths.metric.loadedSkills')} value={skillTotals.loaded} detail={t('skillPaths.detail.indexed', { count: skillTotals.total })} />
+              <MetricTile label={t('skillPaths.metric.actions')} value={skillTotals.action_count} detail={t('skillPaths.detail.fromLoadedSkills')} />
+              <MetricTile label={t('skillPaths.metric.searchPaths')} value={skillPaths.length} detail={t('skillPaths.detail.activeDiscoveryRoots')} />
             </div>
             <div className="skill-inventory-section">
-              <h3 className="section-kicker">Loaded skills</h3>
+              <h3 className="section-kicker">{t('skillPaths.section.loadedSkills')}</h3>
               <table>
                 <thead>
                   <tr>
-                    <th>Skill</th>
+                    <th>{t('skillPaths.table.skill')}</th>
                     <th>DCC</th>
-                    <th>State</th>
-                    <th>Actions</th>
-                    <th>Instances</th>
-                    <th>Tools</th>
+                    <th>{t('skillPaths.table.state')}</th>
+                    <th>{t('skillPaths.metric.actions')}</th>
+                    <th>{t('skillPaths.table.instances')}</th>
+                    <th>{t('common.table.tool')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {skills.length === 0 ? (
-                    <EmptyRow columns={6}>No loaded skills reported.</EmptyRow>
+                    <EmptyRow columns={6}>{t('skillPaths.empty.skills')}</EmptyRow>
                   ) : filteredSkills.length === 0 ? (
-                    <EmptyRow columns={6}>No skills match your search.</EmptyRow>
+                    <EmptyRow columns={6}>{t('skillPaths.empty.skillsSearch')}</EmptyRow>
                   ) : (
                     filteredSkills.map((skill) => (
                       <tr
@@ -5045,8 +5097,8 @@ function App() {
                           </button>
                           {skill.summary ? <div className="muted skill-summary-text">{skill.summary}</div> : null}
                         </td>
-                        <td><span className="source-pill">{skill.dcc_type || 'unknown'}</span></td>
-                        <td><span className={`badge ${skill.loaded ? 'badge-ok' : 'badge-muted'}`}>{skill.loaded ? 'loaded' : 'unloaded'}</span></td>
+                        <td><span className="source-pill">{skill.dcc_type || t('common.status.unknown')}</span></td>
+                        <td><span className={`badge ${skill.loaded ? 'badge-ok' : 'badge-muted'}`}>{skill.loaded ? t('skillPaths.state.loaded') : t('skillPaths.state.unloaded')}</span></td>
                         <td>{skill.action_count}</td>
                         <td className="mono-path">{skill.instances.join(', ') || '—'}</td>
                         <td className="mono-path">{skill.tools.slice(0, 8).join(', ')}{skill.tools.length > 8 ? ` +${skill.tools.length - 8}` : ''}</td>
@@ -5065,38 +5117,39 @@ function App() {
                     setSelectedSkill(null);
                     setSkillDetail(null);
                   }}
+                  t={t}
                 />
               ) : null}
             </div>
             <div className="skill-inventory-section">
-              <h3 className="section-kicker">Skill search paths</h3>
+              <h3 className="section-kicker">{t('skillPaths.section.searchPaths')}</h3>
             </div>
             <div className="skill-path-add">
               <input
                 type="text"
                 className="list-search-input"
-                placeholder="Add directory path…"
+                placeholder={t('skillPaths.placeholder.addDirectoryPath')}
                 value={skillPathInput}
                 onChange={(e) => setSkillPathInput(e.target.value)}
-                aria-label="New skill path"
+                aria-label={t('skillPaths.input.newPath')}
               />
               <button className="refresh-btn" type="button" disabled={skillPathBusy} onClick={() => void addSkillPath()}>
-                Add path
+                {t('skillPaths.action.addPath')}
               </button>
             </div>
             <table>
               <thead>
                 <tr>
-                  <th>Source</th>
-                  <th>Path</th>
+                  <th>{t('skillPaths.table.source')}</th>
+                  <th>{t('skillPaths.table.path')}</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
                 {skillPaths.length === 0 ? (
-                  <EmptyRow columns={3}>No paths reported.</EmptyRow>
+                  <EmptyRow columns={3}>{t('skillPaths.empty.paths')}</EmptyRow>
                 ) : filteredSkillPaths.length === 0 ? (
-                  <EmptyRow columns={3}>No rows match your search.</EmptyRow>
+                  <EmptyRow columns={3}>{t('skillPaths.empty.pathsSearch')}</EmptyRow>
                 ) : (
                   filteredSkillPaths.map((row) => (
                     <tr key={`${row.source}-${row.path}-${row.id ?? 'x'}`}>
@@ -5109,7 +5162,7 @@ function App() {
                       <td>
                         {row.id != null ? (
                           <button type="button" className="linkish" disabled={skillPathBusy} onClick={() => void deleteSkillPath(row.id!)}>
-                            Remove
+                            {t('common.action.remove')}
                           </button>
                         ) : (
                           '—'
@@ -5125,13 +5178,13 @@ function App() {
 
         {activePanel === 'logs' && (
           <section className="panel active logs-panel">
-            <h2>Event Log</h2>
+            <h2>{t('logs.title')}</h2>
             <StatusLine text={updatedAt.logs} error={errors.logs} />
             <p className="empty log-hint">
-              Live request stream, refreshed every 5s. Rows with a request id are grouped like a run with ordered steps; gateway events without a request id stay in their own event lane.
+              {t('logs.description')}
             </p>
-            {logs.length === 0 ? <p className="empty">No events in buffer yet. Use the gateway (tool calls) or wait for registry / probe activity.</p> : filteredLogs.length === 0 ? (
-              <p className="empty">No log lines match your search.</p>
+            {logs.length === 0 ? <p className="empty">{t('logs.empty.none')}</p> : filteredLogs.length === 0 ? (
+              <p className="empty">{t('logs.empty.search')}</p>
             ) : (
               <div className="live-log-board">
                 {requestLogGroups.map((run) => (
@@ -5139,7 +5192,7 @@ function App() {
                     <div className="run-header">
                       <div>
                         <div className="run-title">
-                          Request <span className="mono-path">{run.requestId}</span>
+                          {t('logs.label.request')} <span className="mono-path">{run.requestId}</span>
                         </div>
                         <div className="run-meta">
                           <TimeValue value={run.timestamp} /> · {run.dccType} · {run.tool}
@@ -5153,7 +5206,7 @@ function App() {
                           <span className={`step-dot ${log.success === false ? 'err' : 'ok'}`} aria-hidden="true" />
                           <div className="step-body">
                             <div className="step-head">
-                              <span className="step-name">Step {idx + 1}: {logStepTitle(log)}</span>
+                              <span className="step-name">{t('logs.label.step', { index: idx + 1 })}: {logStepTitle(log)}</span>
                               <TimeValue className="muted" value={log.timestamp} />
                               <span className="source-pill" data-source={log.source ?? 'contention'}>{log.source ?? 'contention'}</span>
                             </div>
@@ -5166,7 +5219,7 @@ function App() {
                 ))}
                 {gatewayLogs.length > 0 ? (
                   <div className="group-block">
-                    <h3 className="group-title">Gateway events</h3>
+                    <h3 className="group-title">{t('logs.section.gatewayEvents')}</h3>
                     {Array.from(groupRows(gatewayLogs, gatewayLogGroupLabel).entries())
                       .sort(([a], [b]) => a.localeCompare(b))
                       .map(([group, groupLogs]) => (
@@ -5192,7 +5245,7 @@ function App() {
                 ) : null}
               </div>
             )}
-            <button className="refresh-btn" type="button" onClick={fetchLogs}>Refresh</button>
+            <button className="refresh-btn" type="button" onClick={fetchLogs}>{t('common.action.refresh')}</button>
           </section>
         )}
       </main>
