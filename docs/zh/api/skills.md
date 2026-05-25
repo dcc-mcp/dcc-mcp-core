@@ -1,6 +1,6 @@
 # Skills API
 
-`dcc_mcp_core.SkillCatalog`、`dcc_mcp_core.SkillScanner`、`dcc_mcp_core.SkillWatcher`、`dcc_mcp_core.SkillMetadata`、`dcc_mcp_core.SkillSummary`、`dcc_mcp_core.ToolDeclaration`、`dcc_mcp_core.parse_skill_md`、`dcc_mcp_core.scan_and_load`
+`dcc_mcp_core.SkillCatalog`、`dcc_mcp_core.SkillScanner`、`dcc_mcp_core.SkillWatcher`、`dcc_mcp_core.SkillMetadata`、`dcc_mcp_core.SkillSummary`、`dcc_mcp_core.ToolDeclaration`、`dcc_mcp_core.parse_skill_md`、`dcc_mcp_core.scan_and_load`、`dcc_mcp_core.register_metadata_driven_tools`
 
 `dcc_mcp_core.skill`（纯 Python）：`skill_entry`、`skill_success`、`skill_error`、`skill_warning`、`skill_exception`、`run_main`
 
@@ -315,6 +315,62 @@ scan_and_load_lenient(
 ```
 
 与 `scan_and_load` 相同，但会保留缺失软依赖的 Skill，让它们仍可被发现（通过日志记录警告）。缺失依赖只会在排序时被忽略；已经存在的依赖仍会排在依赖方之前。仅循环依赖会抛出 `ValueError`。
+
+### register_metadata_driven_tools
+
+```python
+register_metadata_driven_tools(
+    server,
+    *,
+    skills: Sequence[Any] | None = None,
+    skipped: Sequence[Any] | None = None,
+    dcc_name: str = "dcc",
+    extra_paths: Iterable[str] | None = None,
+    registrations: Sequence[MetadataExtensionRegistration | Callable | tuple[str, Callable]] | None = None,
+    scan: Callable | None = None,
+    phase: str = "startup",
+) -> MetadataRegistrationReport
+```
+
+注册由已加载 Skill metadata 派生的可选工具。未传入 `skills` 时，helper
+会先调用一次 `scan_and_load_lenient(extra_paths=..., dcc_name=...)`，然后按
+`callback(server, skills=loaded_skills, dcc_name=dcc_name)` 调用每个扩展回调。
+
+默认注册项包括：
+
+- `recipes` → `register_recipes_tools`
+- `skill-reference-docs` → `register_skill_reference_docs_tools`
+
+Adapter 可以传入自定义回调或懒加载 import 描述：
+
+```python
+from dcc_mcp_core import (
+    imported_metadata_extension,
+    register_metadata_driven_tools,
+)
+
+report = register_metadata_driven_tools(
+    server,
+    dcc_name="maya",
+    extra_paths=[studio_skill_root],
+    registrations=[
+        imported_metadata_extension(
+            "recipes",
+            "dcc_mcp_core.recipes",
+            "register_recipes_tools",
+        ),
+        imported_metadata_extension(
+            "refs",
+            "dcc_mcp_core.skill_reference_docs",
+            "register_skill_reference_docs_tools",
+        ),
+    ],
+)
+logger.info("metadata tools: %s", report.to_dict())
+```
+
+返回的 report 会记录每个扩展的 `registered`、`failed`、`skipped` 状态。
+一个可选扩展导入或注册失败，不会阻止后续扩展继续执行。
 
 ### resolve_dependencies
 

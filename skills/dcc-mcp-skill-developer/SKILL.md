@@ -74,6 +74,11 @@ into a faster authoring loop.
    curated prompt copy. Prompt diagnostics surface missing files and parse
    failures, so adapter tests should assert diagnostics for empty prompt lists
    instead of treating `0 prompts` as self-explanatory.
+   At adapter startup, expose optional metadata-driven tools with
+   `register_metadata_driven_tools(server, skills=loaded_skills, dcc_name=...)`
+   instead of copying recipes/reference-docs import wrappers. Omit `skills`
+   only when the helper should own the `scan_and_load_lenient(...)` pass; pass
+   explicit `skills` when startup already scanned roots.
 7. When changing adapter server wiring or caller examples, keep Admin telemetry
    useful: pass optional `agent_context` / `caller_context` summaries through
    MCP `_meta`, REST `meta`, or `x-dcc-mcp-agent-*` headers when the caller is
