@@ -20,51 +20,51 @@ _MATERIALIZE_INPUT_SCHEMA: dict[str, Any] = {
     "properties": {
         "content": {
             "type": "string",
-            "description": "Script source to write on the DCC host. The response never echoes this value.",
+            "description": "Script source; never echoed.",
         },
         "code": {
             "type": "string",
-            "description": "Compatibility alias for content.",
+            "description": "Alias for content.",
         },
         "language": {
             "type": "string",
             "default": "python",
-            "description": "Script language label used for metadata and MIME type.",
+            "description": "Language/MIME label.",
         },
         "suffix": {
             "type": "string",
             "default": ".py",
-            "description": "File suffix for the materialized host-local script.",
+            "description": "Host-local file suffix.",
         },
         "display_name": {
             "type": "string",
-            "description": "Optional human-readable filename prefix.",
+            "description": "Optional filename prefix.",
         },
         "reuse": {
             "type": "boolean",
             "default": False,
-            "description": "When true, reuse an existing unexpired script for the same content and reuse key.",
+            "description": "Reuse unexpired matching content.",
         },
         "reuse_key": {
             "type": "string",
-            "description": "Optional stable reuse namespace.",
+            "description": "Optional reuse namespace.",
         },
         "ttl_secs": {
             "type": "integer",
             "minimum": 1,
-            "description": "Optional expiry in seconds.",
+            "description": "Expiry in seconds.",
         },
         "session_id": {
             "type": "string",
-            "description": "Logical MCP or adapter session id.",
+            "description": "Logical session id.",
         },
         "tool_call_id": {
             "type": "string",
-            "description": "Optional caller tool-call id for audit correlation.",
+            "description": "Optional audit call id.",
         },
         "correlation_id": {
             "type": "string",
-            "description": "Optional trace/correlation id.",
+            "description": "Optional trace id.",
         },
     },
     "anyOf": [{"required": ["content"]}, {"required": ["code"]}],
@@ -140,10 +140,8 @@ def register_script_materialization_tools(
             ToolSpec(
                 name="materialize_script",
                 description=(
-                    "Materialize ad-hoc script source on the DCC host and return a FileRef descriptor. "
-                    "Use before execute-python style tools that accept file_path; the response includes "
-                    "file_path, file_ref, sha256, bytes, ttl, reuse, session, tool-call, and correlation metadata "
-                    "but never echoes raw source. Compatibility replacement for write_temp_script workflows."
+                    "Write script source to the DCC host and return FileRef/path/hash metadata. "
+                    "Use before execute-python tools that accept file_path; raw source is never echoed."
                 ),
                 input_schema=_MATERIALIZE_INPUT_SCHEMA,
                 output_schema=_MATERIALIZE_OUTPUT_SCHEMA,

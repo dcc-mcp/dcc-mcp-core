@@ -42,6 +42,41 @@ def test_register_script_materialization_tool_is_exported() -> None:
     assert "register_script_materialization_tools" in dcc_mcp_core.__all__
 
 
+def test_materialize_script_tool_list_entry_stays_compact(tmp_path: Path) -> None:
+    registry = ToolRegistry()
+    server = McpHttpServer(registry, McpHttpConfig(port=0, server_name="materialize-script-size-test"))
+    register_script_materialization_tools(
+        server,
+        dcc_name="custom",
+        instance_id="inst-1",
+        session_id="sess-1",
+        root=tmp_path,
+    )
+
+    handle = server.start()
+    try:
+        client = McpClient(handle.mcp_url())
+        code, body = client.post({"jsonrpc": "2.0", "id": "list-1", "method": "tools/list"})
+
+        assert code == 200
+        tool = next(tool for tool in body["result"]["tools"] if tool["name"] == "materialize_script")
+        payload = json.dumps(tool, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        assert len(payload) < 2048
+        assert tool["inputSchema"]["anyOf"] == [{"required": ["content"]}, {"required": ["code"]}]
+        assert set(tool["outputSchema"]["required"]) == {
+            "file_ref",
+            "file_path",
+            "sha256",
+            "bytes",
+            "dcc_type",
+            "instance_id",
+            "session_id",
+            "reused",
+        }
+    finally:
+        handle.shutdown()
+
+
 def test_materialize_script_tool_supports_mcp_and_rest(tmp_path: Path) -> None:
     registry = ToolRegistry()
     server = McpHttpServer(registry, McpHttpConfig(port=0, server_name="materialize-script-test"))
