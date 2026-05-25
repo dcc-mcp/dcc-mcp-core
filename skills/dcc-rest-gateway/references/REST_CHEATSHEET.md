@@ -48,6 +48,7 @@ curl -s "$GATEWAY/v1/instances"
 
 ```bash
 curl -s -X POST "$GATEWAY/v1/search" \
+  -H "Accept: application/json" \
   -H "Content-Type: application/json" \
   -d '{"query":"sphere","dcc_type":"maya","limit":10}'
 ```
@@ -56,6 +57,7 @@ curl -s -X POST "$GATEWAY/v1/search" \
 
 ```bash
 curl -s -X POST "$GATEWAY/v1/describe" \
+  -H "Accept: application/json" \
   -H "Content-Type: application/json" \
   -d '{"tool_slug":"maya.a1b2c3d4.maya_primitives__create_sphere","include_schema":true}'
 ```
@@ -64,6 +66,7 @@ curl -s -X POST "$GATEWAY/v1/describe" \
 
 ```bash
 curl -s -X POST "$GATEWAY/v1/call" \
+  -H "Accept: application/json" \
   -H "Content-Type: application/json" \
   -d '{
     "tool_slug": "maya.a1b2c3d4.maya_primitives__create_sphere",
@@ -75,6 +78,7 @@ curl -s -X POST "$GATEWAY/v1/call" \
 
 ```bash
 curl -s -X POST "$GATEWAY/v1/call_batch" \
+  -H "Accept: application/json" \
   -H "Content-Type: application/json" \
   -d '{
     "calls": [

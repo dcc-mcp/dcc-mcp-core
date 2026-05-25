@@ -86,8 +86,9 @@ fn test_gateway_state_with_debug_routes(
 
 async fn response_json(resp: Response) -> (StatusCode, Value) {
     let status = resp.status();
+    let headers = resp.headers().clone();
     let bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
-    let body = serde_json::from_slice(&bytes).unwrap();
+    let body = response_value(&headers, &bytes);
     (status, body)
 }
 
@@ -95,8 +96,25 @@ async fn response_json_with_headers(resp: Response) -> (StatusCode, HeaderMap, V
     let status = resp.status();
     let headers = resp.headers().clone();
     let bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
-    let body = serde_json::from_slice(&bytes).unwrap();
+    let body = response_value(&headers, &bytes);
     (status, headers, body)
+}
+
+fn response_value(headers: &HeaderMap, bytes: &[u8]) -> Value {
+    let is_toon = headers
+        .get(crate::gateway::response_codec::HEADER_RESPONSE_FORMAT)
+        .and_then(|value| value.to_str().ok())
+        == Some("toon")
+        || headers
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.starts_with(crate::gateway::response_codec::TOON_MIME));
+    if is_toon {
+        let text = std::str::from_utf8(bytes).unwrap();
+        toon_format::decode_default(text).unwrap()
+    } else {
+        serde_json::from_slice(bytes).unwrap()
+    }
 }
 
 async fn response_text(resp: Response) -> (StatusCode, String) {
@@ -1007,7 +1025,8 @@ async fn rest_traceparent_does_not_replace_request_id() {
     let request_body = json!({
         "tool_slug": "maya.abcdef01.render",
         "arguments": {},
-        "meta": {}
+        "meta": {},
+        "response_format": "json"
     });
 
     let _ = call_service_with_admin_trace(

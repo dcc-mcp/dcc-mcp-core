@@ -53,6 +53,7 @@ def _request_json(base_url: str, method: str, path: str, body: dict[str, Any] | 
     url = f"{base_url.rstrip('/')}{path}"
     data = None if body is None else json.dumps(body).encode("utf-8")
     request = urllib.request.Request(url, data=data, method=method)
+    request.add_header("Accept", "application/json")
     if body is not None:
         request.add_header("Content-Type", "application/json")
     try:

@@ -34,6 +34,10 @@ gateway HTTP API** only. You do **not** need MCP `tools/list`, `call_tool`,
 `resources/read`, or Streamable HTTP — only `curl` (or any HTTP client) against
 the elected gateway (default port **9765**).
 
+Agent-facing gateway REST routes return compact TOON by default. The examples in
+this skill request `Accept: application/json` so shell agents can keep using
+plain JSON tooling; remove that header when the caller can decode TOON.
+
 Install via OpenClaw/ClawHub, or point your agent at this `SKILL.md` after cloning
 [`dcc-mcp-core/skills/dcc-rest-gateway/`](https://github.com/loonghao/dcc-mcp-core/tree/main/skills/dcc-rest-gateway).
 
@@ -145,6 +149,7 @@ Only when `total >= 1` and rows are not stale.
 
 ```bash
 curl -s -X POST "$GATEWAY/v1/search" \
+  -H "Accept: application/json" \
   -H "Content-Type: application/json" \
   -d '{
     "query": "sphere",
@@ -162,6 +167,7 @@ Copy `hits[].tool_slug` **verbatim** — format: `<dcc>.<id8>.<backend_tool>` (e
 
 ```bash
 curl -s -X POST "$GATEWAY/v1/describe" \
+  -H "Accept: application/json" \
   -H "Content-Type: application/json" \
   -d '{"tool_slug": "<from-search>", "include_schema": true}'
 ```
@@ -174,6 +180,7 @@ Read `tool.inputSchema` and safety annotations before calling.
 
 ```bash
 curl -s -X POST "$GATEWAY/v1/call" \
+  -H "Accept: application/json" \
   -H "Content-Type: application/json" \
   -d '{
     "tool_slug": "<from-search>",

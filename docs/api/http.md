@@ -642,7 +642,10 @@ gateway advertises the canonical MCP workflow `search` → `describe` →
 `load_skill` (when needed) → `call`. REST `/v1/search`, `/v1/describe`,
 `/v1/load_skill`, `/v1/call`, and `/v1/call_batch` remain the pure HTTP twin.
 Gateway search returns compact records only; `describe` fetches one full schema
-on demand, keeping `tools/list` bounded even when many backends are live.
+on demand, keeping `tools/list` bounded even when many backends are live. The
+gateway REST workflow returns compact TOON by default; clients that require
+legacy JSON should send `Accept: application/json` or body
+`response_format: "json"`.
 
 For unloaded skills, keep using the Skills-First workflow:
 MCP `search(kind="skill", query=...)` or REST `/v1/search`, then `load_skill`
