@@ -411,8 +411,8 @@ tools:
   - `.port -> int`, `.bind_addr -> str`
   - `.shutdown()` — blocks until stopped; `.signal_shutdown()` — non-blocking
 
-**Resources primitive** (#350, #730, #732):
-- Python: `server.resources()` returns `ResourceHandle`; use `.set_scene(dict|None)`, `.notify_updated(uri)`, `.register_output_buffer(OutputCapture)`, `.register_producer(scheme_or_uri, callable)`.
+**Resources primitive** (#350, #730, #732, #1205):
+- Python: `McpHttpServer.resources()` and `DccServerBase.resources()` return `ResourceHandle`; use `.set_scene(dict|None)`, `.notify_updated(uri)`, `.register_output_buffer(OutputCapture)`, `.register_producer(scheme_or_uri, callable)`. `DccServerBase` also exposes `register_resource_producer(...)`, `set_scene_resource(...)`, and `notify_resource_updated(...)` helpers for adapters.
 - Rust: `server.resources()` returns `ResourceRegistry`; use `set_scene`, `wire_audit_log`, and `add_producer(Arc<dyn ResourceProducer>)`.
 - Static skill resources: declare `metadata.dcc-mcp.resources` pointing to `resources/*.resource.yaml` with `source.type: file`.
 - Gateway: `resources/list` returns gateway-owned management URIs (`dcc://<type>/<id>`) and forwarded backend resource URIs (`<scheme>://<id8>/<rest>`); always pass the exact returned URI to `resources/read` / `resources/subscribe`.
