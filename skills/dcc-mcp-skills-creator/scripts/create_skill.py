@@ -86,7 +86,7 @@ def create_skill(
 
     skill_dir.mkdir(parents=True)
     (skill_dir / "scripts").mkdir()
-    (skill_dir / "metadata").mkdir()
+    (skill_dir / "references").mkdir()
 
     title = name.replace("-", " ").title()
     script_file = f"scripts/{tool_name}.py"

@@ -23,7 +23,11 @@ the recovery target.
 
 ## Core Boundary
 
+Keep configuration in `SKILL.md` frontmatter under `metadata.dcc-mcp.*`, and
+keep large payloads in sibling files such as `tools.yaml`, `prompts/*.yaml`,
+`workflows/*.yaml`, or `references/*.md`.
+
 Do not parse `SKILL.md`, `tools.yaml`, `groups.yaml`, prompts, or workflows from
 adapter runtime code when core exposes a catalog or typed skill object API. If a
-needed transform or hook is missing, create a core RFC and keep the adapter
-shim narrow until the core API exists.
+needed transform or hook is missing, create a core RFC and keep the adapter shim
+narrow until the core API exists.
