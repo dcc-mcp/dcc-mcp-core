@@ -247,6 +247,31 @@ class DccServerBase:
             return
         TelemetryManager(self._dcc_name, self._dcc_pid, enabled=True).init()
 
+    # ── readiness publication (#1206) ────────────────────────────────────────
+
+    def set_readiness_probe(self, probe: Any) -> bool:
+        """Publish a shared readiness probe to MCP and REST call surfaces.
+
+        Adapters usually call this through
+        :class:`dcc_mcp_core.AdapterReadinessBinder` before ``start()``. The
+        inner server then uses the same probe for MCP ``tools/call`` gating,
+        REST ``/v1/readyz`` reporting, and REST ``/v1/call`` gating.
+
+        Returns:
+            ``True`` when the inner server accepted the probe.
+
+        """
+        setter = getattr(self._server, "set_readiness_probe", None)
+        if not callable(setter):
+            logger.debug("[%s] set_readiness_probe unavailable on inner server", self._dcc_name)
+            return False
+        try:
+            setter(probe)
+            return True
+        except Exception as exc:
+            logger.debug("[%s] set_readiness_probe failed: %s", self._dcc_name, exc)
+            return False
+
     # ── skill search path helpers ─────────────────────────────────────────────
 
     def collect_skill_search_paths(
