@@ -50,6 +50,7 @@ from dcc_mcp_core.adapter_context import append_context_snapshot
 from dcc_mcp_core.adapter_context import register_adapter_instruction_resources
 from dcc_mcp_core.hotreload import DccSkillHotReloader
 from dcc_mcp_core.plugin_manifest import build_plugin_manifest
+from dcc_mcp_core.script_execution import allow_script_materialization_root
 from dcc_mcp_core.skill import get_bundled_skill_paths
 
 _PKG_VERSION: str = getattr(_core, "__version__", "0.0.0-dev")
@@ -429,6 +430,17 @@ class DccServerBase:
         """Forward ``McpHttpConfig.sandbox_policy`` to the execution bridge (#1001)."""
         policy = getattr(self._config, "sandbox_policy", None)
         if policy is not None:
+            try:
+                bridge.script_materialization_root = allow_script_materialization_root(
+                    policy,
+                    root=bridge.script_materialization_root,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[%s] failed to allow script materialization root in sandbox: %s",
+                    self._dcc_name,
+                    exc,
+                )
             bridge.sandbox_context = SandboxContext(policy)
 
     def _attach_host_dispatcher_to_http(self, dispatcher: Any | None) -> bool:
