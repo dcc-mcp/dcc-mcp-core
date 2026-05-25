@@ -597,6 +597,22 @@ for s in skills:
     # Action names: f"{s.name.replace('-', '_')}__{stem}" for stem in script stems
 ```
 
+### register_metadata_driven_tools
+
+```python
+report = dcc_mcp_core.register_metadata_driven_tools(
+    server,
+    skills=skills,           # omit to scan via scan_and_load_lenient(...)
+    dcc_name="maya",
+)
+```
+
+Registers optional metadata-driven tools such as recipes and skill reference
+docs. Pass `registrations=[metadata_extension(...), imported_metadata_extension(...)]`
+for adapter-specific extension callbacks. The returned
+`MetadataRegistrationReport` exposes `registered_count`, `failed_count`,
+`skipped_count`, `ok`, and `to_dict()`.
+
 ### scan_and_load_team / scan_and_load_team_lenient
 
 ```python

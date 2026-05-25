@@ -72,3 +72,27 @@ Extend `tools/lint_skills.py` when you add new cross-cutting conventions.
 - Prefer gateway MCP `search` → `describe` followed by REST `/v1/call`
   (or per-host `load_skill` then typed tools). Long prose belongs in `recipes` /
   `skill-reference-docs`, not only in SKILL.md body below the frontmatter.
+
+## Adapter startup registration
+
+Adapters that expose optional metadata-driven tools should use
+`register_metadata_driven_tools(...)` instead of copying scan/import/register
+wrappers. The helper scans with `scan_and_load_lenient(...)` when `skills` are
+not supplied, registers the default `recipes` and `skill-reference-docs`
+extensions, and returns a report with per-extension `registered`, `failed`, or
+`skipped` status.
+
+```python
+from dcc_mcp_core import register_metadata_driven_tools
+
+report = register_metadata_driven_tools(
+    server,
+    dcc_name="maya",
+    extra_paths=[studio_skill_root],
+)
+logger.info("metadata tools: %s", report.to_dict())
+```
+
+Pass explicit `skills=loaded_skills` when the adapter has already scanned skill
+roots for server startup; that keeps discovery single-pass while preserving the
+same optional-extension error policy.

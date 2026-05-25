@@ -90,6 +90,7 @@
 | Agent-facing docs:// MCP resources (issue #435) | `register_docs_server(server)` — serves `docs://output-format/*` and `docs://skill-authoring/*` resources; agents fetch only specs they need |
 | Agent feedback / rationale (issues #433, #434) | `register_feedback_tool(server)` / `extract_rationale(params)` / `make_rationale_meta(text)` — `dcc_feedback__report` tool + `_meta.dcc.rationale` extraction |
 | Runtime DCC namespace introspection (issue #426) | `register_introspect_tools(server)` — `dcc_introspect__list_module`, `dcc_introspect__signature`, `dcc_introspect__search`, `dcc_introspect__eval` |
+| Optional skill metadata extension tools (issue #1229) | `register_metadata_driven_tools(server, skills=..., dcc_name="maya")` — registers optional metadata-driven tools such as recipes and skill reference docs, returning a report with `registered` / `failed` / `skipped` extension outcomes |
 | Skill/domain recipes (issues #428, #616) | `register_recipes_tools(server, skills=...)` — `recipes__list/search/get/validate/apply` tools for Markdown anchors and structured YAML recipe packs |
 | YAML declarative workflows (issue #439) | `WorkflowYaml` + `load_workflow_yaml(path)` + `register_workflow_yaml_tools(server)` — task vs step semantics for multi-step DCC workflows |
 | WebSocket bridge for non-Python DCCs | `DccBridge(host, port)` — WebSocket JSON-RPC 2.0 bridge; `.call(method, **params)` for synchronous RPC to DCC plugin |
@@ -576,6 +577,7 @@ tools:
 - `list_recipe_entries(skill_metadata) -> list[dict]` / `find_recipe_entry(skill_metadata, name)` — merge Markdown anchors and structured recipe pack entries
 - `validate_recipe_inputs(recipe, inputs) -> list[str]` — zero-dep required/type validation for recipe input schemas
 - `register_recipes_tools(server, *, skills, dcc_name="dcc")` — register `recipes__list/search/get/validate/apply` tools
+- `register_metadata_driven_tools(server, *, skills=None, extra_paths=None, registrations=None, dcc_name="dcc")` — one helper for optional metadata-driven tools; defaults to recipes + skill reference docs and returns `MetadataRegistrationReport`
 
 ### YAML Workflows (`dcc_mcp_core.workflow_yaml`)
 
