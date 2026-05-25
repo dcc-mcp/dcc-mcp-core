@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.32](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.31...v0.17.32) (2026-05-25)
+
+
+### Features
+
+* add adapter readiness binder ([a133696](https://github.com/loonghao/dcc-mcp-core/commit/a1336968808db7d99b221e650ffccedfe9c8f859))
+* add script materialization store ([21aac24](https://github.com/loonghao/dcc-mcp-core/commit/21aac243da0f80373c6056da3ac1f5f898eb1315))
+* add skill load transform hooks ([889d657](https://github.com/loonghao/dcc-mcp-core/commit/889d657e5c37f108852a89586a5b79e5ab2eadd7))
+* enforce file-backed script execution ([eba909c](https://github.com/loonghao/dcc-mcp-core/commit/eba909ca9760783c0d466a000fc51173bbec00d5))
+* expose materialized script agent APIs ([f287637](https://github.com/loonghao/dcc-mcp-core/commit/f2876372da2f895898c3bfbd63838bc5596af775))
+
 ## [0.17.31](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.30...v0.17.31) (2026-05-25)
 
 
