@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.33](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.32...v0.17.33) (2026-05-25)
+
+
+### Features
+
+* add admin live traffic capture ([a4fa359](https://github.com/loonghao/dcc-mcp-core/commit/a4fa35912e5486699aca858eec3749c2e8b70da7))
+* **admin:** improve debug triage telemetry ([8ffa011](https://github.com/loonghao/dcc-mcp-core/commit/8ffa011ee69125515c7dd4bb2190a3f801664ba4))
+
+
+### Bug Fixes
+
+* compact materialize script tool listing ([891d357](https://github.com/loonghao/dcc-mcp-core/commit/891d357853532125e08a8462321f81198d5e01fa))
+
 ## [0.17.32](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.31...v0.17.32) (2026-05-25)
 
 
