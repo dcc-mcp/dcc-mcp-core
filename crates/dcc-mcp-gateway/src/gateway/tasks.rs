@@ -815,7 +815,7 @@ pub(crate) async fn start_gateway_tasks(
     // yield is requested, dropping the group aborts the children instead of
     // detaching them as leaked background work.
     let supervisor_yield_rx = yield_rx.clone();
-    let mut task_handles = vec![
+    let task_handles = vec![
         cleanup_handle,
         watcher_handle,
         tools_watcher_handle,
@@ -827,6 +827,8 @@ pub(crate) async fn start_gateway_tasks(
         gw_handle,
         remote_handle,
     ];
+    #[cfg(feature = "prometheus")]
+    let mut task_handles = task_handles;
     #[cfg(feature = "prometheus")]
     task_handles.push(metrics_handle);
 

@@ -45,11 +45,13 @@
 
 pub mod activity;
 mod html;
+mod links;
 pub mod sqlite_lane;
 pub mod state;
 pub mod stats;
 pub mod trace;
 pub mod workers;
+pub mod workflows;
 
 #[cfg(feature = "admin")]
 mod handlers;
@@ -66,6 +68,7 @@ pub use state::{AdminAuditRecord, AdminAuditSink, AdminState, AuditLog, DurableA
 pub use stats::{GatewayStats, LatencyStats, StatsAggregator, StatsRange, TopEntry};
 pub use trace::{DispatchTrace, TraceContext, TraceLog, TracePayload, TraceSpan};
 pub use workers::build_workers_payload;
+pub use workflows::{WorkflowDiscoverySummary, WorkflowStep, WorkflowView};
 
 #[cfg(feature = "admin")]
 pub use router::{build_admin_router, build_v1_debug_router};

@@ -213,7 +213,7 @@ async fn collect_activity_events(state: &AdminState, limit: usize) -> Vec<Activi
     events
 }
 
-async fn collect_audits(state: &AdminState, limit: usize) -> Vec<AdminAuditRecord> {
+pub(super) async fn collect_audits(state: &AdminState, limit: usize) -> Vec<AdminAuditRecord> {
     let mut by_id: HashMap<String, AdminAuditRecord> = HashMap::new();
     if let Some(lane) = &state.admin_sqlite_lane {
         for rec in lane
@@ -234,7 +234,7 @@ async fn collect_audits(state: &AdminState, limit: usize) -> Vec<AdminAuditRecor
     rows
 }
 
-async fn collect_traces(state: &AdminState, limit: usize) -> Vec<DispatchTrace> {
+pub(super) async fn collect_traces(state: &AdminState, limit: usize) -> Vec<DispatchTrace> {
     let mut by_id: HashMap<String, DispatchTrace> = HashMap::new();
     if let Some(lane) = &state.admin_sqlite_lane {
         for trace in lane

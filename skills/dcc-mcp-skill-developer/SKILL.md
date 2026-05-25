@@ -73,6 +73,11 @@ into a faster authoring loop.
    the shipped server paths enable the required gateway `admin` feature and
    Admin telemetry runtime state, while minimal direct `dcc-mcp-gateway` builds
    or runtimes started with Admin disabled may omit those debug routes.
+   Use `/v1/debug/workflows` when examples or tests need a session-level view
+   of the whole `search` -> `describe` -> `load_skill` -> `call` chain; it is a
+   read-only projection over retained search telemetry, dispatch traces, and
+   audit rows, including selected rank, zero-result searches, and
+   time-to-first-success without exposing hidden reasoning or raw prompts.
    Gateway `GET /v1/openapi.json` is gateway-specific: it documents only the
    mounted aggregating routes and intentionally omits per-DCC-only resources,
    prompts, jobs, and adapter-local `/v1/dcc/{dcc_type}/call`. Use a concrete

@@ -221,6 +221,7 @@ The elected gateway exposes a read-only HTML dashboard at `GET /admin` and machi
 | `GET /admin/api/traces/{request_id}` | Drill into one call without scanning the whole trace ring. |
 | `GET /v1/debug/traces/{trace_id}` | Stable debug lookup by trace id or request id. |
 | `GET /v1/debug/bundles/{trace_id}` | Full-chain debug bundle across every retained request in a trace. |
+| `GET /admin/api/workflows?limit=200` | Group retained searches, describes, skill loads, calls, traces, and audits into agent session/workflow chains. |
 | `GET /admin/api/stats?range=1h\|24h\|7d` | Compute success rate, latency percentiles, and top tools/instances/agents from the trace log. |
 | `GET /admin/api/workers` | Inspect per-instance worker cards from the live registry. |
 
@@ -246,6 +247,10 @@ complete, replayable investigation target into an LLM evaluation or
 code-optimization prompt. The same link set includes `issue_report_url`, a
 standalone JSON export shaped for GitHub issue attachments with summary
 metadata, a suggested issue title/body, and the correlated debug bundle.
+`/admin/api/workflows` and `/v1/debug/workflows` reuse the same stores to show
+session/workflow rows with bounded agent metadata, selected search rank,
+zero-result searches, time-to-first-success, and step links back to trace
+detail, debug bundles, issue reports, OpenAPI, and docs.
 When a live worker exposes an `mcp_url`, the Admin Dashboard also derives that
 worker's `/v1/openapi.json`, `/docs`, and instance-scoped OpenAPI Inspector
 links, making it possible to follow a gateway trace down to the exact backend
