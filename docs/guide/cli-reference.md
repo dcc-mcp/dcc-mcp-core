@@ -160,6 +160,11 @@ Admin audit/trace persistence is configured by environment only: set `DCC_MCP_GA
 It never enables capture itself and does not need a live DCC unless you use
 `replay`.
 
+If the YAML config includes an `admin_live` sink, the retained in-memory window
+can be downloaded as JSONL from `/admin/api/traffic/export` (or the stable
+mirror `/v1/debug/traffic/export`) and then passed to `capture replay` or
+`capture diff` like any other capture file.
+
 ```bash
 # Replay recorded client -> gateway requests against a live gateway MCP endpoint.
 dcc-mcp-server capture replay ./captures/run.sqlite \

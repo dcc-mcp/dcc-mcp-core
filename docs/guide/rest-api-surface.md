@@ -48,6 +48,8 @@ continue to serve their own adapter OpenAPI contract from the same path.
 | `GET` | `/v1/debug/activity` | Gateway only: stable activity feed from audits, traces, and gateway events. |
 | `GET` | `/v1/debug/traces` | Gateway only: recent dispatch trace list. |
 | `GET` | `/v1/debug/traces/{request_id}` | Gateway only: dispatch trace detail by request id. |
+| `GET` | `/v1/debug/traffic` | Gateway only: retained live traffic-capture frames from an explicit `admin_live` sink. |
+| `GET` | `/v1/debug/traffic/export` | Gateway only: retained live traffic-capture frames as JSONL. |
 | `GET` | `/v1/debug/trace-context/{lookup_id}` | Gateway only: resolve trace id or request id to the primary trace context. |
 | `GET` | `/v1/debug/bundles/{request_id}` | Gateway only: full-chain debug bundle by request id or trace id. |
 | `GET` | `/v1/debug/issue-reports/{request_id}` | Gateway only: GitHub-attachable debug report JSON. |
@@ -116,6 +118,8 @@ so operators and agents can compare results one-to-one:
 | `/v1/debug/activity?limit=200` | `/admin/api/activity?limit=200` | Unified activity feed. |
 | `/v1/debug/traces?limit=200` | `/admin/api/traces?limit=200` | Recent dispatch trace rows. |
 | `/v1/debug/traces/{request_id}` | `/admin/api/traces/{request_id}` | Exact request-id trace detail. |
+| `/v1/debug/traffic?limit=300` | `/admin/api/traffic?limit=300` | Recent live traffic-capture frames from an `admin_live` sink. |
+| `/v1/debug/traffic/export?limit=1000` | `/admin/api/traffic/export?limit=1000` | Retained live traffic-capture frames as JSONL. |
 | `/v1/debug/trace-context/{lookup_id}` | n/a | Trace-context lookup by `trace_id` or `request_id`. |
 | `/v1/debug/bundles/{request_id}` | `/admin/api/debug-bundle/{request_id}` | Accepts request ids and retained trace ids. |
 | `/v1/debug/issue-reports/{request_id}` | `/admin/api/issue-report/{request_id}` | JSON export suitable for GitHub issue attachment. |

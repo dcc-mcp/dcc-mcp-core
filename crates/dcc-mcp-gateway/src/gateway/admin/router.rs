@@ -9,8 +9,8 @@ use super::handlers::{
     handle_admin_search_telemetry, handle_admin_skill_detail, handle_admin_skill_path_add,
     handle_admin_skill_path_delete, handle_admin_skill_paths, handle_admin_skills,
     handle_admin_stats, handle_admin_tasks, handle_admin_tools, handle_admin_trace_detail,
-    handle_admin_traces, handle_admin_ui, handle_admin_workers, handle_admin_workflows,
-    handle_v1_debug_trace_lookup,
+    handle_admin_traces, handle_admin_traffic, handle_admin_traffic_export, handle_admin_ui,
+    handle_admin_workers, handle_admin_workflows, handle_v1_debug_trace_lookup,
 };
 use super::state::AdminState;
 
@@ -28,6 +28,8 @@ use super::state::AdminState;
 /// - `GET  /api/calls`              → JSON recent calls
 /// - `GET  /api/traces`             → JSON recent dispatch traces (Phase 2)
 /// - `GET  /api/traces/{request_id}` → full trace waterfall for one call
+/// - `GET  /api/traffic`            → retained live traffic capture frames
+/// - `GET  /api/traffic/export`     → retained live traffic frames as JSONL
 /// - `GET  /api/issue-report/{request_id}` → downloadable JSON issue report
 /// - `GET  /api/workflows`          → agent/session workflow projection
 /// - `GET  /api/stats?range=1h|24h|7d` → aggregated call statistics (Phase 3)
@@ -46,6 +48,11 @@ pub fn build_admin_router(state: AdminState) -> Router {
         .route("/api/skill-detail", routing::get(handle_admin_skill_detail))
         .route("/api/calls", routing::get(handle_admin_calls))
         .route("/api/traces", routing::get(handle_admin_traces))
+        .route("/api/traffic", routing::get(handle_admin_traffic))
+        .route(
+            "/api/traffic/export",
+            routing::get(handle_admin_traffic_export),
+        )
         .route(
             "/api/traces/{request_id}",
             routing::get(handle_admin_trace_detail),
@@ -89,6 +96,11 @@ pub fn build_v1_debug_router(state: AdminState) -> Router {
         .route("/v1/debug/activity", routing::get(handle_admin_activity))
         .route("/v1/debug/calls", routing::get(handle_admin_calls))
         .route("/v1/debug/traces", routing::get(handle_admin_traces))
+        .route("/v1/debug/traffic", routing::get(handle_admin_traffic))
+        .route(
+            "/v1/debug/traffic/export",
+            routing::get(handle_admin_traffic_export),
+        )
         .route(
             "/v1/debug/traces/{request_id}",
             routing::get(handle_admin_trace_detail),

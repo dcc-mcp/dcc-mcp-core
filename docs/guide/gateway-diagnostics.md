@@ -48,6 +48,8 @@ enabled: true
 sinks:
   - kind: sqlite
     path: ./captures/run-${TIMESTAMP}.db
+  - kind: admin_live
+    ring_buffer: 500
 filters:
   include:
     - mcp.method: tools/call
@@ -62,6 +64,11 @@ ORed, exclude rules win over includes, and simple `*` wildcards are supported
 for string fields such as `http.url`. Redaction paths are exact JSON paths under
 the frame attributes and are applied before JSONL or SQLite writes; changed
 paths are recorded in `attributes.body.redacted_paths`.
+
+The optional `admin_live` sink keeps a bounded in-memory ring buffer for the
+Admin Traffic panel and stable debug API. Inspect it through
+`GET /admin/api/traffic` or `GET /v1/debug/traffic`; export the retained window
+as JSONL with `/admin/api/traffic/export` or `/v1/debug/traffic/export`.
 
 Because frames can contain prompts, tool arguments, scene paths, and result
 payloads, treat capture files like debugging artifacts, not production audit

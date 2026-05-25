@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::Path;
@@ -11,6 +12,42 @@ use super::TrafficCaptureError;
 
 pub(super) trait TrafficSink: Send + Sync + std::fmt::Debug {
     fn record(&self, event: &EventEnvelope);
+}
+
+#[derive(Debug)]
+pub(super) struct LiveTrafficSink {
+    capacity: usize,
+    frames: Mutex<VecDeque<EventEnvelope>>,
+}
+
+impl LiveTrafficSink {
+    pub(super) fn new(capacity: usize) -> Self {
+        Self {
+            capacity: capacity.max(1),
+            frames: Mutex::new(VecDeque::with_capacity(capacity.max(1))),
+        }
+    }
+
+    pub(super) fn recent(&self, limit: usize) -> Vec<EventEnvelope> {
+        let Ok(frames) = self.frames.lock() else {
+            tracing::warn!("traffic capture: live sink lock poisoned");
+            return Vec::new();
+        };
+        frames.iter().rev().take(limit).cloned().collect()
+    }
+}
+
+impl TrafficSink for LiveTrafficSink {
+    fn record(&self, event: &EventEnvelope) {
+        let Ok(mut frames) = self.frames.lock() else {
+            tracing::warn!("traffic capture: live sink lock poisoned");
+            return;
+        };
+        frames.push_back(event.clone());
+        while frames.len() > self.capacity {
+            frames.pop_front();
+        }
+    }
 }
 
 #[derive(Debug)]

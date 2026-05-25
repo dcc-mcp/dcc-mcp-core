@@ -187,10 +187,14 @@ into a faster authoring loop.
    For local traffic debugging, prefer the gateway `traffic.frame` capture
    stream (`DCC_MCP_TRAFFIC_CAPTURE=jsonl:<path>` for quick capture, or
    `DCC_MCP_TRAFFIC_CONFIG=traffic_capture.yaml` for SQLite/filter/redact
-   capture) over ad-hoc print logging. Redactions are write-time exact JSON
+   capture plus optional `admin_live` in-memory inspection) over ad-hoc print
+   logging. Redactions are write-time exact JSON
    paths such as `body.data.params.arguments.api_key`, and capture files can
    contain prompts, scene paths, and tool arguments, so keep them as local
    debugging artifacts unless redaction has been applied. Use
+   `GET /v1/debug/traffic` to inspect retained `admin_live` frames and
+   `GET /v1/debug/traffic/export` to download the retained window as JSONL.
+   Use
    `dcc-mcp-server capture replay <capture> --target <gateway>/mcp` to replay
    captured client requests after a skill or prompt change, and
    `dcc-mcp-server capture diff <before> <after>` to compare observable

@@ -1,4 +1,4 @@
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 #[cfg(feature = "admin")]
 pub(crate) fn add_gateway_debug_openapi_paths(doc: &mut Value) {
@@ -84,6 +84,12 @@ pub(crate) fn add_gateway_debug_openapi_paths(doc: &mut Value) {
             list_params.clone(),
         ),
         (
+            "/v1/debug/traffic",
+            "List live traffic capture frames",
+            "Stable agent-facing retained traffic.frame list from an explicit admin_live traffic sink.",
+            list_params.clone(),
+        ),
+        (
             "/v1/debug/traces/{request_id}",
             "Get one debug trace by request id",
             "Stable agent-facing dispatch trace detail lookup.",
@@ -159,6 +165,16 @@ pub(crate) fn add_gateway_debug_openapi_paths(doc: &mut Value) {
             debug_get_path(summary, description, params),
         );
     }
+    paths.insert(
+        "/v1/debug/traffic/export".to_string(),
+        debug_get_path_with_content(
+            "Export live traffic capture JSONL",
+            "Download the retained admin_live traffic.frame window as newline-delimited JSON.",
+            limit_params.clone(),
+            "application/x-ndjson",
+            json!({"type": "string", "format": "binary"}),
+        ),
+    );
 
     if let Some(schemas) = doc
         .pointer_mut("/components/schemas")
@@ -190,6 +206,25 @@ pub(crate) fn add_gateway_debug_openapi_paths(doc: &mut Value) {
 
 #[cfg(feature = "admin")]
 fn debug_get_path(summary: &str, description: &str, parameters: Vec<Value>) -> Value {
+    debug_get_path_with_content(
+        summary,
+        description,
+        parameters,
+        "application/json",
+        json!({"$ref": "#/components/schemas/GatewayDebugPayload"}),
+    )
+}
+
+#[cfg(feature = "admin")]
+fn debug_get_path_with_content(
+    summary: &str,
+    description: &str,
+    parameters: Vec<Value>,
+    content_type: &str,
+    schema: Value,
+) -> Value {
+    let mut content = Map::new();
+    content.insert(content_type.to_string(), json!({ "schema": schema }));
     json!({
         "get": {
             "tags": ["debug"],
@@ -199,11 +234,7 @@ fn debug_get_path(summary: &str, description: &str, parameters: Vec<Value>) -> V
             "responses": {
                 "200": {
                     "description": "Debug payload",
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/GatewayDebugPayload"}
-                        }
-                    }
+                    "content": Value::Object(content)
                 },
                 "404": {
                     "description": "Debug record not found",

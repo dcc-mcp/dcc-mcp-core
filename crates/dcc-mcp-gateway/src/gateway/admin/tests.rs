@@ -161,6 +161,21 @@ mod admin_tests {
         (status, json)
     }
 
+    async fn body_text(router: Router, uri: &str) -> (StatusCode, String) {
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = resp.status();
+        let bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        (status, String::from_utf8(bytes.to_vec()).unwrap())
+    }
+
     fn audit_record(
         request_id: &str,
         action: &str,
@@ -229,6 +244,51 @@ redact:
         )
         .unwrap();
         crate::gateway::traffic::TrafficCapture::from_config_path(config_path).unwrap()
+    }
+
+    fn admin_live_capture() -> crate::gateway::traffic::TrafficCapture {
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let config_path = std::env::temp_dir().join(format!("dcc-mcp-admin-live-{suffix}.yaml"));
+        std::fs::write(
+            &config_path,
+            r#"
+enabled: true
+sinks:
+  - kind: admin_live
+    ring_buffer: 2
+"#,
+        )
+        .unwrap();
+        crate::gateway::traffic::TrafficCapture::from_config_path(config_path).unwrap()
+    }
+
+    fn traffic_frame(
+        method: &'static str,
+        request_id: &str,
+    ) -> crate::gateway::traffic::TrafficFrame {
+        crate::gateway::traffic::TrafficFrame::json(
+            crate::gateway::traffic::basic_gateway_source(),
+            crate::gateway::traffic::correlation(
+                Some(request_id),
+                Some("trace-traffic"),
+                Some("session-traffic"),
+            ),
+            "inbound",
+            "client_to_gateway",
+            "mcp-http",
+            json!({
+                "jsonrpc": "2.0",
+                "method": method,
+                "id": request_id,
+            }),
+        )
+        .with_session_id(Some("session-traffic"))
+        .with_http(crate::gateway::traffic::http_post("/mcp", None, Some(200)))
+        .with_mcp(crate::gateway::traffic::mcp_message(
+            "request",
+            method,
+            Some(json!(request_id)),
+        ))
     }
 
     async fn spawn_search_backend(hits: Value) -> (u16, oneshot::Sender<()>) {
@@ -365,6 +425,8 @@ redact:
         let (status, doc) = body_json(router, "/v1/openapi.json").await;
         assert_eq!(status, StatusCode::OK);
         assert!(doc["paths"].get("/v1/debug/instances").is_some());
+        assert!(doc["paths"].get("/v1/debug/traffic").is_some());
+        assert!(doc["paths"].get("/v1/debug/traffic/export").is_some());
         assert!(doc["paths"].get("/v1/debug/deregistered").is_some());
     }
 
@@ -879,6 +941,55 @@ redact:
         assert_eq!(debug_status, StatusCode::OK);
         assert_eq!(debug_body["stats"]["recent_policy_denied"], 1);
         assert_eq!(debug_body["stats"]["recent_throttled"], 1);
+    }
+
+    #[tokio::test]
+    async fn test_admin_traffic_returns_live_frames_and_export() {
+        let capture = admin_live_capture();
+        capture.emit_json_frame(traffic_frame("tools/list", "req-live-1"));
+        capture.emit_json_frame(traffic_frame("tools/call", "req-live-2"));
+        capture.emit_json_frame(traffic_frame("resources/read", "req-live-3"));
+
+        let mut gs = make_gateway_state();
+        gs.traffic_capture = Arc::new(capture);
+        let state = AdminState::new(gs);
+        let router = build_admin_router(state.clone());
+
+        let (status, body) = body_json(router.clone(), "/api/traffic?limit=10").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["total"], 2);
+        let frames = body["frames"].as_array().unwrap();
+        assert_eq!(frames[0]["attributes"]["mcp"]["method"], "resources/read");
+        assert_eq!(frames[0]["correlation"]["request_id"], "req-live-3");
+        assert_eq!(frames[1]["attributes"]["mcp"]["method"], "tools/call");
+        assert!(
+            body["links"]["admin_traffic_url"]
+                .as_str()
+                .is_some_and(|url| url.ends_with("/admin?panel=traffic"))
+        );
+        assert!(
+            body["links"]["traffic_export_jsonl_url"]
+                .as_str()
+                .is_some_and(|url| url.ends_with("/admin/api/traffic/export"))
+        );
+
+        let (export_status, export_body) =
+            body_text(router.clone(), "/api/traffic/export?limit=10").await;
+        assert_eq!(export_status, StatusCode::OK);
+        let lines: Vec<&str> = export_body.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("\"traffic.frame\""));
+        assert!(lines[0].contains("\"resources/read\""));
+        assert!(lines[1].contains("\"tools/call\""));
+
+        let v1_router = build_v1_debug_router(state);
+        let (debug_status, debug_body) = body_json(v1_router, "/v1/debug/traffic?limit=1").await;
+        assert_eq!(debug_status, StatusCode::OK);
+        assert_eq!(debug_body["total"], 1);
+        assert_eq!(
+            debug_body["frames"][0]["attributes"]["mcp"]["method"],
+            "resources/read"
+        );
     }
 
     #[tokio::test]
