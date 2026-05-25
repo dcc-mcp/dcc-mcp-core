@@ -616,6 +616,34 @@ class DccServerBase:
         """Load a caller-supplied ``SkillMetadata`` object through core."""
         return self._skill_client.load_skill_object(skill)
 
+    def set_skill_load_transform(self, transform: Callable[[Any], Any] | None) -> bool:
+        """Register an adapter policy hook applied before every skill load.
+
+        The callable receives a detached mutable ``SkillMetadata`` object. It
+        may mutate that object and return ``None``, or return a replacement
+        ``SkillMetadata``. Raising an exception vetoes the load before any
+        tools are registered. Because the hook is installed on the inner
+        catalog, direct Python ``load_skill``, MCP ``load_skill``, REST
+        ``/v1/load_skill``, and batch/group loads all share the same policy.
+
+        Returns:
+            ``True`` when the inner server accepted the hook.
+
+        """
+        return self._skill_client.set_skill_load_transform(transform)
+
+    def clear_skill_load_transform(self) -> bool:
+        """Remove the adapter skill-load transform, if one is registered."""
+        return self._skill_client.clear_skill_load_transform()
+
+    def set_after_load_skill_hook(self, hook: Callable[[Any, list[str]], Any] | None) -> bool:
+        """Register an observer called with ``(skill, registered_actions)`` after load."""
+        return self._skill_client.set_after_load_skill_hook(hook)
+
+    def clear_after_load_skill_hook(self) -> bool:
+        """Remove the after-load skill observer, if one is registered."""
+        return self._skill_client.clear_after_load_skill_hook()
+
     def unload_skill(self, name: str) -> bool:
         """Unload a skill by name."""
         return self._skill_client.unload_skill(name)

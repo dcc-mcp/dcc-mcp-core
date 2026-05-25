@@ -237,11 +237,15 @@ into a faster authoring loop.
     dict-style wrappers only for compatibility during adapter migrations.
 11. When an adapter must adjust discovered skill metadata before registration
     (for example disabling thread-affinity enforcement for a standalone path),
-    use `catalog.get_skill(name)` to obtain a detached `SkillMetadata` copy,
-    mutate its `tools` / `groups` / policy fields, then call
-    `catalog.load_skill_object(skill)` or `server.load_skill_object(skill)`.
-    Do not parse or rewrite `SKILL.md` / `tools.yaml` at adapter runtime.
-    Keep `get_skill_info()` for serialized inspection only.
+    install `server.set_skill_load_transform(fn)` before exposing the server to
+    agents. The transform receives a mutable `SkillMetadata` and applies to
+    direct Python `load_skill`, MCP `tools/call load_skill`, REST
+    `/v1/load_skill`, and multi-skill/group activation paths. Raise from the
+    transform to veto before tools are registered. Use
+    `set_after_load_skill_hook(fn)` only for adapter bookkeeping after
+    registration, and keep `get_skill()` / `load_skill_object()` for explicit
+    one-off object loads. Do not parse or rewrite `SKILL.md` / `tools.yaml` at
+    adapter runtime. Keep `get_skill_info()` for serialized inspection only.
 12. Add tests at the lowest executable layer, then one discovery/load/call or
     gateway REST path when behavior crosses MCP or REST boundaries.
 13. For application UI automation, use the generic `app_ui__*` contract rather

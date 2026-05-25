@@ -169,6 +169,100 @@ impl SkillCatalog {
         Ok(())
     }
 
+    /// Register a callable that can mutate or veto skill metadata before load.
+    ///
+    /// The callable receives a detached ``SkillMetadata`` object. It may mutate
+    /// that object and return ``None``, or return a replacement
+    /// ``SkillMetadata``. Raising an exception vetoes the load. The skill name
+    /// must remain unchanged.
+    #[pyo3(name = "set_skill_load_transform")]
+    fn py_set_skill_load_transform(
+        &self,
+        py: Python<'_>,
+        transform: Option<Py<PyAny>>,
+    ) -> PyResult<()> {
+        match transform {
+            None => self.clear_skill_load_transform(),
+            Some(py_fn) => {
+                if !py_fn.bind(py).is_callable() {
+                    return Err(pyo3::exceptions::PyTypeError::new_err(
+                        "skill load transform must be callable",
+                    ));
+                }
+                let transform_ref = py_fn.clone_ref(py);
+                self.set_skill_load_transform(move |metadata| {
+                    Python::try_attach(|gil| {
+                        let py_metadata = Py::new(gil, metadata)
+                            .map_err(|e| format!("metadata to Python: {e}"))?;
+                        let result = transform_ref
+                            .call1(gil, (py_metadata.clone_ref(gil),))
+                            .map_err(|e| format!("skill load transform failed: {e}"))?;
+                        let bound = result.bind(gil);
+                        if bound.is_none() {
+                            Ok(py_metadata.borrow(gil).clone())
+                        } else {
+                            bound.extract::<SkillMetadata>().map_err(|e| {
+                                format!("skill load transform returned invalid metadata: {e}")
+                            })
+                        }
+                    })
+                    .ok_or_else(|| "Python interpreter not attached".to_string())
+                    .and_then(|r| r)
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Clear any registered skill-load transform.
+    #[pyo3(name = "clear_skill_load_transform")]
+    fn py_clear_skill_load_transform(&self) {
+        self.clear_skill_load_transform();
+    }
+
+    /// Register a callable that observes successfully registered skill tools.
+    ///
+    /// The callable receives ``(skill_metadata, registered_actions)``. Errors
+    /// are logged as lifecycle events but do not roll back the already-loaded
+    /// skill; use ``set_skill_load_transform`` when policy must veto a load.
+    #[pyo3(name = "set_after_load_skill_hook")]
+    fn py_set_after_load_skill_hook(
+        &self,
+        py: Python<'_>,
+        hook: Option<Py<PyAny>>,
+    ) -> PyResult<()> {
+        match hook {
+            None => self.clear_after_load_hook(),
+            Some(py_fn) => {
+                if !py_fn.bind(py).is_callable() {
+                    return Err(pyo3::exceptions::PyTypeError::new_err(
+                        "after-load skill hook must be callable",
+                    ));
+                }
+                let hook_ref = py_fn.clone_ref(py);
+                self.set_after_load_hook(move |metadata, registered| {
+                    Python::try_attach(|gil| {
+                        let py_metadata = Py::new(gil, metadata.clone())
+                            .map_err(|e| format!("metadata to Python: {e}"))?;
+                        hook_ref
+                            .call1(gil, (py_metadata, registered.to_vec()))
+                            .map(|_| ())
+                            .map_err(|e| format!("after-load skill hook failed: {e}"))
+                    })
+                    .ok_or_else(|| "Python interpreter not attached".to_string())
+                    .and_then(|r| r)
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Clear any registered after-load skill hook.
+    #[pyo3(name = "clear_after_load_skill_hook")]
+    fn py_clear_after_load_skill_hook(&self) {
+        self.clear_after_load_hook();
+    }
+
     /// Load a skill by name — registers its tools.
     ///
     /// Returns a list of registered action names.
