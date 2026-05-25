@@ -1,6 +1,16 @@
 import { expect, test } from '@playwright/test';
 
-import { createTranslator, detectLocale, normalizeLocaleTag, translate } from '../src/i18n';
+import {
+  I18N_MESSAGES,
+  I18N_NAMESPACES,
+  SUPPORTED_LOCALES,
+  auditI18nNamespaces,
+  createNamespaceTranslator,
+  createTranslator,
+  detectLocale,
+  normalizeLocaleTag,
+  translate,
+} from '../src/i18n';
 
 test.describe('i18n locale detection', () => {
   test('normalizes supported browser locale variants', () => {
@@ -35,10 +45,27 @@ test.describe('i18n locale detection', () => {
     });
   });
 
-  test('returns English strings instead of missing translation keys', () => {
+  test('keeps every namespace covered for every supported locale', () => {
+    expect(auditI18nNamespaces()).toEqual([]);
+    for (const namespace of I18N_NAMESPACES) {
+      expect(Object.keys(I18N_MESSAGES[namespace]).sort()).toEqual(
+        [...SUPPORTED_LOCALES].sort(),
+      );
+    }
+  });
+
+  test('returns namespaced strings instead of missing translation keys', () => {
     const t = createTranslator('ja');
 
-    expect(t('panel.setup')).toBe('Connect IDE');
-    expect(translate('zh-CN', 'search.default')).toBe('Search this panel...');
+    expect(t('navigation.panel.setup')).toBe('Connect IDE');
+    expect(translate('zh-CN', 'search.input.default')).toBe('Search this panel...');
+  });
+
+  test('scopes panel translators and interpolates dynamic values', () => {
+    const t = createNamespaceTranslator('en', ['common', 'navigation']);
+
+    expect(t('navigation.panel.health')).toBe('Health');
+    expect(t('common.status.labelValue', { label: 'Ready', value: 2 })).toBe('Ready: 2');
+    expect(() => (t as (key: string) => string)('search.input.default')).toThrow(/outside requested namespaces/);
   });
 });

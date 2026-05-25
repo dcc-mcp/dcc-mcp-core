@@ -83,10 +83,20 @@ Supported runtime locales are:
 - `ja` for `ja` / `ja-JP`
 - `ko` for `ko` / `ko-KR`
 
-The runtime exposes a typed translation lookup surface in `admin-ui/src/i18n.ts`.
-Missing localized strings fall back to English so panels never render raw
-message keys. Future manual language selection should pass an explicit override
-through the same detection helper instead of bypassing the runtime.
+Translation entries live in feature namespaces in `admin-ui/src/i18n.ts`.
+Shared chrome and status labels use `common`, app shell text uses `chrome`,
+navigation labels use `navigation`, and panel-owned copy can live in its own
+namespace such as `setup`, `health`, `instances`, `tools`, `tasks`, `openapi`,
+`calls`, `traces`, `stats`, `logs`, or `skillPaths`.
+
+Panels should request only their own namespace plus shared namespaces via the
+typed namespace translator. Dynamic text should use the interpolation helper
+instead of string concatenation so future translations can reorder grammar.
+Machine identifiers such as tool slugs, request ids, DCC types, JSON fields,
+and log payloads should remain unmodified. Tests audit namespace/locale parity
+so missing keys are caught before release. Future manual language selection
+should pass an explicit override through the same detection helper instead of
+bypassing the runtime.
 
 ## Dashboard Screenshots
 
