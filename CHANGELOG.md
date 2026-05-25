@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.31](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.30...v0.17.31) (2026-05-25)
+
+
+### Features
+
+* add optional runtime metadata ([63b6911](https://github.com/loonghao/dcc-mcp-core/commit/63b69110313ef97e165e0e33b42d0dbebf2001b2))
+* add traffic capture replay tools ([08a938e](https://github.com/loonghao/dcc-mcp-core/commit/08a938ef4a76f0921abeb6db8d602cc109fce131))
+* add unified dcc mcp creator skills ([bb3aeeb](https://github.com/loonghao/dcc-mcp-core/commit/bb3aeeb5df0f7731e4a93a1da2288cea21cd1a27))
+* add usd project resource conventions ([eb7b0d2](https://github.com/loonghao/dcc-mcp-core/commit/eb7b0d22bdaa9aed09811bc7182bfb3f2265653b))
+* capture bounded agent turn context ([4bc3fcb](https://github.com/loonghao/dcc-mcp-core/commit/4bc3fcbb1d10d56206c3352896e004c9d73abd4b)), closes [#1198](https://github.com/loonghao/dcc-mcp-core/issues/1198)
+* default gateway REST to compact responses ([fb24c75](https://github.com/loonghao/dcc-mcp-core/commit/fb24c75ddbfeee307587de54c4ccf7cc01c93e80)), closes [#1157](https://github.com/loonghao/dcc-mcp-core/issues/1157)
+* emit gateway handoff notifications ([ee1b427](https://github.com/loonghao/dcc-mcp-core/commit/ee1b427abf8c6f41d602b825a784e88ba5390d1a))
+* expose server resource helpers ([7b2264c](https://github.com/loonghao/dcc-mcp-core/commit/7b2264cd6e7b2737150720040008512ceadb0364))
+* record token savings telemetry ([ea72a41](https://github.com/loonghao/dcc-mcp-core/commit/ea72a41c7cec26a0bdb6b7ed778efcfeec3ea9af)), closes [#1155](https://github.com/loonghao/dcc-mcp-core/issues/1155)
+* show admin token savings ([9b030b2](https://github.com/loonghao/dcc-mcp-core/commit/9b030b2e4f4c40d49592ba1fe3fe60a0827deed6)), closes [#1156](https://github.com/loonghao/dcc-mcp-core/issues/1156)
+
+
+### Documentation
+
+* clarify skill metadata layout ([b5cc3ae](https://github.com/loonghao/dcc-mcp-core/commit/b5cc3ae8015f781610c825ad8f1d4d62ad82a0ba))
+
 ## [0.17.30](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.29...v0.17.30) (2026-05-25)
 
 
