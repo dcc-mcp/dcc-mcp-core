@@ -18,6 +18,26 @@ import { formatTime, timestampTitle } from './time';
 
 type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'workflows' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'traffic' | 'stats' | 'governance' | 'logs' | 'skill-paths';
 
+type SignalTone = 'ok' | 'warn' | 'err';
+
+type DebugSignal = {
+  key: string;
+  label: string;
+  value: string;
+  detail: string;
+  tone: SignalTone;
+  panel: Panel;
+  traceId?: string;
+};
+
+type FailureSignal = {
+  request_id: string;
+  status: string;
+  tool: string;
+  detail: string;
+  ms: number | null;
+};
+
 type HealthPayload = {
   status: string;
   instances_ready: number;
@@ -122,6 +142,10 @@ type TraceRow = {
   returned_tokens?: number | null;
   saved_tokens?: number | null;
   savings_pct?: number | string | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  total_tokens?: number | null;
+  payload_token_estimator?: string | null;
   links?: AdminLinks;
 };
 
@@ -245,6 +269,7 @@ type TracePayload = {
   mime_type: string;
   truncated: boolean;
   original_size: number;
+  estimated_tokens?: number | null;
 };
 
 type TraceSpan = {
@@ -279,6 +304,12 @@ type TraceDetailPayload = {
   returned_tokens?: number | null;
   saved_tokens?: number | null;
   savings_pct?: number | string | null;
+  estimated_tokens?: number | null;
+  estimated_total_tokens?: number | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  total_tokens?: number | null;
+  payload_token_estimator?: string | null;
   links?: AdminLinks;
 };
 
@@ -478,9 +509,18 @@ type StatsPayload = {
   successful_calls?: number;
   failed_calls?: number;
   success_rate: number;
+  total_tokens?: number | null;
+  total_input_tokens?: number | null;
+  total_output_tokens?: number | null;
+  avg_tokens_per_call?: number | null;
+  avg_input_tokens_per_call?: number | null;
+  avg_output_tokens_per_call?: number | null;
+  avg_total_tokens_per_call?: number | null;
+  payload_token_estimator?: string | null;
   p50_ms?: number | null;
   p95_ms?: number | null;
   latency_ms?: LatencyBlock;
+  top_app_types?: TopEntry[];
   top_tools?: TopEntry[];
   top_instances?: TopEntry[];
   top_agents?: TopEntry[];
@@ -1398,6 +1438,39 @@ function formatBytes(value: number | null | undefined): string {
   return `${size.toFixed(1)} ${units[index]}`;
 }
 
+function totalTraceTokens(row: TraceRow): number | null {
+  if (row.total_tokens != null) {
+    return row.total_tokens;
+  }
+  if (row.input_tokens == null && row.output_tokens == null) {
+    return null;
+  }
+  return (row.input_tokens ?? 0) + (row.output_tokens ?? 0);
+}
+
+function detailTraceTokens(trace: TraceDetailPayload): {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+  estimatedTokens: number | null;
+  estimator: string | null;
+} {
+  const inputTokens = trace.input_tokens ?? trace.input?.estimated_tokens ?? null;
+  const outputTokens = trace.output_tokens ?? trace.output?.estimated_tokens ?? null;
+  const totalTokens = (() => {
+    if (trace.total_tokens != null) {
+      return trace.total_tokens;
+    }
+    if (inputTokens == null && outputTokens == null) {
+      return null;
+    }
+    return (inputTokens ?? 0) + (outputTokens ?? 0);
+  })();
+  const estimatedTokens = trace.estimated_total_tokens ?? trace.estimated_tokens ?? totalTokens;
+  const estimator = trace.payload_token_estimator ?? trace.token_accounting?.token_estimator ?? trace.token_estimator ?? null;
+  return { inputTokens, outputTokens, totalTokens, estimatedTokens, estimator };
+}
+
 function statusClass(value: string): string {
   const status = value.toLowerCase();
   if (status.includes('fail') || status.includes('error') || status.includes('err') || status.includes('rejected') || status.includes('cancel')) {
@@ -1765,35 +1838,40 @@ function SkillDetailPanel({
   );
 }
 
+function appTypeLabel(value: string | null | undefined): string {
+  const app = (value ?? 'unknown').trim() || 'unknown';
+  return `app-type: ${app}`;
+}
+
+function compactInstanceId(value: string | null | undefined): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    return 'unrouted';
+  }
+  return value.length > 8 ? value.slice(0, 8) : value;
+}
+
+function toolInstanceLabel(tool: ToolRow): string {
+  return tool.instance_prefix ?? compactInstanceId(tool.instance_id);
+}
+
 function toolGroupLabel(tool: ToolRow): string {
-  const p = tool.instance_prefix ?? '—';
-  return `${tool.dcc_type} · instance ${p}`;
+  return appTypeLabel(tool.dcc_type);
+}
+
+function workerGroupLabel(worker: WorkerRow): string {
+  return appTypeLabel(worker.dcc_type);
 }
 
 function callGroupLabel(call: CallRow): string {
-  const id = call.instance_id;
-  if (typeof id === 'string' && id.length > 0) {
-    return `${call.dcc_type} · ${id.length > 8 ? id.slice(0, 8) : id}`;
-  }
-  return `${call.dcc_type} · unrouted`;
+  return appTypeLabel(call.dcc_type);
 }
 
 function traceGroupLabel(trace: TraceRow): string {
-  const id = trace.instance_id;
-  if (typeof id === 'string' && id.length > 0) {
-    const dcc = trace.dcc_type ?? '?';
-    return `${dcc} · ${id.length > 8 ? id.slice(0, 8) : id}`;
-  }
-  return `${trace.dcc_type ?? '?'} · unrouted`;
+  return appTypeLabel(trace.dcc_type);
 }
 
 function gatewayLogGroupLabel(log: LogRow): string {
-  const dcc = log.dcc_type ?? '?';
-  const raw = log.instance_id;
-  if (typeof raw === 'string' && raw.length > 0) {
-    return `${dcc} · ${raw.length > 8 ? raw.slice(0, 8) : raw}`;
-  }
-  return `${dcc} · gateway`;
+  return appTypeLabel(log.dcc_type ?? 'gateway');
 }
 
 function logStepTitle(log: LogRow): string {
@@ -2130,6 +2208,7 @@ function payloadPreview(payload: TracePayload | null | undefined): string {
 function buildAgentPacket(trace: TraceDetailPayload): string {
   const links = traceLinks(trace.request_id, trace.links);
   const agent = trace.agent_context;
+  const tokens = detailTraceTokens(trace);
   return JSON.stringify({
     purpose: 'dcc-mcp admin trace packet for LLM evaluation and code optimization',
     request_id: trace.request_id,
@@ -2141,6 +2220,13 @@ function buildAgentPacket(trace: TraceDetailPayload): string {
     status: trace.ok ? 'ok' : 'err',
     total_ms: trace.total_ms,
     token_accounting: tokenAccounting(trace),
+    tokens: {
+      input: tokens.inputTokens,
+      output: tokens.outputTokens,
+      total: tokens.totalTokens,
+      estimated: tokens.estimatedTokens,
+      estimator: tokens.estimator,
+    },
     agent_context: agent ? {
       agent_id: agent.agent_id,
       agent_name: agent.agent_name,
@@ -2380,6 +2466,7 @@ function TraceDetailPanel({
   const agent = trace.agent_context ?? null;
   const agentTitle = agent?.agent_name || agent?.agent_id || agent?.agent_kind || 'Caller context';
   const links = traceLinks(trace.request_id, trace.links);
+  const tokens = detailTraceTokens(trace);
   const attrsPreview = (attrs?: Record<string, unknown>) => {
     if (!attrs || Object.keys(attrs).length === 0) {
       return '';
@@ -2412,6 +2499,10 @@ function TraceDetailPanel({
           <span><strong>Tool</strong>{trace.tool_slug ?? trace.method}</span>
           <span><strong>Status</strong>{trace.ok ? 'ok' : 'err'}</span>
           <span><strong>Latency</strong>{formatDurationMs(trace.total_ms)}</span>
+          <span><strong>Input tokens</strong>{tokens.inputTokens == null ? '-' : formatTokenCount(tokens.inputTokens)}</span>
+          <span><strong>Output tokens</strong>{tokens.outputTokens == null ? '-' : formatTokenCount(tokens.outputTokens)}</span>
+          <span><strong>Total tokens</strong>{tokens.totalTokens == null ? '-' : formatTokenCount(tokens.totalTokens)}</span>
+          <span><strong>Estimator</strong>{tokens.estimator ?? '-'}</span>
           <span><strong>Transport</strong>{trace.transport ?? '-'}</span>
           <span><strong>Started</strong>{formatTraceDate(trace.started_at)}</span>
           <span><strong>Spans</strong>{spans.length}</span>
@@ -2477,14 +2568,20 @@ function TraceDetailPanel({
         <div className="trace-detail-card">
           <div className="trace-card-head">
             <h3>Input</h3>
-            <span>{formatBytes(trace.input?.original_size)}</span>
+            <span>
+              {formatBytes(trace.input?.original_size)}
+              {trace.input ? ` / ${formatTokenCount(trace.input.estimated_tokens)} tok` : ''}
+            </span>
           </div>
           <pre className="payload-pre">{payloadPreview(trace.input)}</pre>
         </div>
         <div className="trace-detail-card">
           <div className="trace-card-head">
             <h3>Output</h3>
-            <span>{formatBytes(trace.output?.original_size)}</span>
+            <span>
+              {formatBytes(trace.output?.original_size)}
+              {trace.output ? ` / ${formatTokenCount(trace.output.estimated_tokens)} tok` : ''}
+            </span>
           </div>
           <pre className="payload-pre">{payloadPreview(trace.output)}</pre>
         </div>
@@ -2790,6 +2887,9 @@ function App() {
           t.agent_name ?? '',
           t.agent_model ?? '',
           t.slowest_span_name ?? '',
+          t.input_tokens != null ? String(t.input_tokens) : '',
+          t.output_tokens != null ? String(t.output_tokens) : '',
+          t.total_tokens != null ? String(t.total_tokens) : '',
         ),
       ),
     );
@@ -2990,13 +3090,49 @@ function App() {
     );
   }, [skills, listSearch]);
 
-  const failedCalls = useMemo(
-    () => calls.filter((call) => call.success === false || call.status.toLowerCase().includes('err') || call.status.toLowerCase().includes('fail')).slice(0, 8),
-    [calls],
-  );
+  const failureSignals = useMemo<FailureSignal[]>(() => {
+    const rows = new Map<string, FailureSignal>();
+    for (const call of calls) {
+      if (call.success !== false && !isErrStatus(call.status)) {
+        continue;
+      }
+      rows.set(call.request_id, {
+        request_id: call.request_id,
+        status: call.status || 'failed',
+        tool: call.tool,
+        detail: call.error || call.dcc_type || call.instance_id || 'call failed',
+        ms: call.duration_ms,
+      });
+    }
+    for (const trace of traces) {
+      if (trace.success !== false && !isErrStatus(trace.status)) {
+        continue;
+      }
+      const current = rows.get(trace.request_id);
+      const detail = trace.slowest_span_name
+        ? `${trace.slowest_span_name} span`
+        : trace.dcc_type || trace.instance_id || 'trace failed';
+      rows.set(trace.request_id, {
+        request_id: trace.request_id,
+        status: current?.status || trace.status || 'failed',
+        tool: current?.tool || trace.tool,
+        detail: current?.detail || detail,
+        ms: current?.ms ?? trace.total_ms ?? null,
+      });
+    }
+    return Array.from(rows.values()).slice(0, 8);
+  }, [calls, traces]);
 
   const slowTraces = useMemo(
     () => [...traces].filter((trace) => trace.total_ms != null).sort((a, b) => traceLatency(b) - traceLatency(a)).slice(0, 8),
+    [traces],
+  );
+
+  const tokenHeavyTraces = useMemo(
+    () => [...traces]
+      .filter((trace) => totalTraceTokens(trace) != null)
+      .sort((a, b) => (totalTraceTokens(b) ?? 0) - (totalTraceTokens(a) ?? 0))
+      .slice(0, 8),
     [traces],
   );
 
@@ -3014,8 +3150,6 @@ function App() {
     () => workers.filter((worker) => worker.stale || !statusClass(worker.status).includes('ok')),
     [workers],
   );
-
-  const debugIssues = failedCalls.length + problemActivity.length + problemLogs.length + unhealthyWorkers.length;
 
   const filteredTopTools = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
@@ -3038,6 +3172,15 @@ function App() {
   const filteredTopAgents = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
     const rows = stats?.top_agents ?? [];
+    if (!q) {
+      return rows;
+    }
+    return rows.filter((r) => r.name.toLowerCase().includes(q));
+  }, [stats, listSearch]);
+
+  const filteredTopAppTypes = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    const rows = stats?.top_app_types ?? [];
     if (!q) {
       return rows;
     }
@@ -3127,7 +3270,24 @@ function App() {
     const p95 = stats?.latency_ms?.p95_ms ?? stats?.p95_ms ?? null;
     const agentContext = traces.filter((trace) => agentLabel(trace) !== '-').length;
     const spans = traces.reduce((sum, trace) => sum + (trace.span_count ?? 0), 0);
-    return { ok, failed, p95, agentContext, spans };
+    const totalTokens = traces.reduce((sum, trace) => {
+      const next = totalTraceTokens(trace);
+      return sum + (next ?? 0);
+    }, 0);
+    const avgTokens = traces.length > 0 ? totalTokens / traces.length : 0;
+    const totalInputTokens = traces.reduce((sum, trace) => sum + (trace.input_tokens ?? 0), 0);
+    const totalOutputTokens = traces.reduce((sum, trace) => sum + (trace.output_tokens ?? 0), 0);
+    return {
+      ok,
+      failed,
+      p95,
+      agentContext,
+      spans,
+      totalTokens,
+      avgTokens,
+      totalInputTokens,
+      totalOutputTokens,
+    };
   }, [stats, traces]);
 
   const trafficSummary = useMemo(() => {
@@ -3141,8 +3301,151 @@ function App() {
   const statsSummary = useMemo(() => {
     const failed = stats?.failed_calls ?? Math.max(0, (stats?.total_calls ?? 0) - (stats?.successful_calls ?? 0));
     const success = stats?.successful_calls ?? Math.max(0, (stats?.total_calls ?? 0) - failed);
-    return { success, failed };
-  }, [stats]);
+    return {
+      success,
+      failed,
+      totalTokens: stats?.total_tokens ?? traceSummary.totalTokens,
+      totalInputTokens: stats?.total_input_tokens ?? traceSummary.totalInputTokens,
+      totalOutputTokens: stats?.total_output_tokens ?? traceSummary.totalOutputTokens,
+      avgTokens: stats?.avg_tokens_per_call ?? stats?.avg_total_tokens_per_call ?? traceSummary.avgTokens,
+    };
+  }, [stats, traceSummary]);
+
+  const tokenPressure = useMemo(() => ({
+    total: statsSummary.totalTokens,
+    input: statsSummary.totalInputTokens,
+    output: statsSummary.totalOutputTokens,
+    avg: statsSummary.avgTokens,
+    returned: stats?.token_usage?.total_returned_tokens ?? 0,
+    saved: stats?.token_usage?.total_saved_tokens ?? 0,
+    estimator: stats?.payload_token_estimator ?? health?.response_format?.token_estimator ?? '-',
+  }), [health, stats, statsSummary]);
+
+  const debugSignals = useMemo<DebugSignal[]>(() => {
+    const signals: DebugSignal[] = [];
+    const p95Latency = stats?.latency_ms?.p95_ms ?? stats?.p95_ms ?? null;
+    const eventWarnings = problemLogs.length + problemActivity.length;
+    if (health && !isOkStatus(health.status)) {
+      signals.push({
+        key: 'gateway',
+        label: 'Gateway health',
+        value: health.status,
+        detail: `${health.instances_ready}/${health.instances_total} instances ready`,
+        tone: 'err',
+        panel: 'health',
+      });
+    }
+    if (failureSignals.length > 0) {
+      const first = failureSignals[0];
+      signals.push({
+        key: 'failures',
+        label: 'Failed execution',
+        value: `${failureSignals.length} request(s)`,
+        detail: `${compactId(first.request_id)} · ${first.detail}`,
+        tone: 'err',
+        panel: 'traces',
+        traceId: first.request_id,
+      });
+    }
+    if (unhealthyWorkers.length > 0) {
+      const first = unhealthyWorkers[0];
+      signals.push({
+        key: 'instances',
+        label: 'Instance health',
+        value: `${unhealthyWorkers.length} flagged`,
+        detail: first.failure_reason || first.failure_stage || `${first.dcc_type} ${first.status}`,
+        tone: 'warn',
+        panel: 'instances',
+      });
+    }
+    if (governanceSummary.denied > 0 || governanceSummary.throttled > 0) {
+      signals.push({
+        key: 'governance',
+        label: 'Governance pressure',
+        value: `${governanceSummary.denied} denied / ${governanceSummary.throttled} throttled`,
+        detail: governanceSummary.redacted ? `${governanceSummary.redacted} redacted path(s)` : 'policy and quota decisions',
+        tone: governanceSummary.denied > 0 ? 'err' : 'warn',
+        panel: 'governance',
+      });
+    }
+    if (workflowSummary.zeroResults > 0) {
+      signals.push({
+        key: 'discovery',
+        label: 'Discovery quality',
+        value: `${workflowSummary.zeroResults} zero-result workflow(s)`,
+        detail: 'search/load-skill traces need review',
+        tone: 'warn',
+        panel: 'workflows',
+      });
+    }
+    if (p95Latency != null && p95Latency > 5_000) {
+      signals.push({
+        key: 'latency',
+        label: 'Latency',
+        value: `${formatDurationMs(p95Latency)} p95`,
+        detail: slowTraces[0] ? `${compactId(slowTraces[0].request_id)} · ${slowTraces[0].tool}` : 'retained gateway calls',
+        tone: 'warn',
+        panel: 'traces',
+        traceId: slowTraces[0]?.request_id,
+      });
+    }
+    if (eventWarnings > 0) {
+      signals.push({
+        key: 'events',
+        label: 'Warning events',
+        value: `${eventWarnings} retained`,
+        detail: problemLogs[0]?.message || problemActivity[0]?.message || 'logs/activity warnings',
+        tone: 'warn',
+        panel: problemLogs.length ? 'logs' : 'activity',
+      });
+    }
+    if (tokenPressure.total > 0) {
+      signals.push({
+        key: 'tokens',
+        label: 'Payload budget',
+        value: `${formatTokenCount(tokenPressure.avg)} / call`,
+        detail: `${formatTokenCount(tokenPressure.total)} total · ${formatTokenCount(tokenPressure.saved)} response tokens saved`,
+        tone: tokenPressure.avg > 4_000 ? 'warn' : 'ok',
+        panel: 'stats',
+      });
+    }
+    signals.push({
+      key: 'coverage',
+      label: 'Evidence coverage',
+      value: `${traces.length} traces`,
+      detail: `${calls.length} calls · ${traceSummary.agentContext} with agent context`,
+      tone: traces.length > 0 && traceSummary.agentContext === 0 ? 'warn' : 'ok',
+      panel: 'traces',
+    });
+    if (signals.length === 1 && signals[0].key === 'coverage' && signals[0].tone === 'ok') {
+      return [{
+        key: 'ready',
+        label: 'Gateway ready',
+        value: `${workerSummary.live} live`,
+        detail: 'no retained warning signals',
+        tone: 'ok',
+        panel: 'health',
+      }, signals[0]];
+    }
+    return signals.slice(0, 8);
+  }, [
+    calls.length,
+    failureSignals,
+    governanceSummary,
+    health,
+    problemActivity,
+    problemLogs,
+    slowTraces,
+    stats,
+    tokenPressure,
+    traceSummary.agentContext,
+    traces.length,
+    unhealthyWorkers,
+    workerSummary.live,
+    workflowSummary.zeroResults,
+  ]);
+
+  const debugIssues = debugSignals.filter((signal) => signal.tone !== 'ok').length;
 
   const markUpdated = useCallback((panel: Panel, text: string) => {
     setUpdatedAt((current) => ({ ...current, [panel]: text }));
@@ -3717,7 +4020,7 @@ function App() {
                 {activePanel === 'governance' ? `${filteredGovernanceDecisions.length} / ${governance?.recent_decisions?.length ?? 0}` : ''}
                 {activePanel === 'skill-paths' ? `${filteredSkills.length} skill(s), ${filteredSkillPaths.length} path(s)` : ''}
                 {activePanel === 'logs' ? `${filteredLogs.length} / ${logs.length}` : ''}
-                {activePanel === 'stats' ? `charts: ${filteredTopTools.length} tools / ${filteredTopInstances.length} instances / ${filteredTopAgents.length} agents / ${filteredTokenByFormat.length} formats` : ''}
+                {activePanel === 'stats' ? `charts: ${filteredTopAppTypes.length} app types / ${filteredTopTools.length} tools / ${filteredTopInstances.length} instances / ${filteredTopAgents.length} agents / ${filteredTokenByFormat.length} formats` : ''}
                 {activePanel === 'governance' ? `${governanceSummary.denied} denied / ${governanceSummary.throttled} throttled` : ''}
               </span>
             ) : null}
@@ -3829,8 +4132,30 @@ function App() {
               <HealthCard tone={unhealthyWorkers.length ? 'warn' : 'ok'} label="Instances" value={`${workerSummary.live} live / ${unhealthyWorkers.length} flagged`} />
               <HealthCard tone={errorRateTone(stats)} label="Success" value={stats ? `${stats.success_rate.toFixed(1)}%` : '?'} />
               <HealthCard tone={latencyTone(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} label="p95 latency" value={stats?.latency_ms?.p95_ms ?? stats?.p95_ms ?? '-'} />
+              <HealthCard label="Tokens / call" value={formatTokenCount(tokenPressure.avg)} />
             </div>
             <div className="debug-map">
+              <div className="debug-card debug-wide">
+                <div className="debug-card-head">
+                  <h3>Agent Triage</h3>
+                  <button className="linkish" type="button" onClick={() => goToPanel('traces')}>Open evidence</button>
+                </div>
+                <div className="debug-signal-list">
+                  {debugSignals.map((signal) => (
+                    <button
+                      key={signal.key}
+                      className={`debug-signal ${signal.tone}`}
+                      type="button"
+                      onClick={() => goToPanel(signal.panel, signal.traceId ? { traceId: signal.traceId } : undefined)}
+                    >
+                      <span>{signal.label}</span>
+                      <strong>{signal.value}</strong>
+                      <em>{signal.detail}</em>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="debug-card debug-wide">
                 <div className="debug-card-head">
                   <h3>Traffic Shape</h3>
@@ -3841,19 +4166,41 @@ function App() {
                   <span>{stats?.total_calls ?? 0} calls</span>
                   <span>{stats?.latency_ms?.p50_ms ?? stats?.p50_ms ?? '-'} ms p50</span>
                   <span>{stats?.latency_ms?.p99_ms ?? '-'} ms p99</span>
+                  <span>{formatTokenCount(tokenPressure.total)} payload tokens</span>
                 </div>
               </div>
 
               <div className="debug-card">
                 <div className="debug-card-head">
-                  <h3>Failed Calls</h3>
+                  <h3>Token Pressure</h3>
+                  <button className="linkish" type="button" onClick={() => goToPanel('stats')}>Open stats</button>
+                </div>
+                <div className="debug-metrics">
+                  <span>{formatTokenCount(tokenPressure.total)} total</span>
+                  <span>{formatTokenCount(tokenPressure.input)} in</span>
+                  <span>{formatTokenCount(tokenPressure.output)} out</span>
+                  <span>{formatTokenCount(tokenPressure.saved)} saved</span>
+                  <span>{tokenPressure.estimator}</span>
+                </div>
+                {tokenHeavyTraces.length === 0 ? <p className="empty">No payload token estimates in the retained traces.</p> : tokenHeavyTraces.map((trace) => (
+                  <button key={trace.request_id} className="debug-row" type="button" onClick={() => goToPanel('traces', { traceId: trace.request_id })}>
+                    <span>{formatTokenCount(totalTraceTokens(trace))} tok</span>
+                    <span>{compactId(trace.request_id)}</span>
+                    <span title={trace.tool}>{trace.tool}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="debug-card">
+                <div className="debug-card-head">
+                  <h3>Failures</h3>
                   <button className="linkish" type="button" onClick={() => goToPanel('calls')}>Open calls</button>
                 </div>
-                {failedCalls.length === 0 ? <p className="empty">No failed calls in the retained window.</p> : failedCalls.map((call) => (
-                  <button key={call.request_id} className="debug-row" type="button" onClick={() => goToPanel('traces', { traceId: call.request_id })}>
-                    <span><StatusBadge value={call.status} /></span>
-                    <span>{compactId(call.request_id)}</span>
-                    <span title={call.error ?? call.tool}>{call.error ?? call.tool}</span>
+                {failureSignals.length === 0 ? <p className="empty">No failed calls or traces in the retained window.</p> : failureSignals.map((failure) => (
+                  <button key={failure.request_id} className="debug-row" type="button" onClick={() => goToPanel('traces', { traceId: failure.request_id })}>
+                    <span><StatusBadge value={failure.status} /></span>
+                    <span>{compactId(failure.request_id)}</span>
+                    <span title={`${failure.tool} · ${failure.detail}`}>{failure.detail}</span>
                   </button>
                 ))}
               </div>
@@ -3881,7 +4228,9 @@ function App() {
                   <div key={worker.instance_id} className="debug-row static">
                     <span><StatusBadge value={worker.stale ? 'stale' : worker.status} /></span>
                     <span>{worker.dcc_type}</span>
-                    <span>{worker.display_name} · {compactId(worker.instance_id)}</span>
+                    <span title={worker.failure_reason ?? worker.failure_stage ?? worker.instance_id}>
+                      {worker.display_name} · {worker.failure_reason ?? worker.failure_stage ?? compactId(worker.instance_id)}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -3891,15 +4240,24 @@ function App() {
                   <h3>OpenAPI Entry Points</h3>
                   <button className="linkish" type="button" onClick={() => goToPanel('openapi')}>Gateway spec</button>
                 </div>
-                {workers.length === 0 ? <p className="empty">No instance OpenAPI endpoints available yet.</p> : workers.slice(0, 8).map((worker) => (
-                  <div key={worker.instance_id} className="contract-row">
-                    <span>
-                      <strong>{worker.display_name}</strong>
-                      <em>{worker.dcc_type} · {compactId(worker.instance_id)}</em>
-                    </span>
-                    <BackendOpenApiLinks worker={worker} />
-                  </div>
-                ))}
+                {workers.length === 0 ? <p className="empty">No instance OpenAPI endpoints available yet.</p> : (
+                  Array.from(groupRows(workers.slice(0, 8), workerGroupLabel).entries())
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([group, groupWorkers]) => (
+                      <div key={group} className="contract-group">
+                        <h4>{group}</h4>
+                        {groupWorkers.map((worker) => (
+                          <div key={worker.instance_id} className="contract-row">
+                            <span>
+                              <strong>{worker.display_name}</strong>
+                              <em>{worker.dcc_type} · {compactInstanceId(worker.instance_id)}</em>
+                            </span>
+                            <BackendOpenApiLinks worker={worker} />
+                          </div>
+                        ))}
+                      </div>
+                    ))
+                )}
               </div>
 
               <div className="debug-card">
@@ -4015,41 +4373,56 @@ function App() {
               One row per registered DCC backend (same data as the former Workers tab). Use the links to open the adapter HTTP host, MCP streamable endpoint, or <code>/docs</code> when the host exposes it.
             </p>
             <StatusLine text={updatedAt.instances} error={errors.instances} />
-            <div className="workers-grid">
-              {workers.length === 0 ? (
-                <p className="empty">No instances registered.</p>
-              ) : filteredWorkers.length === 0 ? (
-                <p className="empty">No instances match your search.</p>
-              ) : (
-                filteredWorkers.map((worker) => (
-                  <div key={worker.instance_id} className={`worker-card ${worker.stale ? 'stale' : statusClass(worker.status).replace('badge badge-', '')}`}>
-                    <div className="wname">
-                      <img src={resolveDccIcon(worker.dcc_type)} alt="" className="dcc-icon" aria-hidden />
-                      {worker.display_name} <span>{worker.instance_id.slice(0, 8)}</span>
-                    </div>
-                    <div className="wkv">
-                      <span>DCC</span><span>{worker.dcc_type}</span>
-                      <span>Status</span><span><StatusBadge value={worker.status} /></span>
-                      {worker.failure_reason ? (
-                        <>
-                          <span>Failure</span><span>{worker.failure_reason}</span>
-                        </>
-                      ) : null}
-                      <span>PID</span><span>{worker.pid ?? '-'}</span>
-                      <span>Uptime</span><span>{formatUptime(worker.uptime_secs)}</span>
-                      <span>Version</span><span>{worker.version ?? '-'}</span>
-                      <span>Adapter</span><span>{worker.adapter_version ?? '-'}</span>
-                      <span>Scene</span><span>{worker.scene ?? '-'}</span>
-                      <span>CPU%</span><span>{worker.cpu_percent == null ? '-' : worker.cpu_percent.toFixed(1)}</span>
-                      <span>Memory</span><span>{formatBytes(worker.memory_bytes)}</span>
-                      <span>Access URL</span><span><BackendAccessUrl mcpUrl={worker.mcp_url} /></span>
-                      <span>Endpoints</span><span><McpBackendLinks mcpUrl={worker.mcp_url} /></span>
-                      <span>OpenAPI</span><span><BackendOpenApiLinks worker={worker} /></span>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+            {workers.length === 0 ? (
+              <p className="empty">No instances registered.</p>
+            ) : filteredWorkers.length === 0 ? (
+              <p className="empty">No instances match your search.</p>
+            ) : (
+              <div className="worker-groups">
+                {Array.from(groupRows(filteredWorkers, workerGroupLabel).entries())
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([group, groupWorkers]) => {
+                    const flagged = groupWorkers.filter((worker) => worker.stale || !statusClass(worker.status).includes('ok')).length;
+                    return (
+                      <div key={group} className="worker-group">
+                        <div className="worker-group-head">
+                          <h3>{group}</h3>
+                          <span>{groupWorkers.length} instance(s) · {flagged} flagged</span>
+                        </div>
+                        <div className="workers-grid">
+                          {groupWorkers.map((worker) => (
+                            <div key={worker.instance_id} className={`worker-card ${worker.stale ? 'stale' : statusClass(worker.status).replace('badge badge-', '')}`}>
+                              <div className="wname">
+                                <img src={resolveDccIcon(worker.dcc_type)} alt="" className="dcc-icon" aria-hidden />
+                                {worker.display_name} <span>{compactInstanceId(worker.instance_id)}</span>
+                              </div>
+                              <div className="wkv">
+                                <span>App type</span><span>{worker.dcc_type}</span>
+                                <span>Status</span><span><StatusBadge value={worker.status} /></span>
+                                {worker.failure_reason ? (
+                                  <>
+                                    <span>Failure</span><span>{worker.failure_reason}</span>
+                                  </>
+                                ) : null}
+                                <span>PID</span><span>{worker.pid ?? '-'}</span>
+                                <span>Uptime</span><span>{formatUptime(worker.uptime_secs)}</span>
+                                <span>Version</span><span>{worker.version ?? '-'}</span>
+                                <span>Adapter</span><span>{worker.adapter_version ?? '-'}</span>
+                                <span>Scene</span><span>{worker.scene ?? '-'}</span>
+                                <span>CPU%</span><span>{worker.cpu_percent == null ? '-' : worker.cpu_percent.toFixed(1)}</span>
+                                <span>Memory</span><span>{formatBytes(worker.memory_bytes)}</span>
+                                <span>Access URL</span><span><BackendAccessUrl mcpUrl={worker.mcp_url} /></span>
+                                <span>Endpoints</span><span><McpBackendLinks mcpUrl={worker.mcp_url} /></span>
+                                <span>OpenAPI</span><span><BackendOpenApiLinks worker={worker} /></span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
             <div className="status-bar">Summary: live {workerSummary.live}, stale {workerSummary.stale}, unhealthy {workerSummary.unhealthy}</div>
             <button className="refresh-btn" type="button" onClick={fetchInstanceBackends}>Refresh</button>
           </section>
@@ -4069,12 +4442,13 @@ function App() {
                   <h3 className="group-title">{group}</h3>
                   <p className="group-meta">{groupTools.length} tool(s)</p>
                   <table>
-                    <thead><tr><th>Slug</th><th>DCC</th><th>Summary</th></tr></thead>
+                    <thead><tr><th>Slug</th><th>App type</th><th>Instance</th><th>Summary</th></tr></thead>
                     <tbody>
                       {groupTools.map((tool) => (
                         <tr key={tool.slug}>
                           <td>{tool.slug}</td>
                           <td>{tool.dcc_type}</td>
+                          <td>{toolInstanceLabel(tool)}</td>
                           <td>{tool.summary.slice(0, 120)}</td>
                         </tr>
                       ))}
@@ -4216,7 +4590,7 @@ function App() {
                 <div key={group} className="group-block">
                   <h3 className="group-title">{group}</h3>
                   <table>
-                    <thead><tr><th>Time</th><th>Request</th><th>Tool</th><th>DCC</th><th>Agent</th><th>Transport</th><th>Format</th><th>Returned</th><th>Saved</th><th>Status</th><th>Error</th><th>ms</th><th>Detail</th></tr></thead>
+                    <thead><tr><th>Time</th><th>Request</th><th>Tool</th><th>App type</th><th>Instance</th><th>Agent</th><th>Transport</th><th>Format</th><th>Returned</th><th>Saved</th><th>Status</th><th>Error</th><th>ms</th><th>Detail</th></tr></thead>
                     <tbody>
                       {groupCalls.map((call) => (
                         <tr key={call.request_id}>
@@ -4228,6 +4602,7 @@ function App() {
                           </td>
                           <td>{call.tool}</td>
                           <td>{call.dcc_type}</td>
+                          <td>{compactInstanceId(call.instance_id)}</td>
                           <td title={call.agent_id ?? call.agent_name ?? ''}>{agentLabel(call)}</td>
                           <td>{call.transport ?? '-'}</td>
                           <td>{responseFormatLabel(call)}</td>
@@ -4266,6 +4641,7 @@ function App() {
               <MetricTile tone="ok" label="OK" value={traceSummary.ok} />
               <MetricTile tone={traceSummary.failed > 0 ? 'err' : undefined} label="Failed" value={traceSummary.failed} />
               <MetricTile tone={latencyTone(traceSummary.p95)} label="p95 latency" value={formatDurationMs(traceSummary.p95)} />
+              <MetricTile label="Total tokens" value={formatTokenCount(traceSummary.totalTokens)} detail={`${formatTokenCount(traceSummary.totalInputTokens)} in / ${formatTokenCount(traceSummary.totalOutputTokens)} out`} />
               <MetricTile label="Agent ctx" value={traceSummary.agentContext} />
               <MetricTile label="Spans" value={traceSummary.spans} />
               <MetricTile label="Visible" value={`${filteredTraces.length} / ${traces.length}`} />
@@ -4292,13 +4668,14 @@ function App() {
                         >
                           <span className="trace-item-main">
                             <strong>{trace.tool}</strong>
-                            <span>{compactId(trace.request_id)} - <TimeValue value={trace.timestamp} /> - {trace.transport ?? '?'}</span>
+                            <span>{compactId(trace.request_id)} - {compactInstanceId(trace.instance_id)} - <TimeValue value={trace.timestamp} /> - {trace.transport ?? '?'}</span>
                             <span>{agentLabel(trace)}{trace.slowest_span_name ? ` - slowest ${trace.slowest_span_name} ${formatDurationMs(trace.slowest_span_ms)}` : ''}</span>
                           </span>
                           <span className="trace-item-side">
                             <StatusBadge value={trace.status} />
                             <span>{formatDurationMs(trace.total_ms)}</span>
                             <span>{trace.span_count ?? 0} spans</span>
+                            <span>{formatTokenCount(totalTraceTokens(trace))} tok</span>
                           </span>
                         </button>
                       ))}
@@ -4448,26 +4825,29 @@ function App() {
             <div className="metric-grid">
               <MetricTile label="Calls" value={stats?.total_calls ?? 0} detail={`${statsRange} window`} />
               <MetricTile tone={errorRateTone(stats)} label="Success" value={stats ? `${stats.success_rate.toFixed(1)}%` : '0.0%'} detail={`${statsSummary.success} ok / ${statsSummary.failed} failed`} />
+              <MetricTile label="Payload tokens" value={formatTokenCount(stats?.total_tokens ?? statsSummary.totalTokens)} detail={`avg ${formatTokenCount(stats?.avg_tokens_per_call ?? stats?.avg_total_tokens_per_call ?? statsSummary.avgTokens)} / call`} />
+              <MetricTile label="Input / Output tokens" value={formatTokenCount(stats?.total_input_tokens ?? statsSummary.totalInputTokens)} detail={`out: ${formatTokenCount(stats?.total_output_tokens ?? statsSummary.totalOutputTokens)}`} />
               <MetricTile tone={latencyTone(stats?.latency_ms?.p50_ms ?? stats?.p50_ms)} label="p50 latency" value={formatDurationMs(stats?.latency_ms?.p50_ms ?? stats?.p50_ms)} />
               <MetricTile tone={latencyTone(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} label="p95 latency" value={formatDurationMs(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} />
               <MetricTile
-                label="Returned tokens"
+                label="Response tokens returned"
                 value={formatTokenCount(stats?.token_usage?.total_returned_tokens)}
                 detail={`${formatTokenCount(stats?.token_usage?.total_original_tokens)} original`}
               />
               <MetricTile
                 tone={(stats?.token_usage?.total_saved_tokens ?? 0) > 0 ? 'ok' : undefined}
-                label="Saved tokens"
+                label="Response tokens saved"
                 value={formatTokenCount(stats?.token_usage?.total_saved_tokens)}
                 detail={`${formatSavingsPct(stats?.token_usage?.average_savings_pct)} average`}
               />
               <MetricTile
                 label="Response format"
                 value={health?.response_format?.default ?? 'toon'}
-                detail={health?.response_format?.token_estimator ?? 'token estimator unavailable'}
+                detail={stats?.payload_token_estimator ?? health?.response_format?.token_estimator ?? 'token estimator unavailable'}
               />
             </div>
             <div className="stats-charts">
+              <StatBarList title="Top app types" items={filteredTopAppTypes} />
               <StatBarList title="Top tools" items={filteredTopTools} />
               <StatBarList title="Top instances" items={filteredTopInstances} />
               <StatBarList title="Top agents" items={filteredTopAgents} />
