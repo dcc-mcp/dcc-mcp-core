@@ -1,5 +1,9 @@
 use super::*;
 use crate::gateway::capability::parse_slug;
+use crate::gateway::response_codec::{
+    ResponseFormat, TOON_MIME, compact_call_batch_payload, compact_describe_payload,
+    compact_search_payload, encode_response, explicit_format,
+};
 use std::time::{Duration, Instant};
 
 /// Log when gateway `/mcp` dispatch exceeds this threshold (issue #1009).
@@ -157,7 +161,7 @@ pub(crate) async fn dispatch_single_request(
     let id = req.id.clone()?;
     let id_str = serde_json::to_string(&id).unwrap_or_default();
 
-    match req.method.as_str() {
+    let response = match req.method.as_str() {
         "initialize" => Some(handle_initialize_with_timeout(gs, id, req).await),
         "ping" => Some(json!({"jsonrpc":"2.0","id":id,"result":{}})),
         "notifications/initialized" => Some(json!({"jsonrpc":"2.0","id":id,"result":{}})),
@@ -177,7 +181,8 @@ pub(crate) async fn dispatch_single_request(
             "jsonrpc": "2.0", "id": id,
             "error": {"code": -32601, "message": format!("Method not found: {other}")}
         })),
-    }
+    };
+    response.map(|response| apply_mcp_compact_response(req, response))
 }
 
 async fn handle_initialize_with_timeout(
@@ -239,7 +244,15 @@ async fn handle_initialize(gs: &GatewayState, id: Value, req: &JsonRpcRequest) -
             "capabilities": {
                 "tools": {"listChanged": true},
                 "resources": {"listChanged": true, "subscribe": true},
-                "prompts": {"listChanged": true}
+                "prompts": {"listChanged": true},
+                "experimental": {
+                    "dcc-mcp": {
+                        "compactResponses": {
+                            "formats": ["json", "toon"],
+                            "request": "Set params._meta.response_format=\"toon\" or params._meta.compact=true. The JSON-RPC envelope stays JSON."
+                        }
+                    }
+                }
             },
             "serverInfo": {"name": gs.server_name, "version": gs.server_version},
             "instructions":
@@ -257,9 +270,145 @@ async fn handle_initialize(gs: &GatewayState, id: Value, req: &JsonRpcRequest) -
                  2. search(kind=\"skill\", ...) then load_skill(skill_name=..., instance_id=... when needed)\n\
                  3. search(kind=\"tool\", ...) -> describe(tool_slug=...) -> call(tool_slug=..., arguments={...}); never put code/python/mel at the call top level\n\
                  4. Optional: call({calls:[{tool_slug, arguments}, ...], stop_on_error?}) for ordered batches (max 25)\n\
+                 5. Optional: request compact TOON payloads with params._meta.response_format=\"toon\" or params._meta.compact=true; JSON-RPC jsonrpc/id/result/error stay JSON.\n\
                  \n\
                  Subscribe to GET /mcp (SSE) for push notifications."
         }
+    })
+}
+
+fn apply_mcp_compact_response(req: &JsonRpcRequest, response: Value) -> Value {
+    if matches!(
+        req.method.as_str(),
+        "initialize" | "ping" | "notifications/initialized"
+    ) {
+        return response;
+    }
+    if !matches!(mcp_requested_response_format(req), ResponseFormat::Toon)
+        || response.get("error").is_some()
+    {
+        return response;
+    }
+
+    let Some(result) = response.get("result") else {
+        return response;
+    };
+    let Some(compact_result) = (match req.method.as_str() {
+        "tools/call" => compact_mcp_tool_result(req, result),
+        _ => compact_mcp_result(result, result),
+    }) else {
+        return response;
+    };
+
+    let mut compact_response = response;
+    if let Some(obj) = compact_response.as_object_mut() {
+        obj.insert("result".to_string(), compact_result);
+    }
+    compact_response
+}
+
+fn mcp_requested_response_format(req: &JsonRpcRequest) -> ResponseFormat {
+    let Some(params) = req.params.as_ref() else {
+        return ResponseFormat::Json;
+    };
+
+    [
+        Some(params),
+        params.get("_meta"),
+        params.get("meta"),
+        params.get("arguments"),
+        params.get("arguments").and_then(|args| args.get("_meta")),
+        params.get("arguments").and_then(|args| args.get("meta")),
+    ]
+    .into_iter()
+    .flatten()
+    .find_map(explicit_format)
+    .unwrap_or(ResponseFormat::Json)
+}
+
+fn compact_mcp_result(legacy_result: &Value, compact_result: &Value) -> Option<Value> {
+    let encoded =
+        encode_response(legacy_result, Some(compact_result), ResponseFormat::Toon).ok()?;
+    let text = String::from_utf8(encoded.body).ok()?;
+    Some(json!({
+        "response_format": "toon",
+        "mimeType": TOON_MIME,
+        "text": text,
+        "_meta": mcp_compact_meta(encoded.accounting.to_json(encoded.format))
+    }))
+}
+
+fn compact_mcp_tool_result(req: &JsonRpcRequest, result: &Value) -> Option<Value> {
+    let mut compact_result = result.clone();
+    let content = compact_result
+        .get_mut("content")
+        .and_then(Value::as_array_mut)?;
+    let text_content = content
+        .iter_mut()
+        .find(|entry| entry.get("type").and_then(Value::as_str) == Some("text"))?;
+    let legacy_text = text_content.get("text").and_then(Value::as_str)?;
+    let legacy_payload =
+        serde_json::from_str::<Value>(legacy_text).unwrap_or_else(|_| json!({"text": legacy_text}));
+    let compact_payload = compact_tool_text_payload(tool_name_from_request(req), &legacy_payload);
+    let encoded = encode_response(
+        &legacy_payload,
+        Some(&compact_payload),
+        ResponseFormat::Toon,
+    )
+    .ok()?;
+    let text = String::from_utf8(encoded.body).ok()?;
+
+    if let Some(obj) = text_content.as_object_mut() {
+        obj.insert("mimeType".to_string(), Value::String(TOON_MIME.to_string()));
+        obj.insert("text".to_string(), Value::String(text));
+    }
+    if let Some(obj) = compact_result.as_object_mut() {
+        obj.insert(
+            "_meta".to_string(),
+            mcp_compact_meta(encoded.accounting.to_json(encoded.format)),
+        );
+    }
+    Some(compact_result)
+}
+
+fn compact_tool_text_payload(tool_name: Option<&str>, legacy_payload: &Value) -> Value {
+    match tool_name {
+        Some("search" | "search_tools") => {
+            if let Some(hits) = legacy_payload.get("hits").and_then(Value::as_array) {
+                let total = legacy_payload
+                    .get("total")
+                    .and_then(Value::as_u64)
+                    .and_then(|value| usize::try_from(value).ok())
+                    .unwrap_or(hits.len());
+                compact_search_payload(total, hits)
+            } else {
+                legacy_payload.clone()
+            }
+        }
+        Some("describe" | "describe_tool")
+            if legacy_payload.get("record").is_some() || legacy_payload.get("tool").is_some() =>
+        {
+            compact_describe_payload(legacy_payload)
+        }
+        Some("call" | "call_tools") if legacy_payload.get("results").is_some() => {
+            compact_call_batch_payload(legacy_payload)
+        }
+        _ => legacy_payload.clone(),
+    }
+}
+
+fn tool_name_from_request(req: &JsonRpcRequest) -> Option<&str> {
+    req.params
+        .as_ref()
+        .and_then(|params| params.get("name"))
+        .and_then(Value::as_str)
+}
+
+fn mcp_compact_meta(token_accounting: Value) -> Value {
+    json!({
+        "schema_version": "dcc-mcp.mcp.compact-result.v1",
+        "response_format": "toon",
+        "token_accounting": token_accounting,
     })
 }
 
@@ -617,5 +766,264 @@ async fn handle_prompts_get(
             "jsonrpc": "2.0", "id": id,
             "error": {"code": e.code(), "message": e.message()}
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::to_bytes;
+    use dcc_mcp_transport::discovery::file_registry::FileRegistry;
+    use serde_json::json;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use tokio::sync::{RwLock, broadcast, watch};
+
+    fn test_gateway_state() -> GatewayState {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+        let (yield_tx, _) = watch::channel(false);
+        let (events_tx, _) = broadcast::channel::<String>(8);
+        GatewayState {
+            registry,
+            stale_timeout: Duration::from_secs(30),
+            backend_timeout: Duration::from_secs(10),
+            async_dispatch_timeout: Duration::from_secs(60),
+            wait_terminal_timeout: Duration::from_secs(600),
+            server_name: "test-gateway".into(),
+            server_version: env!("CARGO_PKG_VERSION").into(),
+            own_host: "127.0.0.1".into(),
+            own_port: 9765,
+            http_client: reqwest::Client::new(),
+            yield_tx: Arc::new(yield_tx),
+            events_tx: Arc::new(events_tx),
+            protocol_version: Arc::new(RwLock::new(None)),
+            resource_subscriptions: Arc::new(RwLock::new(HashMap::new())),
+            pending_calls: Arc::new(RwLock::new(HashMap::new())),
+            subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
+            allow_unknown_tools: false,
+            policy: Arc::new(crate::gateway::GatewayPolicy::default()),
+            adapter_version: None,
+            adapter_dcc: None,
+            capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
+            event_log: Arc::new(crate::gateway::event_log::EventLog::new()),
+            middleware_chain: Arc::new(crate::gateway::middleware::MiddlewareChain::new()),
+            instance_diagnostics: Arc::new(
+                crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new(),
+            ),
+            traffic_capture: Arc::new(crate::gateway::traffic::TrafficCapture::disabled()),
+            search_telemetry: Arc::new(
+                crate::gateway::search_telemetry::SearchTelemetryStore::new(),
+            ),
+            debug_routes_enabled: false,
+            #[cfg(feature = "prometheus")]
+            gateway_metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
+        }
+    }
+
+    fn request(method: &str, id: Value, params: Option<Value>) -> JsonRpcRequest {
+        JsonRpcRequest {
+            jsonrpc: Some("2.0".into()),
+            id: Some(id),
+            method: method.into(),
+            params,
+        }
+    }
+
+    async fn dispatch(req: &JsonRpcRequest) -> Value {
+        let gs = test_gateway_state();
+        dispatch_single_request(&gs, req, "test-session", &HeaderMap::new())
+            .await
+            .expect("request has id")
+    }
+
+    fn decode_toon_result(result: &Value) -> Value {
+        let text = result["text"].as_str().expect("compact result has text");
+        toon_format::decode_default(text).expect("compact result is valid TOON")
+    }
+
+    #[tokio::test]
+    async fn initialize_advertises_mcp_compact_response_capability() {
+        let req = request(
+            "initialize",
+            json!(1),
+            Some(json!({"protocolVersion": "2025-03-26"})),
+        );
+        let response = dispatch(&req).await;
+
+        assert_eq!(response["jsonrpc"], "2.0");
+        assert_eq!(
+            response["result"]["capabilities"]["experimental"]["dcc-mcp"]["compactResponses"]["formats"]
+                [1],
+            "toon"
+        );
+        assert!(
+            response["result"].get("text").is_none(),
+            "initialize must remain legacy JSON so clients can negotiate capabilities"
+        );
+    }
+
+    #[tokio::test]
+    async fn tools_list_legacy_response_stays_json() {
+        let req = request("tools/list", json!(2), None);
+        let response = dispatch(&req).await;
+
+        let tools = response["result"]["tools"]
+            .as_array()
+            .expect("legacy tools/list returns tools array");
+        assert_eq!(tools.len(), 4, "gateway tools/list must stay bounded");
+        assert!(response["result"].get("text").is_none());
+    }
+
+    #[tokio::test]
+    async fn tools_list_can_return_json_rpc_safe_compact_toon() {
+        let req = request(
+            "tools/list",
+            json!("compact-list"),
+            Some(json!({"_meta": {"response_format": "toon"}})),
+        );
+        let response = dispatch(&req).await;
+
+        assert_eq!(response["jsonrpc"], "2.0");
+        assert_eq!(response["id"], "compact-list");
+        assert_eq!(response["result"]["response_format"], "toon");
+        assert_eq!(response["result"]["mimeType"], TOON_MIME);
+        assert_eq!(
+            response["result"]["_meta"]["token_accounting"]["response_format"],
+            "toon"
+        );
+
+        let decoded = decode_toon_result(&response["result"]);
+        let tools = decoded["tools"]
+            .as_array()
+            .expect("compact tools/list decodes to tools array");
+        assert_eq!(
+            tools.len(),
+            4,
+            "compact mode must not fan out backend tools"
+        );
+    }
+
+    #[tokio::test]
+    async fn batch_request_compacts_only_opted_in_items() {
+        let gs = test_gateway_state();
+        let batch = vec![
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/list",
+                "params": {"_meta": {"compact": true}}
+            }),
+            json!({"jsonrpc": "2.0", "id": 2, "method": "ping"}),
+        ];
+
+        let response = handle_batch_request(&gs, "test-session", &batch, &HeaderMap::new()).await;
+        let bytes = to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .expect("batch response body");
+        let body: Value = serde_json::from_slice(&bytes).expect("JSON-RPC batch body");
+        let items = body.as_array().expect("batch response is array");
+
+        assert_eq!(items[0]["result"]["response_format"], "toon");
+        assert_eq!(items[1]["result"], json!({}));
+        assert!(items[1]["result"].get("text").is_none());
+    }
+
+    #[tokio::test]
+    async fn resources_read_compact_preserves_content_hints_inside_toon() {
+        let req = request(
+            "resources/read",
+            json!("docs"),
+            Some(json!({
+                "uri": "gateway://docs/agent-workflows",
+                "_meta": {"response_format": "toon"}
+            })),
+        );
+        let response = dispatch(&req).await;
+
+        assert_eq!(response["result"]["response_format"], "toon");
+        let decoded = decode_toon_result(&response["result"]);
+        assert_eq!(
+            decoded["contents"][0]["uri"],
+            "gateway://docs/agent-workflows"
+        );
+        assert_eq!(decoded["contents"][0]["mimeType"], "application/json");
+        assert!(decoded["contents"][0]["text"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    async fn tools_call_search_compact_preserves_call_tool_result_shape() {
+        let req = request(
+            "tools/call",
+            json!(3),
+            Some(json!({
+                "name": "search",
+                "arguments": {"kind": "tool", "query": "sphere"},
+                "_meta": {"responseFormat": "toon"}
+            })),
+        );
+        let response = dispatch(&req).await;
+
+        assert_eq!(response["result"]["isError"], false);
+        assert_eq!(response["result"]["content"][0]["type"], "text");
+        assert_eq!(response["result"]["content"][0]["mimeType"], TOON_MIME);
+        assert_eq!(
+            response["result"]["_meta"]["token_accounting"]["response_format"],
+            "toon"
+        );
+        let text = response["result"]["content"][0]["text"]
+            .as_str()
+            .expect("compact tool content has text");
+        let decoded: Value = toon_format::decode_default(text).expect("tool content is TOON");
+        assert_eq!(decoded["total"], 0);
+        assert!(decoded["hits"].as_array().is_some());
+    }
+
+    #[tokio::test]
+    async fn tools_call_compact_preserves_text_error_payloads() {
+        let req = request(
+            "tools/call",
+            json!("describe-error"),
+            Some(json!({
+                "name": "describe",
+                "arguments": {},
+                "_meta": {"response_format": "toon"}
+            })),
+        );
+        let response = dispatch(&req).await;
+
+        assert_eq!(response["result"]["isError"], true);
+        assert_eq!(response["result"]["content"][0]["mimeType"], TOON_MIME);
+        let text = response["result"]["content"][0]["text"]
+            .as_str()
+            .expect("compact tool error has text");
+        let decoded: Value = toon_format::decode_default(text).expect("tool error is TOON");
+        assert!(
+            decoded["text"]
+                .as_str()
+                .is_some_and(|message| message.contains("describe requires")),
+            "compact error should preserve original message, got {decoded}"
+        );
+    }
+
+    #[tokio::test]
+    async fn compact_tools_call_keeps_json_rpc_errors_unchanged() {
+        let req = request(
+            "tools/call",
+            json!(4),
+            Some(json!({
+                "name": "search",
+                "arguments": [1, 2, 3],
+                "_meta": {"response_format": "toon"}
+            })),
+        );
+        let response = dispatch(&req).await;
+
+        assert_eq!(
+            response["error"]["code"],
+            dcc_mcp_jsonrpc::error_codes::INVALID_PARAMS
+        );
+        assert!(response.get("result").is_none());
+        assert!(response["error"].get("_meta").is_none());
     }
 }

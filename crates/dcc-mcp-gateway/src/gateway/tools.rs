@@ -1065,7 +1065,9 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                     "dcc_type": {"type": "string"},
                     "dcc": {"type": "string", "description": "Alias of dcc_type for skill search"},
                     "tags": {"type": "array", "items": {"type": "string"}},
-                    "limit": {"type": "integer", "minimum": 0}
+                    "limit": {"type": "integer", "minimum": 0},
+                    "response_format": {"type": "string", "enum": ["json", "toon"], "description": "Wrapper-level output format. Prefer MCP params._meta.response_format for clients that keep tool arguments pure."},
+                    "compact": {"type": "boolean", "description": "Alias for response_format=toon when true."}
                 }
             },
             "annotations": {"readOnlyHint": true, "openWorldHint": true}
@@ -1080,7 +1082,9 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                 "properties": {
                     "tool_slug": {"type": "string"},
                     "skill_name": {"type": "string"},
-                    "dcc": {"type": "string"}
+                    "dcc": {"type": "string"},
+                    "response_format": {"type": "string", "enum": ["json", "toon"], "description": "Wrapper-level output format. Prefer MCP params._meta.response_format for clients that keep tool arguments pure."},
+                    "compact": {"type": "boolean", "description": "Alias for response_format=toon when true."}
                 }
             },
             "annotations": {"readOnlyHint": true, "openWorldHint": true}
@@ -1102,7 +1106,9 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                     "group_action": {"type": "string", "enum": ["activate", "deactivate"], "default": "activate"},
                     "instance_id": {"type": "string", "description": "Target instance UUID or unique prefix."},
                     "dcc": {"type": "string", "description": "DCC type filter such as maya, blender, or a custom host."},
-                    "dcc_type": {"type": "string", "description": "Alias of dcc."}
+                    "dcc_type": {"type": "string", "description": "Alias of dcc."},
+                    "response_format": {"type": "string", "enum": ["json", "toon"], "description": "Wrapper-level output format. Prefer MCP params._meta.response_format for clients that keep tool arguments pure."},
+                    "compact": {"type": "boolean", "description": "Alias for response_format=toon when true."}
                 },
                 "required": ["skill_name"]
             },
@@ -1137,7 +1143,9 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                             "required": ["tool_slug"]
                         }
                     },
-                    "stop_on_error": {"type": "boolean", "default": false}
+                    "stop_on_error": {"type": "boolean", "default": false},
+                    "response_format": {"type": "string", "enum": ["json", "toon"], "description": "Wrapper-level output format; it is not forwarded to the backend capability."},
+                    "compact": {"type": "boolean", "description": "Alias for response_format=toon when true."}
                 },
                 "anyOf": [
                     {"required": ["tool_slug"]},

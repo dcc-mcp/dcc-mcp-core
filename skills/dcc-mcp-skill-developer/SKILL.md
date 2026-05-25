@@ -87,6 +87,14 @@ into a faster authoring loop.
    `/v1/describe`, `/v1/call`, and `/v1/call_batch` legacy JSON-compatible by
    default and request compact TOON only explicitly with
    `Accept: application/toon`, `response_format: "toon"`, or `compact: true`;
+   for MCP examples, request compact TOON through
+   `params._meta.response_format="toon"` or `params._meta.compact=true` after
+   `initialize` advertises
+   `capabilities.experimental["dcc-mcp"].compactResponses`, and keep the outer
+   JSON-RPC envelope JSON-compatible (`jsonrpc`, `id`, `result`, `error`
+   unchanged). `tools/call` compact examples must preserve the MCP
+   `CallToolResult` shape and put TOON under text content with
+   `mimeType: "application/toon"`;
    surface the `x-dcc-mcp-*` token accounting and observability headers when
    teaching agents how to budget and correlate discovery, schema, invocation,
    and batch payloads. Gateway REST search/describe/load/batch bodies include

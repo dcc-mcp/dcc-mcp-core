@@ -16,6 +16,11 @@ continue to serve their own adapter OpenAPI contract from the same path.
 > These tools share service code with `/v1/search`, `/v1/describe`,
 > `/v1/load_skill`, `/v1/call`, and `/v1/call_batch`; REST remains the pure
 > HTTP twin for clients that do not speak MCP.
+> MCP clients can also opt into compact TOON payloads with
+> `params._meta.response_format="toon"` or `params._meta.compact=true`.
+> The `/mcp` HTTP content type and the outer JSON-RPC `jsonrpc`, `id`,
+> `result`, and `error` envelope stay JSON; `Accept: application/toon` is a
+> REST-only negotiation mechanism.
 
 ---
 
@@ -592,6 +597,17 @@ success/error envelope and HTTP status as JSON, just encoded as TOON. Compact
 batch output preserves request order and includes per-result `token_accounting`
 metadata when compact output is requested, while the response headers report the
 aggregate body savings.
+
+The gateway MCP endpoint exposes the same compact codec without changing
+JSON-RPC framing. Set `params._meta.response_format` to `"toon"` (or
+`params._meta.compact=true`) on `tools/list`, `resources/read`, `prompts/get`,
+or `tools/call` requests after `initialize` advertises
+`capabilities.experimental["dcc-mcp"].compactResponses`. Non-`tools/call`
+results become a JSON object with `response_format`, `mimeType`, `text`, and
+`_meta.token_accounting`. `tools/call` keeps the MCP `CallToolResult` shape:
+`content[]`, `type`, and `isError` stay in place, while text content receives
+`mimeType: "application/toon"` and TOON text. JSON-RPC errors remain normal
+`error` objects so legacy error handling continues to work.
 
 ## `POST /v1/load_skill` and `/v1/unload_skill`
 
