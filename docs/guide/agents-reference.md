@@ -215,6 +215,26 @@ activation/deactivation. To force a fresh build for a single request, send
 `_meta.dcc.refresh=true` on the `tools/list` call. The cache does **not**
 apply to `tools/call` — only to `tools/list` response construction.
 
+**USD project resources (issue #1209):**
+```python
+from dcc_mcp_core import register_usd_project_resources
+
+register_usd_project_resources(
+    server,
+    project_root="/show/shot010/usd",
+    stage="/show/shot010/usd/shot.usda",
+    layers=["/show/shot010/usd/lighting.usda"],
+    project_label="shot010",
+)
+```
+
+Use this helper for headless OpenUSD, Houdini Solaris, Maya USD, Blender USD,
+Unreal, and Omniverse-style adapters. It registers canonical `openusd://stage`,
+`openusd://layers`, `openusd://assets`, `openusd://materials`,
+`openusd://validation`, `openusd://snapshots`, and `openusd://packages`
+resources with stable MIME and file-ref metadata. Do not reach into
+`server._server.*` to publish USD resources.
+
 **`Capturer.new_auto()` vs `.new_window_auto()`:**
 ```python
 # ✓ full-screen / display capture (DXGI on Windows, X11 on Linux)
