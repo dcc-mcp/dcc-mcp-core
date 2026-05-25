@@ -17,6 +17,8 @@ from conftest import McpClient
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
+from dcc_mcp_core._server.options import DccServerOptions
+from dcc_mcp_core.server_base import DccServerBase
 
 
 def _post_json(
@@ -190,6 +192,50 @@ class TestResourcesCapability:
         )
         assert code == 200
         assert body.get("error") is None
+
+
+def test_dcc_server_base_registers_custom_resource_producer(tmp_path):
+    """Adapters can publish resources through DccServerBase without private access."""
+
+    class AdapterServer(DccServerBase):
+        pass
+
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    opts = DccServerOptions.from_env(
+        "resource-test",
+        skills_dir,
+        port=0,
+        enable_gateway_failover=False,
+        enable_file_logging=False,
+        enable_job_persistence=False,
+        enable_telemetry=False,
+    )
+    server = AdapterServer(opts)
+    server.register_resource_producer(
+        "adapter-docs://status",
+        lambda uri: {"mimeType": "text/plain", "text": f"resource: {uri}"},
+    )
+
+    handle = server.start(install_atexit_hook=False)
+    try:
+        code, body = _post_json(
+            handle.mcp_url(),
+            {
+                "jsonrpc": "2.0",
+                "id": 20,
+                "method": "resources/read",
+                "params": {"uri": "adapter-docs://status"},
+            },
+        )
+        assert code == 200
+        assert "error" not in body
+        item = body["result"]["contents"][0]
+        assert item["uri"] == "adapter-docs://status"
+        assert item["mimeType"] == "text/plain"
+        assert item["text"] == "resource: adapter-docs://status"
+    finally:
+        server.stop()
 
 
 class TestResourcesDisabled:

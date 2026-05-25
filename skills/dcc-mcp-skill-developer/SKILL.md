@@ -89,6 +89,14 @@ into a faster authoring loop.
    prompts, jobs, and adapter-local `/v1/dcc/{dcc_type}/call`. Use a concrete
    adapter's own `mcp_url` / `/v1/openapi.json` when examples need those
    per-DCC endpoints.
+   When an adapter publishes host-owned MCP resources, use the public
+   `DccServerBase.resources()` handle or the convenience helpers
+   `register_resource_producer(...)`, `set_scene_resource(...)`, and
+   `notify_resource_updated(...)`; never reach into `server._server` for the
+   inner HTTP resource registry. Prefer module-level helpers such as
+   `register_docs_resource(...)` or `register_adapter_instruction_resources(...)`
+   when they match the resource shape, and reserve custom producers for
+   adapter-owned URI schemes.
    For REST discovery, describe, call, and batch examples, treat compact TOON as
    the gateway default for `/v1/search`, `/v1/describe`, `/v1/call`, and
    `/v1/call_batch`; show legacy JSON opt-out with `Accept: application/json`

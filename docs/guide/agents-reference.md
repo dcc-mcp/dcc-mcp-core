@@ -1053,6 +1053,12 @@ cfg.enable_resources = True            # advertise capability + built-ins
 cfg.enable_artefact_resources = False  # default: artefact:// returns JSON-RPC -32002
 ```
 
+Python adapters built on `DccServerBase` should publish host-owned resources
+through the public base-class surface:
+`server.register_resource_producer(...)`, `server.set_scene_resource(...)`,
+`server.notify_resource_updated(...)`, or `server.resources()` when the raw
+`ResourceHandle` is needed. Do not reach into `server._server.*`.
+
 ### Prompts Primitive (issues #351, #355)
 
 `McpHttpConfig.enable_prompts` defaults to `True`. Prompts come from each

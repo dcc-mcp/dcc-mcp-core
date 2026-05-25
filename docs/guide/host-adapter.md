@@ -193,6 +193,26 @@ strings are accepted, and arrays/numbers/booleans/non-object strings raise a
 validation error. Keep backend-specific values (`code`, `file_path`, `radius`, …)
 inside `arguments`.
 
+## Adapter-owned MCP resources
+
+Publish scene snapshots, host command docs, project state, or API references
+through the public `DccServerBase` resource surface. Do not reach into
+`server._server` to find the inner HTTP server.
+
+```python
+server.register_resource_producer(
+    "maya-cmds://",
+    lambda uri: {"mimeType": "text/plain", "text": describe_command(uri)},
+)
+server.set_scene_resource({"name": "shot010", "nodes": 42})
+server.notify_resource_updated("maya-cmds://polyCube")
+```
+
+Use module-level helpers such as `register_docs_resource(...)` and
+`register_adapter_instruction_resources(...)` when they already match the
+resource shape. Drop to `server.resources().register_producer(...)` only for
+custom adapter-owned schemes.
+
 ## Checklist when opening a DCC-integration repo
 
 - [ ] Subclass `HostAdapter`, implement the 3 hooks.
