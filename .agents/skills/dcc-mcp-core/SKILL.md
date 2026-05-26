@@ -84,9 +84,11 @@ handle = server.start()
 print(f"Maya MCP server: {handle.mcp_url()}")
 
 # Agents connect and use on-demand skill discovery:
-# → search_skills(query="modeling") to find relevant skills
-# → load_skill("maya-bevel") to activate
+# → search_tools(query="bevel") or search_skills(query="modeling")
+# → get_skill_info(skill_name="maya-bevel") to inspect schemas
+# → load_skill("maya-bevel") only when selected
 # → tools/call maya_bevel__bevel to execute
+# Do not treat the first tools/list page as complete; follow nextCursor if listing.
 handle.shutdown()
 ```
 

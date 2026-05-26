@@ -63,6 +63,28 @@ else:
 
 When an MCP `tools/call` response includes `CallToolResult._meta["dcc.next_tools"].on_success` or `.on_failure`, **always consider calling those tools next**. This creates a guided workflow chain; the declarations live per tool in sibling `tools.yaml`, not as top-level `SKILL.md` keys.
 
+### Direct Per-DCC MCP Discovery
+
+If your MCP connection is a direct Maya/Blender/Houdini/etc. server, do not
+treat the first `tools/list` page as the complete tool index. `tools/list` is
+paginated and may put a newly loaded tool on a later page.
+
+Use this compact flow instead:
+
+```python
+# Direct per-DCC MCP workflow
+hits = search_tools(query="capture viewport", limit=5)
+info = get_skill_info(skill_name=hits["skill_candidates"][0]["skill_name"])
+load_skill(skill_name=info["name"])
+result = tools_call(name="maya_render__capture_viewport", arguments={})
+```
+
+Use `search_tools` for active tools and unloaded skill candidates. Use
+`search_skills` when you are looking for a skill by intent rather than a known
+tool name. Use `get_skill_info` to inspect a selected skill's full tool schemas
+before loading it. If you intentionally call `tools/list`, follow every
+`nextCursor` until it is absent.
+
 ### Gateway Dynamic-Capability / REST Surfaces
 
 If your MCP connection is the multi-DCC gateway, do not expect backend actions to appear directly in `tools/list`. The gateway surface is intentionally fixed and bounded; use the dynamic-capability workflow instead:
