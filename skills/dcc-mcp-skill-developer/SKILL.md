@@ -312,6 +312,11 @@ into a faster authoring loop.
    `SidecarActionDispatcher.script_executor(run_skill_script)` for
    3ds Max-style script runners. Keep direct `HostRpcClient` implementations
    only for native host RPC paths that are not script-backed skill dispatch.
+   Use `docs/guide/adapter-dispatcher-migration.md` and the fake adapter tests
+   in `tests/test_dispatcher_migration_conformance.py` as the minimum migration
+   contract before live DCC smoke tests. Cover successful dispatch, malformed
+   payloads, missing server/source, executor errors, cancellation, timeout, and
+   shutdown cleanup without vendoring core dispatcher files into adapters.
 10. Skill script entry points may use either modern `main(**params)` or legacy
     `main(params)` signatures; prefer `main(**params)` for new scripts and keep
     dict-style wrappers only for compatibility during adapter migrations.

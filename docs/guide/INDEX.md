@@ -88,6 +88,7 @@ document without scanning every file.
 |----------|---------|
 | [dcc-thread-safety.md](dcc-thread-safety.md) | DCC main-thread dispatch, cooperative cancellation |
 | [host-adapter.md](host-adapter.md) | `HostAdapter` base class for per-DCC dispatcher wiring |
+| [adapter-dispatcher-migration.md](adapter-dispatcher-migration.md) | Dispatcher migration decision table, fake adapter conformance fixtures, and adapter-specific checklist |
 | [cross-dcc-verification.md](cross-dcc-verification.md) | `SceneStats` contract for producer→file→verifier round-trips |
 
 ## Integration
