@@ -14,7 +14,12 @@ import unrealIcon from './assets/icons/unrealengine.svg';
 import substancePainterIcon from './assets/icons/photoshop.svg';
 import puzzleIcon from './assets/icons/puzzle.svg';
 import vscodeIcon from './assets/icons/vscode.svg';
-import { createTranslator, detectBrowserLocale, type MessageKey } from './i18n';
+import { LanguageSelector } from './components/LanguageSelector';
+import { LogsPanel } from './components/LogsPanel';
+import { SkillMarkdownPreview } from './components/SkillMarkdownPreview';
+import { createTranslator, detectBrowserLocale, type MessageKey, type SupportedLocale } from './i18n';
+import { readLocaleOverride, storeLocaleOverride } from './locale';
+import { filterLogs, isProblemLog, normalizeLogRow, summarizeLogSeverity, type LogRow, type LogSeverityFilter } from './logs';
 import { formatTime, timestampTitle } from './time';
 
 type Translator = ReturnType<typeof createTranslator>;
@@ -657,31 +662,6 @@ type InstanceSummary = {
   unhealthy: number;
 };
 
-type LogRow = {
-  timestamp: string;
-  level: string;
-  message: string;
-  source?: string;
-  event?: string;
-  dcc_type?: string;
-  instance_id?: string | null;
-  request_id?: string;
-  tool?: string;
-  success?: boolean;
-  detail?: string;
-  reason?: string | null;
-};
-
-type RequestLogGroup = {
-  requestId: string;
-  timestamp: string;
-  tool: string;
-  dccType: string;
-  status: string;
-  success?: boolean;
-  steps: LogRow[];
-};
-
 type SkillPathRow = {
   path: string;
   source: string;
@@ -749,30 +729,6 @@ type IdeTarget = {
   icon: string;
   build: (url: string) => string;
 };
-
-function normalizeLogRow(raw: unknown): LogRow {
-  if (!raw || typeof raw !== 'object') {
-    return { timestamp: '', level: '', message: '' };
-  }
-  const o = raw as Record<string, unknown>;
-  return {
-    timestamp: String(o.timestamp ?? ''),
-    level: String(o.level ?? ''),
-    message: String(o.message ?? ''),
-    source: o.source != null ? String(o.source) : undefined,
-    event: o.event != null ? String(o.event) : undefined,
-    dcc_type: o.dcc_type != null ? String(o.dcc_type) : undefined,
-    instance_id:
-      o.instance_id === null || o.instance_id === undefined
-        ? null
-        : String(o.instance_id),
-    request_id: o.request_id != null ? String(o.request_id) : undefined,
-    tool: o.tool != null ? String(o.tool) : undefined,
-    success: typeof o.success === 'boolean' ? o.success : undefined,
-    detail: o.detail != null ? String(o.detail) : undefined,
-    reason: o.reason == null ? null : String(o.reason),
-  };
-}
 
 function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.map((item) => String(item)) : [];
@@ -1598,176 +1554,6 @@ function EmptyRow({ columns, children }: { columns: number; children: string }) 
   );
 }
 
-type MarkdownBlock =
-  | { kind: 'heading'; level: number; text: string }
-  | { kind: 'paragraph'; text: string }
-  | { kind: 'list'; items: string[] }
-  | { kind: 'code'; language: string; text: string }
-  | { kind: 'quote'; text: string }
-  | { kind: 'rule' };
-
-function splitSkillMarkdown(markdown: string): { frontmatter: string | null; body: string } {
-  const normalized = markdown.replace(/\r\n/g, '\n');
-  const lines = normalized.split('\n');
-  if (lines[0]?.trim() === '---') {
-    const end = lines.findIndex((line, index) => index > 0 && line.trim() === '---');
-    if (end > 0) {
-      return {
-        frontmatter: lines.slice(1, end).join('\n').trim(),
-        body: lines.slice(end + 1).join('\n').trim(),
-      };
-    }
-  }
-  return { frontmatter: null, body: normalized.trim() };
-}
-
-function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
-  const blocks: MarkdownBlock[] = [];
-  const paragraph: string[] = [];
-  let list: string[] = [];
-  let code: string[] | null = null;
-  let codeLanguage = '';
-
-  const flushParagraph = () => {
-    if (paragraph.length > 0) {
-      blocks.push({ kind: 'paragraph', text: paragraph.join(' ') });
-      paragraph.length = 0;
-    }
-  };
-  const flushList = () => {
-    if (list.length > 0) {
-      blocks.push({ kind: 'list', items: list });
-      list = [];
-    }
-  };
-
-  for (const line of markdown.replace(/\r\n/g, '\n').split('\n')) {
-    const trimmed = line.trim();
-    if (code) {
-      if (trimmed.startsWith('```')) {
-        blocks.push({ kind: 'code', language: codeLanguage, text: code.join('\n') });
-        code = null;
-        codeLanguage = '';
-      } else {
-        code.push(line);
-      }
-      continue;
-    }
-
-    if (trimmed.startsWith('```')) {
-      flushParagraph();
-      flushList();
-      code = [];
-      codeLanguage = trimmed.slice(3).trim();
-      continue;
-    }
-    if (!trimmed) {
-      flushParagraph();
-      flushList();
-      continue;
-    }
-    if (/^-{3,}$/.test(trimmed)) {
-      flushParagraph();
-      flushList();
-      blocks.push({ kind: 'rule' });
-      continue;
-    }
-    const heading = /^(#{1,4})\s+(.+)$/.exec(trimmed);
-    if (heading) {
-      flushParagraph();
-      flushList();
-      blocks.push({ kind: 'heading', level: heading[1].length, text: heading[2] });
-      continue;
-    }
-    const bullet = /^[-*]\s+(.+)$/.exec(trimmed);
-    if (bullet) {
-      flushParagraph();
-      list.push(bullet[1]);
-      continue;
-    }
-    const quote = /^>\s?(.+)$/.exec(trimmed);
-    if (quote) {
-      flushParagraph();
-      flushList();
-      blocks.push({ kind: 'quote', text: quote[1] });
-      continue;
-    }
-    paragraph.push(trimmed);
-  }
-
-  if (code) {
-    blocks.push({ kind: 'code', language: codeLanguage, text: code.join('\n') });
-  }
-  flushParagraph();
-  flushList();
-  return blocks;
-}
-
-function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
-  return text.split(/(`[^`]+`)/g).map((part, index) => {
-    if (part.startsWith('`') && part.endsWith('`')) {
-      return <code className="inline-code" key={`${keyPrefix}-code-${index}`}>{part.slice(1, -1)}</code>;
-    }
-    return <span key={`${keyPrefix}-text-${index}`}>{part}</span>;
-  });
-}
-
-function SkillMarkdownPreview({ markdown, t }: { markdown?: string | null; t: Translator }) {
-  if (!markdown) {
-    return <p className="empty">{t('skillPaths.detail.noMarkdown')}</p>;
-  }
-  const { frontmatter, body } = splitSkillMarkdown(markdown);
-  const blocks = parseMarkdownBlocks(body);
-  return (
-    <div className="skill-markdown-preview">
-      {frontmatter ? (
-        <details className="skill-frontmatter">
-          <summary>{t('skillPaths.label.frontmatter')}</summary>
-          <pre>{frontmatter}</pre>
-        </details>
-      ) : null}
-      {blocks.length === 0 ? <p className="empty">{t('skillPaths.detail.noBody')}</p> : null}
-      {blocks.map((block, index) => {
-        const key = `skill-md-${index}`;
-        if (block.kind === 'heading') {
-          const content = renderInlineMarkdown(block.text, key);
-          if (block.level === 1) {
-            return <h3 key={key}>{content}</h3>;
-          }
-          if (block.level === 2) {
-            return <h4 key={key}>{content}</h4>;
-          }
-          return <h5 key={key}>{content}</h5>;
-        }
-        if (block.kind === 'paragraph') {
-          return <p key={key}>{renderInlineMarkdown(block.text, key)}</p>;
-        }
-        if (block.kind === 'list') {
-          return (
-            <ul key={key}>
-              {block.items.map((item, itemIndex) => (
-                <li key={`${key}-${itemIndex}`}>{renderInlineMarkdown(item, `${key}-${itemIndex}`)}</li>
-              ))}
-            </ul>
-          );
-        }
-        if (block.kind === 'code') {
-          return (
-            <pre className="skill-code-block" key={key}>
-              {block.language ? <span className="skill-code-language">{block.language}</span> : null}
-              <code>{block.text}</code>
-            </pre>
-          );
-        }
-        if (block.kind === 'quote') {
-          return <blockquote key={key}>{renderInlineMarkdown(block.text, key)}</blockquote>;
-        }
-        return <hr key={key} />;
-      })}
-    </div>
-  );
-}
-
 function skillDetailToolNames(detail: SkillDetailInstance | null | undefined): string[] {
   if (!Array.isArray(detail?.tools)) {
     return [];
@@ -1828,7 +1614,12 @@ function SkillDetailPanel({
           {tools.map((tool) => <span className="source-pill" key={tool}>{tool}</span>)}
         </div>
       ) : null}
-      <SkillMarkdownPreview markdown={selected?.markdown} t={t} />
+      <SkillMarkdownPreview
+        markdown={selected?.markdown}
+        frontmatterLabel={t('skillPaths.label.frontmatter')}
+        noMarkdownLabel={t('skillPaths.detail.noMarkdown')}
+        noBodyLabel={t('skillPaths.detail.noBody')}
+      />
       {detail?.instances && detail.instances.length > 1 ? (
         <div className="skill-detail-instances">
           {detail.instances.map((instance) => (
@@ -1872,54 +1663,6 @@ function callGroupLabel(call: CallRow): string {
 
 function traceGroupLabel(trace: TraceRow): string {
   return appTypeLabel(trace.dcc_type);
-}
-
-function gatewayLogGroupLabel(log: LogRow): string {
-  return appTypeLabel(log.dcc_type ?? 'gateway');
-}
-
-function logStepTitle(log: LogRow): string {
-  if (log.event) {
-    return String(log.event);
-  }
-  if (log.tool) {
-    return log.tool;
-  }
-  return log.source ?? 'event';
-}
-
-function logStepDetail(log: LogRow): string {
-  const parts = [log.message];
-  if (log.detail) parts.push(log.detail);
-  if (log.reason) parts.push(log.reason);
-  return parts.filter(Boolean).join(' — ');
-}
-
-function buildRequestLogGroups(rows: LogRow[]): RequestLogGroup[] {
-  const map = new Map<string, LogRow[]>();
-  for (const row of rows) {
-    if (!row.request_id) {
-      continue;
-    }
-    const bucket = map.get(row.request_id) ?? [];
-    bucket.push(row);
-    map.set(row.request_id, bucket);
-  }
-  return Array.from(map.entries())
-    .map(([requestId, steps]) => {
-      const sorted = [...steps].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
-      const newest = sorted[sorted.length - 1] ?? steps[0];
-      return {
-        requestId,
-        timestamp: newest?.timestamp ?? '',
-        tool: newest?.tool ?? newest?.message ?? 'unknown tool',
-        dccType: newest?.dcc_type ?? '?',
-        status: newest?.success === false ? 'failed' : 'ok',
-        success: newest?.success,
-        steps: sorted,
-      };
-    })
-    .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
 }
 
 function maxTopCount(items: TopEntry[]): number {
@@ -2094,11 +1837,6 @@ function gatewayLabel(health: HealthPayload | null): string {
 function isProblemActivity(event: ActivityEvent): boolean {
   const text = haystack(event.status, event.severity, event.kind, event.message);
   return text.includes('err') || text.includes('fail') || text.includes('warn') || text.includes('timeout') || text.includes('stale');
-}
-
-function isProblemLog(log: LogRow): boolean {
-  const text = haystack(log.level, log.message, log.event ?? '', log.reason ?? '', log.detail ?? '');
-  return log.success === false || text.includes('error') || text.includes('warn') || text.includes('timeout') || text.includes('failed') || text.includes('stale');
 }
 
 function MiniSparkline({ buckets, t }: { buckets: number[]; t: Translator }) {
@@ -2741,7 +2479,8 @@ function groupRows<T>(rows: T[], keyFn: (row: T) => string): Map<string, T[]> {
 }
 
 function App() {
-  const [localeDetection] = useState(() => detectBrowserLocale());
+  const [localeOverride, setLocaleOverride] = useState<SupportedLocale | null>(() => readLocaleOverride());
+  const localeDetection = useMemo(() => detectBrowserLocale(localeOverride), [localeOverride]);
   const t = useMemo(() => createTranslator(localeDetection.locale), [localeDetection.locale]);
   const [activePanel, setActivePanel] = useState<Panel>(() => readPanelFromUrl());
   const [health, setHealth] = useState<HealthPayload | null>(null);
@@ -2764,6 +2503,7 @@ function App() {
   const [clientPlatform] = useState<ClientPlatform>(() => detectClientPlatform());
   const [directInstanceId, setDirectInstanceId] = useState<string>('');
   const [logs, setLogs] = useState<LogRow[]>([]);
+  const [logSeverityFilter, setLogSeverityFilter] = useState<LogSeverityFilter>('all');
   const [skillPaths, setSkillPaths] = useState<SkillPathRow[]>([]);
   const [skills, setSkills] = useState<SkillRow[]>([]);
   const [skillTotals, setSkillTotals] = useState({ total: 0, loaded: 0, unloaded: 0, action_count: 0 });
@@ -2802,6 +2542,11 @@ function App() {
     () => PANELS.map((panel) => ({ ...panel, label: t(panel.labelKey), group: t(panel.groupKey) })),
     [t],
   );
+
+  const changeLocale = useCallback((locale: SupportedLocale) => {
+    storeLocaleOverride(locale);
+    setLocaleOverride(locale);
+  }, []);
 
   useEffect(() => {
     document.documentElement.lang = localeDetection.locale;
@@ -3069,37 +2814,8 @@ function App() {
     }
   }, [directInstanceId, directSetupInstanceRows]);
 
-  const filteredLogs = useMemo(() => {
-    const q = listSearch.trim().toLowerCase();
-    if (!q) {
-      return logs;
-    }
-    return logs.filter((l) =>
-      matchesListFilter(
-        q,
-        haystack(
-          l.timestamp,
-          l.level,
-          l.message,
-          l.source ?? '',
-          l.event != null ? String(l.event) : '',
-          l.dcc_type ?? '',
-          l.instance_id != null ? String(l.instance_id) : '',
-          l.request_id ?? '',
-          l.tool ?? '',
-          l.detail ?? '',
-          l.reason ?? '',
-        ),
-      ),
-    );
-  }, [logs, listSearch]);
-
-  const requestLogGroups = useMemo(() => buildRequestLogGroups(filteredLogs), [filteredLogs]);
-
-  const gatewayLogs = useMemo(
-    () => filteredLogs.filter((log) => !log.request_id),
-    [filteredLogs],
-  );
+  const filteredLogs = useMemo(() => filterLogs(logs, listSearch, logSeverityFilter), [logSeverityFilter, logs, listSearch]);
+  const logSeverityCounts = useMemo(() => summarizeLogSeverity(logs), [logs]);
 
   const filteredSkillPaths = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
@@ -4002,6 +3718,12 @@ function App() {
             <p className="brand-tag">{t('chrome.app.subtitle')}</p>
           </div>
         </div>
+        <LanguageSelector
+          locale={localeDetection.locale}
+          source={localeDetection.source}
+          onChange={changeLocale}
+          t={t}
+        />
         <div className="nav-links">
           {panels.map((panel, index) => {
             const showGroup = index === 0 || panels[index - 1].group !== panel.group;
@@ -5166,76 +4888,17 @@ function App() {
         )}
 
         {activePanel === 'logs' && (
-          <section className="panel active logs-panel">
-            <h2>{t('logs.title')}</h2>
-            <StatusLine text={updatedAt.logs} error={errors.logs} />
-            <p className="empty log-hint">
-              {t('logs.description')}
-            </p>
-            {logs.length === 0 ? <p className="empty">{t('logs.empty.none')}</p> : filteredLogs.length === 0 ? (
-              <p className="empty">{t('logs.empty.search')}</p>
-            ) : (
-              <div className="live-log-board">
-                {requestLogGroups.map((run) => (
-                  <div key={run.requestId} className="request-run">
-                    <div className="run-header">
-                      <div>
-                        <div className="run-title">
-                          {t('logs.label.request')} <span className="mono-path">{run.requestId}</span>
-                        </div>
-                        <div className="run-meta">
-                          <TimeValue value={run.timestamp} /> · {run.dccType} · {run.tool}
-                        </div>
-                      </div>
-                      <StatusBadge value={run.status} />
-                    </div>
-                    <div className="run-steps">
-                      {run.steps.map((log, idx) => (
-                        <div key={`${log.timestamp}-${log.source ?? ''}-${idx}`} className="run-step">
-                          <span className={`step-dot ${log.success === false ? 'err' : 'ok'}`} aria-hidden="true" />
-                          <div className="step-body">
-                            <div className="step-head">
-                              <span className="step-name">{t('logs.label.step', { index: idx + 1 })}: {logStepTitle(log)}</span>
-                              <TimeValue className="muted" value={log.timestamp} />
-                              <span className="source-pill" data-source={log.source ?? 'contention'}>{log.source ?? 'contention'}</span>
-                            </div>
-                            <div className="step-detail">{logStepDetail(log)}</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-                {gatewayLogs.length > 0 ? (
-                  <div className="group-block">
-                    <h3 className="group-title">{t('logs.section.gatewayEvents')}</h3>
-                    {Array.from(groupRows(gatewayLogs, gatewayLogGroupLabel).entries())
-                      .sort(([a], [b]) => a.localeCompare(b))
-                      .map(([group, groupLogs]) => (
-                        <div key={group} className="gateway-event-group">
-                          <p className="group-meta">{group}</p>
-                          {groupLogs.map((log, idx) => (
-                            <div key={`${log.timestamp}-${log.request_id ?? ''}-${idx}`} className="log-line">
-                              <span className="source-pill" data-source={log.source ?? 'contention'}>{log.source ?? 'contention'}</span>
-                              {' '}
-                              <TimeValue className="muted" value={log.timestamp} />
-                              {' '}
-                              <span className="warn-text">[{log.level}]</span>
-                              {' '}
-                              {log.event ? <span className="log-event">{String(log.event)}</span> : null}
-                              {' '}
-                              {log.message}
-                              {log.detail ? <span className="muted"> — {log.detail}</span> : null}
-                            </div>
-                          ))}
-                        </div>
-                      ))}
-                  </div>
-                ) : null}
-              </div>
-            )}
-            <button className="refresh-btn" type="button" onClick={fetchLogs}>{t('common.action.refresh')}</button>
-          </section>
+          <LogsPanel
+            logs={logs}
+            filteredLogs={filteredLogs}
+            severityCounts={logSeverityCounts}
+            severityFilter={logSeverityFilter}
+            updatedAt={updatedAt.logs}
+            error={errors.logs}
+            onSeverityFilterChange={setLogSeverityFilter}
+            onRefresh={fetchLogs}
+            t={t}
+          />
         )}
       </main>
     </div>

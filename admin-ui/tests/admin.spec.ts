@@ -678,6 +678,26 @@ async function mockAdminApi(page: Page) {
             dcc_type: 'gateway',
             instance_id: 'local',
           },
+          {
+            timestamp: '2026-05-18T08:00:02.000Z',
+            level: 'warn',
+            source: 'audit',
+            message: 'tools/call err 87ms - blender-abcd__render_preview',
+            dcc_type: 'blender',
+            instance_id: 'blender-abcdef1234',
+            request_id: 'req-err',
+            tool: 'blender-abcd__render_preview',
+            success: false,
+            detail: 'backend timeout',
+          },
+          {
+            timestamp: '2026-05-18T08:00:03.000Z',
+            level: 'debug',
+            source: 'file',
+            message: 'dispatch cache hit for search_tools',
+            dcc_type: 'gateway',
+            instance_id: 'local',
+          },
         ],
       };
     } else if (path === '/skills') {
@@ -725,7 +745,7 @@ async function mockAdminApi(page: Page) {
           instance_short: '12345678',
           skill_path: 'G:/studio/skills/maya-modeling',
           skill_md_path: 'G:/studio/skills/maya-modeling/SKILL.md',
-          markdown: '---\nname: maya-modeling\nmetadata:\n  dcc-mcp:\n    dcc: maya\n---\n# Maya Modeling\n\n- Create a polygon sphere\n\n```python\ncmds.polySphere()\n```',
+          markdown: '---\nname: maya-modeling\nmetadata:\n  dcc-mcp:\n    dcc: maya\n---\n# Maya Modeling\n\n- Create a polygon sphere\n\n| Mode | Use |\n| --- | --- |\n| safe | preview |\n\n```python\ncmds.polySphere()\n```',
           tools: [{ name: 'create_sphere' }, { name: 'delete_sphere' }],
         },
         instances: [],
@@ -805,8 +825,24 @@ test.describe('Admin Page', () => {
     await expect(page.locator('html')).toHaveAttribute('lang', 'ja');
     await expect(page.locator('html')).toHaveAttribute('data-admin-locale-source', 'navigator');
     await expect(page.locator('.brand-tag')).toContainText('DCC-MCP ゲートウェイ');
+    await expect(page.getByLabel('言語')).toHaveValue('ja');
 
     await context.close();
+  });
+
+  test('switches language from the visible selector and persists the override', async ({ page }) => {
+    await page.goto('/admin/');
+
+    await page.getByLabel('Language').selectOption('zh-CN');
+
+    await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN');
+    await expect(page.locator('html')).toHaveAttribute('data-admin-locale-source', 'override');
+    await expect(page.getByRole('navigation').getByRole('link', { name: '日志' })).toBeVisible();
+
+    await page.reload();
+
+    await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN');
+    await expect(page.getByLabel('语言')).toHaveValue('zh-CN');
   });
 
   test('renders an admin flow under Simplified Chinese without translating machine data', async ({ browser }) => {
@@ -1020,6 +1056,7 @@ test.describe('Admin Page', () => {
     await expect(detail).toContainText('G:/studio/skills/maya-modeling/SKILL.md');
     await expect(detail.locator('.skill-markdown-preview h3')).toHaveText('Maya Modeling');
     await expect(detail.locator('.skill-markdown-preview li')).toContainText('Create a polygon sphere');
+    await expect(detail.locator('.skill-markdown-preview table')).toContainText('safe');
     await expect(detail.locator('.skill-code-block')).toContainText('cmds.polySphere()');
     await expect(detail.locator('.skill-frontmatter')).toContainText('dcc: maya');
   });
@@ -1087,8 +1124,16 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.logs-panel')).toContainText('Step 1: maya-1234__create_sphere');
     await expect(page.locator('.logs-panel')).toContainText('Gateway events');
     await expect(page.locator('.logs-panel')).toContainText('tools/call ok');
+    await expect(page.locator('.logs-panel .severity-badge.severity-error').first()).toContainText('Error');
+    await expect(page.locator('.logs-panel .severity-badge.severity-debug').first()).toContainText('Debug');
+    await page.locator('.logs-panel .log-severity-card.severity-error').click();
+    await expect(page.locator('.logs-panel')).toContainText('req-err');
+    await expect(page.locator('.logs-panel')).not.toContainText('req-123');
+    await page.locator('.logs-panel .log-severity-card.severity-debug').click();
+    await expect(page.locator('.logs-panel')).toContainText('dispatch cache hit');
+    await expect(page.locator('.logs-panel')).not.toContainText('tools/call ok');
     await page.getByLabel('Filter current panel').fill('missing');
-    await expect(page.locator('.list-search-meta')).toHaveText('0 / 2');
+    await expect(page.locator('.list-search-meta')).toHaveText('0 / 4');
     await expect(page.locator('.logs-panel')).toContainText('No log lines match your search.');
   });
 });
