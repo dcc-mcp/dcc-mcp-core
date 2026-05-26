@@ -253,6 +253,15 @@ bounded and intended for concise telemetry such as `actor_id`, `actor_name`,
 `source_ip` and `forwarded_for` are server-derived only after proxy trust policy
 has been applied; caller-supplied request metadata cannot set them. Do not send
 hidden chain-of-thought, raw user input, raw agent replies, or secrets.
+Stored context also includes a gateway-computed `trust` map:
+`self_reported` for REST body / MCP `_meta`, `header` for ordinary attribution
+headers, `auth` for authentication-derived subjects, `server_derived` for peer
+addresses, and `trusted_proxy` for accepted forwarded addresses. On a LAN,
+operators should treat `self_reported` and `header` actor fields as filtering
+hints, not access-control facts. Raw actor email is intentionally unsupported;
+use `actor_email_hash` after pseudonymization. Opt-in traffic capture masks
+common attribution identity fields by default and can apply additional
+deployment-specific redaction rules.
 `trace_id`, `request_id`,
 `span_id`, and `parent_span_id` are recorded separately so one trace can contain
 multiple request ids without losing per-request compatibility. Admin call and trace rows

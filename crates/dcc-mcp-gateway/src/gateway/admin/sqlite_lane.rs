@@ -110,6 +110,9 @@ fn admin_audit_from_persisted(p: GatewayAdminAuditPersistedJson) -> AdminAuditRe
         client_host: p.client_host,
         auth_subject: p.auth_subject,
         source_ip: p.source_ip,
+        attribution_trust: p
+            .attribution_trust
+            .and_then(|value| serde_json::from_value(value).ok()),
         parent_request_id: p.parent_request_id,
         action: p.action,
         dcc_type: p.dcc_type,
@@ -203,6 +206,10 @@ fn audit_to_persisted(r: &AdminAuditRecord) -> GatewayAdminAuditPersistedJson {
         client_host: r.client_host.clone(),
         auth_subject: r.auth_subject.clone(),
         source_ip: r.source_ip.clone(),
+        attribution_trust: r
+            .attribution_trust
+            .as_ref()
+            .and_then(|value| serde_json::to_value(value).ok()),
         parent_request_id: r.parent_request_id.clone(),
         action: r.action.clone(),
         dcc_type: r.dcc_type.clone(),
