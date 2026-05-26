@@ -33,6 +33,25 @@ pub fn decompress(data: &[u8]) -> ShmResult<Vec<u8>> {
     Ok(out)
 }
 
+/// Decompress an LZ4 frame-encoded buffer with a maximum output byte count.
+pub fn decompress_with_limit(data: &[u8], max_output_bytes: usize) -> ShmResult<Vec<u8>> {
+    let mut decoder = FrameDecoder::new(data);
+    let limit = u64::try_from(max_output_bytes)
+        .unwrap_or(u64::MAX)
+        .saturating_add(1);
+    let mut limited = decoder.by_ref().take(limit);
+    let mut out = Vec::new();
+    limited
+        .read_to_end(&mut out)
+        .map_err(|e| ShmError::DecompressionError(e.to_string()))?;
+    if out.len() > max_output_bytes {
+        return Err(ShmError::DecompressionError(format!(
+            "decompressed payload exceeds max_bytes={max_output_bytes}"
+        )));
+    }
+    Ok(out)
+}
+
 /// Ratio threshold: only keep the compressed form when it is smaller.
 pub fn should_compress(original_len: usize, compressed_len: usize) -> bool {
     compressed_len < original_len
@@ -93,6 +112,13 @@ mod tests {
         #[test]
         fn test_decompress_invalid_data_returns_error() {
             let result = decompress(b"not a valid lz4 frame at all");
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_decompress_with_limit_rejects_large_output() {
+            let compressed = compress(&[7u8; 128]).unwrap();
+            let result = decompress_with_limit(&compressed, 32);
             assert!(result.is_err());
         }
     }

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
+
 import pytest
 
 import dcc_mcp_core
 from dcc_mcp_core import skills_helper
 from dcc_mcp_core.skills_helper import SkillCodecError
+from dcc_mcp_core.skills_helper import SkillFileError
 from dcc_mcp_core.skills_helper import ToolValidator
 from dcc_mcp_core.skills_helper import normalize_tool_arguments
 from dcc_mcp_core.skills_helper import skill_error_from_exception
@@ -116,3 +119,63 @@ def test_skills_helper_text_helpers_are_utf8_and_bounded(tmp_path) -> None:
     assert skills_helper.load_text(path) == "hello 世界"
     with pytest.raises(SkillCodecError, match="exceeding max_bytes=4"):
         skills_helper.load_text(path, max_bytes=4)
+
+
+def test_skills_helper_atomic_write_and_digest_helpers(tmp_path) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    path = root / "nested" / "payload.txt"
+
+    written = skills_helper.atomic_write_text(
+        "nested/payload.txt",
+        "hello 世界",
+        root=root,
+    )
+
+    assert written == path.resolve()
+    assert path.read_text(encoding="utf-8") == "hello 世界"
+    expected = hashlib.sha256("hello 世界".encode()).hexdigest()
+    assert skills_helper.file_digest("nested/payload.txt", root=root) == expected
+    assert skills_helper.bytes_digest(b"hello") == hashlib.sha256(b"hello").hexdigest()
+
+    bytes_path = skills_helper.atomic_write_bytes(root / "data.bin", b"\x00\x01")
+    assert bytes_path.read_bytes() == b"\x00\x01"
+
+
+def test_skills_helper_safe_paths_reject_traversal(tmp_path) -> None:
+    root = tmp_path / "workspace"
+    outside = tmp_path / "outside.txt"
+    root.mkdir()
+    outside.write_text("nope", encoding="utf-8")
+
+    with pytest.raises(SkillFileError, match="escapes root"):
+        skills_helper.ensure_within_root(root, outside)
+
+    with pytest.raises(SkillFileError, match="escapes root"):
+        skills_helper.atomic_write_text("../outside.txt", "nope", root=root)
+
+
+def test_skills_helper_file_helpers_are_bounded(tmp_path) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    path = root / "payload.bin"
+    path.write_bytes(b"abcdef")
+
+    with pytest.raises(SkillFileError, match="exceeding max_bytes=4"):
+        skills_helper.atomic_write_bytes(path, b"abcdef", max_bytes=4)
+
+    with pytest.raises(SkillFileError, match="exceeding max_bytes=4"):
+        skills_helper.file_digest(path, max_bytes=4)
+
+
+def test_skills_helper_lz4_roundtrip_and_limits() -> None:
+    payload = b"payload-" * 2048
+
+    compressed = skills_helper.compress_bytes(payload)
+
+    assert isinstance(compressed, bytes)
+    assert skills_helper.decompress_bytes(compressed) == payload
+    with pytest.raises(SkillFileError, match="exceeds max_bytes=16"):
+        skills_helper.decompress_bytes(compressed, max_bytes=16)
+    with pytest.raises(SkillFileError, match="unsupported algorithm"):
+        skills_helper.compress_bytes(payload, algorithm="gzip")

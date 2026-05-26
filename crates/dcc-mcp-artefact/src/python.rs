@@ -7,7 +7,7 @@
 //! `McpHttpServer` can still round-trip artefacts — the MCP server owns its
 //! own store and wires it into the `artefact://` resource producer.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use parking_lot::RwLock;
@@ -19,6 +19,7 @@ use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pyfunction, gen_stub_pymet
 
 use crate::{
     ArtefactError, ArtefactPutOptions, FileRef, FilesystemArtefactStore, SharedArtefactStore,
+    atomic_write_bytes, ensure_within_root, hash_bytes_sha256, hash_file_sha256,
 };
 
 /// Python wrapper for [`crate::FileRef`].
@@ -154,6 +155,101 @@ fn map_err(e: ArtefactError) -> PyErr {
     }
 }
 
+fn map_io_err(e: std::io::Error) -> PyErr {
+    PyIOError::new_err(e.to_string())
+}
+
+fn ensure_bounded(len: usize, max_bytes: Option<usize>, label: &str) -> PyResult<()> {
+    if let Some(max_bytes) = max_bytes
+        && len > max_bytes
+    {
+        return Err(PyValueError::new_err(format!(
+            "{label} is {len} bytes, exceeding max_bytes={max_bytes}"
+        )));
+    }
+    Ok(())
+}
+
+fn path_to_python_string(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    #[cfg(windows)]
+    {
+        if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+            return format!(r"\\{rest}");
+        }
+        if let Some(rest) = text.strip_prefix(r"\\?\") {
+            return rest.to_string();
+        }
+    }
+    text.into_owned()
+}
+
+/// Atomically write UTF-8 ``text`` to ``path`` and return the path.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
+#[pyfunction(name = "atomic_write_text")]
+#[pyo3(signature = (path, text, create_parents=true, max_bytes=None))]
+pub fn py_atomic_write_text(
+    path: &str,
+    text: &str,
+    create_parents: bool,
+    max_bytes: Option<usize>,
+) -> PyResult<String> {
+    let bytes = text.as_bytes();
+    ensure_bounded(bytes.len(), max_bytes, "text payload")?;
+    atomic_write_bytes(Path::new(path), bytes, create_parents).map_err(map_io_err)?;
+    Ok(path.to_string())
+}
+
+/// Atomically write ``data`` to ``path`` and return the path.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
+#[pyfunction(name = "atomic_write_bytes")]
+#[pyo3(signature = (path, data, create_parents=true, max_bytes=None))]
+pub fn py_atomic_write_bytes(
+    path: &str,
+    data: Vec<u8>,
+    create_parents: bool,
+    max_bytes: Option<usize>,
+) -> PyResult<String> {
+    ensure_bounded(data.len(), max_bytes, "byte payload")?;
+    atomic_write_bytes(Path::new(path), &data, create_parents).map_err(map_io_err)?;
+    Ok(path.to_string())
+}
+
+/// Hash ``data`` with SHA-256 and return the lowercase hex digest.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
+#[pyfunction(name = "bytes_digest_sha256")]
+#[pyo3(signature = (data, max_bytes=None))]
+pub fn py_bytes_digest_sha256(data: Vec<u8>, max_bytes: Option<usize>) -> PyResult<String> {
+    ensure_bounded(data.len(), max_bytes, "byte payload")?;
+    Ok(hash_bytes_sha256(&data))
+}
+
+/// Stream-hash a file with SHA-256 and return the lowercase hex digest.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
+#[pyfunction(name = "file_digest_sha256")]
+#[pyo3(signature = (path, max_bytes=None))]
+pub fn py_file_digest_sha256(path: &str, max_bytes: Option<u64>) -> PyResult<String> {
+    if let Some(max_bytes) = max_bytes {
+        let len = std::fs::metadata(path).map_err(map_io_err)?.len();
+        if len > max_bytes {
+            return Err(PyValueError::new_err(format!(
+                "file is {len} bytes, exceeding max_bytes={max_bytes}"
+            )));
+        }
+    }
+    hash_file_sha256(Path::new(path)).map_err(map_io_err)
+}
+
+/// Resolve ``path`` under ``root`` and reject paths that escape the root.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
+#[pyfunction(name = "ensure_within_root")]
+#[pyo3(signature = (root, path, must_exist=false))]
+pub fn py_ensure_within_root(root: &str, path: &str, must_exist: bool) -> PyResult<String> {
+    ensure_within_root(Path::new(root), Path::new(path), must_exist)
+        .map(|p| path_to_python_string(&p))
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
 fn build_put_options(
     mime: Option<String>,
     display_name: Option<String>,
@@ -276,6 +372,11 @@ pub fn py_artefact_list() -> PyResult<Vec<PyFileRef>> {
 /// Register artefact Python classes and helpers on `m`.
 pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyFileRef>()?;
+    m.add_function(wrap_pyfunction!(py_atomic_write_text, m)?)?;
+    m.add_function(wrap_pyfunction!(py_atomic_write_bytes, m)?)?;
+    m.add_function(wrap_pyfunction!(py_bytes_digest_sha256, m)?)?;
+    m.add_function(wrap_pyfunction!(py_file_digest_sha256, m)?)?;
+    m.add_function(wrap_pyfunction!(py_ensure_within_root, m)?)?;
     m.add_function(wrap_pyfunction!(py_artefact_put_file, m)?)?;
     m.add_function(wrap_pyfunction!(py_artefact_put_bytes, m)?)?;
     m.add_function(wrap_pyfunction!(py_artefact_get_bytes, m)?)?;

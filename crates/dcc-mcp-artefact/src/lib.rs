@@ -35,9 +35,10 @@
 //! ```
 
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
@@ -394,6 +395,118 @@ pub fn hash_file_sha256(path: &Path) -> io::Result<String> {
         hasher.update(&buf[..n]);
     }
     Ok(hex::encode(hasher.finalize()))
+}
+
+/// Atomically write bytes to `path` via a same-directory temporary file.
+///
+/// When `create_parents` is true, missing parent directories are created before
+/// the temporary file is opened. The final rename replaces any existing target
+/// file; on Windows this falls back to removing the existing target first.
+pub fn atomic_write_bytes(path: &Path, data: &[u8], create_parents: bool) -> io::Result<()> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    if create_parents {
+        fs::create_dir_all(parent)?;
+    }
+    let tmp = parent.join(format!(".tmp-{}.part", Uuid::new_v4().simple()));
+    {
+        let mut file = fs::File::create(&tmp)?;
+        file.write_all(data)?;
+        file.sync_all()?;
+    }
+    match fs::rename(&tmp, path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
+            fs::remove_file(path)?;
+            fs::rename(tmp, path)
+        }
+        Err(err) => {
+            let _ = fs::remove_file(tmp);
+            Err(err)
+        }
+    }
+}
+
+/// Path containment errors for skill-facing path helpers.
+#[must_use]
+#[derive(Debug, thiserror::Error)]
+pub enum PathContainmentError {
+    #[error("root does not exist or cannot be resolved: {0}")]
+    InvalidRoot(String),
+    #[error("path does not exist or cannot be resolved: {0}")]
+    InvalidPath(String),
+    #[error("path traversal through missing components is not allowed: {0}")]
+    Traversal(String),
+    #[error("path escapes root: {path} is outside {root}")]
+    EscapesRoot { path: String, root: String },
+}
+
+/// Resolve `path` under `root` and reject traversal outside the root.
+///
+/// Relative paths are interpreted relative to `root`. Existing ancestors are
+/// canonicalized so symlink escapes are caught. Missing leaf paths are allowed
+/// when `must_exist` is false, but missing `..` components are rejected because
+/// they cannot be canonicalized safely.
+pub fn ensure_within_root(
+    root: &Path,
+    path: &Path,
+    must_exist: bool,
+) -> Result<PathBuf, PathContainmentError> {
+    let root = root
+        .canonicalize()
+        .map_err(|e| PathContainmentError::InvalidRoot(e.to_string()))?;
+    let candidate = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    let resolved = canonicalize_existing_or_missing(&candidate, must_exist)?;
+    if resolved.starts_with(&root) {
+        return Ok(resolved);
+    }
+    Err(PathContainmentError::EscapesRoot {
+        path: resolved.display().to_string(),
+        root: root.display().to_string(),
+    })
+}
+
+fn canonicalize_existing_or_missing(
+    path: &Path,
+    must_exist: bool,
+) -> Result<PathBuf, PathContainmentError> {
+    if must_exist || path.exists() {
+        return path
+            .canonicalize()
+            .map_err(|e| PathContainmentError::InvalidPath(e.to_string()));
+    }
+
+    let mut cursor = path;
+    let mut missing: Vec<OsString> = Vec::new();
+    while !cursor.exists() {
+        let Some(file_name) = cursor.file_name() else {
+            return Err(PathContainmentError::InvalidPath(format!(
+                "no existing ancestor for {}",
+                path.display()
+            )));
+        };
+        if cursor
+            .components()
+            .any(|component| component == Component::ParentDir)
+        {
+            return Err(PathContainmentError::Traversal(path.display().to_string()));
+        }
+        missing.push(file_name.to_os_string());
+        cursor = cursor.parent().ok_or_else(|| {
+            PathContainmentError::InvalidPath(format!("no parent for {}", path.display()))
+        })?;
+    }
+
+    let mut resolved = cursor
+        .canonicalize()
+        .map_err(|e| PathContainmentError::InvalidPath(e.to_string()))?;
+    for segment in missing.iter().rev() {
+        resolved.push(segment);
+    }
+    Ok(resolved)
 }
 
 fn apply_filter(fr: &FileRef, filter: &ArtefactFilter) -> bool {
