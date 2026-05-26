@@ -369,6 +369,113 @@ fn round_two(value: f64) -> f64 {
 
 // ── Agent / caller context ───────────────────────────────────────────────────
 
+pub const TRUST_SELF_REPORTED: &str = "self_reported";
+pub const TRUST_HEADER: &str = "header";
+pub const TRUST_AUTH: &str = "auth";
+pub const TRUST_SERVER_DERIVED: &str = "server_derived";
+pub const TRUST_TRUSTED_PROXY: &str = "trusted_proxy";
+
+/// Server-computed trust source for caller-attribution fields.
+///
+/// This map is deliberately ignored while parsing external request metadata and
+/// filled by the gateway after each carrier has been normalised. Persisted admin
+/// rows can still deserialize it so historical traces keep their trust labels.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentContextTrust {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor_email_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_platform: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_os: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_subject: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_ip: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forwarded_for: Option<String>,
+}
+
+impl AgentContextTrust {
+    pub fn is_empty(&self) -> bool {
+        self.actor_id.is_none()
+            && self.actor_name.is_none()
+            && self.actor_email_hash.is_none()
+            && self.agent_id.is_none()
+            && self.agent_name.is_none()
+            && self.agent_kind.is_none()
+            && self.agent_version.is_none()
+            && self.model.is_none()
+            && self.model_provider.is_none()
+            && self.model_version.is_none()
+            && self.client_platform.is_none()
+            && self.client_os.is_none()
+            && self.client_host.is_none()
+            && self.auth_subject.is_none()
+            && self.source_ip.is_none()
+            && self.forwarded_for.is_none()
+    }
+
+    fn mark_present(&mut self, ctx: &AgentContext, source: &str) {
+        set_trust_if_present(&mut self.actor_id, ctx.actor_id.as_ref(), source);
+        set_trust_if_present(&mut self.actor_name, ctx.actor_name.as_ref(), source);
+        set_trust_if_present(
+            &mut self.actor_email_hash,
+            ctx.actor_email_hash.as_ref(),
+            source,
+        );
+        set_trust_if_present(&mut self.agent_id, ctx.agent_id.as_ref(), source);
+        set_trust_if_present(&mut self.agent_name, ctx.agent_name.as_ref(), source);
+        set_trust_if_present(&mut self.agent_kind, ctx.agent_kind.as_ref(), source);
+        set_trust_if_present(&mut self.agent_version, ctx.agent_version.as_ref(), source);
+        set_trust_if_present(&mut self.model, ctx.model.as_ref(), source);
+        set_trust_if_present(
+            &mut self.model_provider,
+            ctx.model_provider.as_ref(),
+            source,
+        );
+        set_trust_if_present(&mut self.model_version, ctx.model_version.as_ref(), source);
+        set_trust_if_present(
+            &mut self.client_platform,
+            ctx.client_platform.as_ref(),
+            source,
+        );
+        set_trust_if_present(&mut self.client_os, ctx.client_os.as_ref(), source);
+        set_trust_if_present(&mut self.client_host, ctx.client_host.as_ref(), source);
+        set_trust_if_present(&mut self.auth_subject, ctx.auth_subject.as_ref(), source);
+    }
+}
+
+fn set_trust_if_present(slot: &mut Option<String>, value: Option<&String>, source: &str) {
+    if value.is_some() {
+        *slot = Some(source.to_string());
+    }
+}
+
+fn set_trust(slot: &mut Option<String>, source: &str) {
+    *slot = Some(source.to_string());
+}
+
 /// Optional client-supplied context that explains why a request was made.
 ///
 /// This is deliberately a telemetry contract, not an instruction to capture a
@@ -509,6 +616,8 @@ pub struct AgentContext {
     pub turn_index: Option<u64>,
     #[serde(default, skip_serializing_if = "Value::is_null")]
     pub metadata: Value,
+    #[serde(default, skip_serializing_if = "AgentContextTrust::is_empty")]
+    pub trust: AgentContextTrust,
 }
 
 impl AgentContext {
@@ -518,8 +627,8 @@ impl AgentContext {
         meta: Option<&Value>,
     ) -> Option<Self> {
         let mut ctx = body
-            .and_then(agent_context_from_value)
-            .or_else(|| meta.and_then(agent_context_from_value))
+            .and_then(|value| agent_context_from_value(value, TRUST_SELF_REPORTED))
+            .or_else(|| meta.and_then(|value| agent_context_from_value(value, TRUST_SELF_REPORTED)))
             .or_else(|| agent_context_from_header(headers))
             .unwrap_or_default();
 
@@ -555,6 +664,17 @@ impl AgentContext {
     ) -> Self {
         self.source_ip = source_ip.map(bound_context_string);
         self.forwarded_for = bound_context_list(forwarded_for);
+        if self.source_ip.is_some() {
+            let source = if self.forwarded_for.is_empty() {
+                TRUST_SERVER_DERIVED
+            } else {
+                TRUST_TRUSTED_PROXY
+            };
+            set_trust(&mut self.trust.source_ip, source);
+        }
+        if !self.forwarded_for.is_empty() {
+            set_trust(&mut self.trust.forwarded_for, TRUST_TRUSTED_PROXY);
+        }
         self
     }
 
@@ -593,9 +713,11 @@ impl AgentContext {
             && self.trace_id.is_none()
             && self.turn_index.is_none()
             && self.metadata.is_null()
+            && self.trust.is_empty()
     }
 
     fn normalise(mut self) -> Self {
+        self.trust = AgentContextTrust::default();
         self.actor_id = self.actor_id.map(bound_context_string);
         self.actor_name = self.actor_name.map(bound_context_string);
         self.actor_email_hash = self.actor_email_hash.map(bound_context_string);
@@ -631,7 +753,7 @@ impl AgentContext {
     }
 }
 
-fn agent_context_from_value(value: &Value) -> Option<AgentContext> {
+fn agent_context_from_value(value: &Value, trust_source: &str) -> Option<AgentContext> {
     let raw = value
         .get("agent_context")
         .or_else(|| value.get("agentContext"))
@@ -650,7 +772,12 @@ fn agent_context_from_value(value: &Value) -> Option<AgentContext> {
         }),
         Value::Object(_) => serde_json::from_value::<AgentContext>(raw.clone())
             .ok()
-            .map(AgentContext::normalise),
+            .map(AgentContext::normalise)
+            .map(|mut ctx| {
+                let snapshot = ctx.clone();
+                ctx.trust.mark_present(&snapshot, trust_source);
+                ctx
+            }),
         _ => None,
     }
 }
@@ -666,52 +793,105 @@ fn agent_context_from_header(headers: &HeaderMap) -> Option<AgentContext> {
             }),
             Value::Object(_) => serde_json::from_value::<AgentContext>(v)
                 .ok()
-                .map(AgentContext::normalise),
+                .map(AgentContext::normalise)
+                .map(|mut ctx| {
+                    let snapshot = ctx.clone();
+                    ctx.trust.mark_present(&snapshot, TRUST_HEADER);
+                    ctx
+                }),
             _ => None,
         })
 }
 
+fn fill_header_trusted_string(
+    slot: &mut Option<String>,
+    trust_slot: &mut Option<String>,
+    headers: &HeaderMap,
+    name: &str,
+) {
+    if slot.is_none()
+        && let Some(value) = header_str(headers, name).map(bound_context_string)
+    {
+        *slot = Some(value);
+        set_trust(trust_slot, TRUST_HEADER);
+    }
+}
+
+fn fill_header_trusted_string_any(
+    slot: &mut Option<String>,
+    trust_slot: &mut Option<String>,
+    headers: &HeaderMap,
+    names: &[&str],
+) {
+    if slot.is_none()
+        && let Some(value) = header_str_any(headers, names).map(bound_context_string)
+    {
+        *slot = Some(value);
+        set_trust(trust_slot, TRUST_HEADER);
+    }
+}
+
 fn merge_header_agent_context(ctx: &mut AgentContext, headers: &HeaderMap) {
-    if ctx.actor_id.is_none() {
-        ctx.actor_id = header_str(headers, "x-dcc-mcp-actor-id").map(bound_context_string);
-    }
-    if ctx.actor_name.is_none() {
-        ctx.actor_name = header_str(headers, "x-dcc-mcp-actor-name").map(bound_context_string);
-    }
-    if ctx.actor_email_hash.is_none() {
-        ctx.actor_email_hash =
-            header_str(headers, "x-dcc-mcp-actor-email-hash").map(bound_context_string);
-    }
-    if ctx.agent_id.is_none() {
-        ctx.agent_id = header_str(headers, "x-dcc-mcp-agent-id").map(bound_context_string);
-    }
-    if ctx.agent_name.is_none() {
-        ctx.agent_name = header_str(headers, "x-dcc-mcp-agent-name").map(bound_context_string);
-    }
-    if ctx.agent_kind.is_none() {
-        ctx.agent_kind = header_str(headers, "x-dcc-mcp-agent-kind").map(bound_context_string);
-    }
-    if ctx.agent_version.is_none() {
-        ctx.agent_version =
-            header_str(headers, "x-dcc-mcp-agent-version").map(bound_context_string);
-    }
-    if ctx.model_provider.is_none() {
-        ctx.model_provider = header_str_any(
-            headers,
-            &["x-dcc-mcp-agent-model-provider", "x-dcc-mcp-model-provider"],
-        )
-        .map(bound_context_string);
-    }
-    if ctx.model_version.is_none() {
-        ctx.model_version = header_str_any(
-            headers,
-            &["x-dcc-mcp-agent-model-version", "x-dcc-mcp-model-version"],
-        )
-        .map(bound_context_string);
-    }
-    if ctx.model.is_none() {
-        ctx.model = header_str(headers, "x-dcc-mcp-agent-model").map(bound_context_string);
-    }
+    fill_header_trusted_string(
+        &mut ctx.actor_id,
+        &mut ctx.trust.actor_id,
+        headers,
+        "x-dcc-mcp-actor-id",
+    );
+    fill_header_trusted_string(
+        &mut ctx.actor_name,
+        &mut ctx.trust.actor_name,
+        headers,
+        "x-dcc-mcp-actor-name",
+    );
+    fill_header_trusted_string(
+        &mut ctx.actor_email_hash,
+        &mut ctx.trust.actor_email_hash,
+        headers,
+        "x-dcc-mcp-actor-email-hash",
+    );
+    fill_header_trusted_string(
+        &mut ctx.agent_id,
+        &mut ctx.trust.agent_id,
+        headers,
+        "x-dcc-mcp-agent-id",
+    );
+    fill_header_trusted_string(
+        &mut ctx.agent_name,
+        &mut ctx.trust.agent_name,
+        headers,
+        "x-dcc-mcp-agent-name",
+    );
+    fill_header_trusted_string(
+        &mut ctx.agent_kind,
+        &mut ctx.trust.agent_kind,
+        headers,
+        "x-dcc-mcp-agent-kind",
+    );
+    fill_header_trusted_string(
+        &mut ctx.agent_version,
+        &mut ctx.trust.agent_version,
+        headers,
+        "x-dcc-mcp-agent-version",
+    );
+    fill_header_trusted_string_any(
+        &mut ctx.model_provider,
+        &mut ctx.trust.model_provider,
+        headers,
+        &["x-dcc-mcp-agent-model-provider", "x-dcc-mcp-model-provider"],
+    );
+    fill_header_trusted_string_any(
+        &mut ctx.model_version,
+        &mut ctx.trust.model_version,
+        headers,
+        &["x-dcc-mcp-agent-model-version", "x-dcc-mcp-model-version"],
+    );
+    fill_header_trusted_string(
+        &mut ctx.model,
+        &mut ctx.trust.model,
+        headers,
+        "x-dcc-mcp-agent-model",
+    );
     if ctx.reasoning_effort.is_none() {
         ctx.reasoning_effort = header_str_any(
             headers,
@@ -736,18 +916,37 @@ fn merge_header_agent_context(ctx: &mut AgentContext, headers: &HeaderMap) {
     if ctx.task.is_none() {
         ctx.task = header_str(headers, "x-dcc-mcp-agent-task").map(bound_context_string);
     }
-    if ctx.client_platform.is_none() {
-        ctx.client_platform =
-            header_str(headers, "x-dcc-mcp-client-platform").map(bound_context_string);
-    }
-    if ctx.client_os.is_none() {
-        ctx.client_os = header_str(headers, "x-dcc-mcp-client-os").map(bound_context_string);
-    }
-    if ctx.client_host.is_none() {
-        ctx.client_host = header_str(headers, "x-dcc-mcp-client-host").map(bound_context_string);
-    }
-    if ctx.auth_subject.is_none() {
-        ctx.auth_subject = header_str(headers, "x-dcc-mcp-auth-subject").map(bound_context_string);
+    fill_header_trusted_string(
+        &mut ctx.client_platform,
+        &mut ctx.trust.client_platform,
+        headers,
+        "x-dcc-mcp-client-platform",
+    );
+    fill_header_trusted_string(
+        &mut ctx.client_os,
+        &mut ctx.trust.client_os,
+        headers,
+        "x-dcc-mcp-client-os",
+    );
+    fill_header_trusted_string(
+        &mut ctx.client_host,
+        &mut ctx.trust.client_host,
+        headers,
+        "x-dcc-mcp-client-host",
+    );
+    if let Some(value) = header_str(
+        headers,
+        crate::gateway::caller_attribution::INTERNAL_AUTH_SUBJECT_HEADER,
+    )
+    .map(bound_context_string)
+    {
+        ctx.auth_subject = Some(value);
+        set_trust(&mut ctx.trust.auth_subject, TRUST_AUTH);
+    } else if ctx.auth_subject.is_none()
+        && let Some(value) = header_str(headers, "x-dcc-mcp-auth-subject").map(bound_context_string)
+    {
+        ctx.auth_subject = Some(value);
+        set_trust(&mut ctx.trust.auth_subject, TRUST_HEADER);
     }
     if ctx.user_intent_summary.is_none() {
         ctx.user_intent_summary = header_str_any(
@@ -906,9 +1105,15 @@ fn is_high_sensitivity_agent_key(key: &str) -> bool {
         normalised.as_str(),
         "agentreply"
             | "agentresponse"
+            | "apikey"
+            | "authsubject"
+            | "authorization"
+            | "bearertoken"
             | "chainofthought"
+            | "email"
             | "hiddencot"
             | "messages"
+            | "password"
             | "prompt"
             | "prompts"
             | "rawagentreply"
@@ -918,8 +1123,12 @@ fn is_high_sensitivity_agent_key(key: &str) -> bool {
             | "rawuserinput"
             | "reply"
             | "response"
+            | "token"
             | "userinput"
     ) || normalised.contains("secret")
+        || normalised.contains("email")
+        || normalised.contains("apikey")
+        || normalised.contains("token")
 }
 
 // ── Span ──────────────────────────────────────────────────────────────────────
@@ -1285,6 +1494,21 @@ mod tests {
         assert_eq!(ctx.agent_reply_chars, Some(140));
         assert_eq!(ctx.plan.len(), 2);
         assert_eq!(ctx.display_name(), Some("Morgan Artist"));
+        assert_eq!(ctx.trust.actor_id.as_deref(), Some(TRUST_HEADER));
+        assert_eq!(ctx.trust.actor_name.as_deref(), Some(TRUST_HEADER));
+        assert_eq!(
+            ctx.trust.actor_email_hash.as_deref(),
+            Some(TRUST_SELF_REPORTED)
+        );
+        assert_eq!(ctx.trust.agent_id.as_deref(), Some(TRUST_HEADER));
+        assert_eq!(ctx.trust.agent_name.as_deref(), Some(TRUST_SELF_REPORTED));
+        assert_eq!(ctx.trust.model.as_deref(), Some(TRUST_HEADER));
+        assert_eq!(
+            ctx.trust.model_version.as_deref(),
+            Some(TRUST_SELF_REPORTED)
+        );
+        assert_eq!(ctx.trust.client_platform.as_deref(), Some(TRUST_HEADER));
+        assert_eq!(ctx.trust.auth_subject.as_deref(), Some(TRUST_HEADER));
     }
 
     #[test]
@@ -1312,6 +1536,10 @@ mod tests {
         assert_eq!(partial_ctx.actor_id.as_deref(), Some("artist-1"));
         assert_eq!(partial_ctx.agent_id, None);
         assert_eq!(partial_ctx.source_ip, None);
+        assert_eq!(
+            partial_ctx.trust.actor_id.as_deref(),
+            Some(TRUST_SELF_REPORTED)
+        );
 
         let mut header_fallback = HeaderMap::new();
         header_fallback.insert("x-dcc-mcp-client-platform", "studio-tool".parse().unwrap());
@@ -1324,6 +1552,7 @@ mod tests {
             AgentContext::from_request_parts(&header_fallback, Some(&malformed), None).unwrap();
         assert_eq!(ctx.actor_id, None);
         assert_eq!(ctx.client_platform.as_deref(), Some("studio-tool"));
+        assert_eq!(ctx.trust.client_platform.as_deref(), Some(TRUST_HEADER));
     }
 
     #[test]
@@ -1341,12 +1570,14 @@ mod tests {
                 "clientOs": "macos",
                 "clientHost": "workstation-42",
                 "authSubject": "oauth:user-7",
+                "actorEmail": "morgan@example.invalid",
                 "sourceIp": "203.0.113.99",
                 "forwardedFor": ["198.51.100.10"]
             }
         });
 
         let ctx = AgentContext::from_request_parts(&headers, Some(&body), None).unwrap();
+        let encoded = serde_json::to_string(&ctx).unwrap();
 
         assert!(
             ctx.actor_id.as_ref().unwrap().len() <= MAX_AGENT_CONTEXT_STRING_BYTES,
@@ -1365,6 +1596,14 @@ mod tests {
             ctx.forwarded_for.is_empty(),
             "forwarded_for must be server-derived"
         );
+        assert_eq!(ctx.trust.actor_id.as_deref(), Some(TRUST_SELF_REPORTED));
+        assert_eq!(
+            ctx.trust.client_platform.as_deref(),
+            Some(TRUST_SELF_REPORTED)
+        );
+        assert_eq!(ctx.trust.auth_subject.as_deref(), Some(TRUST_SELF_REPORTED));
+        assert!(ctx.trust.source_ip.is_none());
+        assert!(!encoded.contains("morgan@example.invalid"));
     }
 
     #[test]
@@ -1382,6 +1621,11 @@ mod tests {
         assert_eq!(
             ctx.forwarded_for,
             vec!["198.51.100.2".to_string(), "203.0.113.3".to_string()]
+        );
+        assert_eq!(ctx.trust.source_ip.as_deref(), Some(TRUST_TRUSTED_PROXY));
+        assert_eq!(
+            ctx.trust.forwarded_for.as_deref(),
+            Some(TRUST_TRUSTED_PROXY)
         );
     }
 
@@ -1413,6 +1657,53 @@ mod tests {
             ctx.forwarded_for,
             vec!["198.51.100.2".to_string(), "203.0.113.3".to_string()]
         );
+        assert_eq!(ctx.trust.actor_id.as_deref(), Some(TRUST_SELF_REPORTED));
+        assert_eq!(ctx.trust.source_ip.as_deref(), Some(TRUST_TRUSTED_PROXY));
+    }
+
+    #[test]
+    fn caller_attribution_auth_subject_prefers_internal_auth_boundary() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-dcc-mcp-auth-subject", "header:spoofed".parse().unwrap());
+        headers.insert(
+            crate::gateway::caller_attribution::INTERNAL_AUTH_SUBJECT_HEADER,
+            "oauth:artist-1".parse().unwrap(),
+        );
+        let body = json!({
+            "caller_context": {
+                "authSubject": "body:spoofed"
+            }
+        });
+
+        let ctx = AgentContext::from_request_parts(&headers, Some(&body), None).unwrap();
+
+        assert_eq!(ctx.auth_subject.as_deref(), Some("oauth:artist-1"));
+        assert_eq!(ctx.trust.auth_subject.as_deref(), Some(TRUST_AUTH));
+    }
+
+    #[test]
+    fn caller_attribution_ignores_mcp_meta_network_spoofing() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            crate::gateway::caller_attribution::INTERNAL_SOURCE_IP_HEADER,
+            "192.0.2.44".parse().unwrap(),
+        );
+        let meta = json!({
+            "agent_context": {
+                "actor_id": "artist-1",
+                "sourceIp": "203.0.113.200",
+                "forwardedFor": ["203.0.113.201"]
+            }
+        });
+
+        let ctx = AgentContext::from_request_parts_with_server_network(&headers, None, Some(&meta))
+            .unwrap();
+
+        assert_eq!(ctx.actor_id.as_deref(), Some("artist-1"));
+        assert_eq!(ctx.source_ip.as_deref(), Some("192.0.2.44"));
+        assert!(ctx.forwarded_for.is_empty());
+        assert_eq!(ctx.trust.actor_id.as_deref(), Some(TRUST_SELF_REPORTED));
+        assert_eq!(ctx.trust.source_ip.as_deref(), Some(TRUST_SERVER_DERIVED));
     }
 
     #[test]

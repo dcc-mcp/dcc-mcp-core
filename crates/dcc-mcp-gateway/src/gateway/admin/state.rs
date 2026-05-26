@@ -16,7 +16,7 @@ use crate::gateway::middleware::{AuditEntry, AuditSink};
 use crate::gateway::state::GatewayState;
 
 use super::stats::StatsAggregator;
-use super::trace::{DispatchTrace, TokenTelemetry, TraceLog};
+use super::trace::{AgentContextTrust, DispatchTrace, TokenTelemetry, TraceLog};
 
 type SqliteTracePersistFn = Arc<dyn Fn(&DispatchTrace) + Send + Sync>;
 type SqliteAuditPersistFn = Arc<dyn Fn(&AdminAuditRecord) + Send + Sync>;
@@ -64,6 +64,8 @@ pub struct AdminAuditRecord {
     pub auth_subject: Option<String>,
     /// Server-derived source IP after proxy trust policy.
     pub source_ip: Option<String>,
+    /// Server-computed trust source labels for attribution fields.
+    pub attribution_trust: Option<AgentContextTrust>,
     /// Parent request id for request-chain correlation.
     pub parent_request_id: Option<String>,
     /// Tool slug or MCP method name.
@@ -127,6 +129,8 @@ struct PersistedAuditRecord {
     auth_subject: Option<String>,
     #[serde(default)]
     source_ip: Option<String>,
+    #[serde(default)]
+    attribution_trust: Option<AgentContextTrust>,
     #[serde(default)]
     parent_request_id: Option<String>,
     action: String,
@@ -295,6 +299,7 @@ impl From<&AdminAuditRecord> for PersistedAuditRecord {
             client_host: record.client_host.clone(),
             auth_subject: record.auth_subject.clone(),
             source_ip: record.source_ip.clone(),
+            attribution_trust: record.attribution_trust.clone(),
             parent_request_id: record.parent_request_id.clone(),
             action: record.action.clone(),
             dcc_type: record.dcc_type.clone(),
@@ -329,6 +334,7 @@ impl From<PersistedAuditRecord> for AdminAuditRecord {
             client_host: record.client_host,
             auth_subject: record.auth_subject,
             source_ip: record.source_ip,
+            attribution_trust: record.attribution_trust,
             parent_request_id: record.parent_request_id,
             action: record.action,
             dcc_type: record.dcc_type,
@@ -418,6 +424,9 @@ impl AuditSink for AdminAuditSink {
             client_host: agent_context.and_then(|ctx| ctx.client_host.clone()),
             auth_subject: agent_context.and_then(|ctx| ctx.auth_subject.clone()),
             source_ip: agent_context.and_then(|ctx| ctx.source_ip.clone()),
+            attribution_trust: agent_context
+                .map(|ctx| ctx.trust.clone())
+                .filter(|trust| !trust.is_empty()),
             parent_request_id: entry
                 .trace_context
                 .parent_request_id
@@ -513,6 +522,7 @@ mod durable_tests {
             client_host: None,
             auth_subject: None,
             source_ip: None,
+            attribution_trust: None,
             parent_request_id: None,
             action: "maya.abcdef01.create_sphere".to_string(),
             dcc_type: Some("maya".to_string()),

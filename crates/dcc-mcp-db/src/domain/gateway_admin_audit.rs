@@ -42,6 +42,8 @@ pub struct GatewayAdminAuditPersistedJson {
     #[serde(default)]
     pub source_ip: Option<String>,
     #[serde(default)]
+    pub attribution_trust: Option<Value>,
+    #[serde(default)]
     pub parent_request_id: Option<String>,
     pub action: String,
     pub dcc_type: Option<String>,

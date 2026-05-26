@@ -96,6 +96,25 @@ type ToolRow = {
   instance_prefix?: string;
 };
 
+type AttributionTrust = {
+  actor_id?: string | null;
+  actor_name?: string | null;
+  actor_email_hash?: string | null;
+  agent_id?: string | null;
+  agent_name?: string | null;
+  agent_kind?: string | null;
+  agent_version?: string | null;
+  model?: string | null;
+  model_provider?: string | null;
+  model_version?: string | null;
+  client_platform?: string | null;
+  client_os?: string | null;
+  client_host?: string | null;
+  auth_subject?: string | null;
+  source_ip?: string | null;
+  forwarded_for?: string | null;
+};
+
 type CallRow = {
   timestamp: string;
   request_id: string;
@@ -119,6 +138,7 @@ type CallRow = {
   client_host?: string | null;
   auth_subject?: string | null;
   source_ip?: string | null;
+  attribution_trust?: AttributionTrust | null;
   parent_request_id?: string | null;
   token_accounting?: TokenAccounting | null;
   response_format?: string | null;
@@ -154,6 +174,7 @@ type TraceRow = {
   client_host?: string | null;
   auth_subject?: string | null;
   source_ip?: string | null;
+  attribution_trust?: AttributionTrust | null;
   span_count?: number | null;
   input_bytes?: number | null;
   output_bytes?: number | null;
@@ -284,6 +305,7 @@ type AgentContext = {
   auth_subject?: string | null;
   source_ip?: string | null;
   forwarded_for?: string[];
+  trust?: AttributionTrust;
   user_intent_summary?: string | null;
   agent_reply_summary?: string | null;
   user_input_hash?: string | null;
@@ -1760,6 +1782,24 @@ function sourceIpLabel(row: { source_ip?: string | null }): string {
   return row.source_ip || '-';
 }
 
+function trustFor(row: { attribution_trust?: AttributionTrust | null; trust?: AttributionTrust | null }, field: keyof AttributionTrust): string | null {
+  return row.attribution_trust?.[field] ?? row.trust?.[field] ?? null;
+}
+
+function firstTrust(row: { attribution_trust?: AttributionTrust | null; trust?: AttributionTrust | null }, fields: (keyof AttributionTrust)[]): string | null {
+  for (const field of fields) {
+    const value = trustFor(row, field);
+    if (value) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function trustChip(source: string | null | undefined): ReactNode {
+  return source ? <span className="trust-chip" title={`trust: ${source}`}>{source}</span> : null;
+}
+
 function safeCallerContext(agent: AgentContext | null | undefined): Record<string, unknown> | null {
   if (!agent) {
     return null;
@@ -1784,6 +1824,7 @@ function safeCallerContext(agent: AgentContext | null | undefined): Record<strin
     auth_subject: agent.auth_subject ?? null,
     source_ip: agent.source_ip ?? null,
     forwarded_for: agent.forwarded_for ?? [],
+    trust: agent.trust ?? {},
     task: agent.task ?? null,
     user_intent_summary: agent.user_intent_summary ?? null,
     agent_reply_summary: agent.agent_reply_summary ?? null,
@@ -2394,10 +2435,10 @@ function TraceDetailPanel({
             </div>
           ) : null}
           <div className="agent-meta">
-            {actorLabel(agent) !== '-' ? <span>{t('common.table.actor')} {actorLabel(agent)}</span> : null}
-            {platformLabel(agent) !== '-' ? <span>{t('common.table.platform')} {platformLabel(agent)}</span> : null}
-            {sourceIpLabel(agent) !== '-' ? <span>{t('common.table.sourceIp')} {sourceIpLabel(agent)}</span> : null}
-            {agent.auth_subject ? <span>{t('common.table.auth')} {agent.auth_subject}</span> : null}
+            {actorLabel(agent) !== '-' ? <span>{t('common.table.actor')} {actorLabel(agent)} {trustChip(firstTrust(agent, ['actor_name', 'actor_id', 'actor_email_hash']))}</span> : null}
+            {platformLabel(agent) !== '-' ? <span>{t('common.table.platform')} {platformLabel(agent)} {trustChip(firstTrust(agent, ['client_platform', 'client_os', 'client_host']))}</span> : null}
+            {sourceIpLabel(agent) !== '-' ? <span>{t('common.table.sourceIp')} {sourceIpLabel(agent)} {trustChip(trustFor(agent, 'source_ip'))}</span> : null}
+            {agent.auth_subject ? <span>{t('common.table.auth')} {agent.auth_subject} {trustChip(trustFor(agent, 'auth_subject'))}</span> : null}
             {agentTurnChips(agent, t).map((chip) => <span key={chip}>{chip}</span>)}
             {agent.parent_request_id ? <span>parent {compactId(agent.parent_request_id)}</span> : null}
             {agent.trace_id ? <span>trace {compactId(agent.trace_id)}</span> : null}
@@ -2776,6 +2817,7 @@ function App() {
           c.client_host ?? '',
           c.auth_subject ?? '',
           c.source_ip ?? '',
+          ...Object.values(c.attribution_trust ?? {}),
           c.parent_request_id ?? '',
         ),
       ),
@@ -2811,6 +2853,7 @@ function App() {
           t.client_host ?? '',
           t.auth_subject ?? '',
           t.source_ip ?? '',
+          ...Object.values(t.attribution_trust ?? {}),
           t.slowest_span_name ?? '',
           t.input_tokens != null ? String(t.input_tokens) : '',
           t.output_tokens != null ? String(t.output_tokens) : '',
@@ -4568,10 +4611,14 @@ function App() {
                           <td>{call.tool}</td>
                           <td>{call.dcc_type}</td>
                           <td>{compactInstanceId(call.instance_id)}</td>
-                          <td title={call.actor_id ?? call.auth_subject ?? ''}>{actorLabel(call)}</td>
+                          <td title={call.actor_id ?? call.auth_subject ?? ''}>
+                            <span className="trust-cell">{actorLabel(call)}{trustChip(firstTrust(call, ['actor_name', 'actor_id', 'actor_email_hash', 'auth_subject']))}</span>
+                          </td>
                           <td title={call.agent_id ?? call.agent_name ?? ''}>{agentLabel(call)}</td>
-                          <td title={[call.client_platform, call.client_os, call.client_host].filter(Boolean).join(' / ')}>{platformLabel(call)}</td>
-                          <td>{sourceIpLabel(call)}</td>
+                          <td title={[call.client_platform, call.client_os, call.client_host].filter(Boolean).join(' / ')}>
+                            <span className="trust-cell">{platformLabel(call)}{trustChip(firstTrust(call, ['client_platform', 'client_os', 'client_host']))}</span>
+                          </td>
+                          <td><span className="trust-cell">{sourceIpLabel(call)}{trustChip(trustFor(call, 'source_ip'))}</span></td>
                           <td>{call.transport ?? '-'}</td>
                           <td>{responseFormatLabel(call)}</td>
                           <td>{returnedTokensLabel(call)}</td>
@@ -4637,7 +4684,13 @@ function App() {
                           <span className="trace-item-main">
                             <strong>{trace.tool}</strong>
                             <span>{compactId(trace.request_id)} - {compactInstanceId(trace.instance_id)} - <TimeValue value={trace.timestamp} /> - {trace.transport ?? '?'}</span>
-                            <span>{actorLabel(trace)} - {platformLabel(trace)} - {sourceIpLabel(trace)}</span>
+                            <span>
+                              {actorLabel(trace)} {trustChip(firstTrust(trace, ['actor_name', 'actor_id', 'actor_email_hash', 'auth_subject']))}
+                              {' - '}
+                              {platformLabel(trace)} {trustChip(firstTrust(trace, ['client_platform', 'client_os', 'client_host']))}
+                              {' - '}
+                              {sourceIpLabel(trace)} {trustChip(trustFor(trace, 'source_ip'))}
+                            </span>
                             <span>{agentLabel(trace)}{trace.slowest_span_name ? ` - ${t('traces.detail.slowestSpan', { name: trace.slowest_span_name, duration: formatDurationMs(trace.slowest_span_ms) })}` : ''}</span>
                           </span>
                           <span className="trace-item-side">
