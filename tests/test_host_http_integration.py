@@ -87,6 +87,21 @@ def _rest_call(
         return exc.code, json.loads(body) if body else {}
 
 
+def _poll_job_status(url: str, job_id: str, *, timeout_secs: float = 5.0) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout_secs
+    while time.monotonic() < deadline:
+        poll = _call_tool(
+            url,
+            "jobs_get_status",
+            {"job_id": job_id, "include_result": True},
+        )
+        env = poll["result"]["structuredContent"]
+        if env["status"] in {"completed", "failed", "cancelled", "interrupted"}:
+            return env
+        time.sleep(0.05)
+    raise AssertionError(f"job {job_id} did not reach a terminal state")
+
+
 def _start_routed_server(
     server_name: str,
 ) -> tuple[McpHttpServer, ToolRegistry, StandaloneHost, Any]:
@@ -425,6 +440,55 @@ def test_v1_call_reports_validation_skipped_for_empty_schema() -> None:
         status, body = _rest_call(handle.mcp_url(), "loose_probe", {"anything": "goes"})
         assert status == 200, body
         assert body.get("validation_skipped") is True, body
+    finally:
+        handle.shutdown()
+        host.stop()
+
+
+def test_async_main_affinity_job_preserves_structured_arguments() -> None:
+    """Async main-affinity jobs must dispatch the original JSON arguments."""
+    server, reg = _make_server("async-main-affinity-args")
+    captured: dict[str, Any] = {}
+
+    def _probe(params: dict) -> dict:
+        captured.update(params)
+        return {"received": params}
+
+    server.register_handler("bake_textures", _probe, thread_affinity="main")
+    reg.register(
+        "bake_textures",
+        description="Bake texture maps.",
+        category="test",
+        dcc="test",
+        version="1.0.0",
+        execution="sync",
+        timeout_hint_secs=30,
+        thread_affinity="main",
+        enforce_thread_affinity=True,
+    )
+
+    dispatcher = QueueDispatcher()
+    server.attach_dispatcher(dispatcher)
+    host = StandaloneHost(dispatcher, tick_interval=0.005)
+    host.start()
+    handle = server.start()
+    try:
+        time.sleep(0.2)
+        arguments = {
+            "output_dir": "C:/tmp/blender-bakes",
+            "maps": ["base_color", "normal", "roughness"],
+        }
+        queued = _call_tool(handle.mcp_url(), "bake_textures", arguments)
+        assert queued.get("error") is None, queued
+        result = queued["result"]
+        assert result["isError"] is False, result
+        job_id = result["structuredContent"]["job_id"]
+
+        final = _poll_job_status(handle.mcp_url(), job_id)
+
+        assert final["status"] == "completed", final
+        assert final["result"]["received"] == arguments
+        assert captured == arguments
     finally:
         handle.shutdown()
         host.stop()

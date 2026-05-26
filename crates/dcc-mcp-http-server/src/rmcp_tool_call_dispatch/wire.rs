@@ -5,6 +5,8 @@ use serde_json::{Value, json};
 use dcc_mcp_actions::{DispatchError, DispatchResult};
 use dcc_mcp_models::ThreadAffinity;
 
+const MALFORMED_DISPATCH_WIRE_PAYLOAD: &str = "malformed dispatch wire payload";
+
 pub(crate) fn use_main_thread_route(
     thread_affinity: ThreadAffinity,
     executor_present: bool,
@@ -102,7 +104,7 @@ pub(crate) fn decode_dispatch_wire(json_str: &str) -> Result<DispatchResult, Dis
         return Err(DispatchError::HandlerError(err.to_string()));
     }
     Err(DispatchError::HandlerError(
-        "malformed dispatch wire payload".to_string(),
+        MALFORMED_DISPATCH_WIRE_PAYLOAD.to_string(),
     ))
 }
 
@@ -178,9 +180,14 @@ fn decode_dispatch_error_payload(value: &Value) -> DispatchError {
 
 /// MCP hot path — callers only need the handler output [`Value`].
 pub(crate) fn decode_dispatch_output(json_str: &str) -> Result<Value, String> {
-    decode_dispatch_wire(json_str)
-        .map(|r| r.output)
-        .map_err(|e| e.to_string())
+    match decode_dispatch_wire(json_str) {
+        Ok(result) => Ok(result.output),
+        Err(DispatchError::HandlerError(message)) if message == MALFORMED_DISPATCH_WIRE_PAYLOAD => {
+            serde_json::from_str(json_str)
+                .map_err(|_| DispatchError::HandlerError(message).to_string())
+        }
+        Err(err) => Err(err.to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -207,5 +214,28 @@ mod tests {
                 && code == "policy_denied"
                 && reason == "destructive tools are disabled"
         ));
+    }
+
+    #[test]
+    fn async_output_decoder_accepts_raw_json_handler_output() {
+        let raw = json!({
+            "received": {
+                "output_dir": "C:/tmp/blender-bakes",
+                "maps": ["base_color", "normal", "roughness"],
+            }
+        })
+        .to_string();
+
+        let decoded = decode_dispatch_output(&raw).expect("raw handler output should decode");
+
+        assert_eq!(
+            decoded,
+            json!({
+                "received": {
+                    "output_dir": "C:/tmp/blender-bakes",
+                    "maps": ["base_color", "normal", "roughness"],
+                }
+            })
+        );
     }
 }
