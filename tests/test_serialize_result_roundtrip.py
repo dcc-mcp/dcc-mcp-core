@@ -564,6 +564,34 @@ class TestSkillSerializeResult:
         assert calls
         assert json.loads(output)["message"] == "fast"
 
+    def test_serialize_result_fallback_handles_lazy_core_json_missing(self, monkeypatch):
+        """If top-level json_dumps resolves but needs _core at call time, use stdlib JSON."""
+        import builtins
+        import importlib
+
+        original_import = builtins.__import__
+
+        def mock_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "dcc_mcp_core._core":
+                raise ImportError("simulated missing validation path")
+            return original_import(name, globals, locals, fromlist, level)
+
+        def unavailable_json_dumps(_payload, **_kwargs):
+            raise ModuleNotFoundError("No module named 'dcc_mcp_core._core'")
+
+        import dcc_mcp_core.skill as skill_mod
+
+        importlib.reload(skill_mod)
+
+        with monkeypatch.context() as mp:
+            mp.setattr(builtins, "__import__", mock_import)
+            mp.setattr(dcc_mcp_core, "json_dumps", unavailable_json_dumps, raising=False)
+            result = {"success": True, "message": "source-only", "prompt": None, "error": None, "context": {}}
+
+            output = skill_mod._serialize_result(result)
+
+        assert json.loads(output)["message"] == "source-only"
+
 
 # ---------------------------------------------------------------------------
 # Cross-format compatibility check
