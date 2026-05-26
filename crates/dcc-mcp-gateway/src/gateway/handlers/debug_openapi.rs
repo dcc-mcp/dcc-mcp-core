@@ -102,6 +102,12 @@ pub(crate) fn add_gateway_debug_openapi_paths(doc: &mut Value) {
             vec![path_param("lookup_id", "Trace id or request id.")],
         ),
         (
+            "/v1/debug/agent-traces/{lookup_id}",
+            "Get an agent trace packet",
+            "Compact public-safe trace packet for agents, resolved by trace id or request id.",
+            vec![path_param("lookup_id", "Trace id or request id.")],
+        ),
+        (
             "/v1/debug/tasks",
             "List task-like debug snapshots",
             "Stable task projection reconstructed from dispatch traces.",

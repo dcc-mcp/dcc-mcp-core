@@ -161,8 +161,14 @@ Admin 路由仍作为 dashboard 兼容层；自动化调用优先使用：
 | `GET /v1/debug/governance?limit=300` | `/admin/api/governance` |
 | `GET /v1/debug/traffic?limit=300` | `/admin/api/traffic` |
 | `GET /v1/debug/traffic/export?limit=1000` | `/admin/api/traffic/export` |
+| `GET /v1/debug/agent-traces/{lookup_id}` | 按 trace id 或 request id 获取 public-safe agent trace packet |
 | `GET /v1/debug/search-telemetry` | `/admin/api/search-telemetry` |
 | `GET /v1/debug/health` | `/admin/api/health` |
+
+`/admin?panel=traces&trace=<request_id>` 这类浏览器 deep link 只用于 UI
+导航。历史上的 `/admin?agent=traces&trace=<id>` 也按 UI 链接处理；agent
+和自动化客户端应使用 `GET /v1/debug/agent-traces/{lookup_id}` 读取稳定的
+机器可读包。
 
 ## API 响应格式
 

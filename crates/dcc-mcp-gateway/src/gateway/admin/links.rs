@@ -37,6 +37,10 @@ impl AdminLinkBuilder {
                 "{}{}/api/debug-bundle/{}",
                 self.origin, self.admin_base, encoded
             ),
+            "agent_trace_packet_url": format!(
+                "{}/v1/debug/agent-traces/{}",
+                self.origin, encoded
+            ),
             "issue_report_url": format!(
                 "{}{}/api/issue-report/{}",
                 self.origin, self.admin_base, encoded
