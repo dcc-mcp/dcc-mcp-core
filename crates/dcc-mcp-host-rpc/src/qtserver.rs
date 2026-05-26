@@ -35,9 +35,9 @@
 //!            "traceback": "..."}}
 //! ```
 //!
-//! The DCC-side dispatcher (shipped in this crate at
-//! `python/dcc_qt_dispatcher.py`) runs cooperatively on the host's Qt
-//! event loop via `QTcpServer` + a 50 ms `QTimer`. Every request is
+//! The DCC-side dispatcher (published as `dcc_mcp_core.qt_dispatcher` and
+//! mirrored in this crate for Cargo packaging) runs cooperatively on the host's
+//! Qt event loop via `QTcpServer` + a 50 ms `QTimer`. Every request is
 //! `try/except`-wrapped per handler so a Python-level failure produces
 //! a structured error envelope instead of leaking to a host modal
 //! dialog (the root cause of issues #235 / #240 / #241 on Maya).

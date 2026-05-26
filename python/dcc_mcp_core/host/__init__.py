@@ -34,16 +34,26 @@ from dcc_mcp_core.host._adapter import TickableDispatcher
 from dcc_mcp_core.host._standalone import StandaloneHost
 from dcc_mcp_core.host._wire import normalize_tool_arguments
 from dcc_mcp_core.host._wire import normalize_tool_meta
+from dcc_mcp_core.host.qt_dispatcher import QtCommandServer
+from dcc_mcp_core.host.qt_dispatcher import ServerHandle
+from dcc_mcp_core.host.qt_dispatcher import current_server
+from dcc_mcp_core.host.qt_dispatcher import start_qt_server
+from dcc_mcp_core.host.qt_dispatcher import stop_qt_server
 
 __all__ = [
     "BlockingDispatcher",
     "DispatchError",
     "HostAdapter",
     "PostHandle",
+    "QtCommandServer",
     "QueueDispatcher",
+    "ServerHandle",
     "StandaloneHost",
     "TickOutcome",
     "TickableDispatcher",
+    "current_server",
     "normalize_tool_arguments",
     "normalize_tool_meta",
+    "start_qt_server",
+    "stop_qt_server",
 ]
