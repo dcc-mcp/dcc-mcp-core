@@ -6,14 +6,14 @@
 //! replay, and sandbox allowlists can reason about a concrete file.
 
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{FileRef, hash_bytes_sha256};
+use crate::{FileRef, atomic_write_bytes, hash_bytes_sha256};
 
 /// Environment override for the default materialization root.
 pub const SCRIPT_MATERIALIZATION_ROOT_ENV: &str = "DCC_MCP_SCRIPT_MATERIALIZATION_ROOT";
@@ -218,10 +218,11 @@ impl ScriptMaterializationStore {
             reused: false,
         };
 
-        write_atomic(&descriptor.file_path, bytes)?;
-        write_atomic(
+        atomic_write_bytes(&descriptor.file_path, bytes, true)?;
+        atomic_write_bytes(
             &metadata_path,
             &serde_json::to_vec(&descriptor).map_err(ScriptMaterializationError::Serde)?,
+            true,
         )?;
         Ok(descriptor)
     }
@@ -368,28 +369,6 @@ fn read_descriptor_lenient(path: &Path) -> ScriptMaterializationResult<Option<Ma
 fn expires_at_from_ttl(ttl_secs: Option<u64>) -> Option<DateTime<Utc>> {
     let ttl = i64::try_from(ttl_secs?).ok()?;
     Utc::now().checked_add_signed(Duration::seconds(ttl))
-}
-
-fn write_atomic(path: &Path, data: &[u8]) -> io::Result<()> {
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent)?;
-    let tmp = parent.join(format!(".tmp-{}.part", Uuid::new_v4().simple()));
-    {
-        let mut file = fs::File::create(&tmp)?;
-        file.write_all(data)?;
-        file.sync_all()?;
-    }
-    match fs::rename(&tmp, path) {
-        Ok(()) => Ok(()),
-        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
-            fs::remove_file(path)?;
-            fs::rename(tmp, path)
-        }
-        Err(err) => {
-            let _ = fs::remove_file(tmp);
-            Err(err)
-        }
-    }
 }
 
 fn file_uri_from_path(path: &Path) -> String {

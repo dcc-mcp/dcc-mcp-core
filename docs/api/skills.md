@@ -557,8 +557,8 @@ Examples:
 `dcc_mcp_core.skills_helper` is the canonical import path for dependency-light
 helpers that skill scripts can rely on when the full `dcc-mcp-core` wheel is
 available. Prefer it over ad-hoc `utils` modules or adding small runtime
-dependencies for JSON, YAML, schema validation, result envelopes, argument
-normalization, or cancellation checks.
+dependencies for JSON, YAML, file/path work, LZ4 payload compression, schema
+validation, result envelopes, argument normalization, or cancellation checks.
 
 ```python
 from dcc_mcp_core.skills_helper import (
@@ -603,6 +603,48 @@ except SkillCodecError as exc:
 dump_json_file("out/report.json", manifest, ensure_ascii=False)
 ```
 
+For generated artefacts and hand-off payloads, prefer the Rust-backed file/path
+helpers instead of one-off local helpers:
+
+```python
+from dcc_mcp_core.skills_helper import (
+    SkillFileError,
+    atomic_write_text,
+    compress_bytes,
+    decompress_bytes,
+    ensure_within_root,
+    file_digest,
+)
+
+try:
+    out_path = atomic_write_text(
+        "reports/summary.json",
+        json_dumps(summary, ensure_ascii=False),
+        root=session_temp_dir,
+        max_bytes=2_000_000,
+    )
+    sha256 = file_digest(out_path, root=session_temp_dir)
+    packed = compress_bytes(out_path.read_bytes(), max_bytes=2_000_000)
+    restored = decompress_bytes(packed, max_bytes=2_000_000)
+except SkillFileError as exc:
+    return skill_error_from_exception(exc)
+```
+
+`ensure_within_root(root, path)` resolves relative paths under a trusted
+workspace/session root, canonicalizes existing ancestors, and rejects traversal
+outside that root. `atomic_write_text()` / `atomic_write_bytes()` write via a
+same-directory temporary file. `file_digest()` / `bytes_digest()` currently
+support SHA-256; BLAKE3 is intentionally deferred until the wheel already
+depends on it for another feature. `compress_bytes()` / `decompress_bytes()`
+use the existing LZ4 frame implementation from the shared-memory layer and
+enforce explicit byte limits.
+
+Use `FileRef`, `artefact_put_file()`, and `artefact_get_bytes()` when a file
+must be handed to another tool or exposed through MCP resources. The
+`skills_helper` file helpers are lower-level building blocks for local files
+inside one skill or session root; they do not replace the higher-level artefact
+store contract.
+
 Existing imports such as `from dcc_mcp_core import json_dumps` continue to work
 and re-export the same canonical functions. New helpers for skill authoring
 belong under `skills_helper`, not a vague `utils` namespace.
@@ -611,6 +653,8 @@ Use `skills_helper` when:
 
 - a skill needs dependency-free JSON or YAML parsing instead of `json`, PyYAML,
   or local wrapper modules;
+- a skill needs bounded atomic writes, safe path containment, SHA-256 digests,
+  or LZ4 compression for local session files;
 - a handler needs standard result helpers such as `skill_success`,
   `skill_error`, `success_result`, or `error_result`;
 - a tool wrapper needs `normalize_tool_arguments()` / `normalize_tool_meta()`
