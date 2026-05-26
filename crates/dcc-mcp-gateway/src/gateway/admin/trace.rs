@@ -98,6 +98,18 @@ impl TraceContext {
         span
     }
 
+    pub fn child_request(&self, request_id: impl Into<String>) -> Self {
+        Self {
+            trace_id: self.trace_id.clone(),
+            request_id: request_id.into(),
+            span_id: Some(new_span_id()),
+            parent_span_id: self.span_id.clone(),
+            parent_request_id: Some(self.request_id.clone()),
+            trace_flags: self.trace_flags.clone(),
+            trace_state: self.trace_state.clone(),
+        }
+    }
+
     pub fn traceparent(&self) -> Option<String> {
         let span_id = self.span_id.as_deref()?;
         Some(format!(
@@ -512,6 +524,17 @@ impl AgentContext {
             .unwrap_or_default();
 
         merge_header_agent_context(&mut ctx, headers);
+        if ctx.is_empty() { None } else { Some(ctx) }
+    }
+
+    pub fn from_request_parts_with_server_network(
+        headers: &HeaderMap,
+        body: Option<&Value>,
+        meta: Option<&Value>,
+    ) -> Option<Self> {
+        let mut ctx = Self::from_request_parts(headers, body, meta).unwrap_or_default();
+        let network = crate::gateway::caller_attribution::internal_network_attribution(headers);
+        ctx = ctx.with_server_network_source(network.source_ip, network.forwarded_for);
         if ctx.is_empty() { None } else { Some(ctx) }
     }
 
@@ -1363,6 +1386,36 @@ mod tests {
     }
 
     #[test]
+    fn caller_attribution_reads_only_internal_server_network_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-dcc-mcp-source-ip", "203.0.113.99".parse().unwrap());
+        headers.insert(
+            crate::gateway::caller_attribution::INTERNAL_SOURCE_IP_HEADER,
+            "192.0.2.44".parse().unwrap(),
+        );
+        headers.insert(
+            crate::gateway::caller_attribution::INTERNAL_FORWARDED_FOR_HEADER,
+            "198.51.100.2, 203.0.113.3".parse().unwrap(),
+        );
+        let body = json!({
+            "caller_context": {
+                "actor_id": "artist-1",
+                "sourceIp": "203.0.113.100"
+            }
+        });
+
+        let ctx = AgentContext::from_request_parts_with_server_network(&headers, Some(&body), None)
+            .unwrap();
+
+        assert_eq!(ctx.actor_id.as_deref(), Some("artist-1"));
+        assert_eq!(ctx.source_ip.as_deref(), Some("192.0.2.44"));
+        assert_eq!(
+            ctx.forwarded_for,
+            vec!["198.51.100.2".to_string(), "203.0.113.3".to_string()]
+        );
+    }
+
+    #[test]
     fn agent_context_bounds_turn_summaries_and_excludes_raw_text() {
         let headers = HeaderMap::new();
         let raw_prompt = "secret production prompt".to_string();
@@ -1431,6 +1484,26 @@ mod tests {
         assert_eq!(ctx.span_id.as_deref().unwrap_or_default().len(), 16);
         assert!(!ctx.request_id.is_empty());
         assert!(ctx.traceparent().is_some());
+    }
+
+    #[test]
+    fn trace_context_child_request_preserves_trace_with_distinct_request_id() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-request-id", "batch-parent".parse().unwrap());
+        headers.insert(
+            "traceparent",
+            "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+                .parse()
+                .unwrap(),
+        );
+        let parent = TraceContext::from_headers(&headers);
+        let child = parent.child_request("batch-parent:batch-0");
+
+        assert_eq!(child.trace_id, parent.trace_id);
+        assert_eq!(child.request_id, "batch-parent:batch-0");
+        assert_eq!(child.parent_request_id.as_deref(), Some("batch-parent"));
+        assert_ne!(child.span_id, parent.span_id);
+        assert_eq!(child.parent_span_id, parent.span_id);
     }
 
     #[test]

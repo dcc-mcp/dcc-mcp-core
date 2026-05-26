@@ -5,6 +5,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
 
+use super::caller_attribution::caller_attribution_middleware;
 use super::handlers::{
     handle_gateway_get, handle_gateway_mcp, handle_gateway_yield, handle_health, handle_instances,
     handle_proxy_dcc, handle_proxy_instance, handle_v1_call, handle_v1_call_batch,
@@ -51,6 +52,7 @@ pub fn build_gateway_router(mut state: GatewayState) -> Router {
     let limits = gateway_limits();
     let mut r = build_base_router(state);
     r = r.layer(RequestBodyLimitLayer::new(limits.body_max_bytes));
+    r = r.layer(middleware::from_fn(caller_attribution_middleware));
     if limits.rate_limit_per_minute_per_ip > 0 {
         r = r.layer(middleware::from_fn(rate_limit_middleware));
     }
@@ -81,6 +83,7 @@ pub fn build_gateway_router_with_admin(
     let limits = gateway_limits();
     let mut router = build_base_router(state);
     router = router.layer(RequestBodyLimitLayer::new(limits.body_max_bytes));
+    router = router.layer(middleware::from_fn(caller_attribution_middleware));
     if limits.rate_limit_per_minute_per_ip > 0 {
         router = router.layer(middleware::from_fn(rate_limit_middleware));
     }
