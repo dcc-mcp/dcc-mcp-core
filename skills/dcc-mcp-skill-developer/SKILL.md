@@ -278,6 +278,13 @@ into a faster authoring loop.
    `ReadinessProbe.main_thread_executor` only after that bridge path is
    actually usable; smoke tests may require those bits via
    `dcc-mcp-cli wait-ready --require host_execution_bridge,main_thread_executor`.
+   Qt-bearing sidecar adapters should import
+   `dcc_mcp_core.qt_dispatcher.start_qt_server` (or the
+   `dcc_mcp_core.host.qt_dispatcher` alias) and pass only host-specific
+   `dispatch_handler` / `session_info_provider` hooks. Do not vendor
+   `_qt_dispatcher.py`, `qt_bridge.py`, or another JSON-line TCP server in the
+   adapter; the Rust `qtserver://` bootstrap embeds the package mirror that CI
+   keeps byte-for-byte aligned with the public dispatcher module.
 10. Skill script entry points may use either modern `main(**params)` or legacy
     `main(params)` signatures; prefer `main(**params)` for new scripts and keep
     dict-style wrappers only for compatibility during adapter migrations.

@@ -8,8 +8,8 @@ requiring the dispatcher Python source to exist on disk.
 How the Rust client uses this file
 ==================================
 
-1. ``include_str!("../python/dcc_qt_dispatcher.py")`` — embed the
-   dispatcher source.
+1. ``include_str!("../python/dcc_qt_dispatcher.py")`` — embed the crate-local
+   package mirror of the public ``dcc_mcp_core.qt_dispatcher`` source.
 2. ``include_str!("../python/dcc_qt_dispatcher_bootstrap.py")`` —
    embed this file's source.
 3. Send **one** ``commandPort`` line that wraps both:
@@ -35,15 +35,16 @@ How the Rust client uses this file
            __import__('_dcc_qt_dispatcher').start_qt_server(
                port=<requested_port>))
 
-   The reply is a JSON dict ``{"host", "port", "qt_binding",
-   "dispatcher_version", "reused"}`` — the client parses ``port`` and
-   reconnects to ``qtserver://<host>:<port>`` for all future calls.
+   The reply is a JSON dict-compatible server handle containing ``{"host",
+   "port", "url", "qt_binding", "dispatcher_version", "reused"}`` — the
+   client parses ``port`` and reconnects to ``qtserver://<host>:<port>`` for
+   all future calls.
 
 Why a separate file
 ===================
 
 Splitting bootstrap (this file) from the dispatcher source
-(``dcc_qt_dispatcher.py``) lets each be unit-tested with stock Python
+(``dcc_mcp_core.qt_dispatcher``) lets each be unit-tested with stock Python
 in CI — the dispatcher's pure-Python parts (``_DispatchRegistry``,
 ``execute`` semantics) run without Qt; the bootstrap's installer
 logic runs without any TCP socket. Both are then re-tested by the
