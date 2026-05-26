@@ -559,6 +559,9 @@ helpers that skill scripts can rely on when the full `dcc-mcp-core` wheel is
 available. Prefer it over ad-hoc `utils` modules or adding small runtime
 dependencies for JSON, YAML, file/path work, LZ4 payload compression, schema
 validation, result envelopes, argument normalization, or cancellation checks.
+Skill authoring docs, templates, and generator output should show this module
+as the preferred import path even though older top-level imports remain
+available for compatibility.
 
 ```python
 from dcc_mcp_core.skills_helper import (
@@ -709,6 +712,13 @@ Use `skills_helper` when:
 
 Use a domain-specific Python dependency only when the dependency owns real
 domain behavior that `skills_helper` does not cover.
+
+The bundled `dcc-mcp-skills-creator` and compatibility `dcc-skills-creator`
+validation tools add `skill-helper-adoption` warnings when a skill script
+imports avoidable helpers covered by this namespace, such as `requests`,
+`httpx`, PyYAML, or local `json_utils` / `http_utils` / `file_utils` modules.
+Warnings are advisory for existing skills but should be treated as blockers for
+new generated/reference skills.
 
 TOML helpers are intentionally not exposed yet. The current adapter and bundled
 skill use cases read TOML as metadata handled by core loaders rather than skill

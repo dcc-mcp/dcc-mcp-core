@@ -7,9 +7,9 @@ tool appears in tools/list. Replace with your power-user tool logic.
 
 from __future__ import annotations
 
-from dcc_mcp_core.skill import skill_entry
-from dcc_mcp_core.skill import skill_error
-from dcc_mcp_core.skill import skill_success
+from dcc_mcp_core.skills_helper import skill_entry
+from dcc_mcp_core.skills_helper import skill_error
+from dcc_mcp_core.skills_helper import skill_success
 
 
 def main(params: dict) -> dict:

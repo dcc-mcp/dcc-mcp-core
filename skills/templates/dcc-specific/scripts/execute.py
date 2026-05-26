@@ -8,9 +8,9 @@ Replace the body with actual DCC API calls (e.g. maya.cmds, bpy, hou).
 
 from __future__ import annotations
 
-from dcc_mcp_core.skill import skill_entry
-from dcc_mcp_core.skill import skill_error
-from dcc_mcp_core.skill import skill_success
+from dcc_mcp_core.skills_helper import skill_entry
+from dcc_mcp_core.skills_helper import skill_error
+from dcc_mcp_core.skills_helper import skill_success
 
 
 def main(params: dict) -> dict:

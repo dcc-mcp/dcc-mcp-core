@@ -85,6 +85,8 @@ tools:
           type: boolean
         has_errors:
           type: boolean
+        has_warnings:
+          type: boolean
         issues:
           type: array
     execution: sync
