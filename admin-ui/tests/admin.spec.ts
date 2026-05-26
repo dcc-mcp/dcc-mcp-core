@@ -800,6 +800,8 @@ async function mockAdminApi(page: Page) {
         ],
       };
     } else if (path === '/skill-detail') {
+      const longToolName = 'maya_modeling__create_high_density_collision_proxy_with_extremely_long_namespace_and_variant_suffix';
+      const longSkillPath = 'G:/studio/skills/maya-modeling/very-long-team-folder/shot-asset-pipeline/review/SKILL.md';
       body = {
         skill: {
           name: url.searchParams.get('name') ?? 'maya-modeling',
@@ -810,9 +812,33 @@ async function mockAdminApi(page: Page) {
           instance_id: url.searchParams.get('instance_id') ?? '12345678-aaaa-bbbb-cccc-1234567890ab',
           instance_short: '12345678',
           skill_path: 'G:/studio/skills/maya-modeling',
-          skill_md_path: 'G:/studio/skills/maya-modeling/SKILL.md',
-          markdown: '---\nname: maya-modeling\nmetadata:\n  dcc-mcp:\n    dcc: maya\n---\n# Maya Modeling\n\n- Create a polygon sphere\n\n| Mode | Use |\n| --- | --- |\n| safe | preview |\n\n```python\ncmds.polySphere()\n```',
-          tools: [{ name: 'create_sphere' }, { name: 'delete_sphere' }],
+          skill_md_path: longSkillPath,
+          markdown: [
+            '---',
+            'name: maya-modeling',
+            'metadata:',
+            '  dcc-mcp:',
+            '    dcc: maya',
+            '    layer: infrastructure',
+            '---',
+            '# Maya Modeling',
+            '',
+            '- Create a polygon sphere',
+            '- Inspect `maya_modeling__long_inline_identifier_that_should_wrap_inside_the_panel` before destructive edits',
+            '',
+            '| Mode | Use | Very long column |',
+            '| --- | --- | --- |',
+            `| safe | preview | ${longToolName} |`,
+            '',
+            '```python',
+            'import maya.cmds as cmds',
+            "cmds.polySphere(name='preview_collision_proxy_with_long_name')",
+            '```',
+          ].join('\n'),
+          tools: [
+            { name: longToolName, summary: 'Creates a reviewable collision proxy.', annotations: { readOnlyHint: false, idempotentHint: true }, thread_affinity: 'main' },
+            { name: 'delete_sphere', summary: 'Deletes the temporary preview sphere.', annotations: { destructiveHint: true } },
+          ],
         },
         instances: [],
       };
@@ -1212,12 +1238,31 @@ test.describe('Admin Page', () => {
     await page.getByRole('button', { name: 'maya-modeling' }).click();
 
     const detail = page.locator('.skill-detail-panel');
-    await expect(detail).toContainText('G:/studio/skills/maya-modeling/SKILL.md');
+    await expect(detail.locator('.skill-detail-path')).toContainText('very-long-team-folder');
     await expect(detail.locator('.skill-markdown-preview h3')).toHaveText('Maya Modeling');
-    await expect(detail.locator('.skill-markdown-preview li')).toContainText('Create a polygon sphere');
+    await expect(detail.locator('.skill-markdown-preview li').first()).toContainText('Create a polygon sphere');
+    await expect(detail.locator('.inline-code')).toContainText('maya_modeling__long_inline_identifier');
     await expect(detail.locator('.skill-markdown-preview table')).toContainText('safe');
-    await expect(detail.locator('.skill-code-block')).toContainText('cmds.polySphere()');
+    await expect(detail.locator('.skill-table-wrap')).toBeVisible();
+    await expect(detail.locator('.skill-code-language')).toHaveText('python');
+    await expect(detail.locator('.skill-code-copy')).toHaveText('Copy');
+    await expect(detail.locator('.skill-code-block')).toContainText('cmds.polySphere');
     await expect(detail.locator('.skill-frontmatter')).toContainText('dcc: maya');
+    await expect(detail.locator('.skill-tool-row').first()).toContainText('idempotent');
+    await expect(detail.locator('.skill-tool-row').first()).toContainText('thread:main');
+  });
+
+  test('keeps skill detail content inside the viewport on narrow screens', async ({ page }) => {
+    await page.setViewportSize({ width: 430, height: 900 });
+    await page.goto('/admin/?panel=skill-paths');
+    await page.getByRole('button', { name: 'maya-modeling' }).click();
+
+    const noPageOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 2);
+    expect(noPageOverflow).toBe(true);
+    const pathFits = await page.locator('.skill-detail-path').evaluate((node) => node.scrollWidth <= node.clientWidth + 2);
+    expect(pathFits).toBe(true);
+    const toolNameFits = await page.locator('.skill-tool-row code').first().evaluate((node) => node.scrollWidth <= node.clientWidth + 2);
+    expect(toolNameFits).toBe(true);
   });
 
   test('refreshes the skills inventory on demand', async ({ page }) => {
