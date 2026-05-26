@@ -214,16 +214,36 @@ Supported carriers:
 - MCP `tools/call` `params._meta.agent_context`
 - REST body `agent_context`, `agentContext`, `caller_context`, or
   `meta.agent_context`
-- Headers such as `x-dcc-mcp-agent-id`, `x-dcc-mcp-agent-name`,
-  `x-dcc-mcp-agent-model`, `x-dcc-mcp-agent-model-provider`,
-  `x-dcc-mcp-agent-model-version`, `x-dcc-mcp-agent-reasoning-effort`,
-  `x-dcc-mcp-agent-session-id`, `x-dcc-mcp-agent-turn-id`,
-  `x-dcc-mcp-agent-user-intent-summary`,
+- Headers such as `x-dcc-mcp-actor-id`, `x-dcc-mcp-actor-name`,
+  `x-dcc-mcp-actor-email-hash`, `x-dcc-mcp-agent-id`,
+  `x-dcc-mcp-agent-name`, `x-dcc-mcp-agent-kind`,
+  `x-dcc-mcp-agent-version`, `x-dcc-mcp-agent-model`,
+  `x-dcc-mcp-agent-model-provider`, `x-dcc-mcp-agent-model-version`,
+  `x-dcc-mcp-agent-reasoning-effort`, `x-dcc-mcp-client-platform`,
+  `x-dcc-mcp-client-os`, `x-dcc-mcp-client-host`,
+  `x-dcc-mcp-auth-subject`, `x-dcc-mcp-agent-session-id`,
+  `x-dcc-mcp-agent-turn-id`, `x-dcc-mcp-agent-user-intent-summary`,
   `x-dcc-mcp-agent-reply-summary`, `x-dcc-mcp-agent-user-input-hash`,
   `x-dcc-mcp-agent-reply-hash`, `x-dcc-mcp-agent-user-input-chars`,
   `x-dcc-mcp-agent-reply-chars`, `x-dcc-mcp-agent-task`,
   `x-dcc-mcp-reasoning-summary`, `x-dcc-mcp-parent-request-id`, and
   `x-dcc-mcp-agent-context` (JSON object)
+
+Caller attribution separates five concepts:
+
+| Concept | Fields | Notes |
+| --- | --- | --- |
+| Human or service actor | `actor_id`, `actor_name`, `actor_email_hash` | Optional, bounded identifiers. Hash email addresses before sending them. |
+| Agent runtime | `agent_id`, `agent_name`, `agent_kind`, `agent_version`, `model`, `model_provider`, `model_version` | `model` also accepts `agentModel`; `model_version` also accepts `agentModelVersion`. |
+| Client platform | `client_platform`, `client_os`, `client_host` | Examples: `cursor`, `claude-desktop`, `openclaw`, `clawhub`, `custom-http`, `studio-tool`. |
+| Auth subject | `auth_subject` | API-key, bearer-token, OAuth, or local identity subject after authentication. |
+| Network source | `source_ip`, `forwarded_for` | Server-derived only. MCP `_meta`, REST request bodies, and caller headers cannot set these fields. |
+
+Cursor-like MCP clients can place attribution in `_meta.agent_context`, custom
+REST clients can use `meta.agent_context`, and LAN studio tools that cannot
+shape JSON bodies can use the `x-dcc-mcp-*` headers above. Do not send hidden
+reasoning, full prompts, raw user messages, secrets, bearer tokens, or raw agent
+replies in any caller-attribution field.
 
 Example REST request:
 
@@ -233,8 +253,17 @@ Example REST request:
   "arguments": { "include_materials": true },
   "meta": {
     "agent_context": {
+      "actor_id": "artist-42",
+      "actor_name": "Morgan Artist",
+      "actor_email_hash": "sha256:...",
       "agent_id": "agent-42",
       "agent_name": "Layout Inspector",
+      "agent_kind": "coding-agent",
+      "agent_version": "0.9.0",
+      "client_platform": "custom-http",
+      "client_os": "windows",
+      "client_host": "workstation-42",
+      "auth_subject": "apikey:team-layout",
       "model_provider": "openai",
       "model_version": "gpt-5.1",
       "model": "gpt-5.4",

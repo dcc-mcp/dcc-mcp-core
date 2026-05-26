@@ -65,7 +65,10 @@ gateway-specific fields:
 | `dcc_mcp.workflow.operation` | One of the span names above. |
 | `dcc_mcp.transport` | `rest` or `mcp`. |
 | `dcc_mcp.trace_id`, `dcc_mcp.request_id`, `dcc_mcp.parent_request_id`, `dcc_mcp.session_id` | Correlation IDs that match Admin trace/debug-bundle surfaces. |
-| `dcc_mcp.agent.id`, `.name`, `.kind`, `.model`, `.model_provider`, `.model_version`, `.reasoning_effort`, `.turn_id`, `.task`, `.tags` | Bounded `agent_context` / caller metadata. |
+| `dcc_mcp.actor.id`, `.name`, `.email_hash` | Bounded human/service actor attribution when supplied. |
+| `dcc_mcp.agent.id`, `.name`, `.kind`, `.version`, `.model`, `.model_provider`, `.model_version`, `.reasoning_effort`, `.turn_id`, `.task`, `.tags` | Bounded agent runtime metadata. |
+| `dcc_mcp.client.platform`, `.os`, `.host`, `dcc_mcp.auth.subject` | Bounded client-surface and authenticated-subject metadata. |
+| `dcc_mcp.source.ip`, `dcc_mcp.forwarded_for` | Server-derived network source fields after proxy trust policy has been applied. |
 | `dcc_mcp.agent.user_intent_summary`, `.reply_summary`, `.user_input_hash`, `.reply_hash`, `.user_input_chars`, `.reply_chars` | Low-sensitivity turn summaries, hashes, and lengths for evaluation correlation. |
 | `dcc_mcp.dcc.type`, `dcc_mcp.instance.id`, `dcc_mcp.skill.name`, `dcc_mcp.tool.slug` | Selected DCC route and skill/tool identity. |
 | `dcc_mcp.search.id`, `.ranker_version`, `.selected_rank`, `.score`, `.match_reasons`, `.total`, `.zero_results` | Search-quality context carried from `/v1/search` or gateway `search`. |
@@ -239,13 +242,17 @@ By default these buffers are in memory only. Set `DCC_MCP_GATEWAY_AUDIT_DIR` to 
 MCP and REST clients can attach optional agent/caller context to correlate an
 operator-visible request with the caller's explicit plan and observations. Use
 `params._meta.agent_context` for MCP, REST `meta.agent_context` or
-`caller_context` fields, or `x-dcc-mcp-agent-*` headers. Fields are bounded and
-intended for concise telemetry such as `agent_id`, `agent_name`,
-`model_provider`, `model_version`, `model`, `reasoning_effort`, `session_id`,
-`turn_id`, `user_intent_summary`, `agent_reply_summary`, `user_input_hash`,
+`caller_context` fields, or `x-dcc-mcp-*` attribution headers. Fields are
+bounded and intended for concise telemetry such as `actor_id`, `actor_name`,
+`actor_email_hash`, `agent_id`, `agent_name`, `agent_kind`, `agent_version`,
+`client_platform`, `client_os`, `client_host`, `auth_subject`, `model_provider`,
+`model_version`, `model`, `reasoning_effort`, `session_id`, `turn_id`,
+`user_intent_summary`, `agent_reply_summary`, `user_input_hash`,
 `agent_reply_hash`, `user_input_chars`, `agent_reply_chars`, `task`,
-`reasoning_summary`, `plan`, `observations`, `parent_request_id`, and tags; do
-not send hidden chain-of-thought, raw user input, raw agent replies, or secrets.
+`reasoning_summary`, `plan`, `observations`, `parent_request_id`, and tags.
+`source_ip` and `forwarded_for` are server-derived only after proxy trust policy
+has been applied; caller-supplied request metadata cannot set them. Do not send
+hidden chain-of-thought, raw user input, raw agent replies, or secrets.
 `trace_id`, `request_id`,
 `span_id`, and `parent_span_id` are recorded separately so one trace can contain
 multiple request ids without losing per-request compatibility. Admin call and trace rows

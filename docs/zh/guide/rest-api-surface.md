@@ -282,6 +282,25 @@ Search response 还会包含 `search_id`、`ranker_version` 和
 `/v1/call_batch` 应把 `next_step` 中的 `meta.search_id` 原样传回，
 这样 gateway 可以统计 search-to-action 质量，同时不记录完整 prompt。
 
+### Caller Attribution
+
+REST 调用方可以在 `meta.agent_context`、顶层 `agent_context` /
+`caller_context`，或 `x-dcc-mcp-*` headers 中提供有界归因元数据。MCP
+调用方使用同样的 shape，放在 `params._meta.agent_context`。这些字段只用于
+遥测和 Admin 调试；不要发送隐藏推理、完整 prompt、原始用户消息、secret、
+bearer token 或原始 agent 回复。
+
+| 概念 | JSON 字段 | Header 字段 |
+|---|---|---|
+| Actor | `actor_id`、`actor_name`、`actor_email_hash` | `x-dcc-mcp-actor-id`、`x-dcc-mcp-actor-name`、`x-dcc-mcp-actor-email-hash` |
+| Agent runtime | `agent_id`、`agent_name`、`agent_kind`、`agent_version`、`model`、`model_provider`、`model_version` | `x-dcc-mcp-agent-id`、`x-dcc-mcp-agent-name`、`x-dcc-mcp-agent-kind`、`x-dcc-mcp-agent-version`、`x-dcc-mcp-agent-model`、`x-dcc-mcp-agent-model-provider`、`x-dcc-mcp-agent-model-version` |
+| Client platform | `client_platform`、`client_os`、`client_host` | `x-dcc-mcp-client-platform`、`x-dcc-mcp-client-os`、`x-dcc-mcp-client-host` |
+| Auth subject | `auth_subject` | `x-dcc-mcp-auth-subject` |
+| Network source | `source_ip`、`forwarded_for` | 仅服务端派生 |
+
+`source_ip` 和 `forwarded_for` 必须在 transport 边界按 proxy trust policy
+派生；REST body、MCP `_meta` 或 caller headers 中提供的同名字段会被忽略。
+
 ---
 
 ## `POST /v1/search` —— compact discovery

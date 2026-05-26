@@ -365,25 +365,43 @@ fn round_two(value: f64) -> f64 {
 /// fields as ordinary caller context.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AgentContext {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "actorId", skip_serializing_if = "Option::is_none")]
+    pub actor_id: Option<String>,
+    #[serde(default, alias = "actorName", skip_serializing_if = "Option::is_none")]
+    pub actor_name: Option<String>,
+    #[serde(
+        default,
+        alias = "actorEmailHash",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub actor_email_hash: Option<String>,
+    #[serde(default, alias = "agentId", skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "agentName", skip_serializing_if = "Option::is_none")]
     pub agent_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "agentKind", skip_serializing_if = "Option::is_none")]
     pub agent_kind: Option<String>,
     #[serde(
         default,
+        alias = "agentVersion",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub agent_version: Option<String>,
+    #[serde(
+        default,
         alias = "modelProvider",
+        alias = "agentModelProvider",
         skip_serializing_if = "Option::is_none"
     )]
     pub model_provider: Option<String>,
     #[serde(
         default,
         alias = "modelVersion",
+        alias = "agentModelVersion",
         skip_serializing_if = "Option::is_none"
     )]
     pub model_version: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "agentModel", skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(
         default,
@@ -397,6 +415,36 @@ pub struct AgentContext {
     pub turn_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task: Option<String>,
+    #[serde(
+        default,
+        alias = "clientPlatform",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub client_platform: Option<String>,
+    #[serde(
+        default,
+        alias = "clientOs",
+        alias = "clientOS",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub client_os: Option<String>,
+    #[serde(default, alias = "clientHost", skip_serializing_if = "Option::is_none")]
+    pub client_host: Option<String>,
+    #[serde(
+        default,
+        alias = "authSubject",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub auth_subject: Option<String>,
+    /// Server-derived remote address. Request metadata and headers must not set
+    /// this field; use [`AgentContext::with_server_network_source`] at the
+    /// transport boundary after proxy trust policy has been applied.
+    #[serde(default, alias = "sourceIp", skip_serializing_if = "Option::is_none")]
+    pub source_ip: Option<String>,
+    /// Server-derived forwarded chain after proxy trust policy has been
+    /// applied. Client-supplied request metadata is ignored.
+    #[serde(default, alias = "forwardedFor", skip_serializing_if = "Vec::is_empty")]
+    pub forwarded_for: Vec<String>,
     #[serde(
         default,
         alias = "userIntentSummary",
@@ -468,16 +516,33 @@ impl AgentContext {
     }
 
     pub fn display_name(&self) -> Option<&str> {
-        self.agent_name
+        self.actor_name
             .as_deref()
+            .or(self.actor_id.as_deref())
+            .or(self.agent_name.as_deref())
             .or(self.agent_id.as_deref())
             .or(self.agent_kind.as_deref())
     }
 
+    #[must_use]
+    pub fn with_server_network_source(
+        mut self,
+        source_ip: Option<String>,
+        forwarded_for: Vec<String>,
+    ) -> Self {
+        self.source_ip = source_ip.map(bound_context_string);
+        self.forwarded_for = bound_context_list(forwarded_for);
+        self
+    }
+
     fn is_empty(&self) -> bool {
-        self.agent_id.is_none()
+        self.actor_id.is_none()
+            && self.actor_name.is_none()
+            && self.actor_email_hash.is_none()
+            && self.agent_id.is_none()
             && self.agent_name.is_none()
             && self.agent_kind.is_none()
+            && self.agent_version.is_none()
             && self.model_provider.is_none()
             && self.model_version.is_none()
             && self.model.is_none()
@@ -485,6 +550,12 @@ impl AgentContext {
             && self.session_id.is_none()
             && self.turn_id.is_none()
             && self.task.is_none()
+            && self.client_platform.is_none()
+            && self.client_os.is_none()
+            && self.client_host.is_none()
+            && self.auth_subject.is_none()
+            && self.source_ip.is_none()
+            && self.forwarded_for.is_empty()
             && self.user_intent_summary.is_none()
             && self.agent_reply_summary.is_none()
             && self.user_input_hash.is_none()
@@ -502,9 +573,13 @@ impl AgentContext {
     }
 
     fn normalise(mut self) -> Self {
+        self.actor_id = self.actor_id.map(bound_context_string);
+        self.actor_name = self.actor_name.map(bound_context_string);
+        self.actor_email_hash = self.actor_email_hash.map(bound_context_string);
         self.agent_id = self.agent_id.map(bound_context_string);
         self.agent_name = self.agent_name.map(bound_context_string);
         self.agent_kind = self.agent_kind.map(bound_context_string);
+        self.agent_version = self.agent_version.map(bound_context_string);
         self.model_provider = self.model_provider.map(bound_context_string);
         self.model_version = self.model_version.map(bound_context_string);
         self.model = self.model.map(bound_context_string);
@@ -512,6 +587,12 @@ impl AgentContext {
         self.session_id = self.session_id.map(bound_context_string);
         self.turn_id = self.turn_id.map(bound_context_string);
         self.task = self.task.map(bound_context_string);
+        self.client_platform = self.client_platform.map(bound_context_string);
+        self.client_os = self.client_os.map(bound_context_string);
+        self.client_host = self.client_host.map(bound_context_string);
+        self.auth_subject = self.auth_subject.map(bound_context_string);
+        self.source_ip = None;
+        self.forwarded_for.clear();
         self.user_intent_summary = self.user_intent_summary.map(bound_context_string);
         self.agent_reply_summary = self.agent_reply_summary.map(bound_context_string);
         self.user_input_hash = self.user_input_hash.map(bound_context_string);
@@ -568,6 +649,16 @@ fn agent_context_from_header(headers: &HeaderMap) -> Option<AgentContext> {
 }
 
 fn merge_header_agent_context(ctx: &mut AgentContext, headers: &HeaderMap) {
+    if ctx.actor_id.is_none() {
+        ctx.actor_id = header_str(headers, "x-dcc-mcp-actor-id").map(bound_context_string);
+    }
+    if ctx.actor_name.is_none() {
+        ctx.actor_name = header_str(headers, "x-dcc-mcp-actor-name").map(bound_context_string);
+    }
+    if ctx.actor_email_hash.is_none() {
+        ctx.actor_email_hash =
+            header_str(headers, "x-dcc-mcp-actor-email-hash").map(bound_context_string);
+    }
     if ctx.agent_id.is_none() {
         ctx.agent_id = header_str(headers, "x-dcc-mcp-agent-id").map(bound_context_string);
     }
@@ -576,6 +667,10 @@ fn merge_header_agent_context(ctx: &mut AgentContext, headers: &HeaderMap) {
     }
     if ctx.agent_kind.is_none() {
         ctx.agent_kind = header_str(headers, "x-dcc-mcp-agent-kind").map(bound_context_string);
+    }
+    if ctx.agent_version.is_none() {
+        ctx.agent_version =
+            header_str(headers, "x-dcc-mcp-agent-version").map(bound_context_string);
     }
     if ctx.model_provider.is_none() {
         ctx.model_provider = header_str_any(
@@ -617,6 +712,19 @@ fn merge_header_agent_context(ctx: &mut AgentContext, headers: &HeaderMap) {
     }
     if ctx.task.is_none() {
         ctx.task = header_str(headers, "x-dcc-mcp-agent-task").map(bound_context_string);
+    }
+    if ctx.client_platform.is_none() {
+        ctx.client_platform =
+            header_str(headers, "x-dcc-mcp-client-platform").map(bound_context_string);
+    }
+    if ctx.client_os.is_none() {
+        ctx.client_os = header_str(headers, "x-dcc-mcp-client-os").map(bound_context_string);
+    }
+    if ctx.client_host.is_none() {
+        ctx.client_host = header_str(headers, "x-dcc-mcp-client-host").map(bound_context_string);
+    }
+    if ctx.auth_subject.is_none() {
+        ctx.auth_subject = header_str(headers, "x-dcc-mcp-auth-subject").map(bound_context_string);
     }
     if ctx.user_intent_summary.is_none() {
         ctx.user_intent_summary = header_str_any(
@@ -1094,13 +1202,20 @@ mod tests {
     #[test]
     fn agent_context_reads_meta_and_headers() {
         let mut headers = HeaderMap::new();
+        headers.insert("x-dcc-mcp-actor-id", "user-7".parse().unwrap());
+        headers.insert("x-dcc-mcp-actor-name", "Morgan Artist".parse().unwrap());
         headers.insert("x-dcc-mcp-agent-id", "agent-7".parse().unwrap());
+        headers.insert("x-dcc-mcp-agent-version", "0.9.0".parse().unwrap());
         headers.insert("x-dcc-mcp-agent-model", "gpt-test".parse().unwrap());
         headers.insert("x-dcc-mcp-agent-model-provider", "openai".parse().unwrap());
         headers.insert("x-dcc-mcp-agent-turn-id", "turn-9".parse().unwrap());
+        headers.insert("x-dcc-mcp-client-platform", "custom-http".parse().unwrap());
+        headers.insert("x-dcc-mcp-client-os", "windows".parse().unwrap());
+        headers.insert("x-dcc-mcp-auth-subject", "apikey:team-a".parse().unwrap());
         headers.insert("x-dcc-mcp-user-input-chars", "2500".parse().unwrap());
         let meta = json!({
             "agent_context": {
+                "actorEmailHash": "sha256:actor",
                 "agent_name": "Scene Planner",
                 "modelVersion": "gpt-5.1",
                 "reasoningEffort": "medium",
@@ -1118,8 +1233,12 @@ mod tests {
 
         let ctx = AgentContext::from_request_parts(&headers, None, Some(&meta)).unwrap();
 
+        assert_eq!(ctx.actor_id.as_deref(), Some("user-7"));
+        assert_eq!(ctx.actor_name.as_deref(), Some("Morgan Artist"));
+        assert_eq!(ctx.actor_email_hash.as_deref(), Some("sha256:actor"));
         assert_eq!(ctx.agent_id.as_deref(), Some("agent-7"));
         assert_eq!(ctx.agent_name.as_deref(), Some("Scene Planner"));
+        assert_eq!(ctx.agent_version.as_deref(), Some("0.9.0"));
         assert_eq!(ctx.model.as_deref(), Some("gpt-test"));
         assert_eq!(ctx.model_provider.as_deref(), Some("openai"));
         assert_eq!(ctx.model_version.as_deref(), Some("gpt-5.1"));
@@ -1134,11 +1253,15 @@ mod tests {
             ctx.agent_reply_summary.as_deref(),
             Some("I will inspect the scene graph first.")
         );
+        assert_eq!(ctx.client_platform.as_deref(), Some("custom-http"));
+        assert_eq!(ctx.client_os.as_deref(), Some("windows"));
+        assert_eq!(ctx.auth_subject.as_deref(), Some("apikey:team-a"));
         assert_eq!(ctx.user_input_hash.as_deref(), Some("sha256:user"));
         assert_eq!(ctx.agent_reply_hash.as_deref(), Some("sha256:reply"));
         assert_eq!(ctx.user_input_chars, Some(2500));
         assert_eq!(ctx.agent_reply_chars, Some(140));
         assert_eq!(ctx.plan.len(), 2);
+        assert_eq!(ctx.display_name(), Some("Morgan Artist"));
     }
 
     #[test]
@@ -1150,6 +1273,93 @@ mod tests {
 
         assert_eq!(ctx.reasoning_summary.as_deref(), Some("manual smoke test"));
         assert_eq!(ctx.display_name(), None);
+    }
+
+    #[test]
+    fn caller_attribution_handles_missing_partial_and_malformed_metadata() {
+        let headers = HeaderMap::new();
+        assert!(AgentContext::from_request_parts(&headers, None, None).is_none());
+
+        let partial = json!({
+            "caller_context": {
+                "actor_id": "artist-1"
+            }
+        });
+        let partial_ctx = AgentContext::from_request_parts(&headers, Some(&partial), None).unwrap();
+        assert_eq!(partial_ctx.actor_id.as_deref(), Some("artist-1"));
+        assert_eq!(partial_ctx.agent_id, None);
+        assert_eq!(partial_ctx.source_ip, None);
+
+        let mut header_fallback = HeaderMap::new();
+        header_fallback.insert("x-dcc-mcp-client-platform", "studio-tool".parse().unwrap());
+        let malformed = json!({
+            "caller_context": {
+                "actor_id": { "nested": "not a string" }
+            }
+        });
+        let ctx =
+            AgentContext::from_request_parts(&header_fallback, Some(&malformed), None).unwrap();
+        assert_eq!(ctx.actor_id, None);
+        assert_eq!(ctx.client_platform.as_deref(), Some("studio-tool"));
+    }
+
+    #[test]
+    fn caller_attribution_bounds_fields_and_ignores_client_network_source() {
+        let headers = HeaderMap::new();
+        let long_actor = "artist".repeat(MAX_AGENT_CONTEXT_STRING_BYTES);
+        let body = json!({
+            "caller_context": {
+                "actorId": long_actor,
+                "actorName": "Morgan Artist",
+                "agentId": "agent-camel",
+                "agentVersion": "1.2.3",
+                "agentModel": "gpt-test",
+                "clientPlatform": "cursor",
+                "clientOs": "macos",
+                "clientHost": "workstation-42",
+                "authSubject": "oauth:user-7",
+                "sourceIp": "203.0.113.99",
+                "forwardedFor": ["198.51.100.10"]
+            }
+        });
+
+        let ctx = AgentContext::from_request_parts(&headers, Some(&body), None).unwrap();
+
+        assert!(
+            ctx.actor_id.as_ref().unwrap().len() <= MAX_AGENT_CONTEXT_STRING_BYTES,
+            "actor_id should be bounded"
+        );
+        assert_eq!(ctx.actor_name.as_deref(), Some("Morgan Artist"));
+        assert_eq!(ctx.agent_id.as_deref(), Some("agent-camel"));
+        assert_eq!(ctx.agent_version.as_deref(), Some("1.2.3"));
+        assert_eq!(ctx.model.as_deref(), Some("gpt-test"));
+        assert_eq!(ctx.client_platform.as_deref(), Some("cursor"));
+        assert_eq!(ctx.client_os.as_deref(), Some("macos"));
+        assert_eq!(ctx.client_host.as_deref(), Some("workstation-42"));
+        assert_eq!(ctx.auth_subject.as_deref(), Some("oauth:user-7"));
+        assert_eq!(ctx.source_ip, None, "source_ip must be server-derived");
+        assert!(
+            ctx.forwarded_for.is_empty(),
+            "forwarded_for must be server-derived"
+        );
+    }
+
+    #[test]
+    fn caller_attribution_network_source_can_be_added_by_server_boundary() {
+        let ctx = AgentContext {
+            actor_id: Some("user-7".to_string()),
+            ..AgentContext::default()
+        }
+        .with_server_network_source(
+            Some("192.0.2.44".to_string()),
+            vec!["198.51.100.2".to_string(), "203.0.113.3".to_string()],
+        );
+
+        assert_eq!(ctx.source_ip.as_deref(), Some("192.0.2.44"));
+        assert_eq!(
+            ctx.forwarded_for,
+            vec!["198.51.100.2".to_string(), "203.0.113.3".to_string()]
+        );
     }
 
     #[test]
