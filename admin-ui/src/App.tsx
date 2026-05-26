@@ -27,6 +27,10 @@ type Translator = ReturnType<typeof createTranslator>;
 type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'workflows' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'traffic' | 'stats' | 'governance' | 'logs' | 'skill-paths';
 
 type SignalTone = 'ok' | 'warn' | 'err';
+type LatencySeverity = 'slow' | 'critical';
+
+const SLOW_LATENCY_MS = 1_000;
+const CRITICAL_LATENCY_MS = 5_000;
 
 type DebugSignal = {
   key: string;
@@ -1834,7 +1838,50 @@ function latencyTone(value: number | null | undefined): 'ok' | 'warn' | undefine
   if (value == null) {
     return undefined;
   }
-  return value > 5_000 ? 'warn' : 'ok';
+  return latencySeverity(value) ? 'warn' : 'ok';
+}
+
+function latencySeverity(value: number | null | undefined): LatencySeverity | null {
+  if (value == null) {
+    return null;
+  }
+  if (value >= CRITICAL_LATENCY_MS) {
+    return 'critical';
+  }
+  if (value >= SLOW_LATENCY_MS) {
+    return 'slow';
+  }
+  return null;
+}
+
+function isSlowLatency(value: number | null | undefined): boolean {
+  return latencySeverity(value) != null;
+}
+
+function latencyClass(value: number | null | undefined): string {
+  const severity = latencySeverity(value);
+  return severity ? `latency-${severity}` : '';
+}
+
+function latencyBadgeKey(severity: LatencySeverity): MessageKey {
+  return severity === 'critical' ? 'common.badge.tail' : 'common.badge.slow';
+}
+
+function LatencyBadge({ value, t }: { value: number | null | undefined; t: Translator }) {
+  const severity = latencySeverity(value);
+  if (!severity) {
+    return null;
+  }
+  return <span className={`badge badge-latency badge-latency-${severity}`}>{t(latencyBadgeKey(severity))}</span>;
+}
+
+function LatencyValue({ value, t }: { value: number | null | undefined; t: Translator }) {
+  return (
+    <span className="latency-value">
+      <span>{formatDurationMs(value)}</span>
+      <LatencyBadge value={value} t={t} />
+    </span>
+  );
 }
 
 function errorRateTone(stats: StatsPayload | null): 'ok' | 'warn' | undefined {
@@ -1846,6 +1893,10 @@ function errorRateTone(stats: StatsPayload | null): 'ok' | 'warn' | undefined {
 
 function traceLatency(trace: TraceRow): number {
   return trace.total_ms ?? -1;
+}
+
+function spanDurationMs(span: TraceSpan): number {
+  return Math.round((span.duration_ns ?? 0) / 1_000_000);
 }
 
 function agentLabel(row: { agent_name?: string | null; agent_id?: string | null; agent_model?: string | null }): string {
@@ -2510,7 +2561,7 @@ function TraceDetailPanel({
         <div className="trace-summary-grid">
           <span><strong>{t('traces.label.tool')}</strong>{trace.tool_slug ?? trace.method}</span>
           <span><strong>{t('traces.label.status')}</strong>{trace.ok ? 'ok' : 'err'}</span>
-          <span><strong>{t('traces.label.latency')}</strong>{formatDurationMs(trace.total_ms)}</span>
+          <span><strong>{t('traces.label.latency')}</strong><LatencyValue value={trace.total_ms} t={t} /></span>
           <span><strong>{t('traces.label.inputTokens')}</strong>{tokens.inputTokens == null ? '-' : formatTokenCount(tokens.inputTokens)}</span>
           <span><strong>{t('traces.label.outputTokens')}</strong>{tokens.outputTokens == null ? '-' : formatTokenCount(tokens.outputTokens)}</span>
           <span><strong>{t('traces.label.totalTokens')}</strong>{tokens.totalTokens == null ? '-' : formatTokenCount(tokens.totalTokens)}</span>
@@ -2567,10 +2618,10 @@ function TraceDetailPanel({
         </div>
         <div className="span-waterfall">
           {spans.length === 0 ? <p className="empty">{t('traces.detail.noSpans')}</p> : spans.map((span, index) => (
-            <div className={`span-row ${span.ok ? 'ok' : 'err'}`} key={`${span.name}-${index}`}>
+            <div className={`span-row ${span.ok ? 'ok' : 'err'} ${latencyClass(spanDurationMs(span))}`} key={`${span.name}-${index}`}>
               <div className="span-row-label">
                 <strong>{span.name}</strong>
-                <span>{formatDurationMs(Math.round((span.duration_ns ?? 0) / 1_000_000))}</span>
+                <LatencyValue value={spanDurationMs(span)} t={t} />
               </div>
               <div className="span-track">
                 <div className="span-fill" style={{ width: `${Math.max(2, ((span.duration_ns ?? 0) / maxNs) * 100)}%` }} />
@@ -2784,6 +2835,7 @@ function App() {
   const [traceDetailPayload, setTraceDetailPayload] = useState<TraceDetailPayload | null>(null);
   const [trafficDetail, setTrafficDetail] = useState<string>('Select a traffic frame row for detail.');
   const [callDetail, setCallDetail] = useState<string>('Select a call row for trace detail.');
+  const [slowOnly, setSlowOnly] = useState(false);
   const [copiedNotice, setCopiedNotice] = useState<string>('');
   const [updatedAt, setUpdatedAt] = useState<Record<Panel, string>>(() => ({
     setup: t('common.status.loading'),
@@ -2899,10 +2951,13 @@ function App() {
 
   const filteredCalls = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
+    const rows = slowOnly
+      ? [...calls].filter((call) => isSlowLatency(call.duration_ms)).sort((a, b) => (b.duration_ms ?? 0) - (a.duration_ms ?? 0))
+      : calls;
     if (!q) {
-      return calls;
+      return rows;
     }
-    return calls.filter((c) =>
+    return rows.filter((c) =>
       matchesListFilter(
         q,
         haystack(
@@ -2932,14 +2987,17 @@ function App() {
         ),
       ),
     );
-  }, [calls, listSearch]);
+  }, [calls, listSearch, slowOnly]);
 
   const filteredTraces = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
+    const rows = slowOnly
+      ? [...traces].filter((trace) => isSlowLatency(trace.total_ms)).sort((a, b) => traceLatency(b) - traceLatency(a))
+      : traces;
     if (!q) {
-      return traces;
+      return rows;
     }
-    return traces.filter((t) =>
+    return rows.filter((t) =>
       matchesListFilter(
         q,
         haystack(
@@ -2971,7 +3029,7 @@ function App() {
         ),
       ),
     );
-  }, [traces, listSearch]);
+  }, [traces, listSearch, slowOnly]);
 
   const trafficFrames = useMemo(() => traffic?.frames ?? [], [traffic]);
   const filteredTrafficFrames = useMemo(() => {
@@ -3177,6 +3235,24 @@ function App() {
     [traces],
   );
 
+  const traceByRequest = useMemo(() => {
+    const rows = new Map<string, TraceRow>();
+    for (const trace of traces) {
+      rows.set(trace.request_id, trace);
+    }
+    return rows;
+  }, [traces]);
+
+  const slowCallCount = useMemo(
+    () => calls.filter((call) => isSlowLatency(call.duration_ms)).length,
+    [calls],
+  );
+
+  const slowTraceCount = useMemo(
+    () => traces.filter((trace) => isSlowLatency(trace.total_ms)).length,
+    [traces],
+  );
+
   const tokenHeavyTraces = useMemo(
     () => [...traces]
       .filter((trace) => totalTraceTokens(trace) != null)
@@ -3348,8 +3424,10 @@ function App() {
     const ok = traces.filter((trace) => isOkStatus(trace.status)).length;
     const failed = traces.filter((trace) => isErrStatus(trace.status)).length;
     const p95 = stats?.latency_ms?.p95_ms ?? stats?.p95_ms ?? null;
+    const p99 = stats?.latency_ms?.p99_ms ?? null;
     const agentContext = traces.filter((trace) => agentLabel(trace) !== '-').length;
     const spans = traces.reduce((sum, trace) => sum + (trace.span_count ?? 0), 0);
+    const slow = traces.filter((trace) => isSlowLatency(trace.total_ms)).length;
     const totalTokens = traces.reduce((sum, trace) => {
       const next = totalTraceTokens(trace);
       return sum + (next ?? 0);
@@ -3361,6 +3439,8 @@ function App() {
       ok,
       failed,
       p95,
+      p99,
+      slow,
       agentContext,
       spans,
       totalTokens,
@@ -3401,9 +3481,25 @@ function App() {
     estimator: stats?.payload_token_estimator ?? health?.response_format?.token_estimator ?? '-',
   }), [health, stats, statsSummary]);
 
+  const slowLatencyDetail = useMemo(() => {
+    const slowest = slowTraces[0];
+    if (!slowest) {
+      return t('stats.detail.slowTraces', { count: slowTraceCount });
+    }
+    const span = slowest.slowest_span_name
+      ? t('traces.detail.slowestSpan', { name: slowest.slowest_span_name, duration: formatDurationMs(slowest.slowest_span_ms) })
+      : t('stats.detail.noSlowestSpan');
+    return t('stats.detail.slowestTrace', {
+      id: compactId(slowest.request_id),
+      latency: formatDurationMs(slowest.total_ms),
+      span,
+    });
+  }, [slowTraceCount, slowTraces, t]);
+
   const debugSignals = useMemo<DebugSignal[]>(() => {
     const signals: DebugSignal[] = [];
     const p95Latency = stats?.latency_ms?.p95_ms ?? stats?.p95_ms ?? null;
+    const p99Latency = stats?.latency_ms?.p99_ms ?? null;
     const eventWarnings = problemLogs.length + problemActivity.length;
     if (health && !isOkStatus(health.status)) {
       signals.push({
@@ -3458,15 +3554,19 @@ function App() {
         panel: 'workflows',
       });
     }
-    if (p95Latency != null && p95Latency > 5_000) {
+    if (isSlowLatency(p95Latency) || isSlowLatency(p99Latency)) {
+      const slowest = slowTraces[0];
+      const slowestSpan = slowest?.slowest_span_name
+        ? ` · ${t('traces.detail.slowestSpan', { name: slowest.slowest_span_name, duration: formatDurationMs(slowest.slowest_span_ms) })}`
+        : '';
       signals.push({
         key: 'latency',
         label: t('debug.signal.latency'),
-        value: `${formatDurationMs(p95Latency)} p95`,
-        detail: slowTraces[0] ? `${compactId(slowTraces[0].request_id)} · ${slowTraces[0].tool}` : t('debug.detail.retainedGatewayCalls'),
+        value: `${formatDurationMs(p95Latency)} p95 / ${formatDurationMs(p99Latency)} p99`,
+        detail: slowest ? `${compactId(slowest.request_id)} · ${slowest.tool}${slowestSpan}` : t('debug.detail.retainedGatewayCalls'),
         tone: 'warn',
         panel: 'traces',
-        traceId: slowTraces[0]?.request_id,
+        traceId: slowest?.request_id,
       });
     }
     if (eventWarnings > 0) {
@@ -4019,7 +4119,7 @@ function App() {
     if (panel === 'calls') void fetchCalls();
     if (panel === 'traces') void fetchTraces();
     if (panel === 'traffic') void fetchTraffic();
-    if (panel === 'stats') void fetchStats();
+    if (panel === 'stats') void Promise.allSettled([fetchStats(), fetchCalls(), fetchTraces()]);
     if (panel === 'governance') void fetchGovernance();
     if (panel === 'skill-paths') void fetchSkillInventory();
     if (panel === 'logs') void fetchLogs();
@@ -4030,6 +4130,13 @@ function App() {
     const timer = window.setInterval(() => fetchPanel(activePanel), 5000);
     return () => window.clearInterval(timer);
   }, [activePanel, fetchPanel]);
+
+  const hasLatencyFilter = activePanel === 'calls' || activePanel === 'traces';
+  const showListSearchMeta = Boolean(listSearch.trim()) || (hasLatencyFilter && slowOnly);
+  const latencyThresholdDetail = t('common.detail.slowThreshold', {
+    slow: formatDurationMs(SLOW_LATENCY_MS),
+    tail: formatDurationMs(CRITICAL_LATENCY_MS),
+  });
 
   return (
     <div className="app-shell">
@@ -4093,7 +4200,18 @@ function App() {
               onChange={(e) => setListSearch(e.target.value)}
               aria-label={t('search.input.ariaLabel')}
             />
-            {listSearch.trim() ? (
+            {hasLatencyFilter ? (
+              <button
+                className={`filter-chip ${slowOnly ? 'active' : ''}`}
+                type="button"
+                aria-pressed={slowOnly}
+                title={latencyThresholdDetail}
+                onClick={() => setSlowOnly((value) => !value)}
+              >
+                {slowOnly ? t('common.filter.allLatency') : t('common.filter.slowOnly')}
+              </button>
+            ) : null}
+            {showListSearchMeta ? (
               <span className="list-search-meta">
                 {activePanel === 'activity' ? `${filteredActivity.length} / ${activity.length}` : ''}
                 {activePanel === 'instances' ? `${filteredInstanceRows.length} / ${instanceRows.length}` : ''}
@@ -4260,8 +4378,10 @@ function App() {
                 <MiniSparkline buckets={stats?.hourly_distribution ?? []} t={t} />
                 <div className="debug-metrics">
                   <span>{stats?.total_calls ?? 0} calls</span>
-                  <span>{stats?.latency_ms?.p50_ms ?? stats?.p50_ms ?? '-'} ms p50</span>
-                  <span>{stats?.latency_ms?.p99_ms ?? '-'} ms p99</span>
+                  <span>{formatDurationMs(stats?.latency_ms?.p50_ms ?? stats?.p50_ms)} p50</span>
+                  <span>{formatDurationMs(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} p95</span>
+                  <span>{formatDurationMs(stats?.latency_ms?.p99_ms)} p99</span>
+                  <span>{slowLatencyDetail}</span>
                   <span>{formatTokenCount(tokenPressure.total)} payload tokens</span>
                 </div>
               </div>
@@ -4307,10 +4427,13 @@ function App() {
                   <button className="linkish" type="button" onClick={() => goToPanel('traces')}>{t('debug.action.openTraces')}</button>
                 </div>
                 {slowTraces.length === 0 ? <p className="empty">{t('debug.empty.latency')}</p> : slowTraces.map((trace) => (
-                  <button key={trace.request_id} className="debug-row" type="button" onClick={() => goToPanel('traces', { traceId: trace.request_id })}>
-                    <span>{trace.total_ms ?? '-'} ms</span>
+                  <button key={trace.request_id} className={`debug-row ${latencyClass(trace.total_ms)}`} type="button" onClick={() => goToPanel('traces', { traceId: trace.request_id })}>
+                    <LatencyValue value={trace.total_ms} t={t} />
                     <span>{compactId(trace.request_id)}</span>
-                    <span title={trace.tool}>{trace.tool}</span>
+                    <span title={trace.tool}>
+                      {trace.tool}
+                      {trace.slowest_span_name ? ` - ${t('traces.detail.slowestSpan', { name: trace.slowest_span_name, duration: formatDurationMs(trace.slowest_span_ms) })}` : ''}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -4710,41 +4833,50 @@ function App() {
                   <table>
                     <thead><tr><th>{t('common.table.time')}</th><th>{t('common.table.request')}</th><th>{t('common.table.tool')}</th><th>{t('common.table.appType')}</th><th>{t('common.table.instance')}</th><th>{t('common.table.actor')}</th><th>{t('calls.table.agent')}</th><th>{t('common.table.platform')}</th><th>{t('common.table.sourceIp')}</th><th>{t('calls.table.transport')}</th><th>{t('calls.table.format')}</th><th>{t('calls.table.returned')}</th><th>{t('calls.table.saved')}</th><th>{t('common.table.status')}</th><th>{t('calls.table.error')}</th><th>{t('common.table.ms')}</th><th>{t('calls.table.detail')}</th></tr></thead>
                     <tbody>
-                      {groupCalls.map((call) => (
-                        <tr key={call.request_id}>
-                          <td><TimeValue value={call.timestamp} /></td>
-                          <td>
-                            <button className="refresh-btn" type="button" title={call.request_id} onClick={() => goToPanel('traces', { traceId: call.request_id })}>
-                              {call.request_id.slice(0, 12)}
-                            </button>
-                          </td>
-                          <td>{call.tool}</td>
-                          <td>{call.dcc_type}</td>
-                          <td>{compactInstanceId(call.instance_id)}</td>
-                          <td title={call.actor_id ?? call.auth_subject ?? ''}>
-                            <span className="trust-cell">{actorLabel(call)}{trustChip(firstTrust(call, ['actor_name', 'actor_id', 'actor_email_hash', 'auth_subject']))}</span>
-                          </td>
-                          <td title={call.agent_id ?? call.agent_name ?? ''}>{agentLabel(call)}</td>
-                          <td title={[call.client_platform, call.client_os, call.client_host].filter(Boolean).join(' / ')}>
-                            <span className="trust-cell">{platformLabel(call)}{trustChip(firstTrust(call, ['client_platform', 'client_os', 'client_host']))}</span>
-                          </td>
-                          <td><span className="trust-cell">{sourceIpLabel(call)}{trustChip(trustFor(call, 'source_ip'))}</span></td>
-                          <td>{call.transport ?? '-'}</td>
-                          <td>{responseFormatLabel(call)}</td>
-                          <td>{returnedTokensLabel(call)}</td>
-                          <td>{savedTokensLabel(call)}</td>
-                          <td><StatusBadge value={call.status} /></td>
-                          <td title={call.error ?? ''}>{call.error ? call.error.slice(0, 80) : '-'}</td>
-                          <td>{call.duration_ms ?? '-'}</td>
-                          <td>
-                            <div className="table-actions">
-                              <button className="refresh-btn" type="button" onClick={() => void fetchTraceInto(call.request_id, 'call')}>{t('calls.action.expand')}</button>
-                              <button className="refresh-btn" type="button" onClick={() => void copyText(traceLinks(call.request_id, call.links).admin_trace_url ?? '', 'trace URL')}>{t('traces.action.copyUrl')}</button>
-                              <button className="refresh-btn" type="button" onClick={() => void copyIssueReport(call.request_id)}>{t('traces.action.copyIssueJson')}</button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                      {groupCalls.map((call) => {
+                        const trace = traceByRequest.get(call.request_id);
+                        const slowestSpan = trace?.slowest_span_name
+                          ? t('traces.detail.slowestSpan', { name: trace.slowest_span_name, duration: formatDurationMs(trace.slowest_span_ms) })
+                          : '';
+                        return (
+                          <tr key={call.request_id} className={`latency-row ${latencyClass(call.duration_ms)}`}>
+                            <td><TimeValue value={call.timestamp} /></td>
+                            <td>
+                              <button className="refresh-btn" type="button" title={call.request_id} onClick={() => goToPanel('traces', { traceId: call.request_id })}>
+                                {call.request_id.slice(0, 12)}
+                              </button>
+                            </td>
+                            <td>{call.tool}</td>
+                            <td>{call.dcc_type}</td>
+                            <td>{compactInstanceId(call.instance_id)}</td>
+                            <td title={call.actor_id ?? call.auth_subject ?? ''}>
+                              <span className="trust-cell">{actorLabel(call)}{trustChip(firstTrust(call, ['actor_name', 'actor_id', 'actor_email_hash', 'auth_subject']))}</span>
+                            </td>
+                            <td title={call.agent_id ?? call.agent_name ?? ''}>{agentLabel(call)}</td>
+                            <td title={[call.client_platform, call.client_os, call.client_host].filter(Boolean).join(' / ')}>
+                              <span className="trust-cell">{platformLabel(call)}{trustChip(firstTrust(call, ['client_platform', 'client_os', 'client_host']))}</span>
+                            </td>
+                            <td><span className="trust-cell">{sourceIpLabel(call)}{trustChip(trustFor(call, 'source_ip'))}</span></td>
+                            <td>{call.transport ?? '-'}</td>
+                            <td>{responseFormatLabel(call)}</td>
+                            <td>{returnedTokensLabel(call)}</td>
+                            <td>{savedTokensLabel(call)}</td>
+                            <td><StatusBadge value={call.status} /></td>
+                            <td title={call.error ?? ''}>{call.error ? call.error.slice(0, 80) : '-'}</td>
+                            <td className="latency-cell">
+                              <LatencyValue value={call.duration_ms} t={t} />
+                              {slowestSpan ? <div className="latency-subtext">{slowestSpan}</div> : null}
+                            </td>
+                            <td>
+                              <div className="table-actions">
+                                <button className="refresh-btn" type="button" onClick={() => void fetchTraceInto(call.request_id, 'call')}>{t('calls.action.expand')}</button>
+                                <button className="refresh-btn" type="button" onClick={() => void copyText(traceLinks(call.request_id, call.links).admin_trace_url ?? '', 'trace URL')}>{t('traces.action.copyUrl')}</button>
+                                <button className="refresh-btn" type="button" onClick={() => void copyIssueReport(call.request_id)}>{t('traces.action.copyIssueJson')}</button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -4766,6 +4898,8 @@ function App() {
               <MetricTile tone="ok" label="OK" value={traceSummary.ok} />
               <MetricTile tone={traceSummary.failed > 0 ? 'err' : undefined} label={t('workflows.metric.failed')} value={traceSummary.failed} />
               <MetricTile tone={latencyTone(traceSummary.p95)} label={t('debug.metric.latency')} value={formatDurationMs(traceSummary.p95)} />
+              <MetricTile tone={latencyTone(traceSummary.p99)} label={t('stats.metric.p99Latency')} value={formatDurationMs(traceSummary.p99)} detail={latencyThresholdDetail} />
+              <MetricTile tone={traceSummary.slow > 0 ? 'warn' : undefined} label={t('stats.metric.slowCalls')} value={traceSummary.slow} detail={slowLatencyDetail} />
               <MetricTile label={t('traces.metric.totalTokens')} value={formatTokenCount(traceSummary.totalTokens)} detail={t('traces.detail.inputOutput', { input: formatTokenCount(traceSummary.totalInputTokens), output: formatTokenCount(traceSummary.totalOutputTokens) })} />
               <MetricTile label={t('traces.metric.agentContext')} value={traceSummary.agentContext} />
               <MetricTile label={t('traces.metric.spans')} value={traceSummary.spans} />
@@ -4787,7 +4921,7 @@ function App() {
                       {groupTraces.map((trace) => (
                         <button
                           key={trace.request_id}
-                          className={`trace-item ${isErrStatus(trace.status) ? 'err' : isWarnStatus(trace.status) ? 'warn' : isOkStatus(trace.status) ? 'ok' : ''}`}
+                          className={`trace-item ${isErrStatus(trace.status) ? 'err' : isWarnStatus(trace.status) ? 'warn' : isOkStatus(trace.status) ? 'ok' : ''} ${latencyClass(trace.total_ms)}`}
                           type="button"
                           onClick={() => goToPanel('traces', { traceId: trace.request_id, replace: true })}
                         >
@@ -4805,7 +4939,7 @@ function App() {
                           </span>
                           <span className="trace-item-side">
                             <StatusBadge value={trace.status} />
-                            <span>{formatDurationMs(trace.total_ms)}</span>
+                            <LatencyValue value={trace.total_ms} t={t} />
                             <span>{t('traces.detail.spanCount', { count: trace.span_count ?? 0 })}</span>
                             <span>{t('traces.detail.tokenCount', { count: formatTokenCount(totalTraceTokens(trace)) })}</span>
                           </span>
@@ -4974,6 +5108,8 @@ function App() {
               />
               <MetricTile tone={latencyTone(stats?.latency_ms?.p50_ms ?? stats?.p50_ms)} label={t('stats.metric.p50Latency')} value={formatDurationMs(stats?.latency_ms?.p50_ms ?? stats?.p50_ms)} />
               <MetricTile tone={latencyTone(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} label={t('stats.metric.p95Latency')} value={formatDurationMs(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} />
+              <MetricTile tone={latencyTone(stats?.latency_ms?.p99_ms)} label={t('stats.metric.p99Latency')} value={formatDurationMs(stats?.latency_ms?.p99_ms)} detail={latencyThresholdDetail} />
+              <MetricTile tone={slowCallCount > 0 ? 'warn' : undefined} label={t('stats.metric.slowCalls')} value={slowCallCount} detail={slowLatencyDetail} />
               <MetricTile
                 label={t('stats.metric.responseTokensReturned')}
                 value={formatTokenCount(stats?.token_usage?.total_returned_tokens)}
