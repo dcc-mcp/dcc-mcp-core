@@ -6,7 +6,7 @@ mod thread_route;
 mod wire;
 
 pub use thread_route::dispatch_action_with_thread_routing;
-pub(crate) use wire::{decode_dispatch_output, use_main_thread_route};
+pub(crate) use wire::{decode_dispatch_output, encode_dispatch_wire, use_main_thread_route};
 
 use serde_json::Value;
 
@@ -250,13 +250,17 @@ mod tests {
     use super::*;
 
     use std::sync::Arc;
+    use std::time::Duration;
 
     use dcc_mcp_actions::ToolDispatcher;
     use dcc_mcp_actions::registry::{ToolMeta, ToolRegistry};
+    use dcc_mcp_job::job::JobStatus;
+    use dcc_mcp_models::{ExecutionMode, ThreadAffinity};
     use dcc_mcp_skill_rest::StaticReadiness;
     use dcc_mcp_skills::SkillCatalog;
     use serde_json::json;
 
+    use crate::executor::InProcessExecutor;
     use crate::mcp_tool_list_builder::assemble_full_tool_list;
 
     fn skill_tool_meta(name: &str, skill_name: &str) -> ToolMeta {
@@ -338,5 +342,74 @@ mod tests {
             result.structured_content,
             Some(json!({"skill": "modeling"}))
         );
+    }
+
+    #[tokio::test]
+    async fn async_main_thread_job_decodes_deferred_dispatch_wire() {
+        let registry = ToolRegistry::new();
+        let dispatcher = Arc::new(ToolDispatcher::new(registry.clone()));
+
+        registry.register_action(ToolMeta {
+            name: "main_thread_job".to_string(),
+            description: "main-thread async job".to_string(),
+            dcc: "maya".to_string(),
+            input_schema: json!({"type": "object"}),
+            execution: ExecutionMode::Sync,
+            timeout_hint_secs: Some(5),
+            thread_affinity: ThreadAffinity::Main,
+            ..Default::default()
+        });
+        dispatcher.register_handler("main_thread_job", |_| {
+            Ok(json!({"ok": true, "lane": "main"}))
+        });
+
+        let (executor, executor_task) = InProcessExecutor.into_handle();
+        let registry = Arc::new(registry);
+        let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+            Arc::clone(&registry),
+            Arc::clone(&dispatcher),
+        ));
+        let state = ServerState::builder(registry, dispatcher, catalog)
+            .with_executor(Some(executor))
+            .build();
+
+        let queued = dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            "main_thread_job",
+            Some(json!({})),
+            None,
+        )
+        .await
+        .expect("dispatch should queue async job");
+        let job_id = queued
+            .structured_content
+            .as_ref()
+            .and_then(|value| value.get("job_id"))
+            .and_then(Value::as_str)
+            .expect("pending envelope includes job_id")
+            .to_string();
+
+        let mut final_job = None;
+        for _ in 0..50 {
+            let handle = state.jobs.get(&job_id).expect("job exists");
+            let job = handle.read().clone();
+            if job.status.is_terminal() {
+                final_job = Some(job);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        executor_task.abort();
+
+        let job = final_job.expect("job reached terminal state");
+        assert_eq!(
+            job.status,
+            JobStatus::Completed,
+            "async main-thread job failed: {:?}",
+            job.error
+        );
+        assert_eq!(job.result, Some(json!({"ok": true, "lane": "main"})));
     }
 }
