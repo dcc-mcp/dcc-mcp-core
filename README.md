@@ -38,6 +38,44 @@ Use it when you want agents to operate production DCC sessions without flooding 
 | Debug live workstation state | Admin UI, viewport diagnostics, audit logs, traces, metrics |
 | Survive production constraints | Main-thread dispatch, async jobs, sidecar/server binaries, workflow and artefact primitives |
 
+## Why This Matters
+
+Generic MCP servers and CLI wrappers expose commands. `dcc-mcp-core` exposes a
+live DCC control plane built for production sessions:
+
+- Agents can reason from active scenes, documents, selections, viewport captures,
+  output streams, and host-published resources instead of blind shell output.
+- Progressive discovery keeps context small: search compact capability records
+  first, inspect only the selected schema, then load or call the chosen tool.
+- One gateway can route across many DCC instances, versions, scenes, and custom
+  studio hosts without merging every backend action into one huge `tools/list`.
+- Main-thread dispatch, readiness probes, async jobs, cancellation, persistence,
+  and artefact hand-off match the constraints of embedded desktop hosts.
+- Skills are packages: `SKILL.md`, `tools.yaml`, scripts, reference docs, and
+  Rez/context bundles can travel through normal studio distribution workflows.
+- Audit logs, security annotations, diagnostics, telemetry, and Admin UI panels
+  give operators enough evidence to trust what agents did.
+
+## Recommended Agent Workflow
+
+1. Discover live context only when needed: gateway clients can read
+   `gateway://instances`, while direct per-DCC clients can use adapter resources
+   for scene, document, or viewport context.
+2. Search compactly: use gateway MCP `search` or REST `POST /v1/search` for
+   multi-DCC routing; use direct per-DCC `search_tools` for active tools and
+   `search_skills` for unloaded skill candidates.
+3. Inspect before loading or calling: use gateway `describe` /
+   `POST /v1/describe` for one `tool_slug`, or direct per-DCC
+   `get_skill_info(skill_name=...)` for the selected skill's schemas.
+4. Load only what the task needs with `load_skill`, then activate any collapsed
+   tool group if the chosen hit says so.
+5. Call the typed tool and inspect structured results, job updates, resources,
+   prompts, diagnostics, and follow-up hints.
+
+`tools/list` is MCP-compatible and paginated. Treat it as a transport listing,
+not as a complete search index; never assume the first page contains every
+loaded or discoverable tool.
+
 ## Quick Start
 
 ### Install the standalone CLI
@@ -89,7 +127,12 @@ handle = server.start()
 print(handle.mcp_url())   # "http://127.0.0.1:8765/mcp"
 ```
 
-Agents then use `search_skills` -> `load_skill` on a per-DCC server, or MCP `search` -> `describe` through the gateway before executing via REST `POST /v1/call`.
+Agents then search compactly before they load or call tools. On a direct
+per-DCC server, use `search_tools` for active tools, `search_skills` for
+unloaded skill candidates, `get_skill_info` for schema inspection, then
+`load_skill` and `tools/call`. Through the gateway, use MCP `search` ->
+`describe` -> `load_skill` if needed -> `call`, or the REST twin
+`POST /v1/search` -> `/v1/describe` -> `/v1/call`.
 
 ---
 
@@ -247,7 +290,11 @@ Every release attaches raw `dcc-mcp-cli` and `dcc-mcp-server` binaries for Linux
 
 ### Serve a DCC over MCP — Skills-First (recommended)
 
-`create_skill_server` wires up the full Skills-First entry point: `tools/list` returns a small set of discovery/lifecycle tools plus one stub per unloaded skill. Agents call `search_skills` → `load_skill` to activate the tools they need, keeping the context window small.
+`create_skill_server` wires up the full Skills-First entry point: `tools/list`
+returns a paginated transport list with discovery/lifecycle tools plus one stub
+per unloaded skill. Agents should not scrape only page one. Use `search_tools`
+or `search_skills` to find candidates, `get_skill_info` to inspect selected
+schemas, then `load_skill` to activate only the tools the task needs.
 
 ```python
 from dcc_mcp_core import create_skill_server, McpHttpConfig

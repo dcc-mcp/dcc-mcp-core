@@ -202,7 +202,7 @@ Every `McpHttpServer` emits a fixed set of built-in tools in `tools/list` in add
 | `unload_skill` | Unloads a skill; emits `tools/list_changed`. Idempotent. | `load_skill(...)` again if needed |
 | `activate_tool_group` | Expands a `__group__<name>` stub into its member tools. | Re-call `tools/list`, then the tool |
 | `deactivate_tool_group` | Collapses a tool group back to a stub to shrink the token footprint. | `activate_tool_group(...)` |
-| `search_tools` | Full-text search over **already-registered** tools. If nothing matches, try `search_skills`. | Call the matched tool |
+| `search_tools` | Full-text search over active tools plus unloaded skill candidates, returned without full schemas. | `get_skill_info(...)`, `load_skill(...)`, or call the matched active tool |
 | `list_roots` | Returns the filesystem roots the client advertised via `roots/list`. Rarely needed. | — |
 
 ### Lazy-actions fast-path (opt-in)
@@ -585,7 +585,7 @@ you control how much of the schema surface is pushed into the agent's context.
 | Default (eager) | All tool definitions + schemas | High | ≤ 20 tools |
 | `lazy_actions = True` | 3 meta-tools only | Very low | Large static catalogs |
 | Skill stubs (default) | `__skill__<name>` stubs for unloaded skills | Low | Dynamic loading workflows |
-| `search` (gateway) / `search_tools` (direct server) | Compact search results; fetch schema with gateway `describe` or direct-server `describe_tool` | Low | Large catalogs and multi-DCC gateways |
+| `search` (gateway) / `search_tools` (direct server) | Compact search results; fetch schema with gateway `describe` or direct-server `get_skill_info` | Low | Large catalogs and multi-DCC gateways |
 
 ### 1. Default: Skill Stubs
 
@@ -594,7 +594,10 @@ Without any config, `tools/list` emits:
 - A `__skill__<name>` stub for every **unloaded** skill (name + 1-line description, no input schemas)
 - Full tool definitions for every **loaded** skill
 
-Agent workflow: `search_skills(query)` → `load_skill(name)` → re-call `tools/list`.
+Agent workflow: `search_tools(query)` or `search_skills(query)` →
+`get_skill_info(skill_name=...)` for the selected skill → `load_skill(name)` →
+call the typed tool. If a client needs to inspect `tools/list`, it must follow
+every `nextCursor`; the first page is not a complete index.
 
 ```python
 from dcc_mcp_core import create_skill_server, McpHttpConfig
@@ -637,8 +640,13 @@ cfg.lazy_tool_schemas = True  # omit inputSchema from tools/list (planned)
 
 ### 4. `search_tools` and gateway dynamic search
 
-Direct per-DCC servers expose `search_tools` for enabled tools, while the
-gateway advertises the canonical MCP workflow `search` → `describe` →
+Direct per-DCC servers expose `search_tools` for active tools and unloaded skill
+candidates. Use `get_skill_info(skill_name=...)` to inspect the selected
+skill's full declared tool schemas before `load_skill`, then call the concrete
+tool by name. `tools/list` remains MCP-compatible and paginated, but production
+agents should not treat its first page as a complete discovery index.
+
+The gateway advertises the canonical MCP workflow `search` → `describe` →
 `load_skill` (when needed) → `call`. REST `/v1/search`, `/v1/describe`,
 `/v1/load_skill`, `/v1/call`, and `/v1/call_batch` remain the pure HTTP twin.
 Gateway search returns compact records only; `describe` fetches one full schema
@@ -646,10 +654,6 @@ on demand, keeping `tools/list` bounded even when many backends are live. The
 gateway REST workflow returns compact TOON by default; clients that require
 legacy JSON should send `Accept: application/json` or body
 `response_format: "json"`.
-
-For unloaded skills, keep using the Skills-First workflow:
-MCP `search(kind="skill", query=...)` or REST `/v1/search`, then `load_skill`
-or `/v1/load_skill`, `describe`, and `call`.
 
 ### Token Usage Decision Guide
 
