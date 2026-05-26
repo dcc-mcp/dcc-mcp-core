@@ -97,3 +97,9 @@ Escalate to core when more than one adapter would need the same helper:
 
 Adapter repositories should contain host facts and host API calls. Core should
 own reusable MCP, gateway, catalog, lifecycle, and wire contracts.
+
+Admin issue reports are public-safe by default. They should expose request
+status, DCC type, tool family, timing, sanitized error kind, token accounting,
+redaction status, and relative debug links without raw payload previews or local
+machine details. Full debug bundles remain a core-owned explicit raw export
+(`?mode=raw`) for reviewed local evidence only.
