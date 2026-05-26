@@ -23,6 +23,7 @@ on:
       - ".github/workflows/ci.yml"
       - ".github/workflows/dcc-integration.yml"
       - ".github/workflows/release.yml"
+      - ".github/workflows/rust-matrix-full.yml"
       - ".github/actions/build-wheel/**"
   push:
     branches: [main]
@@ -43,6 +44,7 @@ on:
       - ".github/workflows/ci.yml"
       - ".github/workflows/dcc-integration.yml"
       - ".github/workflows/release.yml"
+      - ".github/workflows/rust-matrix-full.yml"
       - ".github/actions/build-wheel/**"
 
 permissions:
@@ -106,12 +108,24 @@ jobs:
           name: admin-ui-bundle
           path: crates/dcc-mcp-gateway/src/gateway/admin/generated/index.html
 
-  # ── Rust checks (stub drift + clippy + fmt + cargo test) ──
+  # ── Rust checks ────────────────────────────────────────────────────────────
+  # Keep the PR critical path focused:
+  # - Linux runs the full Rust gate: stub generation, fmt, clippy, nextest, docs.
+  # - Windows/macOS run all-target compile smoke checks here; wheel + Python jobs
+  #   still compile, package, install, and exercise those OSes on every PR.
+  # - Full three-OS clippy + nextest runs in rust-matrix-full.yml on schedule or
+  #   manual dispatch for drift detection outside the PR fast path.
   rust-check:
     name: Rust (${{ matrix.os }})
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            rust-validation: full
+          - os: windows-latest
+            rust-validation: smoke
+          - os: macos-latest
+            rust-validation: smoke
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
@@ -179,19 +193,23 @@ jobs:
           echo ""
           echo "::error::Run 'cargo hakari generate' and commit the changes to fix this CI step."
           exit 1
-      # `cargo check` is intentionally omitted here: `cargo clippy --workspace`
-      # and `cargo nextest run --workspace` still compile the workspace, while
-      # stub generation and formatting are OS-independent and only need one pass.
+      # The full Linux path compiles through clippy + nextest. Smoke OSes still
+      # compile every workspace target, but skip duplicate Rust test execution.
       - name: Stub generation
-        if: runner.os == 'Linux'
+        if: matrix.rust-validation == 'full'
         run: vx just stubgen
       - name: Rust format check
-        if: runner.os == 'Linux'
+        if: matrix.rust-validation == 'full'
         run: vx just fmt-check
       - name: Clippy
+        if: matrix.rust-validation == 'full'
         run: vx just clippy
       - name: Rust tests
+        if: matrix.rust-validation == 'full'
         run: vx just test-rust
+      - name: Rust compile smoke
+        if: matrix.rust-validation == 'smoke'
+        run: vx cargo check --workspace --all-targets
 
   # ── Build ABI3 wheel (one per OS, reused by python-test) ──
   # Intentionally does NOT `needs: [rust-check]` — maturin runs its own compile
