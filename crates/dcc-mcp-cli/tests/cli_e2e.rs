@@ -3,6 +3,7 @@ use std::process::Command;
 use axum::Router;
 use axum::extract::{Json, Path};
 use axum::http::{HeaderMap, StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use serde_json::{Value, json};
 use tempfile::{NamedTempFile, TempDir};
@@ -22,6 +23,27 @@ impl Drop for GatewayFixture {
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
+    }
+}
+
+fn json_or_compact_fixture_response(
+    headers: &HeaderMap,
+    payload: Value,
+    compact_body: &'static str,
+) -> Response {
+    let accept = headers
+        .get(header::ACCEPT)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    if accept.contains("application/json") {
+        Json(payload).into_response()
+    } else {
+        (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "application/toon")],
+            compact_body,
+        )
+            .into_response()
     }
 }
 
@@ -165,8 +187,10 @@ fn spawn_gateway_fixture() -> GatewayFixture {
         )
         .route(
             "/v1/search",
-            post(|Json(body): Json<Value>| async move {
-                Json(json!({
+            post(|headers: HeaderMap, Json(body): Json<Value>| async move {
+                json_or_compact_fixture_response(
+                    &headers,
+                    json!({
                     "total": 1,
                     "hits": [{
                         "slug": "maya.abc12345.create_sphere",
@@ -178,7 +202,9 @@ fn spawn_gateway_fixture() -> GatewayFixture {
                         "loaded": true,
                         "scope": "gateway"
                     }]
-                }))
+                    }),
+                    "hits[slug:\"maya.abc12345.create_sphere\"]",
+                )
             }),
         )
         .route(
@@ -192,8 +218,10 @@ fn spawn_gateway_fixture() -> GatewayFixture {
         )
         .route(
             "/v1/load_skill",
-            post(|Json(body): Json<Value>| async move {
-                Json(json!({
+            post(|headers: HeaderMap, Json(body): Json<Value>| async move {
+                json_or_compact_fixture_response(
+                    &headers,
+                    json!({
                     "loaded": true,
                     "skill_name": body["skill_name"],
                     "dcc_type": body.get("dcc_type").cloned().unwrap_or(Value::Null),
@@ -205,7 +233,9 @@ fn spawn_gateway_fixture() -> GatewayFixture {
                         "name": "workflow__run",
                         "inputSchema": {"type": "object"}
                     }]
-                }))
+                    }),
+                    "loaded:true\nskill_name:\"workflow\"",
+                )
             }),
         )
         .route(
@@ -431,6 +461,35 @@ fn list_search_describe_and_call_gateway_rest_surface() {
     assert_eq!(stop["ok"], true);
     assert_eq!(stop["stopping"], true);
     assert_eq!(stop["expected_owner"], "release-smoke-test");
+}
+
+#[test]
+fn search_and_load_skill_decode_json_when_gateway_defaults_to_compact() {
+    let fixture = spawn_gateway_fixture();
+
+    let search = run_json(&[
+        "--base-url",
+        &fixture.base_url,
+        "search",
+        "--query",
+        "sphere",
+        "--dcc-type",
+        "maya",
+    ]);
+    assert_eq!(search["hits"][0]["slug"], "maya.abc12345.create_sphere");
+
+    let loaded = run_json(&[
+        "--base-url",
+        &fixture.base_url,
+        "load-skill",
+        "workflow",
+        "--dcc-type",
+        "maya",
+        "--instance-id",
+        "abc12345",
+    ]);
+    assert_eq!(loaded["loaded"], true);
+    assert_eq!(loaded["registered_tools"][0], "workflow__run");
 }
 
 #[test]
