@@ -26,6 +26,22 @@ pub struct GatewayAdminAuditPersistedJson {
     #[serde(default)]
     pub agent_model: Option<String>,
     #[serde(default)]
+    pub actor_id: Option<String>,
+    #[serde(default)]
+    pub actor_name: Option<String>,
+    #[serde(default)]
+    pub actor_email_hash: Option<String>,
+    #[serde(default)]
+    pub client_platform: Option<String>,
+    #[serde(default)]
+    pub client_os: Option<String>,
+    #[serde(default)]
+    pub client_host: Option<String>,
+    #[serde(default)]
+    pub auth_subject: Option<String>,
+    #[serde(default)]
+    pub source_ip: Option<String>,
+    #[serde(default)]
     pub parent_request_id: Option<String>,
     pub action: String,
     pub dcc_type: Option<String>,

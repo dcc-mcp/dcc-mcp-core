@@ -402,6 +402,14 @@ mod tests {
             agent_id: Some("agent-1".into()),
             agent_name: Some("Test Agent".into()),
             agent_model: Some("gpt-test".into()),
+            actor_id: Some("artist-1".into()),
+            actor_name: Some("Layout Artist".into()),
+            actor_email_hash: Some("sha256:actor".into()),
+            client_platform: Some("custom-http".into()),
+            client_os: Some("windows".into()),
+            client_host: Some("workstation-7".into()),
+            auth_subject: Some("user:artist-1".into()),
+            source_ip: Some("192.0.2.44".into()),
             parent_request_id: None,
             action: "x".into(),
             dcc_type: Some("maya".into()),
@@ -422,6 +430,9 @@ mod tests {
         assert_eq!(back.request_id, "rid");
         assert_eq!(back.transport.as_deref(), Some("rest"));
         assert_eq!(back.agent_id.as_deref(), Some("agent-1"));
+        assert_eq!(back.actor_id.as_deref(), Some("artist-1"));
+        assert_eq!(back.client_platform.as_deref(), Some("custom-http"));
+        assert_eq!(back.source_ip.as_deref(), Some("192.0.2.44"));
         assert_eq!(back.token_accounting.unwrap()["saved_tokens"], 12);
     }
 

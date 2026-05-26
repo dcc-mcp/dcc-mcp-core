@@ -195,6 +195,14 @@ mod admin_tests {
             agent_id: Some("agent-governance".to_string()),
             agent_name: Some("Governance Agent".to_string()),
             agent_model: Some("gpt-test".to_string()),
+            actor_id: None,
+            actor_name: None,
+            actor_email_hash: None,
+            client_platform: None,
+            client_os: None,
+            client_host: None,
+            auth_subject: None,
+            source_ip: None,
             parent_request_id: None,
             action: action.to_string(),
             dcc_type: Some("maya".to_string()),
@@ -718,6 +726,14 @@ sinks:
                 agent_id: Some("agent-ok".to_string()),
                 agent_name: Some("Operator Agent".to_string()),
                 agent_model: Some("gpt-test".to_string()),
+                actor_id: Some("artist-1".to_string()),
+                actor_name: Some("Layout Artist".to_string()),
+                actor_email_hash: Some("sha256:artist-1".to_string()),
+                client_platform: Some("cursor".to_string()),
+                client_os: Some("windows".to_string()),
+                client_host: Some("workstation-7".to_string()),
+                auth_subject: Some("user:artist-1".to_string()),
+                source_ip: Some("192.0.2.44".to_string()),
                 parent_request_id: None,
                 action: "tools/call:maya__open_scene".to_string(),
                 dcc_type: Some("maya".to_string()),
@@ -739,6 +755,14 @@ sinks:
                 agent_id: None,
                 agent_name: None,
                 agent_model: None,
+                actor_id: None,
+                actor_name: None,
+                actor_email_hash: None,
+                client_platform: None,
+                client_os: None,
+                client_host: None,
+                auth_subject: None,
+                source_ip: None,
                 parent_request_id: None,
                 action: "tools/call:blender__render".to_string(),
                 dcc_type: Some("blender".to_string()),
@@ -783,6 +807,13 @@ sinks:
         assert_eq!(successes[0]["agent_id"], "agent-ok");
         assert_eq!(successes[0]["agent_name"], "Operator Agent");
         assert_eq!(successes[0]["agent_model"], "gpt-test");
+        assert_eq!(successes[0]["actor"], "Layout Artist");
+        assert_eq!(successes[0]["actor_id"], "artist-1");
+        assert_eq!(successes[0]["client_platform"], "cursor");
+        assert_eq!(successes[0]["client_os"], "windows");
+        assert_eq!(successes[0]["client_host"], "workstation-7");
+        assert_eq!(successes[0]["auth_subject"], "user:artist-1");
+        assert_eq!(successes[0]["source_ip"], "192.0.2.44");
         assert_eq!(failures[0]["request_id"], "req-fail");
         assert_eq!(failures[0]["instance_id"], "blender-instance");
 
@@ -807,6 +838,14 @@ sinks:
             agent_id: None,
             agent_name: None,
             agent_model: None,
+            actor_id: None,
+            actor_name: None,
+            actor_email_hash: None,
+            client_platform: None,
+            client_os: None,
+            client_host: None,
+            auth_subject: None,
+            source_ip: None,
             parent_request_id: None,
             action: "tools/call:photoshop__save".to_string(),
             dcc_type: None,
@@ -1010,6 +1049,14 @@ sinks:
             agent_id: Some("agent-activity".to_string()),
             agent_name: None,
             agent_model: None,
+            actor_id: None,
+            actor_name: None,
+            actor_email_hash: None,
+            client_platform: None,
+            client_os: None,
+            client_host: None,
+            auth_subject: None,
+            source_ip: None,
             parent_request_id: Some("parent-1".to_string()),
             action: "maya.inst.tool".to_string(),
             dcc_type: Some("maya".to_string()),
@@ -1308,6 +1355,14 @@ sinks:
             agent_id: Some("agent-audit".into()),
             agent_name: None,
             agent_model: Some("gpt-audit".into()),
+            actor_id: None,
+            actor_name: None,
+            actor_email_hash: None,
+            client_platform: None,
+            client_os: None,
+            client_host: None,
+            auth_subject: None,
+            source_ip: None,
             parent_request_id: Some("req-missing-parent".into()),
             action: "photoshop.12345678.save_document".into(),
             dcc_type: Some("photoshop".into()),
@@ -1398,7 +1453,7 @@ sinks:
 
     #[tokio::test]
     async fn test_admin_tasks_and_debug_bundle_from_trace() {
-        use crate::gateway::admin::trace::{DispatchTrace, TraceLog, TracePayload};
+        use crate::gateway::admin::trace::{AgentContext, DispatchTrace, TraceLog, TracePayload};
         use crate::gateway::event_log::{ContendEvent, EventKind};
         use std::time::SystemTime;
 
@@ -1418,7 +1473,16 @@ sinks:
             session_id: Some("session-1".into()),
             dcc_type: Some("maya".into()),
             transport: None,
-            agent_context: None,
+            agent_context: Some(AgentContext {
+                actor_id: Some("artist-1".into()),
+                actor_name: Some("Layout Artist".into()),
+                agent_id: Some("agent-1".into()),
+                client_platform: Some("cursor".into()),
+                client_host: Some("workstation-7".into()),
+                auth_subject: Some("user:artist-1".into()),
+                source_ip: Some("192.0.2.44".into()),
+                ..AgentContext::default()
+            }),
             started_at: SystemTime::UNIX_EPOCH + Duration::from_millis(1_000),
             total_ms: 12,
             ok: true,
@@ -1473,6 +1537,14 @@ sinks:
             agent_id: Some("agent-task".into()),
             agent_name: Some("Task Agent".into()),
             agent_model: Some("gpt-test".into()),
+            actor_id: None,
+            actor_name: None,
+            actor_email_hash: None,
+            client_platform: None,
+            client_os: None,
+            client_host: None,
+            auth_subject: None,
+            source_ip: None,
             parent_request_id: Some("req-prev".into()),
             action: "maya.inst.long_task".into(),
             dcc_type: Some("maya".into()),
@@ -1830,6 +1902,14 @@ sinks:
                 agent_id: None,
                 agent_name: None,
                 agent_model: None,
+                actor_id: None,
+                actor_name: None,
+                actor_email_hash: None,
+                client_platform: None,
+                client_os: None,
+                client_host: None,
+                auth_subject: None,
+                source_ip: None,
                 parent_request_id: None,
                 action: "maya.deadbeef.scene__info".into(),
                 dcc_type: Some("maya".into()),
@@ -1851,6 +1931,14 @@ sinks:
                 agent_id: None,
                 agent_name: None,
                 agent_model: None,
+                actor_id: None,
+                actor_name: None,
+                actor_email_hash: None,
+                client_platform: None,
+                client_os: None,
+                client_host: None,
+                auth_subject: None,
+                source_ip: None,
                 parent_request_id: None,
                 action: "blender.cafebabe.scene__info".into(),
                 dcc_type: Some("blender".into()),
@@ -2032,7 +2120,7 @@ sinks:
 
     #[tokio::test]
     async fn test_admin_traces_returns_rows_with_token_fields() {
-        use crate::gateway::admin::trace::{DispatchTrace, TraceLog, TracePayload};
+        use crate::gateway::admin::trace::{AgentContext, DispatchTrace, TraceLog, TracePayload};
         use std::sync::Arc;
         use std::time::SystemTime;
         let log = Arc::new(TraceLog::new(100));
@@ -2064,6 +2152,15 @@ sinks:
             token_accounting: None,
         };
         with_input.trace_id = "trace-row-input-trace-id".into();
+        with_input.agent_context = Some(AgentContext {
+            actor_id: Some("artist-1".into()),
+            actor_name: Some("Layout Artist".into()),
+            client_platform: Some("cursor".into()),
+            client_host: Some("workstation-7".into()),
+            auth_subject: Some("user:artist-1".into()),
+            source_ip: Some("192.0.2.44".into()),
+            ..AgentContext::default()
+        });
         log.push(with_input);
 
         let with_output = DispatchTrace {
@@ -2115,6 +2212,12 @@ sinks:
         assert!(rows_with_outputs[0]["output_tokens"].as_u64().is_some());
         assert!(rows_with_inputs[0]["total_tokens"].as_u64().is_some());
         assert!(rows_with_outputs[0]["total_tokens"].as_u64().is_some());
+        assert_eq!(rows_with_inputs[0]["actor"], "Layout Artist");
+        assert_eq!(rows_with_inputs[0]["actor_id"], "artist-1");
+        assert_eq!(rows_with_inputs[0]["client_platform"], "cursor");
+        assert_eq!(rows_with_inputs[0]["client_host"], "workstation-7");
+        assert_eq!(rows_with_inputs[0]["auth_subject"], "user:artist-1");
+        assert_eq!(rows_with_inputs[0]["source_ip"], "192.0.2.44");
     }
 
     #[tokio::test]
