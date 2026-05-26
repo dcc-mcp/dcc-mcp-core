@@ -106,6 +106,10 @@ into a faster authoring loop.
    input, or raw agent replies. Treat `source_ip` and `forwarded_for` as
    server-derived fields only: caller metadata and examples must not spoof
    them, and adapters should let the HTTP/gateway boundary attach those values.
+   Treat Admin `attribution_trust` / `agent_context.trust` as gateway-computed
+   evidence labels (`self_reported`, `header`, `auth`, `server_derived`,
+   `trusted_proxy`), not client-supplied metadata; adapter examples should
+   demonstrate caller fields, not forged trust fields.
    Preserve
    Admin `links` fields in examples so every trace/debug bundle, OpenAPI
    Inspector/spec link, or issue-report JSON export can be copied as a complete

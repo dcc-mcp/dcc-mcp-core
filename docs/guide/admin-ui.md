@@ -239,11 +239,26 @@ Caller attribution separates five concepts:
 | Auth subject | `auth_subject` | API-key, bearer-token, OAuth, or local identity subject after authentication. |
 | Network source | `source_ip`, `forwarded_for` | Server-derived only. MCP `_meta`, REST request bodies, and caller headers cannot set these fields. |
 
+Stored `agent_context` values include a server-computed `trust` map, and Admin
+call/trace rows expose the same data as `attribution_trust`. Trust values are:
+
+| Trust value | Meaning |
+| --- | --- |
+| `self_reported` | Supplied by REST body or MCP `_meta`; useful for filtering, not identity proof. |
+| `header` | Supplied by `x-dcc-mcp-*` attribution headers; still self-asserted unless a trusted proxy/auth layer owns those headers. |
+| `auth` | Derived from gateway authentication or an identity-provider integration. |
+| `server_derived` | Derived by the gateway from the socket peer after stripping caller-supplied network fields. |
+| `trusted_proxy` | Derived from `Forwarded` / `X-Forwarded-For` after the configured trusted-proxy depth has been applied. |
+
 Cursor-like MCP clients can place attribution in `_meta.agent_context`, custom
 REST clients can use `meta.agent_context`, and LAN studio tools that cannot
 shape JSON bodies can use the `x-dcc-mcp-*` headers above. Do not send hidden
 reasoning, full prompts, raw user messages, secrets, bearer tokens, or raw agent
-replies in any caller-attribution field.
+replies in any caller-attribution field. LAN operators must not treat
+`self_reported` or `header` actor fields as access control; use gateway auth or
+a trusted proxy/identity provider before relying on actor metadata for
+permissions. Raw actor email is not a supported field; send `actor_email_hash`
+only after hashing or otherwise pseudonymizing it.
 
 Example REST request:
 
@@ -304,7 +319,10 @@ report JSON, OpenAPI Inspector/spec, and docs where a request id is available.
 Raw prompts and raw replies are high-sensitivity data: keep them out of
 `agent_context`; use only an explicitly configured traffic capture policy with
 redaction, sampling, retention, and operator visibility when raw text is needed
-for a private investigation.
+for a private investigation. Traffic capture also treats actor/user/platform
+metadata as potentially sensitive: built-in redaction masks common attribution
+identity fields, and capture configs can add explicit `redact:` rules for
+deployment-specific metadata paths.
 
 `request_id` and `trace_id` are intentionally different. `request_id` identifies
 one HTTP/MCP request (or JSON-RPC id), while `trace_id` identifies the
