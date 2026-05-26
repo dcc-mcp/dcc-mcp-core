@@ -13,7 +13,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::html::ADMIN_HTML;
-use super::issue_report::{issue_report_filename, issue_report_json};
+use super::issue_report::{IssueReportMode, issue_report_filename, issue_report_json};
 use super::links::AdminLinkBuilder;
 use super::state::{AdminAuditRecord, AdminState};
 use super::trace::{AgentContext, DispatchTrace};
@@ -150,6 +150,31 @@ pub struct AdminSkillDetailQuery {
     pub dcc: Option<String>,
     pub dcc_type: Option<String>,
     pub instance_id: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct IssueReportQuery {
+    /// Default is public-safe. Use `mode=raw` for local evidence review.
+    mode: Option<String>,
+    /// Compatibility flag for explicit raw export requests.
+    include_raw: Option<String>,
+}
+
+impl IssueReportQuery {
+    fn mode(&self) -> IssueReportMode {
+        if self
+            .mode
+            .as_deref()
+            .is_some_and(|value| value.eq_ignore_ascii_case("raw"))
+            || self.include_raw.as_deref().is_some_and(|value| {
+                matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes")
+            })
+        {
+            IssueReportMode::RawDebugBundle
+        } else {
+            IssueReportMode::PublicSafe
+        }
+    }
 }
 
 /// `GET /admin/api/instances` — list current routable instances by default.
@@ -1010,6 +1035,7 @@ pub async fn handle_admin_issue_report(
     State(s): State<AdminState>,
     headers: HeaderMap,
     OriginalUri(uri): OriginalUri,
+    Query(params): Query<IssueReportQuery>,
     axum::extract::Path(request_id): axum::extract::Path<String>,
 ) -> impl IntoResponse {
     let links = AdminLinkBuilder::from_request(&headers, &uri);
@@ -1017,7 +1043,7 @@ pub async fn handle_admin_issue_report(
         Some(mut bundle) => {
             let request_links = links.request_links(&request_id);
             bundle["links"] = request_links.clone();
-            let report = issue_report_json(&request_id, bundle, request_links);
+            let report = issue_report_json(&request_id, bundle, request_links, params.mode());
             let mut response = (StatusCode::OK, Json(report)).into_response();
             if let Ok(value) = HeaderValue::from_str(&format!(
                 "attachment; filename=\"{}\"",

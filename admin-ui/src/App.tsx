@@ -1135,6 +1135,38 @@ function traceLinks(requestId: string, provided?: AdminLinks): AdminLinks {
   };
 }
 
+function adminPathBases(): { adminBase: string; apiBase: string } {
+  try {
+    const apiBase = new URL(API_BASE).pathname.replace(/\/+$/, '') || '/admin/api';
+    const adminBase = apiBase.endsWith('/api') ? apiBase.slice(0, -'/api'.length) || '/admin' : '/admin';
+    return { adminBase, apiBase };
+  } catch {
+    return { adminBase: '/admin', apiBase: '/admin/api' };
+  }
+}
+
+function publicSafeIssuePaths(requestId: string): Record<string, string> {
+  const encoded = encodeURIComponent(requestId);
+  const { adminBase, apiBase } = adminPathBases();
+  return {
+    admin_trace_path: `${adminBase}?panel=traces&trace=${encoded}`,
+    trace_api_path: `${apiBase}/traces/${encoded}`,
+    safe_issue_report_path: `${apiBase}/issue-report/${encoded}`,
+    raw_issue_report_path: `${apiBase}/issue-report/${encoded}?mode=raw`,
+    stable_safe_issue_report_path: `/v1/debug/issue-reports/${encoded}`,
+    stable_raw_issue_report_path: `/v1/debug/issue-reports/${encoded}?mode=raw`,
+    openapi_spec_path: '/v1/openapi.json',
+    docs_path: '/docs',
+  };
+}
+
+function publicToolFamily(tool: string | null | undefined, method: string): string {
+  const raw = tool || method || 'unknown';
+  const lastSegment = raw.split('.').filter(Boolean).pop() || raw;
+  const family = lastSegment.includes('__') ? lastSegment.split('__').pop() || lastSegment : lastSegment;
+  return family.replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '') || 'unknown';
+}
+
 function readPanelFromUrl(): Panel {
   const u = new URL(window.location.href);
   const raw = u.searchParams.get('panel');
@@ -1841,6 +1873,23 @@ function safeCallerContext(agent: AgentContext | null | undefined): Record<strin
   };
 }
 
+function publicSafeCallerContext(agent: AgentContext | null | undefined): Record<string, unknown> | null {
+  if (!agent) {
+    return null;
+  }
+  return {
+    agent_kind: agent.agent_kind ?? null,
+    model_provider: agent.model_provider ?? null,
+    model_version: agent.model_version ?? null,
+    reasoning_effort: agent.reasoning_effort ?? null,
+    client_platform: agent.client_platform ?? null,
+    plan_step_count: agent.plan?.length ?? 0,
+    observation_count: agent.observations?.length ?? 0,
+    has_user_intent_summary: Boolean(agent.user_intent_summary),
+    has_agent_reply_summary: Boolean(agent.agent_reply_summary),
+  };
+}
+
 function tokenAccounting(row: TokenCarrier | null | undefined): TokenAccounting | null {
   if (!row) {
     return null;
@@ -2122,16 +2171,15 @@ function payloadPreview(payload: TracePayload | null | undefined, t: Translator)
 }
 
 function buildAgentPacket(trace: TraceDetailPayload): string {
-  const links = traceLinks(trace.request_id, trace.links);
   const agent = trace.agent_context;
   const tokens = detailTraceTokens(trace);
   return JSON.stringify({
-    purpose: 'dcc-mcp admin trace packet for LLM evaluation and code optimization',
+    purpose: 'dcc-mcp public-safe admin trace packet for LLM evaluation and issue triage',
+    privacy_mode: 'public-safe',
     request_id: trace.request_id,
     method: trace.method,
-    tool: trace.tool_slug ?? trace.method,
+    tool_family: publicToolFamily(trace.tool_slug, trace.method),
     dcc_type: trace.dcc_type,
-    instance_id: trace.instance_id,
     transport: trace.transport,
     status: trace.ok ? 'ok' : 'err',
     total_ms: trace.total_ms,
@@ -2143,13 +2191,18 @@ function buildAgentPacket(trace: TraceDetailPayload): string {
       estimated: tokens.estimatedTokens,
       estimator: tokens.estimator,
     },
-    agent_context: safeCallerContext(agent),
+    agent_context: publicSafeCallerContext(agent),
     slowest_span: [...(trace.spans ?? [])]
       .sort((a, b) => (b.duration_ns ?? 0) - (a.duration_ns ?? 0))
       .slice(0, 1)
-      .map((span) => ({ name: span.name, duration_ms: Math.round((span.duration_ns ?? 0) / 1_000_000), ok: span.ok, attributes: span.attributes }))
+      .map((span) => ({ name: span.name, duration_ms: Math.round((span.duration_ns ?? 0) / 1_000_000), ok: span.ok }))
       [0] ?? null,
-    links,
+    links: publicSafeIssuePaths(trace.request_id),
+    raw_debug_bundle: {
+      available: true,
+      mode_query: 'mode=raw',
+      privacy_note: 'Raw debug bundles may contain payload previews, prompts, scripts, auth material, local URLs, filesystem paths, or private scene identifiers. Review before sharing publicly.',
+    },
   }, null, 2);
 }
 

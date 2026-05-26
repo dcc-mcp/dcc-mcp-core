@@ -10,5 +10,6 @@
 {"id": "debug_stats", "http": {"method": "GET", "path": "/v1/debug/stats?range=all"}, "expect": {"status": 200, "json_subset": {"range": "all"}}}
 {"id": "debug_health", "http": {"method": "GET", "path": "/v1/debug/health"}, "expect": {"status": 200, "body_contains": "status"}}
 {"id": "debug_bundle_by_trace_id", "http": {"method": "GET", "path": "/v1/debug/bundles/7bf92f3577b34da6a3ce929d0e0e1092"}, "expect": {"status": 200, "json_subset": {"trace_id": "7bf92f3577b34da6a3ce929d0e0e1092", "request_id": "vrs-core-1092-request"}}}
-{"id": "debug_issue_report", "http": {"method": "GET", "path": "/v1/debug/issue-reports/vrs-core-1092-request"}, "expect": {"status": 200, "json_subset": {"request_id": "vrs-core-1092-request", "debug_bundle": {"trace_id": "7bf92f3577b34da6a3ce929d0e0e1092"}}}}
+{"id": "debug_issue_report", "http": {"method": "GET", "path": "/v1/debug/issue-reports/vrs-core-1092-request"}, "expect": {"status": 200, "json_subset": {"request_id": "vrs-core-1092-request", "privacy_mode": "public-safe", "report_type": "github_issue_public_safe"}}}
+{"id": "debug_issue_report_raw", "http": {"method": "GET", "path": "/v1/debug/issue-reports/vrs-core-1092-request?mode=raw"}, "expect": {"status": 200, "json_subset": {"request_id": "vrs-core-1092-request", "privacy_mode": "raw-local-evidence", "debug_bundle": {"trace_id": "7bf92f3577b34da6a3ce929d0e0e1092"}}}}
 {"id": "openapi_lists_debug_routes", "http": {"method": "GET", "path": "/v1/openapi.json"}, "expect": {"status": 200, "body_contains": "/v1/debug/health"}}
