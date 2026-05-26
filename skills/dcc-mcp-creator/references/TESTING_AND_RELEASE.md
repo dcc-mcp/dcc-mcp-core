@@ -32,6 +32,15 @@ python -m pytest
 For Rust/PyO3 core changes, run the workspace's `just` or `cargo` gates that
 match the touched crates.
 
+For `dcc-mcp-core` toolchain or dependency refreshes, prefer vx-managed Cargo so
+local runs match CI:
+
+```bash
+vx cargo update
+vx cargo tree -d
+vx cargo build --workspace --all-targets --timings
+```
+
 ## Live-DCC Smoke Shape
 
 Every adapter should eventually provide one documented smoke:
