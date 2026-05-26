@@ -4,44 +4,93 @@
 version = 2
 
 [metadata]
-generated_at = "2026-04-05T04:51:13Z"
+generated_at = "2026-05-26T13:32:02Z"
 vx_version = "0.8.18"
 platform = "x86_64-pc-windows-msvc"
 
 [tools.just]
-version = "1.48.1"
+version = "1.51.0"
 source = "generic"
 resolved_from = "latest"
 ecosystem = "generic"
-download_url = "https://github.com/casey/just/releases/download/1.48.1/just-1.48.1-x86_64-pc-windows-msvc.zip"
+download_url = "https://github.com/casey/just/releases/download/1.51.0/just-1.51.0-x86_64-pc-windows-msvc.zip"
+
+[tools.just.platform_urls]
+darwin-arm64 = "https://github.com/casey/just/releases/download/1.51.0/just-1.51.0-x86_64-pc-windows-msvc.zip"
+darwin-x64 = "https://github.com/casey/just/releases/download/1.51.0/just-1.51.0-x86_64-pc-windows-msvc.zip"
+linux-arm64 = "https://github.com/casey/just/releases/download/1.51.0/just-1.51.0-x86_64-pc-windows-msvc.zip"
+linux-x64 = "https://github.com/casey/just/releases/download/1.51.0/just-1.51.0-x86_64-pc-windows-msvc.zip"
+windows-arm64 = "https://github.com/casey/just/releases/download/1.51.0/just-1.51.0-x86_64-pc-windows-msvc.zip"
+windows-x64 = "https://github.com/casey/just/releases/download/1.51.0/just-1.51.0-x86_64-pc-windows-msvc.zip"
 
 [tools.maturin]
-version = "1.12.6"
+version = "1.13.3"
 source = "python"
 resolved_from = "latest"
 ecosystem = "python"
-download_url = "https://github.com/PyO3/maturin/releases/download/v1.12.6/maturin-x86_64-pc-windows-msvc.zip"
+download_url = "https://github.com/PyO3/maturin/releases/download/v1.13.3/maturin-x86_64-pc-windows-msvc.zip"
+
+[tools.maturin.platform_urls]
+darwin-arm64 = "https://github.com/PyO3/maturin/releases/download/v1.13.3/maturin-x86_64-pc-windows-msvc.zip"
+darwin-x64 = "https://github.com/PyO3/maturin/releases/download/v1.13.3/maturin-x86_64-pc-windows-msvc.zip"
+linux-arm64 = "https://github.com/PyO3/maturin/releases/download/v1.13.3/maturin-x86_64-pc-windows-msvc.zip"
+linux-x64 = "https://github.com/PyO3/maturin/releases/download/v1.13.3/maturin-x86_64-pc-windows-msvc.zip"
+windows-arm64 = "https://github.com/PyO3/maturin/releases/download/v1.13.3/maturin-x86_64-pc-windows-msvc.zip"
+windows-x64 = "https://github.com/PyO3/maturin/releases/download/v1.13.3/maturin-x86_64-pc-windows-msvc.zip"
+
+[tools.node]
+version = "22.22.3"
+source = "nodejs"
+resolved_from = "22"
+ecosystem = "nodejs"
+download_url = "https://nodejs.org/dist/v22.22.3/node-v22.22.3-win-x64.zip"
+
+[tools.node.platform_urls]
+darwin-arm64 = "https://nodejs.org/dist/v22.22.3/node-v22.22.3-win-x64.zip"
+darwin-x64 = "https://nodejs.org/dist/v22.22.3/node-v22.22.3-win-x64.zip"
+linux-arm64 = "https://nodejs.org/dist/v22.22.3/node-v22.22.3-win-x64.zip"
+linux-x64 = "https://nodejs.org/dist/v22.22.3/node-v22.22.3-win-x64.zip"
+windows-arm64 = "https://nodejs.org/dist/v22.22.3/node-v22.22.3-win-x64.zip"
+windows-x64 = "https://nodejs.org/dist/v22.22.3/node-v22.22.3-win-x64.zip"
+
+[tools.node.metadata]
+lts = "true"
 
 [tools.python]
 version = "3.12.13"
 source = "python"
 resolved_from = "3.12"
 ecosystem = "python"
-download_url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260325/cpython-3.12.13+20260325-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
+download_url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260510/cpython-3.12.13+20260510-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
+
+[tools.python.platform_urls]
+darwin-arm64 = "https://github.com/astral-sh/python-build-standalone/releases/download/20260510/cpython-3.12.13+20260510-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
+darwin-x64 = "https://github.com/astral-sh/python-build-standalone/releases/download/20260510/cpython-3.12.13+20260510-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
+linux-arm64 = "https://github.com/astral-sh/python-build-standalone/releases/download/20260510/cpython-3.12.13+20260510-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
+linux-x64 = "https://github.com/astral-sh/python-build-standalone/releases/download/20260510/cpython-3.12.13+20260510-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
+windows-arm64 = "https://github.com/astral-sh/python-build-standalone/releases/download/20260510/cpython-3.12.13+20260510-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
+windows-x64 = "https://github.com/astral-sh/python-build-standalone/releases/download/20260510/cpython-3.12.13+20260510-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
 
 [tools.python.metadata]
 lts = "true"
 
 [tools.rust]
-version = "1.90.0"
-source = "rust"
-resolved_from = "1.90"
-ecosystem = "rust"
-download_url = "https://github.com/rust-lang/rustup/releases/download/1.29.0/rustup-init-1.29.0-x86_64-pc-windows-msvc.exe"
+version = "1.95"
+source = "provider"
+resolved_from = "1.95"
+ecosystem = "generic"
+download_url = "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe"
+
+[tools.rust.platform_urls]
+darwin-arm64 = "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe"
+darwin-x64 = "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe"
+linux-arm64 = "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe"
+linux-x64 = "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe"
+windows-arm64 = "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe"
+windows-x64 = "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe"
 
 [tools.uv]
-version = "0.11.3"
-source = "python"
-resolved_from = "latest"
+version = "0.11.16"
+source = "vx install"
+resolved_from = "0.11.16"
 ecosystem = "python"
-download_url = "https://github.com/astral-sh/uv/releases/download/0.11.3/uv-x86_64-pc-windows-msvc.zip"
