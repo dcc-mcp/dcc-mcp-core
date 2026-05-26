@@ -218,6 +218,7 @@ jobs:
   # concurrently instead of serially.
   build-wheel:
     name: Build wheel (${{ matrix.os }})
+    needs: [admin-ui-bundle]
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
@@ -225,6 +226,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
+      - name: Download admin UI bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: admin-ui-bundle
+          path: crates/dcc-mcp-gateway/src/gateway/admin/generated
       # Use the same composite wheel builder as release builds and py3.7 CI.
       # It owns Rust/Python setup, Cargo cache, sccache, feature resolution,
       # wheel-content validation, and artifact upload, avoiding duplicated
@@ -232,9 +238,15 @@ jobs:
       - uses: ./.github/actions/build-wheel
         with:
           python-version: "3.11"
-          generate-stubs: "false"
           test-wheel: "false"
           artifact-name: wheel-${{ matrix.os }}
+          # The Linux Rust gate runs `stubgen-check`, so PR wheel builds can
+          # reuse committed stubs and avoid repeating PyO3 stub generation on
+          # every wheel platform.
+          generate-stubs: "false"
+          # Reuse the single Admin UI bundle built above instead of running
+          # npm install/build in every wheel job.
+          prebuild-admin-ui: "false"
 
   # ── Python tests: trimmed OS × Python matrix (7 cells, was 18) ──
   # Covers every supported Python version on ubuntu (cheapest) + endpoint
@@ -323,6 +335,7 @@ jobs:
   # Note: Must use older OS runners where Python 3.7 is still available via setup-python
   build-wheel-py37:
     name: Build wheel (py3.7, ${{ matrix.os }})
+    needs: [admin-ui-bundle]
     strategy:
       matrix:
         include:
@@ -334,6 +347,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
+      - name: Download admin UI bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: admin-ui-bundle
+          path: crates/dcc-mcp-gateway/src/gateway/admin/generated
       - uses: ./.github/actions/build-wheel
         with:
           target: ${{ matrix.target }}
@@ -342,6 +360,7 @@ jobs:
           test-wheel: 'true'
           artifact-name: wheel-py37-${{ matrix.os }}
           use-sccache: 'false'
+          prebuild-admin-ui: "false"
 
   # ── Lint Python source ──
   # ubuntu-22.04: setup-python still offers 3.7 for the cp37 syntax gate.
