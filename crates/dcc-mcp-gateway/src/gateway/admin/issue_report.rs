@@ -100,6 +100,7 @@ fn public_safe_links(request_id: &str) -> Value {
         "admin_trace_path": format!("/admin?panel=traces&trace={encoded}"),
         "trace_api_path": format!("/admin/api/traces/{encoded}"),
         "debug_bundle_path": format!("/admin/api/debug-bundle/{encoded}"),
+        "agent_trace_packet_path": format!("/v1/debug/agent-traces/{encoded}"),
         "safe_issue_report_path": format!("/admin/api/issue-report/{encoded}"),
         "raw_issue_report_path": format!("/admin/api/issue-report/{encoded}?mode=raw"),
         "stable_debug_bundle_path": format!("/v1/debug/bundles/{encoded}"),

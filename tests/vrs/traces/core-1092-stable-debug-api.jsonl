@@ -4,6 +4,8 @@
 {"id": "debug_traces_list", "http": {"method": "GET", "path": "/v1/debug/traces?limit=20"}, "expect": {"status": 200, "body_contains": "vrs-core-1092-request"}}
 {"id": "debug_trace_detail", "http": {"method": "GET", "path": "/v1/debug/traces/vrs-core-1092-request"}, "expect": {"status": 200, "json_subset": {"request_id": "vrs-core-1092-request", "trace_id": "7bf92f3577b34da6a3ce929d0e0e1092"}}}
 {"id": "debug_trace_context", "http": {"method": "GET", "path": "/v1/debug/trace-context/7bf92f3577b34da6a3ce929d0e0e1092"}, "expect": {"status": 200, "json_subset": {"request_id": "vrs-core-1092-request", "trace_id": "7bf92f3577b34da6a3ce929d0e0e1092"}}}
+{"id": "debug_agent_trace_packet_by_request", "http": {"method": "GET", "path": "/v1/debug/agent-traces/vrs-core-1092-request"}, "expect": {"status": 200, "json_subset": {"schema_version": "dcc-mcp.admin.agent-trace-packet.v1", "request_id": "vrs-core-1092-request", "trace_id": "7bf92f3577b34da6a3ce929d0e0e1092"}}}
+{"id": "debug_agent_trace_packet_by_trace", "http": {"method": "GET", "path": "/v1/debug/agent-traces/7bf92f3577b34da6a3ce929d0e0e1092"}, "expect": {"status": 200, "json_subset": {"schema_version": "dcc-mcp.admin.agent-trace-packet.v1", "request_id": "vrs-core-1092-request", "trace_id": "7bf92f3577b34da6a3ce929d0e0e1092"}}}
 {"id": "debug_tasks", "http": {"method": "GET", "path": "/v1/debug/tasks?limit=20"}, "expect": {"status": 200, "body_contains": "vrs-core-1092-request"}}
 {"id": "debug_calls", "http": {"method": "GET", "path": "/v1/debug/calls"}, "expect": {"status": 200}}
 {"id": "debug_logs", "http": {"method": "GET", "path": "/v1/debug/logs"}, "expect": {"status": 200}}
