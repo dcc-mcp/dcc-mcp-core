@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.35](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.34...v0.17.35) (2026-05-26)
+
+
+### Features
+
+* add admin attribution filters ([39f32e2](https://github.com/loonghao/dcc-mcp-core/commit/39f32e2b6f67485b5487076983fe85148b5804b3))
+* add attribution trust guardrails ([6fd6970](https://github.com/loonghao/dcc-mcp-core/commit/6fd6970c957a840de6af2edf3bccb9953fe94cbe))
+* add host pump controller ([ac49b3e](https://github.com/loonghao/dcc-mcp-core/commit/ac49b3e99317fbbe452f7f12f3f8d748167094a9))
+* add sidecar action dispatcher ([9ee9d9f](https://github.com/loonghao/dcc-mcp-core/commit/9ee9d9fa7e1e38cea3c263876b882de9e8045354))
+* add skill file helper APIs ([d17f8e8](https://github.com/loonghao/dcc-mcp-core/commit/d17f8e8312bf77bb227d929def6f9fab8a29e94f))
+* add skill http helpers ([b01890c](https://github.com/loonghao/dcc-mcp-core/commit/b01890c9f9c865ea30cbe544c5bc4f610fc1b96f))
+* add skills helper namespace ([4263a72](https://github.com/loonghao/dcc-mcp-core/commit/4263a7263c6983d59d4ebb8749cbe723df6fdf1a))
+* define caller attribution schema ([f84211c](https://github.com/loonghao/dcc-mcp-core/commit/f84211cf8aca07101a438a841923ed4e7e897289))
+* expand skill data codec helpers ([b39161b](https://github.com/loonghao/dcc-mcp-core/commit/b39161bb0bb91813c38b42a21e9c2343cac03f09))
+* improve admin observability ui ([570c77f](https://github.com/loonghao/dcc-mcp-core/commit/570c77fc7415c7ec9797c9c52b32e3147dd9cf47))
+* promote skill helper adoption ([5511774](https://github.com/loonghao/dcc-mcp-core/commit/5511774e3c22873fa834adf69ad1eeb26c7aab51))
+* propagate caller attribution ([1b81092](https://github.com/loonghao/dcc-mcp-core/commit/1b8109279ff7f27eb4d6b34fdc308a7b4268cdfe))
+* publish qt dispatcher api ([4493e7f](https://github.com/loonghao/dcc-mcp-core/commit/4493e7f3c1244c62719f0bc2f26c205c57ad19ee))
+
+
+### Bug Fixes
+
+* encode async main-thread dispatch output ([d13f2da](https://github.com/loonghao/dcc-mcp-core/commit/d13f2da94353c5374996596e0438afb2a88b601d))
+* keep host pump aliases python37-compatible ([7b2a12c](https://github.com/loonghao/dcc-mcp-core/commit/7b2a12c09e6b4c51e6806e465f80940048e0afae))
+* keep skill result fallback source-only ([4e12911](https://github.com/loonghao/dcc-mcp-core/commit/4e129118a42c81b616406f4f4084ea47290621aa))
+
+
+### Code Refactoring
+
+* add host ui dispatcher hooks ([102a3c8](https://github.com/loonghao/dcc-mcp-core/commit/102a3c858f510a2f1d0ef84e08c1688d14a2f2b5))
+* split gateway admin modules ([9a24360](https://github.com/loonghao/dcc-mcp-core/commit/9a2436009695146a79e12177de1a0d95a5e5cf30))
+
+
+### Documentation
+
+* add dispatcher migration fixtures ([7fefa0b](https://github.com/loonghao/dcc-mcp-core/commit/7fefa0bc00a40484cb8def1a2211277a0a3034ac))
+
 ## [0.17.34](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.33...v0.17.34) (2026-05-25)
 
 
