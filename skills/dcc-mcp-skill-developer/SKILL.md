@@ -79,13 +79,19 @@ into a faster authoring loop.
    instead of copying recipes/reference-docs import wrappers. Omit `skills`
    only when the helper should own the `scan_and_load_lenient(...)` pass; pass
    explicit `skills` when startup already scanned roots.
-   Skill scripts that need JSON/YAML codecs, result helpers, argument
-   normalization, schema validation, or cancellation checks should import them
-   from `dcc_mcp_core.skills_helper`. Keep legacy top-level imports working for
-   old skills, but write new examples against `skills_helper`.
+   Skill scripts that need JSON/YAML codecs, file/path helpers, LZ4 payload
+   compression, result helpers, argument normalization, schema validation, or
+   cancellation checks should import them from `dcc_mcp_core.skills_helper`.
+   Keep legacy top-level imports working for old skills, but write new examples
+   against `skills_helper`.
    Prefer `load_json_file`, `load_yaml_file`, `dump_json_file`, and
    `dump_yaml_file` from the same namespace when a script needs explicit UTF-8,
    source-aware parse errors, byte guards, or mapping-root validation.
+   Use `ensure_within_root`, `atomic_write_text` / `atomic_write_bytes`,
+   `file_digest` / `bytes_digest`, and `compress_bytes` / `decompress_bytes`
+   for bounded local session files. Use `FileRef` and `artefact_put_file` /
+   `artefact_get_bytes` instead when a file must cross tool or MCP resource
+   boundaries.
 7. When changing adapter server wiring or caller examples, keep Admin telemetry
    useful: pass optional `agent_context` / `caller_context` summaries through
    MCP `_meta`, REST `meta`, or `x-dcc-mcp-agent-*` headers when the caller is

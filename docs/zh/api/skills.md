@@ -489,8 +489,9 @@ get_app_skill_paths_from_env(app_name: str) -> list[str]
 
 `dcc_mcp_core.skills_helper` 是面向 Skill 脚本的 canonical import path。
 当完整 `dcc-mcp-core` wheel 可用时，Skill 作者应优先从这里导入轻量辅助
-API，而不是创建零散的 `utils` 模块，或为 JSON、YAML、schema validation、
-结果 envelope、参数规范化、取消检查等小功能新增 Python runtime dependency。
+API，而不是创建零散的 `utils` 模块，或为 JSON、YAML、file/path、LZ4 payload
+compression、schema validation、结果 envelope、参数规范化、取消检查等小功能新增
+Python runtime dependency。
 
 ```python
 from dcc_mcp_core.skills_helper import (
@@ -534,6 +535,45 @@ except SkillCodecError as exc:
 dump_json_file("out/report.json", manifest, ensure_ascii=False)
 ```
 
+处理生成 artefact 和本地 hand-off payload 时，优先使用 Rust-backed file/path
+helper，而不是在每个 Skill 里复制一次小工具：
+
+```python
+from dcc_mcp_core.skills_helper import (
+    SkillFileError,
+    atomic_write_text,
+    compress_bytes,
+    decompress_bytes,
+    ensure_within_root,
+    file_digest,
+)
+
+try:
+    out_path = atomic_write_text(
+        "reports/summary.json",
+        json_dumps(summary, ensure_ascii=False),
+        root=session_temp_dir,
+        max_bytes=2_000_000,
+    )
+    sha256 = file_digest(out_path, root=session_temp_dir)
+    packed = compress_bytes(out_path.read_bytes(), max_bytes=2_000_000)
+    restored = decompress_bytes(packed, max_bytes=2_000_000)
+except SkillFileError as exc:
+    return skill_error_from_exception(exc)
+```
+
+`ensure_within_root(root, path)` 会把相对路径解析到可信 workspace/session root
+下，canonicalize 已存在的祖先路径，并拒绝逃逸 root 的 traversal。
+`atomic_write_text()` / `atomic_write_bytes()` 通过同目录临时文件完成写入。
+`file_digest()` / `bytes_digest()` 当前支持 SHA-256；BLAKE3 会等 wheel 已因
+其他能力引入相关依赖时再补。`compress_bytes()` / `decompress_bytes()` 复用
+shared-memory 层现有 LZ4 frame 实现，并强制显式 byte limit。
+
+如果文件需要交给另一个 tool，或需要通过 MCP resources 暴露，应继续使用
+`FileRef`、`artefact_put_file()` 和 `artefact_get_bytes()`。`skills_helper`
+里的 file helper 是单个 Skill 或 session root 内部的低层 building block，
+不替代更高层的 artefact store contract。
+
 现有 `from dcc_mcp_core import json_dumps` 仍可使用，并 re-export 同一组
 canonical functions。新的 Skill authoring helper 应放在 `skills_helper`，
 不要放进含义模糊的 `utils` 命名空间。
@@ -541,6 +581,8 @@ canonical functions。新的 Skill authoring helper 应放在 `skills_helper`，
 适合使用 `skills_helper` 的场景：
 
 - Skill 需要 dependency-free JSON 或 YAML parsing，而不是 `json`、PyYAML 或本地 wrapper；
+- Skill 需要有边界的 atomic write、safe path containment、SHA-256 digest 或
+  本地 session file 的 LZ4 compression；
 - handler 需要 `skill_success`、`skill_error`、`success_result`、`error_result` 等标准结果 helper；
 - 工具 wrapper 需要 `normalize_tool_arguments()` / `normalize_tool_meta()` 来遵循共享 MCP/REST call envelope contract；
 - 长时间运行的脚本需要 `check_cancelled()` / `check_dcc_cancelled()`。

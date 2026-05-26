@@ -33,6 +33,22 @@ class SkillCodecError(SkillHelperError):
         super().__init__(detail)
 
 
+class SkillFileError(SkillHelperError):
+    """Raised when a skill helper cannot safely read, write, hash, or compress data."""
+
+    def __init__(self, message: str, *, operation: str, source: str | None = None) -> None:
+        self.operation = operation
+        self.source = source
+        detail = f"{operation}: {message}"
+        if source:
+            detail = f"{source}: {detail}"
+        super().__init__(detail)
+
+
+DEFAULT_FILE_MAX_BYTES = 64 * 1024 * 1024
+DEFAULT_PAYLOAD_MAX_BYTES = 64 * 1024 * 1024
+
+
 def _core_symbol(name: str) -> Any:
     from dcc_mcp_core import _core
 
@@ -61,6 +77,21 @@ def yaml_loads(s: str) -> Any:
 
 def _source_name(path: str | Path) -> str:
     return str(path)
+
+
+def _coerce_bytes(data: bytes | bytearray | memoryview, *, operation: str) -> bytes:
+    try:
+        return bytes(data)
+    except TypeError as exc:
+        raise SkillFileError(str(exc), operation=operation) from exc
+
+
+def _ensure_supported_algorithm(actual: str, expected: str, *, operation: str) -> None:
+    if actual != expected:
+        raise SkillFileError(
+            f"unsupported algorithm {actual!r}; supported algorithm is {expected!r}",
+            operation=operation,
+        )
 
 
 def _require_mapping_root(value: Any, *, codec: str, source: str | None, require_mapping: bool) -> Any:
@@ -179,6 +210,121 @@ def dump_yaml_file(path: str | Path, obj: Any, *, create_parents: bool = True) -
     return dump_text(path, dump_yaml_text(obj), create_parents=create_parents)
 
 
+def ensure_within_root(root: str | Path, path: str | Path, *, must_exist: bool = False) -> Path:
+    """Resolve *path* under *root* and reject traversal outside the root."""
+    try:
+        resolved = _core_symbol("ensure_within_root")(str(root), str(path), must_exist=must_exist)
+    except Exception as exc:
+        raise SkillFileError(str(exc), operation="ensure_within_root", source=_source_name(path)) from exc
+    return Path(resolved)
+
+
+def atomic_write_bytes(
+    path: str | Path,
+    data: bytes | bytearray | memoryview,
+    *,
+    root: str | Path | None = None,
+    create_parents: bool = True,
+    max_bytes: int | None = DEFAULT_FILE_MAX_BYTES,
+) -> Path:
+    """Atomically write bytes and return the written path."""
+    p = ensure_within_root(root, path) if root is not None else Path(path)
+    payload = _coerce_bytes(data, operation="atomic_write_bytes")
+    try:
+        written = _core_symbol("atomic_write_bytes")(
+            str(p),
+            payload,
+            create_parents=create_parents,
+            max_bytes=max_bytes,
+        )
+    except Exception as exc:
+        raise SkillFileError(str(exc), operation="atomic_write_bytes", source=_source_name(p)) from exc
+    return Path(written)
+
+
+def atomic_write_text(
+    path: str | Path,
+    text: str,
+    *,
+    root: str | Path | None = None,
+    create_parents: bool = True,
+    max_bytes: int | None = DEFAULT_FILE_MAX_BYTES,
+) -> Path:
+    """Atomically write UTF-8 text and return the written path."""
+    p = ensure_within_root(root, path) if root is not None else Path(path)
+    try:
+        written = _core_symbol("atomic_write_text")(
+            str(p),
+            text,
+            create_parents=create_parents,
+            max_bytes=max_bytes,
+        )
+    except Exception as exc:
+        raise SkillFileError(str(exc), operation="atomic_write_text", source=_source_name(p)) from exc
+    return Path(written)
+
+
+def bytes_digest(
+    data: bytes | bytearray | memoryview,
+    *,
+    algorithm: str = "sha256",
+    max_bytes: int | None = DEFAULT_FILE_MAX_BYTES,
+) -> str:
+    """Hash bytes with the Rust-backed SHA-256 helper."""
+    _ensure_supported_algorithm(algorithm, "sha256", operation="bytes_digest")
+    payload = _coerce_bytes(data, operation="bytes_digest")
+    try:
+        return _core_symbol("bytes_digest_sha256")(payload, max_bytes=max_bytes)
+    except Exception as exc:
+        raise SkillFileError(str(exc), operation="bytes_digest") from exc
+
+
+def file_digest(
+    path: str | Path,
+    *,
+    algorithm: str = "sha256",
+    root: str | Path | None = None,
+    max_bytes: int | None = DEFAULT_FILE_MAX_BYTES,
+) -> str:
+    """Stream-hash a file with the Rust-backed SHA-256 helper."""
+    _ensure_supported_algorithm(algorithm, "sha256", operation="file_digest")
+    p = ensure_within_root(root, path, must_exist=True) if root is not None else Path(path)
+    try:
+        return _core_symbol("file_digest_sha256")(str(p), max_bytes=max_bytes)
+    except Exception as exc:
+        raise SkillFileError(str(exc), operation="file_digest", source=_source_name(p)) from exc
+
+
+def compress_bytes(
+    data: bytes | bytearray | memoryview,
+    *,
+    algorithm: str = "lz4",
+    max_bytes: int | None = DEFAULT_PAYLOAD_MAX_BYTES,
+) -> bytes:
+    """Compress bytes with Rust-backed LZ4 frame encoding."""
+    _ensure_supported_algorithm(algorithm, "lz4", operation="compress_bytes")
+    payload = _coerce_bytes(data, operation="compress_bytes")
+    try:
+        return _core_symbol("lz4_compress")(payload, max_bytes=max_bytes)
+    except Exception as exc:
+        raise SkillFileError(str(exc), operation="compress_bytes") from exc
+
+
+def decompress_bytes(
+    data: bytes | bytearray | memoryview,
+    *,
+    algorithm: str = "lz4",
+    max_bytes: int | None = DEFAULT_PAYLOAD_MAX_BYTES,
+) -> bytes:
+    """Decompress LZ4 frame bytes with a Rust-backed output-size guard."""
+    _ensure_supported_algorithm(algorithm, "lz4", operation="decompress_bytes")
+    payload = _coerce_bytes(data, operation="decompress_bytes")
+    try:
+        return _core_symbol("lz4_decompress")(payload, max_bytes=max_bytes)
+    except Exception as exc:
+        raise SkillFileError(str(exc), operation="decompress_bytes") from exc
+
+
 def skill_error_from_exception(
     exc: BaseException,
     *,
@@ -245,13 +391,23 @@ def __dir__() -> list[str]:
 
 
 _DIRECT_EXPORTS = [
+    "DEFAULT_FILE_MAX_BYTES",
+    "DEFAULT_PAYLOAD_MAX_BYTES",
+    "SkillFileError",
     "SkillCodecError",
     "SkillHelperError",
+    "atomic_write_bytes",
+    "atomic_write_text",
+    "bytes_digest",
+    "compress_bytes",
+    "decompress_bytes",
     "dump_json_file",
     "dump_json_text",
     "dump_text",
     "dump_yaml_file",
     "dump_yaml_text",
+    "ensure_within_root",
+    "file_digest",
     "json_dumps",
     "json_loads",
     "load_json_file",

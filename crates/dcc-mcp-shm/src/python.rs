@@ -9,14 +9,16 @@
 
 use std::time::Duration;
 
-use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::PyBytes;
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::{
     gen_stub_pyclass, gen_stub_pyclass_enum, gen_stub_pyfunction, gen_stub_pymethods,
 };
 
 use crate::buffer::{BufferDescriptor, SharedBuffer, gc_orphans, short_id};
+use crate::compress;
 use crate::error::ShmError;
 use crate::pool::{BufferPool, PooledBuffer};
 use crate::scene::{SceneDataKind, SharedSceneBuffer};
@@ -356,6 +358,44 @@ fn py_gc_orphans(max_age_secs: f64) -> usize {
     gc_orphans(Duration::from_secs_f64(max_age_secs))
 }
 
+fn ensure_bounded(len: usize, max_bytes: Option<usize>, label: &str) -> PyResult<()> {
+    if let Some(max_bytes) = max_bytes
+        && len > max_bytes
+    {
+        return Err(PyValueError::new_err(format!(
+            "{label} is {len} bytes, exceeding max_bytes={max_bytes}"
+        )));
+    }
+    Ok(())
+}
+
+/// Compress ``data`` using LZ4 frame encoding.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
+#[pyfunction(name = "lz4_compress")]
+#[pyo3(signature = (data, max_bytes=None))]
+fn py_lz4_compress(py: Python<'_>, data: Vec<u8>, max_bytes: Option<usize>) -> PyResult<Py<PyAny>> {
+    ensure_bounded(data.len(), max_bytes, "byte payload")?;
+    let compressed = compress::compress(&data).map_err(to_py)?;
+    Ok(PyBytes::new(py, &compressed).unbind().into_any())
+}
+
+/// Decompress LZ4 frame-encoded ``data`` with an output size guard.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
+#[pyfunction(name = "lz4_decompress")]
+#[pyo3(signature = (data, max_bytes=None))]
+fn py_lz4_decompress(
+    py: Python<'_>,
+    data: Vec<u8>,
+    max_bytes: Option<usize>,
+) -> PyResult<Py<PyAny>> {
+    let decompressed = match max_bytes {
+        Some(max_bytes) => compress::decompress_with_limit(&data, max_bytes),
+        None => compress::decompress(&data),
+    }
+    .map_err(to_py)?;
+    Ok(PyBytes::new(py, &decompressed).unbind().into_any())
+}
+
 /// Register all PyO3 classes from this crate into `m`.
 pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySharedBuffer>()?;
@@ -363,6 +403,8 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySceneDataKind>()?;
     m.add_class::<PySharedSceneBuffer>()?;
     m.add_function(wrap_pyfunction!(py_gc_orphans, m)?)?;
+    m.add_function(wrap_pyfunction!(py_lz4_compress, m)?)?;
+    m.add_function(wrap_pyfunction!(py_lz4_decompress, m)?)?;
     Ok(())
 }
 

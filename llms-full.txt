@@ -602,8 +602,14 @@ for s in skills:
 ```python
 from dcc_mcp_core.skills_helper import (
     SkillCodecError,
+    SkillFileError,
+    atomic_write_text,
     check_cancelled,
+    compress_bytes,
+    decompress_bytes,
     dump_json_file,
+    ensure_within_root,
+    file_digest,
     json_dumps,
     json_loads,
     load_json_file,
@@ -616,13 +622,18 @@ from dcc_mcp_core.skills_helper import (
 ```
 
 Canonical skill-authoring namespace for Rust-backed, dependency-light helpers.
-Use it for JSON/YAML codecs, standard result helpers, schema validation,
-MCP/REST argument normalization, and cancellation checks. Legacy imports such
-as `from dcc_mcp_core import json_dumps` remain compatibility re-exports of
-the same functions. Use `load_json_file` / `load_yaml_file` when a skill needs
-explicit UTF-8 handling, byte limits, source-aware errors, or mapping-root
-validation. TOML runtime helpers are intentionally deferred until a real skill
-script use case needs dependency-free TOML read/write support on Python 3.7.
+Use it for JSON/YAML codecs, bounded file/path helpers, standard result helpers,
+schema validation, MCP/REST argument normalization, and cancellation checks.
+Legacy imports such as `from dcc_mcp_core import json_dumps` remain
+compatibility re-exports of the same functions. Use `load_json_file` /
+`load_yaml_file` when a skill needs explicit UTF-8 handling, byte limits,
+source-aware errors, or mapping-root validation. Use `ensure_within_root` for
+trusted workspace/session roots, `atomic_write_text` / `atomic_write_bytes` for
+same-directory temp-file writes, `file_digest` / `bytes_digest` for SHA-256,
+and `compress_bytes` / `decompress_bytes` for bounded LZ4 frames. Use `FileRef`
+and artefact helpers when a file crosses tool or MCP resource boundaries. TOML
+runtime helpers are intentionally deferred until a real skill script use case
+needs dependency-free TOML read/write support on Python 3.7.
 
 ### register_metadata_driven_tools
 
