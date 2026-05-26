@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 import importlib
+import json as _json
 from pathlib import Path
 from typing import Any
 
@@ -154,14 +155,29 @@ def _core_symbol(name: str) -> Any:
     return getattr(_core, name)
 
 
+def _optional_core_symbol(name: str) -> Any:
+    try:
+        return _core_symbol(name)
+    except ModuleNotFoundError as exc:
+        if exc.name == "dcc_mcp_core._core":
+            return None
+        raise
+
+
 def json_dumps(obj: Any, *, ensure_ascii: bool = True, indent: int | None = None) -> str:
-    """Serialize *obj* to JSON using the Rust-backed codec."""
-    return _core_symbol("json_dumps")(obj, ensure_ascii=ensure_ascii, indent=indent)
+    """Serialize *obj* to JSON, preferring the Rust-backed codec when available."""
+    dumps = _optional_core_symbol("json_dumps")
+    if dumps is not None:
+        return dumps(obj, ensure_ascii=ensure_ascii, indent=indent)
+    return _json.dumps(obj, ensure_ascii=ensure_ascii, indent=indent)
 
 
 def json_loads(s: str) -> Any:
-    """Deserialize JSON text using the Rust-backed codec."""
-    return _core_symbol("json_loads")(s)
+    """Deserialize JSON text, preferring the Rust-backed codec when available."""
+    loads = _optional_core_symbol("json_loads")
+    if loads is not None:
+        return loads(s)
+    return _json.loads(s)
 
 
 def yaml_dumps(obj: Any) -> str:

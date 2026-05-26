@@ -14,6 +14,7 @@ import threading
 import time
 from typing import Any
 from typing import Callable
+from typing import Optional
 
 from dcc_mcp_core._server.callable_dispatcher import AdaptivePumpPolicy
 from dcc_mcp_core._server.callable_dispatcher import DrainStats
@@ -40,7 +41,7 @@ __all__ = [
 ]
 
 
-HostTick = Callable[[], float | None]
+HostTick = Callable[[], Optional[float]]
 
 
 @runtime_checkable

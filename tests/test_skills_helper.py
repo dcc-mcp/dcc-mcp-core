@@ -34,6 +34,18 @@ def test_skills_helper_json_yaml_codecs_roundtrip() -> None:
     assert skills_helper.yaml_loads(yaml_encoded) == payload
 
 
+def test_skills_helper_json_codecs_fall_back_without_core(monkeypatch) -> None:
+    def missing_core(_name: str):
+        raise ModuleNotFoundError("No module named 'dcc_mcp_core._core'", name="dcc_mcp_core._core")
+
+    monkeypatch.setattr(skills_helper, "_core_symbol", missing_core)
+
+    encoded = skills_helper.json_dumps({"name": "café"}, ensure_ascii=False)
+
+    assert "café" in encoded
+    assert skills_helper.json_loads(encoded) == {"name": "café"}
+
+
 def test_legacy_top_level_codecs_reexport_skills_helper() -> None:
     assert dcc_mcp_core.json_dumps is skills_helper.json_dumps
     assert dcc_mcp_core.json_loads is skills_helper.json_loads

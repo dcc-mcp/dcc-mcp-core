@@ -23,6 +23,10 @@ inputs:
     description: 'Test the built wheel'
     required: false
     default: 'true'
+  generate-stubs:
+    description: 'Generate Python type stubs before building the wheel'
+    required: false
+    default: 'true'
   artifact-name:
     description: 'Artifact name'
     required: false
@@ -122,6 +126,7 @@ runs:
         test -f crates/dcc-mcp-gateway/src/gateway/admin/generated/index.html
 
     - name: Generate type stubs
+      if: inputs.generate-stubs == 'true'
       shell: bash
       env:
         DCC_MCP_ADMIN_UI_PREBUILT: "1"

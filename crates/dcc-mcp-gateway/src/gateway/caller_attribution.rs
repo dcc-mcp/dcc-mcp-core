@@ -25,11 +25,7 @@ pub(crate) struct ClientNetworkAttribution {
 /// These internal headers are overwritten at the gateway boundary so external
 /// clients cannot set `source_ip` or `forwarded_for` through ordinary request
 /// metadata. Handlers convert them into `AgentContext` server fields.
-pub(crate) async fn caller_attribution_middleware(
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    mut req: Request<Body>,
-    next: Next,
-) -> Response {
+pub(crate) async fn caller_attribution_middleware(mut req: Request<Body>, next: Next) -> Response {
     {
         let headers = req.headers_mut();
         headers.remove(INTERNAL_SOURCE_IP_HEADER);
@@ -37,6 +33,11 @@ pub(crate) async fn caller_attribution_middleware(
         headers.remove(INTERNAL_AUTH_SUBJECT_HEADER);
     }
 
+    let addr = req
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ConnectInfo(addr)| *addr)
+        .unwrap_or_else(loopback_socket_addr);
     let attribution = derive_client_network_attribution(&addr, req.headers());
     if let Some(source_ip) = attribution.source_ip
         && let Ok(value) = HeaderValue::from_str(&source_ip)
@@ -52,6 +53,10 @@ pub(crate) async fn caller_attribution_middleware(
     }
 
     next.run(req).await
+}
+
+fn loopback_socket_addr() -> SocketAddr {
+    SocketAddr::from(([127, 0, 0, 1], 0))
 }
 
 #[must_use]
