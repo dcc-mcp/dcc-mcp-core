@@ -94,12 +94,19 @@ into a faster authoring loop.
    boundaries.
 7. When changing adapter server wiring or caller examples, keep Admin telemetry
    useful: pass optional `agent_context` / `caller_context` summaries through
-   MCP `_meta`, REST `meta`, or `x-dcc-mcp-agent-*` headers when the caller is
-   an agent. Include only explicit summaries, plans, observations, model
-   identity (`model_provider`, `model_version`, optional legacy `model`),
+   MCP `_meta`, REST `meta`, `x-dcc-mcp-agent-*`, `x-dcc-mcp-actor-*`, or
+   `x-dcc-mcp-client-*` headers when the caller is an agent. Include only
+   explicit summaries, plans, observations, actor identity
+   (`actor_id`, `actor_name`, optional `actor_email_hash`), agent identity
+   (`agent_id`, `agent_name`, `agent_kind`, `agent_version`,
+   `model_provider`, `model_version`, optional legacy `model`), client
+   identity (`client_platform`, `client_os`, `client_host`), auth subject,
    turn correlation (`session_id`, `turn_id`), hashes, character counts, and
    correlation ids; never ask tools to expose hidden chain-of-thought, raw user
-   input, or raw agent replies. Preserve
+   input, or raw agent replies. Treat `source_ip` and `forwarded_for` as
+   server-derived fields only: caller metadata and examples must not spoof
+   them, and adapters should let the HTTP/gateway boundary attach those values.
+   Preserve
    Admin `links` fields in examples so every trace/debug bundle, OpenAPI
    Inspector/spec link, or issue-report JSON export can be copied as a complete
    URL into a follow-up agent, LLM evaluation prompt, or GitHub issue. When an
@@ -168,13 +175,15 @@ into a faster authoring loop.
    Gateway OTLP spans mirror the same agent workflow chain with bounded
    attributes: `gateway.search`, `gateway.describe`, `gateway.load_skill`,
    `gateway.call`, and `gateway.call_batch` use `openinference.span.kind` plus
-   `dcc_mcp.*` fields for agent id/name/kind/model provider/model version/
-   reasoning effort/turn id/task/tags, bounded user-intent and reply summaries,
-   user/reply hashes and character counts, DCC route,
-   `search_id`, selected rank/score/match reasons, policy outcome, and
-   success/error kind. Adapter docs and examples should preserve those
-   correlation fields but must not put hidden reasoning, secrets, raw prompts,
-   raw agent replies, or unbounded request bodies into `agent_context` metadata.
+   `dcc_mcp.*` fields for actor id/name/email hash, agent
+   id/name/kind/version/model provider/model version/reasoning effort, client
+   platform/os/host, auth subject, server-derived source ip/forwarded-for,
+   turn id/task/tags, bounded user-intent and reply summaries, user/reply
+   hashes and character counts, DCC route, `search_id`, selected
+   rank/score/match reasons, policy outcome, and success/error kind. Adapter
+   docs and examples should preserve those correlation fields but must not put
+   hidden reasoning, secrets, raw prompts, raw agent replies, or unbounded
+   request bodies into `agent_context` metadata.
    Raw prompt/reply capture belongs only in an explicitly configured traffic
    capture policy with redaction, sampling, retention, and clear Admin
    visibility.
@@ -343,7 +352,7 @@ into a faster authoring loop.
     app_ui roles, keep raw coordinate and keyboard shortcut fallbacks disabled
     by default, and skip live UIA tests cleanly when Windows accessibility APIs
     are unavailable.
-15. For headless USD/OpenUSD-style adapters, expose filesystem-backed project
+16. For headless USD/OpenUSD-style adapters, expose filesystem-backed project
     state with `register_usd_project_resources(...)` instead of inventing
     adapter-local URI shapes. Keep the canonical `openusd://stage`,
     `openusd://layers`, `openusd://assets`, `openusd://materials`,
