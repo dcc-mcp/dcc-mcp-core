@@ -27,6 +27,12 @@ from dcc_mcp_core._server.config import collect_context_metadata_from_env
 from dcc_mcp_core._server.config import resolve_diagnostics_state
 from dcc_mcp_core._server.config import resolve_execution_binding
 from dcc_mcp_core._server.config import resolve_observability_flags
+from dcc_mcp_core._server.host_pump import HostPumpController
+from dcc_mcp_core._server.host_pump import HostPumpSnapshot
+from dcc_mcp_core._server.host_pump import HostPumpTimerAdapter
+from dcc_mcp_core._server.host_pump import ManualHostTimerAdapter
+from dcc_mcp_core._server.host_pump import QtHostTimerAdapter
+from dcc_mcp_core._server.host_pump import ThreadedHostTimerAdapter
 from dcc_mcp_core._server.host_ui_dispatcher import DEFAULT_UI_JOB_TIMEOUT_MS
 from dcc_mcp_core._server.host_ui_dispatcher import DispatcherErrorCode
 from dcc_mcp_core._server.host_ui_dispatcher import HostUiDispatcherBase
@@ -90,6 +96,9 @@ __all__ = [
     "FileLoggingManager",
     "GatewayOptions",
     "HostExecutionBridge",
+    "HostPumpController",
+    "HostPumpSnapshot",
+    "HostPumpTimerAdapter",
     "HostUiDispatcherBase",
     "HostUiJobEntry",
     "InProcessCallableDispatcher",
@@ -98,16 +107,19 @@ __all__ = [
     "JobEntry",
     "JobOutcome",
     "JobPersistenceManager",
+    "ManualHostTimerAdapter",
     "MinimalModeConfig",
     "ObservabilityFlags",
     "ObservabilityOptions",
     "PendingEnvelope",
     "PumpStats",
+    "QtHostTimerAdapter",
     "ServerLifecycleController",
     "ServerRuntimeController",
     "SkillQueryClient",
     "StandaloneMainThreadExecution",
     "TelemetryManager",
+    "ThreadedHostTimerAdapter",
     "ToolsListStubPolicy",
     "WindowResolver",
     "apply_tools_list_stub_policy",
