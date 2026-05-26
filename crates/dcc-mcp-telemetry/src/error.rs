@@ -35,8 +35,8 @@ pub enum TelemetryError {
     Internal(String),
 }
 
-impl From<opentelemetry_sdk::trace::TraceError> for TelemetryError {
-    fn from(e: opentelemetry_sdk::trace::TraceError) -> Self {
+impl From<opentelemetry_sdk::error::OTelSdkError> for TelemetryError {
+    fn from(e: opentelemetry_sdk::error::OTelSdkError) -> Self {
         TelemetryError::TracerProviderSetup(e.to_string())
     }
 }
@@ -95,9 +95,10 @@ mod tests {
         use super::*;
 
         #[test]
-        fn from_trace_error() {
-            let trace_err = opentelemetry_sdk::trace::TraceError::Other("test error".into());
-            let tel_err = TelemetryError::from(trace_err);
+        fn from_otel_sdk_error() {
+            let sdk_err =
+                opentelemetry_sdk::error::OTelSdkError::InternalFailure("test error".into());
+            let tel_err = TelemetryError::from(sdk_err);
             assert!(matches!(tel_err, TelemetryError::TracerProviderSetup(_)));
         }
     }
