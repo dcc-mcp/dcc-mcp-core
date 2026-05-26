@@ -103,3 +103,10 @@ status, DCC type, tool family, timing, sanitized error kind, token accounting,
 redaction status, and relative debug links without raw payload previews or local
 machine details. Full debug bundles remain a core-owned explicit raw export
 (`?mode=raw`) for reviewed local evidence only.
+
+Gateway/admin token accounting has two distinct concepts. Payload token fields
+(`payload_token_usage`, `payload_token_accounting`, trace input/output tokens)
+estimate captured request/response previews and must report missing coverage
+explicitly. Response token accounting (`token_usage`, `response_token_accounting`,
+original/returned/saved tokens) describes JSON/TOON compaction savings and must
+not be used as a substitute for missing payload estimates.

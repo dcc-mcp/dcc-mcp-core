@@ -574,6 +574,21 @@ type TokenUsageStats = {
   by_response_format?: TokenBreakdownEntry[];
 };
 
+type PayloadTokenUsageStats = {
+  token_estimator?: string;
+  total_input_tokens?: number;
+  total_output_tokens?: number;
+  total_tokens?: number;
+  calls_with_input_tokens?: number;
+  calls_with_output_tokens?: number;
+  calls_with_any_payload_tokens?: number;
+  calls_missing_payload_tokens?: number;
+  avg_input_tokens_per_call?: number;
+  avg_output_tokens_per_call?: number;
+  avg_total_tokens_per_call?: number;
+  avg_total_tokens_per_recorded_call?: number;
+};
+
 type StatsPayload = {
   range: string;
   total_calls: number;
@@ -598,6 +613,7 @@ type StatsPayload = {
   top_actors?: AttributionFacet[];
   top_client_platforms?: AttributionFacet[];
   top_source_ips?: AttributionFacet[];
+  payload_token_usage?: PayloadTokenUsageStats;
   token_usage?: TokenUsageStats;
   hourly_distribution?: number[];
   governance?: GovernanceStats;
@@ -4901,8 +4917,20 @@ function App() {
             <div className="metric-grid">
               <MetricTile label={t('stats.metric.calls')} value={stats?.total_calls ?? 0} detail={t('stats.detail.window', { range: statsRange })} />
               <MetricTile tone={errorRateTone(stats)} label={t('stats.metric.success')} value={stats ? `${stats.success_rate.toFixed(1)}%` : '0.0%'} detail={t('stats.detail.okFailed', { ok: statsSummary.success, failed: statsSummary.failed })} />
-              <MetricTile label={t('stats.metric.payloadTokens')} value={formatTokenCount(stats?.total_tokens ?? statsSummary.totalTokens)} detail={t('stats.detail.avgPerCall', { value: formatTokenCount(stats?.avg_tokens_per_call ?? stats?.avg_total_tokens_per_call ?? statsSummary.avgTokens) })} />
-              <MetricTile label={t('stats.metric.inputOutputTokens')} value={formatTokenCount(stats?.total_input_tokens ?? statsSummary.totalInputTokens)} detail={t('stats.detail.output', { value: formatTokenCount(stats?.total_output_tokens ?? statsSummary.totalOutputTokens) })} />
+              <MetricTile
+                label={t('stats.metric.payloadTokens')}
+                value={formatTokenCount(stats?.payload_token_usage?.total_tokens ?? stats?.total_tokens ?? statsSummary.totalTokens)}
+                detail={t('stats.detail.payloadCoverage', {
+                  avg: formatTokenCount(stats?.payload_token_usage?.avg_total_tokens_per_call ?? stats?.avg_tokens_per_call ?? stats?.avg_total_tokens_per_call ?? statsSummary.avgTokens),
+                  recorded: stats?.payload_token_usage?.calls_with_any_payload_tokens ?? 0,
+                  missing: stats?.payload_token_usage?.calls_missing_payload_tokens ?? 0,
+                })}
+              />
+              <MetricTile
+                label={t('stats.metric.inputOutputTokens')}
+                value={formatTokenCount(stats?.payload_token_usage?.total_input_tokens ?? stats?.total_input_tokens ?? statsSummary.totalInputTokens)}
+                detail={t('stats.detail.output', { value: formatTokenCount(stats?.payload_token_usage?.total_output_tokens ?? stats?.total_output_tokens ?? statsSummary.totalOutputTokens) })}
+              />
               <MetricTile tone={latencyTone(stats?.latency_ms?.p50_ms ?? stats?.p50_ms)} label={t('stats.metric.p50Latency')} value={formatDurationMs(stats?.latency_ms?.p50_ms ?? stats?.p50_ms)} />
               <MetricTile tone={latencyTone(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} label={t('stats.metric.p95Latency')} value={formatDurationMs(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} />
               <MetricTile
@@ -4919,7 +4947,7 @@ function App() {
               <MetricTile
                 label={t('stats.metric.responseFormat')}
                 value={health?.response_format?.default ?? 'toon'}
-                detail={stats?.payload_token_estimator ?? health?.response_format?.token_estimator ?? t('stats.detail.tokenEstimatorUnavailable')}
+                detail={stats?.payload_token_usage?.token_estimator ?? stats?.payload_token_estimator ?? health?.response_format?.token_estimator ?? t('stats.detail.tokenEstimatorUnavailable')}
               />
             </div>
             <div className="stats-charts">
