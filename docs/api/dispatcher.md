@@ -15,7 +15,8 @@ into reusable contracts so each adapter only supplies host-specific glue.
 `DispatcherErrorCode`, `host_ui_outcome`, `InProcessCallableDispatcher`,
 `JobEntry`, `JobOutcome`, `PendingEnvelope`, `DrainStats`, `PumpStats`,
 `current_callable_job`, `current_host_ui_job`, `MinimalModeConfig`,
-`build_inprocess_executor`, `run_skill_script`.
+`build_inprocess_executor`, `run_skill_script`, `SidecarActionDispatcher`,
+`SidecarDispatchRequest`.
 
 ## When to use what
 
@@ -25,6 +26,7 @@ into reusable contracts so each adapter only supplies host-specific glue.
 | Wire a single `dispatch_callable(func, *args, **kwargs)` shim | `BaseDccCallableDispatcher` (#521) |
 | Full submit / cancel / shutdown contract | `BaseDccCallableDispatcherFull` (#520) |
 | Sidecar-to-DCC transport for Qt-bearing hosts | `dcc_mcp_core.qt_dispatcher.start_qt_server` + `qtserver://` |
+| Script-backed sidecar dispatch handler | `SidecarActionDispatcher` (#1274) |
 | Batch / `mayapy` / pytest (no UI thread) | `InProcessCallableDispatcher` only — **do not** subclass `HostUiDispatcherBase` |
 | Cooperative idle-tick that drains a queue (Maya `scriptJob(event=['idle', …])`) | `BaseDccPump` (#520) |
 | Shared active/idle timer backoff for host pump callbacks | `AdaptivePumpPolicy` (#606) |
@@ -79,6 +81,59 @@ Migration notes:
 - Other Qt DCCs should follow the same rule: core owns the JSON-line server,
   request envelopes, stream capture, session info, and `qtserver://`
   compatibility; adapters own host lifecycle and action execution.
+
+## SidecarActionDispatcher
+
+Use `SidecarActionDispatcher` behind a Qt sidecar `dispatch_handler` when the
+sidecar receives script-backed skill calls shaped like
+`{"action": "...", "args": {...}, "request_id": "...", "source_file": "..."}`.
+Core validates the payload, checks that an adapter server is running, resolves a
+registered action or bundled skill `source_file`, executes through an adapter
+hook, and normalizes the result envelope.
+
+```python
+from dcc_mcp_core.qt_dispatcher import start_qt_server
+from dcc_mcp_core.sidecar import SidecarActionDispatcher
+
+dispatcher = SidecarActionDispatcher(
+    "maya",
+    server_provider=get_running_server,
+    action_resolver=resolve_registered_action,
+    executor=SidecarActionDispatcher.maya_executor(execute_in_process),
+    bundled_skill_roots=[bundled_skill_root],
+)
+
+handle = start_qt_server(
+    port=0,
+    dispatch_handler=dispatcher.dispatch_payload,
+    session_info_provider=lambda: {"dcc": "maya"},
+)
+```
+
+For adapters that already expose a direct host RPC method (for example a native
+`HostRpcClient` call that does not execute skill scripts), keep using that
+direct client. `SidecarActionDispatcher` is specifically for the script-backed
+skill path where adapter implementations otherwise repeat the same validation,
+action lookup, source-file resolution, error-code mapping, and JSON-safe result
+wrapping.
+
+Supported executor hooks:
+
+- Maya-style:
+  `SidecarActionDispatcher.maya_executor(execute_in_process)` adapts
+  `execute_in_process(server, script_path, args, action_name)`.
+- Script-runner style:
+  `SidecarActionDispatcher.script_executor(run_skill_script)` adapts
+  `run_skill_script(script_path, args)` for 3ds Max-like sidecars.
+- Custom:
+  pass `executor(request)` and read `SidecarDispatchRequest` fields such as
+  `server`, `action`, `args`, `script_path`, `skill_name`, `thread_affinity`,
+  `execution`, and `timeout_hint_secs`.
+
+Standard adapter-facing error codes are `server-not-running`,
+`payload-malformed`, `unknown-action`, `no-source-file`, and `dispatch-failed`.
+They follow the existing result-envelope shape:
+`{"success": false, "message": "...", "error": "<code>", "context": {...}}`.
 
 ## BaseDccCallableDispatcher (minimal)
 
