@@ -16,6 +16,8 @@ on:
     secrets:
       CLAWHUB_TOKEN:
         required: true
+      PERSONAL_ACCESS_TOKEN:
+        required: false
   pull_request:
     branches:
       - main
@@ -65,6 +67,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.checkout-ref || github.ref }}
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}
 
       - name: Set up Python
         uses: actions/setup-python@v5

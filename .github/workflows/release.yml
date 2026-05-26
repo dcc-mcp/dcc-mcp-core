@@ -28,31 +28,23 @@ permissions:
   actions: read
 
 jobs:
-  # ── Decide what to release (release-please for push, manual backfill for dispatch) ──
-  release-please:
+  # ── Manual backfill path for an existing release/tag ──
+  #
+  # Keep this separate from release-please so asset backfills can still run if
+  # the release-please action cannot be downloaded during job setup.
+  release-backfill:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
     outputs:
-      release_created: ${{ steps.decide.outputs.release_created }}
-      tag_name: ${{ steps.decide.outputs.tag_name }}
-      version: ${{ steps.decide.outputs.version }}
+      release_created: ${{ steps.validate.outputs.release_created }}
+      tag_name: ${{ steps.validate.outputs.tag_name }}
+      version: ${{ steps.validate.outputs.version }}
     steps:
-      - uses: actions/checkout@v6
-        if: github.event_name == 'push'
-
-      - name: Classify push release state
-        id: push-preflight
-        if: github.event_name == 'push'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_SHA: ${{ github.sha }}
-        run: python scripts/ci/release_push_preflight.py
-
       - name: Validate manual release backfill inputs
-        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        id: validate
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           RELEASE_VERSION: ${{ inputs.release_version }}
         run: |
@@ -65,6 +57,32 @@ jobs:
             exit 1
           fi
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+          echo "release_created=true" >> "$GITHUB_OUTPUT"
+          echo "tag_name=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+
+  # ── Decide what to release on main pushes ──
+  release-please:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.release_tag == '')
+    outputs:
+      release_created: ${{ steps.decide.outputs.release_created }}
+      tag_name: ${{ steps.decide.outputs.tag_name }}
+      version: ${{ steps.decide.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        if: github.event_name == 'push'
+        with:
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}
+
+      - name: Classify push release state
+        id: push-preflight
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: python scripts/ci/release_push_preflight.py
 
       - uses: googleapis/release-please-action@v5
         if: >-
@@ -72,15 +90,13 @@ jobs:
           steps.push-preflight.outputs.skip_release_please != 'true'
         id: release
         with:
-          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
       - name: Decide release outputs
         id: decide
         env:
-          BACKFILL_TAG: ${{ inputs.release_tag }}
-          BACKFILL_VERSION: ${{ inputs.release_version }}
           RP_RELEASE_CREATED: ${{ steps.release.outputs.release_created }}
           RP_TAG_NAME: ${{ steps.release.outputs.tag_name }}
           RP_VERSION: ${{ steps.release.outputs.version }}
@@ -88,11 +104,7 @@ jobs:
           PREFLIGHT_TAG_NAME: ${{ steps.push-preflight.outputs.tag_name }}
           PREFLIGHT_VERSION: ${{ steps.push-preflight.outputs.version }}
         run: |
-          if [ -n "$BACKFILL_TAG" ]; then
-            release_created=true
-            tag_name="$BACKFILL_TAG"
-            version="$BACKFILL_VERSION"
-          elif [ "$PREFLIGHT_RELEASE_CREATED" = "true" ]; then
+          if [ "$PREFLIGHT_RELEASE_CREATED" = "true" ]; then
             release_created=true
             tag_name="$PREFLIGHT_TAG_NAME"
             version="$PREFLIGHT_VERSION"
@@ -106,14 +118,48 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Release decision: created=$release_created tag=$tag_name version=$version"
 
+  release-decision:
+    runs-on: ubuntu-latest
+    needs: [release-backfill, release-please]
+    if: always()
+    outputs:
+      release_created: ${{ steps.decide.outputs.release_created }}
+      tag_name: ${{ steps.decide.outputs.tag_name }}
+      version: ${{ steps.decide.outputs.version }}
+    steps:
+      - name: Decide release outputs
+        id: decide
+        env:
+          BACKFILL_CREATED: ${{ needs.release-backfill.outputs.release_created }}
+          BACKFILL_TAG: ${{ needs.release-backfill.outputs.tag_name }}
+          BACKFILL_VERSION: ${{ needs.release-backfill.outputs.version }}
+          RP_CREATED: ${{ needs.release-please.outputs.release_created }}
+          RP_TAG: ${{ needs.release-please.outputs.tag_name }}
+          RP_VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          if [ "$BACKFILL_CREATED" = "true" ]; then
+            release_created=true
+            tag_name="$BACKFILL_TAG"
+            version="$BACKFILL_VERSION"
+          else
+            release_created="${RP_CREATED:-false}"
+            tag_name="$RP_TAG"
+            version="$RP_VERSION"
+          fi
+          echo "release_created=$release_created" >> "$GITHUB_OUTPUT"
+          echo "tag_name=$tag_name" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Release decision: created=$release_created tag=$tag_name version=$version"
+
   build-admin-ui:
-    needs: [release-please]
-    if: needs.release-please.outputs.release_created == 'true'
+    needs: [release-decision]
+    if: always() && needs.release-decision.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ needs.release-decision.outputs.tag_name }}
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}
 
       - uses: loonghao/vx@v0.9.2
         with:
@@ -151,8 +197,8 @@ jobs:
   # one release lifecycle for the workspace, and `dcc-mcp-server` ships
   # at the same workspace.package.version as `dcc-mcp-core`.
   build-binaries:
-    needs: [release-please, build-admin-ui]
-    if: needs.release-please.outputs.release_created == 'true'
+    needs: [release-decision, build-admin-ui]
+    if: always() && needs.release-decision.outputs.release_created == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -178,7 +224,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ needs.release-decision.outputs.tag_name }}
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@master
@@ -302,7 +349,8 @@ jobs:
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ needs.release-please.outputs.tag_name }}
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}
+          tag_name: ${{ needs.release-decision.outputs.tag_name }}
           files: |
             ${{ matrix.artifact_name }}
             ${{ matrix.cli_artifact_name }}
@@ -310,30 +358,32 @@ jobs:
 
   # ── Build wheels only when release-please creates a release ──
   build-wheels:
-    needs: [release-please]
-    if: needs.release-please.outputs.release_created == 'true'
+    needs: [release-decision]
+    if: always() && needs.release-decision.outputs.release_created == 'true'
     uses: ./.github/workflows/build-wheels.yml
     with:
       # Release runs publish artefacts after PR CI has already enforced the
       # test gates. Keep this path build-only so a tag can publish as soon as
       # every wheel/binary is produced successfully.
       test-wheel: ${{ 'false' }}
-      checkout-ref: ${{ needs.release-please.outputs.tag_name }}
+      checkout-ref: ${{ needs.release-decision.outputs.tag_name }}
+    secrets: inherit
 
   publish-clawhub-skills:
-    needs: [release-please]
-    if: needs.release-please.outputs.release_created == 'true'
+    needs: [release-decision]
+    if: always() && needs.release-decision.outputs.release_created == 'true'
     uses: ./.github/workflows/clawhub.yml
     with:
-      checkout-ref: ${{ needs.release-please.outputs.tag_name }}
+      checkout-ref: ${{ needs.release-decision.outputs.tag_name }}
       publish: true
     secrets: inherit
 
   # ── Publish to PyPI ──
   publish:
-    needs: [release-please, build-wheels, build-binaries]
+    needs: [release-decision, build-wheels, build-binaries]
     if: |
-      needs.release-please.outputs.release_created == 'true' &&
+      always() &&
+      needs.release-decision.outputs.release_created == 'true' &&
       needs.build-wheels.result == 'success' &&
       needs.build-binaries.result == 'success'
     runs-on: ubuntu-latest
@@ -346,7 +396,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ needs.release-decision.outputs.tag_name }}
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}
 
       - uses: actions/setup-python@v6
         with:
@@ -354,7 +405,7 @@ jobs:
 
       - name: Validate release version
         env:
-          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
+          RELEASE_VERSION: ${{ needs.release-decision.outputs.version }}
         run: |
           python - <<'PY'
           import os
@@ -449,7 +500,8 @@ jobs:
         if: always()
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ needs.release-please.outputs.tag_name }}
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}
+          tag_name: ${{ needs.release-decision.outputs.tag_name }}
           files: |
             dist/*
             dist-server/*
