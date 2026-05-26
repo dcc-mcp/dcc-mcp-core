@@ -1,0 +1,90 @@
+name: Rust Full Matrix
+
+# Full cross-platform Rust validation for drift detection outside the PR fast
+# path. The main CI workflow still runs Linux full Rust checks plus
+# Windows/macOS compile, wheel, install, and Python coverage on every PR.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-matrix-full-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-full:
+    name: Rust full (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Fix cargo PATH on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          CARGO_BIN="$(rustup which cargo)"
+          echo "CARGO=${CARGO_BIN}" >> "$GITHUB_ENV"
+          echo "RUSTC=$(rustup which rustc)" >> "$GITHUB_ENV"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: loonghao/vx@v0.9.2
+        with:
+          version: "0.9.2"
+          cache-key-prefix: "vx-tools-v0.9.2"
+      - name: Prepare admin UI dependencies
+        shell: bash
+        run: |
+          vx node --version
+          vx npm --prefix admin-ui ci --ignore-scripts
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: rust-full-${{ runner.os }}
+          shared-key: rust-full-${{ runner.os }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hakari
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - name: Verify workspace-hack is up to date
+        shell: bash
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            export CARGO="$(rustup which cargo 2>/dev/null || which cargo)"
+          fi
+          cargo-hakari hakari verify && exit 0
+
+          echo "::error::workspace-hack is out of date - run 'cargo hakari generate' locally"
+          echo ""
+          echo "Expected changes to crates/workspace-hack/Cargo.toml:"
+          cargo-hakari hakari generate
+          git diff --no-color crates/workspace-hack/Cargo.toml
+          echo ""
+          echo "::error::Run 'cargo hakari generate' and commit the changes to fix this CI step."
+          exit 1
+      - name: Stub generation
+        if: runner.os == 'Linux'
+        run: vx just stubgen
+      - name: Rust format check
+        if: runner.os == 'Linux'
+        run: vx just fmt-check
+      - name: Clippy
+        run: vx just clippy
+      - name: Rust tests
+        run: vx just test-rust
