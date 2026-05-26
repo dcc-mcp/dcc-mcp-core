@@ -49,7 +49,7 @@ OpenAPI 契约。
 | `GET` | `/v1/debug/traffic/export` | 仅网关：把保留的 live traffic-capture frames 导出为 JSONL。 |
 | `GET` | `/v1/debug/trace-context/{lookup_id}` | 仅网关：按 trace id 或 request id 解析 primary trace context。 |
 | `GET` | `/v1/debug/bundles/{request_id}` | 仅网关：按 request id 或 trace id 取 full-chain debug bundle。 |
-| `GET` | `/v1/debug/issue-reports/{request_id}` | 仅网关：可附到 GitHub issue 的 debug report JSON。 |
+| `GET` | `/v1/debug/issue-reports/{request_id}` | 仅网关：默认 public-safe、可附到 GitHub issue 的 debug report JSON；`?mode=raw` 返回已审阅本地证据用的完整 bundle。 |
 | `GET` | `/v1/debug/workflows` | 仅网关：由 retained search telemetry、traces 和 audits 重建的 agent session/workflow 投影视图。 |
 | `GET` | `/v1/debug/tasks` | 仅网关：从 traces 重建的 task-like snapshot。 |
 | `GET` | `/v1/debug/calls` | 仅网关：最近 audit call rows。 |
@@ -119,7 +119,7 @@ Phase-1 debug routes 会保留现有 Admin payload 字段，让 operator 和 age
 | `/v1/debug/traffic/export?limit=1000` | `/admin/api/traffic/export?limit=1000` | 保留的 live traffic-capture frames JSONL。 |
 | `/v1/debug/trace-context/{lookup_id}` | n/a | 按 `trace_id` 或 `request_id` 做 trace-context lookup。 |
 | `/v1/debug/bundles/{request_id}` | `/admin/api/debug-bundle/{request_id}` | 接受 request ids 和 retained trace ids。 |
-| `/v1/debug/issue-reports/{request_id}` | `/admin/api/issue-report/{request_id}` | 适合附到 GitHub issue 的 JSON export。 |
+| `/v1/debug/issue-reports/{request_id}` | `/admin/api/issue-report/{request_id}` | 默认适合附到 GitHub issue 的 public-safe JSON export；`?mode=raw` 返回完整 debug bundle 供本地审阅。 |
 | `/v1/debug/workflows` | `/admin/api/workflows` | 从 retained search telemetry、traces 和 audits 聚合 agent session/workflow。 |
 | `/v1/debug/tasks` | `/admin/api/tasks` | retained traces 的 task projection。 |
 | `/v1/debug/calls` | `/admin/api/calls` | 最近 audit rows。 |

@@ -1572,7 +1572,10 @@ sinks:
             action: "maya.inst.long_task".into(),
             dcc_type: Some("maya".into()),
             success: false,
-            error: Some("host died".into()),
+            error: Some(
+                "host died while opening C:\\studio\\secret\\shot.ma via http://127.0.0.1:8765/callback"
+                    .into(),
+            ),
             duration_ms: Some(25),
             token_accounting: Some(token_telemetry("toon", 100, 40)),
         }]));
@@ -1719,19 +1722,41 @@ sinks:
         );
 
         let (v1_report_status, v1_report_body) =
-            body_json(v1_router, "/v1/debug/issue-reports/req-task").await;
+            body_json(v1_router.clone(), "/v1/debug/issue-reports/req-task").await;
         assert_eq!(v1_report_status, StatusCode::OK);
         assert_eq!(v1_report_body["request_id"], "req-task");
-        assert_eq!(v1_report_body["debug_bundle"]["trace_id"], "trace-task");
+        assert_eq!(v1_report_body["privacy_mode"], "public-safe");
+        assert_eq!(
+            v1_report_body["summary"]["error"]["kind"],
+            "backend-unavailable"
+        );
+        assert!(v1_report_body.get("debug_bundle").is_none());
+        let (v1_raw_report_status, v1_raw_report_body) = body_json(
+            v1_router,
+            "/v1/debug/issue-reports/req-task?include_raw=true",
+        )
+        .await;
+        assert_eq!(v1_raw_report_status, StatusCode::OK);
+        assert_eq!(v1_raw_report_body["privacy_mode"], "raw-local-evidence");
+        assert_eq!(v1_raw_report_body["debug_bundle"]["trace_id"], "trace-task");
 
-        let (report_status, report_body) = body_json(router, "/api/issue-report/req-task").await;
+        let (report_status, report_body) =
+            body_json(router.clone(), "/api/issue-report/req-task").await;
         assert_eq!(report_status, StatusCode::OK);
         assert_eq!(
             report_body["schema_version"],
             "dcc-mcp.admin.issue-report.v1"
         );
+        assert_eq!(report_body["report_type"], "github_issue_public_safe");
+        assert_eq!(report_body["privacy_mode"], "public-safe");
         assert_eq!(report_body["request_id"], "req-task");
         assert_eq!(report_body["summary"]["status"], "failed");
+        assert_eq!(report_body["summary"]["dcc_type"], "maya");
+        assert_eq!(report_body["summary"]["tool_family"], "long_task");
+        assert_eq!(
+            report_body["summary"]["error"]["kind"],
+            "backend-unavailable"
+        );
         assert_eq!(
             report_body["summary"]["postmortem"]["previous_call_count"],
             1
@@ -1752,21 +1777,72 @@ sinks:
             report_body["summary"]["token_accounting"]["saved_tokens"],
             60
         );
-        assert_eq!(report_body["debug_bundle"]["request_id"], "req-task");
+        assert_eq!(
+            report_body["summary"]["redaction_status"]["raw_payloads_excluded"],
+            true
+        );
+        assert_eq!(
+            report_body["summary"]["redaction_status"]["redaction_markers_detected"],
+            true
+        );
+        assert!(report_body.get("debug_bundle").is_none());
         assert!(
             report_body["github_issue"]["body_template"]
                 .as_str()
-                .is_some_and(|body| body.contains("Upload this JSON export"))
+                .is_some_and(|body| body.contains("Public-safe diagnostics"))
         );
         assert!(
-            report_body["links"]["issue_report_url"]
+            report_body["links"]["safe_issue_report_path"]
                 .as_str()
-                .is_some_and(|url| url.ends_with("/admin/api/issue-report/req-task"))
+                .is_some_and(|url| url == "/admin/api/issue-report/req-task")
         );
         assert!(
-            report_body["links"]["openapi_docs_url"]
+            report_body["links"]["docs_path"]
                 .as_str()
-                .is_some_and(|url| url.ends_with("/docs"))
+                .is_some_and(|url| url == "/docs")
+        );
+        assert!(
+            report_body["raw_debug_bundle"]["admin_path"]
+                .as_str()
+                .is_some_and(|url| url == "/admin/api/issue-report/req-task?mode=raw")
+        );
+        let report_text = serde_json::to_string(&report_body).unwrap();
+        for forbidden in [
+            "http://",
+            "127.0.0.1",
+            "C:\\studio",
+            "secret",
+            "shot.ma",
+            "callback",
+            "scene.ma",
+            "[REDACTED]",
+            "host died while opening",
+        ] {
+            assert!(
+                !report_text.contains(forbidden),
+                "safe issue report leaked {forbidden}: {report_text}"
+            );
+        }
+        let issue_body = report_body["github_issue"]["body_template"]
+            .as_str()
+            .unwrap();
+        for forbidden in ["http://", "127.0.0.1", "C:\\studio", "shot.ma", "scene.ma"] {
+            assert!(
+                !issue_body.contains(forbidden),
+                "safe issue body leaked {forbidden}: {issue_body}"
+            );
+        }
+
+        let (raw_report_status, raw_report_body) =
+            body_json(router, "/api/issue-report/req-task?mode=raw").await;
+        assert_eq!(raw_report_status, StatusCode::OK);
+        assert_eq!(raw_report_body["privacy_mode"], "raw-local-evidence");
+        assert_eq!(raw_report_body["debug_bundle"]["request_id"], "req-task");
+        assert_eq!(raw_report_body["debug_bundle"]["trace_id"], "trace-task");
+        assert!(
+            serde_json::to_string(&raw_report_body)
+                .unwrap()
+                .contains("scene.ma")
         );
     }
 
