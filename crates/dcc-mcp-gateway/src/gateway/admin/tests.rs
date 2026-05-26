@@ -1770,6 +1770,10 @@ sinks:
             "toon"
         );
         assert_eq!(
+            report_body["summary"]["response_token_accounting"]["response_format"],
+            "toon"
+        );
+        assert_eq!(
             report_body["summary"]["token_accounting"]["returned_tokens"],
             40
         );
@@ -1786,6 +1790,15 @@ sinks:
             true
         );
         assert!(report_body.get("debug_bundle").is_none());
+        assert_eq!(
+            report_body["summary"]["payload_tokens"]["missing_payload_tokens"],
+            true
+        );
+        assert!(
+            report_body["summary"]["token_accounting_contract"]["missing_payload_tokens"]
+                .as_str()
+                .is_some()
+        );
         assert!(
             report_body["github_issue"]["body_template"]
                 .as_str()
@@ -2203,6 +2216,15 @@ sinks:
         assert_eq!(body["payload_token_estimator"], "dcc-mcp-byte4-v1");
         assert!(body["total_tokens"].as_u64().is_some());
         assert!(body["avg_tokens_per_call"].as_f64().is_some());
+        assert_eq!(
+            body["payload_token_usage"]["token_estimator"],
+            "dcc-mcp-byte4-v1"
+        );
+        assert!(
+            body["payload_token_usage"]["calls_missing_payload_tokens"]
+                .as_u64()
+                .is_some()
+        );
         assert!(body["latency_ms"]["p50_ms"].as_u64().unwrap() > 0);
         assert!(body["top_app_types"].is_array());
         assert_eq!(body["top_app_types"][0]["name"], "maya");
@@ -2320,6 +2342,14 @@ sinks:
         assert!(rows_with_outputs[0]["output_tokens"].as_u64().is_some());
         assert!(rows_with_inputs[0]["total_tokens"].as_u64().is_some());
         assert!(rows_with_outputs[0]["total_tokens"].as_u64().is_some());
+        assert_eq!(
+            rows_with_inputs[0]["payload_token_accounting"]["kind"],
+            "payload"
+        );
+        assert_eq!(
+            rows_with_outputs[0]["payload_token_accounting"]["missing_payload_tokens"],
+            false
+        );
         assert_eq!(rows_with_inputs[0]["actor"], "Layout Artist");
         assert_eq!(rows_with_inputs[0]["actor_id"], "artist-1");
         assert_eq!(rows_with_inputs[0]["client_platform"], "cursor");
@@ -2376,6 +2406,11 @@ sinks:
         assert_eq!(body["estimated_tokens"], body["total_tokens"]);
         assert_eq!(body["estimated_total_tokens"], body["total_tokens"]);
         assert_eq!(body["payload_token_estimator"], "dcc-mcp-byte4-v1");
+        assert_eq!(body["payload_token_accounting"]["kind"], "payload");
+        assert_eq!(
+            body["payload_token_accounting"]["missing_payload_tokens"],
+            false
+        );
     }
 
     // ── /api/workers (Phase 4) ────────────────────────────────────────────

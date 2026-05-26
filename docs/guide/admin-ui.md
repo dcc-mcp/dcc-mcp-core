@@ -346,6 +346,17 @@ contract view is named **OpenAPI Inspector**. It reads the live gateway
 contract from `?panel=openapi&spec=...&docs=...&label=...`, and links to the
 matching Scalar reference.
 
+Admin token fields intentionally separate two accounting models:
+
+- `payload_token_usage`, trace `input_tokens`/`output_tokens`, and
+  `payload_token_accounting` are deterministic payload-preview estimates from
+  captured request/response bodies. Missing payload estimates are reported as
+  `missing_payload_tokens`, not silently treated as true zero-token payloads.
+- `token_usage`, `response_token_accounting`, and per-call
+  `original_tokens`/`returned_tokens`/`saved_tokens` describe response-format
+  accounting: how many response tokens were returned after JSON/TOON
+  compaction, and how many were saved.
+
 ## API Response Shapes
 
 ```json
@@ -602,12 +613,31 @@ matching Scalar reference.
       "present": true,
       "message_redacted": true
     },
+    "response_token_accounting": {
+      "response_format": "toon",
+      "token_estimator": "dcc-mcp-byte4-v1",
+      "returned_tokens": 54,
+      "saved_tokens": 66,
+      "savings_pct": 55.0
+    },
     "token_accounting": {
       "response_format": "toon",
       "token_estimator": "dcc-mcp-byte4-v1",
       "returned_tokens": 54,
       "saved_tokens": 66,
       "savings_pct": 55.0
+    },
+    "payload_tokens": {
+      "kind": "payload",
+      "token_estimator": "dcc-mcp-byte4-v1",
+      "input_tokens": null,
+      "output_tokens": null,
+      "total_tokens": null,
+      "missing_payload_tokens": true
+    },
+    "token_accounting_contract": {
+      "payload_tokens": "request and response payload preview estimates",
+      "response_token_accounting": "response-format original/returned/saved response tokens"
     },
     "redaction_status": {
       "mode": "public-safe",
@@ -660,6 +690,16 @@ matching Scalar reference.
   "success_rate": 0.98,
   "latency_ms": { "p50_ms": 12, "p95_ms": 48 },
   "top_agents": [{ "name": "Layout Inspector", "count": 12 }],
+  "payload_token_usage": {
+    "token_estimator": "dcc-mcp-byte4-v1",
+    "total_input_tokens": 1200,
+    "total_output_tokens": 900,
+    "total_tokens": 2100,
+    "calls_with_any_payload_tokens": 21,
+    "calls_missing_payload_tokens": 21,
+    "avg_total_tokens_per_call": 50.0,
+    "avg_total_tokens_per_recorded_call": 100.0
+  },
   "token_usage": {
     "total_original_tokens": 7500,
     "total_returned_tokens": 5400,
