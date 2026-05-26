@@ -48,6 +48,7 @@ OpenAPI 契约。
 | `GET` | `/v1/debug/traffic` | 仅网关：显式 `admin_live` sink 保留的 live traffic-capture frames。 |
 | `GET` | `/v1/debug/traffic/export` | 仅网关：把保留的 live traffic-capture frames 导出为 JSONL。 |
 | `GET` | `/v1/debug/trace-context/{lookup_id}` | 仅网关：按 trace id 或 request id 解析 primary trace context。 |
+| `GET` | `/v1/debug/agent-traces/{lookup_id}` | 仅网关：按 trace id 或 request id 获取 compact public-safe agent trace packet。 |
 | `GET` | `/v1/debug/bundles/{request_id}` | 仅网关：按 request id 或 trace id 取 full-chain debug bundle。 |
 | `GET` | `/v1/debug/issue-reports/{request_id}` | 仅网关：默认 public-safe、可附到 GitHub issue 的 debug report JSON；`?mode=raw` 返回已审阅本地证据用的完整 bundle。 |
 | `GET` | `/v1/debug/workflows` | 仅网关：由 retained search telemetry、traces 和 audits 重建的 agent session/workflow 投影视图。 |
@@ -118,6 +119,7 @@ Phase-1 debug routes 会保留现有 Admin payload 字段，让 operator 和 age
 | `/v1/debug/traffic?limit=300` | `/admin/api/traffic?limit=300` | 来自 `admin_live` sink 的 live traffic-capture frames。 |
 | `/v1/debug/traffic/export?limit=1000` | `/admin/api/traffic/export?limit=1000` | 保留的 live traffic-capture frames JSONL。 |
 | `/v1/debug/trace-context/{lookup_id}` | n/a | 按 `trace_id` 或 `request_id` 做 trace-context lookup。 |
+| `/v1/debug/agent-traces/{lookup_id}` | n/a | 单条 retained trace 的 public-safe agent packet；接受 `trace_id` 或 `request_id`。 |
 | `/v1/debug/bundles/{request_id}` | `/admin/api/debug-bundle/{request_id}` | 接受 request ids 和 retained trace ids。 |
 | `/v1/debug/issue-reports/{request_id}` | `/admin/api/issue-report/{request_id}` | 默认适合附到 GitHub issue 的 public-safe JSON export；`?mode=raw` 返回完整 debug bundle 供本地审阅。 |
 | `/v1/debug/workflows` | `/admin/api/workflows` | 从 retained search telemetry、traces 和 audits 聚合 agent session/workflow。 |
@@ -137,6 +139,11 @@ OpenAPI contract 预留了 `cursor`、`since`、`until` 给后续 normalized env
 `parent_request_id`，以及底层 provider 能提供的 timestamp。精确请求详情用
 `request_id`；跨请求 debug bundle 或 `/v1/debug/trace-context/{trace_id}`
 用 `trace_id`。
+
+机器可读的 agent hand-off 包使用 `/v1/debug/agent-traces/{lookup_id}`。
+该路由同时支持 trace id 和 request id，并省略 request/response payload
+preview、prompt、script 和 scene data。`/admin?panel=traces&trace=<request_id>`
+以及历史 `/admin?agent=traces&trace=<id>` 是 UI 导航链接，不是稳定 API。
 
 ---
 

@@ -222,6 +222,7 @@ type TokenCarrier = {
 type AdminLinks = {
   admin_trace_url?: string;
   trace_api_url?: string;
+  agent_trace_packet_url?: string;
   debug_bundle_url?: string;
   issue_report_url?: string;
   openapi_inspector_url?: string;
@@ -1141,6 +1142,7 @@ function traceLinks(requestId: string, provided?: AdminLinks): AdminLinks {
   return {
     admin_trace_url: provided?.admin_trace_url ?? fullHrefForAdmin('traces', { trace: requestId }),
     trace_api_url: provided?.trace_api_url ?? `${API_BASE}/traces/${encoded}`,
+    agent_trace_packet_url: provided?.agent_trace_packet_url ?? `${window.location.origin}/v1/debug/agent-traces/${encoded}`,
     debug_bundle_url: provided?.debug_bundle_url ?? `${API_BASE}/debug-bundle/${encoded}`,
     issue_report_url: provided?.issue_report_url ?? `${API_BASE}/issue-report/${encoded}`,
     openapi_inspector_url: provided?.openapi_inspector_url ?? fullHrefForAdmin('openapi'),
@@ -2226,6 +2228,7 @@ function TraceLinks({ links, t }: { links: AdminLinks; t: Translator }) {
   const rows = [
     [t('traces.link.adminTrace'), links.admin_trace_url],
     [t('traces.link.traceApi'), links.trace_api_url],
+    [t('traces.link.agentTracePacket'), links.agent_trace_packet_url],
     [t('traces.link.debugBundle'), links.debug_bundle_url],
     [t('traces.link.issueReportJson'), links.issue_report_url],
     [t('traces.link.openapiInspector'), links.openapi_inspector_url],
