@@ -485,6 +485,54 @@ get_app_skill_paths_from_env(app_name: str) -> list[str]
 
 ---
 
+## Rust 后端 Skill 辅助工具
+
+`dcc_mcp_core.skills_helper` 是面向 Skill 脚本的 canonical import path。
+当完整 `dcc-mcp-core` wheel 可用时，Skill 作者应优先从这里导入轻量辅助
+API，而不是创建零散的 `utils` 模块，或为 JSON、YAML、schema validation、
+结果 envelope、参数规范化、取消检查等小功能新增 Python runtime dependency。
+
+```python
+from dcc_mcp_core.skills_helper import (
+    check_cancelled,
+    json_dumps,
+    json_loads,
+    normalize_tool_arguments,
+    skill_success,
+    yaml_dumps,
+    yaml_loads,
+)
+```
+
+JSON 和 YAML helper 由 Rust/PyO3 bridge 提供，并继续保留向后兼容的顶层导入：
+
+```python
+from dcc_mcp_core.skills_helper import json_dumps, json_loads, yaml_dumps, yaml_loads
+
+payload = json_loads('{"name": "cube"}')
+text = json_dumps(payload, ensure_ascii=False)
+config = yaml_loads("enabled: true\n")
+```
+
+现有 `from dcc_mcp_core import json_dumps` 仍可使用，并 re-export 同一组
+canonical functions。新的 Skill authoring helper 应放在 `skills_helper`，
+不要放进含义模糊的 `utils` 命名空间。
+
+适合使用 `skills_helper` 的场景：
+
+- Skill 需要 dependency-free JSON 或 YAML parsing，而不是 `json`、PyYAML 或本地 wrapper；
+- handler 需要 `skill_success`、`skill_error`、`success_result`、`error_result` 等标准结果 helper；
+- 工具 wrapper 需要 `normalize_tool_arguments()` / `normalize_tool_meta()` 来遵循共享 MCP/REST call envelope contract；
+- 长时间运行的脚本需要 `check_cancelled()` / `check_dcc_cancelled()`。
+- 当前安装版本的 `skills_helper` 已覆盖某个有边界的 HTTP 或 file/path
+  helper；只有在 `skills_helper` 不覆盖所需行为时，才继续使用 `requests`
+  或领域专用 file library。
+
+只有当某个 Python dependency 承载 `skills_helper` 不覆盖的真实领域行为时，
+才应继续引入该 dependency。
+
+---
+
 ## Skill Script 辅助工具（纯 Python）
 
 `dcc_mcp_core.skill` 是**纯 Python** 子模块 — 无需编译扩展即可使用。

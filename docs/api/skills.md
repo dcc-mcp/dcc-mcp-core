@@ -552,6 +552,59 @@ Examples:
 
 ---
 
+## Rust-Backed Skill Helpers
+
+`dcc_mcp_core.skills_helper` is the canonical import path for dependency-light
+helpers that skill scripts can rely on when the full `dcc-mcp-core` wheel is
+available. Prefer it over ad-hoc `utils` modules or adding small runtime
+dependencies for JSON, YAML, schema validation, result envelopes, argument
+normalization, or cancellation checks.
+
+```python
+from dcc_mcp_core.skills_helper import (
+    check_cancelled,
+    json_dumps,
+    json_loads,
+    normalize_tool_arguments,
+    skill_success,
+    yaml_dumps,
+    yaml_loads,
+)
+```
+
+The JSON and YAML helpers are backed by the Rust/PyO3 bridge and remain
+available as backwards-compatible top-level imports:
+
+```python
+from dcc_mcp_core.skills_helper import json_dumps, json_loads, yaml_dumps, yaml_loads
+
+payload = json_loads('{"name": "cube"}')
+text = json_dumps(payload, ensure_ascii=False)
+config = yaml_loads("enabled: true\n")
+```
+
+Existing imports such as `from dcc_mcp_core import json_dumps` continue to work
+and re-export the same canonical functions. New helpers for skill authoring
+belong under `skills_helper`, not a vague `utils` namespace.
+
+Use `skills_helper` when:
+
+- a skill needs dependency-free JSON or YAML parsing instead of `json`, PyYAML,
+  or local wrapper modules;
+- a handler needs standard result helpers such as `skill_success`,
+  `skill_error`, `success_result`, or `error_result`;
+- a tool wrapper needs `normalize_tool_arguments()` / `normalize_tool_meta()`
+  to match the shared MCP/REST call-envelope contract;
+- long-running scripts need `check_cancelled()` / `check_dcc_cancelled()`.
+- a bounded HTTP or file/path helper is covered by this namespace in your
+  installed version; use `requests` or domain-specific file libraries only for
+  behavior that `skills_helper` does not provide.
+
+Use a domain-specific Python dependency only when the dependency owns real
+domain behavior that `skills_helper` does not cover.
+
+---
+
 ## Skill Script Helpers (pure-Python)
 
 `dcc_mcp_core.skill` is a **pure-Python** sub-module — no compiled extension required.

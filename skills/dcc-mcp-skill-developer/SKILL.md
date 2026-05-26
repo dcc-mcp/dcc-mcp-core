@@ -79,6 +79,10 @@ into a faster authoring loop.
    instead of copying recipes/reference-docs import wrappers. Omit `skills`
    only when the helper should own the `scan_and_load_lenient(...)` pass; pass
    explicit `skills` when startup already scanned roots.
+   Skill scripts that need JSON/YAML codecs, result helpers, argument
+   normalization, schema validation, or cancellation checks should import them
+   from `dcc_mcp_core.skills_helper`. Keep legacy top-level imports working for
+   old skills, but write new examples against `skills_helper`.
 7. When changing adapter server wiring or caller examples, keep Admin telemetry
    useful: pass optional `agent_context` / `caller_context` summaries through
    MCP `_meta`, REST `meta`, or `x-dcc-mcp-agent-*` headers when the caller is
