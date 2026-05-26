@@ -1,0 +1,59 @@
+//! Shared response negotiation for stable admin/debug endpoints.
+
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::Response;
+use serde::Deserialize;
+use serde_json::{Value, json};
+
+use crate::gateway::response_codec::{ResponseFormat, negotiated_response_with_default};
+
+#[derive(Debug, Default, Deserialize)]
+pub struct DebugListQuery {
+    limit: Option<String>,
+    range: Option<String>,
+    response_format: Option<String>,
+    compact: Option<bool>,
+}
+
+impl DebugListQuery {
+    pub(crate) fn limit(&self, default: usize, max: usize) -> usize {
+        self.limit
+            .as_deref()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(default)
+            .clamp(1, max)
+    }
+
+    pub(crate) fn range(&self) -> &str {
+        self.range.as_deref().unwrap_or("all")
+    }
+
+    fn response_format_body(&self) -> Value {
+        let mut body = serde_json::Map::new();
+        if let Some(format) = self.response_format.as_deref() {
+            body.insert("response_format".to_string(), json!(format));
+        }
+        if let Some(compact) = self.compact {
+            body.insert("compact".to_string(), json!(compact));
+        }
+        Value::Object(body)
+    }
+}
+
+pub(crate) fn debug_response(
+    headers: &HeaderMap,
+    params: &DebugListQuery,
+    status: StatusCode,
+    legacy_json: Value,
+    compact_json: Option<Value>,
+) -> Response {
+    let request_body = params.response_format_body();
+    negotiated_response_with_default(
+        headers,
+        &request_body,
+        status,
+        legacy_json,
+        compact_json,
+        ResponseFormat::Json,
+    )
+}

@@ -12,6 +12,7 @@ use dcc_mcp_gateway_core::naming::instance_short;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::debug_response::{DebugListQuery, debug_response};
 use super::html::ADMIN_HTML;
 use super::issue_report::{IssueReportMode, issue_report_filename, issue_report_json};
 use super::links::AdminLinkBuilder;
@@ -116,21 +117,6 @@ pub async fn handle_admin_traffic_export(
         .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
     );
     response
-}
-
-#[derive(Debug, Default, Deserialize)]
-pub struct DebugListQuery {
-    limit: Option<String>,
-}
-
-impl DebugListQuery {
-    fn limit(&self, default: usize, max: usize) -> usize {
-        self.limit
-            .as_deref()
-            .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(default)
-            .clamp(1, max)
-    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -918,14 +904,16 @@ pub async fn handle_admin_traces(
         .iter()
         .map(|trace| dispatch_trace_to_admin_row(trace, Some(links.clone())))
         .collect();
-    Json(json!({
+    let payload = json!({
         "total": mapped.len(),
         "traces": mapped,
         "links": {
             "admin_traces_url": links.panel_url("traces"),
             "stats_url": links.panel_url("stats"),
         }
-    }))
+    });
+    let compact = crate::gateway::admin::compact::compact_trace_list_payload(&payload);
+    debug_response(&headers, &params, StatusCode::OK, payload, Some(compact))
 }
 
 /// `GET /admin/api/traces/{request_id}` — full waterfall for one call.
@@ -935,30 +923,21 @@ pub async fn handle_admin_trace_detail(
     State(s): State<AdminState>,
     headers: HeaderMap,
     OriginalUri(uri): OriginalUri,
+    axum::extract::Query(params): axum::extract::Query<DebugListQuery>,
     axum::extract::Path(request_id): axum::extract::Path<String>,
 ) -> impl IntoResponse {
     let links = AdminLinkBuilder::from_request(&headers, &uri);
     if let Some(trace) = s.trace_log.as_ref().and_then(|log| log.get(&request_id)) {
-        return (
-            StatusCode::OK,
-            Json(trace_detail_json(
-                &trace,
-                Some(links.request_links(&request_id)),
-            )),
-        )
-            .into_response();
+        let payload = trace_detail_json(&trace, Some(links.request_links(&request_id)));
+        let compact = crate::gateway::admin::compact::compact_trace_detail_payload(&payload);
+        return debug_response(&headers, &params, StatusCode::OK, payload, Some(compact));
     }
     if let Some(ref lane) = s.admin_sqlite_lane {
         let r = lane.reader();
         if let Some(trace) = r.get_trace(&request_id) {
-            return (
-                StatusCode::OK,
-                Json(trace_detail_json(
-                    &trace,
-                    Some(links.request_links(&request_id)),
-                )),
-            )
-                .into_response();
+            let payload = trace_detail_json(&trace, Some(links.request_links(&request_id)));
+            let compact = crate::gateway::admin::compact::compact_trace_detail_payload(&payload);
+            return debug_response(&headers, &params, StatusCode::OK, payload, Some(compact));
         }
     }
     (
@@ -995,6 +974,7 @@ pub async fn handle_admin_debug_bundle(
     State(s): State<AdminState>,
     headers: HeaderMap,
     OriginalUri(uri): OriginalUri,
+    axum::extract::Query(params): axum::extract::Query<DebugListQuery>,
     axum::extract::Path(request_id): axum::extract::Path<String>,
 ) -> impl IntoResponse {
     let links = AdminLinkBuilder::from_request(&headers, &uri);
@@ -1006,7 +986,8 @@ pub async fn handle_admin_debug_bundle(
                 .unwrap_or(&request_id)
                 .to_string();
             bundle["links"] = links.request_links(&resolved_request_id);
-            (StatusCode::OK, Json(bundle)).into_response()
+            let compact = crate::gateway::admin::compact::compact_debug_bundle_payload(&bundle);
+            debug_response(&headers, &params, StatusCode::OK, bundle, Some(compact))
         }
         None => (
             StatusCode::NOT_FOUND,
@@ -1021,6 +1002,7 @@ pub async fn handle_v1_debug_trace_lookup(
     State(s): State<AdminState>,
     headers: HeaderMap,
     OriginalUri(uri): OriginalUri,
+    Query(params): Query<DebugListQuery>,
     Path(lookup_id): Path<String>,
 ) -> impl IntoResponse {
     let links = AdminLinkBuilder::from_request(&headers, &uri);
@@ -1039,7 +1021,8 @@ pub async fn handle_v1_debug_trace_lookup(
                 "traces": bundle.get("traces").cloned().unwrap_or_else(|| json!([])),
                 "links": links.request_links(request_id),
             });
-            (StatusCode::OK, Json(payload)).into_response()
+            let compact = crate::gateway::admin::compact::compact_trace_context_payload(&payload);
+            debug_response(&headers, &params, StatusCode::OK, payload, Some(compact))
         }
         None => (
             StatusCode::NOT_FOUND,
@@ -1089,11 +1072,12 @@ pub async fn handle_admin_issue_report(
 /// distribution.  Returns `{"range":"...", "total_calls":N, ...}`.
 pub async fn handle_admin_stats(
     State(s): State<AdminState>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    headers: HeaderMap,
+    axum::extract::Query(params): axum::extract::Query<DebugListQuery>,
 ) -> impl IntoResponse {
     use crate::gateway::admin::stats::StatsRange;
 
-    let range_str = params.get("range").map(String::as_str).unwrap_or("all");
+    let range_str = params.range();
     let range = StatsRange::from_str(range_str);
 
     match &s.stats {
@@ -1121,9 +1105,10 @@ pub async fn handle_admin_stats(
                     json!(stats.success_rate * 100.0),
                 );
             }
-            Json(root)
+            debug_response(&headers, &params, StatusCode::OK, root.clone(), Some(root))
         }
-        None => Json(json!({
+        None => {
+            let root = json!({
             "error": "stats aggregator not available — admin feature may be disabled",
             "range": range_str,
             "total_calls": 0,
@@ -1141,7 +1126,9 @@ pub async fn handle_admin_stats(
             "payload_token_usage": crate::gateway::admin::stats::PayloadTokenUsageStats::empty(0),
             "token_usage": crate::gateway::admin::stats::TokenUsageStats::default(),
             "governance": crate::gateway::admin::governance::build_governance_stats(&s),
-        })),
+            });
+            debug_response(&headers, &params, StatusCode::OK, root.clone(), Some(root))
+        }
     }
 }
 

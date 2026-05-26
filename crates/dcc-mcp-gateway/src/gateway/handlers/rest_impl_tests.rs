@@ -529,6 +529,16 @@ async fn gateway_openapi_lists_stable_debug_routes() {
             .get("GatewayDebugPayload")
             .is_some()
     );
+    assert!(
+        doc["paths"]["/v1/debug/bundles/{request_id}"]["get"]["responses"]["200"]["content"]
+            .get(crate::gateway::response_codec::TOON_MIME)
+            .is_some()
+    );
+    assert!(
+        doc["paths"]["/v1/debug/bundles/{request_id}"]["get"]["parameters"]
+            .as_array()
+            .is_some_and(|params| params.iter().any(|param| param["name"] == "compact"))
+    );
 }
 
 #[tokio::test]

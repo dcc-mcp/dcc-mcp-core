@@ -131,7 +131,7 @@ pub(crate) fn default_rest_response_format() -> ResponseFormat {
         .unwrap_or(DEFAULT_REST_RESPONSE_FORMAT)
 }
 
-fn negotiate_response_format_with_default(
+pub(crate) fn negotiate_response_format_with_default(
     headers: &HeaderMap,
     body: &Value,
     default: ResponseFormat,
@@ -215,6 +215,24 @@ pub(crate) fn negotiated_response(
         &legacy_json,
         compact_json.as_ref(),
         negotiate_response_format(headers, body),
+    ) {
+        Ok(encoded) => encoded_response(status, encoded),
+        Err(err) => json_error_response(StatusCode::INTERNAL_SERVER_ERROR, &err),
+    }
+}
+
+pub(crate) fn negotiated_response_with_default(
+    headers: &HeaderMap,
+    body: &Value,
+    status: StatusCode,
+    legacy_json: Value,
+    compact_json: Option<Value>,
+    default: ResponseFormat,
+) -> Response {
+    match encode_response(
+        &legacy_json,
+        compact_json.as_ref(),
+        negotiate_response_format_with_default(headers, body, default),
     ) {
         Ok(encoded) => encoded_response(status, encoded),
         Err(err) => json_error_response(StatusCode::INTERNAL_SERVER_ERROR, &err),

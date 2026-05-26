@@ -93,7 +93,7 @@ Escalate to core when more than one adapter would need the same helper:
 - gateway search/describe/call response shape;
 - app UI automation contracts;
 - file/artifact handoff;
-- diagnostics, agent trace packets, and issue-report exports.
+- diagnostics, agent trace packets, compact debug negotiation, and issue-report exports.
 
 Adapter repositories should contain host facts and host API calls. Core should
 own reusable MCP, gateway, catalog, lifecycle, and wire contracts.
