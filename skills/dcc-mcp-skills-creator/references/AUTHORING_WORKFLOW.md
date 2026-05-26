@@ -33,6 +33,14 @@ Scripts should lazy-import host APIs inside the callable function. This keeps
 catalog discovery, validation, and server startup available without a running
 host process.
 
+When the full `dcc-mcp-core` wheel is available, Python scripts should import
+standard result helpers, dependency-light JSON/YAML codecs, bounded HTTP,
+file/path safety, hashing, compression, validation, normalization, and
+cancellation helpers from `dcc_mcp_core.skills_helper`. Keep `requests`,
+PyYAML, or domain-specific dependencies only for behavior that namespace does
+not cover, such as sessions, streaming, multipart upload, custom auth/retry
+flows, YAML comment preservation, or host SDKs.
+
 Use host-thread affinity only where needed:
 
 - `affinity: main` for host API calls and scene mutations.

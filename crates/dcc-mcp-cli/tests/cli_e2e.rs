@@ -550,6 +550,7 @@ fn lint_bundled_skills_are_present_and_clean() {
     let builtin_skill_roots = [
         workspace_root.join("skills/core"),
         workspace_root.join("skills/dcc-skills-creator"),
+        workspace_root.join("skills/dcc-mcp-skills-creator"),
         workspace_root.join("python/dcc_mcp_core/skills"),
     ];
 

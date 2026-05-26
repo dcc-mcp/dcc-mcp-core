@@ -110,6 +110,22 @@ Generated `tools.yaml` entries follow the modern contract:
 - `enforce_thread_affinity: true` is emitted so adapter dispatch stays honest.
 - `annotations` use MCP hints: read-only, destructive, idempotent, open-world, and deferred.
 
+## Python Script Helpers
+
+Generated Python scripts should import standard result helpers from
+`dcc_mcp_core.skills_helper` when the full wheel is available:
+
+```python
+from dcc_mcp_core.skills_helper import run_main, skill_entry, skill_success
+```
+
+Use the same namespace for dependency-light JSON/YAML codecs, bounded HTTP
+requests, file/path safety, hashing, compression, schema validation, argument
+normalization, and cancellation checks. Keep `requests`, PyYAML, or domain
+libraries only when the helper namespace does not cover the behavior, such as
+sessions, streaming, multipart upload, custom auth/retry flows, YAML comment
+preservation, or host SDKs.
+
 ## Validation Rules
 
 The validator checks:

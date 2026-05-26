@@ -19,6 +19,7 @@ from dcc_mcp_core._server.inprocess_executor import run_skill_script
 SKILL_DIR = REPO_ROOT / "skills" / "dcc-skills-creator"
 CREATE_SKILL_SCRIPT = SKILL_DIR / "scripts" / "create_skill.py"
 SKILL_TEMPLATE_SCRIPT = SKILL_DIR / "scripts" / "skill_template.py"
+MODERN_SKILL_DIR = REPO_ROOT / "skills" / "dcc-mcp-skills-creator"
 
 
 def _load_module(path: Path, name: str) -> ModuleType:
@@ -65,6 +66,8 @@ def test_create_skill_generates_valid_current_layout(tmp_path: Path) -> None:
     assert json.loads(meta.tools[0].output_schema)["type"] == "object"
     assert meta.tools[0].annotations["readOnlyHint"] is True
     assert "affinity: main" in (generated / "tools.yaml").read_text(encoding="utf-8")
+    script_text = (generated / "scripts" / "create_locator.py").read_text(encoding="utf-8")
+    assert "from dcc_mcp_core.skills_helper import run_main, skill_entry, skill_success" in script_text
 
 
 def test_create_skill_example_tool_runs_successfully(tmp_path: Path) -> None:
@@ -156,3 +159,16 @@ def test_skill_template_uses_valid_current_frontmatter(tmp_path: Path) -> None:
     report = dcc_mcp_core.validate_skill(str(skill_dir))
     assert report.is_clean, [(issue.severity, issue.message) for issue in report.issues]
     assert "client-safe" in module.skill_template()
+    assert "dcc_mcp_core.skills_helper" in module.skill_template()
+
+
+def test_modern_creator_generator_uses_skills_helper(tmp_path: Path) -> None:
+    module = _load_module(
+        MODERN_SKILL_DIR / "scripts" / "create_skill.py",
+        "dcc_mcp_skills_creator_create_skill",
+    )
+
+    generated = Path(module.create_skill("python-modern-tool", str(tmp_path)))
+    script_text = (generated / "scripts" / "example_tool.py").read_text(encoding="utf-8")
+
+    assert "from dcc_mcp_core.skills_helper import run_main, skill_entry, skill_success" in script_text

@@ -170,7 +170,7 @@ snake_case tool names in `tools.yaml`; dcc-mcp-core publishes them as
     example_script.write_text(
         '"""Example DCC-MCP skill tool implementation."""\n'
         "from __future__ import annotations\n\n"
-        "from dcc_mcp_core.skill import run_main, skill_entry, skill_success\n\n\n"
+        "from dcc_mcp_core.skills_helper import run_main, skill_entry, skill_success\n\n\n"
         "@skill_entry\n"
         'def main(label: str = "example", dry_run: bool = True, **params):\n'
         '    """Replace this scaffold with a concrete DCC operation."""\n'

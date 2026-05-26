@@ -326,7 +326,7 @@ The pattern is similar — a Python process bridges between MCP and ZBrush's API
 
 ```python
 # zbrush_adapter/server.py
-import requests
+from dcc_mcp_core.skills_helper import http_get_json
 from dcc_mcp_core.server_base import DccServerBase
 
 class ZBrushMcpServer(DccServerBase):
@@ -345,8 +345,11 @@ class ZBrushMcpServer(DccServerBase):
         return handle
 
     def _get_tool_info(self, params):
-        resp = requests.get(f"{self._zbrush_url}/api/tool/info")
-        return resp.json()
+        return http_get_json(
+            f"{self._zbrush_url}/api/tool/info",
+            timeout_ms=5_000,
+            max_bytes=1_000_000,
+        )
 ```
 
 ### After Effects example (ExtendScript bridge)

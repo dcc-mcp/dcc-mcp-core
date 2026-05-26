@@ -574,9 +574,50 @@ shared-memory 层现有 LZ4 frame 实现，并强制显式 byte limit。
 里的 file helper 是单个 Skill 或 session root 内部的低层 building block，
 不替代更高层的 artefact store contract。
 
+有边界的 REST 调用应优先使用 Rust-backed HTTP helper，而不是为常见 JSON API
+额外引入 `requests`：
+
+```python
+from dcc_mcp_core.skills_helper import (
+    SkillHttpError,
+    http_get_json,
+    http_post_json,
+    skill_error_from_exception,
+)
+
+try:
+    info = http_get_json(
+        "https://pipeline.example/api/asset",
+        query={"name": asset_name},
+        headers={"Authorization": f"Bearer {token}"},
+        timeout_ms=5_000,
+        max_bytes=1_000_000,
+    )
+    created = http_post_json(
+        "https://pipeline.example/api/report",
+        {"asset": asset_name, "info": info},
+        timeout_ms=5_000,
+    )
+except SkillHttpError as exc:
+    return skill_error_from_exception(exc)
+```
+
+`http_request()` 返回 `HttpResponse`，包含 `status`、`headers`、`bytes`、
+`text`、`json()`、`url`、`elapsed_ms` 和 `truncated`。在错误或 audit metadata
+里回显 headers 前，先调用 `redact_http_headers()`。只有在需要 session、
+streaming protocol、multipart upload、自定义 auth/retry flow，或 API 专有行为时，
+才保留领域专用 HTTP client dependency。
+
 现有 `from dcc_mcp_core import json_dumps` 仍可使用，并 re-export 同一组
 canonical functions。新的 Skill authoring helper 应放在 `skills_helper`，
 不要放进含义模糊的 `utils` 命名空间。
+
+生成的 Python Skill 脚本在完整 wheel 可用时，也应通过这个命名空间导入标准
+runner 和结果 helper：
+
+```python
+from dcc_mcp_core.skills_helper import run_main, skill_entry, skill_success
+```
 
 适合使用 `skills_helper` 的场景：
 
@@ -585,7 +626,7 @@ canonical functions。新的 Skill authoring helper 应放在 `skills_helper`，
   本地 session file 的 LZ4 compression；
 - handler 需要 `skill_success`、`skill_error`、`success_result`、`error_result` 等标准结果 helper；
 - 工具 wrapper 需要 `normalize_tool_arguments()` / `normalize_tool_meta()` 来遵循共享 MCP/REST call envelope contract；
-- 长时间运行的脚本需要 `check_cancelled()` / `check_dcc_cancelled()`。
+- 长时间运行的脚本需要 `check_cancelled()` / `check_dcc_cancelled()`；
 - 当前安装版本的 `skills_helper` 已覆盖某个有边界的 HTTP 或 file/path
   helper；只有在 `skills_helper` 不覆盖所需行为时，才继续使用 `requests`
   或领域专用 file library。

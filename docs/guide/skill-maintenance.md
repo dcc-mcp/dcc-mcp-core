@@ -55,17 +55,22 @@ Before adding or changing bundled adapter skills, read [`docs/POLICY_SKILL_OWNER
   with `possible_solutions` instead of letting Maya open modal dialogs.
 - For writes: ensure parent directory exists or return a structured error.
 - After export: verify output file exists and non-zero size when feasible.
+- Prefer `dcc_mcp_core.skills_helper` for result helpers, JSON/YAML codecs,
+  bounded HTTP, file/path safety, hashing, compression, schema validation,
+  argument normalization, and cancellation checks. Keep `requests`, PyYAML, or
+  domain dependencies only for behavior the helper namespace does not cover.
 
-## Linting (dcc-mcp-maya)
+## Linting
 
-Run from the Maya adapter repo:
+Run the production CLI validator before loading a skill package:
 
 ```bash
-python tools/lint_skills.py
+dcc-mcp-cli lint path/to/skills
 ```
 
-Rules include IO description length hints and `references/` metadata coverage.
-Extend `tools/lint_skills.py` when you add new cross-cutting conventions.
+Repository CI runs the same validator through `just lint-skills`. Extend the
+Rust validator in `crates/dcc-mcp-skills/src/validator/` when you add new
+cross-cutting conventions.
 
 ## Gateway-facing agents
 

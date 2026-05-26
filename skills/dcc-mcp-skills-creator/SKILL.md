@@ -122,10 +122,16 @@ Generated `tools.yaml` entries follow the modern contract:
 1. Decide whether the skill is infrastructure, domain, thin-harness, or example.
 2. Give the skill a kebab-case name and each local tool a snake_case name.
 3. Keep host API calls inside scripts, with lazy imports so discovery works without the host running.
-4. Declare `execution`, `affinity`, `timeout_hint_secs`, schemas, annotations, and failure recovery chains in `tools.yaml`.
-5. Put long examples, recipes, and host-specific notes under `references/`.
-6. Validate with `validate_skill_dir` or `dcc_mcp_core.validate_skill()` before loading it in an adapter.
-7. If the desired behavior requires parsing core internals or adapter-private YAML at runtime, stop and request a core API instead.
+4. In Python scripts, prefer `dcc_mcp_core.skills_helper` for result helpers,
+   JSON/YAML, bounded HTTP, file/path safety, hashing, compression, schema
+   validation, argument normalization, and cancellation checks. Keep `requests`,
+   PyYAML, or domain libraries only when the helper namespace does not cover the
+   behavior, such as sessions, streaming, multipart upload, custom auth/retry
+   flows, YAML comment preservation, or host SDKs.
+5. Declare `execution`, `affinity`, `timeout_hint_secs`, schemas, annotations, and failure recovery chains in `tools.yaml`.
+6. Put long examples, recipes, and host-specific notes under `references/`.
+7. Validate with `validate_skill_dir`, `dcc_mcp_core.validate_skill()`, or `dcc-mcp-cli lint` before loading it in an adapter.
+8. If the desired behavior requires parsing core internals or adapter-private YAML at runtime, stop and request a core API instead.
 
 Read [AUTHORING_WORKFLOW.md](references/AUTHORING_WORKFLOW.md) and
 [DCC_TOOL_CONTRACTS.md](references/DCC_TOOL_CONTRACTS.md) before changing a

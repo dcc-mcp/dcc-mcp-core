@@ -692,6 +692,13 @@ Existing imports such as `from dcc_mcp_core import json_dumps` continue to work
 and re-export the same canonical functions. New helpers for skill authoring
 belong under `skills_helper`, not a vague `utils` namespace.
 
+Generated Python skill scripts should also import the standard runner and
+result helpers through this namespace when the full wheel is available:
+
+```python
+from dcc_mcp_core.skills_helper import run_main, skill_entry, skill_success
+```
+
 Use `skills_helper` when:
 
 - a skill needs dependency-free JSON or YAML parsing instead of `json`, PyYAML,
@@ -702,7 +709,7 @@ Use `skills_helper` when:
   `skill_error`, `success_result`, or `error_result`;
 - a tool wrapper needs `normalize_tool_arguments()` / `normalize_tool_meta()`
   to match the shared MCP/REST call-envelope contract;
-- long-running scripts need `check_cancelled()` / `check_dcc_cancelled()`.
+- long-running scripts need `check_cancelled()` / `check_dcc_cancelled()`;
 - a bounded HTTP or file/path helper is covered by this namespace in your
   installed version; use `requests` or domain-specific file libraries only for
   behavior that `skills_helper` does not provide.

@@ -290,3 +290,53 @@ fn test_unsupported_script_extension() {
             .any(|issue| issue.message.contains("unsupported extension"))
     );
 }
+
+#[test]
+fn test_python_script_requests_import_warns_about_skills_helper_http() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = make_skill_dir(
+        &tmp,
+        "http-skill",
+        "---\nname: http-skill\ndescription: test\ntools:\n  - name: fetch_asset\n    source_file: scripts/fetch_asset.py\n---\n",
+    );
+    let scripts_dir = dir.join("scripts");
+    std::fs::create_dir_all(&scripts_dir).unwrap();
+    std::fs::write(
+        scripts_dir.join("fetch_asset.py"),
+        "import os, requests as http\n\nrequests.get('https://example.invalid')\n",
+    )
+    .unwrap();
+
+    let report = validate_skill_dir(&dir);
+
+    assert!(report.issues.iter().any(|issue| {
+        issue.severity == IssueSeverity::Warning
+            && issue.category == IssueCategory::Scripts
+            && issue.message.contains("skills_helper.http_request")
+    }));
+}
+
+#[test]
+fn test_python_script_yaml_import_warns_about_skills_helper_yaml() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = make_skill_dir(
+        &tmp,
+        "yaml-skill",
+        "---\nname: yaml-skill\ndescription: test\ntools:\n  - name: read_config\n    source_file: scripts/read_config.py\n---\n",
+    );
+    let scripts_dir = dir.join("scripts");
+    std::fs::create_dir_all(&scripts_dir).unwrap();
+    std::fs::write(
+        scripts_dir.join("read_config.py"),
+        "from yaml import safe_load\n\nsafe_load('enabled: true')\n",
+    )
+    .unwrap();
+
+    let report = validate_skill_dir(&dir);
+
+    assert!(report.issues.iter().any(|issue| {
+        issue.severity == IssueSeverity::Warning
+            && issue.category == IssueCategory::Scripts
+            && issue.message.contains("load_yaml_text")
+    }));
+}

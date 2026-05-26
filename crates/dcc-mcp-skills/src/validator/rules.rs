@@ -364,6 +364,9 @@ fn validate_scripts(skill_dir: &Path, meta: &SkillMetadata, report: &mut SkillVa
                         ),
                     ));
                 }
+                if ext_str.eq_ignore_ascii_case("py") {
+                    validate_python_script_helpers(skill_dir, tool, report);
+                }
             } else {
                 report.issues.push(SkillValidationIssue::warn(
                     IssueCategory::Scripts,
@@ -385,6 +388,97 @@ fn validate_scripts(skill_dir: &Path, meta: &SkillMetadata, report: &mut SkillVa
             ));
         }
     }
+}
+
+fn validate_python_script_helpers(
+    skill_dir: &Path,
+    tool: &ToolDeclaration,
+    report: &mut SkillValidationReport,
+) {
+    let path = skill_dir.join(&tool.source_file);
+    let content = match std::fs::read_to_string(&path) {
+        Ok(content) => content,
+        Err(err) => {
+            report.issues.push(SkillValidationIssue::warn(
+                IssueCategory::Scripts,
+                format!(
+                    "tool '{}' source_file '{}' could not be read for dependency linting: {err}",
+                    tool.name, tool.source_file
+                ),
+            ));
+            return;
+        }
+    };
+
+    let mut warned_requests = false;
+    let mut warned_yaml = false;
+    for line in content.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+        if !warned_requests && imports_python_module(trimmed, "requests") {
+            warned_requests = true;
+            report.issues.push(SkillValidationIssue::warn(
+                IssueCategory::Scripts,
+                format!(
+                    "tool '{}' source_file '{}' imports requests; prefer \
+                     dcc_mcp_core.skills_helper.http_request/http_get_json/http_post_json \
+                     for bounded common JSON APIs, and keep requests only for sessions, \
+                     streaming, multipart upload, custom auth/retry flows, or API-specific behavior",
+                    tool.name, tool.source_file
+                ),
+            ));
+        }
+        if !warned_yaml && imports_python_module(trimmed, "yaml") {
+            warned_yaml = true;
+            report.issues.push(SkillValidationIssue::warn(
+                IssueCategory::Scripts,
+                format!(
+                    "tool '{}' source_file '{}' imports PyYAML; prefer \
+                     dcc_mcp_core.skills_helper.load_yaml_text/load_yaml_file/\
+                     dump_yaml_text/dump_yaml_file for dependency-free skill YAML, \
+                     and keep PyYAML only when preserving comments, anchors, or other \
+                     behavior the helper namespace does not cover",
+                    tool.name, tool.source_file
+                ),
+            ));
+        }
+        if warned_requests && warned_yaml {
+            break;
+        }
+    }
+}
+
+fn imports_python_module(trimmed_line: &str, module: &str) -> bool {
+    if let Some(rest) = trimmed_line.strip_prefix("from ") {
+        let imported = rest.split_whitespace().next().unwrap_or_default();
+        return import_module_name_matches(imported, module);
+    }
+
+    let Some(rest) = trimmed_line.strip_prefix("import ") else {
+        return false;
+    };
+    rest.split(',')
+        .any(|part| import_part_matches_module(part, module))
+}
+
+fn import_module_name_matches(name: &str, module: &str) -> bool {
+    let Some(rest) = name.strip_prefix(module) else {
+        return false;
+    };
+    rest.is_empty() || rest.starts_with('.')
+}
+
+fn import_part_matches_module(part: &str, module: &str) -> bool {
+    let part = part.trim_start();
+    let Some(rest) = part.strip_prefix(module) else {
+        return false;
+    };
+    rest.is_empty()
+        || rest.starts_with('.')
+        || rest.starts_with(" as ")
+        || rest.chars().next().is_some_and(char::is_whitespace)
 }
 
 fn validate_sidecars(
