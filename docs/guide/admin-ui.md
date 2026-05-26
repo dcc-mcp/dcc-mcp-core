@@ -207,6 +207,16 @@ navigation only. Historical `/admin?agent=traces&trace=<id>` links should be
 treated the same way; automation and agents should resolve the machine-readable
 packet through `GET /v1/debug/agent-traces/{lookup_id}`.
 
+Compact-aware debug routes keep JSON as the default for browser downloads and
+GitHub issue attachments. Agents can request TOON on `/v1/debug/traces`,
+`/v1/debug/traces/{request_id}`, `/v1/debug/trace-context/{lookup_id}`,
+`/v1/debug/bundles/{request_id_or_trace_id}`, and `/v1/debug/stats` with
+`Accept: application/toon`, `?response_format=toon`, or `?compact=true`.
+Responses include `x-dcc-mcp-response-format`, byte counts, estimated token
+counts, and savings headers. Debug bundle compact output is a summary with root
+cause, tool, DCC type, status, timing, token accounting, redaction summary, and
+links to the full JSON bundle.
+
 ## Optional Agent / Caller Context
 
 MCP and REST callers may attach optional context so the Admin UI can correlate

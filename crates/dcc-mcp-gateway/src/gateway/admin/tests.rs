@@ -9,7 +9,7 @@ mod admin_tests {
 
     use axum::Router;
     use axum::body::to_bytes;
-    use axum::http::{Request, StatusCode};
+    use axum::http::{HeaderMap, Request, StatusCode, header};
     use parking_lot::Mutex;
     use serde_json::{Value, json};
     use tokio::sync::{RwLock, broadcast, oneshot, watch};
@@ -174,6 +174,27 @@ mod admin_tests {
         let status = resp.status();
         let bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         (status, String::from_utf8(bytes.to_vec()).unwrap())
+    }
+
+    async fn body_text_with_accept(
+        router: Router,
+        uri: &str,
+        accept: &str,
+    ) -> (StatusCode, HeaderMap, String) {
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .header(header::ACCEPT, accept)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = resp.status();
+        let headers = resp.headers().clone();
+        let bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        (status, headers, String::from_utf8(bytes.to_vec()).unwrap())
     }
 
     fn audit_record(
@@ -1752,6 +1773,70 @@ sinks:
                 .as_str()
                 .is_some_and(|url| url.ends_with("/admin/api/debug-bundle/req-task"))
         );
+
+        let (compact_bundle_status, compact_bundle_headers, compact_bundle_text) =
+            body_text_with_accept(
+                v1_router.clone(),
+                "/v1/debug/bundles/trace-task",
+                crate::gateway::response_codec::TOON_MIME,
+            )
+            .await;
+        assert_eq!(compact_bundle_status, StatusCode::OK);
+        assert!(
+            compact_bundle_headers
+                .get(header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| value.starts_with(crate::gateway::response_codec::TOON_MIME))
+        );
+        assert_eq!(
+            compact_bundle_headers
+                .get(crate::gateway::response_codec::HEADER_RESPONSE_FORMAT)
+                .and_then(|value| value.to_str().ok()),
+            Some("toon")
+        );
+        assert!(
+            compact_bundle_headers
+                .get(crate::gateway::response_codec::HEADER_SAVED_TOKENS)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.parse::<usize>().ok())
+                .is_some_and(|value| value > 0)
+        );
+        assert!(compact_bundle_text.len() < serde_json::to_string(&v1_body).unwrap().len());
+        let compact_bundle: Value = toon_format::decode_default(&compact_bundle_text).unwrap();
+        assert_eq!(
+            compact_bundle["schema_version"],
+            "dcc-mcp.admin.debug-summary.v1"
+        );
+        assert_eq!(compact_bundle["request_id"], "req-task");
+        assert_eq!(compact_bundle["root_cause"], "host died");
+        assert_eq!(
+            compact_bundle["redaction"]["payload_previews_omitted"],
+            true
+        );
+        assert!(compact_bundle.get("trace").is_none());
+        assert!(!compact_bundle_text.contains("scene.ma"));
+        assert!(!compact_bundle_text.contains("[REDACTED]"));
+
+        let (compact_trace_status, compact_trace_headers, compact_trace_text) =
+            body_text_with_accept(
+                v1_router.clone(),
+                "/v1/debug/traces/req-task?response_format=toon",
+                "application/json",
+            )
+            .await;
+        assert_eq!(compact_trace_status, StatusCode::OK);
+        assert_eq!(
+            compact_trace_headers
+                .get(crate::gateway::response_codec::HEADER_RESPONSE_FORMAT)
+                .and_then(|value| value.to_str().ok()),
+            Some("toon")
+        );
+        let compact_trace: Value = toon_format::decode_default(&compact_trace_text).unwrap();
+        assert_eq!(
+            compact_trace["schema_version"],
+            "dcc-mcp.admin.trace-summary.v1"
+        );
+        assert_eq!(compact_trace["request_id"], "req-task");
 
         let (v1_report_status, v1_report_body) =
             body_json(v1_router.clone(), "/v1/debug/issue-reports/req-task").await;

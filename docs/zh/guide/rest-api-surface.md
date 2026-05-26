@@ -130,6 +130,15 @@ Phase-1 debug routes 会保留现有 Admin payload 字段，让 operator 和 age
 | `/v1/debug/governance?limit=300` | `/admin/api/governance?limit=300` | 当前 policy、read-only 状态、traffic capture/redaction 控制、中间件压力和最近 allow/deny/throttle 决策。 |
 | `/v1/debug/health` | `/admin/api/health` | debug provider health summary。 |
 
+compact-aware debug routes（`/v1/debug/traces`、
+`/v1/debug/traces/{request_id}`、`/v1/debug/trace-context/{lookup_id}`、
+`/v1/debug/bundles/{request_id}`、`/v1/debug/stats`）默认仍返回 JSON，保证
+浏览器和 GitHub issue 附件兼容。agent 可以用 `Accept: application/toon`、
+`?response_format=toon` 或 `?compact=true` 请求 TOON。响应会带
+`x-dcc-mcp-*` byte/token accounting headers。debug bundle 的 compact 输出是
+public-safe summary，包含 root cause、tool、DCC type、status、timing、token
+accounting、redaction summary、postmortem counts、hints 和指向完整 JSON 的 links。
+
 所有 list endpoint 在底层 Admin provider 已支持时都支持 `limit` 参数。
 OpenAPI contract 预留了 `cursor`、`since`、`until` 给后续 normalized envelope
 工作；在该阶段落地前，调用方应忽略缺失的 `next_cursor`。

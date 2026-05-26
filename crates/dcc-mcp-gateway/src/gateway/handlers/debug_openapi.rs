@@ -41,8 +41,33 @@ pub(crate) fn add_gateway_debug_openapi_paths(doc: &mut Value) {
     ];
     let mut list_params = limit_params.clone();
     list_params.extend(time_filter_params.clone());
+    let compact_params = vec![
+        header_param(
+            "Accept",
+            json!({"type": "string", "enum": ["application/json", "application/toon"]}),
+            "Set application/toon to receive compact TOON output on compact-aware debug routes.",
+        ),
+        query_param(
+            "response_format",
+            json!({"type": "string", "enum": ["json", "toon"]}),
+            "Optional response-format override for clients that cannot set Accept.",
+        ),
+        query_param(
+            "compact",
+            json!({"type": "boolean"}),
+            "Alias for response_format=toon when true.",
+        ),
+    ];
+    let mut compact_list_params = list_params.clone();
+    compact_list_params.extend(compact_params.clone());
+    let mut compact_stats_params = compact_params.clone();
+    compact_stats_params.push(query_param(
+        "range",
+        json!({"type": "string", "enum": ["1h", "24h", "7d", "all"]}),
+        "Aggregation range.",
+    ));
 
-    for (path, summary, description, params) in [
+    for (path, summary, description, params, compact_capable) in [
         (
             "/v1/debug/instances",
             "List gateway debug instances",
@@ -64,60 +89,79 @@ pub(crate) fn add_gateway_debug_openapi_paths(doc: &mut Value) {
                     "Include rows whose owner process is gone.",
                 ),
             ],
+            false,
         ),
         (
             "/v1/debug/activity",
             "List gateway debug activity",
             "Stable agent-facing activity feed built from audits, traces, and gateway events.",
             list_params.clone(),
+            false,
         ),
         (
             "/v1/debug/calls",
             "List recent debug calls",
             "Stable agent-facing recent call list backed by audit rows.",
             list_params.clone(),
+            false,
         ),
         (
             "/v1/debug/traces",
             "List gateway debug traces",
             "Stable agent-facing recent dispatch trace list.",
-            list_params.clone(),
+            compact_list_params.clone(),
+            true,
         ),
         (
             "/v1/debug/traffic",
             "List live traffic capture frames",
             "Stable agent-facing retained traffic.frame list from an explicit admin_live traffic sink.",
             list_params.clone(),
+            false,
         ),
         (
             "/v1/debug/traces/{request_id}",
             "Get one debug trace by request id",
             "Stable agent-facing dispatch trace detail lookup.",
-            vec![path_param("request_id", "Gateway request id.")],
+            compact_path_params(
+                path_param("request_id", "Gateway request id."),
+                &compact_params,
+            ),
+            true,
         ),
         (
             "/v1/debug/trace-context/{lookup_id}",
             "Resolve a trace context",
             "Lookup by trace id or request id and return the primary trace plus related request ids.",
-            vec![path_param("lookup_id", "Trace id or request id.")],
+            compact_path_params(
+                path_param("lookup_id", "Trace id or request id."),
+                &compact_params,
+            ),
+            true,
         ),
         (
             "/v1/debug/agent-traces/{lookup_id}",
             "Get an agent trace packet",
             "Compact public-safe trace packet for agents, resolved by trace id or request id.",
             vec![path_param("lookup_id", "Trace id or request id.")],
+            false,
         ),
         (
             "/v1/debug/tasks",
             "List task-like debug snapshots",
             "Stable task projection reconstructed from dispatch traces.",
             list_params.clone(),
+            false,
         ),
         (
             "/v1/debug/bundles/{request_id}",
             "Get a debug bundle",
-            "Full-chain debug bundle by request id or trace id.",
-            vec![path_param("request_id", "Request id or trace id.")],
+            "Full-chain debug bundle by request id or trace id. Set Accept: application/toon for a compact public-safe summary with links to the full JSON bundle.",
+            compact_path_params(
+                path_param("request_id", "Request id or trace id."),
+                &compact_params,
+            ),
+            true,
         ),
         (
             "/v1/debug/issue-reports/{request_id}",
@@ -136,52 +180,57 @@ pub(crate) fn add_gateway_debug_openapi_paths(doc: &mut Value) {
                     "Compatibility flag for explicit raw bundle exports.",
                 ),
             ],
+            false,
         ),
         (
             "/v1/debug/logs",
             "List merged debug logs",
             "Merged gateway contention events, file logs, and audited call summaries.",
             list_params.clone(),
+            false,
         ),
         (
             "/v1/debug/deregistered",
             "List auto-deregistered instances",
             "Recently auto-deregistered registry rows retained for forensic debugging.",
             limit_params.clone(),
+            false,
         ),
         (
             "/v1/debug/stats",
             "Get debug statistics",
             "Aggregated gateway call statistics.",
-            vec![query_param(
-                "range",
-                json!({"type": "string", "enum": ["1h", "24h", "7d", "all"]}),
-                "Aggregation range.",
-            )],
+            compact_stats_params,
+            true,
         ),
         (
             "/v1/debug/governance",
             "Get traffic governance state",
             "Effective gateway policy, traffic capture, redaction, middleware controls, and recent allow/deny/throttle decisions.",
             limit_params.clone(),
+            false,
         ),
         (
             "/v1/debug/search-telemetry",
             "Get search-quality telemetry",
             "Recent prompt-safe search records and aggregate search-to-describe/load/call hit-rate metrics.",
             limit_params.clone(),
+            false,
         ),
         (
             "/v1/debug/health",
             "Get debug subsystem health",
             "Compact health and readiness summary for debug providers.",
             Vec::new(),
+            false,
         ),
     ] {
-        paths.insert(
-            path.to_string(),
-            debug_get_path(summary, description, params),
-        );
+        let path_doc = if compact_capable {
+            debug_get_path_compact(summary, description, params)
+        } else {
+            debug_get_path(summary, description, params)
+        };
+        paths.insert(path.to_string(), path_doc);
     }
     paths.insert(
         "/v1/debug/traffic/export".to_string(),
@@ -231,6 +280,24 @@ fn debug_get_path(summary: &str, description: &str, parameters: Vec<Value>) -> V
         "application/json",
         json!({"$ref": "#/components/schemas/GatewayDebugPayload"}),
     )
+}
+
+#[cfg(feature = "admin")]
+fn debug_get_path_compact(summary: &str, description: &str, parameters: Vec<Value>) -> Value {
+    let mut path = debug_get_path(summary, description, parameters);
+    if let Some(content) = path
+        .pointer_mut("/get/responses/200/content")
+        .and_then(Value::as_object_mut)
+    {
+        content.insert(
+            crate::gateway::response_codec::TOON_MIME.to_string(),
+            json!({
+                "schema": {"type": "string"},
+                "description": "TOON-encoded compact debug payload.",
+            }),
+        );
+    }
+    path
 }
 
 #[cfg(feature = "admin")]
@@ -287,4 +354,22 @@ fn query_param(name: &str, schema: Value, description: &str) -> Value {
         "description": description,
         "schema": schema
     })
+}
+
+#[cfg(feature = "admin")]
+fn header_param(name: &str, schema: Value, description: &str) -> Value {
+    json!({
+        "name": name,
+        "in": "header",
+        "required": false,
+        "description": description,
+        "schema": schema
+    })
+}
+
+#[cfg(feature = "admin")]
+fn compact_path_params(path: Value, compact_params: &[Value]) -> Vec<Value> {
+    let mut params = vec![path];
+    params.extend(compact_params.iter().cloned());
+    params
 }

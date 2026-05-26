@@ -170,6 +170,15 @@ Admin 路由仍作为 dashboard 兼容层；自动化调用优先使用：
 和自动化客户端应使用 `GET /v1/debug/agent-traces/{lookup_id}` 读取稳定的
 机器可读包。
 
+compact-aware debug routes 默认仍返回 JSON，方便浏览器下载和 GitHub issue
+附件。agent 可以在 `/v1/debug/traces`、`/v1/debug/traces/{request_id}`、
+`/v1/debug/trace-context/{lookup_id}`、`/v1/debug/bundles/{request_id_or_trace_id}`
+和 `/v1/debug/stats` 上使用 `Accept: application/toon`、`?response_format=toon`
+或 `?compact=true` 请求 TOON。响应会包含 `x-dcc-mcp-response-format`、byte
+counts、estimated token counts 和 savings headers。debug bundle compact 输出是
+summary，包含 root cause、tool、DCC type、status、timing、token accounting、
+redaction summary 和指向完整 JSON bundle 的 links。
+
 ## API 响应格式
 
 ```json
