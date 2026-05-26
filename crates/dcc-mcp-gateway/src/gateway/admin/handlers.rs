@@ -534,6 +534,7 @@ fn admin_audit_row_json(r: &AdminAuditRecord, links: Option<AdminLinkBuilder>) -
         "client_host": r.client_host,
         "auth_subject": r.auth_subject,
         "source_ip": r.source_ip,
+        "attribution_trust": r.attribution_trust,
         "parent_request_id": r.parent_request_id,
         "tool": r.action,
         "dcc_type": r.dcc_type,
@@ -1474,6 +1475,11 @@ fn dispatch_trace_to_admin_row(t: &DispatchTrace, links: Option<AdminLinkBuilder
         .agent_context
         .as_ref()
         .and_then(|ctx| ctx.source_ip.clone());
+    let attribution_trust = t
+        .agent_context
+        .as_ref()
+        .map(|ctx| ctx.trust.clone())
+        .filter(|trust| !trust.is_empty());
     let mut row = json!({
         "timestamp": ts,
         "request_id": t.request_id,
@@ -1500,6 +1506,7 @@ fn dispatch_trace_to_admin_row(t: &DispatchTrace, links: Option<AdminLinkBuilder
         "client_host": client_host,
         "auth_subject": auth_subject,
         "source_ip": source_ip,
+        "attribution_trust": attribution_trust,
         "span_count": t.span_count(),
         "input_bytes": t.input_bytes(),
         "output_bytes": t.output_bytes(),

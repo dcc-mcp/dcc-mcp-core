@@ -12,6 +12,7 @@ use super::resilience::gateway_limits;
 
 pub(crate) const INTERNAL_SOURCE_IP_HEADER: &str = "x-dcc-mcp-internal-source-ip";
 pub(crate) const INTERNAL_FORWARDED_FOR_HEADER: &str = "x-dcc-mcp-internal-forwarded-for";
+pub(crate) const INTERNAL_AUTH_SUBJECT_HEADER: &str = "x-dcc-mcp-internal-auth-subject";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ClientNetworkAttribution {
@@ -33,6 +34,7 @@ pub(crate) async fn caller_attribution_middleware(
         let headers = req.headers_mut();
         headers.remove(INTERNAL_SOURCE_IP_HEADER);
         headers.remove(INTERNAL_FORWARDED_FOR_HEADER);
+        headers.remove(INTERNAL_AUTH_SUBJECT_HEADER);
     }
 
     let attribution = derive_client_network_attribution(&addr, req.headers());

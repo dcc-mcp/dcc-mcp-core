@@ -351,6 +351,28 @@ h2 {
   color: var(--muted-foreground);
 }
 
+.trust-cell {
+  align-items: center;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.trust-chip {
+  background: rgba(154, 167, 184, 0.12);
+  border: 1px solid rgba(154, 167, 184, 0.2);
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  display: inline-flex;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 1;
+  padding: 0.16rem 0.35rem;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
 .status-bar {
   background: var(--muted);
   border: 1px solid var(--border);

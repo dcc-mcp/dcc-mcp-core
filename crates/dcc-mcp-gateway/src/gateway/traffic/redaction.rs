@@ -43,6 +43,7 @@ impl TrafficRedactor {
                 redacted_paths.push(rule.display_path.clone());
             }
         }
+        redact_default_attribution_fields(attributes, &mut Vec::new(), &mut redacted_paths);
         redacted_paths
     }
 
@@ -98,6 +99,58 @@ fn replace_path(value: &mut Value, path: &[String], replacement: &str) -> bool {
     true
 }
 
+fn redact_default_attribution_fields(
+    value: &mut Value,
+    path: &mut Vec<String>,
+    redacted_paths: &mut Vec<String>,
+) {
+    match value {
+        Value::Object(map) => {
+            for (key, child) in map.iter_mut() {
+                path.push(key.clone());
+                if is_sensitive_attribution_key(key) {
+                    if !child.is_null() {
+                        *child = Value::String("[REDACTED_ATTRIBUTION]".to_string());
+                        redacted_paths.push(path.join("."));
+                    }
+                } else {
+                    redact_default_attribution_fields(child, path, redacted_paths);
+                }
+                path.pop();
+            }
+        }
+        Value::Array(items) => {
+            for (idx, child) in items.iter_mut().enumerate() {
+                path.push(idx.to_string());
+                redact_default_attribution_fields(child, path, redacted_paths);
+                path.pop();
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_sensitive_attribution_key(key: &str) -> bool {
+    let normalised = key
+        .chars()
+        .filter(|ch| *ch != '_' && *ch != '-' && *ch != ' ')
+        .flat_map(char::to_lowercase)
+        .collect::<String>();
+    matches!(
+        normalised.as_str(),
+        "actorid"
+            | "actorname"
+            | "actoremail"
+            | "actoremailhash"
+            | "authsubject"
+            | "clienthost"
+            | "forwardedfor"
+            | "sourceip"
+            | "userinputhash"
+            | "agentreplyhash"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,6 +181,50 @@ mod tests {
         assert_eq!(
             attrs["body"]["data"]["params"]["arguments"]["api_key"],
             "[REDACTED]"
+        );
+    }
+
+    #[test]
+    fn redacts_attribution_fields_by_default() {
+        let redactor = TrafficRedactor::default();
+        let mut attrs = json!({
+            "body": {
+                "data": {
+                    "params": {
+                        "_meta": {
+                            "agent_context": {
+                                "actor_id": "artist-1",
+                                "actor_name": "Morgan Artist",
+                                "client_platform": "cursor",
+                                "client_host": "workstation-7",
+                                "auth_subject": "oauth:artist-1",
+                                "source_ip": "203.0.113.10"
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        let redacted = redactor.redact(&mut attrs);
+
+        assert_eq!(
+            attrs["body"]["data"]["params"]["_meta"]["agent_context"]["actor_id"],
+            "[REDACTED_ATTRIBUTION]"
+        );
+        assert_eq!(
+            attrs["body"]["data"]["params"]["_meta"]["agent_context"]["client_platform"],
+            "cursor"
+        );
+        assert!(
+            redacted
+                .iter()
+                .any(|path| path.ends_with("agent_context.actor_id"))
+        );
+        assert!(
+            redacted
+                .iter()
+                .any(|path| path.ends_with("agent_context.auth_subject"))
         );
     }
 }

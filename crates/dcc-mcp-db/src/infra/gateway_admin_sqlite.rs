@@ -410,6 +410,11 @@ mod tests {
             client_host: Some("workstation-7".into()),
             auth_subject: Some("user:artist-1".into()),
             source_ip: Some("192.0.2.44".into()),
+            attribution_trust: Some(serde_json::json!({
+                "actor_id": "self_reported",
+                "auth_subject": "auth",
+                "source_ip": "server_derived",
+            })),
             parent_request_id: None,
             action: "x".into(),
             dcc_type: Some("maya".into()),
@@ -433,6 +438,7 @@ mod tests {
         assert_eq!(back.actor_id.as_deref(), Some("artist-1"));
         assert_eq!(back.client_platform.as_deref(), Some("custom-http"));
         assert_eq!(back.source_ip.as_deref(), Some("192.0.2.44"));
+        assert_eq!(back.attribution_trust.unwrap()["auth_subject"], "auth");
         assert_eq!(back.token_accounting.unwrap()["saved_tokens"], 12);
     }
 

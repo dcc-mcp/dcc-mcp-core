@@ -358,6 +358,15 @@ async function mockAdminApi(page: Page) {
             client_host: 'workstation-7',
             auth_subject: 'user:artist-1',
             source_ip: '192.0.2.44',
+            attribution_trust: {
+              actor_id: 'self_reported',
+              actor_name: 'self_reported',
+              client_platform: 'header',
+              client_os: 'header',
+              client_host: 'header',
+              auth_subject: 'auth',
+              source_ip: 'server_derived',
+            },
             token_accounting: {
               response_format: 'toon',
               token_estimator: 'dcc-mcp-byte4-v1',
@@ -421,6 +430,15 @@ async function mockAdminApi(page: Page) {
             client_host: 'workstation-7',
             auth_subject: 'user:artist-1',
             source_ip: '192.0.2.44',
+            attribution_trust: {
+              actor_id: 'self_reported',
+              actor_name: 'self_reported',
+              client_platform: 'header',
+              client_os: 'header',
+              client_host: 'header',
+              auth_subject: 'auth',
+              source_ip: 'server_derived',
+            },
             input_tokens: 28,
             output_tokens: 18,
             total_tokens: 46,
@@ -467,6 +485,16 @@ async function mockAdminApi(page: Page) {
           auth_subject: 'user:artist-1',
           source_ip: '192.0.2.44',
           forwarded_for: ['198.51.100.7'],
+          trust: {
+            actor_id: 'self_reported',
+            actor_name: 'self_reported',
+            client_platform: 'header',
+            client_os: 'header',
+            client_host: 'header',
+            auth_subject: 'auth',
+            source_ip: 'trusted_proxy',
+            forwarded_for: 'trusted_proxy',
+          },
           model: 'gpt-test',
           session_id: 'session-1',
         },
@@ -985,6 +1013,8 @@ test.describe('Admin Page', () => {
     await expect(callsPanel).toContainText('Layout Artist');
     await expect(callsPanel).toContainText('cursor / windows / workstation-7');
     await expect(callsPanel).toContainText('192.0.2.44');
+    await expect(callsPanel).toContainText('self_reported');
+    await expect(callsPanel).toContainText('server_derived');
     await page.getByLabel('Filter current panel').fill('192.0.2.44');
     await expect(page.locator('.list-search-meta')).toContainText('1 / 3');
     await expect(callsPanel).toContainText('req-123');
@@ -1006,7 +1036,9 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.trace-detail-panel')).toContainText('Layout Artist');
     await expect(page.locator('.trace-detail-panel')).toContainText('cursor / windows / workstation-7');
     await expect(page.locator('.trace-detail-panel')).toContainText('192.0.2.44');
+    await expect(page.locator('.trace-detail-panel')).toContainText('trusted_proxy');
     await expect(page.locator('.caller-context-pre')).toContainText('"auth_subject": "user:artist-1"');
+    await expect(page.locator('.caller-context-pre')).toContainText('"auth_subject": "auth"');
   });
 
   test('shows reconstructed tasks and links them to traces', async ({ page }) => {

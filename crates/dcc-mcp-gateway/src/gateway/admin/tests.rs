@@ -19,7 +19,7 @@ mod admin_tests {
 
     use crate::gateway::admin::router::{build_admin_router, build_v1_debug_router};
     use crate::gateway::admin::state::{AdminAuditRecord, AdminState, AuditLog};
-    use crate::gateway::admin::trace::TokenTelemetry;
+    use crate::gateway::admin::trace::{AgentContextTrust, TokenTelemetry};
     use crate::gateway::router::build_gateway_router_with_admin;
     use crate::gateway::state::GatewayState;
     use dcc_mcp_transport::discovery::file_registry::FileRegistry;
@@ -203,6 +203,7 @@ mod admin_tests {
             client_host: None,
             auth_subject: None,
             source_ip: None,
+            attribution_trust: None,
             parent_request_id: None,
             action: action.to_string(),
             dcc_type: Some("maya".to_string()),
@@ -734,6 +735,14 @@ sinks:
                 client_host: Some("workstation-7".to_string()),
                 auth_subject: Some("user:artist-1".to_string()),
                 source_ip: Some("192.0.2.44".to_string()),
+                attribution_trust: Some(AgentContextTrust {
+                    actor_id: Some("self_reported".to_string()),
+                    actor_name: Some("self_reported".to_string()),
+                    client_platform: Some("header".to_string()),
+                    auth_subject: Some("auth".to_string()),
+                    source_ip: Some("server_derived".to_string()),
+                    ..AgentContextTrust::default()
+                }),
                 parent_request_id: None,
                 action: "tools/call:maya__open_scene".to_string(),
                 dcc_type: Some("maya".to_string()),
@@ -763,6 +772,7 @@ sinks:
                 client_host: None,
                 auth_subject: None,
                 source_ip: None,
+                attribution_trust: None,
                 parent_request_id: None,
                 action: "tools/call:blender__render".to_string(),
                 dcc_type: Some("blender".to_string()),
@@ -814,6 +824,15 @@ sinks:
         assert_eq!(successes[0]["client_host"], "workstation-7");
         assert_eq!(successes[0]["auth_subject"], "user:artist-1");
         assert_eq!(successes[0]["source_ip"], "192.0.2.44");
+        assert_eq!(
+            successes[0]["attribution_trust"]["actor_id"],
+            "self_reported"
+        );
+        assert_eq!(successes[0]["attribution_trust"]["auth_subject"], "auth");
+        assert_eq!(
+            successes[0]["attribution_trust"]["source_ip"],
+            "server_derived"
+        );
         assert_eq!(failures[0]["request_id"], "req-fail");
         assert_eq!(failures[0]["instance_id"], "blender-instance");
 
@@ -846,6 +865,7 @@ sinks:
             client_host: None,
             auth_subject: None,
             source_ip: None,
+            attribution_trust: None,
             parent_request_id: None,
             action: "tools/call:photoshop__save".to_string(),
             dcc_type: None,
@@ -1057,6 +1077,7 @@ sinks:
             client_host: None,
             auth_subject: None,
             source_ip: None,
+            attribution_trust: None,
             parent_request_id: Some("parent-1".to_string()),
             action: "maya.inst.tool".to_string(),
             dcc_type: Some("maya".to_string()),
@@ -1363,6 +1384,7 @@ sinks:
             client_host: None,
             auth_subject: None,
             source_ip: None,
+            attribution_trust: None,
             parent_request_id: Some("req-missing-parent".into()),
             action: "photoshop.12345678.save_document".into(),
             dcc_type: Some("photoshop".into()),
@@ -1545,6 +1567,7 @@ sinks:
             client_host: None,
             auth_subject: None,
             source_ip: None,
+            attribution_trust: None,
             parent_request_id: Some("req-prev".into()),
             action: "maya.inst.long_task".into(),
             dcc_type: Some("maya".into()),
@@ -1910,6 +1933,7 @@ sinks:
                 client_host: None,
                 auth_subject: None,
                 source_ip: None,
+                attribution_trust: None,
                 parent_request_id: None,
                 action: "maya.deadbeef.scene__info".into(),
                 dcc_type: Some("maya".into()),
@@ -1939,6 +1963,7 @@ sinks:
                 client_host: None,
                 auth_subject: None,
                 source_ip: None,
+                attribution_trust: None,
                 parent_request_id: None,
                 action: "blender.cafebabe.scene__info".into(),
                 dcc_type: Some("blender".into()),
@@ -2159,6 +2184,13 @@ sinks:
             client_host: Some("workstation-7".into()),
             auth_subject: Some("user:artist-1".into()),
             source_ip: Some("192.0.2.44".into()),
+            trust: AgentContextTrust {
+                actor_id: Some("self_reported".into()),
+                client_platform: Some("header".into()),
+                auth_subject: Some("auth".into()),
+                source_ip: Some("server_derived".into()),
+                ..AgentContextTrust::default()
+            },
             ..AgentContext::default()
         });
         log.push(with_input);
@@ -2218,6 +2250,10 @@ sinks:
         assert_eq!(rows_with_inputs[0]["client_host"], "workstation-7");
         assert_eq!(rows_with_inputs[0]["auth_subject"], "user:artist-1");
         assert_eq!(rows_with_inputs[0]["source_ip"], "192.0.2.44");
+        assert_eq!(
+            rows_with_inputs[0]["attribution_trust"]["auth_subject"],
+            "auth"
+        );
     }
 
     #[tokio::test]

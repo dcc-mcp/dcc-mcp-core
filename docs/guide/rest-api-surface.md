@@ -435,6 +435,19 @@ are ignored. Use `client_platform` values such as `cursor`, `claude-desktop`,
 `openclaw`, `clawhub`, `custom-http`, or `studio-tool` to distinguish surfaces
 without overloading agent identity.
 
+The gateway annotates stored context with a server-computed `trust` map and
+Admin rows expose the same map as `attribution_trust`. Values are
+`self_reported` for REST body / MCP `_meta`, `header` for ordinary
+`x-dcc-mcp-*` headers, `auth` for authentication-derived subjects,
+`server_derived` for peer-address network data, and `trusted_proxy` for
+forwarded addresses accepted by the configured trusted-proxy depth. Treat
+`self_reported` and `header` actor fields as filtering hints only; do not use
+them for access control on a LAN unless gateway auth or a trusted proxy owns the
+identity boundary. Raw actor email is intentionally unsupported; send only
+`actor_email_hash` after pseudonymizing the address. Opt-in traffic capture
+masks common attribution identity fields by default and supports explicit
+`redact:` rules for any studio-specific metadata paths.
+
 ---
 
 ## `POST /v1/call_batch` — gateway ordered batches
