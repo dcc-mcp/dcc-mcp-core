@@ -8,10 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.17.36](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.35...v0.17.36) (2026-05-26)
 
 
+### Features
+
+* add agent trace packets ([9fb0286](https://github.com/loonghao/dcc-mcp-core/commit/9fb02868d37752e06279980b5f5a002f0f9e2f6a))
+* highlight slow gateway calls ([2fdd54e](https://github.com/loonghao/dcc-mcp-core/commit/2fdd54e8e0af6ff06e6b79f9fc9a229a81c37e12))
+* improve skill detail rendering ([083972d](https://github.com/loonghao/dcc-mcp-core/commit/083972d44b89eae39882e2dbbb1b81c8e1e6e0f0))
+* make debug endpoints compact-aware ([112a450](https://github.com/loonghao/dcc-mcp-core/commit/112a4506bc120cf6be4a0d93658f840654d22ede))
+
+
 ### Bug Fixes
 
 * add public-safe admin issue reports ([c67b3f6](https://github.com/loonghao/dcc-mcp-core/commit/c67b3f6351973c767c6775229005b3f2ad66f545))
 * align setup ide card actions ([f92bd0d](https://github.com/loonghao/dcc-mcp-core/commit/f92bd0d0202fb002c5be4856f52c04335f2639a0))
+* clarify admin token accounting ([94567c0](https://github.com/loonghao/dcc-mcp-core/commit/94567c0e44fad477bbffa5285830b7f6624f0420))
 
 ## [0.17.35](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.34...v0.17.35) (2026-05-26)
 
