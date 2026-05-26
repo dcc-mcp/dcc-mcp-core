@@ -24,12 +24,61 @@ into reusable contracts so each adapter only supplies host-specific glue.
 | Interactive DCC (Maya UI, Blender UI, Houdini desktop) | `HostUiDispatcherBase` — subclass + `poke_host_pump()` + host timer/`BaseDccPump` |
 | Wire a single `dispatch_callable(func, *args, **kwargs)` shim | `BaseDccCallableDispatcher` (#521) |
 | Full submit / cancel / shutdown contract | `BaseDccCallableDispatcherFull` (#520) |
+| Sidecar-to-DCC transport for Qt-bearing hosts | `dcc_mcp_core.qt_dispatcher.start_qt_server` + `qtserver://` |
 | Batch / `mayapy` / pytest (no UI thread) | `InProcessCallableDispatcher` only — **do not** subclass `HostUiDispatcherBase` |
 | Cooperative idle-tick that drains a queue (Maya `scriptJob(event=['idle', …])`) | `BaseDccPump` (#520) |
 | Shared active/idle timer backoff for host pump callbacks | `AdaptivePumpPolicy` (#606) |
 | Reference single-thread implementation for `mayapy` / pytest / batch | `InProcessCallableDispatcher` |
 | Per-job cancellation handle reachable from skill scripts | `current_callable_job` ContextVar |
 | Declarative progressive skill loading at startup | `MinimalModeConfig` (#525) |
+
+## Universal Qt Dispatcher
+
+Qt-bearing DCCs (Maya, Houdini, 3ds Max, Nuke, Cinema 4D, Substance Painter,
+Mari, and similar hosts) should use the public package module instead of
+vendoring a local copy of the JSON-line TCP server:
+
+```python
+from dcc_mcp_core.qt_dispatcher import start_qt_server
+
+handle = start_qt_server(
+    port=0,
+    dispatch_handler=lambda payload: execute_action(
+        payload["action"],
+        payload.get("args") or {},
+        request_id=payload.get("request_id"),
+    ),
+    session_info_provider=lambda: {"dcc": "maya"},
+)
+
+print(handle.url)      # qtserver://127.0.0.1:<port>
+handle.close()
+```
+
+`dcc-mcp-host-rpc` embeds a Cargo-package mirror of this public module for the
+lazy `commandPort` bootstrap, and CI asserts the mirror matches byte-for-byte.
+Adapter imports and the Rust `qtserver://` client therefore share one
+implementation contract. `start_qt_server()` returns a dict-compatible
+`ServerHandle` for backwards compatibility with the bootstrap JSON path while
+also exposing `handle.port`, `handle.url`, and `handle.close()`.
+
+Built-in request methods are `ping`, `dispatch`, `execute`,
+`get_session_info`, `install_stream_capture`, `get_buffered_output`, and
+`create_module`. Adapters should pass a `dispatch_handler` for script-backed
+actions and keep host-specific registration glue outside the dispatcher.
+
+Migration notes:
+
+- Maya should replace vendored `_qt_dispatcher.py` copies with
+  `dcc_mcp_core.qt_dispatcher.start_qt_server(...)`; Maya-specific code should
+  only resolve the running server, register the action dispatch callback, and
+  provide session metadata.
+- 3ds Max should replace custom `sidecar/qt_bridge.py` TCP request handling
+  with the same dispatcher and keep .NET/MaxScript timer or executor glue in
+  the adapter repository.
+- Other Qt DCCs should follow the same rule: core owns the JSON-line server,
+  request envelopes, stream capture, session info, and `qtserver://`
+  compatibility; adapters own host lifecycle and action execution.
 
 ## BaseDccCallableDispatcher (minimal)
 
