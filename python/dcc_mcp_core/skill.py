@@ -664,10 +664,17 @@ def _json_dumps_for_fallback() -> Callable[..., str]:
     """Return the fastest JSON dumper available without a top-level _core dependency."""
     try:
         # Lazy import: source-only DCC environments may not have the compiled extension.
-        from dcc_mcp_core import json_dumps
+        from dcc_mcp_core import json_dumps as core_json_dumps
     except (AttributeError, ImportError):
         return json.dumps
-    return json_dumps
+
+    def dumps(payload: Any, **kwargs: Any) -> str:
+        try:
+            return core_json_dumps(payload, **kwargs)
+        except ImportError:
+            return json.dumps(payload, **kwargs)
+
+    return dumps
 
 
 _DCC_IMPORT_LABELS = {
