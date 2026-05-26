@@ -105,6 +105,7 @@ class HostUiJobEntry:
         "affinity",
         "cancel_flag",
         "event",
+        "exception_formatter",
         "job_id",
         "on_complete",
         "outcome",
@@ -124,6 +125,7 @@ class HostUiJobEntry:
         job_id: Optional[str] = None,
         progress_token: Optional[str] = None,
         on_complete: Optional[Callable[[Dict[str, Any]], None]] = None,
+        exception_formatter: Optional[Callable[[BaseException], str]] = None,
     ) -> None:
         self.request_id = request_id
         self.affinity = affinity
@@ -135,6 +137,7 @@ class HostUiJobEntry:
         self.job_id = job_id
         self.progress_token = progress_token
         self.on_complete = on_complete
+        self.exception_formatter = exception_formatter
 
     def cancel(self) -> None:
         """Signal cooperative cancellation — idempotent."""
@@ -170,7 +173,7 @@ class HostUiJobEntry:
                 self.request_id,
                 self.affinity,
                 success=False,
-                error=str(exc),
+                error=self._format_exception(exc),
                 job_id=self.job_id,
             )
         finally:
@@ -190,6 +193,16 @@ class HostUiJobEntry:
             job_id=self.job_id,
         )
 
+    def _format_exception(self, exc: BaseException) -> str:
+        formatter = self.exception_formatter
+        if formatter is None:
+            return str(exc)
+        try:
+            return formatter(exc)
+        except Exception as formatter_exc:  # pragma: no cover - defensive
+            logger.warning("HostUiJobEntry.exception_formatter raised: %s", formatter_exc)
+            return str(exc)
+
 
 class HostUiDispatcherBase:
     """Base class for interactive DCC UI-thread dispatchers.
@@ -198,19 +211,51 @@ class HostUiDispatcherBase:
     loop (Maya ``executeDeferred``, Blender ``bpy.app.timers``, …).
     """
 
-    def __init__(self, *, fail_fast_on_main_queue_busy: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        fail_fast_on_main_queue_busy: bool = False,
+        label: Optional[str] = None,
+    ) -> None:
         self._main_queue: Deque[HostUiJobEntry] = deque()
         self._lock = threading.Lock()
         self._cancelled: Set[str] = set()
         self._active: Dict[str, HostUiJobEntry] = {}
         self._shutdown = False
         self._fail_fast_on_main_queue_busy = fail_fast_on_main_queue_busy
+        self._label = label or type(self).__name__
 
     # ── Host hook ─────────────────────────────────────────────────────────
 
     def poke_host_pump(self) -> None:
         """Nudge the host to drain :meth:`drain_queue` soon."""
         raise NotImplementedError
+
+    @property
+    def dispatcher_label(self) -> str:
+        """Human-readable label for adapter logs and diagnostics."""
+        return self._label
+
+    def format_exception_error(self, exc: BaseException) -> str:
+        """Convert a task exception into the dispatcher error string."""
+        return str(exc)
+
+    def format_timeout_error(self, request_id: str, affinity: str, timeout_sec: float) -> str:
+        """Convert a sync main-thread timeout into the dispatcher error string."""
+        _ = request_id, affinity
+        return f"Timeout ({timeout_sec:.1f}s) waiting for main-thread execution"
+
+    def on_job_queued(self, job: HostUiJobEntry) -> None:
+        """Observe a job after it is queued for the host pump."""
+        _ = job
+
+    def on_job_started(self, job: HostUiJobEntry) -> None:
+        """Observe a job immediately before executing on the host thread."""
+        _ = job
+
+    def on_job_finished(self, job: HostUiJobEntry) -> None:
+        """Observe a job immediately after execution or cancellation."""
+        _ = job
 
     # ── Public API (shared across DCC adapters) ─────────────────────────────
 
@@ -245,7 +290,7 @@ class HostUiDispatcherBase:
                 error=str(exc),
             )
         if affinity_norm == "any":
-            return self.run_on_any_thread(request_id, task, affinity_norm)
+            return self._run_on_any_thread(request_id, task, affinity_norm)
         return self._submit_main_sync(request_id, task, affinity_norm, timeout_ms)
 
     def submit_async_callable(
@@ -300,6 +345,7 @@ class HostUiDispatcherBase:
                 job_id=job_id,
                 progress_token=progress_token,
                 on_complete=on_complete,
+                exception_formatter=self._format_exception_error,
             )
             with self._lock:
                 if self._fail_fast_on_main_queue_busy and len(self._main_queue) > 0:
@@ -311,6 +357,7 @@ class HostUiDispatcherBase:
                         "error": DispatcherErrorCode.HOST_BUSY,
                     }
                 self._main_queue.append(job)
+            self._notify_job_queued(job)
             self.poke_host_pump()
 
         return {
@@ -381,7 +428,7 @@ class HostUiDispatcherBase:
         if signalled:
             logger.info(
                 "%s.shutdown: signalled %d job(s) with reason=%r",
-                type(self).__name__,
+                self.dispatcher_label,
                 signalled,
                 reason,
             )
@@ -429,10 +476,12 @@ class HostUiDispatcherBase:
                 self._active[job.request_id] = job
 
             try:
+                self._notify_job_started(job)
                 job.execute()
             finally:
                 with self._lock:
                     self._active.pop(job.request_id, None)
+                self._notify_job_finished(job)
             executed += 1
 
         return executed, len(self._main_queue)
@@ -443,6 +492,17 @@ class HostUiDispatcherBase:
             return host_ui_outcome(request_id, affinity, success=True, output=task())
         except Exception as exc:
             return host_ui_outcome(request_id, affinity, success=False, error=str(exc))
+
+    def _run_on_any_thread(self, request_id: str, task: Callable[[], Any], affinity: str) -> Dict[str, Any]:
+        try:
+            return host_ui_outcome(request_id, affinity, success=True, output=task())
+        except Exception as exc:
+            return host_ui_outcome(
+                request_id,
+                affinity,
+                success=False,
+                error=self._format_exception_error(exc),
+            )
 
     # ── Internal ────────────────────────────────────────────────────────────
 
@@ -468,9 +528,16 @@ class HostUiDispatcherBase:
                     success=False,
                     error=DispatcherErrorCode.HOST_BUSY,
                 )
-            job = HostUiJobEntry(request_id, affinity, task, timeout_ms)
+            job = HostUiJobEntry(
+                request_id,
+                affinity,
+                task,
+                timeout_ms,
+                exception_formatter=self._format_exception_error,
+            )
             self._main_queue.append(job)
 
+        self._notify_job_queued(job)
         self.poke_host_pump()
 
         timeout_sec = (timeout_ms or DEFAULT_UI_JOB_TIMEOUT_MS) / 1000.0
@@ -479,7 +546,7 @@ class HostUiDispatcherBase:
                 request_id,
                 affinity,
                 success=False,
-                error=f"Timeout ({timeout_sec:.1f}s) waiting for main-thread execution",
+                error=self._format_timeout_error(request_id, affinity, timeout_sec),
             )
         return job.outcome or host_ui_outcome(
             request_id,
@@ -493,3 +560,43 @@ class HostUiDispatcherBase:
             if self._main_queue:
                 return self._main_queue.popleft()
         return None
+
+    def _format_exception_error(self, exc: BaseException) -> str:
+        try:
+            return self.format_exception_error(exc)
+        except Exception as formatter_exc:  # pragma: no cover - defensive
+            logger.warning(
+                "%s.format_exception_error raised: %s",
+                self.dispatcher_label,
+                formatter_exc,
+            )
+            return str(exc)
+
+    def _format_timeout_error(self, request_id: str, affinity: str, timeout_sec: float) -> str:
+        try:
+            return self.format_timeout_error(request_id, affinity, timeout_sec)
+        except Exception as formatter_exc:  # pragma: no cover - defensive
+            logger.warning(
+                "%s.format_timeout_error raised: %s",
+                self.dispatcher_label,
+                formatter_exc,
+            )
+            return f"Timeout ({timeout_sec:.1f}s) waiting for main-thread execution"
+
+    def _notify_job_queued(self, job: HostUiJobEntry) -> None:
+        try:
+            self.on_job_queued(job)
+        except Exception as hook_exc:  # pragma: no cover - defensive
+            logger.warning("%s.on_job_queued raised: %s", self.dispatcher_label, hook_exc)
+
+    def _notify_job_started(self, job: HostUiJobEntry) -> None:
+        try:
+            self.on_job_started(job)
+        except Exception as hook_exc:  # pragma: no cover - defensive
+            logger.warning("%s.on_job_started raised: %s", self.dispatcher_label, hook_exc)
+
+    def _notify_job_finished(self, job: HostUiJobEntry) -> None:
+        try:
+            self.on_job_finished(job)
+        except Exception as hook_exc:  # pragma: no cover - defensive
+            logger.warning("%s.on_job_finished raised: %s", self.dispatcher_label, hook_exc)
