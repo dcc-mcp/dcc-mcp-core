@@ -501,11 +501,12 @@ async fn handle_tools_call(
         .as_ref()
         .and_then(|params| params.get("_meta"))
         .cloned();
-    let agent_context = crate::gateway::admin::trace::AgentContext::from_request_parts(
-        headers,
-        req.params.as_ref(),
-        meta.as_ref(),
-    );
+    let agent_context =
+        crate::gateway::admin::trace::AgentContext::from_request_parts_with_server_network(
+            headers,
+            req.params.as_ref(),
+            meta.as_ref(),
+        );
     let trace_context = crate::gateway::admin::trace::TraceContext::from_headers_with_request_id(
         headers,
         id_str.to_string(),
@@ -1060,6 +1061,45 @@ mod tests {
         let decoded: Value = toon_format::decode_default(text).expect("tool content is TOON");
         assert_eq!(decoded["total"], 0);
         assert!(decoded["hits"].as_array().is_some());
+    }
+
+    #[tokio::test]
+    async fn tools_call_search_records_meta_and_server_network_attribution() {
+        let gs = test_gateway_state();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            crate::gateway::caller_attribution::INTERNAL_SOURCE_IP_HEADER,
+            "192.0.2.44".parse().unwrap(),
+        );
+        let req = request(
+            "tools/call",
+            json!("attributed-search"),
+            Some(json!({
+                "name": "search",
+                "arguments": {"kind": "tool", "query": "sphere"},
+                "_meta": {
+                    "agent_context": {
+                        "actor_id": "artist-1",
+                        "client_platform": "cursor",
+                        "sourceIp": "203.0.113.100"
+                    }
+                }
+            })),
+        );
+
+        let response = dispatch_single_request(&gs, &req, "test-session", &headers)
+            .await
+            .expect("request has id");
+
+        assert_eq!(response["result"]["isError"], false);
+        let telemetry = gs.search_telemetry.snapshot(10);
+        let agent = telemetry.recent[0]
+            .agent_context
+            .as_ref()
+            .expect("MCP search should keep attribution");
+        assert_eq!(agent.actor_id.as_deref(), Some("artist-1"));
+        assert_eq!(agent.client_platform.as_deref(), Some("cursor"));
+        assert_eq!(agent.source_ip.as_deref(), Some("192.0.2.44"));
     }
 
     #[tokio::test]

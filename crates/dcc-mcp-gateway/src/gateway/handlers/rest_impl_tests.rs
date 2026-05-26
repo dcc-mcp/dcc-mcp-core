@@ -142,6 +142,20 @@ fn trace_headers() -> HeaderMap {
     headers
 }
 
+fn attributed_trace_headers() -> HeaderMap {
+    let mut headers = trace_headers();
+    headers.insert("x-dcc-mcp-actor-id", "artist-1".parse().unwrap());
+    headers.insert(
+        crate::gateway::caller_attribution::INTERNAL_SOURCE_IP_HEADER,
+        "192.0.2.44".parse().unwrap(),
+    );
+    headers.insert(
+        crate::gateway::caller_attribution::INTERNAL_FORWARDED_FOR_HEADER,
+        "198.51.100.7, 203.0.113.9".parse().unwrap(),
+    );
+    headers
+}
+
 fn assert_trace_headers(headers: &HeaderMap) {
     assert_eq!(
         headers
@@ -688,6 +702,44 @@ async fn gateway_rest_workflow_responses_expose_trace_and_index_metadata() {
 }
 
 #[tokio::test]
+async fn rest_search_records_server_network_attribution() {
+    let gs = test_gateway_state("1.2.3");
+    let headers = attributed_trace_headers();
+
+    let (status, _body) = response_json(
+        handle_v1_search(
+            State(gs.clone()),
+            headers,
+            Json(json!({
+                "query": "render",
+                "meta": {
+                    "agent_context": {
+                        "client_platform": "custom-http",
+                        "sourceIp": "203.0.113.100"
+                    }
+                }
+            })),
+        )
+        .await,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    let telemetry = gs.search_telemetry.snapshot(10);
+    let agent = telemetry.recent[0]
+        .agent_context
+        .as_ref()
+        .expect("search telemetry should keep attribution");
+    assert_eq!(agent.actor_id.as_deref(), Some("artist-1"));
+    assert_eq!(agent.client_platform.as_deref(), Some("custom-http"));
+    assert_eq!(agent.source_ip.as_deref(), Some("192.0.2.44"));
+    assert_eq!(
+        agent.forwarded_for,
+        vec!["198.51.100.7".to_string(), "203.0.113.9".to_string()]
+    );
+}
+
+#[tokio::test]
 async fn mcp_search_followups_correlate_describe_load_call_and_batch() {
     let gs = test_gateway_state("1.2.3");
     seed_unloaded_render_capability(&gs);
@@ -1145,6 +1197,47 @@ async fn rest_traceparent_does_not_replace_request_id() {
     assert_eq!(tokens.response_format, "json");
     assert_eq!(tokens.saved_tokens, 0);
     assert_eq!(tokens.original_tokens, tokens.returned_tokens);
+}
+
+#[tokio::test]
+async fn rest_audit_rows_include_server_network_attribution() {
+    use crate::gateway::middleware::{AuditMiddleware, MiddlewareChain};
+
+    let sink = Arc::new(CaptureSink::default());
+    let chain = MiddlewareChain::new().with_after(Arc::new(AuditMiddleware::new(sink.clone())));
+    let mut gs = test_gateway_state("1.2.3");
+    gs.middleware_chain = Arc::new(chain);
+
+    let headers = attributed_trace_headers();
+    let request_body = json!({
+        "tool_slug": "maya.abcdef01.render",
+        "arguments": {},
+        "meta": {"agent_context": {"agent_id": "agent-1"}},
+        "response_format": "json"
+    });
+
+    let _ = call_service_with_admin_trace(
+        &gs,
+        &headers,
+        RestCallTraceRequest {
+            method: "v1/call",
+            slug: "maya.abcdef01.render",
+            arguments: json!({}),
+            meta: request_body.get("meta").cloned(),
+            request_body: &request_body,
+            trace_context: crate::gateway::admin::trace::TraceContext::from_headers(&headers),
+        },
+    )
+    .await;
+
+    let entries = sink.0.lock().unwrap();
+    let agent = entries[0]
+        .agent_context
+        .as_ref()
+        .expect("audit should keep attribution");
+    assert_eq!(agent.agent_id.as_deref(), Some("agent-1"));
+    assert_eq!(agent.actor_id.as_deref(), Some("artist-1"));
+    assert_eq!(agent.source_ip.as_deref(), Some("192.0.2.44"));
 }
 
 #[tokio::test]

@@ -26,6 +26,7 @@ use dcc_mcp_transport::discovery::types::ServiceEntry;
 
 use crate::gateway::admin::trace::TraceContext;
 
+use super::admin::trace::AgentContext;
 use super::backend_client::{ForwardToolsCallRequest, forward_tools_call, try_describe_tool};
 use super::capability::{
     CapabilityIndex, CapabilityRecord, RANKER_VERSION, RefreshReason, SearchHit, SearchQuery,
@@ -411,6 +412,7 @@ pub async fn call_service(
     arguments: Value,
     meta: Option<Value>,
     trace_context: Option<&TraceContext>,
+    agent_context: Option<&AgentContext>,
 ) -> Result<Value, ServiceError> {
     let record = describe_service(&gs.capability_index, slug)?;
     enforce_record_policy(&gs.policy, GatewayPolicyOperation::Call, &record)?;
@@ -440,7 +442,7 @@ pub async fn call_service(
         ForwardToolsCallRequest {
             tool_name: &record.callable_id,
             arguments: Some(arguments),
-            meta,
+            meta: meta_with_agent_context(meta, agent_context),
             request_id: None,
             trace_context,
             traffic_capture: Some(&gs.traffic_capture),
@@ -477,6 +479,27 @@ pub async fn call_service(
             )
             .with_backend(backend_attachment))
         }
+    }
+}
+
+fn meta_with_agent_context(
+    meta: Option<Value>,
+    agent_context: Option<&AgentContext>,
+) -> Option<Value> {
+    let Some(agent_context) = agent_context else {
+        return meta;
+    };
+    let agent_context = serde_json::to_value(agent_context).ok()?;
+    match meta {
+        Some(Value::Object(mut map)) => {
+            map.insert("agent_context".to_string(), agent_context);
+            Some(Value::Object(map))
+        }
+        Some(other) => Some(json!({
+            "agent_context": agent_context,
+            "upstream_meta": other,
+        })),
+        None => Some(json!({ "agent_context": agent_context })),
     }
 }
 
@@ -915,6 +938,30 @@ mod unit_tests {
         );
         assert_eq!(result["_meta"]["dcc"]["instance_short"], "abcdef01");
         assert_eq!(result["_meta"]["dcc"]["display_id"], "maya@2026-abcdef01");
+    }
+
+    #[test]
+    fn forwarded_meta_includes_canonical_agent_context() {
+        let merged = meta_with_agent_context(
+            Some(json!({"search_id": "search-1"})),
+            Some(&AgentContext {
+                actor_id: Some("artist-1".to_string()),
+                client_platform: Some("cursor".to_string()),
+                source_ip: Some("192.0.2.44".to_string()),
+                forwarded_for: vec!["198.51.100.7".to_string()],
+                ..AgentContext::default()
+            }),
+        )
+        .expect("merged meta");
+
+        assert_eq!(merged["search_id"], "search-1");
+        assert_eq!(merged["agent_context"]["actor_id"], "artist-1");
+        assert_eq!(merged["agent_context"]["client_platform"], "cursor");
+        assert_eq!(merged["agent_context"]["source_ip"], "192.0.2.44");
+        assert_eq!(
+            merged["agent_context"]["forwarded_for"],
+            json!(["198.51.100.7"])
+        );
     }
 
     #[test]
