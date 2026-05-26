@@ -46,6 +46,8 @@
 pub mod activity;
 pub mod governance;
 mod html;
+#[cfg(feature = "admin")]
+mod issue_report;
 mod links;
 pub mod sqlite_lane;
 pub mod state;
