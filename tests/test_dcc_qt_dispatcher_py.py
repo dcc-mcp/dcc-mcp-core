@@ -3,8 +3,12 @@
 The Rust :mod:`dcc_mcp_host_rpc::qtserver` module ships two embedded
 sources:
 
+* ``python/dcc_mcp_core/qt_dispatcher.py``
+  — the public package module and actual ``QtCommandServer`` +
+    ``_DispatchRegistry`` source.
 * ``crates/dcc-mcp-host-rpc/python/dcc_qt_dispatcher.py``
-  — the actual ``QtCommandServer`` + ``_DispatchRegistry``.
+  — Cargo-package mirror embedded by Rust; pinned byte-for-byte to the public
+    source by this test module.
 * ``crates/dcc-mcp-host-rpc/python/dcc_qt_dispatcher_bootstrap.py``
   — the installer wrapping the above into ``sys.modules``.
 
@@ -35,7 +39,10 @@ from typing import Iterator
 # Import third-party modules
 import pytest
 
-DISPATCHER_PATH = Path(__file__).parent.parent / "crates" / "dcc-mcp-host-rpc" / "python" / "dcc_qt_dispatcher.py"
+DISPATCHER_PATH = Path(__file__).parent.parent / "python" / "dcc_mcp_core" / "qt_dispatcher.py"
+MIRROR_DISPATCHER_PATH = (
+    Path(__file__).parent.parent / "crates" / "dcc-mcp-host-rpc" / "python" / "dcc_qt_dispatcher.py"
+)
 BOOTSTRAP_PATH = (
     Path(__file__).parent.parent / "crates" / "dcc-mcp-host-rpc" / "python" / "dcc_qt_dispatcher_bootstrap.py"
 )
@@ -46,9 +53,14 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def test_host_rpc_dispatcher_mirror_matches_public_source() -> None:
+    """The crate-local package mirror must not drift from the public module."""
+    assert _read(MIRROR_DISPATCHER_PATH) == _read(DISPATCHER_PATH)
+
+
 @pytest.fixture
 def dispatcher_module() -> Iterator[types.ModuleType]:
-    """Exec ``dcc_qt_dispatcher.py`` into a fresh module-style namespace
+    """Exec ``dcc_mcp_core.qt_dispatcher`` into a fresh module-style namespace
     and yield it. The module mimics what the bootstrap installs under
     ``sys.modules['_dcc_qt_dispatcher']`` inside a real DCC.
     """
@@ -69,12 +81,21 @@ def test_dispatcher_exports_public_api(dispatcher_module: types.ModuleType) -> N
     """
     for name in (
         "QtCommandServer",
+        "ServerHandle",
         "start_qt_server",
         "stop_qt_server",
         "current_server",
         "DISPATCHER_VERSION",
     ):
         assert hasattr(dispatcher_module, name), f"public symbol missing: {name}"
+
+
+def test_public_package_import_paths_expose_qt_dispatcher() -> None:
+    from dcc_mcp_core.qt_dispatcher import ServerHandle
+    from dcc_mcp_core.qt_dispatcher import start_qt_server
+
+    assert ServerHandle.__name__ == "ServerHandle"
+    assert callable(start_qt_server)
 
 
 def test_dispatch_registry_ping(dispatcher_module: types.ModuleType) -> None:
@@ -91,6 +112,36 @@ def test_dispatch_registry_unknown_method(dispatcher_module: types.ModuleType) -
     assert "error" in envelope
     assert envelope["error"]["code"] == "unknown-method"
     assert "does_not_exist" in envelope["error"]["message"]
+
+
+def test_dispatch_registry_dispatch_handler_success_and_failure(
+    dispatcher_module: types.ModuleType,
+) -> None:
+    def dispatch_handler(params):
+        if params.get("action") == "boom":
+            raise RuntimeError("dispatch failed")
+        return {
+            "action": params.get("action"),
+            "args": params.get("args"),
+            "request_id": params.get("request_id"),
+        }
+
+    registry = dispatcher_module._DispatchRegistry(dispatch_handler=dispatch_handler)
+    envelope = registry.dispatch(
+        "dispatch",
+        {"action": "create", "args": {"radius": 1}, "request_id": "req-1"},
+    )
+    assert envelope == {
+        "result": {
+            "action": "create",
+            "args": {"radius": 1},
+            "request_id": "req-1",
+        }
+    }
+
+    failed = registry.dispatch("dispatch", {"action": "boom"})
+    assert failed["error"]["code"] == "handler-exception"
+    assert "dispatch failed" in failed["error"]["message"]
 
 
 def test_dispatch_registry_execute_returns_value(dispatcher_module: types.ModuleType) -> None:
@@ -404,7 +455,7 @@ def test_source_parses_under_python_3_7_feature_version(path: Path) -> None:
 
 
 def test_dispatcher_source_compiles_without_qt() -> None:
-    """``dc_qt_dispatcher.py`` must be importable up to the point of
+    """``dcc_mcp_core.qt_dispatcher`` must be importable up to the point of
     ``_import_qt`` being called. Calling :func:`start_qt_server` is
     what triggers the Qt import — module-load itself must work
     headless so CI without PySide passes.
@@ -429,6 +480,127 @@ def test_dispatcher_source_is_valid_python_when_inlined_in_bootstrap_wire() -> N
     # Compile must succeed — runtime semantics covered by the
     # dedicated bootstrap tests above.
     compile(composed, "<wire-bootstrap>", "exec")
+
+
+def test_start_qt_server_with_fake_qt_handles_ping_dispatch_and_errors(
+    dispatcher_module: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeSignal:
+        def __init__(self):
+            self.callbacks = []
+
+        def connect(self, callback):
+            self.callbacks.append(callback)
+
+    class FakeTimer:
+        def __init__(self):
+            self.timeout = FakeSignal()
+            self.started = False
+
+        def start(self, _interval):
+            self.started = True
+
+        def stop(self):
+            self.started = False
+
+    class FakeTcpServer:
+        def __init__(self):
+            self.newConnection = FakeSignal()
+            self.closed = False
+            self._port = 0
+
+        def listen(self, _address, port):
+            self._port = port or 18765
+            return True
+
+        def errorString(self):
+            return "fake listen failure"
+
+        def serverPort(self):
+            return self._port
+
+        def hasPendingConnections(self):
+            return False
+
+        def close(self):
+            self.closed = True
+
+    class FakeQtCore:
+        QTimer = FakeTimer
+
+    class FakeQtNetwork:
+        QTcpServer = FakeTcpServer
+        QHostAddress = str
+
+    class FakeSocket:
+        def __init__(self):
+            self.writes = []
+
+        def write(self, data):
+            self.writes.append(bytes(data))
+
+        def flush(self):
+            return None
+
+    def response_from(socket):
+        return json.loads(socket.writes[-1].decode("utf-8"))
+
+    def dispatch_handler(params):
+        if params.get("action") == "explode":
+            raise RuntimeError("fake DCC failed")
+        return {"ok": True, "payload": params}
+
+    monkeypatch.setattr(
+        dispatcher_module,
+        "_import_qt",
+        lambda: (FakeQtCore, FakeQtNetwork, "FakeQt"),
+    )
+
+    handle = dispatcher_module.start_qt_server(
+        port=0,
+        dispatch_handler=dispatch_handler,
+        session_info_provider=lambda: {"dcc": "fake"},
+    )
+    try:
+        assert handle.port == 18765
+        assert handle.url == "qtserver://127.0.0.1:18765"
+        assert handle["url"] == handle.url
+        assert isinstance(json.dumps(handle), str)
+
+        server = dispatcher_module.current_server()
+        ping_socket = FakeSocket()
+        server._handle_line(ping_socket, b'{"id":"p1","method":"ping","params":{}}')
+        assert response_from(ping_socket)["result"]["pong"] is True
+
+        dispatch_socket = FakeSocket()
+        server._handle_line(
+            dispatch_socket,
+            b'{"id":"d1","method":"dispatch","params":{"action":"create","args":{"radius":1},"request_id":"req-1"}}',
+        )
+        assert response_from(dispatch_socket)["result"] == {
+            "ok": True,
+            "payload": {
+                "action": "create",
+                "args": {"radius": 1},
+                "request_id": "req-1",
+            },
+        }
+
+        error_socket = FakeSocket()
+        server._handle_line(
+            error_socket,
+            b'{"id":"d2","method":"dispatch","params":{"action":"explode"}}',
+        )
+        error = response_from(error_socket)["error"]
+        assert error["code"] == "handler-exception"
+        assert "fake DCC failed" in error["message"]
+
+        session_socket = FakeSocket()
+        server._handle_line(session_socket, b'{"id":"s1","method":"get_session_info","params":{}}')
+        assert response_from(session_socket)["result"]["dcc"] == "fake"
+    finally:
+        handle.close()
 
 
 @pytest.mark.skipif(
