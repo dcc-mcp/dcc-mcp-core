@@ -337,7 +337,7 @@ async function mockAdminApi(page: Page) {
       };
     } else if (path === '/calls') {
       body = {
-        total: 3,
+        total: 6,
         calls: [
           {
             timestamp: now,
@@ -397,6 +397,42 @@ async function mockAdminApi(page: Page) {
             savings_pct: 0,
           },
           {
+            timestamp: '2026-05-18T08:00:40.000Z',
+            request_id: 'req-slow',
+            tool: 'maya-1234__bake_cache',
+            dcc_type: 'maya',
+            status: 'ok',
+            success: true,
+            error: null,
+            duration_ms: 6200,
+            instance_id: 'maya-1234567890',
+            transport: 'rest',
+          },
+          {
+            timestamp: '2026-05-18T08:00:45.000Z',
+            request_id: 'req-failed-fast',
+            tool: 'maya-1234__validate_scene',
+            dcc_type: 'maya',
+            status: 'failed',
+            success: false,
+            error: 'Validation failed',
+            duration_ms: 120,
+            instance_id: 'maya-1234567890',
+            transport: 'rest',
+          },
+          {
+            timestamp: '2026-05-18T08:00:50.000Z',
+            request_id: 'req-failed-slow',
+            tool: 'blender-abcd__render_preview',
+            dcc_type: 'blender',
+            status: 'failed',
+            success: false,
+            error: 'Render timed out',
+            duration_ms: 3200,
+            instance_id: 'blender-abcdef1234',
+            transport: 'rest',
+          },
+          {
             timestamp: '2026-05-18T08:01:00.000Z',
             request_id: 'req-legacy',
             tool: 'blender-abcd__render_preview',
@@ -411,7 +447,7 @@ async function mockAdminApi(page: Page) {
       };
     } else if (path === '/traces') {
       body = {
-        total: 2,
+        total: 5,
         traces: [
           {
             timestamp: now,
@@ -443,6 +479,8 @@ async function mockAdminApi(page: Page) {
             output_tokens: 18,
             total_tokens: 46,
             payload_token_estimator: 'dcc-mcp-byte4-v1',
+            slowest_span_name: 'dispatch',
+            slowest_span_ms: 42,
             token_accounting: {
               response_format: 'toon',
               token_estimator: 'dcc-mcp-byte4-v1',
@@ -455,6 +493,45 @@ async function mockAdminApi(page: Page) {
             },
           },
           {
+            timestamp: '2026-05-18T08:00:40.000Z',
+            request_id: 'req-slow',
+            tool: 'maya-1234__bake_cache',
+            dcc_type: 'maya',
+            status: 'ok',
+            success: true,
+            total_ms: 6200,
+            instance_id: 'maya-1234567890',
+            span_count: 3,
+            slowest_span_name: 'upload_texture',
+            slowest_span_ms: 5400,
+          },
+          {
+            timestamp: '2026-05-18T08:00:45.000Z',
+            request_id: 'req-failed-fast',
+            tool: 'maya-1234__validate_scene',
+            dcc_type: 'maya',
+            status: 'failed',
+            success: false,
+            total_ms: 120,
+            instance_id: 'maya-1234567890',
+            span_count: 2,
+            slowest_span_name: 'validate',
+            slowest_span_ms: 40,
+          },
+          {
+            timestamp: '2026-05-18T08:00:50.000Z',
+            request_id: 'req-failed-slow',
+            tool: 'blender-abcd__render_preview',
+            dcc_type: 'blender',
+            status: 'failed',
+            success: false,
+            total_ms: 3200,
+            instance_id: 'blender-abcdef1234',
+            span_count: 3,
+            slowest_span_name: 'render',
+            slowest_span_ms: 3100,
+          },
+          {
             timestamp: '2026-05-18T08:01:00.000Z',
             request_id: 'req-err',
             tool: 'blender-abcd__render_preview',
@@ -463,6 +540,7 @@ async function mockAdminApi(page: Page) {
             success: false,
             total_ms: 87,
             instance_id: 'blender-abcdef1234',
+            span_count: 1,
           },
         ],
       };
@@ -528,14 +606,29 @@ async function mockAdminApi(page: Page) {
           savings_pct: 60,
         },
       };
+    } else if (path === '/traces/req-slow') {
+      body = {
+        request_id: 'req-slow',
+        method: 'tools/call',
+        tool_slug: 'maya-1234__bake_cache',
+        total_ms: 6200,
+        ok: true,
+        started_at: '2026-05-18T08:00:40.000Z',
+        transport: 'rest',
+        spans: [
+          { name: 'queue', duration_ns: 300000000, ok: true },
+          { name: 'upload_texture', duration_ns: 5400000000, ok: true },
+          { name: 'dispatch', duration_ns: 500000000, ok: true },
+        ],
+      };
     } else if (path === '/stats') {
       body = {
         range: url.searchParams.get('range') ?? '24h',
-        total_calls: 4,
-        successful_calls: 3,
-        failed_calls: 1,
-        success_rate: 75,
-        latency_ms: { p50_ms: 20, p95_ms: 90 },
+        total_calls: 6,
+        successful_calls: 4,
+        failed_calls: 2,
+        success_rate: 66.7,
+        latency_ms: { p50_ms: 77, p95_ms: 6200, p99_ms: 6200 },
         total_input_tokens: 120,
         total_output_tokens: 130,
         total_tokens: 250,
@@ -1113,7 +1206,7 @@ test.describe('Admin Page', () => {
     await expect(callsPanel).toContainText('self_reported');
     await expect(callsPanel).toContainText('server_derived');
     await page.getByLabel('Filter current panel').fill('192.0.2.44');
-    await expect(page.locator('.list-search-meta')).toContainText('1 / 3');
+    await expect(page.locator('.list-search-meta')).toContainText('1 / 6');
     await expect(callsPanel).toContainText('req-123');
     await expect(callsPanel).not.toContainText('req-json');
     await page.getByLabel('Filter current panel').fill('');
@@ -1136,6 +1229,36 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.trace-detail-panel')).toContainText('trusted_proxy');
     await expect(page.locator('.caller-context-pre')).toContainText('"auth_subject": "user:artist-1"');
     await expect(page.locator('.caller-context-pre')).toContainText('"auth_subject": "auth"');
+  });
+
+  test('highlights slow calls, traces, and spans independently from failures', async ({ page }) => {
+    await page.goto('/admin/');
+    await page.getByRole('navigation').getByRole('link', { name: 'Calls' }).click();
+    const callsPanel = page.locator('.calls-panel');
+
+    await expect(callsPanel.locator('tr.latency-critical', { hasText: 'req-slow' })).toContainText('TAIL');
+    await expect(callsPanel.locator('tr.latency-slow', { hasText: 'req-failed-s' })).toContainText('SLOW');
+    await expect(callsPanel.locator('tr', { hasText: 'req-failed-s' })).toContainText('failed');
+    await expect(callsPanel.locator('tr', { hasText: 'req-failed-f' }).locator('.badge-latency')).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Slow only' }).click();
+    await expect(page.locator('.list-search-meta')).toContainText('2 / 6');
+    await expect(callsPanel).toContainText('req-slow');
+    await expect(callsPanel).toContainText('req-failed-s');
+    await expect(callsPanel).not.toContainText('req-failed-f');
+
+    await page.getByRole('navigation').getByRole('link', { name: 'Traces' }).click();
+    const tracesPanel = page.locator('.traces-panel');
+    await expect(page.locator('.list-search-meta')).toContainText('2 / 5');
+    await expect(tracesPanel.locator('.trace-item.latency-critical', { hasText: 'req-slow' })).toContainText('TAIL');
+    await expect(tracesPanel.locator('.trace-item.err.latency-slow', { hasText: 'req-failed-s' })).toContainText('SLOW');
+    await expect(tracesPanel).toContainText('p99 latency');
+    await expect(tracesPanel).toContainText('slowest upload_texture 5.40 s');
+
+    await tracesPanel.locator('.trace-item', { hasText: 'req-slow' }).click();
+    await expect(page.locator('.trace-detail-panel')).toContainText('req-slow');
+    await expect(page.locator('.trace-detail-panel')).toContainText('TAIL');
+    await expect(page.locator('.span-row.latency-critical')).toContainText('upload_texture');
   });
 
   test('shows reconstructed tasks and links them to traces', async ({ page }) => {
@@ -1179,6 +1302,9 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.stats-panel')).toContainText('Payload tokens');
     await expect(page.locator('.stats-panel')).toContainText('250');
     await expect(page.locator('.stats-panel')).toContainText('Input / Output tokens');
+    await expect(page.locator('.stats-panel')).toContainText('p99 latency');
+    await expect(page.locator('.stats-panel')).toContainText('Slow calls');
+    await expect(page.locator('.stats-panel')).toContainText('slowest req-slow 6.20 s; slowest upload_texture 5.40 s');
     await expect(page.locator('.stats-panel')).toContainText('Response tokens saved');
     await expect(page.locator('.stats-panel')).toContainText('140');
     await expect(page.locator('.stats-panel')).toContainText('Top app types');
