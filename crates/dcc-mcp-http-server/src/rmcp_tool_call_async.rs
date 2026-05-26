@@ -11,7 +11,9 @@ use dcc_mcp_models::{ExecutionMode, ThreadAffinity};
 
 use crate::server_state::ServerState;
 
-use crate::rmcp_tool_call_dispatch::{decode_dispatch_output, use_main_thread_route};
+use crate::rmcp_tool_call_dispatch::{
+    decode_dispatch_output, encode_dispatch_wire, use_main_thread_route,
+};
 
 pub(super) struct AsyncDispatchConfig {
     pub parent_job_id: Option<String>,
@@ -119,13 +121,8 @@ async fn run_async_execution_lane(
                 match dcc_mcp_actions::with_thread_affinity(ThreadAffinity::Main, || {
                     dispatch.dispatch(&dispatch_name, dispatch_params)
                 }) {
-                    Ok(result) => {
-                        serde_json::to_string(&result.output).unwrap_or_else(|_| "null".into())
-                    }
-                    Err(err) => {
-                        serde_json::to_string(&json!({"__dispatch_error": err.to_string()}))
-                            .unwrap_or_default()
-                    }
+                    Ok(result) => encode_dispatch_wire(Ok(result)),
+                    Err(err) => encode_dispatch_wire(Err(err)),
                 }
             }),
         );
