@@ -47,7 +47,7 @@ pub(crate) fn build_initialize_result(
     result.server_info =
         rmcp::model::Implementation::new(state.server_name.clone(), state.server_version.clone());
     result.instructions = Some(
-        "Search skills with search_skills(query), load with load_skill(name). See get_skill_info or tools/list for details."
+        "Direct DCC workflow: search_tools(query) or search_skills(query), inspect get_skill_info(skill_name), load_skill only when needed, then tools/call. tools/list is paginated; follow nextCursor if you list it."
             .to_string(),
     );
     result

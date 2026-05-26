@@ -143,6 +143,54 @@ class TestToolsListPagination:
         assert len(result2["tools"]) == 54 - self.PAGE_SIZE
         assert result2.get("nextCursor") is None, "Last page must not have nextCursor"
 
+    def test_search_tools_finds_tool_outside_first_page(self, big_server):
+        """Agents should use search_tools instead of treating page one as complete."""
+        code, first_page = _post(
+            big_server,
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+        )
+        assert code == 200
+        first_names = {tool["name"] for tool in first_page["result"]["tools"]}
+        cursor = first_page["result"].get("nextCursor")
+        assert cursor is not None
+
+        target = None
+        while cursor is not None:
+            code, page = _post(
+                big_server,
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {"cursor": cursor}},
+            )
+            assert code == 200
+            for tool in page["result"]["tools"]:
+                name = tool["name"]
+                if name.startswith("tool_") and name not in first_names:
+                    target = name
+                    break
+            if target is not None:
+                break
+            cursor = page["result"].get("nextCursor")
+
+        assert target is not None, "Expected at least one registered test tool outside the first tools/list page"
+
+        code, body = _post(
+            big_server,
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "search_tools",
+                    "arguments": {"query": target, "limit": 5},
+                },
+            },
+        )
+        assert code == 200
+        text = body["result"]["content"][0]["text"]
+        payload = json.loads(text)
+        assert any(hit.get("name") == target for hit in payload.get("tools", [])), (
+            f"search_tools should find loaded tools beyond the first tools/list page; got {payload}"
+        )
+
 
 # ── delta notification capability negotiation ─────────────────────────────
 
@@ -172,6 +220,28 @@ class TestDeltaNotificationCapability:
         assert experimental is None or DELTA_CAP_KEY not in (experimental or {}), (
             f"Server must not advertise delta cap without client opt-in, got: {experimental}"
         )
+
+    def test_initialize_instructions_prefer_search_over_page_one_scans(self, small_server):
+        """Initialize instructions should teach compact discovery before tools/list scans."""
+        code, body = _post(
+            small_server,
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "instruction-client", "version": "1.0"},
+                },
+            },
+        )
+        assert code == 200
+        instructions = body["result"].get("instructions", "")
+        assert "search_tools" in instructions
+        assert "get_skill_info" in instructions
+        assert "nextCursor" in instructions
+        assert "tools/list is paginated" in instructions
 
     def test_server_echoes_delta_capability_when_client_opts_in(self, small_server):
         """When client opts in, server must echo the delta capability back."""
