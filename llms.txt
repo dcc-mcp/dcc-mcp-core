@@ -115,7 +115,8 @@
 | Skill hot-reload without server restart | `DccSkillHotReloader(dcc_name, server)` — monitors skill directories and auto-reloads on change |
 | Singleton DCC server factory | `create_dcc_server(instance_holder, lock, server_class, ...)` / `make_start_stop(ServerClass)` — zero-boilerplate singleton server pattern |
 | Skill validation | `validate_skill(skill_dir)` → `SkillValidationReport` with `SkillValidationIssue` list |
-| Rust-powered JSON/YAML | `json_dumps(obj)` / `json_loads(s)` / `yaml_dumps(obj)` / `yaml_loads(s)` — zero-dependency serialization |
+| Rust-backed skill helpers (issue #1255) | `from dcc_mcp_core.skills_helper import json_dumps, json_loads, yaml_dumps, yaml_loads, skill_success, check_cancelled` — canonical skill-authoring namespace for dependency-light helper APIs; legacy top-level codec imports still work |
+| Rust-powered JSON/YAML | `json_dumps(obj)` / `json_loads(s)` / `yaml_dumps(obj)` / `yaml_loads(s)` — zero-dependency serialization, canonically exported from `dcc_mcp_core.skills_helper` |
 | Canonical MCP/REST wire normalization | Rust: `dcc-mcp-wire::{normalize_arguments, normalize_meta, decode_call_tool, decode_rest_call}`; Python host wrappers: `from dcc_mcp_core.host import normalize_tool_arguments, normalize_tool_meta`. Missing / `null` / empty-string arguments become `{}`; objects pass through; object-shaped JSON strings are accepted; arrays/numbers/booleans/non-object strings are rejected. |
 | Discover team-level skills | `scan_and_load_team()` / `scan_and_load_team_lenient()` |
 | Discover user-level skills | `scan_and_load_user()` / `scan_and_load_user_lenient()` |
@@ -695,12 +696,13 @@ tools:
 - `TOOL_NAME_RE` / `ACTION_ID_RE` — regex patterns for client-safe tool names and internal action IDs
 - `MAX_TOOL_NAME_LEN = 64` — maximum tool name length
 
-### Serialization — Rust-Powered (`dcc_mcp_core`)
+### Serialization — Rust-Powered (`dcc_mcp_core.skills_helper`)
 
 - `json_dumps(obj) -> str` — serialize to JSON string (zero-dependency, Rust-powered)
 - `json_loads(s) -> obj` — deserialize from JSON string (zero-dependency, Rust-powered)
 - `yaml_dumps(obj) -> str` — serialize to YAML string (zero-dependency, Rust-powered)
 - `yaml_loads(s) -> obj` — deserialize from YAML string (zero-dependency, Rust-powered)
+- Existing `from dcc_mcp_core import json_dumps` style imports are compatibility re-exports of `dcc_mcp_core.skills_helper`.
 
 ### Skill Validation (`dcc_mcp_core`)
 

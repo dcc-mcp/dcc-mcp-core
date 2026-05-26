@@ -597,6 +597,26 @@ for s in skills:
     # Action names: f"{s.name.replace('-', '_')}__{stem}" for stem in script stems
 ```
 
+### skills_helper
+
+```python
+from dcc_mcp_core.skills_helper import (
+    check_cancelled,
+    json_dumps,
+    json_loads,
+    normalize_tool_arguments,
+    skill_success,
+    yaml_dumps,
+    yaml_loads,
+)
+```
+
+Canonical skill-authoring namespace for Rust-backed, dependency-light helpers.
+Use it for JSON/YAML codecs, standard result helpers, schema validation,
+MCP/REST argument normalization, and cancellation checks. Legacy imports such
+as `from dcc_mcp_core import json_dumps` remain compatibility re-exports of
+the same functions.
+
 ### register_metadata_driven_tools
 
 ```python

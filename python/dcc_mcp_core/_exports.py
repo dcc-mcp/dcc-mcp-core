@@ -214,8 +214,8 @@ _LAZY: dict[str, str] = {
     "init_file_logging": "dcc_mcp_core._core",
     "is_gui_executable": "dcc_mcp_core._core",
     "is_telemetry_initialized": "dcc_mcp_core._core",
-    "json_dumps": "dcc_mcp_core._core",
-    "json_loads": "dcc_mcp_core._core",
+    "json_dumps": "dcc_mcp_core.skills_helper",
+    "json_loads": "dcc_mcp_core.skills_helper",
     "mpu_to_units": "dcc_mcp_core._core",
     "parse_schedules_yaml": "dcc_mcp_core._core",
     "parse_skill_md": "dcc_mcp_core._core",
@@ -246,8 +246,8 @@ _LAZY: dict[str, str] = {
     "validate_tool_name": "dcc_mcp_core._core",
     "verify_hub_signature_256": "dcc_mcp_core._core",
     "wrap_value": "dcc_mcp_core._core",
-    "yaml_dumps": "dcc_mcp_core._core",
-    "yaml_loads": "dcc_mcp_core._core",
+    "yaml_dumps": "dcc_mcp_core.skills_helper",
+    "yaml_loads": "dcc_mcp_core.skills_helper",
     # Optional _core symbols (try/except ImportError in old code)
     # Returns None when the feature is not compiled in.
     "BackoffKind": "dcc_mcp_core._core",
@@ -494,6 +494,8 @@ _LAZY: dict[str, str] = {
     "normalize_tool_arguments": "dcc_mcp_core.host",
     "normalize_tool_meta": "dcc_mcp_core.host",
     "readiness_report_subset": "dcc_mcp_core.readiness",
+    "SkillHelperError": "dcc_mcp_core.skills_helper",
+    "skill_error_from_exception": "dcc_mcp_core.skills_helper",
     # skill helpers (pure-Python, used inside skill scripts)
     "get_bundled_skill_paths": "dcc_mcp_core.skill",
     "get_bundled_skills_dir": "dcc_mcp_core.skill",
