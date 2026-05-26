@@ -2506,17 +2506,20 @@ pre.empty {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 8px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 0.75rem;
+  height: 100%;
   min-width: 0;
   padding: 1rem;
 }
 
 .ide-card-head {
-  align-items: center;
+  align-items: start;
   display: grid;
   gap: 0.75rem;
   grid-template-columns: auto minmax(0, 1fr);
+  min-height: 3.15rem;
 }
 
 .ide-card-head h3 {
@@ -2546,6 +2549,7 @@ pre.empty {
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--foreground);
+  flex: 1 1 auto;
   font-family: var(--font-mono);
   font-size: 0.76rem;
   line-height: 1.45;
@@ -2557,11 +2561,26 @@ pre.empty {
 }
 
 .ide-card-actions {
-  align-items: center;
+  align-items: end;
+  border-top: 1px solid var(--border);
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  justify-content: flex-end;
+  justify-content: stretch;
+  margin-top: auto;
+  min-height: 3.25rem;
+  padding-top: 0.75rem;
+}
+
+.ide-card-actions .copy-btn,
+.ide-card-actions .refresh-btn {
+  align-items: center;
+  display: inline-flex;
+  flex: 1 1 8.5rem;
+  justify-content: center;
+  margin-top: 0;
+  min-height: 2.35rem;
+  white-space: nowrap;
 }
 
 .mono-path {
