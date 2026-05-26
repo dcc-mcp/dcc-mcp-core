@@ -50,7 +50,7 @@ fn main() -> Result<()> {
     // 4. Post-process: fix pyo3-stub-gen type mappings that are imprecise.
     //    pyo3-stub-gen maps `Vec<u8>` → `list[int]`, but at runtime PyO3
     //    converts it to `bytes`. Replace the imprecise annotations.
-    let final_content = fix_vec_u8_types(final_content);
+    let final_content = normalize_stub_whitespace(fix_vec_u8_types(final_content));
 
     // 5. Write or check
     let final_path = manifest_dir.join(FINAL_STUB);
@@ -158,4 +158,14 @@ fn fix_vec_u8_types(content: String) -> String {
         "typing.Optional[builtins.bytes]",
     );
     content
+}
+
+fn normalize_stub_whitespace(content: String) -> String {
+    let mut lines = content.lines().map(str::trim_end).collect::<Vec<_>>();
+    while lines.last().is_some_and(|line| line.is_empty()) {
+        lines.pop();
+    }
+    let mut normalized = lines.join("\n");
+    normalized.push('\n');
+    normalized
 }

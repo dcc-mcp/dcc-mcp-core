@@ -195,9 +195,9 @@ jobs:
           exit 1
       # The full Linux path compiles through clippy + nextest. Smoke OSes still
       # compile every workspace target, but skip duplicate Rust test execution.
-      - name: Stub generation
+      - name: Stub generation check
         if: matrix.rust-validation == 'full'
-        run: vx just stubgen
+        run: vx just stubgen-check
       - name: Rust format check
         if: matrix.rust-validation == 'full'
         run: vx just fmt-check
@@ -232,6 +232,7 @@ jobs:
       - uses: ./.github/actions/build-wheel
         with:
           python-version: "3.11"
+          generate-stubs: "false"
           test-wheel: "false"
           artifact-name: wheel-${{ matrix.os }}
 
