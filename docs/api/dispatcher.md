@@ -137,6 +137,10 @@ Standard adapter-facing error codes are `server-not-running`,
 They follow the existing result-envelope shape:
 `{"success": false, "message": "...", "error": "<code>", "context": {...}}`.
 
+For adapter migration decision tables, fake-adapter conformance fixtures, and
+Maya / 3ds Max / Blender / Houdini checklists, see
+[`docs/guide/adapter-dispatcher-migration.md`](../guide/adapter-dispatcher-migration.md).
+
 ## BaseDccCallableDispatcher (minimal)
 
 ```python
@@ -421,3 +425,10 @@ implements host-specific pump glue:
 
 Do **not** fork a second queue/cancel protocol per DCC — extend the base and
 keep Maya-specific code in `poke_host_pump` and logging only.
+
+Adapter repositories should carry a fake conformance test before live-host
+smokes. The core reference is
+[`tests/test_dispatcher_migration_conformance.py`](../../tests/test_dispatcher_migration_conformance.py):
+it exercises Maya-like and 3ds Max-like dispatch flows, malformed payloads,
+missing servers, missing source files, executor errors, cancellation, timeout,
+and shutdown cleanup without launching a real DCC.
