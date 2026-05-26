@@ -285,6 +285,16 @@ into a faster authoring loop.
    `_qt_dispatcher.py`, `qt_bridge.py`, or another JSON-line TCP server in the
    adapter; the Rust `qtserver://` bootstrap embeds the package mirror that CI
    keeps byte-for-byte aligned with the public dispatcher module.
+   When that sidecar dispatches script-backed skill actions, compose
+   `dcc_mcp_core.sidecar.SidecarActionDispatcher` into the Qt
+   `dispatch_handler` instead of copying payload validation, action lookup, or
+   error-envelope code. Adapters should supply `server_provider`,
+   `action_resolver`, and either
+   `SidecarActionDispatcher.maya_executor(execute_in_process)` for
+   `execute_in_process(server, script_path, args, action_name)` hosts or
+   `SidecarActionDispatcher.script_executor(run_skill_script)` for
+   3ds Max-style script runners. Keep direct `HostRpcClient` implementations
+   only for native host RPC paths that are not script-backed skill dispatch.
 10. Skill script entry points may use either modern `main(**params)` or legacy
     `main(params)` signatures; prefer `main(**params)` for new scripts and keep
     dict-style wrappers only for compatibility during adapter migrations.
