@@ -192,7 +192,7 @@ compatibility layer; automation should prefer:
 | `GET /v1/debug/traffic/export?limit=1000` | `/admin/api/traffic/export` |
 | `GET /v1/debug/trace-context/{lookup_id}` | trace id or request id lookup |
 | `GET /v1/debug/bundles/{request_id_or_trace_id}` | `/admin/api/debug-bundle/{request_id}` |
-| `GET /v1/debug/issue-reports/{request_id}` | `/admin/api/issue-report/{request_id}` |
+| `GET /v1/debug/issue-reports/{request_id}` | `/admin/api/issue-report/{request_id}`; public-safe by default, `?mode=raw` for reviewed local evidence |
 | `GET /v1/debug/workflows` | `/admin/api/workflows` |
 | `GET /v1/debug/tasks` | `/admin/api/tasks` |
 | `GET /v1/debug/calls` | `/admin/api/calls` |
@@ -331,13 +331,14 @@ end-to-end unit of work. REST callers may send both `X-Request-Id` and W3C
 trace id, parent span id, and flags from `traceparent`.
 
 The Admin UI also exposes a standalone `GET /admin/api/issue-report/{request_id}`
-export. It returns a GitHub-attachable JSON report with a summary,
-`github_issue` title/body template, absolute links, and the correlated debug
-bundle. Default exports include bounded summaries, hashes, character counts, and
-payload previews only. Review request/response payload previews for secrets or
-proprietary scene paths before uploading the JSON to a public issue; raw prompt
-or reply text belongs in an explicit safe-export/traffic-capture flow, not in
-default issue reports.
+export. It returns a public-safe GitHub issue report by default with summary,
+status, DCC type, tool family, timing, sanitized error kind, token accounting,
+redaction status, and relative same-session links. Default exports intentionally
+exclude raw payload previews, prompts, scripts, auth material, local callback
+URLs, absolute filesystem paths, and private scene/project identifiers. Use
+`GET /admin/api/issue-report/{request_id}?mode=raw` only for reviewed local
+evidence; raw mode embeds the correlated debug bundle and should not be pasted
+into a public issue without inspection.
 
 The front-end product name is **Admin Dashboard**. The lower REST/OpenAPI
 contract view is named **OpenAPI Inspector**. It reads the live gateway
@@ -587,14 +588,20 @@ matching Scalar reference.
 // GET /admin/api/issue-report/req-123
 {
   "schema_version": "dcc-mcp.admin.issue-report.v1",
-  "report_type": "github_issue_debug_json",
+  "report_type": "github_issue_public_safe",
+  "privacy_mode": "public-safe",
   "request_id": "req-123",
   "summary": {
-    "title": "DCC-MCP request req-123 failed: maya.abcdef01.maya__open_scene",
+    "title": "DCC-MCP request req-123 failed: open_scene",
     "status": "failed",
-    "tool": "maya.abcdef01.maya__open_scene",
     "dcc_type": "maya",
+    "tool_family": "open_scene",
     "total_ms": 48,
+    "error": {
+      "kind": "backend-unavailable",
+      "present": true,
+      "message_redacted": true
+    },
     "token_accounting": {
       "response_format": "toon",
       "token_estimator": "dcc-mcp-byte4-v1",
@@ -602,23 +609,47 @@ matching Scalar reference.
       "saved_tokens": 66,
       "savings_pct": 55.0
     },
+    "redaction_status": {
+      "mode": "public-safe",
+      "raw_payloads_excluded": true,
+      "payload_previews_excluded": true,
+      "local_urls_excluded": true,
+      "absolute_paths_excluded": true,
+      "private_identifiers_excluded": true
+    },
     "postmortem": {
       "previous_call_count": 1,
       "gateway_event_count": 0
     }
   },
   "github_issue": {
-    "title": "DCC-MCP request req-123 failed: maya.abcdef01.maya__open_scene",
+    "title": "DCC-MCP request req-123 failed: open_scene",
     "body_template": "## Summary\n\nRequest `req-123` returned `failed`...",
     "suggested_labels": ["bug", "admin-telemetry"]
   },
   "links": {
-    "admin_trace_url": "http://127.0.0.1:9765/admin?panel=traces&trace=req-123",
-    "issue_report_url": "http://127.0.0.1:9765/admin/api/issue-report/req-123",
-    "openapi_inspector_url": "http://127.0.0.1:9765/admin?panel=openapi",
-    "openapi_spec_url": "http://127.0.0.1:9765/v1/openapi.json",
-    "openapi_docs_url": "http://127.0.0.1:9765/docs"
+    "admin_trace_path": "/admin?panel=traces&trace=req-123",
+    "safe_issue_report_path": "/admin/api/issue-report/req-123",
+    "raw_issue_report_path": "/admin/api/issue-report/req-123?mode=raw",
+    "stable_safe_issue_report_path": "/v1/debug/issue-reports/req-123",
+    "stable_raw_issue_report_path": "/v1/debug/issue-reports/req-123?mode=raw",
+    "openapi_spec_path": "/v1/openapi.json",
+    "docs_path": "/docs"
   },
+  "raw_debug_bundle": {
+    "available": true,
+    "mode_query": "mode=raw",
+    "admin_path": "/admin/api/issue-report/req-123?mode=raw",
+    "stable_path": "/v1/debug/issue-reports/req-123?mode=raw"
+  }
+}
+
+// GET /admin/api/issue-report/req-123?mode=raw
+{
+  "schema_version": "dcc-mcp.admin.issue-report.v1",
+  "report_type": "github_issue_debug_json",
+  "privacy_mode": "raw-local-evidence",
+  "request_id": "req-123",
   "debug_bundle": { "request_id": "req-123" }
 }
 

@@ -116,8 +116,20 @@ pub(crate) fn add_gateway_debug_openapi_paths(doc: &mut Value) {
         (
             "/v1/debug/issue-reports/{request_id}",
             "Get issue-report debug JSON",
-            "GitHub-attachable debug report for one request.",
-            vec![path_param("request_id", "Gateway request id.")],
+            "Public-safe GitHub issue report by default. Use mode=raw only for reviewed local evidence.",
+            vec![
+                path_param("request_id", "Gateway request id."),
+                query_param(
+                    "mode",
+                    json!({"type": "string", "enum": ["public-safe", "raw"]}),
+                    "Report privacy mode. Defaults to public-safe; raw includes the full debug bundle.",
+                ),
+                query_param(
+                    "include_raw",
+                    json!({"type": "boolean"}),
+                    "Compatibility flag for explicit raw bundle exports.",
+                ),
+            ],
         ),
         (
             "/v1/debug/logs",
