@@ -119,8 +119,9 @@ impl ServerHandler for DccMcpHandler {
             self.state.server_version.clone(),
         );
         info.instructions = Some(
-            "Use search_skills to discover available DCC tools, \
-             then load_skill to activate a skill before calling its tools."
+            "Use search_tools or search_skills for compact discovery, \
+             get_skill_info for selected schemas, then load_skill only when needed. \
+             tools/list is paginated; follow nextCursor if you list it."
                 .to_string(),
         );
         info
