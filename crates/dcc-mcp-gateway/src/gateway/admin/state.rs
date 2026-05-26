@@ -48,6 +48,22 @@ pub struct AdminAuditRecord {
     pub agent_name: Option<String>,
     /// Model or runtime name supplied by the caller.
     pub agent_model: Option<String>,
+    /// Human/service actor id supplied for telemetry filtering.
+    pub actor_id: Option<String>,
+    /// Human/service actor name supplied for telemetry filtering.
+    pub actor_name: Option<String>,
+    /// Hashed actor email or stable user handle. Never store raw email here.
+    pub actor_email_hash: Option<String>,
+    /// Client platform/runtime such as `cursor`, `claude-desktop`, or `custom-http`.
+    pub client_platform: Option<String>,
+    /// Client operating system label.
+    pub client_os: Option<String>,
+    /// Client host label.
+    pub client_host: Option<String>,
+    /// Authentication subject when provided by middleware/auth integration.
+    pub auth_subject: Option<String>,
+    /// Server-derived source IP after proxy trust policy.
+    pub source_ip: Option<String>,
     /// Parent request id for request-chain correlation.
     pub parent_request_id: Option<String>,
     /// Tool slug or MCP method name.
@@ -95,6 +111,22 @@ struct PersistedAuditRecord {
     agent_name: Option<String>,
     #[serde(default)]
     agent_model: Option<String>,
+    #[serde(default)]
+    actor_id: Option<String>,
+    #[serde(default)]
+    actor_name: Option<String>,
+    #[serde(default)]
+    actor_email_hash: Option<String>,
+    #[serde(default)]
+    client_platform: Option<String>,
+    #[serde(default)]
+    client_os: Option<String>,
+    #[serde(default)]
+    client_host: Option<String>,
+    #[serde(default)]
+    auth_subject: Option<String>,
+    #[serde(default)]
+    source_ip: Option<String>,
     #[serde(default)]
     parent_request_id: Option<String>,
     action: String,
@@ -255,6 +287,14 @@ impl From<&AdminAuditRecord> for PersistedAuditRecord {
             agent_id: record.agent_id.clone(),
             agent_name: record.agent_name.clone(),
             agent_model: record.agent_model.clone(),
+            actor_id: record.actor_id.clone(),
+            actor_name: record.actor_name.clone(),
+            actor_email_hash: record.actor_email_hash.clone(),
+            client_platform: record.client_platform.clone(),
+            client_os: record.client_os.clone(),
+            client_host: record.client_host.clone(),
+            auth_subject: record.auth_subject.clone(),
+            source_ip: record.source_ip.clone(),
             parent_request_id: record.parent_request_id.clone(),
             action: record.action.clone(),
             dcc_type: record.dcc_type.clone(),
@@ -281,6 +321,14 @@ impl From<PersistedAuditRecord> for AdminAuditRecord {
             agent_id: record.agent_id,
             agent_name: record.agent_name,
             agent_model: record.agent_model,
+            actor_id: record.actor_id,
+            actor_name: record.actor_name,
+            actor_email_hash: record.actor_email_hash,
+            client_platform: record.client_platform,
+            client_os: record.client_os,
+            client_host: record.client_host,
+            auth_subject: record.auth_subject,
+            source_ip: record.source_ip,
             parent_request_id: record.parent_request_id,
             action: record.action,
             dcc_type: record.dcc_type,
@@ -347,6 +395,7 @@ impl AdminAuditSink {
 
 impl AuditSink for AdminAuditSink {
     fn record(&self, entry: AuditEntry) {
+        let agent_context = entry.agent_context.as_ref();
         let record = AdminAuditRecord {
             timestamp: entry.timestamp,
             request_id: entry.request_id.clone(),
@@ -357,24 +406,23 @@ impl AuditSink for AdminAuditSink {
             instance_id: entry.instance_id.clone(),
             session_id: entry.session_id.clone(),
             transport: entry.transport.clone(),
-            agent_id: entry
-                .agent_context
-                .as_ref()
-                .and_then(|ctx| ctx.agent_id.clone()),
-            agent_name: entry
-                .agent_context
-                .as_ref()
-                .and_then(|ctx| ctx.agent_name.clone()),
-            agent_model: entry
-                .agent_context
-                .as_ref()
+            agent_id: agent_context.and_then(|ctx| ctx.agent_id.clone()),
+            agent_name: agent_context.and_then(|ctx| ctx.agent_name.clone()),
+            agent_model: agent_context
                 .and_then(|ctx| ctx.model.clone().or_else(|| ctx.model_version.clone())),
-            parent_request_id: entry.trace_context.parent_request_id.clone().or_else(|| {
-                entry
-                    .agent_context
-                    .as_ref()
-                    .and_then(|ctx| ctx.parent_request_id.clone())
-            }),
+            actor_id: agent_context.and_then(|ctx| ctx.actor_id.clone()),
+            actor_name: agent_context.and_then(|ctx| ctx.actor_name.clone()),
+            actor_email_hash: agent_context.and_then(|ctx| ctx.actor_email_hash.clone()),
+            client_platform: agent_context.and_then(|ctx| ctx.client_platform.clone()),
+            client_os: agent_context.and_then(|ctx| ctx.client_os.clone()),
+            client_host: agent_context.and_then(|ctx| ctx.client_host.clone()),
+            auth_subject: agent_context.and_then(|ctx| ctx.auth_subject.clone()),
+            source_ip: agent_context.and_then(|ctx| ctx.source_ip.clone()),
+            parent_request_id: entry
+                .trace_context
+                .parent_request_id
+                .clone()
+                .or_else(|| agent_context.and_then(|ctx| ctx.parent_request_id.clone())),
             action: entry
                 .tool_slug
                 .clone()
@@ -457,6 +505,14 @@ mod durable_tests {
             agent_id: None,
             agent_name: None,
             agent_model: None,
+            actor_id: None,
+            actor_name: None,
+            actor_email_hash: None,
+            client_platform: None,
+            client_os: None,
+            client_host: None,
+            auth_subject: None,
+            source_ip: None,
             parent_request_id: None,
             action: "maya.abcdef01.create_sphere".to_string(),
             dcc_type: Some("maya".to_string()),
