@@ -412,6 +412,29 @@ Search responses also include `search_id`, `ranker_version`, and
 `/v1/describe`, `/v1/load_skill`, `/v1/call`, or `/v1/call_batch` so gateway
 telemetry can measure the search-to-action path without storing full prompts.
 
+### Caller Attribution
+
+REST callers may add bounded caller attribution in `meta.agent_context`,
+top-level `agent_context` / `caller_context`, or headers. MCP callers use the
+same shape in `params._meta.agent_context`. This schema is metadata only; do
+not send hidden reasoning, full prompts, raw user messages, secrets, bearer
+tokens, or raw agent replies.
+
+| Concept | JSON fields | Header fields |
+|---|---|---|
+| Actor | `actor_id`, `actor_name`, `actor_email_hash` | `x-dcc-mcp-actor-id`, `x-dcc-mcp-actor-name`, `x-dcc-mcp-actor-email-hash` |
+| Agent runtime | `agent_id`, `agent_name`, `agent_kind`, `agent_version`, `model`, `model_provider`, `model_version` | `x-dcc-mcp-agent-id`, `x-dcc-mcp-agent-name`, `x-dcc-mcp-agent-kind`, `x-dcc-mcp-agent-version`, `x-dcc-mcp-agent-model`, `x-dcc-mcp-agent-model-provider`, `x-dcc-mcp-agent-model-version` |
+| Client platform | `client_platform`, `client_os`, `client_host` | `x-dcc-mcp-client-platform`, `x-dcc-mcp-client-os`, `x-dcc-mcp-client-host` |
+| Auth subject | `auth_subject` | `x-dcc-mcp-auth-subject` |
+| Network source | `source_ip`, `forwarded_for` | Server-derived only |
+
+All string fields are bounded before storage. `source_ip` and `forwarded_for`
+are reserved for server-derived network data after proxy trust policy has been
+applied; values supplied in REST request bodies, MCP `_meta`, or caller headers
+are ignored. Use `client_platform` values such as `cursor`, `claude-desktop`,
+`openclaw`, `clawhub`, `custom-http`, or `studio-tool` to distinguish surfaces
+without overloading agent identity.
+
 ---
 
 ## `POST /v1/call_batch` — gateway ordered batches
@@ -490,10 +513,11 @@ Rules:
   `meta.search_id`, `meta.ranker_version`, and `meta.index_generation` for
   follow-up calls; clients may also pass the same object as MCP `_meta`.
 - Optional `meta.agent_context`, top-level `caller_context`, or
-  `x-dcc-mcp-agent-*` headers carry bounded turn metadata for Admin workflow,
-  search-quality, and OTLP correlation. Send concise summaries, hashes, and
-  character counts only; raw user input and raw agent replies are high
-  sensitivity and belong only in an explicit redacted traffic-capture flow.
+  `x-dcc-mcp-*` attribution headers carry bounded actor, agent, client, auth,
+  and turn metadata for Admin workflow, search-quality, and OTLP correlation.
+  Send concise summaries, hashes, and character counts only; raw user input and
+  raw agent replies are high sensitivity and belong only in an explicit
+  redacted traffic-capture flow.
 - Full `input_schema` remains behind `describe`. Search may carry only bounded
   `metadata.dcc.searchAliases` / `metadata.dcc.searchTokens` hints from a
   per-DCC backend to the gateway index; gateway search responses do not expose

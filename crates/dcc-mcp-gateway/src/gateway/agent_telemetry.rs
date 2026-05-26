@@ -29,9 +29,13 @@ pub(crate) struct AgentWorkflowEvent {
     request_id: Option<String>,
     parent_request_id: Option<String>,
     session_id: Option<String>,
+    actor_id: Option<String>,
+    actor_name: Option<String>,
+    actor_email_hash: Option<String>,
     agent_id: Option<String>,
     agent_name: Option<String>,
     agent_kind: Option<String>,
+    agent_version: Option<String>,
     agent_model_provider: Option<String>,
     agent_model_version: Option<String>,
     agent_model: Option<String>,
@@ -45,6 +49,12 @@ pub(crate) struct AgentWorkflowEvent {
     agent_reply_chars: Option<u64>,
     agent_task: Option<String>,
     agent_tags: Vec<String>,
+    client_platform: Option<String>,
+    client_os: Option<String>,
+    client_host: Option<String>,
+    auth_subject: Option<String>,
+    source_ip: Option<String>,
+    forwarded_for: Vec<String>,
     dcc_type: Option<String>,
     instance_id: Option<String>,
     skill_name: Option<String>,
@@ -72,9 +82,13 @@ impl AgentWorkflowEvent {
             request_id: None,
             parent_request_id: None,
             session_id: None,
+            actor_id: None,
+            actor_name: None,
+            actor_email_hash: None,
             agent_id: None,
             agent_name: None,
             agent_kind: None,
+            agent_version: None,
             agent_model_provider: None,
             agent_model_version: None,
             agent_model: None,
@@ -88,6 +102,12 @@ impl AgentWorkflowEvent {
             agent_reply_chars: None,
             agent_task: None,
             agent_tags: Vec::new(),
+            client_platform: None,
+            client_os: None,
+            client_host: None,
+            auth_subject: None,
+            source_ip: None,
+            forwarded_for: Vec::new(),
             dcc_type: None,
             instance_id: None,
             skill_name: None,
@@ -118,9 +138,13 @@ impl AgentWorkflowEvent {
 
     pub(crate) fn with_agent_context(mut self, agent_context: Option<&AgentContext>) -> Self {
         if let Some(ctx) = agent_context {
+            self.actor_id = ctx.actor_id.clone();
+            self.actor_name = ctx.actor_name.clone();
+            self.actor_email_hash = ctx.actor_email_hash.clone();
             self.agent_id = ctx.agent_id.clone();
             self.agent_name = ctx.agent_name.clone();
             self.agent_kind = ctx.agent_kind.clone();
+            self.agent_version = ctx.agent_version.clone();
             self.agent_model_provider = ctx.model_provider.clone();
             self.agent_model_version = ctx.model_version.clone();
             self.agent_model = ctx.model.clone();
@@ -134,6 +158,12 @@ impl AgentWorkflowEvent {
             self.agent_reply_chars = ctx.agent_reply_chars;
             self.agent_task = ctx.task.clone();
             self.agent_tags = ctx.tags.iter().take(16).cloned().collect();
+            self.client_platform = ctx.client_platform.clone();
+            self.client_os = ctx.client_os.clone();
+            self.client_host = ctx.client_host.clone();
+            self.auth_subject = ctx.auth_subject.clone();
+            self.source_ip = ctx.source_ip.clone();
+            self.forwarded_for = ctx.forwarded_for.iter().take(16).cloned().collect();
             if self.session_id.is_none() {
                 self.session_id = ctx.session_id.clone();
             }
@@ -295,9 +325,21 @@ impl AgentWorkflowEvent {
             self.parent_request_id.as_deref(),
         );
         insert_opt(&mut attrs, "dcc_mcp.session_id", self.session_id.as_deref());
+        insert_opt(&mut attrs, "dcc_mcp.actor.id", self.actor_id.as_deref());
+        insert_opt(&mut attrs, "dcc_mcp.actor.name", self.actor_name.as_deref());
+        insert_opt(
+            &mut attrs,
+            "dcc_mcp.actor.email_hash",
+            self.actor_email_hash.as_deref(),
+        );
         insert_opt(&mut attrs, "dcc_mcp.agent.id", self.agent_id.as_deref());
         insert_opt(&mut attrs, "dcc_mcp.agent.name", self.agent_name.as_deref());
         insert_opt(&mut attrs, "dcc_mcp.agent.kind", self.agent_kind.as_deref());
+        insert_opt(
+            &mut attrs,
+            "dcc_mcp.agent.version",
+            self.agent_version.as_deref(),
+        );
         insert_opt(
             &mut attrs,
             "dcc_mcp.agent.model_provider",
@@ -356,6 +398,29 @@ impl AgentWorkflowEvent {
         insert_opt(&mut attrs, "dcc_mcp.agent.task", self.agent_task.as_deref());
         if !self.agent_tags.is_empty() {
             attrs.insert("dcc_mcp.agent.tags".to_string(), json!(self.agent_tags));
+        }
+        insert_opt(
+            &mut attrs,
+            "dcc_mcp.client.platform",
+            self.client_platform.as_deref(),
+        );
+        insert_opt(&mut attrs, "dcc_mcp.client.os", self.client_os.as_deref());
+        insert_opt(
+            &mut attrs,
+            "dcc_mcp.client.host",
+            self.client_host.as_deref(),
+        );
+        insert_opt(
+            &mut attrs,
+            "dcc_mcp.auth.subject",
+            self.auth_subject.as_deref(),
+        );
+        insert_opt(&mut attrs, "dcc_mcp.source.ip", self.source_ip.as_deref());
+        if !self.forwarded_for.is_empty() {
+            attrs.insert(
+                "dcc_mcp.forwarded_for".to_string(),
+                json!(self.forwarded_for),
+            );
         }
         insert_opt(&mut attrs, "dcc_mcp.dcc.type", self.dcc_type.as_deref());
         insert_opt(
@@ -895,9 +960,13 @@ mod tests {
         let event = AgentWorkflowEvent::new("gateway.search", "rest")
             .with_trace_context(Some(&trace_context()))
             .with_agent_context(Some(&AgentContext {
+                actor_id: Some("user-1".to_string()),
+                actor_name: Some("Morgan Artist".to_string()),
+                actor_email_hash: Some("sha256:actor".to_string()),
                 agent_id: Some("agent-1".to_string()),
                 agent_name: Some("Codex".to_string()),
                 agent_kind: Some("coding-agent".to_string()),
+                agent_version: Some("0.9.0".to_string()),
                 model_provider: Some("openai".to_string()),
                 model_version: Some("gpt-5.1".to_string()),
                 model: Some("gpt-5".to_string()),
@@ -911,6 +980,12 @@ mod tests {
                 user_input_chars: Some(2048),
                 agent_reply_chars: Some(512),
                 task: Some("fix issue 1180".to_string()),
+                client_platform: Some("cursor".to_string()),
+                client_os: Some("windows".to_string()),
+                client_host: Some("workstation-42".to_string()),
+                auth_subject: Some("oauth:user-1".to_string()),
+                source_ip: Some("192.0.2.44".to_string()),
+                forwarded_for: vec!["198.51.100.7".to_string()],
                 reasoning_summary: Some("do not export me".to_string()),
                 tags: vec!["ci".to_string(), "gateway".to_string()],
                 metadata: json!({"api_key": "secret"}),
@@ -924,7 +999,11 @@ mod tests {
         let attrs = event.attributes();
         assert_eq!(attrs["dcc_mcp.workflow.operation"], "gateway.search");
         assert_eq!(attrs["dcc_mcp.session_id"], "session-1");
+        assert_eq!(attrs["dcc_mcp.actor.id"], "user-1");
+        assert_eq!(attrs["dcc_mcp.actor.name"], "Morgan Artist");
+        assert_eq!(attrs["dcc_mcp.actor.email_hash"], "sha256:actor");
         assert_eq!(attrs["dcc_mcp.agent.id"], "agent-1");
+        assert_eq!(attrs["dcc_mcp.agent.version"], "0.9.0");
         assert_eq!(attrs["dcc_mcp.agent.model_provider"], "openai");
         assert_eq!(attrs["dcc_mcp.agent.model_version"], "gpt-5.1");
         assert_eq!(attrs["dcc_mcp.agent.reasoning_effort"], "high");
@@ -942,6 +1021,12 @@ mod tests {
         assert_eq!(attrs["dcc_mcp.agent.user_input_chars"], 2048);
         assert_eq!(attrs["dcc_mcp.agent.reply_chars"], 512);
         assert_eq!(attrs["dcc_mcp.agent.tags"], json!(["ci", "gateway"]));
+        assert_eq!(attrs["dcc_mcp.client.platform"], "cursor");
+        assert_eq!(attrs["dcc_mcp.client.os"], "windows");
+        assert_eq!(attrs["dcc_mcp.client.host"], "workstation-42");
+        assert_eq!(attrs["dcc_mcp.auth.subject"], "oauth:user-1");
+        assert_eq!(attrs["dcc_mcp.source.ip"], "192.0.2.44");
+        assert_eq!(attrs["dcc_mcp.forwarded_for"], json!(["198.51.100.7"]));
         assert_eq!(attrs["dcc_mcp.search.id"], "search-1");
         assert_eq!(attrs["dcc_mcp.search.zero_results"], true);
         assert!(!attrs.contains_key("dcc_mcp.agent.reasoning_summary"));
