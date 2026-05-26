@@ -83,6 +83,9 @@ into a faster authoring loop.
    normalization, schema validation, or cancellation checks should import them
    from `dcc_mcp_core.skills_helper`. Keep legacy top-level imports working for
    old skills, but write new examples against `skills_helper`.
+   Prefer `load_json_file`, `load_yaml_file`, `dump_json_file`, and
+   `dump_yaml_file` from the same namespace when a script needs explicit UTF-8,
+   source-aware parse errors, byte guards, or mapping-root validation.
 7. When changing adapter server wiring or caller examples, keep Admin telemetry
    useful: pass optional `agent_context` / `caller_context` summaries through
    MCP `_meta`, REST `meta`, or `x-dcc-mcp-agent-*` headers when the caller is
