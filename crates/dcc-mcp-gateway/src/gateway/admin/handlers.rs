@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use super::html::ADMIN_HTML;
 use super::links::AdminLinkBuilder;
 use super::state::{AdminAuditRecord, AdminState};
-use super::trace::DispatchTrace;
+use super::trace::{AgentContext, DispatchTrace};
 use crate::gateway::capability::RefreshReason;
 use crate::gateway::capability_service::refresh_all_live_backends;
 use crate::gateway::event_log::{ContendEvent, EventKind};
@@ -520,6 +520,20 @@ fn admin_audit_row_json(r: &AdminAuditRecord, links: Option<AdminLinkBuilder>) -
         "agent_id": r.agent_id,
         "agent_name": r.agent_name,
         "agent_model": r.agent_model,
+        "actor_id": r.actor_id,
+        "actor_name": r.actor_name,
+        "actor_email_hash": r.actor_email_hash,
+        "actor": display_actor_parts(
+            r.actor_name.as_deref(),
+            r.actor_id.as_deref(),
+            r.auth_subject.as_deref(),
+            r.actor_email_hash.as_deref(),
+        ),
+        "client_platform": r.client_platform,
+        "client_os": r.client_os,
+        "client_host": r.client_host,
+        "auth_subject": r.auth_subject,
+        "source_ip": r.source_ip,
         "parent_request_id": r.parent_request_id,
         "tool": r.action,
         "dcc_type": r.dcc_type,
@@ -533,6 +547,29 @@ fn admin_audit_row_json(r: &AdminAuditRecord, links: Option<AdminLinkBuilder>) -
         row["links"] = links.request_links(&r.request_id);
     }
     row
+}
+
+fn display_actor_parts(
+    actor_name: Option<&str>,
+    actor_id: Option<&str>,
+    auth_subject: Option<&str>,
+    actor_email_hash: Option<&str>,
+) -> Option<String> {
+    actor_name
+        .or(actor_id)
+        .or(auth_subject)
+        .or(actor_email_hash)
+        .map(ToString::to_string)
+}
+
+fn display_actor(ctx: Option<&AgentContext>) -> Option<String> {
+    let ctx = ctx?;
+    display_actor_parts(
+        ctx.actor_name.as_deref(),
+        ctx.actor_id.as_deref(),
+        ctx.auth_subject.as_deref(),
+        ctx.actor_email_hash.as_deref(),
+    )
 }
 
 fn apply_token_fields(
@@ -1404,6 +1441,39 @@ fn dispatch_trace_to_admin_row(t: &DispatchTrace, links: Option<AdminLinkBuilder
         .agent_context
         .as_ref()
         .and_then(|ctx| ctx.model.clone().or_else(|| ctx.model_version.clone()));
+    let actor = display_actor(t.agent_context.as_ref());
+    let actor_id = t
+        .agent_context
+        .as_ref()
+        .and_then(|ctx| ctx.actor_id.clone());
+    let actor_name = t
+        .agent_context
+        .as_ref()
+        .and_then(|ctx| ctx.actor_name.clone());
+    let actor_email_hash = t
+        .agent_context
+        .as_ref()
+        .and_then(|ctx| ctx.actor_email_hash.clone());
+    let client_platform = t
+        .agent_context
+        .as_ref()
+        .and_then(|ctx| ctx.client_platform.clone());
+    let client_os = t
+        .agent_context
+        .as_ref()
+        .and_then(|ctx| ctx.client_os.clone());
+    let client_host = t
+        .agent_context
+        .as_ref()
+        .and_then(|ctx| ctx.client_host.clone());
+    let auth_subject = t
+        .agent_context
+        .as_ref()
+        .and_then(|ctx| ctx.auth_subject.clone());
+    let source_ip = t
+        .agent_context
+        .as_ref()
+        .and_then(|ctx| ctx.source_ip.clone());
     let mut row = json!({
         "timestamp": ts,
         "request_id": t.request_id,
@@ -1421,6 +1491,15 @@ fn dispatch_trace_to_admin_row(t: &DispatchTrace, links: Option<AdminLinkBuilder
         "agent_id": agent_id,
         "agent_name": agent_name,
         "agent_model": agent_model,
+        "actor_id": actor_id,
+        "actor_name": actor_name,
+        "actor_email_hash": actor_email_hash,
+        "actor": actor,
+        "client_platform": client_platform,
+        "client_os": client_os,
+        "client_host": client_host,
+        "auth_subject": auth_subject,
+        "source_ip": source_ip,
         "span_count": t.span_count(),
         "input_bytes": t.input_bytes(),
         "output_bytes": t.output_bytes(),

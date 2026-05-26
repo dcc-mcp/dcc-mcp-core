@@ -110,6 +110,15 @@ type CallRow = {
   agent_id?: string | null;
   agent_name?: string | null;
   agent_model?: string | null;
+  actor?: string | null;
+  actor_id?: string | null;
+  actor_name?: string | null;
+  actor_email_hash?: string | null;
+  client_platform?: string | null;
+  client_os?: string | null;
+  client_host?: string | null;
+  auth_subject?: string | null;
+  source_ip?: string | null;
   parent_request_id?: string | null;
   token_accounting?: TokenAccounting | null;
   response_format?: string | null;
@@ -136,6 +145,15 @@ type TraceRow = {
   agent_id?: string | null;
   agent_name?: string | null;
   agent_model?: string | null;
+  actor?: string | null;
+  actor_id?: string | null;
+  actor_name?: string | null;
+  actor_email_hash?: string | null;
+  client_platform?: string | null;
+  client_os?: string | null;
+  client_host?: string | null;
+  auth_subject?: string | null;
+  source_ip?: string | null;
   span_count?: number | null;
   input_bytes?: number | null;
   output_bytes?: number | null;
@@ -246,9 +264,13 @@ type TrafficPayload = {
 };
 
 type AgentContext = {
+  actor_id?: string | null;
+  actor_name?: string | null;
+  actor_email_hash?: string | null;
   agent_id?: string | null;
   agent_name?: string | null;
   agent_kind?: string | null;
+  agent_version?: string | null;
   model_provider?: string | null;
   model_version?: string | null;
   model?: string | null;
@@ -256,6 +278,12 @@ type AgentContext = {
   session_id?: string | null;
   turn_id?: string | null;
   task?: string | null;
+  client_platform?: string | null;
+  client_os?: string | null;
+  client_host?: string | null;
+  auth_subject?: string | null;
+  source_ip?: string | null;
+  forwarded_for?: string[];
   user_intent_summary?: string | null;
   agent_reply_summary?: string | null;
   user_input_hash?: string | null;
@@ -381,6 +409,10 @@ type ActivityEvent = {
     workflow_id?: string;
     job_id?: string;
     agent_id?: string;
+    actor_id?: string;
+    actor_name?: string;
+    client_platform?: string;
+    source_ip?: string;
     parent_request_id?: string;
   };
 };
@@ -489,6 +521,15 @@ type LatencyBlock = {
 
 type TopEntry = { name: string; count: number };
 
+type AttributionFacet = {
+  name: string;
+  count: number;
+  failed?: number;
+  failure_rate?: number;
+  mean_latency_ms?: number;
+  p95_latency_ms?: number;
+};
+
 type TokenBreakdownEntry = {
   name: string;
   calls: number;
@@ -532,6 +573,9 @@ type StatsPayload = {
   top_tools?: TopEntry[];
   top_instances?: TopEntry[];
   top_agents?: TopEntry[];
+  top_actors?: AttributionFacet[];
+  top_client_platforms?: AttributionFacet[];
+  top_source_ips?: AttributionFacet[];
   token_usage?: TokenUsageStats;
   hourly_distribution?: number[];
   governance?: GovernanceStats;
@@ -623,6 +667,10 @@ type GovernanceDecisionRow = {
   agent_id?: string | null;
   agent_name?: string | null;
   agent_model?: string | null;
+  actor_id?: string | null;
+  actor_name?: string | null;
+  client_platform?: string | null;
+  source_ip?: string | null;
   parent_request_id?: string | null;
   tool?: string | null;
   dcc_type?: string | null;
@@ -1694,6 +1742,64 @@ function agentLabel(row: { agent_name?: string | null; agent_id?: string | null;
   return row.agent_name || row.agent_id || row.agent_model || '-';
 }
 
+function actorLabel(row: {
+  actor?: string | null;
+  actor_name?: string | null;
+  actor_id?: string | null;
+  auth_subject?: string | null;
+  actor_email_hash?: string | null;
+}): string {
+  return row.actor || row.actor_name || row.actor_id || row.auth_subject || row.actor_email_hash || '-';
+}
+
+function platformLabel(row: { client_platform?: string | null; client_os?: string | null; client_host?: string | null }): string {
+  return [row.client_platform, row.client_os, row.client_host].filter(Boolean).join(' / ') || '-';
+}
+
+function sourceIpLabel(row: { source_ip?: string | null }): string {
+  return row.source_ip || '-';
+}
+
+function safeCallerContext(agent: AgentContext | null | undefined): Record<string, unknown> | null {
+  if (!agent) {
+    return null;
+  }
+  return {
+    actor_id: agent.actor_id ?? null,
+    actor_name: agent.actor_name ?? null,
+    actor_email_hash: agent.actor_email_hash ?? null,
+    agent_id: agent.agent_id ?? null,
+    agent_name: agent.agent_name ?? null,
+    agent_kind: agent.agent_kind ?? null,
+    agent_version: agent.agent_version ?? null,
+    model_provider: agent.model_provider ?? null,
+    model_version: agent.model_version ?? null,
+    model: agent.model ?? null,
+    reasoning_effort: agent.reasoning_effort ?? null,
+    session_id: agent.session_id ?? null,
+    turn_id: agent.turn_id ?? null,
+    client_platform: agent.client_platform ?? null,
+    client_os: agent.client_os ?? null,
+    client_host: agent.client_host ?? null,
+    auth_subject: agent.auth_subject ?? null,
+    source_ip: agent.source_ip ?? null,
+    forwarded_for: agent.forwarded_for ?? [],
+    task: agent.task ?? null,
+    user_intent_summary: agent.user_intent_summary ?? null,
+    agent_reply_summary: agent.agent_reply_summary ?? null,
+    user_input_hash: agent.user_input_hash ?? null,
+    agent_reply_hash: agent.agent_reply_hash ?? null,
+    user_input_chars: agent.user_input_chars ?? null,
+    agent_reply_chars: agent.agent_reply_chars ?? null,
+    plan: agent.plan ?? [],
+    observations: agent.observations ?? [],
+    tags: agent.tags ?? [],
+    parent_request_id: agent.parent_request_id ?? null,
+    trace_id: agent.trace_id ?? null,
+    turn_index: agent.turn_index ?? null,
+  };
+}
+
 function tokenAccounting(row: TokenCarrier | null | undefined): TokenAccounting | null {
   if (!row) {
     return null;
@@ -1869,6 +1975,33 @@ function StatBarList({ title, items, t }: { title: string; items: TopEntry[]; t:
   );
 }
 
+function AttributionFacetList({ title, items, t }: { title: string; items: AttributionFacet[]; t: Translator }) {
+  const max = Math.max(1, ...items.map((row) => row.count ?? 0));
+  return (
+    <div className="chart-card">
+      <h3 className="chart-title">{title}</h3>
+      {!items.length ? <p className="empty">{t('stats.empty.data')}</p> : items.map((row) => (
+        <div className="hbar-row" key={`${title}-${row.name}`}>
+          <div className="hbar-label" title={row.name}>{row.name.length > 48 ? `${row.name.slice(0, 46)}...` : row.name}</div>
+          <div className="hbar-track">
+            <div className="hbar-fill" style={{ width: `${Math.max(2, ((row.count ?? 0) / max) * 100)}%` }} />
+          </div>
+          <div
+            className="hbar-count"
+            title={t('stats.chart.attributionDetail', {
+              failed: row.failed ?? 0,
+              failureRate: `${(((row.failure_rate ?? 0) <= 1 ? (row.failure_rate ?? 0) * 100 : (row.failure_rate ?? 0))).toFixed(1)}%`,
+              p95: formatDurationMs(row.p95_latency_ms),
+            })}
+          >
+            {row.count}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function TokenBreakdownList({ title, items, t }: { title: string; items: TokenBreakdownEntry[]; t: Translator }) {
   const max = Math.max(1, ...items.map((row) => row.saved_tokens ?? 0));
   return (
@@ -1969,28 +2102,7 @@ function buildAgentPacket(trace: TraceDetailPayload): string {
       estimated: tokens.estimatedTokens,
       estimator: tokens.estimator,
     },
-    agent_context: agent ? {
-      agent_id: agent.agent_id,
-      agent_name: agent.agent_name,
-      model_provider: agent.model_provider,
-      model_version: agent.model_version,
-      model: agent.model,
-      reasoning_effort: agent.reasoning_effort,
-      session_id: agent.session_id,
-      turn_id: agent.turn_id,
-      task: agent.task,
-      user_intent_summary: agent.user_intent_summary,
-      agent_reply_summary: agent.agent_reply_summary,
-      user_input_hash: agent.user_input_hash,
-      agent_reply_hash: agent.agent_reply_hash,
-      user_input_chars: agent.user_input_chars,
-      agent_reply_chars: agent.agent_reply_chars,
-      reasoning_summary: agent.reasoning_summary,
-      plan: agent.plan ?? [],
-      observations: agent.observations ?? [],
-      parent_request_id: agent.parent_request_id,
-      tags: agent.tags ?? [],
-    } : null,
+    agent_context: safeCallerContext(agent),
     slowest_span: [...(trace.spans ?? [])]
       .sort((a, b) => (b.duration_ns ?? 0) - (a.duration_ns ?? 0))
       .slice(0, 1)
@@ -2282,11 +2394,16 @@ function TraceDetailPanel({
             </div>
           ) : null}
           <div className="agent-meta">
+            {actorLabel(agent) !== '-' ? <span>{t('common.table.actor')} {actorLabel(agent)}</span> : null}
+            {platformLabel(agent) !== '-' ? <span>{t('common.table.platform')} {platformLabel(agent)}</span> : null}
+            {sourceIpLabel(agent) !== '-' ? <span>{t('common.table.sourceIp')} {sourceIpLabel(agent)}</span> : null}
+            {agent.auth_subject ? <span>{t('common.table.auth')} {agent.auth_subject}</span> : null}
             {agentTurnChips(agent, t).map((chip) => <span key={chip}>{chip}</span>)}
             {agent.parent_request_id ? <span>parent {compactId(agent.parent_request_id)}</span> : null}
             {agent.trace_id ? <span>trace {compactId(agent.trace_id)}</span> : null}
             {agent.tags?.map((tag) => <span key={tag}>{tag}</span>)}
           </div>
+          <pre className="payload-pre caller-context-pre">{JSON.stringify(safeCallerContext(agent), null, 2)}</pre>
         </div>
       ) : null}
 
@@ -2585,6 +2702,10 @@ function App() {
           event.correlation?.workflow_id ?? '',
           event.correlation?.job_id ?? '',
           event.correlation?.agent_id ?? '',
+          event.correlation?.actor_id ?? '',
+          event.correlation?.actor_name ?? '',
+          event.correlation?.client_platform ?? '',
+          event.correlation?.source_ip ?? '',
         ),
       ),
     );
@@ -2646,6 +2767,15 @@ function App() {
           c.agent_id ?? '',
           c.agent_name ?? '',
           c.agent_model ?? '',
+          c.actor ?? '',
+          c.actor_id ?? '',
+          c.actor_name ?? '',
+          c.actor_email_hash ?? '',
+          c.client_platform ?? '',
+          c.client_os ?? '',
+          c.client_host ?? '',
+          c.auth_subject ?? '',
+          c.source_ip ?? '',
           c.parent_request_id ?? '',
         ),
       ),
@@ -2672,6 +2802,15 @@ function App() {
           t.agent_id ?? '',
           t.agent_name ?? '',
           t.agent_model ?? '',
+          t.actor ?? '',
+          t.actor_id ?? '',
+          t.actor_name ?? '',
+          t.actor_email_hash ?? '',
+          t.client_platform ?? '',
+          t.client_os ?? '',
+          t.client_host ?? '',
+          t.auth_subject ?? '',
+          t.source_ip ?? '',
           t.slowest_span_name ?? '',
           t.input_tokens != null ? String(t.input_tokens) : '',
           t.output_tokens != null ? String(t.output_tokens) : '',
@@ -2935,6 +3074,33 @@ function App() {
     return rows.filter((r) => r.name.toLowerCase().includes(q));
   }, [stats, listSearch]);
 
+  const filteredTopActors = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    const rows = stats?.top_actors ?? [];
+    if (!q) {
+      return rows;
+    }
+    return rows.filter((r) => r.name.toLowerCase().includes(q));
+  }, [stats, listSearch]);
+
+  const filteredTopClientPlatforms = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    const rows = stats?.top_client_platforms ?? [];
+    if (!q) {
+      return rows;
+    }
+    return rows.filter((r) => r.name.toLowerCase().includes(q));
+  }, [stats, listSearch]);
+
+  const filteredTopSourceIps = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    const rows = stats?.top_source_ips ?? [];
+    if (!q) {
+      return rows;
+    }
+    return rows.filter((r) => r.name.toLowerCase().includes(q));
+  }, [stats, listSearch]);
+
   const filteredTopAppTypes = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
     const rows = stats?.top_app_types ?? [];
@@ -2977,6 +3143,10 @@ function App() {
           row.agent_id ?? '',
           row.agent_name ?? '',
           row.agent_model ?? '',
+          row.actor_id ?? '',
+          row.actor_name ?? '',
+          row.client_platform ?? '',
+          row.source_ip ?? '',
           row.tool ?? '',
           row.dcc_type ?? '',
           row.outcome ?? '',
@@ -3784,7 +3954,16 @@ function App() {
                 {activePanel === 'governance' ? `${filteredGovernanceDecisions.length} / ${governance?.recent_decisions?.length ?? 0}` : ''}
                 {activePanel === 'skill-paths' ? t('search.meta.skillsPaths', { skills: filteredSkills.length, paths: filteredSkillPaths.length }) : ''}
                 {activePanel === 'logs' ? `${filteredLogs.length} / ${logs.length}` : ''}
-                {activePanel === 'stats' ? t('search.meta.statsCharts', { apps: filteredTopAppTypes.length, tools: filteredTopTools.length, instances: filteredTopInstances.length, agents: filteredTopAgents.length, formats: filteredTokenByFormat.length }) : ''}
+                {activePanel === 'stats' ? t('search.meta.statsCharts', {
+                  apps: filteredTopAppTypes.length,
+                  tools: filteredTopTools.length,
+                  instances: filteredTopInstances.length,
+                  agents: filteredTopAgents.length,
+                  actors: filteredTopActors.length,
+                  platforms: filteredTopClientPlatforms.length,
+                  sources: filteredTopSourceIps.length,
+                  formats: filteredTokenByFormat.length,
+                }) : ''}
                 {activePanel === 'governance' ? t('search.meta.governancePressure', { denied: governanceSummary.denied, throttled: governanceSummary.throttled }) : ''}
               </span>
             ) : null}
@@ -4062,7 +4241,7 @@ function App() {
               <p className="empty">{t('activity.empty.search')}</p>
             ) : (
               <table>
-                <thead><tr><th>{t('common.table.time')}</th><th>{t('common.table.status')}</th><th>{t('common.table.kind')}</th><th>{t('common.table.message')}</th><th>{t('common.table.dcc')}</th><th>{t('common.table.request')}</th><th>{t('common.table.ms')}</th></tr></thead>
+                <thead><tr><th>{t('common.table.time')}</th><th>{t('common.table.status')}</th><th>{t('common.table.kind')}</th><th>{t('common.table.message')}</th><th>{t('common.table.dcc')}</th><th>{t('common.table.actor')}</th><th>{t('common.table.platform')}</th><th>{t('common.table.sourceIp')}</th><th>{t('common.table.request')}</th><th>{t('common.table.ms')}</th></tr></thead>
                 <tbody>
                   {filteredActivity.map((event) => {
                     const requestId = event.correlation?.request_id;
@@ -4073,6 +4252,9 @@ function App() {
                         <td>{event.kind}</td>
                         <td title={event.message}>{event.message}</td>
                         <td>{event.correlation?.dcc_type ?? '-'}</td>
+                        <td>{event.correlation?.actor_name ?? event.correlation?.actor_id ?? '-'}</td>
+                        <td>{event.correlation?.client_platform ?? '-'}</td>
+                        <td>{event.correlation?.source_ip ?? '-'}</td>
                         <td>
                           {requestId ? (
                             <button className="refresh-btn" type="button" title={requestId} onClick={() => goToPanel('traces', { traceId: requestId })}>
@@ -4373,7 +4555,7 @@ function App() {
                 <div key={group} className="group-block">
                   <h3 className="group-title">{group}</h3>
                   <table>
-                    <thead><tr><th>{t('common.table.time')}</th><th>{t('common.table.request')}</th><th>{t('common.table.tool')}</th><th>{t('common.table.appType')}</th><th>{t('common.table.instance')}</th><th>{t('calls.table.agent')}</th><th>{t('calls.table.transport')}</th><th>{t('calls.table.format')}</th><th>{t('calls.table.returned')}</th><th>{t('calls.table.saved')}</th><th>{t('common.table.status')}</th><th>{t('calls.table.error')}</th><th>{t('common.table.ms')}</th><th>{t('calls.table.detail')}</th></tr></thead>
+                    <thead><tr><th>{t('common.table.time')}</th><th>{t('common.table.request')}</th><th>{t('common.table.tool')}</th><th>{t('common.table.appType')}</th><th>{t('common.table.instance')}</th><th>{t('common.table.actor')}</th><th>{t('calls.table.agent')}</th><th>{t('common.table.platform')}</th><th>{t('common.table.sourceIp')}</th><th>{t('calls.table.transport')}</th><th>{t('calls.table.format')}</th><th>{t('calls.table.returned')}</th><th>{t('calls.table.saved')}</th><th>{t('common.table.status')}</th><th>{t('calls.table.error')}</th><th>{t('common.table.ms')}</th><th>{t('calls.table.detail')}</th></tr></thead>
                     <tbody>
                       {groupCalls.map((call) => (
                         <tr key={call.request_id}>
@@ -4386,7 +4568,10 @@ function App() {
                           <td>{call.tool}</td>
                           <td>{call.dcc_type}</td>
                           <td>{compactInstanceId(call.instance_id)}</td>
+                          <td title={call.actor_id ?? call.auth_subject ?? ''}>{actorLabel(call)}</td>
                           <td title={call.agent_id ?? call.agent_name ?? ''}>{agentLabel(call)}</td>
+                          <td title={[call.client_platform, call.client_os, call.client_host].filter(Boolean).join(' / ')}>{platformLabel(call)}</td>
+                          <td>{sourceIpLabel(call)}</td>
                           <td>{call.transport ?? '-'}</td>
                           <td>{responseFormatLabel(call)}</td>
                           <td>{returnedTokensLabel(call)}</td>
@@ -4452,6 +4637,7 @@ function App() {
                           <span className="trace-item-main">
                             <strong>{trace.tool}</strong>
                             <span>{compactId(trace.request_id)} - {compactInstanceId(trace.instance_id)} - <TimeValue value={trace.timestamp} /> - {trace.transport ?? '?'}</span>
+                            <span>{actorLabel(trace)} - {platformLabel(trace)} - {sourceIpLabel(trace)}</span>
                             <span>{agentLabel(trace)}{trace.slowest_span_name ? ` - ${t('traces.detail.slowestSpan', { name: trace.slowest_span_name, duration: formatDurationMs(trace.slowest_span_ms) })}` : ''}</span>
                           </span>
                           <span className="trace-item-side">
@@ -4635,6 +4821,9 @@ function App() {
               <StatBarList title={t('stats.chart.topTools')} items={filteredTopTools} t={t} />
               <StatBarList title={t('stats.chart.topInstances')} items={filteredTopInstances} t={t} />
               <StatBarList title={t('stats.chart.topAgents')} items={filteredTopAgents} t={t} />
+              <AttributionFacetList title={t('stats.chart.topActors')} items={filteredTopActors} t={t} />
+              <AttributionFacetList title={t('stats.chart.topClientPlatforms')} items={filteredTopClientPlatforms} t={t} />
+              <AttributionFacetList title={t('stats.chart.topSourceIps')} items={filteredTopSourceIps} t={t} />
               {stats?.hourly_distribution?.length ? <HourlyChart buckets={stats.hourly_distribution} t={t} /> : null}
               <TokenBreakdownList title={t('stats.chart.savingsByTool')} items={filteredTokenByTool} t={t} />
               <TokenBreakdownList title={t('stats.chart.savingsByInstance')} items={filteredTokenByInstance} t={t} />
