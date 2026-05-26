@@ -62,7 +62,10 @@ OTEL_SERVICE_NAME=dcc-mcp-gateway \
 | `dcc_mcp.workflow.operation` | 上表中的 span 名称。 |
 | `dcc_mcp.transport` | `rest` 或 `mcp`。 |
 | `dcc_mcp.trace_id`、`dcc_mcp.request_id`、`dcc_mcp.parent_request_id`、`dcc_mcp.session_id` | 与 Admin trace/debug bundle 对齐的关联 ID。 |
-| `dcc_mcp.agent.id`、`.name`、`.kind`、`.model`、`.model_provider`、`.model_version`、`.reasoning_effort`、`.turn_id`、`.task`、`.tags` | 有界的 `agent_context` / caller 元数据。 |
+| `dcc_mcp.actor.id`、`.name`、`.email_hash` | 有界的人类或服务账号 actor 归因。 |
+| `dcc_mcp.agent.id`、`.name`、`.kind`、`.version`、`.model`、`.model_provider`、`.model_version`、`.reasoning_effort`、`.turn_id`、`.task`、`.tags` | 有界的 agent runtime 元数据。 |
+| `dcc_mcp.client.platform`、`.os`、`.host`、`dcc_mcp.auth.subject` | 有界的客户端入口与认证主体元数据。 |
+| `dcc_mcp.source.ip`、`dcc_mcp.forwarded_for` | 应用 proxy trust policy 后由服务端派生的网络来源字段。 |
 | `dcc_mcp.agent.user_intent_summary`、`.reply_summary`、`.user_input_hash`、`.reply_hash`、`.user_input_chars`、`.reply_chars` | 用于评估关联的低敏 turn 摘要、哈希和长度。 |
 | `dcc_mcp.dcc.type`、`dcc_mcp.instance.id`、`dcc_mcp.skill.name`、`dcc_mcp.tool.slug` | 选中的 DCC 路由与技能/工具身份。 |
 | `dcc_mcp.search.id`、`.ranker_version`、`.selected_rank`、`.score`、`.match_reasons`、`.total`、`.zero_results` | 从 `/v1/search` 或 gateway `search` 继承的搜索质量上下文。 |
