@@ -343,7 +343,17 @@ class HostUiDispatcherBase:
         return False
 
     def pending_count(self) -> int:
-        return len(self._main_queue)
+        return self.queue_size()
+
+    def queue_size(self) -> int:
+        """Return the number of queued main-thread jobs."""
+        with self._lock:
+            return len(self._main_queue)
+
+    def active_count(self) -> int:
+        """Return the number of currently executing main-thread jobs."""
+        with self._lock:
+            return len(self._active)
 
     def has_pending(self) -> bool:
         return self.pending_count() > 0

@@ -278,6 +278,16 @@ into a faster authoring loop.
    `ReadinessProbe.main_thread_executor` only after that bridge path is
    actually usable; smoke tests may require those bits via
    `dcc-mcp-cli wait-ready --require host_execution_bridge,main_thread_executor`.
+   Use `HostPumpController` when the adapter needs reusable timer lifecycle
+   around a `HostUiDispatcherBase` / `drain_queue(budget_ms)` pump. Core owns
+   install/uninstall idempotency, `schedule_soon`, active/idle backoff,
+   budget/overrun stats, and shutdown snapshots; the adapter supplies a tiny
+   `HostPumpTimerAdapter` for the host primitive. Map Maya script jobs or
+   `executeDeferred`, 3ds Max .NET/rollout timers, Blender
+   `bpy.app.timers`, or generic Qt `QTimer` onto that adapter instead of
+   duplicating pump controller code. Use `ManualHostTimerAdapter` in adapter
+   conformance tests and `ThreadedHostTimerAdapter` for standalone/headless
+   smoke tests.
    Qt-bearing sidecar adapters should import
    `dcc_mcp_core.qt_dispatcher.start_qt_server` (or the
    `dcc_mcp_core.host.qt_dispatcher` alias) and pass only host-specific

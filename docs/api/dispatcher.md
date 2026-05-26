@@ -16,7 +16,8 @@ into reusable contracts so each adapter only supplies host-specific glue.
 `JobEntry`, `JobOutcome`, `PendingEnvelope`, `DrainStats`, `PumpStats`,
 `current_callable_job`, `current_host_ui_job`, `MinimalModeConfig`,
 `build_inprocess_executor`, `run_skill_script`, `SidecarActionDispatcher`,
-`SidecarDispatchRequest`.
+`SidecarDispatchRequest`, `HostPumpController`, `HostPumpSnapshot`,
+`ManualHostTimerAdapter`, `ThreadedHostTimerAdapter`, `QtHostTimerAdapter`.
 
 ## When to use what
 
@@ -30,6 +31,7 @@ into reusable contracts so each adapter only supplies host-specific glue.
 | Batch / `mayapy` / pytest (no UI thread) | `InProcessCallableDispatcher` only — **do not** subclass `HostUiDispatcherBase` |
 | Cooperative idle-tick that drains a queue (Maya `scriptJob(event=['idle', …])`) | `BaseDccPump` (#520) |
 | Shared active/idle timer backoff for host pump callbacks | `AdaptivePumpPolicy` (#606) |
+| Shared pump/timer lifecycle for UI hosts | `HostPumpController` + a `HostPumpTimerAdapter` (#1276) |
 | Reference single-thread implementation for `mayapy` / pytest / batch | `InProcessCallableDispatcher` |
 | Per-job cancellation handle reachable from skill scripts | `current_callable_job` ContextVar |
 | Declarative progressive skill loading at startup | `MinimalModeConfig` (#525) |
@@ -250,6 +252,55 @@ event should keep the pump responsive for `max_client_idle_secs`.
 
 `policy.stats` exposes cumulative `ticks`, `drained_jobs`, `overrun_cycles`,
 `active_transitions`, `idle_transitions`, `mode`, and `last_interval_secs`.
+
+## HostPumpController
+
+`HostPumpController` composes a dispatcher/pump with the host's timer primitive.
+Use it when an adapter already has a `HostUiDispatcherBase`, `BaseDccPump`, or
+other object exposing `drain_queue(budget_ms)`, and you want core to own
+install/uninstall idempotency, schedule-soon behavior, active/idle backoff,
+budget accounting, and common stats.
+
+```python
+from dcc_mcp_core import HostPumpController, QtHostTimerAdapter
+
+dispatcher = MyDccDispatcher()  # usually a HostUiDispatcherBase subclass
+controller = HostPumpController(
+    dispatcher,
+    QtHostTimerAdapter(),
+    budget_ms=8,
+)
+controller.start()
+
+# Later, when the adapter shuts down:
+controller.stop()
+```
+
+Built-in timer adapters:
+
+- `ManualHostTimerAdapter` stores the tick callback and exposes `fire()` for
+  deterministic unit tests and adapter conformance fixtures.
+- `ThreadedHostTimerAdapter` uses `threading.Timer` for standalone/headless
+  integration tests where no DCC UI loop exists.
+- `QtHostTimerAdapter` uses a single-shot `QTimer`, probing PySide6, PyQt6,
+  PySide2, then PyQt5 when a `qt_core` object is not supplied.
+
+Migration mapping:
+
+- Maya: implement a tiny timer adapter that registers `tick()` with
+  `cmds.scriptJob(event=["idle", ...])` or `maya.utils.executeDeferred`, and
+  call `controller.schedule_soon()` when new MCP work arrives.
+- 3ds Max: map the existing .NET timer / rollout tick to
+  `HostPumpTimerAdapter.install`, `.uninstall`, and `.schedule_soon`; keep job
+  lifecycle in `HostUiDispatcherBase`.
+- Blender: adapt `bpy.app.timers.register` / `unregister` to the timer adapter
+  contract, returning the controller-provided next interval.
+- Houdini, Nuke, Cinema 4D, Substance Painter, Mari: use `QtHostTimerAdapter`
+  when the DCC exposes a compatible Qt event loop.
+
+`HostPumpController.stats` returns `HostPumpSnapshot` with `queue_size`,
+`active_jobs`, `interval_secs`, `overrun_count`, `last_tick_time`, `shutdown`,
+`ticks`, `drained_jobs`, and `last_elapsed_ms`.
 
 ## InProcessCallableDispatcher (reference)
 
