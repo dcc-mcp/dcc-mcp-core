@@ -881,6 +881,77 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.health-panel')).toContainText('toon / dcc-mcp-byte4-v1');
   });
 
+  test('keeps setup IDE card action rows aligned', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/admin/');
+    const cards = page.locator('.setup-panel .ide-card');
+    await expect(cards).toHaveCount(6);
+
+    const firstRow = await cards.evaluateAll((elements) => {
+      const firstTop = elements[0]?.getBoundingClientRect().top ?? 0;
+      return elements
+        .filter((card) => Math.abs(card.getBoundingClientRect().top - firstTop) < 4)
+        .map((card) => {
+          const cardRect = card.getBoundingClientRect();
+          const actions = card.querySelector('.ide-card-actions')?.getBoundingClientRect();
+          const copy = card.querySelector('.copy-btn')?.getBoundingClientRect();
+          const open = card.querySelector('.refresh-btn')?.getBoundingClientRect();
+          return {
+            cardBottom: cardRect.bottom,
+            actionsTop: actions?.top ?? 0,
+            actionsBottom: actions?.bottom ?? 0,
+            copyTop: copy?.top ?? 0,
+            copyBottom: copy?.bottom ?? 0,
+            openTop: open?.top ?? 0,
+            openBottom: open?.bottom ?? 0,
+          };
+        });
+    });
+    expect(firstRow.length).toBeGreaterThan(1);
+    const actionTops = firstRow.map((row) => row.actionsTop);
+    const actionBottomOffsets = firstRow.map((row) => row.cardBottom - row.actionsBottom);
+    expect(Math.max(...actionTops) - Math.min(...actionTops)).toBeLessThanOrEqual(4);
+    expect(Math.max(...actionBottomOffsets) - Math.min(...actionBottomOffsets)).toBeLessThanOrEqual(2);
+    for (const row of firstRow) {
+      expect(row.cardBottom - row.actionsBottom).toBeLessThanOrEqual(20);
+      expect(Math.abs(row.copyTop - row.openTop)).toBeLessThanOrEqual(2);
+      expect(Math.abs(row.copyBottom - row.openBottom)).toBeLessThanOrEqual(2);
+    }
+
+    await page.setViewportSize({ width: 420, height: 900 });
+    await page.goto('/admin/');
+    const narrowRows = await cards.evaluateAll((elements) => elements.map((card) => {
+      const cardRect = card.getBoundingClientRect();
+      const actions = card.querySelector('.ide-card-actions')?.getBoundingClientRect();
+      const copy = card.querySelector('.copy-btn')?.getBoundingClientRect();
+      const open = card.querySelector('.refresh-btn')?.getBoundingClientRect();
+      return {
+        cardLeft: cardRect.left,
+        cardRight: cardRect.right,
+        cardBottom: cardRect.bottom,
+        actionsBottom: actions?.bottom ?? 0,
+        copyLeft: copy?.left ?? 0,
+        copyRight: copy?.right ?? 0,
+        copyTop: copy?.top ?? 0,
+        copyBottom: copy?.bottom ?? 0,
+        openLeft: open?.left ?? 0,
+        openRight: open?.right ?? 0,
+        openTop: open?.top ?? 0,
+        openBottom: open?.bottom ?? 0,
+      };
+    }));
+    for (const row of narrowRows) {
+      expect(row.copyLeft).toBeGreaterThanOrEqual(row.cardLeft);
+      expect(row.openLeft).toBeGreaterThanOrEqual(row.cardLeft);
+      expect(row.copyRight).toBeLessThanOrEqual(row.cardRight);
+      expect(row.openRight).toBeLessThanOrEqual(row.cardRight);
+      expect(row.cardBottom - row.actionsBottom).toBeLessThanOrEqual(20);
+      const separatedHorizontally = row.openLeft >= row.copyRight || row.copyLeft >= row.openRight;
+      const separatedVertically = row.openTop >= row.copyBottom || row.copyTop >= row.openBottom;
+      expect(separatedHorizontally || separatedVertically).toBeTruthy();
+    }
+  });
+
   test('normalizes the browser locale onto the document element', async ({ browser }) => {
     const context = await browser.newContext({ locale: 'ja-JP' });
     const page = await context.newPage();
