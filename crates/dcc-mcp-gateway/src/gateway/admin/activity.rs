@@ -192,11 +192,19 @@ pub async fn build_debug_bundle(state: &AdminState, lookup_id: &str) -> Option<V
     let postmortem = build_postmortem(state, primary_trace, gateway_events).await;
     let primary_trace_value = primary_trace.cloned();
     let hints = debug_hints(primary_trace);
+    let root_cause = primary_audit
+        .and_then(|record| record.error.clone())
+        .or_else(|| {
+            primary_trace
+                .filter(|trace| !trace.ok)
+                .and_then(|_| hints.first().cloned())
+        });
     Some(json!({
         "lookup_id": lookup_id,
         "request_id": primary_request_id,
         "trace_id": trace_id,
         "request_ids": request_ids,
+        "root_cause": root_cause,
         "audit": primary_audit.map(audit_event),
         "audits": matching_audits.iter().map(audit_event).collect::<Vec<_>>(),
         "trace": primary_trace_value,

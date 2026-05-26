@@ -91,7 +91,7 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 | `traces/core-995-list-skills-respects-limit.jsonl` | Yes (any DCC) | `POST /v1/list_skills` MUST honour `limit` and `fields` and report a `truncated` flag (core#995). |
 | `traces/core-996-instance-offline-carries-previous-status.jsonl` | No | `instance-offline` (or `unknown-slug`) error envelope MUST carry `previous_status` so agents can distinguish manual restart from crash (core#996). |
 | `traces/core-1037-gateway-yield-unsupported-envelope.jsonl` | No | `POST /gateway/yield` unsupported/invalid optional-capability path MUST return a structured envelope that tells runners to poll instead of treating it as a crash. |
-| `traces/core-1092-stable-debug-api.jsonl` | No | Stable `/v1/debug/*` routes expose the route family and compact agent trace packet needed for diagnostics without scraping Admin HTML. |
+| `traces/core-1092-stable-debug-api.jsonl` | No | Stable `/v1/debug/*` routes expose agent diagnostics without scraping Admin HTML, including compact agent trace packets, compact TOON debug-bundle summaries, and public-safe issue reports. |
 | `traces/core-1093-trace-context-debug-bundle.jsonl` | No | `X-Request-Id` and W3C `traceparent` stay distinct, and `/v1/debug/bundles/{trace_id}` can retrieve the retained trace. |
 | `traces/core-1108-deregistered-history.jsonl` | Optional booting row | Stable debug route exposes recently auto-deregistered history and, when present, keeps port=0 booting diagnostics visible across debug health reads. |
 | `traces/core-1124-3dsmax-main-affinity-host-bridge.jsonl` | Yes (3ds Max) | A main-affinity 3ds Max tool called through `/v1/call` must route through the attached host dispatcher instead of `THREAD_AFFINITY_UNAVAILABLE`. |

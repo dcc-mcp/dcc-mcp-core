@@ -133,6 +133,15 @@ so operators and agents can compare results one-to-one:
 | `/v1/debug/governance?limit=300` | `/admin/api/governance?limit=300` | Effective policy, read-only state, traffic capture/redaction controls, middleware pressure, and recent allow/deny/throttle decisions. |
 | `/v1/debug/health` | `/admin/api/health` | Debug provider health summary. |
 
+Compact-aware debug routes (`/v1/debug/traces`, `/v1/debug/traces/{request_id}`,
+`/v1/debug/trace-context/{lookup_id}`, `/v1/debug/bundles/{request_id}`, and
+`/v1/debug/stats`) default to JSON for browser and GitHub compatibility. Agents
+can request TOON with `Accept: application/toon`, `?response_format=toon`, or
+`?compact=true`. The response includes `x-dcc-mcp-*` byte/token accounting
+headers. Debug bundle compact output is a public-safe summary with root cause,
+tool, DCC type, status, timing, token accounting, redaction summary, postmortem
+counts, hints, and links to the full JSON material.
+
 Every list endpoint supports the existing `limit` parameter where the Admin
 provider already accepted one. The OpenAPI contract reserves `cursor`,
 `since`, and `until` for the follow-up normalized envelope work; callers should
