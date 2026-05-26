@@ -122,10 +122,11 @@ Generated `tools.yaml` entries follow the modern contract:
 1. Decide whether the skill is infrastructure, domain, thin-harness, or example.
 2. Give the skill a kebab-case name and each local tool a snake_case name.
 3. Keep host API calls inside scripts, with lazy imports so discovery works without the host running.
-4. Declare `execution`, `affinity`, `timeout_hint_secs`, schemas, annotations, and failure recovery chains in `tools.yaml`.
-5. Put long examples, recipes, and host-specific notes under `references/`.
-6. Validate with `validate_skill_dir` or `dcc_mcp_core.validate_skill()` before loading it in an adapter.
-7. If the desired behavior requires parsing core internals or adapter-private YAML at runtime, stop and request a core API instead.
+4. Import dependency-light runtime helpers from `dcc_mcp_core.skills_helper` first: JSON/YAML codecs, bounded HTTP helpers, safe file/path helpers, validation, cancellation checks, and result helpers.
+5. Declare `execution`, `affinity`, `timeout_hint_secs`, schemas, annotations, and failure recovery chains in `tools.yaml`.
+6. Put long examples, recipes, and host-specific notes under `references/`.
+7. Validate with `validate_skill_dir` or `dcc_mcp_core.validate_skill()` before loading it in an adapter.
+8. If the desired behavior requires parsing core internals or adapter-private YAML at runtime, stop and request a core API instead.
 
 Read [AUTHORING_WORKFLOW.md](references/AUTHORING_WORKFLOW.md) and
 [DCC_TOOL_CONTRACTS.md](references/DCC_TOOL_CONTRACTS.md) before changing a
@@ -145,3 +146,4 @@ The validator checks:
 - **Sidecar files**: `metadata.dcc-mcp.tools/groups/prompts` references exist
 - **Dependencies**: `metadata.dcc-mcp.depends` consistency
 - **Spec compliance**: non-standard top-level keys are frontmatter errors; dcc-mcp-core extensions must live under `metadata.dcc-mcp.*` and point to sibling files
+- **Skill helper adoption**: `validate_skill_dir` emits `skill-helper-adoption` warnings when scripts import avoidable dependencies covered by `dcc_mcp_core.skills_helper`, such as `requests`, `httpx`, PyYAML, or local JSON/HTTP/file/path helper modules

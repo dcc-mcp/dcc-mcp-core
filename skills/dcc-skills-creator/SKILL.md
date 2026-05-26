@@ -110,6 +110,11 @@ Generated `tools.yaml` entries follow the modern contract:
 - `enforce_thread_affinity: true` is emitted so adapter dispatch stays honest.
 - `annotations` use MCP hints: read-only, destructive, idempotent, open-world, and deferred.
 
+Generated scripts should import dependency-light runtime helpers from
+`dcc_mcp_core.skills_helper` first. That namespace provides JSON/YAML codecs,
+bounded HTTP helpers, safe file/path helpers, validation, cancellation checks,
+and result helpers without adding small dependencies to DCC hosts.
+
 ## Validation Rules
 
 The validator checks:
@@ -124,3 +129,4 @@ The validator checks:
 - **Sidecar files**: `metadata.dcc-mcp.tools/groups/prompts` references exist
 - **Dependencies**: `depends` vs `metadata/depends.md` consistency
 - **Spec compliance**: non-standard top-level keys are frontmatter errors; dcc-mcp-core extensions must live under `metadata.dcc-mcp.*` and point to sibling files
+- **Skill helper adoption**: `validate_skill_dir` emits `skill-helper-adoption` warnings when scripts import avoidable dependencies covered by `dcc_mcp_core.skills_helper`, such as `requests`, `httpx`, PyYAML, or local JSON/HTTP/file/path helper modules

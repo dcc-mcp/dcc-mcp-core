@@ -119,6 +119,11 @@ tool returns, and what to inspect after success or failure.
 Tool names must stay client-safe (`^[A-Za-z0-9_-]{{1,64}}$`). Use local
 snake_case tool names in `tools.yaml`; dcc-mcp-core publishes them as
 `{name}__tool_name` after the skill is loaded.
+
+Runtime scripts should import dependency-light helpers from
+`dcc_mcp_core.skills_helper` first. It provides JSON/YAML, bounded HTTP, safe
+file/path helpers, validation, cancellation checks, and result helpers without
+adding small Python dependencies to DCC hosts.
 """,
         encoding="utf-8",
     )
@@ -170,7 +175,7 @@ snake_case tool names in `tools.yaml`; dcc-mcp-core publishes them as
     example_script.write_text(
         '"""Example DCC-MCP skill tool implementation."""\n'
         "from __future__ import annotations\n\n"
-        "from dcc_mcp_core.skill import run_main, skill_entry, skill_success\n\n\n"
+        "from dcc_mcp_core.skills_helper import run_main, skill_entry, skill_success\n\n\n"
         "@skill_entry\n"
         'def main(label: str = "example", dry_run: bool = True, **params):\n'
         '    """Replace this scaffold with a concrete DCC operation."""\n'

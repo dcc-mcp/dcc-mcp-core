@@ -6,8 +6,8 @@ Mark them with read_only: true and idempotent: true in SKILL.md.
 
 from __future__ import annotations
 
-from dcc_mcp_core.skill import skill_entry
-from dcc_mcp_core.skill import skill_success
+from dcc_mcp_core.skills_helper import skill_entry
+from dcc_mcp_core.skills_helper import skill_success
 
 
 @skill_entry

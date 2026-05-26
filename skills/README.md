@@ -69,6 +69,13 @@ Then use the skill's tools:
 - `validate_skill_dir` — validate a skill against the spec
 - `skill_template` — get a current SKILL.md template
 
+Generated scripts import dependency-light runtime helpers from
+`dcc_mcp_core.skills_helper` by default. That namespace is the preferred path
+for JSON/YAML, bounded HTTP, safe file/path helpers, validation, cancellation,
+and result helpers; `validate_skill_dir` reports `skill-helper-adoption`
+warnings when generated/reference skills import avoidable dependencies such as
+`requests`, `httpx`, PyYAML, or local JSON/HTTP/file helpers for covered cases.
+
 ### Manual Template Copy
 
 ```bash

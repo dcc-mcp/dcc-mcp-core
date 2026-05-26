@@ -6,8 +6,8 @@ It receives parameters as JSON on stdin and must print a JSON result to stdout.
 
 from __future__ import annotations
 
-from dcc_mcp_core.skill import skill_entry
-from dcc_mcp_core.skill import skill_success
+from dcc_mcp_core.skills_helper import skill_entry
+from dcc_mcp_core.skills_helper import skill_success
 
 
 def main(params: dict) -> dict:
