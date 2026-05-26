@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.36](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.35...v0.17.36) (2026-05-26)
+
+
+### Bug Fixes
+
+* add public-safe admin issue reports ([c67b3f6](https://github.com/loonghao/dcc-mcp-core/commit/c67b3f6351973c767c6775229005b3f2ad66f545))
+* align setup ide card actions ([f92bd0d](https://github.com/loonghao/dcc-mcp-core/commit/f92bd0d0202fb002c5be4856f52c04335f2639a0))
+
 ## [0.17.35](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.34...v0.17.35) (2026-05-26)
 
 
