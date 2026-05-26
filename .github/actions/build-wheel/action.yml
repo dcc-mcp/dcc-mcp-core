@@ -27,6 +27,10 @@ inputs:
     description: 'Generate Python type stubs before building the wheel'
     required: false
     default: 'true'
+  prebuild-admin-ui:
+    description: 'Build the admin UI bundle before invoking maturin'
+    required: false
+    default: 'true'
   artifact-name:
     description: 'Artifact name'
     required: false
@@ -118,6 +122,7 @@ runs:
     # npm config / npm crashes). `DCC_MCP_ADMIN_UI_PREBUILT` in the stubgen step
     # makes build.rs reuse `generated/index.html` from this step.
     - name: Pre-build admin UI for manylinux Docker
+      if: inputs.prebuild-admin-ui == 'true'
       shell: bash
       run: |
         set -eux
@@ -126,18 +131,16 @@ runs:
         test -f crates/dcc-mcp-gateway/src/gateway/admin/generated/index.html
 
     - name: Generate type stubs
-      if: inputs.generate-stubs == 'true'
+      if: inputs.generate-stubs == 'true' && inputs.python-version != '3.7'
       shell: bash
       env:
         DCC_MCP_ADMIN_UI_PREBUILT: "1"
       run: |
         # pyo3-stub-gen v0.22.x unconditionally references PyEncodingWarning,
         # which only exists in pyo3 when targeting Python >= 3.10.
-        # For Python 3.7 builds we skip regeneration and use the committed stubs.
-        # The abi3 (Python 3.11) build regenerates and commits the authoritative stubs.
-        if [[ "${{ inputs.python-version }}" != "3.7" ]]; then
-          vx just stubgen
-        fi
+        # For Python 3.7 builds, and for CI jobs that already ran the dedicated
+        # stub drift check, use the committed stubs instead of regenerating them.
+        vx just stubgen
 
     - name: Build wheel
       uses: PyO3/maturin-action@v1
