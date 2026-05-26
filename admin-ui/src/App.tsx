@@ -1674,19 +1674,38 @@ function EmptyRow({ columns, children }: { columns: number; children: string }) 
   );
 }
 
-function skillDetailToolNames(detail: SkillDetailInstance | null | undefined): string[] {
+type SkillDetailToolSummary = {
+  name: string;
+  summary?: string;
+  annotations: string[];
+};
+
+function skillDetailTools(detail: SkillDetailInstance | null | undefined): SkillDetailToolSummary[] {
   if (!Array.isArray(detail?.tools)) {
     return [];
   }
   return detail.tools
     .map((tool) => {
       if (typeof tool === 'string') {
-        return tool;
+        return { name: tool, annotations: [] };
       }
       const o = recordOrNull(tool);
-      return o?.name == null ? '' : String(o.name);
+      const name = String(o?.name ?? o?.tool_slug ?? o?.id ?? '');
+      const annotations = recordOrNull(o?.annotations) ?? recordOrNull(o?.tool_annotations);
+      const labels = [
+        annotations?.readOnlyHint === true || annotations?.read_only === true ? 'read-only' : '',
+        annotations?.destructiveHint === true || annotations?.destructive === true ? 'destructive' : '',
+        annotations?.idempotentHint === true || annotations?.idempotent === true ? 'idempotent' : '',
+        o?.thread_affinity != null ? `thread:${String(o.thread_affinity)}` : '',
+        o?.affinity != null ? `affinity:${String(o.affinity)}` : '',
+      ].filter(Boolean);
+      return {
+        name,
+        summary: o?.description == null && o?.summary == null ? undefined : String(o.description ?? o.summary),
+        annotations: labels,
+      };
     })
-    .filter(Boolean);
+    .filter((tool) => tool.name);
 }
 
 function SkillDetailPanel({
@@ -1705,8 +1724,9 @@ function SkillDetailPanel({
   t: Translator;
 }) {
   const selected = detail?.skill ?? detail?.instances?.[0] ?? null;
-  const tools = skillDetailToolNames(selected);
+  const tools = skillDetailTools(selected);
   const dccLabel = selected?.dcc_type ?? selected?.dcc ?? skill.dcc_type;
+  const instanceCount = detail?.instances?.length || skill.instance_count || (selected?.instance_id ? 1 : 0);
   return (
     <section className="skill-detail-panel" aria-live="polite">
       <div className="skill-detail-heading">
@@ -1727,11 +1747,27 @@ function SkillDetailPanel({
       </div>
       {selected?.description ? <p className="skill-detail-description">{selected.description}</p> : null}
       {selected?.skill_md_path ? <div className="mono-path skill-detail-path">{selected.skill_md_path}</div> : null}
+      <div className="skill-detail-summary-grid">
+        <span><strong>{t('skillPaths.table.state')}</strong>{selected?.state ?? (skill.loaded ? t('skillPaths.state.loaded') : t('skillPaths.state.unloaded'))}</span>
+        <span><strong>{t('skillPaths.metric.actions')}</strong>{tools.length || skill.action_count}</span>
+        <span><strong>{t('skillPaths.table.instances')}</strong>{instanceCount}</span>
+        <span><strong>DCC</strong>{dccLabel || t('common.status.unknown')}</span>
+      </div>
       {detail?.error || selected?.error ? <p className="empty skill-detail-error">{detail?.error ?? selected?.error}</p> : null}
       {selected?.message ? <p className="empty">{selected.message}</p> : null}
       {tools.length > 0 ? (
-        <div className="skill-detail-tools">
-          {tools.map((tool) => <span className="source-pill" key={tool}>{tool}</span>)}
+        <div className="skill-tool-list">
+          {tools.map((tool) => (
+            <div className="skill-tool-row" key={tool.name}>
+              <code title={tool.name}>{tool.name}</code>
+              {tool.summary ? <span>{tool.summary}</span> : null}
+              {tool.annotations.length > 0 ? (
+                <div className="skill-tool-annotations">
+                  {tool.annotations.map((label) => <span className="source-pill" key={`${tool.name}-${label}`}>{label}</span>)}
+                </div>
+              ) : null}
+            </div>
+          ))}
         </div>
       ) : null}
       <SkillMarkdownPreview
@@ -1739,6 +1775,8 @@ function SkillDetailPanel({
         frontmatterLabel={t('skillPaths.label.frontmatter')}
         noMarkdownLabel={t('skillPaths.detail.noMarkdown')}
         noBodyLabel={t('skillPaths.detail.noBody')}
+        copyLabel={t('common.action.copy')}
+        copiedLabel={t('skillPaths.action.copiedCode')}
       />
       {detail?.instances && detail.instances.length > 1 ? (
         <div className="skill-detail-instances">
