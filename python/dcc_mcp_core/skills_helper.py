@@ -12,6 +12,7 @@ Rust-backed helper is used.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 import importlib
 from pathlib import Path
 from typing import Any
@@ -45,8 +46,106 @@ class SkillFileError(SkillHelperError):
         super().__init__(detail)
 
 
+class SkillHttpError(SkillHelperError):
+    """Raised when a Rust-backed HTTP helper cannot complete a request."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: str,
+        url: str | None = None,
+        status: int | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> None:
+        self.kind = kind
+        self.url = url
+        self.status = status
+        self.headers = dict(headers or {})
+        detail = f"{kind}: {message}"
+        if status is not None:
+            detail = f"HTTP {status}: {detail}"
+        if url:
+            detail = f"{url}: {detail}"
+        super().__init__(detail)
+
+    def to_skill_error(self, *, message: str | None = None, **context: Any) -> dict[str, Any]:
+        """Convert the HTTP failure into the standard skill error envelope."""
+        payload = {
+            "kind": self.kind,
+            "url": self.url,
+            "status": self.status,
+            **context,
+        }
+        return skill_error_from_exception(self, message=message, error=self.kind, **payload)
+
+
+class HttpStatusError(SkillHttpError):
+    """Raised when an HTTP response status is outside the 2xx range."""
+
+    def __init__(self, response: HttpResponse) -> None:
+        self.response = response
+        super().__init__(
+            f"HTTP request returned status {response.status}",
+            kind="http-status",
+            url=response.url,
+            status=response.status,
+            headers=redact_http_headers(response.headers),
+        )
+
+
+@dataclass(frozen=True)
+class HttpResponse:
+    """Structured response returned by :func:`http_request`."""
+
+    status: int
+    headers: Mapping[str, str]
+    _body: bytes
+    url: str
+    elapsed_ms: int
+    truncated: bool = False
+
+    @property
+    def bytes(self) -> bytes:
+        """Response body bytes, bounded by the request's ``max_bytes``."""
+        return self._body
+
+    @property
+    def text(self) -> str:
+        """Response body decoded as UTF-8 with replacement for invalid bytes."""
+        return self._body.decode("utf-8", errors="replace")
+
+    def json(self) -> Any:
+        """Parse the response body using the Rust-backed JSON codec."""
+        if self.truncated:
+            raise SkillHttpError(
+                f"response exceeded max_bytes and was truncated at {len(self._body)} bytes",
+                kind="response-truncated",
+                url=self.url,
+                status=self.status,
+                headers=redact_http_headers(self.headers),
+            )
+        return load_json_text(self.text, source=f"{self.url} response")
+
+    def raise_for_status(self) -> None:
+        """Raise :class:`HttpStatusError` when the response is not 2xx."""
+        if self.status < 200 or self.status >= 300:
+            raise HttpStatusError(self)
+
+
 DEFAULT_FILE_MAX_BYTES = 64 * 1024 * 1024
 DEFAULT_PAYLOAD_MAX_BYTES = 64 * 1024 * 1024
+DEFAULT_HTTP_TIMEOUT_MS = 5_000
+DEFAULT_HTTP_MAX_BYTES = 1024 * 1024
+REDACTED_HTTP_HEADER_VALUE = "[REDACTED]"
+SENSITIVE_HTTP_HEADERS = {
+    "authorization",
+    "cookie",
+    "proxy-authorization",
+    "set-cookie",
+    "x-api-key",
+    "x-auth-token",
+}
 
 
 def _core_symbol(name: str) -> Any:
@@ -73,6 +172,162 @@ def yaml_dumps(obj: Any) -> str:
 def yaml_loads(s: str) -> Any:
     """Deserialize YAML text using the Rust-backed codec."""
     return _core_symbol("yaml_loads")(s)
+
+
+def redact_http_headers(headers: Mapping[str, Any] | None) -> dict[str, str]:
+    """Return a copy of headers with common credential-bearing values redacted."""
+    redacted: dict[str, str] = {}
+    for name, value in (headers or {}).items():
+        key = str(name)
+        if key.lower() in SENSITIVE_HTTP_HEADERS:
+            redacted[key] = REDACTED_HTTP_HEADER_VALUE
+        else:
+            redacted[key] = str(value)
+    return redacted
+
+
+def http_request(
+    method: str,
+    url: str,
+    *,
+    headers: Mapping[str, Any] | None = None,
+    query: Mapping[str, Any] | list[tuple[Any, Any]] | tuple[tuple[Any, Any], ...] | None = None,
+    json: Any = None,
+    body: str | bytes | bytearray | memoryview | None = None,
+    timeout_ms: int = DEFAULT_HTTP_TIMEOUT_MS,
+    max_bytes: int = DEFAULT_HTTP_MAX_BYTES,
+    raise_for_status: bool = False,
+) -> HttpResponse:
+    """Perform a bounded synchronous HTTP request through the Rust helper."""
+    if json is not None and body is not None:
+        raise SkillHttpError(
+            "json and body are mutually exclusive",
+            kind="invalid-body",
+            url=url,
+            headers=redact_http_headers(headers),
+        )
+    if timeout_ms <= 0:
+        raise SkillHttpError("timeout_ms must be greater than zero", kind="invalid-timeout", url=url)
+    if max_bytes < 0:
+        raise SkillHttpError("max_bytes must be >= 0", kind="invalid-max-bytes", url=url)
+
+    json_body = dump_json_text(json, ensure_ascii=False) if json is not None else None
+    raw_body = _coerce_http_body(body)
+    raw = _core_symbol("skill_http_request")(
+        method,
+        url,
+        headers=_header_pairs(headers),
+        query=_query_pairs(query),
+        json_body=json_body,
+        body=raw_body,
+        timeout_ms=int(timeout_ms),
+        max_bytes=int(max_bytes),
+    )
+    if not raw.get("ok"):
+        raise SkillHttpError(
+            str(raw.get("message") or raw.get("error_kind") or "HTTP request failed"),
+            kind=str(raw.get("error_kind") or "request"),
+            url=str(raw.get("url") or url),
+            headers=redact_http_headers(headers),
+        )
+    response = HttpResponse(
+        status=int(raw["status"]),
+        headers=dict(raw.get("headers") or {}),
+        _body=bytes(raw.get("body") or b""),
+        url=str(raw.get("url") or url),
+        elapsed_ms=int(raw.get("elapsed_ms") or 0),
+        truncated=bool(raw.get("truncated")),
+    )
+    if raise_for_status:
+        response.raise_for_status()
+    return response
+
+
+def http_get_json(
+    url: str,
+    *,
+    headers: Mapping[str, Any] | None = None,
+    query: Mapping[str, Any] | list[tuple[Any, Any]] | tuple[tuple[Any, Any], ...] | None = None,
+    timeout_ms: int = DEFAULT_HTTP_TIMEOUT_MS,
+    max_bytes: int = DEFAULT_HTTP_MAX_BYTES,
+) -> Any:
+    """GET *url*, require 2xx, and parse JSON with the Rust-backed codec."""
+    response = http_request(
+        "GET",
+        url,
+        headers=headers,
+        query=query,
+        timeout_ms=timeout_ms,
+        max_bytes=max_bytes,
+        raise_for_status=True,
+    )
+    return response.json()
+
+
+_MISSING = object()
+
+
+def http_post_json(
+    url: str,
+    payload: Any = _MISSING,
+    *,
+    json: Any = _MISSING,
+    headers: Mapping[str, Any] | None = None,
+    query: Mapping[str, Any] | list[tuple[Any, Any]] | tuple[tuple[Any, Any], ...] | None = None,
+    timeout_ms: int = DEFAULT_HTTP_TIMEOUT_MS,
+    max_bytes: int = DEFAULT_HTTP_MAX_BYTES,
+) -> Any:
+    """POST JSON to *url*, require 2xx, and parse the JSON response."""
+    if payload is not _MISSING and json is not _MISSING:
+        raise SkillHttpError("payload and json are aliases; pass only one", kind="invalid-body", url=url)
+    request_json = None if payload is _MISSING and json is _MISSING else (json if json is not _MISSING else payload)
+    response = http_request(
+        "POST",
+        url,
+        headers=headers,
+        query=query,
+        json=request_json,
+        timeout_ms=timeout_ms,
+        max_bytes=max_bytes,
+        raise_for_status=True,
+    )
+    return response.json()
+
+
+def _header_pairs(headers: Mapping[str, Any] | None) -> list[tuple[str, str]] | None:
+    if headers is None:
+        return None
+    return [(str(name), str(value)) for name, value in headers.items()]
+
+
+def _query_pairs(
+    query: Mapping[str, Any] | list[tuple[Any, Any]] | tuple[tuple[Any, Any], ...] | None,
+) -> list[tuple[str, str]] | None:
+    if query is None:
+        return None
+    items = query.items() if isinstance(query, Mapping) else query
+    pairs: list[tuple[str, str]] = []
+    for name, value in items:
+        if value is None:
+            continue
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                if item is not None:
+                    pairs.append((str(name), str(item)))
+        else:
+            pairs.append((str(name), str(value)))
+    return pairs
+
+
+def _coerce_http_body(body: str | bytes | bytearray | memoryview | None) -> bytes | None:
+    if body is None:
+        return None
+    if isinstance(body, str):
+        return body.encode("utf-8")
+    try:
+        return bytes(body)
+    except TypeError as exc:
+        raise SkillHttpError(str(exc), kind="invalid-body") from exc
 
 
 def _source_name(path: str | Path) -> str:
@@ -391,11 +646,16 @@ def __dir__() -> list[str]:
 
 
 _DIRECT_EXPORTS = [
+    "DEFAULT_HTTP_MAX_BYTES",
+    "DEFAULT_HTTP_TIMEOUT_MS",
     "DEFAULT_FILE_MAX_BYTES",
     "DEFAULT_PAYLOAD_MAX_BYTES",
+    "HttpResponse",
+    "HttpStatusError",
     "SkillFileError",
     "SkillCodecError",
     "SkillHelperError",
+    "SkillHttpError",
     "atomic_write_bytes",
     "atomic_write_text",
     "bytes_digest",
@@ -408,6 +668,9 @@ _DIRECT_EXPORTS = [
     "dump_yaml_text",
     "ensure_within_root",
     "file_digest",
+    "http_get_json",
+    "http_post_json",
+    "http_request",
     "json_dumps",
     "json_loads",
     "load_json_file",
@@ -415,7 +678,10 @@ _DIRECT_EXPORTS = [
     "load_text",
     "load_yaml_file",
     "load_yaml_text",
+    "redact_http_headers",
+    "REDACTED_HTTP_HEADER_VALUE",
     "skill_error_from_exception",
+    "SENSITIVE_HTTP_HEADERS",
     "yaml_dumps",
     "yaml_loads",
 ]

@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import hashlib
+from http.server import BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer
+import socket
+import threading
+import time
 
 import pytest
 
 import dcc_mcp_core
 from dcc_mcp_core import skills_helper
+from dcc_mcp_core.skills_helper import HttpStatusError
 from dcc_mcp_core.skills_helper import SkillCodecError
 from dcc_mcp_core.skills_helper import SkillFileError
+from dcc_mcp_core.skills_helper import SkillHttpError
 from dcc_mcp_core.skills_helper import ToolValidator
 from dcc_mcp_core.skills_helper import normalize_tool_arguments
 from dcc_mcp_core.skills_helper import skill_error_from_exception
@@ -179,3 +186,145 @@ def test_skills_helper_lz4_roundtrip_and_limits() -> None:
         skills_helper.decompress_bytes(compressed, max_bytes=16)
     with pytest.raises(SkillFileError, match="unsupported algorithm"):
         skills_helper.compress_bytes(payload, algorithm="gzip")
+
+
+class _SkillHelperHttpHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        if self.path.startswith("/json"):
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "path": self.path,
+                    "auth": self.headers.get("Authorization"),
+                },
+            )
+        elif self.path.startswith("/error"):
+            self._send_json(418, {"ok": False, "error": "teapot"})
+        elif self.path.startswith("/slow"):
+            time.sleep(0.2)
+            self._send_json(200, {"ok": True})
+        elif self.path.startswith("/text"):
+            self._send_text(200, "not json")
+        elif self.path.startswith("/large"):
+            self._send_text(200, "abcdef")
+        else:
+            self._send_json(404, {"ok": False})
+
+    def do_POST(self) -> None:
+        length = int(self.headers.get("content-length") or "0")
+        body = self.rfile.read(length).decode("utf-8")
+        self._send_text(200, body, content_type="application/json")
+
+    def log_message(self, _format: str, *_args) -> None:
+        return None
+
+    def _send_json(self, status: int, payload) -> None:
+        self._send_text(status, skills_helper.json_dumps(payload, ensure_ascii=False), content_type="application/json")
+
+    def _send_text(self, status: int, text: str, *, content_type: str = "text/plain") -> None:
+        data = text.encode("utf-8")
+        self.send_response(status)
+        self.send_header("content-type", content_type)
+        self.send_header("content-length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+
+@pytest.fixture
+def http_server():
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _SkillHelperHttpHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2.0)
+
+
+def test_http_request_returns_structured_response(http_server) -> None:
+    response = skills_helper.http_request(
+        "GET",
+        f"{http_server}/json",
+        headers={"Authorization": "Bearer secret"},
+        query={"name": "cube", "tag": ["a", "b"]},
+    )
+
+    assert response.status == 200
+    assert response.truncated is False
+    assert response.headers["content-type"] == "application/json"
+    assert response.json()["ok"] is True
+    assert "name=cube" in response.url
+    assert "tag=a" in response.url
+    assert response.elapsed_ms >= 0
+
+
+def test_http_post_json_uses_rust_json_codec(http_server) -> None:
+    payload = {"name": "café", "enabled": True}
+
+    result = skills_helper.http_post_json(f"{http_server}/echo", payload)
+
+    assert result == payload
+
+
+def test_http_error_can_raise_structured_status_error(http_server) -> None:
+    with pytest.raises(HttpStatusError) as raised:
+        skills_helper.http_request("GET", f"{http_server}/error", raise_for_status=True)
+
+    err = raised.value
+    assert err.status == 418
+    assert err.response.status == 418
+    assert err.kind == "http-status"
+    assert err.to_skill_error()["error"] == "http-status"
+
+
+def test_http_timeout_raises_structured_http_error(http_server) -> None:
+    with pytest.raises(SkillHttpError) as raised:
+        skills_helper.http_get_json(f"{http_server}/slow", timeout_ms=10)
+
+    assert raised.value.kind == "timeout"
+    assert raised.value.url.startswith(http_server)
+
+
+def test_http_invalid_json_uses_codec_error(http_server) -> None:
+    with pytest.raises(SkillCodecError, match="response: json:"):
+        skills_helper.http_get_json(f"{http_server}/text")
+
+
+def test_http_oversized_response_marks_truncation(http_server) -> None:
+    response = skills_helper.http_request("GET", f"{http_server}/large", max_bytes=4)
+
+    assert response.bytes == b"abcd"
+    assert response.text == "abcd"
+    assert response.truncated is True
+    with pytest.raises(SkillHttpError) as raised:
+        response.json()
+    assert raised.value.kind == "response-truncated"
+
+
+def test_http_header_redaction_masks_common_secret_headers() -> None:
+    redacted = skills_helper.redact_http_headers(
+        {
+            "Authorization": "Bearer secret",
+            "X-Api-Key": "secret",
+            "Accept": "application/json",
+        }
+    )
+
+    assert redacted["Authorization"] == "[REDACTED]"
+    assert redacted["X-Api-Key"] == "[REDACTED]"
+    assert redacted["Accept"] == "application/json"
+
+
+def test_http_transport_error_is_structured() -> None:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        unused_port = sock.getsockname()[1]
+
+    with pytest.raises(SkillHttpError) as raised:
+        skills_helper.http_get_json(f"http://127.0.0.1:{unused_port}/missing", timeout_ms=200)
+
+    assert raised.value.kind in {"connect", "request", "timeout"}
+    assert "127.0.0.1" in str(raised.value)

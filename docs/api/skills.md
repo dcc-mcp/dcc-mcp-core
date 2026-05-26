@@ -639,6 +639,49 @@ depends on it for another feature. `compress_bytes()` / `decompress_bytes()`
 use the existing LZ4 frame implementation from the shared-memory layer and
 enforce explicit byte limits.
 
+For bounded REST calls, use the Rust-backed HTTP helpers instead of adding
+`requests` for common JSON APIs:
+
+```python
+from dcc_mcp_core.skills_helper import (
+    SkillHttpError,
+    http_get_json,
+    http_post_json,
+    skill_error_from_exception,
+)
+
+try:
+    info = http_get_json(
+        "https://pipeline.example/api/asset",
+        query={"name": asset_name},
+        headers={"Authorization": f"Bearer {token}"},
+        timeout_ms=5_000,
+        max_bytes=1_000_000,
+    )
+    created = http_post_json(
+        "https://pipeline.example/api/report",
+        {"asset": asset_name, "info": info},
+        timeout_ms=5_000,
+    )
+except SkillHttpError as exc:
+    return skill_error_from_exception(exc)
+```
+
+`http_request()` returns an `HttpResponse` object with `status`, `headers`,
+`bytes`, `text`, `json()`, `url`, `elapsed_ms`, and `truncated`. Convenience
+helpers `http_get_json()` and `http_post_json()` require a 2xx status and parse
+the response with the same Rust-backed JSON codec as `json_loads()`. Response
+bodies are bounded by `max_bytes`; truncated responses remain inspectable via
+`response.bytes` / `response.text`, and `response.json()` raises
+`SkillHttpError(kind="response-truncated")`.
+
+Use `redact_http_headers()` before echoing request headers into skill errors or
+audit metadata. It masks common credential headers such as `Authorization`,
+`Proxy-Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key`, and `X-Auth-Token`.
+Keep domain-specific HTTP client dependencies only when you need sessions,
+streaming protocols, custom auth flows, multipart upload, or API-specific retry
+logic that these small helpers intentionally do not provide.
+
 Use `FileRef`, `artefact_put_file()`, and `artefact_get_bytes()` when a file
 must be handed to another tool or exposed through MCP resources. The
 `skills_helper` file helpers are lower-level building blocks for local files
