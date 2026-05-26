@@ -53,6 +53,21 @@ pip install dcc-mcp-core
 # Python 3.7-3.13, zero runtime dependencies
 ```
 
+## Local Dependency Maintenance
+
+Use the repository-pinned `vx` toolchain for Rust dependency refreshes and CI
+parity:
+
+```bash
+vx --version  # CI pins loonghao/vx@v0.9.7
+vx cargo update
+vx cargo tree -d
+vx cargo build --workspace --all-targets --timings
+```
+
+Review duplicate dependency output before editing manifests, and keep generated
+lockfile changes only when they are part of the intended dependency refresh.
+
 ## Core Patterns
 
 ### Pattern 1: Skills-First — one-call MCP server (recommended)

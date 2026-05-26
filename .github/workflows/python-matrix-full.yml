@@ -39,10 +39,10 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: loonghao/vx@v0.9.2
+      - uses: loonghao/vx@v0.9.7
         with:
-          version: "0.9.2"
-          cache-key-prefix: "vx-tools-v0.9.2"
+          version: "0.9.7"
+          cache-key-prefix: "vx-tools-v0.9.7"
       - uses: dtolnay/rust-toolchain@stable
       - name: Build wheel
         run: vx just build
