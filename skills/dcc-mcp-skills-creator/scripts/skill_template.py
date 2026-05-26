@@ -33,6 +33,12 @@ Write concise instructions for the AI agent:
 Tool names must be client-safe (`^[A-Za-z0-9_-]{1,64}$`). In `tools.yaml`, use
 local snake_case names such as `create_locator`; dcc-mcp-core publishes loaded
 tools as `<skill-name>__<tool_name>`.
+
+Runtime scripts should import dependency-light helpers from
+`dcc_mcp_core.skills_helper` first. It provides JSON/YAML, bounded HTTP, safe
+file/path helpers, validation, cancellation checks, and result helpers while
+keeping generated skills free of small Python dependencies such as `requests`
+or PyYAML for covered cases.
 """
 
 

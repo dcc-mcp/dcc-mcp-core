@@ -99,6 +99,10 @@ into a faster authoring loop.
    before returning request headers in skill errors or audit metadata. Use a
    domain-specific HTTP dependency only for sessions, streaming, multipart
    upload, custom retry/auth flows, or API behavior these helpers do not cover.
+   Run `dcc_mcp_skills_creator__validate_skill_dir` or
+   `dcc_skills_creator__validate_skill_dir` after generator/template changes;
+   treat `skill-helper-adoption` warnings as blockers for new generated or
+   reference skills, and as migration prompts for older production skills.
 7. When changing adapter server wiring or caller examples, keep Admin telemetry
    useful: pass optional `agent_context` / `caller_context` summaries through
    MCP `_meta`, REST `meta`, `x-dcc-mcp-agent-*`, `x-dcc-mcp-actor-*`, or
