@@ -191,6 +191,7 @@ compatibility layer; automation should prefer:
 | `GET /v1/debug/traffic?limit=300` | `/admin/api/traffic` |
 | `GET /v1/debug/traffic/export?limit=1000` | `/admin/api/traffic/export` |
 | `GET /v1/debug/trace-context/{lookup_id}` | trace id or request id lookup |
+| `GET /v1/debug/agent-traces/{lookup_id}` | public-safe agent trace packet by trace id or request id |
 | `GET /v1/debug/bundles/{request_id_or_trace_id}` | `/admin/api/debug-bundle/{request_id}` |
 | `GET /v1/debug/issue-reports/{request_id}` | `/admin/api/issue-report/{request_id}`; public-safe by default, `?mode=raw` for reviewed local evidence |
 | `GET /v1/debug/workflows` | `/admin/api/workflows` |
@@ -200,6 +201,11 @@ compatibility layer; automation should prefer:
 | `GET /v1/debug/stats` | `/admin/api/stats` |
 | `GET /v1/debug/governance?limit=300` | `/admin/api/governance` |
 | `GET /v1/debug/health` | `/admin/api/health` |
+
+Browser deep links such as `/admin?panel=traces&trace=<request_id>` are UI
+navigation only. Historical `/admin?agent=traces&trace=<id>` links should be
+treated the same way; automation and agents should resolve the machine-readable
+packet through `GET /v1/debug/agent-traces/{lookup_id}`.
 
 ## Optional Agent / Caller Context
 
@@ -470,6 +476,7 @@ Admin token fields intentionally separate two accounting models:
       "links": {
         "admin_trace_url": "http://127.0.0.1:9765/admin?panel=traces&trace=req-123",
         "trace_api_url": "http://127.0.0.1:9765/admin/api/traces/req-123",
+        "agent_trace_packet_url": "http://127.0.0.1:9765/v1/debug/agent-traces/req-123",
         "debug_bundle_url": "http://127.0.0.1:9765/admin/api/debug-bundle/req-123",
         "issue_report_url": "http://127.0.0.1:9765/admin/api/issue-report/req-123",
         "openapi_inspector_url": "http://127.0.0.1:9765/admin?panel=openapi",
@@ -518,6 +525,7 @@ Admin token fields intentionally separate two accounting models:
       "links": {
         "admin_trace_url": "http://127.0.0.1:9765/admin?panel=traces&trace=req-123",
         "trace_api_url": "http://127.0.0.1:9765/admin/api/traces/req-123",
+        "agent_trace_packet_url": "http://127.0.0.1:9765/v1/debug/agent-traces/req-123",
         "debug_bundle_url": "http://127.0.0.1:9765/admin/api/debug-bundle/req-123",
         "issue_report_url": "http://127.0.0.1:9765/admin/api/issue-report/req-123",
         "openapi_inspector_url": "http://127.0.0.1:9765/admin?panel=openapi",
@@ -548,6 +556,7 @@ Admin token fields intentionally separate two accounting models:
   "links": {
     "admin_trace_url": "http://127.0.0.1:9765/admin?panel=traces&trace=req-123",
     "trace_api_url": "http://127.0.0.1:9765/admin/api/traces/req-123",
+    "agent_trace_packet_url": "http://127.0.0.1:9765/v1/debug/agent-traces/req-123",
     "debug_bundle_url": "http://127.0.0.1:9765/admin/api/debug-bundle/req-123",
     "issue_report_url": "http://127.0.0.1:9765/admin/api/issue-report/req-123",
     "openapi_inspector_url": "http://127.0.0.1:9765/admin?panel=openapi",
@@ -562,6 +571,44 @@ Admin token fields intentionally separate two accounting models:
   ],
   "input": { "mime_type": "application/json", "truncated": false, "original_size": 42, "content": "{...}" },
   "output": { "mime_type": "application/json", "truncated": false, "original_size": 96, "content": "{...}" }
+}
+
+// GET /v1/debug/agent-traces/req-123
+{
+  "schema_version": "dcc-mcp.admin.agent-trace-packet.v1",
+  "lookup_id": "req-123",
+  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "request_id": "req-123",
+  "request_ids": ["req-123"],
+  "status": "ok",
+  "tool": "maya.abcdef01.maya__open_scene",
+  "dcc_type": "maya",
+  "transport": "mcp",
+  "total_ms": 48,
+  "span_count": 1,
+  "payload_tokens": {
+    "token_estimator": "dcc-mcp-byte4-v1",
+    "input_tokens": 11,
+    "output_tokens": 24,
+    "total_tokens": 35,
+    "missing_payload_tokens": false
+  },
+  "response_token_accounting": {
+    "response_format": "json",
+    "returned_tokens": 24,
+    "saved_tokens": 0
+  },
+  "postmortem": {
+    "previous_call_count": 0,
+    "gateway_event_count": 0
+  },
+  "links": {
+    "admin_trace_url": "http://127.0.0.1:9765/admin?panel=traces&trace=req-123",
+    "agent_trace_packet_url": "http://127.0.0.1:9765/v1/debug/agent-traces/req-123",
+    "debug_bundle_url": "http://127.0.0.1:9765/admin/api/debug-bundle/req-123",
+    "issue_report_url": "http://127.0.0.1:9765/admin/api/issue-report/req-123"
+  },
+  "privacy_note": "Agent trace packets omit request/response payload previews, prompts, scripts, and scene data. Use debug_bundle_url only for reviewed local diagnostics."
 }
 
 // GET /admin/api/debug-bundle/req-123
@@ -587,6 +634,7 @@ Admin token fields intentionally separate two accounting models:
     "gateway_events": []
   },
   "links": {
+    "agent_trace_packet_url": "http://127.0.0.1:9765/v1/debug/agent-traces/req-123",
     "debug_bundle_url": "http://127.0.0.1:9765/admin/api/debug-bundle/req-123",
     "issue_report_url": "http://127.0.0.1:9765/admin/api/issue-report/req-123",
     "openapi_inspector_url": "http://127.0.0.1:9765/admin?panel=openapi",
@@ -659,6 +707,7 @@ Admin token fields intentionally separate two accounting models:
   },
   "links": {
     "admin_trace_path": "/admin?panel=traces&trace=req-123",
+    "agent_trace_packet_path": "/v1/debug/agent-traces/req-123",
     "safe_issue_report_path": "/admin/api/issue-report/req-123",
     "raw_issue_report_path": "/admin/api/issue-report/req-123?mode=raw",
     "stable_safe_issue_report_path": "/v1/debug/issue-reports/req-123",

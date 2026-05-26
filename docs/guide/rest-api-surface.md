@@ -51,6 +51,7 @@ continue to serve their own adapter OpenAPI contract from the same path.
 | `GET` | `/v1/debug/traffic` | Gateway only: retained live traffic-capture frames from an explicit `admin_live` sink. |
 | `GET` | `/v1/debug/traffic/export` | Gateway only: retained live traffic-capture frames as JSONL. |
 | `GET` | `/v1/debug/trace-context/{lookup_id}` | Gateway only: resolve trace id or request id to the primary trace context. |
+| `GET` | `/v1/debug/agent-traces/{lookup_id}` | Gateway only: compact public-safe agent trace packet by trace id or request id. |
 | `GET` | `/v1/debug/bundles/{request_id}` | Gateway only: full-chain debug bundle by request id or trace id. |
 | `GET` | `/v1/debug/issue-reports/{request_id}` | Gateway only: public-safe GitHub issue report JSON by default; `?mode=raw` includes reviewed local evidence. |
 | `GET` | `/v1/debug/tasks` | Gateway only: task-like snapshots reconstructed from traces. |
@@ -121,6 +122,7 @@ so operators and agents can compare results one-to-one:
 | `/v1/debug/traffic?limit=300` | `/admin/api/traffic?limit=300` | Recent live traffic-capture frames from an `admin_live` sink. |
 | `/v1/debug/traffic/export?limit=1000` | `/admin/api/traffic/export?limit=1000` | Retained live traffic-capture frames as JSONL. |
 | `/v1/debug/trace-context/{lookup_id}` | n/a | Trace-context lookup by `trace_id` or `request_id`. |
+| `/v1/debug/agent-traces/{lookup_id}` | n/a | Public-safe agent packet for one retained trace; accepts `trace_id` or `request_id`. |
 | `/v1/debug/bundles/{request_id}` | `/admin/api/debug-bundle/{request_id}` | Accepts request ids and retained trace ids. |
 | `/v1/debug/issue-reports/{request_id}` | `/admin/api/issue-report/{request_id}` | Public-safe JSON export suitable for GitHub issue attachment by default; `?mode=raw` includes the full debug bundle for reviewed local evidence. |
 | `/v1/debug/workflows` | `/admin/api/workflows` | Agent session/workflow projection from retained search telemetry, traces, and audits. |
@@ -141,6 +143,12 @@ Common correlation fields include `request_id`, `trace_id`, `instance_id`,
 `agent_model`, `parent_request_id`, and timestamps where the underlying provider
 has them. Use `request_id` for exact request detail and `trace_id` for
 full-chain bundles or `/v1/debug/trace-context/{trace_id}`.
+
+Use `/v1/debug/agent-traces/{lookup_id}` for machine-readable agent hand-off
+packets. The route resolves both trace ids and request ids and omits request /
+response payload previews, prompts, scripts, and scene data. Browser URLs such
+as `/admin?panel=traces&trace=<request_id>` and historical
+`/admin?agent=traces&trace=<id>` links are UI navigation, not a stable API.
 
 ---
 

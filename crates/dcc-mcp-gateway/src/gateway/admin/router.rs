@@ -2,6 +2,7 @@
 
 use axum::{Router, routing};
 
+use super::agent_trace::handle_v1_debug_agent_trace_packet;
 use super::handlers::{
     handle_admin_activity, handle_admin_calls, handle_admin_debug_bundle,
     handle_admin_deregistered, handle_admin_governance, handle_admin_health,
@@ -108,6 +109,10 @@ pub fn build_v1_debug_router(state: AdminState) -> Router {
         .route(
             "/v1/debug/trace-context/{lookup_id}",
             routing::get(handle_v1_debug_trace_lookup),
+        )
+        .route(
+            "/v1/debug/agent-traces/{lookup_id}",
+            routing::get(handle_v1_debug_agent_trace_packet),
         )
         .route("/v1/debug/tasks", routing::get(handle_admin_tasks))
         .route("/v1/debug/workflows", routing::get(handle_admin_workflows))

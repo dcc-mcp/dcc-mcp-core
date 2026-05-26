@@ -44,6 +44,7 @@
 //! See `docs/guide/gateway-admin.md` for screenshots and configuration knobs.
 
 pub mod activity;
+mod agent_trace;
 pub mod governance;
 mod html;
 #[cfg(feature = "admin")]

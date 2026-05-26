@@ -1665,6 +1665,38 @@ sinks:
         assert_eq!(context_body["request_id"], "req-task");
         assert_eq!(context_body["trace_id"], "trace-task");
 
+        let (agent_packet_status, agent_packet_body) =
+            body_json(v1_router.clone(), "/v1/debug/agent-traces/req-task").await;
+        assert_eq!(agent_packet_status, StatusCode::OK);
+        assert_eq!(
+            agent_packet_body["schema_version"],
+            "dcc-mcp.admin.agent-trace-packet.v1"
+        );
+        assert_eq!(agent_packet_body["lookup_id"], "req-task");
+        assert_eq!(agent_packet_body["request_id"], "req-task");
+        assert_eq!(agent_packet_body["trace_id"], "trace-task");
+        assert_eq!(agent_packet_body["status"], "err");
+        assert_eq!(agent_packet_body["postmortem"]["previous_call_count"], 1);
+        assert_eq!(agent_packet_body["postmortem"]["gateway_event_count"], 1);
+        assert!(
+            agent_packet_body["links"]["agent_trace_packet_url"]
+                .as_str()
+                .is_some_and(|url| url.ends_with("/v1/debug/agent-traces/req-task"))
+        );
+        assert!(agent_packet_body.get("trace").is_none());
+        assert!(agent_packet_body.get("traces").is_none());
+        assert!(agent_packet_body.get("debug_bundle").is_none());
+        let agent_packet_json = serde_json::to_string(&agent_packet_body).unwrap();
+        assert!(!agent_packet_json.contains("scene.ma"));
+        assert!(!agent_packet_json.contains("[REDACTED]"));
+
+        let (agent_packet_trace_status, agent_packet_trace_body) =
+            body_json(v1_router.clone(), "/v1/debug/agent-traces/trace-task").await;
+        assert_eq!(agent_packet_trace_status, StatusCode::OK);
+        assert_eq!(agent_packet_trace_body["lookup_id"], "trace-task");
+        assert_eq!(agent_packet_trace_body["request_id"], "req-task");
+        assert_eq!(agent_packet_trace_body["trace_id"], "trace-task");
+
         let (v1_tasks_status, v1_tasks_body) =
             body_json(v1_router.clone(), "/v1/debug/tasks?limit=20").await;
         assert_eq!(v1_tasks_status, StatusCode::OK);
