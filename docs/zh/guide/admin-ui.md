@@ -141,7 +141,7 @@ vx git diff --check
 | `GET /admin/api/traffic?limit=300` | `application/json` | 显式 `admin_live` traffic sink 保留的 live `traffic.frame` envelopes |
 | `GET /admin/api/traffic/export?limit=1000` | `application/x-ndjson` | 将保留的 live traffic frames 导出为 JSONL，便于本地 replay/diff |
 | `GET /admin/api/debug-bundle/{request_id}` | `application/json` | 单次请求的一站式 debug bundle，包含 trace、匹配审计行、相关活动和提示 |
-| `GET /admin/api/stats?range=1h\|24h\|7d` | `application/json` | 聚合调用数、成功率、延迟、top tools/instances 和 token savings totals |
+| `GET /admin/api/stats?range=1h\|24h\|7d` | `application/json` | 聚合调用数、成功率、延迟、top tools/instances、payload token coverage 和 response token savings totals |
 | `GET /admin/api/governance?limit=300` | `application/json` | 当前 gateway policy、traffic capture、redaction、中间件控制和最近 allow/deny/throttle 决策 |
 | `GET /admin/api/workers` | `application/json` | 来自 live registry 的实例卡片；响应字段名保留 `workers` 以兼容现有客户端 |
 | `GET /admin/api/logs` | `application/json` | 合并后的网关竞争事件、磁盘 `*.log` 行和审计调用摘要 |
@@ -309,6 +309,13 @@ Admin 路由仍作为 dashboard 兼容层；自动化调用优先使用：
 
 // GET /admin/api/traces/req-123 返回同一个完整 trace 对象；未命中时返回 404。
 
+Admin token 字段刻意拆成两套账：`payload_token_usage`、trace
+`input_tokens`/`output_tokens` 和 `payload_token_accounting` 是来自已捕获
+request/response payload preview 的估算；缺失时用 `missing_payload_tokens`
+显式表达。`token_usage`、`response_token_accounting` 以及每次调用的
+`original_tokens`/`returned_tokens`/`saved_tokens` 描述 JSON/TOON 响应压缩
+前后的 token accounting，不能替代缺失的 payload 估算。
+
 // GET /admin/api/debug-bundle/req-123
 {
   "request_id": "req-123",
@@ -324,6 +331,16 @@ Admin 路由仍作为 dashboard 兼容层；自动化调用优先使用：
   "total_calls": 42,
   "success_rate": 0.98,
   "latency": { "p50_ms": 12, "p95_ms": 48 },
+  "payload_token_usage": {
+    "token_estimator": "dcc-mcp-byte4-v1",
+    "total_input_tokens": 1200,
+    "total_output_tokens": 900,
+    "total_tokens": 2100,
+    "calls_with_any_payload_tokens": 21,
+    "calls_missing_payload_tokens": 21,
+    "avg_total_tokens_per_call": 50.0,
+    "avg_total_tokens_per_recorded_call": 100.0
+  },
   "token_usage": {
     "total_returned_tokens": 5400,
     "total_saved_tokens": 2100,

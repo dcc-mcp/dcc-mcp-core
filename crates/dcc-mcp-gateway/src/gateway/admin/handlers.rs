@@ -602,6 +602,25 @@ fn apply_token_fields(
     row["savings_pct"] = json!(tokens.savings_pct);
 }
 
+fn payload_token_accounting(input: Option<usize>, output: Option<usize>) -> Value {
+    let total = match (input, output) {
+        (Some(input), Some(output)) => Some(input.saturating_add(output)),
+        (Some(input), None) => Some(input),
+        (None, Some(output)) => Some(output),
+        (None, None) => None,
+    };
+    json!({
+        "kind": "payload",
+        "token_estimator": TOKEN_ESTIMATOR,
+        "input_tokens": input,
+        "output_tokens": output,
+        "total_tokens": total,
+        "has_input_tokens": input.is_some(),
+        "has_output_tokens": output.is_some(),
+        "missing_payload_tokens": input.is_none() && output.is_none(),
+    })
+}
+
 /// `GET /admin/api/calls` — recent calls from the AuditLog ring buffer.
 ///
 /// If no `AuditLog` is attached to the state, returns an empty array.
@@ -1119,6 +1138,7 @@ pub async fn handle_admin_stats(
             "avg_total_tokens_per_call": 0.0,
             "avg_tokens_per_call": 0.0,
             "payload_token_estimator": TOKEN_ESTIMATOR,
+            "payload_token_usage": crate::gateway::admin::stats::PayloadTokenUsageStats::empty(0),
             "token_usage": crate::gateway::admin::stats::TokenUsageStats::default(),
             "governance": crate::gateway::admin::governance::build_governance_stats(&s),
         })),
@@ -1318,6 +1338,10 @@ fn trace_detail_json(trace: &DispatchTrace, links: Option<Value>) -> Value {
         obj.insert("estimated_tokens".to_string(), json!(total_tokens));
         obj.insert("estimated_total_tokens".to_string(), json!(total_tokens));
         obj.insert(
+            "payload_token_accounting".to_string(),
+            payload_token_accounting(input_tokens, output_tokens),
+        );
+        obj.insert(
             "payload_token_estimator".to_string(),
             json!(TOKEN_ESTIMATOR),
         );
@@ -1420,6 +1444,7 @@ fn dispatch_trace_to_admin_row(t: &DispatchTrace, links: Option<AdminLinkBuilder
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "total_tokens": total_tokens,
+        "payload_token_accounting": payload_token_accounting(input_tokens, output_tokens),
         "payload_token_estimator": TOKEN_ESTIMATOR,
         "slowest_span_name": slowest_span_name,
         "slowest_span_ms": slowest_span_ms,

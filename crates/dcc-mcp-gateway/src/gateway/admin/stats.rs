@@ -108,6 +108,8 @@ pub struct GatewayStats {
     pub top_client_platforms: Vec<AttributionFacet>,
     /// Top server-derived source IPs by request count and health.
     pub top_source_ips: Vec<AttributionFacet>,
+    /// Payload request/response token estimates and coverage.
+    pub payload_token_usage: PayloadTokenUsageStats,
     /// Token accounting totals and savings breakdowns.
     pub token_usage: TokenUsageStats,
     /// Call distribution across the 24 hours of the day (UTC, index 0 = midnight).
@@ -150,6 +152,42 @@ pub struct AttributionFacet {
     pub failure_rate: f64,
     pub mean_latency_ms: f64,
     pub p95_latency_ms: u64,
+}
+
+/// Aggregate payload token estimates for captured request/response previews.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PayloadTokenUsageStats {
+    pub token_estimator: String,
+    pub total_input_tokens: u64,
+    pub total_output_tokens: u64,
+    pub total_tokens: u64,
+    pub calls_with_input_tokens: usize,
+    pub calls_with_output_tokens: usize,
+    pub calls_with_any_payload_tokens: usize,
+    pub calls_missing_payload_tokens: usize,
+    pub avg_input_tokens_per_call: f64,
+    pub avg_output_tokens_per_call: f64,
+    pub avg_total_tokens_per_call: f64,
+    pub avg_total_tokens_per_recorded_call: f64,
+}
+
+impl PayloadTokenUsageStats {
+    pub fn empty(total_calls: usize) -> Self {
+        Self {
+            token_estimator: crate::gateway::response_codec::TOKEN_ESTIMATOR.to_string(),
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            total_tokens: 0,
+            calls_with_input_tokens: 0,
+            calls_with_output_tokens: 0,
+            calls_with_any_payload_tokens: 0,
+            calls_missing_payload_tokens: total_calls,
+            avg_input_tokens_per_call: 0.0,
+            avg_output_tokens_per_call: 0.0,
+            avg_total_tokens_per_call: 0.0,
+            avg_total_tokens_per_recorded_call: 0.0,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -257,6 +295,7 @@ fn compute_from_traces(in_range: &[DispatchTrace], range: StatsRange) -> Gateway
             top_actors: vec![],
             top_client_platforms: vec![],
             top_source_ips: vec![],
+            payload_token_usage: PayloadTokenUsageStats::empty(0),
             token_usage: TokenUsageStats::default(),
             hourly_distribution: vec![0u32; 24],
         };
@@ -265,16 +304,13 @@ fn compute_from_traces(in_range: &[DispatchTrace], range: StatsRange) -> Gateway
     let successful_calls = in_range.iter().filter(|t| t.ok).count();
     let failed_calls = total_calls - successful_calls;
     let success_rate = successful_calls as f64 / total_calls as f64;
-    let mut total_input_tokens = 0u64;
-    let mut total_output_tokens = 0u64;
-    for t in in_range {
-        total_input_tokens += t.input_tokens().unwrap_or(0) as u64;
-        total_output_tokens += t.output_tokens().unwrap_or(0) as u64;
-    }
-    let total_tokens = total_input_tokens + total_output_tokens;
-    let avg_input_tokens_per_call = total_input_tokens as f64 / total_calls as f64;
-    let avg_output_tokens_per_call = total_output_tokens as f64 / total_calls as f64;
-    let avg_total_tokens_per_call = total_tokens as f64 / total_calls as f64;
+    let payload_token_usage = compute_payload_token_usage(in_range);
+    let total_input_tokens = payload_token_usage.total_input_tokens;
+    let total_output_tokens = payload_token_usage.total_output_tokens;
+    let total_tokens = payload_token_usage.total_tokens;
+    let avg_input_tokens_per_call = payload_token_usage.avg_input_tokens_per_call;
+    let avg_output_tokens_per_call = payload_token_usage.avg_output_tokens_per_call;
+    let avg_total_tokens_per_call = payload_token_usage.avg_total_tokens_per_call;
 
     let mut latencies: Vec<u64> = in_range.iter().map(|t| t.total_ms).collect();
     latencies.sort_unstable();
@@ -361,9 +397,48 @@ fn compute_from_traces(in_range: &[DispatchTrace], range: StatsRange) -> Gateway
         top_actors,
         top_client_platforms,
         top_source_ips,
+        payload_token_usage,
         token_usage,
         hourly_distribution: hourly,
     }
+}
+
+fn compute_payload_token_usage(traces: &[DispatchTrace]) -> PayloadTokenUsageStats {
+    if traces.is_empty() {
+        return PayloadTokenUsageStats::empty(0);
+    }
+
+    let mut stats = PayloadTokenUsageStats::empty(traces.len());
+    stats.calls_missing_payload_tokens = 0;
+    for trace in traces {
+        let input = trace.input_tokens();
+        let output = trace.output_tokens();
+        if let Some(tokens) = input {
+            stats.total_input_tokens += tokens as u64;
+            stats.calls_with_input_tokens += 1;
+        }
+        if let Some(tokens) = output {
+            stats.total_output_tokens += tokens as u64;
+            stats.calls_with_output_tokens += 1;
+        }
+        if input.is_some() || output.is_some() {
+            stats.calls_with_any_payload_tokens += 1;
+        } else {
+            stats.calls_missing_payload_tokens += 1;
+        }
+    }
+    stats.total_tokens = stats
+        .total_input_tokens
+        .saturating_add(stats.total_output_tokens);
+    let total_calls = traces.len() as f64;
+    stats.avg_input_tokens_per_call = stats.total_input_tokens as f64 / total_calls;
+    stats.avg_output_tokens_per_call = stats.total_output_tokens as f64 / total_calls;
+    stats.avg_total_tokens_per_call = stats.total_tokens as f64 / total_calls;
+    if stats.calls_with_any_payload_tokens > 0 {
+        stats.avg_total_tokens_per_recorded_call =
+            stats.total_tokens as f64 / stats.calls_with_any_payload_tokens as f64;
+    }
+    stats
 }
 
 fn actor_label(ctx: &AgentContext) -> Option<String> {
@@ -783,9 +858,19 @@ mod tests {
         assert_eq!(stats.token_usage.total_returned_tokens, 180);
         assert_eq!(stats.token_usage.total_saved_tokens, 120);
         assert_eq!(stats.token_usage.average_savings_pct, 40.0);
+        assert_eq!(stats.payload_token_usage.total_tokens, 0);
+        assert_eq!(stats.payload_token_usage.calls_with_any_payload_tokens, 0);
+        assert_eq!(stats.payload_token_usage.calls_missing_payload_tokens, 3);
         assert_eq!(stats.token_usage.by_response_format[0].name, "toon");
         assert_eq!(stats.token_usage.by_response_format[0].calls, 2);
         assert_eq!(stats.token_usage.by_response_format[0].saved_tokens, 120);
+        assert!(
+            stats
+                .token_usage
+                .by_response_format
+                .iter()
+                .any(|entry| entry.name == "json" && entry.calls == 1 && entry.saved_tokens == 0)
+        );
         assert!(
             stats
                 .token_usage
@@ -839,6 +924,46 @@ mod tests {
         assert!(s.avg_input_tokens_per_call > 0.0);
         assert!(s.avg_output_tokens_per_call > 0.0);
         assert!(s.avg_total_tokens_per_call > 0.0);
+        assert_eq!(s.payload_token_usage.calls_with_input_tokens, 1);
+        assert_eq!(s.payload_token_usage.calls_with_output_tokens, 1);
+        assert_eq!(s.payload_token_usage.calls_with_any_payload_tokens, 2);
+        assert_eq!(s.payload_token_usage.calls_missing_payload_tokens, 0);
+        assert_eq!(
+            s.payload_token_usage.total_tokens,
+            s.payload_token_usage.total_input_tokens + s.payload_token_usage.total_output_tokens
+        );
+    }
+
+    #[test]
+    fn payload_token_usage_distinguishes_missing_payloads_from_response_accounting() {
+        let log = Arc::new(TraceLog::new(10));
+        let mut response_only = make_trace(true, 10, "maya.response_only", "inst-1");
+        response_only.token_accounting = Some(token_telemetry("toon", 100, 40));
+        log.push(response_only);
+
+        let mut with_payloads = make_trace(true, 12, "maya.with_payloads", "inst-1");
+        with_payloads.input = Some(TracePayload::from_value(
+            &json!({"prompt": "create a turntable preview"}),
+            1024,
+        ));
+        with_payloads.output = Some(TracePayload::from_value(
+            &json!({"ok": true, "frames": 24}),
+            1024,
+        ));
+        with_payloads.token_accounting = Some(token_telemetry("json", 50, 50));
+        log.push(with_payloads);
+
+        let stats = StatsAggregator::new(log).compute(StatsRange::All);
+        assert_eq!(stats.total_calls, 2);
+        assert_eq!(stats.payload_token_usage.calls_with_any_payload_tokens, 1);
+        assert_eq!(stats.payload_token_usage.calls_missing_payload_tokens, 1);
+        assert!(stats.payload_token_usage.total_input_tokens > 0);
+        assert!(stats.payload_token_usage.total_output_tokens > 0);
+        assert!(stats.payload_token_usage.avg_total_tokens_per_call > 0.0);
+        assert!(stats.payload_token_usage.avg_total_tokens_per_recorded_call > 0.0);
+        assert_eq!(stats.token_usage.total_original_tokens, 150);
+        assert_eq!(stats.token_usage.total_returned_tokens, 90);
+        assert_eq!(stats.token_usage.total_saved_tokens, 60);
     }
 
     // ── Property-based tests (#846) ────────────────────────────────────────

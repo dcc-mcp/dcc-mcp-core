@@ -41,10 +41,14 @@ fn trace_payload_token_summary(trace: &Value) -> Value {
         (None, None) => None,
     };
     json!({
-        "estimator": TOKEN_ESTIMATOR,
-        "input": input_tokens,
-        "output": output_tokens,
-        "total": total_tokens,
+        "kind": "payload",
+        "token_estimator": TOKEN_ESTIMATOR,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+        "has_input_tokens": input_tokens.is_some(),
+        "has_output_tokens": output_tokens.is_some(),
+        "missing_payload_tokens": input_tokens.is_none() && output_tokens.is_none(),
     })
 }
 
@@ -271,8 +275,14 @@ fn build_summary(request_id: &str, bundle: &Value) -> (Value, String) {
         "tool_family": tool_family,
         "total_ms": total_ms,
         "error": error,
+        "response_token_accounting": token_accounting,
         "token_accounting": token_accounting,
         "payload_tokens": payload_tokens,
+        "token_accounting_contract": {
+            "payload_tokens": "request and response payload preview estimates from captured trace input/output",
+            "response_token_accounting": "response-format accounting for original, returned, and saved response tokens",
+            "missing_payload_tokens": "true means payload estimates were not captured; it does not mean zero-token input/output",
+        },
         "redaction_status": {
             "mode": "public-safe",
             "raw_payloads_excluded": true,
