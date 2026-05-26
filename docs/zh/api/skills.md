@@ -514,6 +514,26 @@ text = json_dumps(payload, ensure_ascii=False)
 config = yaml_loads("enabled: true\n")
 ```
 
+处理文件时，优先使用带 source context 的 helper，让 UTF-8、大小限制和解析
+错误在不同 Skill 中保持一致：
+
+```python
+from dcc_mcp_core.skills_helper import (
+    SkillCodecError,
+    dump_json_file,
+    load_json_file,
+    load_yaml_file,
+)
+
+try:
+    manifest = load_json_file("manifest.json", require_mapping=True, max_bytes=1_000_000)
+    settings = load_yaml_file("settings.yaml", require_mapping=True)
+except SkillCodecError as exc:
+    return skill_error_from_exception(exc)
+
+dump_json_file("out/report.json", manifest, ensure_ascii=False)
+```
+
 现有 `from dcc_mcp_core import json_dumps` 仍可使用，并 re-export 同一组
 canonical functions。新的 Skill authoring helper 应放在 `skills_helper`，
 不要放进含义模糊的 `utils` 命名空间。
@@ -530,6 +550,11 @@ canonical functions。新的 Skill authoring helper 应放在 `skills_helper`，
 
 只有当某个 Python dependency 承载 `skills_helper` 不覆盖的真实领域行为时，
 才应继续引入该 dependency。
+
+暂不暴露 TOML helper。当前 adapter 与 bundled skill 的 TOML 使用主要是由
+core loader 处理的 metadata，并不是 Skill runtime 脚本直接读写；同时为了
+支持 Python 3.7，稳定 TOML read/write API 会引入额外 runtime dependency。
+等 Skill runtime 里出现 dependency-free TOML 需求时再补充。
 
 ---
 

@@ -11,12 +11,26 @@ Rust-backed helper is used.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import importlib
+from pathlib import Path
 from typing import Any
 
 
 class SkillHelperError(Exception):
     """Base exception for skill-helper failures raised by future helpers."""
+
+
+class SkillCodecError(SkillHelperError):
+    """Raised when a skill helper cannot load or dump structured data."""
+
+    def __init__(self, message: str, *, codec: str, source: str | None = None) -> None:
+        self.codec = codec
+        self.source = source
+        detail = f"{codec}: {message}"
+        if source:
+            detail = f"{source}: {detail}"
+        super().__init__(detail)
 
 
 def _core_symbol(name: str) -> Any:
@@ -43,6 +57,126 @@ def yaml_dumps(obj: Any) -> str:
 def yaml_loads(s: str) -> Any:
     """Deserialize YAML text using the Rust-backed codec."""
     return _core_symbol("yaml_loads")(s)
+
+
+def _source_name(path: str | Path) -> str:
+    return str(path)
+
+
+def _require_mapping_root(value: Any, *, codec: str, source: str | None, require_mapping: bool) -> Any:
+    if require_mapping and not isinstance(value, Mapping):
+        raise SkillCodecError(
+            f"expected a mapping root, got {type(value).__name__}",
+            codec=codec,
+            source=source,
+        )
+    return value
+
+
+def load_text(path: str | Path, *, max_bytes: int | None = None) -> str:
+    """Read a UTF-8 text file with an optional byte-size guard."""
+    p = Path(path)
+    try:
+        data = p.read_bytes()
+    except OSError as exc:
+        raise SkillCodecError(str(exc), codec="text", source=_source_name(p)) from exc
+    if max_bytes is not None and len(data) > max_bytes:
+        raise SkillCodecError(
+            f"file is {len(data)} bytes, exceeding max_bytes={max_bytes}",
+            codec="text",
+            source=_source_name(p),
+        )
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise SkillCodecError(str(exc), codec="text", source=_source_name(p)) from exc
+
+
+def dump_text(path: str | Path, text: str, *, create_parents: bool = True) -> Path:
+    """Write UTF-8 text and return the written path."""
+    p = Path(path)
+    if create_parents:
+        p.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        p.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        raise SkillCodecError(str(exc), codec="text", source=_source_name(p)) from exc
+    return p
+
+
+def load_json_text(text: str, *, source: str | None = None, require_mapping: bool = False) -> Any:
+    """Load JSON text and wrap parse/root-shape errors with source context."""
+    try:
+        value = json_loads(text)
+    except Exception as exc:
+        raise SkillCodecError(str(exc), codec="json", source=source) from exc
+    return _require_mapping_root(value, codec="json", source=source, require_mapping=require_mapping)
+
+
+def dump_json_text(obj: Any, *, ensure_ascii: bool = True, indent: int | None = None) -> str:
+    """Dump JSON text with the Rust-backed codec."""
+    try:
+        return json_dumps(obj, ensure_ascii=ensure_ascii, indent=indent)
+    except Exception as exc:
+        raise SkillCodecError(str(exc), codec="json") from exc
+
+
+def load_json_file(path: str | Path, *, require_mapping: bool = False, max_bytes: int | None = None) -> Any:
+    """Load a UTF-8 JSON file with source-aware parse errors."""
+    p = Path(path)
+    return load_json_text(
+        load_text(p, max_bytes=max_bytes),
+        source=_source_name(p),
+        require_mapping=require_mapping,
+    )
+
+
+def dump_json_file(
+    path: str | Path,
+    obj: Any,
+    *,
+    ensure_ascii: bool = True,
+    indent: int | None = 2,
+    create_parents: bool = True,
+) -> Path:
+    """Serialize JSON with the Rust-backed codec and write it as UTF-8."""
+    return dump_text(
+        path,
+        dump_json_text(obj, ensure_ascii=ensure_ascii, indent=indent),
+        create_parents=create_parents,
+    )
+
+
+def load_yaml_text(text: str, *, source: str | None = None, require_mapping: bool = False) -> Any:
+    """Load YAML text and wrap parse/root-shape errors with source context."""
+    try:
+        value = yaml_loads(text)
+    except Exception as exc:
+        raise SkillCodecError(str(exc), codec="yaml", source=source) from exc
+    return _require_mapping_root(value, codec="yaml", source=source, require_mapping=require_mapping)
+
+
+def dump_yaml_text(obj: Any) -> str:
+    """Dump YAML text with the Rust-backed codec."""
+    try:
+        return yaml_dumps(obj)
+    except Exception as exc:
+        raise SkillCodecError(str(exc), codec="yaml") from exc
+
+
+def load_yaml_file(path: str | Path, *, require_mapping: bool = False, max_bytes: int | None = None) -> Any:
+    """Load a UTF-8 YAML file with source-aware parse errors."""
+    p = Path(path)
+    return load_yaml_text(
+        load_text(p, max_bytes=max_bytes),
+        source=_source_name(p),
+        require_mapping=require_mapping,
+    )
+
+
+def dump_yaml_file(path: str | Path, obj: Any, *, create_parents: bool = True) -> Path:
+    """Serialize YAML with the Rust-backed codec and write it as UTF-8."""
+    return dump_text(path, dump_yaml_text(obj), create_parents=create_parents)
 
 
 def skill_error_from_exception(
@@ -111,9 +245,20 @@ def __dir__() -> list[str]:
 
 
 _DIRECT_EXPORTS = [
+    "SkillCodecError",
     "SkillHelperError",
+    "dump_json_file",
+    "dump_json_text",
+    "dump_text",
+    "dump_yaml_file",
+    "dump_yaml_text",
     "json_dumps",
     "json_loads",
+    "load_json_file",
+    "load_json_text",
+    "load_text",
+    "load_yaml_file",
+    "load_yaml_text",
     "skill_error_from_exception",
     "yaml_dumps",
     "yaml_loads",

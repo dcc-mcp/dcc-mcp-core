@@ -6,6 +6,7 @@ import pytest
 
 import dcc_mcp_core
 from dcc_mcp_core import skills_helper
+from dcc_mcp_core.skills_helper import SkillCodecError
 from dcc_mcp_core.skills_helper import ToolValidator
 from dcc_mcp_core.skills_helper import normalize_tool_arguments
 from dcc_mcp_core.skills_helper import skill_error_from_exception
@@ -73,3 +74,45 @@ def test_skill_error_from_exception_uses_standard_skill_error_shape() -> None:
 def test_skills_helper_reports_invalid_json_errors() -> None:
     with pytest.raises(ValueError):
         skills_helper.json_loads("{not json}")
+
+
+def test_skills_helper_json_file_helpers_add_source_context(tmp_path) -> None:
+    path = tmp_path / "nested" / "payload.json"
+
+    written = skills_helper.dump_json_file(path, {"name": "café"}, ensure_ascii=False)
+
+    assert written == path
+    assert skills_helper.load_json_file(path, require_mapping=True) == {"name": "café"}
+    assert "café" in path.read_text(encoding="utf-8")
+
+    bad = tmp_path / "bad.json"
+    bad.write_text("{bad", encoding="utf-8")
+    with pytest.raises(SkillCodecError, match=r"bad\.json: json:"):
+        skills_helper.load_json_file(bad)
+
+
+def test_skills_helper_yaml_file_helpers_support_empty_and_unicode_roots(tmp_path) -> None:
+    path = tmp_path / "payload.yaml"
+
+    skills_helper.dump_yaml_file(path, {"label": "动画", "items": [1, 2]})
+
+    assert skills_helper.load_yaml_file(path, require_mapping=True) == {"label": "动画", "items": [1, 2]}
+    assert skills_helper.load_yaml_text("", source="empty.yaml") is None
+
+
+def test_skills_helper_mapping_root_validation_reports_actual_root_type(tmp_path) -> None:
+    path = tmp_path / "list.yaml"
+    path.write_text("- a\n- b\n", encoding="utf-8")
+
+    with pytest.raises(SkillCodecError, match="expected a mapping root, got list"):
+        skills_helper.load_yaml_file(path, require_mapping=True)
+
+
+def test_skills_helper_text_helpers_are_utf8_and_bounded(tmp_path) -> None:
+    path = tmp_path / "note.txt"
+
+    skills_helper.dump_text(path, "hello 世界")
+
+    assert skills_helper.load_text(path) == "hello 世界"
+    with pytest.raises(SkillCodecError, match="exceeding max_bytes=4"):
+        skills_helper.load_text(path, max_bytes=4)
