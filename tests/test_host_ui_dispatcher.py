@@ -49,6 +49,61 @@ def test_submit_main_runs_on_pump():
     assert out["output"] == {"ok": True}
 
 
+def test_main_exception_uses_formatter_hook():
+    class _FormattedDispatcher(_SyncPumpDispatcher):
+        def format_exception_error(self, exc: BaseException) -> str:
+            return f"formatted:{type(exc).__name__}:{exc}"
+
+    disp = _FormattedDispatcher()
+    out = disp.submit_callable("boom", lambda: (_ for _ in ()).throw(ValueError("bad")), affinity="main")
+    assert out["success"] is False
+    assert out["error"] == "formatted:ValueError:bad"
+
+
+def test_any_thread_exception_uses_formatter_hook():
+    class _FormattedDispatcher(_SyncPumpDispatcher):
+        def format_exception_error(self, exc: BaseException) -> str:
+            return f"any:{type(exc).__name__}:{exc}"
+
+    disp = _FormattedDispatcher()
+    out = disp.submit_callable("boom-any", lambda: (_ for _ in ()).throw(RuntimeError("down")), affinity="any")
+    assert out["success"] is False
+    assert out["error"] == "any:RuntimeError:down"
+
+
+def test_failing_formatter_hook_falls_back_to_exception_string():
+    class _FailingFormatterDispatcher(_SyncPumpDispatcher):
+        def format_exception_error(self, exc: BaseException) -> str:
+            raise RuntimeError("formatter failed")
+
+    disp = _FailingFormatterDispatcher()
+    out = disp.submit_callable("boom-any", lambda: (_ for _ in ()).throw(ValueError("plain")), affinity="any")
+    assert out["success"] is False
+    assert out["error"] == "plain"
+
+
+def test_main_timeout_uses_formatter_hook():
+    class _TimeoutDispatcher(_NoopPumpDispatcher):
+        def format_timeout_error(self, request_id: str, affinity: str, timeout_sec: float) -> str:
+            return f"timeout:{request_id}:{affinity}:{timeout_sec:.3f}"
+
+    disp = _TimeoutDispatcher()
+    out = disp.submit_callable("slow", lambda: "never", affinity="main", timeout_ms=1)
+    assert out["success"] is False
+    assert out["error"] == "timeout:slow:main:0.001"
+
+
+def test_failing_timeout_hook_falls_back_to_default_error():
+    class _FailingTimeoutDispatcher(_NoopPumpDispatcher):
+        def format_timeout_error(self, request_id: str, affinity: str, timeout_sec: float) -> str:
+            raise RuntimeError("timeout formatter failed")
+
+    disp = _FailingTimeoutDispatcher()
+    out = disp.submit_callable("slow", lambda: "never", affinity="main", timeout_ms=1)
+    assert out["success"] is False
+    assert out["error"] == "Timeout (0.0s) waiting for main-thread execution"
+
+
 def test_cancel_queued_job():
     disp = HostUiDispatcherBase.__new__(HostUiDispatcherBase)
     HostUiDispatcherBase.__init__(disp)
@@ -124,6 +179,67 @@ def test_host_ui_job_honours_check_dcc_cancelled():
     outcome = entry.execute()
     assert outcome["success"] is False
     assert outcome["error"] == DispatcherErrorCode.CANCELLED
+
+
+def test_active_count_visible_while_main_job_runs():
+    disp = _NoopPumpDispatcher()
+    seen = []
+
+    disp.submit_async_callable(
+        "visible",
+        lambda: seen.append(disp.active_count()) or "ok",
+        affinity="main",
+    )
+
+    assert disp.queue_size() == 1
+    assert disp.active_count() == 0
+    disp.drain_queue(budget_ms=DEFAULT_UI_JOB_TIMEOUT_MS)
+    assert seen == [1]
+    assert disp.active_count() == 0
+
+
+def test_lifecycle_hooks_observe_main_job_order():
+    class _HookedDispatcher(_SyncPumpDispatcher):
+        def __init__(self) -> None:
+            super().__init__(label="hooked-host")
+            self.events = []
+
+        def on_job_queued(self, job: HostUiJobEntry) -> None:
+            self.events.append(("queued", job.request_id, self.queue_size()))
+
+        def on_job_started(self, job: HostUiJobEntry) -> None:
+            self.events.append(("started", job.request_id, self.active_count()))
+
+        def on_job_finished(self, job: HostUiJobEntry) -> None:
+            self.events.append(("finished", job.request_id, self.active_count()))
+
+    disp = _HookedDispatcher()
+    out = disp.submit_callable("hooked", lambda: "ok", affinity="main")
+
+    assert out["success"] is True
+    assert disp.dispatcher_label == "hooked-host"
+    assert disp.events == [
+        ("queued", "hooked", 1),
+        ("started", "hooked", 1),
+        ("finished", "hooked", 0),
+    ]
+
+
+def test_lifecycle_hook_failures_do_not_interrupt_job():
+    class _FailingHookDispatcher(_SyncPumpDispatcher):
+        def on_job_queued(self, job: HostUiJobEntry) -> None:
+            raise RuntimeError(f"queued:{job.request_id}")
+
+        def on_job_started(self, job: HostUiJobEntry) -> None:
+            raise RuntimeError(f"started:{job.request_id}")
+
+        def on_job_finished(self, job: HostUiJobEntry) -> None:
+            raise RuntimeError(f"finished:{job.request_id}")
+
+    disp = _FailingHookDispatcher()
+    out = disp.submit_callable("hooked", lambda: "ok", affinity="main")
+    assert out["success"] is True
+    assert out["output"] == "ok"
 
 
 def test_async_any_affinity_completes():

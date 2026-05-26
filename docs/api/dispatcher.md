@@ -332,6 +332,31 @@ typically subclass `InProcessCallableDispatcher` and override
 running inline. `cancel`, `shutdown`, and the per-job `JobEntry` bookkeeping
 are inherited as-is.
 
+## HostUiDispatcherBase Extension Hooks
+
+Interactive adapters should prefer `HostUiDispatcherBase` over local queue/job
+implementations. The base owns queueing, sync/async submission, cooperative
+cancellation, timeout waits, shutdown cleanup, active-job tracking, and standard
+dict outcomes. DCC-specific subclasses should implement `poke_host_pump()` and
+override only the small extension hooks they need:
+
+- `format_exception_error(exc)` converts task exceptions into adapter-specific
+  error strings.
+- `format_timeout_error(request_id, affinity, timeout_sec)` converts sync
+  main-thread timeout failures.
+- `on_job_queued(job)`, `on_job_started(job)`, and `on_job_finished(job)` attach
+  logging, metrics, or host diagnostics without owning queue internals.
+- `dispatcher_label` is the human-readable label used in shared logs; pass
+  `label="3dsmax-ui"` or similar to the constructor.
+- `queue_size()` and `active_count()` expose safe read-only visibility for
+  pump controllers, health checks, and adapter tests.
+
+3ds Max migration note: replace local job-entry / queue / shutdown code with a
+`HostUiDispatcherBase` subclass, move .NET timer or rollout tick glue into a
+`HostPumpTimerAdapter`, and keep only Max-specific error formatting or log
+labels in the hooks above. Blender and Houdini follow the same split: base
+dispatcher for job lifecycle, timer adapter for host loop integration.
+
 ## Per-job cancellation
 
 `current_callable_job` is a `contextvars.ContextVar[JobEntry | None]` set by
