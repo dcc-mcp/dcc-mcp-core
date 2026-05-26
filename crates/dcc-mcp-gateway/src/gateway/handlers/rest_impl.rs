@@ -459,7 +459,7 @@ pub async fn handle_v1_search(
     Json(body): Json<Value>,
 ) -> Response {
     let trace_context = TraceContext::from_headers(&headers);
-    let agent_context = AgentContext::from_request_parts(
+    let agent_context = AgentContext::from_request_parts_with_server_network(
         &headers,
         Some(&body),
         body.get("meta").or_else(|| body.get("_meta")),
@@ -571,7 +571,7 @@ async fn skill_lifecycle_response(
     body: Value,
 ) -> Response {
     let trace_context = TraceContext::from_headers(headers);
-    let agent_context = AgentContext::from_request_parts(
+    let agent_context = AgentContext::from_request_parts_with_server_network(
         headers,
         Some(&body),
         body.get("meta").or_else(|| body.get("_meta")),
@@ -695,7 +695,7 @@ pub async fn handle_v1_describe(
     Json(body): Json<Value>,
 ) -> Response {
     let trace_context = TraceContext::from_headers(&headers);
-    let agent_context = AgentContext::from_request_parts(
+    let agent_context = AgentContext::from_request_parts_with_server_network(
         &headers,
         Some(&body),
         body.get("meta").or_else(|| body.get("_meta")),
@@ -734,7 +734,7 @@ pub async fn handle_v1_describe_path(
     Path(slug): Path<String>,
 ) -> Response {
     let trace_context = TraceContext::from_headers(&headers);
-    let agent_context = AgentContext::from_request_parts(&headers, None, None);
+    let agent_context = AgentContext::from_request_parts_with_server_network(&headers, None, None);
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
     let body = json!({});
     let metadata = RestResponseMetadata::from_trace_context(&trace_context)
@@ -872,7 +872,7 @@ pub async fn handle_v1_dcc_instance_describe(
 ) -> Response {
     let body = json!({});
     let trace_context = TraceContext::from_headers(&headers);
-    let agent_context = AgentContext::from_request_parts(&headers, None, None);
+    let agent_context = AgentContext::from_request_parts_with_server_network(&headers, None, None);
     let backend_tool = q.backend_tool.trim();
     if backend_tool.is_empty() {
         let metadata = RestResponseMetadata::from_headers(&headers)

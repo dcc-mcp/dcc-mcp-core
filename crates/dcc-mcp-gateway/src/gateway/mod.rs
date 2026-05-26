@@ -34,6 +34,7 @@
 pub(crate) mod agent_telemetry;
 pub mod aggregator;
 pub mod backend_client;
+pub(crate) mod caller_attribution;
 pub mod capability;
 #[allow(clippy::result_large_err)]
 // ServiceError carries disambiguation candidates (#1076 backend attachment)

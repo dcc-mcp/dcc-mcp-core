@@ -40,7 +40,7 @@ pub(super) async fn call_service_with_admin_trace(
     let mut ctx = CallContext::new(method, trace_context.request_id.clone(), arguments.clone())
         .with_tool_slug(slug)
         .with_transport("rest")
-        .with_agent_context(AgentContext::from_request_parts(
+        .with_agent_context(AgentContext::from_request_parts_with_server_network(
             headers,
             Some(request_body),
             meta.as_ref(),
@@ -121,6 +121,7 @@ pub(super) async fn call_service_with_admin_trace(
         effective_arguments.clone(),
         meta.clone(),
         Some(&ctx.trace_context),
+        ctx.agent_context.as_ref(),
     )
     .await;
     if matches!(&result, Err(err) if err.kind == "unknown-slug") {
@@ -131,6 +132,7 @@ pub(super) async fn call_service_with_admin_trace(
             effective_arguments,
             meta,
             Some(&ctx.trace_context),
+            ctx.agent_context.as_ref(),
         )
         .await;
     }
@@ -254,7 +256,7 @@ pub(super) async fn call_batch_with_admin_trace(
     )
     .with_tool_slug("call_batch")
     .with_transport("rest")
-    .with_agent_context(AgentContext::from_request_parts(
+    .with_agent_context(AgentContext::from_request_parts_with_server_network(
         headers,
         Some(request_body),
         request_body.get("meta"),
@@ -315,8 +317,9 @@ pub(super) async fn call_batch_with_admin_trace(
     let result = crate::gateway::tools::gateway_call_batch_inner(
         gs,
         &ctx.args,
-        None,
+        request_body.get("meta"),
         Some(&ctx.trace_context),
+        ctx.agent_context.as_ref(),
     )
     .await;
     let response_ns = now_ns();

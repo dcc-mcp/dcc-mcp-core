@@ -272,11 +272,12 @@ pub async fn tool_call(
     args: &Value,
     meta: Option<&Value>,
     trace_context: Option<&TraceContext>,
+    agent_context: Option<&AgentContext>,
 ) -> (String, bool) {
     if args.get("calls").and_then(Value::as_array).is_some() {
-        tool_call_tools(gs, args, meta, trace_context).await
+        tool_call_tools(gs, args, meta, trace_context, agent_context).await
     } else {
-        tool_call_tool(gs, args, meta, trace_context).await
+        tool_call_tool(gs, args, meta, trace_context, agent_context).await
     }
 }
 
@@ -509,6 +510,7 @@ pub async fn tool_call_tool(
     args: &Value,
     meta: Option<&Value>,
     trace_context: Option<&TraceContext>,
+    agent_context: Option<&AgentContext>,
 ) -> (String, bool) {
     let Some(slug) = args.get("tool_slug").and_then(|v| v.as_str()) else {
         return ("missing required argument: tool_slug".to_string(), true);
@@ -531,6 +533,7 @@ pub async fn tool_call_tool(
         arguments.clone(),
         forwarded_meta.clone(),
         trace_context,
+        agent_context,
     )
     .await
     {
@@ -564,6 +567,7 @@ pub async fn tool_call_tool(
                 arguments,
                 forwarded_meta,
                 trace_context,
+                agent_context,
             )
             .await
             {
@@ -645,6 +649,7 @@ pub async fn gateway_call_batch_inner(
     args: &Value,
     mcp_meta: Option<&Value>,
     trace_context: Option<&TraceContext>,
+    agent_context: Option<&AgentContext>,
 ) -> Result<Value, String> {
     let calls = args
         .get("calls")
@@ -693,6 +698,9 @@ pub async fn gateway_call_batch_inner(
             .get("meta")
             .and_then(search_id_from_meta)
             .or_else(|| mcp_meta.and_then(search_id_from_meta));
+        let child_trace_context =
+            trace_context.map(|ctx| ctx.child_request(format!("{}:batch-{idx}", ctx.request_id)));
+        let child_trace_context = child_trace_context.as_ref().or(trace_context);
 
         let single_outcome = async {
             match crate::gateway::capability_service::call_service(
@@ -700,7 +708,8 @@ pub async fn gateway_call_batch_inner(
                 slug,
                 arguments.clone(),
                 forwarded_meta.clone(),
-                trace_context,
+                child_trace_context,
+                agent_context,
             )
             .await
             {
@@ -716,7 +725,8 @@ pub async fn gateway_call_batch_inner(
                         slug,
                         arguments,
                         forwarded_meta,
-                        trace_context,
+                        child_trace_context,
+                        agent_context,
                     )
                     .await
                 }
@@ -789,9 +799,9 @@ pub async fn tool_call_tools(
     args: &Value,
     meta: Option<&Value>,
     trace_context: Option<&TraceContext>,
+    agent_context: Option<&AgentContext>,
 ) -> (String, bool) {
-    let _ = meta;
-    match gateway_call_batch_inner(gs, args, meta, trace_context).await {
+    match gateway_call_batch_inner(gs, args, meta, trace_context, agent_context).await {
         Ok(value) => {
             let is_error = !value
                 .get("success")

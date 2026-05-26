@@ -15,11 +15,12 @@ use std::sync::LazyLock;
 
 use axum::body::Body;
 use axum::extract::ConnectInfo;
-use axum::http::{HeaderMap, Request, StatusCode};
+use axum::http::{Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use parking_lot::Mutex;
 
+use super::caller_attribution::effective_client_ip;
 use super::resilience::gateway_limits;
 
 struct MinuteWindow {
@@ -44,32 +45,6 @@ fn current_minute_epoch() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() / 60)
         .unwrap_or(0)
-}
-
-/// Derive the client IP for rate limiting: either the TCP peer or a field from
-/// `X-Forwarded-For` when `xff_trusted_depth > 0`.
-fn effective_client_ip(connect: &SocketAddr, headers: &HeaderMap) -> IpAddr {
-    let depth = gateway_limits().xff_trusted_depth as usize;
-    if depth == 0 {
-        return connect.ip();
-    }
-    let Some(raw) = headers.get("X-Forwarded-For").and_then(|v| v.to_str().ok()) else {
-        return connect.ip();
-    };
-    let segments: Vec<&str> = raw
-        .split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .collect();
-    if segments.len() <= depth {
-        return connect.ip();
-    }
-    let idx = segments.len() - 1 - depth;
-    if let Ok(ip) = segments[idx].parse::<IpAddr>() {
-        ip
-    } else {
-        connect.ip()
-    }
 }
 
 fn allow_request(client_ip: IpAddr) -> bool {
