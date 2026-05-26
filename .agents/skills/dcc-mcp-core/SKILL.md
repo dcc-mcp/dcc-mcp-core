@@ -22,6 +22,7 @@ The foundational library enabling AI assistants to interact with Digital Content
 | Define MCP tool | `ToolDefinition` + `ToolAnnotations` | raw JSON |
 | Serve MCP over HTTP | `McpHttpServer(registry, McpHttpConfig(port=8765))` | raw HTTP server |
 | Build DCC adapter | `DccServerOptions.from_env(...)` + `DccServerBase(options=opts)` | legacy 17-parameter constructor |
+| Plan a new DCC adapter | Read `AGENTS.md` + `llms.txt` on `main`, then `docs/api/dispatcher.md` / focused API docs | copying sibling adapter internals as the contract |
 | Main-thread DCC calls | `HostExecutionBridge` / dispatcher passed via `DccServerOptions` | private `_core` imports |
 | Enable skill hot-reload | `DccSkillHotReloader(dcc_name, server)` | custom file watchers |
 | Gateway failover | `DccGatewayElection(dcc_name, server)` | manual election logic |
@@ -373,3 +374,4 @@ The library currently implements **MCP 2025-03-26** (Streamable HTTP). The ecosy
 9. `DccServerBase` provides all skill/lifecycle/gateway/hot-reload methods — don't reimplement
 10. MCP 2025-06-18 removes JSON-RPC batching — do not implement batch calls manually
 11. `MCP-Protocol-Version` header is mandatory in 2025-06-18 — handled by `McpHttpServer` internally
+12. For new DCC adapters, read the current core `llms.txt` first and open a core issue before vendoring Qt bridge, sidecar dispatcher, UI queue, or gateway logic

@@ -1405,6 +1405,9 @@ The `skills/dcc-mcp-skill-developer/` skill is an instruction-only companion for
 
 It points agents to focused references for:
 
+- Core `main` contract links, including `llms.txt`, dispatcher APIs, gateway
+  APIs, and adapter runtime contracts for new hosts such as Nuke, ZBrush, and
+  OpenUSD.
 - Server and adapter composition patterns.
 - `SKILL.md`, `tools.yaml`, and script authoring checklists.
 - Host differences across Maya, Blender, 3ds Max, Houdini, bridge-based hosts, and custom studio tools.

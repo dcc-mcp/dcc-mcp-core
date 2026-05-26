@@ -2,8 +2,10 @@
 name: dcc-mcp-skill-developer
 description: >-
   Compatibility skill - legacy guide for designing, implementing, testing, and
-  reviewing DCC-MCP skill packages. Prefer dcc-mcp-skills-creator for new skill
-  package work. Not for full adapter server/runtime work - use dcc-mcp-creator.
+  reviewing DCC-MCP skill packages for Maya, Blender, 3ds Max, Houdini, Nuke,
+  ZBrush, OpenUSD, and future hosts. Prefer dcc-mcp-skills-creator for new
+  skill package work. Not for full adapter server/runtime work - use
+  dcc-mcp-creator.
 license: MIT
 compatibility: "dcc-mcp-core 0.17+, Python 3.7+"
 allowed-tools: Bash Read Write Edit
@@ -14,8 +16,9 @@ metadata:
     version: "1.0.0"
     search-hint: >-
       legacy dcc-mcp skill developer, skill package authoring, tools.yaml,
-      SKILL.md, affinity, execution, stage taxonomy
-    tags: "skill-authoring, compatibility, maya, blender, 3dsmax, future-dcc"
+      SKILL.md, Nuke, ZBrush, OpenUSD, llms.txt, affinity, execution,
+      dispatcher, qtserver, sidecar, stage taxonomy
+    tags: "skill-authoring, compatibility, maya, blender, 3dsmax, nuke, zbrush, openusd, future-dcc"
     skill-reference-docs:
       - "references/*.md"
 ---
@@ -36,6 +39,9 @@ into a faster authoring loop.
    to `dcc-mcp-creator`; continue here only for domain skills, infrastructure
    skills, or porting an existing skill to another DCC.
 2. Read only the reference you need:
+   - [CORE_CONTRACTS.md](references/CORE_CONTRACTS.md) before creating or
+     modernizing a DCC adapter, especially for Nuke, ZBrush, OpenUSD, or any
+     host without an established first-party pattern.
    - [ADAPTER_PATTERNS.md](references/ADAPTER_PATTERNS.md) for server and
      composition-root patterns.
    - [SKILL_AUTHORING_CHECKLIST.md](references/SKILL_AUTHORING_CHECKLIST.md)
@@ -44,10 +50,17 @@ into a faster authoring loop.
      and future DCC differences.
    - [TESTING_MATRIX.md](references/TESTING_MATRIX.md) for unit, lint, gateway,
      E2E, and VRS coverage.
-3. Prefer existing adapter helpers before adding new abstractions.
-4. Keep DCC identity parameterized: `dcc_name`, `dcc_type`, environment prefixes,
+3. For new adapter repositories, first read the current core contract from
+   `https://github.com/loonghao/dcc-mcp-core/blob/main/llms.txt`, then fall
+   back to `llms-full.txt` or the focused `docs/api/*.md` page when the compact
+   index is not enough. Treat sibling adapter code as examples, not the source
+   of truth.
+4. Prefer existing core or adapter helpers before adding new abstractions. If a
+   needed seam is missing in core, open or update a core issue before copying a
+   Maya/3ds Max/Houdini implementation into a new adapter.
+5. Keep DCC identity parameterized: `dcc_name`, `dcc_type`, environment prefixes,
    skill names, and search examples.
-5. Make every tool declaration explicit: `source_file`, `execution`, `affinity`,
+6. Make every tool declaration explicit: `source_file`, `execution`, `affinity`,
    safety annotations, and `timeout_hint_secs` for async tools.
    Published MCP tool names must be client-safe
    `^[A-Za-z0-9_-]{1,64}$`; use underscores instead of dotted tool names.
@@ -55,7 +68,7 @@ into a faster authoring loop.
    `search_aliases` in `tools.yaml` for domain synonyms, localized phrases, or
    common user wording. Do not stuff long prose or schema dumps into tags or
    summaries just to improve search recall.
-6. Treat `metadata.dcc-mcp.depends` as soft during discovery. Composition
+7. Treat `metadata.dcc-mcp.depends` as soft during discovery. Composition
    skills may remain searchable with `status: pending_deps` while host-specific
    dependencies are injected later through `DCC_MCP_*_SKILL_PATHS`. `load_skill`
    auto-loads discovered dependencies first and returns a clear missing-dep
@@ -92,7 +105,7 @@ into a faster authoring loop.
    for bounded local session files. Use `FileRef` and `artefact_put_file` /
    `artefact_get_bytes` instead when a file must cross tool or MCP resource
    boundaries.
-7. When changing adapter server wiring or caller examples, keep Admin telemetry
+8. When changing adapter server wiring or caller examples, keep Admin telemetry
    useful: pass optional `agent_context` / `caller_context` summaries through
    MCP `_meta`, REST `meta`, `x-dcc-mcp-agent-*`, `x-dcc-mcp-actor-*`, or
    `x-dcc-mcp-client-*` headers when the caller is an agent. Include only
@@ -250,7 +263,7 @@ into a faster authoring loop.
    shapes. Keep group metadata concise (`name`, short `description`, `tools`,
    `default-active`) so agents can decide whether to call `load_skill` directly
    or explicitly activate a heavier `tool_group` after the lazy default load.
-8. For adapter install, uninstall, or upgrade flows, use
+9. For adapter install, uninstall, or upgrade flows, use
    `dcc_mcp_core.install_lifecycle` before importing Rust-backed public API:
    query/stop registered sidecars, inspect install roots, classify locked
    native artifacts, and call `safe_remove_tree` / `safe_replace_tree` from a
@@ -262,7 +275,7 @@ into a faster authoring loop.
    and stop only that instance.
    Stop helpers must respect FileRegistry sentinel locks before trusting PID
    liveness so installer code never terminates a reused PID from a stale row.
-9. For embedded main-thread tools, wire `HostExecutionBridge` with the same
+10. For embedded main-thread tools, wire `HostExecutionBridge` with the same
    host `QueueDispatcher` / `BlockingDispatcher` that the DCC timer or
    headless driver ticks. `DccServerBase` will then register both
    `set_in_process_executor` and HTTP `attach_dispatcher` before server start,
@@ -274,10 +287,10 @@ into a faster authoring loop.
    `ReadinessProbe.main_thread_executor` only after that bridge path is
    actually usable; smoke tests may require those bits via
    `dcc-mcp-cli wait-ready --require host_execution_bridge,main_thread_executor`.
-10. Skill script entry points may use either modern `main(**params)` or legacy
+11. Skill script entry points may use either modern `main(**params)` or legacy
     `main(params)` signatures; prefer `main(**params)` for new scripts and keep
     dict-style wrappers only for compatibility during adapter migrations.
-11. When an adapter must adjust discovered skill metadata before registration,
+12. When an adapter must adjust discovered skill metadata before registration,
     install `server.set_skill_load_transform(fn)` before exposing the server to
     agents. The transform receives a mutable `SkillMetadata` and applies to
     direct Python `load_skill`, MCP `tools/call load_skill`, REST
@@ -288,7 +301,7 @@ into a faster authoring loop.
     one-off object loads. Do not parse or rewrite `SKILL.md` / `tools.yaml` at
     adapter runtime. Keep `get_skill_info()` for serialized inspection only.
     Do not use this hook to clear `enforce_thread_affinity` for batch hosts.
-12. In mayapy/hython/batch hosts where no GUI dispatcher exists but the
+13. In mayapy/hython/batch hosts where no GUI dispatcher exists but the
     adapter has verified the in-process lane is safe for DCC API calls, pass
     `standalone_main_thread=True` to `DccServerOptions.from_env(...)` instead
     of mutating loaded skill metadata. This core-owned opt-in registers the
@@ -296,7 +309,7 @@ into a faster authoring loop.
     REST `/v1/call` satisfy `thread_affinity: main` tools. Do not use it for
     GUI sessions; wire `HostExecutionBridge(dispatcher=...)`,
     `QueueDispatcher`, or `BlockingDispatcher` there.
-13. For ad-hoc script execution, prefer file-backed boundaries. Use
+14. For ad-hoc script execution, prefer file-backed boundaries. Use
     `materialize_script(...)` (Python) or
     `ScriptMaterializationStore` (Rust) to create host-local scripts under the
     DCC/session-scoped root before calling `execute_python(file_path=...)` or
@@ -314,9 +327,9 @@ into a faster authoring loop.
     file before a later execution call. New script execution tool schemas must
     include `file_path` or `script_path` when they accept inline `code`;
     validation warns on unbounded inline-only code schemas.
-14. Add tests at the lowest executable layer, then one discovery/load/call or
+15. Add tests at the lowest executable layer, then one discovery/load/call or
     gateway REST path when behavior crosses MCP or REST boundaries.
-15. For application UI automation, use the generic `app_ui__*` contract rather
+16. For application UI automation, use the generic `app_ui__*` contract rather
     than DCC-specific names: snapshot -> find -> act -> wait_for -> verify.
     The Rust contract types live in `dcc-mcp-app-ui`; do not add Qt, OS
     accessibility, webview, PyO3, or HTTP runtime dependencies there.
@@ -352,7 +365,7 @@ into a faster authoring loop.
     app_ui roles, keep raw coordinate and keyboard shortcut fallbacks disabled
     by default, and skip live UIA tests cleanly when Windows accessibility APIs
     are unavailable.
-16. For headless USD/OpenUSD-style adapters, expose filesystem-backed project
+17. For headless USD/OpenUSD-style adapters, expose filesystem-backed project
     state with `register_usd_project_resources(...)` instead of inventing
     adapter-local URI shapes. Keep the canonical `openusd://stage`,
     `openusd://layers`, `openusd://assets`, `openusd://materials`,
@@ -369,6 +382,16 @@ into a faster authoring loop.
   progressive loading helpers.
 - Treat current 3ds Max skills as migration targets: preserve the pymxs domain
   logic, but modernize into nested `SKILL.md`, `tools.yaml`, and scripts.
+- Use Nuke/Houdini/3ds Max/Maya as Qt-bearing hosts: prefer the core Qt
+  dispatcher and `HostUiDispatcherBase` seams as they become public instead of
+  vendoring another local TCP bridge.
+- Use ZBrush/Photoshop/Unity-style bridge hosts as transport integrations:
+  keep the host protocol behind a typed bridge/client, then expose normal
+  DCC-MCP skills and resources above it.
+- Use OpenUSD as a file/scene-library-first adapter unless the target workflow
+  is driving an interactive USD viewer. Most USD inspection, validation, and
+  conversion tools should be `affinity: any` and use resources for scene
+  context.
 - For future hosts, start from Blender's lean scaffold, then add Maya-style
   lifecycle hardening only when the host actually needs it.
 
@@ -381,6 +404,8 @@ into a faster authoring loop.
 - No dotted MCP tool names in `tools.yaml`, examples, or caller docs.
 - No new generic helper crate or module when core or an adapter-local owner
   already exists.
+- No vendored Qt dispatcher, sidecar action dispatcher, or UI queue protocol in
+  a new adapter when the same seam belongs in core.
 - No installer or uninstaller import path that loads `dcc_mcp_core._core`
   before removing or replacing a bundled adapter payload.
 - No raw `execute_python` or `execute_mel` as the primary UX when a typed tool
