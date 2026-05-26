@@ -278,6 +278,13 @@ into a faster authoring loop.
    `ReadinessProbe.main_thread_executor` only after that bridge path is
    actually usable; smoke tests may require those bits via
    `dcc-mcp-cli wait-ready --require host_execution_bridge,main_thread_executor`.
+   Interactive UI adapters should subclass `HostUiDispatcherBase` instead of
+   carrying local job-entry, queue, cancellation, timeout, and shutdown code.
+   Implement `poke_host_pump()` and override only extension hooks such as
+   `format_exception_error`, `format_timeout_error`, `on_job_queued`,
+   `on_job_started`, `on_job_finished`, or constructor `label=...` for
+   host-specific diagnostics. Use `queue_size()` and `active_count()` for
+   health checks and pump stats instead of reaching into private queues.
    Use `HostPumpController` when the adapter needs reusable timer lifecycle
    around a `HostUiDispatcherBase` / `drain_queue(budget_ms)` pump. Core owns
    install/uninstall idempotency, `schedule_soon`, active/idle backoff,
