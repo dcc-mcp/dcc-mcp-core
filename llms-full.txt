@@ -601,9 +601,13 @@ for s in skills:
 
 ```python
 from dcc_mcp_core.skills_helper import (
+    SkillCodecError,
     check_cancelled,
+    dump_json_file,
     json_dumps,
     json_loads,
+    load_json_file,
+    load_yaml_file,
     normalize_tool_arguments,
     skill_success,
     yaml_dumps,
@@ -615,7 +619,10 @@ Canonical skill-authoring namespace for Rust-backed, dependency-light helpers.
 Use it for JSON/YAML codecs, standard result helpers, schema validation,
 MCP/REST argument normalization, and cancellation checks. Legacy imports such
 as `from dcc_mcp_core import json_dumps` remain compatibility re-exports of
-the same functions.
+the same functions. Use `load_json_file` / `load_yaml_file` when a skill needs
+explicit UTF-8 handling, byte limits, source-aware errors, or mapping-root
+validation. TOML runtime helpers are intentionally deferred until a real skill
+script use case needs dependency-free TOML read/write support on Python 3.7.
 
 ### register_metadata_driven_tools
 

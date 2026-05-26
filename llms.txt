@@ -115,8 +115,8 @@
 | Skill hot-reload without server restart | `DccSkillHotReloader(dcc_name, server)` — monitors skill directories and auto-reloads on change |
 | Singleton DCC server factory | `create_dcc_server(instance_holder, lock, server_class, ...)` / `make_start_stop(ServerClass)` — zero-boilerplate singleton server pattern |
 | Skill validation | `validate_skill(skill_dir)` → `SkillValidationReport` with `SkillValidationIssue` list |
-| Rust-backed skill helpers (issue #1255) | `from dcc_mcp_core.skills_helper import json_dumps, json_loads, yaml_dumps, yaml_loads, skill_success, check_cancelled` — canonical skill-authoring namespace for dependency-light helper APIs; legacy top-level codec imports still work |
-| Rust-powered JSON/YAML | `json_dumps(obj)` / `json_loads(s)` / `yaml_dumps(obj)` / `yaml_loads(s)` — zero-dependency serialization, canonically exported from `dcc_mcp_core.skills_helper` |
+| Rust-backed skill helpers (issues #1255, #1257) | `from dcc_mcp_core.skills_helper import json_dumps, json_loads, yaml_dumps, yaml_loads, load_json_file, dump_json_file, SkillCodecError, skill_success, check_cancelled` — canonical skill-authoring namespace for dependency-light helper APIs; legacy top-level codec imports still work |
+| Rust-powered JSON/YAML | `json_dumps(obj)` / `json_loads(s)` / `yaml_dumps(obj)` / `yaml_loads(s)` plus `load_json_file(...)` / `load_yaml_file(...)` — zero-dependency serialization, canonically exported from `dcc_mcp_core.skills_helper`; TOML runtime helpers are intentionally deferred until a real skill runtime use case appears |
 | Canonical MCP/REST wire normalization | Rust: `dcc-mcp-wire::{normalize_arguments, normalize_meta, decode_call_tool, decode_rest_call}`; Python host wrappers: `from dcc_mcp_core.host import normalize_tool_arguments, normalize_tool_meta`. Missing / `null` / empty-string arguments become `{}`; objects pass through; object-shaped JSON strings are accepted; arrays/numbers/booleans/non-object strings are rejected. |
 | Discover team-level skills | `scan_and_load_team()` / `scan_and_load_team_lenient()` |
 | Discover user-level skills | `scan_and_load_user()` / `scan_and_load_user_lenient()` |
@@ -702,6 +702,10 @@ tools:
 - `json_loads(s) -> obj` — deserialize from JSON string (zero-dependency, Rust-powered)
 - `yaml_dumps(obj) -> str` — serialize to YAML string (zero-dependency, Rust-powered)
 - `yaml_loads(s) -> obj` — deserialize from YAML string (zero-dependency, Rust-powered)
+- `load_text(path, max_bytes=None) -> str` / `dump_text(path, text) -> Path` — explicit UTF-8 file helpers
+- `load_json_file(path, require_mapping=False, max_bytes=None) -> obj` / `dump_json_file(path, obj, ensure_ascii=True, indent=2) -> Path`
+- `load_yaml_file(path, require_mapping=False, max_bytes=None) -> obj` / `dump_yaml_file(path, obj) -> Path`
+- `SkillCodecError` includes codec and source context for actionable skill errors
 - Existing `from dcc_mcp_core import json_dumps` style imports are compatibility re-exports of `dcc_mcp_core.skills_helper`.
 
 ### Skill Validation (`dcc_mcp_core`)

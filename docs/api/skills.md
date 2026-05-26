@@ -583,6 +583,26 @@ text = json_dumps(payload, ensure_ascii=False)
 config = yaml_loads("enabled: true\n")
 ```
 
+For files, prefer the source-aware helpers so UTF-8 handling, byte limits, and
+parse errors are consistent across skills:
+
+```python
+from dcc_mcp_core.skills_helper import (
+    SkillCodecError,
+    dump_json_file,
+    load_json_file,
+    load_yaml_file,
+)
+
+try:
+    manifest = load_json_file("manifest.json", require_mapping=True, max_bytes=1_000_000)
+    settings = load_yaml_file("settings.yaml", require_mapping=True)
+except SkillCodecError as exc:
+    return skill_error_from_exception(exc)
+
+dump_json_file("out/report.json", manifest, ensure_ascii=False)
+```
+
 Existing imports such as `from dcc_mcp_core import json_dumps` continue to work
 and re-export the same canonical functions. New helpers for skill authoring
 belong under `skills_helper`, not a vague `utils` namespace.
@@ -602,6 +622,12 @@ Use `skills_helper` when:
 
 Use a domain-specific Python dependency only when the dependency owns real
 domain behavior that `skills_helper` does not cover.
+
+TOML helpers are intentionally not exposed yet. The current adapter and bundled
+skill use cases read TOML as metadata handled by core loaders rather than skill
+script runtime code, and Python 3.7 support would require adding another
+runtime dependency for a stable read/write API. Revisit TOML helpers when a
+skill script needs dependency-free TOML at runtime.
 
 ---
 
