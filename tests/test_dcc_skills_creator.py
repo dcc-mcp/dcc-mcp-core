@@ -19,6 +19,11 @@ from dcc_mcp_core._server.inprocess_executor import run_skill_script
 SKILL_DIR = REPO_ROOT / "skills" / "dcc-skills-creator"
 CREATE_SKILL_SCRIPT = SKILL_DIR / "scripts" / "create_skill.py"
 SKILL_TEMPLATE_SCRIPT = SKILL_DIR / "scripts" / "skill_template.py"
+VALIDATE_SKILL_SCRIPT = SKILL_DIR / "scripts" / "validate_skill_dir.py"
+CREATOR_SKILL_DIRS = [
+    REPO_ROOT / "skills" / "dcc-skills-creator",
+    REPO_ROOT / "skills" / "dcc-mcp-skills-creator",
+]
 
 
 def _load_module(path: Path, name: str) -> ModuleType:
@@ -109,6 +114,52 @@ def test_create_skill_example_tool_runs_with_inprocess_executor(tmp_path: Path) 
     assert payload["context"]["extra_params"] == {"unused_param": "accepted"}
 
 
+@pytest.mark.parametrize("skill_dir", CREATOR_SKILL_DIRS)
+def test_create_skill_generated_script_prefers_skills_helper(tmp_path: Path, skill_dir: Path) -> None:
+    module = _load_module(skill_dir / "scripts" / "create_skill.py", f"{skill_dir.name.replace('-', '_')}_create")
+    validate_module = _load_module(
+        skill_dir / "scripts" / "validate_skill_dir.py",
+        f"{skill_dir.name.replace('-', '_')}_validate",
+    )
+    generated = Path(module.create_skill(f"{skill_dir.name}-smoke", str(tmp_path)))
+    script = generated / "scripts" / "example_tool.py"
+    source = script.read_text(encoding="utf-8")
+
+    assert "from dcc_mcp_core.skills_helper import" in source
+    assert "from dcc_mcp_core.skill import" not in source
+
+    report = validate_module.validate_skill_dir(str(generated))
+    assert report["is_clean"] is True
+    assert report["has_warnings"] is False
+    assert not report["issues"]
+
+
+def test_validate_skill_dir_warns_about_avoidable_helper_deps(tmp_path: Path) -> None:
+    create_module = _load_module(CREATE_SKILL_SCRIPT, "dcc_skills_creator_create_skill_deps")
+    validate_module = _load_module(VALIDATE_SKILL_SCRIPT, "dcc_skills_creator_validate_skill_deps")
+    generated = Path(create_module.create_skill("python-dependency-warning", str(tmp_path)))
+    (generated / "scripts" / "example_tool.py").write_text(
+        "import file_utils\n"
+        "import requests\n"
+        "import yaml\n"
+        "from dcc_mcp_core.skills_helper import skill_success\n\n"
+        "def main():\n"
+        "    return skill_success('ok')\n",
+        encoding="utf-8",
+    )
+
+    report = validate_module.validate_skill_dir(str(generated))
+    messages = "\n".join(issue["message"] for issue in report["issues"])
+
+    assert report["has_errors"] is False
+    assert report["has_warnings"] is True
+    assert report["is_clean"] is False
+    assert "skill-helper-adoption" in {issue["category"] for issue in report["issues"]}
+    assert "requests" in messages
+    assert "yaml" in messages
+    assert "file_utils" in messages
+
+
 def test_create_skill_rejects_non_kebab_case_name(tmp_path: Path) -> None:
     module = _load_module(CREATE_SKILL_SCRIPT, "dcc_skills_creator_create_skill_invalid")
 
@@ -156,3 +207,4 @@ def test_skill_template_uses_valid_current_frontmatter(tmp_path: Path) -> None:
     report = dcc_mcp_core.validate_skill(str(skill_dir))
     assert report.is_clean, [(issue.severity, issue.message) for issue in report.issues]
     assert "client-safe" in module.skill_template()
+    assert "dcc_mcp_core.skills_helper" in module.skill_template()

@@ -103,6 +103,63 @@ runtimes report `degraded`, while required missing runtimes report `missing`.
 describe surfaces expose the resolved state so agents can decide whether to
 load/call a skill before invoking any adapter code.
 
+### Preferred Runtime Helpers
+
+New skill scripts should import dependency-light helper APIs from
+`dcc_mcp_core.skills_helper` before adding small Python dependencies or local
+utility modules:
+
+```python
+from dcc_mcp_core.skills_helper import (
+    SkillFileError,
+    SkillHttpError,
+    ToolValidator,
+    atomic_write_text,
+    http_get_json,
+    json_dumps,
+    json_loads,
+    load_yaml_file,
+    normalize_tool_arguments,
+    skill_entry,
+    skill_error_from_exception,
+    skill_success,
+    yaml_dumps,
+    yaml_loads,
+)
+```
+
+Use `json_dumps` / `json_loads` and `yaml_dumps` / `yaml_loads` instead of
+adding PyYAML or local JSON/YAML wrappers for ordinary skill payloads. Use
+`http_request`, `http_get_json`, and `http_post_json` for bounded synchronous
+JSON REST calls; always set `timeout_ms` and `max_bytes`, and redact headers
+before surfacing them in errors or audit metadata. Use file/path helpers such
+as `ensure_within_root`, `atomic_write_text`, `load_json_file`,
+`load_yaml_file`, and `file_digest` for local session files. Use
+`ToolValidator`, `normalize_tool_arguments`, result helpers, and cancellation
+checks from the same namespace so scripts do not mix helper import paths.
+
+Keep a domain-specific dependency only when it owns behavior that
+`skills_helper` intentionally does not cover: sessions, streaming, multipart
+upload, custom retry/auth flows, SDK-specific API models, non-JSON protocols,
+or rich domain file formats. Existing top-level imports such as
+`from dcc_mcp_core import json_dumps` remain supported for compatibility, but
+new docs, generators, and templates should show `dcc_mcp_core.skills_helper`
+as the canonical path.
+
+When migrating old skills, replace one concern at a time and keep the old test
+fixtures running:
+
+1. Replace direct `requests.get(...).json()` calls with `http_get_json(...)`
+   where the call is a simple bounded JSON request.
+2. Replace PyYAML or local YAML helpers with `load_yaml_file(...)` /
+   `yaml_loads(...)` for bounded configs.
+3. Replace ad-hoc path containment and temp-file writes with
+   `ensure_within_root(...)` and `atomic_write_text(...)`.
+4. Re-run `dcc_mcp_skills_creator__validate_skill_dir`; it now reports
+   `skill-helper-adoption` warnings for generated/reference skills importing
+   avoidable dependencies such as `requests`, `httpx`, PyYAML, or local helper
+   modules covered by `skills_helper`.
+
 ### 3. Set Environment Variable
 
 ```bash
