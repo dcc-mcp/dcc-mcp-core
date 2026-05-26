@@ -3,7 +3,7 @@ just = "latest"
 maturin = "latest"
 node = "22"
 python = "3.12"
-rust = "1.90"
+rust = "1.95"
 uv = "latest"
 
 [settings]
