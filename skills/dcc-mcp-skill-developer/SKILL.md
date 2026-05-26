@@ -92,6 +92,13 @@ into a faster authoring loop.
    for bounded local session files. Use `FileRef` and `artefact_put_file` /
    `artefact_get_bytes` instead when a file must cross tool or MCP resource
    boundaries.
+   Use `http_request`, `http_get_json`, and `http_post_json` for bounded
+   synchronous REST calls instead of adding `requests` for common JSON APIs.
+   Catch `SkillHttpError` / `HttpStatusError`, keep `timeout_ms` and
+   `max_bytes` explicit for DCC-host safety, and call `redact_http_headers`
+   before returning request headers in skill errors or audit metadata. Use a
+   domain-specific HTTP dependency only for sessions, streaming, multipart
+   upload, custom retry/auth flows, or API behavior these helpers do not cover.
 7. When changing adapter server wiring or caller examples, keep Admin telemetry
    useful: pass optional `agent_context` / `caller_context` summaries through
    MCP `_meta`, REST `meta`, `x-dcc-mcp-agent-*`, `x-dcc-mcp-actor-*`, or

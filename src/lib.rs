@@ -4,6 +4,9 @@
 //! All logic lives in workspace sub-crates; this crate only re-exports and registers.
 
 #[cfg(feature = "python-bindings")]
+mod skill_http;
+
+#[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
 
 // Re-export sub-crates for Rust consumers
@@ -260,6 +263,7 @@ fn register_utils(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dcc_mcp_pybridge::python::json_loads,
         dcc_mcp_pybridge::python::yaml_loads,
         dcc_mcp_pybridge::python::yaml_dumps,
+        crate::skill_http::py_skill_http_request,
     );
     add_classes!(
         m,
