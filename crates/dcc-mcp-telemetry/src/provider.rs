@@ -401,20 +401,22 @@ mod tests {
             assert!(result.is_ok());
         }
 
+        #[cfg(not(feature = "otlp-exporter"))]
         #[test]
         fn otlp_backend_without_feature_returns_error() {
             let cfg = TelemetryConfig::default();
             let resource = Resource::builder_empty().build();
             let result = build_tracer_provider(&cfg, &ExporterBackend::Otlp, resource);
-            // When feature is not enabled, expect OtlpConfig error;
-            // when feature IS enabled, it will attempt to connect (may fail differently).
-            match result {
-                Err(TelemetryError::OtlpConfig(_)) => {}
-                Err(TelemetryError::TracerProviderSetup(_)) => {}
-                // Feature enabled + tonic connected successfully in test env
-                Ok(_) => {}
-                Err(e) => panic!("unexpected error: {e}"),
-            }
+            assert!(matches!(result, Err(TelemetryError::OtlpConfig(_))));
+        }
+
+        #[cfg(feature = "otlp-exporter")]
+        #[tokio::test]
+        async fn otlp_backend_with_feature_builds_inside_runtime() {
+            let cfg = TelemetryConfig::default();
+            let resource = Resource::builder_empty().build();
+            let result = build_tracer_provider(&cfg, &ExporterBackend::Otlp, resource);
+            assert!(result.is_ok());
         }
     }
 

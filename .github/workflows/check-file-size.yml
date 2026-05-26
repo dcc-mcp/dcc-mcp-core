@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Check Rust file sizes
         run: |
@@ -101,4 +101,3 @@ jobs:
             exit 1
           fi
           echo "✅ All Python files are within the ${MAX_PY}-line limit."
-
