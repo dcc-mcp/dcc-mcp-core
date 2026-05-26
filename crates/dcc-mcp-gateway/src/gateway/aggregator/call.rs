@@ -39,7 +39,7 @@ pub async fn route_tools_call(
 
     // ── Hidden compatibility routes ──────────────────────────────────
     match tool {
-        "call" => return tool_call(gs, args, meta, trace_context).await,
+        "call" => return tool_call(gs, args, meta, trace_context, agent_context).await,
         "lease" => return to_text_result(tool_lease(gs, args).await),
         "load_skill" => {
             let (text, is_error) = tool_load_skill(gs, args).await;
@@ -68,8 +68,10 @@ pub async fn route_tools_call(
         "describe_tool" => {
             return to_text_result(tool_describe_tool(gs, args, meta, trace_context).await);
         }
-        "call_tool" => return tool_call_tool(gs, args, meta, trace_context).await,
-        "call_tools" => return tool_call_tools(gs, args, meta, trace_context).await,
+        "call_tool" => return tool_call_tool(gs, args, meta, trace_context, agent_context).await,
+        "call_tools" => {
+            return tool_call_tools(gs, args, meta, trace_context, agent_context).await;
+        }
         _ => {}
     }
 
