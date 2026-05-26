@@ -72,6 +72,10 @@ async function mockAdminApi(page: Page) {
               session_id: 'session-1',
               instance_id: 'maya-1234567890',
               dcc_type: 'maya',
+              actor_id: 'artist-1',
+              actor_name: 'Layout Artist',
+              client_platform: 'cursor',
+              source_ip: '192.0.2.44',
             },
           },
           {
@@ -346,6 +350,14 @@ async function mockAdminApi(page: Page) {
             duration_ms: 42,
             instance_id: 'maya-1234567890',
             transport: 'rest',
+            actor: 'Layout Artist',
+            actor_id: 'artist-1',
+            actor_name: 'Layout Artist',
+            client_platform: 'cursor',
+            client_os: 'windows',
+            client_host: 'workstation-7',
+            auth_subject: 'user:artist-1',
+            source_ip: '192.0.2.44',
             token_accounting: {
               response_format: 'toon',
               token_estimator: 'dcc-mcp-byte4-v1',
@@ -401,6 +413,14 @@ async function mockAdminApi(page: Page) {
             success: true,
             total_ms: 42,
             instance_id: 'maya-1234567890',
+            actor: 'Layout Artist',
+            actor_id: 'artist-1',
+            actor_name: 'Layout Artist',
+            client_platform: 'cursor',
+            client_os: 'windows',
+            client_host: 'workstation-7',
+            auth_subject: 'user:artist-1',
+            source_ip: '192.0.2.44',
             input_tokens: 28,
             output_tokens: 18,
             total_tokens: 46,
@@ -435,6 +455,21 @@ async function mockAdminApi(page: Page) {
         total_ms: 42,
         ok: true,
         spans: [{ name: 'dispatch', duration_ns: 42000000, ok: true }],
+        agent_context: {
+          actor_id: 'artist-1',
+          actor_name: 'Layout Artist',
+          actor_email_hash: 'sha256:artist-1',
+          agent_id: 'agent-1',
+          agent_name: 'Scene Builder',
+          client_platform: 'cursor',
+          client_os: 'windows',
+          client_host: 'workstation-7',
+          auth_subject: 'user:artist-1',
+          source_ip: '192.0.2.44',
+          forwarded_for: ['198.51.100.7'],
+          model: 'gpt-test',
+          session_id: 'session-1',
+        },
         input: {
           content: '{"radius":1}',
           mime_type: 'application/json',
@@ -485,6 +520,9 @@ async function mockAdminApi(page: Page) {
         top_tools: [{ name: 'maya-1234__create_sphere', count: 3 }],
         top_instances: [{ name: 'maya-1234567890', count: 3 }],
         top_agents: [{ name: 'Scene Builder', count: 2 }],
+        top_actors: [{ name: 'Layout Artist', count: 2, failed: 0, failure_rate: 0, mean_latency_ms: 42, p95_latency_ms: 42 }],
+        top_client_platforms: [{ name: 'cursor', count: 2, failed: 0, failure_rate: 0, mean_latency_ms: 42, p95_latency_ms: 42 }],
+        top_source_ips: [{ name: '192.0.2.44', count: 2, failed: 0, failure_rate: 0, mean_latency_ms: 42, p95_latency_ms: 42 }],
         token_usage: {
           total_original_bytes: 1200,
           total_returned_bytes: 640,
@@ -944,6 +982,14 @@ test.describe('Admin Page', () => {
     await expect(callsPanel).toContainText('60 (60.0%)');
     await expect(callsPanel).toContainText('json');
     await expect(callsPanel).toContainText('0 (0.0%)');
+    await expect(callsPanel).toContainText('Layout Artist');
+    await expect(callsPanel).toContainText('cursor / windows / workstation-7');
+    await expect(callsPanel).toContainText('192.0.2.44');
+    await page.getByLabel('Filter current panel').fill('192.0.2.44');
+    await expect(page.locator('.list-search-meta')).toContainText('1 / 3');
+    await expect(callsPanel).toContainText('req-123');
+    await expect(callsPanel).not.toContainText('req-json');
+    await page.getByLabel('Filter current panel').fill('');
     await expect(callsPanel).toContainText('req-legacy');
     await expect(callsPanel.locator('tr', { hasText: 'req-legacy' })).toContainText('-');
     await page.getByRole('button', { name: 'req-123' }).click();
@@ -957,6 +1003,10 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.trace-detail-panel')).toContainText(/Total tokens\s*6/);
     await expect(page.locator('.trace-detail-panel')).toContainText('Returned40');
     await expect(page.locator('.trace-detail-panel')).toContainText('Savings60.0%');
+    await expect(page.locator('.trace-detail-panel')).toContainText('Layout Artist');
+    await expect(page.locator('.trace-detail-panel')).toContainText('cursor / windows / workstation-7');
+    await expect(page.locator('.trace-detail-panel')).toContainText('192.0.2.44');
+    await expect(page.locator('.caller-context-pre')).toContainText('"auth_subject": "user:artist-1"');
   });
 
   test('shows reconstructed tasks and links them to traces', async ({ page }) => {
@@ -1004,6 +1054,12 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.stats-panel')).toContainText('140');
     await expect(page.locator('.stats-panel')).toContainText('Top app types');
     await expect(page.locator('.stats-panel')).toContainText('maya');
+    await expect(page.locator('.stats-panel')).toContainText('Top actors');
+    await expect(page.locator('.stats-panel')).toContainText('Layout Artist');
+    await expect(page.locator('.stats-panel')).toContainText('Top client platforms');
+    await expect(page.locator('.stats-panel')).toContainText('cursor');
+    await expect(page.locator('.stats-panel')).toContainText('Top source IPs');
+    await expect(page.locator('.stats-panel')).toContainText('192.0.2.44');
     await expect(page.locator('.stats-panel')).toContainText('Token savings by transport');
     await expect(page.locator('.stats-panel')).toContainText('rest');
     await expect(page.locator('.stats-panel')).toContainText('json');

@@ -21,7 +21,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use super::sqlite_lane::AdminSqliteReader;
-use super::trace::{DispatchTrace, TraceLog};
+use super::trace::{AgentContext, DispatchTrace, TraceLog};
 
 /// How far back to consider when computing statistics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,6 +102,12 @@ pub struct GatewayStats {
     pub top_instances: Vec<TopEntry>,
     /// Top client-supplied agents/callers by call count (up to 10).
     pub top_agents: Vec<TopEntry>,
+    /// Top human/service actors by request count and health.
+    pub top_actors: Vec<AttributionFacet>,
+    /// Top client platforms by request count and health.
+    pub top_client_platforms: Vec<AttributionFacet>,
+    /// Top server-derived source IPs by request count and health.
+    pub top_source_ips: Vec<AttributionFacet>,
     /// Token accounting totals and savings breakdowns.
     pub token_usage: TokenUsageStats,
     /// Call distribution across the 24 hours of the day (UTC, index 0 = midnight).
@@ -133,6 +139,24 @@ pub struct LatencyStats {
 pub struct TopEntry {
     pub name: String,
     pub count: usize,
+}
+
+/// Aggregated caller-attribution health for an operator-facing facet.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttributionFacet {
+    pub name: String,
+    pub count: usize,
+    pub failed: usize,
+    pub failure_rate: f64,
+    pub mean_latency_ms: f64,
+    pub p95_latency_ms: u64,
+}
+
+#[derive(Default)]
+struct AttributionAccumulator {
+    count: usize,
+    failed: usize,
+    latency_ms: Vec<u64>,
 }
 
 /// Aggregate token accounting for the selected stats range.
@@ -230,6 +254,9 @@ fn compute_from_traces(in_range: &[DispatchTrace], range: StatsRange) -> Gateway
             top_tools: vec![],
             top_instances: vec![],
             top_agents: vec![],
+            top_actors: vec![],
+            top_client_platforms: vec![],
+            top_source_ips: vec![],
             token_usage: TokenUsageStats::default(),
             hourly_distribution: vec![0u32; 24],
         };
@@ -281,11 +308,25 @@ fn compute_from_traces(in_range: &[DispatchTrace], range: StatsRange) -> Gateway
 
     let mut agent_counts: HashMap<String, usize> = HashMap::new();
     for t in in_range {
-        if let Some(name) = t.agent_context.as_ref().and_then(|ctx| ctx.display_name()) {
+        if let Some(name) = t.agent_context.as_ref().and_then(agent_label) {
             *agent_counts.entry(name.to_string()).or_insert(0) += 1;
         }
     }
     let top_agents = top_n(agent_counts, 10);
+    let mut actor_facets: HashMap<String, AttributionAccumulator> = HashMap::new();
+    let mut platform_facets: HashMap<String, AttributionAccumulator> = HashMap::new();
+    let mut source_ip_facets: HashMap<String, AttributionAccumulator> = HashMap::new();
+    for t in in_range {
+        let Some(ctx) = t.agent_context.as_ref() else {
+            continue;
+        };
+        add_attribution_facet(&mut actor_facets, actor_label(ctx), t);
+        add_attribution_facet(&mut platform_facets, ctx.client_platform.clone(), t);
+        add_attribution_facet(&mut source_ip_facets, ctx.source_ip.clone(), t);
+    }
+    let top_actors = top_attribution_facets(actor_facets, 10);
+    let top_client_platforms = top_attribution_facets(platform_facets, 10);
+    let top_source_ips = top_attribution_facets(source_ip_facets, 10);
     let token_usage = compute_token_usage(in_range);
 
     let mut hourly = vec![0u32; 24];
@@ -317,9 +358,73 @@ fn compute_from_traces(in_range: &[DispatchTrace], range: StatsRange) -> Gateway
         top_tools,
         top_instances,
         top_agents,
+        top_actors,
+        top_client_platforms,
+        top_source_ips,
         token_usage,
         hourly_distribution: hourly,
     }
+}
+
+fn actor_label(ctx: &AgentContext) -> Option<String> {
+    ctx.actor_name
+        .clone()
+        .or_else(|| ctx.actor_id.clone())
+        .or_else(|| ctx.auth_subject.clone())
+        .or_else(|| ctx.actor_email_hash.clone())
+}
+
+fn agent_label(ctx: &AgentContext) -> Option<String> {
+    ctx.agent_name
+        .clone()
+        .or_else(|| ctx.agent_id.clone())
+        .or_else(|| ctx.agent_kind.clone())
+        .or_else(|| ctx.model.clone())
+        .or_else(|| ctx.model_version.clone())
+}
+
+fn add_attribution_facet(
+    facets: &mut HashMap<String, AttributionAccumulator>,
+    name: Option<String>,
+    trace: &DispatchTrace,
+) {
+    let Some(name) = name.filter(|value| !value.trim().is_empty()) else {
+        return;
+    };
+    let facet = facets.entry(name).or_default();
+    facet.count += 1;
+    if !trace.ok {
+        facet.failed += 1;
+    }
+    facet.latency_ms.push(trace.total_ms);
+}
+
+fn top_attribution_facets(
+    facets: HashMap<String, AttributionAccumulator>,
+    limit: usize,
+) -> Vec<AttributionFacet> {
+    let mut rows: Vec<AttributionFacet> = facets
+        .into_iter()
+        .map(|(name, mut facet)| {
+            facet.latency_ms.sort_unstable();
+            let latency = compute_latency_stats(&facet.latency_ms);
+            AttributionFacet {
+                name,
+                count: facet.count,
+                failed: facet.failed,
+                failure_rate: if facet.count == 0 {
+                    0.0
+                } else {
+                    facet.failed as f64 / facet.count as f64
+                },
+                mean_latency_ms: latency.mean_ms,
+                p95_latency_ms: latency.p95_ms,
+            }
+        })
+        .collect();
+    rows.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.name.cmp(&b.name)));
+    rows.truncate(limit);
+    rows
 }
 
 fn compute_token_usage(traces: &[DispatchTrace]) -> TokenUsageStats {
@@ -362,9 +467,8 @@ fn compute_token_usage(traces: &[DispatchTrace]) -> TokenUsageStats {
             trace
                 .agent_context
                 .as_ref()
-                .and_then(|ctx| ctx.display_name())
-                .unwrap_or("unknown")
-                .to_string(),
+                .and_then(agent_label)
+                .unwrap_or_else(|| "unknown".to_string()),
             tokens,
         );
         add_token_group(
@@ -633,6 +737,9 @@ mod tests {
         rest_compact.transport = Some("rest".into());
         rest_compact.agent_context = Some(AgentContext {
             agent_name: Some("Planner".into()),
+            actor_id: Some("artist-1".into()),
+            client_platform: Some("cursor".into()),
+            source_ip: Some("192.0.2.44".into()),
             ..AgentContext::default()
         });
         rest_compact.token_accounting = Some(token_telemetry("toon", 100, 40));
@@ -642,6 +749,9 @@ mod tests {
         rest_json.transport = Some("rest".into());
         rest_json.agent_context = Some(AgentContext {
             agent_name: Some("Planner".into()),
+            actor_id: Some("artist-1".into()),
+            client_platform: Some("cursor".into()),
+            source_ip: Some("192.0.2.44".into()),
             ..AgentContext::default()
         });
         rest_json.token_accounting = Some(token_telemetry("json", 80, 80));
@@ -652,6 +762,9 @@ mod tests {
         mcp_compact.transport = Some("mcp".into());
         mcp_compact.agent_context = Some(AgentContext {
             agent_name: Some("Reviewer".into()),
+            actor_id: Some("artist-2".into()),
+            client_platform: Some("claude-desktop".into()),
+            source_ip: Some("192.0.2.45".into()),
             ..AgentContext::default()
         });
         mcp_compact.token_accounting = Some(token_telemetry("toon", 120, 60));
@@ -686,6 +799,21 @@ mod tests {
                 .by_agent
                 .iter()
                 .any(|entry| entry.name == "Planner" && entry.calls == 2)
+        );
+        assert_eq!(stats.top_actors[0].name, "artist-1");
+        assert_eq!(stats.top_actors[0].count, 2);
+        assert_eq!(stats.top_actors[0].failed, 0);
+        assert!(
+            stats
+                .top_client_platforms
+                .iter()
+                .any(|entry| entry.name == "cursor" && entry.count == 2)
+        );
+        assert!(
+            stats
+                .top_source_ips
+                .iter()
+                .any(|entry| entry.name == "192.0.2.44" && entry.count == 2)
         );
     }
 

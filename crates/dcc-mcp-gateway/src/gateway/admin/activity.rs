@@ -42,6 +42,14 @@ pub struct ActivityCorrelation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub actor_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actor_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_platform: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_ip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_request_id: Option<String>,
 }
 
@@ -293,6 +301,10 @@ fn audit_event(record: &AdminAuditRecord) -> ActivityEvent {
             workflow_id: None,
             job_id: None,
             agent_id: record.agent_id.clone(),
+            actor_id: record.actor_id.clone(),
+            actor_name: record.actor_name.clone(),
+            client_platform: record.client_platform.clone(),
+            source_ip: record.source_ip.clone(),
             parent_request_id: record.parent_request_id.clone(),
         },
     }
@@ -348,6 +360,10 @@ fn gateway_event(event: &ContendEvent) -> ActivityEvent {
             workflow_id: None,
             job_id: None,
             agent_id: None,
+            actor_id: None,
+            actor_name: None,
+            client_platform: None,
+            source_ip: None,
             parent_request_id: None,
         },
     }
@@ -503,6 +519,22 @@ fn trace_correlation(trace: &DispatchTrace) -> ActivityCorrelation {
             .agent_context
             .as_ref()
             .and_then(|ctx| ctx.agent_id.clone()),
+        actor_id: trace
+            .agent_context
+            .as_ref()
+            .and_then(|ctx| ctx.actor_id.clone()),
+        actor_name: trace
+            .agent_context
+            .as_ref()
+            .and_then(|ctx| ctx.actor_name.clone()),
+        client_platform: trace
+            .agent_context
+            .as_ref()
+            .and_then(|ctx| ctx.client_platform.clone()),
+        source_ip: trace
+            .agent_context
+            .as_ref()
+            .and_then(|ctx| ctx.source_ip.clone()),
         parent_request_id: trace
             .agent_context
             .as_ref()
