@@ -78,9 +78,9 @@ jobs:
           echo ""
           echo "::error::Run 'cargo hakari generate' and commit the changes to fix this CI step."
           exit 1
-      - name: Stub generation
+      - name: Stub generation check
         if: runner.os == 'Linux'
-        run: vx just stubgen
+        run: vx just stubgen-check
       - name: Rust format check
         if: runner.os == 'Linux'
         run: vx just fmt-check
