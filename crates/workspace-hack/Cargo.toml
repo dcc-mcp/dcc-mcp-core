@@ -53,6 +53,7 @@ rand_chacha = { version = "0.9.0", default-features = false, features = ["std"] 
 rand_core = { version = "0.6.4", default-features = false, features = ["std"] }
 regex-automata = { version = "0.4.14", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
 regex-syntax = { version = "0.8.10" }
+reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "rustls", "stream"] }
 serde = { version = "1.0.228", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1.0.228", features = ["alloc", "rc"] }
 serde_json = { version = "1.0.150", features = ["alloc", "preserve_order", "raw_value"] }
@@ -116,6 +117,7 @@ rand_chacha = { version = "0.9.0", default-features = false, features = ["std"] 
 rand_core = { version = "0.6.4", default-features = false, features = ["std"] }
 regex-automata = { version = "0.4.14", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
 regex-syntax = { version = "0.8.10" }
+reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "rustls", "stream"] }
 serde = { version = "1.0.228", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1.0.228", features = ["alloc", "rc"] }
 serde_json = { version = "1.0.150", features = ["alloc", "preserve_order", "raw_value"] }
