@@ -52,6 +52,7 @@ use uuid::Uuid;
 use dcc_mcp_gateway_core::policy::GatewayPolicy;
 
 use super::event_log::EventLog;
+use super::http_registration::{HttpInstanceRegistry, entry_mcp_url, entry_registry_source};
 use super::instance_diagnostics::{InstanceDiagnostics, InstanceDiagnosticsStore};
 
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
@@ -131,6 +132,7 @@ impl fmt::Display for ResolveInstanceError {
 #[derive(Clone)]
 pub struct GatewayState {
     pub registry: Arc<RwLock<FileRegistry>>,
+    pub http_instance_registry: Arc<parking_lot::RwLock<HttpInstanceRegistry>>,
     pub stale_timeout: Duration,
     /// Per-backend request timeout for gateway fan-out calls (issue #314).
     ///
@@ -277,6 +279,7 @@ impl GatewayState {
     pub fn discovery(&self) -> DiscoveryState<'_> {
         DiscoveryState {
             registry: &self.registry,
+            http_instance_registry: &self.http_instance_registry,
             stale_timeout: self.stale_timeout,
             allow_unknown_tools: self.allow_unknown_tools,
             own_host: &self.own_host,
@@ -353,6 +356,7 @@ impl GatewayState {
     /// sentinel and a regular `"maya"` row; exposing its own row here would
     /// cause the facade to fan `tools/list` / `tools/call` back into itself.
     pub fn live_instances(&self, registry: &FileRegistry) -> Vec<ServiceEntry> {
+        self.prune_expired_http_instances();
         self.discovery().live_instances(registry)
     }
 
@@ -368,6 +372,7 @@ impl GatewayState {
     /// render a full picture and downgrade stale entries via the surface
     /// `status` field instead.
     pub fn all_instances(&self, registry: &FileRegistry) -> Vec<ServiceEntry> {
+        self.prune_expired_http_instances();
         self.discovery().all_instances(registry)
     }
 
@@ -465,7 +470,18 @@ impl GatewayState {
         &self,
         registry: &FileRegistry,
     ) -> dcc_mcp_transport::TransportResult<(Vec<ServiceEntry>, usize)> {
+        self.prune_expired_http_instances();
         self.discovery().read_alive_instances(registry)
+    }
+
+    fn prune_expired_http_instances(&self) {
+        let expired = self
+            .http_instance_registry
+            .write()
+            .prune_expired(std::time::SystemTime::now());
+        for instance_id in expired {
+            self.capability_index.remove_instance(instance_id);
+        }
     }
 }
 
@@ -648,7 +664,8 @@ pub fn entry_to_json(
         "dcc_type":        e.dcc_type,
         "host":            e.host,
         "port":            e.port,
-        "mcp_url":         format!("http://{}:{}/mcp", e.host, e.port),
+        "mcp_url":         entry_mcp_url(e),
+        "source":          entry_registry_source(e),
         "status":          status,
         // ── document / scene ───────────────────────────────────────────────
         // `scene` is the active / primary document (same field as before).

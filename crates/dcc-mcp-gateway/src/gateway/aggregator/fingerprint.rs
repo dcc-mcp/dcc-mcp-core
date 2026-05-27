@@ -1,3 +1,4 @@
+use super::super::http_registration::entry_mcp_url;
 use super::*;
 
 /// Compute a fingerprint of the aggregated tool list across every live backend.
@@ -69,7 +70,7 @@ pub(crate) async fn compute_tools_fingerprint_with_own(
     };
 
     let futs = instances.iter().map(|entry| async move {
-        let url = format!("http://{}:{}/mcp", entry.host, entry.port);
+        let url = entry_mcp_url(entry);
         let (tools, _unloaded) = fetch_tools(http_client, &url, backend_timeout).await;
         (entry.instance_id, tools)
     });

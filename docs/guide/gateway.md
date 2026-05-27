@@ -219,6 +219,42 @@ families; it does not enumerate every instance-specific URI. Backend
 capability indexes refresh on demand before gateway `search` / `describe`,
 so instances registered after gateway startup are picked up without a restart.
 
+### Remote HTTP Instance Registration (#1361)
+
+When a DCC adapter cannot share the gateway's local `FileRegistry` directory
+(for example, a DCC process on another machine), it can register a TTL-scoped
+row through the gateway REST plane:
+
+```bash
+curl -X POST http://gateway-host:9765/v1/instances/register \
+  -H "content-type: application/json" \
+  -d '{
+    "instance_id": "11111111-1111-4111-8111-111111111111",
+    "dcc_type": "maya",
+    "mcp_url": "http://dcc-host:18812/mcp",
+    "capabilities_fingerprint": "optional-stable-fingerprint",
+    "scene": "shot.ma",
+    "ttl_secs": 30
+  }'
+```
+
+The response includes `heartbeat_interval_secs`; adapters should refresh before
+the TTL expires:
+
+```bash
+curl -X POST http://gateway-host:9765/v1/instances/heartbeat \
+  -H "content-type: application/json" \
+  -d '{"instance_id":"11111111-1111-4111-8111-111111111111"}'
+```
+
+Shutdown should call `POST /v1/instances/deregister`. HTTP rows are merged into
+the same `GatewayState::live_instances` view as file-backed rows, appear in
+`GET /v1/instances` / `gateway://instances` with `source: "http"`, and win when
+the same `instance_id` exists in both sources. Registration endpoints pass
+through the same gateway router layers as the rest of `/v1/*` (body limit,
+caller attribution, rate limiting, and future auth middleware), so they do not
+create a separate security bypass.
+
 ### Optional Instance Pooling
 
 Instances can opt into warm-pool semantics through the registry fields surfaced

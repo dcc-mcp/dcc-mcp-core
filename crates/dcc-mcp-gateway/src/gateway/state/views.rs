@@ -6,11 +6,12 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use tokio::sync::{RwLock, broadcast, watch};
 
 use crate::gateway::event_log::EventLog;
+use crate::gateway::http_registration::HttpInstanceRegistry;
 use crate::gateway::middleware::MiddlewareChain;
 use dcc_mcp_gateway_core::PendingCall;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
@@ -34,6 +35,8 @@ const ROLE_PER_DCC_SIDECAR: &str = "per-dcc-sidecar";
 pub struct DiscoveryState<'a> {
     /// Shared read/write handle on the file-backed service registry.
     pub registry: &'a Arc<RwLock<FileRegistry>>,
+    /// Shared in-memory registration source for remote HTTP-registered rows.
+    pub http_instance_registry: &'a Arc<parking_lot::RwLock<HttpInstanceRegistry>>,
     /// Heartbeat-age after which a registry row is considered stale.
     pub stale_timeout: Duration,
     /// When `false` (default), instances advertising `dcc_type == "unknown"`
@@ -134,19 +137,20 @@ impl<'a> DiscoveryState<'a> {
             })
             .collect();
 
-        prefer_live_sidecars(filtered)
+        prefer_live_sidecars(self.merge_http_entries(filtered, false))
     }
 
     /// See [`GatewayState::all_instances`].
     pub fn all_instances(&self, registry: &FileRegistry) -> Vec<ServiceEntry> {
-        registry
+        let filtered = registry
             .list_all()
             .into_iter()
             .filter(|e| {
                 e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
                     && !crate::gateway::is_own_instance(e, self.own_host, self.own_port)
             })
-            .collect()
+            .collect();
+        self.merge_http_entries(filtered, true)
     }
 
     /// See [`GatewayState::read_alive_instances`].
@@ -162,7 +166,32 @@ impl<'a> DiscoveryState<'a> {
                     && !crate::gateway::is_own_instance(e, self.own_host, self.own_port)
             })
             .collect();
-        Ok((filtered, evicted))
+        Ok((self.merge_http_entries(filtered, true), evicted))
+    }
+
+    fn merge_http_entries(
+        &self,
+        mut file_entries: Vec<ServiceEntry>,
+        include_unknown: bool,
+    ) -> Vec<ServiceEntry> {
+        let http_entries = if include_unknown {
+            self.http_instance_registry
+                .read()
+                .all_entries(SystemTime::now())
+        } else {
+            self.http_instance_registry
+                .read()
+                .live_entries(SystemTime::now())
+                .into_iter()
+                .filter(|entry| {
+                    self.allow_unknown_tools || !entry.dcc_type.eq_ignore_ascii_case("unknown")
+                })
+                .collect()
+        };
+        let http_ids: HashSet<_> = http_entries.iter().map(|entry| entry.instance_id).collect();
+        file_entries.retain(|entry| !http_ids.contains(&entry.instance_id));
+        file_entries.extend(http_entries);
+        file_entries
     }
 }
 
