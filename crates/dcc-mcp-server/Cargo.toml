@@ -13,7 +13,13 @@ name = "dcc-mcp-server"
 path = "src/main.rs"
 
 [dependencies]
-dcc-mcp-http.workspace = true
+# `dcc-mcp-http` default features include `auto-gateway` which pulls in
+# the full gateway runtime. We forward that explicitly through our own
+# `gateway-auto` feature so this binary can also build slim variants
+# (issue #1359). Use a direct path dep here because the workspace
+# inheritance form (`workspace = true`) cannot override the inherited
+# `default-features` setting.
+dcc-mcp-http = { path = "../dcc-mcp-http", default-features = false }
 dcc-mcp-actions.workspace = true
 dcc-mcp-skills.workspace = true
 dcc-mcp-protocols.workspace = true
@@ -42,10 +48,52 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 clap = { version = "4", features = ["derive", "env"] }
 sysinfo.workspace = true
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
-dcc-mcp-gateway = { version = "0.17.0", path = "../dcc-mcp-gateway", features = ["admin", "admin-persist-sqlite"] }
+# Optional — only linked when either `gateway-auto` (embedded election +
+# admin) or `gateway-daemon` (standalone daemon subcommand) is enabled.
+dcc-mcp-gateway = { version = "0.17.0", path = "../dcc-mcp-gateway", optional = true }
 
 [features]
-default = []
+# Default matches today's binary: per-DCC MCP server with embedded
+# first-wins gateway election and the read-only Admin UI.
+default = ["server", "gateway-auto", "gateway-daemon", "admin"]
+
+# Per-DCC MCP HTTP server (mandatory for the default `dcc-mcp-server`
+# entry point). Currently a marker feature; opting it out leaves only
+# the gateway daemon subcommand available, which is useful for the
+# slim `dcc-mcp-server gateway` deployment topology.
+server = []
+
+# Embedded auto-gateway: first-wins election on the well-known gateway
+# port, admin UI on the elected gateway, sidecar gateway failover,
+# translate-mode gateway registration. Pulls `dcc-mcp-gateway` and
+# turns on the matching `auto-gateway` feature on `dcc-mcp-http`.
+gateway-auto = [
+    "dep:dcc-mcp-gateway",
+    "dcc-mcp-http/auto-gateway",
+]
+
+# Standalone gateway daemon (`dcc-mcp-server gateway` subcommand). Can
+# be enabled together with or independently of `gateway-auto`.
+gateway-daemon = ["dep:dcc-mcp-gateway"]
+
+# Read-only Admin UI on the elected gateway. Forwarded to whichever of
+# `gateway-auto` / `gateway-daemon` happens to be enabled.
+admin = [
+    "dcc-mcp-gateway?/admin",
+    "dcc-mcp-gateway?/admin-persist-sqlite",
+]
+
+# Placeholder for embedding the relay tunnel agent in-process. Wired
+# up by issue #1363; currently a no-op feature gate so downstream
+# build configs can already declare it.
+tunnel-agent = []
+
+# Prometheus `/metrics` endpoint on the MCP server (and admin UI).
+prometheus = [
+    "dcc-mcp-http/prometheus",
+    "dcc-mcp-gateway?/prometheus",
+]
+
 otlp-exporter = ["dcc-mcp-telemetry/otlp-exporter", "dep:dcc-mcp-telemetry"]
 telemetry = ["dep:dcc-mcp-telemetry"]
 

@@ -1,11 +1,16 @@
 //! Machine-wide standalone gateway daemon and auto-launch helper.
 
+#[cfg(feature = "gateway-auto")]
 use std::ffi::OsString;
+#[cfg(feature = "gateway-auto")]
 use std::fs::{File, OpenOptions};
 use std::path::PathBuf;
+#[cfg(feature = "gateway-auto")]
 use std::process::{Command, Stdio};
+#[cfg(feature = "gateway-auto")]
 use std::time::{Duration, Instant};
 
+#[cfg(feature = "gateway-auto")]
 use anyhow::Context as _;
 use clap::Args;
 use dcc_mcp_gateway::{AdminPersistConfig, GatewayConfig, GatewayRunner};
@@ -50,6 +55,10 @@ pub struct GatewayArgs {
     pub stale_timeout_secs: u64,
 }
 
+/// Helpers for auto-launching the standalone gateway from inside another
+/// process (the per-DCC sidecar / embedded server). Only needed when the
+/// `gateway-auto` feature is on; pure daemon builds skip them entirely.
+#[cfg(feature = "gateway-auto")]
 #[derive(Debug, Clone)]
 pub struct EnsureGatewayOptions {
     pub host: String,
@@ -133,6 +142,7 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
 }
 
 /// Ensure the machine-wide gateway is reachable, launching it once if needed.
+#[cfg(feature = "gateway-auto")]
 pub async fn ensure_gateway_running(opts: &EnsureGatewayOptions) -> anyhow::Result<()> {
     if opts.port == 0 || gateway_health_ok(&opts.host, opts.port).await {
         return Ok(());
@@ -160,6 +170,7 @@ pub async fn ensure_gateway_running(opts: &EnsureGatewayOptions) -> anyhow::Resu
     wait_gateway_ready(&opts.host, opts.port, Duration::from_secs(10)).await
 }
 
+#[cfg(feature = "gateway-auto")]
 async fn wait_gateway_ready(host: &str, port: u16, timeout: Duration) -> anyhow::Result<()> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
@@ -173,6 +184,7 @@ async fn wait_gateway_ready(host: &str, port: u16, timeout: Duration) -> anyhow:
     )
 }
 
+#[cfg(feature = "gateway-auto")]
 async fn gateway_health_ok(host: &str, port: u16) -> bool {
     let url = format!("http://{host}:{port}/health");
     let client = match reqwest::Client::builder()
@@ -189,17 +201,20 @@ async fn gateway_health_ok(host: &str, port: u16) -> bool {
         .is_ok_and(|resp| resp.status().is_success())
 }
 
+#[cfg(feature = "gateway-auto")]
 struct LaunchLock {
     _file: File,
     path: PathBuf,
 }
 
+#[cfg(feature = "gateway-auto")]
 impl Drop for LaunchLock {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
     }
 }
 
+#[cfg(feature = "gateway-auto")]
 fn acquire_launch_lock(path: &std::path::Path) -> std::io::Result<LaunchLock> {
     OpenOptions::new()
         .write(true)
@@ -211,6 +226,7 @@ fn acquire_launch_lock(path: &std::path::Path) -> std::io::Result<LaunchLock> {
         })
 }
 
+#[cfg(feature = "gateway-auto")]
 fn spawn_detached_gateway(opts: &EnsureGatewayOptions) -> anyhow::Result<()> {
     let exe = std::env::current_exe().context("resolving current executable")?;
     let mut cmd = Command::new(exe);
@@ -233,6 +249,7 @@ fn spawn_detached_gateway(opts: &EnsureGatewayOptions) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "gateway-auto")]
 fn gateway_command_args(opts: &EnsureGatewayOptions) -> Vec<OsString> {
     let mut args = vec![
         OsString::from("gateway"),
@@ -263,6 +280,7 @@ fn default_gateway_name() -> String {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "gateway-auto")]
     #[test]
     fn auto_launch_gateway_args_do_not_include_registry_dir_flag() {
         let opts = EnsureGatewayOptions {
