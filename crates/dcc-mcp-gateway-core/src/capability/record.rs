@@ -178,6 +178,15 @@ pub struct CapabilityMetadata {
     /// Coarse risk label derived from safety annotations.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub risk: Option<String>,
+    /// Tool semantic role (`read_only`, `action`, `destructive`,
+    /// `escape_hatch`, `debug_only`) propagated from
+    /// `ToolDeclaration::tool_role` (issues #1335, #1325).
+    ///
+    /// When equal to `"escape_hatch"`, the gateway search ranker applies
+    /// a fixed demotion so generic-scripting tools rank below typed
+    /// alternatives unless the agent explicitly invoked scripting.
+    #[serde(rename = "toolRole", skip_serializing_if = "Option::is_none")]
+    pub tool_role: Option<String>,
 }
 
 impl CapabilityMetadata {
@@ -189,6 +198,7 @@ impl CapabilityMetadata {
             && self.timeout_hint_secs.is_none()
             && self.enforce_thread_affinity.is_none()
             && self.risk.is_none()
+            && self.tool_role.is_none()
     }
 }
 
@@ -425,6 +435,14 @@ impl dcc_mcp_gateway_search::SearchRecord for CapabilityRecord {
 
     fn loaded(&self) -> bool {
         self.loaded
+    }
+
+    fn tool_role(&self) -> Option<&str> {
+        self.metadata.as_ref().and_then(|m| m.tool_role.as_deref())
+    }
+
+    fn risk(&self) -> Option<&str> {
+        self.metadata.as_ref().and_then(|m| m.risk.as_deref())
     }
 }
 

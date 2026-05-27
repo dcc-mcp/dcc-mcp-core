@@ -427,6 +427,24 @@ impl Scorer for FuzzyScorer {
                 }
                 add_reason(&mut out.match_reasons, "meta_tool_demoted");
             }
+
+            // Issue #1325: tools tagged as escape-hatch scripting fallbacks
+            // (`execute_python`, host script eval, MaxScript-style execution)
+            // are kept in results but demoted so typed alternatives surface
+            // first when both match the query. A tool that explicitly names
+            // the escape-hatch backend (e.g. q = "execute_python") still
+            // wins via the tool-name boost so debugging workflows are
+            // unaffected.
+            if out.score > 0
+                && r.tool_role().is_some_and(|role| role == "escape_hatch")
+                && !r.backend_tool().to_ascii_lowercase().contains(q)
+            {
+                out.score /= ESCAPE_HATCH_DIVISOR;
+                if out.score == 0 {
+                    out.score = 1;
+                }
+                add_reason(&mut out.match_reasons, "escape_hatch_demoted");
+            }
         }
 
         if let Some(hint) = scene_hint
@@ -474,6 +492,12 @@ fn is_meta_tool(backend_tool: &str) -> bool {
 /// a meta-tool needs 3× the raw relevance of a domain tool to rank
 /// above it.
 const META_TOOL_DIVISOR: u32 = 3;
+
+/// Demotion divisor applied to escape-hatch / generic-scripting tools
+/// (issue #1325). A factor of 4 means a typed alternative with ¼ the
+/// raw relevance still wins, so agents see the typed skill first when
+/// it exists.
+const ESCAPE_HATCH_DIVISOR: u32 = 4;
 
 /// `SubstringScorer` alias from issue #765 acceptance text.
 pub type ExactScorer = SubstringScorer;
@@ -564,6 +588,8 @@ mod tests {
         dcc_type: String,
         instance_id: Uuid,
         loaded: bool,
+        #[serde(default)]
+        tool_role: Option<String>,
     }
 
     impl SearchRecord for TestRow {
@@ -591,6 +617,9 @@ mod tests {
         fn loaded(&self) -> bool {
             self.loaded
         }
+        fn tool_role(&self) -> Option<&str> {
+            self.tool_role.as_deref()
+        }
     }
 
     fn rec(name: &str, summary: &str, skill: Option<&str>, tags: &[&str], loaded: bool) -> TestRow {
@@ -604,7 +633,21 @@ mod tests {
             dcc_type: "maya".to_string(),
             instance_id: iid,
             loaded,
+            tool_role: None,
         }
+    }
+
+    fn rec_with_role(
+        name: &str,
+        summary: &str,
+        skill: Option<&str>,
+        tags: &[&str],
+        loaded: bool,
+        role: &str,
+    ) -> TestRow {
+        let mut r = rec(name, summary, skill, tags, loaded);
+        r.tool_role = Some(role.to_string());
+        r
     }
 
     #[test]
@@ -898,6 +941,74 @@ mod tests {
         assert!(
             score > 0,
             "meta-tool must still surface for exact-name query; got {score}"
+        );
+    }
+
+    // ── Issue #1325: escape-hatch demotion ────────────────────────────────
+
+    #[test]
+    fn fuzzy_scorer_escape_hatch_demoted_below_typed_alternative() {
+        let mut s = FuzzyScorer::new();
+        let typed = rec(
+            "usd_import",
+            "Import a USD layer into the active scene.",
+            Some("interchange"),
+            &["usd", "import"],
+            true,
+        );
+        let escape = rec_with_role(
+            "execute_python",
+            "Execute arbitrary Python in the host. Useful for USD import scripts.",
+            Some("scripting"),
+            &["scripting"],
+            true,
+            "escape_hatch",
+        );
+
+        let typed_score = s.score(&typed, "import usd", None);
+        let escape_breakdown = s.explain(&escape, "import usd", None);
+
+        assert!(typed_score > 0, "typed tool must still match");
+        assert!(
+            typed_score > escape_breakdown.score,
+            "typed ({typed_score}) must outrank escape-hatch ({}) for typed-intent query",
+            escape_breakdown.score
+        );
+        assert!(
+            escape_breakdown
+                .match_reasons
+                .iter()
+                .any(|r| r == "escape_hatch_demoted"),
+            "escape_hatch demotion must surface in match_reasons; got {:?}",
+            escape_breakdown.match_reasons
+        );
+    }
+
+    #[test]
+    fn fuzzy_scorer_escape_hatch_still_wins_for_explicit_query() {
+        let mut s = FuzzyScorer::new();
+        let escape = rec_with_role(
+            "execute_python",
+            "Execute arbitrary Python in the host.",
+            Some("scripting"),
+            &["scripting"],
+            true,
+            "escape_hatch",
+        );
+
+        let breakdown = s.explain(&escape, "execute_python", None);
+        assert!(
+            breakdown.score > 0,
+            "explicit escape-hatch name must still surface; got {}",
+            breakdown.score
+        );
+        assert!(
+            !breakdown
+                .match_reasons
+                .iter()
+                .any(|r| r == "escape_hatch_demoted"),
+            "explicit-name query must not be demoted; got {:?}",
+            breakdown.match_reasons
         );
     }
 }

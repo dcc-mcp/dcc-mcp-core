@@ -28,4 +28,19 @@ pub trait SearchRecord {
     fn instance_id(&self) -> Uuid;
     /// Whether the skill is loaded on the backend.
     fn loaded(&self) -> bool;
+    /// Tool semantic role label propagated from `ToolDeclaration::tool_role`
+    /// (issues #1335, #1325).  Returning `Some("escape_hatch")` lets the
+    /// ranker demote generic-scripting fallbacks below typed alternatives.
+    ///
+    /// Defaults to `None` so existing implementations stay valid.
+    fn tool_role(&self) -> Option<&str> {
+        None
+    }
+    /// Coarse risk label (`low`, `medium`, `high`, `host_script_execution`)
+    /// propagated from `ToolDeclaration::risk`.
+    ///
+    /// Defaults to `None` so existing implementations stay valid.
+    fn risk(&self) -> Option<&str> {
+        None
+    }
 }
