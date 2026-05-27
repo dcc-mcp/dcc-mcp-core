@@ -1,0 +1,12 @@
+{
+  "refresh": "새로 고침",
+  "copy": "복사",
+  "download": "다운로드",
+  "open": "열기",
+  "view": "보기",
+  "exportJsonl": "JSONL 내보내기",
+  "close": "닫기",
+  "reload": "다시 로드",
+  "remove": "제거",
+  "trace": "트레이스"
+}

@@ -1,0 +1,12 @@
+{
+  "refresh": "Refresh",
+  "copy": "Copy",
+  "download": "Download",
+  "open": "Open",
+  "view": "View",
+  "exportJsonl": "Export JSONL",
+  "close": "Close",
+  "reload": "Reload",
+  "remove": "Remove",
+  "trace": "Trace"
+}

@@ -1,0 +1,17 @@
+{
+  "title": "ヘルス",
+  "metric.status": "状態",
+  "metric.uptime": "稼働時間",
+  "metric.ready": "準備完了",
+  "metric.version": "バージョン",
+  "metric.gatewayOwner": "ゲートウェイ所有者",
+  "metric.gatewayCandidates": "ゲートウェイ候補",
+  "metric.responseFormat": "レスポンス形式",
+  "metric.rss": "RSS",
+  "metric.bodyLimit": "本文サイズ上限",
+  "metric.rateLimit": "分あたり-IP レート",
+  "metric.xffTrustedDepth": "XFF 信頼深度",
+  "metric.readRetries": "読み取り再試行上限",
+  "metric.circuitLimit": "サーキット上限 / オープン",
+  "metric.circuitsOpenTracked": "オープン / 追跡中サーキット"
+}

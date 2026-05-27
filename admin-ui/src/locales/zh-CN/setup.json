@@ -1,0 +1,7 @@
+{
+  "mode.local": "本机",
+  "mode.lan": "局域网",
+  "mode.direct": "直连",
+  "label.url": "URL",
+  "aria.endpoint": "MCP 端点"
+}

@@ -1,0 +1,13 @@
+{
+  "title": "最近调用",
+  "empty.none": "没有最近调用。AuditMiddleware 可能未启用。",
+  "empty.search": "没有匹配搜索的调用。",
+  "table.agent": "Agent",
+  "table.transport": "传输",
+  "table.format": "格式",
+  "table.returned": "返回",
+  "table.saved": "节省",
+  "table.error": "错误",
+  "table.detail": "详情",
+  "action.expand": "展开"
+}
