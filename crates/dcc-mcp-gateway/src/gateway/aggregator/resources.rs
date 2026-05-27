@@ -19,12 +19,13 @@ use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntr
 
 use super::super::backend_client::fetch_resources;
 use super::super::handlers::resources::GATEWAY_EVENTS_URI;
+use super::super::http_registration::entry_mcp_url;
 use super::super::native_resources::pointers_for_list as gateway_native_pointers;
 use super::super::state::GatewayState;
 use super::helpers::live_backends;
 
 fn backend_mcp_url(entry: &ServiceEntry) -> String {
-    format!("http://{}:{}/mcp", entry.host, entry.port)
+    entry_mcp_url(entry)
 }
 
 /// Full eligibility filter used by the fingerprint path, which starts

@@ -18,6 +18,9 @@ pub(crate) struct GatewayOpenApiRoute {
 #[cfg(test)]
 pub(crate) const GATEWAY_OPENAPI_ROUTES: &[GatewayOpenApiRoute] = &[
     get("/v1/instances"),
+    post("/v1/instances/register"),
+    post("/v1/instances/heartbeat"),
+    post("/v1/instances/deregister"),
     get("/v1/healthz"),
     get("/v1/readyz"),
     get("/v1/openapi.json"),
@@ -88,6 +91,36 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
             "List live gateway instances",
             "Returns the gateway registry rows that are currently live and routable.",
             json_response_ref("GatewayInstanceList"),
+        ),
+    );
+    paths.insert(
+        "/v1/instances/register".to_string(),
+        post_operation(
+            &["instances"],
+            "Register a remote gateway instance",
+            "Adds or replaces a TTL-scoped DCC instance row using a direct MCP URL. This is the remote-machine companion to the local FileRegistry source.",
+            request_body_ref("GatewayInstanceRegisterRequest"),
+            json_response_ref("GatewayInstanceRegistrationResponse"),
+        ),
+    );
+    paths.insert(
+        "/v1/instances/heartbeat".to_string(),
+        post_operation(
+            &["instances"],
+            "Refresh a remote gateway instance",
+            "Refreshes the TTL for an HTTP-registered instance and may update scene or capability fingerprint metadata.",
+            request_body_ref("GatewayInstanceHeartbeatRequest"),
+            json_response_ref("GatewayInstanceRegistrationResponse"),
+        ),
+    );
+    paths.insert(
+        "/v1/instances/deregister".to_string(),
+        post_operation(
+            &["instances"],
+            "Deregister a remote gateway instance",
+            "Removes an HTTP-registered instance row and drops its cached gateway capability records.",
+            request_body_ref("GatewayInstanceDeregisterRequest"),
+            json_response_ref("GatewayInstanceRegistrationResponse"),
         ),
     );
     paths.insert(
@@ -450,8 +483,72 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
                     "dcc_type": {"type": "string"},
                     "status": {"type": "string"},
                     "mcp_url": {"type": "string"},
+                    "source": {"type": "string", "enum": ["file", "http"]},
                     "lifecycle": {"type": "object", "additionalProperties": true},
                     "diagnostics": {"type": "object", "additionalProperties": true}
+                },
+                "additionalProperties": true,
+            }),
+        ),
+        (
+            "GatewayInstanceRegisterRequest",
+            json!({
+                "type": "object",
+                "required": ["instance_id", "dcc_type", "mcp_url"],
+                "properties": {
+                    "instance_id": {"type": "string", "format": "uuid"},
+                    "dcc_type": {"type": "string"},
+                    "mcp_url": {
+                        "type": "string",
+                        "format": "uri",
+                        "description": "Direct MCP endpoint URL for the backend, usually ending in /mcp."
+                    },
+                    "capabilities_fingerprint": {"type": "string"},
+                    "adapter_version": {"type": "string"},
+                    "scene": {"type": "string"},
+                    "ttl_secs": {"type": "integer", "minimum": 1, "maximum": 86400}
+                },
+                "additionalProperties": false,
+            }),
+        ),
+        (
+            "GatewayInstanceHeartbeatRequest",
+            json!({
+                "type": "object",
+                "required": ["instance_id"],
+                "properties": {
+                    "instance_id": {"type": "string", "format": "uuid"},
+                    "capabilities_fingerprint": {"type": "string"},
+                    "scene": {"type": "string"}
+                },
+                "additionalProperties": false,
+            }),
+        ),
+        (
+            "GatewayInstanceDeregisterRequest",
+            json!({
+                "type": "object",
+                "required": ["instance_id"],
+                "properties": {
+                    "instance_id": {"type": "string", "format": "uuid"}
+                },
+                "additionalProperties": false,
+            }),
+        ),
+        (
+            "GatewayInstanceRegistrationResponse",
+            json!({
+                "type": "object",
+                "required": ["ok", "success"],
+                "properties": {
+                    "ok": {"type": "boolean"},
+                    "success": {"type": "boolean"},
+                    "operation": {"type": "string"},
+                    "instance_id": {"type": "string", "format": "uuid"},
+                    "instance_short": {"type": "string"},
+                    "registered_at": {"type": "integer"},
+                    "heartbeat_interval_secs": {"type": "integer", "minimum": 1},
+                    "error": {"$ref": "#/components/schemas/ServiceError"}
                 },
                 "additionalProperties": true,
             }),

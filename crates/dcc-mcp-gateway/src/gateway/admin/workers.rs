@@ -17,6 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
+use crate::gateway::http_registration::entry_mcp_url;
 use crate::gateway::state::GatewayState;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 
@@ -55,7 +56,7 @@ fn entry_to_worker_json(e: &ServiceEntry, gs: &GatewayState) -> Value {
         "dcc_type":             e.dcc_type,
         "display_name":         e.display_name,
         "pid":                  e.pid,
-        "mcp_url":              format!("http://{}:{}/mcp", e.host, e.port),
+        "mcp_url":              entry_mcp_url(e),
         "host":                 e.host,
         "port":                 e.port,
         "status":               status,
