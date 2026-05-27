@@ -1712,8 +1712,27 @@ filters:
 
         let (tasks_status, tasks_body) = body_json(router.clone(), "/api/tasks").await;
         assert_eq!(tasks_status, StatusCode::OK);
-        assert_eq!(tasks_body["tasks"][0]["task_id"], "req-task");
-        assert_eq!(tasks_body["tasks"][0]["status"], "failed");
+        assert_eq!(tasks_body["total"].as_u64(), Some(1));
+        let task = &tasks_body["tasks"][0];
+        assert_eq!(task["task_id"], "session-1");
+        assert_eq!(task["task_type"], "session_task");
+        assert_eq!(task["status"], "failed");
+        assert_eq!(task["correlation"]["request_id"], "req-task");
+        assert_eq!(task["related"]["request_ids"].as_array().unwrap().len(), 2);
+        assert_eq!(task["related"]["workflow_ids"][0], "session-1");
+        assert_eq!(task["app_types"][0], "maya");
+        assert_eq!(task["artifacts"][0]["kind"], "save");
+        assert!(task["failure_reason"].as_str().is_some_and(|reason| {
+            reason.contains("[path-redacted]") && reason.contains("[url-redacted]")
+        }));
+        assert!(
+            task["links"]["primary_request"]["debug_bundle_url"]
+                .as_str()
+                .is_some_and(|url| url.ends_with("/admin/api/debug-bundle/req-task"))
+        );
+        let failure_reason = task["failure_reason"].as_str().unwrap();
+        assert!(!failure_reason.contains("C:\\studio"));
+        assert!(!failure_reason.contains("127.0.0.1"));
 
         let (bundle_status, bundle_body) =
             body_json(router.clone(), "/api/debug-bundle/req-task").await;
@@ -1829,7 +1848,7 @@ filters:
         assert!(
             v1_tasks_body["tasks"]
                 .as_array()
-                .is_some_and(|tasks| tasks.iter().any(|task| task["task_id"] == "req-task"))
+                .is_some_and(|tasks| tasks.iter().any(|task| task["task_id"] == "session-1"))
         );
 
         let (calls_status, calls_body) = body_json(v1_router.clone(), "/v1/debug/calls").await;

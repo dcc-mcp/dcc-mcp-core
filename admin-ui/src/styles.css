@@ -1028,12 +1028,44 @@ tbody tr:hover td {
   overflow-wrap: anywhere;
 }
 
+.task-outcome {
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  margin-top: 0.45rem;
+  overflow-wrap: anywhere;
+}
+
+.task-outcome strong {
+  color: var(--foreground);
+  display: inline-block;
+  margin-right: 0.45rem;
+}
+
+.task-outcome.err strong {
+  color: var(--err);
+}
+
 .task-title-row,
-.task-meta {
+.task-meta,
+.task-chip-row {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem;
+}
+
+.task-chip-row {
+  margin-top: 0.55rem;
+}
+
+.task-chip-row span {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  font-size: 0.74rem;
+  padding: 0.25rem 0.5rem;
 }
 
 .task-type,
@@ -1052,6 +1084,8 @@ tbody tr:hover td {
 .task-side {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
   justify-content: flex-end;
 }
 
