@@ -315,6 +315,61 @@ pub struct SkillMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stage: Option<String>,
 
+    /// One-line statement of what user intent this skill satisfies
+    /// (issue #1335). Powers the search ranker's intent-match boost.
+    ///
+    /// Example: `"Import a USD layer into the active scene."`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intent: Option<String>,
+
+    /// Recall context (`app_type`, `domain`, `workflow_stage`,
+    /// `task_category`) used by the search ranker and capability graph
+    /// (issues #1335, #1336).
+    #[serde(
+        default,
+        rename = "recall_context",
+        alias = "recall-context",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub recall_context: Option<skill_recall::RecallContext>,
+
+    /// Structured preconditions that must hold before this skill can run
+    /// safely — software, plugin, selection, scene state, capability, or
+    /// free-form descriptions (issue #1335).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub preconditions: Vec<skill_recall::Precondition>,
+
+    /// Aggregate side-effect descriptor — what the skill changes in the host
+    /// (issue #1335). Feeds the capability graph and the safety surfaces.
+    #[serde(
+        default,
+        rename = "side_effects",
+        alias = "side-effects",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub side_effects: Option<skill_recall::SideEffects>,
+
+    /// Artefact / object / scene-state tags this skill produces (issue #1335).
+    /// Example: `["file:usd", "scene_node:transform", "render:beauty"]`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub produces: Vec<String>,
+
+    /// Required upstream capabilities or skill names that must run before
+    /// this one is meaningful (issue #1335). Complements the load-blocking
+    /// `depends` field.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub requires: Vec<String>,
+
+    /// Aggregate runtime success metrics — populated by the ranker / memory
+    /// layer (#1334), never authored by hand in SKILL.md.
+    #[serde(
+        default,
+        rename = "success_metrics",
+        alias = "success-metrics",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub success_metrics: Option<skill_recall::SuccessMetrics>,
+
     /// Sibling-file reference for skill recipes (issue #466).
     ///
     /// Set from `metadata.dcc-mcp.recipes` in SKILL.md frontmatter. The value
@@ -342,6 +397,7 @@ pub struct SkillMetadata {
 mod execution;
 mod skill_dependency;
 mod skill_policy;
+mod skill_recall;
 mod skill_runtime;
 mod tests;
 mod tool_declaration;
@@ -349,5 +405,6 @@ mod tool_declaration;
 pub use execution::*;
 pub use skill_dependency::*;
 pub use skill_policy::*;
+pub use skill_recall::*;
 pub use skill_runtime::*;
 pub use tool_declaration::*;

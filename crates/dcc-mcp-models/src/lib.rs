@@ -16,10 +16,11 @@ pub use dcc_name::DccName;
 pub use error::DccMcpError;
 pub use registry::{DefaultRegistry, Registry, RegistryEntry, SearchQuery};
 pub use skill_metadata::{
-    ExecutionMode, NextTools, SkillDependencies, SkillDependency, SkillDependencyType, SkillGroup,
-    SkillMetadata, SkillPolicy, SkillRuntimeDescriptor, SkillRuntimeKind, SkillRuntimeReport,
-    SkillRuntimeState, SkillRuntimeSummary, ThreadAffinity, ToolAnnotations, ToolDeclaration,
-    resolve_runtime_reports, summarize_runtime_reports,
+    ExecutionMode, NextTools, Precondition, RecallContext, RiskLevel, SideEffects,
+    SkillDependencies, SkillDependency, SkillDependencyType, SkillGroup, SkillMetadata,
+    SkillPolicy, SkillRuntimeDescriptor, SkillRuntimeKind, SkillRuntimeReport, SkillRuntimeState,
+    SkillRuntimeSummary, SuccessMetrics, ThreadAffinity, ToolAnnotations, ToolDeclaration,
+    ToolRole, resolve_runtime_reports, summarize_runtime_reports,
 };
 pub use skill_scope::SkillScope;
 
