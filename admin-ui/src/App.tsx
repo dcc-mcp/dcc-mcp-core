@@ -561,6 +561,20 @@ type WorkflowRow = {
   links?: AdminLinks;
 };
 
+type WorkflowGraphStage = 'intent' | 'discovery' | 'skillLoad' | 'toolCalls' | 'fallbacks' | 'artifacts' | 'validation' | 'report';
+
+type WorkflowGraphNode = {
+  node_id: string;
+  node_kind: 'intent' | 'step' | 'report';
+  stage: WorkflowGraphStage;
+  title: string;
+  status: string;
+  timestamp?: string | null;
+  duration_ms?: number | null;
+  step?: WorkflowStep;
+  escape_hatch?: boolean;
+};
+
 type LatencyBlock = {
   min_ms?: number;
   max_ms?: number;
@@ -2488,6 +2502,182 @@ function WorkflowSearchChips({ signal, t }: { signal: WorkflowSearchSignal | nul
   );
 }
 
+function workflowStageLabelKey(stage: WorkflowGraphStage): MessageKey {
+  switch (stage) {
+    case 'intent':
+      return 'workflows.stage.intent';
+    case 'discovery':
+      return 'workflows.stage.discovery';
+    case 'skillLoad':
+      return 'workflows.stage.skillLoad';
+    case 'toolCalls':
+      return 'workflows.stage.toolCalls';
+    case 'fallbacks':
+      return 'workflows.stage.fallbacks';
+    case 'artifacts':
+      return 'workflows.stage.artifacts';
+    case 'validation':
+      return 'workflows.stage.validation';
+    case 'report':
+      return 'workflows.stage.report';
+  }
+}
+
+function workflowStepText(step: WorkflowStep): string {
+  return [step.kind, step.title, step.tool ?? ''].join(' ').toLowerCase();
+}
+
+function isEscapeHatchStep(step: WorkflowStep): boolean {
+  const text = workflowStepText(step);
+  return ['fallback', 'script', 'python', 'eval', 'execute_code', 'execute code', 'raw command'].some((needle) => text.includes(needle));
+}
+
+function workflowStepStage(step: WorkflowStep): WorkflowGraphStage {
+  const text = workflowStepText(step);
+  if (isEscapeHatchStep(step)) {
+    return 'fallbacks';
+  }
+  if (text.includes('artifact') || text.includes('file') || text.includes('export') || text.includes('capture') || text.includes('render')) {
+    return 'artifacts';
+  }
+  if (text.includes('validat') || text.includes('verify') || text.includes('check') || text.includes('readyz') || text.includes('health')) {
+    return 'validation';
+  }
+  if (text.includes('report') || text.includes('issue')) {
+    return 'report';
+  }
+  if (text.includes('load_skill') || text.includes('load skill') || text.includes('activate')) {
+    return 'skillLoad';
+  }
+  if (step.kind === 'search' || step.kind === 'describe' || text.includes('search') || text.includes('describe') || text.includes('discover')) {
+    return 'discovery';
+  }
+  return 'toolCalls';
+}
+
+function workflowNodeTone(node: WorkflowGraphNode): 'ok' | 'warn' | 'err' | 'muted' {
+  if (isErrStatus(node.status)) {
+    return 'err';
+  }
+  if (isWarnStatus(node.status) || node.escape_hatch) {
+    return 'warn';
+  }
+  if (isOkStatus(node.status)) {
+    return 'ok';
+  }
+  return 'muted';
+}
+
+function buildWorkflowGraphNodes(workflow: WorkflowRow): WorkflowGraphNode[] {
+  const nodes: WorkflowGraphNode[] = [
+    {
+      node_id: `${workflow.workflow_id}:intent`,
+      node_kind: 'intent',
+      stage: 'intent',
+      title: workflow.agent?.user_intent_summary || workflow.agent?.task || workflow.title,
+      status: workflow.status,
+      timestamp: workflow.started_at,
+      duration_ms: null,
+    },
+  ];
+  for (const step of workflow.steps) {
+    const stage = workflowStepStage(step);
+    nodes.push({
+      node_id: step.step_id,
+      node_kind: 'step',
+      stage,
+      title: step.title,
+      status: step.status,
+      timestamp: step.timestamp,
+      duration_ms: step.duration_ms,
+      step,
+      escape_hatch: stage === 'fallbacks',
+    });
+  }
+  if (workflow.agent?.agent_reply_summary) {
+    nodes.push({
+      node_id: `${workflow.workflow_id}:report`,
+      node_kind: 'report',
+      stage: 'report',
+      title: workflow.agent.agent_reply_summary,
+      status: workflow.status,
+      timestamp: workflow.finished_at,
+      duration_ms: null,
+    });
+  }
+  return nodes;
+}
+
+function defaultWorkflowNodeId(nodes: WorkflowGraphNode[]): string {
+  return nodes.find((node) => workflowNodeTone(node) === 'err')?.node_id
+    ?? nodes.find((node) => node.escape_hatch)?.node_id
+    ?? nodes.find((node) => workflowNodeTone(node) === 'warn')?.node_id
+    ?? nodes[1]?.node_id
+    ?? nodes[0]?.node_id
+    ?? '';
+}
+
+function workflowPrimaryRequestId(workflow: WorkflowRow): string | undefined {
+  return [...workflow.steps]
+    .reverse()
+    .find((step) => step.request_id && (step.links || step.kind === 'call' || workflowStepStage(step) === 'toolCalls'))
+    ?.request_id ?? workflow.correlation.request_ids?.at(-1);
+}
+
+function workflowUniqueValues(workflow: WorkflowRow, field: 'dcc_type' | 'transport'): string[] {
+  return Array.from(new Set(workflow.steps.map((step) => step[field]).filter(Boolean) as string[]));
+}
+
+function workflowNodeRows(node: WorkflowGraphNode, workflow: WorkflowRow, t: Translator): [string, string][] {
+  if (node.node_kind === 'intent') {
+    return [
+      [t('workflows.detail.agent'), workflowAgentLabel(workflow.agent)],
+      [t('workflows.detail.model'), agentModelLabel(workflow.agent) || '-'],
+      [t('workflows.detail.intent'), workflow.agent?.user_intent_summary || workflow.agent?.task || workflow.title],
+      [t('workflows.detail.session'), compactId(workflow.correlation.session_id)],
+      [t('workflows.detail.turn'), compactId(workflow.correlation.turn_id)],
+      [t('workflows.detail.apps'), compactList(workflowUniqueValues(workflow, 'dcc_type'), '-')],
+    ];
+  }
+  if (node.node_kind === 'report') {
+    return [
+      [t('workflows.detail.reply'), workflow.agent?.agent_reply_summary ?? node.title],
+      [t('workflows.detail.status'), workflow.status],
+      [t('workflows.detail.duration'), formatDurationMs(workflow.duration_ms)],
+      [t('workflows.detail.requests'), compactList(workflow.correlation.request_ids, '-')],
+    ];
+  }
+
+  const step = node.step;
+  if (!step) {
+    return [];
+  }
+  return [
+    [t('workflows.detail.stage'), t(workflowStageLabelKey(node.stage))],
+    [t('workflows.detail.status'), step.status],
+    [t('workflows.detail.time'), formatTime(step.timestamp)],
+    [t('workflows.detail.duration'), formatDurationMs(step.duration_ms)],
+    [t('workflows.detail.app'), step.dcc_type ?? 'gateway'],
+    [t('workflows.detail.instance'), compactId(step.instance_id)],
+    [t('workflows.detail.transport'), step.transport ?? '-'],
+    [t('workflows.detail.request'), compactId(step.request_id)],
+    [t('workflows.detail.parent'), compactId(step.parent_request_id)],
+    [t('workflows.detail.tool'), step.tool ?? step.title],
+    [t('workflows.detail.search'), step.search?.search_id ? compactId(step.search.search_id) : '-'],
+  ];
+}
+
+function WorkflowStageStrip({ workflow, t }: { workflow: WorkflowRow; t: Translator }) {
+  const stages = workflow.steps.map(workflowStepStage);
+  const uniqueStages = stages.filter((stage, index) => stages.indexOf(stage) === index).slice(0, 6);
+  return (
+    <div className="workflow-stage-strip" aria-label={t('workflows.label.stagePreview')}>
+      {uniqueStages.map((stage) => <span key={stage}>{t(workflowStageLabelKey(stage))}</span>)}
+      {stages.length > uniqueStages.length ? <span>{`+${stages.length - uniqueStages.length}`}</span> : null}
+    </div>
+  );
+}
+
 function WorkflowStepCard({
   step,
   onOpenTrace,
@@ -2539,17 +2729,128 @@ function WorkflowStepCard({
   );
 }
 
-function WorkflowCard({
+function WorkflowGraphDetail({
   workflow,
+  onClose,
   onOpenTrace,
   onCopyIssueReport,
   t,
 }: {
   workflow: WorkflowRow;
+  onClose: () => void;
   onOpenTrace: (requestId: string) => void;
   onCopyIssueReport: (requestId: string) => void;
   t: Translator;
 }) {
+  const nodes = useMemo(() => buildWorkflowGraphNodes(workflow), [workflow]);
+  const [selectedNodeId, setSelectedNodeId] = useState(() => defaultWorkflowNodeId(nodes));
+  useEffect(() => {
+    setSelectedNodeId(defaultWorkflowNodeId(nodes));
+  }, [nodes]);
+
+  const selectedNode = nodes.find((node) => node.node_id === selectedNodeId) ?? nodes[0];
+  const appTypes = workflowUniqueValues(workflow, 'dcc_type');
+  const transports = workflowUniqueValues(workflow, 'transport');
+  const selectedStep = selectedNode?.step;
+
+  return (
+    <section className="workflow-detail-graph" aria-label={t('workflows.section.detail')}>
+      <div className="workflow-detail-head">
+        <div>
+          <div className="workflow-kicker">{t('workflows.label.selectedWorkflow')}</div>
+          <h3 title={workflow.title}>{workflow.title}</h3>
+          <div className="workflow-subline">
+            {t('workflows.detail.graphSummary', {
+              stages: nodes.length,
+              apps: compactList(appTypes, '-'),
+              transports: compactList(transports, '-'),
+            })}
+          </div>
+        </div>
+        <button className="refresh-btn" type="button" onClick={onClose}>{t('workflows.action.closeDetail')}</button>
+      </div>
+
+      <div className="workflow-detail-layout">
+        <div className="workflow-graph-rail">
+          <h4>{t('workflows.section.graph')}</h4>
+          <div className="workflow-graph-nodes">
+            {nodes.map((node, index) => {
+              const tone = workflowNodeTone(node);
+              const selected = node.node_id === selectedNode?.node_id;
+              return (
+                <button
+                  key={node.node_id}
+                  className={`workflow-graph-node ${tone} ${selected ? 'selected' : ''} ${node.escape_hatch ? 'escape' : ''}`}
+                  type="button"
+                  onClick={() => setSelectedNodeId(node.node_id)}
+                  aria-pressed={selected}
+                >
+                  <span className="workflow-node-index">{index + 1}</span>
+                  <span className="workflow-node-stage">{t(workflowStageLabelKey(node.stage))}</span>
+                  <strong title={node.title}>{node.title}</strong>
+                  <span className="workflow-node-meta">
+                    {node.timestamp ? <TimeValue value={node.timestamp} /> : null}
+                    <StatusBadge value={node.status} />
+                    {node.escape_hatch ? <span className="badge-warn">{t('workflows.badge.escapeHatch')}</span> : null}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="workflow-node-detail">
+          <div className="trace-card-head">
+            <div>
+              <h4>{selectedNode ? t(workflowStageLabelKey(selectedNode.stage)) : t('workflows.section.nodeDetail')}</h4>
+              {selectedNode ? <p className="workflow-agent-task">{selectedNode.title}</p> : null}
+            </div>
+          </div>
+          {selectedNode ? (
+            <>
+              <div className="workflow-detail-kv">
+                {workflowNodeRows(selectedNode, workflow, t).map(([label, value]) => (
+                  <span key={label}>
+                    <strong>{label}</strong>
+                    {value}
+                  </span>
+                ))}
+              </div>
+              {selectedStep?.search ? <WorkflowSearchChips signal={selectedStep.search} t={t} /> : null}
+              {selectedStep ? (
+                <div className="workflow-selected-step">
+                  <WorkflowStepCard
+                    step={selectedStep}
+                    onOpenTrace={onOpenTrace}
+                    onCopyIssueReport={onCopyIssueReport}
+                    t={t}
+                  />
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <p className="empty">{t('workflows.empty.detail')}</p>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function WorkflowCard({
+  workflow,
+  onInspect,
+  onOpenTrace,
+  onCopyIssueReport,
+  t,
+}: {
+  workflow: WorkflowRow;
+  onInspect: (workflowId: string) => void;
+  onOpenTrace: (requestId: string) => void;
+  onCopyIssueReport: (requestId: string) => void;
+  t: Translator;
+}) {
+  const requestId = workflowPrimaryRequestId(workflow);
   return (
     <article className={`workflow-card ${isErrStatus(workflow.status) ? 'err' : isWarnStatus(workflow.status) ? 'warn' : 'ok'}`}>
       <div className="workflow-card-head">
@@ -2578,16 +2879,21 @@ function WorkflowCard({
         {workflow.discovery.time_to_first_success_ms != null ? <span>{t('workflows.chip.firstSuccess', { duration: formatDurationMs(workflow.discovery.time_to_first_success_ms) })}</span> : null}
         {workflow.failed_steps ? <span>{t('workflows.chip.failed', { count: workflow.failed_steps })}</span> : null}
       </div>
-      <div className="workflow-steps">
-        {workflow.steps.map((step) => (
-          <WorkflowStepCard
-            key={step.step_id}
-            step={step}
-            onOpenTrace={onOpenTrace}
-            onCopyIssueReport={onCopyIssueReport}
-            t={t}
-          />
-        ))}
+      <WorkflowStageStrip workflow={workflow} t={t} />
+      <div className="workflow-card-actions">
+        <button className="refresh-btn" type="button" onClick={() => onInspect(workflow.workflow_id)}>
+          {t('workflows.action.inspect')}
+        </button>
+        {requestId ? (
+          <button className="refresh-btn" type="button" title={requestId} onClick={() => onOpenTrace(requestId)}>
+            {t('common.action.trace')}
+          </button>
+        ) : null}
+        {requestId ? (
+          <button className="refresh-btn" type="button" onClick={() => onCopyIssueReport(requestId)}>
+            {t('workflows.action.copyJson')}
+          </button>
+        ) : null}
       </div>
     </article>
   );
@@ -2893,6 +3199,7 @@ function App() {
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
   const [tools, setTools] = useState<ToolRow[]>([]);
   const [workflows, setWorkflows] = useState<WorkflowRow[]>([]);
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [calls, setCalls] = useState<CallRow[]>([]);
   const [traces, setTraces] = useState<TraceRow[]>([]);
@@ -3198,6 +3505,15 @@ function App() {
       ),
     );
   }, [workflows, listSearch]);
+
+  const selectedWorkflow = useMemo(
+    () => workflows.find((workflow) => workflow.workflow_id === selectedWorkflowId) ?? null,
+    [workflows, selectedWorkflowId],
+  );
+  const visibleSelectedWorkflow = useMemo(
+    () => selectedWorkflow && filteredWorkflows.some((workflow) => workflow.workflow_id === selectedWorkflow.workflow_id) ? selectedWorkflow : null,
+    [filteredWorkflows, selectedWorkflow],
+  );
 
   const filteredInstanceRows = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
@@ -4848,6 +5164,15 @@ function App() {
               <MetricTile tone={workflowSummary.zeroResults > 0 ? 'warn' : undefined} label={t('workflows.metric.zeroResult')} value={workflowSummary.zeroResults} />
               <MetricTile label={t('common.metric.visible')} value={`${filteredWorkflows.length} / ${workflows.length}`} />
             </div>
+            {visibleSelectedWorkflow ? (
+              <WorkflowGraphDetail
+                workflow={visibleSelectedWorkflow}
+                onClose={() => setSelectedWorkflowId(null)}
+                onOpenTrace={(requestId) => goToPanel('traces', { traceId: requestId })}
+                onCopyIssueReport={(requestId) => void copyIssueReport(requestId)}
+                t={t}
+              />
+            ) : null}
             {workflows.length === 0 ? <p className="empty">{t('workflows.empty.none')}</p> : filteredWorkflows.length === 0 ? (
               <p className="empty">{t('workflows.empty.search')}</p>
             ) : (
@@ -4856,6 +5181,7 @@ function App() {
                   <WorkflowCard
                     key={`${workflow.group_kind}-${workflow.workflow_id}`}
                     workflow={workflow}
+                    onInspect={(workflowId) => setSelectedWorkflowId(workflowId)}
                     onOpenTrace={(requestId) => goToPanel('traces', { traceId: requestId })}
                     onCopyIssueReport={(requestId) => void copyIssueReport(requestId)}
                     t={t}
