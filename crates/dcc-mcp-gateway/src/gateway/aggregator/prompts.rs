@@ -20,6 +20,7 @@ use dcc_mcp_gateway_core::naming::{decode_tool_name, encode_tool_name_cursor_saf
 use super::*;
 
 use super::super::backend_client::{fetch_prompts, forward_prompts_get, try_fetch_prompts};
+use super::super::http_registration::entry_mcp_url;
 
 /// Build the unified `prompts/list` result by aggregating every live backend.
 ///
@@ -47,7 +48,7 @@ pub async fn aggregate_prompts_list(gs: &GatewayState) -> Value {
     let client = &gs.http_client;
     let backend_timeout = gs.backend_timeout;
     let futs = instances.iter().map(|entry| async move {
-        let url = format!("http://{}:{}/mcp", entry.host, entry.port);
+        let url = entry_mcp_url(entry);
         let prompts = try_fetch_prompts(client, &url, backend_timeout).await;
         (entry.instance_id, entry.dcc_type.clone(), prompts)
     });
@@ -156,7 +157,7 @@ pub async fn route_prompts_get(
         }
     };
 
-    let url = format!("http://{}:{}/mcp", entry.host, entry.port);
+    let url = entry_mcp_url(&entry);
     forward_prompts_get(
         &gs.http_client,
         &url,
@@ -260,7 +261,7 @@ pub(crate) async fn compute_prompts_fingerprint_with_own(
     };
 
     let futs = instances.iter().map(|entry| async move {
-        let url = format!("http://{}:{}/mcp", entry.host, entry.port);
+        let url = entry_mcp_url(entry);
         let prompts = fetch_prompts(http_client, &url, backend_timeout).await;
         (entry.instance_id, prompts)
     });

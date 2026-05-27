@@ -182,6 +182,7 @@ Gateway resources/prompts:
 | Multi-DCC gateway | `McpHttpConfig(gateway_port=9765)` |
 | Choose `dcc-mcp-server` run mode | No subcommand or `auto` = per-DCC server + first-wins auto-gateway; `serve --no-auto-gateway` = per-DCC server only; `gateway` = machine-wide gateway daemon with no inline DCC execution |
 | Discover gateway DCC instances / direct MCP URLs | `resources/read uri="gateway://instances"` or `gateway://instances/{id}`; entries carry `mcp_url` and replace the removed `list_dcc_instances` / `get_dcc_instance` / `connect_to_dcc` tools |
+| Register a remote DCC with a gateway that cannot share `FileRegistry` | `POST /v1/instances/register` with `{instance_id, dcc_type, mcp_url, ttl_secs?}`; refresh with `/heartbeat`, remove with `/deregister`; `gateway://instances` marks these rows with `source: "http"` |
 | Gateway dynamic capabilities | MCP `search` → `describe` for read-only discovery, then REST `/v1/call` / `POST /v1/call_batch` for execution |
 | Gateway resources/prompts | `resources/list` / `resources/read` with exact gateway-returned URIs; `prompts/list` / `prompts/get` for aggregated backend prompt templates |
 
@@ -195,6 +196,7 @@ Gateway resources/prompts:
 | Hide unknown DCC types from gateway | `McpHttpConfig.allow_unknown_tools = false` (default) — drops tools whose `dcc_type` is not registered with the gateway (#553, #555) |
 | Auto-evict dead gateway instances | Gateway runs a TCP probe loop; deregisters after 3 consecutive failures, also runs a startup probe to evict instances whose listener died while the registry entry survived (#551, #552, #556) |
 | Crash-safe heartbeat | `FileRegistry::heartbeat` writes via `tempfile::persist` + Windows `LockFileEx` so concurrent processes can't stomp each other's entry (#554) |
+| Remote HTTP registration heartbeat | `POST /v1/instances/heartbeat` refreshes TTL-scoped HTTP rows; the shared `live_instances` view merges them with FileRegistry rows, and HTTP rows win conflicts on identical `instance_id` (#1361) |
 | Crash-resilient liveness check | `FileRegistry` sentinel lock files — `read_alive()` / `prune_dead_entries()` evict rows whose owner process released its OS-held lock (#748) |
 | Default rolling file logging | `default_file_logging_config()` from `dcc_mcp_logging::file_logging` — rolling daily files under the platform log dir (#557) |
 | Trim old log files | `prune_old_logs(retention_days, max_total_size_mb)` — call on a schedule or at startup to enforce retention (#558) |

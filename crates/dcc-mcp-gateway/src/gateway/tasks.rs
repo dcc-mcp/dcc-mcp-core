@@ -131,6 +131,10 @@ pub(crate) async fn start_gateway_tasks(
         .connect_timeout(Duration::from_secs(10))
         .build()?;
 
+    let http_instance_registry = Arc::new(parking_lot::RwLock::new(
+        crate::gateway::http_registration::HttpInstanceRegistry::default(),
+    ));
+
     // ── Contention event log + Prometheus counters (issue #766) ───────────
     let contention_log = Arc::new(crate::gateway::event_log::EventLog::new());
     #[cfg(feature = "prometheus")]
@@ -520,6 +524,7 @@ pub(crate) async fn start_gateway_tasks(
     let sub_for_task = subscriber.clone();
     let sub_own_host = own_host.clone();
     let sub_own_port = own_port;
+    let sub_http_registry = http_instance_registry.clone();
     let backend_sub_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(2));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -527,7 +532,8 @@ pub(crate) async fn start_gateway_tasks(
             interval.tick().await;
             let urls: Vec<String> = {
                 let r = reg_sub.read().await;
-                r.list_all()
+                let mut entries: Vec<_> = r
+                    .list_all()
                     .into_iter()
                     .filter(|e| {
                         e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
@@ -535,7 +541,17 @@ pub(crate) async fn start_gateway_tasks(
                             && !e.is_stale(stale_timeout)
                             && !is_own_instance(e, &sub_own_host, sub_own_port)
                     })
-                    .map(|e| format!("http://{}:{}/mcp", e.host, e.port))
+                    .collect();
+                let http_entries = sub_http_registry
+                    .read()
+                    .live_entries(std::time::SystemTime::now());
+                let http_ids: std::collections::HashSet<_> =
+                    http_entries.iter().map(|entry| entry.instance_id).collect();
+                entries.retain(|entry| !http_ids.contains(&entry.instance_id));
+                entries.extend(http_entries);
+                entries
+                    .into_iter()
+                    .map(|e| crate::gateway::http_registration::entry_mcp_url(&e))
                     .collect()
             };
             // Add subscriptions for newly-appeared backends.
@@ -563,6 +579,7 @@ pub(crate) async fn start_gateway_tasks(
     #[cfg_attr(not(feature = "admin"), allow(unused_mut))]
     let mut gw_state = GatewayState {
         registry: registry.clone(),
+        http_instance_registry: http_instance_registry.clone(),
         stale_timeout,
         backend_timeout,
         async_dispatch_timeout,
