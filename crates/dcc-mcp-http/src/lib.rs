@@ -73,6 +73,7 @@ pub mod metrics;
 // Re-exports
 pub use bridge_registry::{BridgeContext, BridgeRegistry};
 pub use config::{McpHttpConfig, ServerSpawnMode};
+#[cfg(feature = "auto-gateway")]
 pub use dcc_mcp_gateway::{GatewayConfig, GatewayHandle, GatewayRunner};
 pub use dcc_mcp_http_types::debug_session::{
     DebugPathMapping, DebugSessionDescriptor, DebugSessionStatus,
