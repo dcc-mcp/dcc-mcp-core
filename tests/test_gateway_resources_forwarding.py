@@ -72,6 +72,26 @@ def _make_backend(dcc: str, registry_dir: Path, gw_port: int) -> tuple[McpHttpSe
     return server, handle
 
 
+def _wait_for_forwarded_backend_resources(gateway_url: str, timeout: float = 10.0) -> None:
+    """Wait until the gateway watcher has merged backend B's resources."""
+    deadline = time.monotonic() + timeout
+    last_uris: list[str] = []
+    while time.monotonic() < deadline:
+        try:
+            resp = _post_mcp(gateway_url, "resources/list")
+            resources = resp.get("result", {}).get("resources", [])
+            uris = sorted(r.get("uri", "") for r in resources)
+        except Exception:
+            uris = []
+        has_blender_pointer = any(u.startswith("dcc://blender/") for u in uris)
+        has_prefixed_scene = any(u.startswith("scene://") and _split_gateway_prefixed_uri(u) is not None for u in uris)
+        if has_blender_pointer and has_prefixed_scene:
+            return
+        last_uris = uris
+        time.sleep(0.2)
+    raise AssertionError(f"gateway did not expose backend resources within {timeout}s: {last_uris}")
+
+
 def _split_gateway_prefixed_uri(uri: str) -> tuple[str, str, str] | None:
     """Return ``(scheme, id8, rest)`` if ``uri`` follows the gateway's
     forwarded shape ``<scheme>://<id8>/<rest>``, else ``None``.
@@ -101,11 +121,12 @@ def two_backend_cluster(tmp_path_factory):
     time.sleep(0.3)  # let A bind the gateway port before B registers
     _server_b, handle_b = _make_backend("blender", registry_dir, gw_port)
 
-    # Give the gateway's 2-second instance-watcher time to observe both.
-    time.sleep(2.2)
-
     if not handle_a.is_gateway:
         pytest.skip(f"backend A did not win the gateway port competition on {gw_port}; another process may hold it")
+
+    # Wait for the gateway's instance watcher to observe backend B and fan out
+    # resources/list. A fixed 2.2s sleep was flaky on slower macOS runners.
+    _wait_for_forwarded_backend_resources(f"http://127.0.0.1:{gw_port}/mcp")
 
     try:
         yield {
