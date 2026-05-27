@@ -357,7 +357,7 @@ tools:
 - Both accept lists of fully-qualified tool names (`skill_name__tool_name` format)
 - This is a dcc-mcp-core extension, not part of the agentskills.io specification; successful calls expose `CallToolResult._meta["dcc.next_tools"].on_success`, failed calls expose `.on_failure`
 
-**AI Agent Tool Priority**: When interacting with DCCs, prefer: (1) Skill Discovery (`search_skills` → `load_skill`), (2) Skill-based tools (validated schemas + `next-tools` + `ToolAnnotations` safety hints), (3) read gateway diagnostics via `gateway://diagnostics/*` resources or per-DCC diagnostics tools (`diagnostics__screenshot` etc.), (4) Direct registry access (last resort). Skills-first provides safety, discoverability, chainability, progressive exposure, and input validation.
+**AI Agent Tool Priority**: When interacting with DCCs, prefer: (1) Skill Discovery (`search_skills` → `load_skill`), (2) Skill-based tools (validated schemas + `next-tools` + `ToolAnnotations` safety hints), (3) read gateway diagnostics via `gateway://diagnostics/*` resources or per-DCC diagnostics tools (`dcc_diagnostics__screenshot` etc.), (4) Direct registry access (last resort). Skills-first provides safety, discoverability, chainability, progressive exposure, and input validation.
 
 **Adapter skill authoring**: Use `skills/dcc-skills-creator/` to scaffold and validate skill packages. Use `skills/dcc-mcp-skill-developer/` before building or modernizing DCC adapter skills; it summarizes patterns from dcc-mcp-maya, dcc-mcp-blender, and dcc-mcp-3dsmax, including stage taxonomy, execution/affinity metadata, host matrix, and testing/VRS choices.
 
@@ -473,8 +473,8 @@ tools:
 
 ### Instance-Bound Diagnostics (`dcc_mcp_core`)
 
-- `DccServerOptions.from_env(..., dcc_pid=..., dcc_window_title=..., dcc_window_handle=...)` + `DccServerBase(opts)` — bind an adapter to a specific DCC instance; the four `diagnostics__*` tools target this DCC only
-- `register_diagnostic_mcp_tools(server, *, dcc_name, dcc_pid=None, dcc_window_handle=None, dcc_window_title=None, resolver=None)` — register `diagnostics__screenshot`, `diagnostics__audit_log`, `diagnostics__tool_metrics`, `diagnostics__process_status` on an `McpHttpServer` before `.start()`
+- `DccServerOptions.from_env(..., dcc_pid=..., dcc_window_title=..., dcc_window_handle=...)` + `DccServerBase(opts)` — bind an adapter to a specific DCC instance; the four `dcc_diagnostics__*` tools target this DCC only
+- `register_diagnostic_mcp_tools(server, *, dcc_name, dcc_pid=None, dcc_window_handle=None, dcc_window_title=None, resolver=None)` — register `dcc_diagnostics__screenshot`, `dcc_diagnostics__audit_log`, `dcc_diagnostics__tool_metrics`, `dcc_diagnostics__process_status` on an `McpHttpServer` before `.start()`
 - IPC handlers (renamed in 0.14.0, no compat aliases): `get_audit_log`, `get_tool_metrics` (was `get_action_metrics`), `dispatch_tool` (was `dispatch_action`), `take_screenshot`
 - `register_diagnostic_handlers(...)` — the IPC-path equivalent (used by `DccServerBase.start()`)
 - Bundled `dcc-diagnostics` skill's `screenshot.py` tries `DCC_MCP_OWNER_IPC` → `channel.call("take_screenshot")` first and falls back to `Capturer.new_auto()` when no owner IPC is set

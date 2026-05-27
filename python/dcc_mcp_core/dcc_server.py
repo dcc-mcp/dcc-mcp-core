@@ -561,7 +561,7 @@ def register_diagnostic_mcp_tools(
     dcc_window_title: str | None = None,
     resolver: Callable[[], int | None] | None = None,
 ) -> None:
-    """Register the four ``diagnostics__*`` MCP tools on *server*.
+    """Register the four ``dcc_diagnostics__*`` MCP tools on *server*.
 
     Tools are registered as regular :class:`ToolRegistry` entries so they
     appear in ``tools/list`` and can be invoked via ``tools/call``. Must be

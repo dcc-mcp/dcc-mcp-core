@@ -216,7 +216,7 @@ process so diagnostics (screenshot, audit log, metrics) target the right
 window and PID.
 
 `DccServerBase` accepts three optional instance-binding kwargs and exposes
-four `diagnostics__*` MCP tools:
+four `dcc_diagnostics__*` MCP tools:
 
 ```python
 from dcc_mcp_core import DccServerBase
@@ -232,7 +232,7 @@ class MayaServer(DccServerBase):
         )
 
 server = MayaServer(pid=12345, window_title="Autodesk Maya 2024")
-handle = server.start()  # exposes diagnostics__screenshot / audit_log /
+handle = server.start()  # exposes dcc_diagnostics__screenshot / audit_log /
                          # tool_metrics / process_status tools bound to
                          # this Maya instance only
 ```
