@@ -824,8 +824,30 @@ type InstanceSummary = {
 
 type SkillPathRow = {
   path: string;
+  display_path?: string;
+  path_alias?: string;
+  path_hash?: string;
+  path_redacted?: boolean;
+  status?: string;
+  exists?: boolean;
   source: string;
   id?: number;
+};
+
+type SkillAdoptionMetrics = {
+  search_hits: number;
+  best_rank: number | null;
+  average_rank: number | null;
+  selected_count: number;
+  call_count: number;
+  failure_count: number;
+  load_error_count: number;
+  last_searched: string | null;
+  last_used: string | null;
+  fallback_displaced_by_scripting: number;
+  searched: boolean;
+  used: boolean;
+  low_adoption: boolean;
 };
 
 type SkillRow = {
@@ -839,6 +861,9 @@ type SkillRow = {
   instance_details: SkillInstanceRef[];
   tools: string[];
   summary?: string | null;
+  adoption: SkillAdoptionMetrics;
+  package?: string | null;
+  version?: string | null;
 };
 
 type SkillInstanceRef = {
@@ -853,6 +878,13 @@ type SkillPayload = {
   loaded?: number;
   unloaded?: number;
   action_count?: number;
+  health?: {
+    searched_skills?: number;
+    used_skills?: number;
+    low_adoption_skills?: number;
+    load_error_count?: number;
+    missing_path_count?: number;
+  };
   error?: string;
 };
 
@@ -909,6 +941,81 @@ function normalizeSkillInstanceRef(raw: unknown, fallbackPrefix = '', fallbackDc
   };
 }
 
+function defaultSkillAdoption(): SkillAdoptionMetrics {
+  return {
+    search_hits: 0,
+    best_rank: null,
+    average_rank: null,
+    selected_count: 0,
+    call_count: 0,
+    failure_count: 0,
+    load_error_count: 0,
+    last_searched: null,
+    last_used: null,
+    fallback_displaced_by_scripting: 0,
+    searched: false,
+    used: false,
+    low_adoption: false,
+  };
+}
+
+function normalizeSkillAdoption(raw: unknown): SkillAdoptionMetrics {
+  const o = recordOrNull(raw);
+  const fallback = defaultSkillAdoption();
+  if (!o) {
+    return fallback;
+  }
+  const bestRank = o.best_rank == null ? null : Number(o.best_rank);
+  const averageRank = o.average_rank == null ? null : Number(o.average_rank);
+  const searchHits = Number(o.search_hits ?? 0);
+  const callCount = Number(o.call_count ?? 0);
+  return {
+    search_hits: searchHits,
+    best_rank: Number.isFinite(bestRank ?? NaN) ? bestRank : null,
+    average_rank: Number.isFinite(averageRank ?? NaN) ? averageRank : null,
+    selected_count: Number(o.selected_count ?? 0),
+    call_count: callCount,
+    failure_count: Number(o.failure_count ?? 0),
+    load_error_count: Number(o.load_error_count ?? 0),
+    last_searched: o.last_searched == null ? null : String(o.last_searched),
+    last_used: o.last_used == null ? null : String(o.last_used),
+    fallback_displaced_by_scripting: Number(o.fallback_displaced_by_scripting ?? 0),
+    searched: o.searched === true || searchHits > 0,
+    used: o.used === true || callCount > 0,
+    low_adoption: o.low_adoption === true,
+  };
+}
+
+function safeSkillPathDisplay(source: string, id?: number): string {
+  const safeSource = source.replace(/[^\w:.-]+/g, '_').slice(0, 64) || 'skill_path';
+  return `${safeSource} #${id ?? 1}`;
+}
+
+function normalizeSkillPathRow(raw: unknown): SkillPathRow {
+  const o = recordOrNull(raw);
+  if (!o) {
+    return { path: '', source: '' };
+  }
+  const source = String(o.source ?? '');
+  const id = o.id == null ? undefined : Number(o.id);
+  const rawPath = String(o.path ?? '');
+  const safeId = typeof id === 'number' && Number.isFinite(id) ? id : undefined;
+  const displayPath = o.display_path == null
+    ? safeSkillPathDisplay(source, safeId)
+    : String(o.display_path);
+  return {
+    path: rawPath,
+    display_path: displayPath,
+    path_alias: o.path_alias == null ? undefined : String(o.path_alias),
+    path_hash: o.path_hash == null ? undefined : String(o.path_hash),
+    path_redacted: o.path_redacted !== false,
+    status: o.status == null ? undefined : String(o.status),
+    exists: o.exists == null ? undefined : o.exists === true,
+    source,
+    id: safeId,
+  };
+}
+
 function normalizeSkillRow(raw: unknown): SkillRow {
   if (!raw || typeof raw !== 'object') {
     return {
@@ -921,6 +1028,7 @@ function normalizeSkillRow(raw: unknown): SkillRow {
       instance_ids: [],
       instance_details: [],
       tools: [],
+      adoption: defaultSkillAdoption(),
     };
   }
   const o = raw as Record<string, unknown>;
@@ -945,6 +1053,9 @@ function normalizeSkillRow(raw: unknown): SkillRow {
     instance_details: instanceDetails,
     tools,
     summary: o.summary == null ? null : String(o.summary),
+    adoption: normalizeSkillAdoption(o.adoption),
+    package: o.package == null ? null : String(o.package),
+    version: o.version == null ? null : String(o.version),
   };
 }
 
@@ -3280,7 +3391,17 @@ function App() {
   const [logSeverityFilter, setLogSeverityFilter] = useState<LogSeverityFilter>('all');
   const [skillPaths, setSkillPaths] = useState<SkillPathRow[]>([]);
   const [skills, setSkills] = useState<SkillRow[]>([]);
-  const [skillTotals, setSkillTotals] = useState({ total: 0, loaded: 0, unloaded: 0, action_count: 0 });
+  const [skillTotals, setSkillTotals] = useState({
+    total: 0,
+    loaded: 0,
+    unloaded: 0,
+    action_count: 0,
+    searched: 0,
+    used: 0,
+    low_adoption: 0,
+    load_errors: 0,
+    missing_paths: 0,
+  });
   const [skillPathInput, setSkillPathInput] = useState('');
   const [skillPathBusy, setSkillPathBusy] = useState(false);
   const [selectedSkill, setSelectedSkill] = useState<SkillRow | null>(null);
@@ -3649,7 +3770,17 @@ function App() {
       return skillPaths;
     }
     return skillPaths.filter((r) =>
-      matchesListFilter(q, haystack(r.path, r.source, r.id != null ? String(r.id) : '')),
+      matchesListFilter(
+        q,
+        haystack(
+          r.display_path ?? r.path,
+          r.path_alias ?? '',
+          r.path_hash ?? '',
+          r.status ?? '',
+          r.source,
+          r.id != null ? String(r.id) : '',
+        ),
+      ),
     );
   }, [skillPaths, listSearch]);
 
@@ -3668,6 +3799,9 @@ function App() {
           skill.summary ?? '',
           skill.instances.join(' '),
           skill.tools.join(' '),
+          skill.adoption.low_adoption ? 'low adoption' : '',
+          skill.adoption.searched ? 'searched' : '',
+          skill.adoption.used ? 'used' : '',
         ),
       ),
     );
@@ -4337,7 +4471,7 @@ function App() {
   const fetchSkillPaths = useCallback(async () => {
     try {
       const payload = await apiJson<{ paths: SkillPathRow[] }>('/skill-paths');
-      setSkillPaths(Array.isArray(payload.paths) ? payload.paths : []);
+      setSkillPaths(Array.isArray(payload.paths) ? payload.paths.map(normalizeSkillPathRow) : []);
       markUpdated(
         'skill-paths',
         t('common.updated.paths', { count: payload.paths?.length ?? 0, time: new Date().toLocaleTimeString() }),
@@ -4351,12 +4485,18 @@ function App() {
     try {
       const payload = await apiJson<SkillPayload>('/skills');
       const rows = Array.isArray(payload.skills) ? payload.skills.map(normalizeSkillRow) : [];
+      const health = payload.health ?? {};
       setSkills(rows);
       setSkillTotals({
         total: Number(payload.total ?? rows.length),
         loaded: Number(payload.loaded ?? rows.filter((skill) => skill.loaded).length),
         unloaded: Number(payload.unloaded ?? rows.filter((skill) => !skill.loaded).length),
         action_count: Number(payload.action_count ?? rows.reduce((sum, skill) => sum + skill.action_count, 0)),
+        searched: Number(health.searched_skills ?? rows.filter((skill) => skill.adoption.searched).length),
+        used: Number(health.used_skills ?? rows.filter((skill) => skill.adoption.used).length),
+        low_adoption: Number(health.low_adoption_skills ?? rows.filter((skill) => skill.adoption.low_adoption).length),
+        load_errors: Number(health.load_error_count ?? rows.reduce((sum, skill) => sum + skill.adoption.load_error_count, 0)),
+        missing_paths: Number(health.missing_path_count ?? 0),
       });
       markUpdated(
         'skill-paths',
@@ -5824,6 +5964,9 @@ function App() {
               <MetricTile label={t('skillPaths.metric.loadedSkills')} value={skillTotals.loaded} detail={t('skillPaths.detail.indexed', { count: skillTotals.total })} />
               <MetricTile label={t('skillPaths.metric.actions')} value={skillTotals.action_count} detail={t('skillPaths.detail.fromLoadedSkills')} />
               <MetricTile label={t('skillPaths.metric.searchPaths')} value={skillPaths.length} detail={t('skillPaths.detail.activeDiscoveryRoots')} />
+              <MetricTile label={t('skillPaths.metric.searchedUsed')} value={`${skillTotals.searched} / ${skillTotals.used}`} detail={t('skillPaths.detail.searchedUsed')} />
+              <MetricTile tone={skillTotals.low_adoption > 0 ? 'warn' : 'ok'} label={t('skillPaths.metric.lowAdoption')} value={skillTotals.low_adoption} detail={t('skillPaths.detail.lowAdoption')} />
+              <MetricTile tone={skillTotals.load_errors > 0 || skillTotals.missing_paths > 0 ? 'warn' : 'ok'} label={t('skillPaths.metric.healthSignals')} value={skillTotals.load_errors + skillTotals.missing_paths} detail={t('skillPaths.detail.healthSignals', { loads: skillTotals.load_errors, paths: skillTotals.missing_paths })} />
             </div>
             <div className="skill-inventory-section">
               <h3 className="section-kicker">{t('skillPaths.section.loadedSkills')}</h3>
@@ -5834,15 +5977,17 @@ function App() {
                     <th>DCC</th>
                     <th>{t('skillPaths.table.state')}</th>
                     <th>{t('skillPaths.metric.actions')}</th>
+                    <th>{t('skillPaths.table.discovery')}</th>
+                    <th>{t('skillPaths.table.usage')}</th>
                     <th>{t('skillPaths.table.instances')}</th>
                     <th>{t('common.table.tool')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {skills.length === 0 ? (
-                    <EmptyRow columns={6}>{t('skillPaths.empty.skills')}</EmptyRow>
+                    <EmptyRow columns={8}>{t('skillPaths.empty.skills')}</EmptyRow>
                   ) : filteredSkills.length === 0 ? (
-                    <EmptyRow columns={6}>{t('skillPaths.empty.skillsSearch')}</EmptyRow>
+                    <EmptyRow columns={8}>{t('skillPaths.empty.skillsSearch')}</EmptyRow>
                   ) : (
                     filteredSkills.map((skill) => (
                       <tr
@@ -5858,6 +6003,25 @@ function App() {
                         <td><span className="source-pill">{skill.dcc_type || t('common.status.unknown')}</span></td>
                         <td><span className={`badge ${skill.loaded ? 'badge-ok' : 'badge-muted'}`}>{skill.loaded ? t('skillPaths.state.loaded') : t('skillPaths.state.unloaded')}</span></td>
                         <td>{skill.action_count}</td>
+                        <td>
+                          <span>{t('skillPaths.usage.searchHits', { count: skill.adoption.search_hits })}</span>
+                          <div className="muted">
+                            {skill.adoption.best_rank == null ? t('skillPaths.usage.noRank') : t('skillPaths.usage.bestRank', { rank: skill.adoption.best_rank })}
+                            {' · '}
+                            {t('skillPaths.usage.selected', { count: skill.adoption.selected_count })}
+                          </div>
+                        </td>
+                        <td>
+                          <span className={`badge ${skill.adoption.failure_count > 0 || skill.adoption.load_error_count > 0 ? 'badge-err' : skill.adoption.used ? 'badge-ok' : skill.adoption.low_adoption ? 'badge-warn' : 'badge-muted'}`}>
+                            {skill.adoption.low_adoption ? t('skillPaths.state.lowAdoption') : skill.adoption.used ? t('skillPaths.state.used') : t('skillPaths.state.notUsed')}
+                          </span>
+                          <div className="muted">
+                            {t('skillPaths.usage.callsFailures', { calls: skill.adoption.call_count, failures: skill.adoption.failure_count })}
+                          </div>
+                          <div className="muted">
+                            {skill.adoption.last_used ? t('skillPaths.usage.lastUsed', { time: formatTraceDate(skill.adoption.last_used ?? undefined) }) : t('skillPaths.usage.neverUsed')}
+                          </div>
+                        </td>
                         <td className="mono-path">{skill.instances.join(', ') || '—'}</td>
                         <td className="mono-path">{skill.tools.slice(0, 8).join(', ')}{skill.tools.length > 8 ? ` +${skill.tools.length - 8}` : ''}</td>
                       </tr>
@@ -5899,24 +6063,33 @@ function App() {
               <thead>
                 <tr>
                   <th>{t('skillPaths.table.source')}</th>
-                  <th>{t('skillPaths.table.path')}</th>
+                  <th>{t('skillPaths.table.pathAlias')}</th>
+                  <th>{t('skillPaths.table.status')}</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
                 {skillPaths.length === 0 ? (
-                  <EmptyRow columns={3}>{t('skillPaths.empty.paths')}</EmptyRow>
+                  <EmptyRow columns={4}>{t('skillPaths.empty.paths')}</EmptyRow>
                 ) : filteredSkillPaths.length === 0 ? (
-                  <EmptyRow columns={3}>{t('skillPaths.empty.pathsSearch')}</EmptyRow>
+                  <EmptyRow columns={4}>{t('skillPaths.empty.pathsSearch')}</EmptyRow>
                 ) : (
                   filteredSkillPaths.map((row) => (
-                    <tr key={`${row.source}-${row.path}-${row.id ?? 'x'}`}>
+                    <tr key={`${row.source}-${row.path_hash ?? row.path}-${row.id ?? 'x'}`}>
                       <td>
                         <span className="source-pill" data-source={row.source}>
                           {row.source}
                         </span>
                       </td>
-                      <td className="mono-path">{row.path}</td>
+                      <td>
+                        <span className="mono-path">{row.display_path ?? row.path}</span>
+                        {row.path_alias ? <div className="muted">{row.path_alias}</div> : null}
+                      </td>
+                      <td>
+                        <span className={`badge ${row.status === 'present' ? 'badge-ok' : row.status === 'missing' ? 'badge-warn' : 'badge-muted'}`}>
+                          {row.status === 'present' ? t('skillPaths.state.present') : row.status === 'missing' ? t('skillPaths.state.missing') : row.status ?? t('common.status.unknown')}
+                        </span>
+                      </td>
                       <td>
                         {row.id != null ? (
                           <button type="button" className="linkish" disabled={skillPathBusy} onClick={() => void deleteSkillPath(row.id!)}>

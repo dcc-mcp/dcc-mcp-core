@@ -146,9 +146,9 @@ vx git diff --check
 | `GET /admin/api/workers` | `application/json` | 来自 live registry 的实例卡片；响应字段名保留 `workers` 以兼容现有客户端 |
 | `GET /admin/api/logs` | `application/json` | 合并后的网关竞争事件、磁盘 `*.log` 行和审计调用摘要 |
 | `GET /admin/api/health` | `application/json` | 服务健康摘要 |
-| `GET /admin/api/skills` | `application/json` | 按 DCC 类型、skill 名、加载状态、工具和后端实例聚合的实时 skill 清单 |
+| `GET /admin/api/skills` | `application/json` | 按 DCC 类型、skill 名、加载状态、工具、后端实例，以及来自 search telemetry 和审计调用的 skill 健康/采用指标聚合实时 skill 清单 |
 | `GET /admin/api/skill-detail?name=...` | `application/json` | 单个 skill 的后端详情；可用时包含用于 review 的 `SKILL.md` Markdown 内容 |
-| `GET /admin/api/skill-paths` | `application/json` | 当前 skill 发现根目录，包括环境变量、本地默认路径、内置路径和 admin custom 路径 |
+| `GET /admin/api/skill-paths` | `application/json` | 当前 skill 发现根目录，返回安全路径别名、存在/缺失状态和 source/id 元数据，便于公开截图和导出 |
 | `POST /admin/api/skill-paths` | `application/json` | 添加 SQLite 持久化的自定义 skill 发现根目录，并刷新 live backend skill index |
 | `DELETE /admin/api/skill-paths/{id}` | `application/json` | 删除 SQLite 持久化的自定义 skill 发现根目录，并刷新 live backend skill index |
 

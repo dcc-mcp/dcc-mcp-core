@@ -1,6 +1,6 @@
 //! Admin UI HTTP handlers.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::time::Duration;
 use std::time::UNIX_EPOCH;
 
@@ -286,74 +286,7 @@ pub async fn handle_admin_tools(State(s): State<AdminState>) -> impl IntoRespons
 pub async fn handle_admin_skills(State(s): State<AdminState>) -> impl IntoResponse {
     reload_skill_paths_and_refresh_backends(&s, RefreshReason::Periodic).await;
     let records = s.gateway.capability_index.snapshot().records;
-    let mut grouped: BTreeMap<(String, String, bool), Vec<_>> = BTreeMap::new();
-    for record in records.iter().cloned() {
-        let skill_name = record
-            .skill_name
-            .clone()
-            .unwrap_or_else(|| record.backend_tool.clone());
-        grouped
-            .entry((record.dcc_type.clone(), skill_name, record.loaded))
-            .or_default()
-            .push(record);
-    }
-
-    let mut loaded = 0usize;
-    let mut action_count = 0usize;
-    let skills: Vec<Value> = grouped
-        .into_iter()
-        .map(|((dcc_type, name, is_loaded), records)| {
-            if is_loaded {
-                loaded += 1;
-            }
-            action_count += records.len();
-            let mut instance_details = BTreeMap::new();
-            for r in &records {
-                let id = r.instance_id.to_string();
-                instance_details.entry(id.clone()).or_insert_with(|| {
-                    json!({
-                        "id": id,
-                        "instance_id": r.instance_id.to_string(),
-                        "prefix": instance_short(&r.instance_id),
-                        "instance_short": instance_short(&r.instance_id),
-                        "dcc_type": r.dcc_type,
-                    })
-                });
-            }
-            let instances: BTreeSet<String> = instance_details
-                .values()
-                .filter_map(|v| v.get("instance_short").and_then(Value::as_str))
-                .map(str::to_owned)
-                .collect();
-            let instance_ids: Vec<String> = instance_details.keys().cloned().collect();
-            let instance_details: Vec<Value> = instance_details.into_values().collect();
-            let tools: Vec<String> = records.iter().map(|r| r.backend_tool.clone()).collect();
-            let summary = records
-                .iter()
-                .find_map(|r| (!r.summary.is_empty()).then(|| r.summary.clone()))
-                .unwrap_or_default();
-            json!({
-                "name": name,
-                "dcc_type": dcc_type,
-                "loaded": is_loaded,
-                "action_count": records.len(),
-                "instance_count": instances.len(),
-                "instances": instances.into_iter().collect::<Vec<_>>(),
-                "instance_ids": instance_ids,
-                "instance_details": instance_details,
-                "tools": tools,
-                "summary": summary,
-            })
-        })
-        .collect();
-
-    Json(json!({
-        "total": skills.len(),
-        "loaded": loaded,
-        "unloaded": skills.len().saturating_sub(loaded),
-        "action_count": action_count,
-        "skills": skills,
-    }))
+    Json(crate::gateway::admin::skill_health::build_skill_inventory_payload(&s, records).await)
 }
 
 fn admin_skill_query_name(params: &AdminSkillDetailQuery) -> Option<&str> {
@@ -1207,23 +1140,7 @@ async fn reload_skill_paths_and_refresh_backends(state: &AdminState, reason: Ref
 
 /// `GET /admin/api/skill-paths` — skill search paths (snapshot + SQLite custom).
 pub async fn handle_admin_skill_paths(State(s): State<AdminState>) -> impl IntoResponse {
-    let mut flat: Vec<Value> = s
-        .skill_paths_snapshot
-        .iter()
-        .map(|e| json!({ "path": e.path, "source": e.source }))
-        .collect();
-    if let Some(ref lane) = s.admin_sqlite_lane {
-        let r = lane.reader();
-        for (id, path) in r.list_custom_skill_paths() {
-            if !flat
-                .iter()
-                .any(|v| v.get("path").and_then(|x| x.as_str()) == Some(path.as_str()))
-            {
-                flat.push(json!({ "path": path, "source": "admin_custom", "id": id }));
-            }
-        }
-    }
-    Json(json!({ "paths": flat }))
+    Json(crate::gateway::admin::skill_health::build_skill_paths_payload(&s))
 }
 
 /// `POST /admin/api/skill-paths` — enqueue a custom path; embedder hook may reload disk catalog.

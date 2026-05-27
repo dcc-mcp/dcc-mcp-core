@@ -172,9 +172,9 @@ Markdown body for developer review.
 | `GET /admin/api/workers` | `application/json` | Per-instance cards from the live registry; response field names remain `workers` for compatibility |
 | `GET /admin/api/logs` | `application/json` | Merged gateway contention events, on-disk `*.log` rows, and audited call summaries |
 | `GET /admin/api/health` | `application/json` | Service health summary, including active response-format defaults and token estimator metadata |
-| `GET /admin/api/skills` | `application/json` | Live skill inventory grouped by DCC type, skill name, load state, tools, and backend instance |
+| `GET /admin/api/skills` | `application/json` | Live skill inventory grouped by DCC type, skill name, load state, tools, backend instance, and skill health/adoption metrics from search telemetry plus audited calls |
 | `GET /admin/api/skill-detail?name=...` | `application/json` | One skill's backend detail payload, including rendered-review `SKILL.md` markdown when available |
-| `GET /admin/api/skill-paths` | `application/json` | Current skill discovery roots, including environment, local defaults, bundled paths, and admin custom paths |
+| `GET /admin/api/skill-paths` | `application/json` | Current skill discovery roots with safe path aliases, present/missing status, and source/id metadata for public-safe screenshots and exports |
 | `POST /admin/api/skill-paths` | `application/json` | Add a SQLite-backed custom skill discovery root, then refresh live backend skill indexes |
 | `DELETE /admin/api/skill-paths/{id}` | `application/json` | Remove a SQLite-backed custom skill discovery root, then refresh live backend skill indexes |
 

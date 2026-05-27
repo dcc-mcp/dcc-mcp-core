@@ -687,6 +687,108 @@ filters:
     }
 
     #[tokio::test]
+    async fn test_admin_skills_exposes_health_and_adoption_metrics() {
+        use crate::gateway::capability::tool_slug as make_tool_slug;
+        use crate::gateway::search_telemetry::{
+            RANKER_VERSION, SearchFollowupInput, SearchTelemetryHit, SearchTelemetryInput,
+            SearchTelemetryStore,
+        };
+
+        let gs = make_gateway_state();
+        let (port, stop) = spawn_search_backend(json!([
+            {
+                "skill": "maya-modeling",
+                "action": "maya-modeling__create_sphere",
+                "summary": "Create a polygon sphere",
+                "loaded": true,
+                "has_schema": true
+            },
+            {
+                "skill": "maya-render",
+                "action": "maya-render__render_preview",
+                "summary": "Render a preview",
+                "loaded": true,
+                "has_schema": true
+            }
+        ]))
+        .await;
+        let entry = make_service_entry("maya", "127.0.0.1", port, None);
+        let instance_id = entry.instance_id;
+        {
+            let registry = gs.registry.write().await;
+            registry.register(entry).unwrap();
+        }
+        let modeling_slug = make_tool_slug("maya", &instance_id, "maya-modeling__create_sphere");
+        let render_slug = make_tool_slug("maya", &instance_id, "maya-render__render_preview");
+
+        let search_id = SearchTelemetryStore::new_search_id();
+        gs.search_telemetry.record_search(SearchTelemetryInput {
+            search_id: search_id.clone(),
+            transport: "rest".to_string(),
+            kind: "tool".to_string(),
+            query: "create sphere or render preview".to_string(),
+            dcc_type: Some("maya".to_string()),
+            instance_id: None,
+            limit: Some(5),
+            total: 2,
+            ranker_version: RANKER_VERSION.to_string(),
+            index_generation: "idx-admin-skills".to_string(),
+            hits: vec![
+                SearchTelemetryHit {
+                    tool_slug: render_slug,
+                    skill_name: Some("maya-render".to_string()),
+                    dcc_type: "maya".to_string(),
+                    rank: 1,
+                    score: 97,
+                    match_reasons: vec!["tool_lexical".to_string()],
+                    loaded: true,
+                },
+                SearchTelemetryHit {
+                    tool_slug: modeling_slug.clone(),
+                    skill_name: Some("maya-modeling".to_string()),
+                    dcc_type: "maya".to_string(),
+                    rank: 2,
+                    score: 93,
+                    match_reasons: vec!["skill_match".to_string()],
+                    loaded: true,
+                },
+            ],
+            trace_context: None,
+            session_id: None,
+            agent_context: None,
+        });
+        assert!(gs.search_telemetry.record_followup(SearchFollowupInput {
+            search_id,
+            kind: "call".to_string(),
+            tool_slug: Some(modeling_slug),
+            skill_name: None,
+            success: false,
+            trace_context: None,
+        }));
+
+        let router = build_admin_router(AdminState::new(gs));
+        let (status, body) = body_json(router, "/api/skills").await;
+        let _ = stop.send(());
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["health"]["searched_skills"], 2, "{body}");
+        assert_eq!(body["health"]["used_skills"], 1);
+        assert_eq!(body["health"]["low_adoption_skills"], 1);
+        let skills = body["skills"].as_array().unwrap();
+        let maya = skills
+            .iter()
+            .find(|s| s["name"] == "maya-modeling")
+            .unwrap();
+        assert_eq!(maya["adoption"]["search_hits"], 1);
+        assert_eq!(maya["adoption"]["best_rank"], 2);
+        assert_eq!(maya["adoption"]["call_count"], 1);
+        assert_eq!(maya["adoption"]["failure_count"], 1);
+        let render = skills.iter().find(|s| s["name"] == "maya-render").unwrap();
+        assert_eq!(render["adoption"]["search_hits"], 1);
+        assert_eq!(render["adoption"]["low_adoption"], true);
+    }
+
+    #[tokio::test]
     async fn test_admin_skill_detail_returns_backend_markdown() {
         let gs = make_gateway_state();
         let (port, stop) = spawn_skill_detail_backend(
@@ -2876,10 +2978,19 @@ filters:
         assert_eq!(status, StatusCode::OK);
         let paths = body["paths"].as_array().unwrap();
         assert_eq!(paths.len(), 2);
-        assert_eq!(paths[0]["path"], "/opt/skills/maya");
+        assert_eq!(paths[0]["path"], "cli #1");
+        assert_eq!(paths[0]["display_path"], "cli #1");
+        assert_eq!(paths[0]["path_redacted"], true);
+        assert_ne!(paths[0]["path"], "/opt/skills/maya");
         assert_eq!(paths[0]["source"], "cli");
-        assert_eq!(paths[1]["path"], "/opt/skills/blender");
+        assert_eq!(paths[0]["status"], "missing");
+        assert_eq!(paths[1]["path"], "env:DCC_MCP_SKILL_PATHS #2");
+        assert_eq!(paths[1]["path_redacted"], true);
         assert_eq!(paths[1]["source"], "env:DCC_MCP_SKILL_PATHS");
+        assert!(
+            !body.to_string().contains("/opt/skills"),
+            "skill path payload should be safe to attach to public reports"
+        );
     }
 
     #[cfg(feature = "admin-persist-sqlite")]
@@ -2928,7 +3039,12 @@ filters:
             .filter(|p| p["source"] == "admin_custom")
             .collect();
         assert_eq!(custom.len(), 1, "expected 1 custom path, got {paths:?}");
-        assert_eq!(custom[0]["path"], "/tmp/new-skills");
+        assert_eq!(custom[0]["path"], "admin_custom #1");
+        assert_eq!(custom[0]["path_redacted"], true);
+        assert!(
+            !body.to_string().contains("/tmp/new-skills"),
+            "custom path payload should not expose absolute local paths"
+        );
 
         // DELETE the custom path
         let id = custom[0]["id"]
