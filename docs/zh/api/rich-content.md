@@ -12,7 +12,7 @@ MCP Apps 是 MCP 协议首个官方扩展。工具可以返回交互式界面—
 |------|--------|------|
 | `render_frames` | 缩略图画廊 + 统计表 | 不离开对话即可可视化验证 |
 | `get_scene_hierarchy` | 交互式树视图 | 浏览 1 万节点的场景 |
-| `diagnostics__screenshot` | 内联截图 | 比文件路径好用得多 |
+| `dcc_diagnostics__screenshot` | 内联截图 | 比文件路径好用得多 |
 | `analyze_keyframes` | 动画曲线图 | 可视化时序调试 |
 | `get_render_stats` | 各层柱状图 | 比原始 JSON 数组更快 |
 | `list_materials` | 材质色板网格 | 可视化选择 |

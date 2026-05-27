@@ -72,7 +72,7 @@ prompts:
       Use `maya_geometry__select_edges` to capture the current selection,
       then call `maya_geometry__bevel_edges` with width={{chamfer_width}}
       and segments={{segments}}. Verify the result with
-      `diagnostics__screenshot` before saving.
+      `dcc_diagnostics__screenshot` before saving.
 
 workflows:
   - file: workflows/bake_proxies.workflow.yaml
