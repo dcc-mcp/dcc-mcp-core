@@ -8,10 +8,13 @@ name: Check File Size
 # Limits (issue #842):
 #   - .rs files: 1500 lines (test files excluded)
 #   - .py files: 1000 lines (test files excluded)
+#   - admin-ui source/test files: 3000 lines
 #
 # When a file exceeds the limit, split it following Clean Architecture:
 #   Rust: domain/ infra/ application/ layers; one responsibility per module.
 #   Python: one public class or cohesive function group per file.
+#   Frontend: split data/types, shared UI helpers, panel components, and locale
+#   dictionaries into focused modules.
 # See AGENTS.md § "File Size Policy" for the full decision tree.
 
 on:
@@ -19,6 +22,10 @@ on:
     paths:
       - "**.rs"
       - "**.py"
+      - "admin-ui/src/**"
+      - "admin-ui/tests/**"
+      - "admin-ui/*.ts"
+      - ".github/workflows/check-file-size.yml"
   push:
     branches:
       - main
@@ -101,3 +108,36 @@ jobs:
             exit 1
           fi
           echo "✅ All Python files are within the ${MAX_PY}-line limit."
+
+      - name: Check Admin UI file sizes
+        run: |
+          set -euo pipefail
+          MAX_FRONTEND=3000
+          EXEMPTIONS=".github/file-size-exemptions.txt"
+          FAIL=0
+
+          while IFS= read -r -d '' file; do
+            lines=$(wc -l < "$file")
+            if [ "$lines" -gt "$MAX_FRONTEND" ]; then
+              if [ -f "$EXEMPTIONS" ] && grep -qF "$file" "$EXEMPTIONS"; then
+                echo "⚠️  EXEMPT  $file ($lines lines)"
+              else
+                echo "❌ FAIL    $file ($lines lines, max $MAX_FRONTEND)"
+                FAIL=1
+              fi
+            fi
+          done < <(find admin-ui/src admin-ui/tests -type f \( \
+            -name "*.ts" -o \
+            -name "*.tsx" -o \
+            -name "*.css" -o \
+            -name "*.json" \
+          \) -print0)
+
+          if [ "$FAIL" -eq 1 ]; then
+            echo ""
+            echo "One or more Admin UI files exceed ${MAX_FRONTEND} lines."
+            echo "Split the file into focused modules or locale dictionaries."
+            echo "or add it to .github/file-size-exemptions.txt with a tracking issue link."
+            exit 1
+          fi
+          echo "✅ All Admin UI files are within the ${MAX_FRONTEND}-line limit."

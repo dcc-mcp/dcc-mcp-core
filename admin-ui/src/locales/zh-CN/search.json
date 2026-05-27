@@ -1,0 +1,9 @@
+{
+  "input.ariaLabel": "筛选当前面板",
+  "input.default": "搜索此面板...",
+  "input.openapi": "筛选操作、路径、标签...",
+  "input.stats": "筛选统计图表...",
+  "meta.skillsPaths": "{skills} 个技能，{paths} 个路径",
+  "meta.statsCharts": "图表：{apps} 个应用类型 / {tools} 个工具 / {instances} 个实例 / {agents} 个 agents / {actors} 个 actors / {platforms} 个平台 / {sources} 个来源 / {formats} 个格式",
+  "meta.governancePressure": "{denied} 个拒绝 / {throttled} 个限流"
+}
