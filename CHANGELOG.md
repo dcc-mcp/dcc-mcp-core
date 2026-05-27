@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.37](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.36...v0.17.37) (2026-05-27)
+
+
+### Features
+
+* add admin skill adoption health ([b1ef40d](https://github.com/loonghao/dcc-mcp-core/commit/b1ef40df7e57e2b22ad4ac14e01b5d6b6599a496))
+* add admin workflow graph detail ([1dd4b6c](https://github.com/loonghao/dcc-mcp-core/commit/1dd4b6c6c53193ea616c9eaaea7e0ccafa7a6bb7))
+* group admin tasks by outcome ([0fe71dd](https://github.com/loonghao/dcc-mcp-core/commit/0fe71dd80440c991d109332aaa2c79be27f5e5cd))
+
+
+### Bug Fixes
+
+* clarify admin traffic capture state ([2dca8e7](https://github.com/loonghao/dcc-mcp-core/commit/2dca8e70c09ed4e62220afd108e9d8c1ea8cd080))
+* populate admin client attribution ([fe07677](https://github.com/loonghao/dcc-mcp-core/commit/fe07677c2a423334dc753aaf278e0a1dd0722319))
+* request JSON for CLI gateway REST calls ([21e19b5](https://github.com/loonghao/dcc-mcp-core/commit/21e19b5ccb2e586f43252bfd5300090d9adbfed5))
+
+
+### Documentation
+
+* clarify DCC discovery workflow ([9a1f819](https://github.com/loonghao/dcc-mcp-core/commit/9a1f819be7c7e8e4e6b9f049b299709227e79e4b)), closes [#1318](https://github.com/loonghao/dcc-mcp-core/issues/1318) [#1319](https://github.com/loonghao/dcc-mcp-core/issues/1319)
+
 ## [0.17.36](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.35...v0.17.36) (2026-05-26)
 
 
