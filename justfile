@@ -223,6 +223,10 @@ test-e2e:
 vrs-replay BASE="http://127.0.0.1:9765" TRACE="tests/vrs/traces/gateway-smoke.jsonl":
     python scripts/vrs_replay.py --base-url "{{BASE}}" --trace "{{TRACE}}"
 
+# Lightweight standalone server idle-memory smoke (#1354).
+idle-memory-smoke:
+    python scripts/idle_memory_smoke.py
+
 # ── Type stubs (pyo3-stub-gen) ───────────────────────────────────────────
 
 # Generate python/dcc_mcp_core/_core.pyi from annotated Rust code.
