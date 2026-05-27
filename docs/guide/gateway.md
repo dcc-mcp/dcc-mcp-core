@@ -28,6 +28,77 @@ directory so three DCCs starting at once still spawn at most one gateway.
 Use `dcc-mcp-server sidecar --no-ensure-gateway` to disable auto-launch, or
 `--legacy-gateway-election` to restore the old per-DCC first-wins election.
 
+## Standalone gateway daemon (#1358)
+
+The `dcc-mcp-server gateway` subcommand runs the gateway **as its own
+process**, separate from any per-DCC server. It hosts only the gateway
+plane — discovery, aggregation, routing, dynamic capabilities,
+resources / prompts fan-out, the read-only admin UI, and audit — and
+never executes a tool itself; every `tools/call` is HTTP-forwarded to
+the owning DCC backend.
+
+```bash
+# Foreground, with a friendly owner label
+dcc-mcp-server gateway --host 127.0.0.1 --port 9765 --name studio-gateway
+
+# Bind a LAN listener as well so peers on the same subnet can join
+dcc-mcp-server gateway --remote-host 0.0.0.0 --remote-port 59765
+```
+
+Common flags (all also accept the matching `DCC_MCP_*` environment
+variable):
+
+| Flag | Env var | Default |
+|------|---------|---------|
+| `--host` | `DCC_MCP_GATEWAY_HOST` | `127.0.0.1` |
+| `--port` | `DCC_MCP_GATEWAY_PORT` | `9765` |
+| `--name` | `DCC_MCP_GATEWAY_NAME` | `gateway-<host>-pid<n>` |
+| `--remote-host` | `DCC_MCP_GATEWAY_REMOTE_HOST` | `0.0.0.0` |
+| `--remote-port` | `DCC_MCP_GATEWAY_REMOTE_PORT` | `59765` (0 = disabled) |
+| `--registry-dir` | `DCC_MCP_REGISTRY_DIR` | OS default |
+| `--no-admin` | `DCC_MCP_NO_ADMIN` | admin enabled |
+| `--admin-path` | `DCC_MCP_ADMIN_PATH` | `/admin` |
+| `--stale-timeout-secs` | `DCC_MCP_STALE_TIMEOUT` | `30` |
+
+Additional environment knobs:
+
+* `DCC_MCP_GATEWAY_ADMIN_DB` — explicit path for the admin SQLite store
+  (defaults to a workspace-anchored location).
+* `DCC_MCP_GATEWAY_ADMIN_RETENTION_DAYS` — admin SQLite retention,
+  clamped to `[1, 3650]`, default `30`.
+
+### Daemon-mode guarantees
+
+The standalone daemon path stamps the gateway with
+`adapter_dcc = "gateway"` so peers can recognise it during election
+tiebreaking (see `version.rs` — real DCCs preempt the generic
+standalone). At runtime it satisfies the following:
+
+* **No DCC tool execution.** `dcc-mcp-gateway` imports only the
+  `EventBus` / `EventEnvelope` wire types from `dcc-mcp-actions`; it
+  never owns a `ToolDispatcher` and never invokes a tool inline.
+* **No PyO3 / Python host bridge.** `cargo tree -p dcc-mcp-gateway`
+  contains zero of `pyo3`, `dcc-mcp-pybridge`, `dcc-mcp-host`,
+  `dcc-mcp-sandbox`, or `dcc-mcp-capture`.
+* **Runs without any DCC backend.** `GET /health` returns `200 OK`
+  with an empty registry. Regression covered by
+  `gateway_daemon::tests::standalone_daemon_serves_health_without_any_backend`
+  in `crates/dcc-mcp-server/src/gateway_daemon.rs`.
+* **Coexists with auto-gateway.** A DCC server built with
+  `dcc-mcp-http` default features still elects itself when a daemon is
+  absent (issue #1357 made the auto-gateway path a default-on cargo
+  feature; turning it off lets the binary skip the gateway runtime
+  entirely).
+
+### When to use which mode
+
+| Scenario | Recommended mode |
+|----------|------------------|
+| Single artist machine, one DCC | Default auto-gateway in the per-DCC server |
+| Workstation hosting multiple DCCs | Either; auto-gateway elects the first DCC to launch |
+| Studio render node / shared host / CI | `dcc-mcp-server gateway` daemon, sidecars launch DCCs |
+| Headless agent without any DCC installed | `dcc-mcp-server gateway` daemon — DCCs are reached via `FileRegistry` / HTTP registration |
+
 ## Topology
 
 ```
