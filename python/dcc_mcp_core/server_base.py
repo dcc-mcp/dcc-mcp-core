@@ -255,10 +255,10 @@ class DccServerBase:
         manager.init(self._config)
 
     def _init_telemetry(self) -> None:
-        """Initialise in-process metrics so ``diagnostics__tool_metrics`` has data.
+        """Initialise in-process metrics so ``dcc_diagnostics__tool_metrics`` has data.
 
         Uses the noop exporter (no network traffic) — metrics stay in memory
-        and are served exclusively through the ``diagnostics__tool_metrics``
+        and are served exclusively through the ``dcc_diagnostics__tool_metrics``
         MCP tool. Call this once, just before ``server.start()``. Delegates
         to :class:`TelemetryManager`.
         """
@@ -434,7 +434,7 @@ class DccServerBase:
     def observability_summary(self) -> dict[str, Any]:
         """Return a snapshot of the active observability features.
 
-        Useful for ``diagnostics__process_status`` and support reports.
+        Useful for ``dcc_diagnostics__process_status`` and support reports.
         """
         return {
             "file_logging": self._enable_file_logging,

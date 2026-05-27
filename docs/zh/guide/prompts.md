@@ -69,7 +69,7 @@ prompts:
       使用 `maya_geometry__select_edges` 捕获当前选择，
       然后调用 `maya_geometry__bevel_edges`，参数为
       width={{chamfer_width}} 和 segments={{segments}}。
-      在保存前使用 `diagnostics__screenshot` 验证结果。
+      在保存前使用 `dcc_diagnostics__screenshot` 验证结果。
 
 workflows:
   - file: workflows/bake_proxies.workflow.yaml
