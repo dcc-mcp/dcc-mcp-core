@@ -16,7 +16,7 @@ use super::*;
 /// Pagination uses the same cursor scheme as the per-DCC server:
 /// `cursor` is an opaque hex-encoded offset into the flat tool list.
 ///
-/// [`GATEWAY_LOCAL_TOOLS`]: super::super::namespace::GATEWAY_LOCAL_TOOLS
+/// [`GATEWAY_LOCAL_TOOLS`]: dcc_mcp_gateway_core::naming::GATEWAY_LOCAL_TOOLS
 pub async fn aggregate_tools_list(gs: &GatewayState, cursor: Option<&str>) -> Value {
     // Touch `gs` so clippy stops warning about the unused argument; future
     // expansions (auth-aware filtering etc.) will consume it again.

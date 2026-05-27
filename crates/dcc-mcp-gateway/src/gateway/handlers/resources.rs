@@ -1,3 +1,5 @@
+use dcc_mcp_gateway_core::resource_uri::decode_resource_uri;
+
 use super::*;
 
 /// URI for the gateway's own contention event log (issue #766).
@@ -59,7 +61,7 @@ pub(super) async fn handle_resources_read(
         };
     }
 
-    if let Some((id8, backend_uri)) = crate::gateway::namespace::decode_resource_uri(&uri) {
+    if let Some((id8, backend_uri)) = decode_resource_uri(&uri) {
         let owning = aggregator::find_instance_by_prefix(gs, &id8).await;
         return match owning {
             Some(entry) => {
@@ -161,7 +163,7 @@ pub(super) async fn handle_resource_subscription(
         }
     }
 
-    if let Some((id8, backend_uri)) = crate::gateway::namespace::decode_resource_uri(&uri) {
+    if let Some((id8, backend_uri)) = decode_resource_uri(&uri) {
         let owning = aggregator::find_instance_by_prefix(gs, &id8).await;
         return match owning {
             Some(entry) => {

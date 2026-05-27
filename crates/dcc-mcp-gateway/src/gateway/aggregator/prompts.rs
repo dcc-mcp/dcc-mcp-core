@@ -15,10 +15,11 @@
 //! logged at WARN level and skipped, matching the `tools/list`
 //! contract so one stale DCC never 500s the whole gateway endpoint.
 
+use dcc_mcp_gateway_core::naming::{decode_tool_name, encode_tool_name_cursor_safe};
+
 use super::*;
 
 use super::super::backend_client::{fetch_prompts, forward_prompts_get, try_fetch_prompts};
-use super::super::namespace::{decode_tool_name, encode_tool_name_cursor_safe};
 
 /// Build the unified `prompts/list` result by aggregating every live backend.
 ///

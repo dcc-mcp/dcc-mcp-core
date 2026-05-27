@@ -23,10 +23,7 @@
 //! All third-party deps are pure: `uuid`, `tracing` (facade only),
 //! `dcc-mcp-naming` (validator only). No HTTP, no async, no `GatewayState`.
 //!
-//! Consumers should import directly from `dcc_mcp_gateway_core::naming::*`.
-//! The `dcc-mcp-gateway` crate keeps a thin `gateway::namespace` facade so
-//! historical import paths in adapter code continue to work; new code should
-//! prefer this crate.
+//! Consumers import directly from `dcc_mcp_gateway_core::naming::*`.
 
 mod bare;
 mod constants;
