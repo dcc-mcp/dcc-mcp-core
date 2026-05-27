@@ -235,6 +235,8 @@ type AdminLinks = {
   stats_url?: string;
   admin_traces_url?: string;
   admin_workflows_url?: string;
+  admin_tasks_url?: string;
+  admin_calls_url?: string;
 };
 
 type TrafficLinks = {
@@ -473,9 +475,38 @@ type TaskRow = {
   task_type: string;
   status: string;
   title: string;
+  goal?: string | null;
+  summary?: string | null;
+  final_result?: string | null;
+  failure_reason?: string | null;
   started_at: string;
+  finished_at?: string | null;
   duration_ms?: number | null;
+  app_types?: string[];
+  artifacts?: TaskArtifact[];
+  validation_checks?: TaskValidation[];
+  related?: TaskRelated;
   correlation?: ActivityEvent['correlation'];
+  links?: AdminLinks & { primary_request?: AdminLinks };
+};
+
+type TaskRelated = {
+  workflow_ids?: string[];
+  request_ids?: string[];
+  trace_ids?: string[];
+  session_ids?: string[];
+};
+
+type TaskArtifact = {
+  name: string;
+  kind: string;
+  request_id?: string | null;
+};
+
+type TaskValidation = {
+  title: string;
+  status: string;
+  request_id?: string | null;
 };
 
 type WorkflowAgent = {
@@ -2229,6 +2260,36 @@ function compactList(values: string[] | null | undefined, empty = 'Any'): string
   return `${clean.slice(0, 3).join(', ')} +${clean.length - 3}`;
 }
 
+function taskPrimaryRequestId(task: TaskRow): string | null {
+  return task.correlation?.request_id ?? task.related?.request_ids?.[0] ?? null;
+}
+
+function taskActorLabel(task: TaskRow): string {
+  return task.correlation?.actor_name
+    ?? task.correlation?.actor_id
+    ?? task.correlation?.agent_id
+    ?? task.correlation?.client_platform
+    ?? '-';
+}
+
+function taskWorkflowLabel(task: TaskRow): string {
+  const workflows = task.related?.workflow_ids ?? [];
+  if (workflows.length > 0) {
+    return compactList(workflows.map(compactId), '-');
+  }
+  return compactId(task.correlation?.workflow_id);
+}
+
+function taskRequestCount(task: TaskRow): number {
+  return task.related?.request_ids?.length ?? (task.correlation?.request_id ? 1 : 0);
+}
+
+function taskOutcomeText(task: TaskRow): string | null {
+  return task.status && isErrStatus(task.status)
+    ? task.failure_reason ?? task.final_result ?? task.summary ?? null
+    : task.final_result ?? task.summary ?? task.goal ?? null;
+}
+
 function gatewayLabel(health: HealthPayload | null): string {
   const current = health?.gateway?.current;
   if (!current) {
@@ -3468,8 +3529,20 @@ function App() {
           task.task_type,
           task.status,
           task.title,
+          task.goal ?? '',
+          task.summary ?? '',
+          task.final_result ?? '',
+          task.failure_reason ?? '',
           task.started_at,
+          task.finished_at ?? '',
           String(task.duration_ms ?? ''),
+          task.app_types?.join(' ') ?? '',
+          task.artifacts?.map((artifact) => haystack(artifact.kind, artifact.name, artifact.request_id ?? '')).join(' ') ?? '',
+          task.validation_checks?.map((check) => haystack(check.title, check.status, check.request_id ?? '')).join(' ') ?? '',
+          task.related?.workflow_ids?.join(' ') ?? '',
+          task.related?.request_ids?.join(' ') ?? '',
+          task.related?.trace_ids?.join(' ') ?? '',
+          task.related?.session_ids?.join(' ') ?? '',
           task.correlation?.request_id ?? '',
           task.correlation?.instance_id ?? '',
           task.correlation?.dcc_type ?? '',
@@ -5211,8 +5284,10 @@ function App() {
             ) : (
               <div className="task-board">
                 {filteredTasks.map((task) => {
-                  const requestId = task.correlation?.request_id;
+                  const requestId = taskPrimaryRequestId(task);
                   const tone = isErrStatus(task.status) ? 'err' : isWarnStatus(task.status) ? 'warn' : isOkStatus(task.status) ? 'ok' : 'muted';
+                  const outcome = taskOutcomeText(task);
+                  const requestCount = taskRequestCount(task);
                   return (
                     <article key={task.task_id} className={`task-card ${tone}`}>
                       <div className="task-main">
@@ -5220,13 +5295,42 @@ function App() {
                           <StatusBadge value={task.status} />
                           <span className="task-type">{task.task_type}</span>
                           <TimeValue className="task-time" value={task.started_at} />
+                          <span>{formatDurationMs(task.duration_ms)}</span>
                         </div>
                         <h3 title={task.title}>{task.title}</h3>
+                        {task.goal && task.goal !== task.title ? (
+                          <p className="task-outcome"><strong>{t('tasks.label.goal')}</strong>{task.goal}</p>
+                        ) : null}
+                        {outcome ? (
+                          <p className={`task-outcome ${tone === 'err' ? 'err' : ''}`}>
+                            <strong>{tone === 'err' ? t('tasks.label.failure') : t('tasks.label.result')}</strong>
+                            {outcome}
+                          </p>
+                        ) : null}
                         <div className="task-meta">
-                          <span>{task.correlation?.dcc_type ?? 'gateway'}</span>
-                          <span>{formatDurationMs(task.duration_ms)}</span>
-                          <span>{compactId(task.correlation?.instance_id)}</span>
+                          <span>{compactList(task.app_types, task.correlation?.dcc_type ?? 'gateway')}</span>
+                          <span>{t('tasks.label.workflow', { id: taskWorkflowLabel(task) })}</span>
+                          <span>{t('tasks.label.calls', { count: requestCount })}</span>
+                          <span>{t('tasks.label.client', { value: taskActorLabel(task) })}</span>
                         </div>
+                        {task.artifacts?.length ? (
+                          <div className="task-chip-row" aria-label={t('tasks.label.artifacts')}>
+                            {task.artifacts.map((artifact) => (
+                              <span key={`${artifact.kind}-${artifact.name}-${artifact.request_id ?? ''}`}>
+                                {artifact.kind}: {artifact.name}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                        {task.validation_checks?.length ? (
+                          <div className="task-chip-row" aria-label={t('tasks.label.validation')}>
+                            {task.validation_checks.map((check) => (
+                              <span key={`${check.title}-${check.request_id ?? ''}`}>
+                                {check.title} <StatusBadge value={check.status} />
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
                       <div className="task-side">
                         {requestId ? (
@@ -5236,6 +5340,16 @@ function App() {
                         ) : (
                           <span className="mono-path">{task.task_id.slice(0, 12)}</span>
                         )}
+                        {task.related?.workflow_ids?.length ? (
+                          <button className="link-chip" type="button" onClick={() => goToPanel('workflows')}>
+                            {t('tasks.link.workflows', { count: task.related.workflow_ids.length })}
+                          </button>
+                        ) : null}
+                        {requestCount ? (
+                          <button className="link-chip" type="button" onClick={() => goToPanel('calls')}>
+                            {t('tasks.link.calls', { count: requestCount })}
+                          </button>
+                        ) : null}
                       </div>
                     </article>
                   );

@@ -148,8 +148,8 @@ pub(crate) fn add_gateway_debug_openapi_paths(doc: &mut Value) {
         ),
         (
             "/v1/debug/tasks",
-            "List task-like debug snapshots",
-            "Stable task projection reconstructed from dispatch traces.",
+            "List task outcomes",
+            "Stable user-level task outcome projection grouped from retained dispatch traces and audits.",
             list_params.clone(),
             false,
         ),

@@ -160,7 +160,7 @@ Markdown body for developer review.
 | `GET /admin/api/instances` | `application/json` | Connected DCC instances |
 | `GET /admin/api/tools` | `application/json` | Registered MCP tools |
 | `GET /admin/api/workflows?limit=200` | `application/json` | Agent session/workflow view reconstructed from search telemetry, traces, and audits |
-| `GET /admin/api/tasks?limit=300` | `application/json` | Task-like snapshots reconstructed from dispatch traces |
+| `GET /admin/api/tasks?limit=300` | `application/json` | User-level task outcomes grouped across workflows, calls, artifacts, and validation |
 | `GET /admin/api/calls` | `application/json` | Recent tool calls, including compact/JSON token accounting when available (requires `AuditMiddleware`) |
 | `GET /admin/api/traces` | `application/json` | Recent per-call dispatch traces with payload sizes and token accounting; accepts `?limit=200` |
 | `GET /admin/api/traces/{request_id}` | `application/json` | Full waterfall for one recorded dispatch trace, including token accounting without storing unbounded payloads |
@@ -330,6 +330,17 @@ report JSON, OpenAPI Inspector, OpenAPI spec, OpenAPI docs, and stats page.
 Full trace rows include `agent_context`, request/response payload previews, a
 span waterfall, and the same copyable links. These URLs are designed to be
 pasted directly into an LLM evaluation prompt or another agent's debugging task.
+The Tasks panel and `GET /admin/api/tasks` group retained trace/audit data into
+user-level outcomes before rendering cards. A task row keeps the historical
+`task_id`, `task_type`, `status`, `title`, `started_at`, `duration_ms`, and
+`correlation` fields, then adds outcome-oriented fields such as `goal`,
+`summary`, `final_result`, `failure_reason`, `app_types`, `related`,
+`artifacts`, `validation_checks`, and navigation `links`. Grouping prefers an
+explicit `agent_context.metadata.task_id`/`workflow_id`, then agent
+session/turn, session id, trace id, and finally request id. Public task rows
+must not expose raw local paths or loopback/private callback URLs; failure
+reasons and artifact labels stay summarized or redacted.
+
 The Workflows panel and `GET /admin/api/workflows` group the same bounded data
 by session, explicit workflow id, trace id, or request chain. Each workflow row
 stays lightweight: model identity, turn id, user/agent summaries, discovery
@@ -433,14 +444,32 @@ Admin token fields intentionally separate two accounting models:
   "total": 1,
   "tasks": [
     {
-      "task_id": "req-123",
-      "task_type": "tool_call",
+      "task_id": "session-1:turn-7",
+      "task_type": "agent_turn",
       "status": "completed",
-      "title": "maya__open_scene",
+      "title": "Export and validate shot asset",
+      "goal": "Create scene, export asset, import into another DCC, validate result.",
+      "final_result": "Produced preview render and validation report.",
       "started_at": "2026-05-05T10:00:00Z",
-      "duration_ms": 48,
+      "finished_at": "2026-05-05T10:00:08Z",
+      "duration_ms": 8000,
+      "app_types": ["maya", "blender"],
+      "artifacts": [
+        { "kind": "export", "name": "export asset", "request_id": "req-export" },
+        { "kind": "render", "name": "render preview", "request_id": "req-render" }
+      ],
+      "validation_checks": [
+        { "title": "validate imported asset", "status": "completed", "request_id": "req-validate" }
+      ],
+      "related": {
+        "workflow_ids": ["session-1"],
+        "request_ids": ["req-create", "req-export", "req-import", "req-render", "req-validate"],
+        "trace_ids": ["trace-123"],
+        "session_ids": ["session-1"]
+      },
       "correlation": {
-        "request_id": "req-123",
+        "request_id": "req-validate",
+        "workflow_id": "session-1",
         "instance_id": "abcdef01-2345-6789-abcd-ef0123456789",
         "dcc_type": "maya"
       }
