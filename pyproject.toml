@@ -38,6 +38,9 @@ test = [
     "pytest-cov>=4.0",
     "rez",
     "zipp>=3.19.1",  # CVE-2024-5569: fix DoS vulnerability in zipfile path handling
+    # Qt UI inspector live-Qt tests (issue #1332); skipped on Py<3.9 / when missing
+    "pytest-qt>=4.4; python_version>='3.9'",
+    "PySide6-Essentials>=6.5; python_version>='3.9'",
 ]
 dev = [
     "dcc-mcp-core[test]",
@@ -129,4 +132,5 @@ python_files = ["test_*.py"]
 markers = [
     "dcc: marks tests that require a DCC application (e.g., Blender)",
     "anyio: async test that needs an anyio backend (mcp Python SDK e2e suite)",
+    "qt: live-Qt tests via pytest-qt (skipped when PySide6/pytest-qt not installed)",
 ]
