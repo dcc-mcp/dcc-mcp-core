@@ -1,0 +1,7 @@
+{
+  "title": "도구",
+  "empty.none": "등록된 도구가 없습니다.",
+  "empty.search": "검색과 일치하는 도구가 없습니다.",
+  "table.slug": "Slug",
+  "group.toolCount": "도구 {count}개"
+}

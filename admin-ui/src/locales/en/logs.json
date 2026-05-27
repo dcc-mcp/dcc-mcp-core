@@ -1,0 +1,17 @@
+{
+  "title": "Event Log",
+  "description": "Live request stream, refreshed every 5s. Rows with a request id are grouped like a run with ordered steps; gateway events without a request id stay in their own event lane.",
+  "section.gatewayEvents": "Gateway events",
+  "label.request": "Request",
+  "label.step": "Step {index}",
+  "filter.ariaLabel": "Filter logs by severity",
+  "filter.all": "All",
+  "filter.error": "Error",
+  "filter.warn": "Warning",
+  "filter.info": "Info",
+  "filter.debug": "Debug",
+  "filter.trace": "Trace",
+  "filter.unknown": "Unknown",
+  "empty.none": "No events in buffer yet. Use the gateway (tool calls) or wait for registry / probe activity.",
+  "empty.search": "No log lines match your search."
+}

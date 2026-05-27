@@ -1,0 +1,7 @@
+{
+  "title": "工具",
+  "empty.none": "没有已注册工具。",
+  "empty.search": "没有匹配搜索的工具。",
+  "table.slug": "Slug",
+  "group.toolCount": "{count} 个工具"
+}

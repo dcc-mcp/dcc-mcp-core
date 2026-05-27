@@ -1,0 +1,17 @@
+{
+  "title": "健康",
+  "metric.status": "状态",
+  "metric.uptime": "运行时间",
+  "metric.ready": "就绪",
+  "metric.version": "版本",
+  "metric.gatewayOwner": "网关所有者",
+  "metric.gatewayCandidates": "网关候选",
+  "metric.responseFormat": "响应格式",
+  "metric.rss": "RSS",
+  "metric.bodyLimit": "请求体限制",
+  "metric.rateLimit": "每分钟每 IP 限流",
+  "metric.xffTrustedDepth": "XFF 信任深度",
+  "metric.readRetries": "读取重试上限",
+  "metric.circuitLimit": "熔断限制 / 打开",
+  "metric.circuitsOpenTracked": "打开 / 跟踪的熔断器"
+}

@@ -1,0 +1,12 @@
+{
+  "refresh": "更新",
+  "copy": "コピー",
+  "download": "ダウンロード",
+  "open": "開く",
+  "view": "表示",
+  "exportJsonl": "JSONL をエクスポート",
+  "close": "閉じる",
+  "reload": "再読み込み",
+  "remove": "削除",
+  "trace": "トレース"
+}

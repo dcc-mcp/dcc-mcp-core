@@ -1,0 +1,13 @@
+{
+  "title": "최근 호출",
+  "empty.none": "최근 호출이 없습니다. AuditMiddleware가 활성화되지 않았을 수 있습니다.",
+  "empty.search": "검색과 일치하는 호출이 없습니다.",
+  "table.agent": "Agent",
+  "table.transport": "전송",
+  "table.format": "형식",
+  "table.returned": "반환",
+  "table.saved": "절감",
+  "table.error": "오류",
+  "table.detail": "세부 정보",
+  "action.expand": "펼치기"
+}

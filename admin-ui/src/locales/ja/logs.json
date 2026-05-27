@@ -1,0 +1,17 @@
+{
+  "title": "イベントログ",
+  "description": "ライブリクエストストリームは 5 秒ごとに更新されます。request id を持つ行は順序付きステップの実行としてグループ化され、request id のないゲートウェイイベントは独自のイベントレーンに残ります。",
+  "section.gatewayEvents": "ゲートウェイイベント",
+  "label.request": "リクエスト",
+  "label.step": "ステップ {index}",
+  "filter.ariaLabel": "重大度でログを絞り込み",
+  "filter.all": "すべて",
+  "filter.error": "エラー",
+  "filter.warn": "警告",
+  "filter.info": "情報",
+  "filter.debug": "デバッグ",
+  "filter.trace": "トレース",
+  "filter.unknown": "不明",
+  "empty.none": "バッファーにイベントはまだありません。ゲートウェイ（ツール呼び出し）を使うか、registry / probe アクティビティを待ってください。",
+  "empty.search": "検索に一致するログ行はありません。"
+}

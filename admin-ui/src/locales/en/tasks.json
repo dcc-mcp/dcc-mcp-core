@@ -1,0 +1,20 @@
+{
+  "title": "Tasks",
+  "meta": "User-level outcomes grouped across workflows, calls, artifacts, and validation.",
+  "metric.completed": "Completed",
+  "metric.failed": "Failed",
+  "metric.activeWaiting": "Active / waiting",
+  "label.goal": "Goal",
+  "label.result": "Result",
+  "label.failure": "Failure",
+  "label.workflow": "workflow {id}",
+  "label.calls": "{count} call(s)",
+  "label.client": "client {value}",
+  "label.artifacts": "Artifacts",
+  "label.validation": "Validation",
+  "link.trace": "trace {id}",
+  "link.workflows": "{count} workflow(s)",
+  "link.calls": "{count} call(s)",
+  "empty.none": "No task outcomes reconstructed yet.",
+  "empty.search": "No tasks match your search."
+}

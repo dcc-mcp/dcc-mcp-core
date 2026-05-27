@@ -1,0 +1,7 @@
+{
+  "title": "Tools",
+  "empty.none": "No tools registered.",
+  "empty.search": "No tools match your search.",
+  "table.slug": "Slug",
+  "group.toolCount": "{count} tool(s)"
+}

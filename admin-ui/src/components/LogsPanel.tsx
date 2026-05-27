@@ -93,7 +93,7 @@ export function LogsPanel({
           <h2>{t('logs.title')}</h2>
           <p className="empty log-hint">{t('logs.description')}</p>
         </div>
-        <button className="refresh-btn" type="button" onClick={onRefresh}>{t('common.action.refresh')}</button>
+        <button className="refresh-btn" type="button" onClick={onRefresh}>{t('action.refresh')}</button>
       </div>
       <StatusLine text={updatedAt} error={error} />
       <div className="log-severity-grid" aria-label={t('logs.filter.ariaLabel')}>

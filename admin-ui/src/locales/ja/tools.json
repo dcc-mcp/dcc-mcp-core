@@ -1,0 +1,7 @@
+{
+  "title": "ツール",
+  "empty.none": "登録済みツールはありません。",
+  "empty.search": "検索に一致するツールはありません。",
+  "table.slug": "Slug",
+  "group.toolCount": "{count} 個のツール"
+}

@@ -1,0 +1,17 @@
+{
+  "title": "事件日志",
+  "description": "实时请求流每 5 秒刷新。带请求 ID 的行会像一次运行一样按步骤分组；没有请求 ID 的网关事件保留在独立事件 lane 中。",
+  "section.gatewayEvents": "网关事件",
+  "label.request": "请求",
+  "label.step": "步骤 {index}",
+  "filter.ariaLabel": "按严重级别筛选日志",
+  "filter.all": "全部",
+  "filter.error": "错误",
+  "filter.warn": "警告",
+  "filter.info": "信息",
+  "filter.debug": "调试",
+  "filter.trace": "追踪",
+  "filter.unknown": "未知",
+  "empty.none": "缓冲区中还没有事件。请使用网关（工具调用）或等待 registry / probe 活动。",
+  "empty.search": "没有匹配搜索的日志行。"
+}

@@ -1,0 +1,7 @@
+{
+  "title": "实例",
+  "description": "每个已注册 DCC 后端一张卡片。可用链接打开适配器 HTTP 主机、MCP streamable 端点，或主机暴露的 /docs。",
+  "empty.none": "没有已注册实例。",
+  "empty.search": "没有匹配搜索的实例。",
+  "group.meta": "{count} 个实例 · {flagged} 个已标记"
+}

@@ -1,0 +1,12 @@
+{
+  "refresh": "刷新",
+  "copy": "复制",
+  "download": "下载",
+  "open": "打开",
+  "view": "查看",
+  "exportJsonl": "导出 JSONL",
+  "close": "关闭",
+  "reload": "重新加载",
+  "remove": "移除",
+  "trace": "追踪"
+}

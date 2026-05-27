@@ -1,0 +1,20 @@
+{
+  "title": "タスク",
+  "meta": "ユーザーレベルの結果として、ワークフロー、呼び出し、成果物、検証をまとめます。",
+  "metric.completed": "完了",
+  "metric.failed": "失敗",
+  "metric.activeWaiting": "アクティブ / 待機",
+  "label.goal": "目標",
+  "label.result": "結果",
+  "label.failure": "失敗理由",
+  "label.workflow": "ワークフロー {id}",
+  "label.calls": "{count} 件の呼び出し",
+  "label.client": "クライアント {value}",
+  "label.artifacts": "成果物",
+  "label.validation": "検証",
+  "link.trace": "トレース {id}",
+  "link.workflows": "{count} 件のワークフロー",
+  "link.calls": "{count} 件の呼び出し",
+  "empty.none": "再構築されたタスク結果はまだありません。",
+  "empty.search": "検索に一致するタスクはありません。"
+}

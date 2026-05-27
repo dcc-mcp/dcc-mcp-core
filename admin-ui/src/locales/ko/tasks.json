@@ -1,0 +1,20 @@
+{
+  "title": "작업",
+  "meta": "사용자 수준 결과로 워크플로, 호출, 산출물, 검증을 묶습니다.",
+  "metric.completed": "완료",
+  "metric.failed": "실패",
+  "metric.activeWaiting": "활성 / 대기",
+  "label.goal": "목표",
+  "label.result": "결과",
+  "label.failure": "실패 원인",
+  "label.workflow": "워크플로 {id}",
+  "label.calls": "호출 {count}개",
+  "label.client": "클라이언트 {value}",
+  "label.artifacts": "산출물",
+  "label.validation": "검증",
+  "link.trace": "트레이스 {id}",
+  "link.workflows": "워크플로 {count}개",
+  "link.calls": "호출 {count}개",
+  "empty.none": "아직 재구성된 작업 결과가 없습니다.",
+  "empty.search": "검색과 일치하는 작업이 없습니다."
+}
