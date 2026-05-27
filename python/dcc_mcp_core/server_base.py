@@ -699,6 +699,55 @@ class DccServerBase:
         """Remove the after-load skill observer, if one is registered."""
         return self._skill_client.clear_after_load_skill_hook()
 
+    def register_lifecycle_hooks(self, hooks: Any) -> Any:
+        """Bind a :class:`~dcc_mcp_core.lifecycle_hooks.LifecycleHooks` registry.
+
+        The registry's ``BEFORE_SKILL_LOAD`` and ``AFTER_SKILL_LOAD`` handlers
+        are bridged to the existing skill-load transform / after-load setters
+        so adapters get a single typed surface across discovery, load, and
+        tool-call hook points (issue #1337). Other event types are still
+        registered and will be dispatched by downstream subsystems
+        (#1325 escape-hatch demotion, #1336 capability graph, #1334 memory
+        layers).
+
+        Returns the registry, so callers can chain
+        ``register_lifecycle_hooks(LifecycleHooks()).on(event, handler)``.
+        """
+        from dcc_mcp_core.lifecycle_hooks import HookContext
+        from dcc_mcp_core.lifecycle_hooks import HookEvent
+
+        self._lifecycle_hooks = hooks
+
+        def _bridge_before_load(skill: Any) -> Any:
+            hooks.dispatch(
+                HookContext(
+                    event=HookEvent.BEFORE_SKILL_LOAD,
+                    dcc_name=self._dcc_name,
+                    payload={"skill_name": getattr(skill, "name", None)},
+                )
+            )
+            return None
+
+        def _bridge_after_load(skill: Any, registered: list[str]) -> None:
+            hooks.dispatch(
+                HookContext(
+                    event=HookEvent.AFTER_SKILL_LOAD,
+                    dcc_name=self._dcc_name,
+                    payload={
+                        "skill_name": getattr(skill, "name", None),
+                        "registered_actions": list(registered),
+                    },
+                )
+            )
+
+        self.set_skill_load_transform(_bridge_before_load)
+        self.set_after_load_skill_hook(_bridge_after_load)
+        return hooks
+
+    def lifecycle_hooks(self) -> Any | None:
+        """Return the :class:`LifecycleHooks` registered by ``register_lifecycle_hooks``."""
+        return getattr(self, "_lifecycle_hooks", None)
+
     def unload_skill(self, name: str) -> bool:
         """Unload a skill by name."""
         return self._skill_client.unload_skill(name)
