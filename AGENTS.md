@@ -180,6 +180,7 @@ Gateway resources/prompts:
 | IPC | `IpcChannelAdapter` / `SocketServerAdapter` + `DccLinkFrame` |
 | Hand off files between tools | `FileRef` + `artefact_put_file()` / `artefact_get_bytes()` |
 | Multi-DCC gateway | `McpHttpConfig(gateway_port=9765)` |
+| Choose `dcc-mcp-server` run mode | No subcommand or `auto` = per-DCC server + first-wins auto-gateway; `serve --no-auto-gateway` = per-DCC server only; `gateway` = machine-wide gateway daemon with no inline DCC execution |
 | Discover gateway DCC instances / direct MCP URLs | `resources/read uri="gateway://instances"` or `gateway://instances/{id}`; entries carry `mcp_url` and replace the removed `list_dcc_instances` / `get_dcc_instance` / `connect_to_dcc` tools |
 | Gateway dynamic capabilities | MCP `search` → `describe` for read-only discovery, then REST `/v1/call` / `POST /v1/call_batch` for execution |
 | Gateway resources/prompts | `resources/list` / `resources/read` with exact gateway-returned URIs; `prompts/list` / `prompts/get` for aggregated backend prompt templates |

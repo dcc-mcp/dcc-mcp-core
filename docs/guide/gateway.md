@@ -28,6 +28,19 @@ directory so three DCCs starting at once still spawn at most one gateway.
 Use `dcc-mcp-server sidecar --no-ensure-gateway` to disable auto-launch, or
 `--legacy-gateway-election` to restore the old per-DCC first-wins election.
 
+For the standalone `dcc-mcp-server` binary, the run mode is explicit:
+
+```bash
+dcc-mcp-server                  # implicit auto mode, backwards compatible
+dcc-mcp-server auto --app maya  # explicit auto-gateway participation
+dcc-mcp-server serve --app maya # per-DCC server, still auto-gateway capable
+dcc-mcp-server serve --no-auto-gateway --app maya
+dcc-mcp-server gateway --port 9765
+```
+
+Use `serve --no-auto-gateway` when an external daemon owns the shared gateway
+port and this process should never try to bind it.
+
 ## Standalone gateway daemon (#1358)
 
 The `dcc-mcp-server gateway` subcommand runs the gateway **as its own
@@ -94,8 +107,9 @@ standalone). At runtime it satisfies the following:
 
 | Scenario | Recommended mode |
 |----------|------------------|
-| Single artist machine, one DCC | Default auto-gateway in the per-DCC server |
-| Workstation hosting multiple DCCs | Either; auto-gateway elects the first DCC to launch |
+| Single artist machine, one DCC | `dcc-mcp-server` or `dcc-mcp-server auto --app <dcc>` |
+| Workstation hosting multiple DCCs | `auto` / `serve`; auto-gateway elects the first DCC to launch |
+| Workstation with a separate gateway owner | `dcc-mcp-server serve --no-auto-gateway --app <dcc>` plus `dcc-mcp-server gateway` |
 | Studio render node / shared host / CI | `dcc-mcp-server gateway` daemon, sidecars launch DCCs |
 | Headless agent without any DCC installed | `dcc-mcp-server gateway` daemon — DCCs are reached via `FileRegistry` / HTTP registration |
 

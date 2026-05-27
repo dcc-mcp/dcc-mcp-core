@@ -1,0 +1,3 @@
+{"_vrs": {"version": 1}, "trace_id": "core-1360-gateway-daemon-mode", "title": "dcc-mcp-server gateway daemon exposes gateway REST without DCC backend"}
+{"id": "healthz", "http": {"method": "GET", "path": "/v1/healthz"}, "expect": {"status": 200, "json_subset": {"ok": true}}}
+{"id": "search_empty_gateway", "http": {"method": "POST", "path": "/v1/search", "json": {"query": "", "limit": 5}}, "expect": {"status": 200, "body_contains": "\"hits\""}}
