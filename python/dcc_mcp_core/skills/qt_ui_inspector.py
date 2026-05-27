@@ -22,7 +22,8 @@ import time
 from typing import Any
 
 from dcc_mcp_core import json_loads
-from dcc_mcp_core._tool_registration import ToolSpec, register_tools
+from dcc_mcp_core._tool_registration import ToolSpec
+from dcc_mcp_core._tool_registration import register_tools
 from dcc_mcp_core.result_envelope import ToolResult
 
 logger = logging.getLogger(__name__)
@@ -53,13 +54,11 @@ def _load_qt() -> _QtBinding:
             __import__(name)
             qt_widgets = __import__(f"{name}.QtWidgets", fromlist=["QtWidgets"])
             qt_core = __import__(f"{name}.QtCore", fromlist=["QtCore"])
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             errors.append(f"{name}: {exc.__class__.__name__}")
             continue
         return _QtBinding(name=name, widgets=qt_widgets, core=qt_core)
-    raise _BindingUnavailable(
-        "No Qt binding importable. Tried: " + ", ".join(_SUPPORTED_BINDINGS)
-    )
+    raise _BindingUnavailable("No Qt binding importable. Tried: " + ", ".join(_SUPPORTED_BINDINGS))
 
 
 def _binding_unavailable(exc: _BindingUnavailable) -> dict[str, Any]:
@@ -67,8 +66,7 @@ def _binding_unavailable(exc: _BindingUnavailable) -> dict[str, Any]:
         str(exc),
         error="qt-binding-unavailable",
         hint=(
-            "install one of qtpy, PySide6, PySide2, PyQt6, PyQt5 in the host "
-            "Python environment, then reload the skill"
+            "install one of qtpy, PySide6, PySide2, PyQt6, PyQt5 in the host Python environment, then reload the skill"
         ),
     ).to_dict()
 
@@ -88,7 +86,7 @@ def _widget_id(widget: Any) -> str:
     """Stable identifier ``class:object_name:fingerprint``."""
     try:
         obj_name = widget.objectName() or ""
-    except Exception:  # noqa: BLE001
+    except Exception:
         obj_name = ""
     klass = widget.__class__.__name__
     fingerprint = id(widget) & 0xFFFFFFFF
@@ -100,7 +98,7 @@ def _safe_call(fn: Any, default: Any) -> Any:
         return default
     try:
         return fn()
-    except Exception:  # noqa: BLE001
+    except Exception:
         return default
 
 
@@ -113,11 +111,11 @@ def _widget_summary(widget: Any) -> dict[str, Any]:
             "width": int(rect.width()),
             "height": int(rect.height()),
         }
-    except Exception:  # noqa: BLE001
+    except Exception:
         geometry = None
     try:
         children_count = sum(1 for _ in widget.children())
-    except Exception:  # noqa: BLE001
+    except Exception:
         children_count = 0
     out: dict[str, Any] = {
         "widget_id": _widget_id(widget),
@@ -127,9 +125,7 @@ def _widget_summary(widget: Any) -> dict[str, Any]:
         "enabled": _safe_call(widget.isEnabled, False),
         "children_count": children_count,
         "accessible_name": _safe_call(getattr(widget, "accessibleName", None), ""),
-        "accessible_description": _safe_call(
-            getattr(widget, "accessibleDescription", None), ""
-        ),
+        "accessible_description": _safe_call(getattr(widget, "accessibleDescription", None), ""),
     }
     if geometry is not None:
         out["geometry"] = geometry
@@ -141,10 +137,9 @@ def _find_by_id(app: Any, target_id: str) -> Any | None:
         try:
             if _widget_id(widget) == target_id:
                 return widget
-        except Exception:  # noqa: BLE001
+        except Exception:
             continue
     return None
-
 
 
 # ── Public tool functions ──────────────────────────────────────────────
@@ -168,7 +163,7 @@ def qt_list_windows(*, include_hidden: bool = False, max_results: int = 64) -> d
             windows.append(_widget_summary(w))
             if len(windows) >= cap:
                 break
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             windows.append({"widget_id": None, "class": w.__class__.__name__, "error": str(exc)})
     return ToolResult.ok(
         "listed Qt top-level windows",
@@ -188,10 +183,9 @@ def qt_find_widgets(
     visible_only: bool = True,
     max_results: int = 64,
 ) -> dict[str, Any]:
+    """Search Qt widgets by object name and/or class name with a bounded result count."""
     if object_name is None and class_name is None:
-        return ToolResult.invalid_input(
-            "supply at least one of object_name or class_name"
-        ).to_dict()
+        return ToolResult.invalid_input("supply at least one of object_name or class_name").to_dict()
     cap = max(1, min(int(max_results), 1024))
     try:
         binding = _load_qt()
@@ -205,16 +199,14 @@ def qt_find_widgets(
         try:
             if visible_only and not w.isVisible():
                 continue
-            if object_name is not None and not _name_matches(
-                w.objectName() or "", object_name, object_name_match
-            ):
+            if object_name is not None and not _name_matches(w.objectName() or "", object_name, object_name_match):
                 continue
             if class_name is not None and class_name not in w.__class__.__name__:
                 continue
             hits.append(_widget_summary(w))
             if len(hits) >= cap:
                 break
-        except Exception:  # noqa: BLE001
+        except Exception:
             continue
     return ToolResult.ok(
         "found matching Qt widgets",
@@ -225,7 +217,8 @@ def qt_find_widgets(
     ).to_dict()
 
 
-def qt_describe_widget(*, widget_id: str) -> dict[str, Any]:  # noqa: A002
+def qt_describe_widget(*, widget_id: str) -> dict[str, Any]:
+    """Return a single Qt widget's structured state and bounded property snapshot."""
     if not widget_id:
         return ToolResult.invalid_input("widget_id is required").to_dict()
     try:
@@ -249,13 +242,13 @@ def qt_describe_widget(*, widget_id: str) -> dict[str, Any]:  # noqa: A002
             try:
                 name = prop.name()
                 value = widget.property(name)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 continue
             try:
                 properties[str(name)] = _coerce_property(value)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 properties[str(name)] = "<unserialisable>"
-    except Exception:  # noqa: BLE001
+    except Exception:
         properties = {}
     summary["properties"] = properties
     summary["properties_truncated"] = len(properties) >= _PROPERTY_CAP
@@ -293,6 +286,7 @@ def qt_snapshot_tree(
     max_depth: int = 4,
     max_nodes: int = 256,
 ) -> dict[str, Any]:
+    """Walk the Qt widget tree from a root, returning a JSON-safe tree with depth/node budgets."""
     depth = max(0, min(int(max_depth), 16))
     cap = max(1, min(int(max_nodes), 4096))
     try:
@@ -339,7 +333,7 @@ def _walk(widget: Any, depth: int, max_depth: int, budget: list[int]) -> dict[st
     if depth >= max_depth:
         try:
             has_children = any(True for _ in widget.children())
-        except Exception:  # noqa: BLE001
+        except Exception:
             has_children = False
         node["children"] = []
         node["truncated"] = has_children
@@ -353,7 +347,7 @@ def _walk(widget: Any, depth: int, max_depth: int, budget: list[int]) -> dict[st
                 children.append({"truncated": True})
                 break
             children.append(_walk(child, depth + 1, max_depth, budget))
-    except Exception:  # noqa: BLE001
+    except Exception:
         children = []
     node["children"] = children
     return node
@@ -368,10 +362,9 @@ def qt_wait_for_widget(
     timeout_ms: int = 5000,
     poll_interval_ms: int = 100,
 ) -> dict[str, Any]:
+    """Poll for a Qt widget matching the criteria within a bounded timeout."""
     if object_name is None and class_name is None:
-        return ToolResult.invalid_input(
-            "supply at least one of object_name or class_name"
-        ).to_dict()
+        return ToolResult.invalid_input("supply at least one of object_name or class_name").to_dict()
     timeout = max(0, min(int(timeout_ms), 60_000)) / 1000.0
     poll = max(25, int(poll_interval_ms)) / 1000.0
     try:
@@ -402,7 +395,7 @@ def qt_wait_for_widget(
                     elapsed_secs=round(timeout - max(0.0, deadline - time.monotonic()), 3),
                     widget=_widget_summary(w),
                 ).to_dict()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 continue
         if time.monotonic() >= deadline:
             return ToolResult.fail(
@@ -415,7 +408,6 @@ def qt_wait_for_widget(
                 enabled=enabled,
             ).to_dict()
         time.sleep(poll)
-
 
 
 # ── MCP registration ───────────────────────────────────────────────────
@@ -490,9 +482,7 @@ def register_qt_ui_inspector(server: Any, *, dcc_name: str = "dcc") -> None:
 
     def _handler(fn):
         def wrapper(params: Any) -> Any:
-            args: dict[str, Any] = (
-                json_loads(params) if isinstance(params, str) else (params or {})
-            )
+            args: dict[str, Any] = json_loads(params) if isinstance(params, str) else (params or {})
             return fn(**args)
 
         return wrapper
@@ -500,28 +490,40 @@ def register_qt_ui_inspector(server: Any, *, dcc_name: str = "dcc") -> None:
     specs = [
         ToolSpec(
             name="qt_ui_inspector__list_windows",
-            description="List every top-level Qt window with object name, class, visibility, geometry, and child count.",
+            description=(
+                "List every top-level Qt window with object name, class, visibility, geometry, and child count."
+            ),
             input_schema=_LIST_WINDOWS_SCHEMA,
             handler=_handler(qt_list_windows),
             category=_CATEGORY_QT_UI_INSPECTOR,
         ),
         ToolSpec(
             name="qt_ui_inspector__find_widgets",
-            description="Locate Qt widgets by object name (exact/substring/regex), class name, and visibility. Bounded result count.",
+            description=(
+                "Locate Qt widgets by object name (exact/substring/regex), "
+                "class name, and visibility. Bounded result count."
+            ),
             input_schema=_FIND_WIDGETS_SCHEMA,
             handler=_handler(qt_find_widgets),
             category=_CATEGORY_QT_UI_INSPECTOR,
         ),
         ToolSpec(
             name="qt_ui_inspector__describe_widget",
-            description="Return a single Qt widget's structured state - class, geometry, flags, accessible name/description, bounded property snapshot.",
+            description=(
+                "Return a single Qt widget's structured state - class, "
+                "geometry, flags, accessible name/description, bounded "
+                "property snapshot."
+            ),
             input_schema=_DESCRIBE_WIDGET_SCHEMA,
             handler=_handler(qt_describe_widget),
             category=_CATEGORY_QT_UI_INSPECTOR,
         ),
         ToolSpec(
             name="qt_ui_inspector__snapshot_tree",
-            description="Walk the Qt widget tree under a root and return it as a JSON-safe tree with depth and node-count budgets.",
+            description=(
+                "Walk the Qt widget tree under a root and return it as a "
+                "JSON-safe tree with depth and node-count budgets."
+            ),
             input_schema=_SNAPSHOT_TREE_SCHEMA,
             handler=_handler(qt_snapshot_tree),
             category=_CATEGORY_QT_UI_INSPECTOR,
