@@ -54,7 +54,7 @@ continue to serve their own adapter OpenAPI contract from the same path.
 | `GET` | `/v1/debug/agent-traces/{lookup_id}` | Gateway only: compact public-safe agent trace packet by trace id or request id. |
 | `GET` | `/v1/debug/bundles/{request_id}` | Gateway only: full-chain debug bundle by request id or trace id. |
 | `GET` | `/v1/debug/issue-reports/{request_id}` | Gateway only: public-safe GitHub issue report JSON by default; `?mode=raw` includes reviewed local evidence. |
-| `GET` | `/v1/debug/tasks` | Gateway only: task-like snapshots reconstructed from traces. |
+| `GET` | `/v1/debug/tasks` | Gateway only: user-level task outcomes grouped across workflows, calls, artifacts, and validation. |
 | `GET` | `/v1/debug/calls` | Gateway only: recent audited calls. |
 | `GET` | `/v1/debug/logs` | Gateway only: merged gateway events, file logs, and audit summaries. |
 | `GET` | `/v1/debug/stats` | Gateway only: aggregated call statistics. |
@@ -126,7 +126,7 @@ so operators and agents can compare results one-to-one:
 | `/v1/debug/bundles/{request_id}` | `/admin/api/debug-bundle/{request_id}` | Accepts request ids and retained trace ids. |
 | `/v1/debug/issue-reports/{request_id}` | `/admin/api/issue-report/{request_id}` | Public-safe JSON export suitable for GitHub issue attachment by default; `?mode=raw` includes the full debug bundle for reviewed local evidence. |
 | `/v1/debug/workflows` | `/admin/api/workflows` | Agent session/workflow projection from retained search telemetry, traces, and audits. |
-| `/v1/debug/tasks` | `/admin/api/tasks` | Task projection from retained traces. |
+| `/v1/debug/tasks` | `/admin/api/tasks` | User-level task outcome projection from retained traces and audits. |
 | `/v1/debug/calls` | `/admin/api/calls` | Recent audit rows. |
 | `/v1/debug/logs` | `/admin/api/logs` | Merged gateway/file/audit logs. |
 | `/v1/debug/stats` | `/admin/api/stats` | Aggregated call stats. |

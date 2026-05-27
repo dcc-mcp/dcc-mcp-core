@@ -156,29 +156,69 @@ async function mockAdminApi(page: Page) {
         total: 2,
         tasks: [
           {
-            task_id: 'req-123',
-            task_type: 'tool_call',
+            task_id: 'session-1:turn-1',
+            task_type: 'agent_turn',
             status: 'completed',
-            title: 'maya-1234__create_sphere',
+            title: 'Create a sphere with the least risky MCP path.',
+            goal: 'Create a sphere after discovery.',
+            summary: 'Create a sphere with the least risky MCP path.',
+            final_result: 'Produced viewport preview and validated the scene.',
             started_at: now,
-            duration_ms: 42,
+            finished_at: '2026-05-18T08:00:06.000Z',
+            duration_ms: 6000,
+            app_types: ['maya'],
+            artifacts: [
+              { name: 'viewport-preview.png', kind: 'render', request_id: 'req-artifact' },
+            ],
+            validation_checks: [
+              { title: 'validate sphere scene output', status: 'completed', request_id: 'req-validate' },
+            ],
+            related: {
+              workflow_ids: ['session-1'],
+              request_ids: ['req-search', 'req-describe', 'req-load', 'req-123', 'req-artifact', 'req-validate'],
+              trace_ids: ['trace-workflow'],
+              session_ids: ['session-1'],
+            },
             correlation: {
               request_id: 'req-123',
+              workflow_id: 'session-1',
+              trace_id: 'trace-workflow',
+              session_id: 'session-1',
               instance_id: 'maya-1234567890',
               dcc_type: 'maya',
+              agent_id: 'agent-1',
+              actor_name: 'Layout Artist',
+              client_platform: 'cursor',
             },
           },
           {
-            task_id: 'req-err',
-            task_type: 'tool_call',
+            task_id: 'lookdev-fail',
+            task_type: 'session_task',
             status: 'failed',
-            title: 'blender-abcd__render_preview',
+            title: 'Render preview for lookdev review',
+            goal: 'Render a lookdev preview.',
+            failure_reason: 'Backend failed while opening [path-redacted].',
             started_at: '2026-05-18T08:01:00.000Z',
+            finished_at: '2026-05-18T08:01:00.087Z',
             duration_ms: 87,
+            app_types: ['blender'],
+            artifacts: [
+              { name: 'render preview', kind: 'render', request_id: 'req-err' },
+            ],
+            related: {
+              workflow_ids: ['lookdev-fail'],
+              request_ids: ['req-err'],
+              trace_ids: ['trace-error'],
+              session_ids: ['session-err'],
+            },
             correlation: {
               request_id: 'req-err',
+              workflow_id: 'lookdev-fail',
+              trace_id: 'trace-error',
+              session_id: 'session-err',
               instance_id: 'blender-abcdef1234',
               dcc_type: 'blender',
+              client_platform: 'codebuddy',
             },
           },
         ],
@@ -1374,10 +1414,17 @@ test.describe('Admin Page', () => {
 
   test('shows reconstructed tasks and links them to traces', async ({ page }) => {
     await page.goto('/admin/?panel=tasks');
-    await expect(page.locator('.tasks-panel')).toContainText('maya-1234__create_sphere');
-    await expect(page.locator('.tasks-panel .badge-ok')).toContainText('completed');
-    await expect(page.locator('.tasks-panel .badge-err')).toContainText('failed');
-    await page.getByRole('button', { name: 'req-123' }).click();
+    await expect(page.locator('.tasks-panel')).toContainText('Create a sphere with the least risky MCP path.');
+    await expect(page.locator('.tasks-panel')).toContainText('Produced viewport preview and validated the scene.');
+    await expect(page.locator('.tasks-panel')).toContainText('6 call(s)');
+    await expect(page.locator('.tasks-panel')).toContainText('render: viewport-preview.png');
+    await expect(page.locator('.tasks-panel')).toContainText('validate sphere scene output');
+    await expect(page.locator('.tasks-panel')).toContainText('workflow session-1');
+    await expect(page.locator('.tasks-panel')).toContainText('client Layout Artist');
+    await expect(page.locator('.tasks-panel')).toContainText('Backend failed while opening [path-redacted].');
+    await expect(page.locator('.task-card.ok', { hasText: 'Create a sphere' }).locator('.task-title-row .badge-ok')).toContainText('completed');
+    await expect(page.locator('.task-card.err', { hasText: 'Render preview' }).locator('.task-title-row .badge-err')).toContainText('failed');
+    await page.getByRole('button', { name: /trace req-123/ }).click();
     await expect(page).toHaveURL(/panel=traces/);
     await expect(page).toHaveURL(/trace=req-123/);
     await expect(page.locator('.trace-detail-panel')).toContainText('req-123');

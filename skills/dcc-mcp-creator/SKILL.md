@@ -55,6 +55,7 @@ skill taxonomy), load `dcc-mcp-skills-creator` instead.
 9. Add one executable smoke path: unit tests for construction plus either headless DCC, mock dispatcher MCP calls, or gateway REST replay.
 10. For gateway/admin observability, surface explicit state instead of silent zeroes: traffic panels should report disabled, unavailable, filtered, or genuine no-traffic states and keep admin-facing frames metadata-only unless an operator explicitly configures a private raw sink.
 11. Preserve workflow observability: adapter calls should carry request, parent, trace, session, DCC, transport, and artifact/validation metadata so the Admin workflow graph can show Intent → Discovery → Skill Load → Tool Calls → Fallbacks → Artifacts → Validation → Report without raw log reading.
+12. Preserve bounded `agent_context` task/session/turn metadata and artifact/validation-friendly tool names so Admin task outcomes can group workflows, calls, deliverables, and checks without reading raw payloads or local paths.
 
 ## Example: New Nuke Adapter
 

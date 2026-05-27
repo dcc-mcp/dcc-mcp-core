@@ -941,9 +941,12 @@ pub async fn handle_admin_trace_detail(
 pub async fn handle_admin_tasks(
     State(s): State<AdminState>,
     axum::extract::Query(params): axum::extract::Query<DebugListQuery>,
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
 ) -> impl IntoResponse {
     let limit = params.limit(200, 1_000);
-    Json(crate::gateway::admin::activity::build_tasks_payload(&s, limit).await)
+    let links = AdminLinkBuilder::from_request(&headers, &uri);
+    Json(crate::gateway::admin::activity::build_tasks_payload(&s, limit, links).await)
 }
 
 /// `GET /admin/api/workflows` — agent/session workflow projection over
