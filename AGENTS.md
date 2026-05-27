@@ -360,6 +360,7 @@ CI enforces hard line-count limits (`.github/workflows/check-file-size.yml`):
 |----------|-------|------------|
 | Rust (`.rs`) | **1 500 lines** | excluded |
 | Python (`.py`) | **1 000 lines** | excluded |
+| Admin UI source/test (`.ts`, `.tsx`, `.css`, `.json`) | **3 000 lines** | included |
 
 ### When a file exceeds the limit
 
@@ -406,6 +407,22 @@ Rules:
 - Max one public class or one cohesive group of related pure functions per file.
 - No circular imports; domain layer must not import adapters.
 - Prefer composition over inheritance for adapter variations.
+
+#### Admin UI — feature split
+
+The Admin UI under `admin-ui/src/` should keep source, test, style, and locale
+files below 3 000 lines.
+
+Rules:
+- Split API/data model types and normalization helpers into focused `.ts`
+  modules.
+- Split shared view helpers and panel-level components into focused `.tsx`
+  modules instead of growing `App.tsx`.
+- Split large stylesheets by feature area and import them explicitly from
+  `main.tsx` so cascade order stays visible.
+- Store translation dictionaries under `admin-ui/src/locales/<locale>/` by
+  namespace, for example `locales/en/action.json`, `locales/en/traffic.json`, or
+  `locales/zh-CN/skill-paths.json`.
 
 #### Exemption process
 

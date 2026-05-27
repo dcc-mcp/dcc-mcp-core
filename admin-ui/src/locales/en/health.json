@@ -1,0 +1,17 @@
+{
+  "title": "Health",
+  "metric.status": "Status",
+  "metric.uptime": "Uptime",
+  "metric.ready": "Ready",
+  "metric.version": "Version",
+  "metric.gatewayOwner": "Gateway owner",
+  "metric.gatewayCandidates": "Gateway candidates",
+  "metric.responseFormat": "Response format",
+  "metric.rss": "RSS",
+  "metric.bodyLimit": "Body limit",
+  "metric.rateLimit": "Rate / min-IP",
+  "metric.xffTrustedDepth": "XFF trusted depth",
+  "metric.readRetries": "Read retries (max)",
+  "metric.circuitLimit": "Circuit limit / open",
+  "metric.circuitsOpenTracked": "Circuits open / tracked"
+}

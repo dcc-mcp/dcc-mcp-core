@@ -1,0 +1,17 @@
+{
+  "title": "상태",
+  "metric.status": "상태",
+  "metric.uptime": "가동 시간",
+  "metric.ready": "준비",
+  "metric.version": "버전",
+  "metric.gatewayOwner": "게이트웨이 소유자",
+  "metric.gatewayCandidates": "게이트웨이 후보",
+  "metric.responseFormat": "응답 형식",
+  "metric.rss": "RSS",
+  "metric.bodyLimit": "본문 제한",
+  "metric.rateLimit": "분당 IP 제한",
+  "metric.xffTrustedDepth": "XFF 신뢰 깊이",
+  "metric.readRetries": "읽기 재시도 최대",
+  "metric.circuitLimit": "회로 제한 / 열림",
+  "metric.circuitsOpenTracked": "열림 / 추적 회로"
+}

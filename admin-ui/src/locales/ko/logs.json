@@ -1,0 +1,17 @@
+{
+  "title": "이벤트 로그",
+  "description": "실시간 요청 스트림은 5초마다 새로 고칩니다. 요청 ID가 있는 행은 순서가 있는 단계처럼 그룹화되고, 요청 ID가 없는 게이트웨이 이벤트는 별도 이벤트 레인에 남습니다.",
+  "section.gatewayEvents": "게이트웨이 이벤트",
+  "label.request": "요청",
+  "label.step": "단계 {index}",
+  "filter.ariaLabel": "심각도로 로그 필터",
+  "filter.all": "전체",
+  "filter.error": "오류",
+  "filter.warn": "경고",
+  "filter.info": "정보",
+  "filter.debug": "디버그",
+  "filter.trace": "트레이스",
+  "filter.unknown": "알 수 없음",
+  "empty.none": "버퍼에 아직 이벤트가 없습니다. 게이트웨이(도구 호출)를 사용하거나 registry / probe 활동을 기다리세요.",
+  "empty.search": "검색과 일치하는 로그 줄이 없습니다."
+}

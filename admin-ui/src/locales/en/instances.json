@@ -1,0 +1,7 @@
+{
+  "title": "Instances",
+  "description": "One card per registered DCC backend. Use the links to open the adapter HTTP host, MCP streamable endpoint, or /docs when the host exposes it.",
+  "empty.none": "No instances registered.",
+  "empty.search": "No instances match your search.",
+  "group.meta": "{count} instance(s) · {flagged} flagged"
+}

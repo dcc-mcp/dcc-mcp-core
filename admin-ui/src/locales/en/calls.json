@@ -1,0 +1,13 @@
+{
+  "title": "Recent Calls",
+  "empty.none": "No recent calls. AuditMiddleware may not be active.",
+  "empty.search": "No calls match your search.",
+  "table.agent": "Agent",
+  "table.transport": "Transport",
+  "table.format": "Format",
+  "table.returned": "Returned",
+  "table.saved": "Saved",
+  "table.error": "Error",
+  "table.detail": "Detail",
+  "action.expand": "Expand"
+}

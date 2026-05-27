@@ -8,6 +8,7 @@
     "module": "ESNext",
     "moduleDetection": "force",
     "moduleResolution": "bundler",
+    "resolveJsonModule": true,
     "noEmit": true,
     "jsx": "react-jsx",
     "ignoreDeprecations": "6.0",

@@ -1,0 +1,13 @@
+{
+  "title": "最近の呼び出し",
+  "empty.none": "最近の呼び出しはありません。AuditMiddleware が有効でない可能性があります。",
+  "empty.search": "検索に一致する呼び出しはありません。",
+  "table.agent": "Agent",
+  "table.transport": "トランスポート",
+  "table.format": "形式",
+  "table.returned": "返却",
+  "table.saved": "削減",
+  "table.error": "エラー",
+  "table.detail": "詳細",
+  "action.expand": "展開"
+}

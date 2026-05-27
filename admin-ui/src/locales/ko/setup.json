@@ -1,0 +1,7 @@
+{
+  "mode.local": "로컬",
+  "mode.lan": "LAN",
+  "mode.direct": "직접",
+  "label.url": "URL",
+  "aria.endpoint": "MCP 엔드포인트"
+}

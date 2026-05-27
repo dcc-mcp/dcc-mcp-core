@@ -1,0 +1,9 @@
+{
+  "input.ariaLabel": "Filter current panel",
+  "input.default": "Search this panel...",
+  "input.openapi": "Filter operations, paths, tags...",
+  "input.stats": "Filter stats charts...",
+  "meta.skillsPaths": "{skills} skill(s), {paths} path(s)",
+  "meta.statsCharts": "charts: {apps} app types / {tools} tools / {instances} instances / {agents} agents / {actors} actors / {platforms} platforms / {sources} sources / {formats} formats",
+  "meta.governancePressure": "{denied} denied / {throttled} throttled"
+}

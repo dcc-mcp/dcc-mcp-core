@@ -1,0 +1,7 @@
+{
+  "title": "인스턴스",
+  "description": "등록된 DCC 백엔드를 카드로 표시합니다. 링크로 어댑터 HTTP 호스트, MCP streamable 엔드포인트 또는 호스트가 제공하는 /docs를 열 수 있습니다.",
+  "empty.none": "등록된 인스턴스가 없습니다.",
+  "empty.search": "검색과 일치하는 인스턴스가 없습니다.",
+  "group.meta": "{count}개 인스턴스 · {flagged}개 표시됨"
+}

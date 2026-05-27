@@ -1,0 +1,7 @@
+{
+  "title": "インスタンス",
+  "description": "登録済み DCC バックエンドをカードで表示します。リンクからアダプター HTTP ホスト、MCP streamable エンドポイント、またはホストが公開する /docs を開けます。",
+  "empty.none": "登録済みインスタンスはありません。",
+  "empty.search": "検索に一致するインスタンスはありません。",
+  "group.meta": "{count} 件のインスタンス · {flagged} 件 flagged"
+}
