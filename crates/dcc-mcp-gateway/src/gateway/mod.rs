@@ -42,6 +42,7 @@ pub mod capability_service;
 pub mod event_log;
 pub mod handlers;
 pub mod http_limits;
+pub mod http_registration;
 pub mod instance_diagnostics;
 pub mod middleware;
 pub mod native_resources;

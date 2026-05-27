@@ -1,6 +1,8 @@
 use super::*;
 use dcc_mcp_gateway_core::policy::GatewayPolicyOperation;
 
+use super::super::http_registration::entry_mcp_url;
+
 /// Dispatch a skill-management tool across backends.
 ///
 /// Two patterns:
@@ -58,7 +60,7 @@ pub(crate) async fn skill_mgmt_dispatch(
                             obj.insert("group".to_string(), group_name);
                         }
                     }
-                    let url = format!("http://{}:{}/mcp", entry.host, entry.port);
+                    let url = entry_mcp_url(&entry);
                     let params = json!({"name": tool, "arguments": forward_args});
                     match call_backend(
                         &gs.http_client,
@@ -164,7 +166,7 @@ Standalone `dcc-mcp-server` without `--app` registers as `dcc_type` from DCC_MCP
             let backend_timeout = gs.backend_timeout;
             let params = json!({"name": tool, "arguments": args});
             let futs = targets.iter().map(|entry| {
-                let url = format!("http://{}:{}/mcp", entry.host, entry.port);
+                let url = entry_mcp_url(entry);
                 let params = params.clone();
                 async move {
                     let res = call_backend(

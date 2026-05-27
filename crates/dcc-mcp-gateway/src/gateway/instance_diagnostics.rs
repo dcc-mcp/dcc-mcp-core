@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
+use crate::gateway::http_registration::entry_mcp_url;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 
 /// Summary of the last failed backend call for an instance.
@@ -161,7 +162,7 @@ pub fn backend_error_attachment(
     diagnostics: Option<&InstanceDiagnostics>,
     backend_body: Option<&Value>,
 ) -> Value {
-    let direct_mcp_url = format!("http://{}:{}/mcp", entry.host, entry.port);
+    let direct_mcp_url = entry_mcp_url(entry);
     let mut backend = json!({
         "instance_id": entry.instance_id.to_string(),
         "display_id": entry.display_id(),

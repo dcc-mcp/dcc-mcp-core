@@ -102,6 +102,9 @@ mod admin_tests {
         let (events_tx, _) = broadcast::channel::<String>(8);
         GatewayState {
             registry,
+            http_instance_registry: Arc::new(parking_lot::RwLock::new(
+                crate::gateway::http_registration::HttpInstanceRegistry::default(),
+            )),
             stale_timeout: Duration::from_secs(30),
             backend_timeout: Duration::from_secs(10),
             async_dispatch_timeout: Duration::from_secs(60),

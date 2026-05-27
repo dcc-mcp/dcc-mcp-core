@@ -11,7 +11,8 @@ use super::handlers::{
     handle_proxy_dcc, handle_proxy_instance, handle_v1_call, handle_v1_call_batch,
     handle_v1_context, handle_v1_dcc_instance_call, handle_v1_dcc_instance_describe,
     handle_v1_dcc_instance_stop, handle_v1_describe, handle_v1_describe_path, handle_v1_docs,
-    handle_v1_healthz, handle_v1_list_skills, handle_v1_load_skill, handle_v1_openapi,
+    handle_v1_healthz, handle_v1_instances_deregister, handle_v1_instances_heartbeat,
+    handle_v1_instances_register, handle_v1_list_skills, handle_v1_load_skill, handle_v1_openapi,
     handle_v1_readyz, handle_v1_search, handle_v1_skills, handle_v1_unload_skill,
 };
 use super::http_limits::rate_limit_middleware;
@@ -31,6 +32,9 @@ use super::state::GatewayState;
 ///
 /// Dynamic-capability REST API (#654, introduced by #657):
 /// - `GET  /v1/instances` — same payload as `/instances`
+/// - `POST /v1/instances/register` — register a remote DCC instance by MCP URL
+/// - `POST /v1/instances/heartbeat` — refresh a remote registration TTL
+/// - `POST /v1/instances/deregister` — remove a remote registration
 /// - `GET  /v1/context` — aggregate snapshot plus `instances` (live rows, same shape as `/v1/instances`)
 /// - `POST /v1/search`    — keyword + filter search over the capability index
 /// - `POST /v1/describe`  — resolve one capability slug
@@ -123,6 +127,18 @@ fn build_base_router(state: GatewayState) -> Router {
         .route("/gateway/yield", routing::post(handle_gateway_yield))
         // ── #654 dynamic-capability REST API ─────────────────────────
         .route("/v1/instances", routing::get(handle_instances))
+        .route(
+            "/v1/instances/register",
+            routing::post(handle_v1_instances_register),
+        )
+        .route(
+            "/v1/instances/heartbeat",
+            routing::post(handle_v1_instances_heartbeat),
+        )
+        .route(
+            "/v1/instances/deregister",
+            routing::post(handle_v1_instances_deregister),
+        )
         .route("/v1/healthz", routing::get(handle_v1_healthz))
         .route("/v1/readyz", routing::get(handle_v1_readyz))
         .route("/v1/openapi.json", routing::get(handle_v1_openapi))

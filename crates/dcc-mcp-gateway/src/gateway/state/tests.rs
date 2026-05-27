@@ -25,6 +25,9 @@ fn test_gateway_state_with_own_and_unknown(
     let (events_tx, _) = broadcast::channel::<String>(8);
     GatewayState {
         registry: reg,
+        http_instance_registry: Arc::new(parking_lot::RwLock::new(
+            crate::gateway::http_registration::HttpInstanceRegistry::default(),
+        )),
         stale_timeout: Duration::from_secs(30),
         backend_timeout: Duration::from_secs(10),
         async_dispatch_timeout: Duration::from_secs(60),
@@ -89,6 +92,39 @@ async fn test_live_instances_excludes_gateway_sentinel() {
         !live.iter().any(|e| e.dcc_type == GATEWAY_SENTINEL_DCC_TYPE),
         "gateway sentinel must never appear in user-facing listings"
     );
+}
+
+#[tokio::test]
+async fn live_instances_includes_http_registered_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let gs = test_gateway_state(registry.clone());
+    let instance_id = uuid::Uuid::parse_str("44444444-4444-4444-8444-444444444444").unwrap();
+    {
+        let mut http_registry = gs.http_instance_registry.write();
+        http_registry
+            .register(
+                crate::gateway::http_registration::HttpInstanceRegistrationRequest {
+                    instance_id: instance_id.to_string(),
+                    dcc_type: "photoshop".to_string(),
+                    mcp_url: "http://remote.example:28765/mcp".to_string(),
+                    capabilities_fingerprint: None,
+                    adapter_version: Some("2.0.0".to_string()),
+                    scene: Some("comp.psd".to_string()),
+                    ttl_secs: None,
+                },
+                std::time::SystemTime::now(),
+            )
+            .unwrap();
+    }
+
+    let registry = registry.read().await;
+    let live = gs.live_instances(&registry);
+    assert_eq!(live.len(), 1);
+    assert_eq!(live[0].instance_id, instance_id);
+    let row = gs.instance_json(&live[0]);
+    assert_eq!(row["source"], "http");
+    assert_eq!(row["mcp_url"], "http://remote.example:28765/mcp");
 }
 
 /// Regression test for issue #419: when the gateway process is also a
