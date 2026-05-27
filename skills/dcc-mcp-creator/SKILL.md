@@ -50,12 +50,13 @@ skill taxonomy), load `dcc-mcp-skills-creator` instead.
 4. Route host API calls through `HostExecutionBridge`; do not hand-roll a second script executor.
 5. Keep DCC identity data-driven: `dcc_name`, `server_name`, env-var prefix, skill names, and gateway metadata.
 6. Use core helpers for skill discovery, `MinimalModeConfig`, project tools, resources, diagnostics, context snapshots, install lifecycle, and gateway failover before writing adapter-local wrappers.
-7. Preserve gateway caller attribution when adding adapter wrappers or admin/debug routes: let MCP `initialize.params.clientInfo`, MCP `_meta.agent_context`, REST `meta.agent_context`, `x-dcc-mcp-*` headers, and safe `User-Agent` fallbacks flow through core rather than logging raw prompts or local machine data.
-8. When the adapter needs a lifecycle hook or metadata transform that core cannot express, open a focused core issue/RFC instead of parsing YAML or mutating private state in the adapter.
-9. Add one executable smoke path: unit tests for construction plus either headless DCC, mock dispatcher MCP calls, or gateway REST replay.
-10. For gateway/admin observability, surface explicit state instead of silent zeroes: traffic panels should report disabled, unavailable, filtered, or genuine no-traffic states; skill panels should distinguish discovered, loaded, searched, selected, called, failed, and low-adoption skills; and admin-facing frames/paths should stay metadata-only or aliased unless an operator explicitly configures a private raw sink.
-11. Preserve workflow observability: adapter calls should carry request, parent, trace, session, DCC, transport, and artifact/validation metadata so the Admin workflow graph can show Intent → Discovery → Skill Load → Tool Calls → Fallbacks → Artifacts → Validation → Report without raw log reading.
-12. Preserve bounded `agent_context` task/session/turn metadata and artifact/validation-friendly tool names so Admin task outcomes can group workflows, calls, deliverables, and checks without reading raw payloads or local paths.
+7. Choose the `dcc-mcp-server` run mode deliberately: no subcommand or `auto` for backwards-compatible first-wins auto-gateway, `serve --no-auto-gateway` when a separate daemon owns the gateway port, and `gateway` for a machine-wide daemon with no inline DCC execution.
+8. Preserve gateway caller attribution when adding adapter wrappers or admin/debug routes: let MCP `initialize.params.clientInfo`, MCP `_meta.agent_context`, REST `meta.agent_context`, `x-dcc-mcp-*` headers, and safe `User-Agent` fallbacks flow through core rather than logging raw prompts or local machine data.
+9. When the adapter needs a lifecycle hook or metadata transform that core cannot express, open a focused core issue/RFC instead of parsing YAML or mutating private state in the adapter.
+10. Add one executable smoke path: unit tests for construction plus either headless DCC, mock dispatcher MCP calls, or gateway REST replay.
+11. For gateway/admin observability, surface explicit state instead of silent zeroes: traffic panels should report disabled, unavailable, filtered, or genuine no-traffic states; skill panels should distinguish discovered, loaded, searched, selected, called, failed, and low-adoption skills; and admin-facing frames/paths should stay metadata-only or aliased unless an operator explicitly configures a private raw sink.
+12. Preserve workflow observability: adapter calls should carry request, parent, trace, session, DCC, transport, and artifact/validation metadata so the Admin workflow graph can show Intent → Discovery → Skill Load → Tool Calls → Fallbacks → Artifacts → Validation → Report without raw log reading.
+13. Preserve bounded `agent_context` task/session/turn metadata and artifact/validation-friendly tool names so Admin task outcomes can group workflows, calls, deliverables, and checks without reading raw payloads or local paths.
 
 ## Example: New Nuke Adapter
 

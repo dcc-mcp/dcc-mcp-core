@@ -97,10 +97,22 @@ Default install locations are `~/.local/bin` on Linux/macOS and
 
 ## `dcc-mcp-server`
 
-Standalone server that runs one per-DCC MCP + REST server **and** competes
-for the shared gateway port. The first process to bind the gateway port
-wins the role; later arrivals still register themselves as regular DCC
-instances that the winner aggregates.
+Standalone server runner with explicit run modes for per-DCC MCP servers and
+the machine-wide gateway daemon. Invoking `dcc-mcp-server` with no subcommand
+is still backwards compatible: it behaves exactly like `dcc-mcp-server auto`.
+
+### Run modes
+
+| Command | Role | Gateway behavior |
+|---|---|---|
+| `dcc-mcp-server` | Backwards-compatible implicit `auto`. | Starts a per-DCC MCP server and participates in first-wins gateway election. |
+| `dcc-mcp-server auto` | Explicit form of the default behavior. | Same as the no-subcommand path. |
+| `dcc-mcp-server serve` | Per-DCC MCP server. | Participates in first-wins gateway election unless told otherwise. |
+| `dcc-mcp-server serve --no-auto-gateway` | Per-DCC MCP server only. | Registers/serves tools but never tries to bind the gateway port. |
+| `dcc-mcp-server gateway` | Machine-wide gateway daemon. | Hosts discovery, routing, resources/prompts, admin, and audit without running DCC tools inline. |
+
+`auto` and `serve` share the server flags below. `gateway` has its own smaller
+flag surface and rejects server-only flags such as `--app`.
 
 ### Core flags
 
@@ -117,7 +129,7 @@ instances that the winner aggregates.
 | `--force` | — | `false` | Overwrite an existing PID file even if it points at a live process. |
 | `--shutdown-timeout-secs` | `DCC_MCP_SHUTDOWN_TIMEOUT_SECS` | `10` | Graceful shutdown deadline. |
 
-### Gateway flags
+### Auto-gateway flags (`auto` / `serve`)
 
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
@@ -194,20 +206,21 @@ recording can be replayed against the current live instance.
 ### Typical invocations
 
 ```bash
-# 1) Single standalone server on an OS-assigned MCP port, no gateway.
-dcc-mcp-server --app maya --gateway-port 0
+# 1) Backwards-compatible auto mode (same as: dcc-mcp-server auto --app maya).
+dcc-mcp-server --app maya
 
-# 2) Gateway-winner on a workstation with multiple DCCs.
+# 2) Per-DCC server only, never competing for the shared gateway port.
+dcc-mcp-server serve --no-auto-gateway --app maya
+
+# 3) Gateway-winner on a workstation with multiple DCCs.
 #    First terminal wins the gateway port, subsequent ones register as plain instances.
-dcc-mcp-server --app maya --server-name maya-shotgun-alpha \
+dcc-mcp-server auto --app maya --server-name maya-shotgun-alpha \
                --scene /shots/ep101/sh0200/shot.ma \
                --log-dir /var/log/dcc-mcp
 
-# 3) Workstation-wide gateway listening on 0.0.0.0 (careful: auth is
-#    localhost-only by default; install BearerTokenGate before exposing).
-dcc-mcp-server --app generic --host 0.0.0.0 \
-               --mcp-port 9765 \
-               --registry-dir /var/lib/dcc-mcp
+# 4) Workstation-wide gateway daemon.
+dcc-mcp-server gateway --host 127.0.0.1 --port 9765 \
+                       --registry-dir /var/lib/dcc-mcp
 ```
 
 ---

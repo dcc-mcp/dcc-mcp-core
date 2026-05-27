@@ -88,7 +88,8 @@ use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
-use clap::{Parser, Subcommand};
+use clap::Parser;
+use cli::{Args, CatalogAction, ServerArgs, SubCmd};
 use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
 #[cfg(feature = "gateway-auto")]
 use dcc_mcp_gateway::{AdminPersistConfig, GatewayConfig, GatewayRunner, SkillPathEntry};
@@ -102,6 +103,7 @@ use dcc_mcp_skills::constants::{ENV_SKILL_PATHS, app_skill_paths_env_key};
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 use sysinfo::{Pid, ProcessesToUpdate, System};
 mod capture;
+mod cli;
 mod event_webhooks;
 #[cfg(feature = "gateway-daemon")]
 mod gateway_daemon;
@@ -112,205 +114,6 @@ mod sidecar_gateway;
 #[cfg(feature = "gateway-auto")]
 mod sidecar_mcp;
 mod translate;
-
-// ── CLI ───────────────────────────────────────────────────────────────────────
-
-/// DCC-MCP subcommands.
-#[derive(Debug, Subcommand)]
-enum SubCmd {
-    /// Bridge any stdio MCP server to HTTP/SSE/Streamable-HTTP.
-    Translate(translate::TranslateArgs),
-    /// Catalog commands (search or describe DCC-MCP adapters).
-    Catalog {
-        #[command(subcommand)]
-        action: CatalogAction,
-    },
-    /// Out-of-process worker for crash-isolated DCC actions (RFC #998).
-    ///
-    /// Spawned by a DCC plugin/addon (`dcc-mcp-maya`, `dcc-mcp-blender`, …)
-    /// and supervised via `--watch-pid`.  Exits cleanly when its parent
-    /// DCC dies so we never leak stale workers.
-    #[cfg(feature = "gateway-auto")]
-    Sidecar(sidecar::SidecarArgs),
-    /// Machine-wide gateway daemon. Per-DCC sidecars auto-launch this when needed.
-    #[cfg(feature = "gateway-daemon")]
-    Gateway(gateway_daemon::GatewayArgs),
-    /// Replay or diff gateway traffic capture files.
-    Capture {
-        #[command(subcommand)]
-        action: capture::CaptureAction,
-    },
-}
-
-/// DCC-MCP server with integrated auto-gateway.
-#[derive(Debug, Parser)]
-#[command(name = "dcc-mcp-server", about, version)]
-struct Args {
-    /// Optional subcommand. If omitted, runs as a DCC MCP server.
-    #[command(subcommand)]
-    command: Option<SubCmd>,
-    /// MCP Streamable HTTP server port. Default 0 = OS-assigned.
-    #[arg(long, env = "DCC_MCP_MCP_PORT", default_value = "0")]
-    mcp_port: u16,
-
-    /// WebSocket bridge server port (for non-Python DCC plugins).
-    #[arg(long, env = "DCC_MCP_WS_PORT", default_value = "9001")]
-    ws_port: u16,
-
-    /// Application type (e.g. "maya", "photoshop", "blender").
-    #[arg(long, env = "DCC_MCP_APP", default_value = "")]
-    app: String,
-
-    /// Additional skill search paths (repeatable).
-    #[arg(long, value_name = "PATH", num_args = 1..)]
-    skill_paths: Vec<PathBuf>,
-
-    /// Server name advertised to MCP clients.
-    #[arg(long, env = "DCC_MCP_SERVER_NAME", default_value = "dcc-mcp-server")]
-    server_name: String,
-
-    /// Disable the WebSocket bridge server (MCP HTTP only).
-    #[arg(long, default_value = "false")]
-    no_bridge: bool,
-
-    /// MCP server host to bind to.
-    #[arg(long, default_value = "127.0.0.1")]
-    host: String,
-
-    /// Write the server process ID to this file while running.
-    #[arg(long, value_name = "PATH")]
-    pid_file: Option<PathBuf>,
-
-    /// Overwrite an existing PID file even if it points at a live process.
-    #[arg(long, default_value = "false")]
-    force: bool,
-
-    /// Seconds to wait for graceful shutdown before exiting.
-    #[arg(long, env = "DCC_MCP_SHUTDOWN_TIMEOUT_SECS", default_value = "10")]
-    shutdown_timeout_secs: u64,
-
-    // ── Gateway ──
-    /// Gateway port to compete for. First instance to bind wins the gateway.
-    /// 0 = gateway disabled entirely (and therefore disables admin too).
-    #[arg(long, env = "DCC_MCP_GATEWAY_PORT", default_value = "9765")]
-    gateway_port: u16,
-
-    /// Gateway host/interface to bind. Defaults to the MCP `--host`.
-    #[arg(long, env = "DCC_MCP_GATEWAY_HOST")]
-    gateway_host: Option<String>,
-
-    /// Human-readable gateway candidate name written to the `__gateway__`
-    /// sentinel when this process wins or challenges the gateway role.
-    #[arg(long, env = "DCC_MCP_GATEWAY_NAME")]
-    gateway_name: Option<String>,
-
-    /// Remote/LAN gateway host/interface to bind.
-    #[arg(long, env = "DCC_MCP_GATEWAY_REMOTE_HOST", default_value = "0.0.0.0")]
-    gateway_remote_host: String,
-
-    /// Remote/LAN gateway port. 0 disables the remote listener.
-    #[arg(long, env = "DCC_MCP_GATEWAY_REMOTE_PORT", default_value = "59765")]
-    gateway_remote_port: u16,
-
-    /// Disable the read-only Admin UI on the elected gateway.
-    #[arg(long, env = "DCC_MCP_NO_ADMIN", default_value = "false")]
-    no_admin: bool,
-
-    /// URL prefix for the read-only Admin UI.
-    #[arg(long, env = "DCC_MCP_ADMIN_PATH", default_value = "/admin")]
-    admin_path: String,
-
-    /// Directory for the shared FileRegistry (auto-created if missing).
-    #[arg(long, env = "DCC_MCP_REGISTRY_DIR")]
-    registry_dir: Option<String>,
-
-    /// Seconds without a heartbeat before an instance is considered stale.
-    #[arg(long, env = "DCC_MCP_STALE_TIMEOUT", default_value = "30")]
-    stale_timeout_secs: u64,
-
-    /// Application version (reported in registry, e.g. "2024.2").
-    #[arg(long, env = "DCC_MCP_APP_VERSION")]
-    app_version: Option<String>,
-
-    /// Currently open scene file (reported in registry, improves routing).
-    #[arg(long, env = "DCC_MCP_SCENE")]
-    scene: Option<String>,
-
-    /// Heartbeat interval in seconds for the registry. 0 = disabled.
-    #[arg(long, env = "DCC_MCP_HEARTBEAT_INTERVAL", default_value = "5")]
-    heartbeat_secs: u64,
-
-    /// Reserved compatibility flag for older sidecar supervisors.
-    #[arg(long, default_value = "30")]
-    reconnect_timeout_secs: u64,
-
-    /// Internal helper: watch a PID and remove its PID file after exit.
-    #[arg(long, hide = true)]
-    pid_cleanup_watch: Option<PathBuf>,
-
-    /// Internal helper: PID to watch for `--pid-cleanup-watch`.
-    #[arg(long, hide = true)]
-    watch_pid: Option<u32>,
-
-    // ── File logging ──
-    /// Disable logging to rotating files. By default file logging is enabled
-    /// unless this flag is passed.
-    #[arg(long, env = "DCC_MCP_NO_LOG_FILE", default_value = "false")]
-    no_log_file: bool,
-
-    /// Directory for rotated log files. Defaults to the platform log dir
-    /// (`dcc_mcp_paths::get_log_dir()`).
-    #[arg(long, env = "DCC_MCP_LOG_DIR", value_name = "PATH")]
-    log_dir: Option<PathBuf>,
-
-    /// Maximum bytes per log file before a size-triggered rotation.
-    #[arg(long, env = "DCC_MCP_LOG_MAX_SIZE", value_name = "BYTES")]
-    log_max_size: Option<u64>,
-
-    /// Number of **rolled** files to retain (current file excluded).
-    #[arg(long, env = "DCC_MCP_LOG_MAX_FILES", value_name = "N")]
-    log_max_files: Option<usize>,
-
-    /// Rotation policy: `size`, `daily`, or `both`.
-    #[arg(long, env = "DCC_MCP_LOG_ROTATION", value_name = "POLICY")]
-    log_rotation: Option<String>,
-
-    /// File-name prefix (full file is `<prefix>.<pid>.<YYYYMMDD>.log`).
-    #[arg(long, env = "DCC_MCP_LOG_FILE_PREFIX", value_name = "PREFIX")]
-    log_file_prefix: Option<String>,
-
-    /// Log retention in days (0 = disable age pruning). Default: 7.
-    #[arg(
-        long,
-        env = "DCC_MCP_LOG_RETENTION_DAYS",
-        value_name = "DAYS",
-        default_value = "7"
-    )]
-    log_retention_days: Option<u32>,
-
-    /// Maximum total log directory size in MiB (0 = disable size pruning). Default: 100.
-    #[arg(long, env = "DCC_MCP_LOG_MAX_TOTAL_SIZE_MB", value_name = "MB")]
-    log_max_total_size_mb: Option<u32>,
-}
-
-// ── Catalog subcommands ───────────────────────────────────────────────────────
-
-/// Catalog subcommand: query the public DCC-MCP catalog.
-#[derive(Debug, Subcommand)]
-enum CatalogAction {
-    /// Search the catalog by keyword (name, description, DCC type, tags).
-    Search {
-        /// Keyword to search for. Omit to list all entries.
-        #[arg(long, default_value = "")]
-        query: String,
-    },
-    /// Show full details for a single catalog entry by exact name.
-    Describe {
-        /// Exact catalog entry name (e.g. dcc-mcp-maya-skills).
-        #[arg(long)]
-        name: String,
-    },
-}
 
 fn run_catalog_cmd(action: &CatalogAction) -> anyhow::Result<()> {
     let catalog_path = if let Ok(p) = std::env::var("DCC_MCP_CATALOG_PATH") {
@@ -566,10 +369,6 @@ pub(crate) async fn select_shutdown_signal() -> anyhow::Result<&'static str> {
 // ── main ──────────────────────────────────────────────────────────────────────
 
 #[tokio::main]
-// Without the `server` feature, the early `return Err(...)` in the
-// no-subcommand arm makes the rest of `main` provably unreachable. That
-// is intentional, not a bug — silence the lint only for that build.
-#[cfg_attr(not(feature = "server"), allow(unreachable_code, unused_variables))]
 async fn main() -> anyhow::Result<()> {
     // Install the shared subscriber (stderr fmt-layer + reload slot for the
     // optional file-logging layer). Safe to call multiple times.
@@ -607,6 +406,8 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Dispatch to subcommands ───────────────────────────────────────────
     match args.command {
+        Some(SubCmd::Auto(server_args)) => return run_server(server_args).await,
+        Some(SubCmd::Serve(serve_args)) => return run_server(serve_args.into_server_args()).await,
         Some(SubCmd::Translate(translate_args)) => return translate::run(translate_args).await,
         Some(SubCmd::Catalog { action }) => return run_catalog_cmd(&action),
         #[cfg(feature = "gateway-auto")]
@@ -614,9 +415,15 @@ async fn main() -> anyhow::Result<()> {
         #[cfg(feature = "gateway-daemon")]
         Some(SubCmd::Gateway(gateway_args)) => return gateway_daemon::run(gateway_args).await,
         Some(SubCmd::Capture { action }) => return capture::run(action).await,
-        None => {}
+        None => return run_server(args.server).await,
     }
+}
 
+// Without the `server` feature, the early `return Err(...)` below makes the
+// rest of the function provably unreachable. That is intentional for
+// gateway-only builds, so silence the lint only for that feature combination.
+#[cfg_attr(not(feature = "server"), allow(unreachable_code, unused_variables))]
+async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
     // When this binary is built without the `server` feature, the default
     // (no-subcommand) path has nothing useful to do — print help and exit
     // cleanly so callers get a clear signal instead of opening a port.
