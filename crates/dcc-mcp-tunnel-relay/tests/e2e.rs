@@ -90,7 +90,11 @@ async fn frontend_round_trips_through_relay_to_local_echo() {
         relay_url: agent_addr.to_string(),
         token,
         dcc: "maya".into(),
+        instance_id: None,
         capabilities: vec!["scene.read".into()],
+        capabilities_fingerprint: None,
+        adapter_version: None,
+        scene: None,
         agent_version: "e2e/0.0".into(),
         local_target: echo.to_string(),
         heartbeat_interval: Duration::from_secs(5),
@@ -193,12 +197,16 @@ async fn admin_endpoint_lists_live_tunnel() {
         allowed_dcc: vec!["houdini".into()],
     };
     let token = auth::issue(&claims, SECRET).unwrap();
-    let agent_cfg = AgentConfig::new(
+    let mut agent_cfg = AgentConfig::new(
         relay.agent_addr.to_string(),
         token,
         "houdini",
         echo.to_string(),
     );
+    agent_cfg.instance_id = Some("33333333-3333-4333-8333-333333333333".to_string());
+    agent_cfg.capabilities_fingerprint = Some("fp-admin".to_string());
+    agent_cfg.adapter_version = Some("dcc_mcp_houdini/1.0.0".to_string());
+    agent_cfg.scene = Some("fx.hip".to_string());
     let agent_task = tokio::spawn(async move { run_once(agent_cfg).await });
     wait_for_tunnel(&relay.registry).await;
 
@@ -210,12 +218,117 @@ async fn admin_endpoint_lists_live_tunnel() {
         .expect("response is well-formed JSON");
     assert_eq!(body.len(), 1);
     assert_eq!(body[0].dcc, "houdini");
+    assert_eq!(body[0].dcc_type, "houdini");
+    assert_eq!(body[0].instance_id, "33333333-3333-4333-8333-333333333333");
+    assert_eq!(
+        body[0].capabilities_fingerprint.as_deref(),
+        Some("fp-admin")
+    );
+    assert_eq!(
+        body[0].adapter_version.as_deref(),
+        Some("dcc_mcp_houdini/1.0.0")
+    );
+    assert_eq!(body[0].scene.as_deref(), Some("fx.hip"));
+    assert!(body[0].public_url.contains("/tunnel/"));
     assert_eq!(body[0].session_count, 0);
 
     let health = reqwest::get(format!("http://{admin_addr}/healthz"))
         .await
         .unwrap();
     assert!(health.status().is_success());
+
+    relay.shutdown();
+    agent_task.abort();
+}
+
+async fn spawn_http_json_server() -> std::net::SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        loop {
+            let (mut sock, _) = match listener.accept().await {
+                Ok(pair) => pair,
+                Err(_) => return,
+            };
+            tokio::spawn(async move {
+                let mut request = Vec::new();
+                let mut buf = [0u8; 1024];
+                loop {
+                    let n = match sock.read(&mut buf).await {
+                        Ok(0) => return,
+                        Ok(n) => n,
+                        Err(_) => return,
+                    };
+                    request.extend_from_slice(&buf[..n]);
+                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let first_line = String::from_utf8_lossy(&request)
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .to_string();
+                let body = serde_json::json!({ "received": first_line }).to_string();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = sock.write_all(response.as_bytes()).await;
+            });
+        }
+    });
+    addr
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn http_proxy_round_trips_rest_request_through_relay() {
+    let backend = spawn_http_json_server().await;
+    let cfg = RelayConfig {
+        jwt_secret: SECRET.to_vec(),
+        base_url: "ws://relay.example".into(),
+        ..RelayConfig::default()
+    };
+    let relay = RelayServer::start_with(
+        cfg,
+        "127.0.0.1:0".parse().unwrap(),
+        "127.0.0.1:0".parse().unwrap(),
+        OptionalBinds {
+            ws_frontend: Some("127.0.0.1:0".parse().unwrap()),
+            admin: None,
+        },
+    )
+    .await
+    .unwrap();
+    let ws_addr = relay.ws_frontend_addr.expect("ws frontend must be bound");
+    let claims = TunnelClaims {
+        sub: "http-proxy-test".into(),
+        iat: now_secs(),
+        exp: now_secs() + 600,
+        iss: "e2e".into(),
+        allowed_dcc: vec!["photoshop".into()],
+    };
+    let token = auth::issue(&claims, SECRET).unwrap();
+    let agent_cfg = AgentConfig::new(
+        relay.agent_addr.to_string(),
+        token,
+        "photoshop",
+        backend.to_string(),
+    );
+    let agent_task = tokio::spawn(async move { run_once(agent_cfg).await });
+    let tunnel_id = wait_for_tunnel(&relay.registry).await;
+
+    let response = reqwest::Client::new()
+        .post(format!("http://{ws_addr}/tunnel/{tunnel_id}/v1/call"))
+        .json(&serde_json::json!({"tool_slug": "photoshop:test", "arguments": {}}))
+        .send()
+        .await
+        .expect("relay HTTP proxy must answer")
+        .error_for_status()
+        .expect("relay HTTP proxy should return backend status");
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["received"], "POST /v1/call HTTP/1.1");
 
     relay.shutdown();
     agent_task.abort();

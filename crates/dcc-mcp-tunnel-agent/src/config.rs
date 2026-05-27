@@ -53,8 +53,21 @@ pub struct AgentConfig {
     /// rejects the registration with `DccNotAllowed`.
     pub dcc: String,
 
+    /// Optional stable DCC-MCP instance id. When omitted, the relay derives
+    /// a routable UUID from the accepted tunnel id.
+    pub instance_id: Option<String>,
+
     /// Capability tags forwarded to remote clients via the relay.
     pub capabilities: Vec<String>,
+
+    /// Optional opaque capability fingerprint for gateway cache invalidation.
+    pub capabilities_fingerprint: Option<String>,
+
+    /// Adapter package version, e.g. `dcc_mcp_maya = "0.4.0"`.
+    pub adapter_version: Option<String>,
+
+    /// Active scene or document advertised through relay discovery.
+    pub scene: Option<String>,
 
     /// Build identifier reported to the relay; surfaced in `/tunnels`
     /// listings only.
@@ -87,7 +100,11 @@ impl AgentConfig {
             relay_url: relay_url.into(),
             token: token.into(),
             dcc: dcc.into(),
+            instance_id: None,
             capabilities: Vec::new(),
+            capabilities_fingerprint: None,
+            adapter_version: None,
+            scene: None,
             agent_version: format!("dcc-mcp-tunnel-agent/{}", env!("CARGO_PKG_VERSION")),
             local_target: local_target.into(),
             heartbeat_interval: Duration::from_secs(10),

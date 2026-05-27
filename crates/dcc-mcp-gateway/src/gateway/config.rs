@@ -169,6 +169,21 @@ pub struct GatewayConfig {
     /// Timeout for the `/v1/healthz` probe performed before materialising an
     /// mDNS-discovered row.
     pub mdns_probe_timeout_ms: u64,
+
+    /// Relay admin base URLs to poll for active tunnel-backed DCC instances.
+    ///
+    /// Each URL should expose `GET /tunnels`; the gateway appends `/tunnels`
+    /// when the configured URL is a base path.
+    pub relay_urls: Vec<String>,
+
+    /// TTL for relay-discovered rows after their last successful poll/probe.
+    pub relay_ttl_secs: u64,
+
+    /// Poll interval for configured relay admin URLs.
+    pub relay_poll_interval_secs: u64,
+
+    /// Timeout for the relayed `/v1/healthz` probe before materialising a row.
+    pub relay_probe_timeout_ms: u64,
 }
 
 impl Default for GatewayConfig {
@@ -204,6 +219,10 @@ impl Default for GatewayConfig {
             mdns_discovery_enabled: false,
             mdns_ttl_secs: 30,
             mdns_probe_timeout_ms: 2_000,
+            relay_urls: Vec::new(),
+            relay_ttl_secs: 30,
+            relay_poll_interval_secs: 5,
+            relay_probe_timeout_ms: 2_000,
         }
     }
 }

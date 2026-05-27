@@ -55,6 +55,7 @@ use super::event_log::EventLog;
 use super::http_registration::{HttpInstanceRegistry, entry_mcp_url, entry_registry_source};
 use super::instance_diagnostics::{InstanceDiagnostics, InstanceDiagnosticsStore};
 use super::mdns_discovery::MdnsInstanceRegistry;
+use super::relay_discovery::RelayInstanceRegistry;
 
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
@@ -135,6 +136,7 @@ pub struct GatewayState {
     pub registry: Arc<RwLock<FileRegistry>>,
     pub http_instance_registry: Arc<parking_lot::RwLock<HttpInstanceRegistry>>,
     pub mdns_instance_registry: Arc<parking_lot::RwLock<MdnsInstanceRegistry>>,
+    pub relay_instance_registry: Arc<parking_lot::RwLock<RelayInstanceRegistry>>,
     pub stale_timeout: Duration,
     /// Per-backend request timeout for gateway fan-out calls (issue #314).
     ///
@@ -283,6 +285,7 @@ impl GatewayState {
             registry: &self.registry,
             http_instance_registry: &self.http_instance_registry,
             mdns_instance_registry: &self.mdns_instance_registry,
+            relay_instance_registry: &self.relay_instance_registry,
             stale_timeout: self.stale_timeout,
             allow_unknown_tools: self.allow_unknown_tools,
             own_host: &self.own_host,
@@ -481,6 +484,7 @@ impl GatewayState {
         let now = std::time::SystemTime::now();
         let mut expired = self.http_instance_registry.write().prune_expired(now);
         expired.extend(self.mdns_instance_registry.write().prune_expired(now));
+        expired.extend(self.relay_instance_registry.write().prune_expired(now));
         for instance_id in expired {
             self.capability_index.remove_instance(instance_id);
         }

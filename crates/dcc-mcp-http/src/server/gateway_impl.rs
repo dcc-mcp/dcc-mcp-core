@@ -50,6 +50,10 @@ pub(crate) async fn start_gateway_runner(
         mdns_discovery_enabled: false,
         mdns_ttl_secs: 30,
         mdns_probe_timeout_ms: 2_000,
+        relay_urls: config.gateway.relay_urls.clone(),
+        relay_ttl_secs: config.gateway.relay_ttl_secs,
+        relay_poll_interval_secs: config.gateway.relay_poll_interval_secs,
+        relay_probe_timeout_ms: config.gateway.relay_probe_timeout_ms,
     };
 
     let runner = match GatewayRunner::new(gateway_config) {

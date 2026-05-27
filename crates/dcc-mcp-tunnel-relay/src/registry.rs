@@ -22,15 +22,34 @@ pub struct TunnelEntry {
     /// Stable per-tunnel identifier minted by the relay.
     pub tunnel_id: TunnelId,
 
+    /// Stable DCC-MCP instance id represented by this tunnel.
+    pub instance_id: String,
+
     /// DCC tag declared by the agent (`"maya"`, `"houdini"`, …).
     pub dcc: String,
+
+    /// Explicit DCC type alias used by gateway discovery. Mirrors [`Self::dcc`]
+    /// for backward compatibility with the existing Rust and JSON surfaces.
+    pub dcc_type: String,
 
     /// Capability tags reported by the agent. Forwarded to remote clients
     /// so they can pre-flight tool calls without round-tripping.
     pub capabilities: Vec<String>,
 
+    /// Opaque fingerprint of the agent's current capability set.
+    pub capabilities_fingerprint: Option<String>,
+
+    /// Adapter package version reported by the agent.
+    pub adapter_version: Option<String>,
+
+    /// Active scene/document reported by the agent.
+    pub scene: Option<String>,
+
     /// Build identifier the agent sent in `RegisterRequest::agent_version`.
     pub agent_version: String,
+
+    /// Public frontend URL assigned by the relay for this tunnel.
+    pub public_url: String,
 
     /// Wall-clock instant the registration was accepted. Used for the
     /// "tunnel age" column in `/tunnels` listings.
@@ -138,9 +157,15 @@ mod tests {
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
         TunnelEntry {
             tunnel_id: id.into(),
+            instance_id: id.into(),
             dcc: dcc.into(),
+            dcc_type: dcc.into(),
             capabilities: vec![],
+            capabilities_fingerprint: None,
+            adapter_version: None,
+            scene: None,
             agent_version: "test/0.0".into(),
+            public_url: format!("ws://relay.example/tunnel/{id}"),
             registered_at: Instant::now(),
             last_heartbeat: RwLock::new(Instant::now()),
             handle: Arc::new(TunnelHandle::new(tx)),

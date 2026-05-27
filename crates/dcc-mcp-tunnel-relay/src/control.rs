@@ -161,15 +161,23 @@ where
         .await;
         return None;
     }
-    let tunnel_id = Uuid::new_v4().simple().to_string();
+    let tunnel_uuid = Uuid::new_v4();
+    let tunnel_id = tunnel_uuid.simple().to_string();
+    let instance_id = normalise_instance_id(req.instance_id.as_deref(), tunnel_uuid);
     let public_url = format!("{}/tunnel/{}", config.base_url, tunnel_id);
     let (frame_tx, frame_rx) = mpsc::channel::<Frame>(AGENT_FRAME_QUEUE);
     let handle = Arc::new(TunnelHandle::new(frame_tx));
     let entry = TunnelEntry {
         tunnel_id: tunnel_id.clone(),
+        instance_id,
         dcc: req.dcc.clone(),
+        dcc_type: req.dcc.clone(),
         capabilities: req.capabilities.clone(),
+        capabilities_fingerprint: clean_optional(req.capabilities_fingerprint.as_deref()),
+        adapter_version: clean_optional(req.adapter_version.as_deref()),
+        scene: clean_optional(req.scene.as_deref()),
         agent_version: req.agent_version.clone(),
+        public_url: public_url.clone(),
         registered_at: Instant::now(),
         last_heartbeat: RwLock::new(Instant::now()),
         handle: Arc::clone(&handle),
@@ -208,6 +216,20 @@ where
     write_frame(writer, &frame).await?;
     let _ = writer.shutdown().await;
     Ok(())
+}
+
+fn clean_optional(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn normalise_instance_id(raw: Option<&str>, fallback: Uuid) -> String {
+    clean_optional(raw)
+        .and_then(|value| Uuid::parse_str(&value).ok())
+        .unwrap_or(fallback)
+        .to_string()
 }
 
 async fn read_loop<R>(

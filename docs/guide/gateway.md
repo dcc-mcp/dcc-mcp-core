@@ -70,6 +70,7 @@ variable):
 | `--remote-port` | `DCC_MCP_GATEWAY_REMOTE_PORT` | `59765` (0 = disabled) |
 | `--registry-dir` | `DCC_MCP_REGISTRY_DIR` | OS default |
 | `--discover-mdns` | `DCC_MCP_DISCOVER_MDNS` | disabled; only when built with the `mdns` feature |
+| `--relay-url` | `DCC_MCP_GATEWAY_RELAY_URLS` | none |
 | `--no-admin` | `DCC_MCP_NO_ADMIN` | admin enabled |
 | `--admin-path` | `DCC_MCP_ADMIN_PATH` | `/admin` |
 | `--stale-timeout-secs` | `DCC_MCP_STALE_TIMEOUT` | `30` |
@@ -283,6 +284,30 @@ centrally controlled deployments. Use mDNS only for local workstation and lab
 topologies where zero-configuration discovery is more useful than explicit
 registration. If the same `instance_id` appears from multiple sources, explicit
 HTTP registration wins over mDNS, and mDNS wins over a stale file-registry row.
+
+### Optional Tunnel Relay Discovery (#1363)
+
+For DCCs behind NAT or a firewall, the gateway can poll one or more
+`dcc-mcp-tunnel-relay` admin endpoints and route through each active tunnel:
+
+```bash
+dcc-mcp-server gateway --relay-url https://relay.example.com/admin
+dcc-mcp-server serve --app maya --gateway-relay-url https://relay.example.com/admin
+```
+
+`DCC_MCP_GATEWAY_RELAY_URLS` accepts a comma-separated list for both modes. The
+relay must expose `GET /tunnels` and a WS/HTTP frontend. The gateway reads
+tunnel metadata, rewrites the public `ws://.../tunnel/<id>` URL to the
+corresponding HTTP `/tunnel/<id>/mcp` endpoint, probes
+`GET /tunnel/<id>/v1/healthz`, and materializes healthy tunnels as
+`source: "relay"` rows.
+
+Relay rows carry `relay_tunnel_id`, `relay_public_url`, `relay_admin_url`,
+`relay_agent_version`, `relay_capabilities`, and `capabilities_fingerprint`
+metadata. Once accepted, use the same `/v1/search`, `/v1/describe`, `/v1/call`,
+`/v1/resources*`, and `/v1/prompts*` gateway routes. Conflict precedence is:
+HTTP registration, relay, mDNS, then file registry. Gateway client auth remains
+separate from the tunnel JWT used on the agent leg.
 
 ### Optional Instance Pooling
 

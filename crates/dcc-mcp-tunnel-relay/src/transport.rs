@@ -91,7 +91,11 @@ mod tests {
             protocol_version: PROTOCOL_VERSION,
             token: "tok".into(),
             dcc: "maya".into(),
+            instance_id: None,
             capabilities: vec![],
+            capabilities_fingerprint: None,
+            adapter_version: None,
+            scene: None,
             agent_version: "test/0.0".into(),
         });
         write_frame(&mut a, &frame).await.unwrap();

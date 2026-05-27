@@ -81,9 +81,29 @@ pub struct RegisterRequest {
     /// Must be in the JWT's `allowed_dcc` claim.
     pub dcc: String,
 
+    /// Stable DCC-MCP instance id represented by this tunnel. Older agents
+    /// omit it; relays derive one from the minted tunnel UUID so `/tunnels`
+    /// stays useful for gateway discovery.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
+
     /// Free-form capability tags forwarded to remote clients on connect.
     /// Examples: `"scene.mutate"`, `"usd"`, `"capture.window"`.
     pub capabilities: Vec<String>,
+
+    /// Optional opaque fingerprint of the agent's current capability set.
+    /// Gateways can use this to detect whether cached search rows are stale
+    /// without downloading every tool schema first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities_fingerprint: Option<String>,
+
+    /// Adapter package version, e.g. `dcc_mcp_maya = "0.4.0"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_version: Option<String>,
+
+    /// Active scene or document the tunneled DCC is currently serving.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene: Option<String>,
 
     /// Build-time identifier of the agent, e.g. `"dcc-mcp-tunnel-agent/0.1"`.
     /// Surfaced in `/tunnels` listings only — not used for routing.

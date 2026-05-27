@@ -98,6 +98,10 @@ pub(crate) async fn start_gateway_tasks(
     mdns_discovery_enabled: bool,
     mdns_ttl: Duration,
     mdns_probe_timeout: Duration,
+    relay_urls: Vec<String>,
+    relay_ttl: Duration,
+    relay_poll_interval: Duration,
+    relay_probe_timeout: Duration,
 ) -> Result<GatewayTasks, Box<dyn std::error::Error + Send + Sync>> {
     #[cfg(not(feature = "mdns"))]
     let _ = (mdns_discovery_enabled, mdns_ttl, mdns_probe_timeout);
@@ -142,6 +146,9 @@ pub(crate) async fn start_gateway_tasks(
     ));
     let mdns_instance_registry = Arc::new(parking_lot::RwLock::new(
         crate::gateway::mdns_discovery::MdnsInstanceRegistry::default(),
+    ));
+    let relay_instance_registry = Arc::new(parking_lot::RwLock::new(
+        crate::gateway::relay_discovery::RelayInstanceRegistry::default(),
     ));
 
     // ── Contention event log + Prometheus counters (issue #766) ───────────
@@ -250,6 +257,7 @@ pub(crate) async fn start_gateway_tasks(
     let reg_watch = registry.clone();
     let watch_http_registry = http_instance_registry.clone();
     let watch_mdns_registry = mdns_instance_registry.clone();
+    let watch_relay_registry = relay_instance_registry.clone();
     let events_tx_watch = events_tx.clone();
     let watch_own_host = own_host.clone();
     let watch_own_port = own_port;
@@ -278,14 +286,32 @@ pub(crate) async fn start_gateway_tasks(
                 let mdns_entries = watch_mdns_registry
                     .read()
                     .live_entries(std::time::SystemTime::now());
+                let relay_entries = watch_relay_registry
+                    .read()
+                    .live_entries(std::time::SystemTime::now());
                 let http_ids: std::collections::HashSet<_> =
                     http_entries.iter().map(|entry| entry.instance_id).collect();
+                let relay_ids: std::collections::HashSet<_> = relay_entries
+                    .iter()
+                    .map(|entry| entry.instance_id)
+                    .collect();
                 let mdns_ids: std::collections::HashSet<_> =
                     mdns_entries.iter().map(|entry| entry.instance_id).collect();
                 entries.retain(|entry| {
-                    !http_ids.contains(&entry.instance_id) && !mdns_ids.contains(&entry.instance_id)
+                    !http_ids.contains(&entry.instance_id)
+                        && !relay_ids.contains(&entry.instance_id)
+                        && !mdns_ids.contains(&entry.instance_id)
                 });
+                let mdns_entries: Vec<_> = mdns_entries
+                    .into_iter()
+                    .filter(|entry| !relay_ids.contains(&entry.instance_id))
+                    .collect();
+                let relay_entries: Vec<_> = relay_entries
+                    .into_iter()
+                    .filter(|entry| !http_ids.contains(&entry.instance_id))
+                    .collect();
                 entries.extend(mdns_entries);
+                entries.extend(relay_entries);
                 entries.extend(http_entries);
                 let mut keys: Vec<String> = entries
                     .into_iter()
@@ -611,6 +637,19 @@ pub(crate) async fn start_gateway_tasks(
         Arc::new(crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new());
     let traffic_capture = Arc::new(crate::gateway::traffic::TrafficCapture::from_env()?);
     let capability_index = Arc::new(crate::gateway::capability::CapabilityIndex::new());
+    let relay_config = crate::gateway::relay_discovery::RelayPollerConfig {
+        urls: relay_urls,
+        ttl: relay_ttl,
+        poll_interval: relay_poll_interval,
+        probe_timeout: relay_probe_timeout,
+    };
+    let relay_poller_handle = crate::gateway::relay_discovery::spawn_relay_poller(
+        relay_instance_registry.clone(),
+        http_client.clone(),
+        events_tx.clone(),
+        capability_index.clone(),
+        relay_config,
+    );
     #[cfg(feature = "mdns")]
     let mdns_browser_handle = if mdns_discovery_enabled {
         crate::gateway::mdns_discovery::spawn_mdns_browser(
@@ -633,6 +672,7 @@ pub(crate) async fn start_gateway_tasks(
         registry: registry.clone(),
         http_instance_registry: http_instance_registry.clone(),
         mdns_instance_registry: mdns_instance_registry.clone(),
+        relay_instance_registry: relay_instance_registry.clone(),
         stale_timeout,
         backend_timeout,
         async_dispatch_timeout,
@@ -899,6 +939,7 @@ pub(crate) async fn start_gateway_tasks(
         health_check_handle,
         gw_handle,
         remote_handle,
+        relay_poller_handle,
     ];
     #[cfg(feature = "mdns")]
     let mut task_handles = task_handles;

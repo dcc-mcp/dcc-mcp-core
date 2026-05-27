@@ -132,6 +132,9 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
         mdns_instance_registry: std::sync::Arc::new(parking_lot::RwLock::new(
             crate::gateway::mdns_discovery::MdnsInstanceRegistry::default(),
         )),
+        relay_instance_registry: std::sync::Arc::new(parking_lot::RwLock::new(
+            crate::gateway::relay_discovery::RelayInstanceRegistry::default(),
+        )),
         stale_timeout: std::time::Duration::from_secs(30),
         backend_timeout: std::time::Duration::from_secs(10),
         async_dispatch_timeout: std::time::Duration::from_secs(60),
@@ -304,6 +307,9 @@ async fn make_gateway_state(
         )),
         mdns_instance_registry: std::sync::Arc::new(parking_lot::RwLock::new(
             crate::gateway::mdns_discovery::MdnsInstanceRegistry::default(),
+        )),
+        relay_instance_registry: std::sync::Arc::new(parking_lot::RwLock::new(
+            crate::gateway::relay_discovery::RelayInstanceRegistry::default(),
         )),
         stale_timeout: std::time::Duration::from_secs(30),
         backend_timeout: std::time::Duration::from_secs(10),
@@ -1239,6 +1245,9 @@ async fn gateway_state_with_instances(
         )),
         mdns_instance_registry: std::sync::Arc::new(parking_lot::RwLock::new(
             crate::gateway::mdns_discovery::MdnsInstanceRegistry::default(),
+        )),
+        relay_instance_registry: std::sync::Arc::new(parking_lot::RwLock::new(
+            crate::gateway::relay_discovery::RelayInstanceRegistry::default(),
         )),
         stale_timeout: std::time::Duration::from_secs(30),
         backend_timeout: std::time::Duration::from_secs(10),

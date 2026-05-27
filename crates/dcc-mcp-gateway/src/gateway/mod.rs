@@ -49,6 +49,7 @@ pub mod middleware;
 pub mod native_resources;
 pub mod openapi;
 pub mod proxy;
+pub mod relay_discovery;
 pub mod resilience;
 pub(crate) mod response_codec;
 pub(crate) mod rest_openapi;

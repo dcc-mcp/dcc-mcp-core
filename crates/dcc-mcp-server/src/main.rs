@@ -766,6 +766,7 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
             admin_path: args.admin_path.clone(),
             #[cfg(feature = "mdns")]
             mdns_discovery_enabled: false,
+            relay_urls: args.gateway_relay_urls.clone(),
             admin_persist: AdminPersistConfig {
                 sqlite_path: std::env::var_os("DCC_MCP_GATEWAY_ADMIN_DB").map(PathBuf::from),
                 sqlite_retention_days: admin_retention,

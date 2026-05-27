@@ -56,6 +56,11 @@ struct Args {
     #[arg(long, env = "DCC_MCP_TUNNEL_AGENT_LOCAL_TARGET")]
     local_target: String,
 
+    /// Stable DCC-MCP instance UUID represented by this tunnel. When
+    /// omitted, the relay derives one for the current registration.
+    #[arg(long, env = "DCC_MCP_TUNNEL_AGENT_INSTANCE_ID")]
+    instance_id: Option<String>,
+
     /// Heartbeat cadence in seconds. Keep comfortably under the
     /// relay's `--stale-timeout-secs` so one missed ping does not evict
     /// the tunnel.
@@ -108,6 +113,18 @@ struct Args {
         num_args = 0..,
     )]
     capabilities: Vec<String>,
+
+    /// Opaque fingerprint of the current capability set.
+    #[arg(long, env = "DCC_MCP_TUNNEL_AGENT_CAPABILITIES_FINGERPRINT")]
+    capabilities_fingerprint: Option<String>,
+
+    /// Adapter package version, e.g. `dcc_mcp_maya = "0.4.0"`.
+    #[arg(long, env = "DCC_MCP_TUNNEL_AGENT_ADAPTER_VERSION")]
+    adapter_version: Option<String>,
+
+    /// Active scene/document advertised through relay discovery.
+    #[arg(long, env = "DCC_MCP_TUNNEL_AGENT_SCENE")]
+    scene: Option<String>,
 }
 
 fn init_tracing() {
@@ -149,7 +166,11 @@ async fn main() -> Result<()> {
     let mut cfg = AgentConfig::new(args.relay_url, token, args.dcc, args.local_target);
     cfg.heartbeat_interval = Duration::from_secs(args.heartbeat_secs);
     cfg.reconnect = reconnect;
+    cfg.instance_id = args.instance_id;
     cfg.capabilities = args.capabilities;
+    cfg.capabilities_fingerprint = args.capabilities_fingerprint;
+    cfg.adapter_version = args.adapter_version;
+    cfg.scene = args.scene;
 
     tracing::info!(
         relay = %cfg.relay_url,

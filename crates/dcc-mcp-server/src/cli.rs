@@ -88,6 +88,15 @@ pub(crate) struct ServerArgs {
     #[arg(long, env = "DCC_MCP_ADVERTISE_MDNS", default_value = "false")]
     pub(crate) advertise_mdns: bool,
 
+    /// Relay admin base URL(s) for the elected gateway to poll.
+    #[arg(
+        long = "gateway-relay-url",
+        env = "DCC_MCP_GATEWAY_RELAY_URLS",
+        value_delimiter = ',',
+        num_args = 0..
+    )]
+    pub(crate) gateway_relay_urls: Vec<String>,
+
     /// Write the server process ID to this file while running.
     #[arg(long, value_name = "PATH")]
     pub(crate) pid_file: Option<PathBuf>,
@@ -300,6 +309,25 @@ mod tests {
         };
         let server = serve.into_server_args();
         assert_eq!(server.gateway_port, 0);
+    }
+
+    #[test]
+    fn serve_accepts_gateway_relay_urls() {
+        let parsed = Args::try_parse_from([
+            "dcc-mcp-server",
+            "serve",
+            "--gateway-relay-url",
+            "https://relay-a.example,https://relay-b.example",
+        ])
+        .unwrap();
+
+        let Some(SubCmd::Serve(serve)) = parsed.command else {
+            panic!("expected serve subcommand");
+        };
+        assert_eq!(
+            serve.server.gateway_relay_urls,
+            vec!["https://relay-a.example", "https://relay-b.example"]
+        );
     }
 
     #[cfg(feature = "mdns")]

@@ -124,7 +124,11 @@ mod tests {
             protocol_version: PROTOCOL_VERSION,
             token: "header.payload.signature".into(),
             dcc: "maya".into(),
+            instance_id: None,
             capabilities: vec!["scene.read".into(), "usd".into()],
+            capabilities_fingerprint: None,
+            adapter_version: None,
+            scene: None,
             agent_version: "dcc-mcp-tunnel-agent/0.1".into(),
         })
     }

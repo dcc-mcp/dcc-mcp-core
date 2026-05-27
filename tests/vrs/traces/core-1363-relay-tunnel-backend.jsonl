@@ -1,0 +1,4 @@
+{"_vrs": {"version": 1, "skip_preflight": {"http": {"method": "GET", "path": "/v1/instances"}, "skip_when": {"body_not_contains": "\"source\":\"relay\""}}}, "trace_id": "core-1363", "title": "Gateway sees relay-backed tunnel rows and can describe relayed tools"}
+{"id": "instances_has_relay_source", "http": {"method": "GET", "path": "/v1/instances"}, "expect": {"status": 200, "body_contains": "\"source\":\"relay\""}}
+{"id": "search_relay_backed_tools", "http": {"method": "POST", "path": "/v1/search", "json": {"query": "", "limit": 1}}, "expect": {"status": 200, "body_contains": "\"hits\""}, "capture": {"json_pointer": "/hits/0/tool_slug", "as": "relay_tool_slug"}}
+{"id": "describe_relay_backed_tool", "http": {"method": "POST", "path": "/v1/describe", "json": {"tool_slug": "{{capture:relay_tool_slug}}"}}, "expect": {"status": 200, "body_contains": "inputSchema"}}

@@ -75,9 +75,15 @@ mod tests {
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
         TunnelEntry {
             tunnel_id: id.into(),
+            instance_id: id.into(),
             dcc: "test".into(),
+            dcc_type: "test".into(),
             capabilities: vec![],
+            capabilities_fingerprint: None,
+            adapter_version: None,
+            scene: None,
             agent_version: "test/0.0".into(),
+            public_url: format!("ws://relay.example/tunnel/{id}"),
             registered_at: Instant::now(),
             last_heartbeat: RwLock::new(
                 Instant::now().checked_sub(age).unwrap_or_else(Instant::now),

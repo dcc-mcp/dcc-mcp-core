@@ -84,10 +84,9 @@ impl TunnelHandle {
         self.frame_tx.send(frame).await
     }
 
-    /// Best-effort, non-blocking send. Used by the eviction sweeper which
-    /// must not park behind a saturated agent.
-    pub fn try_send(&self, frame: Frame) -> Result<(), mpsc::error::TrySendError<Frame>> {
-        self.frame_tx.try_send(frame)
+    /// Best-effort, non-blocking send. Returns whether the frame was queued.
+    pub fn try_send(&self, frame: Frame) -> bool {
+        self.frame_tx.try_send(frame).is_ok()
     }
 
     /// Number of currently-open sessions on this tunnel — used by

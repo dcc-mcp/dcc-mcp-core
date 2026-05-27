@@ -58,6 +58,15 @@ pub struct GatewayArgs {
     #[cfg(feature = "mdns")]
     #[arg(long, env = "DCC_MCP_DISCOVER_MDNS", default_value = "false")]
     pub discover_mdns: bool,
+
+    /// Relay admin base URL(s) to poll for active tunnel-backed DCC instances.
+    #[arg(
+        long = "relay-url",
+        env = "DCC_MCP_GATEWAY_RELAY_URLS",
+        value_delimiter = ',',
+        num_args = 0..
+    )]
+    pub relay_urls: Vec<String>,
 }
 
 /// Helpers for auto-launching the standalone gateway from inside another
@@ -104,6 +113,7 @@ pub fn build_gateway_config(args: &GatewayArgs, gateway_name: &str) -> GatewayCo
         },
         #[cfg(feature = "mdns")]
         mdns_discovery_enabled: args.discover_mdns,
+        relay_urls: args.relay_urls.clone(),
         ..GatewayConfig::default()
     }
 }
@@ -339,6 +349,7 @@ mod tests {
             stale_timeout_secs: 30,
             #[cfg(feature = "mdns")]
             discover_mdns: false,
+            relay_urls: Vec::new(),
         };
         let cfg = build_gateway_config(&args, args.name.as_deref().unwrap());
         assert_eq!(

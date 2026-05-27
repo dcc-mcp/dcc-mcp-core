@@ -31,6 +31,9 @@ fn test_gateway_state_with_own_and_unknown(
         mdns_instance_registry: Arc::new(parking_lot::RwLock::new(
             crate::gateway::mdns_discovery::MdnsInstanceRegistry::default(),
         )),
+        relay_instance_registry: Arc::new(parking_lot::RwLock::new(
+            crate::gateway::relay_discovery::RelayInstanceRegistry::default(),
+        )),
         stale_timeout: Duration::from_secs(30),
         backend_timeout: Duration::from_secs(10),
         async_dispatch_timeout: Duration::from_secs(60),
@@ -168,6 +171,91 @@ async fn live_instances_includes_mdns_rows_and_prefers_http_conflicts() {
     let row = gs.instance_json(&live[0]);
     assert_eq!(row["source"], "mdns");
     assert_eq!(row["mcp_url"], "http://192.168.1.40:28765/mcp");
+    drop(registry_guard);
+
+    {
+        let mut http_registry = gs.http_instance_registry.write();
+        http_registry
+            .register(
+                crate::gateway::http_registration::HttpInstanceRegistrationRequest {
+                    instance_id: instance_id.to_string(),
+                    dcc_type: "maya".to_string(),
+                    mcp_url: "http://remote.example:38765/mcp".to_string(),
+                    capabilities_fingerprint: None,
+                    adapter_version: None,
+                    scene: None,
+                    ttl_secs: None,
+                },
+                std::time::SystemTime::now(),
+            )
+            .unwrap();
+    }
+
+    let registry_guard = registry.read().await;
+    let live = gs.live_instances(&registry_guard);
+    assert_eq!(live.len(), 1);
+    let row = gs.instance_json(&live[0]);
+    assert_eq!(row["source"], "http");
+    assert_eq!(row["mcp_url"], "http://remote.example:38765/mcp");
+}
+
+#[tokio::test]
+async fn live_instances_includes_relay_rows_between_mdns_and_http() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let gs = test_gateway_state(registry.clone());
+    let instance_id = uuid::Uuid::parse_str("66666666-6666-4666-8666-666666666666").unwrap();
+
+    {
+        let r = registry.read().await;
+        let mut file_entry = ServiceEntry::new("maya", "127.0.0.1", 18765);
+        file_entry.instance_id = instance_id;
+        r.register(file_entry).unwrap();
+    }
+    {
+        let mut mdns_entry = ServiceEntry::new("maya", "192.168.1.40", 28765);
+        mdns_entry.instance_id = instance_id;
+        mdns_entry.pid = None;
+        mdns_entry
+            .metadata
+            .insert("dcc_mcp_registry_source".to_string(), "mdns".to_string());
+        mdns_entry.metadata.insert(
+            "mcp_url".to_string(),
+            "http://192.168.1.40:28765/mcp".to_string(),
+        );
+        gs.mdns_instance_registry.write().upsert(
+            mdns_entry,
+            "dcc-mcp-maya._dcc-mcp._tcp.local.",
+            Duration::from_secs(30),
+            std::time::SystemTime::now(),
+        );
+    }
+    {
+        let mut relay_entry = ServiceEntry::new("maya", "relay.example", 443);
+        relay_entry.instance_id = instance_id;
+        relay_entry.pid = None;
+        relay_entry
+            .metadata
+            .insert("dcc_mcp_registry_source".to_string(), "relay".to_string());
+        relay_entry.metadata.insert(
+            "mcp_url".to_string(),
+            "https://relay.example/tunnel/abc/mcp".to_string(),
+        );
+        gs.relay_instance_registry.write().upsert(
+            relay_entry,
+            "https://relay-admin.example",
+            "abc",
+            Duration::from_secs(30),
+            std::time::SystemTime::now(),
+        );
+    }
+
+    let registry_guard = registry.read().await;
+    let live = gs.live_instances(&registry_guard);
+    assert_eq!(live.len(), 1);
+    let row = gs.instance_json(&live[0]);
+    assert_eq!(row["source"], "relay");
+    assert_eq!(row["mcp_url"], "https://relay.example/tunnel/abc/mcp");
     drop(registry_guard);
 
     {

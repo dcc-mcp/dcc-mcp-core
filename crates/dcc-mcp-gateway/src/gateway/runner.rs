@@ -228,6 +228,10 @@ impl GatewayRunner {
         let mdns_discovery_enabled = self.config.mdns_discovery_enabled;
         let mdns_ttl = Duration::from_secs(self.config.mdns_ttl_secs.max(1));
         let mdns_probe_timeout = Duration::from_millis(self.config.mdns_probe_timeout_ms.max(1));
+        let relay_urls = self.config.relay_urls.clone();
+        let relay_ttl = Duration::from_secs(self.config.relay_ttl_secs.max(1));
+        let relay_poll_interval = Duration::from_secs(self.config.relay_poll_interval_secs.max(1));
+        let relay_probe_timeout = Duration::from_millis(self.config.relay_probe_timeout_ms.max(1));
         let own_version = self.config.server_version.clone();
         let own_adapter_version = self.config.adapter_version.clone();
         let own_adapter_dcc = self.config.adapter_dcc.clone();
@@ -357,6 +361,10 @@ impl GatewayRunner {
                     mdns_discovery_enabled,
                     mdns_ttl,
                     mdns_probe_timeout,
+                    relay_urls,
+                    relay_ttl,
+                    relay_poll_interval,
+                    relay_probe_timeout,
                 )
                 .await
                 {
@@ -539,6 +547,10 @@ impl GatewayRunner {
         let mdns_discovery_enabled = self.config.mdns_discovery_enabled;
         let mdns_ttl = Duration::from_secs(self.config.mdns_ttl_secs.max(1));
         let mdns_probe_timeout = Duration::from_millis(self.config.mdns_probe_timeout_ms.max(1));
+        let relay_urls = self.config.relay_urls.clone();
+        let relay_ttl = Duration::from_secs(self.config.relay_ttl_secs.max(1));
+        let relay_poll_interval = Duration::from_secs(self.config.relay_poll_interval_secs.max(1));
+        let relay_probe_timeout = Duration::from_millis(self.config.relay_probe_timeout_ms.max(1));
 
         let handle = tokio::spawn(async move {
             // Publish a short-lived challenger sentinel before asking the
@@ -660,6 +672,10 @@ impl GatewayRunner {
                         mdns_discovery_enabled,
                         mdns_ttl,
                         mdns_probe_timeout,
+                        relay_urls.clone(),
+                        relay_ttl,
+                        relay_poll_interval,
+                        relay_probe_timeout,
                     )
                     .await
                     {

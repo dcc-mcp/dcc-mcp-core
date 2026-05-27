@@ -48,7 +48,11 @@ pub async fn run_once(config: AgentConfig) -> Result<Registered, ClientError> {
         protocol_version: PROTOCOL_VERSION,
         token: config.token.clone(),
         dcc: config.dcc.clone(),
+        instance_id: config.instance_id.clone(),
         capabilities: config.capabilities.clone(),
+        capabilities_fingerprint: config.capabilities_fingerprint.clone(),
+        adapter_version: config.adapter_version.clone(),
+        scene: config.scene.clone(),
         agent_version: config.agent_version.clone(),
     };
     {
