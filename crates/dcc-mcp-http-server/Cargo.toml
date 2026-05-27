@@ -24,7 +24,9 @@ dcc-mcp-actions = { path = "../dcc-mcp-actions" }
 dcc-mcp-skills = { path = "../dcc-mcp-skills" }
 dcc-mcp-skill-rest = { path = "../dcc-mcp-skill-rest" }
 dcc-mcp-host = { path = "../dcc-mcp-host" }
-dcc-mcp-gateway = { path = "../dcc-mcp-gateway" }
+# Only the pure naming domain is needed here — the gateway runtime
+# itself is a peer crate, not an inward dependency (issue #1368).
+dcc-mcp-gateway-core = { path = "../dcc-mcp-gateway-core" }
 dcc-mcp-models = { path = "../dcc-mcp-models" }
 dcc-mcp-protocols = { path = "../dcc-mcp-protocols" }
 dcc-mcp-workflow = { path = "../dcc-mcp-workflow" }

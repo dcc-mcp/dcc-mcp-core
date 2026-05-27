@@ -21,6 +21,11 @@ serde = { workspace = true }
 uuid = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 dcc-mcp-gateway-search = { workspace = true }
+# `naming` domain depends on the tool-name validator and emits one-shot
+# warnings through `tracing`. Both are pure / facade-only deps so the
+# inward dependency direction is preserved.
+dcc-mcp-naming = { path = "../dcc-mcp-naming" }
+tracing = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]

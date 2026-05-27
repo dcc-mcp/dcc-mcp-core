@@ -3,7 +3,7 @@
 use serde_json::{Value, json};
 
 use dcc_mcp_actions::registry::ToolMeta;
-use dcc_mcp_gateway::namespace::{decode_skill_tool_name, extract_bare_tool_name};
+use dcc_mcp_gateway_core::naming::{decode_skill_tool_name, extract_bare_tool_name};
 use dcc_mcp_jsonrpc::{
     CallToolResult, DELTA_TOOLS_METHOD, NotificationBuilder, ToolContent,
     error_codes::{BACKEND_NOT_READY, CAPABILITY_MISSING},
