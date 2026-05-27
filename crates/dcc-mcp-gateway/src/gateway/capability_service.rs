@@ -25,6 +25,7 @@ use dcc_mcp_jsonrpc::McpTool;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 
 use crate::gateway::admin::trace::TraceContext;
+use crate::gateway::http_registration::entry_mcp_url;
 
 use super::admin::trace::AgentContext;
 use super::backend_client::{ForwardToolsCallRequest, forward_tools_call, try_describe_tool};
@@ -381,7 +382,7 @@ pub async fn describe_tool_full(
         )
         .with_instance_provenance("deregistered", Some(record.instance_id)));
     };
-    let url = format!("http://{}:{}/mcp", entry.host, entry.port);
+    let url = entry_mcp_url(entry);
     drop(reg);
 
     // Use /v1/describe to get the full input_schema (issue #992).
@@ -432,7 +433,7 @@ pub async fn call_service(
         )
         .with_instance_provenance("deregistered", Some(record.instance_id)));
     };
-    let url = format!("http://{}:{}/mcp", entry.host, entry.port);
+    let url = entry_mcp_url(entry);
     let entry = entry.clone();
     drop(reg);
 
@@ -566,7 +567,7 @@ pub async fn refresh_all_live_backends(gs: &GatewayState, reason: RefreshReason)
     // Refresh every live instance in parallel. Errors are logged and
     // swallowed — a single flaky backend must not break the others.
     let refreshes = instances.iter().map(|entry| {
-        let url = format!("http://{}:{}/mcp", entry.host, entry.port);
+        let url = entry_mcp_url(entry);
         async move {
             refresh_instance(
                 &gs.capability_index,

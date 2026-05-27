@@ -1,4 +1,5 @@
 use super::*;
+use crate::gateway::http_registration::entry_mcp_url;
 
 /// `POST /mcp/{instance_id}` — transparent proxy to a specific DCC instance.
 pub async fn handle_proxy_instance(
@@ -8,15 +9,14 @@ pub async fn handle_proxy_instance(
     body: axum::body::Bytes,
 ) -> Response {
     let registry = gs.registry.read().await;
-    let entry = registry.list_all().into_iter().find(|entry| {
-        let entry_id = entry.instance_id.to_string();
-        entry_id == instance_id || entry_id.starts_with(&instance_id)
-    });
+    let entry = gs
+        .resolve_instance(&registry, Some(instance_id.as_str()), None)
+        .ok();
     drop(registry);
 
     match entry {
         Some(entry) => {
-            let url = format!("http://{}:{}/mcp", entry.host, entry.port);
+            let url = entry_mcp_url(&entry);
             proxy_request(&gs.http_client, &url, headers, body).await
         }
         None => (
@@ -51,6 +51,6 @@ pub async fn handle_proxy_dcc(
     }
 
     candidates.sort_by_key(|entry| matches!(entry.status, ServiceStatus::Busy) as u8);
-    let url = format!("http://{}:{}/mcp", candidates[0].host, candidates[0].port);
+    let url = entry_mcp_url(&candidates[0]);
     proxy_request(&gs.http_client, &url, headers, body).await
 }

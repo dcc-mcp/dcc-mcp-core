@@ -126,6 +126,9 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
     let (events_tx, _) = tokio::sync::broadcast::channel::<String>(8);
     let gs = crate::gateway::GatewayState {
         registry,
+        http_instance_registry: std::sync::Arc::new(parking_lot::RwLock::new(
+            crate::gateway::http_registration::HttpInstanceRegistry::default(),
+        )),
         stale_timeout: std::time::Duration::from_secs(30),
         backend_timeout: std::time::Duration::from_secs(10),
         async_dispatch_timeout: std::time::Duration::from_secs(60),
@@ -293,6 +296,9 @@ async fn make_gateway_state(
     let (events_tx, _) = tokio::sync::broadcast::channel::<String>(8);
     crate::gateway::GatewayState {
         registry,
+        http_instance_registry: std::sync::Arc::new(parking_lot::RwLock::new(
+            crate::gateway::http_registration::HttpInstanceRegistry::default(),
+        )),
         stale_timeout: std::time::Duration::from_secs(30),
         backend_timeout: std::time::Duration::from_secs(10),
         async_dispatch_timeout: std::time::Duration::from_secs(60),
@@ -1222,6 +1228,9 @@ async fn gateway_state_with_instances(
     let (events_tx, _) = tokio::sync::broadcast::channel::<String>(8);
     let state = crate::gateway::GatewayState {
         registry,
+        http_instance_registry: std::sync::Arc::new(parking_lot::RwLock::new(
+            crate::gateway::http_registration::HttpInstanceRegistry::default(),
+        )),
         stale_timeout: std::time::Duration::from_secs(30),
         backend_timeout: std::time::Duration::from_secs(10),
         async_dispatch_timeout: std::time::Duration::from_secs(60),
