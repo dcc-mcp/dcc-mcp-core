@@ -60,22 +60,24 @@ pub struct EnsureGatewayOptions {
     pub remote_port: u16,
 }
 
-/// Run the standalone gateway until a shutdown signal arrives.
-pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
+/// Build the [`GatewayConfig`] that the standalone daemon uses.
+///
+/// Extracted so the regression test can construct the exact same
+/// runtime configuration without invoking the blocking `run` loop.
+pub fn build_gateway_config(args: &GatewayArgs, gateway_name: &str) -> GatewayConfig {
     let admin_retention = std::env::var("DCC_MCP_GATEWAY_ADMIN_RETENTION_DAYS")
         .ok()
         .and_then(|s| s.parse::<u32>().ok())
         .unwrap_or(30)
         .clamp(1, 3650);
-    let gateway_name = args.name.clone().unwrap_or_else(default_gateway_name);
-    let cfg = GatewayConfig {
+    GatewayConfig {
         host: args.host.clone(),
         gateway_port: args.port,
         remote_host: Some(args.remote_host.clone()),
         remote_gateway_port: args.remote_port,
         stale_timeout_secs: args.stale_timeout_secs,
         server_name: "dcc-mcp-gateway".to_string(),
-        gateway_name: Some(gateway_name.clone()),
+        gateway_name: Some(gateway_name.to_string()),
         server_version: env!("CARGO_PKG_VERSION").to_string(),
         registry_dir: args.registry_dir.clone(),
         adapter_dcc: Some("gateway".to_string()),
@@ -87,7 +89,13 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
             ..AdminPersistConfig::default()
         },
         ..GatewayConfig::default()
-    };
+    }
+}
+
+/// Run the standalone gateway until a shutdown signal arrives.
+pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
+    let gateway_name = args.name.clone().unwrap_or_else(default_gateway_name);
+    let cfg = build_gateway_config(&args, &gateway_name);
     let runner =
         GatewayRunner::new(cfg).map_err(|err| anyhow::anyhow!("creating GatewayRunner: {err}"))?;
     let mut outcome = runner
@@ -277,5 +285,68 @@ mod tests {
         );
         assert!(args.iter().any(|arg| arg == "gateway"));
         assert!(args.iter().any(|arg| arg == "--name"));
+    }
+
+    fn ephemeral_port() -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        port
+    }
+
+    /// Issue #1358 — the standalone gateway daemon must serve gateway-
+    /// native endpoints **without any DCC backend being registered**. The
+    /// daemon's `adapter_dcc = Some("gateway")` marker is what distinguishes
+    /// it from a per-DCC server that happens to win the election.
+    #[tokio::test]
+    async fn standalone_daemon_serves_health_without_any_backend() {
+        let dir = tempfile::tempdir().unwrap();
+        let gw_port = ephemeral_port();
+        let args = GatewayArgs {
+            host: "127.0.0.1".to_string(),
+            port: gw_port,
+            name: Some("standalone-daemon-test".to_string()),
+            remote_host: "127.0.0.1".to_string(),
+            remote_port: 0,
+            registry_dir: Some(dir.path().to_path_buf()),
+            no_admin: true,
+            admin_path: "/admin".to_string(),
+            stale_timeout_secs: 30,
+        };
+        let cfg = build_gateway_config(&args, args.name.as_deref().unwrap());
+        assert_eq!(
+            cfg.adapter_dcc.as_deref(),
+            Some("gateway"),
+            "daemon-mode config must stamp the standalone marker"
+        );
+
+        let runner = GatewayRunner::new(cfg).expect("creating GatewayRunner");
+        let mut outcome = runner
+            .run_election()
+            .await
+            .expect("standalone daemon must win election on a free port");
+        assert!(
+            outcome.is_gateway,
+            "standalone daemon must elect itself as the gateway"
+        );
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(2))
+            .build()
+            .unwrap();
+        let health = client
+            .get(format!("http://127.0.0.1:{gw_port}/health"))
+            .send()
+            .await
+            .expect("daemon must answer /health without a DCC backend");
+        assert!(health.status().is_success(), "/health expected 200 OK");
+
+        if let Some(abort) = outcome.gateway_abort.take() {
+            abort.abort();
+        }
+        if let Some(key) = outcome.sentinel_key.take() {
+            let reg = runner.registry.read().await;
+            let _ = reg.deregister(&key);
+        }
     }
 }
