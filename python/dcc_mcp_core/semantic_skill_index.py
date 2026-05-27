@@ -32,9 +32,17 @@ from collections import defaultdict
 from dataclasses import dataclass
 from math import log
 import re
+import sys
 from threading import RLock
 from typing import Iterable
-from typing import Protocol
+
+if sys.version_info >= (3, 8):
+    from typing import Protocol
+else:  # pragma: no cover - py3.7 only
+
+    class Protocol:  # type: ignore[no-redef]
+        pass
+
 
 __all__ = [
     "LexicalSkillIndex",
