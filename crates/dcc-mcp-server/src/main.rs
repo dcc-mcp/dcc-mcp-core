@@ -280,17 +280,51 @@ struct Args {
     log_file_prefix: Option<String>,
 
     /// Log retention in days (0 = disable age pruning). Default: 7.
-    #[arg(
-        long,
-        env = "DCC_MCP_LOG_RETENTION_DAYS",
-        value_name = "DAYS",
-        default_value = "7"
-    )]
+    #[arg(long, env = "DCC_MCP_LOG_RETENTION_DAYS", value_name = "DAYS")]
     log_retention_days: Option<u32>,
 
     /// Maximum total log directory size in MiB (0 = disable size pruning). Default: 100.
     #[arg(long, env = "DCC_MCP_LOG_MAX_TOTAL_SIZE_MB", value_name = "MB")]
     log_max_total_size_mb: Option<u32>,
+}
+
+#[derive(Debug, Default)]
+struct FileLoggingCliOptions {
+    no_log_file: bool,
+    log_dir: Option<PathBuf>,
+    log_max_size: Option<u64>,
+    log_max_files: Option<usize>,
+    log_rotation: Option<String>,
+    log_file_prefix: Option<String>,
+    log_retention_days: Option<u32>,
+    log_max_total_size_mb: Option<u32>,
+}
+
+impl From<&Args> for FileLoggingCliOptions {
+    fn from(args: &Args) -> Self {
+        Self {
+            no_log_file: args.no_log_file,
+            log_dir: args.log_dir.clone(),
+            log_max_size: args.log_max_size,
+            log_max_files: args.log_max_files,
+            log_rotation: args.log_rotation.clone(),
+            log_file_prefix: args.log_file_prefix.clone(),
+            log_retention_days: args.log_retention_days,
+            log_max_total_size_mb: args.log_max_total_size_mb,
+        }
+    }
+}
+
+fn should_enable_file_logging(opts: &FileLoggingCliOptions, enabled_by_env: bool) -> bool {
+    !opts.no_log_file
+        || opts.log_dir.is_some()
+        || opts.log_max_size.is_some()
+        || opts.log_max_files.is_some()
+        || opts.log_rotation.is_some()
+        || opts.log_file_prefix.is_some()
+        || opts.log_retention_days.is_some()
+        || opts.log_max_total_size_mb.is_some()
+        || enabled_by_env
 }
 
 // ── Catalog subcommands ───────────────────────────────────────────────────────
@@ -638,16 +672,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Wire up rolling-file logging by default unless --no-log-file is passed.
     // Any explicit DCC_MCP_LOG_* env var or CLI flag also enables it.
-    if !args.no_log_file
-        || args.log_dir.is_some()
-        || args.log_max_size.is_some()
-        || args.log_max_files.is_some()
-        || args.log_rotation.is_some()
-        || args.log_file_prefix.is_some()
-        || args.log_retention_days.is_some()
-        || args.log_max_total_size_mb.is_some()
-        || dcc_mcp_logging::FileLoggingConfig::enabled_by_env()
-    {
+    let file_logging_cli = FileLoggingCliOptions::from(&args);
+    if should_enable_file_logging(
+        &file_logging_cli,
+        dcc_mcp_logging::FileLoggingConfig::enabled_by_env(),
+    ) {
         let mut cfg = dcc_mcp_logging::FileLoggingConfig::from_env_with_defaults()
             .map_err(|e| anyhow::anyhow!("invalid file-logging env vars: {e}"))?;
         if let Some(dir) = args.log_dir.clone() {
@@ -997,4 +1026,57 @@ async fn main() -> anyhow::Result<()> {
         guard.remove_now();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_log_file_disables_default_file_logging() {
+        let opts = FileLoggingCliOptions {
+            no_log_file: true,
+            ..FileLoggingCliOptions::default()
+        };
+
+        assert!(!should_enable_file_logging(&opts, false));
+    }
+
+    #[test]
+    fn parsed_no_log_file_has_no_implicit_retention_override() {
+        let args = Args::try_parse_from([
+            "dcc-mcp-server",
+            "--no-log-file",
+            "--gateway-port",
+            "0",
+            "--no-bridge",
+        ])
+        .expect("valid CLI args");
+        let opts = FileLoggingCliOptions::from(&args);
+
+        assert!(opts.log_retention_days.is_none());
+        assert!(opts.log_max_total_size_mb.is_none());
+        assert!(!should_enable_file_logging(&opts, false));
+    }
+
+    #[test]
+    fn explicit_log_option_overrides_no_log_file() {
+        let opts = FileLoggingCliOptions {
+            no_log_file: true,
+            log_retention_days: Some(3),
+            ..FileLoggingCliOptions::default()
+        };
+
+        assert!(should_enable_file_logging(&opts, false));
+    }
+
+    #[test]
+    fn env_logging_option_overrides_no_log_file() {
+        let opts = FileLoggingCliOptions {
+            no_log_file: true,
+            ..FileLoggingCliOptions::default()
+        };
+
+        assert!(should_enable_file_logging(&opts, true));
+    }
 }
