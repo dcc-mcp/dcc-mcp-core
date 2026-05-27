@@ -79,7 +79,7 @@
 //! | `DCC_MCP_GATEWAY_ADMIN_DB` | Override path for admin SQLite (traces / skill paths) |
 //! | `DCC_MCP_GATEWAY_ADMIN_RETENTION_DAYS` | Admin SQLite retention in days (default 30, max 3650) |
 //! | `DCC_MCP_WEBHOOKS_CONFIG` | YAML event webhook config for forwarding `skill.*`, `tool.*`, and other EventBus envelopes |
-//! | `DCC_MCP_STANDALONE_REGISTRY_DCC_TYPE` | FileRegistry `dcc_type` when `--app` is empty (default `generic`) |
+//! | `DCC_MCP_STANDALONE_REGISTRY_DCC_TYPE` | FileRegistry `dcc_type` when `--app` is empty (default `python`) |
 //! | `DCC_MCP_REGISTRY_DIR`    | Shared FileRegistry directory                      |
 //! | `DCC_MCP_STALE_TIMEOUT`   | Seconds without heartbeat = stale (default 30)     |
 
