@@ -1,4 +1,11 @@
-//! Tool-name namespace helpers for the aggregating gateway.
+//! Tool-name namespace facade for the aggregating gateway.
+//!
+//! The pure naming domain — every bare-name, skill-qualified, and
+//! cursor-safe encoder / decoder — now lives in
+//! [`dcc_mcp_gateway_core::naming`]. This module is a thin source-
+//! compatibility shim that re-exports the historical
+//! `crate::gateway::namespace::*` paths so adapter code, tests, and
+//! external consumers keep compiling unchanged.
 //!
 //! ## Per-DCC server: proactive `<skill>__<name>` namespacing (#238)
 //!
@@ -18,32 +25,15 @@
 //! ## Gateway: `i_<id8>__<escaped>` Cursor-safe encoding (#656)
 //!
 //! The aggregating gateway emits an 8-hex-char instance id so duplicate
-//! tool names across multiple DCC backends remain addressable. Up to and
-//! including #258/#261 the separator was `.` (then allowed by the local
-//! validator), but clients such as Cursor and Claude filter out tool names
-//! containing dots. The
-//! `i_<id8>__<escaped_tool>` form published since #656 stays inside that
-//! stricter alphabet by escaping `.` / `-` / `_` with the reversible
-//! `_D_` / `_H_` / `_U_` triples — see [`encode::escape_cursor_safe`].
-//!
-//! [`decode_tool_name`] accepts only the cursor-safe `i_<id8>__<escaped>`
-//! form (#656). Dotted `{id8}.{tool}` slugs remain valid in REST capability
-//! URLs and similar surfaces; they are not accepted by the MCP routing
-//! decoder.
+//! tool names across multiple DCC backends remain addressable. The
+//! cursor-safe `i_<id8>__<escaped_tool>` form stays inside the
+//! `[A-Za-z0-9_]` alphabet by escaping `.` / `-` / `_` with the
+//! reversible `_D_` / `_H_` / `_U_` triples.
 //!
 //! | Form | Status |
 //! |------|--------|
 //! | `i_{id8}__{escaped_tool}` | **Wire form** for MCP `tools/call` and `prompts/get` routing |
 //! | `{id8}.{tool}` | Used in capability / REST slugs only — not decoded by [`decode_tool_name`] |
-//!
-//! ## Maintainer layout
-//!
-//! `namespace.rs` is a thin facade; implementation lives in focused siblings:
-//!
-//! - [`namespace_constants`](self::constants) — name lists, separators, prefix predicates
-//! - [`namespace_encode`](self::encode) — encoder / decoder helpers (skill + gateway forms)
-//! - [`namespace_bare`](self::bare) — `resolve_bare_names` + one-shot warn helpers (#307)
-//! - `namespace_tests.rs` — unit tests (compiled only under `#[cfg(test)]`)
 
 mod bare;
 mod constants;
@@ -61,9 +51,3 @@ pub use encode::{
     is_cursor_safe_alphabet, skill_tool_name, unescape_cursor_safe,
 };
 pub use resource_uri::{decode_resource_uri, encode_resource_uri};
-
-#[cfg(test)]
-pub use bare::__reset_warn_state_for_tests;
-
-#[cfg(test)]
-mod tests;

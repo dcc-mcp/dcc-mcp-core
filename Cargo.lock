@@ -939,8 +939,10 @@ version = "0.17.37"
 dependencies = [
  "chrono",
  "dcc-mcp-gateway-search",
+ "dcc-mcp-naming",
  "serde",
  "serde_json",
+ "tracing",
  "uuid",
  "workspace-hack",
 ]
@@ -1072,7 +1074,7 @@ dependencies = [
  "chrono",
  "dashmap",
  "dcc-mcp-actions",
- "dcc-mcp-gateway",
+ "dcc-mcp-gateway-core",
  "dcc-mcp-host",
  "dcc-mcp-http-types",
  "dcc-mcp-job",
