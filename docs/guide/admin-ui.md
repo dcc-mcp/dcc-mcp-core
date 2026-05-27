@@ -332,11 +332,13 @@ span waterfall, and the same copyable links. These URLs are designed to be
 pasted directly into an LLM evaluation prompt or another agent's debugging task.
 The Workflows panel and `GET /admin/api/workflows` group the same bounded data
 by session, explicit workflow id, trace id, or request chain. Each workflow row
-shows model identity, turn id, user/agent summaries, the readable
-discovery/execution chain (`search` → `describe` → `load_skill` → `call`),
-selected search rank, zero-result searches,
-time-to-first-success, and per-step links to trace detail, debug bundle, issue
-report JSON, OpenAPI Inspector/spec, and docs where a request id is available.
+stays lightweight: model identity, turn id, user/agent summaries, discovery
+quality, and a compact stage preview. Selecting a workflow opens a staged detail
+graph with Intent, Discovery, Skill Load, Tool Calls, Fallbacks, Artifacts,
+Validation, and Report nodes. Node details expose timestamps, DCC app/instance,
+transport, request/parent ids, search telemetry, and trace/debug links so an
+operator can identify fallback scripting or the failed stage without reading raw
+call logs.
 Raw prompts and raw replies are high-sensitivity data: keep them out of
 `agent_context`; use only an explicitly configured traffic capture policy with
 redaction, sampling, retention, and operator visibility when raw text is needed

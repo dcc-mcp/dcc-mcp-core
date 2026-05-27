@@ -54,6 +54,7 @@ skill taxonomy), load `dcc-mcp-skills-creator` instead.
 8. When the adapter needs a lifecycle hook or metadata transform that core cannot express, open a focused core issue/RFC instead of parsing YAML or mutating private state in the adapter.
 9. Add one executable smoke path: unit tests for construction plus either headless DCC, mock dispatcher MCP calls, or gateway REST replay.
 10. For gateway/admin observability, surface explicit state instead of silent zeroes: traffic panels should report disabled, unavailable, filtered, or genuine no-traffic states and keep admin-facing frames metadata-only unless an operator explicitly configures a private raw sink.
+11. Preserve workflow observability: adapter calls should carry request, parent, trace, session, DCC, transport, and artifact/validation metadata so the Admin workflow graph can show Intent → Discovery → Skill Load → Tool Calls → Fallbacks → Artifacts → Validation → Report without raw log reading.
 
 ## Example: New Nuke Adapter
 
