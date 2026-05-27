@@ -156,6 +156,19 @@ pub struct GatewayConfig {
 
     /// Admin persistence settings (SQLite, skill-path snapshot, reload hook).
     pub admin_persist: AdminPersistConfig,
+
+    /// Enable optional mDNS/DNS-SD LAN discovery (`_dcc-mcp._tcp.local.`).
+    ///
+    /// This source is advisory: every discovered backend is probed before it is
+    /// added to the live view, and security/auth policy still applies to calls.
+    pub mdns_discovery_enabled: bool,
+
+    /// TTL for mDNS-discovered rows after their last successful resolve/probe.
+    pub mdns_ttl_secs: u64,
+
+    /// Timeout for the `/v1/healthz` probe performed before materialising an
+    /// mDNS-discovered row.
+    pub mdns_probe_timeout_ms: u64,
 }
 
 impl Default for GatewayConfig {
@@ -188,6 +201,9 @@ impl Default for GatewayConfig {
             health_check_interval_secs: 5,
             health_check_failures: 2,
             admin_persist: AdminPersistConfig::default(),
+            mdns_discovery_enabled: false,
+            mdns_ttl_secs: 30,
+            mdns_probe_timeout_ms: 2_000,
         }
     }
 }

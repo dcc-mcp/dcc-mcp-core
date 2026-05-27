@@ -105,6 +105,9 @@ mod admin_tests {
             http_instance_registry: Arc::new(parking_lot::RwLock::new(
                 crate::gateway::http_registration::HttpInstanceRegistry::default(),
             )),
+            mdns_instance_registry: Arc::new(parking_lot::RwLock::new(
+                crate::gateway::mdns_discovery::MdnsInstanceRegistry::default(),
+            )),
             stale_timeout: Duration::from_secs(30),
             backend_timeout: Duration::from_secs(10),
             async_dispatch_timeout: Duration::from_secs(60),

@@ -53,6 +53,11 @@ pub struct GatewayArgs {
     /// Seconds without a heartbeat before an instance is considered stale.
     #[arg(long, env = "DCC_MCP_STALE_TIMEOUT", default_value = "30")]
     pub stale_timeout_secs: u64,
+
+    /// Discover LAN DCC-MCP servers via mDNS/DNS-SD.
+    #[cfg(feature = "mdns")]
+    #[arg(long, env = "DCC_MCP_DISCOVER_MDNS", default_value = "false")]
+    pub discover_mdns: bool,
 }
 
 /// Helpers for auto-launching the standalone gateway from inside another
@@ -97,6 +102,8 @@ pub fn build_gateway_config(args: &GatewayArgs, gateway_name: &str) -> GatewayCo
             sqlite_retention_days: admin_retention,
             ..AdminPersistConfig::default()
         },
+        #[cfg(feature = "mdns")]
+        mdns_discovery_enabled: args.discover_mdns,
         ..GatewayConfig::default()
     }
 }
@@ -330,6 +337,8 @@ mod tests {
             no_admin: true,
             admin_path: "/admin".to_string(),
             stale_timeout_secs: 30,
+            #[cfg(feature = "mdns")]
+            discover_mdns: false,
         };
         let cfg = build_gateway_config(&args, args.name.as_deref().unwrap());
         assert_eq!(

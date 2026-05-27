@@ -76,6 +76,13 @@ gateway-auto = [
 # be enabled together with or independently of `gateway-auto`.
 gateway-daemon = ["dep:dcc-mcp-gateway"]
 
+# Optional mDNS/DNS-SD advertisement and discovery. Off by default so the
+# default binary stays on the existing FileRegistry / HTTP registration path.
+mdns = [
+    "dcc-mcp-transport/mdns",
+    "dcc-mcp-gateway?/mdns",
+]
+
 # Read-only Admin UI on the elected gateway. Forwarded to whichever of
 # `gateway-auto` / `gateway-daemon` happens to be enabled.
 admin = [

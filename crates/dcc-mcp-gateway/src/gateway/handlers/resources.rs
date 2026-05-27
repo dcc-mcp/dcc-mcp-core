@@ -269,6 +269,9 @@ mod tests {
             http_instance_registry: Arc::new(parking_lot::RwLock::new(
                 crate::gateway::http_registration::HttpInstanceRegistry::default(),
             )),
+            mdns_instance_registry: Arc::new(parking_lot::RwLock::new(
+                crate::gateway::mdns_discovery::MdnsInstanceRegistry::default(),
+            )),
             stale_timeout: std::time::Duration::from_secs(30),
             backend_timeout: std::time::Duration::from_secs(10),
             async_dispatch_timeout: std::time::Duration::from_secs(60),

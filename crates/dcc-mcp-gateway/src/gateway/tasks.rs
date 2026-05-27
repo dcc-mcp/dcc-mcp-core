@@ -95,7 +95,13 @@ pub(crate) async fn start_gateway_tasks(
     #[cfg(feature = "admin")] admin_persist: crate::gateway::config::AdminPersistConfig,
     health_check_interval_secs: u64,
     health_check_failures: u32,
+    mdns_discovery_enabled: bool,
+    mdns_ttl: Duration,
+    mdns_probe_timeout: Duration,
 ) -> Result<GatewayTasks, Box<dyn std::error::Error + Send + Sync>> {
+    #[cfg(not(feature = "mdns"))]
+    let _ = (mdns_discovery_enabled, mdns_ttl, mdns_probe_timeout);
+
     // ── Yield channel ─────────────────────────────────────────────────────
     let (yield_tx, yield_rx) = watch::channel(false);
     let yield_tx = Arc::new(yield_tx);
@@ -133,6 +139,9 @@ pub(crate) async fn start_gateway_tasks(
 
     let http_instance_registry = Arc::new(parking_lot::RwLock::new(
         crate::gateway::http_registration::HttpInstanceRegistry::default(),
+    ));
+    let mdns_instance_registry = Arc::new(parking_lot::RwLock::new(
+        crate::gateway::mdns_discovery::MdnsInstanceRegistry::default(),
     ));
 
     // ── Contention event log + Prometheus counters (issue #766) ───────────
@@ -239,6 +248,8 @@ pub(crate) async fn start_gateway_tasks(
     // Detects when DCC instances join or leave and broadcasts
     // `notifications/resources/list_changed` to all connected SSE clients.
     let reg_watch = registry.clone();
+    let watch_http_registry = http_instance_registry.clone();
+    let watch_mdns_registry = mdns_instance_registry.clone();
     let events_tx_watch = events_tx.clone();
     let watch_own_host = own_host.clone();
     let watch_own_port = own_port;
@@ -252,7 +263,7 @@ pub(crate) async fn start_gateway_tasks(
 
             let fingerprint = {
                 let r = reg_watch.read().await;
-                let mut keys: Vec<String> = r
+                let mut entries: Vec<_> = r
                     .list_all()
                     .into_iter()
                     .filter(|e| {
@@ -260,6 +271,24 @@ pub(crate) async fn start_gateway_tasks(
                             && !e.is_stale(stale_timeout)
                             && !is_own_instance(e, &watch_own_host, watch_own_port)
                     })
+                    .collect();
+                let http_entries = watch_http_registry
+                    .read()
+                    .live_entries(std::time::SystemTime::now());
+                let mdns_entries = watch_mdns_registry
+                    .read()
+                    .live_entries(std::time::SystemTime::now());
+                let http_ids: std::collections::HashSet<_> =
+                    http_entries.iter().map(|entry| entry.instance_id).collect();
+                let mdns_ids: std::collections::HashSet<_> =
+                    mdns_entries.iter().map(|entry| entry.instance_id).collect();
+                entries.retain(|entry| {
+                    !http_ids.contains(&entry.instance_id) && !mdns_ids.contains(&entry.instance_id)
+                });
+                entries.extend(mdns_entries);
+                entries.extend(http_entries);
+                let mut keys: Vec<String> = entries
+                    .into_iter()
                     .map(|e| format!("{}:{}", e.dcc_type, e.instance_id))
                     .collect();
                 keys.sort_unstable();
@@ -525,6 +554,7 @@ pub(crate) async fn start_gateway_tasks(
     let sub_own_host = own_host.clone();
     let sub_own_port = own_port;
     let sub_http_registry = http_instance_registry.clone();
+    let sub_mdns_registry = mdns_instance_registry.clone();
     let backend_sub_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(2));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -545,9 +575,17 @@ pub(crate) async fn start_gateway_tasks(
                 let http_entries = sub_http_registry
                     .read()
                     .live_entries(std::time::SystemTime::now());
+                let mdns_entries = sub_mdns_registry
+                    .read()
+                    .live_entries(std::time::SystemTime::now());
                 let http_ids: std::collections::HashSet<_> =
                     http_entries.iter().map(|entry| entry.instance_id).collect();
-                entries.retain(|entry| !http_ids.contains(&entry.instance_id));
+                let mdns_ids: std::collections::HashSet<_> =
+                    mdns_entries.iter().map(|entry| entry.instance_id).collect();
+                entries.retain(|entry| {
+                    !http_ids.contains(&entry.instance_id) && !mdns_ids.contains(&entry.instance_id)
+                });
+                entries.extend(mdns_entries);
                 entries.extend(http_entries);
                 entries
                     .into_iter()
@@ -572,6 +610,20 @@ pub(crate) async fn start_gateway_tasks(
     let instance_diagnostics =
         Arc::new(crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new());
     let traffic_capture = Arc::new(crate::gateway::traffic::TrafficCapture::from_env()?);
+    let capability_index = Arc::new(crate::gateway::capability::CapabilityIndex::new());
+    #[cfg(feature = "mdns")]
+    let mdns_browser_handle = if mdns_discovery_enabled {
+        crate::gateway::mdns_discovery::spawn_mdns_browser(
+            mdns_instance_registry.clone(),
+            http_client.clone(),
+            events_tx.clone(),
+            capability_index.clone(),
+            mdns_ttl,
+            mdns_probe_timeout,
+        )
+    } else {
+        tokio::spawn(async {})
+    };
     if traffic_capture.is_enabled() {
         tracing::info!("Gateway traffic capture enabled");
     }
@@ -580,6 +632,7 @@ pub(crate) async fn start_gateway_tasks(
     let mut gw_state = GatewayState {
         registry: registry.clone(),
         http_instance_registry: http_instance_registry.clone(),
+        mdns_instance_registry: mdns_instance_registry.clone(),
         stale_timeout,
         backend_timeout,
         async_dispatch_timeout,
@@ -602,7 +655,7 @@ pub(crate) async fn start_gateway_tasks(
         policy: Arc::new(policy),
         adapter_version,
         adapter_dcc,
-        capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
+        capability_index: capability_index.clone(),
         event_log: contention_log.clone(),
         #[cfg(feature = "prometheus")]
         gateway_metrics: gateway_metrics.clone(),
@@ -847,6 +900,10 @@ pub(crate) async fn start_gateway_tasks(
         gw_handle,
         remote_handle,
     ];
+    #[cfg(feature = "mdns")]
+    let mut task_handles = task_handles;
+    #[cfg(feature = "mdns")]
+    task_handles.push(mdns_browser_handle);
     #[cfg(feature = "prometheus")]
     let mut task_handles = task_handles;
     #[cfg(feature = "prometheus")]

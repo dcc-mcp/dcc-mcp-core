@@ -225,6 +225,9 @@ impl GatewayRunner {
         let wait_terminal_timeout = Duration::from_millis(self.config.wait_terminal_timeout_ms);
         let route_ttl = Duration::from_secs(self.config.route_ttl_secs);
         let max_routes_per_session = self.config.max_routes_per_session as usize;
+        let mdns_discovery_enabled = self.config.mdns_discovery_enabled;
+        let mdns_ttl = Duration::from_secs(self.config.mdns_ttl_secs.max(1));
+        let mdns_probe_timeout = Duration::from_millis(self.config.mdns_probe_timeout_ms.max(1));
         let own_version = self.config.server_version.clone();
         let own_adapter_version = self.config.adapter_version.clone();
         let own_adapter_dcc = self.config.adapter_dcc.clone();
@@ -351,6 +354,9 @@ impl GatewayRunner {
                     self.config.admin_persist.clone(),
                     self.config.health_check_interval_secs,
                     self.config.health_check_failures,
+                    mdns_discovery_enabled,
+                    mdns_ttl,
+                    mdns_probe_timeout,
                 )
                 .await
                 {
@@ -530,6 +536,9 @@ impl GatewayRunner {
         let admin_persist = self.config.admin_persist.clone();
         let health_check_interval_secs = self.config.health_check_interval_secs;
         let health_check_failures = self.config.health_check_failures;
+        let mdns_discovery_enabled = self.config.mdns_discovery_enabled;
+        let mdns_ttl = Duration::from_secs(self.config.mdns_ttl_secs.max(1));
+        let mdns_probe_timeout = Duration::from_millis(self.config.mdns_probe_timeout_ms.max(1));
 
         let handle = tokio::spawn(async move {
             // Publish a short-lived challenger sentinel before asking the
@@ -648,6 +657,9 @@ impl GatewayRunner {
                         admin_persist.clone(),
                         health_check_interval_secs,
                         health_check_failures,
+                        mdns_discovery_enabled,
+                        mdns_ttl,
+                        mdns_probe_timeout,
                     )
                     .await
                     {
