@@ -56,6 +56,7 @@ pub mod sqlite_lane;
 pub mod state;
 pub mod stats;
 pub mod trace;
+mod traffic;
 pub mod workers;
 pub mod workflows;
 

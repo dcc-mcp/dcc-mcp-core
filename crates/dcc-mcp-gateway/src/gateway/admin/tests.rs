@@ -292,6 +292,26 @@ sinks:
         crate::gateway::traffic::TrafficCapture::from_config_path(config_path).unwrap()
     }
 
+    fn filtered_admin_live_capture() -> crate::gateway::traffic::TrafficCapture {
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let config_path =
+            std::env::temp_dir().join(format!("dcc-mcp-admin-live-filtered-{suffix}.yaml"));
+        std::fs::write(
+            &config_path,
+            r#"
+enabled: true
+sinks:
+  - kind: admin_live
+    ring_buffer: 2
+filters:
+  exclude:
+    - mcp.method: tools/call
+"#,
+        )
+        .unwrap();
+        crate::gateway::traffic::TrafficCapture::from_config_path(config_path).unwrap()
+    }
+
     fn traffic_frame(
         method: &'static str,
         request_id: &str,
@@ -1037,10 +1057,16 @@ sinks:
 
         let (status, body) = body_json(router.clone(), "/api/traffic?limit=10").await;
         assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["schema_version"], "dcc-mcp.admin.traffic.v1");
         assert_eq!(body["total"], 2);
+        assert_eq!(body["capture_status"]["state"], "captured");
+        assert_eq!(body["capture_status"]["safe_to_share"], true);
+        assert_eq!(body["capture_status"]["payload_policy"], "metadata-only");
         let frames = body["frames"].as_array().unwrap();
         assert_eq!(frames[0]["attributes"]["mcp"]["method"], "resources/read");
         assert_eq!(frames[0]["correlation"]["request_id"], "req-live-3");
+        assert_eq!(frames[0]["attributes"]["body"]["payload_omitted"], true);
+        assert!(frames[0]["attributes"]["body"].get("data").is_none());
         assert_eq!(frames[1]["attributes"]["mcp"]["method"], "tools/call");
         assert!(
             body["links"]["admin_traffic_url"]
@@ -1060,6 +1086,8 @@ sinks:
         assert_eq!(lines.len(), 2);
         assert!(lines[0].contains("\"traffic.frame\""));
         assert!(lines[0].contains("\"resources/read\""));
+        assert!(lines[0].contains("\"payload_omitted\":true"));
+        assert!(!lines[0].contains("\"jsonrpc\""));
         assert!(lines[1].contains("\"tools/call\""));
 
         let v1_router = build_v1_debug_router(state);
@@ -1070,6 +1098,80 @@ sinks:
             debug_body["frames"][0]["attributes"]["mcp"]["method"],
             "resources/read"
         );
+    }
+
+    #[tokio::test]
+    async fn test_admin_traffic_explains_disabled_capture() {
+        let gs = make_gateway_state();
+        let state = AdminState::new(gs);
+        let router = build_admin_router(state);
+
+        let (status, body) = body_json(router, "/api/traffic?limit=10").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["total"], 0);
+        assert_eq!(body["capture_status"]["state"], "capture_disabled");
+        assert_eq!(body["capture_status"]["capture_enabled"], false);
+        assert_eq!(body["capture_status"]["live_sink_enabled"], false);
+    }
+
+    #[tokio::test]
+    async fn test_admin_traffic_explains_missing_admin_live_sink() {
+        let capture = governance_capture();
+        capture.emit_json_frame(traffic_frame("tools/call", "req-jsonl-only"));
+
+        let mut gs = make_gateway_state();
+        gs.traffic_capture = Arc::new(capture);
+        let state = AdminState::new(gs);
+        let router = build_admin_router(state);
+
+        let (status, body) = body_json(router, "/api/traffic?limit=10").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["total"], 0);
+        assert_eq!(body["capture_status"]["state"], "capture_unavailable");
+        assert_eq!(body["capture_status"]["capture_enabled"], true);
+        assert_eq!(body["capture_status"]["live_sink_enabled"], false);
+        assert_eq!(body["capture_status"]["captured_decision_count"], 1);
+    }
+
+    #[tokio::test]
+    async fn test_admin_traffic_explains_filtered_capture() {
+        let capture = filtered_admin_live_capture();
+        capture.emit_json_frame(traffic_frame("tools/call", "req-filtered"));
+
+        let mut gs = make_gateway_state();
+        gs.traffic_capture = Arc::new(capture);
+        let state = AdminState::new(gs);
+        let router = build_admin_router(state);
+
+        let (status, body) = body_json(router, "/api/traffic?limit=10").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["total"], 0);
+        assert_eq!(body["capture_status"]["state"], "capture_filtered");
+        assert_eq!(body["capture_status"]["capture_enabled"], true);
+        assert_eq!(body["capture_status"]["live_sink_enabled"], true);
+        assert_eq!(body["capture_status"]["skipped_decision_count"], 1);
+        assert_eq!(body["capture_status"]["skip_reasons"][0], "filter");
+    }
+
+    #[tokio::test]
+    async fn test_admin_traffic_reports_genuine_no_traffic() {
+        let capture = admin_live_capture();
+        let mut gs = make_gateway_state();
+        gs.traffic_capture = Arc::new(capture);
+        let state = AdminState::new(gs);
+        let router = build_admin_router(state);
+
+        let (status, body) = body_json(router, "/api/traffic?limit=10").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["total"], 0);
+        assert_eq!(body["capture_status"]["state"], "no_traffic");
+        assert_eq!(body["capture_status"]["capture_enabled"], true);
+        assert_eq!(body["capture_status"]["live_sink_enabled"], true);
+        assert_eq!(body["capture_status"]["recent_decision_count"], 0);
     }
 
     #[tokio::test]

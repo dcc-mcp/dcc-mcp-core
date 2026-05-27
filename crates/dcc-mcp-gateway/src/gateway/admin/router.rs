@@ -29,8 +29,8 @@ use super::state::AdminState;
 /// - `GET  /api/calls`              → JSON recent calls
 /// - `GET  /api/traces`             → JSON recent dispatch traces (Phase 2)
 /// - `GET  /api/traces/{request_id}` → full trace waterfall for one call
-/// - `GET  /api/traffic`            → retained live traffic capture frames
-/// - `GET  /api/traffic/export`     → retained live traffic frames as JSONL
+/// - `GET  /api/traffic`            → capture state + retained safe traffic metadata
+/// - `GET  /api/traffic/export`     → retained safe traffic metadata as JSONL
 /// - `GET  /api/issue-report/{request_id}` → downloadable JSON issue report
 /// - `GET  /api/workflows`          → agent/session workflow projection
 /// - `GET  /api/stats?range=1h|24h|7d` → aggregated call statistics (Phase 3)

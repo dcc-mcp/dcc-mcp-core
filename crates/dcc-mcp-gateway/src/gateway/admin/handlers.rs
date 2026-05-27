@@ -72,22 +72,15 @@ pub async fn handle_admin_traffic(
 ) -> impl IntoResponse {
     let links = AdminLinkBuilder::from_request(&headers, &uri);
     let limit = params.limit(200, 1_000);
-    let frames: Vec<Value> = s
-        .gateway
-        .traffic_capture
-        .recent_frames(limit)
-        .into_iter()
-        .map(|frame| frame.to_value())
-        .collect();
-    Json(json!({
-        "total": frames.len(),
-        "frames": frames,
-        "links": {
+    Json(crate::gateway::admin::traffic::build_traffic_payload(
+        &s.gateway.traffic_capture,
+        limit,
+        json!({
             "admin_traffic_url": links.panel_url("traffic"),
             "traffic_api_url": links.api_url("/traffic"),
             "traffic_export_jsonl_url": links.api_url("/traffic/export"),
-        }
-    }))
+        }),
+    ))
 }
 
 /// `GET /admin/api/traffic/export?limit=1000` — retained live frames as JSONL.
@@ -96,13 +89,10 @@ pub async fn handle_admin_traffic_export(
     Query(params): Query<DebugListQuery>,
 ) -> impl IntoResponse {
     let limit = params.limit(1_000, 10_000);
-    let mut body = String::new();
-    for frame in s.gateway.traffic_capture.recent_frames(limit) {
-        if let Ok(line) = serde_json::to_string(&frame.to_value()) {
-            body.push_str(&line);
-            body.push('\n');
-        }
-    }
+    let body = crate::gateway::admin::traffic::build_traffic_export_body(
+        &s.gateway.traffic_capture,
+        limit,
+    );
     let mut response = (StatusCode::OK, body).into_response();
     response.headers_mut().insert(
         header::CONTENT_TYPE,
