@@ -52,6 +52,7 @@ mod html;
 #[cfg(feature = "admin")]
 mod issue_report;
 mod links;
+mod skill_health;
 pub mod sqlite_lane;
 pub mod state;
 pub mod stats;
