@@ -91,9 +91,22 @@ dcc-mcp-cli lint path/to/skills
 
 ## `dcc-mcp-server`
 
-独立服务器，跑一个 per-DCC MCP + REST 服务**同时**竞争共享的网关端口。
-首个绑定网关端口的进程赢得网关角色；后来者注册成普通 DCC 实例，被赢家
-汇聚。
+独立服务器入口，显式区分 per-DCC MCP server 与整机 gateway daemon。
+不带子命令调用 `dcc-mcp-server` 仍保持向后兼容：行为等同于
+`dcc-mcp-server auto`。
+
+### 运行模式
+
+| 命令 | 角色 | 网关行为 |
+|---|---|---|
+| `dcc-mcp-server` | 向后兼容的隐式 `auto`。 | 启动 per-DCC MCP server，并参与 first-wins 网关选举。 |
+| `dcc-mcp-server auto` | 默认行为的显式写法。 | 与无子命令路径相同。 |
+| `dcc-mcp-server serve` | per-DCC MCP server。 | 默认仍参与 first-wins 网关选举。 |
+| `dcc-mcp-server serve --no-auto-gateway` | 仅运行 per-DCC MCP server。 | 提供 MCP 工具，但绝不尝试绑定 gateway port。 |
+| `dcc-mcp-server gateway` | 整机 gateway daemon。 | 只托管 discovery、routing、resources/prompts、admin 与 audit，不内联执行 DCC tool。 |
+
+`auto` 与 `serve` 共享下面的 server 旗标。`gateway` 有更小的独立旗标面，
+会拒绝 `--app` 这类 server-only 旗标。
 
 ### 核心旗标
 
@@ -110,7 +123,7 @@ dcc-mcp-cli lint path/to/skills
 | `--force` | — | `false` | 覆盖指向活进程的 PID 文件。 |
 | `--shutdown-timeout-secs` | `DCC_MCP_SHUTDOWN_TIMEOUT_SECS` | `10` | 优雅关闭时限。 |
 
-### 网关旗标
+### 自动网关旗标（`auto` / `serve`）
 
 | 旗标 | 环境变量 | 默认值 | 说明 |
 |---|---|---|---|
@@ -186,20 +199,21 @@ slug（例如 `maya.old.tool`）以及 `instance_id` 字段，方便把旧记录
 ### 典型调用
 
 ```bash
-# 1) 单机服务，OS 分配 MCP 端口，不开网关。
-dcc-mcp-server --app maya --gateway-port 0
+# 1) 向后兼容的 auto 模式（等同于：dcc-mcp-server auto --app maya）。
+dcc-mcp-server --app maya
 
-# 2) 工作站上多 DCC 的网关赢家。
+# 2) 仅 per-DCC server，不竞争共享 gateway port。
+dcc-mcp-server serve --no-auto-gateway --app maya
+
+# 3) 工作站上多 DCC 的网关赢家。
 #    第一个终端赢网关端口，后续的注册成普通实例。
-dcc-mcp-server --app maya --server-name maya-shotgun-alpha \
+dcc-mcp-server auto --app maya --server-name maya-shotgun-alpha \
                --scene /shots/ep101/sh0200/shot.ma \
                --log-dir /var/log/dcc-mcp
 
-# 3) 整台工作站的网关，监听 0.0.0.0（注意：默认仅本机鉴权；
-#    对外暴露前先装 BearerTokenGate）。
-dcc-mcp-server --app generic --host 0.0.0.0 \
-               --mcp-port 9765 \
-               --registry-dir /var/lib/dcc-mcp
+# 4) 整台工作站的 gateway daemon。
+dcc-mcp-server gateway --host 127.0.0.1 --port 9765 \
+                       --registry-dir /var/lib/dcc-mcp
 ```
 
 ---
