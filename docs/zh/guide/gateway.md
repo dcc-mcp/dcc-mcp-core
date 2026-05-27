@@ -57,8 +57,8 @@ dcc-mcp-server gateway --remote-host 0.0.0.0 --remote-port 59765
 
 附加环境变量：
 
-* `DCC_MCP_GATEWAY_ADMIN_DB` —— admin SQLite 路径（默认在 workspace 锚定位置）。
-* `DCC_MCP_GATEWAY_ADMIN_RETENTION_DAYS` —— admin SQLite 保留天数，
+- `DCC_MCP_GATEWAY_ADMIN_DB` —— admin SQLite 路径（默认在 workspace 锚定位置）。
+- `DCC_MCP_GATEWAY_ADMIN_RETENTION_DAYS` —— admin SQLite 保留天数，
   自动 clamp 到 `[1, 3650]`，默认 `30`。
 
 ### 守护进程模式保证
@@ -67,16 +67,16 @@ dcc-mcp-server gateway --remote-host 0.0.0.0 --remote-port 59765
 在 election tiebreak 时识别（参见 `version.rs` —— 真实 DCC 会抢占
 generic standalone）。运行时满足：
 
-* **不执行 DCC 工具。** `dcc-mcp-gateway` 仅从 `dcc-mcp-actions` 引用
+- **不执行 DCC 工具。** `dcc-mcp-gateway` 仅从 `dcc-mcp-actions` 引用
   `EventBus` / `EventEnvelope` 等 wire 类型；从不持有 `ToolDispatcher`，
   也不会在进程内 inline 调用工具。
-* **无 PyO3 / Python host bridge。** `cargo tree -p dcc-mcp-gateway`
+- **无 PyO3 / Python host bridge。** `cargo tree -p dcc-mcp-gateway`
   里完全找不到 `pyo3`、`dcc-mcp-pybridge`、`dcc-mcp-host`、
   `dcc-mcp-sandbox` 或 `dcc-mcp-capture`。
-* **无 DCC backend 也能跑。** `GET /health` 在空 registry 下返回
+- **无 DCC backend 也能跑。** `GET /health` 在空 registry 下返回
   `200 OK`，回归用例在 `crates/dcc-mcp-server/src/gateway_daemon.rs`
   的 `gateway_daemon::tests::standalone_daemon_serves_health_without_any_backend`。
-* **与 auto-gateway 共存。** 使用 `dcc-mcp-http` 默认 feature 的 per-DCC
+- **与 auto-gateway 共存。** 使用 `dcc-mcp-http` 默认 feature 的 per-DCC
   server 在没有 daemon 时仍会自我选举（#1357 把 auto-gateway 路径放到
   默认开启的 cargo feature 后面，关闭该 feature 即可让 binary 完全跳过
   gateway 运行时）。
