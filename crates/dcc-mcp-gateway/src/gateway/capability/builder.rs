@@ -422,6 +422,11 @@ fn extract_metadata(meta: Option<&serde_json::Map<String, Value>>) -> Option<Cap
             .or_else(|| dcc.get("enforce_thread_affinity"))
             .and_then(Value::as_bool),
         risk: dcc.get("risk").and_then(Value::as_str).map(str::to_string),
+        tool_role: dcc
+            .get("toolRole")
+            .or_else(|| dcc.get("tool_role"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
     })
 }
 

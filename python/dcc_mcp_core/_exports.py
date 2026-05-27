@@ -324,6 +324,9 @@ _LAZY: dict[str, str] = {
     "HookDeny": "dcc_mcp_core.lifecycle_hooks",
     "HookEvent": "dcc_mcp_core.lifecycle_hooks",
     "LifecycleHooks": "dcc_mcp_core.lifecycle_hooks",
+    # Escape-hatch demotion policy (issue #1325)
+    "EscapeHatchInvocation": "dcc_mcp_core.escape_hatch_policy",
+    "EscapeHatchPolicy": "dcc_mcp_core.escape_hatch_policy",
     # DccServerBase + factory
     "DccServerBase": "dcc_mcp_core.server_base",
     "create_dcc_server": "dcc_mcp_core.factory",
