@@ -1016,6 +1016,13 @@ async function mockAdminApi(page: Page) {
         loaded: 2,
         unloaded: 0,
         action_count: 5,
+        health: {
+          searched_skills: 2,
+          used_skills: 1,
+          low_adoption_skills: 1,
+          load_error_count: 0,
+          missing_path_count: 1,
+        },
         skills: [
           {
             name: 'maya-modeling',
@@ -1028,6 +1035,21 @@ async function mockAdminApi(page: Page) {
             instance_details: [{ id: '12345678-aaaa-bbbb-cccc-1234567890ab', prefix: '12345678', dcc_type: 'maya' }],
             tools: ['create_sphere', 'delete_sphere', 'set_transform'],
             summary: 'Modeling tools currently loaded by Maya.',
+            adoption: {
+              search_hits: 3,
+              best_rank: 2,
+              average_rank: 2.4,
+              selected_count: 2,
+              call_count: 1,
+              failure_count: 0,
+              load_error_count: 0,
+              last_searched: now,
+              last_used: now,
+              fallback_displaced_by_scripting: 0,
+              searched: true,
+              used: true,
+              low_adoption: false,
+            },
           },
           {
             name: 'blender-lookdev',
@@ -1040,6 +1062,21 @@ async function mockAdminApi(page: Page) {
             instance_details: [{ id: 'abcdef12-aaaa-bbbb-cccc-1234567890ab', prefix: 'abcdef12', dcc_type: 'blender' }],
             tools: ['render_preview', 'assign_material'],
             summary: 'Lookdev tools currently loaded by Blender.',
+            adoption: {
+              search_hits: 2,
+              best_rank: 1,
+              average_rank: 1,
+              selected_count: 0,
+              call_count: 0,
+              failure_count: 0,
+              load_error_count: 0,
+              last_searched: now,
+              last_used: null,
+              fallback_displaced_by_scripting: 1,
+              searched: true,
+              used: false,
+              low_adoption: true,
+            },
           },
         ],
       };
@@ -1538,12 +1575,18 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.skill-paths-panel')).toContainText('maya-modeling');
     await expect(page.locator('.skill-paths-panel')).toContainText('create_sphere');
     await expect(page.locator('.skill-paths-panel')).toContainText('Loaded skills');
-    await expect(page.locator('.skill-paths-panel')).toContainText('G:/custom/admin-skills');
+    await expect(page.locator('.skill-paths-panel')).toContainText('Searched / used');
+    await expect(page.locator('.skill-paths-panel')).toContainText('best rank 2');
+    await expect(page.locator('.skill-paths-panel')).toContainText('1 calls, 0 failures');
+    await expect(page.locator('.skill-paths-panel')).toContainText('low adoption');
+    await expect(page.locator('.skill-paths-panel')).toContainText('admin_custom #7');
+    await expect(page.locator('.skill-paths-panel')).not.toContainText('G:/custom/admin-skills');
     await page.getByLabel('New skill path').fill('G:/new/team-skills');
     await page.getByRole('button', { name: 'Add path' }).click();
-    await expect(page.locator('.skill-paths-panel')).toContainText('G:/new/team-skills');
+    await expect(page.locator('.skill-paths-panel')).toContainText('admin_custom #8');
+    await expect(page.locator('.skill-paths-panel')).not.toContainText('G:/new/team-skills');
     await page.getByRole('button', { name: 'Remove' }).first().click();
-    await expect(page.locator('.skill-paths-panel')).not.toContainText('G:/custom/admin-skills');
+    await expect(page.locator('.skill-paths-panel')).not.toContainText('admin_custom #7');
   });
 
   test('opens rendered markdown details for a skill', async ({ page }) => {
