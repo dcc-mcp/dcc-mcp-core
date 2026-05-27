@@ -54,6 +54,7 @@ use axum::response::Response;
 use axum::routing::{get, post};
 use clap::Args;
 use dcc_mcp_jsonrpc::{JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse};
+#[cfg(feature = "gateway-auto")]
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -540,6 +541,9 @@ fn build_router(state: BridgeState) -> Router {
 
 /// Run the translate bridge. Does not return until a shutdown signal is received.
 pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
+    // `server_name` is forwarded into the gateway registration entry,
+    // so slim builds without `gateway-auto` never read it.
+    #[cfg(feature = "gateway-auto")]
     let server_name = args
         .server_name
         .clone()
@@ -586,6 +590,7 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
     }
 
     // ── Gateway registration ──────────────────────────────────────────────
+    #[cfg(feature = "gateway-auto")]
     let gw_handle_opt = if !args.no_register {
         use dcc_mcp_gateway::{GatewayConfig, GatewayRunner};
 
@@ -653,6 +658,21 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
         info!("--no-register: skipping gateway registration");
         None
     };
+    // Slim builds without `gateway-auto` always behave as `--no-register`:
+    // there is no GatewayRunner compiled in. The local HTTP/SSE/Streamable
+    // bridge still works; only registration with a gateway is dropped.
+    #[cfg(not(feature = "gateway-auto"))]
+    let gw_handle_opt: Option<()> = {
+        if !args.no_register {
+            info!(
+                "translate compiled without the `gateway-auto` feature; \
+                 skipping gateway registration (--no-register behaviour)"
+            );
+        } else {
+            info!("--no-register: skipping gateway registration");
+        }
+        None
+    };
 
     // ── PID file ──────────────────────────────────────────────────────────
     let _pid_guard = args
@@ -684,8 +704,10 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
         "Shutdown signal received; stopping translate bridge"
     );
 
-    // Drop gateway handle (stops heartbeat)
-    drop(gw_handle_opt);
+    // Drop gateway handle (stops heartbeat). In slim builds this is
+    // `Option<()>` and the drop is a no-op; `let _ =` keeps the variable
+    // alive until this point without tripping `dropping_copy_types`.
+    let _ = gw_handle_opt;
 
     // Signal HTTP server to stop
     let _ = shutdown_tx.send(true);

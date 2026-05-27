@@ -211,6 +211,17 @@ jobs:
       - name: Rust compile smoke
         if: matrix.rust-validation == 'smoke'
         run: vx cargo check --workspace --all-targets
+      # Verify the composition binary still builds in its slim variants
+      # (issue #1359). Defaults are already exercised by the workspace
+      # check / clippy / test steps above.
+      - name: dcc-mcp-server slim feature matrix
+        if: matrix.rust-validation == 'full'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          vx cargo check -p dcc-mcp-server --no-default-features --features server
+          vx cargo check -p dcc-mcp-server --no-default-features --features gateway-daemon,admin
+          vx cargo check -p dcc-mcp-server --no-default-features --features server,gateway-auto,gateway-daemon,admin
 
   # ── Build ABI3 wheel (one per OS, reused by python-test) ──
   # Intentionally does NOT `needs: [rust-check]` — maturin runs its own compile
