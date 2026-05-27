@@ -90,20 +90,26 @@ use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
+#[cfg(feature = "gateway-auto")]
 use dcc_mcp_gateway::{AdminPersistConfig, GatewayConfig, GatewayRunner, SkillPathEntry};
 use dcc_mcp_http::{McpHttpConfig, McpHttpServer};
 use dcc_mcp_logging::file_logging::prune_old_logs;
 use dcc_mcp_skills::SkillCatalog;
-use dcc_mcp_skills::constants::{
-    ENV_SKILL_PATHS, app_skill_paths_env_key, resolve_registry_dcc_type,
-};
+use dcc_mcp_skills::constants::resolve_registry_dcc_type;
+#[cfg(feature = "gateway-auto")]
+use dcc_mcp_skills::constants::{ENV_SKILL_PATHS, app_skill_paths_env_key};
+#[cfg(feature = "gateway-auto")]
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 use sysinfo::{Pid, ProcessesToUpdate, System};
 mod capture;
 mod event_webhooks;
+#[cfg(feature = "gateway-daemon")]
 mod gateway_daemon;
+#[cfg(feature = "gateway-auto")]
 mod sidecar;
+#[cfg(feature = "gateway-auto")]
 mod sidecar_gateway;
+#[cfg(feature = "gateway-auto")]
 mod sidecar_mcp;
 mod translate;
 
@@ -124,8 +130,10 @@ enum SubCmd {
     /// Spawned by a DCC plugin/addon (`dcc-mcp-maya`, `dcc-mcp-blender`, …)
     /// and supervised via `--watch-pid`.  Exits cleanly when its parent
     /// DCC dies so we never leak stale workers.
+    #[cfg(feature = "gateway-auto")]
     Sidecar(sidecar::SidecarArgs),
     /// Machine-wide gateway daemon. Per-DCC sidecars auto-launch this when needed.
+    #[cfg(feature = "gateway-daemon")]
     Gateway(gateway_daemon::GatewayArgs),
     /// Replay or diff gateway traffic capture files.
     Capture {
@@ -558,6 +566,10 @@ pub(crate) async fn select_shutdown_signal() -> anyhow::Result<&'static str> {
 // ── main ──────────────────────────────────────────────────────────────────────
 
 #[tokio::main]
+// Without the `server` feature, the early `return Err(...)` in the
+// no-subcommand arm makes the rest of `main` provably unreachable. That
+// is intentional, not a bug — silence the lint only for that build.
+#[cfg_attr(not(feature = "server"), allow(unreachable_code, unused_variables))]
 async fn main() -> anyhow::Result<()> {
     // Install the shared subscriber (stderr fmt-layer + reload slot for the
     // optional file-logging layer). Safe to call multiple times.
@@ -597,10 +609,26 @@ async fn main() -> anyhow::Result<()> {
     match args.command {
         Some(SubCmd::Translate(translate_args)) => return translate::run(translate_args).await,
         Some(SubCmd::Catalog { action }) => return run_catalog_cmd(&action),
+        #[cfg(feature = "gateway-auto")]
         Some(SubCmd::Sidecar(sidecar_args)) => return sidecar::run(sidecar_args).await,
+        #[cfg(feature = "gateway-daemon")]
         Some(SubCmd::Gateway(gateway_args)) => return gateway_daemon::run(gateway_args).await,
         Some(SubCmd::Capture { action }) => return capture::run(action).await,
         None => {}
+    }
+
+    // When this binary is built without the `server` feature, the default
+    // (no-subcommand) path has nothing useful to do — print help and exit
+    // cleanly so callers get a clear signal instead of opening a port.
+    #[cfg(not(feature = "server"))]
+    {
+        use clap::CommandFactory as _;
+        let mut cmd = Args::command();
+        cmd.print_long_help().ok();
+        return Err(anyhow::anyhow!(
+            "this build was compiled without the `server` feature; \
+             use a subcommand such as `gateway` to invoke the binary"
+        ));
     }
 
     if let (Some(path), Some(pid)) = (args.pid_cleanup_watch.clone(), args.watch_pid) {
@@ -681,7 +709,12 @@ async fn main() -> anyhow::Result<()> {
 
     let registry_dir_path: Option<PathBuf> = args.registry_dir.as_deref().map(PathBuf::from);
 
+    // `skill_paths_snapshot` is fed straight into the gateway admin UI's
+    // `AdminPersistConfig`. Slim builds without `gateway-auto` drop the
+    // entire admin pipeline, so we skip building the snapshot too.
+    #[cfg(feature = "gateway-auto")]
     let mut skill_paths_snapshot: Vec<SkillPathEntry> = Vec::new();
+    #[cfg(feature = "gateway-auto")]
     for p in &args.skill_paths {
         skill_paths_snapshot.push(SkillPathEntry {
             path: p.display().to_string(),
@@ -693,22 +726,25 @@ async fn main() -> anyhow::Result<()> {
     skill_paths.extend(
         dcc_mcp_skills::paths::get_skill_paths_from_env()
             .into_iter()
-            .inspect(|s| {
+            .inspect(|_s| {
+                #[cfg(feature = "gateway-auto")]
                 skill_paths_snapshot.push(SkillPathEntry {
-                    path: s.clone(),
+                    path: _s.clone(),
                     source: format!("env:{ENV_SKILL_PATHS}"),
                 });
             })
             .map(PathBuf::from),
     );
     if !args.app.is_empty() {
+        #[cfg(feature = "gateway-auto")]
         let env_key = app_skill_paths_env_key(&args.app);
         skill_paths.extend(
             dcc_mcp_skills::paths::get_app_skill_paths_from_env(&args.app)
                 .into_iter()
-                .inspect(|s| {
+                .inspect(|_s| {
+                    #[cfg(feature = "gateway-auto")]
                     skill_paths_snapshot.push(SkillPathEntry {
-                        path: s.clone(),
+                        path: _s.clone(),
                         source: format!("env:{env_key}"),
                     });
                 })
@@ -718,6 +754,7 @@ async fn main() -> anyhow::Result<()> {
             match std::fs::create_dir_all(&local_default) {
                 Ok(()) => {
                     let p = PathBuf::from(&local_default);
+                    #[cfg(feature = "gateway-auto")]
                     skill_paths_snapshot.push(SkillPathEntry {
                         path: local_default.clone(),
                         source: "local_default".into(),
@@ -739,6 +776,7 @@ async fn main() -> anyhow::Result<()> {
     if let Ok(bundled) = dcc_mcp_skills::paths::get_skills_dir(None) {
         let p = PathBuf::from(&bundled);
         if p.exists() {
+            #[cfg(feature = "gateway-auto")]
             skill_paths_snapshot.push(SkillPathEntry {
                 path: bundled.clone(),
                 source: "bundled".into(),
@@ -747,10 +785,13 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    #[cfg(feature = "gateway-auto")]
     let skill_paths_for_catalog_reload = skill_paths.clone();
 
+    #[cfg(feature = "gateway-auto")]
     let admin_db =
         dcc_mcp_gateway::gateway::admin::resolve_admin_db_path(None, registry_dir_path.as_ref());
+    #[cfg(feature = "gateway-auto")]
     for p in
         dcc_mcp_gateway::gateway::admin::sqlite_lane::read_custom_skill_paths_for_startup(&admin_db)
     {
@@ -796,6 +837,7 @@ async fn main() -> anyhow::Result<()> {
     let n = catalog.discover(extra_dirs.as_deref(), app_hint);
     tracing::info!("Discovered {} skill(s) in catalog", n);
 
+    #[cfg(feature = "gateway-auto")]
     let catalog_discover_hook: Arc<dyn Fn() + Send + Sync> = {
         let catalog = catalog.clone();
         let base_dirs = skill_paths_for_catalog_reload.clone();
@@ -855,67 +897,73 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Register + gateway competition (via library) ──────────────────────
 
-    let admin_retention = std::env::var("DCC_MCP_GATEWAY_ADMIN_RETENTION_DAYS")
-        .ok()
-        .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or(30)
-        .clamp(1, 3650);
+    #[cfg(feature = "gateway-auto")]
+    let gw_handle = {
+        let admin_retention = std::env::var("DCC_MCP_GATEWAY_ADMIN_RETENTION_DAYS")
+            .ok()
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(30)
+            .clamp(1, 3650);
 
-    let gateway_host = args
-        .gateway_host
-        .clone()
-        .unwrap_or_else(|| args.host.clone());
+        let gateway_host = args
+            .gateway_host
+            .clone()
+            .unwrap_or_else(|| args.host.clone());
 
-    let gateway_cfg = GatewayConfig {
-        host: gateway_host,
-        gateway_port: args.gateway_port,
-        remote_host: Some(args.gateway_remote_host.clone()),
-        remote_gateway_port: args.gateway_remote_port,
-        stale_timeout_secs: args.stale_timeout_secs,
-        heartbeat_secs: args.heartbeat_secs,
-        server_name: args.server_name.clone(),
-        gateway_name: args.gateway_name.clone(),
-        server_version: env!("CARGO_PKG_VERSION").to_string(),
-        registry_dir: registry_dir_path,
-        // Issue maya#137: standalone server has no adapter package, so the
-        // election treats it as the lowest tier and yields to any real
-        // DCC adapter at equal crate version.
-        adapter_dcc: if args.app.is_empty() {
-            None
-        } else {
-            Some(args.app.clone())
-        },
-        admin_enabled: !args.no_admin,
-        admin_path: args.admin_path.clone(),
-        admin_persist: AdminPersistConfig {
-            sqlite_path: std::env::var_os("DCC_MCP_GATEWAY_ADMIN_DB").map(PathBuf::from),
-            sqlite_retention_days: admin_retention,
-            skill_paths_snapshot,
-            skill_paths_reload: Some(catalog_discover_hook),
-        },
-        ..GatewayConfig::default()
+        let gateway_cfg = GatewayConfig {
+            host: gateway_host,
+            gateway_port: args.gateway_port,
+            remote_host: Some(args.gateway_remote_host.clone()),
+            remote_gateway_port: args.gateway_remote_port,
+            stale_timeout_secs: args.stale_timeout_secs,
+            heartbeat_secs: args.heartbeat_secs,
+            server_name: args.server_name.clone(),
+            gateway_name: args.gateway_name.clone(),
+            server_version: env!("CARGO_PKG_VERSION").to_string(),
+            registry_dir: registry_dir_path,
+            // Issue maya#137: standalone server has no adapter package, so
+            // the election treats it as the lowest tier and yields to any
+            // real DCC adapter at equal crate version.
+            adapter_dcc: if args.app.is_empty() {
+                None
+            } else {
+                Some(args.app.clone())
+            },
+            admin_enabled: !args.no_admin,
+            admin_path: args.admin_path.clone(),
+            admin_persist: AdminPersistConfig {
+                sqlite_path: std::env::var_os("DCC_MCP_GATEWAY_ADMIN_DB").map(PathBuf::from),
+                sqlite_retention_days: admin_retention,
+                skill_paths_snapshot,
+                skill_paths_reload: Some(catalog_discover_hook),
+            },
+            ..GatewayConfig::default()
+        };
+
+        let runner = GatewayRunner::new(gateway_cfg)
+            .map_err(|e| anyhow::anyhow!("Failed to create GatewayRunner: {e}"))?;
+
+        let mut entry = ServiceEntry::new(registry_dcc.as_str(), &args.host, handle.port);
+        entry.version = args.app_version.clone();
+        entry.scene = args.scene.clone();
+        entry
+            .metadata
+            .insert("server_name".to_string(), args.server_name.clone());
+        entry.metadata.insert(
+            "mcp_url".to_string(),
+            format!("http://{}:{}/mcp", args.host, handle.port),
+        );
+
+        // Standalone binary: scene is fixed at launch; no live provider needed.
+        runner
+            .start(entry, None)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to start gateway: {e}"))?
     };
-
-    let runner = GatewayRunner::new(gateway_cfg)
-        .map_err(|e| anyhow::anyhow!("Failed to create GatewayRunner: {e}"))?;
-
-    let mut entry = ServiceEntry::new(registry_dcc.as_str(), &args.host, handle.port);
-    entry.version = args.app_version.clone();
-    entry.scene = args.scene.clone();
-    entry
-        .metadata
-        .insert("server_name".to_string(), args.server_name.clone());
-    entry.metadata.insert(
-        "mcp_url".to_string(),
-        format!("http://{}:{}/mcp", args.host, handle.port),
-    );
-
-    // Standalone binary: scene is fixed at launch; no live provider needed.
-    let gw_handle = runner
-        .start(entry, None)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to start gateway: {e}"))?;
+    #[cfg(feature = "gateway-auto")]
     let is_gateway = gw_handle.is_gateway;
+    #[cfg(not(feature = "gateway-auto"))]
+    let _ = (&registry_dir_path, &registry_dcc);
 
     // ── Start WebSocket bridge (optional) ─────────────────────────────────
 
@@ -931,11 +979,14 @@ async fn main() -> anyhow::Result<()> {
     let shutdown_reason = select_shutdown_signal().await?;
     tracing::info!(shutdown_reason, "Shutdown signal received");
 
-    if is_gateway {
-        tracing::info!("Gateway port released");
+    #[cfg(feature = "gateway-auto")]
+    {
+        if is_gateway {
+            tracing::info!("Gateway port released");
+        }
+        // gw_handle dropped here — aborts heartbeat, cleanup, and gateway tasks automatically
+        drop(gw_handle);
     }
-    // gw_handle dropped here — aborts heartbeat, cleanup, and gateway tasks automatically
-    drop(gw_handle);
 
     let deadline = Duration::from_secs(args.shutdown_timeout_secs);
     match tokio::time::timeout(deadline, handle.shutdown()).await {
