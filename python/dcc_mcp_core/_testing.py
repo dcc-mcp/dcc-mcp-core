@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from dcc_mcp_core._lifecycle_events import LifecycleEventDispatcher
 from dcc_mcp_core._server import ServerLifecycleController
 from dcc_mcp_core._server import ServerRuntimeController
 from dcc_mcp_core._server import SkillQueryClient
@@ -70,6 +71,10 @@ def make_test_server(
             "_dcc_window_handle": dcc_window_handle,
             "_dcc_window_title": dcc_window_title,
             "_skill_client": SkillQueryClient(server, dcc_name),
+            "_lifecycle_events": LifecycleEventDispatcher(
+                dcc_name,
+                lambda: getattr(obj, "_lifecycle_hooks", None),
+            ),
             "_window_resolver": WindowResolver(
                 dcc_name=dcc_name,
                 dcc_pid=dcc_pid,
