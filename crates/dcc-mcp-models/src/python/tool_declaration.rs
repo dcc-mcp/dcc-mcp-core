@@ -87,6 +87,13 @@ impl ToolDeclaration {
             annotations: ToolAnnotations::default(),
             required_capabilities: Vec::new(),
             search_aliases,
+            // Recall metadata extensions (#1335) default to absent/empty.
+            intent: None,
+            tool_role: None,
+            risk: None,
+            side_effects: None,
+            produces: Vec::new(),
+            requires: Vec::new(),
         })
     }
 
