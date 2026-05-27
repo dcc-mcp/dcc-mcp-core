@@ -6,13 +6,12 @@ is bounded and fail-safe: an unexpected exception in one handler is logged
 and never aborts a tool-call, but a handler may explicitly veto a policy
 event by raising :class:`HookDeny`.
 
-Only ``BEFORE_SKILL_LOAD`` and ``AFTER_SKILL_LOAD`` are wired to live event
-sources today via :meth:`DccServerBase.register_lifecycle_hooks` (they bridge
-to the existing ``set_skill_load_transform`` / ``set_after_load_skill_hook``
-setters). The remaining events are registered and dispatched through the same
-typed surface so downstream issues (#1325 escape-hatch demotion, #1336
-capability graph, #1334 memory layers) can fire them from their integration
-points without changing the public contract again.
+``BEFORE_SKILL_LOAD`` and ``AFTER_SKILL_LOAD`` are bridged automatically by
+``DccServerBase.register_lifecycle_hooks``. ``DccServerBase.search_skills``
+emits ``BEFORE_SEARCH`` / ``AFTER_SEARCH``, and adapters can bridge host-owned
+session or tool execution boundaries with ``dispatch_session_start``,
+``dispatch_before_tool_call``, ``dispatch_after_tool_call``, and
+``dispatch_session_end`` without patching private server state.
 """
 
 from __future__ import annotations

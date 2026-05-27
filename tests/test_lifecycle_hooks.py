@@ -154,6 +154,7 @@ class _FakeInnerServer:
     def __init__(self) -> None:
         self.transform = None
         self.after_hook = None
+        self.search_calls: list[dict] = []
 
     def set_skill_load_transform(self, transform):
         self.transform = transform
@@ -166,6 +167,18 @@ class _FakeInnerServer:
 
     def clear_after_load_skill_hook(self):
         self.after_hook = None
+
+    def search_skills(self, query=None, tags=None, dcc=None, scope=None, limit=None):
+        self.search_calls.append(
+            {
+                "query": query,
+                "tags": None if tags is None else list(tags),
+                "dcc": dcc,
+                "scope": scope,
+                "limit": limit,
+            }
+        )
+        return ["hit-a", "hit-b"]
 
 
 class _FakeSkill:
@@ -214,3 +227,150 @@ class TestDccServerBaseBridge:
             server._server.transform(_FakeSkill("blocked"))
         assert info.value.reason == "not-allowed"
         assert info.value.hint == "load typed first"
+
+    def test_search_skills_dispatches_before_and_after_search(self) -> None:
+        server = self._make_server()
+        hooks = LifecycleHooks()
+        seen: list[tuple[str, dict]] = []
+
+        def before(ctx: HookContext) -> None:
+            seen.append(("before", dict(ctx.payload)))
+            ctx.payload["query"] = "typed cube"
+            ctx.payload["tags"] = ["modeling"]
+            ctx.payload["limit"] = 2
+
+        def after(ctx: HookContext) -> None:
+            seen.append(("after", dict(ctx.payload)))
+
+        hooks.on(HookEvent.BEFORE_SEARCH, before)
+        hooks.on(HookEvent.AFTER_SEARCH, after)
+        server.register_lifecycle_hooks(hooks)
+
+        results = server.search_skills("raw user text", tags=["fallback"], limit=10, session_id="s1")
+
+        assert results == ["hit-a", "hit-b"]
+        assert server._server.search_calls == [
+            {
+                "query": "typed cube",
+                "tags": ["modeling"],
+                "dcc": None,
+                "scope": None,
+                "limit": 2,
+            }
+        ]
+        assert seen[0] == (
+            "before",
+            {
+                "query": "raw user text",
+                "tags": ["fallback"],
+                "dcc": None,
+                "scope": None,
+                "limit": 10,
+            },
+        )
+        assert seen[1][0] == "after"
+        assert seen[1][1]["result_count"] == 2
+        assert seen[1][1]["zero_results"] is False
+
+    def test_search_skills_without_hooks_keeps_inner_defaults(self) -> None:
+        server = self._make_server()
+
+        results = server.search_skills(query=None, tags=None, dcc="maya", scope="team", limit=None)
+
+        assert results == ["hit-a", "hit-b"]
+        assert server._server.search_calls == [
+            {
+                "query": None,
+                "tags": [],
+                "dcc": "maya",
+                "scope": "team",
+                "limit": None,
+            }
+        ]
+
+    def test_before_search_policy_deny_propagates(self) -> None:
+        server = self._make_server()
+        hooks = LifecycleHooks()
+        hooks.on(HookEvent.BEFORE_SEARCH, lambda ctx: (_ for _ in ()).throw(HookDeny("blocked search")))
+        server.register_lifecycle_hooks(hooks)
+
+        with pytest.raises(HookDeny) as info:
+            server.search_skills("unsafe")
+
+        assert info.value.reason == "blocked search"
+        assert server._server.search_calls == []
+
+    def test_public_tool_call_helpers_dispatch_policy_and_observation(self) -> None:
+        server = self._make_server()
+        hooks = LifecycleHooks()
+        seen: list[tuple[str, dict]] = []
+
+        def before(ctx: HookContext) -> None:
+            ctx.payload["policy_marker"] = "typed-skill-checked"
+            seen.append(("before", dict(ctx.payload)))
+
+        hooks.on(HookEvent.BEFORE_TOOL_CALL, before)
+        hooks.on(HookEvent.AFTER_TOOL_CALL, lambda ctx: seen.append(("after", dict(ctx.payload))))
+        server.register_lifecycle_hooks(hooks)
+
+        before_payload = server.dispatch_before_tool_call(
+            "maya_python__execute",
+            payload={"tool_role": "escape_hatch"},
+            session_id="s1",
+        )
+        after_payload = server.dispatch_after_tool_call("maya_python__execute", ok=False, session_id="s1")
+
+        assert before_payload["policy_marker"] == "typed-skill-checked"
+        assert seen[0] == (
+            "before",
+            {
+                "tool_name": "maya_python__execute",
+                "tool_role": "escape_hatch",
+                "policy_marker": "typed-skill-checked",
+            },
+        )
+        assert after_payload == {"tool_name": "maya_python__execute", "ok": False}
+        assert seen[1] == ("after", {"tool_name": "maya_python__execute", "ok": False})
+
+    def test_before_tool_call_policy_deny_propagates(self) -> None:
+        server = self._make_server()
+        hooks = LifecycleHooks()
+        hooks.on(
+            HookEvent.BEFORE_TOOL_CALL,
+            lambda ctx: (_ for _ in ()).throw(
+                HookDeny("typed skill available", hint="search and load the typed modeling skill first")
+            ),
+        )
+        server.register_lifecycle_hooks(hooks)
+
+        with pytest.raises(HookDeny) as info:
+            server.dispatch_before_tool_call(
+                "maya_python__execute",
+                payload={"tool_role": "escape_hatch"},
+                session_id="s1",
+            )
+
+        assert info.value.reason == "typed skill available"
+        assert info.value.hint == "search and load the typed modeling skill first"
+
+    def test_session_helpers_dispatch_start_and_end(self) -> None:
+        server = self._make_server()
+        hooks = LifecycleHooks()
+        seen: list[tuple[str, str | None, dict]] = []
+        hooks.on(
+            HookEvent.SESSION_START,
+            lambda ctx: seen.append((ctx.event.value, ctx.session_id, dict(ctx.payload))),
+        )
+        hooks.on(
+            HookEvent.SESSION_END,
+            lambda ctx: seen.append((ctx.event.value, ctx.session_id, dict(ctx.payload))),
+        )
+        server.register_lifecycle_hooks(hooks)
+
+        server.dispatch_session_start(session_id="session-1", payload={"workflow": "layout"})
+        server.dispatch_session_end(session_id="session-1", payload={"status": "done"})
+
+        assert seen == [
+            ("on_session_start", "session-1", {"workflow": "layout"}),
+            ("on_session_end", "session-1", {"status": "done"}),
+        ]
