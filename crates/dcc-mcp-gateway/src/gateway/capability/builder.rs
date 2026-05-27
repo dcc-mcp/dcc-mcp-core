@@ -23,7 +23,9 @@ use std::hash::{Hash, Hasher};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::gateway::namespace::{decode_skill_tool_name, extract_bare_tool_name};
+use dcc_mcp_gateway_core::naming::{
+    decode_skill_tool_name, extract_bare_tool_name, is_core_tool, is_local_tool,
+};
 use dcc_mcp_jsonrpc::McpTool;
 
 use super::index::InstanceFingerprint;
@@ -148,9 +150,7 @@ fn should_skip(name: &str) -> bool {
         return true;
     }
     // Gateway-local and skill-management tools are served directly.
-    if crate::gateway::namespace::is_local_tool(name)
-        || crate::gateway::namespace::is_core_tool(name)
-    {
+    if is_local_tool(name) || is_core_tool(name) {
         return true;
     }
     false
