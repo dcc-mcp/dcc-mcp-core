@@ -141,6 +141,9 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
         resource_subscriptions: std::sync::Arc::new(tokio::sync::RwLock::new(
             std::collections::HashMap::new(),
         )),
+        client_attribution: std::sync::Arc::new(
+            crate::gateway::caller_attribution::ClientAttributionStore::default(),
+        ),
         pending_calls: std::sync::Arc::new(tokio::sync::RwLock::new(
             std::collections::HashMap::new(),
         )),
@@ -305,6 +308,9 @@ async fn make_gateway_state(
         resource_subscriptions: std::sync::Arc::new(tokio::sync::RwLock::new(
             std::collections::HashMap::new(),
         )),
+        client_attribution: std::sync::Arc::new(
+            crate::gateway::caller_attribution::ClientAttributionStore::default(),
+        ),
         pending_calls: std::sync::Arc::new(tokio::sync::RwLock::new(
             std::collections::HashMap::new(),
         )),
@@ -1231,6 +1237,9 @@ async fn gateway_state_with_instances(
         resource_subscriptions: std::sync::Arc::new(tokio::sync::RwLock::new(
             std::collections::HashMap::new(),
         )),
+        client_attribution: std::sync::Arc::new(
+            crate::gateway::caller_attribution::ClientAttributionStore::default(),
+        ),
         pending_calls: std::sync::Arc::new(tokio::sync::RwLock::new(
             std::collections::HashMap::new(),
         )),

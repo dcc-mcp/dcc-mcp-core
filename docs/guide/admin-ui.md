@@ -227,12 +227,15 @@ user input, or raw agent replies on the default path.
 
 Supported carriers:
 
+- MCP `initialize` `params.clientInfo`; the gateway keeps bounded client
+  identity per `Mcp-Session-Id` and fills missing agent/client fields on later
+  MCP `tools/call` rows.
 - MCP `tools/call` `params._meta.agent_context`
 - REST body `agent_context`, `agentContext`, `caller_context`, or
   `meta.agent_context`
 - Headers such as `x-dcc-mcp-actor-id`, `x-dcc-mcp-actor-name`,
   `x-dcc-mcp-actor-email-hash`, `x-dcc-mcp-agent-id`,
-  `x-dcc-mcp-agent-name`, `x-dcc-mcp-agent-kind`,
+  `x-dcc-mcp-agent-name`, `x-dcc-mcp-agent`, `x-dcc-mcp-agent-kind`,
   `x-dcc-mcp-agent-version`, `x-dcc-mcp-agent-model`,
   `x-dcc-mcp-agent-model-provider`, `x-dcc-mcp-agent-model-version`,
   `x-dcc-mcp-agent-reasoning-effort`, `x-dcc-mcp-client-platform`,
@@ -244,6 +247,8 @@ Supported carriers:
   `x-dcc-mcp-agent-reply-chars`, `x-dcc-mcp-agent-task`,
   `x-dcc-mcp-reasoning-summary`, `x-dcc-mcp-parent-request-id`, and
   `x-dcc-mcp-agent-context` (JSON object)
+- REST `User-Agent`; when no explicit `client_platform` is provided, the first
+  product token is stored as a bounded client-platform fallback.
 
 Caller attribution separates five concepts:
 

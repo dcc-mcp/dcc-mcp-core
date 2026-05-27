@@ -83,6 +83,9 @@ prompts, raw agent replies, unbounded request bodies, secrets, or arbitrary
 and score to actual tool outcomes. Add `turn_id` and model identity to
 `agent_context` when an evaluation needs to correlate search quality,
 time-to-first-success, and downstream call success back to one agent turn.
+Gateway MCP sessions also use `initialize.params.clientInfo` as bounded client
+identity for later `tools/call` attribution, and REST requests fall back to the
+first `User-Agent` product token when no explicit `client_platform` is present.
 
 ### Trace Context
 
@@ -243,7 +246,10 @@ By default these buffers are in memory only. Set `DCC_MCP_GATEWAY_AUDIT_DIR` to 
 MCP and REST clients can attach optional agent/caller context to correlate an
 operator-visible request with the caller's explicit plan and observations. Use
 `params._meta.agent_context` for MCP, REST `meta.agent_context` or
-`caller_context` fields, or `x-dcc-mcp-*` attribution headers. Fields are
+`caller_context` fields, or `x-dcc-mcp-*` attribution headers. MCP
+`initialize.params.clientInfo` is retained per `Mcp-Session-Id` to fill missing
+client identity on later MCP calls, and REST `User-Agent` supplies a bounded
+`client_platform` fallback when no explicit platform is provided. Fields are
 bounded and intended for concise telemetry such as `actor_id`, `actor_name`,
 `actor_email_hash`, `agent_id`, `agent_name`, `agent_kind`, `agent_version`,
 `client_platform`, `client_os`, `client_host`, `auth_subject`, `model_provider`,

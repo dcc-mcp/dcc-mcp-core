@@ -13,9 +13,10 @@ use std::collections::HashMap;
 use std::time::SystemTime;
 
 use axum::http::HeaderMap;
-use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+
+pub use super::trace_log::TraceLog;
 
 // ── Trace Context ────────────────────────────────────────────────────────────
 
@@ -476,6 +477,20 @@ fn set_trust(slot: &mut Option<String>, source: &str) {
     *slot = Some(source.to_string());
 }
 
+fn fill_missing_context_string(
+    slot: &mut Option<String>,
+    trust_slot: &mut Option<String>,
+    fallback: &Option<String>,
+    fallback_trust: &Option<String>,
+) {
+    if slot.is_none()
+        && let Some(value) = fallback
+    {
+        *slot = Some(value.clone());
+        *trust_slot = fallback_trust.clone();
+    }
+}
+
 /// Optional client-supplied context that explains why a request was made.
 ///
 /// This is deliberately a telemetry contract, not an instruction to capture a
@@ -621,6 +636,108 @@ pub struct AgentContext {
 }
 
 impl AgentContext {
+    pub fn from_mcp_client_info(session_id: &str, params: Option<&Value>) -> Option<Self> {
+        let client_info = params
+            .and_then(|value| value.get("clientInfo").or_else(|| value.get("client_info")))?;
+        let Value::Object(info) = client_info else {
+            return None;
+        };
+        let name = info
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let version = info
+            .get("version")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        if name.is_none() && version.is_none() {
+            return None;
+        }
+
+        let mut ctx = AgentContext {
+            agent_name: name.clone(),
+            agent_kind: Some("mcp-client".to_string()),
+            agent_version: version,
+            client_platform: name,
+            session_id: Some(session_id.to_string()),
+            ..AgentContext::default()
+        }
+        .normalise();
+        let snapshot = ctx.clone();
+        ctx.trust.mark_present(&snapshot, TRUST_SELF_REPORTED);
+        Some(ctx)
+    }
+
+    pub fn merge_missing_client_identity_from(&mut self, fallback: &AgentContext) {
+        fill_missing_context_string(
+            &mut self.agent_id,
+            &mut self.trust.agent_id,
+            &fallback.agent_id,
+            &fallback.trust.agent_id,
+        );
+        fill_missing_context_string(
+            &mut self.agent_name,
+            &mut self.trust.agent_name,
+            &fallback.agent_name,
+            &fallback.trust.agent_name,
+        );
+        fill_missing_context_string(
+            &mut self.agent_kind,
+            &mut self.trust.agent_kind,
+            &fallback.agent_kind,
+            &fallback.trust.agent_kind,
+        );
+        fill_missing_context_string(
+            &mut self.agent_version,
+            &mut self.trust.agent_version,
+            &fallback.agent_version,
+            &fallback.trust.agent_version,
+        );
+        fill_missing_context_string(
+            &mut self.model,
+            &mut self.trust.model,
+            &fallback.model,
+            &fallback.trust.model,
+        );
+        fill_missing_context_string(
+            &mut self.model_provider,
+            &mut self.trust.model_provider,
+            &fallback.model_provider,
+            &fallback.trust.model_provider,
+        );
+        fill_missing_context_string(
+            &mut self.model_version,
+            &mut self.trust.model_version,
+            &fallback.model_version,
+            &fallback.trust.model_version,
+        );
+        fill_missing_context_string(
+            &mut self.client_platform,
+            &mut self.trust.client_platform,
+            &fallback.client_platform,
+            &fallback.trust.client_platform,
+        );
+        fill_missing_context_string(
+            &mut self.client_os,
+            &mut self.trust.client_os,
+            &fallback.client_os,
+            &fallback.trust.client_os,
+        );
+        fill_missing_context_string(
+            &mut self.client_host,
+            &mut self.trust.client_host,
+            &fallback.client_host,
+            &fallback.trust.client_host,
+        );
+        if self.session_id.is_none() {
+            self.session_id = fallback.session_id.clone();
+        }
+    }
+
     pub fn from_request_parts(
         headers: &HeaderMap,
         body: Option<&Value>,
@@ -856,11 +973,11 @@ fn merge_header_agent_context(ctx: &mut AgentContext, headers: &HeaderMap) {
         headers,
         "x-dcc-mcp-agent-id",
     );
-    fill_header_trusted_string(
+    fill_header_trusted_string_any(
         &mut ctx.agent_name,
         &mut ctx.trust.agent_name,
         headers,
-        "x-dcc-mcp-agent-name",
+        &["x-dcc-mcp-agent-name", "x-dcc-mcp-agent"],
     );
     fill_header_trusted_string(
         &mut ctx.agent_kind,
@@ -922,6 +1039,12 @@ fn merge_header_agent_context(ctx: &mut AgentContext, headers: &HeaderMap) {
         headers,
         "x-dcc-mcp-client-platform",
     );
+    if ctx.client_platform.is_none()
+        && let Some(value) = client_platform_from_user_agent(headers)
+    {
+        ctx.client_platform = Some(value);
+        set_trust(&mut ctx.trust.client_platform, TRUST_HEADER);
+    }
     fill_header_trusted_string(
         &mut ctx.client_os,
         &mut ctx.trust.client_os,
@@ -1037,6 +1160,23 @@ fn header_str_any(headers: &HeaderMap, names: &[&str]) -> Option<String> {
 
 fn header_u64_any(headers: &HeaderMap, names: &[&str]) -> Option<u64> {
     header_str_any(headers, names).and_then(|value| value.parse::<u64>().ok())
+}
+
+fn client_platform_from_user_agent(headers: &HeaderMap) -> Option<String> {
+    let raw = header_str(headers, "user-agent")?;
+    let product = raw
+        .split_whitespace()
+        .next()
+        .unwrap_or(raw.as_str())
+        .split('/')
+        .next()
+        .unwrap_or(raw.as_str())
+        .trim();
+    if product.is_empty() {
+        None
+    } else {
+        Some(bound_context_string(product.to_string()))
+    }
 }
 
 fn bound_context_string(value: String) -> String {
@@ -1315,69 +1455,6 @@ mod timestamp_serde {
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<SystemTime, D::Error> {
         let ms = u64::deserialize(d)?;
         Ok(UNIX_EPOCH + Duration::from_millis(ms))
-    }
-}
-
-// ── Ring buffer ───────────────────────────────────────────────────────────────
-
-/// Bounded ring buffer of completed traces.
-pub struct TraceLog {
-    buf: Mutex<Vec<DispatchTrace>>,
-    capacity: usize,
-}
-
-impl TraceLog {
-    pub const DEFAULT_CAPACITY: usize = 200;
-
-    pub fn new(capacity: usize) -> Self {
-        Self {
-            buf: Mutex::new(Vec::with_capacity(capacity.min(TraceLog::DEFAULT_CAPACITY))),
-            capacity,
-        }
-    }
-
-    /// Seed the in-memory ring from durable storage.
-    pub fn extend(&self, traces: impl IntoIterator<Item = DispatchTrace>) {
-        for trace in traces {
-            self.push(trace);
-        }
-    }
-
-    /// Append a completed trace, evicting the oldest entry if at capacity.
-    pub fn push(&self, trace: DispatchTrace) {
-        let mut buf = self.buf.lock();
-        buf.push(trace);
-        while self.capacity > 0 && buf.len() > self.capacity {
-            buf.remove(0);
-        }
-    }
-
-    /// Return the last `limit` traces, newest first.
-    pub fn recent(&self, limit: usize) -> Vec<DispatchTrace> {
-        let buf = self.buf.lock();
-        buf.iter().rev().take(limit).cloned().collect()
-    }
-
-    /// Fetch a single trace by `request_id`.
-    pub fn get(&self, request_id: &str) -> Option<DispatchTrace> {
-        self.buf
-            .lock()
-            .iter()
-            .rev()
-            .find(|t| t.request_id == request_id)
-            .cloned()
-    }
-
-    /// Fetch traces by trace id, newest first.
-    pub fn by_trace_id(&self, trace_id: &str, limit: usize) -> Vec<DispatchTrace> {
-        self.buf
-            .lock()
-            .iter()
-            .rev()
-            .filter(|t| t.trace_id == trace_id)
-            .take(limit)
-            .cloned()
-            .collect()
     }
 }
 
