@@ -127,6 +127,43 @@ fn agent_context_reads_meta_and_headers() {
 }
 
 #[test]
+fn agent_context_reads_mcp_initialize_client_info() {
+    let ctx = AgentContext::from_mcp_client_info(
+        "mcp-session-1",
+        Some(&json!({
+            "protocolVersion": "2025-03-26",
+            "clientInfo": {"name": "Codex Desktop", "version": "1.2.3"}
+        })),
+    )
+    .unwrap();
+
+    assert_eq!(ctx.agent_name.as_deref(), Some("Codex Desktop"));
+    assert_eq!(ctx.agent_kind.as_deref(), Some("mcp-client"));
+    assert_eq!(ctx.agent_version.as_deref(), Some("1.2.3"));
+    assert_eq!(ctx.client_platform.as_deref(), Some("Codex Desktop"));
+    assert_eq!(ctx.session_id.as_deref(), Some("mcp-session-1"));
+    assert_eq!(ctx.trust.agent_name.as_deref(), Some(TRUST_SELF_REPORTED));
+    assert_eq!(
+        ctx.trust.client_platform.as_deref(),
+        Some(TRUST_SELF_REPORTED)
+    );
+}
+
+#[test]
+fn agent_context_reads_agent_alias_and_user_agent_platform() {
+    let mut headers = HeaderMap::new();
+    headers.insert("x-dcc-mcp-agent", "Studio Gateway CLI".parse().unwrap());
+    headers.insert("user-agent", "dcc-mcp-cli/0.17.37 reqwest".parse().unwrap());
+
+    let ctx = AgentContext::from_request_parts(&headers, None, None).unwrap();
+
+    assert_eq!(ctx.agent_name.as_deref(), Some("Studio Gateway CLI"));
+    assert_eq!(ctx.client_platform.as_deref(), Some("dcc-mcp-cli"));
+    assert_eq!(ctx.trust.agent_name.as_deref(), Some(TRUST_HEADER));
+    assert_eq!(ctx.trust.client_platform.as_deref(), Some(TRUST_HEADER));
+}
+
+#[test]
 fn agent_context_accepts_plain_summary() {
     let headers = HeaderMap::new();
     let body = json!({"caller_context": "manual smoke test"});

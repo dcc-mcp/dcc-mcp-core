@@ -1,5 +1,6 @@
 //! Server-derived caller-attribution helpers for gateway ingress.
 
+use std::collections::{HashMap, VecDeque};
 use std::net::{IpAddr, SocketAddr};
 
 use axum::body::Body;
@@ -7,17 +8,70 @@ use axum::extract::ConnectInfo;
 use axum::http::{HeaderMap, HeaderValue, Request};
 use axum::middleware::Next;
 use axum::response::Response;
+use serde_json::Value;
+use tokio::sync::RwLock;
 
 use super::resilience::gateway_limits;
+use crate::gateway::admin::trace::AgentContext;
 
 pub(crate) const INTERNAL_SOURCE_IP_HEADER: &str = "x-dcc-mcp-internal-source-ip";
 pub(crate) const INTERNAL_FORWARDED_FOR_HEADER: &str = "x-dcc-mcp-internal-forwarded-for";
 pub(crate) const INTERNAL_AUTH_SUBJECT_HEADER: &str = "x-dcc-mcp-internal-auth-subject";
+const MAX_MCP_CLIENT_SESSIONS: usize = 512;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ClientNetworkAttribution {
     pub(crate) source_ip: Option<String>,
     pub(crate) forwarded_for: Vec<String>,
+}
+
+#[derive(Debug, Default)]
+pub struct ClientAttributionStore {
+    mcp_sessions: RwLock<ClientAttributionSessions>,
+}
+
+#[derive(Debug, Default)]
+struct ClientAttributionSessions {
+    order: VecDeque<String>,
+    sessions: HashMap<String, AgentContext>,
+}
+
+impl ClientAttributionStore {
+    pub(crate) async fn record_mcp_initialize(&self, session_id: &str, params: Option<&Value>) {
+        let Some(context) = AgentContext::from_mcp_client_info(session_id, params) else {
+            return;
+        };
+        let mut sessions = self.mcp_sessions.write().await;
+        if !sessions.sessions.contains_key(session_id) {
+            sessions.order.push_back(session_id.to_string());
+        }
+        sessions.sessions.insert(session_id.to_string(), context);
+        while sessions.sessions.len() > MAX_MCP_CLIENT_SESSIONS {
+            let Some(oldest) = sessions.order.pop_front() else {
+                break;
+            };
+            sessions.sessions.remove(&oldest);
+        }
+    }
+
+    pub(crate) async fn augment_mcp_context(
+        &self,
+        session_id: &str,
+        mut context: Option<AgentContext>,
+    ) -> Option<AgentContext> {
+        let session_context = {
+            let sessions = self.mcp_sessions.read().await;
+            sessions.sessions.get(session_id).cloned()
+        };
+        let Some(session_context) = session_context else {
+            return context;
+        };
+        match context.as_mut() {
+            Some(ctx) => ctx.merge_missing_client_identity_from(&session_context),
+            None => context = Some(session_context),
+        }
+        context
+    }
 }
 
 /// Attach server-derived network attribution for downstream handlers.

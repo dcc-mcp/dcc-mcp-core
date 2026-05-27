@@ -23,7 +23,11 @@ and batched `call` requests. The gateway emits `gateway.search`,
 `gateway.call_batch` OTLP spans with bounded `dcc_mcp.*` attributes, including
 selected rank, score, match reasons, policy outcome, and success/failure kind.
 Only explicit bounded `agent_context` fields are exported; do not send hidden
-reasoning, secrets, or raw prompt bodies as telemetry metadata.
+reasoning, secrets, or raw prompt bodies as telemetry metadata. Gateway MCP
+also carries bounded `initialize.params.clientInfo` forward per
+`Mcp-Session-Id` so later `tools/call` rows show client name/version; REST
+clients that omit `client_platform` fall back to the first `User-Agent` product
+token.
 
 If a call is denied, throttled, or unexpectedly redacted, inspect
 `GET /v1/debug/governance` before retrying. It reports the effective read-only
