@@ -1220,6 +1220,164 @@ tbody tr:hover td {
   text-decoration: none;
 }
 
+.workflow-stage-strip,
+.workflow-card-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.workflow-stage-strip span {
+  background: rgba(112, 165, 255, 0.12);
+  border: 1px solid rgba(112, 165, 255, 0.32);
+  border-radius: var(--radius);
+  color: var(--foreground);
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.22rem 0.48rem;
+}
+
+.workflow-detail-graph {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: 1rem;
+}
+
+.workflow-detail-head {
+  align-items: start;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.workflow-detail-head h3,
+.workflow-graph-rail h4,
+.workflow-node-detail h4 {
+  color: var(--foreground);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.workflow-detail-layout {
+  align-items: start;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(18rem, 1.1fr) minmax(18rem, 0.9fr);
+}
+
+.workflow-graph-rail,
+.workflow-node-detail {
+  min-width: 0;
+}
+
+.workflow-graph-nodes {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+}
+
+.workflow-graph-node {
+  align-items: start;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--muted-foreground);
+  border-radius: var(--radius);
+  color: var(--foreground);
+  cursor: pointer;
+  display: grid;
+  gap: 0.32rem;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-height: 4.6rem;
+  padding: 0.7rem 0.8rem;
+  text-align: left;
+}
+
+.workflow-graph-node.ok {
+  border-left-color: var(--ok);
+}
+
+.workflow-graph-node.warn,
+.workflow-graph-node.escape {
+  border-left-color: var(--warn);
+}
+
+.workflow-graph-node.err {
+  border-left-color: var(--err);
+}
+
+.workflow-graph-node.selected {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px rgba(112, 165, 255, 0.16);
+}
+
+.workflow-node-index {
+  align-items: center;
+  background: var(--muted);
+  border-radius: 999px;
+  color: var(--foreground);
+  display: inline-flex;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 800;
+  height: 1.65rem;
+  justify-content: center;
+  width: 1.65rem;
+}
+
+.workflow-node-stage,
+.workflow-node-meta {
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.workflow-node-stage,
+.workflow-graph-node strong,
+.workflow-node-meta {
+  grid-column: 2;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.workflow-node-meta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.workflow-detail-kv {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  margin: 0.75rem 0;
+}
+
+.workflow-detail-kv span {
+  color: var(--foreground);
+  display: grid;
+  font-size: 0.82rem;
+  gap: 0.15rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.workflow-detail-kv strong {
+  color: var(--muted-foreground);
+  font-size: 0.67rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.workflow-selected-step {
+  margin-top: 0.85rem;
+}
+
 .openapi-inspector {
   display: grid;
   gap: 1rem;
@@ -3075,6 +3233,8 @@ button.linkish:disabled {
 
   .task-card,
   .workflow-card-head,
+  .workflow-detail-head,
+  .workflow-detail-layout,
   .governance-layout,
   .openapi-layout,
   .trace-layout,

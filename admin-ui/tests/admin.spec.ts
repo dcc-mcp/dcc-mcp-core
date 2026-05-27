@@ -194,9 +194,9 @@ async function mockAdminApi(page: Page) {
             title: 'Scene Builder: maya-1234__create_sphere',
             status: 'completed',
             started_at: now,
-            finished_at: '2026-05-18T08:00:04.000Z',
-            duration_ms: 4000,
-            step_count: 4,
+            finished_at: '2026-05-18T08:00:06.000Z',
+            duration_ms: 6000,
+            step_count: 7,
             failed_steps: 0,
             agent: {
               agent_id: 'agent-1',
@@ -221,7 +221,7 @@ async function mockAdminApi(page: Page) {
               trace_id: 'trace-workflow',
               agent_id: 'agent-1',
               turn_id: 'turn-1',
-              request_ids: ['req-search', 'req-describe', 'req-load', 'req-123'],
+              request_ids: ['req-search', 'req-describe', 'req-load', 'req-123', 'req-fallback', 'req-artifact', 'req-validate'],
               trace_ids: ['trace-workflow'],
               session_ids: ['session-1'],
             },
@@ -299,6 +299,54 @@ async function mockAdminApi(page: Page) {
                   issue_report_url: 'http://127.0.0.1:3721/admin/api/issue-report/req-123',
                   openapi_docs_url: 'http://127.0.0.1:3721/docs',
                 },
+              },
+              {
+                step_id: 'fallback:req-fallback',
+                kind: 'fallback_script',
+                title: 'execute python fallback for material check',
+                timestamp: '2026-05-18T08:00:05.000Z',
+                status: 'warning',
+                success: true,
+                request_id: 'req-fallback',
+                trace_id: 'trace-workflow',
+                parent_request_id: 'req-123',
+                session_id: 'session-1',
+                dcc_type: 'maya',
+                instance_id: 'maya-1234567890',
+                transport: 'mcp',
+                duration_ms: 220,
+              },
+              {
+                step_id: 'artifact:req-artifact',
+                kind: 'artifact',
+                title: 'artifact viewport-preview.png',
+                timestamp: '2026-05-18T08:00:05.500Z',
+                status: 'ok',
+                success: true,
+                request_id: 'req-artifact',
+                trace_id: 'trace-workflow',
+                parent_request_id: 'req-fallback',
+                session_id: 'session-1',
+                dcc_type: 'maya',
+                instance_id: 'maya-1234567890',
+                transport: 'rest',
+                duration_ms: 120,
+              },
+              {
+                step_id: 'validation:req-validate',
+                kind: 'validation',
+                title: 'validate sphere scene output',
+                timestamp: '2026-05-18T08:00:06.000Z',
+                status: 'ok',
+                success: true,
+                request_id: 'req-validate',
+                trace_id: 'trace-workflow',
+                parent_request_id: 'req-artifact',
+                session_id: 'session-1',
+                dcc_type: 'maya',
+                instance_id: 'maya-1234567890',
+                transport: 'rest',
+                duration_ms: 80,
               },
             ],
           },
@@ -1342,16 +1390,28 @@ test.describe('Admin Page', () => {
     await expect(panel).toContainText('turn turn-1');
     await expect(panel).toContainText('Create a sphere with the least risky MCP path.');
     await expect(panel).toContainText('reply 220 chars');
-    await expect(panel).toContainText('search create sphere');
-    await expect(panel).toContainText('describe');
-    await expect(panel).toContainText('load_skill');
+    await expect(panel).toContainText('Discovery');
+    await expect(panel).toContainText('Skill Load');
+    await expect(panel).toContainText('Tool Calls');
     await expect(panel).toContainText('best rank 2');
     await expect(panel).toContainText('zero-result');
+    const sceneWorkflow = page.locator('.workflow-card', { hasText: 'Scene Builder' });
+    await sceneWorkflow.getByRole('button', { name: 'Inspect' }).click();
+    await expect(panel).toContainText('Stage graph');
+    await expect(panel).toContainText('Fallbacks');
+    await expect(panel).toContainText('escape hatch');
+    await expect(panel).toContainText('execute python fallback for material check');
+    await expect(panel).toContainText('Artifacts');
+    await expect(panel).toContainText('Validation');
+    await panel.getByRole('button', { name: /validate sphere scene output/ }).click();
+    await expect(panel.locator('.workflow-node-detail')).toContainText('validate sphere scene output');
+    await expect(panel.locator('.workflow-node-detail')).toContainText('req-validate');
     await page.getByLabel('Filter current panel').fill('missing tool');
     await expect(page.locator('.workflow-card')).toHaveCount(1);
-    await expect(panel).toContainText('zero_results');
+    await expect(page.locator('.workflow-detail-graph')).toHaveCount(0);
+    await expect(panel).toContainText('1 zero-result');
     await page.getByLabel('Filter current panel').fill('');
-    await panel.getByRole('button', { name: 'Trace' }).last().click();
+    await sceneWorkflow.getByRole('button', { name: 'Trace' }).click();
     await expect(page).toHaveURL(/panel=traces/);
     await expect(page).toHaveURL(/trace=req-123/);
   });
