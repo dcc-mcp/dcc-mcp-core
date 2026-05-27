@@ -36,8 +36,8 @@ pub const ENV_TEAM_APP_SKILL_PATHS_TEMPLATE: &str = "DCC_MCP_TEAM_{APP}_SKILL_PA
 /// without enabling `allow_unknown_tools`.
 pub const ENV_STANDALONE_REGISTRY_DCC_TYPE: &str = "DCC_MCP_STANDALONE_REGISTRY_DCC_TYPE";
 
-/// Default registry `dcc_type` for standalone / generic hosts (not `"unknown"`).
-pub const DEFAULT_STANDALONE_REGISTRY_DCC_TYPE: &str = "generic";
+/// Default registry `dcc_type` for standalone / Python-oriented hosts (not `"unknown"`).
+pub const DEFAULT_STANDALONE_REGISTRY_DCC_TYPE: &str = "python";
 
 /// Resolve the `dcc_type` string stored on a [`ServiceEntry`] for MCP registration.
 #[must_use]
@@ -272,5 +272,34 @@ mod tests {
     #[test]
     fn test_resolve_registry_dcc_type_prefers_embedder() {
         assert_eq!(resolve_registry_dcc_type(Some("Maya")), "maya");
+    }
+
+    #[test]
+    fn test_resolve_registry_dcc_type_defaults_to_python() {
+        // Standalone dcc-mcp-server without --app and no env override
+        // should default to "python", not "generic".
+        assert_eq!(resolve_registry_dcc_type(None), "python");
+    }
+
+    #[test]
+    fn test_resolve_registry_dcc_type_env_override() {
+        unsafe {
+            std::env::set_var("DCC_MCP_STANDALONE_REGISTRY_DCC_TYPE", "blender");
+        }
+        assert_eq!(resolve_registry_dcc_type(None), "blender");
+        unsafe {
+            std::env::remove_var("DCC_MCP_STANDALONE_REGISTRY_DCC_TYPE");
+        }
+    }
+
+    #[test]
+    fn test_resolve_registry_dcc_type_embedder_overrides_env() {
+        unsafe {
+            std::env::set_var("DCC_MCP_STANDALONE_REGISTRY_DCC_TYPE", "blender");
+        }
+        assert_eq!(resolve_registry_dcc_type(Some("Maya")), "maya");
+        unsafe {
+            std::env::remove_var("DCC_MCP_STANDALONE_REGISTRY_DCC_TYPE");
+        }
     }
 }
