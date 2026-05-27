@@ -185,6 +185,11 @@ pub struct GatewayState {
     /// Key = `Mcp-Session-Id`, value = set of subscribed URIs.
     /// Populated by `resources/subscribe` and pruned by `resources/unsubscribe`.
     pub resource_subscriptions: Arc<RwLock<HashMap<String, HashSet<String>>>>,
+    /// MCP initialize client attribution keyed by `Mcp-Session-Id`.
+    ///
+    /// The store is bounded and only keeps protocol client identity fields, so
+    /// later calls can be attributed without persisting raw request bodies.
+    pub client_attribution: Arc<super::ClientAttributionStore>,
     /// In-flight forwarded tool calls so that `notifications/cancelled` can be
     /// routed to the correct backend.
     ///

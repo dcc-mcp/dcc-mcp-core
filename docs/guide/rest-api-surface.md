@@ -433,14 +433,17 @@ telemetry can measure the search-to-action path without storing full prompts.
 
 REST callers may add bounded caller attribution in `meta.agent_context`,
 top-level `agent_context` / `caller_context`, or headers. MCP callers use the
-same shape in `params._meta.agent_context`. This schema is metadata only; do
-not send hidden reasoning, full prompts, raw user messages, secrets, bearer
-tokens, or raw agent replies.
+same shape in `params._meta.agent_context`. Gateway MCP also reads
+`initialize.params.clientInfo` once per `Mcp-Session-Id` and uses it to fill
+missing `agent_name`, `agent_version`, `agent_kind = "mcp-client"`, and
+`client_platform` on later MCP calls. This schema is metadata only; do not send
+hidden reasoning, full prompts, raw user messages, secrets, bearer tokens, or
+raw agent replies.
 
 | Concept | JSON fields | Header fields |
 |---|---|---|
 | Actor | `actor_id`, `actor_name`, `actor_email_hash` | `x-dcc-mcp-actor-id`, `x-dcc-mcp-actor-name`, `x-dcc-mcp-actor-email-hash` |
-| Agent runtime | `agent_id`, `agent_name`, `agent_kind`, `agent_version`, `model`, `model_provider`, `model_version` | `x-dcc-mcp-agent-id`, `x-dcc-mcp-agent-name`, `x-dcc-mcp-agent-kind`, `x-dcc-mcp-agent-version`, `x-dcc-mcp-agent-model`, `x-dcc-mcp-agent-model-provider`, `x-dcc-mcp-agent-model-version` |
+| Agent runtime | `agent_id`, `agent_name`, `agent_kind`, `agent_version`, `model`, `model_provider`, `model_version` | `x-dcc-mcp-agent-id`, `x-dcc-mcp-agent-name`, `x-dcc-mcp-agent`, `x-dcc-mcp-agent-kind`, `x-dcc-mcp-agent-version`, `x-dcc-mcp-agent-model`, `x-dcc-mcp-agent-model-provider`, `x-dcc-mcp-agent-model-version` |
 | Client platform | `client_platform`, `client_os`, `client_host` | `x-dcc-mcp-client-platform`, `x-dcc-mcp-client-os`, `x-dcc-mcp-client-host` |
 | Auth subject | `auth_subject` | `x-dcc-mcp-auth-subject` |
 | Network source | `source_ip`, `forwarded_for` | Server-derived only |
@@ -450,7 +453,9 @@ are reserved for server-derived network data after proxy trust policy has been
 applied; values supplied in REST request bodies, MCP `_meta`, or caller headers
 are ignored. Use `client_platform` values such as `cursor`, `claude-desktop`,
 `openclaw`, `clawhub`, `custom-http`, or `studio-tool` to distinguish surfaces
-without overloading agent identity.
+without overloading agent identity. If a REST request omits `client_platform`,
+the gateway falls back to the first `User-Agent` product token, for example
+`dcc-mcp-cli` from `dcc-mcp-cli/0.17.37`.
 
 The gateway annotates stored context with a server-computed `trust` map and
 Admin rows expose the same map as `attribution_trust`. Values are
@@ -545,6 +550,9 @@ Rules:
 - Optional `meta.agent_context`, top-level `caller_context`, or
   `x-dcc-mcp-*` attribution headers carry bounded actor, agent, client, auth,
   and turn metadata for Admin workflow, search-quality, and OTLP correlation.
+  Gateway MCP calls can also inherit bounded client identity from the session's
+  `initialize.params.clientInfo`; REST requests without explicit
+  `client_platform` use the first `User-Agent` product token as a fallback.
   Send concise summaries, hashes, and character counts only; raw user input and
   raw agent replies are high sensitivity and belong only in an explicit
   redacted traffic-capture flow.

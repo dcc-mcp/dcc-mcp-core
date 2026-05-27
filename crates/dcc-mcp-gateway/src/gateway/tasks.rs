@@ -576,6 +576,9 @@ pub(crate) async fn start_gateway_tasks(
         events_tx,
         protocol_version: Arc::new(RwLock::new(None)),
         resource_subscriptions: Arc::new(RwLock::new(HashMap::new())),
+        client_attribution: Arc::new(
+            crate::gateway::caller_attribution::ClientAttributionStore::default(),
+        ),
         pending_calls: Arc::new(RwLock::new(HashMap::new())),
         subscriber,
         allow_unknown_tools,

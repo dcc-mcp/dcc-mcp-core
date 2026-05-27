@@ -162,7 +162,7 @@ pub(crate) async fn dispatch_single_request(
     let id_str = serde_json::to_string(&id).unwrap_or_default();
 
     let response = match req.method.as_str() {
-        "initialize" => Some(handle_initialize_with_timeout(gs, id, req).await),
+        "initialize" => Some(handle_initialize_with_timeout(gs, id, req, session_id).await),
         "ping" => Some(json!({"jsonrpc":"2.0","id":id,"result":{}})),
         "notifications/initialized" => Some(json!({"jsonrpc":"2.0","id":id,"result":{}})),
         "tools/list" => Some(handle_tools_list(gs, id, req).await),
@@ -189,10 +189,11 @@ async fn handle_initialize_with_timeout(
     gs: &GatewayState,
     id: Value,
     req: &JsonRpcRequest,
+    session_id: &str,
 ) -> Value {
     match tokio::time::timeout(
         GATEWAY_INITIALIZE_TIMEOUT,
-        handle_initialize(gs, id.clone(), req),
+        handle_initialize(gs, id.clone(), req, session_id),
     )
     .await
     {
@@ -218,13 +219,21 @@ fn gateway_busy_initialize_response(id: Value) -> Value {
     })
 }
 
-async fn handle_initialize(gs: &GatewayState, id: Value, req: &JsonRpcRequest) -> Value {
+async fn handle_initialize(
+    gs: &GatewayState,
+    id: Value,
+    req: &JsonRpcRequest,
+    session_id: &str,
+) -> Value {
     let client_version = req
         .params
         .as_ref()
         .and_then(|params| params.get("protocolVersion"))
         .and_then(|value| value.as_str());
     let negotiated = negotiate_protocol_version(client_version);
+    gs.client_attribution
+        .record_mcp_initialize(session_id, req.params.as_ref())
+        .await;
     match gs.protocol_version.try_write() {
         Ok(mut protocol_version) => {
             *protocol_version = Some(negotiated.to_string());
@@ -507,6 +516,10 @@ async fn handle_tools_call(
             req.params.as_ref(),
             meta.as_ref(),
         );
+    let agent_context = gs
+        .client_attribution
+        .augment_mcp_context(session_id, agent_context)
+        .await;
     let trace_context = crate::gateway::admin::trace::TraceContext::from_headers_with_request_id(
         headers,
         id_str.to_string(),
@@ -866,6 +879,9 @@ mod tests {
             events_tx: Arc::new(events_tx),
             protocol_version: Arc::new(RwLock::new(None)),
             resource_subscriptions: Arc::new(RwLock::new(HashMap::new())),
+            client_attribution: Arc::new(
+                crate::gateway::caller_attribution::ClientAttributionStore::default(),
+            ),
             pending_calls: Arc::new(RwLock::new(HashMap::new())),
             subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
             allow_unknown_tools: false,
@@ -1100,6 +1116,70 @@ mod tests {
         assert_eq!(agent.actor_id.as_deref(), Some("artist-1"));
         assert_eq!(agent.client_platform.as_deref(), Some("cursor"));
         assert_eq!(agent.source_ip.as_deref(), Some("192.0.2.44"));
+    }
+
+    #[tokio::test]
+    async fn initialize_client_info_flows_to_mcp_call_admin_stats() {
+        let trace_log = Arc::new(crate::gateway::admin::TraceLog::new(10));
+        let audit_log: Arc<crate::gateway::admin::AuditLog> =
+            Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let sink = Arc::new(
+            crate::gateway::admin::AdminAuditSink::new(audit_log, 10)
+                .with_trace_log(trace_log.clone()),
+        );
+        let audit = Arc::new(crate::gateway::middleware::AuditMiddleware::new(sink));
+        let mut gs = test_gateway_state();
+        gs.middleware_chain = Arc::new(
+            crate::gateway::middleware::MiddlewareChain::new()
+                .with_before(audit.clone())
+                .with_after(audit),
+        );
+        let init = request(
+            "initialize",
+            json!("init"),
+            Some(json!({
+                "protocolVersion": "2025-03-26",
+                "clientInfo": {"name": "Codex Desktop", "version": "1.2.3"}
+            })),
+        );
+        let init_response =
+            dispatch_single_request(&gs, &init, "client-session-a", &HeaderMap::new())
+                .await
+                .expect("initialize request has id");
+        assert_eq!(
+            init_response["result"]["serverInfo"]["name"],
+            "test-gateway"
+        );
+
+        let call = request(
+            "tools/call",
+            json!("client-call"),
+            Some(json!({
+                "name": "search",
+                "arguments": {"kind": "tool", "query": "sphere"}
+            })),
+        );
+        let call_response =
+            dispatch_single_request(&gs, &call, "client-session-a", &HeaderMap::new())
+                .await
+                .expect("call request has id");
+        assert_eq!(call_response["result"]["isError"], false);
+
+        let traces = trace_log.recent(10);
+        assert_eq!(traces.len(), 1);
+        let agent = traces[0]
+            .agent_context
+            .as_ref()
+            .expect("MCP call should inherit initialize client attribution");
+        assert_eq!(agent.agent_name.as_deref(), Some("Codex Desktop"));
+        assert_eq!(agent.agent_version.as_deref(), Some("1.2.3"));
+        assert_eq!(agent.agent_kind.as_deref(), Some("mcp-client"));
+        assert_eq!(agent.client_platform.as_deref(), Some("Codex Desktop"));
+
+        let stats = crate::gateway::admin::StatsAggregator::new(trace_log)
+            .compute(crate::gateway::admin::StatsRange::All);
+        assert_eq!(stats.top_agents[0].name, "Codex Desktop@1.2.3");
+        assert_eq!(stats.top_client_platforms[0].name, "Codex Desktop");
     }
 
     #[tokio::test]
