@@ -450,12 +450,23 @@ fn actor_label(ctx: &AgentContext) -> Option<String> {
 }
 
 fn agent_label(ctx: &AgentContext) -> Option<String> {
-    ctx.agent_name
+    let name = ctx
+        .agent_name
         .clone()
         .or_else(|| ctx.agent_id.clone())
         .or_else(|| ctx.agent_kind.clone())
         .or_else(|| ctx.model.clone())
-        .or_else(|| ctx.model_version.clone())
+        .or_else(|| ctx.model_version.clone())?;
+    if let Some(version) = ctx
+        .agent_version
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(format!("{name}@{version}"))
+    } else {
+        Some(name)
+    }
 }
 
 fn add_attribution_facet(

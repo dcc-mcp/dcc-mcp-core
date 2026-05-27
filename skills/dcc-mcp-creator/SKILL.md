@@ -50,9 +50,10 @@ skill taxonomy), load `dcc-mcp-skills-creator` instead.
 4. Route host API calls through `HostExecutionBridge`; do not hand-roll a second script executor.
 5. Keep DCC identity data-driven: `dcc_name`, `server_name`, env-var prefix, skill names, and gateway metadata.
 6. Use core helpers for skill discovery, `MinimalModeConfig`, project tools, resources, diagnostics, context snapshots, install lifecycle, and gateway failover before writing adapter-local wrappers.
-7. When the adapter needs a lifecycle hook or metadata transform that core cannot express, open a focused core issue/RFC instead of parsing YAML or mutating private state in the adapter.
-8. Add one executable smoke path: unit tests for construction plus either headless DCC, mock dispatcher MCP calls, or gateway REST replay.
-9. For gateway/admin observability, surface explicit state instead of silent zeroes: traffic panels should report disabled, unavailable, filtered, or genuine no-traffic states and keep admin-facing frames metadata-only unless an operator explicitly configures a private raw sink.
+7. Preserve gateway caller attribution when adding adapter wrappers or admin/debug routes: let MCP `initialize.params.clientInfo`, MCP `_meta.agent_context`, REST `meta.agent_context`, `x-dcc-mcp-*` headers, and safe `User-Agent` fallbacks flow through core rather than logging raw prompts or local machine data.
+8. When the adapter needs a lifecycle hook or metadata transform that core cannot express, open a focused core issue/RFC instead of parsing YAML or mutating private state in the adapter.
+9. Add one executable smoke path: unit tests for construction plus either headless DCC, mock dispatcher MCP calls, or gateway REST replay.
+10. For gateway/admin observability, surface explicit state instead of silent zeroes: traffic panels should report disabled, unavailable, filtered, or genuine no-traffic states and keep admin-facing frames metadata-only unless an operator explicitly configures a private raw sink.
 
 ## Example: New Nuke Adapter
 

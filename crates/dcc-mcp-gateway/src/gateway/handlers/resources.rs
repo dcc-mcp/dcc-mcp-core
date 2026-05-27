@@ -276,6 +276,9 @@ mod tests {
             events_tx: Arc::new(events_tx),
             protocol_version: Arc::new(RwLock::new(None)),
             resource_subscriptions: Arc::new(RwLock::new(HashMap::new())),
+            client_attribution: Arc::new(
+                crate::gateway::caller_attribution::ClientAttributionStore::default(),
+            ),
             pending_calls: Arc::new(RwLock::new(HashMap::new())),
             subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
             allow_unknown_tools: false,
