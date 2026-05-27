@@ -80,6 +80,16 @@ impl SkillMetadata {
             prompts_file: None,
             layer: None,
             stage: None,
+            // Recall metadata extensions (#1335) and capability-graph fields
+            // default to absent/empty — Python callers opt in via
+            // `set_recall_context` / direct field assignment.
+            intent: None,
+            recall_context: None,
+            preconditions: Vec::new(),
+            side_effects: None,
+            produces: Vec::new(),
+            requires: Vec::new(),
+            success_metrics: None,
             recipes_file: None,
             introspection_file: None,
         }

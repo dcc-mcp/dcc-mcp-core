@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from dcc_mcp_core import LexicalSkillIndex, RrfFusionIndex, SkillDocument, SkillSearchHit
+from dcc_mcp_core import LexicalSkillIndex
+from dcc_mcp_core import RrfFusionIndex
+from dcc_mcp_core import SkillDocument
+from dcc_mcp_core import SkillSearchHit
 
 
 def _doc(skill_id: str, name: str, *, intent: str = "", summary: str = "", tags=(), aliases=()):
