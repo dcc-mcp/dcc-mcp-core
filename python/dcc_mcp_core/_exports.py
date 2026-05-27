@@ -342,6 +342,13 @@ _LAZY: dict[str, str] = {
     "RrfFusionIndex": "dcc_mcp_core.semantic_skill_index",
     "SkillDocument": "dcc_mcp_core.semantic_skill_index",
     "SkillSearchHit": "dcc_mcp_core.semantic_skill_index",
+    # Qt UI inspector (issue #1332) - opt-in default capability
+    "qt_describe_widget": "dcc_mcp_core.qt_ui_inspector",
+    "qt_find_widgets": "dcc_mcp_core.qt_ui_inspector",
+    "qt_list_windows": "dcc_mcp_core.qt_ui_inspector",
+    "qt_snapshot_tree": "dcc_mcp_core.qt_ui_inspector",
+    "qt_wait_for_widget": "dcc_mcp_core.qt_ui_inspector",
+    "register_qt_ui_inspector": "dcc_mcp_core.qt_ui_inspector",
     # DccServerBase + factory
     "DccServerBase": "dcc_mcp_core.server_base",
     "create_dcc_server": "dcc_mcp_core.factory",
