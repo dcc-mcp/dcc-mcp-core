@@ -95,6 +95,8 @@ class MemoryEntry:
 
 @dataclass(frozen=True)
 class MemoryQuery:
+    """Filter criteria for retrieving entries from an :class:`AgentMemoryStore`."""
+
     layer: MemoryLayer | None = None
     session_id: str | None = None
     dcc_name: str | None = None

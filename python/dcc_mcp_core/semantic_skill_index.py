@@ -29,11 +29,12 @@ External design references:
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from math import log
 import re
 from threading import RLock
-from typing import Iterable, Mapping, Protocol
+from typing import Iterable
+from typing import Protocol
 
 __all__ = [
     "LexicalSkillIndex",
@@ -77,6 +78,8 @@ class SkillDocument:
 
 @dataclass(frozen=True)
 class SkillSearchHit:
+    """One result row returned by :meth:`SemanticSkillIndex.search`."""
+
     skill_id: str
     score: float
     rank: int
@@ -176,9 +179,7 @@ class LexicalSkillIndex:
                     df = self._df.get(term, 1)
                     n = len(self._docs)
                     idf = log(1.0 + (n - df + 0.5) / (df + 0.5))
-                    denom = tf + self._k1 * (
-                        1.0 - self._b + self._b * (entry.length / max(1.0, avg_len))
-                    )
+                    denom = tf + self._k1 * (1.0 - self._b + self._b * (entry.length / max(1.0, avg_len)))
                     score += idf * (tf * (self._k1 + 1.0) / max(1e-9, denom))
                     matched.append(term)
                 if score > 0:

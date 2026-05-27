@@ -5,8 +5,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from dcc_mcp_core.dcc_server import register_diagnostic_handlers
-from dcc_mcp_core.dcc_server import register_diagnostic_mcp_tools
 from dcc_mcp_core.gateway_election import DccGatewayElection
 
 logger = logging.getLogger(__name__)

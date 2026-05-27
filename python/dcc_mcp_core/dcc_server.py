@@ -625,7 +625,12 @@ def register_diagnostic_mcp_tools(
             _METRICS_SCHEMA,
             _handle_get_tool_metrics,
         ),
-        ("dcc_diagnostics__process_status", "Adapter process and DCC alive status.", _PROC_SCHEMA, _handle_process_status),
+        (
+            "dcc_diagnostics__process_status",
+            "Adapter process and DCC alive status.",
+            _PROC_SCHEMA,
+            _handle_process_status,
+        ),
     ]
 
     for name, desc, schema, handler in specs:

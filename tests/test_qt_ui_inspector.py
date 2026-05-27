@@ -9,14 +9,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-from dcc_mcp_core import (
-    qt_describe_widget,
-    qt_find_widgets,
-    qt_list_windows,
-    qt_snapshot_tree,
-    qt_wait_for_widget,
-    register_qt_ui_inspector,
-)
+from dcc_mcp_core import qt_describe_widget
+from dcc_mcp_core import qt_find_widgets
+from dcc_mcp_core import qt_list_windows
+from dcc_mcp_core import qt_snapshot_tree
+from dcc_mcp_core import qt_wait_for_widget
+from dcc_mcp_core import register_qt_ui_inspector
 
 
 @pytest.fixture
@@ -180,7 +178,8 @@ class TestWithLiveQt:
         assert "shown_win" in names_all and "hidden_win" in names_all
 
     def test_find_widgets_matches_exact_substring_regex(self, qtbot) -> None:
-        from PySide6.QtWidgets import QPushButton, QWidget
+        from PySide6.QtWidgets import QPushButton
+        from PySide6.QtWidgets import QWidget
 
         root = QWidget()
         a = QPushButton("a", parent=root)
@@ -209,7 +208,8 @@ class TestWithLiveQt:
     def test_describe_widget_returns_capped_property_snapshot(self, qtbot) -> None:
         from PySide6.QtWidgets import QPushButton
 
-        from dcc_mcp_core.skills.qt_ui_inspector import _PROPERTY_CAP, _widget_id
+        from dcc_mcp_core.skills.qt_ui_inspector import _PROPERTY_CAP
+        from dcc_mcp_core.skills.qt_ui_inspector import _widget_id
 
         btn = QPushButton("Click me")
         btn.setObjectName("describable")
@@ -252,8 +252,7 @@ class TestWithLiveQt:
         assert shallow["success"] is True
         tree = shallow["context"]["tree"]
         # depth=1 → root has children but their children are pruned
-        assert tree["children"] and "children" not in tree["children"][0] \
-            or tree["children"][0]["children"] == []
+        assert (tree["children"] and "children" not in tree["children"][0]) or tree["children"][0]["children"] == []
 
         capped = qt_snapshot_tree(root_widget_id=_widget_id(root), max_depth=8, max_nodes=2)
         assert capped["success"] is True
@@ -288,4 +287,3 @@ class TestWithLiveQt:
         assert r["success"] is False
         assert r["error"] == "timeout"
         assert r["context"]["polls"] >= 1
-
