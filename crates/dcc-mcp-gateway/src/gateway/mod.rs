@@ -55,6 +55,7 @@ pub(crate) mod response_codec;
 pub(crate) mod rest_openapi;
 pub mod router;
 pub mod search_telemetry;
+pub mod security;
 pub mod sse_subscriber;
 pub mod state;
 pub mod tools;
@@ -65,6 +66,9 @@ pub use dcc_mcp_gateway_core::policy::{
     GatewayPolicy, GatewayPolicyDenial, GatewayPolicyDenyReason, GatewayPolicyOperation,
 };
 pub use middleware::MiddlewareChain;
+pub use security::{
+    GatewayAuthScope, GatewaySecurityConfig, GatewaySecurityPolicy, GatewayTokenClaims,
+};
 
 pub mod metrics;
 

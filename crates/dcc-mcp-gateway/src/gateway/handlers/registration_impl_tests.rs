@@ -47,6 +47,7 @@ fn test_gateway_state() -> GatewayState {
         subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
         allow_unknown_tools: false,
         policy: Arc::new(crate::gateway::GatewayPolicy::default()),
+        security: Arc::new(crate::gateway::GatewaySecurityPolicy::disabled()),
         adapter_version: None,
         adapter_dcc: None,
         capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
@@ -69,20 +70,90 @@ async fn request_json(
     uri: &str,
     body: serde_json::Value,
 ) -> (StatusCode, serde_json::Value) {
+    request_json_with_auth(app, method, uri, body, None).await
+}
+
+async fn request_json_with_auth(
+    app: axum::Router,
+    method: &str,
+    uri: &str,
+    body: serde_json::Value,
+    authorization: Option<String>,
+) -> (StatusCode, serde_json::Value) {
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("content-type", "application/json");
+    if let Some(authorization) = authorization {
+        builder = builder.header("authorization", authorization);
+    }
     let response = app
-        .oneshot(
-            Request::builder()
-                .method(method)
-                .uri(uri)
-                .header("content-type", "application/json")
-                .body(Body::from(body.to_string()))
-                .unwrap(),
-        )
+        .oneshot(builder.body(Body::from(body.to_string())).unwrap())
         .await
         .unwrap();
     let status = response.status();
     let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     (status, serde_json::from_slice(&bytes).unwrap())
+}
+
+#[tokio::test]
+async fn register_rejects_missing_gateway_token_when_security_enabled() {
+    let mut state = test_gateway_state();
+    state.security = Arc::new(crate::gateway::GatewaySecurityPolicy::new(
+        crate::gateway::GatewaySecurityConfig::with_api_keys(["secret-token"]),
+    ));
+    let app = crate::gateway::build_gateway_router(state);
+
+    let (status, body) = request_json(
+        app,
+        "POST",
+        "/v1/instances/register",
+        json!({
+            "instance_id": "44444444-4444-4444-8444-444444444444",
+            "dcc_type": "maya",
+            "mcp_url": "http://127.0.0.1:8765/mcp"
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body["error"], "unauthorized");
+    assert_eq!(body["error_detail"]["kind"], "unauthorized");
+}
+
+#[tokio::test]
+async fn register_rejects_dcc_scope_mismatch() {
+    let secret = "gateway-jwt-secret-for-tests";
+    let claims = crate::gateway::GatewayTokenClaims::new(
+        "agent-1",
+        crate::gateway::security::now_secs() + 3600,
+        vec!["maya".to_string()],
+        vec!["register".to_string()],
+    );
+    let token = crate::gateway::security::issue_gateway_token(&claims, secret).unwrap();
+    let mut state = test_gateway_state();
+    state.security = Arc::new(crate::gateway::GatewaySecurityPolicy::new(
+        crate::gateway::GatewaySecurityConfig::with_jwt_secret(secret),
+    ));
+    let app = crate::gateway::build_gateway_router(state);
+
+    let (status, body) = request_json_with_auth(
+        app,
+        "POST",
+        "/v1/instances/register",
+        json!({
+            "instance_id": "55555555-5555-4555-8555-555555555555",
+            "dcc_type": "houdini",
+            "mcp_url": "http://127.0.0.1:8765/mcp"
+        }),
+        Some(format!("Bearer {token}")),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body["error"], "forbidden");
+    assert_eq!(body["error_detail"]["kind"], "dcc-scope-denied");
+    assert_eq!(body["error_detail"]["dcc_type"], "houdini");
 }
 
 #[tokio::test]

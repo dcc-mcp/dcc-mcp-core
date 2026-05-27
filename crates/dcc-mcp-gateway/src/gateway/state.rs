@@ -59,6 +59,7 @@ use super::http_registration::{
 use super::instance_diagnostics::{InstanceDiagnostics, InstanceDiagnosticsStore};
 use super::mdns_discovery::MdnsInstanceRegistry;
 use super::relay_discovery::RelayInstanceRegistry;
+use super::security::GatewaySecurityPolicy;
 
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
@@ -243,6 +244,8 @@ pub struct GatewayState {
     pub allow_unknown_tools: bool,
     /// Gateway-scoped dynamic capability policy.
     pub policy: Arc<GatewayPolicy>,
+    /// Gateway-scoped authentication and endpoint-scope authorization policy.
+    pub security: Arc<GatewaySecurityPolicy>,
     /// Adapter package version (e.g. `dcc_mcp_maya = "0.3.0"`) advertised
     /// by this gateway on its `__gateway__` sentinel and used by the
     /// version-aware election comparison (issue maya#137).

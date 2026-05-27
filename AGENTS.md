@@ -186,6 +186,7 @@ Gateway resources/prompts:
 | Advertise a same-LAN DCC for zero-config discovery | Build with the `mdns` feature, then run `dcc-mcp-server serve --advertise-mdns`; published DNS-SD TXT fields include `dcc`, `instance_id`, `version`, `mcp_path`, `adapter`, and `auth` (#1362) |
 | Discover same-LAN DCCs from the gateway | Build the gateway with the `mdns` feature and run `dcc-mcp-server gateway --discover-mdns`; rows are health-probed before joining `gateway://instances` as `source: "mdns"` and stay advisory behind HTTP registration (#1362) |
 | Discover DCCs behind a tunnel relay | Run the relay with its read-only admin endpoint and WS frontend, then configure the elected gateway with `--relay-url` / `--gateway-relay-url` / `DCC_MCP_GATEWAY_RELAY_URLS`; relay rows are probed through `/tunnel/{id}/v1/healthz`, appear as `source: "relay"`, and sit between HTTP registration and mDNS in conflict precedence (#1363) |
+| Secure a daemon/remote gateway | Set `DCC_MCP_GATEWAY_API_KEY(S)` for static bearer auth or `DCC_MCP_GATEWAY_JWT_SECRET` for scoped JWTs; scopes are `register`, `call`, `read_resources`, and `admin`, with optional `allowed_dcc` enforcement (#1365) |
 | Gateway dynamic capabilities | MCP `search` → `describe` for read-only discovery, then REST `/v1/call` / `POST /v1/call_batch` for execution |
 | Gateway resources/prompts | `resources/list` / `resources/read` with exact gateway-returned URIs; `prompts/list` / `prompts/get` for aggregated backend prompt templates |
 

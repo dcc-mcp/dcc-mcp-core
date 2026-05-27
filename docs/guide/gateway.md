@@ -115,6 +115,53 @@ standalone). At runtime it satisfies the following:
 | Studio render node / shared host / CI | `dcc-mcp-server gateway` daemon, sidecars launch DCCs |
 | Headless agent without any DCC installed | `dcc-mcp-server gateway` daemon — DCCs are reached via `FileRegistry` / HTTP registration |
 
+## Security (#1365)
+
+The gateway keeps the historical local-development posture by default:
+auth is disabled unless an operator configures a gateway credential. As soon
+as either `DCC_MCP_GATEWAY_API_KEY`, `DCC_MCP_GATEWAY_API_KEYS`, or
+`DCC_MCP_GATEWAY_JWT_SECRET` is set, protected REST/MCP operations require
+`Authorization: Bearer <token>`.
+
+| Credential mode | Env vars | Scope model |
+|-----------------|----------|-------------|
+| Static API key | `DCC_MCP_GATEWAY_API_KEY` or comma-separated `DCC_MCP_GATEWAY_API_KEYS` | Matches the existing `ApiKeyConfig` / `validate_bearer_token` semantics and grants all gateway scopes. |
+| Scoped JWT | `DCC_MCP_GATEWAY_JWT_SECRET` | HS256 claims carry `allowed_dcc` plus action `scopes`; use this for daemon / relay deployments that need per-DCC and per-action limits. |
+
+Supported action scopes are `register`, `call`, `read_resources`, and
+`admin`. A token can use `allowed_dcc: []` or `allowed_dcc: ["*"]` to allow
+all DCC types; otherwise registration and calls reject a mismatched DCC with a
+structured `forbidden` response whose detail `kind` is `dcc-scope-denied`.
+
+Protected surfaces:
+
+- `POST /v1/instances/{register,heartbeat,deregister}` require `register`.
+- `/v1/search`, `/v1/describe`, `/v1/context`, `/v1/instances`, and skill
+  listing require `read_resources`.
+- `/v1/call`, `/v1/call_batch`, path-style DCC calls, and gateway MCP
+  `tools/call` require `call`.
+- `/admin/*` and `/v1/debug/*` require `admin` when gateway auth is enabled.
+
+`GET /v1/healthz` stays unauthenticated and reports
+`{"auth_required": true}` when this policy is active, so probes and VRS traces
+can skip or assert the right mode. Every successful or rejected HTTP
+registration, deregistration, and relay attach is recorded through the gateway
+AuditMiddleware chain; with the admin/durable audit store enabled this lands in
+`audit.jsonl` with the same bounded metadata policy as tool calls.
+
+TLS termination is intentionally outside the binary. For internet-exposed or
+cross-machine gateways, put the gateway behind nginx, Caddy, a cloud load
+balancer, or a VPN endpoint that terminates TLS and forwards to the local
+gateway listener. The minimum hardening checklist is:
+
+- enable bearer auth with either static API keys or scoped JWTs;
+- terminate TLS before traffic reaches the gateway;
+- keep rate limits enabled and tune them for the deployment;
+- enable audit persistence with `DCC_MCP_GATEWAY_AUDIT_DIR` or admin SQLite;
+- enable redaction middleware before any durable raw payload sink;
+- keep `/admin` bound to localhost or protect it with `admin` scope plus the
+  reverse proxy's access policy.
+
 ## Topology
 
 ```

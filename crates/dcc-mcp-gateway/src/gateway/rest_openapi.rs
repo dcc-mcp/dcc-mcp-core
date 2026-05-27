@@ -65,6 +65,10 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
             "description": "Gateway-specific REST API for multi-DCC discovery, skill loading, routing, and instance-scoped tool calls.",
             "version": server_version,
         },
+        "security": [
+            {"GatewayBearerAuth": []},
+            {}
+        ],
         "tags": [
             {"name": "health", "description": "Gateway liveness and readiness probes."},
             {"name": "instances", "description": "Live DCC instance inventory."},
@@ -76,6 +80,14 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
         "paths": {},
         "components": {
             "schemas": common_schemas(),
+            "securitySchemes": {
+                "GatewayBearerAuth": {
+                    "type": "http",
+                    "scheme": "bearer",
+                    "bearerFormat": "API key or HS256 JWT",
+                    "description": "Optional gateway daemon bearer credential. Static API keys grant all gateway scopes; JWT tokens may restrict scopes and allowed_dcc."
+                }
+            },
         },
     });
 
@@ -872,6 +884,7 @@ fn operation(
         "responses": {
             "200": response,
             "400": error_response("Bad request"),
+            "401": error_response("Unauthorized"),
             "403": error_response("Gateway policy denied"),
             "404": error_response("Not found"),
             "409": error_response("Conflict"),
@@ -1173,9 +1186,23 @@ mod tests {
         assert!(response["properties"].get("index_generation").is_some());
         assert!(
             doc["paths"]["/v1/call"]["post"]["responses"]
+                .get("401")
+                .is_some()
+        );
+        assert!(
+            doc["paths"]["/v1/call"]["post"]["responses"]
                 .get("403")
                 .is_some()
         );
+        assert_eq!(
+            doc["components"]["securitySchemes"]["GatewayBearerAuth"]["scheme"],
+            "bearer"
+        );
+        assert!(doc["security"].as_array().unwrap().iter().any(|entry| {
+            entry
+                .as_object()
+                .is_some_and(|obj| obj.contains_key("GatewayBearerAuth"))
+        }));
         assert!(
             doc["components"]["schemas"]["ServiceError"]["properties"]["error"]["properties"]
                 .get("policy")

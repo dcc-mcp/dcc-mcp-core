@@ -347,6 +347,7 @@ impl GatewayRunner {
                     self.config.gateway_port,
                     self.config.allow_unknown_tools,
                     self.config.policy.clone(),
+                    self.config.security.clone(),
                     own_adapter_version.clone(),
                     own_adapter_dcc.clone(),
                     self.config.middleware_chain.clone(),
@@ -531,6 +532,7 @@ impl GatewayRunner {
         let poll_interval_secs = self.config.challenger_poll_interval_secs.max(1);
         let allow_unknown_tools = self.config.allow_unknown_tools;
         let policy = self.config.policy.clone();
+        let security = self.config.security.clone();
         let remote_host = self.config.remote_host.clone();
         let remote_gateway_port = self.config.remote_gateway_port;
         let adapter_version = self.config.adapter_version.clone();
@@ -658,6 +660,7 @@ impl GatewayRunner {
                         port,
                         allow_unknown_tools,
                         policy.clone(),
+                        security.clone(),
                         adapter_version.clone(),
                         adapter_dcc.clone(),
                         middleware_chain.clone(),

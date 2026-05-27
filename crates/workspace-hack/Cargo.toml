@@ -47,7 +47,6 @@ once_cell = { version = "1.21.4" }
 percent-encoding = { version = "2.3.2" }
 phf = { version = "0.11.3", features = ["macros"] }
 phf_shared = { version = "0.11.3" }
-ppv-lite86 = { version = "0.2.21", default-features = false, features = ["simd", "std"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9.4" }
 rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8.6", features = ["small_rng"] }
 rand_chacha = { version = "0.9.0", default-features = false, features = ["std"] }
@@ -111,7 +110,6 @@ once_cell = { version = "1.21.4" }
 percent-encoding = { version = "2.3.2" }
 phf = { version = "0.11.3", features = ["macros"] }
 phf_shared = { version = "0.11.3" }
-ppv-lite86 = { version = "0.2.21", default-features = false, features = ["simd", "std"] }
 proc-macro2 = { version = "1.0.106" }
 quote = { version = "1.0.45" }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9.4" }

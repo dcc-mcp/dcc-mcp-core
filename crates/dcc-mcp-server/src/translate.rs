@@ -612,6 +612,7 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
             server_version: env!("CARGO_PKG_VERSION").to_string(),
             registry_dir: registry_dir_path,
             adapter_dcc: Some(args.app_type.clone()),
+            security: dcc_mcp_gateway::GatewaySecurityConfig::from_env(),
             admin_enabled: !args.no_admin,
             admin_path: args.admin_path.clone(),
             ..GatewayConfig::default()

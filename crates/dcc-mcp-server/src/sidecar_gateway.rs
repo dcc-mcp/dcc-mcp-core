@@ -126,6 +126,7 @@ fn build_gateway_config(args: &SidecarArgs) -> GatewayConfig {
         server_version: env!("CARGO_PKG_VERSION").to_string(),
         adapter_version: args.adapter_version.clone(),
         adapter_dcc: Some(args.dcc.clone()),
+        security: dcc_mcp_gateway::GatewaySecurityConfig::from_env(),
         ..GatewayConfig::default()
     }
 }

@@ -87,6 +87,7 @@ pub(crate) async fn start_gateway_tasks(
     own_port: u16,
     allow_unknown_tools: bool,
     policy: dcc_mcp_gateway_core::policy::GatewayPolicy,
+    security: crate::gateway::security::GatewaySecurityConfig,
     adapter_version: Option<String>,
     adapter_dcc: Option<String>,
     middleware_chain: crate::gateway::middleware::MiddlewareChain,
@@ -643,13 +644,7 @@ pub(crate) async fn start_gateway_tasks(
         poll_interval: relay_poll_interval,
         probe_timeout: relay_probe_timeout,
     };
-    let relay_poller_handle = crate::gateway::relay_discovery::spawn_relay_poller(
-        relay_instance_registry.clone(),
-        http_client.clone(),
-        events_tx.clone(),
-        capability_index.clone(),
-        relay_config,
-    );
+    let relay_events_tx = events_tx.clone();
     #[cfg(feature = "mdns")]
     let mdns_browser_handle = if mdns_discovery_enabled {
         crate::gateway::mdns_discovery::spawn_mdns_browser(
@@ -693,6 +688,9 @@ pub(crate) async fn start_gateway_tasks(
         subscriber,
         allow_unknown_tools,
         policy: Arc::new(policy),
+        security: Arc::new(crate::gateway::security::GatewaySecurityPolicy::new(
+            security,
+        )),
         adapter_version,
         adapter_dcc,
         capability_index: capability_index.clone(),
@@ -735,7 +733,7 @@ pub(crate) async fn start_gateway_tasks(
     persist_startup_probe_evictions(&sqlite_lane, &startup_probe_evictions);
 
     #[cfg(feature = "admin")]
-    let gw_router = {
+    let (gw_router, relay_audit_chain) = {
         let admin_state_opt = if admin_enabled {
             let durable_store = crate::gateway::admin::state::DurableAuditStore::from_env();
 
@@ -822,10 +820,26 @@ pub(crate) async fn start_gateway_tasks(
         } else {
             None
         };
-        build_gateway_router_with_admin(gw_state, admin_state_opt, &admin_path)
+        let relay_audit_chain = gw_state.middleware_chain.clone();
+        (
+            build_gateway_router_with_admin(gw_state, admin_state_opt, &admin_path),
+            relay_audit_chain,
+        )
     };
     #[cfg(not(feature = "admin"))]
-    let gw_router = build_gateway_router(gw_state);
+    let (gw_router, relay_audit_chain) = {
+        let relay_audit_chain = gw_state.middleware_chain.clone();
+        (build_gateway_router(gw_state), relay_audit_chain)
+    };
+
+    let relay_poller_handle = crate::gateway::relay_discovery::spawn_relay_poller(
+        relay_instance_registry.clone(),
+        http_client.clone(),
+        relay_events_tx,
+        capability_index.clone(),
+        relay_audit_chain,
+        relay_config,
+    );
 
     #[cfg(feature = "prometheus")]
     let gw_router = super::metrics::attach_gateway_metrics_route(gw_router);

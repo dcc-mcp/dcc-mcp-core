@@ -189,6 +189,7 @@ mod tests {
             subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
             allow_unknown_tools: false,
             policy: Arc::new(crate::gateway::GatewayPolicy::default()),
+            security: Arc::new(crate::gateway::GatewaySecurityPolicy::disabled()),
             adapter_version: None,
             adapter_dcc: None,
             capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),

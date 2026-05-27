@@ -35,6 +35,7 @@ pub(crate) async fn start_gateway_runner(
         max_routes_per_session: config.gateway.gateway_max_routes_per_session,
         allow_unknown_tools: config.gateway.allow_unknown_tools,
         policy: config.gateway.policy.clone(),
+        security: dcc_mcp_gateway::GatewaySecurityConfig::from_env(),
         adapter_version: config.gateway.adapter_version.clone(),
         adapter_dcc: config
             .gateway

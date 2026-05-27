@@ -6,7 +6,7 @@ use crate::gateway::admin::trace::{AgentContext, TraceContext};
 use crate::gateway::agent_telemetry::{
     AgentWorkflowEvent, error_kind_from_text, policy_reason_from_value,
 };
-use crate::gateway::capability::{RefreshReason, tool_slug};
+use crate::gateway::capability::{RefreshReason, parse_slug, tool_slug};
 use crate::gateway::capability_service::{
     SearchResponseContext, ServiceError, describe_tool_full, index_generation,
     parse_search_payload, refresh_all_live_backends, search_hit_to_value_with_context,
@@ -15,6 +15,7 @@ use crate::gateway::capability_service::{
 use crate::gateway::response_codec::{compact_call_batch_payload, compact_describe_payload};
 use crate::gateway::search_telemetry::{SearchTelemetryInput, search_id_from_payload};
 use crate::gateway::state::{instance_source_counts, sort_instance_entries};
+use crate::gateway::{GatewayAuthScope, security::GatewayAuthError};
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};
 
 use super::rest_support::*;
@@ -249,7 +250,10 @@ fn gateway_yield_unavailable_response(
 ///
 /// Also served under `GET /v1/instances` for consistency with the
 /// REST-backed dynamic-capability API (#654).
-pub async fn handle_instances(State(gs): State<GatewayState>) -> impl IntoResponse {
+pub async fn handle_instances(State(gs): State<GatewayState>, headers: HeaderMap) -> Response {
+    if let Err(err) = authorize_gateway_read(&gs, &headers) {
+        return err.response();
+    }
     let registry = gs.registry.read().await;
     let mut entries = gs.live_instances(&registry);
     sort_instance_entries(&mut entries);
@@ -263,13 +267,17 @@ pub async fn handle_instances(State(gs): State<GatewayState>) -> impl IntoRespon
         "by_source": by_source,
         "instances": instances
     }))
+    .into_response()
 }
 
 // ── REST endpoints ────────────────────────────────────────────────────────
 
 /// `GET /v1/healthz` — REST liveness probe compatible with dcc-mcp-skill-rest.
-pub async fn handle_v1_healthz() -> impl IntoResponse {
-    (StatusCode::OK, Json(json!({"ok": true})))
+pub async fn handle_v1_healthz(State(gs): State<GatewayState>) -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        Json(json!({"ok": true, "auth_required": gs.security.is_enabled()})),
+    )
 }
 
 /// `GET /v1/readyz` — gateway readiness probe.
@@ -351,7 +359,10 @@ pub async fn handle_v1_docs(State(gs): State<GatewayState>) -> Response {
 }
 
 /// `GET /v1/skills` — aggregate gateway capability index as skill entries.
-pub async fn handle_v1_skills(State(gs): State<GatewayState>) -> impl IntoResponse {
+pub async fn handle_v1_skills(State(gs): State<GatewayState>, headers: HeaderMap) -> Response {
+    if let Err(err) = authorize_gateway_read(&gs, &headers) {
+        return err.response();
+    }
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
     let records = gs.capability_index.snapshot().records;
     let skills: Vec<Value> = records
@@ -380,13 +391,17 @@ pub async fn handle_v1_skills(State(gs): State<GatewayState>) -> impl IntoRespon
         StatusCode::OK,
         Json(json!({"total": skills.len(), "skills": skills})),
     )
+        .into_response()
 }
 
 /// `GET /v1/context` — aggregate gateway context snapshot plus **live
 /// instance rows** (same shape as `GET /v1/instances`) so scripts can read
 /// `instance_id` / `mcp_url` before calling path-style `/v1/dcc/.../call`
 /// without a second HTTP round-trip.
-pub async fn handle_v1_context(State(gs): State<GatewayState>) -> impl IntoResponse {
+pub async fn handle_v1_context(State(gs): State<GatewayState>, headers: HeaderMap) -> Response {
+    if let Err(err) = authorize_gateway_read(&gs, &headers) {
+        return err.response();
+    }
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
     let registry = gs.registry.read().await;
     let live_instances = gs.live_instances(&registry);
@@ -426,13 +441,18 @@ pub async fn handle_v1_context(State(gs): State<GatewayState>) -> impl IntoRespo
             "instances": instances,
         })),
     )
+        .into_response()
 }
 
 /// `POST /v1/list_skills` — progressive skill listing across live backends.
 pub async fn handle_v1_list_skills(
     State(gs): State<GatewayState>,
+    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
+    if let Err(err) = authorize_gateway_read(&gs, &headers) {
+        return err.response();
+    }
     let (text, is_error) =
         crate::gateway::aggregator::skill_mgmt_dispatch(&gs, "list_skills", &body).await;
     if is_error {
@@ -465,6 +485,9 @@ pub async fn handle_v1_search(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
+    if let Err(err) = authorize_gateway_read(&gs, &headers) {
+        return err.response();
+    }
     let trace_context = TraceContext::from_headers(&headers);
     let agent_context = AgentContext::from_request_parts_with_server_network(
         &headers,
@@ -559,6 +582,9 @@ pub async fn handle_v1_load_skill(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
+    if let Err(err) = authorize_gateway_call(&gs, &headers, None) {
+        return err.response();
+    }
     skill_lifecycle_response(&gs, &headers, "load_skill", body).await
 }
 
@@ -568,6 +594,9 @@ pub async fn handle_v1_unload_skill(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
+    if let Err(err) = authorize_gateway_call(&gs, &headers, None) {
+        return err.response();
+    }
     skill_lifecycle_response(&gs, &headers, "unload_skill", body).await
 }
 
@@ -702,6 +731,9 @@ pub async fn handle_v1_describe(
     Json(body): Json<Value>,
 ) -> Response {
     let trace_context = TraceContext::from_headers(&headers);
+    if let Err(err) = authorize_gateway_read(&gs, &headers) {
+        return err.response();
+    }
     let agent_context = AgentContext::from_request_parts_with_server_network(
         &headers,
         Some(&body),
@@ -741,6 +773,9 @@ pub async fn handle_v1_describe_path(
     Path(slug): Path<String>,
 ) -> Response {
     let trace_context = TraceContext::from_headers(&headers);
+    if let Err(err) = authorize_gateway_read(&gs, &headers) {
+        return err.response();
+    }
     let agent_context = AgentContext::from_request_parts_with_server_network(&headers, None, None);
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
     let body = json!({});
@@ -961,6 +996,9 @@ pub async fn handle_v1_call(
             false,
         );
     };
+    if let Err(err) = authorize_gateway_call_for_slug(&gs, &headers, slug) {
+        return err.response();
+    }
     let arguments =
         match dcc_mcp_jsonrpc::coerce_tool_arguments_object(body.get("arguments").cloned()) {
             Ok(v) => v,
@@ -1031,6 +1069,9 @@ pub async fn handle_v1_dcc_instance_call(
     Json(body): Json<Value>,
 ) -> Response {
     let trace_context = TraceContext::from_headers(&headers);
+    if let Err(err) = authorize_gateway_call(&gs, &headers, Some(&dcc_type)) {
+        return err.response();
+    }
     let backend_tool = body
         .get("backend_tool")
         .or_else(|| body.get("tool"))
@@ -1175,6 +1216,9 @@ pub async fn handle_v1_call_batch(
     Json(body): Json<Value>,
 ) -> Response {
     let trace_context = TraceContext::from_headers(&headers);
+    if let Err(err) = authorize_gateway_call_batch(&gs, &headers, &body) {
+        return err.response();
+    }
     match call_batch_with_admin_trace(&gs, &headers, &body, trace_context.clone()).await {
         Ok(value) => {
             let compact = compact_call_batch_payload(&value);
@@ -1207,6 +1251,53 @@ pub async fn handle_v1_call_batch(
                 true,
             )
         }
+    }
+}
+
+fn authorize_gateway_read(gs: &GatewayState, headers: &HeaderMap) -> Result<(), GatewayAuthError> {
+    gs.security
+        .authorize(headers, GatewayAuthScope::ReadResources, None)
+        .map(|_| ())
+}
+
+fn authorize_gateway_call(
+    gs: &GatewayState,
+    headers: &HeaderMap,
+    dcc_type: Option<&str>,
+) -> Result<(), GatewayAuthError> {
+    gs.security
+        .authorize(headers, GatewayAuthScope::Call, dcc_type)
+        .map(|_| ())
+}
+
+fn authorize_gateway_call_for_slug(
+    gs: &GatewayState,
+    headers: &HeaderMap,
+    slug: &str,
+) -> Result<(), GatewayAuthError> {
+    let dcc_type = parse_slug(slug).map(|(dcc, _, _)| dcc);
+    authorize_gateway_call(gs, headers, dcc_type)
+}
+
+fn authorize_gateway_call_batch(
+    gs: &GatewayState,
+    headers: &HeaderMap,
+    body: &Value,
+) -> Result<(), GatewayAuthError> {
+    let mut checked_any = false;
+    if let Some(calls) = body.get("calls").and_then(Value::as_array) {
+        for call in calls {
+            let slug = call.get("tool_slug").and_then(Value::as_str);
+            if let Some(slug) = slug {
+                checked_any = true;
+                authorize_gateway_call_for_slug(gs, headers, slug)?;
+            }
+        }
+    }
+    if checked_any {
+        Ok(())
+    } else {
+        authorize_gateway_call(gs, headers, None)
     }
 }
 

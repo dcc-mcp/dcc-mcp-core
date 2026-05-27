@@ -540,6 +540,30 @@ async fn handle_tools_call(
         "call_tools" => first_batch_slug(),
         _ => None,
     };
+    let target_dcc = if let Some((dcc_type, _, _)) = resolved_slug.and_then(parse_slug) {
+        Some(dcc_type.to_string())
+    } else {
+        args.get("dcc_type")
+            .or_else(|| args.get("dcc"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    };
+    if let Err(err) = gs.security.authorize(
+        headers,
+        crate::gateway::GatewayAuthScope::Call,
+        target_dcc.as_deref(),
+    ) {
+        return json!({
+            "jsonrpc": "2.0", "id": id,
+            "result": {
+                "content": [{
+                    "type": "text",
+                    "text": err.message
+                }],
+                "isError": true
+            }
+        });
+    }
 
     {
         let mut pending = gs.pending_calls.write().await;
@@ -895,6 +919,7 @@ mod tests {
             subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
             allow_unknown_tools: false,
             policy: Arc::new(crate::gateway::GatewayPolicy::default()),
+            security: Arc::new(crate::gateway::GatewaySecurityPolicy::disabled()),
             adapter_version: None,
             adapter_dcc: None,
             capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),

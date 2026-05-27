@@ -18,6 +18,7 @@ use uuid::Uuid;
 use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
 
 use crate::gateway::http_registration::{MCP_URL_METADATA_KEY, REGISTRY_SOURCE_METADATA_KEY};
+use crate::gateway::middleware::{CallResult, MiddlewareChain, record_gateway_event};
 
 pub(crate) const SOURCE_RELAY: &str = "relay";
 const RELAY_TUNNEL_ID_METADATA_KEY: &str = "relay_tunnel_id";
@@ -181,6 +182,7 @@ pub(crate) fn spawn_relay_poller(
     http_client: reqwest::Client,
     events_tx: Arc<broadcast::Sender<String>>,
     capability_index: Arc<crate::gateway::capability::CapabilityIndex>,
+    audit_chain: Arc<MiddlewareChain>,
     config: RelayPollerConfig,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
@@ -195,33 +197,39 @@ pub(crate) fn spawn_relay_poller(
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             interval.tick().await;
-            poll_relays_once(
-                &registry,
-                &http_client,
-                &events_tx,
-                &capability_index,
-                &config.urls,
-                config.ttl,
-                config.probe_timeout,
-            )
+            poll_relays_once(RelayPollContext {
+                registry: &registry,
+                http_client: &http_client,
+                events_tx: &events_tx,
+                capability_index: capability_index.as_ref(),
+                audit_chain: audit_chain.as_ref(),
+                config: &config,
+            })
             .await;
         }
     })
 }
 
-async fn poll_relays_once(
-    registry: &Arc<parking_lot::RwLock<RelayInstanceRegistry>>,
-    http_client: &reqwest::Client,
-    events_tx: &broadcast::Sender<String>,
-    capability_index: &crate::gateway::capability::CapabilityIndex,
-    relay_urls: &[String],
-    ttl: Duration,
-    probe_timeout: Duration,
-) {
+struct RelayPollContext<'a> {
+    registry: &'a Arc<parking_lot::RwLock<RelayInstanceRegistry>>,
+    http_client: &'a reqwest::Client,
+    events_tx: &'a broadcast::Sender<String>,
+    capability_index: &'a crate::gateway::capability::CapabilityIndex,
+    audit_chain: &'a MiddlewareChain,
+    config: &'a RelayPollerConfig,
+}
+
+async fn poll_relays_once(ctx: RelayPollContext<'_>) {
     let now = SystemTime::now();
-    for relay_url in relay_urls {
+    for relay_url in &ctx.config.urls {
         let relay_key = normalise_relay_key(relay_url);
-        let fetched = match fetch_relay_entries(http_client, relay_url, probe_timeout).await {
+        let fetched = match fetch_relay_entries(
+            ctx.http_client,
+            relay_url,
+            ctx.config.probe_timeout,
+        )
+        .await
+        {
             Ok(entries) => entries,
             Err(err) => {
                 tracing::debug!(relay = %relay_url, error = %err, "relay discovery poll failed");
@@ -232,26 +240,50 @@ async fn poll_relays_once(
             .iter()
             .map(|entry| entry.tunnel_id.clone())
             .collect();
+        let mut attach_events = Vec::new();
         {
-            let mut guard = registry.write();
+            let mut guard = ctx.registry.write();
             let removed = guard.remove_missing_for_relay(&relay_key, &active_tunnel_ids);
             let mut changed = !removed.is_empty();
             for instance_id in removed {
-                capability_index.remove_instance(instance_id);
+                ctx.capability_index.remove_instance(instance_id);
             }
             for fetched_entry in fetched {
+                let dcc_type = fetched_entry.entry.dcc_type.clone();
+                let instance_id = fetched_entry.entry.instance_id.to_string();
+                let tunnel_id = fetched_entry.tunnel_id.clone();
                 let outcome = guard.upsert(
                     fetched_entry.entry,
                     relay_key.clone(),
                     fetched_entry.tunnel_id,
-                    ttl,
+                    ctx.config.ttl,
                     now,
                 );
                 changed |= outcome.changed;
+                if outcome.changed {
+                    attach_events.push((dcc_type, instance_id, tunnel_id));
+                }
             }
             if changed {
-                broadcast_resources_changed(events_tx);
+                broadcast_resources_changed(ctx.events_tx);
             }
+        }
+        for (dcc_type, instance_id, tunnel_id) in attach_events {
+            record_gateway_event(
+                ctx.audit_chain,
+                None,
+                "gateway.relay_attach",
+                Some(&dcc_type),
+                Some(&instance_id),
+                serde_json::json!({
+                    "operation": "relay_attach",
+                    "instance_id": instance_id,
+                    "relay": relay_key,
+                    "tunnel_id": tunnel_id,
+                }),
+                CallResult::from_tuple("relay_attach", false),
+            )
+            .await;
         }
     }
 }

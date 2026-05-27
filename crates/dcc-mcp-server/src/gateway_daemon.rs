@@ -104,6 +104,7 @@ pub fn build_gateway_config(args: &GatewayArgs, gateway_name: &str) -> GatewayCo
         server_version: env!("CARGO_PKG_VERSION").to_string(),
         registry_dir: args.registry_dir.clone(),
         adapter_dcc: Some("gateway".to_string()),
+        security: dcc_mcp_gateway::GatewaySecurityConfig::from_env(),
         admin_enabled: !args.no_admin,
         admin_path: args.admin_path.clone(),
         admin_persist: AdminPersistConfig {

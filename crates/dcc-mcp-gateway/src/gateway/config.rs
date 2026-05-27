@@ -3,6 +3,8 @@ use std::sync::Arc;
 
 use dcc_mcp_gateway_core::policy::GatewayPolicy;
 
+use super::security::GatewaySecurityConfig;
+
 /// Admin persistence configuration (SQLite + skill-path reload hook).
 ///
 /// Grouped to satisfy the Open/Closed Principle: adding new admin-persist
@@ -128,6 +130,13 @@ pub struct GatewayConfig {
     /// skill loading, and calls.
     pub policy: GatewayPolicy,
 
+    /// Gateway bearer-token/JWT authn and endpoint-scope authz policy.
+    ///
+    /// Empty by default for backwards-compatible localhost deployments. Daemon
+    /// and auto-gateway entry points populate this from
+    /// `DCC_MCP_GATEWAY_API_KEY(S)` / `DCC_MCP_GATEWAY_JWT_SECRET`.
+    pub security: GatewaySecurityConfig,
+
     /// Enable the read-only `/admin` web UI (issue #772).
     ///
     /// Default: `true`. Disable explicitly for locked-down deployments.
@@ -211,6 +220,7 @@ impl Default for GatewayConfig {
             adapter_dcc: None,
             middleware_chain: super::middleware::MiddlewareChain::new(),
             policy: GatewayPolicy::default(),
+            security: GatewaySecurityConfig::disabled(),
             admin_enabled: true,
             admin_path: "/admin".to_string(),
             health_check_interval_secs: 5,

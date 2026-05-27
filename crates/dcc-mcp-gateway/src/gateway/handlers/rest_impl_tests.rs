@@ -80,6 +80,7 @@ fn test_gateway_state_with_debug_routes(
         subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
         allow_unknown_tools: false,
         policy: Arc::new(crate::gateway::GatewayPolicy::default()),
+        security: Arc::new(crate::gateway::GatewaySecurityPolicy::disabled()),
         adapter_version: None,
         adapter_dcc: None,
         capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
@@ -722,6 +723,31 @@ async fn gateway_rest_workflow_responses_expose_trace_and_index_metadata() {
             .iter()
             .any(|followup| followup.kind == "call")
     );
+}
+
+#[tokio::test]
+async fn rest_call_rejects_missing_gateway_token_when_security_enabled() {
+    let mut state = test_gateway_state("1.2.3");
+    state.security = Arc::new(crate::gateway::GatewaySecurityPolicy::new(
+        crate::gateway::GatewaySecurityConfig::with_api_keys(["secret-token"]),
+    ));
+
+    let (status, body) = response_json(
+        handle_v1_call(
+            State(state),
+            HeaderMap::new(),
+            Json(json!({
+                "tool_slug": "maya.12345678.modeling__create_cube",
+                "arguments": {}
+            })),
+        )
+        .await,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body["error"], "unauthorized");
+    assert_eq!(body["error_detail"]["kind"], "unauthorized");
 }
 
 #[tokio::test]

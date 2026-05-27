@@ -78,6 +78,7 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 | `traces/core-1361-http-instance-registration.jsonl` | No | Gateway daemon accepts remote HTTP instance register → heartbeat → path-call resolution → deregister. |
 | `traces/core-1363-relay-tunnel-backend.jsonl` | Optional relay tunnel | Gateway sees active relay-backed tunnel rows and can describe tools through the relayed REST path. |
 | `traces/core-1364-unified-instances.jsonl` | Optional existing file backend | Gateway merged instance view reports at least file + HTTP sources with `by_source`, `instance_short`, and `source_meta`. |
+| `traces/core-1365-gateway-auth-negative.jsonl` | Optional auth-enabled gateway | Gateway security rejects unauthenticated HTTP registration and `/v1/call` attempts when bearer auth is configured. |
 | `traces/gateway-search-no-matches.jsonl` | No | Search with improbable token → `total: 0`, empty `hits`. |
 | `traces/gateway-rest-describe-bad-request-missing-tool-slug.jsonl` | No | `POST /v1/describe` with `{}` → `400`, `error.kind` = `bad-request`. |
 | `traces/gateway-rest-describe-unknown-slug.jsonl` | No | Well-formed unknown slug → `404`, `error.kind` = `unknown-slug`. |

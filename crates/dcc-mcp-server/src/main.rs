@@ -762,6 +762,7 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
             } else {
                 Some(args.app.clone())
             },
+            security: dcc_mcp_gateway::GatewaySecurityConfig::from_env(),
             admin_enabled: !args.no_admin,
             admin_path: args.admin_path.clone(),
             #[cfg(feature = "mdns")]
