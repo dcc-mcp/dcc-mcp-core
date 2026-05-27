@@ -27,13 +27,21 @@ from collections import deque
 from dataclasses import dataclass
 from dataclasses import field
 from enum import Enum
+import sys
 from threading import RLock
 import time
 from typing import Any
 from typing import Callable
 from typing import Iterable
 from typing import Mapping
-from typing import Protocol
+
+if sys.version_info >= (3, 8):
+    from typing import Protocol
+else:  # pragma: no cover - py3.7 only
+
+    class Protocol:  # type: ignore[no-redef]
+        pass
+
 
 __all__ = [
     "InMemoryMemoryStore",
