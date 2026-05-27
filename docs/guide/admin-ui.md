@@ -164,8 +164,8 @@ Markdown body for developer review.
 | `GET /admin/api/calls` | `application/json` | Recent tool calls, including compact/JSON token accounting when available (requires `AuditMiddleware`) |
 | `GET /admin/api/traces` | `application/json` | Recent per-call dispatch traces with payload sizes and token accounting; accepts `?limit=200` |
 | `GET /admin/api/traces/{request_id}` | `application/json` | Full waterfall for one recorded dispatch trace, including token accounting without storing unbounded payloads |
-| `GET /admin/api/traffic?limit=300` | `application/json` | Retained live `traffic.frame` envelopes from an explicit `admin_live` traffic sink |
-| `GET /admin/api/traffic/export?limit=1000` | `application/x-ndjson` | Retained live traffic frames as JSONL for local capture replay/diff workflows |
+| `GET /admin/api/traffic?limit=300` | `application/json` | `capture_status` plus retained metadata-only `traffic.frame` envelopes from an explicit `admin_live` traffic sink |
+| `GET /admin/api/traffic/export?limit=1000` | `application/x-ndjson` | Retained metadata-only traffic frames as JSONL for safe local inspection/diff workflows |
 | `GET /admin/api/debug-bundle/{request_id}` | `application/json` | One-stop debug bundle containing the trace, matching audit row, related activity, and hints |
 | `GET /admin/api/stats?range=1h\|24h\|7d` | `application/json` | Aggregated call counts, success rate, latency, top tools/instances/agents, and token-savings totals |
 | `GET /admin/api/governance?limit=300` | `application/json` | Effective gateway policy, traffic capture, redaction, middleware controls, and recent allow/deny/throttle decisions |
@@ -881,7 +881,13 @@ The HTML dashboard includes:
 - **Instance OpenAPI links**: Debug Workbench and instance cards expose `Inspector`, `spec`, and `docs` links generated from each backend `mcp_url`, so an operator can jump from MCP-level telemetry to the lower OpenAPI contract for that exact backend.
 - **Calls table**: request ids, error previews, and trace-detail links; DCC is displayed from the resolved backend slug when available, otherwise from explicit call arguments such as `dcc` / `dcc_type`.
 - **Trace drill-down**: `/admin/api/traces/{request_id}` exposes the full waterfall, optional agent/caller context, and bounded/redacted input/output payloads for one call.
-- **Traffic panel**: when a traffic config includes `kind: admin_live`, `/admin/api/traffic` exposes the retained in-memory frame ring and `/admin/api/traffic/export` downloads it as JSONL.
+- **Traffic panel**: `/admin/api/traffic` always reports `capture_status.state`
+  so operators can distinguish genuine no traffic from `capture_disabled`,
+  `capture_unavailable`, or filtered capture. When a traffic config includes
+  `kind: admin_live`, the endpoint exposes the retained in-memory frame ring as
+  metadata-only frames; `body.data` is omitted from the admin API/export by
+  default while method, route, request/trace/session ids, sizes, skip reasons,
+  and redaction paths remain visible.
 - **Governance panel**: shows read-only state, allowlists, traffic capture mode/sinks, production guardrails, redaction path summaries, middleware rate-limit controls, and recent allowed/denied/throttled/capture decisions.
 - **Logs panel**: groups normalized `contention`, `file`, and `audit` rows so operators can correlate routing events, rolling files, and tool calls in one timeline. File log reads are bounded to recent files and tail slices so the admin API does not scan unbounded historical logs.
 - **Durable audit option**: `DCC_MCP_GATEWAY_AUDIT_DIR` preserves the Calls and Traces panels across restarts without changing the JSON API shapes.

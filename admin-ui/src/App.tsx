@@ -283,9 +283,33 @@ type TrafficFrameAttributes = {
   };
 };
 
+type TrafficCaptureStatus = {
+  state?: 'captured' | 'capture_disabled' | 'capture_unavailable' | 'capture_filtered' | 'no_traffic' | string;
+  message?: string;
+  capture_enabled?: boolean;
+  live_sink_enabled?: boolean;
+  sink_count?: number;
+  subscriber_enabled?: boolean;
+  retained_frames?: number;
+  recent_decision_count?: number;
+  captured_decision_count?: number;
+  skipped_decision_count?: number;
+  skip_reasons?: string[];
+  redacted_path_count?: number;
+  redacted_paths?: string[];
+  safe_to_share?: boolean;
+  payload_policy?: string;
+  retention?: {
+    admin_live_configured?: boolean;
+    ring_buffer_capacity?: number | null;
+  };
+};
+
 type TrafficPayload = {
+  schema_version?: string;
   total?: number;
   frames?: TrafficFrameEnvelope[];
+  capture_status?: TrafficCaptureStatus;
   links?: TrafficLinks;
 };
 
@@ -2117,6 +2141,69 @@ function trafficFrameDetail(frame: TrafficFrameEnvelope): string {
   return JSON.stringify(frame, null, 2);
 }
 
+function trafficStatusLabelKey(status: TrafficCaptureStatus | null | undefined): MessageKey {
+  switch (status?.state) {
+    case 'captured':
+      return 'traffic.status.captured';
+    case 'capture_disabled':
+      return 'traffic.status.disabled';
+    case 'capture_unavailable':
+      return 'traffic.status.unavailable';
+    case 'capture_filtered':
+      return 'traffic.status.filtered';
+    case 'no_traffic':
+      return 'traffic.status.noTraffic';
+    default:
+      return 'traffic.status.unknown';
+  }
+}
+
+function trafficStatusDetailKey(status: TrafficCaptureStatus | null | undefined): MessageKey {
+  switch (status?.state) {
+    case 'captured':
+      return 'traffic.statusDetail.captured';
+    case 'capture_disabled':
+      return 'traffic.statusDetail.disabled';
+    case 'capture_unavailable':
+      return 'traffic.statusDetail.unavailable';
+    case 'capture_filtered':
+      return 'traffic.statusDetail.filtered';
+    case 'no_traffic':
+      return 'traffic.statusDetail.noTraffic';
+    default:
+      return 'traffic.statusDetail.unknown';
+  }
+}
+
+function trafficEmptyKey(status: TrafficCaptureStatus | null | undefined): MessageKey {
+  switch (status?.state) {
+    case 'capture_disabled':
+      return 'traffic.empty.disabled';
+    case 'capture_unavailable':
+      return 'traffic.empty.unavailable';
+    case 'capture_filtered':
+      return 'traffic.empty.filtered';
+    case 'no_traffic':
+      return 'traffic.empty.noTraffic';
+    default:
+      return 'traffic.empty.none';
+  }
+}
+
+function trafficStatusTone(status: TrafficCaptureStatus | null | undefined): 'ok' | 'warn' | 'err' | undefined {
+  switch (status?.state) {
+    case 'captured':
+    case 'no_traffic':
+      return 'ok';
+    case 'capture_disabled':
+    case 'capture_unavailable':
+    case 'capture_filtered':
+      return 'warn';
+    default:
+      return undefined;
+  }
+}
+
 function compactList(values: string[] | null | undefined, empty = 'Any'): string {
   const clean = (values ?? []).filter(Boolean);
   if (!clean.length) {
@@ -3457,6 +3544,20 @@ function App() {
     const transports = new Set(trafficFrames.map((frame) => frame.attributes?.transport).filter(Boolean)).size;
     return { sessions, redacted, bytes, transports };
   }, [trafficFrames]);
+  const trafficCaptureStatus = traffic?.capture_status;
+  const trafficStatusDetail = useMemo(() => {
+    const status = trafficCaptureStatus;
+    const base = t(trafficStatusDetailKey(status), {
+      captured: status?.captured_decision_count ?? 0,
+      skipped: status?.skipped_decision_count ?? 0,
+      reasons: compactList(status?.skip_reasons, t('traffic.statusDetail.noReasons')),
+    });
+    const redacted = status?.redacted_path_count ?? trafficSummary.redacted;
+    if (redacted > 0) {
+      return `${base} ${t('traffic.statusDetail.redacted', { count: redacted })}`;
+    }
+    return base;
+  }, [t, trafficCaptureStatus, trafficSummary.redacted]);
 
   const statsSummary = useMemo(() => {
     const failed = stats?.failed_calls ?? Math.max(0, (stats?.total_calls ?? 0) - (stats?.successful_calls ?? 0));
@@ -4982,13 +5083,19 @@ function App() {
             />
             <StatusLine text={copiedNotice || updatedAt.traffic} error={errors.traffic} />
             <div className="metric-grid compact">
+              <MetricTile
+                tone={trafficStatusTone(trafficCaptureStatus)}
+                label={t('traffic.metric.captureState')}
+                value={t(trafficStatusLabelKey(trafficCaptureStatus))}
+                detail={trafficStatusDetail}
+              />
               <MetricTile label={t('traffic.metric.retained')} value={trafficFrames.length} detail={t('stats.detail.visible', { visible: filteredTrafficFrames.length })} />
               <MetricTile label={t('traffic.metric.sessions')} value={trafficSummary.sessions} />
               <MetricTile label={t('traffic.metric.transports')} value={trafficSummary.transports} />
               <MetricTile tone={trafficSummary.redacted > 0 ? 'warn' : undefined} label={t('traffic.metric.redactions')} value={trafficSummary.redacted} />
               <MetricTile label={t('traffic.metric.payload')} value={formatBytes(trafficSummary.bytes)} />
             </div>
-            {trafficFrames.length === 0 ? <p className="empty">{t('traffic.empty.none')}</p> : filteredTrafficFrames.length === 0 ? (
+            {trafficFrames.length === 0 ? <p className="empty">{t(trafficEmptyKey(trafficCaptureStatus))}</p> : filteredTrafficFrames.length === 0 ? (
               <p className="empty">{t('traffic.empty.search')}</p>
             ) : (
               <div className="trace-layout">
