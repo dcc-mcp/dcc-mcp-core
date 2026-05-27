@@ -14,6 +14,7 @@ use crate::gateway::capability_service::{
 };
 use crate::gateway::response_codec::{compact_call_batch_payload, compact_describe_payload};
 use crate::gateway::search_telemetry::{SearchTelemetryInput, search_id_from_payload};
+use crate::gateway::state::{instance_source_counts, sort_instance_entries};
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};
 
 use super::rest_support::*;
@@ -250,12 +251,18 @@ fn gateway_yield_unavailable_response(
 /// REST-backed dynamic-capability API (#654).
 pub async fn handle_instances(State(gs): State<GatewayState>) -> impl IntoResponse {
     let registry = gs.registry.read().await;
-    let instances: Vec<Value> = gs
-        .live_instances(&registry)
-        .into_iter()
-        .map(|entry| gs.instance_json(&entry))
+    let mut entries = gs.live_instances(&registry);
+    sort_instance_entries(&mut entries);
+    let by_source = instance_source_counts(&entries);
+    let instances: Vec<Value> = entries
+        .iter()
+        .map(|entry| gs.instance_json(entry))
         .collect();
-    Json(json!({ "total": instances.len(), "instances": instances }))
+    Json(json!({
+        "total": instances.len(),
+        "by_source": by_source,
+        "instances": instances
+    }))
 }
 
 // ── REST endpoints ────────────────────────────────────────────────────────

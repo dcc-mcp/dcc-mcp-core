@@ -284,6 +284,134 @@ async fn live_instances_includes_relay_rows_between_mdns_and_http() {
     assert_eq!(row["mcp_url"], "http://remote.example:38765/mcp");
 }
 
+#[tokio::test]
+async fn gateway_instances_payload_unifies_all_sources_with_counts_and_meta() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let gs = test_gateway_state(registry.clone());
+    let file_id = uuid::Uuid::parse_str("11111111-1111-4111-8111-111111111111").unwrap();
+    let http_id = uuid::Uuid::parse_str("22222222-2222-4222-8222-222222222222").unwrap();
+    let mdns_id = uuid::Uuid::parse_str("33333333-3333-4333-8333-333333333333").unwrap();
+    let relay_id = uuid::Uuid::parse_str("44444444-4444-4444-8444-444444444444").unwrap();
+
+    {
+        let r = registry.read().await;
+        let mut file_entry = ServiceEntry::new("maya", "127.0.0.1", 1001);
+        file_entry.instance_id = file_id;
+        r.register(file_entry).unwrap();
+    }
+    {
+        gs.http_instance_registry
+            .write()
+            .register(
+                crate::gateway::http_registration::HttpInstanceRegistrationRequest {
+                    instance_id: http_id.to_string(),
+                    dcc_type: "maya".to_string(),
+                    mcp_url: "http://remote.example:1002/mcp".to_string(),
+                    capabilities_fingerprint: Some("http-fp".to_string()),
+                    adapter_version: None,
+                    scene: None,
+                    ttl_secs: None,
+                },
+                std::time::SystemTime::now(),
+            )
+            .unwrap();
+    }
+    {
+        let mut mdns_entry = ServiceEntry::new("maya", "192.168.1.40", 1003);
+        mdns_entry.instance_id = mdns_id;
+        mdns_entry.pid = None;
+        mdns_entry
+            .metadata
+            .insert("dcc_mcp_registry_source".to_string(), "mdns".to_string());
+        mdns_entry.metadata.insert(
+            "mcp_url".to_string(),
+            "http://192.168.1.40:1003/mcp".to_string(),
+        );
+        mdns_entry.metadata.insert(
+            "mdns_fullname".to_string(),
+            "dcc-mcp-maya._dcc-mcp._tcp.local.".to_string(),
+        );
+        gs.mdns_instance_registry.write().upsert(
+            mdns_entry,
+            "dcc-mcp-maya._dcc-mcp._tcp.local.",
+            Duration::from_secs(30),
+            std::time::SystemTime::now(),
+        );
+    }
+    {
+        let mut relay_entry = ServiceEntry::new("maya", "relay.example", 1004);
+        relay_entry.instance_id = relay_id;
+        relay_entry.pid = None;
+        relay_entry
+            .metadata
+            .insert("dcc_mcp_registry_source".to_string(), "relay".to_string());
+        relay_entry.metadata.insert(
+            "mcp_url".to_string(),
+            "https://relay.example/tunnel/relay-1/mcp".to_string(),
+        );
+        relay_entry
+            .metadata
+            .insert("relay_tunnel_id".to_string(), "relay-1".to_string());
+        gs.relay_instance_registry.write().upsert(
+            relay_entry,
+            "https://relay-admin.example",
+            "relay-1",
+            Duration::from_secs(30),
+            std::time::SystemTime::now(),
+        );
+    }
+
+    let payload = crate::gateway::native_resources::instances::build_payload(
+        &gs,
+        &crate::gateway::native_resources::instances::Query::List {
+            include_stale: false,
+            include_dead: false,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(payload["total"], 4);
+    assert_eq!(payload["by_source"]["file"], 1);
+    assert_eq!(payload["by_source"]["http"], 1);
+    assert_eq!(payload["by_source"]["mdns"], 1);
+    assert_eq!(payload["by_source"]["relay"], 1);
+
+    let rows = payload["instances"].as_array().unwrap();
+    let sources: Vec<_> = rows
+        .iter()
+        .map(|row| row["source"].as_str().unwrap())
+        .collect();
+    assert_eq!(sources, vec!["file", "http", "mdns", "relay"]);
+    assert_eq!(rows[0]["instance_short"], "11111111");
+    assert_eq!(rows[0]["mcp_url"], "http://127.0.0.1:1001/mcp");
+    assert!(rows[0]["source_meta"].as_object().unwrap().is_empty());
+    assert_eq!(
+        rows[1]["source_meta"]["capabilities_fingerprint"],
+        "http-fp"
+    );
+    assert_eq!(
+        rows[2]["source_meta"]["mdns_fullname"],
+        "dcc-mcp-maya._dcc-mcp._tcp.local."
+    );
+    assert_eq!(rows[3]["source_meta"]["relay_tunnel_id"], "relay-1");
+    assert_eq!(
+        rows[3]["metadata"]["mcp_url"],
+        "https://relay.example/tunnel/relay-1/mcp"
+    );
+
+    let single = crate::gateway::native_resources::instances::build_payload(
+        &gs,
+        &crate::gateway::native_resources::instances::Query::Single {
+            instance_id: "44444444".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(single["source"], "relay");
+    assert_eq!(single["instance_short"], "44444444");
+}
+
 /// Regression test for issue #419: when the gateway process is also a
 /// DCC instance (e.g. Maya that won the gateway election), its own
 /// plain-instance row must be hidden from `live_instances` so the

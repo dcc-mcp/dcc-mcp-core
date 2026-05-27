@@ -7,7 +7,7 @@
 
 use serde_json::{Value, json};
 
-use super::super::state::GatewayState;
+use super::super::state::{GatewayState, instance_source_counts, sort_instance_entries};
 use super::util::{parse_bool, parse_query, split_uri};
 
 /// Root URI for the gateway-native instance list.
@@ -102,8 +102,8 @@ pub async fn build_payload(gs: &GatewayState, query: &Query) -> Result<Value, St
             };
 
             let mut stale_count: usize = 0;
-            let mut instances: Vec<Value> = raw
-                .iter()
+            let mut filtered: Vec<_> = raw
+                .into_iter()
                 .filter(|e| {
                     let stale = e.is_stale(gs.stale_timeout);
                     if stale {
@@ -111,34 +111,26 @@ pub async fn build_payload(gs: &GatewayState, query: &Query) -> Result<Value, St
                     }
                     *include_stale || !stale
                 })
-                .map(|e| gs.instance_json(e))
                 .collect();
+            sort_instance_entries(&mut filtered);
 
-            instances.sort_by(|a, b| {
-                a["dcc_type"]
-                    .as_str()
-                    .cmp(&b["dcc_type"].as_str())
-                    .then(a["port"].as_u64().cmp(&b["port"].as_u64()))
-            });
+            let by_source = instance_source_counts(&filtered);
+            let instances: Vec<Value> = filtered.iter().map(|e| gs.instance_json(e)).collect();
 
             Ok(json!({
                 "total":        instances.len(),
                 "stale_count":  stale_count,
                 "evicted_dead": evicted_dead,
+                "by_source":    by_source,
                 "instances":    instances,
             }))
         }
         Query::Single { instance_id } => {
             let reg = gs.registry.read().await;
-            let all = gs.live_instances(&reg);
-            let entry = all
-                .iter()
-                .find(|e| {
-                    let s = e.instance_id.to_string();
-                    s == *instance_id || s.starts_with(instance_id.as_str())
-                })
-                .ok_or_else(|| format!("Instance '{instance_id}' not found"))?;
-            Ok(gs.instance_json(entry))
+            let entry = gs
+                .resolve_instance(&reg, Some(instance_id.as_str()), None)
+                .map_err(|_| format!("Instance '{instance_id}' not found"))?;
+            Ok(gs.instance_json(&entry))
         }
     }
 }

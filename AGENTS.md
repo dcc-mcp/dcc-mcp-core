@@ -181,7 +181,7 @@ Gateway resources/prompts:
 | Hand off files between tools | `FileRef` + `artefact_put_file()` / `artefact_get_bytes()` |
 | Multi-DCC gateway | `McpHttpConfig(gateway_port=9765)` |
 | Choose `dcc-mcp-server` run mode | No subcommand or `auto` = per-DCC server + first-wins auto-gateway; `serve --no-auto-gateway` = per-DCC server only; `gateway` = machine-wide gateway daemon with no inline DCC execution |
-| Discover gateway DCC instances / direct MCP URLs | `resources/read uri="gateway://instances"` or `gateway://instances/{id}`; entries carry `mcp_url` and replace the removed `list_dcc_instances` / `get_dcc_instance` / `connect_to_dcc` tools |
+| Discover gateway DCC instances / direct MCP URLs | `resources/read uri="gateway://instances"` or `gateway://instances/{id}`; entries carry `instance_short`, `mcp_url`, `source`, and `source_meta`; list payloads include `by_source` and replace the removed `list_dcc_instances` / `get_dcc_instance` / `connect_to_dcc` tools |
 | Register a remote DCC with a gateway that cannot share `FileRegistry` | `POST /v1/instances/register` with `{instance_id, dcc_type, mcp_url, ttl_secs?}`; refresh with `/heartbeat`, remove with `/deregister`; `gateway://instances` marks these rows with `source: "http"` |
 | Advertise a same-LAN DCC for zero-config discovery | Build with the `mdns` feature, then run `dcc-mcp-server serve --advertise-mdns`; published DNS-SD TXT fields include `dcc`, `instance_id`, `version`, `mcp_path`, `adapter`, and `auth` (#1362) |
 | Discover same-LAN DCCs from the gateway | Build the gateway with the `mdns` feature and run `dcc-mcp-server gateway --discover-mdns`; rows are health-probed before joining `gateway://instances` as `source: "mdns"` and stay advisory behind HTTP registration (#1362) |

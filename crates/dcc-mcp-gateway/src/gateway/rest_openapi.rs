@@ -483,7 +483,8 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
                     "dcc_type": {"type": "string"},
                     "status": {"type": "string"},
                     "mcp_url": {"type": "string"},
-                    "source": {"type": "string", "enum": ["file", "http"]},
+                    "source": {"type": "string", "enum": ["file", "http", "mdns", "relay"]},
+                    "source_meta": {"type": "object", "additionalProperties": {"type": "string"}},
                     "lifecycle": {"type": "object", "additionalProperties": true},
                     "diagnostics": {"type": "object", "additionalProperties": true}
                 },
@@ -560,6 +561,16 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
                 "required": ["total", "instances"],
                 "properties": {
                     "total": {"type": "integer", "minimum": 0},
+                    "by_source": {
+                        "type": "object",
+                        "properties": {
+                            "file": {"type": "integer", "minimum": 0},
+                            "http": {"type": "integer", "minimum": 0},
+                            "mdns": {"type": "integer", "minimum": 0},
+                            "relay": {"type": "integer", "minimum": 0}
+                        },
+                        "additionalProperties": {"type": "integer", "minimum": 0}
+                    },
                     "instances": {
                         "type": "array",
                         "items": {"$ref": "#/components/schemas/GatewayInstance"}

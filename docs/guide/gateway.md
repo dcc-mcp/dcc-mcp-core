@@ -212,14 +212,50 @@ The gateway exposes the live DCC registry as a gateway-native MCP resource
 ```
 
 The payload includes live, stale, and unhealthy rows so clients can decide
-whether to route, reconnect, or ask the user to restart a DCC instance.
-Each entry already carries `mcp_url`, so clients that have read this
-resource can connect directly. Optional URI query parameters
-(`?include_stale=false`, `?include_dead=true`) match the legacy tool
-flags. `resources/list` advertises only root pointers for gateway-native
-families; it does not enumerate every instance-specific URI. Backend
-capability indexes refresh on demand before gateway `search` / `describe`,
-so instances registered after gateway startup are picked up without a restart.
+whether to route, reconnect, or ask the user to restart a DCC instance. Each
+entry already carries `mcp_url`, so clients that have read this resource can
+connect directly; the field is kept stable for existing clients. New clients
+should also read `instance_short`, `source`, and `source_meta`. List payloads
+include `by_source` counts:
+
+```json
+{
+  "total": 2,
+  "by_source": {"file": 1, "http": 1, "mdns": 0, "relay": 0},
+  "instances": [
+    {
+      "instance_id": "11111111-1111-4111-8111-111111111111",
+      "instance_short": "11111111",
+      "dcc_type": "maya",
+      "mcp_url": "http://127.0.0.1:8765/mcp",
+      "source": "file",
+      "source_meta": {}
+    }
+  ]
+}
+```
+
+Optional URI query parameters (`?include_stale=false`, `?include_dead=true`)
+match the legacy tool flags. `gateway://instances/{id}` accepts a full UUID,
+`instance_short`, or any unique UUID prefix accepted by gateway routing.
+`resources/list` advertises only root pointers for gateway-native families; it
+does not enumerate every instance-specific URI. Backend capability indexes
+refresh on demand before gateway `search` / `describe`, so instances registered
+after gateway startup are picked up without a restart.
+
+### Discovery Topologies (#1364)
+
+| Topology | Source | How it joins | Best fit |
+|----------|--------|--------------|----------|
+| Local process / same filesystem | `file` | DCC sidecar writes the shared `FileRegistry` | Single workstation and embedded DCC plugins |
+| Explicit remote | `http` | Adapter calls `/v1/instances/register`, then `/heartbeat` | Cross-process, cross-machine, VPN, or centrally managed deployments |
+| Same-LAN zero config | `mdns` | Sidecar advertises `_dcc-mcp._tcp.local.`, gateway browses with `--discover-mdns` | Local lab and workstation networks where multicast is allowed |
+| Behind NAT / firewall | `relay` | Gateway polls relay `/tunnels` and routes through `/tunnel/<id>/v1/*` | Remote artists, cloud DCC, and private networks with no inbound DCC port |
+
+If the same `instance_id` appears from more than one topology, the merged view
+keeps exactly one row. Conflict precedence is HTTP registration, relay, mDNS,
+then file registry. The row's `source_meta` carries per-source details such as
+`capabilities_fingerprint`, mDNS service names, or relay tunnel identifiers.
 
 ### Remote HTTP Instance Registration (#1361)
 

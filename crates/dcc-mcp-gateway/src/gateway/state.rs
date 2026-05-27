@@ -40,19 +40,22 @@
 //! See issue #845 for the follow-on Clean-Architecture crate split that
 //! builds on these sub-structs.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use tokio::sync::{RwLock, broadcast, watch};
 use uuid::Uuid;
 
-use dcc_mcp_gateway_core::policy::GatewayPolicy;
+use dcc_mcp_gateway_core::{naming::instance_short, policy::GatewayPolicy};
 
 use super::event_log::EventLog;
-use super::http_registration::{HttpInstanceRegistry, entry_mcp_url, entry_registry_source};
+use super::http_registration::{
+    HttpInstanceRegistry, MCP_URL_METADATA_KEY, REGISTRY_SOURCE_METADATA_KEY, entry_mcp_url,
+    entry_registry_source,
+};
 use super::instance_diagnostics::{InstanceDiagnostics, InstanceDiagnosticsStore};
 use super::mdns_discovery::MdnsInstanceRegistry;
 use super::relay_discovery::RelayInstanceRegistry;
@@ -73,6 +76,30 @@ pub use dcc_mcp_gateway_core::PendingCall;
 
 mod views;
 pub use views::{DiscoveryState, EventState, RoutingState, ServerState};
+
+pub(crate) fn sort_instance_entries(entries: &mut [ServiceEntry]) {
+    entries.sort_by(|a, b| {
+        a.dcc_type
+            .to_ascii_lowercase()
+            .cmp(&b.dcc_type.to_ascii_lowercase())
+            .then(a.port.cmp(&b.port))
+            .then(a.instance_id.to_string().cmp(&b.instance_id.to_string()))
+    });
+}
+
+pub(crate) fn instance_source_counts(entries: &[ServiceEntry]) -> Value {
+    let mut counts = BTreeMap::from([
+        ("file".to_string(), 0usize),
+        ("http".to_string(), 0usize),
+        ("mdns".to_string(), 0usize),
+        ("relay".to_string(), 0usize),
+    ]);
+    for entry in entries {
+        let source = entry_registry_source(entry).to_string();
+        *counts.entry(source).or_default() += 1;
+    }
+    json!(counts)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolveInstanceError {
@@ -663,6 +690,7 @@ pub fn entry_to_json(
     };
     let mut row = json!({
         "instance_id":     e.instance_id.to_string(),
+        "instance_short":  instance_short(&e.instance_id),
         // Derived `{dcc}@{version}-{short8}` (RFC #998 Addendum B).
         // Agents reading gateway://instances see DCC + version + short
         // ID inline without cross-referencing three separate fields.
@@ -672,6 +700,7 @@ pub fn entry_to_json(
         "port":            e.port,
         "mcp_url":         entry_mcp_url(e),
         "source":          entry_registry_source(e),
+        "source_meta":     source_meta_json(e),
         "status":          status,
         // ── document / scene ───────────────────────────────────────────────
         // `scene` is the active / primary document (same field as before).
@@ -718,6 +747,20 @@ pub fn entry_to_json(
             super::instance_diagnostics::InstanceDiagnosticsStore::to_json_value(diag);
     }
     row
+}
+
+fn source_meta_json(entry: &ServiceEntry) -> Value {
+    let mut source_meta = Map::new();
+    for (key, value) in &entry.metadata {
+        if matches!(
+            key.as_str(),
+            MCP_URL_METADATA_KEY | REGISTRY_SOURCE_METADATA_KEY
+        ) {
+            continue;
+        }
+        source_meta.insert(key.clone(), Value::String(value.clone()));
+    }
+    Value::Object(source_meta)
 }
 
 #[cfg(test)]
