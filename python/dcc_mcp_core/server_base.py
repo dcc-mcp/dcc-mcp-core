@@ -29,6 +29,7 @@ from dcc_mcp_core._core import get_app_skill_paths_from_env
 from dcc_mcp_core._core import get_local_skills_dir
 from dcc_mcp_core._core import get_skill_paths_from_env
 from dcc_mcp_core._core import get_skills_dir
+from dcc_mcp_core._lifecycle_events import LifecycleEventDispatcher
 from dcc_mcp_core._server import FileLoggingManager
 from dcc_mcp_core._server import JobPersistenceManager
 from dcc_mcp_core._server import ServerLifecycleController
@@ -103,6 +104,10 @@ class DccServerBase:
         self._execution_bridge: HostExecutionBridge | None = execution.bridge
         self._dcc_dispatcher: BaseDccCallableDispatcher | None = execution.dispatcher
         self._standalone_main_thread: bool = execution.standalone_main_thread
+        self._lifecycle_events = LifecycleEventDispatcher(
+            options.dcc_name,
+            lambda: getattr(self, "_lifecycle_hooks", None),
+        )
 
         self._inprocess_executor_registered: bool = False
         self._cached_hwnd: int | None = None
@@ -657,9 +662,42 @@ class DccServerBase:
         dcc: str | None = None,
         scope: str | None = None,
         limit: int | None = None,
+        *,
+        session_id: str | None = None,
     ) -> list[Any]:
         """Search for skills by query, tags, DCC, scope, and/or limit."""
-        return self._skill_client.search_skills(query=query, tags=tags, dcc=dcc, scope=scope, limit=limit)
+        initial_tags = list(tags) if tags is not None else None
+        before = self.dispatch_lifecycle_event(
+            "before_search",
+            {
+                "query": query,
+                "tags": initial_tags,
+                "dcc": dcc,
+                "scope": scope,
+                "limit": limit,
+            },
+            session_id=session_id,
+        )
+        effective_tags = before.get("tags", tags)
+        if effective_tags is not None and not isinstance(effective_tags, list):
+            effective_tags = list(effective_tags)
+        results = self._skill_client.search_skills(
+            query=before.get("query", query),
+            tags=effective_tags,
+            dcc=before.get("dcc", dcc),
+            scope=before.get("scope", scope),
+            limit=before.get("limit", limit),
+        )
+        self.dispatch_lifecycle_event(
+            "after_search",
+            {
+                **before,
+                "result_count": len(results),
+                "zero_results": len(results) == 0,
+            },
+            session_id=session_id,
+        )
+        return results
 
     def load_skill(self, name: str) -> bool:
         """Load a skill by name."""
@@ -705,12 +743,10 @@ class DccServerBase:
         """Bind a :class:`~dcc_mcp_core.lifecycle_hooks.LifecycleHooks` registry.
 
         The registry's ``BEFORE_SKILL_LOAD`` and ``AFTER_SKILL_LOAD`` handlers
-        are bridged to the existing skill-load transform / after-load setters
-        so adapters get a single typed surface across discovery, load, and
-        tool-call hook points (issue #1337). Other event types are still
-        registered and will be dispatched by downstream subsystems
-        (#1325 escape-hatch demotion, #1336 capability graph, #1334 memory
-        layers).
+        are bridged to the existing skill-load transform / after-load setters.
+        ``search_skills`` emits search hooks, and adapters can use the
+        ``dispatch_*`` helpers below to bridge host-owned session and tool-call
+        boundaries through the same typed surface (issue #1337).
 
         Returns the registry, so callers can chain
         ``register_lifecycle_hooks(LifecycleHooks()).on(event, handler)``.
@@ -749,6 +785,63 @@ class DccServerBase:
     def lifecycle_hooks(self) -> Any | None:
         """Return the :class:`LifecycleHooks` registered by ``register_lifecycle_hooks``."""
         return getattr(self, "_lifecycle_hooks", None)
+
+    def dispatch_lifecycle_event(
+        self,
+        event: Any,
+        payload: dict[str, Any] | None = None,
+        *,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Dispatch a typed lifecycle event through the registered hooks.
+
+        Hook failures follow :class:`LifecycleHooks` semantics: unexpected
+        exceptions are logged and swallowed, while ``HookDeny`` from policy
+        events propagates to the caller. The returned dict is the mutable
+        payload after ``before_*`` handlers had a chance to enrich it.
+        """
+        return self._lifecycle_events.dispatch(event, payload=payload, session_id=session_id)
+
+    def dispatch_session_start(
+        self,
+        *,
+        session_id: str,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Emit ``on_session_start`` for adapters with explicit agent sessions."""
+        return self.dispatch_lifecycle_event("on_session_start", payload, session_id=session_id)
+
+    def dispatch_session_end(
+        self,
+        *,
+        session_id: str,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Emit ``on_session_end`` so memory/telemetry consumers can compact state."""
+        return self.dispatch_lifecycle_event("on_session_end", payload, session_id=session_id)
+
+    def dispatch_before_tool_call(
+        self,
+        tool_name: str,
+        *,
+        payload: dict[str, Any] | None = None,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Emit ``before_tool_call`` before adapter-owned tool execution."""
+        event_payload = {"tool_name": tool_name, **(payload or {})}
+        return self.dispatch_lifecycle_event("before_tool_call", event_payload, session_id=session_id)
+
+    def dispatch_after_tool_call(
+        self,
+        tool_name: str,
+        *,
+        ok: bool,
+        payload: dict[str, Any] | None = None,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Emit ``after_tool_call`` after adapter-owned tool execution."""
+        event_payload = {"tool_name": tool_name, "ok": bool(ok), **(payload or {})}
+        return self.dispatch_lifecycle_event("after_tool_call", event_payload, session_id=session_id)
 
     def unload_skill(self, name: str) -> bool:
         """Unload a skill by name."""
