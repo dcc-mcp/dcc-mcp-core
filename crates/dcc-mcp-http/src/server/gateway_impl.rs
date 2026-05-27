@@ -47,6 +47,9 @@ pub(crate) async fn start_gateway_runner(
         health_check_interval_secs: 5,
         health_check_failures: 2,
         admin_persist: dcc_mcp_gateway::AdminPersistConfig::default(),
+        mdns_discovery_enabled: false,
+        mdns_ttl_secs: 30,
+        mdns_probe_timeout_ms: 2_000,
     };
 
     let runner = match GatewayRunner::new(gateway_config) {

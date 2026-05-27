@@ -83,6 +83,11 @@ pub(crate) struct ServerArgs {
     #[arg(long, default_value = "127.0.0.1")]
     pub(crate) host: String,
 
+    /// Advertise this per-DCC MCP server on the LAN via mDNS/DNS-SD.
+    #[cfg(feature = "mdns")]
+    #[arg(long, env = "DCC_MCP_ADVERTISE_MDNS", default_value = "false")]
+    pub(crate) advertise_mdns: bool,
+
     /// Write the server process ID to this file while running.
     #[arg(long, value_name = "PATH")]
     pub(crate) pid_file: Option<PathBuf>,
@@ -297,6 +302,24 @@ mod tests {
         assert_eq!(server.gateway_port, 0);
     }
 
+    #[cfg(feature = "mdns")]
+    #[test]
+    fn serve_accepts_advertise_mdns_flag() {
+        let parsed = Args::try_parse_from([
+            "dcc-mcp-server",
+            "serve",
+            "--app",
+            "maya",
+            "--advertise-mdns",
+        ])
+        .unwrap();
+
+        let Some(SubCmd::Serve(serve)) = parsed.command else {
+            panic!("expected serve subcommand");
+        };
+        assert!(serve.server.advertise_mdns);
+    }
+
     #[test]
     fn root_server_flags_conflict_with_non_server_subcommands() {
         let error =
@@ -312,5 +335,17 @@ mod tests {
             Args::try_parse_from(["dcc-mcp-server", "gateway", "--app", "maya"]).unwrap_err();
 
         assert_eq!(error.kind(), ErrorKind::UnknownArgument);
+    }
+
+    #[test]
+    #[cfg(all(feature = "gateway-daemon", feature = "mdns"))]
+    fn gateway_accepts_discover_mdns_flag() {
+        let parsed =
+            Args::try_parse_from(["dcc-mcp-server", "gateway", "--discover-mdns"]).unwrap();
+
+        let Some(SubCmd::Gateway(gateway)) = parsed.command else {
+            panic!("expected gateway subcommand");
+        };
+        assert!(gateway.discover_mdns);
     }
 }

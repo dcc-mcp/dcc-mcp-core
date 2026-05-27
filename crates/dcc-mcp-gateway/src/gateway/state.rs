@@ -54,6 +54,7 @@ use dcc_mcp_gateway_core::policy::GatewayPolicy;
 use super::event_log::EventLog;
 use super::http_registration::{HttpInstanceRegistry, entry_mcp_url, entry_registry_source};
 use super::instance_diagnostics::{InstanceDiagnostics, InstanceDiagnosticsStore};
+use super::mdns_discovery::MdnsInstanceRegistry;
 
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
@@ -133,6 +134,7 @@ impl fmt::Display for ResolveInstanceError {
 pub struct GatewayState {
     pub registry: Arc<RwLock<FileRegistry>>,
     pub http_instance_registry: Arc<parking_lot::RwLock<HttpInstanceRegistry>>,
+    pub mdns_instance_registry: Arc<parking_lot::RwLock<MdnsInstanceRegistry>>,
     pub stale_timeout: Duration,
     /// Per-backend request timeout for gateway fan-out calls (issue #314).
     ///
@@ -280,6 +282,7 @@ impl GatewayState {
         DiscoveryState {
             registry: &self.registry,
             http_instance_registry: &self.http_instance_registry,
+            mdns_instance_registry: &self.mdns_instance_registry,
             stale_timeout: self.stale_timeout,
             allow_unknown_tools: self.allow_unknown_tools,
             own_host: &self.own_host,
@@ -356,7 +359,7 @@ impl GatewayState {
     /// sentinel and a regular `"maya"` row; exposing its own row here would
     /// cause the facade to fan `tools/list` / `tools/call` back into itself.
     pub fn live_instances(&self, registry: &FileRegistry) -> Vec<ServiceEntry> {
-        self.prune_expired_http_instances();
+        self.prune_expired_remote_instances();
         self.discovery().live_instances(registry)
     }
 
@@ -372,7 +375,7 @@ impl GatewayState {
     /// render a full picture and downgrade stale entries via the surface
     /// `status` field instead.
     pub fn all_instances(&self, registry: &FileRegistry) -> Vec<ServiceEntry> {
-        self.prune_expired_http_instances();
+        self.prune_expired_remote_instances();
         self.discovery().all_instances(registry)
     }
 
@@ -470,15 +473,14 @@ impl GatewayState {
         &self,
         registry: &FileRegistry,
     ) -> dcc_mcp_transport::TransportResult<(Vec<ServiceEntry>, usize)> {
-        self.prune_expired_http_instances();
+        self.prune_expired_remote_instances();
         self.discovery().read_alive_instances(registry)
     }
 
-    fn prune_expired_http_instances(&self) {
-        let expired = self
-            .http_instance_registry
-            .write()
-            .prune_expired(std::time::SystemTime::now());
+    fn prune_expired_remote_instances(&self) {
+        let now = std::time::SystemTime::now();
+        let mut expired = self.http_instance_registry.write().prune_expired(now);
+        expired.extend(self.mdns_instance_registry.write().prune_expired(now));
         for instance_id in expired {
             self.capability_index.remove_instance(instance_id);
         }

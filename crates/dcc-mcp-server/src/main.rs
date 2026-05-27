@@ -99,6 +99,8 @@ use dcc_mcp_skills::SkillCatalog;
 use dcc_mcp_skills::constants::resolve_registry_dcc_type;
 #[cfg(feature = "gateway-auto")]
 use dcc_mcp_skills::constants::{ENV_SKILL_PATHS, app_skill_paths_env_key};
+#[cfg(feature = "mdns")]
+use dcc_mcp_transport::discovery::mdns::{MdnsAdvertisement, MdnsAdvertiser};
 #[cfg(feature = "gateway-auto")]
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 use sysinfo::{Pid, ProcessesToUpdate, System};
@@ -694,6 +696,8 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
 
     let registry_dcc =
         resolve_registry_dcc_type((!args.app.is_empty()).then_some(args.app.as_str()));
+    #[cfg(feature = "mdns")]
+    let registry_instance_id = uuid::Uuid::new_v4();
 
     tracing::info!(
         "MCP server listening on http://{}:{}/mcp  (app={})",
@@ -701,6 +705,28 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
         handle.port,
         registry_dcc,
     );
+
+    #[cfg(feature = "mdns")]
+    let _mdns_advertiser = if args.advertise_mdns {
+        let advertisement = MdnsAdvertisement::new(
+            registry_dcc.as_str(),
+            registry_instance_id,
+            args.host.clone(),
+            handle.port,
+            env!("CARGO_PKG_VERSION"),
+            args.server_name.clone(),
+        )
+        .with_auth_scheme("none");
+        let advertiser = MdnsAdvertiser::start(advertisement)
+            .map_err(|err| anyhow::anyhow!("Failed to advertise mDNS service: {err}"))?;
+        tracing::info!(
+            fullname = %advertiser.fullname(),
+            "mDNS advertisement started"
+        );
+        Some(advertiser)
+    } else {
+        None
+    };
 
     // ── Register + gateway competition (via library) ──────────────────────
 
@@ -738,6 +764,8 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
             },
             admin_enabled: !args.no_admin,
             admin_path: args.admin_path.clone(),
+            #[cfg(feature = "mdns")]
+            mdns_discovery_enabled: false,
             admin_persist: AdminPersistConfig {
                 sqlite_path: std::env::var_os("DCC_MCP_GATEWAY_ADMIN_DB").map(PathBuf::from),
                 sqlite_retention_days: admin_retention,
@@ -751,6 +779,10 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
             .map_err(|e| anyhow::anyhow!("Failed to create GatewayRunner: {e}"))?;
 
         let mut entry = ServiceEntry::new(registry_dcc.as_str(), &args.host, handle.port);
+        #[cfg(feature = "mdns")]
+        {
+            entry.instance_id = registry_instance_id;
+        }
         entry.version = args.app_version.clone();
         entry.scene = args.scene.clone();
         entry

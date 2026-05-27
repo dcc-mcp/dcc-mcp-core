@@ -69,6 +69,7 @@ variable):
 | `--remote-host` | `DCC_MCP_GATEWAY_REMOTE_HOST` | `0.0.0.0` |
 | `--remote-port` | `DCC_MCP_GATEWAY_REMOTE_PORT` | `59765` (0 = disabled) |
 | `--registry-dir` | `DCC_MCP_REGISTRY_DIR` | OS default |
+| `--discover-mdns` | `DCC_MCP_DISCOVER_MDNS` | disabled; only when built with the `mdns` feature |
 | `--no-admin` | `DCC_MCP_NO_ADMIN` | admin enabled |
 | `--admin-path` | `DCC_MCP_ADMIN_PATH` | `/admin` |
 | `--stale-timeout-secs` | `DCC_MCP_STALE_TIMEOUT` | `30` |
@@ -254,6 +255,34 @@ the same `instance_id` exists in both sources. Registration endpoints pass
 through the same gateway router layers as the rest of `/v1/*` (body limit,
 caller attribution, rate limiting, and future auth middleware), so they do not
 create a separate security bypass.
+
+### Optional mDNS / DNS-SD Discovery (#1362)
+
+mDNS is an optional same-LAN discovery layer for environments where DCC
+sidecars and the gateway can see each other on the local multicast network. It
+is feature-gated behind the `mdns` Cargo feature and stays off unless both
+sides opt in:
+
+```bash
+# Per-DCC server: publish _dcc-mcp._tcp.local. with typed TXT metadata
+dcc-mcp-server serve --app maya --host 0.0.0.0 --advertise-mdns
+
+# Gateway daemon: browse the LAN and merge healthy rows into live_instances
+dcc-mcp-server gateway --host 0.0.0.0 --discover-mdns
+```
+
+Published services use the `_dcc-mcp._tcp.local.` service type. TXT metadata
+includes `dcc`, `instance_id`, `version`, `mcp_path`, `adapter`, and `auth` so
+the gateway can construct the MCP URL without DCC-specific assumptions. The
+gateway treats mDNS as advisory: every resolved service is probed through
+`GET /v1/healthz` before it is exposed in `GET /v1/instances` or
+`gateway://instances`, and live rows are marked with `source: "mdns"`.
+
+Use HTTP registration for cross-subnet, NAT, VPN, locked-down multicast, or
+centrally controlled deployments. Use mDNS only for local workstation and lab
+topologies where zero-configuration discovery is more useful than explicit
+registration. If the same `instance_id` appears from multiple sources, explicit
+HTTP registration wins over mDNS, and mDNS wins over a stale file-registry row.
 
 ### Optional Instance Pooling
 

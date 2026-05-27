@@ -12,6 +12,7 @@ use tokio::sync::{RwLock, broadcast, watch};
 
 use crate::gateway::event_log::EventLog;
 use crate::gateway::http_registration::HttpInstanceRegistry;
+use crate::gateway::mdns_discovery::MdnsInstanceRegistry;
 use crate::gateway::middleware::MiddlewareChain;
 use dcc_mcp_gateway_core::PendingCall;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
@@ -37,6 +38,8 @@ pub struct DiscoveryState<'a> {
     pub registry: &'a Arc<RwLock<FileRegistry>>,
     /// Shared in-memory registration source for remote HTTP-registered rows.
     pub http_instance_registry: &'a Arc<parking_lot::RwLock<HttpInstanceRegistry>>,
+    /// Shared in-memory registration source for mDNS-discovered rows.
+    pub mdns_instance_registry: &'a Arc<parking_lot::RwLock<MdnsInstanceRegistry>>,
     /// Heartbeat-age after which a registry row is considered stale.
     pub stale_timeout: Duration,
     /// When `false` (default), instances advertising `dcc_type == "unknown"`
@@ -137,7 +140,7 @@ impl<'a> DiscoveryState<'a> {
             })
             .collect();
 
-        prefer_live_sidecars(self.merge_http_entries(filtered, false))
+        prefer_live_sidecars(self.merge_remote_entries(filtered, false))
     }
 
     /// See [`GatewayState::all_instances`].
@@ -150,7 +153,7 @@ impl<'a> DiscoveryState<'a> {
                     && !crate::gateway::is_own_instance(e, self.own_host, self.own_port)
             })
             .collect();
-        self.merge_http_entries(filtered, true)
+        self.merge_remote_entries(filtered, true)
     }
 
     /// See [`GatewayState::read_alive_instances`].
@@ -166,14 +169,28 @@ impl<'a> DiscoveryState<'a> {
                     && !crate::gateway::is_own_instance(e, self.own_host, self.own_port)
             })
             .collect();
-        Ok((self.merge_http_entries(filtered, true), evicted))
+        Ok((self.merge_remote_entries(filtered, true), evicted))
     }
 
-    fn merge_http_entries(
+    fn merge_remote_entries(
         &self,
         mut file_entries: Vec<ServiceEntry>,
         include_unknown: bool,
     ) -> Vec<ServiceEntry> {
+        let mut mdns_entries = if include_unknown {
+            self.mdns_instance_registry
+                .read()
+                .all_entries(SystemTime::now())
+        } else {
+            self.mdns_instance_registry
+                .read()
+                .live_entries(SystemTime::now())
+                .into_iter()
+                .filter(|entry| {
+                    self.allow_unknown_tools || !entry.dcc_type.eq_ignore_ascii_case("unknown")
+                })
+                .collect()
+        };
         let http_entries = if include_unknown {
             self.http_instance_registry
                 .read()
@@ -189,7 +206,12 @@ impl<'a> DiscoveryState<'a> {
                 .collect()
         };
         let http_ids: HashSet<_> = http_entries.iter().map(|entry| entry.instance_id).collect();
-        file_entries.retain(|entry| !http_ids.contains(&entry.instance_id));
+        let mdns_ids: HashSet<_> = mdns_entries.iter().map(|entry| entry.instance_id).collect();
+        file_entries.retain(|entry| {
+            !http_ids.contains(&entry.instance_id) && !mdns_ids.contains(&entry.instance_id)
+        });
+        mdns_entries.retain(|entry| !http_ids.contains(&entry.instance_id));
+        file_entries.extend(mdns_entries);
         file_entries.extend(http_entries);
         file_entries
     }
