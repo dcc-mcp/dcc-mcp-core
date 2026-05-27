@@ -82,6 +82,77 @@ impl InstanceDiagnosticsStore {
     }
 }
 
+/// Host-execution readiness summary (issue #1331).
+///
+/// `ready` when every bit required to dispatch a host-thread action is green
+/// (`dispatcher`, `dcc`, `host_execution_bridge`, `main_thread_executor`);
+/// `not_ready` when at least one of those bits is red but readiness was
+/// probed; `unknown` when no readiness probe data has been observed yet
+/// (e.g. a pre-#660 backend that only exposes `GET /health`).
+///
+/// Lifted to the top level of the instance JSON so admin / agent surfaces
+/// can distinguish "online but execution bridge not attached" from
+/// "fully ready" without parsing the nested `diagnostics.readiness` block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostExecutionStatus {
+    Ready,
+    NotReady,
+    Unknown,
+}
+
+impl HostExecutionStatus {
+    /// Stable label used in JSON, logs, and admin counters.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::NotReady => "not_ready",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    /// Derive the summary from a cached [`InstanceDiagnostics`] entry.
+    #[must_use]
+    pub fn from_diagnostics(diag: Option<&InstanceDiagnostics>) -> Self {
+        let Some(report) = diag.and_then(|d| d.readiness.as_ref()) else {
+            return Self::Unknown;
+        };
+        if report.dispatcher
+            && report.dcc
+            && report.host_execution_bridge
+            && report.main_thread_executor
+        {
+            Self::Ready
+        } else {
+            Self::NotReady
+        }
+    }
+
+    /// Bounded list of readiness bits that are currently red, for the
+    /// admin/debug remediation hint. Empty when status is `Ready` or
+    /// `Unknown`.
+    #[must_use]
+    pub fn missing_bits(diag: Option<&InstanceDiagnostics>) -> Vec<&'static str> {
+        let Some(report) = diag.and_then(|d| d.readiness.as_ref()) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        if !report.dispatcher {
+            out.push("dispatcher");
+        }
+        if !report.dcc {
+            out.push("dcc");
+        }
+        if !report.host_execution_bridge {
+            out.push("host_execution_bridge");
+        }
+        if !report.main_thread_executor {
+            out.push("main_thread_executor");
+        }
+        out
+    }
+}
+
 /// Build the `backend` object attached to gateway call errors.
 #[must_use]
 pub fn backend_error_attachment(
@@ -162,6 +233,79 @@ mod tests {
         assert_eq!(
             diag.last_error.as_ref().unwrap().kind,
             "thread-affinity-violation"
+        );
+    }
+
+    // ── HostExecutionStatus (issue #1331) ─────────────────────────────────
+
+    fn diag_with(report: ReadinessReport) -> InstanceDiagnostics {
+        InstanceDiagnostics {
+            readiness: Some(report),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn host_execution_status_unknown_without_probe() {
+        assert_eq!(
+            HostExecutionStatus::from_diagnostics(None),
+            HostExecutionStatus::Unknown
+        );
+        assert_eq!(HostExecutionStatus::Unknown.label(), "unknown");
+        assert!(HostExecutionStatus::missing_bits(None).is_empty());
+    }
+
+    #[test]
+    fn host_execution_status_ready_when_all_bits_green() {
+        let diag = diag_with(ReadinessReport {
+            process: true,
+            dcc: true,
+            skill_catalog: true,
+            dispatcher: true,
+            host_execution_bridge: true,
+            main_thread_executor: true,
+        });
+        assert_eq!(
+            HostExecutionStatus::from_diagnostics(Some(&diag)),
+            HostExecutionStatus::Ready
+        );
+        assert_eq!(HostExecutionStatus::Ready.label(), "ready");
+        assert!(HostExecutionStatus::missing_bits(Some(&diag)).is_empty());
+    }
+
+    #[test]
+    fn host_execution_status_not_ready_lists_missing_bits() {
+        let diag = diag_with(ReadinessReport {
+            process: true,
+            dcc: false,
+            skill_catalog: true,
+            dispatcher: true,
+            host_execution_bridge: false,
+            main_thread_executor: true,
+        });
+        assert_eq!(
+            HostExecutionStatus::from_diagnostics(Some(&diag)),
+            HostExecutionStatus::NotReady
+        );
+        assert_eq!(HostExecutionStatus::NotReady.label(), "not_ready");
+        let missing = HostExecutionStatus::missing_bits(Some(&diag));
+        assert_eq!(missing, vec!["dcc", "host_execution_bridge"]);
+    }
+
+    #[test]
+    fn host_execution_status_skill_catalog_red_does_not_block_ready() {
+        // skill_catalog red is irrelevant for host execution; it gates discovery.
+        let diag = diag_with(ReadinessReport {
+            process: true,
+            dcc: true,
+            skill_catalog: false,
+            dispatcher: true,
+            host_execution_bridge: true,
+            main_thread_executor: true,
+        });
+        assert_eq!(
+            HostExecutionStatus::from_diagnostics(Some(&diag)),
+            HostExecutionStatus::Ready
         );
     }
 }
