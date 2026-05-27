@@ -16,7 +16,7 @@ adoption than text-only servers.
 |------|-------------|-------|
 | `render_frames` | Thumbnail gallery + stats table | Visual verification without leaving chat |
 | `get_scene_hierarchy` | Interactive tree | Browse 10k-node scene |
-| `diagnostics__screenshot` | Inline screenshot | More useful than a file path |
+| `dcc_diagnostics__screenshot` | Inline screenshot | More useful than a file path |
 | `analyze_keyframes` | Vega-Lite curve chart | Visual timing debug |
 | `get_render_stats` | Bar chart per layer | Faster than raw JSON |
 | `list_materials` | Material swatch grid | Visual selection |

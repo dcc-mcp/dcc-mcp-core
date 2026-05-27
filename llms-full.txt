@@ -2083,7 +2083,7 @@ for info in finder.enumerate():
 ### Instance-Bound Diagnostics
 
 When multiple DCC instances run side-by-side, each `DccServerBase` subclass
-should be bound to **its own** DCC process so `diagnostics__*` MCP tools and
+should be bound to **its own** DCC process so `dcc_diagnostics__*` MCP tools and
 the bundled `dcc-diagnostics` skill target the right window / PID.
 
 ```python
@@ -2103,10 +2103,10 @@ class MayaServer(DccServerBase):
 server = MayaServer(pid=12345, window_title="Autodesk Maya 2024")
 handle = server.start()
 # Registers the four diagnostics tools bound to this instance:
-#   diagnostics__screenshot
-#   diagnostics__audit_log
-#   diagnostics__tool_metrics   (renamed from diagnostics__action_metrics in 0.14.0)
-#   diagnostics__process_status
+#   dcc_diagnostics__screenshot
+#   dcc_diagnostics__audit_log
+#   dcc_diagnostics__tool_metrics   (renamed from dcc_diagnostics__action_metrics in 0.14.0)
+#   dcc_diagnostics__process_status
 ```
 
 For low-level servers that build on `McpHttpServer` directly, call
@@ -3138,10 +3138,10 @@ load_skill(skill_name="maya-geometry")
 
 ### 3. Diagnostics Tools (for debugging/verification)
 ```python
-diagnostics__screenshot    # verify visual state
-diagnostics__audit_log     # check execution history
-diagnostics__tool_metrics  # measure performance
-diagnostics__process_status # check DCC process health
+dcc_diagnostics__screenshot    # verify visual state
+dcc_diagnostics__audit_log     # check execution history
+dcc_diagnostics__tool_metrics  # measure performance
+dcc_diagnostics__process_status # check DCC process health
 ```
 
 ### 4. Direct Registry Access (last resort)

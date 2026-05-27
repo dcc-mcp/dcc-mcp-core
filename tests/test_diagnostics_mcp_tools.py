@@ -1,9 +1,9 @@
 """Tests for ``register_diagnostic_mcp_tools``.
 
 Covers:
-- All four ``diagnostics__*`` tools get registered in the server's ToolRegistry.
+- All four ``dcc_diagnostics__*`` tools get registered in the server's ToolRegistry.
 - Each tool has a handler wired through :class:`McpHttpServer.register_handler`.
-- ``diagnostics__process_status`` returns the instance context via its handler.
+- ``dcc_diagnostics__process_status`` returns the instance context via its handler.
 - Registration is idempotent when called twice.
 """
 
@@ -34,10 +34,10 @@ def server():
 
 
 EXPECTED_TOOLS = [
-    "diagnostics__screenshot",
-    "diagnostics__audit_log",
-    "diagnostics__tool_metrics",
-    "diagnostics__process_status",
+    "dcc_diagnostics__screenshot",
+    "dcc_diagnostics__audit_log",
+    "dcc_diagnostics__tool_metrics",
+    "dcc_diagnostics__process_status",
 ]
 
 
