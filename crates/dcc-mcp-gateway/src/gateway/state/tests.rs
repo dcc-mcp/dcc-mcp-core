@@ -545,6 +545,70 @@ fn test_entry_to_json_includes_pool_state() {
     assert!(json["pool"]["lease_expires_at"].as_u64().is_some());
 }
 
+// ── host_execution summary (issue #1331) ──────────────────────────────
+
+#[test]
+fn test_entry_to_json_host_execution_unknown_without_diagnostics() {
+    let e = ServiceEntry::new("maya", "127.0.0.1", 18813);
+    let json = entry_to_json(&e, Duration::from_secs(30), None);
+    assert_eq!(json["host_execution"]["status"].as_str(), Some("unknown"));
+    assert_eq!(
+        json["host_execution"]["missing_bits"]
+            .as_array()
+            .map(Vec::len),
+        Some(0)
+    );
+}
+
+#[test]
+fn test_entry_to_json_host_execution_ready_when_probe_green() {
+    use crate::gateway::instance_diagnostics::InstanceDiagnostics;
+    use dcc_mcp_skill_rest::ReadinessReport;
+
+    let e = ServiceEntry::new("maya", "127.0.0.1", 18814);
+    let diag = InstanceDiagnostics {
+        readiness: Some(ReadinessReport {
+            process: true,
+            dcc: true,
+            skill_catalog: true,
+            dispatcher: true,
+            host_execution_bridge: true,
+            main_thread_executor: true,
+        }),
+        ..Default::default()
+    };
+    let json = entry_to_json(&e, Duration::from_secs(30), Some(&diag));
+    assert_eq!(json["host_execution"]["status"].as_str(), Some("ready"));
+}
+
+#[test]
+fn test_entry_to_json_host_execution_not_ready_lists_missing_bits() {
+    use crate::gateway::instance_diagnostics::InstanceDiagnostics;
+    use dcc_mcp_skill_rest::ReadinessReport;
+
+    let e = ServiceEntry::new("maya", "127.0.0.1", 18815);
+    let diag = InstanceDiagnostics {
+        readiness: Some(ReadinessReport {
+            process: true,
+            dcc: false,
+            skill_catalog: true,
+            dispatcher: true,
+            host_execution_bridge: false,
+            main_thread_executor: true,
+        }),
+        ..Default::default()
+    };
+    let json = entry_to_json(&e, Duration::from_secs(30), Some(&diag));
+    assert_eq!(json["host_execution"]["status"].as_str(), Some("not_ready"));
+    let missing: Vec<&str> = json["host_execution"]["missing_bits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert_eq!(missing, vec!["dcc", "host_execution_bridge"]);
+}
+
 // ── display_id (RFC #998 Addendum B) ───────────────────────────────────
 
 /// `gateway://instances` carries the derived `{dcc}@{version}-{short8}`
