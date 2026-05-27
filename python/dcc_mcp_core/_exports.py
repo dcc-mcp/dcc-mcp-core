@@ -327,6 +327,10 @@ _LAZY: dict[str, str] = {
     # Escape-hatch demotion policy (issue #1325)
     "EscapeHatchInvocation": "dcc_mcp_core.escape_hatch_policy",
     "EscapeHatchPolicy": "dcc_mcp_core.escape_hatch_policy",
+    # Capability graph (issue #1336)
+    "CapabilityEdge": "dcc_mcp_core.capability_graph",
+    "CapabilityGraph": "dcc_mcp_core.capability_graph",
+    "EdgeKind": "dcc_mcp_core.capability_graph",
     # DccServerBase + factory
     "DccServerBase": "dcc_mcp_core.server_base",
     "create_dcc_server": "dcc_mcp_core.factory",
