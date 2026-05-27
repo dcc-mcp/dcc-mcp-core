@@ -2,7 +2,7 @@
 
 use serde_json::{Value, json};
 
-use dcc_mcp_gateway::namespace::skill_tool_name;
+use dcc_mcp_gateway_core::naming::skill_tool_name;
 use dcc_mcp_jsonrpc::{CallToolResult, ToolContent};
 use dcc_mcp_protocols::error_envelope::DccMcpError;
 
