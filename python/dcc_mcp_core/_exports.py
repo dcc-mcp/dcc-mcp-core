@@ -319,6 +319,11 @@ _LAZY: dict[str, str] = {
     "InlineExecution": "dcc_mcp_core._server.options",
     "ObservabilityOptions": "dcc_mcp_core._server.options",
     "StandaloneMainThreadExecution": "dcc_mcp_core._server.options",
+    # Lifecycle hooks (issue #1337)
+    "HookContext": "dcc_mcp_core.lifecycle_hooks",
+    "HookDeny": "dcc_mcp_core.lifecycle_hooks",
+    "HookEvent": "dcc_mcp_core.lifecycle_hooks",
+    "LifecycleHooks": "dcc_mcp_core.lifecycle_hooks",
     # DccServerBase + factory
     "DccServerBase": "dcc_mcp_core.server_base",
     "create_dcc_server": "dcc_mcp_core.factory",
