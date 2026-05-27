@@ -574,11 +574,11 @@ def register_diagnostic_mcp_tools(
 
     Registered tools
     ----------------
-    - ``diagnostics__screenshot`` — capture the DCC window (or full screen)
-    - ``diagnostics__audit_log`` — recent sandbox audit events
-    - ``diagnostics__tool_metrics`` — tool dispatch metrics (renamed from
-      ``diagnostics__action_metrics`` in 0.14.0, no compat alias)
-    - ``diagnostics__process_status`` — adapter process / DCC alive check
+    - ``dcc_diagnostics__screenshot`` — capture the DCC window (or full screen)
+    - ``dcc_diagnostics__audit_log`` — recent sandbox audit events
+    - ``dcc_diagnostics__tool_metrics`` — tool dispatch metrics (renamed from
+      ``dcc_diagnostics__action_metrics`` in 0.14.0, no compat alias)
+    - ``dcc_diagnostics__process_status`` — adapter process / DCC alive check
 
     Args:
         server: An :class:`McpHttpServer` instance (must expose a
@@ -613,19 +613,19 @@ def register_diagnostic_mcp_tools(
 
     specs = [
         (
-            "diagnostics__screenshot",
+            "dcc_diagnostics__screenshot",
             "Capture the DCC window (or full screen).",
             _SCREENSHOT_SCHEMA,
             _handle_take_screenshot,
         ),
-        ("diagnostics__audit_log", "Recent sandbox audit events.", _AUDIT_SCHEMA, _handle_get_audit_log),
+        ("dcc_diagnostics__audit_log", "Recent sandbox audit events.", _AUDIT_SCHEMA, _handle_get_audit_log),
         (
-            "diagnostics__tool_metrics",
+            "dcc_diagnostics__tool_metrics",
             "Tool dispatch telemetry metrics.",
             _METRICS_SCHEMA,
             _handle_get_tool_metrics,
         ),
-        ("diagnostics__process_status", "Adapter process and DCC alive status.", _PROC_SCHEMA, _handle_process_status),
+        ("dcc_diagnostics__process_status", "Adapter process and DCC alive status.", _PROC_SCHEMA, _handle_process_status),
     ]
 
     for name, desc, schema, handler in specs:

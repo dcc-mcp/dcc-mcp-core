@@ -51,8 +51,8 @@ from dcc_mcp_core.adapter_context import register_adapter_instruction_resources
 from dcc_mcp_core.hotreload import DccSkillHotReloader
 from dcc_mcp_core.plugin_manifest import build_plugin_manifest
 from dcc_mcp_core.script_execution import allow_script_materialization_root
-from dcc_mcp_core.script_materialization_tools import register_script_materialization_tools
 from dcc_mcp_core.skill import get_bundled_skill_paths
+from dcc_mcp_core.skills.builtin import register_all_builtin_skills
 
 _PKG_VERSION: str = getattr(_core, "__version__", "0.0.0-dev")
 
@@ -130,7 +130,7 @@ class DccServerBase:
 
         # Create the inner skill manager
         self._server: Any = create_skill_server(options.dcc_name, self._config)
-        self._register_agent_materialization_tools(options)
+        self._register_builtin_skills(options)
 
         # Wire execution bridge / dispatcher
         if execution.bridge is not None:
@@ -159,18 +159,20 @@ class DccServerBase:
         self._lifecycle = ServerLifecycleController(self)
         self._runtime = ServerRuntimeController(self)
 
-    # ── adapter context helpers (#608, #609) ────────────────────────────────
+    # ── builtin skill helpers ───────────────────────────────────────────────
 
-    def _register_agent_materialization_tools(self, options: DccServerOptions) -> None:
-        """Expose host-local script materialization to MCP/REST agents (#1222)."""
+    def _register_builtin_skills(self, options: DccServerOptions) -> None:
+        """Register standard built-in skills (diagnostics, introspect, etc)."""
         try:
-            register_script_materialization_tools(
+            register_all_builtin_skills(
                 self._server,
                 dcc_name=options.dcc_name,
-                instance_id=str(self._dcc_pid or options.dcc_name),
+                dcc_pid=self._dcc_pid,
+                dcc_window_handle=self._dcc_window_handle,
+                dcc_window_title=self._dcc_window_title,
             )
         except Exception as exc:
-            logger.warning("[%s] script materialization tool registration failed: %s", options.dcc_name, exc)
+            logger.warning("[%s] built-in skill registration failed: %s", options.dcc_name, exc)
 
     def register_adapter_instructions(self, instruction_set: Any) -> list[str]:
         """Register standard adapter instruction/capability resources."""
@@ -892,7 +894,6 @@ class DccServerBase:
             stop_from_atexit=DccServerBase._stop_from_atexit,
             atexit_register=atexit.register,
         )
-        self._runtime_controller().register_diagnostics_before_start()
 
         # Initialise in-process metrics just before start so the
         # ToolRecorder inside McpHttpServer can accumulate data from the
