@@ -229,6 +229,7 @@ The elected gateway exposes a read-only HTML dashboard at `GET /admin` and machi
 | `GET /v1/debug/bundles/{trace_id}` | Full-chain debug bundle across every retained request in a trace. |
 | `GET /admin/api/workflows?limit=200` | Group retained searches, describes, skill loads, calls, traces, and audits into agent session/workflow chains. |
 | `GET /admin/api/stats?range=1h\|24h\|7d` | Compute success rate, latency percentiles, and top tools/instances/agents from the trace log. |
+| `GET /admin/api/traffic?limit=300` / `GET /v1/debug/traffic` | Report traffic `capture_status` and retained metadata-only frames; zero rows mean genuine no traffic only when state is `no_traffic`. |
 | `GET /admin/api/governance?limit=300` / `GET /v1/debug/governance` | Inspect effective policy, read-only state, traffic capture guardrails, redaction paths, middleware quota state, and recent allowed/denied/throttled decisions. |
 | `GET /admin/api/workers` | Inspect per-instance cards from the live registry. |
 

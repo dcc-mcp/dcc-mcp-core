@@ -114,8 +114,8 @@ pub(crate) fn add_gateway_debug_openapi_paths(doc: &mut Value) {
         ),
         (
             "/v1/debug/traffic",
-            "List live traffic capture frames",
-            "Stable agent-facing retained traffic.frame list from an explicit admin_live traffic sink.",
+            "List live traffic capture state and metadata frames",
+            "Stable agent-facing capture_status plus retained metadata-only traffic.frame list from an explicit admin_live traffic sink.",
             list_params.clone(),
             false,
         ),
