@@ -331,6 +331,12 @@ _LAZY: dict[str, str] = {
     "CapabilityEdge": "dcc_mcp_core.capability_graph",
     "CapabilityGraph": "dcc_mcp_core.capability_graph",
     "EdgeKind": "dcc_mcp_core.capability_graph",
+    # Agent memory layers (issue #1334)
+    "InMemoryMemoryStore": "dcc_mcp_core.agent_memory",
+    "MemoryEntry": "dcc_mcp_core.agent_memory",
+    "MemoryLayer": "dcc_mcp_core.agent_memory",
+    "MemoryQuery": "dcc_mcp_core.agent_memory",
+    "MemoryRecorder": "dcc_mcp_core.agent_memory",
     # DccServerBase + factory
     "DccServerBase": "dcc_mcp_core.server_base",
     "create_dcc_server": "dcc_mcp_core.factory",
