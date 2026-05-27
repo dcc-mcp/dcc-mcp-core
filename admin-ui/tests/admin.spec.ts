@@ -813,6 +813,69 @@ async function mockAdminApi(page: Page) {
           },
         ],
       };
+    } else if (path === '/traffic') {
+      body = {
+        schema_version: 'dcc-mcp.admin.traffic.v1',
+        total: 1,
+        capture_status: {
+          state: 'captured',
+          message: 'Sanitized traffic metadata is retained in the admin live ring.',
+          capture_enabled: true,
+          live_sink_enabled: true,
+          sink_count: 1,
+          subscriber_enabled: false,
+          retained_frames: 1,
+          recent_decision_count: 2,
+          captured_decision_count: 1,
+          skipped_decision_count: 1,
+          skip_reasons: ['filter'],
+          redacted_path_count: 1,
+          redacted_paths: ['body.data.params.arguments.api_key'],
+          safe_to_share: true,
+          payload_policy: 'metadata-only',
+          retention: { admin_live_configured: true, ring_buffer_capacity: 5000 },
+        },
+        frames: [
+          {
+            schema_version: 1,
+            name: 'traffic.frame',
+            id: 'evt-traffic',
+            timestamp_ns: 1779091200000000000,
+            source: { service: 'dcc-mcp-gateway' },
+            correlation: {
+              request_id: 'req-traffic',
+              trace_id: 'trace-traffic',
+              session_id: 'session-1',
+            },
+            attributes: {
+              capture_id: 'cap_0000000000000001',
+              session_id: 'session-1',
+              direction: 'inbound',
+              leg: 'client_to_gateway',
+              transport: 'mcp-http',
+              http: {
+                method: 'POST',
+                url: '/mcp',
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+              },
+              mcp: { kind: 'request', method: 'tools/call', id: 'req-traffic' },
+              body: {
+                encoding: 'json',
+                size_bytes: 188,
+                redacted_paths: ['body.data.params.arguments.api_key'],
+                payload_omitted: true,
+                omission_reason: 'admin-traffic-metadata-only',
+              },
+            },
+          },
+        ],
+        links: {
+          admin_traffic_url: '/admin?panel=traffic',
+          traffic_api_url: '/admin/api/traffic',
+          traffic_export_jsonl_url: '/admin/api/traffic/export',
+        },
+      };
     } else if (path === '/logs') {
       body = {
         total: 1,
@@ -1291,6 +1354,23 @@ test.describe('Admin Page', () => {
     await panel.getByRole('button', { name: 'Trace' }).last().click();
     await expect(page).toHaveURL(/panel=traces/);
     await expect(page).toHaveURL(/trace=req-123/);
+  });
+
+  test('shows traffic capture state and metadata-only frames', async ({ page }) => {
+    await page.goto('/admin/?panel=traffic');
+    const panel = page.locator('.traffic-panel');
+    await expect(panel).toContainText('Capture state');
+    await expect(panel).toContainText('Captured');
+    await expect(panel).toContainText('1 captured');
+    await expect(panel).toContainText('1 redaction');
+    await expect(panel).toContainText('req-traffic');
+    await expect(panel).toContainText('tools/call');
+    await panel.getByRole('button', { name: 'View' }).click();
+    const detail = panel.locator('.payload-pre');
+    await expect(detail).toContainText('payload_omitted');
+    await expect(detail).toContainText('admin-traffic-metadata-only');
+    await expect(detail).not.toContainText('jsonrpc');
+    await expect(detail).not.toContainText('secret');
   });
 
   test('updates stats when the range selector changes', async ({ page }) => {

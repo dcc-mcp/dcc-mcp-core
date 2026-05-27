@@ -29,6 +29,10 @@ If a call is denied, throttled, or unexpectedly redacted, inspect
 `GET /v1/debug/governance` before retrying. It reports the effective read-only
 policy, DCC/skill/tool allowlists, traffic capture mode and redaction paths,
 middleware quota pressure, and recent allow/deny/throttle/capture decisions.
+Use `GET /v1/debug/traffic` when the admin Traffic panel shows no rows: its
+`capture_status.state` distinguishes genuine `no_traffic` from
+`capture_disabled`, `capture_unavailable`, or filtered capture, and retained
+frames are metadata-only by default.
 
 ### Host / connector wrappers (common mistakes)
 
