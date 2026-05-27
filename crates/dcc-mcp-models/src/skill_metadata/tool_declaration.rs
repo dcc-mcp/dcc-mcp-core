@@ -4,6 +4,7 @@ fn is_default_affinity(affinity: &ThreadAffinity) -> bool {
 
 use serde::{Deserialize, Serialize};
 
+use super::skill_recall::{RiskLevel, SideEffects, ToolRole};
 use super::{ExecutionMode, ThreadAffinity};
 
 #[cfg(feature = "stub-gen")]
@@ -360,6 +361,52 @@ pub struct ToolDeclaration {
         skip_serializing_if = "Vec::is_empty"
     )]
     pub search_aliases: Vec<String>,
+
+    // ── Recall metadata extensions (issue #1335) ──────────────────────────
+    //
+    // All fields are optional; missing values are equivalent to "unknown"
+    // and never block tool loading or dispatch.  See `skill_recall.rs` for
+    // type definitions.
+    /// One-line statement of what user intent this tool satisfies — fuels the
+    /// search ranker's intent-match boost (issue #1335).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intent: Option<String>,
+
+    /// Semantic role.  `EscapeHatch` flags this tool as a generic-scripting
+    /// fallback that the gateway should demote in default search ranking
+    /// (issue #1325).
+    #[serde(
+        default,
+        rename = "tool_role",
+        alias = "tool-role",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub tool_role: Option<ToolRole>,
+
+    /// Coarse risk classification.  When omitted the gateway infers a level
+    /// from `annotations.read_only_hint` / `destructive_hint`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub risk: Option<RiskLevel>,
+
+    /// Side-effect descriptor for this tool (issue #1335).  Falls back to the
+    /// skill-level `side_effects` when unset.
+    #[serde(
+        default,
+        rename = "side_effects",
+        alias = "side-effects",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub side_effects: Option<SideEffects>,
+
+    /// Artefact / object / scene-state tags this tool produces (issue #1335).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub produces: Vec<String>,
+
+    /// Required upstream capabilities or tool names that must run before
+    /// this one is meaningful (issue #1335).  Complements
+    /// `required_capabilities`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub requires: Vec<String>,
 }
 
 // ── ToolDeclaration custom deserializer (issue #344) ──────────────────────
@@ -469,6 +516,20 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
                 alias = "aliases"
             )]
             search_aliases: Vec<String>,
+
+            // ── Recall metadata (issue #1335) ─────────────────────────────
+            #[serde(default)]
+            intent: Option<String>,
+            #[serde(default, rename = "tool_role", alias = "tool-role")]
+            tool_role: Option<ToolRole>,
+            #[serde(default)]
+            risk: Option<RiskLevel>,
+            #[serde(default, rename = "side_effects", alias = "side-effects")]
+            side_effects: Option<SideEffects>,
+            #[serde(default)]
+            produces: Vec<String>,
+            #[serde(default)]
+            requires: Vec<String>,
         }
 
         let w = Wire::deserialize(deserializer)?;
@@ -519,6 +580,12 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
             annotations,
             required_capabilities: w.required_capabilities,
             search_aliases: w.search_aliases,
+            intent: w.intent,
+            tool_role: w.tool_role,
+            risk: w.risk,
+            side_effects: w.side_effects,
+            produces: w.produces,
+            requires: w.requires,
         })
     }
 }

@@ -408,6 +408,13 @@ fn test_skill_metadata_serde_round_trip() {
         stage: Some("authoring".to_string()),
         recipes_file: None,
         introspection_file: None,
+        intent: None,
+        recall_context: None,
+        preconditions: Vec::new(),
+        side_effects: None,
+        produces: Vec::new(),
+        requires: Vec::new(),
+        success_metrics: None,
     };
     let json = serde_json::to_string(&meta).unwrap();
     let back: SkillMetadata = serde_json::from_str(&json).unwrap();
