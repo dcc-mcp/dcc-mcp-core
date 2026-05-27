@@ -677,6 +677,17 @@ pub fn entry_to_json(
         },
         "stale":           stale,
     });
+    // ── host execution readiness (issue #1331) ────────────────────────────
+    //
+    // Always include this summary so admin/agent surfaces can branch on a
+    // single string without parsing the nested `diagnostics.readiness`
+    // block. Status is `unknown` when no readiness probe has reported yet.
+    let host_exec = super::instance_diagnostics::HostExecutionStatus::from_diagnostics(diagnostics);
+    let missing_bits = super::instance_diagnostics::HostExecutionStatus::missing_bits(diagnostics);
+    row["host_execution"] = json!({
+        "status": host_exec.label(),
+        "missing_bits": missing_bits,
+    });
     if let Some(diag) = diagnostics.filter(|d| {
         d.readiness.is_some() || d.last_error.is_some() || d.probed_at_unix_secs.is_some()
     }) {
