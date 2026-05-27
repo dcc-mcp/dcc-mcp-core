@@ -62,9 +62,9 @@ variable):
 
 Additional environment knobs:
 
-* `DCC_MCP_GATEWAY_ADMIN_DB` — explicit path for the admin SQLite store
+- `DCC_MCP_GATEWAY_ADMIN_DB` — explicit path for the admin SQLite store
   (defaults to a workspace-anchored location).
-* `DCC_MCP_GATEWAY_ADMIN_RETENTION_DAYS` — admin SQLite retention,
+- `DCC_MCP_GATEWAY_ADMIN_RETENTION_DAYS` — admin SQLite retention,
   clamped to `[1, 3650]`, default `30`.
 
 ### Daemon-mode guarantees
@@ -74,17 +74,17 @@ The standalone daemon path stamps the gateway with
 tiebreaking (see `version.rs` — real DCCs preempt the generic
 standalone). At runtime it satisfies the following:
 
-* **No DCC tool execution.** `dcc-mcp-gateway` imports only the
+- **No DCC tool execution.** `dcc-mcp-gateway` imports only the
   `EventBus` / `EventEnvelope` wire types from `dcc-mcp-actions`; it
   never owns a `ToolDispatcher` and never invokes a tool inline.
-* **No PyO3 / Python host bridge.** `cargo tree -p dcc-mcp-gateway`
+- **No PyO3 / Python host bridge.** `cargo tree -p dcc-mcp-gateway`
   contains zero of `pyo3`, `dcc-mcp-pybridge`, `dcc-mcp-host`,
   `dcc-mcp-sandbox`, or `dcc-mcp-capture`.
-* **Runs without any DCC backend.** `GET /health` returns `200 OK`
+- **Runs without any DCC backend.** `GET /health` returns `200 OK`
   with an empty registry. Regression covered by
   `gateway_daemon::tests::standalone_daemon_serves_health_without_any_backend`
   in `crates/dcc-mcp-server/src/gateway_daemon.rs`.
-* **Coexists with auto-gateway.** A DCC server built with
+- **Coexists with auto-gateway.** A DCC server built with
   `dcc-mcp-http` default features still elects itself when a daemon is
   absent (issue #1357 made the auto-gateway path a default-on cargo
   feature; turning it off lets the binary skip the gateway runtime
