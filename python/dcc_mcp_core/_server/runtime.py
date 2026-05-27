@@ -18,28 +18,6 @@ class ServerRuntimeController:
     def __init__(self, owner: Any) -> None:
         self._owner = owner
 
-    def register_diagnostics_before_start(self) -> None:
-        owner = self._owner
-        try:
-            register_diagnostic_handlers(
-                owner._server,
-                dcc_name=owner._dcc_name,
-                dcc_pid=owner._dcc_pid,
-                dcc_window_handle=owner._dcc_window_handle,
-                dcc_window_title=owner._dcc_window_title,
-                resolver=owner._resolve_window_handle,
-            )
-            register_diagnostic_mcp_tools(
-                owner._server,
-                dcc_name=owner._dcc_name,
-                dcc_pid=owner._dcc_pid,
-                dcc_window_handle=owner._dcc_window_handle,
-                dcc_window_title=owner._dcc_window_title,
-                resolver=owner._resolve_window_handle,
-            )
-        except Exception as exc:
-            logger.debug("[%s] register_diagnostic_* failed: %s", owner._dcc_name, exc)
-
     def start_gateway_election_if_needed(self) -> None:
         owner = self._owner
         gateway_port = getattr(owner._config, "gateway_port", 0)

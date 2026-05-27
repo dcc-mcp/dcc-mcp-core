@@ -508,28 +508,25 @@ class TestDccServerBase:
         assert callback is DccServerBase._stop_from_atexit
         assert ref() is server
 
-    def test_start_registers_diagnostics_before_server_start(self, tmp_path, monkeypatch):
-        server = self._make_server(tmp_path)
-        handlers = []
-        tools = []
+    def test_init_registers_builtin_skills(self, tmp_path, monkeypatch):
+        """Verify that __init__ calls register_all_builtin_skills."""
+        from dcc_mcp_core._server.options import DccServerOptions
+        from dcc_mcp_core.server_base import DccServerBase
 
-        monkeypatch.setattr(
-            "dcc_mcp_core._server.runtime.register_diagnostic_handlers",
-            lambda *args, **kwargs: handlers.append((args, kwargs)),
-        )
-        monkeypatch.setattr(
-            "dcc_mcp_core._server.runtime.register_diagnostic_mcp_tools",
-            lambda *args, **kwargs: tools.append((args, kwargs)),
-        )
+        calls = []
 
-        server.start()
+        def mock_register(*args, **kwargs):
+            calls.append((args, kwargs))
 
-        assert len(handlers) == 1
-        assert len(tools) == 1
-        assert handlers[0][0] == (server._server,)
-        assert tools[0][0] == (server._server,)
-        assert handlers[0][1]["dcc_name"] == server._dcc_name
-        assert tools[0][1]["resolver"] == server._resolve_window_handle
+        monkeypatch.setattr("dcc_mcp_core.server_base.register_all_builtin_skills", mock_register)
+        monkeypatch.setattr("dcc_mcp_core.server_base.create_skill_server", MagicMock())
+
+        opts = DccServerOptions.from_env("maya", tmp_path, port=0, gateway_port=0)
+        _ = DccServerBase(opts)
+
+        assert len(calls) == 1
+        assert "dcc_name" in calls[0][1]
+        assert calls[0][1]["dcc_name"] == "maya"
 
     def test_start_enables_gateway_election_through_runtime_controller(self, tmp_path, monkeypatch):
         server = self._make_server(tmp_path)

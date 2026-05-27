@@ -1,0 +1,98 @@
+tools:
+  - name: list_windows
+    description: \"List every top-level Qt window with object name, class, visibility, geometry, and child count.\"
+    input_schema:
+      type: object
+      properties:
+        include_hidden:
+          type: boolean
+          default: false
+        max_results:
+          type: integer
+          default: 64
+          minimum: 1
+          maximum: 256
+    read_only: true
+    source_file: scripts/list_windows.py
+
+  - name: find_widgets
+    description: \"Locate Qt widgets by object name (exact/substring/regex), class name, and visibility. Bounded result count.\"
+    input_schema:
+      type: object
+      properties:
+        object_name:
+          type: string
+        object_name_match:
+          type: string
+          enum: [exact, substring, regex]
+          default: exact
+        class_name:
+          type: string
+        visible_only:
+          type: boolean
+          default: true
+        max_results:
+          type: integer
+          default: 64
+          minimum: 1
+          maximum: 1024
+    read_only: true
+    source_file: scripts/find_widgets.py
+
+  - name: describe_widget
+    description: \"Return a single Qt widget's structured state - class, geometry, flags, accessible name/description, bounded property snapshot.\"
+    input_schema:
+      type: object
+      properties:
+        widget_id:
+          type: string
+      required: [widget_id]
+    read_only: true
+    source_file: scripts/describe_widget.py
+
+  - name: snapshot_tree
+    description: \"Walk the Qt widget tree under a root and return it as a JSON-safe tree with depth and node-count budgets.\"
+    input_schema:
+      type: object
+      properties:
+        root_widget_id:
+          type: string
+        max_depth:
+          type: integer
+          default: 4
+          minimum: 0
+          maximum: 16
+        max_nodes:
+          type: integer
+          default: 256
+          minimum: 1
+          maximum: 4096
+    read_only: true
+    source_file: scripts/snapshot_tree.py
+
+  - name: wait_for_widget
+    description: \"Poll for a Qt widget by name/class with visible/enabled gates and bounded timeout.\"
+    input_schema:
+      type: object
+      properties:
+        object_name:
+          type: string
+        class_name:
+          type: string
+        visible:
+          type: boolean
+          default: true
+        enabled:
+          type: boolean
+          default: true
+        timeout_ms:
+          type: integer
+          default: 5000
+          minimum: 0
+          maximum: 60000
+        poll_interval_ms:
+          type: integer
+          default: 100
+          minimum: 25
+    read_only: true
+    source_file: scripts/wait_for_widget.py
