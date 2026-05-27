@@ -21,6 +21,7 @@ use dcc_mcp_skill_rest::ReadinessProbe;
 use dcc_mcp_skills::SkillCatalog;
 
 mod background_impl;
+#[cfg(feature = "auto-gateway")]
 mod gateway_impl;
 mod spawn_impl;
 
@@ -65,8 +66,13 @@ pub struct McpServerHandle {
     pub port: u16,
     pub bind_addr: String,
     /// `true` if this process won the gateway port competition.
+    ///
+    /// Always `false` when the crate is built with
+    /// `--no-default-features` (the `auto-gateway` feature is off and
+    /// `gateway_port` becomes a no-op).
     pub is_gateway: bool,
     // Keep the GatewayHandle alive so background tasks keep running.
+    #[cfg(feature = "auto-gateway")]
     _gateway: Option<dcc_mcp_gateway::GatewayHandle>,
 }
 
@@ -79,6 +85,7 @@ impl McpServerHandle {
         // than waiting the full `stale_timeout_secs` (default 30 s). The
         // call is idempotent — the `GatewayHandle::Drop` path is still a
         // correctness safety net for callers who skip `shutdown()`.
+        #[cfg(feature = "auto-gateway")]
         if let Some(gw) = self._gateway.as_mut() {
             gw.deregister_all();
         }
@@ -632,13 +639,22 @@ impl McpHttpServer {
         );
 
         // ── Optional gateway competition ──────────────────────────────────────
+        //
+        // Gated by the `auto-gateway` feature (default-on, issue #1357).
+        // When the feature is off, `gateway_port` is a no-op and this
+        // server runs purely as a per-DCC backend.
+        #[cfg(feature = "auto-gateway")]
         let gateway_handle =
             gateway_impl::start_gateway_runner(&self.config, port, &self.live_meta).await;
 
+        #[cfg(feature = "auto-gateway")]
         let is_gateway = gateway_handle
             .as_ref()
             .map(|h| h.is_gateway)
             .unwrap_or(false);
+
+        #[cfg(not(feature = "auto-gateway"))]
+        let is_gateway = false;
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
@@ -670,6 +686,7 @@ impl McpHttpServer {
             port,
             bind_addr: actual_bind,
             is_gateway,
+            #[cfg(feature = "auto-gateway")]
             _gateway: gateway_handle,
         })
     }

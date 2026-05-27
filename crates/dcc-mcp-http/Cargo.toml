@@ -18,7 +18,11 @@ dcc-mcp-protocols = { path = "../dcc-mcp-protocols" }
 dcc-mcp-jsonrpc = { path = "../dcc-mcp-jsonrpc" }
 dcc-mcp-job = { path = "../dcc-mcp-job" }
 dcc-mcp-skill-rest = { path = "../dcc-mcp-skill-rest" }
-dcc-mcp-gateway = { path = "../dcc-mcp-gateway", features = ["admin", "admin-persist-sqlite"] }
+# Optional via the `auto-gateway` feature (default-on). Embedders that
+# only need the per-DCC MCP HTTP server (no first-wins election, no
+# admin UI, no aggregation) can opt out with `default-features = false`
+# and drop the whole gateway code path / dependency tree (issue #1357).
+dcc-mcp-gateway = { path = "../dcc-mcp-gateway", features = ["admin", "admin-persist-sqlite"], optional = true }
 dcc-mcp-models = { path = "../dcc-mcp-models" }
 dcc-mcp-skills = { path = "../dcc-mcp-skills" }
 dcc-mcp-pybridge = { path = "../dcc-mcp-pybridge", optional = true }
@@ -90,14 +94,23 @@ dcc-mcp-sandbox = { path = "../dcc-mcp-sandbox" }
 pyo3 = { workspace = true, features = ["auto-initialize"] }
 
 [features]
-default = []
+default = ["auto-gateway"]
+# Wires the first-wins gateway election + aggregation runtime into
+# `McpHttpServer::start()` so a single embedded server can also act as
+# the LAN gateway (default behavior, issue #1357). Turning this off
+# drops the entire `dcc-mcp-gateway` dep — `gateway_port` becomes a
+# no-op and `cargo tree -p dcc-mcp-http --no-default-features` shows
+# no aggregation tier.
+auto-gateway = ["dep:dcc-mcp-gateway"]
 python-bindings = ["pyo3", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings", "dcc-mcp-artefact/python-bindings", "dep:dcc-mcp-pybridge", "dcc-mcp-pybridge/python-bindings", "dcc-mcp-host/python-bindings"]
 # Enable `pyo3-stub-gen` annotations on this crate's PyO3 types.
 stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]
 # Enable the Prometheus `/metrics` endpoint (issue #331). Pulls in the
 # matching `prometheus` feature of dcc-mcp-telemetry. Off by default so
-# zero Prometheus code compiles into the wheel when not requested.
-prometheus = ["dep:dcc-mcp-telemetry", "dcc-mcp-telemetry/prometheus", "dcc-mcp-gateway/prometheus", "dcc-mcp-http-server/prometheus"]
+# zero Prometheus code compiles into the wheel when not requested. The
+# `dcc-mcp-gateway?/prometheus` form only enables the gateway sub-
+# feature when `auto-gateway` already pulled the dep in.
+prometheus = ["dep:dcc-mcp-telemetry", "dcc-mcp-telemetry/prometheus", "dcc-mcp-gateway?/prometheus", "dcc-mcp-http-server/prometheus"]
 # Persist tracked Jobs in a SQLite database so they survive a server
 # restart (issue #328). Pulls in the bundled `rusqlite` driver via the
 # extracted `dcc-mcp-job` crate. Off by default — the wheel's default
