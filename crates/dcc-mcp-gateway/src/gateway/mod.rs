@@ -44,7 +44,6 @@ pub mod handlers;
 pub mod http_limits;
 pub mod instance_diagnostics;
 pub mod middleware;
-pub mod namespace;
 pub mod native_resources;
 pub mod openapi;
 pub mod proxy;

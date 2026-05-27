@@ -9,8 +9,7 @@
 //! `scene://abcdef01/current`.
 //!
 //! This module is pure domain code: no HTTP, no registry access, and no gateway
-//! runtime state. The gateway crate re-exports these helpers from its historical
-//! `gateway::namespace` path.
+//! runtime state.
 
 use uuid::Uuid;
 

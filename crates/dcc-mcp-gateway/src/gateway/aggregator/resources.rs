@@ -14,13 +14,14 @@ use std::time::Duration;
 use futures::future::join_all;
 use serde_json::{Value, json};
 
+use dcc_mcp_gateway_core::resource_uri::encode_resource_uri;
+use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus};
+
 use super::super::backend_client::fetch_resources;
 use super::super::handlers::resources::GATEWAY_EVENTS_URI;
-use super::super::namespace::encode_resource_uri;
 use super::super::native_resources::pointers_for_list as gateway_native_pointers;
 use super::super::state::GatewayState;
 use super::helpers::live_backends;
-use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus};
 
 fn backend_mcp_url(entry: &ServiceEntry) -> String {
     format!("http://{}:{}/mcp", entry.host, entry.port)
