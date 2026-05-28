@@ -909,6 +909,7 @@ mod tests {
                 crate::gateway::search_telemetry::SearchTelemetryStore::new(),
             ),
             debug_routes_enabled: false,
+            auth: std::sync::Arc::new(crate::gateway::security::GatewayAuth::disabled()),
             #[cfg(feature = "prometheus")]
             gateway_metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
         }
