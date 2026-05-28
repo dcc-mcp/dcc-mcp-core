@@ -126,6 +126,102 @@ standalone). At runtime it satisfies the following:
               └────────────────────────────────────────┘
 ```
 
+## Topology recipes (issue #1366)
+
+Four named recipes cover the supported deployment shapes. Each is a
+complete, copy-pasteable command set; pick the one that matches your
+constraints and read the migration guide for the path between them
+([`docs/guide/migration/from-embedded-to-daemon.md`](migration/from-embedded-to-daemon.md)).
+
+### Recipe 1 — Single workstation (embedded auto-gateway)
+
+Default zero-config flow. One DCC adapter wins the gateway port and
+serves the whole machine.
+
+```bash
+# Maya plugin host:
+dcc-mcp-server --app maya
+
+# Same workstation, second DCC — joins the elected gateway as a backend:
+dcc-mcp-server --app blender
+```
+
+`tools/list` against `http://127.0.0.1:9765/mcp` exposes the gateway's
+bounded set of discovery primitives; routing fans them out across both
+DCCs.
+
+### Recipe 2 — Multi-workstation LAN with a daemon gateway + HTTP registration
+
+The daemon owns the gateway port on a chosen host; every DCC adapter on
+every workstation registers via the HTTP API (#1361).
+
+```bash
+# Host A — runs the gateway only:
+dcc-mcp-server gateway --host 0.0.0.0 --port 9765 --registry-dir /var/lib/dcc-mcp
+
+# Host B — runs a DCC, never bids for the gateway port:
+dcc-mcp-server serve --no-auto-gateway --app maya \
+    --register-url http://host-a.lan:9765/v1/instances/register \
+    --heartbeat-secs 5
+
+# Host C — different DCC, same registration target:
+dcc-mcp-server serve --no-auto-gateway --app photoshop \
+    --register-url http://host-a.lan:9765/v1/instances/register
+```
+
+`gateway://instances` on Host A lists both Hosts B and C with
+`source: "http"`.
+
+### Recipe 3 — LAN with mDNS auto-discovery
+
+Use when configuring a `--register-url` per host is unwieldy. Build with
+`--features mdns`; the gateway browses `_dcc-mcp._tcp.local`, probes
+each discovered endpoint, and surfaces the survivors as `source: "mdns"`
+(#1362).
+
+```bash
+# Host A — daemon listens for advertised DCC sidecars on the LAN:
+dcc-mcp-server gateway --host 0.0.0.0 --port 9765 --discover-mdns
+
+# Host B (or C, D, …) — each DCC sidecar advertises itself:
+dcc-mcp-server serve --no-auto-gateway --app blender --advertise-mdns
+
+dcc-mcp-server serve --no-auto-gateway --app houdini --advertise-mdns
+```
+
+Security stance: mDNS is for *address discovery only*. Every discovered
+endpoint must still pass the gateway's auth chain before any call is
+routed through it.
+
+### Recipe 4 — Internet-facing topology via tunnel relay
+
+The DCC sits behind NAT / firewall. A `dcc-mcp-tunnel-agent` opens a WSS
+back-channel to a publicly reachable `dcc-mcp-tunnel-relay`; the gateway
+polls the relay's admin API and surfaces healthy tunnels as
+`source: "relay"` (#1363).
+
+```bash
+# Public relay (e.g. fly.io, k8s ingress, …):
+dcc-mcp-tunnel-relay \
+    --agent-bind 0.0.0.0:9090 \
+    --frontend-bind 0.0.0.0:9091 \
+    --admin-bind 127.0.0.1:9092
+
+# DCC host behind NAT:
+dcc-mcp-tunnel-agent \
+    --relay-url wss://relay.example.com:9090 \
+    --jwt $TUNNEL_JWT \
+    --dcc photoshop \
+    --local-target http://127.0.0.1:8765/mcp
+
+# Gateway pointing at the relay's admin endpoint:
+dcc-mcp-server gateway --host 0.0.0.0 --port 9765 \
+    --relay-source http://relay.example.com:9092=https://relay.example.com:9091
+```
+
+Auth contract: the agent leg uses the tunnel JWT; the gateway leg uses
+its own auth chain. Both must pass before a call is routed end-to-end.
+
 ## Discovery Topology
 
 All discovery sources collapse into the same `gateway://instances` and
