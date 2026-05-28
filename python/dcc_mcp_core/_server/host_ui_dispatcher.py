@@ -91,7 +91,12 @@ def host_ui_outcome(
     return payload
 
 
-# Back-compat alias for adapters that already import ``current_host_ui_job``.
+#: Public ``ContextVar`` pointing at the running :class:`HostUiJobEntry`.
+#:
+#: Skill scripts and host dispatcher subclasses read this to obtain the
+#: current job's progress token / cancellation flag / request id without
+#: threading them through every call.  The variable is set by
+#: :meth:`HostUiJobEntry.execute` for the duration of one job.
 current_host_ui_job: contextvars.ContextVar[Optional[HostUiJobEntry]] = contextvars.ContextVar(
     "dcc_mcp_core_current_host_ui_job",
     default=None,

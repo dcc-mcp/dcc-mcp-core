@@ -12,8 +12,9 @@ metadata:
     layer: thin-harness
     tools: tools.yaml
     recipes: references/RECIPES.md
-    introspection: references/INTROSPECTION.md
-    # Optional: explicit globs for skill_refs__list/read (defaults also merge introspection + references/*.md)
+    # Reference docs (Markdown / .txt / .rst) under the skill root that
+    # agents can surface via ``skill_refs__list`` / ``skill_refs__read``.
+    # Defaults also pick up ``references/**/*.md`` when this key is absent.
     skill-reference-docs:
       - "references/*.md"
 ---
