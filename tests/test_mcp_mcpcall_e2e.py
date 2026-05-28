@@ -1235,7 +1235,8 @@ class TestMcpcallSearchTools:
         """Default search never surfaces ``__skill__*`` / ``__group__*`` entries."""
         _, _, url, name = server_for_search_tools
         # `hello-world` is discovered but not loaded — its stub exists.
-        result = _mcpcall_call(url, name, "search_tools", {"query": "hello"})
+        # Use exact name to bypass layer=example exclusion (PR #1398).
+        result = _mcpcall_call(url, name, "search_tools", {"query": "hello-world"})
         data = _parse_content_json(result)
         tool_names = [t.get("name", "") for t in data.get("tools", [])]
         assert not any(n.startswith("__skill__") for n in tool_names), (
@@ -1248,11 +1249,12 @@ class TestMcpcallSearchTools:
     def test_search_tools_include_stubs_true_surfaces_stubs(self, server_for_search_tools):
         """The include_stubs escape hatch exposes progressive-loading stubs for debugging."""
         _, _, url, name = server_for_search_tools
+        # Use exact name to bypass layer=example exclusion (PR #1398).
         result = _mcpcall_call(
             url,
             name,
             "search_tools",
-            {"query": "hello", "include_stubs": True},
+            {"query": "hello-world", "include_stubs": True},
         )
         data = _parse_content_json(result)
         tool_names = [t.get("name", "") for t in data.get("tools", [])]
