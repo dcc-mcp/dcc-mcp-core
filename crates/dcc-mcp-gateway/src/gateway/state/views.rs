@@ -14,6 +14,7 @@ use crate::gateway::event_log::EventLog;
 use crate::gateway::http_registration::HttpInstanceRegistry;
 use crate::gateway::mdns_registration::MdnsInstanceRegistry;
 use crate::gateway::middleware::MiddlewareChain;
+use crate::gateway::relay_registration::RelayInstanceRegistry;
 use dcc_mcp_gateway_core::PendingCall;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus};
@@ -40,6 +41,8 @@ pub struct DiscoveryState<'a> {
     pub http_instance_registry: &'a Arc<parking_lot::RwLock<HttpInstanceRegistry>>,
     /// Shared in-memory source for LAN mDNS-discovered rows.
     pub mdns_instance_registry: &'a Arc<parking_lot::RwLock<MdnsInstanceRegistry>>,
+    /// Shared in-memory source for tunnel-relay-discovered rows.
+    pub relay_instance_registry: &'a Arc<parking_lot::RwLock<RelayInstanceRegistry>>,
     /// Heartbeat-age after which a registry row is considered stale.
     pub stale_timeout: Duration,
     /// When `false` (default), instances advertising `dcc_type == "unknown"`
@@ -174,7 +177,7 @@ impl<'a> DiscoveryState<'a> {
 
     fn merge_remote_entries(
         &self,
-        mut file_entries: Vec<ServiceEntry>,
+        file_entries: Vec<ServiceEntry>,
         include_unknown: bool,
     ) -> Vec<ServiceEntry> {
         let mdns_entries = if include_unknown {
@@ -183,6 +186,20 @@ impl<'a> DiscoveryState<'a> {
                 .all_entries(SystemTime::now())
         } else {
             self.mdns_instance_registry
+                .read()
+                .live_entries(SystemTime::now())
+                .into_iter()
+                .filter(|entry| {
+                    self.allow_unknown_tools || !entry.dcc_type.eq_ignore_ascii_case("unknown")
+                })
+                .collect()
+        };
+        let relay_entries = if include_unknown {
+            self.relay_instance_registry
+                .read()
+                .all_entries(SystemTime::now())
+        } else {
+            self.relay_instance_registry
                 .read()
                 .live_entries(SystemTime::now())
                 .into_iter()
@@ -205,19 +222,46 @@ impl<'a> DiscoveryState<'a> {
                 })
                 .collect()
         };
-        let mdns_ids: HashSet<_> = mdns_entries.iter().map(|entry| entry.instance_id).collect();
-        let http_ids: HashSet<_> = http_entries.iter().map(|entry| entry.instance_id).collect();
-        file_entries.retain(|entry| {
-            !mdns_ids.contains(&entry.instance_id) && !http_ids.contains(&entry.instance_id)
-        });
-        let mut mdns_entries: Vec<_> = mdns_entries
-            .into_iter()
-            .filter(|entry| !http_ids.contains(&entry.instance_id))
-            .collect();
-        file_entries.append(&mut mdns_entries);
-        file_entries.extend(http_entries);
-        file_entries
+        merge_gateway_sources(file_entries, mdns_entries, relay_entries, http_entries)
     }
+}
+
+/// Merge discovery sources with deterministic conflict resolution:
+/// HTTP > relay > mDNS > file.
+pub(crate) fn merge_gateway_sources(
+    mut file_entries: Vec<ServiceEntry>,
+    mdns_entries: Vec<ServiceEntry>,
+    relay_entries: Vec<ServiceEntry>,
+    http_entries: Vec<ServiceEntry>,
+) -> Vec<ServiceEntry> {
+    let http_ids: HashSet<_> = http_entries.iter().map(|entry| entry.instance_id).collect();
+    let relay_ids: HashSet<_> = relay_entries
+        .iter()
+        .map(|entry| entry.instance_id)
+        .collect();
+    let mdns_ids: HashSet<_> = mdns_entries.iter().map(|entry| entry.instance_id).collect();
+
+    file_entries.retain(|entry| {
+        !mdns_ids.contains(&entry.instance_id)
+            && !relay_ids.contains(&entry.instance_id)
+            && !http_ids.contains(&entry.instance_id)
+    });
+
+    let mut mdns_entries: Vec<_> = mdns_entries
+        .into_iter()
+        .filter(|entry| {
+            !relay_ids.contains(&entry.instance_id) && !http_ids.contains(&entry.instance_id)
+        })
+        .collect();
+    let mut relay_entries: Vec<_> = relay_entries
+        .into_iter()
+        .filter(|entry| !http_ids.contains(&entry.instance_id))
+        .collect();
+
+    file_entries.append(&mut mdns_entries);
+    file_entries.append(&mut relay_entries);
+    file_entries.extend(http_entries);
+    file_entries
 }
 
 fn is_per_dcc_sidecar(entry: &ServiceEntry) -> bool {

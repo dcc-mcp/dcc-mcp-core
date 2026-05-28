@@ -36,6 +36,16 @@ pub(crate) async fn start_gateway_runner(
         allow_unknown_tools: config.gateway.allow_unknown_tools,
         #[cfg(feature = "mdns")]
         discover_mdns: config.gateway.discover_mdns,
+        relay_sources: config
+            .gateway
+            .relay_sources
+            .iter()
+            .map(|source| dcc_mcp_gateway::RelaySourceConfig {
+                admin_url: source.admin_url.clone(),
+                public_base_url: source.public_base_url.clone(),
+                poll_interval_secs: source.poll_interval_secs,
+            })
+            .collect(),
         policy: config.gateway.policy.clone(),
         adapter_version: config.gateway.adapter_version.clone(),
         adapter_dcc: config

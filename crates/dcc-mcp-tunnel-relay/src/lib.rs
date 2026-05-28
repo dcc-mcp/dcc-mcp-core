@@ -37,6 +37,6 @@ pub mod ws_frontend;
 
 pub use admin::TunnelSummary;
 pub use config::RelayConfig;
-pub use handle::TunnelHandle;
+pub use handle::{FrameSendError, TunnelHandle};
 pub use registry::{TunnelEntry, TunnelRegistry};
 pub use server::{OptionalBinds, RelayServer};

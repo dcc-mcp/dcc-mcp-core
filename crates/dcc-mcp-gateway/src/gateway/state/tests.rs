@@ -32,6 +32,9 @@ fn test_gateway_state_with_own_and_unknown(
         mdns_instance_registry: Arc::new(parking_lot::RwLock::new(
             crate::gateway::mdns_registration::MdnsInstanceRegistry::default(),
         )),
+        relay_instance_registry: Arc::new(parking_lot::RwLock::new(
+            crate::gateway::relay_registration::RelayInstanceRegistry::default(),
+        )),
         stale_timeout: Duration::from_secs(30),
         backend_timeout: Duration::from_secs(10),
         async_dispatch_timeout: Duration::from_secs(60),
@@ -180,6 +183,84 @@ async fn live_instances_includes_mdns_rows_and_http_wins_conflicts() {
     let row = gs.instance_json(&live[0]);
     assert_eq!(row["source"], "http");
     assert_eq!(row["mcp_url"], "http://remote.example:28765/mcp");
+}
+
+#[tokio::test]
+async fn live_instances_merges_file_mdns_relay_and_http_in_priority_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let gs = test_gateway_state(registry.clone());
+    let http_id = uuid::Uuid::parse_str("11111111-1111-4111-8111-111111111111").unwrap();
+    let relay_id = uuid::Uuid::parse_str("22222222-2222-4222-8222-222222222222").unwrap();
+    let file_id = uuid::Uuid::parse_str("33333333-3333-4333-8333-333333333333").unwrap();
+    let now = std::time::SystemTime::now();
+
+    {
+        let r = registry.read().await;
+        let mut stale_file_shadow = ServiceEntry::new("maya", "127.0.0.1", 1001);
+        stale_file_shadow.instance_id = http_id;
+        r.register(stale_file_shadow).unwrap();
+        let mut file_only = ServiceEntry::new("houdini", "127.0.0.1", 1003);
+        file_only.instance_id = file_id;
+        r.register(file_only).unwrap();
+    }
+
+    let mut mdns_shadow = ServiceEntry::new("maya", "192.168.1.20", 8765);
+    mdns_shadow.instance_id = relay_id;
+    mdns_shadow.metadata.insert(
+        crate::gateway::http_registration::REGISTRY_SOURCE_METADATA_KEY.to_string(),
+        crate::gateway::http_registration::SOURCE_MDNS.to_string(),
+    );
+    gs.mdns_instance_registry.write().upsert(
+        mdns_shadow,
+        "maya._dcc-mcp._tcp.local.".to_string(),
+        Duration::from_secs(30),
+        now,
+    );
+
+    let mut relay_entry = ServiceEntry::new("maya", "relay.example", 443);
+    relay_entry.instance_id = relay_id;
+    relay_entry.metadata.insert(
+        crate::gateway::http_registration::REGISTRY_SOURCE_METADATA_KEY.to_string(),
+        crate::gateway::http_registration::SOURCE_RELAY.to_string(),
+    );
+    relay_entry.metadata.insert(
+        crate::gateway::http_registration::MCP_URL_METADATA_KEY.to_string(),
+        "https://relay.example/tunnel/tun1/mcp".to_string(),
+    );
+    gs.relay_instance_registry.write().upsert(
+        "http://relay-admin".to_string(),
+        "tun1".to_string(),
+        relay_entry,
+        Duration::from_secs(30),
+        now,
+    );
+
+    gs.http_instance_registry
+        .write()
+        .register(
+            crate::gateway::http_registration::HttpInstanceRegistrationRequest {
+                instance_id: http_id.to_string(),
+                dcc_type: "maya".to_string(),
+                mcp_url: "http://remote.example:28765/mcp".to_string(),
+                capabilities_fingerprint: None,
+                adapter_version: None,
+                scene: None,
+                ttl_secs: None,
+            },
+            now,
+        )
+        .unwrap();
+
+    let registry = registry.read().await;
+    let live = gs.live_instances(&registry);
+    let sources: Vec<_> = live
+        .iter()
+        .map(|entry| crate::gateway::http_registration::entry_registry_source(entry).to_string())
+        .collect();
+    assert_eq!(sources, vec!["file", "relay", "http"]);
+    assert_eq!(live[1].instance_id, relay_id, "relay must shadow mDNS");
+    assert_eq!(live[2].instance_id, http_id, "HTTP must shadow file/mDNS");
 }
 
 /// Regression test for issue #419: when the gateway process is also a

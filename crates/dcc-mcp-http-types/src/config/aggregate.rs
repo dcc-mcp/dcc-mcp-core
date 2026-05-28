@@ -10,7 +10,8 @@ use dcc_mcp_gateway_core::policy::GatewayPolicy;
 
 use super::{
     FeatureFlags, GatewayConfig, InstanceConfig, JobConfig, JobRecoveryPolicy, QueueConfig,
-    ServerConfig, ServerSpawnMode, SessionConfig, TelemetryConfig, WorkflowConfig,
+    RelaySourceConfig, ServerConfig, ServerSpawnMode, SessionConfig, TelemetryConfig,
+    WorkflowConfig,
 };
 
 // ── McpHttpConfig aggregate ────────────────────────────────────────────────
@@ -245,6 +246,12 @@ impl McpHttpConfig {
     }
     pub fn set_discover_mdns(&mut self, v: bool) {
         self.gateway.discover_mdns = v;
+    }
+    pub fn relay_sources(&self) -> Vec<RelaySourceConfig> {
+        self.gateway.relay_sources.clone()
+    }
+    pub fn set_relay_sources(&mut self, v: Vec<RelaySourceConfig>) {
+        self.gateway.relay_sources = v;
     }
     pub fn gateway_policy(&self) -> GatewayPolicy {
         self.gateway.policy.clone()
@@ -639,6 +646,12 @@ impl McpHttpConfig {
         self
     }
 
+    /// Builder: configure tunnel relay sources for gateway discovery.
+    pub fn with_relay_sources(mut self, sources: Vec<RelaySourceConfig>) -> Self {
+        self.gateway.relay_sources = sources;
+        self
+    }
+
     /// Builder: disable the connection-scoped tool-list cache (issue #438).
     pub fn without_tool_cache(mut self) -> Self {
         self.session.enable_tool_cache = false;
@@ -725,6 +738,19 @@ mod tests {
         let s = serde_json::to_string(&cfg).unwrap();
         let back: McpHttpConfig = serde_json::from_str(&s).unwrap();
         assert!(back.gateway.discover_mdns);
+    }
+
+    #[test]
+    fn mcp_http_config_relay_sources_builder_round_trips() {
+        let cfg = McpHttpConfig::default().with_relay_sources(vec![RelaySourceConfig {
+            admin_url: "http://127.0.0.1:9872".into(),
+            public_base_url: "http://127.0.0.1:9873".into(),
+            poll_interval_secs: Some(2),
+        }]);
+        let s = serde_json::to_string(&cfg).unwrap();
+        let back: McpHttpConfig = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.gateway.relay_sources.len(), 1);
+        assert_eq!(back.gateway.relay_sources[0].poll_interval_secs, Some(2));
     }
 
     #[test]

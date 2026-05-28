@@ -93,6 +93,10 @@ mod tests {
             dcc: "maya".into(),
             capabilities: vec![],
             agent_version: "test/0.0".into(),
+            instance_id: None,
+            capabilities_fingerprint: None,
+            adapter_version: None,
+            scene: None,
         });
         write_frame(&mut a, &frame).await.unwrap();
         let got = read_frame(&mut b).await.unwrap().expect("frame");

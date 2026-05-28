@@ -55,6 +55,7 @@ use super::event_log::EventLog;
 use super::http_registration::{HttpInstanceRegistry, entry_mcp_url, entry_registry_source};
 use super::instance_diagnostics::{InstanceDiagnostics, InstanceDiagnosticsStore};
 use super::mdns_registration::MdnsInstanceRegistry;
+use super::relay_registration::RelayInstanceRegistry;
 
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
@@ -71,6 +72,7 @@ use super::middleware::MiddlewareChain;
 pub use dcc_mcp_gateway_core::PendingCall;
 
 mod views;
+pub(crate) use views::merge_gateway_sources;
 pub use views::{DiscoveryState, EventState, RoutingState, ServerState};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,6 +137,7 @@ pub struct GatewayState {
     pub registry: Arc<RwLock<FileRegistry>>,
     pub http_instance_registry: Arc<parking_lot::RwLock<HttpInstanceRegistry>>,
     pub mdns_instance_registry: Arc<parking_lot::RwLock<MdnsInstanceRegistry>>,
+    pub relay_instance_registry: Arc<parking_lot::RwLock<RelayInstanceRegistry>>,
     pub stale_timeout: Duration,
     /// Per-backend request timeout for gateway fan-out calls (issue #314).
     ///
@@ -283,6 +286,7 @@ impl GatewayState {
             registry: &self.registry,
             http_instance_registry: &self.http_instance_registry,
             mdns_instance_registry: &self.mdns_instance_registry,
+            relay_instance_registry: &self.relay_instance_registry,
             stale_timeout: self.stale_timeout,
             allow_unknown_tools: self.allow_unknown_tools,
             own_host: &self.own_host,

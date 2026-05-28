@@ -1,0 +1,3 @@
+{"_vrs": {"version": 1, "skip_preflight": {"http": {"method": "GET", "path": "/v1/instances"}, "skip_when": {"body_not_contains": "\"source\":\"relay\""}}}, "trace_id": "core-1363-relay-gateway-source", "title": "Gateway relay source surfaces active relay tunnels as routable instance rows"}
+{"id": "relay_instance_visible", "http": {"method": "GET", "path": "/v1/instances"}, "expect": {"status": 200, "body_contains_all": ["\"source\":\"relay\"", "/tunnel/", "source_meta"]}}
+{"id": "search_still_works_with_relay_source", "http": {"method": "POST", "path": "/v1/search", "json": {"query": "", "limit": 3}}, "expect": {"status": 200, "body_contains": "\"hits\""}}

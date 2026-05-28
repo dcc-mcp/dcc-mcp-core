@@ -108,6 +108,22 @@ struct Args {
         num_args = 0..,
     )]
     capabilities: Vec<String>,
+
+    /// Stable DCC instance UUID to expose through relay-aware gateways.
+    #[arg(long, env = "DCC_MCP_TUNNEL_AGENT_INSTANCE_ID")]
+    instance_id: Option<String>,
+
+    /// Fingerprint of the backend capability set.
+    #[arg(long, env = "DCC_MCP_TUNNEL_AGENT_CAPABILITIES_FINGERPRINT")]
+    capabilities_fingerprint: Option<String>,
+
+    /// Adapter package version to expose through `/tunnels`.
+    #[arg(long, env = "DCC_MCP_TUNNEL_AGENT_ADAPTER_VERSION")]
+    adapter_version: Option<String>,
+
+    /// Currently active scene or document.
+    #[arg(long, env = "DCC_MCP_TUNNEL_AGENT_SCENE")]
+    scene: Option<String>,
 }
 
 fn init_tracing() {
@@ -150,6 +166,10 @@ async fn main() -> Result<()> {
     cfg.heartbeat_interval = Duration::from_secs(args.heartbeat_secs);
     cfg.reconnect = reconnect;
     cfg.capabilities = args.capabilities;
+    cfg.instance_id = args.instance_id;
+    cfg.capabilities_fingerprint = args.capabilities_fingerprint;
+    cfg.adapter_version = args.adapter_version;
+    cfg.scene = args.scene;
 
     tracing::info!(
         relay = %cfg.relay_url,

@@ -56,6 +56,18 @@ pub struct AgentConfig {
     /// Capability tags forwarded to remote clients via the relay.
     pub capabilities: Vec<String>,
 
+    /// Stable DCC instance UUID advertised to relay-aware gateways.
+    pub instance_id: Option<String>,
+
+    /// Fingerprint of the currently exposed backend capabilities.
+    pub capabilities_fingerprint: Option<String>,
+
+    /// Adapter package version, e.g. `dcc_mcp_maya = "0.3.0"`.
+    pub adapter_version: Option<String>,
+
+    /// Currently active scene or document.
+    pub scene: Option<String>,
+
     /// Build identifier reported to the relay; surfaced in `/tunnels`
     /// listings only.
     pub agent_version: String,
@@ -88,6 +100,10 @@ impl AgentConfig {
             token: token.into(),
             dcc: dcc.into(),
             capabilities: Vec::new(),
+            instance_id: None,
+            capabilities_fingerprint: None,
+            adapter_version: None,
+            scene: None,
             agent_version: format!("dcc-mcp-tunnel-agent/{}", env!("CARGO_PKG_VERSION")),
             local_target: local_target.into(),
             heartbeat_interval: Duration::from_secs(10),
