@@ -77,6 +77,11 @@ mod tests {
             tunnel_id: id.into(),
             dcc: "test".into(),
             capabilities: vec![],
+            instance_id: None,
+            capabilities_fingerprint: None,
+            adapter_version: None,
+            scene: None,
+            public_url: format!("http://relay.test/tunnel/{id}"),
             agent_version: "test/0.0".into(),
             registered_at: Instant::now(),
             last_heartbeat: RwLock::new(

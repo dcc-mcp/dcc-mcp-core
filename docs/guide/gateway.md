@@ -73,6 +73,7 @@ variable):
 | `--admin-path` | `DCC_MCP_ADMIN_PATH` | `/admin` |
 | `--stale-timeout-secs` | `DCC_MCP_STALE_TIMEOUT` | `30` |
 | `--discover-mdns` | `DCC_MCP_DISCOVER_MDNS` | `false` when built with `mdns` |
+| `--relay-source ADMIN_URL=PUBLIC_BASE_URL` | `DCC_MCP_RELAY_SOURCES` | none |
 
 Additional environment knobs:
 
@@ -112,7 +113,7 @@ standalone). At runtime it satisfies the following:
 | Workstation hosting multiple DCCs | `auto` / `serve`; auto-gateway elects the first DCC to launch |
 | Workstation with a separate gateway owner | `dcc-mcp-server serve --no-auto-gateway --app <dcc>` plus `dcc-mcp-server gateway` |
 | Studio render node / shared host / CI | `dcc-mcp-server gateway` daemon, sidecars launch DCCs |
-| Headless agent without any DCC installed | `dcc-mcp-server gateway` daemon — DCCs are reached via `FileRegistry` / HTTP registration |
+| Headless agent without any DCC installed | `dcc-mcp-server gateway` daemon — DCCs are reached via `FileRegistry`, HTTP registration, mDNS, or relay sources |
 
 ## Topology
 
@@ -282,6 +283,40 @@ over a stale or duplicate file-backed registry row with the same `instance_id`.
 For routed production traffic across subnets, prefer explicit HTTP registration
 or a relay/tunnel source; use mDNS for same-LAN discovery where multicast is
 allowed and operationally acceptable.
+
+### Optional Relay-Backed Discovery (#1363)
+
+When DCC workstations sit behind NAT or cannot receive inbound traffic, run a
+tunnel agent next to each local DCC HTTP MCP server and configure the gateway to
+poll the relay admin endpoint:
+
+```bash
+# Relay admin URL on the left, relay HTTP frontend URL on the right.
+dcc-mcp-server gateway \
+  --relay-source http://relay.example.com:9003=http://relay.example.com:9002
+```
+
+`DCC_MCP_RELAY_SOURCES` accepts the same `ADMIN_URL=PUBLIC_BASE_URL` format and
+may contain comma-separated entries. The gateway polls `GET /tunnels`, maps
+each active tunnel to `<PUBLIC_BASE_URL>/tunnel/<tunnel_id>/mcp`, probes the
+candidate through `GET /v1/healthz`, then exposes it in `GET /v1/instances` and
+`gateway://instances` with `source: "relay"`.
+
+Relay-backed rows preserve the agent-provided `instance_id`,
+`capabilities_fingerprint`, `adapter_version`, and `scene` when present. If an
+agent omits `instance_id`, the gateway derives a stable UUID from the relay
+source and tunnel id, so a reconnecting tunnel still appears as a normal
+instance row during its lifetime.
+
+Source precedence across duplicate `instance_id` values is:
+
+```text
+HTTP registration > relay source > mDNS > FileRegistry
+```
+
+Use HTTP registration when a backend has a routable, authenticated URL. Use
+relay sources when the gateway must route through the tunnel data plane. Use
+mDNS only as a same-LAN discovery hint.
 
 ### Optional Instance Pooling
 

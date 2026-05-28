@@ -126,6 +126,10 @@ mod tests {
             dcc: "maya".into(),
             capabilities: vec!["scene.read".into(), "usd".into()],
             agent_version: "dcc-mcp-tunnel-agent/0.1".into(),
+            instance_id: Some("2d86aa74-9b19-49a4-a166-92b3f47ed84a".into()),
+            capabilities_fingerprint: Some("fp-123".into()),
+            adapter_version: Some("dcc_mcp_maya = 0.3.0".into()),
+            scene: Some("shot.ma".into()),
         })
     }
 

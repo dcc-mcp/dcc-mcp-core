@@ -29,6 +29,21 @@ pub struct TunnelEntry {
     /// so they can pre-flight tool calls without round-tripping.
     pub capabilities: Vec<String>,
 
+    /// Stable DCC instance UUID, when reported by the local adapter.
+    pub instance_id: Option<String>,
+
+    /// Fingerprint of the backend capability set, when reported.
+    pub capabilities_fingerprint: Option<String>,
+
+    /// Adapter package version, when reported.
+    pub adapter_version: Option<String>,
+
+    /// Active scene or document, when reported.
+    pub scene: Option<String>,
+
+    /// Public tunnel URL derived from [`crate::RelayConfig::base_url`].
+    pub public_url: String,
+
     /// Build identifier the agent sent in `RegisterRequest::agent_version`.
     pub agent_version: String,
 
@@ -127,7 +142,7 @@ impl TunnelRegistry {
 /// constant is a `u16`; this static assertion catches accidental wide-int
 /// rebases that would slip past a normal build.
 const _: () = {
-    assert!(PROTOCOL_VERSION == 1);
+    assert!(PROTOCOL_VERSION == 2);
 };
 
 #[cfg(test)]
@@ -140,6 +155,11 @@ mod tests {
             tunnel_id: id.into(),
             dcc: dcc.into(),
             capabilities: vec![],
+            instance_id: None,
+            capabilities_fingerprint: None,
+            adapter_version: None,
+            scene: None,
+            public_url: format!("http://relay.test/tunnel/{id}"),
             agent_version: "test/0.0".into(),
             registered_at: Instant::now(),
             last_heartbeat: RwLock::new(Instant::now()),

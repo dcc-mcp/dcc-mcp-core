@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 /// the JWT claim shape changes. The agent reports its supported version in
 /// [`RegisterRequest::protocol_version`]; the relay rejects any value other
 /// than its own with [`ErrorCode::ProtocolMismatch`].
-pub const PROTOCOL_VERSION: u16 = 1;
+pub const PROTOCOL_VERSION: u16 = 2;
 
 /// Opaque tunnel identifier. Issued by the relay during registration.
 ///
@@ -88,6 +88,28 @@ pub struct RegisterRequest {
     /// Build-time identifier of the agent, e.g. `"dcc-mcp-tunnel-agent/0.1"`.
     /// Surfaced in `/tunnels` listings only — not used for routing.
     pub agent_version: String,
+
+    /// Stable DCC instance UUID, when the local adapter already has one.
+    ///
+    /// Gateways use this to keep relay-fronted backends aligned with the same
+    /// instance identity surfaced by file, HTTP, and LAN discovery.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
+
+    /// Fingerprint of the adapter's currently exposed capabilities.
+    ///
+    /// This is advisory metadata for discovery caches; capability refresh still
+    /// verifies the backend through the normal `/v1/search` contract.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities_fingerprint: Option<String>,
+
+    /// Adapter package version, e.g. `dcc_mcp_maya = "0.3.0"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_version: Option<String>,
+
+    /// Currently active scene or document.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene: Option<String>,
 }
 
 /// Relay's reply to [`RegisterRequest`]. Carried in [`Frame::RegisterAck`].

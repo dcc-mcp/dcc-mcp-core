@@ -23,6 +23,7 @@ pub(crate) const MCP_URL_METADATA_KEY: &str = "mcp_url";
 pub(crate) const REGISTRY_SOURCE_METADATA_KEY: &str = "dcc_mcp_registry_source";
 pub(crate) const SOURCE_FILE: &str = "file";
 pub(crate) const SOURCE_HTTP: &str = "http";
+pub(crate) const SOURCE_RELAY: &str = "relay";
 #[cfg(any(feature = "mdns", test))]
 pub(crate) const SOURCE_MDNS: &str = "mdns";
 const CAPABILITIES_FINGERPRINT_METADATA_KEY: &str = "capabilities_fingerprint";

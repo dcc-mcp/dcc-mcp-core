@@ -5,10 +5,10 @@
 //! string, no msgpack), then bridges the socket to one multiplexed
 //! session on the corresponding tunnel.
 //!
-//! Subsequent PRs add `/dcc/<name>/<id>` HTTP routing and a WS bridge;
-//! this MVP keeps the protocol small enough to drive end-to-end with
-//! `tokio::net::TcpStream` and validate the framing & multiplexing without
-//! pulling in a full HTTP stack.
+//! The HTTP/WebSocket frontend lives in [`crate::ws_frontend`]. This raw TCP
+//! path stays small enough to drive end-to-end with `tokio::net::TcpStream`
+//! and validate the framing and multiplexing without pulling in a full HTTP
+//! stack.
 
 use std::sync::Arc;
 

@@ -13,6 +13,7 @@
 //! All locks are short-lived; the per-tunnel writer task drains `frame_tx`
 //! single-threaded so the agent socket itself is never contended.
 
+use std::fmt;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use dashmap::DashMap;
@@ -26,6 +27,26 @@ pub type AgentBytes = Vec<u8>;
 /// Inbound channel handed to the frontend listener so it can read agent →
 /// frontend bytes for a single session.
 pub type SessionInboxRx = mpsc::Receiver<AgentBytes>;
+
+/// Lightweight send failure that does not carry the original frame payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrameSendError {
+    /// The agent-side writer task has shut down.
+    Closed,
+    /// The bounded outbound queue is currently full.
+    Full,
+}
+
+impl fmt::Display for FrameSendError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Closed => f.write_str("tunnel writer is closed"),
+            Self::Full => f.write_str("tunnel writer queue is full"),
+        }
+    }
+}
+
+impl std::error::Error for FrameSendError {}
 
 /// Routing surface for one accepted tunnel.
 #[derive(Debug)]
@@ -80,14 +101,20 @@ impl TunnelHandle {
     /// Send a frame toward the agent. `Err` only when the writer task has
     /// already shut down (agent disconnected); callers treat this as a
     /// terminal condition for their session.
-    pub async fn send(&self, frame: Frame) -> Result<(), mpsc::error::SendError<Frame>> {
-        self.frame_tx.send(frame).await
+    pub async fn send(&self, frame: Frame) -> Result<(), FrameSendError> {
+        self.frame_tx
+            .send(frame)
+            .await
+            .map_err(|_| FrameSendError::Closed)
     }
 
     /// Best-effort, non-blocking send. Used by the eviction sweeper which
     /// must not park behind a saturated agent.
-    pub fn try_send(&self, frame: Frame) -> Result<(), mpsc::error::TrySendError<Frame>> {
-        self.frame_tx.try_send(frame)
+    pub fn try_send(&self, frame: Frame) -> Result<(), FrameSendError> {
+        self.frame_tx.try_send(frame).map_err(|err| match err {
+            mpsc::error::TrySendError::Full(_) => FrameSendError::Full,
+            mpsc::error::TrySendError::Closed(_) => FrameSendError::Closed,
+        })
     }
 
     /// Number of currently-open sessions on this tunnel — used by
