@@ -20,7 +20,8 @@
 //!
 //! # #[tokio::main] async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let registry = Arc::new(ToolRegistry::new());
-//! let config = McpHttpConfig::new(0)
+//! let config = McpHttpConfig::default()
+//!     .with_port(0)
 //!     .with_name("maya")
 //!     .with_dcc_type("maya")
 //!     .with_gateway(9765);
