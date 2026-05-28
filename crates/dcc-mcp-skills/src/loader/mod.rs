@@ -299,6 +299,28 @@ fn apply_dcc_mcp_metadata_overrides(
                     meta.introspection_file = Some(s.to_string());
                 }
             }
+            "branding" => {
+                // Marketplace-card branding — colours, emoji, logo, tagline.
+                // Drives the Admin UI Skills panel cards (Track D / #1407).
+                if let Ok(branding) =
+                    serde_yaml_ng::from_value::<dcc_mcp_models::SkillBranding>(value.clone())
+                    && !branding.is_empty()
+                {
+                    meta.branding = Some(branding);
+                }
+            }
+            "links" => {
+                // External references — docs, repo, homepage, issues, chat.
+                if let Ok(links) =
+                    serde_yaml_ng::from_value::<dcc_mcp_models::SkillLinks>(value.clone())
+                    && !links.is_empty()
+                {
+                    meta.links = Some(links);
+                }
+            }
+            "example-prompts" | "example_prompts" => {
+                meta.example_prompts = parse_csv_or_list(&value);
+            }
             _ => {
                 tracing::debug!(
                     "skill {}: unknown metadata.dcc-mcp.{} key — ignoring",

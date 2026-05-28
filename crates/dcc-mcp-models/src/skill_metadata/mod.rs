@@ -106,6 +106,9 @@ use serde_impl::{
         runtimes: Vec<crate::skill_metadata::SkillRuntimeDescriptor> => [get(clone), set],
         layer: Option<String> => [get(clone), set],
         stage: Option<String> => [get(clone), set],
+        branding: Option<crate::skill_metadata::SkillBranding> => [get(clone), set],
+        links: Option<crate::skill_metadata::SkillLinks> => [get(clone), set],
+        example_prompts: Vec<String> => [get(clone), set],
     ))
 )]
 pub struct SkillMetadata {
@@ -392,9 +395,35 @@ pub struct SkillMetadata {
     /// lazily on demand.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub introspection_file: Option<String>,
+
+    /// Marketplace-card branding authored in `metadata.dcc-mcp.branding`.
+    ///
+    /// Optional — when absent the Admin UI falls back to a hash-derived
+    /// accent + DCC icon. See [`SkillBranding`] for the shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branding: Option<SkillBranding>,
+
+    /// External links rendered as marketplace-card chips, set from
+    /// `metadata.dcc-mcp.links` in SKILL.md frontmatter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub links: Option<SkillLinks>,
+
+    /// Author-supplied example prompts shown on the card detail pane.
+    ///
+    /// Set from `metadata.dcc-mcp.example-prompts`. Each entry is a
+    /// short natural-language phrase agents can paraphrase to trigger
+    /// the skill — for example `"Bevel the selected polygon edges"`.
+    #[serde(
+        default,
+        rename = "example-prompts",
+        alias = "example_prompts",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub example_prompts: Vec<String>,
 }
 
 mod execution;
+mod skill_branding;
 mod skill_dependency;
 mod skill_policy;
 mod skill_recall;
@@ -403,6 +432,7 @@ mod tests;
 mod tool_declaration;
 
 pub use execution::*;
+pub use skill_branding::*;
 pub use skill_dependency::*;
 pub use skill_policy::*;
 pub use skill_recall::*;
