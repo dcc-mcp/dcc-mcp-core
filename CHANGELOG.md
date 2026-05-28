@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.39](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.38...v0.17.39) (2026-05-28)
+
+
+### Features
+
+* **admin-ui:** marketplace skill cards with branding, links, and modal drill-down ([2da992a](https://github.com/loonghao/dcc-mcp-core/commit/2da992a9a8b8bcf6b017b31bdddb5a2354ea5066))
+* **server:** pick up admin-UI-added skill paths without restart ([#1400](https://github.com/loonghao/dcc-mcp-core/issues/1400)) ([e83b9e0](https://github.com/loonghao/dcc-mcp-core/commit/e83b9e0416df997f2408f011c5ed580849b305b7))
+* **skills:** de-prioritise infrastructure / example layers in search ([#1398](https://github.com/loonghao/dcc-mcp-core/issues/1398)) ([a8918de](https://github.com/loonghao/dcc-mcp-core/commit/a8918de3b6eb14f9c3cd6bcb1ed722d10c09623d))
+* **skills:** persist loaded skills + active groups across restarts ([#1405](https://github.com/loonghao/dcc-mcp-core/issues/1405)) ([51a1ce0](https://github.com/loonghao/dcc-mcp-core/commit/51a1ce0f63ed33c24b0de57184addfe5a5bff362))
+* **skills:** rank user-curated skill paths above bundled material ([#1403](https://github.com/loonghao/dcc-mcp-core/issues/1403)) ([a87bad2](https://github.com/loonghao/dcc-mcp-core/commit/a87bad2513989a572de3c67c17fbdb54cae328a8))
+
+
+### Bug Fixes
+
+* **models:** add branding/links/example_prompts to PyO3 constructor and regenerate stubs ([162e4a2](https://github.com/loonghao/dcc-mcp-core/commit/162e4a2f2e0d62f8d3160a3c8dc446c87c2e549a))
+* **tests:** remaining exact-name queries for layer=example bypass ([dc03795](https://github.com/loonghao/dcc-mcp-core/commit/dc037951ac2b95042d078c8d9ee7febfda2c273c))
+* **tests:** use exact skill names to bypass layer=example exclusion ([ed27c7a](https://github.com/loonghao/dcc-mcp-core/commit/ed27c7a13c24d90a61527133d0adb6b493ec23fa))
+
+
+### Code Refactoring
+
+* **skills:** drop example skills, lower thin-harness rank ([#1398](https://github.com/loonghao/dcc-mcp-core/issues/1398)) ([abeb0f7](https://github.com/loonghao/dcc-mcp-core/commit/abeb0f7120b9864dc05c4774ea9759c1fd7ca1af))
+
 ## [0.17.38](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.37...v0.17.38) (2026-05-28)
 
 
