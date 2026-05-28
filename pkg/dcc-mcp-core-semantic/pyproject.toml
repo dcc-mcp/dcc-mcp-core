@@ -1,0 +1,83 @@
+# Companion PyPI distribution for `dcc-mcp-core[semantic]` — issue #1395.
+#
+# Ships a separate native Python extension module
+# `dcc_mcp_core_semantic._native` built from `crates/dcc-mcp-semantic`
+# (fastembed-rs + ONNX Runtime). Modelled on `pkg/dcc-mcp-server-bin` so
+# the Rust source lives in the workspace and is not duplicated under
+# `pkg/` — `[tool.maturin] manifest-path` points back at the existing
+# workspace crate.
+#
+# The main `dcc-mcp-core` wheel stays free of ONNX Runtime; users only
+# pay this wheel's ~25-40 MB cost when they explicitly opt in via
+# `pip install 'dcc-mcp-core[semantic]'` (which lists this package as a
+# dependency in its `[semantic]` extra).
+
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "dcc-mcp-core-semantic"
+version = "0.17.37"  # x-release-please-version
+description = "Native Rust semantic embeddings (fastembed-rs) for dcc-mcp-core"
+readme = "README.md"
+license = { text = "MIT" }
+# Matches the main `dcc-mcp-core` baseline so DCC hosts that still ship
+# Python 3.7 (Maya 2022, 3ds Max 2022) can install this companion wheel.
+# The 3.7 build path uses non-abi3 (`ext-module` only); 3.8+ uses
+# `ext-module + abi3-py38`. See `crates/dcc-mcp-semantic/Cargo.toml` for
+# the matching feature split.
+requires-python = ">=3.7"
+keywords = ["dcc", "mcp", "embeddings", "fastembed", "semantic", "vector"]
+authors = [
+    { name = "Hal Long", email = "hal.long@outlook.com" },
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries",
+]
+# This is a binary extension; no runtime Python deps because the
+# fastembed-rs model loader, tokeniser, and ONNX Runtime all link in
+# at build time.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/loonghao/dcc-mcp-core"
+Repository = "https://github.com/loonghao/dcc-mcp-core"
+Issues = "https://github.com/loonghao/dcc-mcp-core/issues"
+
+# ── maturin ──────────────────────────────────────────────────────────
+[tool.maturin]
+# Point at the existing workspace crate so the Rust source is not
+# duplicated under pkg/.
+manifest-path = "../../crates/dcc-mcp-semantic/Cargo.toml"
+
+# Build the PyO3 extension module. Features are split so the Python 3.7
+# wheel can be built without `abi3-py38`:
+#
+#   - `python-bindings` pulls in fastembed + `dep:pyo3`
+#   - `ext-module` enables `pyo3/extension-module`
+#   - `abi3-py38` enables `pyo3/abi3-py38` (single abi3 wheel for 3.8-3.13)
+#
+# Default (abi3 wheel for 3.8-3.13):
+#   maturin build  # uses the features list below
+# Python 3.7 (non-abi3, cp37 build):
+#   maturin build --no-default-features --features python-bindings,ext-module
+features = ["python-bindings", "ext-module", "abi3-py38"]
+
+bindings = "pyo3"
+module-name = "dcc_mcp_core_semantic._native"
+python-source = "python"
