@@ -415,6 +415,9 @@ fn test_skill_metadata_serde_round_trip() {
         produces: Vec::new(),
         requires: Vec::new(),
         success_metrics: None,
+        branding: None,
+        links: None,
+        example_prompts: Vec::new(),
     };
     let json = serde_json::to_string(&meta).unwrap();
     let back: SkillMetadata = serde_json::from_str(&json).unwrap();
