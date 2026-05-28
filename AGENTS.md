@@ -206,6 +206,8 @@ Gateway resources/prompts:
 | Trim old log files | `prune_old_logs(retention_days, max_total_size_mb)` — call on a schedule or at startup to enforce retention (#558) |
 | Prometheus `/metrics` (gateway) | Build `dcc-mcp-http` with `--features prometheus`; `attach_gateway_metrics_route` + `dcc_mcp_telemetry::PrometheusExporter` expose `dcc_mcp_instances_total{status}`, `dcc_mcp_tools_total{dcc_type}`, request duration / failure counters at `GET /metrics` (#559) |
 | Skill scoping | `SkillScope` (Repo → User → Team → System → Admin) |
+| Lexical + vector skill search (Python) | `RrfFusionIndex().register("lex", LexicalSkillIndex()).register("vec", VectorSkillIndex())` — fuses BM25 with hashing-trick dense vectors so morphology variants and inflected queries (`rendering` vs `render`) still recall the right skill (#1333 + #1393) |
+| Local-only dense embeddings, zero-dep default | `VectorSkillIndex()` ships `HashedEmbedder` + `InMemoryVectorStore` by default — no ONNX / FAISS in the base wheel. Install `pip install 'dcc-mcp-core[semantic]'` and pass `VectorSkillIndex(embedder=OnnxEmbedder())` when hashed recall is not enough (#1393) |
 | Progressive tool exposure | `SkillGroup` + `activate_tool_group()` |
 | Declarative progressive loading on startup | `MinimalModeConfig(skills=…, deactivate_groups=…)` → pass to `register_builtin_actions(minimal_mode=…)` (#525) |
 | Connection-scoped cache | `McpHttpConfig(enable_tool_cache=True)` — per-session `tools/list` snapshot (#438) |

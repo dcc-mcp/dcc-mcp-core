@@ -342,6 +342,14 @@ _LAZY: dict[str, str] = {
     "RrfFusionIndex": "dcc_mcp_core.semantic_skill_index",
     "SkillDocument": "dcc_mcp_core.semantic_skill_index",
     "SkillSearchHit": "dcc_mcp_core.semantic_skill_index",
+    # Vector skill index (issue #1393) — zero-dep default, optional ONNX extra
+    "Embedder": "dcc_mcp_core.vector_embedder",
+    "EmbedderError": "dcc_mcp_core.vector_embedder",
+    "HashedEmbedder": "dcc_mcp_core.vector_embedder",
+    "OnnxEmbedder": "dcc_mcp_core.vector_embedder",
+    "InMemoryVectorStore": "dcc_mcp_core.vector_skill_index",
+    "VectorSkillIndex": "dcc_mcp_core.vector_skill_index",
+    "VectorStore": "dcc_mcp_core.vector_skill_index",
     # Qt UI inspector (issue #1332) - opt-in default capability
     "qt_describe_widget": "dcc_mcp_core.skills.qt_ui_inspector",
     "qt_find_widgets": "dcc_mcp_core.skills.qt_ui_inspector",
