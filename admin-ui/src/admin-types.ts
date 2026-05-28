@@ -828,6 +828,25 @@ export type SkillAdoptionMetrics = {
   low_adoption: boolean;
 };
 
+/// Author-supplied visual identity for a skill's marketplace card.
+/// Mirrors `dcc_mcp_models::SkillBranding` — see Rust source for field semantics.
+export type SkillBranding = {
+  accent_color?: string | null;
+  secondary_color?: string | null;
+  emoji?: string | null;
+  logo_url?: string | null;
+  tagline?: string | null;
+};
+
+/// Author-supplied external link set. Mirrors `dcc_mcp_models::SkillLinks`.
+export type SkillLinks = {
+  docs?: string | null;
+  repo?: string | null;
+  homepage?: string | null;
+  issues?: string | null;
+  chat?: string | null;
+};
+
 export type SkillRow = {
   name: string;
   dcc_type: string;
@@ -842,6 +861,9 @@ export type SkillRow = {
   adoption: SkillAdoptionMetrics;
   package?: string | null;
   version?: string | null;
+  branding?: SkillBranding | null;
+  links?: SkillLinks | null;
+  example_prompts?: string[];
 };
 
 export type SkillInstanceRef = {
@@ -1034,7 +1056,43 @@ export function normalizeSkillRow(raw: unknown): SkillRow {
     adoption: normalizeSkillAdoption(o.adoption),
     package: o.package == null ? null : String(o.package),
     version: o.version == null ? null : String(o.version),
+    branding: normalizeSkillBranding(o.branding),
+    links: normalizeSkillLinks(o.links),
+    example_prompts: stringList(o.example_prompts ?? o['example-prompts']),
   };
+}
+
+function normalizeSkillBranding(raw: unknown): SkillBranding | null {
+  const o = recordOrNull(raw);
+  if (!o) return null;
+  const b: SkillBranding = {
+    accent_color: o.accent_color == null ? null : String(o.accent_color),
+    secondary_color: o.secondary_color == null ? null : String(o.secondary_color),
+    emoji: o.emoji == null ? null : String(o.emoji),
+    logo_url: o.logo_url == null ? null : String(o.logo_url),
+    tagline: o.tagline == null ? null : String(o.tagline),
+  };
+  // Discard fully-empty objects so the UI can rely on `branding ?? fallback`.
+  if (!b.accent_color && !b.secondary_color && !b.emoji && !b.logo_url && !b.tagline) {
+    return null;
+  }
+  return b;
+}
+
+function normalizeSkillLinks(raw: unknown): SkillLinks | null {
+  const o = recordOrNull(raw);
+  if (!o) return null;
+  const l: SkillLinks = {
+    docs: o.docs == null ? null : String(o.docs),
+    repo: o.repo == null ? null : String(o.repo),
+    homepage: o.homepage == null ? null : String(o.homepage),
+    issues: o.issues == null ? null : String(o.issues),
+    chat: o.chat == null ? null : String(o.chat),
+  };
+  if (!l.docs && !l.repo && !l.homepage && !l.issues && !l.chat) {
+    return null;
+  }
+  return l;
 }
 
 export function normalizeSkillDetailInstance(raw: unknown): SkillDetailInstance {

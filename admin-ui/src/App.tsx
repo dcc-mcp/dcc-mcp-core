@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { LanguageSelector } from './components/LanguageSelector';
 import { LogsPanel } from './components/LogsPanel';
+import { SkillsPanel } from './features/skills';
 import { createTranslator, detectBrowserLocale, type SupportedLocale } from './i18n';
 import { readLocaleOverride, storeLocaleOverride } from './locale';
 import { filterLogs, isProblemLog, normalizeLogRow, summarizeLogSeverity, type LogRow, type LogSeverityFilter } from './logs';
-import { CRITICAL_LATENCY_MS, normalizeSkillDetailPayload, normalizeSkillPathRow, normalizeSkillRow, SLOW_LATENCY_MS, type ActivityEvent, type CallRow, type ClientPlatform, type DebugSignal, type FailureSignal, type GovernancePayload, type HealthPayload, type IdeTarget, type InstanceRow, type InstanceSummary, type OpenApiSource, type OpenApiSpec, type Panel, type SetupUrlMode, type SkillDetailPayload, type SkillPathRow, type SkillPayload, type SkillRow, type StatsPayload, type TaskRow, type TokenBreakdownEntry, type ToolRow, type TraceDetailPayload, type TraceRow, type TrafficPayload, type WorkflowRow } from './admin-types';
-import { actorLabel, ADMIN_FETCH_TIMEOUT_MS, agentLabel, apiJson, API_BASE, AttributionFacetList, BackendAccessUrl, backendAccessUrls, BackendOpenApiLinks, callGroupLabel, compactId, compactInstanceId, compactList, configPathFileUrl, configPathForTarget, detectClientPlatform, DocsIcon, downloadJsonText, EmptyRow, errorRateTone, fetchOpenApiSpecText, firstTrust, flattenOpenApiOperations, formatBytes, formatDurationMs, formatSavingsPct, formatTokenCount, formatTraceDate, formatUptime, gatewayLabel, gatewayMcpUrl, gatewayOpenApiSource, GovernanceControlCard, groupRows, haystack, HealthCard, HourlyChart, hrefForAdmin, IDE_TARGETS, ideConfigText, IdeIcon, instanceGroupLabel, instanceSetupLabel, isErrStatus, isOkStatus, isProblemActivity, isSlowLatency, issueReportFilename, issueReportJsonText, isWarnStatus, lanGatewayMcpUrl, latencyClass, latencyTone, LatencyValue, matchesListFilter, McpBackendLinks, MetricTile, MiniSparkline, NavIcon, OpenApiInspectorPanel, openApiSpecFilename, PanelHeader, PANELS, platformLabel, projectDocsHref, readOpenApiSourceFromUrl, readPanelFromUrl, readStatsRangeFromUrl, readTraceIdFromUrl, resolveDccIcon, responseFormatLabel, returnedTokensLabel, savedTokensLabel, SkillDetailPanel, sourceIpLabel, StatBarList, STATS_RANGE_IDS, StatusBadge, statusClass, StatusLine, taskActorLabel, taskOutcomeText, taskPrimaryRequestId, taskRequestCount, taskWorkflowLabel, TimeValue, TokenBreakdownList, toolGroupLabel, toolInstanceLabel, totalTraceTokens, TraceDetailPanel, traceGroupLabel, traceLatency, traceLinks, trafficBodyBytes, trafficEmptyKey, trafficFrameDetail, trafficMethod, trafficRedactedPaths, trafficRequestId, trafficSessionId, trafficStatusDetailKey, trafficStatusLabelKey, trafficStatusTone, trafficTimestamp, trustChip, trustFor, WorkflowCard, WorkflowGraphDetail } from './admin-ui-core';
+import { CRITICAL_LATENCY_MS, SLOW_LATENCY_MS, type ActivityEvent, type CallRow, type ClientPlatform, type DebugSignal, type FailureSignal, type GovernancePayload, type HealthPayload, type IdeTarget, type InstanceRow, type InstanceSummary, type OpenApiSource, type OpenApiSpec, type Panel, type SetupUrlMode, type StatsPayload, type TaskRow, type TokenBreakdownEntry, type ToolRow, type TraceDetailPayload, type TraceRow, type TrafficPayload, type WorkflowRow } from './admin-types';
+import { actorLabel, agentLabel, apiJson, API_BASE, AttributionFacetList, BackendAccessUrl, backendAccessUrls, BackendOpenApiLinks, callGroupLabel, compactId, compactInstanceId, compactList, configPathFileUrl, configPathForTarget, detectClientPlatform, DocsIcon, downloadJsonText, EmptyRow, errorRateTone, fetchOpenApiSpecText, firstTrust, flattenOpenApiOperations, formatBytes, formatDurationMs, formatSavingsPct, formatTokenCount, formatTraceDate, formatUptime, gatewayLabel, gatewayMcpUrl, gatewayOpenApiSource, GovernanceControlCard, groupRows, haystack, HealthCard, HourlyChart, hrefForAdmin, IDE_TARGETS, ideConfigText, IdeIcon, instanceGroupLabel, instanceSetupLabel, isErrStatus, isOkStatus, isProblemActivity, isSlowLatency, issueReportFilename, issueReportJsonText, isWarnStatus, lanGatewayMcpUrl, latencyClass, latencyTone, LatencyValue, matchesListFilter, McpBackendLinks, MetricTile, MiniSparkline, NavIcon, OpenApiInspectorPanel, openApiSpecFilename, PanelHeader, PANELS, platformLabel, projectDocsHref, readOpenApiSourceFromUrl, readPanelFromUrl, readStatsRangeFromUrl, readTraceIdFromUrl, resolveDccIcon, responseFormatLabel, returnedTokensLabel, savedTokensLabel, sourceIpLabel, StatBarList, STATS_RANGE_IDS, StatusBadge, statusClass, StatusLine, taskActorLabel, taskOutcomeText, taskPrimaryRequestId, taskRequestCount, taskWorkflowLabel, TimeValue, TokenBreakdownList, toolGroupLabel, toolInstanceLabel, totalTraceTokens, TraceDetailPanel, traceGroupLabel, traceLatency, traceLinks, trafficBodyBytes, trafficEmptyKey, trafficFrameDetail, trafficMethod, trafficRedactedPaths, trafficRequestId, trafficSessionId, trafficStatusDetailKey, trafficStatusLabelKey, trafficStatusTone, trafficTimestamp, trustChip, trustFor, WorkflowCard, WorkflowGraphDetail } from './admin-ui-core';
 
 function App() {
   const [localeOverride, setLocaleOverride] = useState<SupportedLocale | null>(() => readLocaleOverride());
@@ -34,24 +35,8 @@ function App() {
   const [directInstanceId, setDirectInstanceId] = useState<string>('');
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [logSeverityFilter, setLogSeverityFilter] = useState<LogSeverityFilter>('all');
-  const [skillPaths, setSkillPaths] = useState<SkillPathRow[]>([]);
-  const [skills, setSkills] = useState<SkillRow[]>([]);
-  const [skillTotals, setSkillTotals] = useState({
-    total: 0,
-    loaded: 0,
-    unloaded: 0,
-    action_count: 0,
-    searched: 0,
-    used: 0,
-    low_adoption: 0,
-    load_errors: 0,
-    missing_paths: 0,
-  });
-  const [skillPathInput, setSkillPathInput] = useState('');
-  const [skillPathBusy, setSkillPathBusy] = useState(false);
-  const [selectedSkill, setSelectedSkill] = useState<SkillRow | null>(null);
-  const [skillDetail, setSkillDetail] = useState<SkillDetailPayload | null>(null);
-  const [skillDetailBusy, setSkillDetailBusy] = useState(false);
+  /// Filtered counts from the SkillsPanel for the cross-panel search-meta line.
+  const [skillCounts, setSkillCounts] = useState({ skills: 0, paths: 0 });
   const [traceDetail, setTraceDetail] = useState<string>('Select a trace row for detail.');
   const [traceDetailPayload, setTraceDetailPayload] = useState<TraceDetailPayload | null>(null);
   const [trafficDetail, setTrafficDetail] = useState<string>('Select a traffic frame row for detail.');
@@ -409,48 +394,9 @@ function App() {
   const filteredLogs = useMemo(() => filterLogs(logs, listSearch, logSeverityFilter), [logSeverityFilter, logs, listSearch]);
   const logSeverityCounts = useMemo(() => summarizeLogSeverity(logs), [logs]);
 
-  const filteredSkillPaths = useMemo(() => {
-    const q = listSearch.trim().toLowerCase();
-    if (!q) {
-      return skillPaths;
-    }
-    return skillPaths.filter((r) =>
-      matchesListFilter(
-        q,
-        haystack(
-          r.display_path ?? r.path,
-          r.path_alias ?? '',
-          r.path_hash ?? '',
-          r.status ?? '',
-          r.source,
-          r.id != null ? String(r.id) : '',
-        ),
-      ),
-    );
-  }, [skillPaths, listSearch]);
-
-  const filteredSkills = useMemo(() => {
-    const q = listSearch.trim().toLowerCase();
-    if (!q) {
-      return skills;
-    }
-    return skills.filter((skill) =>
-      matchesListFilter(
-        q,
-        haystack(
-          skill.name,
-          skill.dcc_type,
-          skill.loaded ? 'loaded' : 'unloaded',
-          skill.summary ?? '',
-          skill.instances.join(' '),
-          skill.tools.join(' '),
-          skill.adoption.low_adoption ? 'low adoption' : '',
-          skill.adoption.searched ? 'searched' : '',
-          skill.adoption.used ? 'used' : '',
-        ),
-      ),
-    );
-  }, [skills, listSearch]);
+  /// `filteredSkills` / `filteredSkillPaths` are owned by the SkillsPanel
+  /// feature module now; the orchestrator forwards count updates back to
+  /// the cross-panel search-meta line via `skillCounts`.
 
   const failureSignals = useMemo<FailureSignal[]>(() => {
     const rows = new Map<string, FailureSignal>();
@@ -1113,73 +1059,9 @@ function App() {
     }
   }, [markError, markUpdated, t]);
 
-  const fetchSkillPaths = useCallback(async () => {
-    try {
-      const payload = await apiJson<{ paths: SkillPathRow[] }>('/skill-paths');
-      setSkillPaths(Array.isArray(payload.paths) ? payload.paths.map(normalizeSkillPathRow) : []);
-      markUpdated(
-        'skill-paths',
-        t('common.updated.paths', { count: payload.paths?.length ?? 0, time: new Date().toLocaleTimeString() }),
-      );
-    } catch (error) {
-      markError('skill-paths', error);
-    }
-  }, [markError, markUpdated, t]);
+  /// Skills / skill-paths fetching lives inside features/skills/.
 
-  const fetchSkills = useCallback(async () => {
-    try {
-      const payload = await apiJson<SkillPayload>('/skills');
-      const rows = Array.isArray(payload.skills) ? payload.skills.map(normalizeSkillRow) : [];
-      const health = payload.health ?? {};
-      setSkills(rows);
-      setSkillTotals({
-        total: Number(payload.total ?? rows.length),
-        loaded: Number(payload.loaded ?? rows.filter((skill) => skill.loaded).length),
-        unloaded: Number(payload.unloaded ?? rows.filter((skill) => !skill.loaded).length),
-        action_count: Number(payload.action_count ?? rows.reduce((sum, skill) => sum + skill.action_count, 0)),
-        searched: Number(health.searched_skills ?? rows.filter((skill) => skill.adoption.searched).length),
-        used: Number(health.used_skills ?? rows.filter((skill) => skill.adoption.used).length),
-        low_adoption: Number(health.low_adoption_skills ?? rows.filter((skill) => skill.adoption.low_adoption).length),
-        load_errors: Number(health.load_error_count ?? rows.reduce((sum, skill) => sum + skill.adoption.load_error_count, 0)),
-        missing_paths: Number(health.missing_path_count ?? 0),
-      });
-      markUpdated(
-        'skill-paths',
-        t('common.updated.skillInventory', { loaded: payload.loaded ?? rows.filter((skill) => skill.loaded).length, actions: payload.action_count ?? rows.reduce((sum, skill) => sum + skill.action_count, 0), time: new Date().toLocaleTimeString() }),
-      );
-    } catch (error) {
-      markError('skill-paths', error);
-    }
-  }, [markError, markUpdated, t]);
 
-  const fetchSkillDetail = useCallback(async (skill: SkillRow) => {
-    setSelectedSkill(skill);
-    setSkillDetailBusy(true);
-    setSkillDetail(null);
-    try {
-      const params = new URLSearchParams({ name: skill.name });
-      if (skill.dcc_type) {
-        params.set('dcc_type', skill.dcc_type);
-      }
-      const instanceId = skill.instance_details[0]?.id || skill.instance_ids[0];
-      if (instanceId) {
-        params.set('instance_id', instanceId);
-      }
-      const payload = await apiJson<SkillDetailPayload>(`/skill-detail?${params.toString()}`);
-      setSkillDetail(normalizeSkillDetailPayload(payload));
-      markUpdated('skill-paths', t('common.updated.skillDetail', { name: skill.name, time: new Date().toLocaleTimeString() }));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setSkillDetail({ skill: null, instances: [], error: message });
-      markError('skill-paths', error);
-    } finally {
-      setSkillDetailBusy(false);
-    }
-  }, [markError, markUpdated, t]);
-
-  const fetchSkillInventory = useCallback(async () => {
-    await Promise.allSettled([fetchSkillPaths(), fetchSkills()]);
-  }, [fetchSkillPaths, fetchSkills]);
 
   const fetchSetup = useCallback(async () => {
     await Promise.allSettled([fetchHealth(), fetchInstanceBackends()]);
@@ -1200,74 +1082,6 @@ function App() {
     ]);
     markUpdated('debug', t('common.updated.debugSnapshot', { time: new Date().toLocaleTimeString() }));
   }, [fetchActivity, fetchCalls, fetchGovernance, fetchHealth, fetchInstanceBackends, fetchLogs, fetchStats, fetchTraces, fetchTraffic, markUpdated, t]);
-
-  const addSkillPath = useCallback(async () => {
-    const path = skillPathInput.trim();
-    if (!path) {
-      return;
-    }
-    setSkillPathBusy(true);
-    try {
-      const ctrl = new AbortController();
-      const tid = window.setTimeout(() => ctrl.abort(), ADMIN_FETCH_TIMEOUT_MS);
-      try {
-        const res = await fetch(`${API_BASE}/skill-paths`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path }),
-          signal: ctrl.signal,
-        });
-        if (!res.ok) {
-          throw new Error(`${res.status} ${res.statusText}`);
-        }
-      } catch (err) {
-        if (err instanceof DOMException && err.name === 'AbortError') {
-          throw new Error(`Request timed out after ${ADMIN_FETCH_TIMEOUT_MS / 1000}s`);
-        }
-        throw err;
-      } finally {
-        clearTimeout(tid);
-      }
-      setSkillPathInput('');
-      await fetchSkillInventory();
-    } catch (error) {
-      markError('skill-paths', error);
-    } finally {
-      setSkillPathBusy(false);
-    }
-  }, [fetchSkillInventory, markError, skillPathInput]);
-
-  const deleteSkillPath = useCallback(
-    async (id: number) => {
-      setSkillPathBusy(true);
-      try {
-        const ctrl = new AbortController();
-        const tid = window.setTimeout(() => ctrl.abort(), ADMIN_FETCH_TIMEOUT_MS);
-        try {
-          const res = await fetch(`${API_BASE}/skill-paths/${encodeURIComponent(String(id))}`, {
-            method: 'DELETE',
-            signal: ctrl.signal,
-          });
-          if (!res.ok) {
-            throw new Error(`${res.status} ${res.statusText}`);
-          }
-        } catch (err) {
-          if (err instanceof DOMException && err.name === 'AbortError') {
-            throw new Error(`Request timed out after ${ADMIN_FETCH_TIMEOUT_MS / 1000}s`);
-          }
-          throw err;
-        } finally {
-          clearTimeout(tid);
-        }
-        await fetchSkillInventory();
-      } catch (error) {
-        markError('skill-paths', error);
-      } finally {
-        setSkillPathBusy(false);
-      }
-    },
-    [fetchSkillInventory, markError],
-  );
 
   const fetchTraceInto = useCallback(async (requestId: string, target: 'call' | 'trace') => {
     try {
@@ -1396,9 +1210,9 @@ function App() {
     if (panel === 'traffic') void fetchTraffic();
     if (panel === 'stats') void Promise.allSettled([fetchStats(), fetchCalls(), fetchTraces()]);
     if (panel === 'governance') void fetchGovernance();
-    if (panel === 'skill-paths') void fetchSkillInventory();
+    // `skill-paths` refreshes itself from the SkillsPanel orchestrator.
     if (panel === 'logs') void fetchLogs();
-  }, [fetchActivity, fetchCalls, fetchDebug, fetchGovernance, fetchHealth, fetchInstanceBackends, fetchLogs, fetchOpenApi, fetchSetup, fetchSkillInventory, fetchStats, fetchTasks, fetchTools, fetchTraces, fetchTraffic, fetchWorkflows]);
+  }, [fetchActivity, fetchCalls, fetchDebug, fetchGovernance, fetchHealth, fetchInstanceBackends, fetchLogs, fetchOpenApi, fetchSetup, fetchStats, fetchTasks, fetchTools, fetchTraces, fetchTraffic, fetchWorkflows]);
 
   useEffect(() => {
     fetchPanel(activePanel);
@@ -1498,7 +1312,7 @@ function App() {
                 {activePanel === 'traces' ? `${filteredTraces.length} / ${traces.length}` : ''}
                 {activePanel === 'traffic' ? `${filteredTrafficFrames.length} / ${trafficFrames.length}` : ''}
                 {activePanel === 'governance' ? `${filteredGovernanceDecisions.length} / ${governance?.recent_decisions?.length ?? 0}` : ''}
-                {activePanel === 'skill-paths' ? t('search.meta.skillsPaths', { skills: filteredSkills.length, paths: filteredSkillPaths.length }) : ''}
+                {activePanel === 'skill-paths' ? t('search.meta.skillsPaths', { skills: skillCounts.skills, paths: skillCounts.paths }) : ''}
                 {activePanel === 'logs' ? `${filteredLogs.length} / ${logs.length}` : ''}
                 {activePanel === 'stats' ? t('search.meta.statsCharts', {
                   apps: filteredTopAppTypes.length,
@@ -2591,166 +2405,16 @@ function App() {
           </section>
         )}
 
-        {activePanel === 'skill-paths' && (
-          <section className="panel active skill-paths-panel">
-            <PanelHeader
-              title={t('skillPaths.title')}
-              action={
-                <button className="refresh-btn" type="button" disabled={skillPathBusy} onClick={() => void fetchSkillInventory()}>
-                  {t('action.refresh')}
-                </button>
-              }
-            />
-            <StatusLine text={updatedAt['skill-paths']} error={errors['skill-paths']} />
-            <p className="empty log-hint">
-              {t('skillPaths.description')}
-            </p>
-            <div className="metric-grid compact skill-summary-grid">
-              <MetricTile label={t('skillPaths.metric.loadedSkills')} value={skillTotals.loaded} detail={t('skillPaths.detail.indexed', { count: skillTotals.total })} />
-              <MetricTile label={t('skillPaths.metric.actions')} value={skillTotals.action_count} detail={t('skillPaths.detail.fromLoadedSkills')} />
-              <MetricTile label={t('skillPaths.metric.searchPaths')} value={skillPaths.length} detail={t('skillPaths.detail.activeDiscoveryRoots')} />
-              <MetricTile label={t('skillPaths.metric.searchedUsed')} value={`${skillTotals.searched} / ${skillTotals.used}`} detail={t('skillPaths.detail.searchedUsed')} />
-              <MetricTile tone={skillTotals.low_adoption > 0 ? 'warn' : 'ok'} label={t('skillPaths.metric.lowAdoption')} value={skillTotals.low_adoption} detail={t('skillPaths.detail.lowAdoption')} />
-              <MetricTile tone={skillTotals.load_errors > 0 || skillTotals.missing_paths > 0 ? 'warn' : 'ok'} label={t('skillPaths.metric.healthSignals')} value={skillTotals.load_errors + skillTotals.missing_paths} detail={t('skillPaths.detail.healthSignals', { loads: skillTotals.load_errors, paths: skillTotals.missing_paths })} />
-            </div>
-            <div className="skill-inventory-section">
-              <h3 className="section-kicker">{t('skillPaths.section.loadedSkills')}</h3>
-              <table>
-                <thead>
-                  <tr>
-                    <th>{t('skillPaths.table.skill')}</th>
-                    <th>DCC</th>
-                    <th>{t('skillPaths.table.state')}</th>
-                    <th>{t('skillPaths.metric.actions')}</th>
-                    <th>{t('skillPaths.table.discovery')}</th>
-                    <th>{t('skillPaths.table.usage')}</th>
-                    <th>{t('skillPaths.table.instances')}</th>
-                    <th>{t('common.table.tool')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {skills.length === 0 ? (
-                    <EmptyRow columns={8}>{t('skillPaths.empty.skills')}</EmptyRow>
-                  ) : filteredSkills.length === 0 ? (
-                    <EmptyRow columns={8}>{t('skillPaths.empty.skillsSearch')}</EmptyRow>
-                  ) : (
-                    filteredSkills.map((skill) => (
-                      <tr
-                        className={selectedSkill?.name === skill.name && selectedSkill?.dcc_type === skill.dcc_type ? 'skill-row selected' : 'skill-row'}
-                        key={`${skill.dcc_type}-${skill.name}-${skill.loaded ? 'loaded' : 'unloaded'}`}
-                      >
-                        <td>
-                          <button className="linkish skill-name-button" type="button" onClick={() => void fetchSkillDetail(skill)}>
-                            {skill.name}
-                          </button>
-                          {skill.summary ? <div className="muted skill-summary-text">{skill.summary}</div> : null}
-                        </td>
-                        <td><span className="source-pill">{skill.dcc_type || t('common.status.unknown')}</span></td>
-                        <td><span className={`badge ${skill.loaded ? 'badge-ok' : 'badge-muted'}`}>{skill.loaded ? t('skillPaths.state.loaded') : t('skillPaths.state.unloaded')}</span></td>
-                        <td>{skill.action_count}</td>
-                        <td>
-                          <span>{t('skillPaths.usage.searchHits', { count: skill.adoption.search_hits })}</span>
-                          <div className="muted">
-                            {skill.adoption.best_rank == null ? t('skillPaths.usage.noRank') : t('skillPaths.usage.bestRank', { rank: skill.adoption.best_rank })}
-                            {' · '}
-                            {t('skillPaths.usage.selected', { count: skill.adoption.selected_count })}
-                          </div>
-                        </td>
-                        <td>
-                          <span className={`badge ${skill.adoption.failure_count > 0 || skill.adoption.load_error_count > 0 ? 'badge-err' : skill.adoption.used ? 'badge-ok' : skill.adoption.low_adoption ? 'badge-warn' : 'badge-muted'}`}>
-                            {skill.adoption.low_adoption ? t('skillPaths.state.lowAdoption') : skill.adoption.used ? t('skillPaths.state.used') : t('skillPaths.state.notUsed')}
-                          </span>
-                          <div className="muted">
-                            {t('skillPaths.usage.callsFailures', { calls: skill.adoption.call_count, failures: skill.adoption.failure_count })}
-                          </div>
-                          <div className="muted">
-                            {skill.adoption.last_used ? t('skillPaths.usage.lastUsed', { time: formatTraceDate(skill.adoption.last_used ?? undefined) }) : t('skillPaths.usage.neverUsed')}
-                          </div>
-                        </td>
-                        <td className="mono-path">{skill.instances.join(', ') || '—'}</td>
-                        <td className="mono-path">{skill.tools.slice(0, 8).join(', ')}{skill.tools.length > 8 ? ` +${skill.tools.length - 8}` : ''}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-              {selectedSkill ? (
-                <SkillDetailPanel
-                  skill={selectedSkill}
-                  detail={skillDetail}
-                  busy={skillDetailBusy}
-                  onReload={() => void fetchSkillDetail(selectedSkill)}
-                  onClose={() => {
-                    setSelectedSkill(null);
-                    setSkillDetail(null);
-                  }}
-                  t={t}
-                />
-              ) : null}
-            </div>
-            <div className="skill-inventory-section">
-              <h3 className="section-kicker">{t('skillPaths.section.searchPaths')}</h3>
-            </div>
-            <div className="skill-path-add">
-              <input
-                type="text"
-                className="list-search-input"
-                placeholder={t('skillPaths.placeholder.addDirectoryPath')}
-                value={skillPathInput}
-                onChange={(e) => setSkillPathInput(e.target.value)}
-                aria-label={t('skillPaths.input.newPath')}
-              />
-              <button className="refresh-btn" type="button" disabled={skillPathBusy} onClick={() => void addSkillPath()}>
-                {t('skillPaths.action.addPath')}
-              </button>
-            </div>
-            <table>
-              <thead>
-                <tr>
-                  <th>{t('skillPaths.table.source')}</th>
-                  <th>{t('skillPaths.table.pathAlias')}</th>
-                  <th>{t('skillPaths.table.status')}</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {skillPaths.length === 0 ? (
-                  <EmptyRow columns={4}>{t('skillPaths.empty.paths')}</EmptyRow>
-                ) : filteredSkillPaths.length === 0 ? (
-                  <EmptyRow columns={4}>{t('skillPaths.empty.pathsSearch')}</EmptyRow>
-                ) : (
-                  filteredSkillPaths.map((row) => (
-                    <tr key={`${row.source}-${row.path_hash ?? row.path}-${row.id ?? 'x'}`}>
-                      <td>
-                        <span className="source-pill" data-source={row.source}>
-                          {row.source}
-                        </span>
-                      </td>
-                      <td>
-                        <span className="mono-path">{row.display_path ?? row.path}</span>
-                        {row.path_alias ? <div className="muted">{row.path_alias}</div> : null}
-                      </td>
-                      <td>
-                        <span className={`badge ${row.status === 'present' ? 'badge-ok' : row.status === 'missing' ? 'badge-warn' : 'badge-muted'}`}>
-                          {row.status === 'present' ? t('skillPaths.state.present') : row.status === 'missing' ? t('skillPaths.state.missing') : row.status ?? t('common.status.unknown')}
-                        </span>
-                      </td>
-                      <td>
-                        {row.id != null ? (
-                          <button type="button" className="linkish" disabled={skillPathBusy} onClick={() => void deleteSkillPath(row.id!)}>
-                            {t('action.remove')}
-                          </button>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </section>
-        )}
+        <SkillsPanel
+          active={activePanel === 'skill-paths'}
+          search={listSearch}
+          updatedAt={updatedAt['skill-paths']}
+          error={errors['skill-paths']}
+          onUpdated={(text) => markUpdated('skill-paths', text)}
+          onError={(err) => markError('skill-paths', err)}
+          onCountsChange={setSkillCounts}
+          t={t}
+        />
 
         {activePanel === 'logs' && (
           <LogsPanel

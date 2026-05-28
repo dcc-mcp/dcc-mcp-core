@@ -3,6 +3,7 @@ use super::*;
 use crate::constants::{DEPENDS_FILE, SKILL_METADATA_DIR, SKILL_METADATA_FILE};
 
 pub(super) mod fixtures;
+mod test_branding_field;
 mod test_enumerate;
 mod test_extract_frontmatter;
 mod test_layer_field;
