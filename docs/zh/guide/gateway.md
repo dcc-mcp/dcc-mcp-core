@@ -101,6 +101,95 @@ generic standalone）。运行时满足：
               └────────────────────────────────────────┘
 ```
 
+## 拓扑配方（issue #1366）
+
+四种命名配方覆盖支持的所有部署形态。每个都是完整可复制粘贴的命令集；按
+你的约束挑一种，并参考迁移指南了解配方之间的切换路径
+（[`docs/zh/guide/migration/from-embedded-to-daemon.md`](migration/from-embedded-to-daemon.md)）。
+
+### 配方 1 —— 单工作站（内嵌自动网关）
+
+默认零配置流程。一个 DCC 适配器赢得网关端口，为整台机器服务。
+
+```bash
+# Maya 插件宿主：
+dcc-mcp-server --app maya
+
+# 同一工作站第二个 DCC —— 作为后端加入已选举的网关：
+dcc-mcp-server --app blender
+```
+
+对 `http://127.0.0.1:9765/mcp` 调用 `tools/list` 暴露的是网关的有界发现
+原语；路由会扇出到两个 DCC。
+
+### 配方 2 —— 多工作站 LAN + 守护进程网关 + HTTP 注册
+
+守护进程在选定主机上占有网关端口；每台工作站的每个 DCC 适配器通过
+HTTP API 注册（#1361）。
+
+```bash
+# 主机 A —— 只跑网关：
+dcc-mcp-server gateway --host 0.0.0.0 --port 9765 --registry-dir /var/lib/dcc-mcp
+
+# 主机 B —— 跑 DCC，永远不抢网关端口：
+dcc-mcp-server serve --no-auto-gateway --app maya \
+    --register-url http://host-a.lan:9765/v1/instances/register \
+    --heartbeat-secs 5
+
+# 主机 C —— 不同的 DCC，同一个注册目标：
+dcc-mcp-server serve --no-auto-gateway --app photoshop \
+    --register-url http://host-a.lan:9765/v1/instances/register
+```
+
+主机 A 上的 `gateway://instances` 会列出 B 和 C，`source: "http"`。
+
+### 配方 3 —— LAN + mDNS 自动发现
+
+适合不方便给每台主机配 `--register-url` 的场景。需要 `--features mdns`
+构建；网关浏览 `_dcc-mcp._tcp.local`、探测每个发现的端点，幸存者以
+`source: "mdns"` 出现（#1362）。
+
+```bash
+# 主机 A —— 守护进程监听 LAN 上广播的 DCC sidecar：
+dcc-mcp-server gateway --host 0.0.0.0 --port 9765 --discover-mdns
+
+# 主机 B（或 C、D…）—— 每个 DCC sidecar 广播自己：
+dcc-mcp-server serve --no-auto-gateway --app blender --advertise-mdns
+
+dcc-mcp-server serve --no-auto-gateway --app houdini --advertise-mdns
+```
+
+安全立场：mDNS 只用于*地址发现*。发现的端点仍然必须通过网关的 auth chain
+才能路由调用。
+
+### 配方 4 —— 经 tunnel relay 暴露到公网
+
+DCC 位于 NAT / 防火墙后。`dcc-mcp-tunnel-agent` 通过 WSS 回连到公网可达
+的 `dcc-mcp-tunnel-relay`；网关轮询 relay 的 admin API，把健康的隧道以
+`source: "relay"` 暴露出来（#1363）。
+
+```bash
+# 公网 relay（例如 fly.io、k8s ingress 等）：
+dcc-mcp-tunnel-relay \
+    --agent-bind 0.0.0.0:9090 \
+    --frontend-bind 0.0.0.0:9091 \
+    --admin-bind 127.0.0.1:9092
+
+# NAT 后的 DCC 主机：
+dcc-mcp-tunnel-agent \
+    --relay-url wss://relay.example.com:9090 \
+    --jwt $TUNNEL_JWT \
+    --dcc photoshop \
+    --local-target http://127.0.0.1:8765/mcp
+
+# 网关指向 relay 的 admin 端点：
+dcc-mcp-server gateway --host 0.0.0.0 --port 9765 \
+    --relay-source http://relay.example.com:9092=https://relay.example.com:9091
+```
+
+Auth 契约：agent 段使用 tunnel JWT；gateway 段使用网关自己的 auth chain。
+两者都通过，调用才能端到端路由。
+
 ## SSE 多路复用 (#320)
 
 当 Gateway 检测到新后端时，它会打开一个持久的 SSE 连接到
