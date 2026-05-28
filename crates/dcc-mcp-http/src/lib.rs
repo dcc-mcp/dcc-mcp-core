@@ -27,7 +27,7 @@
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let registry = Arc::new(ToolRegistry::new());
-//! let config = McpHttpConfig::new(8765);
+//! let config = McpHttpConfig::default().with_port(8765);
 //!
 //! let server = McpHttpServer::new(registry, config);
 //! let handle = server.start().await?;
