@@ -92,6 +92,9 @@ impl SkillMetadata {
             success_metrics: None,
             recipes_file: None,
             introspection_file: None,
+            branding: None,
+            links: None,
+            example_prompts: Vec::new(),
         }
     }
 
