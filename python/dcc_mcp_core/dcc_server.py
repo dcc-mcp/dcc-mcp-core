@@ -93,6 +93,9 @@ _instance_context: dict[str, Any] = {
     "dcc_window_handle": None,
     "dcc_window_title": None,
     "resolver": None,
+    # Optional zero-arg callable returning the current gateway failover
+    # state dict. Wired by DccServerBase via register_diagnostic_mcp_tools.
+    "gateway_failover_resolver": None,
 }
 
 # Lazily-constructed capturers (one per kind, reused across screenshots).
@@ -359,6 +362,83 @@ def _handle_process_status(params_json: str) -> str:
     return json_dumps(payload)
 
 
+def _handle_gateway_failover_status(params_json: str) -> str:
+    """Report gateway failover election status for this adapter (#1355).
+
+    Params (all optional) are ignored. Surface contract:
+
+    - ``enabled`` (bool): whether the adapter opted into automatic gateway
+      failover at construction time (``_enable_gateway_failover`` on
+      :class:`DccServerBase`). When ``false`` no election thread will ever
+      run for this instance.
+    - ``running`` (bool): whether the election thread is currently alive.
+    - ``consecutive_failures`` (int): probe failures observed since the last
+      successful health check.
+    - ``gateway_host`` / ``gateway_port``: target endpoint the election would
+      bid for. ``gateway_port == 0`` means failover cannot run (no port
+      configured).
+    - ``is_gateway`` (bool, optional): whether *this* instance currently owns
+      the gateway port.
+    - ``reason`` (str): human-readable explanation, in priority order:
+      "failover_disabled_by_adapter", "gateway_port_not_configured",
+      "election_thread_not_started", "election_active", or "active_gateway".
+    """
+    _ = params_json
+    resolver = _instance_context.get("gateway_failover_resolver")
+    dcc_name = _instance_context.get("dcc_name") or "dcc"
+
+    if not callable(resolver):
+        payload: dict[str, Any] = {
+            "success": True,
+            "dcc_name": dcc_name,
+            "enabled": False,
+            "running": False,
+            "consecutive_failures": 0,
+            "gateway_host": None,
+            "gateway_port": 0,
+            "is_gateway": False,
+            "reason": "failover_resolver_not_registered",
+            "timestamp_ms": int(time.time() * 1000),
+        }
+        return json_dumps(payload)
+
+    try:
+        raw = resolver() or {}
+    except Exception as exc:
+        logger.debug("gateway_failover resolver failed: %s", exc)
+        raw = {}
+
+    enabled = bool(raw.get("enabled", False))
+    running = bool(raw.get("running", False))
+    gateway_port = int(raw.get("gateway_port", 0) or 0)
+    is_gateway = bool(raw.get("is_gateway", False))
+
+    if is_gateway:
+        reason = "active_gateway"
+    elif not enabled:
+        reason = "failover_disabled_by_adapter"
+    elif gateway_port <= 0:
+        reason = "gateway_port_not_configured"
+    elif not running:
+        reason = "election_thread_not_started"
+    else:
+        reason = "election_active"
+
+    payload = {
+        "success": True,
+        "dcc_name": dcc_name,
+        "enabled": enabled,
+        "running": running,
+        "consecutive_failures": int(raw.get("consecutive_failures", 0) or 0),
+        "gateway_host": raw.get("gateway_host"),
+        "gateway_port": gateway_port,
+        "is_gateway": is_gateway,
+        "reason": reason,
+        "timestamp_ms": int(time.time() * 1000),
+    }
+    return json_dumps(payload)
+
+
 def _handle_dispatch_tool(params_json: str) -> str:
     """Relay a dispatch request through the server's ToolDispatcher."""
     try:
@@ -551,6 +631,12 @@ _PROC_SCHEMA: dict = {
     "additionalProperties": False,
 }
 
+_GATEWAY_FAILOVER_SCHEMA: dict = {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": False,
+}
+
 
 def register_diagnostic_mcp_tools(
     server: Any,
@@ -560,6 +646,7 @@ def register_diagnostic_mcp_tools(
     dcc_window_handle: int | None = None,
     dcc_window_title: str | None = None,
     resolver: Callable[[], int | None] | None = None,
+    gateway_failover_resolver: Callable[[], dict[str, Any]] | None = None,
 ) -> None:
     """Register the four ``dcc_diagnostics__*`` MCP tools on *server*.
 
@@ -579,6 +666,7 @@ def register_diagnostic_mcp_tools(
     - ``dcc_diagnostics__tool_metrics`` — tool dispatch metrics (renamed from
       ``dcc_diagnostics__action_metrics`` in 0.14.0, no compat alias)
     - ``dcc_diagnostics__process_status`` — adapter process / DCC alive check
+    - ``dcc_diagnostics__gateway_failover`` — gateway election state (#1355)
 
     Args:
         server: An :class:`McpHttpServer` instance (must expose a
@@ -592,6 +680,14 @@ def register_diagnostic_mcp_tools(
         resolver: Optional callable returning the current DCC PID on demand.
             Evaluated lazily per request so long-lived servers can track DCC
             process restarts.
+        gateway_failover_resolver: Optional zero-arg callable returning the
+            current gateway-failover state dict (``enabled`` /  ``running`` /
+            ``consecutive_failures`` / ``gateway_host`` / ``gateway_port`` /
+            ``is_gateway``). :class:`DccServerBase` wires this to
+            :meth:`DccServerBase.get_gateway_election_status` so the
+            ``dcc_diagnostics__gateway_failover`` MCP tool can report a
+            stable explanation even when the election thread never started
+            (see #1355).
 
     """
     _instance_context.update(
@@ -601,6 +697,7 @@ def register_diagnostic_mcp_tools(
             "dcc_window_handle": dcc_window_handle,
             "dcc_window_title": dcc_window_title,
             "resolver": resolver,
+            "gateway_failover_resolver": gateway_failover_resolver,
         }
     )
     _get_action_recorder(dcc_name)
@@ -630,6 +727,12 @@ def register_diagnostic_mcp_tools(
             "Adapter process and DCC alive status.",
             _PROC_SCHEMA,
             _handle_process_status,
+        ),
+        (
+            "dcc_diagnostics__gateway_failover",
+            "Gateway election state (enabled, running, consecutive_failures, reason).",
+            _GATEWAY_FAILOVER_SCHEMA,
+            _handle_gateway_failover_status,
         ),
     ]
 

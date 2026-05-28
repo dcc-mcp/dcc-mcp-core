@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from typing import Callable
 
 from dcc_mcp_core.dcc_server import register_diagnostic_mcp_tools
 from dcc_mcp_core.feedback import register_feedback_tool
@@ -27,6 +28,7 @@ def register_all_builtin_skills(
     dcc_pid: int | None = None,
     dcc_window_handle: int | None = None,
     dcc_window_title: str | None = None,
+    gateway_failover_resolver: Callable[[], dict[str, Any]] | None = None,
 ) -> None:
     """Register all standard built-in tools on *server*.
 
@@ -43,13 +45,14 @@ def register_all_builtin_skills(
     """
     logger.debug("[%s] Registering all built-in skills", dcc_name)
 
-    # 1. Diagnostics (audit log, metrics, screenshot)
+    # 1. Diagnostics (audit log, metrics, screenshot, gateway failover)
     register_diagnostic_mcp_tools(
         server,
         dcc_name=dcc_name,
         dcc_pid=dcc_pid,
         dcc_window_handle=dcc_window_handle,
         dcc_window_title=dcc_window_title,
+        gateway_failover_resolver=gateway_failover_resolver,
     )
 
     # 2. Introspection (signature, search, eval)

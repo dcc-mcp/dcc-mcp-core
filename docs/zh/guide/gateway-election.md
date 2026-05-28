@@ -246,3 +246,43 @@ status = election.get_status()
 
 election.stop()
 ```
+
+## 故障转移诊断（issue #1355）
+
+为了让独立网关进程退出 vs. 内嵌适配器自动升级两种状态可观察，
+`DccServerBase` 默认会注册一个 `dcc_diagnostics__gateway_failover` MCP
+工具，返回当前适配器的选举状态：
+
+| 字段                    | 类型   | 含义                                                                                              |
+|-------------------------|--------|-------------------------------------------------------------------------------------------------|
+| `enabled`               | bool   | 适配器是否开启了自动故障转移（`_enable_gateway_failover`）。                                       |
+| `running`               | bool   | 选举守护线程是否还活着。                                                                            |
+| `consecutive_failures`  | int    | 距上次健康检查成功以来的连续探测失败次数。                                                          |
+| `gateway_host`          | str?   | 选举竞争的绑定地址。                                                                                |
+| `gateway_port`          | int    | 绑定端口。`0` 表示即使 `enabled=True` 也无法运行故障转移。                                          |
+| `is_gateway`            | bool   | 当前实例是否已经占有网关端口。                                                                      |
+| `reason`                | str    | `failover_disabled_by_adapter` / `gateway_port_not_configured` / `election_thread_not_started` / `election_active` / `active_gateway` / `failover_resolver_not_registered` 之一。 |
+| `timestamp_ms`          | int    | 快照墙钟时间。                                                                                      |
+
+`reason` 是回答"独立网关退出后为什么没有后端接管？"的标准答案：
+
+- `failover_disabled_by_adapter` —— 适配器构造时显式关闭了故障转移。
+  内嵌的只读 DCC 插件（资产浏览器、查看器等）通常落在这里。
+- `gateway_port_not_configured` —— 故障转移已开启但 `McpHttpConfig` 里
+  `gateway_port==0`。独立 `dcc-mcp-server gateway` 守护进程负责网关平面，
+  没有 `gateway_port` 的内嵌 DCC server 永远不会自我升级。
+- `election_thread_not_started` —— 已开启且端口已配置，但选举线程尚未启动
+  （例如 `server.start()` 还没调用，或启动失败正在重试）。
+- `election_active` —— 选举线程正在运行并探测网关。`consecutive_failures`
+  反映距离触发升级还差多少次失败。
+- `active_gateway` —— 当前实例已经占有网关端口。多数情况是故障转移成功后
+  的稳态；也包括无守护进程时第一个内嵌适配器启动后的稳态。
+
+### 独立网关退出 vs. 内嵌升级
+
+当 `dcc-mcp-server gateway` 作为独立进程退出（无论是优雅退出还是 crash），
+它的 `__gateway__` sentinel 文件会被清除，下一轮选举 tick（默认
+`DCC_MCP_GATEWAY_PROBE_INTERVAL=5s`）任何 `enabled=True` 且 `gateway_port>0`
+的内嵌适配器都会升级。如果此时所有内嵌后端都报告
+`reason="failover_disabled_by_adapter"`，那只能从外部重启 daemon ——
+内嵌适配器是有意 opt out，不会自己恢复网关平面。
