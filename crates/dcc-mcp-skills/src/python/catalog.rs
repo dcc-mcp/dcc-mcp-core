@@ -263,6 +263,121 @@ impl SkillCatalog {
         self.clear_after_load_hook();
     }
 
+    /// Register a callable invoked after a skill is unloaded (#1405).
+    ///
+    /// The callable receives ``(skill_name, unregistered_actions)``. Used
+    /// by the persistence layer to evict the row from the on-disk store.
+    #[pyo3(name = "set_after_unload_skill_hook")]
+    fn py_set_after_unload_skill_hook(
+        &self,
+        py: Python<'_>,
+        hook: Option<Py<PyAny>>,
+    ) -> PyResult<()> {
+        match hook {
+            None => self.clear_after_unload_hook(),
+            Some(py_fn) => {
+                if !py_fn.bind(py).is_callable() {
+                    return Err(pyo3::exceptions::PyTypeError::new_err(
+                        "after-unload skill hook must be callable",
+                    ));
+                }
+                let hook_ref = py_fn.clone_ref(py);
+                self.set_after_unload_hook(move |skill_name, unregistered| {
+                    Python::try_attach(|gil| {
+                        hook_ref
+                            .call1(gil, (skill_name.to_string(), unregistered.to_vec()))
+                            .map(|_| ())
+                            .map_err(|e| format!("after-unload skill hook failed: {e}"))
+                    })
+                    .ok_or_else(|| "Python interpreter not attached".to_string())
+                    .and_then(|r| r)
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Clear any registered after-unload skill hook.
+    #[pyo3(name = "clear_after_unload_skill_hook")]
+    fn py_clear_after_unload_skill_hook(&self) {
+        self.clear_after_unload_hook();
+    }
+
+    /// Register a callable invoked after a tool group is activated or
+    /// deactivated (#1405). Receives ``(group_name, activated: bool)``.
+    #[pyo3(name = "set_after_group_change_hook")]
+    fn py_set_after_group_change_hook(
+        &self,
+        py: Python<'_>,
+        hook: Option<Py<PyAny>>,
+    ) -> PyResult<()> {
+        match hook {
+            None => self.clear_after_group_change_hook(),
+            Some(py_fn) => {
+                if !py_fn.bind(py).is_callable() {
+                    return Err(pyo3::exceptions::PyTypeError::new_err(
+                        "after-group-change hook must be callable",
+                    ));
+                }
+                let hook_ref = py_fn.clone_ref(py);
+                self.set_after_group_change_hook(move |group_name, activated| {
+                    Python::try_attach(|gil| {
+                        hook_ref
+                            .call1(gil, (group_name.to_string(), activated))
+                            .map(|_| ())
+                            .map_err(|e| format!("after-group-change hook failed: {e}"))
+                    })
+                    .ok_or_else(|| "Python interpreter not attached".to_string())
+                    .and_then(|r| r)
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Clear any registered after-group-change hook.
+    #[pyo3(name = "clear_after_group_change_hook")]
+    fn py_clear_after_group_change_hook(&self) {
+        self.clear_after_group_change_hook();
+    }
+
+    /// Replay a persisted set of loaded skills + active groups (#1405).
+    ///
+    /// ``state_json`` is the JSON-encoded ``PersistedCatalogState`` (the
+    /// shape returned by ``LoadedStateStore.snapshot().to_json()`` plus
+    /// ``json.dumps``).
+    ///
+    /// ``policy`` is one of ``"skip_on_drift"`` (default),
+    /// ``"require_exact_version"``, or ``"ignore_version"``.
+    ///
+    /// Returns the ``ReplayReport`` as a JSON-encoded string so callers
+    /// can parse it with ``json.loads`` without an extra Python
+    /// conversion dependency.
+    #[pyo3(name = "replay_loaded")]
+    #[pyo3(signature = (state_json, policy = "skip_on_drift"))]
+    fn py_replay_loaded(&self, state_json: &str, policy: &str) -> PyResult<String> {
+        let parsed_state: crate::catalog::persistence::PersistedCatalogState =
+            serde_json::from_str(state_json).map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!("invalid state JSON: {e}"))
+            })?;
+        let parsed_policy: crate::catalog::persistence::LoadReplayPolicy = match policy {
+            "skip_on_drift" => crate::catalog::persistence::LoadReplayPolicy::SkipOnDrift,
+            "require_exact_version" => {
+                crate::catalog::persistence::LoadReplayPolicy::RequireExactVersion
+            }
+            "ignore_version" => crate::catalog::persistence::LoadReplayPolicy::IgnoreVersion,
+            other => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "unknown LoadReplayPolicy: {other}"
+                )));
+            }
+        };
+        let report = self.replay_loaded(&parsed_state, parsed_policy);
+        serde_json::to_string(&report).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("serialise report: {e}"))
+        })
+    }
+
     /// Load a skill by name — registers its tools.
     ///
     /// Returns a list of registered action names.
