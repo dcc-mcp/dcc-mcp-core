@@ -473,8 +473,8 @@ tools:
 
 ### Instance-Bound Diagnostics (`dcc_mcp_core`)
 
-- `DccServerOptions.from_env(..., dcc_pid=..., dcc_window_title=..., dcc_window_handle=...)` + `DccServerBase(opts)` — bind an adapter to a specific DCC instance; the four `dcc_diagnostics__*` tools target this DCC only
-- `register_diagnostic_mcp_tools(server, *, dcc_name, dcc_pid=None, dcc_window_handle=None, dcc_window_title=None, resolver=None)` — register `dcc_diagnostics__screenshot`, `dcc_diagnostics__audit_log`, `dcc_diagnostics__tool_metrics`, `dcc_diagnostics__process_status` on an `McpHttpServer` before `.start()`
+- `DccServerOptions.from_env(..., dcc_pid=..., dcc_window_title=..., dcc_window_handle=...)` + `DccServerBase(opts)` — bind an adapter to a specific DCC instance; the `dcc_diagnostics__*` tools target this DCC only
+- `register_diagnostic_mcp_tools(server, *, dcc_name, dcc_pid=None, dcc_window_handle=None, dcc_window_title=None, resolver=None, gateway_failover_resolver=None)` — register `dcc_diagnostics__screenshot`, `dcc_diagnostics__audit_log`, `dcc_diagnostics__tool_metrics`, `dcc_diagnostics__process_status`, `dcc_diagnostics__gateway_failover` on an `McpHttpServer` before `.start()`. `DccServerBase` auto-wires `gateway_failover_resolver=self.get_gateway_election_status` so the failover tool returns `{enabled, running, consecutive_failures, gateway_host, gateway_port, is_gateway, reason}` with `reason` in `{failover_disabled_by_adapter, gateway_port_not_configured, election_thread_not_started, election_active, active_gateway, failover_resolver_not_registered}` (#1355)
 - IPC handlers (renamed in 0.14.0, no compat aliases): `get_audit_log`, `get_tool_metrics` (was `get_action_metrics`), `dispatch_tool` (was `dispatch_action`), `take_screenshot`
 - `register_diagnostic_handlers(...)` — the IPC-path equivalent (used by `DccServerBase.start()`)
 - Bundled `dcc-diagnostics` skill's `screenshot.py` tries `DCC_MCP_OWNER_IPC` → `channel.call("take_screenshot")` first and falls back to `Capturer.new_auto()` when no owner IPC is set

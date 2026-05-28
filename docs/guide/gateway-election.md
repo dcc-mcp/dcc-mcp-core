@@ -425,3 +425,53 @@ status = election.get_status()
 
 election.stop()
 ```
+
+## Failover Diagnostics (issue #1355)
+
+Standalone gateway exit vs. embedded adapter promotion are easy to confuse
+when debugging a multi-DCC session. To make the state observable from any
+MCP client, `DccServerBase` registers a built-in
+`dcc_diagnostics__gateway_failover` MCP tool that returns the current
+election state for the bound adapter:
+
+| Field                    | Type   | Meaning                                                                                              |
+|--------------------------|--------|------------------------------------------------------------------------------------------------------|
+| `enabled`                | bool   | Adapter opted into automatic gateway failover (`_enable_gateway_failover`).                          |
+| `running`                | bool   | The election daemon thread is alive.                                                                 |
+| `consecutive_failures`   | int    | Probe failures since the last successful health check.                                               |
+| `gateway_host`           | str?   | Bind address the election would race for.                                                            |
+| `gateway_port`           | int    | Bind port. `0` means failover cannot run even when `enabled=True`.                                   |
+| `is_gateway`             | bool   | This server currently owns the gateway port.                                                         |
+| `reason`                 | str    | One of `failover_disabled_by_adapter`, `gateway_port_not_configured`, `election_thread_not_started`, `election_active`, `active_gateway`, `failover_resolver_not_registered`. |
+| `timestamp_ms`           | int    | Wall-clock time of the snapshot.                                                                     |
+
+The `reason` field is the canonical answer to *"why didn't a backend take
+over after the standalone gateway exited?"*:
+
+- `failover_disabled_by_adapter` — the adapter explicitly disabled failover
+  at construction time. Embedded DCC plugins that should never bid for the
+  gateway port (e.g. read-only viewers, asset browsers) intentionally land
+  here.
+- `gateway_port_not_configured` — failover is enabled but `gateway_port==0`
+  in `McpHttpConfig`. The standalone `dcc-mcp-server gateway` daemon owns
+  the gateway plane; embedded DCC servers without a `gateway_port` will
+  never promote themselves.
+- `election_thread_not_started` — failover is enabled, port is configured,
+  but the election thread has not yet been started (e.g. `server.start()`
+  has not been called, or startup failed and is being retried).
+- `election_active` — election thread is running and probing the gateway.
+  `consecutive_failures` reflects how close it is to triggering promotion.
+- `active_gateway` — this instance currently owns the gateway port. Most
+  often the result of a successful failover, but also the steady state of
+  the very first embedded adapter to start when no daemon is running.
+
+### Standalone gateway exit vs. embedded promotion
+
+When `dcc-mcp-server gateway` runs as a separate process and exits cleanly,
+its `__gateway__` sentinel file is removed and any embedded adapter with
+`enabled=True` + `gateway_port>0` will promote on the next election tick
+(default `DCC_MCP_GATEWAY_PROBE_INTERVAL=5s`). If you see
+`reason="failover_disabled_by_adapter"` from every embedded backend in
+that scenario, the daemon must be restarted out-of-band — embedded
+adapters are intentionally opting out and will never recover the gateway
+plane themselves.

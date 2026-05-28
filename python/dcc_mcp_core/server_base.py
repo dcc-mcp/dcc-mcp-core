@@ -175,6 +175,7 @@ class DccServerBase:
                 dcc_pid=self._dcc_pid,
                 dcc_window_handle=self._dcc_window_handle,
                 dcc_window_title=self._dcc_window_title,
+                gateway_failover_resolver=self.get_gateway_election_status,
             )
         except Exception as exc:
             logger.warning("[%s] built-in skill registration failed: %s", options.dcc_name, exc)
@@ -1097,18 +1098,37 @@ class DccServerBase:
     def get_gateway_election_status(self) -> dict:
         """Return gateway election thread status.
 
-        Returns:
-            Dict with ``enabled``, ``running``, ``consecutive_failures``.
+        The returned dict is the canonical source for the
+        ``dcc_diagnostics__gateway_failover`` MCP tool (#1355) and admin
+        introspection. Shape:
 
+        * ``enabled`` (bool): the adapter opted into automatic gateway
+          failover.
+        * ``running`` (bool): the election thread is currently alive.
+        * ``consecutive_failures`` (int): probe failures since the last
+          successful health check (always ``0`` when no thread is running).
+        * ``gateway_host`` / ``gateway_port``: target endpoint the election
+          bids for. ``gateway_port`` is ``0`` when no port is configured —
+          in that case failover cannot run even if ``enabled`` is ``True``.
+        * ``is_gateway`` (bool): whether *this* server currently owns the
+          gateway port (``True`` when promoted, or when this adapter was
+          the first-wins gateway from the start).
         """
+        gateway_port = int(getattr(self._config, "gateway_port", 0) or 0)
+        is_gateway = bool(getattr(self, "is_gateway", False))
         if self._gateway_election is None:
             return {
-                "enabled": self._enable_gateway_failover,
+                "enabled": bool(self._enable_gateway_failover),
                 "running": False,
                 "consecutive_failures": 0,
+                "gateway_host": None,
+                "gateway_port": gateway_port,
+                "is_gateway": is_gateway,
             }
         status = self._gateway_election.get_status()
-        status["enabled"] = self._enable_gateway_failover
+        status["enabled"] = bool(self._enable_gateway_failover)
+        status.setdefault("gateway_port", gateway_port)
+        status["is_gateway"] = is_gateway
         return status
 
     # ── DCC version hook (override in subclass) ───────────────────────────────
