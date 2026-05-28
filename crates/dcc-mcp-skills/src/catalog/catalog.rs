@@ -68,10 +68,26 @@ impl SkillCatalog {
                 .map(helpers::skill_entry_to_summary)
                 .collect()
         } else {
-            // ── 3. BM25-lite scoring ──
+            // ── 3. BM25-lite scoring (with layer-based rank penalty, #1398) ──
+            //
+            // When the caller filters by a known layer name through `tags`,
+            // they have explicitly asked to browse that layer — bypass the
+            // penalty so the raw BM25 order is honoured inside the filtered
+            // slice. Otherwise apply the penalty so infrastructure / example
+            // skills behave as the documented "fallback" tier.
+            let layer_filter_explicit = tags.iter().any(|t| {
+                let l = t.to_ascii_lowercase();
+                matches!(
+                    l.as_str(),
+                    scoring::LAYER_DOMAIN
+                        | scoring::LAYER_THIN_HARNESS
+                        | scoring::LAYER_INFRASTRUCTURE
+                        | scoring::LAYER_EXAMPLE
+                )
+            });
             let metas: Vec<&SkillMetadata> = prefiltered.iter().map(|e| &e.metadata).collect();
             let scopes: Vec<SkillScope> = prefiltered.iter().map(|e| e.scope).collect();
-            let scored = scoring::score_skills(q_trim, &metas, &scopes);
+            let scored = scoring::score_skills(q_trim, &metas, &scopes, layer_filter_explicit);
             scored
                 .into_iter()
                 .map(|s| helpers::skill_entry_to_summary(&prefiltered[s.index]))

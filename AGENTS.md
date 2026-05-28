@@ -273,12 +273,18 @@ Gateway resources/prompts:
 
 ### Skill layer taxonomy (`metadata.dcc-mcp.layer`)
 
-| Layer | Purpose |
-|-------|---------|
-| `thin-harness` | One Python script + minimal SKILL.md — agents wrap a single CLI/API |
-| `infrastructure` | Safety, diagnostics, introspection |
-| `domain` | Pipeline-level intent (shot export, render farm) |
-| `example` | Authoring reference only |
+| Layer | Purpose | `search_skills` rank multiplier |
+|-------|---------|---------------------------------|
+| `thin-harness` | One Python script + minimal SKILL.md — agents wrap a single CLI/API | × 1.00 |
+| `domain` | Pipeline-level intent (shot export, render farm) | × 1.00 |
+| `infrastructure` | Safety, diagnostics, introspection — **fallback tier** | × 0.35 |
+| `example` | Authoring reference only | × 0.20 |
+
+The rank multiplier (#1398) keeps broad infrastructure skills (e.g. `app-ui`,
+`dcc-adapter`, `dcc-diagnostics`) below domain skills for neutral queries.
+The penalty is bypassed when the caller explicitly filters by a known layer
+name through `tags=` (case-insensitive), e.g. `search_skills(tags=["infrastructure"])`,
+so the raw BM25 order is honoured inside the filtered slice.
 
 ---
 
