@@ -308,6 +308,133 @@ jobs:
             ${{ matrix.cli_artifact_name }}
             pkg/dcc-mcp-server-bin/wheels/*.whl
 
+  # ── Build dcc-mcp-core-semantic companion wheels (issue #1395) ──
+  #
+  # Native Rust semantic embeddings (fastembed-rs + ONNX Runtime) shipped as
+  # an opt-in PyPI package. Users only pay this wheel's cost when they
+  # explicitly `pip install 'dcc-mcp-core[semantic]'`. The matrix mirrors
+  # `build-wheels.yml` so the opt-in surface covers the same OS / Python set
+  # as the main wheel, minus macOS Python 3.7 (impossible on hosted runners:
+  # macOS-13 retired Sept 2025, macOS-15 ARM64 has no 3.7 build).
+  #
+  # IMPORTANT: ort 2.x (pulled in transitively by fastembed-rs) requires
+  # glibc >= 2.27, so Linux wheels target manylinux_2_28 — NOT manylinux2014
+  # like `pkg/dcc-mcp-server-bin/`. See
+  # `scripts/release/build_manylinux_semantic_wheel.sh` for the docker
+  # invocation.
+  build-semantic-wheels:
+    needs: [release-please]
+    if: needs.release-please.outputs.release_created == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: semantic-wheel-linux-abi3
+            target: linux-abi3
+          - os: ubuntu-22.04
+            artifact_name: semantic-wheel-linux-py37
+            target: linux-py37
+          - os: windows-latest
+            artifact_name: semantic-wheel-windows-abi3
+            target: windows-abi3
+          - os: windows-2022
+            artifact_name: semantic-wheel-windows-py37
+            target: windows-py37
+          - os: macos-latest
+            artifact_name: semantic-wheel-macos-abi3
+            target: macos-abi3
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      # Rust toolchain is only needed for non-Linux builds; the Linux
+      # builds run inside the pyo3/maturin docker image which bundles its
+      # own pinned toolchain.
+      - name: Setup Rust
+        if: matrix.target != 'linux-abi3' && matrix.target != 'linux-py37'
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.95.0'
+          targets: ${{ matrix.target == 'macos-abi3' && 'aarch64-apple-darwin' || '' }}
+
+      - name: Setup Python (abi3 build)
+        if: endsWith(matrix.target, '-abi3') && !startsWith(matrix.target, 'linux-')
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Setup Python (py37 build)
+        if: matrix.target == 'windows-py37'
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.7'
+
+      - name: Install maturin
+        if: matrix.target != 'linux-abi3' && matrix.target != 'linux-py37'
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "maturin>=1.5,<2.0"
+
+      # ── Linux: docker (manylinux_2_28, ort glibc 2.27 baseline) ──
+      - name: Build wheel (Linux abi3)
+        if: matrix.target == 'linux-abi3'
+        shell: bash
+        run: scripts/release/build_manylinux_semantic_wheel.sh abi3
+
+      - name: Build wheel (Linux py37)
+        if: matrix.target == 'linux-py37'
+        shell: bash
+        run: scripts/release/build_manylinux_semantic_wheel.sh py37
+
+      # ── macOS universal2 (abi3) ──
+      - name: Build wheel (macOS universal2 abi3)
+        if: matrix.target == 'macos-abi3'
+        shell: bash
+        working-directory: pkg/dcc-mcp-core-semantic
+        run: |
+          maturin build --release \
+            --target universal2-apple-darwin \
+            --features python-bindings,ext-module,abi3-py38 \
+            --out wheels
+
+      # ── Windows (abi3 / py37) ──
+      - name: Build wheel (Windows abi3)
+        if: matrix.target == 'windows-abi3'
+        shell: bash
+        working-directory: pkg/dcc-mcp-core-semantic
+        run: |
+          maturin build --release \
+            --features python-bindings,ext-module,abi3-py38 \
+            --out wheels
+
+      - name: Build wheel (Windows py37 non-abi3)
+        if: matrix.target == 'windows-py37'
+        shell: bash
+        working-directory: pkg/dcc-mcp-core-semantic
+        run: |
+          maturin build --release \
+            --features python-bindings,ext-module \
+            -i python3.7 \
+            --out wheels
+
+      - name: Upload semantic wheel artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: pkg/dcc-mcp-core-semantic/wheels/*.whl
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.release-please.outputs.tag_name }}
+          files: pkg/dcc-mcp-core-semantic/wheels/*.whl
+
   # ── Build wheels only when release-please creates a release ──
   build-wheels:
     needs: [release-please]
@@ -331,11 +458,12 @@ jobs:
 
   # ── Publish to PyPI ──
   publish:
-    needs: [release-please, build-wheels, build-binaries]
+    needs: [release-please, build-wheels, build-binaries, build-semantic-wheels]
     if: |
       needs.release-please.outputs.release_created == 'true' &&
       needs.build-wheels.result == 'success' &&
-      needs.build-binaries.result == 'success'
+      needs.build-binaries.result == 'success' &&
+      needs.build-semantic-wheels.result == 'success'
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -401,12 +529,21 @@ jobs:
           path: dist-server
           merge-multiple: true
 
+      - name: Download dcc-mcp-core-semantic wheel artefacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: semantic-wheel-*
+          path: dist-semantic
+          merge-multiple: true
+
       - name: List artefacts
         run: |
           echo "── dcc-mcp-core wheels ──"
           ls -la dist/
           echo "── dcc-mcp-server wheels ──"
           ls -la dist-server/ 2>/dev/null || echo "(no server wheels — check build-binaries job)"
+          echo "── dcc-mcp-core-semantic wheels ──"
+          ls -la dist-semantic/ 2>/dev/null || echo "(no semantic wheels — check build-semantic-wheels job)"
 
       # ── PyPI: dcc-mcp-core (existing trusted publisher) ──
       # continue-on-error so that a PyPI failure (e.g. file already exists from
@@ -440,11 +577,31 @@ jobs:
           print-hash: true
           skip-existing: true
 
+      # ── PyPI: dcc-mcp-core-semantic (companion wheel, issue #1395) ──
+      # Trusted publisher setup (one-time, identical pattern to dcc-mcp-server):
+      #   1. https://pypi.org/manage/account/publishing/
+      #   2. Add a new "pending publisher" with:
+      #      Owner = loonghao, Repo = dcc-mcp-core,
+      #      Workflow = release.yml, Environment = pypi,
+      #      Project = dcc-mcp-core-semantic
+      # Until that's configured this step degrades gracefully — the
+      # wheels are still published to GitHub Release below by the safety net.
+      - name: Upload dcc-mcp-core-semantic to PyPI
+        id: pypi-semantic
+        if: hashFiles('dist-semantic/*.whl') != ''
+        continue-on-error: true
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist-semantic
+          verbose: true
+          print-hash: true
+          skip-existing: true
+
       # Always attempt the GitHub Release upload, even if PyPI failed; this is
       # the user-visible artefact set and must be complete per release tag.
-      # Note: build-binaries already uploads each per-platform raw binary +
-      # wheel directly to the Release. This step is the safety net for the
-      # (unlikely) case where the per-platform upload was skipped.
+      # Note: build-binaries / build-semantic-wheels already upload each
+      # per-platform wheel directly to the Release. This step is the safety
+      # net for the (unlikely) case where the per-platform upload was skipped.
       - name: Upload wheels to GitHub Release (safety net)
         if: always()
         uses: softprops/action-gh-release@v3
@@ -453,9 +610,10 @@ jobs:
           files: |
             dist/*
             dist-server/*
+            dist-semantic/*
 
       - name: Fail job if PyPI upload failed
-        if: steps.pypi-core.outcome == 'failure' || steps.pypi-server.outcome == 'failure'
+        if: steps.pypi-core.outcome == 'failure' || steps.pypi-server.outcome == 'failure' || steps.pypi-semantic.outcome == 'failure'
         run: |
-          echo "::error::PyPI upload failed (core=${{ steps.pypi-core.outcome }} server=${{ steps.pypi-server.outcome }}); GitHub Release artefacts were still uploaded above."
+          echo "::error::PyPI upload failed (core=${{ steps.pypi-core.outcome }} server=${{ steps.pypi-server.outcome }} semantic=${{ steps.pypi-semantic.outcome }}); GitHub Release artefacts were still uploaded above."
           exit 1
