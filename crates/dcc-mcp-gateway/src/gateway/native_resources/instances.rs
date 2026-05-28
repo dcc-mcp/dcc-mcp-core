@@ -125,6 +125,7 @@ pub async fn build_payload(gs: &GatewayState, query: &Query) -> Result<Value, St
                 "total":        instances.len(),
                 "stale_count":  stale_count,
                 "evicted_dead": evicted_dead,
+                "by_source":    super::super::state::instance_source_counts(&instances),
                 "instances":    instances,
             }))
         }

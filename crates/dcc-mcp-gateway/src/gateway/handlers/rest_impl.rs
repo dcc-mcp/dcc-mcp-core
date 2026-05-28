@@ -255,7 +255,11 @@ pub async fn handle_instances(State(gs): State<GatewayState>) -> impl IntoRespon
         .into_iter()
         .map(|entry| gs.instance_json(&entry))
         .collect();
-    Json(json!({ "total": instances.len(), "instances": instances }))
+    Json(json!({
+        "total": instances.len(),
+        "by_source": crate::gateway::state::instance_source_counts(&instances),
+        "instances": instances
+    }))
 }
 
 // ── REST endpoints ────────────────────────────────────────────────────────

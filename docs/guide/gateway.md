@@ -126,6 +126,61 @@ standalone). At runtime it satisfies the following:
               └────────────────────────────────────────┘
 ```
 
+## Discovery Topology
+
+All discovery sources collapse into the same `gateway://instances` and
+`GET /v1/instances` row shape. Existing clients can keep reading
+`instances[*].mcp_url`; newer agents should also inspect `source`,
+`source_meta`, and the top-level `by_source` counts.
+
+```text
+Local workstation
+  DCC sidecar -> FileRegistry services.json -> gateway source: "file"
+
+Routed HTTP backend
+  DCC sidecar -> POST /v1/instances/register -> gateway source: "http"
+
+Same LAN
+  DCC sidecar --mDNS/DNS-SD--> gateway --health probe--> source: "mdns"
+
+NAT / cross-subnet
+  DCC sidecar -> tunnel agent -> relay /tunnels
+  gateway --relay-source ADMIN=PUBLIC--> /tunnel/<id>/mcp -> source: "relay"
+```
+
+Conflict resolution is by `instance_id`, with this precedence:
+
+```text
+http > relay > mdns > file
+```
+
+The resource payload is additive:
+
+```json
+{
+  "total": 2,
+  "by_source": {"file": 1, "http": 0, "mdns": 0, "relay": 1},
+  "instances": [
+    {
+      "instance_id": "11111111-1111-4111-8111-111111111111",
+      "instance_short": "11111111",
+      "dcc_type": "maya",
+      "mcp_url": "http://127.0.0.1:8765/mcp",
+      "source": "file",
+      "source_meta": {}
+    },
+    {
+      "instance_id": "22222222-2222-4222-8222-222222222222",
+      "instance_short": "22222222",
+      "dcc_type": "houdini",
+      "mcp_url": "https://relay.example/tunnel/tun1/mcp",
+      "source": "relay",
+      "source_meta": {"tunnel_id": "tun1"}
+    }
+  ]
+}
+```
+
 ## SSE multiplex (#320)
 
 When the gateway detects a new backend it opens a persistent SSE
