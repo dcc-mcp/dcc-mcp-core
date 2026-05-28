@@ -273,17 +273,27 @@ Gateway resources/prompts:
 
 ### Skill layer taxonomy (`metadata.dcc-mcp.layer`)
 
-| Layer | Purpose | `search_skills` rank multiplier |
-|-------|---------|---------------------------------|
-| `thin-harness` | One Python script + minimal SKILL.md — agents wrap a single CLI/API | × 1.00 |
+| Layer | Purpose | `search_skills` rank |
+|-------|---------|----------------------|
 | `domain` | Pipeline-level intent (shot export, render farm) | × 1.00 |
-| `infrastructure` | Safety, diagnostics, introspection — **fallback tier** | × 0.35 |
-| `example` | Authoring reference only | × 0.20 |
+| `infrastructure` | Safety, diagnostics, introspection — fallback tier | × 0.35 |
+| `thin-harness` | One Python script + minimal SKILL.md — raw `python` / `bash` / CLI wrappers | × 0.20 |
+| `example` | Authoring reference only | **excluded from results** |
 
-The rank multiplier (#1398) keeps broad infrastructure skills (e.g. `app-ui`,
-`dcc-adapter`, `dcc-diagnostics`) below domain skills for neutral queries.
-The penalty is bypassed when the caller explicitly filters by a known layer
-name through `tags=` (case-insensitive), e.g. `search_skills(tags=["infrastructure"])`,
+The ranking rules (#1398) keep low-level skills out of the agent's primary
+flow for neutral queries:
+
+- `domain` skills win by default.
+- `infrastructure` skills (e.g. `app-ui`, `dcc-adapter`, `dcc-diagnostics`)
+  stay around as fallbacks but rank below domain.
+- `thin-harness` skills are the lowest tier that still appears — useful as a
+  last-resort wrapper around a raw script.
+- `example` skills are dropped from results entirely; they only surface when
+  the caller explicitly asks for them (see below) or types the exact name.
+
+The penalty and the `example` exclusion are bypassed when the caller filters
+by a known layer name through `tags=` (case-insensitive), e.g.
+`search_skills(tags=["example"])` or `search_skills(tags=["infrastructure"])`,
 so the raw BM25 order is honoured inside the filtered slice.
 
 ---
