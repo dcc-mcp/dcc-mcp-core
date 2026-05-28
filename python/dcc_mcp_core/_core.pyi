@@ -99,8 +99,10 @@ __all__ = [
     "SerializeFormat",
     "ServiceEntry",
     "ServiceStatus",
+    "SkillBranding",
     "SkillCatalog",
     "SkillGroup",
+    "SkillLinks",
     "SkillMetadata",
     "SkillRuntimeDescriptor",
     "SkillRuntimeKind",
@@ -2215,6 +2217,40 @@ class ServiceEntry:
         """
 
 @typing.final
+class SkillBranding:
+    r"""
+    Author-supplied visual identity for a skill's marketplace card.
+    """
+    @property
+    def accent_color(self) -> typing.Optional[builtins.str]:
+        r"""
+        CSS-friendly primary accent (e.g. `"#ff7a45"`, `"hsl(28 90% 56%)"`).
+        Falls back to a hash-derived hue when omitted.
+        """
+    @property
+    def secondary_color(self) -> typing.Optional[builtins.str]:
+        r"""
+        Secondary accent for gradient backgrounds. Optional.
+        """
+    @property
+    def emoji(self) -> typing.Optional[builtins.str]:
+        r"""
+        Short brand glyph — typically an emoji or unicode mark. Cards
+        prefer this over a DCC icon when present.
+        """
+    @property
+    def logo_url(self) -> typing.Optional[builtins.str]:
+        r"""
+        HTTPS URL to a square SVG or PNG logo. When provided the card
+        shows the logo in place of both `emoji` and the DCC icon.
+        """
+    @property
+    def tagline(self) -> typing.Optional[builtins.str]:
+        r"""
+        One-line tagline shown under the skill name. Plain text, no markdown.
+        """
+
+@typing.final
 class SkillCatalog:
     r"""
     Manages discovered skills and their progressive loading.
@@ -2445,6 +2481,37 @@ class SkillGroup:
     def __eq__(self, other: builtins.object, /) -> builtins.bool: ...
     def __new__(cls, name: builtins.str, description: builtins.str = '', tools: typing.Sequence[builtins.str] = [], default_active: builtins.bool = False) -> SkillGroup: ...
     def __repr__(self) -> builtins.str: ...
+
+@typing.final
+class SkillLinks:
+    r"""
+    Author-supplied external references rendered as a chip row on the card.
+    """
+    @property
+    def docs(self) -> typing.Optional[builtins.str]:
+        r"""
+        Documentation entry point (most prominent link).
+        """
+    @property
+    def repo(self) -> typing.Optional[builtins.str]:
+        r"""
+        Public source repository URL.
+        """
+    @property
+    def homepage(self) -> typing.Optional[builtins.str]:
+        r"""
+        Marketing / project homepage.
+        """
+    @property
+    def issues(self) -> typing.Optional[builtins.str]:
+        r"""
+        Issue tracker URL — surfaces a quick-feedback chip on the card.
+        """
+    @property
+    def chat(self) -> typing.Optional[builtins.str]:
+        r"""
+        Public chat / support channel — Discord, Slack invite, etc.
+        """
 
 @typing.final
 class SkillMetadata:
