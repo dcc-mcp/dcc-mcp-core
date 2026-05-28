@@ -38,6 +38,7 @@ EXPECTED_TOOLS = [
     "dcc_diagnostics__audit_log",
     "dcc_diagnostics__tool_metrics",
     "dcc_diagnostics__process_status",
+    "dcc_diagnostics__gateway_failover",
 ]
 
 
