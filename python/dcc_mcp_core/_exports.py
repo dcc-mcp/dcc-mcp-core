@@ -366,6 +366,8 @@ _LAZY: dict[str, str] = {
     "start_embedded_dcc_server": "dcc_mcp_core.factory",
     "DccGatewayElection": "dcc_mcp_core.gateway_election",
     "DccSkillHotReloader": "dcc_mcp_core.hotreload",
+    "read_custom_skill_paths": "dcc_mcp_core.admin_sqlite_lane",
+    "resolve_admin_db_path": "dcc_mcp_core.admin_sqlite_lane",
     # Pure-Python constants
     "CAPABILITY_KEYS": "dcc_mcp_core.adapters",
     "WEBVIEW_DEFAULT_CAPABILITIES": "dcc_mcp_core.adapters",
