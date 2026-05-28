@@ -820,6 +820,125 @@ cfg = McpHttpConfig(
 Both fields are also accessible as getters/setters on the returned
 `McpHttpConfig` instance.
 
+## Security (issue #1365)
+
+When the gateway runs as a standalone daemon (Recipe 2/3/4) it sits on a
+boundary that the local-trust `FileRegistry` does not cover anymore.
+This section is the operator-facing contract for authn / authz / TLS on
+that boundary.
+
+### Authentication: bearer tokens on the registration plane
+
+The Rust API exposes
+[`dcc_mcp_gateway::GatewayAuth`](https://docs.rs/dcc-mcp-gateway) and
+[`dcc_mcp_gateway::GatewayAuthToken`](https://docs.rs/dcc-mcp-gateway).
+Operators wire them into the gateway by populating
+`GatewayConfig::auth` before passing the config to `GatewayRunner`:
+
+```rust
+use dcc_mcp_gateway::{GatewayAuth, GatewayAuthToken, GatewayConfig};
+
+let auth = GatewayAuth {
+    tokens: vec![
+        // One master token that may register any DCC family.
+        GatewayAuthToken::any_dcc(std::env::var("DCC_MCP_GATEWAY_MASTER")?),
+        // A studio-scoped token confined to Maya + Blender only.
+        GatewayAuthToken::for_dcc(
+            std::env::var("DCC_MCP_GATEWAY_STUDIO")?,
+            ["maya", "blender"],
+        ),
+    ],
+};
+let cfg = GatewayConfig { auth, ..GatewayConfig::default() };
+```
+
+By default `GatewayAuth::disabled()` is used, which preserves the
+historical zero-auth behaviour and remains the safe default for the
+embedded auto-gateway (Recipe 1 in the topology section).
+
+### Wire format
+
+Authenticated clients must send the standard `Authorization` header on
+every request the auth layer protects:
+
+```http
+POST /v1/instances/register HTTP/1.1
+Authorization: Bearer dcc-mcp-studio-token-...
+Content-Type: application/json
+
+{ "instance_id": "...", "dcc_type": "maya", "mcp_url": "..." }
+```
+
+The scheme is case-insensitive (`Bearer`, `bearer`, `BEARER`); the
+token is byte-exact. The token comparison uses a constant-time loop to
+avoid timing leaks.
+
+### Authorisation: per-token `allowed_dcc` scope
+
+Every `GatewayAuthToken` may declare an `allowed_dcc` set. On
+`POST /v1/instances/register`, the gateway compares the request's
+`dcc_type` against this set:
+
+- `allowed_dcc == None` — token may register any DCC type.
+- `allowed_dcc == Some({"maya", "blender"})` — only registrations with
+  `dcc_type ∈ {"maya", "blender"}` succeed.
+
+Other endpoints (call, read-resources, admin) currently re-use the
+trust granted at registration time; per-call scope is tracked in
+follow-ups under epic #1367.
+
+### Error envelope
+
+When auth fails, the gateway returns a structured JSON envelope. The
+shape is agent-friendly and mirrors the rest of the `/v1/*` surface:
+
+```json
+{
+  "ok": false,
+  "success": false,
+  "error": {
+    "kind": "unauthorized",
+    "message": "Authorization header is required for this endpoint."
+  }
+}
+```
+
+`error.kind` is one of:
+
+| Kind                  | Status | Trigger                                                                              |
+|-----------------------|--------|--------------------------------------------------------------------------------------|
+| `unauthorized`        | 401    | Missing `Authorization` header, non-`Bearer` scheme, or token not in the allow-list. |
+| `dcc_scope_mismatch`  | 403    | Token recognised, but `dcc_type` is outside the token's `allowed_dcc`.               |
+
+`dcc_scope_mismatch` additionally carries `error.dcc_type` with the
+rejected DCC name to keep the negative path debuggable from logs.
+
+### TLS termination
+
+The gateway daemon **does not** terminate TLS in-binary; that
+intentionally matches the stance taken by `dcc-mcp-tunnel-relay`. Run
+the daemon behind a reverse proxy (nginx, Caddy, a cloud load balancer)
+that owns the certificate lifecycle, HTTP/2, rate limiting, and any
+mTLS requirements your environment needs. The bearer-token contract
+above continues to work end-to-end as long as the proxy forwards the
+`Authorization` header verbatim.
+
+### Hardening checklist for internet-exposed deployments
+
+- TLS terminated by a reverse proxy in front of the daemon — never bind
+  the daemon directly to a public interface.
+- Bearer tokens stored as secrets (env var, secrets manager, mounted
+  file) and never passed via process argv.
+- `allowed_dcc` scope on every token unless one truly needs a master
+  token for bootstrap.
+- `AuditMiddleware` enabled so register / deregister / relay-attach
+  lifecycle events land in `audit.jsonl`. The negative-path VRS trace
+  at `tests/vrs/traces/core-1365-gateway-auth-negative.jsonl` covers
+  the rejection envelopes and can be replayed against any gateway under
+  test.
+- Rate-limit + WAF rules on the reverse proxy for the `/v1/instances/*`
+  paths so token brute-force is bounded.
+
 ## Non-goals
 
 HTTP/2 multiplexing tuning and multi-backend failover for the routing
