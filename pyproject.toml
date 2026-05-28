@@ -48,6 +48,13 @@ dev = [
     "mypy>=1.0",
     "maturin>=1.0",
 ]
+# Optional ONNX-backed semantic embeddings for VectorSkillIndex (issue #1393).
+# Default install stays zero-dep; install this extra when ``HashedEmbedder``
+# (the deterministic hashing-trick default) is not enough for natural-language
+# skill discovery in studios with hundreds of skills.
+semantic = [
+    "fastembed>=0.3",
+]
 
 [project.urls]
 Homepage = "https://github.com/loonghao/dcc-mcp-core"
