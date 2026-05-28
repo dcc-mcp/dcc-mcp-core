@@ -304,6 +304,7 @@ class DccServerBase:
         extra_paths: list[str] | None = None,
         include_bundled: bool = True,
         filter_existing: bool = False,
+        include_admin_custom: bool = True,
     ) -> list[str]:
         """Build the ordered skill search path list for this DCC.
 
@@ -315,6 +316,8 @@ class DccServerBase:
         5. Local developer skills in ``~/.dcc-mcp/{dcc_name}/skills``
         6. Bundled skills shipped with dcc-mcp-core (when ``include_bundled=True``)
         7. Platform default skills dir
+        8. Admin-UI-added skill discovery roots from the gateway SQLite lane
+           (when ``include_admin_custom=True``; issue #1400)
 
         Args:
             extra_paths: Additional directories to prepend.
@@ -323,6 +326,12 @@ class DccServerBase:
                 disk and deduplicate the result.  Pass this when feeding paths
                 to ``McpHttpServer.discover()`` to avoid warnings on missing dirs.
                 Default ``False`` preserves backward-compatible behaviour.
+            include_admin_custom: When ``True`` (default), append any custom
+                skill paths persisted by the gateway admin UI (#1400) so an
+                operator who adds a path via the dashboard sees it picked up
+                on the next call to :meth:`reload_skill_paths` (or on the
+                next adapter startup). Reads are best-effort — a missing or
+                locked SQLite file is treated as zero rows.
 
         Returns:
             Ordered list of directory paths (strings).
@@ -353,6 +362,20 @@ class DccServerBase:
         default_dir = get_skills_dir()
         if default_dir and default_dir not in paths:
             paths.append(default_dir)
+
+        if include_admin_custom:
+            try:
+                from dcc_mcp_core.admin_sqlite_lane import filter_new_paths
+                from dcc_mcp_core.admin_sqlite_lane import read_custom_skill_paths
+
+                custom = read_custom_skill_paths()
+                paths.extend(filter_new_paths(paths, custom))
+            except Exception as exc:
+                logger.debug(
+                    "[%s] could not read admin SQLite skill paths: %s",
+                    self._dcc_name,
+                    exc,
+                )
 
         if filter_existing:
             seen: set[str] = set()
@@ -426,6 +449,62 @@ class DccServerBase:
                 )
             except Exception as exc:
                 logger.warning("[%s] minimal_mode application failed: %s", self._dcc_name, exc)
+
+    def reload_skill_paths(
+        self,
+        extra_skill_paths: list[str] | None = None,
+        include_bundled: bool = True,
+    ) -> int:
+        """Re-discover skills after admin-UI skill paths changed (#1400).
+
+        Re-collects the search path list (which by default merges any
+        rows in the gateway admin SQLite ``skill_paths_custom`` table —
+        see :meth:`collect_skill_search_paths`) and calls
+        ``McpHttpServer.discover`` so the adapter's catalog picks up
+        skills that an operator added through the admin dashboard
+        without restarting the DCC.
+
+        This is the per-adapter counterpart to the standalone
+        ``dcc-mcp-server`` binary's ``catalog_discover_hook``: each
+        adapter can poll, hot-key, or react to a gateway notification
+        and call this method, and the running DCC will then expose any
+        new skills on the next ``tools/list`` round-trip.
+
+        Args:
+            extra_skill_paths: Additional directories to scan on top of
+                the standard path list. Useful for adapters that want
+                to inject ephemeral roots (CI / tests).
+            include_bundled: Include dcc-mcp-core bundled skills.
+
+        Returns:
+            The discovery count as reported by ``McpHttpServer.discover``
+            (informational — equals the number of skill directories the
+            backend was able to scan, not the delta vs. the previous
+            scan). Returns ``0`` on any failure (logged at warning level).
+
+        """
+        skill_paths = self.collect_skill_search_paths(
+            extra_paths=extra_skill_paths,
+            include_bundled=include_bundled,
+            filter_existing=True,
+        )
+        logger.debug(
+            "[%s] reload_skill_paths: re-scanning %d path(s)",
+            self._dcc_name,
+            len(skill_paths),
+        )
+        try:
+            count = self._server.discover(extra_paths=skill_paths)
+        except Exception as exc:
+            logger.warning("[%s] reload_skill_paths failed: %s", self._dcc_name, exc)
+            return 0
+        logger.info(
+            "[%s] reload_skill_paths: %d skill(s) total from %d path(s)",
+            self._dcc_name,
+            count,
+            len(skill_paths),
+        )
+        return count
 
     # ── gateway & is_gateway ──────────────────────────────────────────────────
 
