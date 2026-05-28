@@ -5,6 +5,58 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.38](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.37...v0.17.38) (2026-05-28)
+
+
+### Features
+
+* add HTTP instance registration ([34c0181](https://github.com/loonghao/dcc-mcp-core/commit/34c0181d5fcdd863a8d1c3180911737fff47c15e)), closes [#1361](https://github.com/loonghao/dcc-mcp-core/issues/1361)
+* add optional mDNS instance discovery ([4b26827](https://github.com/loonghao/dcc-mcp-core/commit/4b2682717385195140a8f53656d92dfd2be7f22d))
+* add relay-backed gateway discovery ([#1385](https://github.com/loonghao/dcc-mcp-core/issues/1385)) ([8b639ce](https://github.com/loonghao/dcc-mcp-core/commit/8b639cec5f73bf0a9990a3991a5890e4f2aa8c74))
+* capability graph skeleton for cross-skill agent reasoning ([#1336](https://github.com/loonghao/dcc-mcp-core/issues/1336)) ([5696533](https://github.com/loonghao/dcc-mcp-core/commit/5696533f747b195e9a561b094b3011a59015601a))
+* demote scripting tools to explicit escape hatches ([#1325](https://github.com/loonghao/dcc-mcp-core/issues/1325)) ([269e32c](https://github.com/loonghao/dcc-mcp-core/commit/269e32c14a6a0eee1fe26950d528bb616c0a2c43))
+* **diagnostics:** add dcc_diagnostics__gateway_failover tool ([#1355](https://github.com/loonghao/dcc-mcp-core/issues/1355)) ([e1d76ec](https://github.com/loonghao/dcc-mcp-core/commit/e1d76ec3fcdf5606b77f24131c7b4618667b715c))
+* dispatch lifecycle hooks from public APIs ([13d2491](https://github.com/loonghao/dcc-mcp-core/commit/13d24912d49329e885ef3a554eff2fae73ba273e)), closes [#1337](https://github.com/loonghao/dcc-mcp-core/issues/1337)
+* **gateway:** enforce bearer-token auth and per-token DCC scope on registration plane ([bfc2812](https://github.com/loonghao/dcc-mcp-core/commit/bfc2812e6592cac6bc37076e732e33c39f39b0bd))
+* **gateway:** surface host execution readiness in admin and selection ([#1331](https://github.com/loonghao/dcc-mcp-core/issues/1331)) ([0d41d86](https://github.com/loonghao/dcc-mcp-core/commit/0d41d866797957121a12969659a8cb0714047eb9))
+* inject bounded agent memory summaries ([bf72891](https://github.com/loonghao/dcc-mcp-core/commit/bf728917e04322e191d472284685741e850ce057)), closes [#1334](https://github.com/loonghao/dcc-mcp-core/issues/1334)
+* **models:** standardize skill metadata for intelligent recall ([#1335](https://github.com/loonghao/dcc-mcp-core/issues/1335)) ([ef2cc75](https://github.com/loonghao/dcc-mcp-core/commit/ef2cc75dc907e6eabee9fdd79f51e36b858bba90))
+* **qt-ui-inspector:** expose as default capability via register_qt_ui_inspector ([#1332](https://github.com/loonghao/dcc-mcp-core/issues/1332)) ([9757b08](https://github.com/loonghao/dcc-mcp-core/commit/9757b08f739b3b7716486d04ec3dcd7ce0b75f44))
+* semantic skill index with BM25 + RRF fusion ([#1333](https://github.com/loonghao/dcc-mcp-core/issues/1333)) ([007b712](https://github.com/loonghao/dcc-mcp-core/commit/007b712f40bcd1282469a45cdf4fd7a140b71f95))
+* **semantic:** add VectorSkillIndex with zero-dep default + optional ONNX extra ([#1393](https://github.com/loonghao/dcc-mcp-core/issues/1393)) ([0e67740](https://github.com/loonghao/dcc-mcp-core/commit/0e677407f1d135d2c30010da517f1aae35f27738))
+* **semantic:** wire OnnxEmbedder to fastembed with env-var model loading ([#1393](https://github.com/loonghao/dcc-mcp-core/issues/1393)) ([24c03c9](https://github.com/loonghao/dcc-mcp-core/commit/24c03c9216cc39e188162dd1f720a9d5235f2be2))
+* **server:** incorporate default built-in skills and unify registration ([#1332](https://github.com/loonghao/dcc-mcp-core/issues/1332))\n\nPromotes infrastructure tools to first-class built-ins registered\nautomatically by DccServerBase.\n\n* New module dcc_mcp_core.skills.builtin: centralizes registration\n  of diagnostics, introspect, feedback, recipes, and qt-ui-inspector.\n* DccServerBase registers these in-process tools during __init__,\n  ensuring they are always available and highly efficient.\n* qt-ui-inspector moved to dcc_mcp_core.skills and added as a\n  bundled SKILL.md package for discovery.\n* dcc_server.py diagnostic tools unified under dcc_diagnostics__ prefix.\n* Redundant registration logic removed from ServerRuntimeController.\n* Deduplication handled via idempotent ToolRegistry and path filtering\n  in collect_skill_search_paths. ([6de7317](https://github.com/loonghao/dcc-mcp-core/commit/6de7317c9de0dd211f6ee5ff4939c65660581128))
+* **server:** typed lifecycle-hook framework for DCC adapters ([#1337](https://github.com/loonghao/dcc-mcp-core/issues/1337)) ([3ebbb00](https://github.com/loonghao/dcc-mcp-core/commit/3ebbb0090771d0de56e4c4d70a1bd23d1cb2bdf5))
+* **skill:** qt-ui-inspector skill for DCC-agnostic Qt introspection ([#1332](https://github.com/loonghao/dcc-mcp-core/issues/1332)) ([c5e54a6](https://github.com/loonghao/dcc-mcp-core/commit/c5e54a6345856e81ee56951ef2547d5de07c10ae))
+* three-tier agent memory layers for DCC adapters ([#1334](https://github.com/loonghao/dcc-mcp-core/issues/1334)) ([81230a4](https://github.com/loonghao/dcc-mcp-core/commit/81230a4d02d53aedaf39ee4c099db87e3e9b59b3))
+* unify gateway instance source metadata ([#1386](https://github.com/loonghao/dcc-mcp-core/issues/1386)) ([3a910fe](https://github.com/loonghao/dcc-mcp-core/commit/3a910fe0a700e7a30c3c1da6c715b57a9b40bffb))
+
+
+### Bug Fixes
+
+* change default standalone registry DCC type from generic to python ([db3a6bd](https://github.com/loonghao/dcc-mcp-core/commit/db3a6bd9d4b780d93702bb4e4a0e655fb466d927))
+* **ci:** unblock lint, stub-gen, and wheel-build for the qt-ui-inspector stack ([#1332](https://github.com/loonghao/dcc-mcp-core/issues/1332)) ([b5f4ffd](https://github.com/loonghao/dcc-mcp-core/commit/b5f4ffdd47925f83b6da663cbe18427ec2bae368))
+* **compat:** backport typing.Protocol for Python 3.7 wheel parity ([86f951f](https://github.com/loonghao/dcc-mcp-core/commit/86f951fc67ade6936ddf46582e33959edfedc6f5))
+* honor no-log-file in idle smoke ([3cbfd1e](https://github.com/loonghao/dcc-mcp-core/commit/3cbfd1ea5f82e02002b932a70d0c99237849616b)), closes [#1354](https://github.com/loonghao/dcc-mcp-core/issues/1354)
+
+
+### Code Refactoring
+
+* add explicit server run modes ([9041fee](https://github.com/loonghao/dcc-mcp-core/commit/9041feedac26ee968de4ace8ea1e3ded6f18d995)), closes [#1360](https://github.com/loonghao/dcc-mcp-core/issues/1360)
+* **gateway-core:** sink namespace pure helpers ([#1368](https://github.com/loonghao/dcc-mcp-core/issues/1368)) ([206860d](https://github.com/loonghao/dcc-mcp-core/commit/206860d35af7735e24f9c07a9ee6c11338dabc82))
+* **gateway:** drop `gateway::namespace` facade ([#1368](https://github.com/loonghao/dcc-mcp-core/issues/1368)) ([94f6959](https://github.com/loonghao/dcc-mcp-core/commit/94f69592e3f8f07eb83275c10da610555dffafa8))
+* **gateway:** formalise standalone gateway daemon mode ([#1358](https://github.com/loonghao/dcc-mcp-core/issues/1358)) ([84000f2](https://github.com/loonghao/dcc-mcp-core/commit/84000f204a79c544fb3b31a0dc082d44ed0cd12d))
+* **http:** gate auto-gateway bootstrap behind a cargo feature ([#1357](https://github.com/loonghao/dcc-mcp-core/issues/1357)) ([0545077](https://github.com/loonghao/dcc-mcp-core/commit/05450775ee96f3d588159c72c706e1f7eacd1851))
+* **server:** add Cargo features for composition binary ([#1359](https://github.com/loonghao/dcc-mcp-core/issues/1359)) ([c05b7c7](https://github.com/loonghao/dcc-mcp-core/commit/c05b7c7422345dd239297ae3e88e4bb38ddd0287))
+* split admin ui structure ([ac39390](https://github.com/loonghao/dcc-mcp-core/commit/ac393901437d126be5216cb6f34078b26eb65426))
+
+
+### Documentation
+
+* add migration guide and topology recipes ([#1366](https://github.com/loonghao/dcc-mcp-core/issues/1366)) ([169a44b](https://github.com/loonghao/dcc-mcp-core/commit/169a44bab8f127a1dc97dee77ba62d469fc24ac8))
+* **agents:** note OnnxEmbedder env-var overrides in decision table ([f265eb2](https://github.com/loonghao/dcc-mcp-core/commit/f265eb23f1fa8fbe17f632270b888bf9dd4a226e))
+* **gateway:** use dash bullets to match file style ([#1358](https://github.com/loonghao/dcc-mcp-core/issues/1358)) ([36a03a3](https://github.com/loonghao/dcc-mcp-core/commit/36a03a3f82738ef1a22f0f3ba71123f30084be09))
+
 ## [0.17.37](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.36...v0.17.37) (2026-05-27)
 
 
