@@ -61,7 +61,8 @@ def catalog_server():
 
 class TestSearchSkillsUnifiedSignature:
     def test_query_only(self, catalog_server):
-        resp = _call_tool(catalog_server, "search_skills", {"query": "hello"})
+        # Use exact skill name to bypass layer=example exclusion (PR #1398).
+        resp = _call_tool(catalog_server, "search_skills", {"query": "hello-world"})
         assert resp["result"]["isError"] is False
         payload = json.loads(resp["result"]["content"][0]["text"])
         assert payload["total"] >= 1
