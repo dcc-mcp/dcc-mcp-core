@@ -35,10 +35,15 @@
 //! ```
 
 pub mod execute;
+pub mod persistence;
 pub mod schema_gen;
 pub mod scoring;
 pub mod types;
 
+pub use persistence::{
+    DriftRecord, FailedRecord, LoadReplayPolicy, LoadedSkillRecord, PersistedCatalogState,
+    ReplayReport,
+};
 pub use types::{SkillDetail, SkillEntry, SkillState, SkillSummary};
 
 use execute::{ScriptExecutorFn, execute_script, resolve_tool_script};
@@ -72,6 +77,16 @@ pub(crate) use helpers::parse_scope_str;
 pub type SkillLoadTransformFn =
     dyn Fn(SkillMetadata) -> Result<SkillMetadata, String> + Send + Sync;
 pub type AfterSkillLoadFn = dyn Fn(&SkillMetadata, &[String]) -> Result<(), String> + Send + Sync;
+/// Observer invoked after a successful [`SkillCatalog::unload_skill`] —
+/// receives the unloaded skill's name and the tool names that were
+/// unregistered. Used by the persistence layer (#1405) to evict the
+/// corresponding row from the on-disk store.
+pub type AfterSkillUnloadFn = dyn Fn(&str, &[String]) -> Result<(), String> + Send + Sync;
+/// Observer invoked after a successful
+/// [`SkillCatalog::activate_group`] / [`SkillCatalog::deactivate_group`].
+/// `activated` is `true` for activate, `false` for deactivate. Used by
+/// the persistence layer (#1405) to mirror catalog-wide group state.
+pub type AfterGroupChangeFn = dyn Fn(&str, bool) -> Result<(), String> + Send + Sync;
 
 // ── SkillCatalog ──
 
@@ -116,6 +131,12 @@ pub struct SkillCatalog {
     pub(super) load_transform: RwLock<Option<Arc<SkillLoadTransformFn>>>,
     /// Optional observer called after tools are registered and the catalog state is loaded.
     pub(super) after_load_hook: RwLock<Option<Arc<AfterSkillLoadFn>>>,
+    /// Optional observer called after a skill is unloaded (#1405).
+    pub(super) after_unload_hook: RwLock<Option<Arc<AfterSkillUnloadFn>>>,
+    /// Optional observer called after a tool group is activated or
+    /// deactivated (#1405). Lets the persistence layer mirror the
+    /// catalog-wide [`SkillCatalog::active_groups`] set on disk.
+    pub(super) after_group_change_hook: RwLock<Option<Arc<AfterGroupChangeFn>>>,
     /// Tool groups currently active (`"<skill>:<group>"` keys).
     pub(super) active_groups: DashSet<String>,
 }
