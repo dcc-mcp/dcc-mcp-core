@@ -408,6 +408,13 @@ mod tests {
         let payload: serde_json::Value = serde_json::from_str(text).unwrap();
         let row = &payload["instances"][0];
 
+        assert_eq!(payload["by_source"]["file"], 1);
+        assert_eq!(payload["by_source"]["http"], 0);
+        assert_eq!(payload["by_source"]["mdns"], 0);
+        assert_eq!(payload["by_source"]["relay"], 0);
+        assert_eq!(row["source"], "file");
+        assert_eq!(row["instance_short"].as_str().unwrap().len(), 8);
+        assert!(row["source_meta"].as_object().unwrap().is_empty());
         assert_eq!(row["version"], "2026");
         assert_eq!(row["adapter_version"], "1.2.0");
         assert_eq!(row["lifecycle"]["role"], "per-dcc-sidecar");

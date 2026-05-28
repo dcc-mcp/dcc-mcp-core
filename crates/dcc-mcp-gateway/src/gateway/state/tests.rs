@@ -193,6 +193,7 @@ async fn live_instances_merges_file_mdns_relay_and_http_in_priority_order() {
     let http_id = uuid::Uuid::parse_str("11111111-1111-4111-8111-111111111111").unwrap();
     let relay_id = uuid::Uuid::parse_str("22222222-2222-4222-8222-222222222222").unwrap();
     let file_id = uuid::Uuid::parse_str("33333333-3333-4333-8333-333333333333").unwrap();
+    let mdns_id = uuid::Uuid::parse_str("44444444-4444-4444-8444-444444444444").unwrap();
     let now = std::time::SystemTime::now();
 
     {
@@ -217,6 +218,18 @@ async fn live_instances_merges_file_mdns_relay_and_http_in_priority_order() {
         Duration::from_secs(30),
         now,
     );
+    let mut mdns_only = ServiceEntry::new("photoshop", "192.168.1.30", 8766);
+    mdns_only.instance_id = mdns_id;
+    mdns_only.metadata.insert(
+        crate::gateway::http_registration::REGISTRY_SOURCE_METADATA_KEY.to_string(),
+        crate::gateway::http_registration::SOURCE_MDNS.to_string(),
+    );
+    gs.mdns_instance_registry.write().upsert(
+        mdns_only,
+        "photoshop._dcc-mcp._tcp.local.".to_string(),
+        Duration::from_secs(30),
+        now,
+    );
 
     let mut relay_entry = ServiceEntry::new("maya", "relay.example", 443);
     relay_entry.instance_id = relay_id;
@@ -227,6 +240,14 @@ async fn live_instances_merges_file_mdns_relay_and_http_in_priority_order() {
     relay_entry.metadata.insert(
         crate::gateway::http_registration::MCP_URL_METADATA_KEY.to_string(),
         "https://relay.example/tunnel/tun1/mcp".to_string(),
+    );
+    relay_entry.extras.insert(
+        "source_meta".to_string(),
+        serde_json::json!({
+            "source": "relay",
+            "tunnel_id": "tun1",
+            "relay_admin_url": "http://relay-admin"
+        }),
     );
     gs.relay_instance_registry.write().upsert(
         "http://relay-admin".to_string(),
@@ -258,9 +279,29 @@ async fn live_instances_merges_file_mdns_relay_and_http_in_priority_order() {
         .iter()
         .map(|entry| crate::gateway::http_registration::entry_registry_source(entry).to_string())
         .collect();
-    assert_eq!(sources, vec!["file", "relay", "http"]);
-    assert_eq!(live[1].instance_id, relay_id, "relay must shadow mDNS");
-    assert_eq!(live[2].instance_id, http_id, "HTTP must shadow file/mDNS");
+    assert_eq!(sources, vec!["file", "mdns", "relay", "http"]);
+    assert_eq!(
+        live[1].instance_id, mdns_id,
+        "mDNS row must remain routable"
+    );
+    assert_eq!(live[2].instance_id, relay_id, "relay must shadow mDNS");
+    assert_eq!(live[3].instance_id, http_id, "HTTP must shadow file/mDNS");
+
+    let rows: Vec<_> = live.iter().map(|entry| gs.instance_json(entry)).collect();
+    let counts = crate::gateway::state::instance_source_counts(&rows);
+    assert_eq!(counts["file"], 1);
+    assert_eq!(counts["mdns"], 1);
+    assert_eq!(counts["relay"], 1);
+    assert_eq!(counts["http"], 1);
+
+    let relay_row = &rows[2];
+    assert_eq!(relay_row["instance_short"], "22222222");
+    assert_eq!(relay_row["source"], "relay");
+    assert_eq!(relay_row["source_meta"]["tunnel_id"], "tun1");
+    assert_eq!(
+        relay_row["mcp_url"],
+        "https://relay.example/tunnel/tun1/mcp"
+    );
 }
 
 /// Regression test for issue #419: when the gateway process is also a

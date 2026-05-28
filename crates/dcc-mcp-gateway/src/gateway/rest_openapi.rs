@@ -475,7 +475,7 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
             json!({
                 "type": "object",
                 "description": "Live gateway registry row. Custom DCC metadata is preserved as additional properties.",
-                "required": ["instance_id", "dcc_type", "status", "mcp_url"],
+                "required": ["instance_id", "instance_short", "dcc_type", "status", "mcp_url", "source", "source_meta"],
                 "properties": {
                     "instance_id": {"type": "string", "format": "uuid"},
                     "instance_short": {"type": "string"},
@@ -483,7 +483,8 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
                     "dcc_type": {"type": "string"},
                     "status": {"type": "string"},
                     "mcp_url": {"type": "string"},
-                    "source": {"type": "string", "enum": ["file", "http"]},
+                    "source": {"type": "string", "enum": ["file", "http", "mdns", "relay"]},
+                    "source_meta": {"type": "object", "additionalProperties": true},
                     "lifecycle": {"type": "object", "additionalProperties": true},
                     "diagnostics": {"type": "object", "additionalProperties": true}
                 },
@@ -557,9 +558,13 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
             "GatewayInstanceList",
             json!({
                 "type": "object",
-                "required": ["total", "instances"],
+                "required": ["total", "by_source", "instances"],
                 "properties": {
                     "total": {"type": "integer", "minimum": 0},
+                    "by_source": {
+                        "type": "object",
+                        "additionalProperties": {"type": "integer", "minimum": 0}
+                    },
                     "instances": {
                         "type": "array",
                         "items": {"$ref": "#/components/schemas/GatewayInstance"}

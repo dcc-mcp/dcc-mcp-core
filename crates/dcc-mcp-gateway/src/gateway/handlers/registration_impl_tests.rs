@@ -114,8 +114,19 @@ async fn register_heartbeat_and_deregister_remote_instance() {
     let (status, body) = request_json(app.clone(), "GET", "/v1/instances", json!({})).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["total"], 1);
+    assert_eq!(body["by_source"]["file"], 0);
+    assert_eq!(body["by_source"]["http"], 1);
+    assert_eq!(body["by_source"]["mdns"], 0);
+    assert_eq!(body["by_source"]["relay"], 0);
     assert_eq!(body["instances"][0]["instance_id"], instance_id);
+    assert_eq!(body["instances"][0]["instance_short"], "11111111");
     assert_eq!(body["instances"][0]["source"], "http");
+    assert!(
+        body["instances"][0]["source_meta"]
+            .as_object()
+            .unwrap()
+            .is_empty()
+    );
     assert_eq!(
         body["instances"][0]["mcp_url"],
         "https://remote.example:9443/prefix/mcp"

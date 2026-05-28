@@ -40,7 +40,7 @@
 //! See issue #845 for the follow-on Clean-Architecture crate split that
 //! builds on these sub-structs.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
@@ -49,6 +49,7 @@ use serde_json::{Value, json};
 use tokio::sync::{RwLock, broadcast, watch};
 use uuid::Uuid;
 
+use dcc_mcp_gateway_core::naming::instance_short;
 use dcc_mcp_gateway_core::policy::GatewayPolicy;
 
 use super::event_log::EventLog;
@@ -662,8 +663,15 @@ pub fn entry_to_json(
     } else {
         e.status.to_string()
     };
+    let source_meta = e
+        .extras
+        .get("source_meta")
+        .filter(|value| value.is_object())
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let mut row = json!({
         "instance_id":     e.instance_id.to_string(),
+        "instance_short":  instance_short(&e.instance_id),
         // Derived `{dcc}@{version}-{short8}` (RFC #998 Addendum B).
         // Agents reading gateway://instances see DCC + version + short
         // ID inline without cross-referencing three separate fields.
@@ -673,6 +681,7 @@ pub fn entry_to_json(
         "port":            e.port,
         "mcp_url":         entry_mcp_url(e),
         "source":          entry_registry_source(e),
+        "source_meta":     source_meta,
         "status":          status,
         // ── document / scene ───────────────────────────────────────────────
         // `scene` is the active / primary document (same field as before).
@@ -719,6 +728,23 @@ pub fn entry_to_json(
             super::instance_diagnostics::InstanceDiagnosticsStore::to_json_value(diag);
     }
     row
+}
+
+/// Count instance rows by their additive `source` field.
+pub(crate) fn instance_source_counts(rows: &[Value]) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for source in ["file", "http", "mdns", "relay"] {
+        counts.insert(source.to_string(), 0);
+    }
+    for row in rows {
+        let source = row
+            .get("source")
+            .and_then(Value::as_str)
+            .filter(|source| !source.trim().is_empty())
+            .unwrap_or("file");
+        *counts.entry(source.to_string()).or_default() += 1;
+    }
+    counts
 }
 
 #[cfg(test)]
