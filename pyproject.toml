@@ -48,11 +48,30 @@ dev = [
     "mypy>=1.0",
     "maturin>=1.0",
 ]
-# Optional ONNX-backed semantic embeddings for VectorSkillIndex (issue #1393).
-# Default install stays zero-dep; install this extra when ``HashedEmbedder``
-# (the deterministic hashing-trick default) is not enough for natural-language
-# skill discovery in studios with hundreds of skills.
+# Optional ONNX-backed semantic embeddings for VectorSkillIndex
+# (issues #1393, #1395). Default install stays zero-dep; install this extra
+# when ``HashedEmbedder`` (the deterministic hashing-trick default) is not
+# enough for natural-language skill discovery in studios with hundreds of
+# skills.
+#
+# The extra pulls in BOTH:
+#   * ``dcc-mcp-core-semantic`` — preferred Rust-native backend
+#     (fastembed-rs + ONNX Runtime, lives in pkg/dcc-mcp-core-semantic/).
+#     Released through the same Release Please version stream.
+#   * ``fastembed`` — pure-Python fallback for platforms the Rust wheel
+#     does not cover (rare; included as a safety net).
+#
+# `OnnxEmbedder._load_backend` walks these in order so the same Python
+# code works regardless of which backend is available at runtime.
+# Both backends are listed: `OnnxEmbedder._load_backend` prefers the
+# Rust-native companion, and falls back to the pure-Python `fastembed`
+# package only on platforms where the Rust wheel is unavailable. The
+# `>=` constraint on the companion is intentional — release-please bumps
+# both packages in lockstep from the same release, so the operator's pip
+# resolver will pick the matching version. Users that want lockstep can
+# pin both explicitly.
 semantic = [
+    "dcc-mcp-core-semantic>=0.17.37",
     "fastembed>=0.3",
 ]
 

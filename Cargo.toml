@@ -43,6 +43,7 @@ members = [
     "crates/dcc-mcp-tunnel-agent",
     "crates/dcc-mcp-catalog",
     "crates/dcc-mcp-db",
+    "crates/dcc-mcp-semantic",
     "crates/workspace-hack",
 ]
 resolver = "2"
@@ -91,6 +92,7 @@ dcc-mcp-catalog = { path = "crates/dcc-mcp-catalog" }
 dcc-mcp-db = { path = "crates/dcc-mcp-db" }
 dcc-mcp-gateway = { path = "crates/dcc-mcp-gateway" }
 dcc-mcp-gateway-search = { path = "crates/dcc-mcp-gateway-search" }
+dcc-mcp-semantic = { path = "crates/dcc-mcp-semantic" }
 
 # Shared dependencies (single version across workspace)
 pyo3 = { version = "0.28", features = ["multiple-pymethods"] }

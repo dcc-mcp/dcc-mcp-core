@@ -12,13 +12,15 @@ Deployment trade-off:
 * :class:`HashedEmbedder` (default) — zero deps, deterministic, ~5 µs/document
   at ``dim=256``. Recall improves measurably over BM25 on natural-language
   queries that share sub-token structure with the indexed corpus.
-* :class:`OnnxEmbedder` (optional, via ``[semantic]`` extra) — wraps
-  ``fastembed``; ships ONNX Runtime, the HuggingFace tokeniser, and a small
-  pre-trained encoder (``BAAI/bge-small-en-v1.5``, 384-dim, ~25 MB). Model
-  downloads to ``~/.cache/fastembed/`` on first use and runs fully offline
-  afterwards. Model name and cache directory can be overridden via
-  ``DCC_MCP_EMBED_MODEL`` / ``DCC_MCP_EMBED_MODEL_DIR`` env vars so studios
-  can pre-place the model on a shared mount.
+* :class:`OnnxEmbedder` (optional, via ``[semantic]`` extra) — three-tier
+  backend with the same wire shape: prefers the Rust-native
+  ``dcc-mcp-core-semantic`` companion wheel (`fastembed-rs
+  <https://github.com/Anush008/fastembed-rs>`_, releases the GIL during
+  inference), falls back to the pure-Python ``fastembed`` package, and
+  finally raises :class:`EmbedderError`. Both tiers default to
+  ``BAAI/bge-small-en-v1.5`` (384-dim, ~25 MB). Model and cache directory
+  override via ``DCC_MCP_EMBED_MODEL`` / ``DCC_MCP_EMBED_MODEL_DIR`` env
+  vars so studios can pre-place the model on a shared mount.
 
 Both implement the :class:`Embedder` Protocol; the future ``RemoteEmbedder``
 (HTTP service for studio-wide embedding) will plug in via the same Protocol
@@ -188,14 +190,44 @@ class HashedEmbedder:
         return [self.embed(t) for t in texts]
 
 
-class OnnxEmbedder:
-    """ONNX-Runtime-backed dense embedder (requires the ``[semantic]`` extra).
+class _NativeBackendAdapter:
+    """Adapter making ``NativeEmbedder`` look like ``fastembed.TextEmbedding``.
 
-    Wraps `fastembed <https://github.com/qdrant/fastembed>`_, which ships ONNX
-    Runtime, the HuggingFace tokeniser, and a small pre-trained sentence
-    encoder (``BAAI/bge-small-en-v1.5`` by default, 384-dim, ~25 MB
-    quantised). The model auto-downloads on first use; once cached it runs
-    fully offline.
+    The Rust binding exposes ``embed(text) -> List[float]`` plus
+    ``embed_batch(List[str]) -> List[List[float]]``; the existing
+    ``OnnxEmbedder`` wrapper expects an iterable-of-vectors shape (which
+    is what fastembed's Python ``TextEmbedding.embed`` returns). This thin
+    adapter bridges the two so the surrounding L2 normalisation, dim
+    probe, and empty-input short-circuit logic stays unchanged.
+    """
+
+    def __init__(self, native_embedder: object) -> None:
+        self._native = native_embedder
+
+    def embed(self, texts, *_, **__):
+        return iter(self._native.embed_batch(list(texts)))
+
+
+class OnnxEmbedder:
+    """ONNX-backed dense embedder with a three-tier backend fallback.
+
+    Requires the ``[semantic]`` extra for either tier 1 or tier 2.
+
+    Backend resolution order (first one that loads wins):
+
+    1. ``dcc_mcp_core_semantic.native.NativeEmbedder`` — Rust-native via
+       `fastembed-rs <https://github.com/Anush008/fastembed-rs>`_, shipped
+       in the ``dcc-mcp-core-semantic`` companion wheel that
+       ``pip install 'dcc-mcp-core[semantic]'`` pulls in. Fastest and the
+       preferred path.
+    2. ``fastembed.TextEmbedding`` — pure-Python `fastembed
+       <https://github.com/qdrant/fastembed>`_ package. Slower cold start
+       but works on platforms the Rust wheel does not cover.
+    3. Neither installed → :class:`EmbedderError` with the install hint.
+
+    Both backends use the same ``BAAI/bge-small-en-v1.5`` default model
+    (384-dim, ~25 MB quantised) and the same on-disk cache, so swapping
+    between them is observationally identical apart from latency.
 
     Configuration is precedence-ordered:
 
@@ -207,9 +239,6 @@ class OnnxEmbedder:
     point every adapter at it via ``DCC_MCP_EMBED_MODEL_DIR`` without
     touching adapter code — useful for firewalled deployments where
     runtime HuggingFace downloads are not allowed.
-
-    Raises :class:`EmbedderError` when the ``[semantic]`` extra is missing
-    or when fastembed fails to load the requested model.
     """
 
     #: Default embedding model. 384-dim, ~25 MB quantised, English-focused.
@@ -227,6 +256,11 @@ class OnnxEmbedder:
     ENV_MODEL_DIR = "DCC_MCP_EMBED_MODEL_DIR"
 
     _INSTALL_HINT = "OnnxEmbedder requires the 'semantic' extra. Install with: pip install 'dcc-mcp-core[semantic]'"
+
+    #: Stable backend tag set by :meth:`_load_backend`. Useful for
+    #: diagnostics (``"native"`` / ``"python-fastembed"``) without
+    #: leaking the underlying type.
+    _backend_name: str = "unknown"
 
     def __init__(
         self,
@@ -258,19 +292,45 @@ class OnnxEmbedder:
         return resolved_name, resolved_cache
 
     def _load_backend(self, model_name: str, cache_dir: str | None) -> object:
-        """Construct the underlying fastembed ``TextEmbedding`` instance.
+        """Three-tier backend resolution: native → python-fastembed → error.
 
-        Subclasses may override this to inject a fake backend for tests
-        without taking on the ``[semantic]`` extra.
+        Sets :attr:`_backend_name` to ``"native"`` or ``"python-fastembed"``
+        depending on which path won. Subclasses may override this to inject
+        a fake backend for tests without taking on the ``[semantic]`` extra.
         """
+        # Tier 1: Rust-native via the dcc-mcp-core-semantic companion wheel.
+        try:
+            from dcc_mcp_core_semantic import native as _native
+        except ImportError:
+            _native = None
+        if _native is not None:
+            try:
+                backend = _native.NativeEmbedder(model_name=model_name, cache_dir=cache_dir)
+            except Exception as exc:
+                # If the native backend simply doesn't know this model id, fall
+                # through to the Python backend — fastembed's Python catalogue is
+                # larger than our curated Rust registry. Any other error (model
+                # download failure, file system, etc.) is fatal: surfacing it
+                # tells operators the Rust path is genuinely broken.
+                if "unknown embedding model" not in str(exc):
+                    raise EmbedderError(
+                        f"dcc-mcp-core-semantic native backend failed for {model_name!r}: {exc}"
+                    ) from exc
+            else:
+                self._backend_name = "native"
+                return _NativeBackendAdapter(backend)
+
+        # Tier 2: pure-Python fastembed.
         try:
             from fastembed import TextEmbedding
         except ImportError as exc:
             raise EmbedderError(self._INSTALL_HINT) from exc
         try:
-            return TextEmbedding(model_name=model_name, cache_dir=cache_dir)
+            backend = TextEmbedding(model_name=model_name, cache_dir=cache_dir)
         except Exception as exc:
             raise EmbedderError(f"failed to load embedding model {model_name!r}: {exc}") from exc
+        self._backend_name = "python-fastembed"
+        return backend
 
     def _probe_dim(self) -> int:
         """Run a one-off embedding to discover the model's output dimension."""
@@ -291,6 +351,17 @@ class OnnxEmbedder:
     @property
     def cache_dir(self) -> str | None:
         return self._cache_dir
+
+    @property
+    def backend_name(self) -> str:
+        """Stable tag for which tier of :meth:`_load_backend` won.
+
+        Either ``"native"`` (Rust companion wheel), ``"python-fastembed"``
+        (pure-Python backend), or ``"unknown"`` (caller-supplied custom
+        backend). Useful for diagnostics and tests; never decide product
+        behaviour on this — the wire shape is identical across backends.
+        """
+        return self._backend_name
 
     def embed(self, text: str) -> array[float]:
         if not text.strip():

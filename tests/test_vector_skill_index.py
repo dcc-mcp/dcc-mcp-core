@@ -290,16 +290,31 @@ def test_vector_index_accepts_custom_embedder_and_store() -> None:
 
 
 def test_onnx_embedder_raises_when_extra_missing() -> None:
-    """When the [semantic] extra is not installed, instantiation must raise
-    a clear ``EmbedderError`` pointing at the install string. If the extra
-    ever lands in the dev venv, skip the test instead of silently weakening it.
+    """When neither backend is installed, the three-tier fallback must
+    raise a clear ``EmbedderError`` pointing at the install string. Skip
+    when either backend is actually installed so the negative path is not
+    silently weakened.
     """
+    native_available = False
+    fastembed_available = False
     try:
-        import fastembed
+        import dcc_mcp_core_semantic
+
+        native_available = True
     except ImportError:
         pass
-    else:
-        pytest.skip("fastembed installed — extra-missing path cannot be exercised here")
+    try:
+        import fastembed
+
+        fastembed_available = True
+    except ImportError:
+        pass
+    if native_available or fastembed_available:
+        pytest.skip(
+            "a semantic backend is installed in this venv "
+            f"(native={native_available}, python-fastembed={fastembed_available}); "
+            "the extra-missing path cannot be exercised here"
+        )
     with pytest.raises(EmbedderError) as exc_info:
         OnnxEmbedder()
     assert "pip install 'dcc-mcp-core[semantic]'" in str(exc_info.value)
@@ -424,6 +439,130 @@ def test_onnx_embedder_propagates_backend_failure_as_embedder_error() -> None:
     emb = _BoomEmbedder()
     with pytest.raises(EmbedderError, match="ort kernel failed"):
         emb.embed("anything")
+
+
+# ── Three-tier _load_backend resolution (#1395) ────────────────────────
+
+
+class _FakeNativeEmbedderModule:
+    """In-memory stand-in for ``dcc_mcp_core_semantic.native`` so the
+    three-tier resolver tests run without the companion wheel installed.
+
+    Mirrors the public surface of the Rust ``NativeEmbedder`` pyclass:
+    ``__init__(model_name=..., cache_dir=...)`` plus ``embed_batch``.
+    """
+
+    def __init__(self, *, raise_unknown: bool = False, raise_fatal: bool = False) -> None:
+        self.raise_unknown = raise_unknown
+        self.raise_fatal = raise_fatal
+        self.constructed: list[tuple[str, object]] = []
+
+    def NativeEmbedder(self, model_name, cache_dir=None):
+        self.constructed.append((model_name, cache_dir))
+        if self.raise_unknown:
+            raise RuntimeError(f"unknown embedding model {model_name!r}; supported models: a, b")
+        if self.raise_fatal:
+            raise RuntimeError("ort model download failed")
+        return _FakeNativeEmbedderInstance()
+
+
+class _FakeNativeEmbedderInstance:
+    dim = 4
+    model_name = "fake-native"
+
+    def embed_batch(self, texts):
+        out = []
+        for text in texts:
+            vec = [0.0, 0.0, 0.0, 0.0]
+            if text:
+                vec[len(text) % 4] = 1.0
+            out.append(vec)
+        return out
+
+
+def _inject_native(monkeypatch: pytest.MonkeyPatch, fake_native_module) -> None:
+    """Install a fake ``dcc_mcp_core_semantic`` package into ``sys.modules``."""
+    import sys
+    import types
+
+    pkg = types.ModuleType("dcc_mcp_core_semantic")
+    pkg.native = fake_native_module
+    monkeypatch.setitem(sys.modules, "dcc_mcp_core_semantic", pkg)
+
+
+def test_load_backend_prefers_native_when_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_native = _FakeNativeEmbedderModule()
+    _inject_native(monkeypatch, fake_native)
+    emb = OnnxEmbedder(model_name="BAAI/bge-small-en-v1.5")
+    assert emb.backend_name == "native"
+    assert fake_native.constructed == [("BAAI/bge-small-en-v1.5", None)]
+    # Wire-shape sanity: embed produces an L2-normalised vector of the
+    # backend's dim, through the _NativeBackendAdapter.
+    vec = emb.embed("anything")
+    assert len(vec) == 4
+    assert pytest.approx(math.sqrt(sum(x * x for x in vec)), abs=1e-9) == 1.0
+
+
+def test_load_backend_falls_back_to_python_when_native_does_not_know_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If the native backend reports the model as unknown, the wrapper must
+    fall through to the Python backend rather than failing — the Python
+    `fastembed` catalogue is wider than the curated Rust registry.
+    """
+    fake_native = _FakeNativeEmbedderModule(raise_unknown=True)
+    _inject_native(monkeypatch, fake_native)
+
+    fake_python_module = type(
+        "_FakeFastembed",
+        (),
+        {
+            "TextEmbedding": lambda model_name, cache_dir=None: _FakeFastEmbed(dim=8),
+        },
+    )
+    import sys
+
+    monkeypatch.setitem(sys.modules, "fastembed", fake_python_module)
+    emb = OnnxEmbedder(model_name="some/unsupported-by-native-but-known-to-python")
+    assert emb.backend_name == "python-fastembed"
+    assert emb.dim == 8
+
+
+def test_load_backend_native_fatal_error_does_not_silently_fall_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Genuine native-backend failures (model download fails, ORT crash)
+    must NOT silently degrade to Python — operators need to see the real
+    cause.
+    """
+    fake_native = _FakeNativeEmbedderModule(raise_fatal=True)
+    _inject_native(monkeypatch, fake_native)
+    with pytest.raises(EmbedderError, match="dcc-mcp-core-semantic native backend failed"):
+        OnnxEmbedder()
+
+
+def test_load_backend_uses_python_fastembed_when_native_not_installed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The most common case: the Rust companion wheel is not installed but
+    the Python ``fastembed`` package is — tier 2 wins.
+    """
+    import sys
+
+    # Ensure the native module is NOT present even if a previous test injected it.
+    monkeypatch.delitem(sys.modules, "dcc_mcp_core_semantic", raising=False)
+
+    fake_python_module = type(
+        "_FakeFastembed",
+        (),
+        {
+            "TextEmbedding": lambda model_name, cache_dir=None: _FakeFastEmbed(dim=6),
+        },
+    )
+    monkeypatch.setitem(sys.modules, "fastembed", fake_python_module)
+    emb = OnnxEmbedder()
+    assert emb.backend_name == "python-fastembed"
+    assert emb.dim == 6
 
 
 # ── Fusion: VectorSkillIndex + LexicalSkillIndex via RrfFusionIndex ────
