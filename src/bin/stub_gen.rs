@@ -106,7 +106,7 @@ import typing
 
 # ── Module metadata ──
 
-__version__: builtins.str = {version:?}
+__version__: builtins.str = {version:?}  # x-release-please-version
 __author__: builtins.str = {author:?}
 
 # ── Constants (registered via m.add() in src/lib.rs::register_constants) ──
