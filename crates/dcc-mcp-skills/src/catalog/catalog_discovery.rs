@@ -47,6 +47,8 @@ impl SkillCatalog {
             script_executor: RwLock::new(None),
             load_transform: RwLock::new(None),
             after_load_hook: RwLock::new(None),
+            after_unload_hook: RwLock::new(None),
+            after_group_change_hook: RwLock::new(None),
             active_groups: DashSet::new(),
         }
     }
@@ -66,6 +68,8 @@ impl SkillCatalog {
             script_executor: RwLock::new(None),
             load_transform: RwLock::new(None),
             after_load_hook: RwLock::new(None),
+            after_unload_hook: RwLock::new(None),
+            after_group_change_hook: RwLock::new(None),
             active_groups: DashSet::new(),
         }
     }
@@ -173,6 +177,40 @@ impl SkillCatalog {
     /// Remove the after-load observer.
     pub fn clear_after_load_hook(&self) {
         *self.after_load_hook.write() = None;
+    }
+
+    /// Register an observer that runs after a skill is unloaded (#1405).
+    ///
+    /// Symmetric to [`Self::set_after_load_hook`] — the catalog calls the
+    /// hook with the unloaded skill name and the list of tool names that
+    /// were removed from the registry. Used by the persistence layer to
+    /// evict the row from the on-disk store.
+    pub fn set_after_unload_hook<F>(&self, hook: F)
+    where
+        F: Fn(&str, &[String]) -> Result<(), String> + Send + Sync + 'static,
+    {
+        *self.after_unload_hook.write() = Some(Arc::new(hook));
+    }
+
+    /// Remove the after-unload observer.
+    pub fn clear_after_unload_hook(&self) {
+        *self.after_unload_hook.write() = None;
+    }
+
+    /// Register an observer that runs after [`Self::activate_group`] /
+    /// [`Self::deactivate_group`] (#1405). `activated` is `true` for
+    /// activate and `false` for deactivate; the persistence layer uses
+    /// it to mirror catalog-wide group state on disk.
+    pub fn set_after_group_change_hook<F>(&self, hook: F)
+    where
+        F: Fn(&str, bool) -> Result<(), String> + Send + Sync + 'static,
+    {
+        *self.after_group_change_hook.write() = Some(Arc::new(hook));
+    }
+
+    /// Remove the after-group-change observer.
+    pub fn clear_after_group_change_hook(&self) {
+        *self.after_group_change_hook.write() = None;
     }
 
     /// Discover skills from the standard scan paths.

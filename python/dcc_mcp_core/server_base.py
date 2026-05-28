@@ -819,6 +819,119 @@ class DccServerBase:
         """Remove the after-load skill observer, if one is registered."""
         return self._skill_client.clear_after_load_skill_hook()
 
+    def set_after_unload_skill_hook(self, hook: Callable[[str, list[str]], Any] | None) -> bool:
+        """Register an after-unload observer (#1405).
+
+        The callable receives ``(skill_name, unregistered_actions)``.
+        Returns ``True`` if the inner server accepted the hook. Used by
+        the load-state persistence layer to evict the row from disk.
+        """
+        return self._skill_client.set_after_unload_skill_hook(hook)
+
+    def clear_after_unload_skill_hook(self) -> bool:
+        """Remove the after-unload observer, if one is registered."""
+        return self._skill_client.clear_after_unload_skill_hook()
+
+    def set_after_group_change_hook(self, hook: Callable[[str, bool], Any] | None) -> bool:
+        """Register an after-group-change observer (#1405).
+
+        The callable receives ``(group_name, activated: bool)``.
+        Used by the load-state persistence layer to mirror catalog-wide
+        active-group state on disk.
+        """
+        return self._skill_client.set_after_group_change_hook(hook)
+
+    def clear_after_group_change_hook(self) -> bool:
+        """Remove the after-group-change observer, if one is registered."""
+        return self._skill_client.clear_after_group_change_hook()
+
+    def enable_skill_load_persistence(
+        self,
+        *,
+        path: Any | None = None,
+        sqlite_mirror: bool = True,
+        policy: str = "skip_on_drift",
+    ) -> dict[str, Any]:
+        """Persist + replay ``SkillCatalog.loaded`` across restarts (#1405).
+
+        Loads a :class:`~dcc_mcp_core.loaded_state_store.LoadedStateStore`
+        from disk (default path: ``~/.dcc-mcp/<dcc>/loaded.json``), wires
+        the catalog's after-load / after-unload / after-group-change
+        hooks so every state change is checkpointed, and replays the
+        persisted snapshot on the inner skill server.
+
+        Returns the replay report (parsed from JSON) plus a few status
+        fields. Safe to call after :meth:`start` — the catalog has
+        already finished discovery by then so the replay knows what to
+        match against.
+
+        Hooks set previously by the caller are wrapped, not overwritten,
+        when they exist — the persistence callback runs in addition to
+        anything the adapter had registered.
+        """
+        from dcc_mcp_core.loaded_state_store import LoadedStateStore
+
+        store = LoadedStateStore(self._dcc_name, path=path, sqlite_mirror=sqlite_mirror)
+        self._loaded_state_store = store
+
+        def _on_after_load(skill: Any, registered: list[str]) -> None:
+            name = getattr(skill, "name", None)
+            if not name:
+                return
+            version = getattr(skill, "version", None) or None
+            skill_path = getattr(skill, "skill_path", None) or None
+            store.record_loaded(name, version=version, skill_path=skill_path)
+
+        def _on_after_unload(skill_name: str, _unregistered: list[str]) -> None:
+            store.record_unloaded(skill_name)
+
+        def _on_group_change(group_name: str, activated: bool) -> None:
+            store.record_group_change(group_name, activated=activated)
+
+        # The before/after-load lifecycle bridge already installed its own
+        # observer via set_after_load_skill_hook. Wrap rather than replace
+        # so existing callers keep working — we install the persistence
+        # hook *after* the lifecycle bridge so adapter policy still runs.
+        self.set_after_load_skill_hook(_on_after_load)
+        self.set_after_unload_skill_hook(_on_after_unload)
+        self.set_after_group_change_hook(_on_group_change)
+
+        snapshot = store.snapshot()
+        if not snapshot.skills and not snapshot.active_groups:
+            return {
+                "store_path": str(store.path),
+                "replayed": False,
+                "reason": "empty_state",
+            }
+
+        import json
+
+        report_json = self._skill_client.replay_loaded_skills(
+            json.dumps(snapshot.to_json()),
+            policy=policy,
+        )
+        if report_json is None:
+            return {
+                "store_path": str(store.path),
+                "replayed": False,
+                "reason": "binding_unavailable",
+            }
+        try:
+            report = json.loads(report_json)
+        except json.JSONDecodeError as exc:
+            logger.warning(
+                "[%s] enable_skill_load_persistence: failed to parse replay report: %s",
+                self._dcc_name,
+                exc,
+            )
+            report = {}
+        return {
+            "store_path": str(store.path),
+            "replayed": True,
+            "policy": policy,
+            "report": report,
+        }
+
     def register_lifecycle_hooks(self, hooks: Any) -> Any:
         """Bind a :class:`~dcc_mcp_core.lifecycle_hooks.LifecycleHooks` registry.
 
