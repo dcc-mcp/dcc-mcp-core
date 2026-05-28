@@ -1,0 +1,49 @@
+[package]
+name = "dcc-mcp-semantic"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Native Rust semantic embeddings (fastembed-rs + ONNX Runtime) for dcc-mcp-core."
+keywords = ["mcp", "embeddings", "fastembed", "onnx", "vector"]
+categories = ["api-bindings", "science"]
+
+[lib]
+# `cdylib` produces the Python extension module via maturin;
+# `rlib` lets `cargo check --workspace` link the crate normally.
+crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+# `fastembed`, `anyhow`, `thiserror`, and `pyo3` are all opt-in behind
+# the `fastembed-backend` / `python-bindings` features so that the
+# default `cargo check --workspace` does NOT pull in `ort-sys`, which
+# requires either network access to the pyke CDN or a pre-installed
+# ONNX Runtime at build time. The companion wheel build at
+# `pkg/dcc-mcp-core-semantic/pyproject.toml` explicitly enables
+# `python-bindings`.
+anyhow = { workspace = true, optional = true }
+fastembed = { version = "5", optional = true }
+pyo3 = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+tracing = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[features]
+default = []
+# Pull in fastembed-rs and its (heavy) ONNX-Runtime dep tree. Use this
+# when you want to exercise the Rust embedder logic from `cargo test`
+# without the PyO3 wrapper.
+fastembed-backend = ["dep:fastembed", "dep:anyhow", "dep:thiserror"]
+# Build the PyO3 extension module. Mirrors the top-level Cargo.toml
+# split: `python-bindings` + `ext-module` is the cp37 non-abi3 build,
+# `python-bindings` + `ext-module` + `abi3-py38` is the abi3 build for
+# Python 3.8-3.13. Maturin enables the right combination through the
+# companion `pkg/dcc-mcp-core-semantic/pyproject.toml` `features` list.
+python-bindings = ["fastembed-backend", "dep:pyo3"]
+ext-module = ["pyo3/extension-module"]
+abi3-py38 = ["pyo3/abi3-py38"]
