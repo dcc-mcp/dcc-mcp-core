@@ -50,6 +50,10 @@ pub async fn run_once(config: AgentConfig) -> Result<Registered, ClientError> {
         dcc: config.dcc.clone(),
         capabilities: config.capabilities.clone(),
         agent_version: config.agent_version.clone(),
+        instance_id: config.instance_id.clone(),
+        capabilities_fingerprint: config.capabilities_fingerprint.clone(),
+        adapter_version: config.adapter_version.clone(),
+        scene: config.scene.clone(),
     };
     {
         let mut w = writer.lock().await;

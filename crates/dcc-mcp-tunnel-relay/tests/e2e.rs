@@ -55,6 +55,53 @@ async fn spawn_echo_server() -> std::net::SocketAddr {
     addr
 }
 
+async fn spawn_http_backend() -> std::net::SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        loop {
+            let (mut sock, _) = match listener.accept().await {
+                Ok(p) => p,
+                Err(_) => return,
+            };
+            tokio::spawn(async move {
+                let mut buf = Vec::new();
+                let mut tmp = [0u8; 1024];
+                loop {
+                    let n = match sock.read(&mut tmp).await {
+                        Ok(0) => return,
+                        Ok(n) => n,
+                        Err(_) => return,
+                    };
+                    buf.extend_from_slice(&tmp[..n]);
+                    if buf.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let request = String::from_utf8_lossy(&buf);
+                let path = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or("/");
+                let body = if path == "/v1/healthz" {
+                    r#"{"status":"ok"}"#
+                } else {
+                    r#"{"success":true,"source":"relay-http-proxy"}"#
+                };
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = sock.write_all(response.as_bytes()).await;
+                let _ = sock.shutdown().await;
+            });
+        }
+    });
+    addr
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn frontend_round_trips_through_relay_to_local_echo() {
     let echo = spawn_echo_server().await;
@@ -91,6 +138,10 @@ async fn frontend_round_trips_through_relay_to_local_echo() {
         token,
         dcc: "maya".into(),
         capabilities: vec!["scene.read".into()],
+        instance_id: Some("2d86aa74-9b19-49a4-a166-92b3f47ed84a".into()),
+        capabilities_fingerprint: Some("fp-e2e".into()),
+        adapter_version: Some("dcc_mcp_maya = 0.3.0".into()),
+        scene: Some("shot.ma".into()),
         agent_version: "e2e/0.0".into(),
         local_target: echo.to_string(),
         heartbeat_interval: Duration::from_secs(5),
@@ -211,6 +262,7 @@ async fn admin_endpoint_lists_live_tunnel() {
     assert_eq!(body.len(), 1);
     assert_eq!(body[0].dcc, "houdini");
     assert_eq!(body[0].session_count, 0);
+    assert!(body[0].public_url.contains("/tunnel/"));
 
     let health = reqwest::get(format!("http://{admin_addr}/healthz"))
         .await
@@ -278,6 +330,59 @@ async fn ws_frontend_round_trips_through_relay() {
         other => panic!("expected binary frame, got {other:?}"),
     }
     let _ = ws.close(None).await;
+    relay.shutdown();
+    agent_task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn http_frontend_proxies_rest_requests_through_relay() {
+    let backend = spawn_http_backend().await;
+    let cfg = RelayConfig {
+        jwt_secret: SECRET.to_vec(),
+        ..RelayConfig::default()
+    };
+    let relay = RelayServer::start_with(
+        cfg,
+        "127.0.0.1:0".parse().unwrap(),
+        "127.0.0.1:0".parse().unwrap(),
+        OptionalBinds {
+            ws_frontend: Some("127.0.0.1:0".parse().unwrap()),
+            admin: None,
+        },
+    )
+    .await
+    .unwrap();
+    let http_addr = relay.ws_frontend_addr.expect("http frontend must be bound");
+    let claims = TunnelClaims {
+        sub: "http-test".into(),
+        iat: now_secs(),
+        exp: now_secs() + 600,
+        iss: "e2e".into(),
+        allowed_dcc: vec!["maya".into()],
+    };
+    let token = auth::issue(&claims, SECRET).unwrap();
+    let agent_cfg = AgentConfig::new(
+        relay.agent_addr.to_string(),
+        token,
+        "maya",
+        backend.to_string(),
+    );
+    let agent_task = tokio::spawn(async move { run_once(agent_cfg).await });
+    let tunnel_id = wait_for_tunnel(&relay.registry).await;
+
+    let response = reqwest::Client::new()
+        .post(format!("http://{http_addr}/tunnel/{tunnel_id}/v1/call"))
+        .json(&serde_json::json!({
+            "tool_slug": "maya.test.echo",
+            "arguments": {"value": 42}
+        }))
+        .send()
+        .await
+        .expect("relay http proxy reachable");
+    assert!(response.status().is_success());
+    let value = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(value["source"], "relay-http-proxy");
+
     relay.shutdown();
     agent_task.abort();
 }

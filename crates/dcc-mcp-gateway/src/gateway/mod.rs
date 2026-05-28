@@ -49,6 +49,7 @@ pub mod middleware;
 pub mod native_resources;
 pub mod openapi;
 pub mod proxy;
+pub mod relay_registration;
 pub mod resilience;
 pub(crate) mod response_codec;
 pub(crate) mod rest_openapi;
@@ -124,7 +125,7 @@ mod tasks;
 mod version;
 
 pub(crate) use bind::try_bind_port_opt;
-pub use config::{AdminPersistConfig, GatewayConfig};
+pub use config::{AdminPersistConfig, GatewayConfig, RelaySourceConfig};
 pub use handle::ElectionOutcome;
 pub use handle::GatewayHandle;
 pub use runner::GatewayRunner;

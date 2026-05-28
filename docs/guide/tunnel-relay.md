@@ -73,6 +73,12 @@ let cfg = AgentConfig::new(
     "maya",
     "127.0.0.1:8765", // local DCC MCP HTTP server
 );
+// Optional metadata lets a gateway expose the tunnel as a stable
+// gateway://instances row.
+// cfg.instance_id = Some("11111111-1111-4111-8111-111111111111".into());
+// cfg.capabilities_fingerprint = Some("maya-tools-v1".into());
+// cfg.adapter_version = Some("dcc-mcp-maya/0.3.0".into());
+// cfg.scene = Some("shot010.ma".into());
 let registered = run_once(cfg).await?;
 println!("public URL: {:?}", registered.public_url);
 # Ok(()) }
@@ -114,6 +120,25 @@ Text frames are ignored (the wire is binary). For TLS, terminate at a
 reverse proxy (`nginx` / `caddy` / cloud LB) — the relay itself speaks
 plain HTTP/1.1, mirroring how `dcc-mcp-http` is deployed.
 
+### 3. HTTP proxy (gateway-friendly)
+
+The same frontend listener also accepts HTTP requests under:
+
+```text
+http://<host>:<ws_port>/tunnel/<tunnel_id>/<path>
+```
+
+The relay opens a tunnel session, forwards the HTTP/1.1 request bytes to the
+agent's local MCP server, and streams the backend response back to the caller.
+For a registered DCC HTTP server this makes the public MCP URL:
+
+```text
+http://<host>:<ws_port>/tunnel/<tunnel_id>/mcp
+```
+
+Use this path for gateway relay sources and for REST/SSE-compatible clients
+that should not implement the raw tunnel selection preamble.
+
 ## Admin endpoint (`/tunnels`)
 
 When [`OptionalBinds::admin`](https://docs.rs/dcc-mcp-tunnel-relay) is
@@ -132,8 +157,13 @@ curl -s http://relay.example.com:9003/tunnels | jq
 # [{
 #   "tunnel_id": "01J…",
 #   "dcc": "maya",
+#   "instance_id": "11111111-1111-4111-8111-111111111111",
 #   "capabilities": ["scene.read"],
+#   "capabilities_fingerprint": "maya-tools-v1",
+#   "adapter_version": "dcc-mcp-maya/0.3.0",
+#   "scene": "shot010.ma",
 #   "agent_version": "dcc-mcp-tunnel-agent/0.14",
+#   "public_url": "http://relay.example.com:9002/tunnel/01J…",
 #   "registered_at_ms_ago": 31204,
 #   "last_heartbeat_ms_ago": 1450,
 #   "session_count": 2
@@ -142,6 +172,29 @@ curl -s http://relay.example.com:9003/tunnels | jq
 
 The endpoint is mutation-free; firewall it to your operator network
 because it leaks the live tunnel id list.
+
+## Gateway relay source (#1363)
+
+A standalone gateway can poll one or more relay admin endpoints and surface
+live tunnels as normal `gateway://instances` rows:
+
+```bash
+dcc-mcp-server gateway \
+  --relay-source http://relay.example.com:9003=http://relay.example.com:9002
+```
+
+The left side is the relay admin base URL used for `GET /tunnels`; the right
+side is the public HTTP frontend base URL used to build routable backend MCP
+URLs. A tunnel row with `tunnel_id = 01J...` becomes:
+
+```text
+http://relay.example.com:9002/tunnel/01J.../mcp
+```
+
+Gateway polling probes each candidate through `GET /v1/healthz` before exposing
+it. Relay rows use `source: "relay"` in `GET /v1/instances` and
+`gateway://instances`, carry relay metadata under `source_meta`, and can be
+shadowed by explicit HTTP registration for the same `instance_id`.
 
 ## Agent reconnect & back-off
 
@@ -187,9 +240,10 @@ sessions on an evicted tunnel see a TCP RST.
 | 1:N session multiplexing per tunnel | ✅ shipped |
 | Periodic eviction | ✅ shipped |
 | WebSocket frontend (`ws://` — pair with reverse-proxy TLS for `wss://`) | ✅ shipped |
+| HTTP frontend (`/tunnel/<id>/...`) for REST/SSE-compatible MCP routing | ✅ shipped |
 | `/tunnels` + `/healthz` admin endpoint | ✅ shipped |
 | Reconnect-with-back-off on the agent | ✅ shipped |
-| HTTP+SSE frontend with `/dcc/<name>/<tunnel_id>` routing | follow-up |
+| Gateway polling of active tunnels as `source: "relay"` backends | ✅ shipped |
 | Built-in TLS termination on the relay itself | follow-up — defer to ops |
 | Production benchmark (latency p50/p99 vs direct TCP) | follow-up |
 

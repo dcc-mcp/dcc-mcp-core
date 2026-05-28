@@ -76,6 +76,7 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 | `traces/gateway-smoke.jsonl` | No | `GET /v1/healthz` + browse `POST /v1/search`. |
 | `traces/core-1360-gateway-daemon-mode.jsonl` | No | `dcc-mcp-server gateway` daemon exposes gateway REST without a live DCC backend. |
 | `traces/core-1361-http-instance-registration.jsonl` | No | Gateway daemon accepts remote HTTP instance register → heartbeat → path-call resolution → deregister. |
+| `traces/core-1363-relay-gateway-source.jsonl` | Relay + live backend | Gateway daemon configured with `--relay-source` exposes active tunnel rows with `source: "relay"` and routable `/tunnel/<id>/mcp` URLs. |
 | `traces/gateway-search-no-matches.jsonl` | No | Search with improbable token → `total: 0`, empty `hits`. |
 | `traces/gateway-rest-describe-bad-request-missing-tool-slug.jsonl` | No | `POST /v1/describe` with `{}` → `400`, `error.kind` = `bad-request`. |
 | `traces/gateway-rest-describe-unknown-slug.jsonl` | No | Well-formed unknown slug → `404`, `error.kind` = `unknown-slug`. |

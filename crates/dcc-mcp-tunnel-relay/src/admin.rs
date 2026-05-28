@@ -42,6 +42,25 @@ pub struct TunnelSummary {
     /// not validate these against any registry.
     pub capabilities: Vec<String>,
 
+    /// Stable DCC instance UUID, when the agent reported one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
+
+    /// Fingerprint of the backend capability set, when reported.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capabilities_fingerprint: Option<String>,
+
+    /// Adapter package version, when reported.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapter_version: Option<String>,
+
+    /// Active scene or document, when reported.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scene: Option<String>,
+
+    /// Public URL for this tunnel, derived from the relay `base_url`.
+    pub public_url: String,
+
     /// Build identifier the agent reported.
     pub agent_version: String,
 
@@ -76,6 +95,11 @@ async fn list_tunnels(State(reg): State<Arc<TunnelRegistry>>) -> impl IntoRespon
                 tunnel_id: v.tunnel_id.clone(),
                 dcc: v.dcc.clone(),
                 capabilities: v.capabilities.clone(),
+                instance_id: v.instance_id.clone(),
+                capabilities_fingerprint: v.capabilities_fingerprint.clone(),
+                adapter_version: v.adapter_version.clone(),
+                scene: v.scene.clone(),
+                public_url: v.public_url.clone(),
                 agent_version: v.agent_version.clone(),
                 registered_at_ms_ago: now.saturating_duration_since(v.registered_at).as_millis(),
                 last_heartbeat_ms_ago: now.saturating_duration_since(v.last_seen()).as_millis(),
@@ -125,6 +149,11 @@ mod tests {
             tunnel_id: id.into(),
             dcc: dcc.into(),
             capabilities: vec!["scene.read".into()],
+            instance_id: Some(format!("00000000-0000-0000-0000-0000000000{id}")),
+            capabilities_fingerprint: Some("fp-test".into()),
+            adapter_version: Some("adapter/0.0".into()),
+            scene: Some("shot.ma".into()),
+            public_url: format!("http://relay.test/tunnel/{id}"),
             agent_version: "test/0.0".into(),
             registered_at: Instant::now(),
             last_heartbeat: RwLock::new(Instant::now()),
@@ -150,6 +179,9 @@ mod tests {
                 .iter()
                 .any(|s| s.tunnel_id == "t1" && s.dcc == "maya")
         );
+        assert!(parsed.iter().any(|s| s.tunnel_id == "t1"
+            && s.public_url == "http://relay.test/tunnel/t1"
+            && s.capabilities_fingerprint.as_deref() == Some("fp-test")));
         assert!(
             parsed
                 .iter()

@@ -3,6 +3,8 @@ use std::sync::Arc;
 
 use dcc_mcp_gateway_core::policy::GatewayPolicy;
 
+pub use super::relay_registration::RelaySourceConfig;
+
 /// Admin persistence configuration (SQLite + skill-path reload hook).
 ///
 /// Grouped to satisfy the Open/Closed Principle: adding new admin-persist
@@ -119,6 +121,12 @@ pub struct GatewayConfig {
     /// must still answer the HTTP health probe before it is surfaced.
     #[cfg(feature = "mdns")]
     pub discover_mdns: bool,
+    /// Remote tunnel relays to poll for active DCC backends.
+    ///
+    /// Each source needs a private/admin URL for `GET /tunnels` and a public
+    /// HTTP(S) frontend base URL that proxies `/tunnel/{id}/...` to the local
+    /// MCP server behind the relay. Default: empty.
+    pub relay_sources: Vec<RelaySourceConfig>,
     /// Adapter package version recorded on the `__gateway__` sentinel
     /// (e.g. `dcc_mcp_maya = "0.3.0"`). Used by the second tier of the
     /// election comparison (issue maya#137).
@@ -187,6 +195,7 @@ impl Default for GatewayConfig {
             allow_unknown_tools: false,
             #[cfg(feature = "mdns")]
             discover_mdns: false,
+            relay_sources: Vec::new(),
             adapter_version: None,
             adapter_dcc: None,
             middleware_chain: super::middleware::MiddlewareChain::new(),

@@ -4,6 +4,18 @@ use serde::{Deserialize, Serialize};
 
 use dcc_mcp_gateway_core::policy::GatewayPolicy;
 
+/// Configured tunnel relay source for gateway discovery.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RelaySourceConfig {
+    /// Private/admin URL whose `/tunnels` endpoint returns live tunnel rows.
+    pub admin_url: String,
+    /// Public HTTP(S) frontend base URL that proxies `/tunnel/{id}/...`.
+    pub public_base_url: String,
+    /// Optional poll interval in seconds. Defaults to the gateway runtime.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub poll_interval_secs: Option<u64>,
+}
+
 /// Gateway election, routing, and discovery configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -96,6 +108,12 @@ pub struct GatewayConfig {
     /// `mdns` feature; otherwise this value is ignored by the gateway bridge.
     pub discover_mdns: bool,
 
+    /// Discover DCC MCP endpoints registered behind tunnel relays.
+    ///
+    /// Default: empty. Each configured relay is polled through its admin URL
+    /// and routed through its HTTP(S) frontend URL.
+    pub relay_sources: Vec<RelaySourceConfig>,
+
     /// Gateway capability policy applied before dynamic tools reach clients
     /// and before routed backend calls execute.
     ///
@@ -132,6 +150,7 @@ impl Default for GatewayConfig {
             gateway_name: None,
             allow_unknown_tools: false,
             discover_mdns: false,
+            relay_sources: Vec::new(),
             policy: GatewayPolicy::default(),
             admin_enabled: true,
             admin_path: "/admin".to_string(),

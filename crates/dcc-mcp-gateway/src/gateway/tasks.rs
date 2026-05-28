@@ -148,13 +148,142 @@ async fn probe_mdns_candidate(
         .is_ok_and(|response| response.status().is_success())
 }
 
-#[cfg(feature = "mdns")]
 fn healthz_url_from_mcp_url(mcp_url: &str) -> Option<String> {
     let mut url = reqwest::Url::parse(mcp_url).ok()?;
     url.set_path("/v1/healthz");
     url.set_query(None);
     url.set_fragment(None);
     Some(url.to_string())
+}
+
+fn spawn_relay_discovery_task(
+    relay_registry: Arc<
+        parking_lot::RwLock<crate::gateway::relay_registration::RelayInstanceRegistry>,
+    >,
+    http_client: reqwest::Client,
+    source: crate::gateway::RelaySourceConfig,
+    probe_timeout: Duration,
+    ttl: Duration,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let interval = source.poll_interval();
+        tracing::info!(
+            admin_url = %source.admin_url,
+            public_base_url = %source.public_base_url,
+            "Gateway: relay discovery source enabled"
+        );
+        let mut ticker = tokio::time::interval(interval);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            ticker.tick().await;
+            if let Err(err) =
+                poll_relay_source(&relay_registry, &http_client, &source, probe_timeout, ttl).await
+            {
+                tracing::warn!(
+                    admin_url = %source.admin_url,
+                    error = %err,
+                    "Gateway: relay discovery poll failed"
+                );
+            }
+        }
+    })
+}
+
+async fn poll_relay_source(
+    relay_registry: &Arc<
+        parking_lot::RwLock<crate::gateway::relay_registration::RelayInstanceRegistry>,
+    >,
+    http_client: &reqwest::Client,
+    source: &crate::gateway::RelaySourceConfig,
+    probe_timeout: Duration,
+    ttl: Duration,
+) -> Result<(), String> {
+    let tunnels_url = format!("{}/tunnels", source.admin_url.trim_end_matches('/'));
+    let response = http_client
+        .get(&tunnels_url)
+        .timeout(probe_timeout)
+        .send()
+        .await
+        .map_err(|err| format!("{tunnels_url}: transport error: {err}"))?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!("{tunnels_url}: HTTP {status}: {body}"));
+    }
+    let summaries = response
+        .json::<Vec<crate::gateway::relay_registration::RelayTunnelSummary>>()
+        .await
+        .map_err(|err| format!("{tunnels_url}: invalid JSON: {err}"))?;
+    let source_key = source.source_key();
+    let mut accepted_tunnels = std::collections::HashSet::new();
+    let now = std::time::SystemTime::now();
+
+    for summary in summaries {
+        let tunnel_id = summary.tunnel_id.clone();
+        let entry = match crate::gateway::relay_registration::entry_from_relay_tunnel(
+            source, &summary, now,
+        ) {
+            Ok(entry) => entry,
+            Err(err) => {
+                tracing::debug!(
+                    tunnel_id = %tunnel_id,
+                    error = %err,
+                    "Gateway: ignoring malformed relay tunnel row"
+                );
+                continue;
+            }
+        };
+        let mcp_url = crate::gateway::http_registration::entry_mcp_url(&entry);
+        if probe_relay_candidate(http_client, &mcp_url, probe_timeout).await {
+            let instance_id = entry.instance_id;
+            let dcc_type = entry.dcc_type.clone();
+            accepted_tunnels.insert(tunnel_id.clone());
+            relay_registry
+                .write()
+                .upsert(source_key.clone(), tunnel_id.clone(), entry, ttl, now);
+            tracing::info!(
+                %instance_id,
+                %dcc_type,
+                %tunnel_id,
+                mcp_url = %mcp_url,
+                "Gateway: relay tunnel accepted after health probe"
+            );
+        } else {
+            tracing::debug!(
+                %tunnel_id,
+                mcp_url = %mcp_url,
+                "Gateway: relay tunnel failed health probe"
+            );
+        }
+    }
+
+    let removed = relay_registry
+        .write()
+        .retain_source_tunnels(&source_key, &accepted_tunnels);
+    if removed > 0 {
+        tracing::info!(
+            admin_url = %source.admin_url,
+            removed,
+            "Gateway: removed inactive relay tunnel(s)"
+        );
+    }
+    Ok(())
+}
+
+async fn probe_relay_candidate(
+    http_client: &reqwest::Client,
+    mcp_url: &str,
+    probe_timeout: Duration,
+) -> bool {
+    let Some(url) = healthz_url_from_mcp_url(mcp_url) else {
+        return false;
+    };
+    http_client
+        .get(url)
+        .timeout(probe_timeout)
+        .send()
+        .await
+        .is_ok_and(|response| response.status().is_success())
 }
 
 /// Capacity of the in-memory audit ring buffer and SQLite merge limit.
@@ -187,6 +316,7 @@ pub(crate) async fn start_gateway_tasks(
     own_port: u16,
     allow_unknown_tools: bool,
     #[cfg(feature = "mdns")] discover_mdns: bool,
+    relay_sources: Vec<crate::gateway::RelaySourceConfig>,
     policy: dcc_mcp_gateway_core::policy::GatewayPolicy,
     adapter_version: Option<String>,
     adapter_dcc: Option<String>,
@@ -238,6 +368,9 @@ pub(crate) async fn start_gateway_tasks(
     let mdns_instance_registry = Arc::new(parking_lot::RwLock::new(
         crate::gateway::mdns_registration::MdnsInstanceRegistry::default(),
     ));
+    let relay_instance_registry = Arc::new(parking_lot::RwLock::new(
+        crate::gateway::relay_registration::RelayInstanceRegistry::default(),
+    ));
 
     // ── Contention event log + Prometheus counters (issue #766) ───────────
     let contention_log = Arc::new(crate::gateway::event_log::EventLog::new());
@@ -254,6 +387,7 @@ pub(crate) async fn start_gateway_tasks(
     // plugin crashes after registering but before its own heartbeat starts.
     let reg_cleanup = registry.clone();
     let mdns_cleanup = mdns_instance_registry.clone();
+    let relay_cleanup = relay_instance_registry.clone();
     let own_version = server_version.clone();
     let own_adapter_version = adapter_version.clone();
     let own_adapter_dcc = adapter_dcc.clone();
@@ -317,6 +451,15 @@ pub(crate) async fn start_gateway_tasks(
                     "Gateway: evicted expired mDNS-discovered instance(s)"
                 );
             }
+            let relay_evicted = relay_cleanup
+                .write()
+                .prune_expired(std::time::SystemTime::now());
+            if relay_evicted > 0 {
+                tracing::info!(
+                    evicted = relay_evicted,
+                    "Gateway: evicted expired relay-discovered instance(s)"
+                );
+            }
 
             // Issue maya#137: include adapter_version + adapter_dcc in the
             // self-yield decision so a freshly-installed Maya plugin (real
@@ -356,6 +499,7 @@ pub(crate) async fn start_gateway_tasks(
     let reg_watch = registry.clone();
     let http_watch = http_instance_registry.clone();
     let mdns_watch = mdns_instance_registry.clone();
+    let relay_watch = relay_instance_registry.clone();
     let events_tx_watch = events_tx.clone();
     let watch_own_host = own_host.clone();
     let watch_own_port = own_port;
@@ -369,7 +513,7 @@ pub(crate) async fn start_gateway_tasks(
 
             let fingerprint = {
                 let r = reg_watch.read().await;
-                let mut entries: Vec<_> = r
+                let entries: Vec<_> = r
                     .list_all()
                     .into_iter()
                     .filter(|e| {
@@ -381,19 +525,13 @@ pub(crate) async fn start_gateway_tasks(
                 let now = std::time::SystemTime::now();
                 let http_entries = http_watch.read().live_entries(now);
                 let mdns_entries = mdns_watch.read().live_entries(now);
-                let http_ids: std::collections::HashSet<_> =
-                    http_entries.iter().map(|entry| entry.instance_id).collect();
-                let mdns_ids: std::collections::HashSet<_> =
-                    mdns_entries.iter().map(|entry| entry.instance_id).collect();
-                entries.retain(|entry| {
-                    !http_ids.contains(&entry.instance_id) && !mdns_ids.contains(&entry.instance_id)
-                });
-                entries.extend(
-                    mdns_entries
-                        .into_iter()
-                        .filter(|entry| !http_ids.contains(&entry.instance_id)),
+                let relay_entries = relay_watch.read().live_entries(now);
+                let entries = crate::gateway::state::merge_gateway_sources(
+                    entries,
+                    mdns_entries,
+                    relay_entries,
+                    http_entries,
                 );
-                entries.extend(http_entries);
                 let mut keys: Vec<String> = entries
                     .into_iter()
                     .map(|e| format!("{}:{}", e.dcc_type, e.instance_id))
@@ -662,6 +800,7 @@ pub(crate) async fn start_gateway_tasks(
     let sub_own_port = own_port;
     let sub_http_registry = http_instance_registry.clone();
     let sub_mdns_registry = mdns_instance_registry.clone();
+    let sub_relay_registry = relay_instance_registry.clone();
     let backend_sub_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(2));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -669,7 +808,7 @@ pub(crate) async fn start_gateway_tasks(
             interval.tick().await;
             let urls: Vec<String> = {
                 let r = reg_sub.read().await;
-                let mut entries: Vec<_> = r
+                let entries: Vec<_> = r
                     .list_all()
                     .into_iter()
                     .filter(|e| {
@@ -685,19 +824,15 @@ pub(crate) async fn start_gateway_tasks(
                 let mdns_entries = sub_mdns_registry
                     .read()
                     .live_entries(std::time::SystemTime::now());
-                let http_ids: std::collections::HashSet<_> =
-                    http_entries.iter().map(|entry| entry.instance_id).collect();
-                let mdns_ids: std::collections::HashSet<_> =
-                    mdns_entries.iter().map(|entry| entry.instance_id).collect();
-                entries.retain(|entry| {
-                    !http_ids.contains(&entry.instance_id) && !mdns_ids.contains(&entry.instance_id)
-                });
-                entries.extend(
-                    mdns_entries
-                        .into_iter()
-                        .filter(|entry| !http_ids.contains(&entry.instance_id)),
+                let relay_entries = sub_relay_registry
+                    .read()
+                    .live_entries(std::time::SystemTime::now());
+                let entries = crate::gateway::state::merge_gateway_sources(
+                    entries,
+                    mdns_entries,
+                    relay_entries,
+                    http_entries,
                 );
-                entries.extend(http_entries);
                 entries
                     .into_iter()
                     .map(|e| crate::gateway::http_registration::entry_mcp_url(&e))
@@ -730,6 +865,7 @@ pub(crate) async fn start_gateway_tasks(
         registry: registry.clone(),
         http_instance_registry: http_instance_registry.clone(),
         mdns_instance_registry: mdns_instance_registry.clone(),
+        relay_instance_registry: relay_instance_registry.clone(),
         stale_timeout,
         backend_timeout,
         async_dispatch_timeout,
@@ -1002,6 +1138,15 @@ pub(crate) async fn start_gateway_tasks(
         task_handles.push(spawn_mdns_discovery_task(
             mdns_instance_registry.clone(),
             http_client.clone(),
+            backend_timeout,
+            stale_timeout,
+        ));
+    }
+    for source in relay_sources {
+        task_handles.push(spawn_relay_discovery_task(
+            relay_instance_registry.clone(),
+            http_client.clone(),
+            source,
             backend_timeout,
             stale_timeout,
         ));

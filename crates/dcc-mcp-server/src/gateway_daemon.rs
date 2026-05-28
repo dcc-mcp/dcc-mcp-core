@@ -7,13 +7,39 @@ use std::fs::{File, OpenOptions};
 use std::path::PathBuf;
 #[cfg(feature = "gateway-auto")]
 use std::process::{Command, Stdio};
+use std::str::FromStr;
 #[cfg(feature = "gateway-auto")]
 use std::time::{Duration, Instant};
 
 #[cfg(feature = "gateway-auto")]
 use anyhow::Context as _;
 use clap::Args;
-use dcc_mcp_gateway::{AdminPersistConfig, GatewayConfig, GatewayRunner};
+use dcc_mcp_gateway::{AdminPersistConfig, GatewayConfig, GatewayRunner, RelaySourceConfig};
+
+/// CLI parser for one relay discovery source.
+#[derive(Debug, Clone)]
+pub struct RelaySourceArg(pub RelaySourceConfig);
+
+impl FromStr for RelaySourceArg {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let (admin_url, public_base_url) = value.split_once('=').ok_or_else(|| {
+            "expected ADMIN_URL=PUBLIC_BASE_URL, for example http://127.0.0.1:9872=http://127.0.0.1:9873"
+                .to_string()
+        })?;
+        let admin_url = admin_url.trim();
+        let public_base_url = public_base_url.trim();
+        if admin_url.is_empty() || public_base_url.is_empty() {
+            return Err("relay source admin and public URLs must be non-empty".into());
+        }
+        Ok(Self(RelaySourceConfig {
+            admin_url: admin_url.to_string(),
+            public_base_url: public_base_url.to_string(),
+            poll_interval_secs: None,
+        }))
+    }
+}
 
 /// CLI surface for the machine-wide gateway process.
 #[derive(Debug, Args, Clone)]
@@ -58,6 +84,17 @@ pub struct GatewayArgs {
     #[cfg(feature = "mdns")]
     #[arg(long, env = "DCC_MCP_DISCOVER_MDNS", default_value = "false")]
     pub discover_mdns: bool,
+
+    /// Tunnel relay discovery source, as `ADMIN_URL=PUBLIC_BASE_URL`.
+    ///
+    /// Repeat the flag or use comma-separated `DCC_MCP_RELAY_SOURCES` values.
+    #[arg(
+        long = "relay-source",
+        env = "DCC_MCP_RELAY_SOURCES",
+        value_delimiter = ',',
+        value_name = "ADMIN_URL=PUBLIC_BASE_URL"
+    )]
+    pub relay_sources: Vec<RelaySourceArg>,
 }
 
 /// Helpers for auto-launching the standalone gateway from inside another
@@ -97,6 +134,11 @@ pub fn build_gateway_config(args: &GatewayArgs, gateway_name: &str) -> GatewayCo
         adapter_dcc: Some("gateway".to_string()),
         #[cfg(feature = "mdns")]
         discover_mdns: args.discover_mdns,
+        relay_sources: args
+            .relay_sources
+            .iter()
+            .map(|source| source.0.clone())
+            .collect(),
         admin_enabled: !args.no_admin,
         admin_path: args.admin_path.clone(),
         admin_persist: AdminPersistConfig {
@@ -312,6 +354,44 @@ mod tests {
         assert!(args.iter().any(|arg| arg == "--name"));
     }
 
+    #[test]
+    fn relay_source_arg_maps_into_gateway_config() {
+        let source: RelaySourceArg = "http://127.0.0.1:9872=http://127.0.0.1:9873"
+            .parse()
+            .expect("relay source arg should parse");
+
+        assert_eq!(source.0.admin_url, "http://127.0.0.1:9872");
+        assert_eq!(source.0.public_base_url, "http://127.0.0.1:9873");
+        assert!(source.0.poll_interval_secs.is_none());
+        assert!(
+            "http://127.0.0.1:9872=".parse::<RelaySourceArg>().is_err(),
+            "empty public relay URL must be rejected"
+        );
+
+        let args = GatewayArgs {
+            host: "127.0.0.1".to_string(),
+            port: 9765,
+            name: Some("relay-source-test".to_string()),
+            remote_host: "127.0.0.1".to_string(),
+            remote_port: 0,
+            registry_dir: None,
+            no_admin: true,
+            admin_path: "/admin".to_string(),
+            stale_timeout_secs: 30,
+            #[cfg(feature = "mdns")]
+            discover_mdns: false,
+            relay_sources: vec![source],
+        };
+
+        let cfg = build_gateway_config(&args, "relay-source-test");
+        assert_eq!(cfg.relay_sources.len(), 1);
+        assert_eq!(cfg.relay_sources[0].admin_url, "http://127.0.0.1:9872");
+        assert_eq!(
+            cfg.relay_sources[0].public_base_url,
+            "http://127.0.0.1:9873"
+        );
+    }
+
     fn ephemeral_port() -> u16 {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -339,6 +419,7 @@ mod tests {
             stale_timeout_secs: 30,
             #[cfg(feature = "mdns")]
             discover_mdns: false,
+            relay_sources: Vec::new(),
         };
         let cfg = build_gateway_config(&args, args.name.as_deref().unwrap());
         assert_eq!(
