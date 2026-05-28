@@ -35,22 +35,29 @@
 //! AI agents naturally rank skills by raw BM25 score alone, which lets broad
 //! infrastructure skills (e.g. `app-ui`, `dcc-adapter`, `dcc-diagnostics`)
 //! that cover dozens of generic tokens outrank domain skills that map a
-//! specific user intent. To make those infrastructure skills behave as the
+//! specific user intent. To make those low-level skills behave as the
 //! "fallback" the layering rules say they are, the final score is multiplied
 //! by a coefficient derived from `metadata.dcc-mcp.layer`:
 //!
-//! | Layer            | Multiplier |
-//! |------------------|-----------:|
-//! | `domain`         |       1.00 |
-//! | `thin-harness`   |       1.00 |
-//! | unset (`None`)   |       1.00 |
-//! | `infrastructure` |       0.35 |
-//! | `example`        |       0.20 |
+//! | Layer            | Multiplier   |
+//! |------------------|-------------:|
+//! | `domain`         |         1.00 |
+//! | unset (`None`)   |         1.00 |
+//! | `infrastructure` |         0.35 |
+//! | `thin-harness`   |         0.20 |
+//! | `example`        | **excluded** |
 //!
-//! The penalty is bypassed when the caller explicitly filters by a known
-//! layer name through the `tags` argument (e.g. `tags=["infrastructure"]`).
-//! That case signals deliberate intent to browse low-level skills, so the
-//! ranker honours the raw BM25 order inside that filtered slice.
+//! `thin-harness` skills are raw-scripting wrappers (a single Python / bash /
+//! CLI command behind a SKILL.md) and rank below `infrastructure` because the
+//! agent should almost always prefer a higher-level domain action when one is
+//! available. `example` skills are dropped from search results entirely —
+//! they exist as authoring references, not for production agent flows.
+//!
+//! The penalty (and the `example` exclusion) is bypassed when the caller
+//! explicitly filters by a known layer name through the `tags` argument
+//! (e.g. `tags=["infrastructure"]` or `tags=["example"]`). That signals
+//! deliberate intent to browse that layer, so the ranker honours the raw
+//! BM25 order inside the filtered slice.
 
 use dcc_mcp_models::{SkillMetadata, SkillScope};
 
@@ -71,10 +78,10 @@ pub const W_TOOL_ALIAS: f64 = 2.0;
 pub const W_TOOL_DESCRIPTION: f64 = 1.0;
 pub const W_DCC: f64 = 4.0;
 
-/// Layer multiplier applied to the BM25 total when `apply_layer_penalty`
-/// is true. See module docs for the rationale and table.
+/// Layer multipliers applied to the BM25 total. See module docs for the
+/// rationale and table.
 pub const LAYER_MULT_INFRASTRUCTURE: f64 = 0.35;
-pub const LAYER_MULT_EXAMPLE: f64 = 0.20;
+pub const LAYER_MULT_THIN_HARNESS: f64 = 0.20;
 
 /// Known layer names recognised by [`layer_multiplier`] and the
 /// `apply_layer_penalty` detection in [`SkillCatalog::search_skills`].
@@ -86,19 +93,27 @@ pub const LAYER_EXAMPLE: &str = "example";
 
 /// Coefficient applied to the BM25 total based on `metadata.dcc-mcp.layer`.
 ///
+/// Returns:
+/// * `Some(mult)` — multiply the BM25 total by `mult` (1.0 means no change).
+/// * `None` — drop the skill from results entirely (`example` layer).
+///
 /// `explicit` is `true` when the caller explicitly filtered by a layer tag
-/// (`tags=["infrastructure"]` etc.) — in that case no penalty is applied
-/// because the caller asked for that layer on purpose.
-pub fn layer_multiplier(layer: Option<&str>, explicit: bool) -> f64 {
+/// (`tags=["infrastructure"]`, `tags=["example"]`, etc.) — in that case no
+/// penalty is applied and `example` skills are not dropped, because the
+/// caller asked for that layer on purpose.
+pub fn layer_multiplier(layer: Option<&str>, explicit: bool) -> Option<f64> {
     if explicit {
-        return 1.0;
+        return Some(1.0);
     }
     match layer.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(value) if value.eq_ignore_ascii_case(LAYER_EXAMPLE) => None,
         Some(value) if value.eq_ignore_ascii_case(LAYER_INFRASTRUCTURE) => {
-            LAYER_MULT_INFRASTRUCTURE
+            Some(LAYER_MULT_INFRASTRUCTURE)
         }
-        Some(value) if value.eq_ignore_ascii_case(LAYER_EXAMPLE) => LAYER_MULT_EXAMPLE,
-        _ => 1.0,
+        Some(value) if value.eq_ignore_ascii_case(LAYER_THIN_HARNESS) => {
+            Some(LAYER_MULT_THIN_HARNESS)
+        }
+        _ => Some(1.0),
     }
 }
 
@@ -324,14 +339,20 @@ pub fn score_skills(
             total += idf_v * contrib;
         }
 
-        // Layer-based rank penalty (issue #1398). Applied after BM25 sum so
-        // the multiplier compounds across all query tokens, not per-token.
-        let mult = layer_multiplier(meta.layer.as_deref(), layer_filter_explicit);
-        total *= mult;
-
         let name_lower = meta.name.to_lowercase();
         let exact_name = name_lower == q_trim_lower && !q_trim_lower.is_empty();
         let name_substring_hit = !q_raw_lower.is_empty() && name_lower.contains(&q_raw_lower);
+
+        // Layer-based rank penalty (issue #1398). Applied after BM25 sum so
+        // the multiplier compounds across all query tokens, not per-token.
+        // `None` means the layer (currently only `example`) is excluded from
+        // results — keep the entry only if the user typed its exact name, in
+        // which case the existing fast-path still sorts it to the top.
+        match layer_multiplier(meta.layer.as_deref(), layer_filter_explicit) {
+            Some(mult) => total *= mult,
+            None if exact_name => {}
+            None => continue,
+        }
 
         if total == 0.0 && !exact_name {
             continue;
@@ -664,19 +685,26 @@ mod tests {
     #[test]
     fn test_layer_multiplier_table() {
         // Sanity table — the constants must produce the documented coefficients.
-        assert_eq!(layer_multiplier(None, false), 1.0);
-        assert_eq!(layer_multiplier(Some("domain"), false), 1.0);
-        assert_eq!(layer_multiplier(Some("thin-harness"), false), 1.0);
-        assert_eq!(layer_multiplier(Some("infrastructure"), false), 0.35);
-        assert_eq!(layer_multiplier(Some("INFRASTRUCTURE"), false), 0.35);
-        assert_eq!(layer_multiplier(Some("example"), false), 0.20);
-        // Explicit filter disables the penalty regardless of layer.
-        assert_eq!(layer_multiplier(Some("infrastructure"), true), 1.0);
-        assert_eq!(layer_multiplier(Some("example"), true), 1.0);
+        assert_eq!(layer_multiplier(None, false), Some(1.0));
+        assert_eq!(layer_multiplier(Some("domain"), false), Some(1.0));
+        assert_eq!(layer_multiplier(Some("thin-harness"), false), Some(0.20));
+        assert_eq!(layer_multiplier(Some("THIN-HARNESS"), false), Some(0.20));
+        assert_eq!(layer_multiplier(Some("infrastructure"), false), Some(0.35));
+        assert_eq!(layer_multiplier(Some("INFRASTRUCTURE"), false), Some(0.35));
+        // `example` is excluded from results (None), not penalised.
+        assert_eq!(layer_multiplier(Some("example"), false), None);
+        assert_eq!(layer_multiplier(Some("EXAMPLE"), false), None);
+        // Explicit filter disables the penalty AND the exclusion.
+        assert_eq!(layer_multiplier(Some("infrastructure"), true), Some(1.0));
+        assert_eq!(layer_multiplier(Some("thin-harness"), true), Some(1.0));
+        assert_eq!(layer_multiplier(Some("example"), true), Some(1.0));
         // Unknown layer values are treated as "no layer" → no penalty.
-        assert_eq!(layer_multiplier(Some("weird-future-layer"), false), 1.0);
+        assert_eq!(
+            layer_multiplier(Some("weird-future-layer"), false),
+            Some(1.0)
+        );
         // Whitespace-only is treated as None.
-        assert_eq!(layer_multiplier(Some("   "), false), 1.0);
+        assert_eq!(layer_multiplier(Some("   "), false), Some(1.0));
     }
 
     #[test]
@@ -701,20 +729,56 @@ mod tests {
     }
 
     #[test]
-    fn test_layer_example_ranked_below_infrastructure() {
-        // Both layered — example × 0.20 must lose to infrastructure × 0.35.
-        let example = mk_layered("demo-render", "render bake helpers", Some("example"));
-        let infra = mk_layered(
-            "dcc-diagnostics",
-            "render bake helpers",
-            Some("infrastructure"),
-        );
+    fn test_layer_example_excluded_from_results() {
+        // `example` skills are dropped from results entirely (#1398). The
+        // remaining infrastructure skill is the only hit, even though the
+        // example skill's raw BM25 against this query would be higher.
+        let example = mk_layered("demo-render", "render bake render bake", Some("example"));
+        let infra = mk_layered("dcc-diagnostics", "render bake", Some("infrastructure"));
         let skills = vec![&example, &infra];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
         let out = score_skills("render bake", &skills, &scopes, false);
-        assert_eq!(out.len(), 2);
+        assert_eq!(out.len(), 1, "example layer must be excluded from results");
         assert_eq!(out[0].name, "dcc-diagnostics");
-        assert_eq!(out[1].name, "demo-render");
+    }
+
+    #[test]
+    fn test_layer_example_visible_under_explicit_filter() {
+        // Explicit `tags=["example"]` filter at the catalog level passes
+        // `layer_filter_explicit=true`, which both disables the penalty and
+        // suppresses the example-exclusion so the user can still browse them.
+        let example_a = mk_layered("demo-a", "render bake render bake", Some("example"));
+        let example_b = mk_layered("demo-b", "render bake", Some("example"));
+        let skills = vec![&example_b, &example_a];
+        let scopes = vec![SkillScope::Repo, SkillScope::Repo];
+        let out = score_skills("render bake", &skills, &scopes, /*explicit=*/ true);
+        assert_eq!(out.len(), 2);
+        assert_eq!(
+            out[0].name, "demo-a",
+            "explicit example filter must restore raw BM25 order"
+        );
+    }
+
+    #[test]
+    fn test_layer_thin_harness_ranked_below_infrastructure() {
+        // `thin-harness` (raw script / CLI wrappers) must rank below
+        // `infrastructure` — both are fallback tiers, but thin-harness is the
+        // lowest visible one because it offers the least domain context.
+        let thin = mk_layered(
+            "run-python",
+            "render bake render bake",
+            Some("thin-harness"),
+        );
+        let infra = mk_layered("dcc-diagnostics", "render bake", Some("infrastructure"));
+        let skills = vec![&thin, &infra];
+        let scopes = vec![SkillScope::Repo, SkillScope::Repo];
+        let out = score_skills("render bake", &skills, &scopes, false);
+        assert_eq!(out.len(), 2);
+        assert_eq!(
+            out[0].name, "dcc-diagnostics",
+            "infrastructure must outrank thin-harness even when BM25 is higher"
+        );
+        assert_eq!(out[1].name, "run-python");
     }
 
     #[test]
@@ -771,6 +835,23 @@ mod tests {
         assert_eq!(
             out[0].name, "dcc-diagnostics",
             "exact-name match must bypass the layer penalty"
+        );
+    }
+
+    #[test]
+    fn test_layer_example_exact_name_still_returns_match() {
+        // Even an excluded `example` layer surfaces when the user types its
+        // exact name — typing the literal name is the strongest "I want this
+        // specific skill" signal a caller can give.
+        let example = mk_layered("demo-render", "demo turntable", Some("example"));
+        let domain = mk_layered("maya-render", "demo turntable", Some("domain"));
+        let skills = vec![&example, &domain];
+        let scopes = vec![SkillScope::Repo, SkillScope::Repo];
+        let out = score_skills("demo-render", &skills, &scopes, false);
+        assert!(!out.is_empty());
+        assert_eq!(
+            out[0].name, "demo-render",
+            "exact-name query must bypass the example-layer exclusion"
         );
     }
 }
