@@ -293,10 +293,13 @@ class TestGatewayLoadSkillSsePropagation:
         returns stubs with ``loaded: false``.
         """
         gateway_url = gateway_with_skill_backend["gateway_url"]
+        # Use the exact skill name so the layer=example filter is bypassed
+        # (PR #1398 hides example-layer skills from partial queries; exact-name
+        # matches are always surfaced regardless of layer).
         resp = _post_mcp(
             gateway_url,
             "tools/call",
-            {"name": "search_skills", "arguments": {"query": "hello"}},
+            {"name": "search_skills", "arguments": {"query": "hello-world"}},
         )
         assert "error" not in resp, f"search_skills errored: {resp.get('error')}"
         content = resp["result"]["content"]
