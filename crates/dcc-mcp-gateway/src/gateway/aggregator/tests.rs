@@ -175,6 +175,7 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
             crate::gateway::search_telemetry::SearchTelemetryStore::new(),
         ),
         debug_routes_enabled: false,
+        auth: std::sync::Arc::new(crate::gateway::security::GatewayAuth::disabled()),
     };
 
     assert_eq!(gs.live_instances(&*gs.registry.read().await).len(), 1);
@@ -352,6 +353,7 @@ async fn make_gateway_state(
             crate::gateway::search_telemetry::SearchTelemetryStore::new(),
         ),
         debug_routes_enabled: false,
+        auth: std::sync::Arc::new(crate::gateway::security::GatewayAuth::disabled()),
     }
 }
 
@@ -1291,6 +1293,7 @@ async fn gateway_state_with_instances(
             crate::gateway::search_telemetry::SearchTelemetryStore::new(),
         ),
         debug_routes_enabled: false,
+        auth: std::sync::Arc::new(crate::gateway::security::GatewayAuth::disabled()),
     };
     (state, dir, ids)
 }

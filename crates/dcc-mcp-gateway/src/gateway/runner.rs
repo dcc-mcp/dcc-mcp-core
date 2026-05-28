@@ -354,6 +354,7 @@ impl GatewayRunner {
                     self.config.admin_persist.clone(),
                     self.config.health_check_interval_secs,
                     self.config.health_check_failures,
+                    self.config.auth.clone(),
                 )
                 .await
                 {
@@ -536,6 +537,7 @@ impl GatewayRunner {
         let admin_persist = self.config.admin_persist.clone();
         let health_check_interval_secs = self.config.health_check_interval_secs;
         let health_check_failures = self.config.health_check_failures;
+        let auth = self.config.auth.clone();
 
         let handle = tokio::spawn(async move {
             // Publish a short-lived challenger sentinel before asking the
@@ -657,6 +659,7 @@ impl GatewayRunner {
                         admin_persist.clone(),
                         health_check_interval_secs,
                         health_check_failures,
+                        auth.clone(),
                     )
                     .await
                     {

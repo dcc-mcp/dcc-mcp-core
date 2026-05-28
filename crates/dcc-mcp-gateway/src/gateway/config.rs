@@ -170,6 +170,15 @@ pub struct GatewayConfig {
 
     /// Admin persistence settings (SQLite, skill-path snapshot, reload hook).
     pub admin_persist: AdminPersistConfig,
+
+    /// Bearer-token authentication for the HTTP registration plane (#1365).
+    ///
+    /// Defaults to [`super::security::GatewayAuth::disabled()`] — every
+    /// request is accepted, matching the historical local-trust model.
+    /// Populate this with one or more [`super::security::GatewayAuthToken`]
+    /// values when running the daemon mode over a network the operator
+    /// does not fully trust.
+    pub auth: super::security::GatewayAuth,
 }
 
 impl Default for GatewayConfig {
@@ -205,6 +214,7 @@ impl Default for GatewayConfig {
             health_check_interval_secs: 5,
             health_check_failures: 2,
             admin_persist: AdminPersistConfig::default(),
+            auth: super::security::GatewayAuth::disabled(),
         }
     }
 }

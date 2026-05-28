@@ -271,6 +271,14 @@ pub struct GatewayState {
     /// at runtime. OpenAPI generation reads this so the published contract does
     /// not advertise routes disabled by `--no-admin` / `admin_enabled = false`.
     pub debug_routes_enabled: bool,
+
+    /// Bearer-token authentication for the HTTP registration plane (#1365).
+    ///
+    /// Defaults to [`super::security::GatewayAuth::disabled()`], which
+    /// preserves the existing zero-auth behaviour. Operators opt in by
+    /// supplying a populated [`super::security::GatewayAuth`] through
+    /// [`super::config::GatewayConfig::auth`].
+    pub auth: Arc<super::security::GatewayAuth>,
 }
 
 impl GatewayState {

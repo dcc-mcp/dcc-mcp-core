@@ -59,6 +59,12 @@ pub(crate) async fn start_gateway_runner(
         health_check_interval_secs: 5,
         health_check_failures: 2,
         admin_persist: dcc_mcp_gateway::AdminPersistConfig::default(),
+        // #1365 — embedded auto-gateway never enables auth on the
+        // registration plane; that mode lives on a single workstation
+        // and trusts the local file registry. Daemon mode opts in via
+        // GatewayRunner::with_config and is documented in
+        // docs/guide/gateway.md § Security.
+        auth: dcc_mcp_gateway::GatewayAuth::disabled(),
     };
 
     let runner = match GatewayRunner::new(gateway_config) {
