@@ -31,6 +31,10 @@
           "path": "pkg/dcc-mcp-server-bin/python/dcc_mcp_server/__init__.py"
         },
         {
+          "type": "generic",
+          "path": "python/dcc_mcp_core/_core.pyi"
+        },
+        {
           "type": "json",
           "path": "admin-ui/package.json",
           "jsonpath": "$.version"
