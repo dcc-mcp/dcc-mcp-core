@@ -49,13 +49,16 @@ def test_tools_list_omits_skill_stubs_when_configured(catalog_server_exclude_stu
 
 def test_search_tools_still_finds_unloaded_skills(catalog_server_exclude_stubs):
     url = catalog_server_exclude_stubs.mcp_url()
+    # Use the exact skill name so the layer=example filter is bypassed for
+    # skill_candidates (PR #1398 hides example-layer skills from partial
+    # queries; exact-name matches are always surfaced regardless of layer).
     body = {
         "jsonrpc": "2.0",
         "id": 2,
         "method": "tools/call",
         "params": {
             "name": "search_tools",
-            "arguments": {"query": "hello", "include_unloaded_skills": True},
+            "arguments": {"query": "hello-world", "include_unloaded_skills": True},
         },
     }
     resp = McpClient(url).post(body)[1]
