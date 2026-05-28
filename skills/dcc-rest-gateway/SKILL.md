@@ -13,7 +13,7 @@ metadata:
   dcc-mcp:
     dcc: python
     layer: infrastructure
-    version: "0.17.38"  # x-release-please-version
+    version: "0.17.39"  # x-release-please-version
     search-hint: "rest api, gateway, http, no mcp, instances, dcc control, clawhub"
     tags: "rest, gateway, infrastructure, clawhub, openclaw, instances"
   openclaw:
