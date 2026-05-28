@@ -229,6 +229,7 @@ Gateway resources/prompts:
 | Stamp gateway sentinel for election | `McpHttpConfig(..., adapter_version=..., adapter_dcc=...)` or `.with_adapter_version().with_adapter_dcc()` (issue maya#137) |
 | Discover team-level skills | `scan_and_load_team()` / `scan_and_load_team_lenient()` |
 | Discover user-level skills | `scan_and_load_user()` / `scan_and_load_user_lenient()` |
+| Pick up admin-UI-added skill paths in a running adapter | `DccServerBase.reload_skill_paths()` re-runs discovery with the gateway admin SQLite `skill_paths_custom` table merged in (#1400). The merge happens automatically inside `collect_skill_search_paths(include_admin_custom=True)` on every startup; `reload_skill_paths()` is the runtime trigger for re-scanning after a path is added through the dashboard. Read the raw rows via `dcc_mcp_core.read_custom_skill_paths()` / `resolve_admin_db_path()` |
 | Bridge stdio MCP server to HTTP/SSE | `dcc-mcp-server translate --stdio "cmd" --app-type foo --port N` |
 | Add audit/quota/redact to all gateway calls | `GatewayConfig::middleware_chain` + `AuditMiddleware` / `QuotaMiddleware` / `RedactionMiddleware` |
 | Mount OpenAPI REST API as MCP tools | `GatewayBuilder::mount_openapi(OpenApiMount::from_url(...).auth(...))` |
