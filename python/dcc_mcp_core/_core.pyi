@@ -2325,6 +2325,41 @@ class SkillCatalog:
         r"""
         Clear any registered after-load skill hook.
         """
+    def set_after_unload_skill_hook(self, hook: typing.Optional[typing.Any]) -> None:
+        r"""
+        Register a callable invoked after a skill is unloaded (#1405).
+
+        The callable receives ``(skill_name, unregistered_actions)``. Used
+        by the persistence layer to evict the row from the on-disk store.
+        """
+    def clear_after_unload_skill_hook(self) -> None:
+        r"""
+        Clear any registered after-unload skill hook.
+        """
+    def set_after_group_change_hook(self, hook: typing.Optional[typing.Any]) -> None:
+        r"""
+        Register a callable invoked after a tool group is activated or
+        deactivated (#1405). Receives ``(group_name, activated: bool)``.
+        """
+    def clear_after_group_change_hook(self) -> None:
+        r"""
+        Clear any registered after-group-change hook.
+        """
+    def replay_loaded(self, state_json: builtins.str, policy: builtins.str = 'skip_on_drift') -> builtins.str:
+        r"""
+        Replay a persisted set of loaded skills + active groups (#1405).
+
+        ``state_json`` is the JSON-encoded ``PersistedCatalogState`` (the
+        shape returned by ``LoadedStateStore.snapshot().to_json()`` plus
+        ``json.dumps``).
+
+        ``policy`` is one of ``"skip_on_drift"`` (default),
+        ``"require_exact_version"``, or ``"ignore_version"``.
+
+        Returns the ``ReplayReport`` as a JSON-encoded string so callers
+        can parse it with ``json.loads`` without an extra Python
+        conversion dependency.
+        """
     def load_skill(self, skill_name: builtins.str) -> builtins.list[builtins.str]:
         r"""
         Load a skill by name — registers its tools.
