@@ -76,6 +76,9 @@ def _build_catalog(tmp_path: Path) -> SkillCatalog:
         "demo-render",
         description="render bake helpers tutorial",
         layer="example",
+        # Tag the demo so the explicit-filter test below can prefilter by
+        # `tags=["example"]` and verify the exclusion bypass.
+        tags=("example",),
     )
     catalog = SkillCatalog(ToolRegistry())
     # `discover()` also picks up bundled / env-configured skill paths, so
@@ -105,12 +108,21 @@ def test_domain_ranks_above_infrastructure_for_neutral_query(tmp_path: Path) -> 
         )
 
 
-def test_example_ranks_below_infrastructure(tmp_path: Path) -> None:
+def test_example_excluded_from_unfiltered_results(tmp_path: Path) -> None:
+    # `example` skills are dropped from search results entirely (#1398) —
+    # they exist as authoring references, not for production agent flows.
     catalog = _build_catalog(tmp_path)
     names = [s.name for s in catalog.search_skills(query="render bake")]
-    assert "demo-render" in names
-    last_infra = max(names.index(n) for n in ("dcc-diagnostics", "dcc-adapter") if n in names)
-    assert names.index("demo-render") > last_infra, f"example layer must rank below all infrastructure; order {names}"
+    assert "demo-render" not in names, f"example layer must be excluded from unfiltered results; order {names}"
+
+
+def test_example_visible_under_explicit_filter(tmp_path: Path) -> None:
+    # `tags=["example"]` is the operator opting in to browse example skills;
+    # the exclusion is lifted inside the filtered slice.
+    catalog = _build_catalog(tmp_path)
+    summaries = catalog.search_skills(query="render bake", tags=["example"])
+    names = [s.name for s in summaries]
+    assert "demo-render" in names, f"explicit example filter must restore demo skills; got {names}"
 
 
 def test_explicit_infrastructure_filter_disables_penalty(tmp_path: Path) -> None:
