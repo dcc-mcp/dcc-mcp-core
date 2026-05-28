@@ -113,6 +113,12 @@ pub struct GatewayConfig {
     /// with `dcc_type: "unknown"` should not leak tools into the gateway
     /// façade unless this is explicitly enabled for development (issue #555).
     pub allow_unknown_tools: bool,
+    /// Enable LAN-local mDNS/DNS-SD browsing for `_dcc-mcp._tcp.local`.
+    ///
+    /// Default: `false`. This is advisory discovery only; a resolved endpoint
+    /// must still answer the HTTP health probe before it is surfaced.
+    #[cfg(feature = "mdns")]
+    pub discover_mdns: bool,
     /// Adapter package version recorded on the `__gateway__` sentinel
     /// (e.g. `dcc_mcp_maya = "0.3.0"`). Used by the second tier of the
     /// election comparison (issue maya#137).
@@ -179,6 +185,8 @@ impl Default for GatewayConfig {
             route_ttl_secs: 60 * 60 * 24,
             max_routes_per_session: 1_000,
             allow_unknown_tools: false,
+            #[cfg(feature = "mdns")]
+            discover_mdns: false,
             adapter_version: None,
             adapter_dcc: None,
             middleware_chain: super::middleware::MiddlewareChain::new(),

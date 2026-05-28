@@ -90,6 +90,12 @@ pub struct GatewayConfig {
     /// or when intentionally running a standalone server without a real DCC.
     pub allow_unknown_tools: bool,
 
+    /// Discover LAN-local DCC MCP endpoints via mDNS/DNS-SD.
+    ///
+    /// Default: `false`. Embedders must also build the runtime with the
+    /// `mdns` feature; otherwise this value is ignored by the gateway bridge.
+    pub discover_mdns: bool,
+
     /// Gateway capability policy applied before dynamic tools reach clients
     /// and before routed backend calls execute.
     ///
@@ -125,6 +131,7 @@ impl Default for GatewayConfig {
             adapter_dcc: None,
             gateway_name: None,
             allow_unknown_tools: false,
+            discover_mdns: false,
             policy: GatewayPolicy::default(),
             admin_enabled: true,
             admin_path: "/admin".to_string(),

@@ -57,6 +57,106 @@ async fn wait_for_gateway_yield(mut yield_rx: watch::Receiver<bool>) {
     }
 }
 
+#[cfg(feature = "mdns")]
+fn spawn_mdns_discovery_task(
+    mdns_registry: Arc<
+        parking_lot::RwLock<crate::gateway::mdns_registration::MdnsInstanceRegistry>,
+    >,
+    http_client: reqwest::Client,
+    probe_timeout: Duration,
+    ttl: Duration,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let browser = match dcc_mcp_transport::discovery::mdns::MdnsBrowser::start() {
+            Ok(browser) => browser,
+            Err(err) => {
+                tracing::warn!(error = %err, "Gateway: mDNS discovery disabled after startup error");
+                return;
+            }
+        };
+        tracing::info!("Gateway: mDNS discovery enabled for _dcc-mcp._tcp.local");
+
+        while let Some(event) = browser.recv_async().await {
+            match event {
+                dcc_mcp_transport::discovery::mdns::MdnsBrowseEvent::Resolved(service) => {
+                    let now = std::time::SystemTime::now();
+                    let entry = match crate::gateway::mdns_registration::entry_from_mdns_service(
+                        &service, now,
+                    ) {
+                        Ok(entry) => entry,
+                        Err(err) => {
+                            tracing::debug!(
+                                fullname = %service.fullname,
+                                error = %err,
+                                "Gateway: ignoring malformed mDNS DCC service"
+                            );
+                            continue;
+                        }
+                    };
+                    let mcp_url = crate::gateway::http_registration::entry_mcp_url(&entry);
+                    if probe_mdns_candidate(&http_client, &mcp_url, probe_timeout).await {
+                        let instance_id = entry.instance_id;
+                        let dcc_type = entry.dcc_type.clone();
+                        mdns_registry
+                            .write()
+                            .upsert(entry, service.fullname.clone(), ttl, now);
+                        tracing::info!(
+                            %instance_id,
+                            %dcc_type,
+                            mcp_url = %mcp_url,
+                            "Gateway: mDNS DCC service accepted after health probe"
+                        );
+                    } else {
+                        tracing::debug!(
+                            fullname = %service.fullname,
+                            mcp_url = %mcp_url,
+                            "Gateway: mDNS DCC service failed health probe"
+                        );
+                    }
+                }
+                dcc_mcp_transport::discovery::mdns::MdnsBrowseEvent::Removed {
+                    fullname, ..
+                } => {
+                    if let Some(entry) = mdns_registry.write().remove_fullname(&fullname) {
+                        tracing::info!(
+                            instance_id = %entry.instance_id,
+                            dcc_type = %entry.dcc_type,
+                            "Gateway: removed mDNS DCC service"
+                        );
+                    }
+                }
+                dcc_mcp_transport::discovery::mdns::MdnsBrowseEvent::Ignored => {}
+            }
+        }
+    })
+}
+
+#[cfg(feature = "mdns")]
+async fn probe_mdns_candidate(
+    http_client: &reqwest::Client,
+    mcp_url: &str,
+    probe_timeout: Duration,
+) -> bool {
+    let Some(url) = healthz_url_from_mcp_url(mcp_url) else {
+        return false;
+    };
+    http_client
+        .get(url)
+        .timeout(probe_timeout)
+        .send()
+        .await
+        .is_ok_and(|response| response.status().is_success())
+}
+
+#[cfg(feature = "mdns")]
+fn healthz_url_from_mcp_url(mcp_url: &str) -> Option<String> {
+    let mut url = reqwest::Url::parse(mcp_url).ok()?;
+    url.set_path("/v1/healthz");
+    url.set_query(None);
+    url.set_fragment(None);
+    Some(url.to_string())
+}
+
 /// Capacity of the in-memory audit ring buffer and SQLite merge limit.
 #[cfg(feature = "admin")]
 const ADMIN_AUDIT_RING_CAPACITY: usize = 512;
@@ -86,6 +186,7 @@ pub(crate) async fn start_gateway_tasks(
     own_host: String,
     own_port: u16,
     allow_unknown_tools: bool,
+    #[cfg(feature = "mdns")] discover_mdns: bool,
     policy: dcc_mcp_gateway_core::policy::GatewayPolicy,
     adapter_version: Option<String>,
     adapter_dcc: Option<String>,
@@ -134,6 +235,9 @@ pub(crate) async fn start_gateway_tasks(
     let http_instance_registry = Arc::new(parking_lot::RwLock::new(
         crate::gateway::http_registration::HttpInstanceRegistry::default(),
     ));
+    let mdns_instance_registry = Arc::new(parking_lot::RwLock::new(
+        crate::gateway::mdns_registration::MdnsInstanceRegistry::default(),
+    ));
 
     // ── Contention event log + Prometheus counters (issue #766) ───────────
     let contention_log = Arc::new(crate::gateway::event_log::EventLog::new());
@@ -149,6 +253,7 @@ pub(crate) async fn start_gateway_tasks(
     // Issue #227: dead-PID pruning reaps ghost rows left behind when a DCC
     // plugin crashes after registering but before its own heartbeat starts.
     let reg_cleanup = registry.clone();
+    let mdns_cleanup = mdns_instance_registry.clone();
     let own_version = server_version.clone();
     let own_adapter_version = adapter_version.clone();
     let own_adapter_dcc = adapter_dcc.clone();
@@ -203,6 +308,16 @@ pub(crate) async fn start_gateway_tasks(
                 _ => {}
             }
 
+            let mdns_evicted = mdns_cleanup
+                .write()
+                .prune_expired(std::time::SystemTime::now());
+            if mdns_evicted > 0 {
+                tracing::info!(
+                    evicted = mdns_evicted,
+                    "Gateway: evicted expired mDNS-discovered instance(s)"
+                );
+            }
+
             // Issue maya#137: include adapter_version + adapter_dcc in the
             // self-yield decision so a freshly-installed Maya plugin (real
             // DCC) can preempt an older standalone (`unknown`) gateway.
@@ -239,6 +354,8 @@ pub(crate) async fn start_gateway_tasks(
     // Detects when DCC instances join or leave and broadcasts
     // `notifications/resources/list_changed` to all connected SSE clients.
     let reg_watch = registry.clone();
+    let http_watch = http_instance_registry.clone();
+    let mdns_watch = mdns_instance_registry.clone();
     let events_tx_watch = events_tx.clone();
     let watch_own_host = own_host.clone();
     let watch_own_port = own_port;
@@ -252,7 +369,7 @@ pub(crate) async fn start_gateway_tasks(
 
             let fingerprint = {
                 let r = reg_watch.read().await;
-                let mut keys: Vec<String> = r
+                let mut entries: Vec<_> = r
                     .list_all()
                     .into_iter()
                     .filter(|e| {
@@ -260,6 +377,25 @@ pub(crate) async fn start_gateway_tasks(
                             && !e.is_stale(stale_timeout)
                             && !is_own_instance(e, &watch_own_host, watch_own_port)
                     })
+                    .collect();
+                let now = std::time::SystemTime::now();
+                let http_entries = http_watch.read().live_entries(now);
+                let mdns_entries = mdns_watch.read().live_entries(now);
+                let http_ids: std::collections::HashSet<_> =
+                    http_entries.iter().map(|entry| entry.instance_id).collect();
+                let mdns_ids: std::collections::HashSet<_> =
+                    mdns_entries.iter().map(|entry| entry.instance_id).collect();
+                entries.retain(|entry| {
+                    !http_ids.contains(&entry.instance_id) && !mdns_ids.contains(&entry.instance_id)
+                });
+                entries.extend(
+                    mdns_entries
+                        .into_iter()
+                        .filter(|entry| !http_ids.contains(&entry.instance_id)),
+                );
+                entries.extend(http_entries);
+                let mut keys: Vec<String> = entries
+                    .into_iter()
                     .map(|e| format!("{}:{}", e.dcc_type, e.instance_id))
                     .collect();
                 keys.sort_unstable();
@@ -525,6 +661,7 @@ pub(crate) async fn start_gateway_tasks(
     let sub_own_host = own_host.clone();
     let sub_own_port = own_port;
     let sub_http_registry = http_instance_registry.clone();
+    let sub_mdns_registry = mdns_instance_registry.clone();
     let backend_sub_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(2));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -545,9 +682,21 @@ pub(crate) async fn start_gateway_tasks(
                 let http_entries = sub_http_registry
                     .read()
                     .live_entries(std::time::SystemTime::now());
+                let mdns_entries = sub_mdns_registry
+                    .read()
+                    .live_entries(std::time::SystemTime::now());
                 let http_ids: std::collections::HashSet<_> =
                     http_entries.iter().map(|entry| entry.instance_id).collect();
-                entries.retain(|entry| !http_ids.contains(&entry.instance_id));
+                let mdns_ids: std::collections::HashSet<_> =
+                    mdns_entries.iter().map(|entry| entry.instance_id).collect();
+                entries.retain(|entry| {
+                    !http_ids.contains(&entry.instance_id) && !mdns_ids.contains(&entry.instance_id)
+                });
+                entries.extend(
+                    mdns_entries
+                        .into_iter()
+                        .filter(|entry| !http_ids.contains(&entry.instance_id)),
+                );
                 entries.extend(http_entries);
                 entries
                     .into_iter()
@@ -580,6 +729,7 @@ pub(crate) async fn start_gateway_tasks(
     let mut gw_state = GatewayState {
         registry: registry.clone(),
         http_instance_registry: http_instance_registry.clone(),
+        mdns_instance_registry: mdns_instance_registry.clone(),
         stale_timeout,
         backend_timeout,
         async_dispatch_timeout,
@@ -835,7 +985,7 @@ pub(crate) async fn start_gateway_tasks(
     // yield is requested, dropping the group aborts the children instead of
     // detaching them as leaked background work.
     let supervisor_yield_rx = yield_rx.clone();
-    let task_handles = vec![
+    let mut task_handles = vec![
         cleanup_handle,
         watcher_handle,
         tools_watcher_handle,
@@ -847,8 +997,15 @@ pub(crate) async fn start_gateway_tasks(
         gw_handle,
         remote_handle,
     ];
-    #[cfg(feature = "prometheus")]
-    let mut task_handles = task_handles;
+    #[cfg(feature = "mdns")]
+    if discover_mdns {
+        task_handles.push(spawn_mdns_discovery_task(
+            mdns_instance_registry.clone(),
+            http_client.clone(),
+            backend_timeout,
+            stale_timeout,
+        ));
+    }
     #[cfg(feature = "prometheus")]
     task_handles.push(metrics_handle);
 

@@ -54,6 +54,7 @@ use dcc_mcp_gateway_core::policy::GatewayPolicy;
 use super::event_log::EventLog;
 use super::http_registration::{HttpInstanceRegistry, entry_mcp_url, entry_registry_source};
 use super::instance_diagnostics::{InstanceDiagnostics, InstanceDiagnosticsStore};
+use super::mdns_registration::MdnsInstanceRegistry;
 
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
@@ -133,6 +134,7 @@ impl fmt::Display for ResolveInstanceError {
 pub struct GatewayState {
     pub registry: Arc<RwLock<FileRegistry>>,
     pub http_instance_registry: Arc<parking_lot::RwLock<HttpInstanceRegistry>>,
+    pub mdns_instance_registry: Arc<parking_lot::RwLock<MdnsInstanceRegistry>>,
     pub stale_timeout: Duration,
     /// Per-backend request timeout for gateway fan-out calls (issue #314).
     ///
@@ -280,6 +282,7 @@ impl GatewayState {
         DiscoveryState {
             registry: &self.registry,
             http_instance_registry: &self.http_instance_registry,
+            mdns_instance_registry: &self.mdns_instance_registry,
             stale_timeout: self.stale_timeout,
             allow_unknown_tools: self.allow_unknown_tools,
             own_host: &self.own_host,

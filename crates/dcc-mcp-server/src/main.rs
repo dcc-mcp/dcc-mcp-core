@@ -728,6 +728,7 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
 
     let registry_dcc =
         resolve_registry_dcc_type((!args.app.is_empty()).then_some(args.app.as_str()));
+    let instance_id = uuid::Uuid::new_v4();
 
     tracing::info!(
         "MCP server listening on http://{}:{}/mcp  (app={})",
@@ -735,6 +736,32 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
         handle.port,
         registry_dcc,
     );
+
+    #[cfg(feature = "mdns")]
+    let _mdns_advertiser = if args.advertise_mdns {
+        let mut short = instance_id.simple().to_string();
+        short.truncate(8);
+        let advertisement = dcc_mcp_transport::discovery::mdns::MdnsAdvertisement::new(
+            registry_dcc.as_str(),
+            instance_id,
+            format!("dcc-mcp-{short}"),
+            handle.port,
+        )
+        .with_version(Some(env!("CARGO_PKG_VERSION").to_string()))
+        .with_adapter(Some(args.server_name.clone()))
+        .with_auth(Some("none".to_string()))
+        .with_mcp_path("/mcp");
+        let advertiser =
+            dcc_mcp_transport::discovery::mdns::MdnsAdvertiser::start(advertisement)
+                .map_err(|err| anyhow::anyhow!("advertising MCP endpoint via mDNS: {err}"))?;
+        tracing::info!(
+            fullname = %advertiser.fullname(),
+            "mDNS advertisement enabled"
+        );
+        Some(advertiser)
+    } else {
+        None
+    };
 
     // ── Register + gateway competition (via library) ──────────────────────
 
@@ -785,6 +812,7 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
             .map_err(|e| anyhow::anyhow!("Failed to create GatewayRunner: {e}"))?;
 
         let mut entry = ServiceEntry::new(registry_dcc.as_str(), &args.host, handle.port);
+        entry.instance_id = instance_id;
         entry.version = args.app_version.clone();
         entry.scene = args.scene.clone();
         entry

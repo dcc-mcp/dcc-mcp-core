@@ -102,6 +102,7 @@ default = ["auto-gateway"]
 # no-op and `cargo tree -p dcc-mcp-http --no-default-features` shows
 # no aggregation tier.
 auto-gateway = ["dep:dcc-mcp-gateway"]
+mdns = ["dcc-mcp-gateway?/mdns"]
 python-bindings = ["pyo3", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings", "dcc-mcp-artefact/python-bindings", "dep:dcc-mcp-pybridge", "dcc-mcp-pybridge/python-bindings", "dcc-mcp-host/python-bindings"]
 # Enable `pyo3-stub-gen` annotations on this crate's PyO3 types.
 stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]
