@@ -6,14 +6,38 @@ impl SkillCatalog {
     ///
     /// Returns the number of actions whose ``enabled`` state changed.
     pub fn activate_group(&self, group_name: &str) -> usize {
-        self.active_groups.insert(group_name.to_string());
-        self.registry.set_group_enabled(group_name, true)
+        let inserted = self.active_groups.insert(group_name.to_string());
+        let count = self.registry.set_group_enabled(group_name, true);
+        if inserted {
+            self.notify_after_group_change_hook(group_name, true);
+        }
+        count
     }
 
     /// Deactivate a tool group (inverse of [`activate_group`]).
     pub fn deactivate_group(&self, group_name: &str) -> usize {
-        self.active_groups.remove(group_name);
-        self.registry.set_group_enabled(group_name, false)
+        let removed = self.active_groups.remove(group_name).is_some();
+        let count = self.registry.set_group_enabled(group_name, false);
+        if removed {
+            self.notify_after_group_change_hook(group_name, false);
+        }
+        count
+    }
+
+    /// Fire the after-group-change observer (#1405). Failures are logged
+    /// only — they never roll back the group state change.
+    fn notify_after_group_change_hook(&self, group_name: &str, activated: bool) {
+        let Some(hook) = self.after_group_change_hook.read().clone() else {
+            return;
+        };
+        if let Err(reason) = hook(group_name, activated) {
+            tracing::warn!(
+                group = group_name,
+                activated,
+                error = %reason,
+                "SkillCatalog after-group-change hook failed"
+            );
+        }
     }
 
     /// Return all currently-active tool group names.

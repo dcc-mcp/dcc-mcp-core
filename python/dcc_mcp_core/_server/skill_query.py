@@ -143,6 +143,79 @@ class SkillQueryClient:
                 return False
         return self.set_after_load_skill_hook(None)
 
+    def set_after_unload_skill_hook(self, hook: Callable[[str, list[str]], Any] | None) -> bool:
+        """Register an after-unload observer on the inner skill catalog (#1405)."""
+        setter = getattr(self._server, "set_after_unload_skill_hook", None)
+        if not callable(setter):
+            logger.debug(
+                "[%s] set_after_unload_skill_hook unavailable on inner server",
+                self._dcc_name,
+            )
+            return False
+        try:
+            setter(hook)
+            return True
+        except Exception as exc:
+            logger.debug("[%s] set_after_unload_skill_hook failed: %s", self._dcc_name, exc)
+            return False
+
+    def clear_after_unload_skill_hook(self) -> bool:
+        """Remove the after-unload observer, if one is registered."""
+        clearer = getattr(self._server, "clear_after_unload_skill_hook", None)
+        if callable(clearer):
+            try:
+                clearer()
+                return True
+            except Exception as exc:
+                logger.debug("[%s] clear_after_unload_skill_hook failed: %s", self._dcc_name, exc)
+                return False
+        return self.set_after_unload_skill_hook(None)
+
+    def set_after_group_change_hook(self, hook: Callable[[str, bool], Any] | None) -> bool:
+        """Register an after-group-change observer (#1405)."""
+        setter = getattr(self._server, "set_after_group_change_hook", None)
+        if not callable(setter):
+            logger.debug(
+                "[%s] set_after_group_change_hook unavailable on inner server",
+                self._dcc_name,
+            )
+            return False
+        try:
+            setter(hook)
+            return True
+        except Exception as exc:
+            logger.debug("[%s] set_after_group_change_hook failed: %s", self._dcc_name, exc)
+            return False
+
+    def clear_after_group_change_hook(self) -> bool:
+        """Remove the after-group-change observer, if one is registered."""
+        clearer = getattr(self._server, "clear_after_group_change_hook", None)
+        if callable(clearer):
+            try:
+                clearer()
+                return True
+            except Exception as exc:
+                logger.debug("[%s] clear_after_group_change_hook failed: %s", self._dcc_name, exc)
+                return False
+        return self.set_after_group_change_hook(None)
+
+    def replay_loaded_skills(self, state_json: str, *, policy: str = "skip_on_drift") -> str | None:
+        """Replay a persisted catalog snapshot on the inner skill server (#1405).
+
+        Returns the ``ReplayReport`` as a JSON string when the inner
+        server exposes the method, or ``None`` if the binding is absent
+        (older host wheels).
+        """
+        replay = getattr(self._server, "replay_loaded_skills", None)
+        if not callable(replay):
+            logger.debug("[%s] replay_loaded_skills unavailable on inner server", self._dcc_name)
+            return None
+        try:
+            return replay(state_json, policy)
+        except Exception as exc:
+            logger.debug("[%s] replay_loaded_skills failed: %s", self._dcc_name, exc)
+            return None
+
     def unload_skill(self, name: str) -> bool:
         try:
             self._server.unload_skill(name)

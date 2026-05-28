@@ -123,11 +123,148 @@ def filter_new_paths(known: Sequence[str], rows: Sequence[str]) -> list[str]:
     return out
 
 
+# ── skill_loaded_state mirror (#1405) ─────────────────────────────────────
+
+_LOADED_STATE_DDL = """
+CREATE TABLE IF NOT EXISTS skill_loaded_state (
+  dcc_type TEXT NOT NULL,
+  skill_name TEXT NOT NULL,
+  skill_version TEXT,
+  skill_path TEXT,
+  loaded_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (dcc_type, skill_name)
+);
+CREATE TABLE IF NOT EXISTS skill_active_groups (
+  dcc_type TEXT NOT NULL,
+  group_name TEXT NOT NULL,
+  activated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (dcc_type, group_name)
+);
+CREATE INDEX IF NOT EXISTS idx_skill_loaded_state_dcc ON skill_loaded_state(dcc_type);
+CREATE INDEX IF NOT EXISTS idx_skill_active_groups_dcc ON skill_active_groups(dcc_type);
+"""
+
+
+def _open_rw(db_path: Path) -> sqlite3.Connection | None:
+    """Open the admin sqlite read/write; create the directory if needed.
+
+    Returns ``None`` on failure (e.g. read-only filesystem). The mirror
+    layer is best-effort; failures here must not break the catalog hooks.
+    """
+    try:
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        logger.debug("[admin_sqlite_lane] mkdir failed: %s", exc)
+        return None
+    try:
+        conn = sqlite3.connect(str(db_path), timeout=0.5)
+        conn.executescript(_LOADED_STATE_DDL)
+        return conn
+    except sqlite3.Error as exc:
+        logger.debug("[admin_sqlite_lane] open rw failed: %s", exc)
+        return None
+
+
+def mirror_loaded_skill(
+    dcc_type: str,
+    skill_name: str,
+    *,
+    skill_version: str | None,
+    skill_path: str | None,
+    loaded_at_ms: int,
+    db_path: str | os.PathLike[str] | None = None,
+    registry_dir: str | os.PathLike[str] | None = None,
+) -> bool:
+    """Mirror a `load_skill` into ``skill_loaded_state``. Best-effort."""
+    resolved = resolve_admin_db_path(db_path, registry_dir)
+    conn = _open_rw(resolved)
+    if conn is None:
+        return False
+    try:
+        with conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO skill_loaded_state "
+                "(dcc_type, skill_name, skill_version, skill_path, loaded_at_ms) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (dcc_type, skill_name, skill_version, skill_path, int(loaded_at_ms)),
+            )
+        return True
+    except sqlite3.Error as exc:
+        logger.debug("[admin_sqlite_lane] mirror_loaded_skill failed: %s", exc)
+        return False
+    finally:
+        conn.close()
+
+
+def mirror_unloaded_skill(
+    dcc_type: str,
+    skill_name: str,
+    *,
+    db_path: str | os.PathLike[str] | None = None,
+    registry_dir: str | os.PathLike[str] | None = None,
+) -> bool:
+    """Mirror an ``unload_skill`` by deleting the row. Best-effort."""
+    resolved = resolve_admin_db_path(db_path, registry_dir)
+    conn = _open_rw(resolved)
+    if conn is None:
+        return False
+    try:
+        with conn:
+            conn.execute(
+                "DELETE FROM skill_loaded_state WHERE dcc_type = ? AND skill_name = ?",
+                (dcc_type, skill_name),
+            )
+        return True
+    except sqlite3.Error as exc:
+        logger.debug("[admin_sqlite_lane] mirror_unloaded_skill failed: %s", exc)
+        return False
+    finally:
+        conn.close()
+
+
+def mirror_active_group(
+    dcc_type: str,
+    group_name: str,
+    *,
+    activated: bool,
+    activated_at_ms: int,
+    db_path: str | os.PathLike[str] | None = None,
+    registry_dir: str | os.PathLike[str] | None = None,
+) -> bool:
+    """Mirror an active-group change into ``skill_active_groups``."""
+    resolved = resolve_admin_db_path(db_path, registry_dir)
+    conn = _open_rw(resolved)
+    if conn is None:
+        return False
+    try:
+        with conn:
+            if activated:
+                conn.execute(
+                    "INSERT OR REPLACE INTO skill_active_groups "
+                    "(dcc_type, group_name, activated_at_ms) VALUES (?, ?, ?)",
+                    (dcc_type, group_name, int(activated_at_ms)),
+                )
+            else:
+                conn.execute(
+                    "DELETE FROM skill_active_groups WHERE dcc_type = ? AND group_name = ?",
+                    (dcc_type, group_name),
+                )
+        return True
+    except sqlite3.Error as exc:
+        logger.debug("[admin_sqlite_lane] mirror_active_group failed: %s", exc)
+        return False
+    finally:
+        conn.close()
+
+
 __all__ = [
     "ENV_GATEWAY_ADMIN_DB",
     "ENV_REGISTRY_DIR",
     "GATEWAY_ADMIN_SQLITE_FILENAME",
     "filter_new_paths",
+    "mirror_active_group",
+    "mirror_loaded_skill",
+    "mirror_unloaded_skill",
     "read_custom_skill_paths",
     "resolve_admin_db_path",
 ]

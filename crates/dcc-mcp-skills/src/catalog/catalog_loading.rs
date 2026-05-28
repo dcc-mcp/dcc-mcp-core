@@ -140,6 +140,34 @@ impl SkillCatalog {
         }
     }
 
+    /// Fire the after-unload observer (#1405). Mirrors
+    /// [`Self::notify_after_load_hook`] — observer errors are logged
+    /// and emitted as lifecycle events, never roll back the unload.
+    fn notify_after_unload_hook(&self, skill_name: &str, unregistered: &[String]) {
+        let Some(hook) = self.after_unload_hook.read().clone() else {
+            return;
+        };
+        if let Err(reason) = hook(skill_name, unregistered) {
+            let err = format!("Skill '{skill_name}' after-unload hook failed: {reason}");
+            self.emit_skill_event(
+                "skill.after_unload_failed",
+                skill_name,
+                None,
+                json!({
+                    "error_kind": "after_unload_hook_failed",
+                    "error_message": err,
+                    "unregistered_tools": unregistered,
+                    "unregistered_tool_count": unregistered.len(),
+                }),
+            );
+            tracing::warn!(
+                skill_name = skill_name,
+                error = %reason,
+                "SkillCatalog after-unload hook failed"
+            );
+        }
+    }
+
     /// Load a skill by name — registers its tools into ToolRegistry and,
     /// if a dispatcher is attached, auto-registers script execution handlers.
     pub fn load_skill(&self, skill_name: &str) -> Result<Vec<String>, String> {
@@ -627,6 +655,7 @@ impl SkillCatalog {
                 "removed_tool_count": count,
             }),
         );
+        self.notify_after_unload_hook(skill_name, &action_names);
         tracing::info!(
             "SkillCatalog: unloaded skill '{}' ({} tools removed)",
             skill_name,
@@ -659,6 +688,105 @@ impl SkillCatalog {
             let _ = self.unload_skill(&name);
         }
         self.entries.clear();
+    }
+
+    /// Replay a persisted set of loaded skills + active groups (#1405).
+    ///
+    /// Walks `state.skills` in order and attempts to re-load each one
+    /// using `load_skill_with_options(name, false)` so the catalog's own
+    /// default-active group computation does not interfere with the
+    /// explicit `state.active_groups` set replayed afterwards.
+    ///
+    /// The `policy` argument decides how to treat a record whose on-disk
+    /// version differs from the one that was persisted:
+    ///
+    /// * [`crate::catalog::LoadReplayPolicy::SkipOnDrift`] (default) — the
+    ///   record is added to [`ReplayReport::skipped_drift`] with a warning.
+    /// * [`crate::catalog::LoadReplayPolicy::RequireExactVersion`] — same
+    ///   as above. Embedders who want a fatal startup can inspect the
+    ///   returned report and refuse to serve traffic.
+    /// * [`crate::catalog::LoadReplayPolicy::IgnoreVersion`] — drift is
+    ///   ignored and the on-disk version is loaded.
+    ///
+    /// During the catalog calls, the existing after-load /
+    /// after-group-change hooks **fire as usual**. Hosts that want to
+    /// avoid an immediate re-persistence round-trip should temporarily
+    /// clear those hooks (or use a guard) before calling this method.
+    pub fn replay_loaded(
+        &self,
+        state: &super::persistence::PersistedCatalogState,
+        policy: super::persistence::LoadReplayPolicy,
+    ) -> super::persistence::ReplayReport {
+        use super::persistence::{DriftRecord, FailedRecord, LoadReplayPolicy, ReplayReport};
+
+        let mut report = ReplayReport::default();
+        for record in &state.skills {
+            let Some(entry) = self.entries.get(&record.name).map(|e| e.value().clone()) else {
+                tracing::warn!(
+                    skill = %record.name,
+                    "SkillCatalog::replay_loaded: skipping — skill not found in catalog"
+                );
+                report.missing.push(record.name.clone());
+                continue;
+            };
+
+            let current_version = entry.metadata.version.clone();
+            let drift_detected = match (&record.version, policy) {
+                (Some(persisted), LoadReplayPolicy::SkipOnDrift)
+                | (Some(persisted), LoadReplayPolicy::RequireExactVersion) => {
+                    persisted.as_str() != current_version.as_str()
+                }
+                _ => false,
+            };
+
+            if drift_detected {
+                tracing::warn!(
+                    skill = %record.name,
+                    persisted = ?record.version,
+                    current = %current_version,
+                    "SkillCatalog::replay_loaded: skipping — persisted version differs"
+                );
+                report.skipped_drift.push(DriftRecord {
+                    name: record.name.clone(),
+                    persisted_version: record.version.clone(),
+                    current_version,
+                });
+                continue;
+            }
+
+            match self.load_skill_with_options(&record.name, false) {
+                Ok(_) => report.loaded.push(record.name.clone()),
+                Err(err) => {
+                    tracing::warn!(
+                        skill = %record.name,
+                        error = %err,
+                        "SkillCatalog::replay_loaded: load_skill returned an error"
+                    );
+                    report.failed.push(FailedRecord {
+                        name: record.name.clone(),
+                        error: err,
+                    });
+                }
+            }
+        }
+
+        // Replay catalog-wide active group selection. Groups declared by
+        // skills that failed to load are best-effort no-ops (the
+        // registry has no tools tagged with them).
+        for group in &state.active_groups {
+            self.activate_group(group);
+            report.activated_groups.push(group.clone());
+        }
+
+        tracing::info!(
+            loaded = report.loaded.len(),
+            missing = report.missing.len(),
+            skipped_drift = report.skipped_drift.len(),
+            failed = report.failed.len(),
+            activated_groups = report.activated_groups.len(),
+            "SkillCatalog::replay_loaded: complete"
+        );
+        report
     }
 }
 
