@@ -28,6 +28,10 @@ fn test_gateway_state_with_own_and_unknown(
         http_instance_registry: Arc::new(parking_lot::RwLock::new(
             crate::gateway::http_registration::HttpInstanceRegistry::default(),
         )),
+
+        mdns_instance_registry: Arc::new(parking_lot::RwLock::new(
+            crate::gateway::mdns_registration::MdnsInstanceRegistry::default(),
+        )),
         stale_timeout: Duration::from_secs(30),
         backend_timeout: Duration::from_secs(10),
         async_dispatch_timeout: Duration::from_secs(60),
@@ -122,6 +126,57 @@ async fn live_instances_includes_http_registered_rows() {
     let live = gs.live_instances(&registry);
     assert_eq!(live.len(), 1);
     assert_eq!(live[0].instance_id, instance_id);
+    let row = gs.instance_json(&live[0]);
+    assert_eq!(row["source"], "http");
+    assert_eq!(row["mcp_url"], "http://remote.example:28765/mcp");
+}
+
+#[tokio::test]
+async fn live_instances_includes_mdns_rows_and_http_wins_conflicts() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let gs = test_gateway_state(registry.clone());
+    let instance_id = uuid::Uuid::parse_str("55555555-5555-4555-8555-555555555555").unwrap();
+    let now = std::time::SystemTime::now();
+
+    let mut mdns_entry = ServiceEntry::new("maya", "192.168.1.20", 8765);
+    mdns_entry.instance_id = instance_id;
+    mdns_entry.metadata.insert(
+        crate::gateway::http_registration::REGISTRY_SOURCE_METADATA_KEY.to_string(),
+        crate::gateway::http_registration::SOURCE_MDNS.to_string(),
+    );
+    mdns_entry.metadata.insert(
+        crate::gateway::http_registration::MCP_URL_METADATA_KEY.to_string(),
+        "http://192.168.1.20:8765/mcp".to_string(),
+    );
+    gs.mdns_instance_registry.write().upsert(
+        mdns_entry,
+        "maya._dcc-mcp._tcp.local.".to_string(),
+        Duration::from_secs(30),
+        now,
+    );
+
+    {
+        let mut http_registry = gs.http_instance_registry.write();
+        http_registry
+            .register(
+                crate::gateway::http_registration::HttpInstanceRegistrationRequest {
+                    instance_id: instance_id.to_string(),
+                    dcc_type: "maya".to_string(),
+                    mcp_url: "http://remote.example:28765/mcp".to_string(),
+                    capabilities_fingerprint: None,
+                    adapter_version: Some("2.0.0".to_string()),
+                    scene: Some("scene.ma".to_string()),
+                    ttl_secs: None,
+                },
+                now,
+            )
+            .unwrap();
+    }
+
+    let registry = registry.read().await;
+    let live = gs.live_instances(&registry);
+    assert_eq!(live.len(), 1);
     let row = gs.instance_json(&live[0]);
     assert_eq!(row["source"], "http");
     assert_eq!(row["mcp_url"], "http://remote.example:28765/mcp");

@@ -339,6 +339,8 @@ impl GatewayRunner {
                     self.config.host.clone(),
                     self.config.gateway_port,
                     self.config.allow_unknown_tools,
+                    #[cfg(feature = "mdns")]
+                    self.config.discover_mdns,
                     self.config.policy.clone(),
                     own_adapter_version.clone(),
                     own_adapter_dcc.clone(),
@@ -522,6 +524,8 @@ impl GatewayRunner {
         let adapter_version = self.config.adapter_version.clone();
         let adapter_dcc = self.config.adapter_dcc.clone();
         let middleware_chain = self.config.middleware_chain.clone();
+        #[cfg(feature = "mdns")]
+        let discover_mdns = self.config.discover_mdns;
         #[cfg(feature = "admin")]
         let admin_enabled = self.config.admin_enabled;
         #[cfg(feature = "admin")]
@@ -636,6 +640,8 @@ impl GatewayRunner {
                         host.clone(),
                         port,
                         allow_unknown_tools,
+                        #[cfg(feature = "mdns")]
+                        discover_mdns,
                         policy.clone(),
                         adapter_version.clone(),
                         adapter_dcc.clone(),

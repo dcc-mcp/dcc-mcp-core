@@ -88,6 +88,13 @@ admin = [
 # build configs can already declare it.
 tunnel-agent = []
 
+# Optional LAN-local mDNS/DNS-SD advertisement and gateway browsing.
+mdns = [
+    "dcc-mcp-http/mdns",
+    "dcc-mcp-transport/mdns",
+    "dcc-mcp-gateway?/mdns",
+]
+
 # Prometheus `/metrics` endpoint on the MCP server (and admin UI).
 prometheus = [
     "dcc-mcp-http/prometheus",

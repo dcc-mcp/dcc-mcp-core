@@ -37,6 +37,7 @@ indexmap = { version = "2.14.0", features = ["serde"] }
 lazy_static = { version = "1.5.0", default-features = false, features = ["spin_no_std"] }
 log = { version = "0.4.30", default-features = false, features = ["std"] }
 memchr = { version = "2.8.0" }
+mio = { version = "1.2.0", features = ["net", "os-ext"] }
 num-bigint = { version = "0.4.6" }
 num-complex = { version = "0.4.6" }
 num-integer = { version = "0.1.46", features = ["i128"] }
@@ -59,6 +60,7 @@ serde_core = { version = "1.0.228", features = ["alloc", "rc"] }
 serde_json = { version = "1.0.150", features = ["alloc", "preserve_order", "raw_value"] }
 slab = { version = "0.4.12" }
 smallvec = { version = "1.15.1", default-features = false, features = ["const_new"] }
+spin = { version = "0.9.8" }
 subtle = { version = "2.6.1" }
 sync_wrapper = { version = "1.0.2", default-features = false, features = ["futures"] }
 time = { version = "0.3.47", features = ["formatting", "local-offset", "macros", "parsing"] }
@@ -99,6 +101,7 @@ indexmap = { version = "2.14.0", features = ["serde"] }
 lazy_static = { version = "1.5.0", default-features = false, features = ["spin_no_std"] }
 log = { version = "0.4.30", default-features = false, features = ["std"] }
 memchr = { version = "2.8.0" }
+mio = { version = "1.2.0", features = ["net", "os-ext"] }
 num-bigint = { version = "0.4.6" }
 num-complex = { version = "0.4.6" }
 num-integer = { version = "0.1.46", features = ["i128"] }
@@ -123,6 +126,7 @@ serde_core = { version = "1.0.228", features = ["alloc", "rc"] }
 serde_json = { version = "1.0.150", features = ["alloc", "preserve_order", "raw_value"] }
 slab = { version = "0.4.12" }
 smallvec = { version = "1.15.1", default-features = false, features = ["const_new"] }
+spin = { version = "0.9.8" }
 subtle = { version = "2.6.1" }
 syn = { version = "2.0.117", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 sync_wrapper = { version = "1.0.2", default-features = false, features = ["futures"] }
@@ -146,7 +150,6 @@ bitflags = { version = "2.11.1", default-features = false, features = ["std"] }
 getrandom = { version = "0.4.2", default-features = false, features = ["std", "sys_rng"] }
 hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
 libc = { version = "0.2.186", features = ["extra_traits"] }
-mio = { version = "1.2.0", features = ["net", "os-ext"] }
 tower = { version = "0.5.3", default-features = false, features = ["retry", "timeout"] }
 tower-http = { version = "0.6.11", features = ["cors", "follow-redirect", "limit", "trace"] }
 
@@ -156,7 +159,6 @@ cc = { version = "1.2.62", default-features = false, features = ["parallel"] }
 getrandom = { version = "0.4.2", default-features = false, features = ["std", "sys_rng"] }
 hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
 libc = { version = "0.2.186", features = ["extra_traits"] }
-mio = { version = "1.2.0", features = ["net", "os-ext"] }
 tower = { version = "0.5.3", default-features = false, features = ["retry", "timeout"] }
 tower-http = { version = "0.6.11", features = ["cors", "follow-redirect", "limit", "trace"] }
 
@@ -165,7 +167,6 @@ bitflags = { version = "2.11.1", default-features = false, features = ["std"] }
 getrandom = { version = "0.4.2", default-features = false, features = ["std", "sys_rng"] }
 hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
 libc = { version = "0.2.186", features = ["extra_traits"] }
-mio = { version = "1.2.0", features = ["net", "os-ext"] }
 tower = { version = "0.5.3", default-features = false, features = ["retry", "timeout"] }
 tower-http = { version = "0.6.11", features = ["cors", "follow-redirect", "limit", "trace"] }
 
@@ -175,7 +176,6 @@ cc = { version = "1.2.62", default-features = false, features = ["parallel"] }
 getrandom = { version = "0.4.2", default-features = false, features = ["std", "sys_rng"] }
 hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
 libc = { version = "0.2.186", features = ["extra_traits"] }
-mio = { version = "1.2.0", features = ["net", "os-ext"] }
 tower = { version = "0.5.3", default-features = false, features = ["retry", "timeout"] }
 tower-http = { version = "0.6.11", features = ["cors", "follow-redirect", "limit", "trace"] }
 
@@ -224,7 +224,8 @@ tower = { version = "0.5.3", default-features = false, features = ["retry", "tim
 tower-http = { version = "0.6.11", features = ["cors", "follow-redirect", "limit", "trace"] }
 winapi = { version = "0.3.9", default-features = false, features = ["cfg", "evntrace", "in6addr", "inaddr", "minwinbase", "ntsecapi", "sysinfoapi", "windef", "winioctl"] }
 windows = { version = "0.62.2", features = ["Wdk_System_SystemInformation", "Wdk_System_SystemServices", "Wdk_System_Threading", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Gdi", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_NetworkManagement_NetManagement", "Win32_Networking_WinSock", "Win32_Security_Authentication_Identity", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_Storage_Xps", "Win32_System_Com", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_Kernel", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Performance", "Win32_System_Power", "Win32_System_ProcessStatus", "Win32_System_Registry", "Win32_System_RemoteDesktop", "Win32_System_Rpc", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_Variant", "Win32_System_WindowsProgramming", "Win32_System_Wmi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
-windows-sys = { version = "0.61.2", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Globalization", "Win32_Networking_WinSock", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Shell"] }
+windows-sys-4db8c43aad08e7ae = { package = "windows-sys", version = "0.60.2", features = ["Win32_Networking_WinSock", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Threading", "Win32_System_WindowsProgramming"] }
+windows-sys-d4189bed749088b6 = { package = "windows-sys", version = "0.61.2", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Globalization", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Shell"] }
 
 [target.x86_64-pc-windows-msvc.build-dependencies]
 cc = { version = "1.2.62", default-features = false, features = ["parallel"] }
@@ -234,6 +235,7 @@ tower = { version = "0.5.3", default-features = false, features = ["retry", "tim
 tower-http = { version = "0.6.11", features = ["cors", "follow-redirect", "limit", "trace"] }
 winapi = { version = "0.3.9", default-features = false, features = ["cfg", "evntrace", "in6addr", "inaddr", "minwinbase", "ntsecapi", "sysinfoapi", "windef", "winioctl"] }
 windows = { version = "0.62.2", features = ["Wdk_System_SystemInformation", "Wdk_System_SystemServices", "Wdk_System_Threading", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Gdi", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_NetworkManagement_NetManagement", "Win32_Networking_WinSock", "Win32_Security_Authentication_Identity", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_Storage_Xps", "Win32_System_Com", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_Kernel", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Performance", "Win32_System_Power", "Win32_System_ProcessStatus", "Win32_System_Registry", "Win32_System_RemoteDesktop", "Win32_System_Rpc", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_Variant", "Win32_System_WindowsProgramming", "Win32_System_Wmi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
-windows-sys = { version = "0.61.2", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Globalization", "Win32_Networking_WinSock", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Shell"] }
+windows-sys-4db8c43aad08e7ae = { package = "windows-sys", version = "0.60.2", features = ["Win32_Networking_WinSock", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Threading", "Win32_System_WindowsProgramming"] }
+windows-sys-d4189bed749088b6 = { package = "windows-sys", version = "0.61.2", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Globalization", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Shell"] }
 
 ### END HAKARI SECTION

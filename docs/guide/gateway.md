@@ -72,6 +72,7 @@ variable):
 | `--no-admin` | `DCC_MCP_NO_ADMIN` | admin enabled |
 | `--admin-path` | `DCC_MCP_ADMIN_PATH` | `/admin` |
 | `--stale-timeout-secs` | `DCC_MCP_STALE_TIMEOUT` | `30` |
+| `--discover-mdns` | `DCC_MCP_DISCOVER_MDNS` | `false` when built with `mdns` |
 
 Additional environment knobs:
 
@@ -254,6 +255,33 @@ the same `instance_id` exists in both sources. Registration endpoints pass
 through the same gateway router layers as the rest of `/v1/*` (body limit,
 caller attribution, rate limiting, and future auth middleware), so they do not
 create a separate security bypass.
+
+### Optional mDNS / DNS-SD LAN Discovery (#1362)
+
+Build with the `mdns` Cargo feature to enable LAN-local DNS-SD advertisement
+and browsing for `_dcc-mcp._tcp.local.`. It is intentionally opt-in and
+default-off: mDNS is a convenience discovery hint, not an auth boundary.
+
+```bash
+# DCC endpoint advertises its MCP URL on the local subnet.
+dcc-mcp-server serve --no-auto-gateway --app maya --advertise-mdns
+
+# Gateway daemon browses mDNS records and probes candidates before surfacing them.
+dcc-mcp-server gateway --discover-mdns --remote-host 0.0.0.0 --remote-port 59765
+```
+
+Discovered rows use `source: "mdns"` in `GET /v1/instances` and
+`gateway://instances`. They carry the advertised `dcc`, `instance_id`,
+`version`, `adapter`, `auth`, and `mcp_path` TXT metadata, but the gateway only
+adds the row after the resolved endpoint answers the HTTP health probe. Rows
+expire from an in-memory registry if their DNS-SD TTL passes or the service is
+removed.
+
+Conflict order is deliberate: HTTP registration wins over mDNS, and mDNS wins
+over a stale or duplicate file-backed registry row with the same `instance_id`.
+For routed production traffic across subnets, prefer explicit HTTP registration
+or a relay/tunnel source; use mDNS for same-LAN discovery where multicast is
+allowed and operationally acceptable.
 
 ### Optional Instance Pooling
 

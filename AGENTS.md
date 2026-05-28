@@ -119,7 +119,8 @@ Gateway instance discovery:
 1. Usually skip instance discovery and go straight to `search` / `POST /v1/search` → `describe` / `POST /v1/describe` → `POST /v1/call` (or `/v1/call_batch` when invoking several slugs in order).
 2. When you need a concrete DCC session or direct MCP URL, call resources/read with uri="gateway://instances".
 3. For one instance, read gateway://instances/{instance_id}; full UUID, `instance_short`, or any unique ≥4-char UUID prefix works across gateway tools and tool slugs.
-4. Do not call legacy list_dcc_instances / get_dcc_instance / connect_to_dcc; #813 removed them from tools/list.
+4. Instance rows may come from the local FileRegistry, HTTP registration (`source: "http"`), or optional mDNS/DNS-SD LAN discovery (`source: "mdns"`); HTTP rows win conflicts, then mDNS, then file rows.
+5. Do not call legacy list_dcc_instances / get_dcc_instance / connect_to_dcc; #813 removed them from tools/list.
 
 Gateway resources/prompts:
 1. List hand-off artefacts with resources/list; gateway-prefixed URIs identify the owning DCC instance.
@@ -183,6 +184,7 @@ Gateway resources/prompts:
 | Choose `dcc-mcp-server` run mode | No subcommand or `auto` = per-DCC server + first-wins auto-gateway; `serve --no-auto-gateway` = per-DCC server only; `gateway` = machine-wide gateway daemon with no inline DCC execution |
 | Discover gateway DCC instances / direct MCP URLs | `resources/read uri="gateway://instances"` or `gateway://instances/{id}`; entries carry `mcp_url` and replace the removed `list_dcc_instances` / `get_dcc_instance` / `connect_to_dcc` tools |
 | Register a remote DCC with a gateway that cannot share `FileRegistry` | `POST /v1/instances/register` with `{instance_id, dcc_type, mcp_url, ttl_secs?}`; refresh with `/heartbeat`, remove with `/deregister`; `gateway://instances` marks these rows with `source: "http"` |
+| Discover LAN-local DCC MCP endpoints without a shared registry | Build with `mdns`; run DCC servers with `--advertise-mdns` and gateways with `--discover-mdns`; mDNS rows are probed before surfacing and appear with `source: "mdns"` (#1362) |
 | Gateway dynamic capabilities | MCP `search` → `describe` for read-only discovery, then REST `/v1/call` / `POST /v1/call_batch` for execution |
 | Gateway resources/prompts | `resources/list` / `resources/read` with exact gateway-returned URIs; `prompts/list` / `prompts/get` for aggregated backend prompt templates |
 
@@ -197,6 +199,7 @@ Gateway resources/prompts:
 | Auto-evict dead gateway instances | Gateway runs a TCP probe loop; deregisters after 3 consecutive failures, also runs a startup probe to evict instances whose listener died while the registry entry survived (#551, #552, #556) |
 | Crash-safe heartbeat | `FileRegistry::heartbeat` writes via `tempfile::persist` + Windows `LockFileEx` so concurrent processes can't stomp each other's entry (#554) |
 | Remote HTTP registration heartbeat | `POST /v1/instances/heartbeat` refreshes TTL-scoped HTTP rows; the shared `live_instances` view merges them with FileRegistry rows, and HTTP rows win conflicts on identical `instance_id` (#1361) |
+| Optional mDNS/DNS-SD discovery | `GatewayConfig.discover_mdns` / `dcc-mcp-server gateway --discover-mdns` browses `_dcc-mcp._tcp.local`; `dcc-mcp-server serve --advertise-mdns` publishes the DCC endpoint; HTTP registration wins over mDNS, mDNS wins over file rows (#1362) |
 | Crash-resilient liveness check | `FileRegistry` sentinel lock files — `read_alive()` / `prune_dead_entries()` evict rows whose owner process released its OS-held lock (#748) |
 | Default rolling file logging | `default_file_logging_config()` from `dcc_mcp_logging::file_logging` — rolling daily files under the platform log dir (#557) |
 | Trim old log files | `prune_old_logs(retention_days, max_total_size_mb)` — call on a schedule or at startup to enforce retention (#558) |
