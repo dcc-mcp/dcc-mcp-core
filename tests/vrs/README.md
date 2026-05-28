@@ -78,6 +78,7 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 | `traces/core-1361-http-instance-registration.jsonl` | No | Gateway daemon accepts remote HTTP instance register → heartbeat → path-call resolution → deregister. |
 | `traces/core-1363-relay-gateway-source.jsonl` | Relay + live backend | Gateway daemon configured with `--relay-source` exposes active tunnel rows with `source: "relay"` and routable `/tunnel/<id>/mcp` URLs. |
 | `traces/core-1364-unified-instances.jsonl` | Relay + live backend | `resources/read gateway://instances` exposes merged relay + HTTP rows with `instance_short`, `source_meta`, and `by_source` counts. |
+| `traces/core-1365-gateway-auth-negative.jsonl` | No (auth-enabled gateway) | Negative-path coverage of bearer-token + DCC-scope enforcement on `/v1/instances/register`; against the embedded auto-gateway (auth disabled) every step succeeds, against an auth-enabled daemon the rejection envelopes (`unauthorized`, `dcc_scope_mismatch`) are pinned. |
 | `traces/gateway-search-no-matches.jsonl` | No | Search with improbable token → `total: 0`, empty `hits`. |
 | `traces/gateway-rest-describe-bad-request-missing-tool-slug.jsonl` | No | `POST /v1/describe` with `{}` → `400`, `error.kind` = `bad-request`. |
 | `traces/gateway-rest-describe-unknown-slug.jsonl` | No | Well-formed unknown slug → `404`, `error.kind` = `unknown-slug`. |
@@ -127,3 +128,4 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 - core [#1125](https://github.com/loonghao/dcc-mcp-core/issues/1125) — bundled diagnostics screenshot must return a dict through REST dispatch
 - core [#1133](https://github.com/loonghao/dcc-mcp-core/issues/1133) — app_ui gateway discovery and REST dispatch
 - core [#1134](https://github.com/loonghao/dcc-mcp-core/issues/1134) — app_ui DCC debugging workflow examples and REST traces
+- core [#1365](https://github.com/loonghao/dcc-mcp-core/issues/1365) — gateway must enforce authentication and scope-bound DCC registration

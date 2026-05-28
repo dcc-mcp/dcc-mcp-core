@@ -61,6 +61,7 @@ fn test_gateway_state() -> GatewayState {
         traffic_capture: Arc::new(crate::gateway::traffic::TrafficCapture::disabled()),
         search_telemetry: Arc::new(crate::gateway::search_telemetry::SearchTelemetryStore::new()),
         debug_routes_enabled: false,
+        auth: std::sync::Arc::new(crate::gateway::security::GatewayAuth::disabled()),
     }
 }
 
@@ -222,4 +223,119 @@ async fn register_rejects_non_mcp_url() {
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["error"]["kind"], "bad-request");
+}
+
+// ── #1365 — bearer-token + DCC-scope enforcement integration tests ──────────
+
+fn test_gateway_state_with_auth(auth: crate::gateway::security::GatewayAuth) -> GatewayState {
+    let mut state = test_gateway_state();
+    state.auth = std::sync::Arc::new(auth);
+    state
+}
+
+async fn request_json_with_headers(
+    app: axum::Router,
+    method: &str,
+    uri: &str,
+    body: serde_json::Value,
+    headers: &[(&str, &str)],
+) -> (StatusCode, serde_json::Value) {
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("content-type", "application/json");
+    for (name, value) in headers {
+        builder = builder.header(*name, *value);
+    }
+    let response = app
+        .oneshot(builder.body(Body::from(body.to_string())).unwrap())
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    (status, serde_json::from_slice(&bytes).unwrap())
+}
+
+#[tokio::test]
+async fn register_rejects_request_without_bearer_when_auth_enabled() {
+    let auth = crate::gateway::security::GatewayAuth {
+        tokens: vec![crate::gateway::security::GatewayAuthToken::any_dcc(
+            "studio-master",
+        )],
+    };
+    let app = crate::gateway::build_gateway_router(test_gateway_state_with_auth(auth));
+
+    let (status, body) = request_json(
+        app,
+        "POST",
+        "/v1/instances/register",
+        json!({
+            "instance_id": "44444444-4444-4444-8444-444444444444",
+            "dcc_type": "maya",
+            "mcp_url": "http://127.0.0.1:8765/mcp"
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body["ok"], false);
+    assert_eq!(body["error"]["kind"], "unauthorized");
+}
+
+#[tokio::test]
+async fn register_rejects_dcc_scope_mismatch_with_structured_error() {
+    let auth = crate::gateway::security::GatewayAuth {
+        tokens: vec![crate::gateway::security::GatewayAuthToken::for_dcc(
+            "maya-only",
+            ["maya"],
+        )],
+    };
+    let app = crate::gateway::build_gateway_router(test_gateway_state_with_auth(auth));
+
+    let (status, body) = request_json_with_headers(
+        app,
+        "POST",
+        "/v1/instances/register",
+        json!({
+            "instance_id": "55555555-5555-4555-8555-555555555555",
+            "dcc_type": "photoshop",
+            "mcp_url": "http://127.0.0.1:8765/mcp"
+        }),
+        &[("authorization", "Bearer maya-only")],
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body["error"]["kind"], "dcc_scope_mismatch");
+    assert_eq!(body["error"]["dcc_type"], "photoshop");
+}
+
+#[tokio::test]
+async fn register_accepts_valid_token_and_dcc() {
+    let auth = crate::gateway::security::GatewayAuth {
+        tokens: vec![crate::gateway::security::GatewayAuthToken::for_dcc(
+            "studio-token",
+            ["maya", "blender"],
+        )],
+    };
+    let app = crate::gateway::build_gateway_router(test_gateway_state_with_auth(auth));
+
+    // Cover at least two DCC families per AGENTS.md multi-DCC guardrails.
+    for dcc in ["maya", "blender"] {
+        let instance_id = format!("66666666-6666-4666-8666-{:012}", dcc.len());
+        let (status, body) = request_json_with_headers(
+            app.clone(),
+            "POST",
+            "/v1/instances/register",
+            json!({
+                "instance_id": instance_id,
+                "dcc_type": dcc,
+                "mcp_url": "http://127.0.0.1:8765/mcp"
+            }),
+            &[("authorization", "Bearer studio-token")],
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{dcc} should be accepted");
+        assert_eq!(body["ok"], true);
+    }
 }

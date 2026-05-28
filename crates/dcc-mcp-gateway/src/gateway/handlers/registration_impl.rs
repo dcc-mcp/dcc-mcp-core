@@ -2,16 +2,33 @@ use super::*;
 
 use std::time::SystemTime;
 
+use axum::http::HeaderMap;
+
 use crate::gateway::capability::remove_instance;
 use crate::gateway::http_registration::{
     HttpInstanceDeregisterRequest, HttpInstanceHeartbeatRequest, HttpInstanceRegistrationRequest,
     RegistrationError, RegistrationOutcome, unix_secs,
 };
+use crate::gateway::security::AuthError;
 
 pub async fn handle_v1_instances_register(
     State(gs): State<GatewayState>,
+    headers: HeaderMap,
     Json(body): Json<HttpInstanceRegistrationRequest>,
 ) -> Response {
+    // #1365 — bearer-token + DCC-scope auth on the cross-host registration
+    // plane. `GatewayAuth::disabled()` (the default) keeps the historical
+    // local-trust behaviour: every request is accepted regardless of the
+    // Authorization header.
+    if let Err(err) = gs.auth.authorize_register(
+        headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok()),
+        &body.dcc_type,
+    ) {
+        return registration_auth_error_response(err);
+    }
+
     let outcome = {
         let mut registry = gs.http_instance_registry.write();
         registry.register(body, SystemTime::now())
@@ -100,6 +117,24 @@ fn registration_error_response(err: RegistrationError) -> Response {
         })),
     )
         .into_response()
+}
+
+fn registration_auth_error_response(err: AuthError) -> Response {
+    let status = StatusCode::from_u16(err.http_status()).unwrap_or(StatusCode::UNAUTHORIZED);
+    let kind = err.kind();
+    let message = err.message();
+    let mut body = json!({
+        "ok": false,
+        "success": false,
+        "error": {
+            "kind": kind,
+            "message": message,
+        }
+    });
+    if let AuthError::DccScopeMismatch { presented_dcc } = &err {
+        body["error"]["dcc_type"] = json!(presented_dcc);
+    }
+    (status, Json(body)).into_response()
 }
 
 fn instance_short(instance_id: &uuid::Uuid) -> String {
