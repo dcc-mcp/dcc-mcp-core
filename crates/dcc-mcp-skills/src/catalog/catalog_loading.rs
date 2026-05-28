@@ -169,11 +169,11 @@ impl SkillCatalog {
             return Err("Cannot load a skill object with an empty name".to_string());
         }
 
-        let scope = self
+        let (scope, path_source) = self
             .entries
             .get(&skill_name)
-            .map(|entry| entry.scope)
-            .unwrap_or(SkillScope::Repo);
+            .map(|entry| (entry.scope, entry.path_source))
+            .unwrap_or((SkillScope::Repo, Default::default()));
 
         if self.loaded.contains(skill_name.as_str()) {
             self.unload_skill(&skill_name)?;
@@ -186,6 +186,7 @@ impl SkillCatalog {
                 state: SkillState::Discovered,
                 registered_tools: Vec::new(),
                 scope,
+                path_source,
             },
         );
         self.refresh_dependency_states();

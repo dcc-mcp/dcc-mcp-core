@@ -297,6 +297,33 @@ by a known layer name through `tags=` (case-insensitive), e.g.
 `search_skills(tags=["example"])` or `search_skills(tags=["infrastructure"])`,
 so the raw BM25 order is honoured inside the filtered slice.
 
+### Skill path-source rank (#1403)
+
+A second multiplier is layered on top of the layer multiplier based on
+where the skill was discovered from. User-curated locations rank at
+parity (× 1.00); bundled / platform-installed starter material is
+slightly damped so a local-dev skill always wins a tie.
+
+| Source         | Where it comes from                              | Rank   |
+|----------------|--------------------------------------------------|-------:|
+| `ExplicitArg`  | `extra_paths` passed to `discover()` / `scan_*`  | × 1.00 |
+| `AdminCustom`  | Added through the admin UI (gateway SQLite lane) | × 1.00 |
+| `EnvVar`       | `DCC_MCP_SKILL_PATHS` / `DCC_MCP_<APP>_SKILL_PATHS` | × 1.00 |
+| `LocalDev`     | `~/.dcc-mcp/<dcc>/skills` (local iteration root) | × 1.00 |
+| `Platform`     | Platform-wide install dir (`get_skills_dir`)     | × 0.85 |
+| `Bundled`      | Shipped with the dcc-mcp package itself          | × 0.70 |
+
+The path-source multiplier compounds multiplicatively with the layer
+multiplier (both are `≤ 1.00`). The exact-name fast-path bypasses it —
+`search_skills("dcc-diagnostics")` still surfaces a bundled diagnostics
+skill at the top regardless of source.
+
+Source tagging happens at scan time in
+`crates/dcc-mcp-skills/src/scanner.rs::scan_with_sources`. Adapters can
+read the assigned source via `SkillEntry.path_source` for diagnostic
+surfaces (e.g. the admin UI's skill panel) — it is stable across
+restarts because the field is `#[serde(default)]`.
+
 ---
 
 ## AI Agent Tool Priority

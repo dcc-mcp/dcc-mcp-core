@@ -79,6 +79,7 @@ pub fn add_skill_with_scope(catalog: &SkillCatalog, meta: SkillMetadata, scope: 
             state: SkillState::Discovered,
             registered_tools: Vec::new(),
             scope,
+            path_source: Default::default(),
         },
     );
 }

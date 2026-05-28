@@ -5,6 +5,7 @@
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::gen_stub_pyclass;
 
+use crate::catalog::scoring::SkillPathSource;
 use crate::constants::{MTIME_EPSILON_SECS, SKILL_METADATA_FILE};
 use dcc_mcp_paths::path_to_string;
 use std::collections::{HashMap, HashSet};
@@ -61,12 +62,41 @@ impl SkillScanner {
         dcc_name: Option<&str>,
         force_refresh: bool,
     ) -> Vec<String> {
-        let unique_paths = Self::collect_search_paths(extra_paths, dcc_name);
+        self.scan_with_sources(extra_paths, dcc_name, force_refresh)
+            .into_iter()
+            .map(|(dir, _)| dir)
+            .collect()
+    }
 
-        // Scan each path
-        let mut discovered = Vec::new();
-        for search_path in &unique_paths {
-            discovered.extend(self.scan_directory(search_path, force_refresh));
+    /// Variant of [`Self::scan`] that returns each discovered skill
+    /// directory paired with the [`SkillPathSource`] of the search root it
+    /// was found under. Used by [`crate::catalog::SkillCatalog`] to tag
+    /// entries for the path-source rank penalty (issue #1403).
+    ///
+    /// The mapping is derived from the priority order documented on
+    /// [`Self::collect_search_paths_with_sources`]: when a skill directory
+    /// appears under multiple roots (e.g. an env-var path that is also the
+    /// local-dev directory), the source of the highest-priority root that
+    /// canonicalises to the same on-disk location wins.
+    pub fn scan_with_sources(
+        &mut self,
+        extra_paths: Option<&[String]>,
+        dcc_name: Option<&str>,
+        force_refresh: bool,
+    ) -> Vec<(String, SkillPathSource)> {
+        let unique_paths = Self::collect_search_paths_with_sources(extra_paths, dcc_name);
+
+        // Scan each path while preserving source attribution. The first
+        // search root that produces a given skill_dir wins — this matches
+        // the priority order from `collect_search_paths_with_sources`.
+        let mut discovered: Vec<(String, SkillPathSource)> = Vec::new();
+        let mut seen = HashSet::new();
+        for (search_path, source) in &unique_paths {
+            for dir in self.scan_directory(search_path, force_refresh) {
+                if seen.insert(dir.clone()) {
+                    discovered.push((dir, *source));
+                }
+            }
         }
 
         tracing::debug!(
@@ -74,8 +104,8 @@ impl SkillScanner {
             discovered.len(),
             unique_paths.len()
         );
-        self.skill_dirs = discovered;
-        self.skill_dirs.to_vec()
+        self.skill_dirs = discovered.iter().map(|(d, _)| d.clone()).collect();
+        discovered
     }
 
     /// Find child directories under explicit search paths that cannot be
@@ -141,56 +171,87 @@ impl SkillScanner {
 
     /// Collect and deduplicate all skill search paths from various sources.
     ///
+    /// Thin wrapper around
+    /// [`Self::collect_search_paths_with_sources`] that drops the source
+    /// labels. New code should prefer the `_with_sources` variant so the
+    /// origin can be propagated into the catalog for ranking.
+    pub fn collect_search_paths(
+        extra_paths: Option<&[String]>,
+        dcc_name: Option<&str>,
+    ) -> Vec<String> {
+        Self::collect_search_paths_with_sources(extra_paths, dcc_name)
+            .into_iter()
+            .map(|(p, _)| p)
+            .collect()
+    }
+
+    /// Collect and deduplicate all skill search paths, paired with the
+    /// [`SkillPathSource`] each path was sourced from.
+    ///
     /// Priority order (highest → lowest):
-    /// 1. `extra_paths` — caller-provided explicit paths
-    /// 2. `DCC_MCP_{APP}_SKILL_PATHS` — per-app env var (when dcc_name is given)
-    /// 3. `DCC_MCP_SKILL_PATHS` — global env var
-    /// 4. Local developer skills directory under `~/.dcc-mcp/{dcc}/skills`
-    /// 5. Platform-specific skills directory for this DCC
-    /// 6. Global skills directory
-    fn collect_search_paths(extra_paths: Option<&[String]>, dcc_name: Option<&str>) -> Vec<String> {
-        let mut search_paths = Vec::new();
+    /// 1. `extra_paths` — caller-provided explicit paths ([`SkillPathSource::ExplicitArg`])
+    /// 2. `DCC_MCP_{APP}_SKILL_PATHS` / `DCC_MCP_SKILL_PATHS` ([`SkillPathSource::EnvVar`])
+    /// 3. Local developer skills directory under `~/.dcc-mcp/{dcc}/skills` ([`SkillPathSource::LocalDev`])
+    /// 4. Platform-specific skills directory for this DCC ([`SkillPathSource::Platform`])
+    /// 5. Global skills directory ([`SkillPathSource::Platform`])
+    ///
+    /// Deduplication preserves the highest-priority source for any path
+    /// that appears in more than one bucket (e.g. an env-var path that
+    /// happens to be `~/.dcc-mcp/<dcc>/skills` keeps the `EnvVar` tag).
+    #[must_use]
+    pub fn collect_search_paths_with_sources(
+        extra_paths: Option<&[String]>,
+        dcc_name: Option<&str>,
+    ) -> Vec<(String, SkillPathSource)> {
+        let mut search_paths: Vec<(String, SkillPathSource)> = Vec::new();
 
-        // 1. Extra paths (highest priority)
+        // 1. Extra paths (highest priority) — explicit caller input.
         if let Some(extra) = extra_paths {
-            search_paths.extend(extra.iter().cloned());
+            for p in extra {
+                search_paths.push((p.clone(), SkillPathSource::ExplicitArg));
+            }
         }
 
-        // 2. Per-app env var paths (DCC_MCP_{APP}_SKILL_PATHS) + global fallback
+        // 2. Env-var paths.
         if let Some(dcc) = dcc_name {
-            search_paths.extend(crate::paths::get_app_skill_paths_from_env(dcc));
+            for p in crate::paths::get_app_skill_paths_from_env(dcc) {
+                search_paths.push((p, SkillPathSource::EnvVar));
+            }
         } else {
-            // No dcc_name — only global env var
-            search_paths.extend(crate::paths::get_skill_paths_from_env());
+            for p in crate::paths::get_skill_paths_from_env() {
+                search_paths.push((p, SkillPathSource::EnvVar));
+            }
         }
 
-        // 3. Local developer skills directory
+        // 3. Local developer skills directory.
         if let Ok(local_dir) = crate::paths::get_local_skills_dir(dcc_name)
             && Path::new(&local_dir).is_dir()
         {
-            search_paths.push(local_dir);
+            search_paths.push((local_dir, SkillPathSource::LocalDev));
         }
 
-        // 4. Platform-specific skills directory
+        // 4. Platform-specific skills directory.
         if let Ok(platform_dir) = crate::paths::get_skills_dir(dcc_name)
             && Path::new(&platform_dir).is_dir()
         {
-            search_paths.push(platform_dir);
+            search_paths.push((platform_dir, SkillPathSource::Platform));
         }
 
-        // Also check global skills dir if dcc_name was specified
+        // 5. Global (dcc-less) skills dir is also platform-installed.
         if dcc_name.is_some()
             && let Ok(global_dir) = crate::paths::get_skills_dir(None)
             && Path::new(&global_dir).is_dir()
         {
-            search_paths.push(global_dir);
+            search_paths.push((global_dir, SkillPathSource::Platform));
         }
 
-        // Deduplicate while preserving order
+        // Deduplicate while preserving order. The first occurrence wins,
+        // which encodes "highest priority source for the same on-disk
+        // path".
         let mut seen = HashSet::new();
         search_paths
             .into_iter()
-            .filter(|p| {
+            .filter(|(p, _)| {
                 let abs = std::fs::canonicalize(p).unwrap_or_else(|e| {
                     tracing::debug!("canonicalize({p:?}) failed ({e}), using raw path for dedup");
                     PathBuf::from(p)
@@ -365,6 +426,93 @@ mod tests {
         assert!(
             custom.contains(&krita_skill),
             "custom DCC scan returned {custom:?}"
+        );
+    }
+
+    #[test]
+    fn test_scan_with_sources_tags_explicit_arg() {
+        // Skills discovered from caller-supplied `extra_paths` should be
+        // labelled `ExplicitArg` so the catalog can rank them above
+        // bundled material. Issue #1403.
+        use std::fs;
+
+        fn write_skill_dir(root: &Path, name: &str) -> String {
+            let dir = root.join(name);
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(
+                dir.join(crate::constants::SKILL_METADATA_FILE),
+                format!("name: {name}\nversion: 1.0.0\n"),
+            )
+            .unwrap();
+            path_to_string(&dir)
+        }
+
+        let tmp = tempfile::tempdir().unwrap();
+        let explicit_root = path_to_string(tmp.path());
+        let skill_dir = write_skill_dir(tmp.path(), "explicit-render");
+
+        let mut scanner = SkillScanner::new();
+        let with_sources = scanner.scan_with_sources(Some(&[explicit_root]), Some("maya"), true);
+
+        let explicit_entry = with_sources
+            .iter()
+            .find(|(d, _)| d == &skill_dir)
+            .expect("explicit-root skill must be discovered");
+        assert_eq!(
+            explicit_entry.1,
+            SkillPathSource::ExplicitArg,
+            "skill under extra_paths must be tagged ExplicitArg; got {with_sources:?}"
+        );
+    }
+
+    #[test]
+    fn test_collect_search_paths_priority_order() {
+        // When the same on-disk path appears as both an extra_paths entry
+        // and an env-var entry, the higher-priority `ExplicitArg` tag
+        // wins (the dedupe keeps the first occurrence).
+        use std::fs;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let shared = tmp.path().join("shared");
+        fs::create_dir_all(&shared).unwrap();
+        let shared_str = path_to_string(&shared);
+
+        let saved = std::env::var("DCC_MCP_MAYA_SKILL_PATHS").ok();
+        unsafe {
+            std::env::set_var("DCC_MCP_MAYA_SKILL_PATHS", &shared_str);
+        }
+        let collected = SkillScanner::collect_search_paths_with_sources(
+            Some(std::slice::from_ref(&shared_str)),
+            Some("maya"),
+        );
+        unsafe {
+            match saved {
+                Some(v) => std::env::set_var("DCC_MCP_MAYA_SKILL_PATHS", v),
+                None => std::env::remove_var("DCC_MCP_MAYA_SKILL_PATHS"),
+            }
+        }
+
+        let shared_entries: Vec<_> = collected
+            .iter()
+            .filter(|(p, _)| {
+                let abs = std::fs::canonicalize(p).map(|x| path_to_string(&x)).ok();
+                abs.as_deref() == Some(shared_str.as_str())
+                    || abs.as_ref()
+                        == std::fs::canonicalize(&shared_str)
+                            .map(|x| path_to_string(&x))
+                            .ok()
+                            .as_ref()
+            })
+            .collect();
+        assert_eq!(
+            shared_entries.len(),
+            1,
+            "dedupe must keep exactly one entry per on-disk path; got {collected:?}"
+        );
+        assert_eq!(
+            shared_entries[0].1,
+            SkillPathSource::ExplicitArg,
+            "extra_paths must win over env-var for the same on-disk path"
         );
     }
 }

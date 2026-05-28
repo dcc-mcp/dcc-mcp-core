@@ -79,6 +79,13 @@ pub struct SkillEntry {
     /// Set at discovery time based on which search path the skill was found in.
     /// Defaults to `SkillScope::Repo` when not explicitly assigned.
     pub scope: SkillScope,
+    /// Where on disk this skill was discovered from. Used as a rank signal
+    /// by `search_skills` (issue #1403) so user-managed locations outrank
+    /// bundled starter material. Defaults to
+    /// [`SkillPathSource::Unknown`](crate::catalog::scoring::SkillPathSource::Unknown)
+    /// for backward compatibility when persisted state lacks the field.
+    #[serde(default)]
+    pub path_source: crate::catalog::scoring::SkillPathSource,
 }
 
 // ── Summary / Detail types ──

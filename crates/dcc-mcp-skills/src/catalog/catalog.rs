@@ -87,7 +87,15 @@ impl SkillCatalog {
             });
             let metas: Vec<&SkillMetadata> = prefiltered.iter().map(|e| &e.metadata).collect();
             let scopes: Vec<SkillScope> = prefiltered.iter().map(|e| e.scope).collect();
-            let scored = scoring::score_skills(q_trim, &metas, &scopes, layer_filter_explicit);
+            let path_sources: Vec<scoring::SkillPathSource> =
+                prefiltered.iter().map(|e| e.path_source).collect();
+            let scored = scoring::score_skills(
+                q_trim,
+                &metas,
+                &scopes,
+                layer_filter_explicit,
+                Some(&path_sources),
+            );
             scored
                 .into_iter()
                 .map(|s| helpers::skill_entry_to_summary(&prefiltered[s.index]))

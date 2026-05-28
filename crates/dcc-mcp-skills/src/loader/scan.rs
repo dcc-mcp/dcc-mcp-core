@@ -1,7 +1,9 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use dcc_mcp_models::SkillMetadata;
 
+use crate::catalog::scoring::SkillPathSource;
 use crate::resolver::{self, ResolveError};
 use crate::scanner::SkillScanner;
 
@@ -13,6 +15,20 @@ pub struct LoadResult {
     /// Skills in dependency-resolved order (dependencies come first).
     pub skills: Vec<SkillMetadata>,
     /// Directories that were scanned but failed to load (parse errors, missing SKILL.md, etc.).
+    pub skipped: Vec<String>,
+}
+
+/// Result of a source-aware scan-and-load pipeline.
+///
+/// Identical to [`LoadResult`] but pairs each loaded skill with the
+/// [`SkillPathSource`] of the search root it was found under (issue
+/// #1403). The catalog uses this to apply a small rank penalty so user-
+/// curated locations outrank bundled starter material for neutral queries.
+#[derive(Debug, Clone)]
+pub struct LoadResultWithSources {
+    /// Skills in dependency-resolved order, paired with their source.
+    pub skills: Vec<(SkillMetadata, SkillPathSource)>,
+    /// Directories that were scanned but failed to load.
     pub skipped: Vec<String>,
 }
 
@@ -108,6 +124,56 @@ pub fn scan_and_load_lenient(
     let resolved = resolver::resolve_dependencies(&skills)?;
     Ok(LoadResult {
         skills: resolved.ordered,
+        skipped,
+    })
+}
+
+/// Source-aware variant of [`scan_and_load_lenient`] (issue #1403).
+///
+/// Performs the same scan / parse / resolve pipeline, but tracks which
+/// search-root each skill was discovered under so the catalog can apply
+/// the path-source rank penalty. The dependency-resolved skill order is
+/// preserved; the per-skill source is matched back by `skill_path`.
+pub fn scan_and_load_lenient_with_sources(
+    extra_paths: Option<&[String]>,
+    dcc_name: Option<&str>,
+) -> Result<LoadResultWithSources, ResolveError> {
+    let mut scanner = SkillScanner::new();
+    let dirs_with_sources = scanner.scan_with_sources(extra_paths, dcc_name, false);
+    let source_by_dir: HashMap<String, SkillPathSource> = dirs_with_sources
+        .iter()
+        .map(|(d, s)| (d.clone(), *s))
+        .collect();
+    let dirs: Vec<String> = dirs_with_sources.into_iter().map(|(d, _)| d).collect();
+
+    let (skills, skipped) = load_all_skills(&dirs);
+    let errors = resolver::validate_dependencies(&skills);
+    let ordered = if errors.is_empty() {
+        resolver::resolve_dependencies(&skills)?.ordered
+    } else {
+        for err in &errors {
+            if let ResolveError::MissingDependency { skill, dependency } = err {
+                tracing::warn!(
+                    "Skill '{skill}' depends on '{dependency}' which is not available yet; \
+                     keeping it discoverable as a pending dependency."
+                );
+            }
+        }
+        resolve_dependencies_soft(&skills)?.ordered
+    };
+
+    let paired = ordered
+        .into_iter()
+        .map(|meta| {
+            let src = source_by_dir
+                .get(&meta.skill_path)
+                .copied()
+                .unwrap_or_default();
+            (meta, src)
+        })
+        .collect();
+    Ok(LoadResultWithSources {
+        skills: paired,
         skipped,
     })
 }

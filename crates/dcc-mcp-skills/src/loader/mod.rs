@@ -34,7 +34,8 @@ pub(crate) use files::{enumerate_metadata_files, enumerate_scripts, merge_depend
 #[cfg(test)]
 pub(crate) use scan::load_all_skills;
 pub use scan::{
-    LoadResult, scan_and_load, scan_and_load_lenient, scan_and_load_strict, scan_and_load_team,
+    LoadResult, LoadResultWithSources, scan_and_load, scan_and_load_lenient,
+    scan_and_load_lenient_with_sources, scan_and_load_strict, scan_and_load_team,
     scan_and_load_team_lenient, scan_and_load_user, scan_and_load_user_lenient,
 };
 
