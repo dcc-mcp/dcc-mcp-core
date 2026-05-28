@@ -420,19 +420,6 @@ impl McpHttpConfig {
 
 #[allow(missing_docs, clippy::must_use_candidate)]
 impl McpHttpConfig {
-    /// Create a config with the given port and sensible defaults.
-    ///
-    /// # Deprecated
-    ///
-    /// Use [`McpHttpConfig::default()`] or the builder pattern instead.
-    /// This method will be removed in a future minor release.
-    #[deprecated(note = "use McpHttpConfig::default() or the builder pattern")]
-    pub fn new(port: u16) -> Self {
-        let mut cfg = Self::default();
-        cfg.server.port = port;
-        cfg
-    }
-
     pub fn with_port(mut self, port: u16) -> Self {
         self.server.port = port;
         self
