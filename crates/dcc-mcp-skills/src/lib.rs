@@ -20,8 +20,9 @@ pub use catalog::{SkillCatalog, SkillDetail, SkillState, SkillSummary};
 pub use feedback::{SkillFeedback, get_skill_feedback, record_skill_feedback};
 pub use gui_executable::{GuiExecutableHint, correct_python_executable, is_gui_executable};
 pub use loader::{
-    LoadResult, parse_skill_md, scan_and_load, scan_and_load_lenient, scan_and_load_strict,
-    scan_and_load_team, scan_and_load_team_lenient, scan_and_load_user, scan_and_load_user_lenient,
+    LoadResult, LoadResultWithSources, parse_skill_md, scan_and_load, scan_and_load_lenient,
+    scan_and_load_lenient_with_sources, scan_and_load_strict, scan_and_load_team,
+    scan_and_load_team_lenient, scan_and_load_user, scan_and_load_user_lenient,
 };
 pub use manager::SkillsManager;
 pub use paths::{

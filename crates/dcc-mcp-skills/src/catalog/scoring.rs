@@ -58,6 +58,34 @@
 //! (e.g. `tags=["infrastructure"]` or `tags=["example"]`). That signals
 //! deliberate intent to browse that layer, so the ranker honours the raw
 //! BM25 order inside the filtered slice.
+//!
+//! # Path-source rank penalty (issue #1403)
+//!
+//! Skills shipped with the dcc-mcp package itself (under
+//! `python/dcc_mcp_core/skills/`, or per-DCC adapter bundled skills) are
+//! intended as starter material and reference implementations. When a user
+//! has invested in their own local-development skills under
+//! `~/.dcc-mcp/<dcc>/skills`, exported `DCC_MCP_*_SKILL_PATHS`, or added a
+//! custom path through the admin UI, those skills should outrank the
+//! bundled ones for neutral queries — they are demonstrably what the user
+//! cares about.
+//!
+//! A small multiplier is applied based on [`SkillPathSource`]:
+//!
+//! | Source           | Multiplier   |
+//! |------------------|-------------:|
+//! | `Unknown`        |         1.00 |
+//! | `ExplicitArg`    |         1.00 |
+//! | `AdminCustom`    |         1.00 |
+//! | `EnvVar`         |         1.00 |
+//! | `LocalDev`       |         1.00 |
+//! | `Platform`       |         0.85 |
+//! | `Bundled`        |         0.70 |
+//!
+//! All values are ≤ 1.0 so this multiplier compounds cleanly with the
+//! layer multiplier. The exact-name fast-path bypasses this penalty too —
+//! typing the literal skill name is always the strongest "I want this
+//! specific skill" signal a caller can give.
 
 use dcc_mcp_models::{SkillMetadata, SkillScope};
 
@@ -114,6 +142,74 @@ pub fn layer_multiplier(layer: Option<&str>, explicit: bool) -> Option<f64> {
             Some(LAYER_MULT_THIN_HARNESS)
         }
         _ => Some(1.0),
+    }
+}
+
+/// Path-source multipliers applied to the BM25 total. See module docs for
+/// the rationale and table.
+pub const PATH_SOURCE_MULT_BUNDLED: f64 = 0.70;
+pub const PATH_SOURCE_MULT_PLATFORM: f64 = 0.85;
+
+/// Where a skill was discovered from. Used as a rank signal by
+/// [`path_source_multiplier`] so user-curated locations outrank bundled
+/// starter material for neutral queries. See module docs (#1403).
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillPathSource {
+    /// No source information — multiplier is 1.0 (no change). Default for
+    /// older catalog code paths and tests that don't carry source data.
+    #[default]
+    Unknown,
+    /// Shipped with the dcc-mcp package itself, e.g.
+    /// `python/dcc_mcp_core/skills/` or a per-DCC adapter's
+    /// `<adapter>/skills/` directory.
+    Bundled,
+    /// Platform-wide install directory (e.g. the global skills dir under
+    /// the platform data dir). Not part of the dcc-mcp package, but also
+    /// not directly user-curated.
+    Platform,
+    /// Local developer skills under `~/.dcc-mcp/<dcc>/skills` — the
+    /// convention for "skills I'm iterating on right now".
+    LocalDev,
+    /// Discovered via `DCC_MCP_SKILL_PATHS` or `DCC_MCP_<APP>_SKILL_PATHS`.
+    EnvVar,
+    /// Passed explicitly by the caller through `extra_paths`.
+    ExplicitArg,
+    /// Added at runtime through the admin UI (gateway SQLite lane).
+    AdminCustom,
+}
+
+impl SkillPathSource {
+    /// Stable short label used in JSON, logs, and tracing spans.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::Bundled => "bundled",
+            Self::Platform => "platform",
+            Self::LocalDev => "local_dev",
+            Self::EnvVar => "env_var",
+            Self::ExplicitArg => "explicit_arg",
+            Self::AdminCustom => "admin_custom",
+        }
+    }
+}
+
+/// Coefficient applied to the BM25 total based on a skill's
+/// [`SkillPathSource`]. All values are in `[0.7, 1.0]` so the multiplier
+/// compounds cleanly with the layer multiplier (which is also `≤ 1.0`).
+#[must_use]
+pub fn path_source_multiplier(source: SkillPathSource) -> f64 {
+    match source {
+        SkillPathSource::Bundled => PATH_SOURCE_MULT_BUNDLED,
+        SkillPathSource::Platform => PATH_SOURCE_MULT_PLATFORM,
+        SkillPathSource::Unknown
+        | SkillPathSource::LocalDev
+        | SkillPathSource::EnvVar
+        | SkillPathSource::ExplicitArg
+        | SkillPathSource::AdminCustom => 1.0,
     }
 }
 
@@ -262,17 +358,32 @@ pub struct Scored {
 /// the layer-based penalty (see module docs, issue #1398) is then skipped so
 /// the user-requested layer is ranked on raw BM25 alone. Pass `false` for
 /// the common case of an unfiltered search.
+///
+/// `path_sources` is an optional parallel slice indicating where each skill
+/// was discovered from. When provided it must be the same length as
+/// `skills` and the path-source multiplier (issue #1403) is applied on top
+/// of the layer multiplier. Pass `None` (or an entry of
+/// [`SkillPathSource::Unknown`]) to opt out of the penalty for callers that
+/// do not yet track this information.
 pub fn score_skills(
     query: &str,
     skills: &[&SkillMetadata],
     scopes: &[SkillScope],
     layer_filter_explicit: bool,
+    path_sources: Option<&[SkillPathSource]>,
 ) -> Vec<Scored> {
     assert_eq!(
         skills.len(),
         scopes.len(),
         "skills and scopes slices must be the same length"
     );
+    if let Some(srcs) = path_sources {
+        assert_eq!(
+            skills.len(),
+            srcs.len(),
+            "skills and path_sources slices must be the same length"
+        );
+    }
 
     let tokens = tokenize(query);
     let q_trim_lower = query.trim().to_lowercase();
@@ -352,6 +463,14 @@ pub fn score_skills(
             Some(mult) => total *= mult,
             None if exact_name => {}
             None => continue,
+        }
+
+        // Path-source rank penalty (issue #1403). Compounds with the layer
+        // multiplier. Skipped for exact-name matches because typing the
+        // literal skill name is the strongest "I want this specific skill"
+        // signal a caller can give and should bypass all rank dampening.
+        if !exact_name && let Some(srcs) = path_sources {
+            total *= path_source_multiplier(srcs[i]);
         }
 
         if total == 0.0 && !exact_name {
@@ -498,7 +617,7 @@ mod tests {
         let b = mk("sphere");
         let skills = vec![&a, &b];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
-        let out = score_skills("sphere", &skills, &scopes, false);
+        let out = score_skills("sphere", &skills, &scopes, false, None);
         assert!(!out.is_empty());
         assert_eq!(out[0].name, "sphere", "exact-name match must rank first");
     }
@@ -509,7 +628,7 @@ mod tests {
         let a = mk_full("polygon-tools", "polygon modelling", "", &[], "maya", &[]);
         let skills = vec![&a];
         let scopes = vec![SkillScope::Repo];
-        let out = score_skills("poly", &skills, &scopes, false);
+        let out = score_skills("poly", &skills, &scopes, false, None);
         assert!(
             out.is_empty(),
             "prefix-only queries must not match without stemming"
@@ -522,7 +641,7 @@ mod tests {
         let b = mk_full("beta", "something else entirely", "", &[], "maya", &[]);
         let skills = vec![&a, &b];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
-        let out = score_skills("rigging", &skills, &scopes, false);
+        let out = score_skills("rigging", &skills, &scopes, false, None);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].name, "alpha");
     }
@@ -533,7 +652,7 @@ mod tests {
         let b = mk_full("beta", "handles rendering", "", &[], "maya", &[]);
         let skills = vec![&a, &b];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
-        let out = score_skills("animation", &skills, &scopes, false);
+        let out = score_skills("animation", &skills, &scopes, false, None);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].name, "alpha");
     }
@@ -553,7 +672,7 @@ mod tests {
         let b = mk_full("other", "unrelated stuff", "", &[], "maya", &[]);
         let skills = vec![&a, &b];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
-        let out = score_skills("turntable", &skills, &scopes, false);
+        let out = score_skills("turntable", &skills, &scopes, false, None);
         assert_eq!(out.len(), 1, "sibling tool name must be scorable");
         assert_eq!(out[0].name, "scene-utils");
     }
@@ -566,7 +685,7 @@ mod tests {
         let skills = vec![&a, &b];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
 
-        let out = score_skills("primitive ball", &skills, &scopes, false);
+        let out = score_skills("primitive ball", &skills, &scopes, false, None);
 
         assert_eq!(out.len(), 1, "skill search aliases must be scorable");
         assert_eq!(out[0].name, "geometry-tools");
@@ -587,7 +706,7 @@ mod tests {
         let skills = vec![&a, &b];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
 
-        let out = score_skills("mesh globe", &skills, &scopes, false);
+        let out = score_skills("mesh globe", &skills, &scopes, false, None);
 
         assert_eq!(out.len(), 1, "tool search aliases must be scorable");
         assert_eq!(out[0].name, "scene-utils");
@@ -598,7 +717,7 @@ mod tests {
         let a = mk_full("alpha", "stuff", "", &[], "maya", &[]);
         let skills = vec![&a];
         let scopes = vec![SkillScope::Repo];
-        let out = score_skills("the of and", &skills, &scopes, false);
+        let out = score_skills("the of and", &skills, &scopes, false, None);
         assert!(out.is_empty(), "stopword-only queries must yield no hits");
     }
 
@@ -607,7 +726,7 @@ mod tests {
         let a = mk("alpha");
         let skills = vec![&a];
         let scopes = vec![SkillScope::Repo];
-        let out = score_skills("", &skills, &scopes, false);
+        let out = score_skills("", &skills, &scopes, false, None);
         assert!(out.is_empty());
     }
 
@@ -632,7 +751,7 @@ mod tests {
         );
         let skills = vec![&one, &both];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
-        let out = score_skills("polygon bevel", &skills, &scopes, false);
+        let out = score_skills("polygon bevel", &skills, &scopes, false, None);
         assert_eq!(out[0].name, "polygon-bevel");
     }
 
@@ -643,7 +762,7 @@ mod tests {
         let b = mk_full("beta", "renderer thing", "", &[], "maya", &[]);
         let skills = vec![&a, &b];
         let scopes = vec![SkillScope::Repo, SkillScope::Admin];
-        let out = score_skills("renderer", &skills, &scopes, false);
+        let out = score_skills("renderer", &skills, &scopes, false, None);
         assert_eq!(out.len(), 2);
         assert_eq!(
             out[0].name, "beta",
@@ -658,7 +777,7 @@ mod tests {
         let b = mk_full("beta", "renderer thing", "", &[], "blender", &[]);
         let skills = vec![&a, &b];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
-        let out = score_skills("maya", &skills, &scopes, false);
+        let out = score_skills("maya", &skills, &scopes, false, None);
         assert_eq!(out[0].name, "alpha", "dcc token boost must apply");
     }
 
@@ -669,7 +788,7 @@ mod tests {
         let b = mk_full("aaa", "renderer thing", "", &[], "maya", &[]);
         let skills = vec![&a, &b];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
-        let out = score_skills("renderer", &skills, &scopes, false);
+        let out = score_skills("renderer", &skills, &scopes, false, None);
         assert_eq!(out[0].name, "aaa");
         assert_eq!(out[1].name, "zzz");
     }
@@ -719,7 +838,7 @@ mod tests {
         let domain = mk_layered("maya-render", "render bake helpers", Some("domain"));
         let skills = vec![&infra, &domain];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
-        let out = score_skills("render bake", &skills, &scopes, false);
+        let out = score_skills("render bake", &skills, &scopes, false, None);
         assert_eq!(out.len(), 2);
         assert_eq!(
             out[0].name, "maya-render",
@@ -737,7 +856,7 @@ mod tests {
         let infra = mk_layered("dcc-diagnostics", "render bake", Some("infrastructure"));
         let skills = vec![&example, &infra];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
-        let out = score_skills("render bake", &skills, &scopes, false);
+        let out = score_skills("render bake", &skills, &scopes, false, None);
         assert_eq!(out.len(), 1, "example layer must be excluded from results");
         assert_eq!(out[0].name, "dcc-diagnostics");
     }
@@ -751,7 +870,13 @@ mod tests {
         let example_b = mk_layered("demo-b", "render bake", Some("example"));
         let skills = vec![&example_b, &example_a];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
-        let out = score_skills("render bake", &skills, &scopes, /*explicit=*/ true);
+        let out = score_skills(
+            "render bake",
+            &skills,
+            &scopes,
+            /*explicit=*/ true,
+            None,
+        );
         assert_eq!(out.len(), 2);
         assert_eq!(
             out[0].name, "demo-a",
@@ -772,7 +897,7 @@ mod tests {
         let infra = mk_layered("dcc-diagnostics", "render bake", Some("infrastructure"));
         let skills = vec![&thin, &infra];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
-        let out = score_skills("render bake", &skills, &scopes, false);
+        let out = score_skills("render bake", &skills, &scopes, false, None);
         assert_eq!(out.len(), 2);
         assert_eq!(
             out[0].name, "dcc-diagnostics",
@@ -790,7 +915,7 @@ mod tests {
         let domain = mk_layered("beta", "render bake helpers", Some("domain"));
         let skills = vec![&unset, &domain];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
-        let out = score_skills("render bake", &skills, &scopes, false);
+        let out = score_skills("render bake", &skills, &scopes, false, None);
         assert_eq!(out.len(), 2);
         // Identical scores → alphabetical name tie-break.
         assert_eq!(out[0].name, "alpha");
@@ -809,7 +934,13 @@ mod tests {
         let infra_weak = mk_layered("other-infra", "render", Some("infrastructure"));
         let skills = vec![&infra_weak, &infra_strong];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
-        let out = score_skills("render bake", &skills, &scopes, /*explicit=*/ true);
+        let out = score_skills(
+            "render bake",
+            &skills,
+            &scopes,
+            /*explicit=*/ true,
+            None,
+        );
         assert_eq!(out.len(), 2);
         assert_eq!(
             out[0].name, "dcc-diagnostics",
@@ -830,7 +961,7 @@ mod tests {
         let domain = mk_layered("maya-render", "diagnostics tool", Some("domain"));
         let skills = vec![&infra, &domain];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
-        let out = score_skills("dcc-diagnostics", &skills, &scopes, false);
+        let out = score_skills("dcc-diagnostics", &skills, &scopes, false, None);
         assert!(!out.is_empty());
         assert_eq!(
             out[0].name, "dcc-diagnostics",
@@ -847,11 +978,150 @@ mod tests {
         let domain = mk_layered("maya-render", "demo turntable", Some("domain"));
         let skills = vec![&example, &domain];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
-        let out = score_skills("demo-render", &skills, &scopes, false);
+        let out = score_skills("demo-render", &skills, &scopes, false, None);
         assert!(!out.is_empty());
         assert_eq!(
             out[0].name, "demo-render",
             "exact-name query must bypass the example-layer exclusion"
         );
+    }
+
+    // ── path-source rank penalty (issue #1403) ──────────────────────────
+
+    #[test]
+    fn test_path_source_multiplier_table() {
+        // The documented coefficient table — every variant maps to a
+        // multiplier in `[0.7, 1.0]`.
+        assert_eq!(path_source_multiplier(SkillPathSource::Unknown), 1.0);
+        assert_eq!(path_source_multiplier(SkillPathSource::ExplicitArg), 1.0);
+        assert_eq!(path_source_multiplier(SkillPathSource::AdminCustom), 1.0);
+        assert_eq!(path_source_multiplier(SkillPathSource::EnvVar), 1.0);
+        assert_eq!(path_source_multiplier(SkillPathSource::LocalDev), 1.0);
+        assert_eq!(path_source_multiplier(SkillPathSource::Platform), 0.85);
+        assert_eq!(path_source_multiplier(SkillPathSource::Bundled), 0.70);
+    }
+
+    #[test]
+    fn test_path_source_default_is_unknown() {
+        // SkillEntry uses `#[serde(default)]` so the default must keep
+        // the existing behaviour (no multiplier change).
+        assert_eq!(SkillPathSource::default(), SkillPathSource::Unknown);
+        assert_eq!(path_source_multiplier(SkillPathSource::default()), 1.0);
+    }
+
+    #[test]
+    fn test_path_source_bundled_ranks_below_local_dev() {
+        // Two identical-content skills, same layer (domain) — only the
+        // path source differs. The bundled skill must rank below the
+        // local-dev skill thanks to the × 0.70 multiplier.
+        let bundled = mk_full("alpha", "render bake helpers", "", &[], "maya", &[]);
+        let local_dev = mk_full("beta", "render bake helpers", "", &[], "maya", &[]);
+        let skills = vec![&bundled, &local_dev];
+        let scopes = vec![SkillScope::Repo, SkillScope::Repo];
+        let sources = vec![SkillPathSource::Bundled, SkillPathSource::LocalDev];
+        let out = score_skills("render bake", &skills, &scopes, false, Some(&sources));
+        assert_eq!(out.len(), 2);
+        assert_eq!(
+            out[0].name, "beta",
+            "LocalDev skill must outrank Bundled skill"
+        );
+        assert_eq!(out[1].name, "alpha");
+    }
+
+    #[test]
+    fn test_path_source_env_var_outranks_bundled() {
+        // Even a Bundled skill with a stronger raw BM25 match still loses
+        // to an EnvVar skill with a weaker match once the multiplier
+        // (× 0.70 vs × 1.00) is applied.
+        let bundled = mk_full("alpha", "render bake render bake", "", &[], "maya", &[]);
+        let env_var = mk_full("beta", "render bake", "", &[], "maya", &[]);
+        let skills = vec![&bundled, &env_var];
+        let scopes = vec![SkillScope::Repo, SkillScope::Repo];
+        let sources = vec![SkillPathSource::Bundled, SkillPathSource::EnvVar];
+        let out = score_skills("render bake", &skills, &scopes, false, Some(&sources));
+        assert_eq!(out.len(), 2);
+        assert_eq!(
+            out[0].name, "beta",
+            "EnvVar skill must outrank Bundled even with weaker BM25"
+        );
+    }
+
+    #[test]
+    fn test_path_source_platform_between_bundled_and_user() {
+        // Platform (× 0.85) sits between Bundled (× 0.70) and the
+        // user-curated sources (× 1.00).
+        let bundled = mk_full("alpha", "render bake", "", &[], "maya", &[]);
+        let platform = mk_full("beta", "render bake", "", &[], "maya", &[]);
+        let env_var = mk_full("gamma", "render bake", "", &[], "maya", &[]);
+        let skills = vec![&bundled, &platform, &env_var];
+        let scopes = vec![SkillScope::Repo; 3];
+        let sources = vec![
+            SkillPathSource::Bundled,
+            SkillPathSource::Platform,
+            SkillPathSource::EnvVar,
+        ];
+        let out = score_skills("render bake", &skills, &scopes, false, Some(&sources));
+        assert_eq!(out.len(), 3);
+        let names: Vec<_> = out.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["gamma", "beta", "alpha"]);
+    }
+
+    #[test]
+    fn test_path_source_exact_name_bypasses_penalty() {
+        // Exact-name match must surface a bundled skill even when a
+        // local-dev skill matches the query better — typing the literal
+        // name is the strongest user-intent signal.
+        let bundled = mk_full("dcc-diagnostics", "diagnostics tool", "", &[], "maya", &[]);
+        let local_dev = mk_full(
+            "alpha",
+            "diagnostics tool dcc-diagnostics",
+            "",
+            &[],
+            "maya",
+            &[],
+        );
+        let skills = vec![&bundled, &local_dev];
+        let scopes = vec![SkillScope::Repo, SkillScope::Repo];
+        let sources = vec![SkillPathSource::Bundled, SkillPathSource::LocalDev];
+        let out = score_skills("dcc-diagnostics", &skills, &scopes, false, Some(&sources));
+        assert!(!out.is_empty());
+        assert_eq!(
+            out[0].name, "dcc-diagnostics",
+            "exact-name match must bypass the path-source penalty"
+        );
+    }
+
+    #[test]
+    fn test_path_source_compounds_with_layer_penalty() {
+        // Layer × source compose multiplicatively. A `domain` skill in
+        // Bundled (1.00 × 0.70 = 0.70) still outranks an `infrastructure`
+        // skill in LocalDev (0.35 × 1.00 = 0.35) for the same query.
+        let domain_bundled = mk_layered("alpha", "render bake helpers", Some("domain"));
+        let infra_localdev = mk_layered("beta", "render bake helpers", Some("infrastructure"));
+        let skills = vec![&domain_bundled, &infra_localdev];
+        let scopes = vec![SkillScope::Repo, SkillScope::Repo];
+        let sources = vec![SkillPathSource::Bundled, SkillPathSource::LocalDev];
+        let out = score_skills("render bake", &skills, &scopes, false, Some(&sources));
+        assert_eq!(out.len(), 2);
+        assert_eq!(
+            out[0].name, "alpha",
+            "domain × bundled (0.70) must outrank infrastructure × local_dev (0.35)"
+        );
+    }
+
+    #[test]
+    fn test_path_source_none_arg_is_neutral() {
+        // Passing `None` for path_sources means "caller doesn't track
+        // origin" — every entry gets the implicit × 1.00 multiplier so
+        // the previous behaviour is preserved bit-for-bit.
+        let alpha = mk_full("alpha", "render bake", "", &[], "maya", &[]);
+        let beta = mk_full("beta", "render bake", "", &[], "maya", &[]);
+        let skills = vec![&alpha, &beta];
+        let scopes = vec![SkillScope::Repo, SkillScope::Repo];
+        let out = score_skills("render bake", &skills, &scopes, false, None);
+        assert_eq!(out.len(), 2);
+        // Identical scores → alphabetical tie-break.
+        assert_eq!(out[0].name, "alpha");
+        assert_eq!(out[1].name, "beta");
     }
 }

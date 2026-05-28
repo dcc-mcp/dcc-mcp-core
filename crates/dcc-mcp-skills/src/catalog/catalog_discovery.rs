@@ -177,7 +177,7 @@ impl SkillCatalog {
 
     /// Discover skills from the standard scan paths.
     pub fn discover(&self, extra_paths: Option<&[String]>, dcc_name: Option<&str>) -> usize {
-        let result = match loader::scan_and_load_lenient(extra_paths, dcc_name) {
+        let result = match loader::scan_and_load_lenient_with_sources(extra_paths, dcc_name) {
             Ok(result) => result,
             Err(err) => {
                 tracing::error!("SkillCatalog: discovery failed: {err}");
@@ -186,7 +186,7 @@ impl SkillCatalog {
         };
 
         let mut new_count = 0;
-        for skill in result.skills {
+        for (skill, path_source) in result.skills {
             let name = skill.name.clone();
             if !self.entries.contains_key(&name) {
                 self.entries.insert(
@@ -196,6 +196,7 @@ impl SkillCatalog {
                         state: SkillState::Discovered,
                         registered_tools: Vec::new(),
                         scope: SkillScope::Repo,
+                        path_source,
                     },
                 );
                 new_count += 1;
@@ -225,7 +226,7 @@ impl SkillCatalog {
     /// are no longer present in the scan result. It is intended for explicit
     /// refresh flows such as the Admin skill-path panel.
     pub fn rediscover(&self, extra_paths: Option<&[String]>, dcc_name: Option<&str>) -> usize {
-        let result = match loader::scan_and_load_lenient(extra_paths, dcc_name) {
+        let result = match loader::scan_and_load_lenient_with_sources(extra_paths, dcc_name) {
             Ok(result) => result,
             Err(err) => {
                 tracing::error!("SkillCatalog: rediscovery failed: {err}");
@@ -236,11 +237,12 @@ impl SkillCatalog {
         let mut seen = std::collections::HashSet::new();
         let mut added = 0usize;
 
-        for skill in result.skills {
+        for (skill, path_source) in result.skills {
             let name = skill.name.clone();
             seen.insert(name.clone());
             if let Some(mut entry) = self.entries.get_mut(&name) {
                 entry.metadata = skill;
+                entry.path_source = path_source;
                 if entry.state != SkillState::Loaded {
                     entry.state = SkillState::Discovered;
                 }
@@ -252,6 +254,7 @@ impl SkillCatalog {
                         state: SkillState::Discovered,
                         registered_tools: Vec::new(),
                         scope: SkillScope::Repo,
+                        path_source,
                     },
                 );
                 added += 1;
@@ -304,6 +307,7 @@ impl SkillCatalog {
                     state: SkillState::Discovered,
                     registered_tools: Vec::new(),
                     scope: SkillScope::Repo,
+                    path_source: Default::default(),
                 },
             );
         }
@@ -348,6 +352,7 @@ impl SkillCatalog {
                             state: SkillState::Discovered,
                             registered_tools: Vec::new(),
                             scope: *scope,
+                            path_source: Default::default(),
                         },
                     );
                     total_new += 1;
