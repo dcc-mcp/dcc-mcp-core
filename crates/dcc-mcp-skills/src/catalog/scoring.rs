@@ -29,6 +29,28 @@
 //!
 //! Exact-match fast-path: if the query equals the skill name
 //! (case-insensitive, after trimming) that skill sorts first unconditionally.
+//!
+//! # Layer-based rank penalty (issue #1398)
+//!
+//! AI agents naturally rank skills by raw BM25 score alone, which lets broad
+//! infrastructure skills (e.g. `app-ui`, `dcc-adapter`, `dcc-diagnostics`)
+//! that cover dozens of generic tokens outrank domain skills that map a
+//! specific user intent. To make those infrastructure skills behave as the
+//! "fallback" the layering rules say they are, the final score is multiplied
+//! by a coefficient derived from `metadata.dcc-mcp.layer`:
+//!
+//! | Layer            | Multiplier |
+//! |------------------|-----------:|
+//! | `domain`         |       1.00 |
+//! | `thin-harness`   |       1.00 |
+//! | unset (`None`)   |       1.00 |
+//! | `infrastructure` |       0.35 |
+//! | `example`        |       0.20 |
+//!
+//! The penalty is bypassed when the caller explicitly filters by a known
+//! layer name through the `tags` argument (e.g. `tags=["infrastructure"]`).
+//! That case signals deliberate intent to browse low-level skills, so the
+//! ranker honours the raw BM25 order inside that filtered slice.
 
 use dcc_mcp_models::{SkillMetadata, SkillScope};
 
@@ -48,6 +70,37 @@ pub const W_TOOL_NAME: f64 = 2.0;
 pub const W_TOOL_ALIAS: f64 = 2.0;
 pub const W_TOOL_DESCRIPTION: f64 = 1.0;
 pub const W_DCC: f64 = 4.0;
+
+/// Layer multiplier applied to the BM25 total when `apply_layer_penalty`
+/// is true. See module docs for the rationale and table.
+pub const LAYER_MULT_INFRASTRUCTURE: f64 = 0.35;
+pub const LAYER_MULT_EXAMPLE: f64 = 0.20;
+
+/// Known layer names recognised by [`layer_multiplier`] and the
+/// `apply_layer_penalty` detection in [`SkillCatalog::search_skills`].
+/// Match `metadata.dcc-mcp.layer` values declared in `AGENTS.md`.
+pub const LAYER_DOMAIN: &str = "domain";
+pub const LAYER_THIN_HARNESS: &str = "thin-harness";
+pub const LAYER_INFRASTRUCTURE: &str = "infrastructure";
+pub const LAYER_EXAMPLE: &str = "example";
+
+/// Coefficient applied to the BM25 total based on `metadata.dcc-mcp.layer`.
+///
+/// `explicit` is `true` when the caller explicitly filtered by a layer tag
+/// (`tags=["infrastructure"]` etc.) — in that case no penalty is applied
+/// because the caller asked for that layer on purpose.
+pub fn layer_multiplier(layer: Option<&str>, explicit: bool) -> f64 {
+    if explicit {
+        return 1.0;
+    }
+    match layer.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(value) if value.eq_ignore_ascii_case(LAYER_INFRASTRUCTURE) => {
+            LAYER_MULT_INFRASTRUCTURE
+        }
+        Some(value) if value.eq_ignore_ascii_case(LAYER_EXAMPLE) => LAYER_MULT_EXAMPLE,
+        _ => 1.0,
+    }
+}
 
 /// A tiny English stopword list. Intentionally small — this library is used
 /// with short, technical queries ("polygon bevel", "render maya"); we don't
@@ -188,7 +241,18 @@ pub struct Scored {
 /// The `scopes` slice must be the same length as `skills` and provide the
 /// scope for each skill (catalog holds scopes on `SkillEntry`, not on
 /// `SkillMetadata`).
-pub fn score_skills(query: &str, skills: &[&SkillMetadata], scopes: &[SkillScope]) -> Vec<Scored> {
+///
+/// `layer_filter_explicit` should be `true` when the caller already filtered
+/// the input set by a known layer name (e.g. `tags=["infrastructure"]`) —
+/// the layer-based penalty (see module docs, issue #1398) is then skipped so
+/// the user-requested layer is ranked on raw BM25 alone. Pass `false` for
+/// the common case of an unfiltered search.
+pub fn score_skills(
+    query: &str,
+    skills: &[&SkillMetadata],
+    scopes: &[SkillScope],
+    layer_filter_explicit: bool,
+) -> Vec<Scored> {
     assert_eq!(
         skills.len(),
         scopes.len(),
@@ -259,6 +323,11 @@ pub fn score_skills(query: &str, skills: &[&SkillMetadata], scopes: &[SkillScope
                 + W_DCC * field_bm25(count_occurrences(&fields_i.dcc, q), dl, avgdl);
             total += idf_v * contrib;
         }
+
+        // Layer-based rank penalty (issue #1398). Applied after BM25 sum so
+        // the multiplier compounds across all query tokens, not per-token.
+        let mult = layer_multiplier(meta.layer.as_deref(), layer_filter_explicit);
+        total *= mult;
 
         let name_lower = meta.name.to_lowercase();
         let exact_name = name_lower == q_trim_lower && !q_trim_lower.is_empty();
@@ -408,7 +477,7 @@ mod tests {
         let b = mk("sphere");
         let skills = vec![&a, &b];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
-        let out = score_skills("sphere", &skills, &scopes);
+        let out = score_skills("sphere", &skills, &scopes, false);
         assert!(!out.is_empty());
         assert_eq!(out[0].name, "sphere", "exact-name match must rank first");
     }
@@ -419,7 +488,7 @@ mod tests {
         let a = mk_full("polygon-tools", "polygon modelling", "", &[], "maya", &[]);
         let skills = vec![&a];
         let scopes = vec![SkillScope::Repo];
-        let out = score_skills("poly", &skills, &scopes);
+        let out = score_skills("poly", &skills, &scopes, false);
         assert!(
             out.is_empty(),
             "prefix-only queries must not match without stemming"
@@ -432,7 +501,7 @@ mod tests {
         let b = mk_full("beta", "something else entirely", "", &[], "maya", &[]);
         let skills = vec![&a, &b];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
-        let out = score_skills("rigging", &skills, &scopes);
+        let out = score_skills("rigging", &skills, &scopes, false);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].name, "alpha");
     }
@@ -443,7 +512,7 @@ mod tests {
         let b = mk_full("beta", "handles rendering", "", &[], "maya", &[]);
         let skills = vec![&a, &b];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
-        let out = score_skills("animation", &skills, &scopes);
+        let out = score_skills("animation", &skills, &scopes, false);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].name, "alpha");
     }
@@ -463,7 +532,7 @@ mod tests {
         let b = mk_full("other", "unrelated stuff", "", &[], "maya", &[]);
         let skills = vec![&a, &b];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
-        let out = score_skills("turntable", &skills, &scopes);
+        let out = score_skills("turntable", &skills, &scopes, false);
         assert_eq!(out.len(), 1, "sibling tool name must be scorable");
         assert_eq!(out[0].name, "scene-utils");
     }
@@ -476,7 +545,7 @@ mod tests {
         let skills = vec![&a, &b];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
 
-        let out = score_skills("primitive ball", &skills, &scopes);
+        let out = score_skills("primitive ball", &skills, &scopes, false);
 
         assert_eq!(out.len(), 1, "skill search aliases must be scorable");
         assert_eq!(out[0].name, "geometry-tools");
@@ -497,7 +566,7 @@ mod tests {
         let skills = vec![&a, &b];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
 
-        let out = score_skills("mesh globe", &skills, &scopes);
+        let out = score_skills("mesh globe", &skills, &scopes, false);
 
         assert_eq!(out.len(), 1, "tool search aliases must be scorable");
         assert_eq!(out[0].name, "scene-utils");
@@ -508,7 +577,7 @@ mod tests {
         let a = mk_full("alpha", "stuff", "", &[], "maya", &[]);
         let skills = vec![&a];
         let scopes = vec![SkillScope::Repo];
-        let out = score_skills("the of and", &skills, &scopes);
+        let out = score_skills("the of and", &skills, &scopes, false);
         assert!(out.is_empty(), "stopword-only queries must yield no hits");
     }
 
@@ -517,7 +586,7 @@ mod tests {
         let a = mk("alpha");
         let skills = vec![&a];
         let scopes = vec![SkillScope::Repo];
-        let out = score_skills("", &skills, &scopes);
+        let out = score_skills("", &skills, &scopes, false);
         assert!(out.is_empty());
     }
 
@@ -542,7 +611,7 @@ mod tests {
         );
         let skills = vec![&one, &both];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
-        let out = score_skills("polygon bevel", &skills, &scopes);
+        let out = score_skills("polygon bevel", &skills, &scopes, false);
         assert_eq!(out[0].name, "polygon-bevel");
     }
 
@@ -553,7 +622,7 @@ mod tests {
         let b = mk_full("beta", "renderer thing", "", &[], "maya", &[]);
         let skills = vec![&a, &b];
         let scopes = vec![SkillScope::Repo, SkillScope::Admin];
-        let out = score_skills("renderer", &skills, &scopes);
+        let out = score_skills("renderer", &skills, &scopes, false);
         assert_eq!(out.len(), 2);
         assert_eq!(
             out[0].name, "beta",
@@ -568,7 +637,7 @@ mod tests {
         let b = mk_full("beta", "renderer thing", "", &[], "blender", &[]);
         let skills = vec![&a, &b];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
-        let out = score_skills("maya", &skills, &scopes);
+        let out = score_skills("maya", &skills, &scopes, false);
         assert_eq!(out[0].name, "alpha", "dcc token boost must apply");
     }
 
@@ -579,8 +648,129 @@ mod tests {
         let b = mk_full("aaa", "renderer thing", "", &[], "maya", &[]);
         let skills = vec![&a, &b];
         let scopes = vec![SkillScope::Repo, SkillScope::Repo];
-        let out = score_skills("renderer", &skills, &scopes);
+        let out = score_skills("renderer", &skills, &scopes, false);
         assert_eq!(out[0].name, "aaa");
         assert_eq!(out[1].name, "zzz");
+    }
+
+    // ── layer-based rank penalty (issue #1398) ──────────────────────────
+
+    fn mk_layered(name: &str, desc: &str, layer: Option<&str>) -> SkillMetadata {
+        let mut m = mk_full(name, desc, "", &[], "maya", &[]);
+        m.layer = layer.map(|s| s.to_string());
+        m
+    }
+
+    #[test]
+    fn test_layer_multiplier_table() {
+        // Sanity table — the constants must produce the documented coefficients.
+        assert_eq!(layer_multiplier(None, false), 1.0);
+        assert_eq!(layer_multiplier(Some("domain"), false), 1.0);
+        assert_eq!(layer_multiplier(Some("thin-harness"), false), 1.0);
+        assert_eq!(layer_multiplier(Some("infrastructure"), false), 0.35);
+        assert_eq!(layer_multiplier(Some("INFRASTRUCTURE"), false), 0.35);
+        assert_eq!(layer_multiplier(Some("example"), false), 0.20);
+        // Explicit filter disables the penalty regardless of layer.
+        assert_eq!(layer_multiplier(Some("infrastructure"), true), 1.0);
+        assert_eq!(layer_multiplier(Some("example"), true), 1.0);
+        // Unknown layer values are treated as "no layer" → no penalty.
+        assert_eq!(layer_multiplier(Some("weird-future-layer"), false), 1.0);
+        // Whitespace-only is treated as None.
+        assert_eq!(layer_multiplier(Some("   "), false), 1.0);
+    }
+
+    #[test]
+    fn test_layer_infrastructure_ranked_below_domain() {
+        // Both skills have the same description — without the penalty BM25
+        // would tie. Layer pushes infrastructure below domain.
+        let infra = mk_layered(
+            "dcc-diagnostics",
+            "render bake helpers",
+            Some("infrastructure"),
+        );
+        let domain = mk_layered("maya-render", "render bake helpers", Some("domain"));
+        let skills = vec![&infra, &domain];
+        let scopes = vec![SkillScope::Repo, SkillScope::Repo];
+        let out = score_skills("render bake", &skills, &scopes, false);
+        assert_eq!(out.len(), 2);
+        assert_eq!(
+            out[0].name, "maya-render",
+            "domain layer must outrank infrastructure"
+        );
+        assert_eq!(out[1].name, "dcc-diagnostics");
+    }
+
+    #[test]
+    fn test_layer_example_ranked_below_infrastructure() {
+        // Both layered — example × 0.20 must lose to infrastructure × 0.35.
+        let example = mk_layered("demo-render", "render bake helpers", Some("example"));
+        let infra = mk_layered(
+            "dcc-diagnostics",
+            "render bake helpers",
+            Some("infrastructure"),
+        );
+        let skills = vec![&example, &infra];
+        let scopes = vec![SkillScope::Repo, SkillScope::Repo];
+        let out = score_skills("render bake", &skills, &scopes, false);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].name, "dcc-diagnostics");
+        assert_eq!(out[1].name, "demo-render");
+    }
+
+    #[test]
+    fn test_layer_unset_unaffected() {
+        // Skill with no layer must score identically to a `domain` skill
+        // (multiplier = 1.0 in both cases) — the existing tag/desc tie-break
+        // chain still drives the order.
+        let unset = mk_layered("alpha", "render bake helpers", None);
+        let domain = mk_layered("beta", "render bake helpers", Some("domain"));
+        let skills = vec![&unset, &domain];
+        let scopes = vec![SkillScope::Repo, SkillScope::Repo];
+        let out = score_skills("render bake", &skills, &scopes, false);
+        assert_eq!(out.len(), 2);
+        // Identical scores → alphabetical name tie-break.
+        assert_eq!(out[0].name, "alpha");
+        assert_eq!(out[1].name, "beta");
+    }
+
+    #[test]
+    fn test_layer_explicit_filter_disables_penalty() {
+        // When the caller filters by tags=["infrastructure"], the penalty is
+        // off so the raw BM25 order is honoured inside the filtered slice.
+        let infra_strong = mk_layered(
+            "dcc-diagnostics",
+            "render bake render bake",
+            Some("infrastructure"),
+        );
+        let infra_weak = mk_layered("other-infra", "render", Some("infrastructure"));
+        let skills = vec![&infra_weak, &infra_strong];
+        let scopes = vec![SkillScope::Repo, SkillScope::Repo];
+        let out = score_skills("render bake", &skills, &scopes, /*explicit=*/ true);
+        assert_eq!(out.len(), 2);
+        assert_eq!(
+            out[0].name, "dcc-diagnostics",
+            "explicit infrastructure filter must rank by raw BM25"
+        );
+    }
+
+    #[test]
+    fn test_layer_exact_name_fast_path_still_wins() {
+        // Exact-name fast path bypasses score comparison entirely, so a
+        // layer-penalised infrastructure skill still wins when the user
+        // queries its exact name.
+        let infra = mk_layered(
+            "dcc-diagnostics",
+            "diagnostics tool",
+            Some("infrastructure"),
+        );
+        let domain = mk_layered("maya-render", "diagnostics tool", Some("domain"));
+        let skills = vec![&infra, &domain];
+        let scopes = vec![SkillScope::Repo, SkillScope::Repo];
+        let out = score_skills("dcc-diagnostics", &skills, &scopes, false);
+        assert!(!out.is_empty());
+        assert_eq!(
+            out[0].name, "dcc-diagnostics",
+            "exact-name match must bypass the layer penalty"
+        );
     }
 }
