@@ -23,6 +23,7 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 tokio = { workspace = true }
 rmp-serde = { workspace = true }
+mdns-sd = { workspace = true, optional = true }
 dcc-mcp-pybridge = { workspace = true, optional = true }
 sysinfo.workspace = true
 ipckit.workspace = true
@@ -49,6 +50,7 @@ harness = false
 
 [features]
 default = []
+mdns = ["dep:mdns-sd"]
 python-bindings = ["pyo3", "dep:dcc-mcp-pybridge", "dcc-mcp-pybridge/python-bindings"]
 # Enable `pyo3-stub-gen` annotations on this crate's PyO3 types.
 stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]

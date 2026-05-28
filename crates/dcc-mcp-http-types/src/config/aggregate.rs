@@ -240,6 +240,12 @@ impl McpHttpConfig {
     pub fn set_allow_unknown_tools(&mut self, v: bool) {
         self.gateway.allow_unknown_tools = v;
     }
+    pub fn discover_mdns(&self) -> bool {
+        self.gateway.discover_mdns
+    }
+    pub fn set_discover_mdns(&mut self, v: bool) {
+        self.gateway.discover_mdns = v;
+    }
     pub fn gateway_policy(&self) -> GatewayPolicy {
         self.gateway.policy.clone()
     }
@@ -627,6 +633,12 @@ impl McpHttpConfig {
         self
     }
 
+    /// Builder: enable or disable LAN-local mDNS/DNS-SD discovery.
+    pub fn with_mdns_discovery(mut self, enabled: bool) -> Self {
+        self.gateway.discover_mdns = enabled;
+        self
+    }
+
     /// Builder: disable the connection-scoped tool-list cache (issue #438).
     pub fn without_tool_cache(mut self) -> Self {
         self.session.enable_tool_cache = false;
@@ -705,6 +717,14 @@ mod tests {
         let cfg = McpHttpConfig::default().with_job_recovery(JobRecoveryPolicy::Requeue);
         assert_eq!(cfg.job.job_recovery, JobRecoveryPolicy::Requeue);
         assert_eq!(cfg.job.job_recovery.as_str(), "requeue");
+    }
+
+    #[test]
+    fn mcp_http_config_mdns_discovery_builder_round_trips() {
+        let cfg = McpHttpConfig::default().with_mdns_discovery(true);
+        let s = serde_json::to_string(&cfg).unwrap();
+        let back: McpHttpConfig = serde_json::from_str(&s).unwrap();
+        assert!(back.gateway.discover_mdns);
     }
 
     #[test]

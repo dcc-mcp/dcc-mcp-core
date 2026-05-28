@@ -61,6 +61,7 @@ admin = []
 admin-persist-sqlite = ["admin", "dcc-mcp-db/gateway-admin-sqlite"]
 telemetry = ["dep:dcc-mcp-telemetry", "dep:opentelemetry"]
 prometheus = ["telemetry", "dcc-mcp-telemetry/prometheus", "dep:prometheus"]
+mdns = ["dcc-mcp-transport/mdns"]
 
 [dev-dependencies]
 tempfile = "3"

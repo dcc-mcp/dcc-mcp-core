@@ -190,6 +190,11 @@ pub(crate) struct ServerArgs {
     /// Maximum total log directory size in MiB (0 = disable size pruning). Default: 100.
     #[arg(long, env = "DCC_MCP_LOG_MAX_TOTAL_SIZE_MB", value_name = "MB")]
     pub(crate) log_max_total_size_mb: Option<u32>,
+
+    /// Advertise this per-DCC MCP endpoint on the LAN via mDNS/DNS-SD.
+    #[cfg(feature = "mdns")]
+    #[arg(long, env = "DCC_MCP_ADVERTISE_MDNS", default_value = "false")]
+    pub(crate) advertise_mdns: bool,
 }
 
 /// Explicit per-DCC server mode.
