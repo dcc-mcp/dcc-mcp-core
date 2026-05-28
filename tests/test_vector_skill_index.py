@@ -290,10 +290,9 @@ def test_vector_index_accepts_custom_embedder_and_store() -> None:
 
 
 def test_onnx_embedder_raises_when_extra_missing() -> None:
-    """The optional [semantic] extra is not installed in the test venv; the
-    constructor must raise a clear ``EmbedderError`` pointing at the install
-    string. If the extra ever lands in the dev venv, skip the test instead of
-    silently weakening it.
+    """When the [semantic] extra is not installed, instantiation must raise
+    a clear ``EmbedderError`` pointing at the install string. If the extra
+    ever lands in the dev venv, skip the test instead of silently weakening it.
     """
     try:
         import fastembed
@@ -304,6 +303,127 @@ def test_onnx_embedder_raises_when_extra_missing() -> None:
     with pytest.raises(EmbedderError) as exc_info:
         OnnxEmbedder()
     assert "pip install 'dcc-mcp-core[semantic]'" in str(exc_info.value)
+
+
+def test_onnx_embedder_resolves_config_with_defaults() -> None:
+    name, cache = OnnxEmbedder._resolve_config(None, None, env={})
+    assert name == OnnxEmbedder.DEFAULT_MODEL
+    assert cache is None
+
+
+def test_onnx_embedder_resolves_config_from_env_vars() -> None:
+    env = {
+        OnnxEmbedder.ENV_MODEL: "BAAI/bge-base-en-v1.5",
+        OnnxEmbedder.ENV_MODEL_DIR: "/srv/shared/models",
+    }
+    name, cache = OnnxEmbedder._resolve_config(None, None, env=env)
+    assert name == "BAAI/bge-base-en-v1.5"
+    assert cache == "/srv/shared/models"
+
+
+def test_onnx_embedder_constructor_args_beat_env_vars() -> None:
+    """Explicit ``model_name=`` / ``cache_dir=`` must win over env vars,
+    so adapter code can pin a specific model regardless of operator settings.
+    """
+    env = {
+        OnnxEmbedder.ENV_MODEL: "ignored-from-env",
+        OnnxEmbedder.ENV_MODEL_DIR: "/ignored",
+    }
+    name, cache = OnnxEmbedder._resolve_config("explicit/model", "/explicit/cache", env=env)
+    assert name == "explicit/model"
+    assert cache == "/explicit/cache"
+
+
+def test_onnx_embedder_uses_os_environ_when_env_omitted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(OnnxEmbedder.ENV_MODEL, "from-os-environ")
+    monkeypatch.delenv(OnnxEmbedder.ENV_MODEL_DIR, raising=False)
+    name, cache = OnnxEmbedder._resolve_config(None, None)
+    assert name == "from-os-environ"
+    assert cache is None
+
+
+class _FakeFastEmbed:
+    """Test seam that mimics fastembed's ``TextEmbedding.embed`` shape."""
+
+    def __init__(self, dim: int = 4) -> None:
+        self.dim = dim
+        self.calls: list[list[str]] = []
+
+    def embed(self, texts):
+        materialised = list(texts)
+        self.calls.append(materialised)
+        for text in materialised:
+            # Deterministic toy vector: distribute mass to bucket(len % dim).
+            vec = [0.0] * self.dim
+            vec[len(text) % self.dim] = 2.0  # unnormalised on purpose
+            yield vec
+
+
+class _StubOnnxEmbedder(OnnxEmbedder):
+    """Bypass the fastembed import so the wrapper logic is testable."""
+
+    def __init__(self, fake: _FakeFastEmbed, model_name: str | None = None) -> None:
+        self._fake = fake
+        super().__init__(model_name=model_name or "fake/model")
+
+    def _load_backend(self, model_name, cache_dir):
+        return self._fake
+
+
+def test_onnx_embedder_wrapper_probes_dim_and_normalises_output() -> None:
+    fake = _FakeFastEmbed(dim=8)
+    emb = _StubOnnxEmbedder(fake)
+    assert emb.dim == 8
+    assert emb.model_name == "fake/model"
+    vec = emb.embed("hello world")
+    # Fake returns [0,0,…,2.0,…,0]; OnnxEmbedder must L2-normalise → unit length.
+    assert pytest.approx(math.sqrt(sum(x * x for x in vec)), abs=1e-9) == 1.0
+    assert max(vec) == pytest.approx(1.0)
+
+
+def test_onnx_embedder_empty_input_returns_zero_vector_without_calling_backend() -> None:
+    fake = _FakeFastEmbed(dim=4)
+    emb = _StubOnnxEmbedder(fake)
+    fake.calls.clear()
+    vec = emb.embed("   ")
+    assert all(x == 0.0 for x in vec)
+    # The dim probe in __init__ already populated calls; no further calls for empty input.
+    assert all("dimension probe" in batch[0] for batch in fake.calls)
+
+
+def test_onnx_embedder_embed_batch_normalises_and_zero_pads_empty_rows() -> None:
+    fake = _FakeFastEmbed(dim=4)
+    emb = _StubOnnxEmbedder(fake)
+    batch = emb.embed_batch(["alpha", "", "bravo"])
+    assert len(batch) == 3
+    assert all(x == 0.0 for x in batch[1])  # empty input → zero vector
+    for vec in (batch[0], batch[2]):
+        assert pytest.approx(math.sqrt(sum(x * x for x in vec)), abs=1e-9) == 1.0
+
+
+def test_onnx_embedder_embed_batch_empty_list_returns_empty() -> None:
+    fake = _FakeFastEmbed(dim=4)
+    emb = _StubOnnxEmbedder(fake)
+    assert emb.embed_batch([]) == []
+
+
+def test_onnx_embedder_propagates_backend_failure_as_embedder_error() -> None:
+    class _Boom:
+        def embed(self, texts):
+            raise RuntimeError("ort kernel failed")
+
+    class _BoomEmbedder(OnnxEmbedder):
+        def _load_backend(self, model_name, cache_dir):
+            return _Boom()
+
+        def _probe_dim(self) -> int:
+            return 8  # skip the probe so __init__ does not raise
+
+    emb = _BoomEmbedder()
+    with pytest.raises(EmbedderError, match="ort kernel failed"):
+        emb.embed("anything")
 
 
 # ── Fusion: VectorSkillIndex + LexicalSkillIndex via RrfFusionIndex ────
