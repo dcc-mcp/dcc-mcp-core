@@ -480,10 +480,13 @@ def test_clawhub_local_fixture_auto_infers_and_registers(tmp_path: Path) -> None
     try:
         mcp_url = handle.mcp_url()
 
+        # Use the exact skill name so the layer=example filter is bypassed
+        # (PR #1398 hides example-layer skills from partial queries; exact-name
+        # matches are always surfaced regardless of layer).
         found = _mcp_post(
             mcp_url,
             "tools/call",
-            {"name": "search_skills", "arguments": {"query": "clawhub"}},
+            {"name": "search_skills", "arguments": {"query": "clawhub-compat"}},
             rpc_id=1,
         )
         assert found["result"].get("isError") is False, f"search_skills failed: {found}"

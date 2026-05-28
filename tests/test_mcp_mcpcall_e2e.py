@@ -577,7 +577,10 @@ class TestMcpcallCoreDiscoveryTools:
 
     def test_search_skills_by_keyword(self, server_with_catalog):
         _, _, url, name = server_with_catalog
-        result = _mcpcall_call(url, name, "search_skills", {"query": "hello"})
+        # Use exact skill name so the layer=example filter is bypassed (PR #1398
+        # hides example-layer skills from partial queries; exact-name matches
+        # are always kept regardless of layer).
+        result = _mcpcall_call(url, name, "search_skills", {"query": "hello-world"})
         data = _parse_content_json(result)
         assert "skills" in data
         skill_names = [s.get("name", "") for s in data["skills"]]
@@ -701,8 +704,10 @@ class TestMcpcallProgressiveLoading:
         """Full cycle: find -> get_info -> load -> call -> unload via mcpcall."""
         _, _, url, name = server_with_catalog
 
-        # 1. Find the skill
-        find_result = _mcpcall_call(url, name, "search_skills", {"query": "hello"})
+        # 1. Find the skill — use exact name to bypass the layer=example filter
+        # (PR #1398 drops partial-query hits for example-layer skills; exact
+        # name matches are always surfaced regardless of layer).
+        find_result = _mcpcall_call(url, name, "search_skills", {"query": "hello-world"})
         found_data = _parse_content_json(find_result)
         assert found_data["total"] >= 1
 
@@ -1271,7 +1276,10 @@ class TestMcpcallSearchTools:
         # Make sure hello-world is unloaded so it shows up as a candidate.
         _mcpcall_call(url, name, "unload_skill", {"skill_name": "hello-world"})
 
-        result = _mcpcall_call(url, name, "search_tools", {"query": "hello"})
+        # Use the exact skill name so the layer=example filter is bypassed for
+        # skill_candidates (PR #1398 hides example-layer skills from partial
+        # queries; exact-name matches are always kept regardless of layer).
+        result = _mcpcall_call(url, name, "search_tools", {"query": "hello-world"})
         data = _parse_content_json(result)
         candidates = data.get("skill_candidates", [])
         names = [c.get("skill_name") for c in candidates]
