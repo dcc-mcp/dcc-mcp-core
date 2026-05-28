@@ -12,11 +12,13 @@ Deployment trade-off:
 * :class:`HashedEmbedder` (default) — zero deps, deterministic, ~5 µs/document
   at ``dim=256``. Recall improves measurably over BM25 on natural-language
   queries that share sub-token structure with the indexed corpus.
-* :class:`OnnxEmbedder` (optional, via ``[semantic]`` extra) — ONNX-Runtime
-  backed local embedder; the actual model load is deferred to the first
-  adopter and ships as a follow-up. Today the class is a typed stub that
-  raises :class:`EmbedderError` with the install instructions, so adapters
-  can wire it into their config without breaking the import graph.
+* :class:`OnnxEmbedder` (optional, via ``[semantic]`` extra) — wraps
+  ``fastembed``; ships ONNX Runtime, the HuggingFace tokeniser, and a small
+  pre-trained encoder (``BAAI/bge-small-en-v1.5``, 384-dim, ~25 MB). Model
+  downloads to ``~/.cache/fastembed/`` on first use and runs fully offline
+  afterwards. Model name and cache directory can be overridden via
+  ``DCC_MCP_EMBED_MODEL`` / ``DCC_MCP_EMBED_MODEL_DIR`` env vars so studios
+  can pre-place the model on a shared mount.
 
 Both implement the :class:`Embedder` Protocol; the future ``RemoteEmbedder``
 (HTTP service for studio-wide embedding) will plug in via the same Protocol
@@ -36,9 +38,11 @@ from array import array
 from dataclasses import dataclass
 import hashlib
 import math
+import os
 import re
 import sys
 from typing import Iterable
+from typing import Mapping
 
 if sys.version_info >= (3, 8):
     from typing import Protocol
@@ -187,29 +191,94 @@ class HashedEmbedder:
 class OnnxEmbedder:
     """ONNX-Runtime-backed dense embedder (requires the ``[semantic]`` extra).
 
-    This class is a **typed stub** today — instantiating it without the extra
-    raises a clear :class:`EmbedderError`; instantiating with the extra
-    succeeds but :meth:`embed` still raises until the follow-up wires the
-    actual model load (issue #1393). Adapters can already declare the
-    intent ("use vector embeddings when available") in their config without
-    importing ``fastembed`` themselves.
+    Wraps `fastembed <https://github.com/qdrant/fastembed>`_, which ships ONNX
+    Runtime, the HuggingFace tokeniser, and a small pre-trained sentence
+    encoder (``BAAI/bge-small-en-v1.5`` by default, 384-dim, ~25 MB
+    quantised). The model auto-downloads on first use; once cached it runs
+    fully offline.
 
-    The intended target backend is `fastembed <https://github.com/qdrant/fastembed>`_,
-    which packages ONNX Runtime, the tokeniser, and a small ``BAAI/bge-small-en-v1.5``
-    (or ``all-MiniLM-L6-v2``) model that downloads to ``~/.cache/fastembed/``
-    on first use — keeping ``dcc-mcp-core`` itself dep-free while letting
-    adapters opt in to real semantic recall with one ``pip install`` line.
+    Configuration is precedence-ordered:
+
+    1. Constructor argument (``model_name=``, ``cache_dir=``).
+    2. Environment variable (:attr:`ENV_MODEL`, :attr:`ENV_MODEL_DIR`).
+    3. Built-in default (:attr:`DEFAULT_MODEL`; fastembed's cache directory).
+
+    The env-var path lets studios pre-place the model on a shared mount and
+    point every adapter at it via ``DCC_MCP_EMBED_MODEL_DIR`` without
+    touching adapter code — useful for firewalled deployments where
+    runtime HuggingFace downloads are not allowed.
+
+    Raises :class:`EmbedderError` when the ``[semantic]`` extra is missing
+    or when fastembed fails to load the requested model.
     """
+
+    #: Default embedding model. 384-dim, ~25 MB quantised, English-focused.
+    DEFAULT_MODEL = "BAAI/bge-small-en-v1.5"
+
+    #: Fallback vector dimension used only when the loaded model fails to
+    #: report its embedding size via a probe. Matches :attr:`DEFAULT_MODEL`.
+    DEFAULT_DIM = 384
+
+    #: Override the model name. Any fastembed-supported model id is valid.
+    ENV_MODEL = "DCC_MCP_EMBED_MODEL"
+
+    #: Override the on-disk model cache directory. When unset, fastembed
+    #: writes to its own platform-default cache (typically ``~/.cache/fastembed``).
+    ENV_MODEL_DIR = "DCC_MCP_EMBED_MODEL_DIR"
 
     _INSTALL_HINT = "OnnxEmbedder requires the 'semantic' extra. Install with: pip install 'dcc-mcp-core[semantic]'"
 
-    def __init__(self, model_name: str = "BAAI/bge-small-en-v1.5") -> None:
+    def __init__(
+        self,
+        model_name: str | None = None,
+        cache_dir: str | None = None,
+    ) -> None:
+        resolved_name, resolved_cache = self._resolve_config(model_name, cache_dir)
+        self._model = self._load_backend(resolved_name, resolved_cache)
+        self._model_name = resolved_name
+        self._cache_dir = resolved_cache
+        self._dim = self._probe_dim()
+
+    @classmethod
+    def _resolve_config(
+        cls,
+        model_name: str | None,
+        cache_dir: str | None,
+        env: Mapping[str, str] | None = None,
+    ) -> tuple[str, str | None]:
+        """Compute ``(model_name, cache_dir)`` from args → env → defaults.
+
+        Pulled out into a classmethod so the precedence logic is testable
+        without instantiating the embedder (i.e. without requiring the
+        ``[semantic]`` extra to be installed).
+        """
+        environ = env if env is not None else os.environ
+        resolved_name = model_name or environ.get(cls.ENV_MODEL) or cls.DEFAULT_MODEL
+        resolved_cache = cache_dir or environ.get(cls.ENV_MODEL_DIR) or None
+        return resolved_name, resolved_cache
+
+    def _load_backend(self, model_name: str, cache_dir: str | None) -> object:
+        """Construct the underlying fastembed ``TextEmbedding`` instance.
+
+        Subclasses may override this to inject a fake backend for tests
+        without taking on the ``[semantic]`` extra.
+        """
         try:
-            import fastembed  # noqa: F401
+            from fastembed import TextEmbedding
         except ImportError as exc:
             raise EmbedderError(self._INSTALL_HINT) from exc
-        self._model_name = model_name
-        self._dim = 384
+        try:
+            return TextEmbedding(model_name=model_name, cache_dir=cache_dir)
+        except Exception as exc:
+            raise EmbedderError(f"failed to load embedding model {model_name!r}: {exc}") from exc
+
+    def _probe_dim(self) -> int:
+        """Run a one-off embedding to discover the model's output dimension."""
+        try:
+            probe = next(iter(self._model.embed(["dimension probe"])))  # type: ignore[attr-defined]
+            return len(probe)
+        except Exception:
+            return self.DEFAULT_DIM
 
     @property
     def dim(self) -> int:
@@ -219,11 +288,32 @@ class OnnxEmbedder:
     def model_name(self) -> str:
         return self._model_name
 
+    @property
+    def cache_dir(self) -> str | None:
+        return self._cache_dir
+
     def embed(self, text: str) -> array[float]:
-        raise EmbedderError(
-            "OnnxEmbedder.embed is not yet wired to fastembed. "
-            "Use HashedEmbedder for now or follow issue #1393 for the model-load follow-up."
-        )
+        if not text.strip():
+            return array("d", (0.0 for _ in range(self._dim)))
+        try:
+            vec = next(iter(self._model.embed([text])))  # type: ignore[attr-defined]
+        except Exception as exc:
+            raise EmbedderError(f"OnnxEmbedder.embed failed: {exc}") from exc
+        out = array("d", (float(x) for x in vec))
+        return _l2_normalise(out)
 
     def embed_batch(self, texts: Iterable[str]) -> list[array[float]]:
-        return [self.embed(t) for t in texts]
+        materialised = list(texts)
+        if not materialised:
+            return []
+        try:
+            raw = list(self._model.embed(materialised))  # type: ignore[attr-defined]
+        except Exception as exc:
+            raise EmbedderError(f"OnnxEmbedder.embed_batch failed: {exc}") from exc
+        out: list[array[float]] = []
+        for text, vec in zip(materialised, raw):
+            if not text.strip():
+                out.append(array("d", (0.0 for _ in range(self._dim))))
+                continue
+            out.append(_l2_normalise(array("d", (float(x) for x in vec))))
+        return out
