@@ -25,7 +25,9 @@ use dcc_mcp_actions::dispatcher::{DispatchError, ToolDispatcher, with_thread_aff
 use dcc_mcp_actions::{
     DispatchExecutionContext, current_execution_context, with_execution_context,
 };
-use dcc_mcp_models::{ExecutionMode, SkillRuntimeSummary, ThreadAffinity, ToolAnnotations};
+use dcc_mcp_models::{
+    ExecutionMode, NextTools, SkillRuntimeSummary, ThreadAffinity, ToolAnnotations,
+};
 use dcc_mcp_skills::SkillCatalog;
 
 use super::errors::{ServiceError, ServiceErrorKind};
@@ -319,6 +321,9 @@ pub struct CatalogAction {
     pub enforce_thread_affinity: bool,
     pub available_groups: Vec<SkillGroupState>,
     pub runtime: Option<SkillRuntimeSummary>,
+    /// Suggested follow-up tools (`on-success` / `on-failure`). Surfaced at
+    /// describe-time so agents can pre-plan recovery steps (issue #1408).
+    pub next_tools: NextTools,
 }
 
 /// Anything that can invoke a tool by name and return its output.
@@ -602,6 +607,7 @@ impl SkillCatalogSource for CatalogSource {
                     .cloned()
                     .unwrap_or_default(),
                 runtime,
+                next_tools: meta.next_tools,
             });
         }
 
@@ -654,6 +660,7 @@ impl SkillCatalogSource for CatalogSource {
                         .cloned()
                         .unwrap_or_default(),
                     runtime: detail.runtime.clone(),
+                    next_tools: tool_decl.next_tools.clone(),
                 });
             }
         }
@@ -1029,7 +1036,16 @@ impl SkillRestService {
         let action = self.resolve_slug(&req.tool_slug)?;
         let entry = action_to_entry(action.clone());
         let annotations = describe_annotations(&action);
-        let metadata = action_metadata(&action);
+        let mut metadata = action_metadata(&action);
+        // Surface next-tools hints at describe-time so agents can pre-plan
+        // both the success path and failure recovery before calling the
+        // tool (issue #1408). Mirrors the post-call `_meta["dcc.next_tools"]`
+        // convention, but exposes both branches at once.
+        if let Some(next_tools) = next_tools_meta_value(&action.next_tools)
+            && let Some(obj) = metadata.as_object_mut()
+        {
+            obj.insert("dcc.next_tools".to_string(), next_tools);
+        }
         let mut annotations = annotations.unwrap_or_else(|| serde_json::json!({}));
         annotations["tags"] = serde_json::json!(action.tags);
         annotations["scope"] = serde_json::json!(action.scope);
@@ -1242,6 +1258,32 @@ fn action_to_entry(a: CatalogAction) -> SkillListEntry {
 
 fn describe_annotations(action: &CatalogAction) -> Option<Value> {
     safety_annotations(&action.annotations)
+}
+
+/// Build the `dcc.next_tools` describe-time hint value (issue #1408).
+///
+/// Unlike the post-call `_meta` slot — which carries only the branch that
+/// matched the outcome — describe exposes **both** `on_success` and
+/// `on_failure` so agents can plan recovery before invoking the tool.
+/// Returns `None` when no follow-ups are declared so the key stays absent.
+fn next_tools_meta_value(next_tools: &NextTools) -> Option<Value> {
+    if next_tools.on_success.is_empty() && next_tools.on_failure.is_empty() {
+        return None;
+    }
+    let mut map = serde_json::Map::new();
+    if !next_tools.on_success.is_empty() {
+        map.insert(
+            "on_success".to_string(),
+            serde_json::json!(next_tools.on_success),
+        );
+    }
+    if !next_tools.on_failure.is_empty() {
+        map.insert(
+            "on_failure".to_string(),
+            serde_json::json!(next_tools.on_failure),
+        );
+    }
+    Some(Value::Object(map))
 }
 
 fn safety_annotations(annotations: &ToolAnnotations) -> Option<Value> {
