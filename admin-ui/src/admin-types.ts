@@ -803,6 +803,8 @@ export type InstanceSummary = {
 export type SkillPathRow = {
   path: string;
   display_path?: string;
+  source_label?: string;
+  path_tail?: string;
   path_alias?: string;
   path_hash?: string;
   path_redacted?: boolean;
@@ -1006,6 +1008,8 @@ export function normalizeSkillPathRow(raw: unknown): SkillPathRow {
   return {
     path: rawPath,
     display_path: displayPath,
+    source_label: o.source_label == null ? undefined : String(o.source_label),
+    path_tail: o.path_tail == null ? undefined : String(o.path_tail),
     path_alias: o.path_alias == null ? undefined : String(o.path_alias),
     path_hash: o.path_hash == null ? undefined : String(o.path_hash),
     path_redacted: o.path_redacted !== false,

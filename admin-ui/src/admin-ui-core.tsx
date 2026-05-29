@@ -712,6 +712,19 @@ export function MetricTile({ tone, label, value, detail }: { tone?: 'ok' | 'warn
   );
 }
 
+/// TokenTracker-style hero metric: a large display number for a headline KPI.
+/// `accent` highlights the card with the brand bar + green value (use for the
+/// single most important number on the panel, e.g. total tokens).
+export function HeroMetric({ label, value, detail, accent }: { label: string; value: string | number; detail?: ReactNode; accent?: boolean }) {
+  return (
+    <div className={`hero-metric ${accent ? 'accent' : ''}`}>
+      <div className="hero-label">{label}</div>
+      <div className="hero-value">{value}</div>
+      {detail != null ? <div className="hero-detail">{detail}</div> : null}
+    </div>
+  );
+}
+
 export function PanelHeader({ title, meta, action }: { title: string; meta?: string; action?: ReactNode }) {
   return (
     <div className="panel-header">
