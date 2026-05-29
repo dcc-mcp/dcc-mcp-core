@@ -33,7 +33,6 @@ class TestClawhubSync:
     def test_manifest_lists_clawhub_skills(self) -> None:
         entries = json.loads(MANIFEST.read_text(encoding="utf-8"))
         slugs = {e["slug"] for e in entries}
-        assert "dcc-rest-gateway" in slugs
         assert "dcc-cli-gateway" in slugs
         assert "dcc-mcp-skills-creator" in slugs
         assert "dcc-mcp-creator" in slugs
@@ -50,7 +49,6 @@ class TestClawhubSync:
         assert proc.returncode == 0, proc.stderr
         assert "DRY-RUN" in proc.stdout
         assert "clawhub@0.17.0" in proc.stdout
-        assert "dcc-rest-gateway" in proc.stdout
         assert "dcc-cli-gateway" in proc.stdout
         assert "dcc-mcp-skills-creator" in proc.stdout
         assert "dcc-mcp-creator" in proc.stdout

@@ -239,8 +239,8 @@ Once the dcc-introspect built-in skill is loaded:
 ## 相关
 
 - [ADR 003](/adr/003-thin-harness-skill-pattern) — 架构决策
-- [skills/templates/thin-harness/](https://github.com/loonghao/dcc-mcp-core/tree/main/skills/templates/thin-harness/) — 起始模板
-- [skills/README.md#skill-layering](https://github.com/loonghao/dcc-mcp-core/blob/main/skills/README.md) — 层级定义
+- [`dcc-mcp-skills-creator`](https://github.com/loonghao/dcc-mcp-core/tree/main/skills/dcc-mcp-skills-creator/) — 脚手架并校验新的 thin-harness 技能
+- [agents-reference.md](agents-reference) — 技能层级定义
 - Issue #426 — `dcc_introspect__*` 内置工具
 - Issue #427 — `_meta.dcc.raw_trace` 错误信封
 - Issue #428 — `metadata.dcc-mcp.recipes` 形式化
