@@ -1,8 +1,12 @@
 import { expect, test } from '@playwright/test';
 
-import { isThemeMode, resolveTheme, THEMES } from '../src/theme';
+import { DEFAULT_THEME_MODE, isThemeMode, resolveTheme, THEMES } from '../src/theme';
 
 test.describe('theme mode helpers', () => {
+  test('defaults to the dark scheme', () => {
+    expect(DEFAULT_THEME_MODE).toBe('dark');
+  });
+
   test('recognises only the supported modes', () => {
     expect(THEMES).toEqual(['light', 'dark', 'system']);
     expect(isThemeMode('light')).toBe(true);

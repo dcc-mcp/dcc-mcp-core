@@ -54,6 +54,10 @@
   --warn-soft: rgba(245, 158, 11, 0.14);
   --err: #ef4444;
   --err-soft: rgba(239, 68, 68, 0.14);
+  /* Informational / "slow" accent — teal, kept in the cool-green family so
+     nothing in the chrome falls back to an off-brand blue. */
+  --info: #0d9488;
+  --info-soft: rgba(13, 148, 136, 0.14);
   /* Interactive accent (links, hovers, selection) — emerald, not blue. */
   --link: #047857;
   --link-strong: #065f46;
@@ -119,6 +123,8 @@
   --warn-soft: rgba(251, 191, 36, 0.16);
   --err: #f87171;
   --err-soft: rgba(248, 113, 113, 0.16);
+  --info: #2dd4bf;
+  --info-soft: rgba(45, 212, 191, 0.16);
   --link: #34d399;
   --link-strong: #6ee7b7;
   --accent-soft: rgba(16, 185, 129, 0.18);
@@ -427,19 +433,19 @@ h2 {
 .badge-ok {
   background: var(--ok-soft);
   border: 1px solid rgba(56, 193, 114, 0.32);
-  color: #78e4a5;
+  color: var(--ok);
 }
 
 .badge-err {
   background: var(--err-soft);
   border: 1px solid rgba(239, 91, 99, 0.32);
-  color: #ff9aa0;
+  color: var(--err);
 }
 
 .badge-warn {
   background: var(--warn-soft);
   border: 1px solid rgba(242, 184, 75, 0.32);
-  color: #ffd37d;
+  color: var(--warn);
 }
 
 .badge-muted {
@@ -453,9 +459,9 @@ h2 {
 }
 
 .badge-latency-slow {
-  background: rgba(90, 162, 255, 0.15);
-  border: 1px solid rgba(90, 162, 255, 0.35);
-  color: #8cc2ff;
+  background: var(--info-soft);
+  border: 1px solid color-mix(in srgb, var(--info) 45%, transparent);
+  color: var(--info);
 }
 
 .badge-latency-critical {
@@ -980,7 +986,7 @@ td .refresh-btn:hover {
 }
 
 .debug-row.latency-slow {
-  background: rgba(90, 162, 255, 0.08);
+  background: color-mix(in srgb, var(--info) 10%, transparent);
 }
 
 .debug-row.latency-critical {
@@ -1059,7 +1065,7 @@ tbody tr:nth-child(even) td {
 }
 
 .latency-row.latency-slow td {
-  background: linear-gradient(90deg, rgba(90, 162, 255, 0.09), var(--card) 42%);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--info) 12%, transparent), var(--card) 42%);
 }
 
 .latency-row.latency-critical td {
@@ -1067,7 +1073,7 @@ tbody tr:nth-child(even) td {
 }
 
 .latency-row.latency-slow td:first-child {
-  box-shadow: inset 3px 0 0 rgba(90, 162, 255, 0.85);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--info) 85%, transparent);
 }
 
 .latency-row.latency-critical td:first-child {
@@ -1584,13 +1590,13 @@ tbody tr:hover td {
 .method-pill.put {
   background: rgba(242, 184, 75, 0.14);
   border-color: rgba(242, 184, 75, 0.28);
-  color: #ffd98f;
+  color: var(--warn);
 }
 
 .method-pill.delete {
   background: rgba(239, 91, 99, 0.14);
   border-color: rgba(239, 91, 99, 0.28);
-  color: #ffabb0;
+  color: var(--err);
 }
 
 .openapi-path {
@@ -1700,8 +1706,8 @@ tbody tr:hover td {
 }
 
 .trace-item.latency-slow {
-  background: linear-gradient(90deg, rgba(90, 162, 255, 0.1), transparent 52%);
-  border-right: 3px solid rgba(90, 162, 255, 0.72);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--info) 12%, transparent), transparent 52%);
+  border-right: 3px solid color-mix(in srgb, var(--info) 72%, transparent);
 }
 
 .trace-item.latency-critical {
@@ -1736,25 +1742,25 @@ tbody tr:hover td {
 .trace-item-side .badge-ok,
 .trace-summary-grid .badge-ok,
 .debug-row .badge-ok {
-  color: #78e4a5;
+  color: var(--ok);
 }
 
 .trace-item-side .badge-err,
 .trace-summary-grid .badge-err,
 .debug-row .badge-err {
-  color: #ff9aa0;
+  color: var(--err);
 }
 
 .trace-item-side .badge-warn,
 .trace-summary-grid .badge-warn,
 .debug-row .badge-warn {
-  color: #ffd37d;
+  color: var(--warn);
 }
 
 .trace-item-side .badge-latency-slow,
 .trace-summary-grid .badge-latency-slow,
 .debug-row .badge-latency-slow {
-  color: #8cc2ff;
+  color: var(--info);
 }
 
 .trace-item-side .badge-latency-critical,
@@ -2009,7 +2015,7 @@ tbody tr:hover td {
 }
 
 .span-row.latency-slow .span-fill {
-  background: linear-gradient(90deg, #5aa2ff, var(--warn));
+  background: linear-gradient(90deg, var(--info), var(--warn));
 }
 
 .span-row.latency-critical .span-fill {
@@ -2309,11 +2315,11 @@ tbody tr:hover td {
 }
 
 .step-dot.info {
-  background: #5aa2ff;
+  background: var(--info);
 }
 
 .step-dot.debug {
-  background: #8b9cff;
+  background: var(--muted-foreground);
 }
 
 .step-dot.trace,
@@ -2426,8 +2432,8 @@ pre.empty {
 
 .filter-chip:hover,
 .filter-chip.active {
-  background: rgba(90, 162, 255, 0.12);
-  border-color: rgba(90, 162, 255, 0.42);
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
   color: var(--foreground);
 }
 
@@ -2474,13 +2480,13 @@ pre.empty {
 }
 
 .severity-info {
-  --log-accent: #5aa2ff;
-  --log-soft: rgba(90, 162, 255, 0.14);
+  --log-accent: var(--info);
+  --log-soft: var(--info-soft);
 }
 
 .severity-debug {
-  --log-accent: #8b9cff;
-  --log-soft: rgba(139, 156, 255, 0.14);
+  --log-accent: var(--muted-foreground);
+  --log-soft: rgba(154, 167, 184, 0.14);
 }
 
 .severity-trace,
@@ -2519,7 +2525,7 @@ pre.empty {
 
 .source-pill[data-source='audit'] {
   background: var(--ok-soft);
-  color: #78e4a5;
+  color: var(--ok);
 }
 
 .log-event {
@@ -3084,4 +3090,113 @@ pre.empty {
 
 .skill-detail-instances {
   margin-top: 0.8rem;
+}
+
+/* ------------------------------------------------------------------ *
+ * Responsive layout
+ * The dashboard is a fixed sidebar + scrolling stage on desktop. On
+ * smaller viewports the sidebar narrows, then collapses into a sticky
+ * horizontal nav above the stage so the content gets the full width.
+ * ------------------------------------------------------------------ */
+
+/* Small laptop / tablet — narrow the rail and tighten the stage. */
+@media (max-width: 1024px) {
+  :root {
+    --nav-width: 188px;
+  }
+
+  .main-stage {
+    padding: 1.5rem clamp(0.85rem, 2.5vw, 1.75rem);
+  }
+}
+
+/* Mobile — stack the rail above the stage as a scrollable nav strip. */
+@media (max-width: 760px) {
+  body {
+    height: auto;
+  }
+
+  .app-shell {
+    flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .side-rail {
+    width: 100%;
+    flex-shrink: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--sidebar-border);
+    padding: 0.85rem 0 0.4rem;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: var(--sidebar);
+  }
+
+  .brand-lockup {
+    margin: 0 1rem 0.6rem;
+    padding-bottom: 0.6rem;
+  }
+
+  .language-selector,
+  .theme-selector {
+    display: inline-grid;
+    margin: 0 0.5rem 0.5rem 1rem;
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+
+  .nav-links {
+    flex: 0 0 auto;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 0.25rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.25rem 0.75rem 0.4rem;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .nav-entry {
+    display: inline-flex;
+    flex: 0 0 auto;
+  }
+
+  .nav-section-title {
+    display: none;
+  }
+
+  .nav-link {
+    white-space: nowrap;
+  }
+
+  .main-stage {
+    flex: 1 1 auto;
+    overflow-y: visible;
+    padding: 1.25rem 1rem 2rem;
+  }
+
+  .panel-header {
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+}
+
+/* Very small / phone — drop to single-column metric and detail grids. */
+@media (max-width: 520px) {
+  .metric-grid,
+  .metric-grid.compact,
+  .stats-hero,
+  .health-grid {
+    grid-template-columns: 1fr;
+  }
+
+  h2 {
+    font-size: 1.35rem;
+  }
+
+  .hero-metric {
+    padding: 0.9rem 1rem;
+  }
 }
