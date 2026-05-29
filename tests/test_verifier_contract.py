@@ -1,11 +1,10 @@
 """Contract tests for the cross-DCC verifier shape (issue #688).
 
-These tests freeze the :class:`dcc_mcp_core.SceneStats` contract and the
-``skills/templates/verifier-harness`` template that downstream DCC repos
-(``dcc-mcp-blender``, ``dcc-mcp-maya``, ``dcc-mcp-unreal``,
-``dcc-mcp-photoshop``) are expected to clone. They are pure-Python and
-require no DCC binary — the verifier *implementations* are tested in the
-respective downstream repositories.
+These tests freeze the :class:`dcc_mcp_core.SceneStats` contract that
+downstream DCC repos (``dcc-mcp-blender``, ``dcc-mcp-maya``,
+``dcc-mcp-unreal``, ``dcc-mcp-photoshop``) build their verifier skills
+against. They are pure-Python and require no DCC binary — the verifier
+*implementations* are tested in the respective downstream repositories.
 
 Run:  pytest tests/test_verifier_contract.py -v
 """
@@ -15,7 +14,6 @@ from __future__ import annotations
 
 # Import built-in modules
 import json
-from pathlib import Path
 
 # Import third-party modules
 import pytest
@@ -23,9 +21,6 @@ import pytest
 # Import local modules
 import dcc_mcp_core
 from dcc_mcp_core import SceneStats
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-VERIFIER_TEMPLATE_DIR = REPO_ROOT / "skills" / "templates" / "verifier-harness"
 
 
 class TestSceneStatsContract:
@@ -112,58 +107,8 @@ class TestSceneStatsContract:
         assert hasattr(dcc_mcp_core, "SceneStats")
         assert "SceneStats" in dcc_mcp_core.__all__
 
-
-class TestVerifierHarnessTemplate:
-    """The verifier skill template is the second half of the contract."""
-
-    def test_template_directory_exists(self) -> None:
-        """Sanity check — template directory shipped with the wheel skills tree."""
-        assert VERIFIER_TEMPLATE_DIR.is_dir(), f"verifier-harness template missing at {VERIFIER_TEMPLATE_DIR}"
-        assert (VERIFIER_TEMPLATE_DIR / "SKILL.md").is_file()
-        assert (VERIFIER_TEMPLATE_DIR / "scripts" / "import_and_inspect.py").is_file()
-
-    def test_template_skillmd_parses(self) -> None:
-        """The template's SKILL.md is a valid, loadable skill manifest."""
-        meta = dcc_mcp_core.parse_skill_md(str(VERIFIER_TEMPLATE_DIR))
-        assert meta is not None, "parse_skill_md returned None for verifier template"
-
-    def test_template_schema_shape(self) -> None:
-        """The import_and_inspect tool input schema declares file_path + format.
-
-        Tool declarations live in the sibling ``tools.yaml`` per the
-        agentskills.io 1.0 nested-metadata contract; SKILL.md's frontmatter
-        only references it via ``metadata.dcc-mcp.tools: tools.yaml``.
-        """
-        tools_yaml = VERIFIER_TEMPLATE_DIR / "tools.yaml"
-        assert tools_yaml.is_file(), f"sibling tools.yaml missing at {tools_yaml}"
-
-        yaml = pytest.importorskip("yaml")
-        parsed = yaml.safe_load(tools_yaml.read_text(encoding="utf-8"))
-
-        tools = parsed["tools"]
-        assert len(tools) == 1, "verifier template must declare exactly one tool"
-        tool = tools[0]
-        assert tool["name"] == "import_and_inspect"
-        assert tool["read_only"] is True
-        assert tool["destructive"] is False
-
-        input_schema = tool["input_schema"]
-        assert input_schema["type"] == "object"
-        assert "file_path" in input_schema["properties"]
-        assert "file_path" in input_schema["required"]
-
-        output_schema = tool["output_schema"]
-        required_out = set(output_schema["required"])
-        assert {"object_count", "vertex_count", "has_mesh"}.issubset(required_out), (
-            f"output_schema.required is missing contract fields: {required_out}"
-        )
-
-    def test_template_stub_is_json_safe(self) -> None:
-        """The stub script must produce a SceneStats.to_dict()-compatible payload."""
-        # We can't execute the stub standalone without skill_entry plumbing,
-        # so round-trip a zeroed SceneStats to prove the shape the stub emits
-        # is itself JSON-safe.
+    def test_scene_stats_stub_payload_is_json_safe(self) -> None:
+        """A zeroed SceneStats payload is JSON-safe and shape-complete."""
         zeroed = SceneStats(object_count=0, vertex_count=0, has_mesh=False).to_dict()
-        encoded = json.dumps(zeroed)
-        decoded = json.loads(encoded)
+        decoded = json.loads(json.dumps(zeroed))
         assert set(decoded) == {"object_count", "vertex_count", "has_mesh", "extra"}

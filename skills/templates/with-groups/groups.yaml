@@ -1,9 +1,0 @@
-groups:
-  - name: basic
-    description: Core tools available by default
-    default-active: true
-    tools: [basic_action]
-  - name: advanced
-    description: Power-user tools (activate with activate_tool_group)
-    default-active: false
-    tools: [advanced_action]

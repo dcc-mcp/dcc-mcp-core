@@ -24,9 +24,9 @@ metadata:
 # DCC-MCP Skills Creator
 
 A first-class meta-skill for creating, validating, and reviewing DCC-MCP skill
-packages. It combines the scaffold/validation tools from `dcc-skills-creator`
-with agent-facing authoring guidance for `SKILL.md`, `tools.yaml`, scripts,
-groups, prompts, and progressive-loading taxonomy.
+packages. It bundles scaffold/validation tools together with agent-facing
+authoring guidance for `SKILL.md`, `tools.yaml`, scripts, groups, prompts, and
+progressive-loading taxonomy.
 
 Use `dcc-mcp-creator` when the task is to create a full adapter repository for
 a host such as Nuke, Blender, 3ds Max, Unreal, ZBrush, Houdini, or Maya. Use

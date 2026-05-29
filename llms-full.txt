@@ -28,7 +28,7 @@
 | Capture a DCC viewport screenshot | `Capturer.new_auto().capture()` (full-screen) / `Capturer.new_window_auto().capture_window(process_id=pid)` (single window) |
 | Bind diagnostics MCP tools to a specific DCC instance | `DccServerOptions.from_env(..., dcc_pid=pid, dcc_window_title=title)` → `DccServerBase(opts)` |
 | Expose a group of tools only when asked | Declare `metadata.dcc-mcp.groups` pointing to sibling `groups.yaml` / `tools.yaml`, then use `activate_tool_group` / `deactivate_tool_group` |
-| Assert a producer→file→verifier round-trip between two DCCs (#688) | `dcc_mcp_core.SceneStats(object_count, vertex_count, has_mesh, extra={})` + `SceneStats.matches(other, vertex_tolerance=0.05)`; verifier skills inherit the `skills/templates/verifier-harness/` template. DCC-specific implementations live in downstream repos. |
+| Assert a producer→file→verifier round-trip between two DCCs (#688) | `dcc_mcp_core.SceneStats(object_count, vertex_count, has_mesh, extra={})` + `SceneStats.matches(other, vertex_tolerance=0.05)`. DCC-specific verifier skills live in downstream repos. |
 | Exchange scene data via USD format | `UsdStage` + `scene_info_json_to_stage()` |
 | Bridge DCC protocols | `BridgeRegistry` + `register_bridge()` / `get_bridge_context()` |
 | Describe scene hierarchy | `SceneNode` + `SceneObject` + `ObjectTransform` + `BoundingBox` |
@@ -743,8 +743,7 @@ all_deps = expand_transitive_dependencies(skills, "my-skill")  # -> List[str] na
 
 Authoring helpers:
 
-- `skills/dcc-skills-creator/` scaffolds and validates DCC-MCP skill packages.
-- `skills/dcc-mcp-skill-developer/` is an instruction-only guide for agents building or modernizing DCC adapter skills. It distills dcc-mcp-maya, dcc-mcp-blender, and dcc-mcp-3dsmax patterns for server wiring, `SKILL.md` / `tools.yaml`, execution and affinity metadata, host differences, and testing/VRS coverage.
+- `skills/dcc-mcp-skills-creator/` scaffolds and validates DCC-MCP skill packages and bundles the agent-facing authoring guidance for building or modernizing DCC adapter skills. It distills dcc-mcp-maya, dcc-mcp-blender, and dcc-mcp-3dsmax patterns for server wiring, `SKILL.md` / `tools.yaml`, execution and affinity metadata, host differences, and testing/VRS coverage.
 
 ```yaml
 ---

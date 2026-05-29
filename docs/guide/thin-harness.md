@@ -240,8 +240,8 @@ a new wrapper tool.
 ## Related
 
 - [ADR 003](../adr/003-thin-harness-skill-pattern.md) — architectural decision
-- [skills/templates/thin-harness/](https://github.com/loonghao/dcc-mcp-core/tree/main/skills/templates/thin-harness/) — starter template
-- [skills/README.md#skill-layering](https://github.com/loonghao/dcc-mcp-core/blob/main/skills/README.md) — layer definitions
+- [`dcc-mcp-skills-creator`](https://github.com/loonghao/dcc-mcp-core/tree/main/skills/dcc-mcp-skills-creator/) — scaffold and validate a new thin-harness skill
+- [agents-reference.md](agents-reference.md) — skill layer definitions
 - Issue #426 — `dcc_introspect__*` built-in tools
 - Issue #427 — `_meta.dcc.raw_trace` error envelope
 - Issue #428 — `metadata.dcc-mcp.recipes` formalization

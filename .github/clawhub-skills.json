@@ -1,9 +1,5 @@
 [
   {
-    "path": "skills/dcc-rest-gateway",
-    "slug": "dcc-rest-gateway"
-  },
-  {
     "path": "skills/dcc-cli-gateway",
     "slug": "dcc-cli-gateway"
   },

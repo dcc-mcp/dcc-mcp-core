@@ -304,7 +304,7 @@ pub struct SkillMetadata {
     /// Unset (`None`) is allowed for backward compatibility; tools that need to
     /// filter by layer treat `None` as "any layer".
     ///
-    /// See `skills/README.md#skill-layering` and `AGENTS.md` for the layering
+    /// See the skill layer taxonomy in `AGENTS.md` for the layering
     /// rules that govern description prefixes and `search-hint` partitioning.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layer: Option<String>,

@@ -713,7 +713,7 @@ Use `skills_helper` when:
 Use a domain-specific Python dependency only when the dependency owns real
 domain behavior that `skills_helper` does not cover.
 
-The bundled `dcc-mcp-skills-creator` and compatibility `dcc-skills-creator`
+The bundled `dcc-mcp-skills-creator`
 validation tools add `skill-helper-adoption` warnings when a skill script
 imports avoidable helpers covered by this namespace, such as `requests`,
 `httpx`, PyYAML, or local `json_utils` / `http_utils` / `file_utils` modules.

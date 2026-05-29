@@ -74,7 +74,7 @@
 | Full index | `llms-full.txt` | When `llms.txt` lacks detail |
 | Detailed rules | [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md) | Before writing code — traps, do/don't, code style |
 | Conceptual docs | [`docs/guide/INDEX.md`](docs/guide/INDEX.md) + `docs/api/` | Building a new adapter or skill — see INDEX.md for topic list |
-| Skill authoring | `skills/README.md` + `examples/skills/` | Creating or modifying skills |
+| Skill authoring | [`skills/dcc-mcp-skills-creator/SKILL.md`](skills/dcc-mcp-skills-creator/SKILL.md) + `examples/skills/` | Creating or modifying skills |
 | Adapter developer guidance | [`skills/dcc-mcp-creator/SKILL.md`](skills/dcc-mcp-creator/SKILL.md) | Before creating or changing DCC adapter server/runtime wiring, dispatcher bridges, readiness, resources, gateway behavior, or core-escalation plans |
 | Skill creator guidance | [`skills/dcc-mcp-skills-creator/SKILL.md`](skills/dcc-mcp-skills-creator/SKILL.md) | Before creating or changing adapter skill authoring, tool schemas, scripts, skill taxonomy, testing, or agent-facing workflows |
 | Gateway REST regressions (VRS) | [`tests/vrs/README.md`](tests/vrs/README.md) + `scripts/vrs_replay.py` | After gateway `/v1/*` or live-adapter bugs — add a JSONL trace per regression |
