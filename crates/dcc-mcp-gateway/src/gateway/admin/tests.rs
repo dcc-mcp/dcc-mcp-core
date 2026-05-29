@@ -2989,13 +2989,21 @@ filters:
         assert_eq!(status, StatusCode::OK);
         let paths = body["paths"].as_array().unwrap();
         assert_eq!(paths.len(), 2);
-        assert_eq!(paths[0]["path"], "cli #1");
-        assert_eq!(paths[0]["display_path"], "cli #1");
+        // The display string pairs a friendly source label with a safe folder
+        // tail (never the absolute local path) so same-source rows stay
+        // distinguishable.
+        assert_eq!(paths[0]["path"], "Cli · skills/maya");
+        assert_eq!(paths[0]["display_path"], "Cli · skills/maya");
+        assert_eq!(paths[0]["source_label"], "Cli");
+        assert_eq!(paths[0]["path_tail"], "skills/maya");
         assert_eq!(paths[0]["path_redacted"], true);
         assert_ne!(paths[0]["path"], "/opt/skills/maya");
         assert_eq!(paths[0]["source"], "cli");
         assert_eq!(paths[0]["status"], "missing");
-        assert_eq!(paths[1]["path"], "env:DCC_MCP_SKILL_PATHS #2");
+        assert_eq!(paths[1]["path"], "Env var · skills/blender");
+        assert_eq!(paths[1]["display_path"], "Env var · skills/blender");
+        assert_eq!(paths[1]["source_label"], "Env var");
+        assert_eq!(paths[1]["path_tail"], "skills/blender");
         assert_eq!(paths[1]["path_redacted"], true);
         assert_eq!(paths[1]["source"], "env:DCC_MCP_SKILL_PATHS");
         assert!(
@@ -3050,7 +3058,8 @@ filters:
             .filter(|p| p["source"] == "admin_custom")
             .collect();
         assert_eq!(custom.len(), 1, "expected 1 custom path, got {paths:?}");
-        assert_eq!(custom[0]["path"], "admin_custom #1");
+        assert_eq!(custom[0]["path"], "Admin custom · tmp/new-skills");
+        assert_eq!(custom[0]["source_label"], "Admin custom");
         assert_eq!(custom[0]["path_redacted"], true);
         assert!(
             !body.to_string().contains("/tmp/new-skills"),
