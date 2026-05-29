@@ -357,7 +357,7 @@ json_str = result.to_json()    # JSON 字符串
 - 在同级 `tools.yaml` 的工具条目中使用 `next-tools: on-success/on-failure` — 引导 AI 代理到后续工具
 - 在 SKILL.md 中使用 `metadata.dcc-mcp.search-hint` — 改善 `search_skills` 关键词匹配
 - 对高级用户功能使用 `default_active: false` 的工具组 — 保持 `tools/list` 精简
-- **为每个 skill 标记 `metadata.dcc-mcp.layer`** — `infrastructure`、`domain` 或 `example`。参见 `skills/README.md#skill-layering`。
+- **为每个 skill 标记 `metadata.dcc-mcp.layer`** — `infrastructure`、`domain` 或 `example`。参见 `AGENTS.md` 中的技能层级分类法。
 - **每个 skill `description` 以 layer 前缀开头**（`Infrastructure skill —` / `Domain skill —` / `Example skill —`）后跟"Not for X — use Y"否定路由句
 - **保持 `search-hint` 在各层间不重叠** — infrastructure：机制导向；domain：意图导向；example：附加"authoring reference"
 - **将每个 domain skill 工具的 `on-failure` 连接到** `[dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]`

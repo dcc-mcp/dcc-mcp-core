@@ -7,12 +7,9 @@ import dcc_mcp_core
 from dcc_mcp_core.skill_reference_docs import _handle_list
 
 SKILL_ROOTS = [
-    REPO_ROOT / "skills" / "dcc-skills-creator",
-    REPO_ROOT / "skills" / "dcc-mcp-skill-developer",
     REPO_ROOT / "skills" / "dcc-mcp-skills-creator",
     REPO_ROOT / "skills" / "dcc-mcp-creator",
     REPO_ROOT / "skills" / "dcc-cli-gateway",
-    REPO_ROOT / "skills" / "dcc-rest-gateway",
     REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "app-ui",
     REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "dcc-diagnostics",
     REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "media",
@@ -35,8 +32,8 @@ def test_bundled_tool_declarations_include_execution_and_affinity() -> None:
             assert tool.enforce_thread_affinity is True, (skill_dir, tool.name)
 
 
-def test_dcc_mcp_skill_developer_reference_docs_are_indexed() -> None:
-    skill_dir = REPO_ROOT / "skills" / "dcc-mcp-skill-developer"
+def test_dcc_mcp_skills_creator_reference_docs_are_indexed() -> None:
+    skill_dir = REPO_ROOT / "skills" / "dcc-mcp-skills-creator"
     meta = dcc_mcp_core.parse_skill_md(str(skill_dir))
 
     assert meta is not None
@@ -45,8 +42,6 @@ def test_dcc_mcp_skill_developer_reference_docs_are_indexed() -> None:
 
     assert result["success"] is True
     assert {
-        "references/ADAPTER_PATTERNS.md",
-        "references/HOST_MATRIX.md",
-        "references/SKILL_AUTHORING_CHECKLIST.md",
-        "references/TESTING_MATRIX.md",
+        "references/AUTHORING_WORKFLOW.md",
+        "references/DCC_TOOL_CONTRACTS.md",
     } <= paths

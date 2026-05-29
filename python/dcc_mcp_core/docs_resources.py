@@ -388,7 +388,8 @@ metadata:
 
 ## Template
 
-See ``skills/templates/thin-harness/`` for a ready-to-copy starter.
+Use the ``dcc-mcp-skills-creator`` skill to scaffold a ready-to-edit
+thin-harness starter (``create_skill`` + ``skill_template``).
 
 ## Full guide
 

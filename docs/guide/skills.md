@@ -2,7 +2,7 @@
 
 The Skills system registers scripts (Python, MEL, MaxScript, BAT, Shell, etc.) as MCP-discoverable tools with **zero Python glue code**. `SKILL.md` follows the agentskills.io V1.0 frontmatter shape; dcc-mcp-core extensions live under `metadata.dcc-mcp.*` and point to sibling files such as `tools.yaml` and `groups.yaml`. Keep extension data out of top-level `SKILL.md` keys so generic agentskills.io readers can still parse the package.
 
-For **adapter maintenance** (I/O tool copy, `recipes` / `skill-reference-docs`, gateway-friendly descriptions), use [skill-maintenance.md](skill-maintenance.md). For agent-facing adapter skill development guidance, load `skills/dcc-mcp-skill-developer/`. In-tree reference skills: `python/dcc_mcp_core/skills/dcc-diagnostics`, `python/dcc_mcp_core/skills/workflow`.
+For **adapter maintenance** (I/O tool copy, `recipes` / `skill-reference-docs`, gateway-friendly descriptions), use [skill-maintenance.md](skill-maintenance.md). For agent-facing adapter skill development guidance, load `skills/dcc-mcp-skills-creator/`. In-tree reference skills: `python/dcc_mcp_core/skills/dcc-diagnostics`, `python/dcc_mcp_core/skills/workflow`.
 
 ## Quick Start
 
@@ -1443,26 +1443,27 @@ The validator checks the following categories:
 - **Warning** — the skill loads but violates a best-practice or spec recommendation
 - **Info** — purely informational (e.g. legacy extension field deprecation notice)
 
-### Using the `dcc-skills-creator` Skill
+### Using the `dcc-mcp-skills-creator` Skill
 
-The `skills/dcc-skills-creator/` skill provides scaffolding and validation helpers as MCP tools:
+The `skills/dcc-mcp-skills-creator/` skill provides scaffolding and validation
+helpers as MCP tools, plus the agent-facing authoring guidance for building or
+modernizing DCC-MCP adapter skill packages:
 
 ```python
 # Scaffold a new skill directory via the loaded MCP tool:
-# dcc_skills_creator__create_skill(name="my-new-skill", parent_dir="/path/to/skills", dcc="maya")
+# dcc_mcp_skills_creator__create_skill(name="my-new-skill", parent_dir="/path/to/skills", dcc="maya")
 # Creates: my-new-skill/SKILL.md, tools.yaml, scripts/, metadata/
 
 # Get a current SKILL.md template via:
-# dcc_skills_creator__skill_template()
+# dcc_mcp_skills_creator__skill_template()
 ```
 
-### Using the `dcc-mcp-skill-developer` Skill
+Load it before changing `SKILL.md`, `tools.yaml`, adapter skill taxonomies, or
+host-specific scripts in repositories such as `dcc-mcp-maya`,
+`dcc-mcp-blender`, `dcc-mcp-3dsmax`, or future DCC adapters. Its `references/`
+cover:
 
-The `skills/dcc-mcp-skill-developer/` skill is an instruction-only companion for agents that are building or modernizing DCC-MCP adapter skills. Load it before changing `SKILL.md`, `tools.yaml`, adapter skill taxonomies, or host-specific scripts in repositories such as `dcc-mcp-maya`, `dcc-mcp-blender`, `dcc-mcp-3dsmax`, or future DCC adapters.
-
-It points agents to focused references for:
-
-- Server and adapter composition patterns.
 - `SKILL.md`, `tools.yaml`, and script authoring checklists.
-- Host differences across Maya, Blender, 3ds Max, Houdini, bridge-based hosts, and custom studio tools.
+- DCC tool contracts and host differences across Maya, Blender, 3ds Max,
+  Houdini, bridge-based hosts, and custom studio tools.
 - Unit, lint, gateway, E2E, and VRS validation choices.

@@ -404,7 +404,7 @@ executor.execute(lambda: apply_to_scene(payload))  # main thread
   — the architectural rationale for this design.
 - [Getting Started → DeferredExecutor](./getting-started.md#deferredexecutor-dcc-main-thread-safety)
   — minimal "hello world" example.
-- [`skills/integration-guide.md`](https://github.com/loonghao/dcc-mcp-core/blob/main/skills/integration-guide.md)
+- [agents-reference.md → DCC Integration Architectures](./agents-reference.md#dcc-integration-architectures)
   — per-DCC bridge patterns (embedded Python / WebSocket / WebView).
 - [Issue #329 — `check_cancelled()`](https://github.com/loonghao/dcc-mcp-core/issues/329)
   — cooperative cancellation for chunked jobs.

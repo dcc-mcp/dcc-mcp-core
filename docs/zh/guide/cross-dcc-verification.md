@@ -56,9 +56,9 @@ assert produced.matches(observed, vertex_tolerance=0.05), (
 
 ## 编写验证器技能
 
-模板位于 `skills/templates/verifier-harness/`。为新 DCC 创建验证器：
+使用 `dcc-mcp-skills-creator` 脚手架生成技能，再接入 `dcc_mcp_core.SceneStats`。为新 DCC 创建验证器：
 
-1. 将模板目录复制到下游仓库（如 `dcc-mcp-blender/skills/blender-fbx-verifier/`）
+1. 在下游仓库脚手架生成新的技能目录（如 `dcc-mcp-blender/skills/blender-fbx-verifier/`）
 2. 编辑 `SKILL.md`：设置 `dcc: blender`（或类似值），并按仓库约定重命名技能
 3. 将 `scripts/import_and_inspect.py` 的桩函数体替换为 DCC 原生导入 + 检查调用，返回包裹在 `skill_success(...)` 中的 `SceneStats.to_dict()` 负载
 4. 在下游仓库添加 CI 作业：

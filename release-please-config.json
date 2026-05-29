@@ -54,10 +54,6 @@
         },
         {
           "type": "generic",
-          "path": "skills/dcc-rest-gateway/SKILL.md"
-        },
-        {
-          "type": "generic",
           "path": "skills/dcc-mcp-skills-creator/SKILL.md"
         },
         {

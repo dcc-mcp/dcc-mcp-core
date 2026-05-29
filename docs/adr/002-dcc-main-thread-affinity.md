@@ -135,5 +135,5 @@ for this ADR.
   implementation.
 - `crates/dcc-mcp-process/src/dispatcher.rs` — `ThreadAffinity`,
   `JobRequest`, `HostDispatcher` trait.
-- [`skills/integration-guide.md`](https://github.com/loonghao/dcc-mcp-core/blob/main/skills/integration-guide.md)
+- [agents-reference.md → DCC Integration Architectures](../guide/agents-reference.md#dcc-integration-architectures)
   — per-DCC bridge patterns.

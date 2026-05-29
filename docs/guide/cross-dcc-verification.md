@@ -69,10 +69,10 @@ from ever breaking a round-trip assertion.
 
 ## Writing a verifier skill
 
-The template lives at `skills/templates/verifier-harness/`.
-To create a verifier for a new DCC:
+Scaffold a skill with `dcc-mcp-skills-creator`, then wire it to
+`dcc_mcp_core.SceneStats`. To create a verifier for a new DCC:
 
-1. Copy the template directory into your downstream repo (e.g.
+1. Scaffold a new skill directory in your downstream repo (e.g.
    `dcc-mcp-blender/skills/blender-fbx-verifier/`).
 2. Edit `SKILL.md`: set `dcc: blender` (or similar) and rename the
    skill to match your repo's convention.

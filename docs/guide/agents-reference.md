@@ -487,7 +487,7 @@ json_str = result.to_json()    # JSON string
 - Use `next-tools: on-success/on-failure` inside sibling `tools.yaml` entries — guides AI agents to follow-up tools
 - Use `metadata.dcc-mcp.search-hint` in SKILL.md — improves `search_skills` keyword matching
 - Use tool groups with `default_active: false` for power-user features — keeps `tools/list` small
-- **Tag every skill with `metadata.dcc-mcp.layer`** — `infrastructure`, `domain`, or `example`. See `skills/README.md#skill-layering`.
+- **Tag every skill with `metadata.dcc-mcp.layer`** — `infrastructure`, `domain`, or `example`. See the skill layer taxonomy in `AGENTS.md`.
 - **Start every skill `description` with the layer prefix** (`Infrastructure skill —` / `Domain skill —` / `Example skill —`) followed by a "Not for X — use Y" negative routing sentence
 - **Keep `search-hint` non-overlapping across layers** — infrastructure: mechanism-oriented; domain: intent-oriented; example: append "authoring reference"
 - **Wire every domain skill tool `on-failure`** to `[dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]`
@@ -861,7 +861,7 @@ DCC adapters include these by default (`include_bundled=True`).
 
 ### DCC Integration Architectures
 
-`skills/integration-guide.md` covers three patterns:
+DCC adapters integrate through three patterns:
 
 - **Embedded Python** (`DccServerBase`) — Maya, Blender, Houdini, Unreal
 - **WebSocket Bridge** (`DccBridge`) — Photoshop, ZBrush, Unity, After Effects
