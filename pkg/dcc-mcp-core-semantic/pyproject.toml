@@ -18,7 +18,7 @@ build-backend = "maturin"
 
 [project]
 name = "dcc-mcp-core-semantic"
-version = "0.17.41"  # x-release-please-version
+version = "0.17.42"  # x-release-please-version
 description = "Native Rust semantic embeddings (fastembed-rs) for dcc-mcp-core"
 readme = "README.md"
 license = { text = "MIT" }
