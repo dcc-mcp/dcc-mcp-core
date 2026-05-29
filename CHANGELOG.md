@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.40](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.39...v0.17.40) (2026-05-29)
+
+
+### Features
+
+* **skill-rest:** surface next-tools at describe-time ([c204901](https://github.com/loonghao/dcc-mcp-core/commit/c2049016d5422ce2a536dee631e366dcdb18e14f)), closes [#1408](https://github.com/loonghao/dcc-mcp-core/issues/1408)
+
 ## [0.17.39](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.38...v0.17.39) (2026-05-28)
 
 
