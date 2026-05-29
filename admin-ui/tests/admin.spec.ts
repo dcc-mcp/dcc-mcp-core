@@ -1459,6 +1459,8 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.tasks-panel')).toContainText('workflow session-1');
     await expect(page.locator('.tasks-panel')).toContainText('client Layout Artist');
     await expect(page.locator('.tasks-panel')).toContainText('Backend failed while opening [path-redacted].');
+    await expect(page.locator('.tasks-panel .metric-grid')).toContainText('Avg duration');
+    await expect(page.locator('.tasks-panel .metric-grid')).toContainText('Success rate');
     await expect(page.locator('.task-card.ok', { hasText: 'Create a sphere' }).locator('.task-title-row .badge-ok')).toContainText('completed');
     await expect(page.locator('.task-card.err', { hasText: 'Render preview' }).locator('.task-title-row .badge-err')).toContainText('failed');
     await page.getByRole('button', { name: /trace req-123/ }).click();
@@ -1479,6 +1481,9 @@ test.describe('Admin Page', () => {
     await expect(panel).toContainText('Tool Calls');
     await expect(panel).toContainText('best rank 2');
     await expect(panel).toContainText('zero-result');
+    await expect(panel).toContainText('Searches');
+    await expect(panel).toContainText('avg steps');
+    await expect(panel.locator('.metric-grid')).toContainText('Success rate');
     const sceneWorkflow = page.locator('.workflow-card', { hasText: 'Scene Builder' });
     await sceneWorkflow.getByRole('button', { name: 'Inspect' }).click();
     await expect(panel).toContainText('Stage graph');
@@ -1526,6 +1531,12 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.stats-panel')).toContainText('Payload tokens');
     await expect(page.locator('.stats-panel')).toContainText('250');
     await expect(page.locator('.stats-panel')).toContainText('Input / Output tokens');
+    const hero = page.locator('.stats-hero');
+    await expect(hero).toBeVisible();
+    await expect(hero).toContainText('Total tokens');
+    await expect(hero).toContainText('Tokens saved');
+    await expect(hero).toContainText('Total calls');
+    await expect(hero).toContainText('success rate');
     await expect(page.locator('.stats-panel')).toContainText('p99 latency');
     await expect(page.locator('.stats-panel')).toContainText('Slow calls');
     await expect(page.locator('.stats-panel')).toContainText('slowest req-slow 6.20 s; slowest upload_texture 5.40 s');

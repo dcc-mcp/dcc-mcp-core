@@ -69,8 +69,8 @@ export function SkillSearchPathsTable({
             filtered.map((row) => (
               <tr key={`${row.source}-${row.path_hash ?? row.path}-${row.id ?? 'x'}`}>
                 <td>
-                  <span className="source-pill" data-source={row.source}>
-                    {row.source}
+                  <span className="source-pill" data-source={row.source} title={row.source}>
+                    {row.source_label ?? row.source}
                   </span>
                 </td>
                 <td>

@@ -5,6 +5,8 @@
   "metric.warnings": "경고",
   "metric.failed": "실패",
   "metric.zeroResult": "결과 없음",
+  "metric.searches": "검색 수",
+  "metric.avgSteps": "평균 {value} 단계",
   "chip.searches": "검색 {count}회",
   "chip.zeroResult": "결과 없음 {count}회",
   "chip.bestRank": "최고 순위 {rank}",

@@ -5,6 +5,8 @@
   "metric.warnings": "警告",
   "metric.failed": "失败",
   "metric.zeroResult": "零结果",
+  "metric.searches": "搜索次数",
+  "metric.avgSteps": "平均 {value} 步",
   "chip.searches": "{count} 次搜索",
   "chip.zeroResult": "{count} 次零结果",
   "chip.bestRank": "最佳排名 {rank}",
