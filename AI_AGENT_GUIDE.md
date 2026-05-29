@@ -296,7 +296,7 @@ tools:
 - **API index**: [`llms.txt`](llms.txt) — compressed API reference for AI agents
 - **Skill authoring guide**: [`docs/guide/skills.md`](docs/guide/skills.md) — current SKILL.md + sibling-file pattern
 - **Skill ownership policy**: [`docs/POLICY_SKILL_OWNERSHIP.md`](docs/POLICY_SKILL_OWNERSHIP.md) — avoid duplicating bundled adapter file-operation skills
-- **Bundled templates/examples**: [`skills/README.md`](skills/README.md) and [`examples/skills/`](examples/skills/) — 15 complete SKILL.md packages
+- **Bundled examples**: [`examples/skills/`](examples/skills/) — complete SKILL.md packages
 - **Detailed traps**: [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md)
 
 ## 💡 Pro Tips for AI Agents

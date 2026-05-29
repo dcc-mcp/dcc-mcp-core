@@ -262,7 +262,7 @@ fn apply_dcc_mcp_metadata_overrides(
             "layer" => {
                 // Architectural layer for skill routing and search partitioning.
                 // Valid values: "infrastructure", "domain", "example".
-                // See skills/README.md#skill-layering and AGENTS.md.
+                // See the skill layer taxonomy in AGENTS.md.
                 if let Some(s) = value.as_str()
                     && !s.is_empty()
                 {

@@ -207,7 +207,7 @@ executor.execute(lambda: apply_to_scene(payload))    # 主线程
   —— 该设计的架构理由（英文）。
 - [快速开始 → DeferredExecutor](./getting-started.md#deferredexecutor-dcc-main-thread-safety)
   —— 最小 "hello world" 示例。
-- [`skills/integration-guide.md`](https://github.com/loonghao/dcc-mcp-core/blob/main/skills/integration-guide.md)
+- [agents-reference.md → DCC Integration Architectures](./agents-reference.md#dcc-integration-architectures)
   —— 各 DCC 的桥接模式（嵌入式 Python / WebSocket / WebView）。
 - [Issue #329 — `check_cancelled()`](https://github.com/loonghao/dcc-mcp-core/issues/329)
   —— 分块任务的协作式取消。
