@@ -1,0 +1,112 @@
+/* Responsive layout overrides for the admin dashboard.
+ * Split out of styles.css (file-size cap) and imported LAST from main.tsx
+ * so these media queries win over every base feature stylesheet. */
+
+/* ------------------------------------------------------------------ *
+ * Responsive layout
+ * The dashboard is a fixed sidebar + scrolling stage on desktop. On
+ * smaller viewports the sidebar narrows, then collapses into a sticky
+ * horizontal nav above the stage so the content gets the full width.
+ * ------------------------------------------------------------------ */
+
+/* Small laptop / tablet — narrow the rail and tighten the stage. */
+@media (max-width: 1024px) {
+  :root {
+    --nav-width: 188px;
+  }
+
+  .main-stage {
+    padding: 1.5rem clamp(0.85rem, 2.5vw, 1.75rem);
+  }
+}
+
+/* Mobile — stack the rail above the stage as a scrollable nav strip. */
+@media (max-width: 760px) {
+  body {
+    height: auto;
+  }
+
+  .app-shell {
+    flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .side-rail {
+    width: 100%;
+    flex-shrink: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--sidebar-border);
+    padding: 0.85rem 0 0.4rem;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: var(--sidebar);
+  }
+
+  .brand-lockup {
+    margin: 0 1rem 0.6rem;
+    padding-bottom: 0.6rem;
+  }
+
+  .language-selector,
+  .theme-selector {
+    display: inline-grid;
+    margin: 0 0.5rem 0.5rem 1rem;
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+
+  .nav-links {
+    flex: 0 0 auto;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 0.25rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.25rem 0.75rem 0.4rem;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .nav-entry {
+    display: inline-flex;
+    flex: 0 0 auto;
+  }
+
+  .nav-section-title {
+    display: none;
+  }
+
+  .nav-link {
+    white-space: nowrap;
+  }
+
+  .main-stage {
+    flex: 1 1 auto;
+    overflow-y: visible;
+    padding: 1.25rem 1rem 2rem;
+  }
+
+  .panel-header {
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+}
+
+/* Very small / phone — drop to single-column metric and detail grids. */
+@media (max-width: 520px) {
+  .metric-grid,
+  .metric-grid.compact,
+  .stats-hero,
+  .health-grid {
+    grid-template-columns: 1fr;
+  }
+
+  h2 {
+    font-size: 1.35rem;
+  }
+
+  .hero-metric {
+    padding: 0.9rem 1rem;
+  }
+}
