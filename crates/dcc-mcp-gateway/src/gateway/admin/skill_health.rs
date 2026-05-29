@@ -472,14 +472,21 @@ fn build_skill_path_rows(state: &AdminState) -> Vec<Value> {
 fn safe_skill_path_row(path: &str, source: &str, id: Option<i64>, ordinal: usize) -> Value {
     let hash = path_hash(path);
     let status = skill_path_status(path);
-    let display_path = format!(
-        "{} #{}",
-        safe_source_label(source),
-        id.unwrap_or(ordinal as i64)
-    );
+    let source_label = friendly_source_label(source);
+    let tail = safe_path_tail(path);
+    // Prefer a non-sensitive folder tail (e.g. "studio/skills") so operators
+    // can tell same-source rows apart; fall back to the ordinal id only when no
+    // meaningful tail is available. The full local path is never exposed.
+    let display_path = if tail.is_empty() {
+        format!("{source_label} #{}", id.unwrap_or(ordinal as i64))
+    } else {
+        format!("{source_label} · {tail}")
+    };
     let mut row = json!({
         "path": display_path,
         "display_path": display_path,
+        "source_label": source_label,
+        "path_tail": tail,
         "path_alias": format!("skill-path:{hash}"),
         "path_hash": hash,
         "path_redacted": true,
@@ -495,6 +502,72 @@ fn safe_skill_path_row(path: &str, source: &str, id: Option<i64>, ordinal: usize
         obj.insert("id".to_string(), json!(id));
     }
     row
+}
+
+/// Map a raw path-source token (e.g. `bundled`, `admin_custom`,
+/// `env:DCC_MCP_SKILL_PATHS`) to a friendly, human-readable label for the
+/// admin UI. Unknown sources are title-cased from their safe form.
+fn friendly_source_label(source: &str) -> String {
+    if source.trim().is_empty() {
+        return "Skill path".to_string();
+    }
+    let normalized: String = source
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { ' ' })
+        .collect();
+    let key = normalized.split_whitespace().next().unwrap_or("");
+    match key {
+        "bundled" => "Bundled".to_string(),
+        "admin" | "admincustom" => "Admin custom".to_string(),
+        "env" | "envvar" => "Env var".to_string(),
+        "explicit" | "explicitarg" => "Explicit arg".to_string(),
+        "local" | "localdev" => "Local dev".to_string(),
+        "platform" => "Platform".to_string(),
+        "user" => "User".to_string(),
+        "team" => "Team".to_string(),
+        "repo" => "Repo".to_string(),
+        "system" => "System".to_string(),
+        _ => {
+            let safe = safe_source_label(source);
+            let mut chars = safe.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                None => "Skill path".to_string(),
+            }
+        }
+    }
+}
+
+/// Return the final one or two path components, which are safe to show because
+/// they describe the skill *folder* rather than the user's filesystem layout.
+/// Any component matching the current OS username is replaced with `~` so a
+/// `C:\Users\<name>\...` style root cannot leak the operator's identity.
+fn safe_path_tail(path: &str) -> String {
+    let normalized = path.replace('\\', "/");
+    let username = std::env::var("USERNAME")
+        .or_else(|_| std::env::var("USER"))
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let components: Vec<&str> = normalized
+        .split('/')
+        .filter(|c| !c.is_empty() && *c != "." && *c != "..")
+        // Drop drive letters like "C:" so the tail stays folder-focused.
+        .filter(|c| !(c.len() == 2 && c.ends_with(':')))
+        .collect();
+    let take = components.len().min(2);
+    components[components.len() - take..]
+        .iter()
+        .map(|c| {
+            if !username.is_empty() && c.to_ascii_lowercase() == username {
+                "~".to_string()
+            } else {
+                (*c).to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 fn skill_path_count(state: &AdminState) -> usize {
@@ -598,4 +671,61 @@ fn is_scripting_fallback(tool_slug: &str) -> bool {
 
 fn instance_short(id: &uuid::Uuid) -> String {
     id.to_string().chars().take(8).collect()
+}
+
+#[cfg(test)]
+mod skill_path_display_tests {
+    use super::*;
+
+    #[test]
+    fn friendly_labels_map_known_sources() {
+        assert_eq!(friendly_source_label("bundled"), "Bundled");
+        assert_eq!(friendly_source_label("admin_custom"), "Admin custom");
+        assert_eq!(friendly_source_label("env:DCC_MCP_SKILL_PATHS"), "Env var");
+        assert_eq!(friendly_source_label("LocalDev"), "Local dev");
+        assert_eq!(friendly_source_label("ExplicitArg"), "Explicit arg");
+        assert_eq!(friendly_source_label("platform"), "Platform");
+    }
+
+    #[test]
+    fn friendly_labels_title_case_unknown_sources() {
+        assert_eq!(friendly_source_label("studio-shared"), "Studio-shared");
+        assert_eq!(friendly_source_label(""), "Skill path");
+    }
+
+    #[test]
+    fn path_tail_keeps_last_two_components_and_drops_drive() {
+        assert_eq!(
+            safe_path_tail("G:/studio/pipeline/skills"),
+            "pipeline/skills"
+        );
+        assert_eq!(safe_path_tail("C:\\repo\\skills"), "repo/skills");
+        assert_eq!(safe_path_tail("skills"), "skills");
+        assert_eq!(safe_path_tail(""), "");
+    }
+
+    #[test]
+    fn path_tail_redacts_os_username_component() {
+        // SAFETY: scoped env mutation in a single-threaded unit test.
+        unsafe {
+            std::env::set_var("USERNAME", "alice");
+        }
+        // A home-rooted path must not leak the operator's username.
+        assert_eq!(safe_path_tail("C:/Users/alice/skills"), "~/skills");
+        unsafe {
+            std::env::remove_var("USERNAME");
+        }
+    }
+
+    #[test]
+    fn skill_path_row_is_redacted_and_labelled() {
+        let row = safe_skill_path_row("G:/studio/pipeline/skills", "bundled", None, 1);
+        assert_eq!(row["path_redacted"], serde_json::json!(true));
+        assert_eq!(row["source_label"], serde_json::json!("Bundled"));
+        assert_eq!(row["path_tail"], serde_json::json!("pipeline/skills"));
+        // The display string must never contain the original absolute path.
+        let display = row["display_path"].as_str().unwrap();
+        assert!(!display.contains("G:/studio"));
+        assert!(display.starts_with("Bundled"));
+    }
 }

@@ -5,6 +5,8 @@
   "metric.warnings": "警告",
   "metric.failed": "失敗",
   "metric.zeroResult": "ゼロ結果",
+  "metric.searches": "検索回数",
+  "metric.avgSteps": "平均 {value} ステップ",
   "chip.searches": "{count} 件の検索",
   "chip.zeroResult": "{count} 件のゼロ結果",
   "chip.bestRank": "最高ランク {rank}",
