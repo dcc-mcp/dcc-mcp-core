@@ -1708,6 +1708,28 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.logs-panel')).toContainText('No log lines match your search.');
   });
 
+  test('collapses the sidebar into a horizontal nav on mobile widths', async ({ page }) => {
+    await page.setViewportSize({ width: 480, height: 900 });
+    await page.goto('/admin/');
+    // Let the SPA finish its initial mount (it normalizes the URL via
+    // history.replaceState) before reading computed styles.
+    await expect(page.locator('.main-stage')).toBeVisible();
+
+    await expect
+      .poll(() => page.locator('.app-shell').evaluate((node) => getComputedStyle(node).flexDirection))
+      .toBe('column');
+
+    const navDirection = await page
+      .locator('.nav-links')
+      .evaluate((node) => getComputedStyle(node).flexDirection);
+    expect(navDirection).toBe('row');
+
+    const noPageOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 2,
+    );
+    expect(noPageOverflow).toBe(true);
+  });
+
   test('switches color scheme and persists the choice', async ({ page }) => {
     await page.goto('/admin/');
     const themeSelect = page.getByLabel('Theme');
