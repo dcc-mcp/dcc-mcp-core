@@ -188,6 +188,10 @@ async fn skill_rest_metadata_survives_fetch_and_describe() {
                             "execution": "sync",
                             "timeoutHintSecs": 2,
                             "risk": "read-only"
+                        },
+                        "dcc.next_tools": {
+                            "on_success": ["app_ui__inspect"],
+                            "on_failure": ["dcc_diagnostics__screenshot"]
                         }
                     }
                 }))
@@ -256,6 +260,21 @@ async fn skill_rest_metadata_survives_fetch_and_describe() {
             .and_then(|dcc| dcc.get("risk"))
             .and_then(Value::as_str),
         Some("read-only")
+    );
+    // next-tools hints authored in tools.yaml must survive the describe
+    // round-trip so agents can pre-plan failure recovery (issue #1408).
+    let next_tools = described
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.get("dcc.next_tools"))
+        .expect("dcc.next_tools forwarded through describe");
+    assert_eq!(
+        next_tools.get("on_failure").and_then(Value::as_array),
+        Some(&vec![Value::String("dcc_diagnostics__screenshot".into())])
+    );
+    assert_eq!(
+        next_tools.get("on_success").and_then(Value::as_array),
+        Some(&vec![Value::String("app_ui__inspect".into())])
     );
     let _ = stop.send(());
 }
