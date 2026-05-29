@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.41](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.40...v0.17.41) (2026-05-29)
+
+
+### Features
+
+* **admin-ui:** default to dark scheme, unify accent colors, add responsive nav ([97a518d](https://github.com/loonghao/dcc-mcp-core/commit/97a518d279e3e8bf579d8f156670da257d4ee72f))
+* **admin-ui:** equal-height skill cards + light/dark theme switcher ([a93e6db](https://github.com/loonghao/dcc-mcp-core/commit/a93e6db01adad73e532dcf36c2e4c617acdf1b05))
+* **admin-ui:** TokenTracker-style redesign + richer stats/workflow/task metrics ([f8922a0](https://github.com/loonghao/dcc-mcp-core/commit/f8922a08826b9e13be45976f65e543a4b39d00eb))
+
+
+### Bug Fixes
+
+* **admin:** green CI rust tests + split styles.css under size cap ([696a1ab](https://github.com/loonghao/dcc-mcp-core/commit/696a1ab649d0818cb99e570c2c186266ca92bcbf))
+
 ## [0.17.40](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.39...v0.17.40) (2026-05-29)
 
 
