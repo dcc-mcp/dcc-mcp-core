@@ -1707,4 +1707,25 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.list-search-meta')).toHaveText('0 / 4');
     await expect(page.locator('.logs-panel')).toContainText('No log lines match your search.');
   });
+
+  test('switches color scheme and persists the choice', async ({ page }) => {
+    await page.goto('/admin/');
+    const themeSelect = page.getByLabel('Theme');
+    await expect(themeSelect).toBeVisible();
+
+    await themeSelect.selectOption('dark');
+    await expect(page.locator('html')).toHaveClass(/dark/);
+    await expect(page.locator('html')).toHaveAttribute('data-admin-theme', 'dark');
+    expect(await page.evaluate(() => localStorage.getItem('dcc-mcp-admin-theme'))).toBe('dark');
+
+    await themeSelect.selectOption('light');
+    await expect(page.locator('html')).not.toHaveClass(/dark/);
+    await expect(page.locator('html')).toHaveAttribute('data-admin-theme', 'light');
+
+    // The persisted choice survives a reload.
+    await themeSelect.selectOption('dark');
+    await page.reload();
+    await expect(page.locator('html')).toHaveClass(/dark/);
+    await expect(page.getByLabel('Theme')).toHaveValue('dark');
+  });
 });

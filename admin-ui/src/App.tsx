@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { LanguageSelector } from './components/LanguageSelector';
+import { ThemeSelector } from './components/ThemeSelector';
 import { LogsPanel } from './components/LogsPanel';
 import { SkillsPanel } from './features/skills';
 import { createTranslator, detectBrowserLocale, type SupportedLocale } from './i18n';
 import { readLocaleOverride, storeLocaleOverride } from './locale';
+import { applyTheme, readThemeMode, resolveTheme, storeThemeMode, type ThemeMode } from './theme';
 import { filterLogs, isProblemLog, normalizeLogRow, summarizeLogSeverity, type LogRow, type LogSeverityFilter } from './logs';
 import { CRITICAL_LATENCY_MS, SLOW_LATENCY_MS, type ActivityEvent, type CallRow, type ClientPlatform, type DebugSignal, type FailureSignal, type GovernancePayload, type HealthPayload, type IdeTarget, type InstanceRow, type InstanceSummary, type OpenApiSource, type OpenApiSpec, type Panel, type SetupUrlMode, type StatsPayload, type TaskRow, type TokenBreakdownEntry, type ToolRow, type TraceDetailPayload, type TraceRow, type TrafficPayload, type WorkflowRow } from './admin-types';
 import { actorLabel, agentLabel, apiJson, API_BASE, AttributionFacetList, BackendAccessUrl, backendAccessUrls, BackendOpenApiLinks, callGroupLabel, compactId, compactInstanceId, compactList, configPathFileUrl, configPathForTarget, detectClientPlatform, DocsIcon, downloadJsonText, EmptyRow, errorRateTone, fetchOpenApiSpecText, firstTrust, flattenOpenApiOperations, formatBytes, formatDurationMs, formatSavingsPct, formatTokenCount, formatTraceDate, formatUptime, gatewayLabel, gatewayMcpUrl, gatewayOpenApiSource, GovernanceControlCard, groupRows, haystack, HealthCard, HeroMetric, HourlyChart, hrefForAdmin, IDE_TARGETS, ideConfigText, IdeIcon, instanceGroupLabel, instanceSetupLabel, isErrStatus, isOkStatus, isProblemActivity, isSlowLatency, issueReportFilename, issueReportJsonText, isWarnStatus, lanGatewayMcpUrl, latencyClass, latencyTone, LatencyValue, matchesListFilter, McpBackendLinks, MetricTile, MiniSparkline, NavIcon, OpenApiInspectorPanel, openApiSpecFilename, PanelHeader, PANELS, platformLabel, projectDocsHref, readOpenApiSourceFromUrl, readPanelFromUrl, readStatsRangeFromUrl, readTraceIdFromUrl, resolveDccIcon, responseFormatLabel, returnedTokensLabel, savedTokensLabel, sourceIpLabel, StatBarList, STATS_RANGE_IDS, StatusBadge, statusClass, StatusLine, taskActorLabel, taskOutcomeText, taskPrimaryRequestId, taskRequestCount, taskWorkflowLabel, TimeValue, TokenBreakdownList, toolGroupLabel, toolInstanceLabel, totalTraceTokens, TraceDetailPanel, traceGroupLabel, traceLatency, traceLinks, trafficBodyBytes, trafficEmptyKey, trafficFrameDetail, trafficMethod, trafficRedactedPaths, trafficRequestId, trafficSessionId, trafficStatusDetailKey, trafficStatusLabelKey, trafficStatusTone, trafficTimestamp, trustChip, trustFor, WorkflowCard, WorkflowGraphDetail } from './admin-ui-core';
 
 function App() {
   const [localeOverride, setLocaleOverride] = useState<SupportedLocale | null>(() => readLocaleOverride());
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => readThemeMode());
   const localeDetection = useMemo(() => detectBrowserLocale(localeOverride), [localeOverride]);
   const t = useMemo(() => createTranslator(localeDetection.locale), [localeDetection.locale]);
   const [activePanel, setActivePanel] = useState<Panel>(() => readPanelFromUrl());
@@ -73,6 +76,22 @@ function App() {
     storeLocaleOverride(locale);
     setLocaleOverride(locale);
   }, []);
+
+  const changeTheme = useCallback((mode: ThemeMode) => {
+    storeThemeMode(mode);
+    setThemeMode(mode);
+  }, []);
+
+  useEffect(() => {
+    applyTheme(resolveTheme(themeMode));
+    if (themeMode !== 'system' || typeof window.matchMedia !== 'function') {
+      return;
+    }
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = () => applyTheme(resolveTheme('system'));
+    media.addEventListener('change', onChange);
+    return () => media.removeEventListener('change', onChange);
+  }, [themeMode]);
 
   useEffect(() => {
     document.documentElement.lang = localeDetection.locale;
@@ -1276,6 +1295,7 @@ function App() {
           onChange={changeLocale}
           t={t}
         />
+        <ThemeSelector mode={themeMode} onChange={changeTheme} t={t} />
         <div className="nav-links">
           {panels.map((panel, index) => {
             const showGroup = index === 0 || panels[index - 1].group !== panel.group;
