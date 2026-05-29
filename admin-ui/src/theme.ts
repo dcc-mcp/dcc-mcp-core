@@ -16,14 +16,18 @@ export function isThemeMode(value: string | null | undefined): value is ThemeMod
   return value != null && THEME_ID_SET.has(value);
 }
 
-/// Read the persisted preference, falling back to `system` when unset or
-/// when storage is unavailable (hardened embedded views).
+/// The dashboard's primary identity is the dark / black scheme, so an
+/// unset preference defaults to `dark` rather than following the OS.
+export const DEFAULT_THEME_MODE: ThemeMode = 'dark';
+
+/// Read the persisted preference, falling back to the dark default when
+/// unset or when storage is unavailable (hardened embedded views).
 export function readThemeMode(): ThemeMode {
   try {
     const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
-    return isThemeMode(stored) ? stored : 'system';
+    return isThemeMode(stored) ? stored : DEFAULT_THEME_MODE;
   } catch {
-    return 'system';
+    return DEFAULT_THEME_MODE;
   }
 }
 
