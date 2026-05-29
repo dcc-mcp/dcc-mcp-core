@@ -7,49 +7,72 @@
 
 :root {
   color-scheme: light;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.141 0.005 285.823);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.141 0.005 285.823);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.141 0.005 285.823);
-  --primary: oklch(0.21 0.006 285.885);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.967 0.001 286.375);
-  --secondary-foreground: oklch(0.21 0.006 285.885);
-  --muted: oklch(0.967 0.001 286.375);
-  --muted-foreground: oklch(0.552 0.016 285.938);
-  --accent: oklch(0.21 0.006 285.885);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.92 0.004 286.32);
-  --input: oklch(0.92 0.004 286.32);
-  --ring: oklch(0.705 0.015 286.067);
-  --chart-1: oklch(0.871 0.15 154.449);
-  --chart-2: oklch(0.723 0.219 149.579);
-  --chart-3: oklch(0.627 0.194 149.214);
-  --chart-4: oklch(0.527 0.154 150.069);
-  --chart-5: oklch(0.448 0.119 151.328);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.141 0.005 285.823);
-  --sidebar-primary: oklch(0.21 0.006 285.885);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.967 0.001 286.375);
-  --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
-  --sidebar-border: oklch(0.92 0.004 286.32);
-  --sidebar-ring: oklch(0.705 0.015 286.067);
+  /* TokenTracker-inspired "OpenAI" palette: near-white canvas, near-black ink,
+     muted forest-green brand. Tuned to read well on a white background. */
+  --background: #fafafa;
+  --foreground: #0a0a0a;
+  --card: #ffffff;
+  --card-foreground: #0a0a0a;
+  --popover: #ffffff;
+  --popover-foreground: #0a0a0a;
+  /* Brand: muted forest green (#059669) with emerald light/dark variants. */
+  --brand: #059669;
+  --brand-dark: #047857;
+  --brand-light: #10b981;
+  --brand-50: #ecfdf5;
+  --brand-100: #d1fae5;
+  --primary: #059669;
+  --primary-foreground: #ffffff;
+  --secondary: #f5f5f5;
+  --secondary-foreground: #171717;
+  --muted: #f5f5f5;
+  --muted-foreground: #737373;
+  --accent: #059669;
+  --accent-foreground: #ffffff;
+  --destructive: #ef4444;
+  --border: #e5e5e5;
+  --input: #e5e5e5;
+  --ring: #10b981;
+  --chart-1: #6ee7b7;
+  --chart-2: #34d399;
+  --chart-3: #10b981;
+  --chart-4: #059669;
+  --chart-5: #047857;
+  --radius: 0.5rem;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0a0a0a;
+  --sidebar-primary: #059669;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f5f5f5;
+  --sidebar-accent-foreground: #171717;
+  --sidebar-border: #e5e5e5;
+  --sidebar-ring: #10b981;
 
-  --ok: #38c172;
-  --ok-soft: rgba(56, 193, 114, 0.16);
-  --warn: #f2b84b;
-  --warn-soft: rgba(242, 184, 75, 0.16);
-  --err: #ef5b63;
-  --err-soft: rgba(239, 91, 99, 0.16);
-  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --ok: #10b981;
+  --ok-soft: rgba(16, 185, 129, 0.14);
+  --warn: #f59e0b;
+  --warn-soft: rgba(245, 158, 11, 0.14);
+  --err: #ef4444;
+  --err-soft: rgba(239, 68, 68, 0.14);
+  /* Interactive accent (links, hovers, selection) — emerald, not blue. */
+  --link: #047857;
+  --link-strong: #065f46;
+  --accent-soft: rgba(16, 185, 129, 0.12);
+  --accent-line: rgba(16, 185, 129, 0.32);
+
+  --font-sans: 'OpenAI Sans', 'Inter Variable', -apple-system, BlinkMacSystemFont,
+    'Segoe UI', Roboto, ui-sans-serif, system-ui, sans-serif;
   --font-serif: 'Libre Baskerville', georgia, 'Times New Roman', serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
-  --radius-lg: 1rem;
+  --font-mono: 'SF Mono', SFMono-Regular, 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  /* OAI shadow scale. */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
   --nav-width: 220px;
 }
 
@@ -978,7 +1001,7 @@ tbody tr:nth-child(even) td {
 }
 
 tbody tr:hover td {
-  background: rgba(112, 165, 255, 0.08);
+  background: rgba(16, 185, 129, 0.08);
 }
 
 .trace-row {
@@ -987,7 +1010,7 @@ tbody tr:hover td {
 
 .trace-row:focus-within td,
 .trace-row:hover td {
-  background: rgba(112, 165, 255, 0.12);
+  background: rgba(16, 185, 129, 0.12);
 }
 
 .task-board {
@@ -1090,10 +1113,10 @@ tbody tr:hover td {
 }
 
 .link-chip {
-  background: rgba(112, 165, 255, 0.12);
-  border: 1px solid rgba(112, 165, 255, 0.28);
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.28);
   border-radius: 999px;
-  color: #b8d2ff;
+  color: var(--link);
   cursor: pointer;
   font-family: var(--font-mono);
   font-size: 0.75rem;
@@ -1102,8 +1125,8 @@ tbody tr:hover td {
 }
 
 .link-chip:hover {
-  background: rgba(112, 165, 255, 0.2);
-  border-color: rgba(112, 165, 255, 0.45);
+  background: rgba(16, 185, 129, 0.2);
+  border-color: rgba(16, 185, 129, 0.45);
 }
 
 .workflow-board {
@@ -1263,8 +1286,8 @@ tbody tr:hover td {
 }
 
 .workflow-stage-strip span {
-  background: rgba(112, 165, 255, 0.12);
-  border: 1px solid rgba(112, 165, 255, 0.32);
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.32);
   border-radius: var(--radius);
   color: var(--foreground);
   font-size: 0.72rem;
@@ -1346,7 +1369,7 @@ tbody tr:hover td {
 
 .workflow-graph-node.selected {
   border-color: var(--ring);
-  box-shadow: 0 0 0 2px rgba(112, 165, 255, 0.16);
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.16);
 }
 
 .workflow-node-index {
@@ -1477,9 +1500,9 @@ tbody tr:hover td {
 }
 
 .method-pill {
-  background: rgba(112, 165, 255, 0.14);
-  border: 1px solid rgba(112, 165, 255, 0.28);
-  color: #b8d2ff;
+  background: rgba(16, 185, 129, 0.14);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  color: var(--link);
 }
 
 .method-pill.post,
@@ -1587,7 +1610,7 @@ tbody tr:hover td {
 }
 
 .trace-item:hover {
-  background: rgba(112, 165, 255, 0.08);
+  background: rgba(16, 185, 129, 0.08);
 }
 
 .trace-item.ok {
@@ -1808,7 +1831,7 @@ tbody tr:hover td {
 }
 
 .agent-context-card {
-  border-color: rgba(112, 165, 255, 0.22);
+  border-color: rgba(16, 185, 129, 0.22);
 }
 
 .agent-task,
@@ -2043,14 +2066,14 @@ tbody tr:hover td {
 
 .instance-card a,
 .mcp-backend-links a {
-  color: #9cc3ff;
+  color: var(--link);
   font-weight: 700;
   text-decoration: none;
 }
 
 .instance-card a:hover,
 .mcp-backend-links a:hover {
-  color: #cfe2ff;
+  color: var(--link-strong);
   text-decoration: underline;
 }
 
@@ -2310,7 +2333,7 @@ pre.empty {
 
 .list-search-input:focus {
   border-color: var(--ring);
-  outline: 2px solid rgba(112, 165, 255, 0.35);
+  outline: 2px solid rgba(16, 185, 129, 0.35);
   outline-offset: 1px;
 }
 
@@ -2428,6 +2451,81 @@ pre.empty {
 .log-event {
   color: var(--primary);
   font-weight: 600;
+}
+
+/* TokenTracker-style hero metrics — large display numbers for headline stats. */
+.stats-hero {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-bottom: 1.25rem;
+}
+
+.hero-metric {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  display: grid;
+  gap: 0.35rem;
+  padding: 1.3rem 1.4rem 1.4rem;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.hero-metric::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--brand-light), var(--brand));
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.hero-metric:hover {
+  border-color: var(--accent-line);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.hero-metric:hover::before,
+.hero-metric.accent::before {
+  opacity: 1;
+}
+
+.hero-metric .hero-label {
+  color: var(--muted-foreground);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hero-metric .hero-value {
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: clamp(2rem, 4.4vw, 3.25rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.02;
+  font-variant-numeric: tabular-nums;
+}
+
+.hero-metric.accent .hero-value {
+  color: var(--brand-dark);
+}
+
+.hero-metric .hero-detail {
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.hero-metric .hero-detail strong {
+  color: var(--brand-dark);
+  font-weight: 700;
 }
 
 /* Stats charts (CSS-only) */
@@ -2570,7 +2668,7 @@ pre.empty {
 }
 
 .skill-row.selected td {
-  background: rgba(112, 165, 255, 0.12);
+  background: rgba(16, 185, 129, 0.12);
 }
 
 .skill-name-button {

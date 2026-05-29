@@ -7,13 +7,26 @@ type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 
 type ToolSummary = { name: string; summary: string; annotations: string[] };
 
-function readAnnotations(raw: unknown): string[] {
-  if (!raw || typeof raw !== 'object') return [];
-  const out: string[] = [];
-  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-    if (v === true) out.push(k);
-  }
-  return out;
+function recordOrNull(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/// Map a tool's annotation object + thread metadata into human-friendly
+/// chips. Mirrors `admin-ui-core.tsx::skillDetailTools` so the split-out
+/// Skills panel keeps emitting `read-only` / `idempotent` / `thread:main`
+/// instead of the raw `idempotentHint` keys (and never drops affinity).
+function readAnnotations(tool: Record<string, unknown>): string[] {
+  const annotations = recordOrNull(tool.annotations) ?? recordOrNull(tool.tool_annotations);
+  return [
+    annotations?.readOnlyHint === true || annotations?.read_only === true ? 'read-only' : '',
+    annotations?.destructiveHint === true || annotations?.destructive === true ? 'destructive' : '',
+    annotations?.idempotentHint === true || annotations?.idempotent === true ? 'idempotent' : '',
+    annotations?.openWorldHint === true || annotations?.open_world === true ? 'open-world' : '',
+    tool.thread_affinity != null ? `thread:${String(tool.thread_affinity)}` : '',
+    tool.affinity != null ? `affinity:${String(tool.affinity)}` : '',
+  ].filter(Boolean);
 }
 
 function skillDetailTools(detail: SkillDetailInstance | null | undefined): ToolSummary[] {
@@ -23,7 +36,7 @@ function skillDetailTools(detail: SkillDetailInstance | null | undefined): ToolS
     .map((tool) => ({
       name: typeof tool.name === 'string' ? tool.name : '',
       summary: typeof tool.summary === 'string' ? tool.summary : '',
-      annotations: readAnnotations(tool.annotations),
+      annotations: readAnnotations(tool),
     }))
     .filter((tool) => tool.name);
 }

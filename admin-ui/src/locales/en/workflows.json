@@ -5,6 +5,8 @@
   "metric.warnings": "Warnings",
   "metric.failed": "Failed",
   "metric.zeroResult": "Zero-result",
+  "metric.searches": "Searches",
+  "metric.avgSteps": "{value} avg steps",
   "chip.searches": "{count} search(es)",
   "chip.zeroResult": "{count} zero-result",
   "chip.bestRank": "best rank {rank}",

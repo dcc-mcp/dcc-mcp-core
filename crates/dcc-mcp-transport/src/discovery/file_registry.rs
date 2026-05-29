@@ -51,6 +51,39 @@ fn env_duration_ms(name: &str, default_ms: u64) -> Duration {
     Duration::from_millis(ms)
 }
 
+/// Severity of a registry-lock acquisition wait.
+///
+/// Derived purely from the elapsed wait time so the decision can be
+/// unit-tested without standing up a tracing subscriber. A wait that needed
+/// at most a single backoff tick is `Quiet` (no log emitted): brief
+/// contention between concurrent heartbeat writers is expected and not
+/// actionable, so logging it — even at debug — only adds noise to the admin
+/// log feed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LockWaitLevel {
+    /// Acquired quickly enough that no log line is warranted.
+    Quiet,
+    /// Acquired after non-trivial retrying — useful at debug for diagnosis.
+    Retry,
+    /// Acquired only after a slow wait — surfaced at warn.
+    Slow,
+}
+
+/// Classify how noteworthy a lock-acquisition wait was.
+///
+/// * `elapsed >= slow_warn` → [`LockWaitLevel::Slow`]
+/// * `elapsed >= 2 * backoff` (more than one backoff tick) → [`LockWaitLevel::Retry`]
+/// * otherwise → [`LockWaitLevel::Quiet`]
+fn classify_lock_wait(elapsed: Duration, backoff: Duration, slow_warn: Duration) -> LockWaitLevel {
+    if elapsed >= slow_warn {
+        LockWaitLevel::Slow
+    } else if elapsed >= backoff.saturating_mul(2) {
+        LockWaitLevel::Retry
+    } else {
+        LockWaitLevel::Quiet
+    }
+}
+
 fn entries_to_map(entries: impl IntoIterator<Item = ServiceEntry>) -> EntryMap {
     entries
         .into_iter()
@@ -426,20 +459,24 @@ impl FileRegistry {
     }
 
     fn log_lock_wait(&self, elapsed: Duration, path: &Path) {
-        if elapsed >= Duration::from_millis(REGISTRY_LOCK_SLOW_WARN_MS) {
-            tracing::warn!(
+        match classify_lock_wait(
+            elapsed,
+            self.write_lock_backoff,
+            Duration::from_millis(REGISTRY_LOCK_SLOW_WARN_MS),
+        ) {
+            LockWaitLevel::Slow => tracing::warn!(
                 waited_ms = elapsed.as_millis() as u64,
                 timeout_ms = self.write_lock_timeout.as_millis() as u64,
                 lock = %path.display(),
                 "FileRegistry write transaction acquired registry lock after slow wait"
-            );
-        } else if elapsed >= self.write_lock_backoff {
-            tracing::debug!(
+            ),
+            LockWaitLevel::Retry => tracing::debug!(
                 waited_ms = elapsed.as_millis() as u64,
                 timeout_ms = self.write_lock_timeout.as_millis() as u64,
                 lock = %path.display(),
                 "FileRegistry write transaction acquired registry lock after retry"
-            );
+            ),
+            LockWaitLevel::Quiet => {}
         }
     }
 

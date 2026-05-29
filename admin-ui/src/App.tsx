@@ -6,7 +6,7 @@ import { createTranslator, detectBrowserLocale, type SupportedLocale } from './i
 import { readLocaleOverride, storeLocaleOverride } from './locale';
 import { filterLogs, isProblemLog, normalizeLogRow, summarizeLogSeverity, type LogRow, type LogSeverityFilter } from './logs';
 import { CRITICAL_LATENCY_MS, SLOW_LATENCY_MS, type ActivityEvent, type CallRow, type ClientPlatform, type DebugSignal, type FailureSignal, type GovernancePayload, type HealthPayload, type IdeTarget, type InstanceRow, type InstanceSummary, type OpenApiSource, type OpenApiSpec, type Panel, type SetupUrlMode, type StatsPayload, type TaskRow, type TokenBreakdownEntry, type ToolRow, type TraceDetailPayload, type TraceRow, type TrafficPayload, type WorkflowRow } from './admin-types';
-import { actorLabel, agentLabel, apiJson, API_BASE, AttributionFacetList, BackendAccessUrl, backendAccessUrls, BackendOpenApiLinks, callGroupLabel, compactId, compactInstanceId, compactList, configPathFileUrl, configPathForTarget, detectClientPlatform, DocsIcon, downloadJsonText, EmptyRow, errorRateTone, fetchOpenApiSpecText, firstTrust, flattenOpenApiOperations, formatBytes, formatDurationMs, formatSavingsPct, formatTokenCount, formatTraceDate, formatUptime, gatewayLabel, gatewayMcpUrl, gatewayOpenApiSource, GovernanceControlCard, groupRows, haystack, HealthCard, HourlyChart, hrefForAdmin, IDE_TARGETS, ideConfigText, IdeIcon, instanceGroupLabel, instanceSetupLabel, isErrStatus, isOkStatus, isProblemActivity, isSlowLatency, issueReportFilename, issueReportJsonText, isWarnStatus, lanGatewayMcpUrl, latencyClass, latencyTone, LatencyValue, matchesListFilter, McpBackendLinks, MetricTile, MiniSparkline, NavIcon, OpenApiInspectorPanel, openApiSpecFilename, PanelHeader, PANELS, platformLabel, projectDocsHref, readOpenApiSourceFromUrl, readPanelFromUrl, readStatsRangeFromUrl, readTraceIdFromUrl, resolveDccIcon, responseFormatLabel, returnedTokensLabel, savedTokensLabel, sourceIpLabel, StatBarList, STATS_RANGE_IDS, StatusBadge, statusClass, StatusLine, taskActorLabel, taskOutcomeText, taskPrimaryRequestId, taskRequestCount, taskWorkflowLabel, TimeValue, TokenBreakdownList, toolGroupLabel, toolInstanceLabel, totalTraceTokens, TraceDetailPanel, traceGroupLabel, traceLatency, traceLinks, trafficBodyBytes, trafficEmptyKey, trafficFrameDetail, trafficMethod, trafficRedactedPaths, trafficRequestId, trafficSessionId, trafficStatusDetailKey, trafficStatusLabelKey, trafficStatusTone, trafficTimestamp, trustChip, trustFor, WorkflowCard, WorkflowGraphDetail } from './admin-ui-core';
+import { actorLabel, agentLabel, apiJson, API_BASE, AttributionFacetList, BackendAccessUrl, backendAccessUrls, BackendOpenApiLinks, callGroupLabel, compactId, compactInstanceId, compactList, configPathFileUrl, configPathForTarget, detectClientPlatform, DocsIcon, downloadJsonText, EmptyRow, errorRateTone, fetchOpenApiSpecText, firstTrust, flattenOpenApiOperations, formatBytes, formatDurationMs, formatSavingsPct, formatTokenCount, formatTraceDate, formatUptime, gatewayLabel, gatewayMcpUrl, gatewayOpenApiSource, GovernanceControlCard, groupRows, haystack, HealthCard, HeroMetric, HourlyChart, hrefForAdmin, IDE_TARGETS, ideConfigText, IdeIcon, instanceGroupLabel, instanceSetupLabel, isErrStatus, isOkStatus, isProblemActivity, isSlowLatency, issueReportFilename, issueReportJsonText, isWarnStatus, lanGatewayMcpUrl, latencyClass, latencyTone, LatencyValue, matchesListFilter, McpBackendLinks, MetricTile, MiniSparkline, NavIcon, OpenApiInspectorPanel, openApiSpecFilename, PanelHeader, PANELS, platformLabel, projectDocsHref, readOpenApiSourceFromUrl, readPanelFromUrl, readStatsRangeFromUrl, readTraceIdFromUrl, resolveDccIcon, responseFormatLabel, returnedTokensLabel, savedTokensLabel, sourceIpLabel, StatBarList, STATS_RANGE_IDS, StatusBadge, statusClass, StatusLine, taskActorLabel, taskOutcomeText, taskPrimaryRequestId, taskRequestCount, taskWorkflowLabel, TimeValue, TokenBreakdownList, toolGroupLabel, toolInstanceLabel, totalTraceTokens, TraceDetailPanel, traceGroupLabel, traceLatency, traceLinks, trafficBodyBytes, trafficEmptyKey, trafficFrameDetail, trafficMethod, trafficRedactedPaths, trafficRequestId, trafficSessionId, trafficStatusDetailKey, trafficStatusLabelKey, trafficStatusTone, trafficTimestamp, trustChip, trustFor, WorkflowCard, WorkflowGraphDetail } from './admin-ui-core';
 
 function App() {
   const [localeOverride, setLocaleOverride] = useState<SupportedLocale | null>(() => readLocaleOverride());
@@ -610,7 +610,12 @@ function App() {
     const completed = tasks.filter((task) => isOkStatus(task.status)).length;
     const failed = tasks.filter((task) => isErrStatus(task.status)).length;
     const active = tasks.filter((task) => isWarnStatus(task.status)).length;
-    return { completed, failed, active };
+    const total = tasks.length;
+    const settled = completed + failed;
+    const successRate = settled > 0 ? (completed / settled) * 100 : 0;
+    const durations = tasks.map((task) => task.duration_ms).filter((ms): ms is number => typeof ms === 'number' && ms >= 0);
+    const avgDurationMs = durations.length > 0 ? durations.reduce((sum, ms) => sum + ms, 0) / durations.length : null;
+    return { completed, failed, active, total, successRate, avgDurationMs };
   }, [tasks]);
 
   const workflowSummary = useMemo(() => {
@@ -618,7 +623,13 @@ function App() {
     const failed = workflows.filter((workflow) => isErrStatus(workflow.status)).length;
     const warning = workflows.filter((workflow) => isWarnStatus(workflow.status)).length;
     const zeroResults = workflows.filter((workflow) => workflow.discovery.zero_result_count > 0).length;
-    return { completed, failed, warning, zeroResults };
+    const total = workflows.length;
+    const settled = completed + failed;
+    const successRate = settled > 0 ? (completed / settled) * 100 : 0;
+    const searches = workflows.reduce((sum, workflow) => sum + (workflow.discovery.search_count ?? 0), 0);
+    const totalSteps = workflows.reduce((sum, workflow) => sum + (workflow.step_count ?? 0), 0);
+    const avgSteps = total > 0 ? totalSteps / total : 0;
+    return { completed, failed, warning, zeroResults, total, successRate, searches, avgSteps };
   }, [workflows]);
 
   const traceSummary = useMemo(() => {
@@ -695,6 +706,28 @@ function App() {
     saved: stats?.token_usage?.total_saved_tokens ?? 0,
     estimator: stats?.payload_token_estimator ?? health?.response_format?.token_estimator ?? '-',
   }), [health, stats, statsSummary]);
+
+  /// Headline token figures for the stats hero cards. Prefers the precise
+  /// payload-token accounting when present and falls back to the aggregate
+  /// stats / trace-derived totals so the hero never renders blank.
+  const heroTokens = useMemo(() => {
+    const payload = stats?.payload_token_usage;
+    const input = payload?.total_input_tokens ?? stats?.total_input_tokens ?? statsSummary.totalInputTokens ?? 0;
+    const output = payload?.total_output_tokens ?? stats?.total_output_tokens ?? statsSummary.totalOutputTokens ?? 0;
+    const total = payload?.total_tokens
+      ?? stats?.total_tokens
+      ?? ((input || output) ? input + output : statsSummary.totalTokens)
+      ?? 0;
+    return {
+      total,
+      input,
+      output,
+      avg: payload?.avg_total_tokens_per_call ?? stats?.avg_tokens_per_call ?? stats?.avg_total_tokens_per_call ?? statsSummary.avgTokens ?? 0,
+      saved: stats?.token_usage?.total_saved_tokens ?? 0,
+      savedPct: stats?.token_usage?.average_savings_pct ?? 0,
+      estimator: payload?.token_estimator ?? stats?.payload_token_estimator ?? health?.response_format?.token_estimator ?? '-',
+    };
+  }, [health, stats, statsSummary]);
 
   const slowLatencyDetail = useMemo(() => {
     const slowest = slowTraces[0];
@@ -1830,10 +1863,13 @@ function App() {
             />
             <StatusLine text={copiedNotice || updatedAt.workflows} error={errors.workflows} />
             <div className="metric-grid compact">
+              <MetricTile label={t('common.metric.total')} value={workflowSummary.total} />
+              <MetricTile tone={workflowSummary.successRate >= 80 || workflowSummary.total === 0 ? 'ok' : 'warn'} label={t('common.metric.successRate')} value={`${workflowSummary.successRate.toFixed(1)}%`} detail={t('stats.detail.okFailed', { ok: workflowSummary.completed, failed: workflowSummary.failed })} />
               <MetricTile tone="ok" label={t('workflows.metric.completed')} value={workflowSummary.completed} />
               <MetricTile tone={workflowSummary.warning > 0 ? 'warn' : undefined} label={t('workflows.metric.warnings')} value={workflowSummary.warning} />
               <MetricTile tone={workflowSummary.failed > 0 ? 'err' : undefined} label={t('workflows.metric.failed')} value={workflowSummary.failed} />
               <MetricTile tone={workflowSummary.zeroResults > 0 ? 'warn' : undefined} label={t('workflows.metric.zeroResult')} value={workflowSummary.zeroResults} />
+              <MetricTile label={t('workflows.metric.searches')} value={workflowSummary.searches} detail={t('workflows.metric.avgSteps', { value: workflowSummary.avgSteps.toFixed(1) })} />
               <MetricTile label={t('common.metric.visible')} value={`${filteredWorkflows.length} / ${workflows.length}`} />
             </div>
             {visibleSelectedWorkflow ? (
@@ -1873,9 +1909,12 @@ function App() {
             />
             <StatusLine text={updatedAt.tasks} error={errors.tasks} />
             <div className="metric-grid compact">
+              <MetricTile label={t('common.metric.total')} value={taskSummary.total} />
+              <MetricTile tone={taskSummary.successRate >= 80 || taskSummary.total === 0 ? 'ok' : 'warn'} label={t('common.metric.successRate')} value={`${taskSummary.successRate.toFixed(1)}%`} detail={t('stats.detail.okFailed', { ok: taskSummary.completed, failed: taskSummary.failed })} />
               <MetricTile tone="ok" label={t('tasks.metric.completed')} value={taskSummary.completed} />
               <MetricTile tone={taskSummary.failed > 0 ? 'err' : undefined} label={t('tasks.metric.failed')} value={taskSummary.failed} />
               <MetricTile tone={taskSummary.active > 0 ? 'warn' : undefined} label={t('tasks.metric.activeWaiting')} value={taskSummary.active} />
+              <MetricTile label={t('common.metric.avgDuration')} value={formatDurationMs(taskSummary.avgDurationMs)} />
               <MetricTile label={t('common.metric.visible')} value={`${filteredTasks.length} / ${tasks.length}`} />
             </div>
             {tasks.length === 0 ? <p className="empty">{t('tasks.empty.none')}</p> : filteredTasks.length === 0 ? (
@@ -2235,6 +2274,35 @@ function App() {
             />
             <StatusLine text={updatedAt.stats} error={errors.stats} />
             {stats?.error ? <p className="empty">{stats.error}</p> : null}
+            <div className="stats-hero">
+              <HeroMetric
+                accent
+                label={t('stats.hero.totalTokens')}
+                value={formatTokenCount(heroTokens.total)}
+                detail={(
+                  <>
+                    {t('stats.hero.perCall', { value: formatTokenCount(heroTokens.avg) })}
+                    {' · '}
+                    {t('stats.hero.estimator', { name: heroTokens.estimator })}
+                  </>
+                )}
+              />
+              <HeroMetric
+                label={t('stats.hero.inputTokens')}
+                value={formatTokenCount(heroTokens.input)}
+                detail={t('stats.hero.outputTokens') + ': ' + formatTokenCount(heroTokens.output)}
+              />
+              <HeroMetric
+                label={t('stats.hero.tokensSaved')}
+                value={formatTokenCount(heroTokens.saved)}
+                detail={<strong>{t('stats.hero.savings', { value: formatSavingsPct(heroTokens.savedPct) })}</strong>}
+              />
+              <HeroMetric
+                label={t('stats.hero.totalCalls')}
+                value={(stats?.total_calls ?? 0).toLocaleString()}
+                detail={t('stats.hero.successRate', { value: stats ? `${stats.success_rate.toFixed(1)}%` : '0.0%' })}
+              />
+            </div>
             <div className="metric-grid">
               <MetricTile label={t('stats.metric.calls')} value={stats?.total_calls ?? 0} detail={t('stats.detail.window', { range: statsRange })} />
               <MetricTile tone={errorRateTone(stats)} label={t('stats.metric.success')} value={stats ? `${stats.success_rate.toFixed(1)}%` : '0.0%'} detail={t('stats.detail.okFailed', { ok: statsSummary.success, failed: statsSummary.failed })} />
