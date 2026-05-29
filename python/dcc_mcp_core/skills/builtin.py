@@ -29,6 +29,7 @@ def register_all_builtin_skills(
     dcc_window_handle: int | None = None,
     dcc_window_title: str | None = None,
     gateway_failover_resolver: Callable[[], dict[str, Any]] | None = None,
+    skills: list[Any] | None = None,
 ) -> None:
     """Register all standard built-in tools on *server*.
 
@@ -42,6 +43,13 @@ def register_all_builtin_skills(
 
     The call is idempotent; re-registering the same tools on the same
     server is safe.
+
+    ``skills`` is an optional list of ``SkillMetadata`` objects forwarded to
+    :func:`register_recipes_tools`. When ``None`` (the common case at
+    base-server init time, before any skills are scanned) an empty list is
+    used so the ``recipes__*`` tools are still registered; adapters that have
+    already scanned skills can pass them here and later re-register with the
+    populated set (registration is idempotent).
     """
     logger.debug("[%s] Registering all built-in skills", dcc_name)
 
@@ -61,8 +69,9 @@ def register_all_builtin_skills(
     # 3. Agent feedback
     register_feedback_tool(server, dcc_name=dcc_name)
 
-    # 4. Recipes
-    register_recipes_tools(server, dcc_name=dcc_name)
+    # 4. Recipes (skills default to empty at base init; adapters re-register
+    #    with the scanned skill set later — registration is idempotent).
+    register_recipes_tools(server, skills=skills or [], dcc_name=dcc_name)
 
     # 5. Qt UI inspector (opt-in default capability)
     register_qt_ui_inspector(server, dcc_name=dcc_name)
