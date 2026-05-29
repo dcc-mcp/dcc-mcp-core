@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.42](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.41...v0.17.42) (2026-05-29)
+
+
+### Bug Fixes
+
+* **ci:** add execute permission to build_manylinux_semantic_wheel.sh ([245be73](https://github.com/loonghao/dcc-mcp-core/commit/245be7390ea7595c70ebb197bb3cbbd8806fadef))
+
 ## [0.17.41](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.40...v0.17.41) (2026-05-29)
 
 
