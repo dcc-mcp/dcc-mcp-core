@@ -106,6 +106,7 @@ fn sphere_action(loaded: bool) -> CatalogAction {
         enforce_thread_affinity: false,
         available_groups: Vec::new(),
         runtime: None,
+        next_tools: Default::default(),
     }
 }
 
@@ -236,6 +237,53 @@ fn search_and_describe_surface_runtime_metadata() {
 }
 
 #[test]
+fn describe_surfaces_next_tools_both_branches() {
+    // Authoring a tool with next-tools must expose BOTH branches at
+    // describe-time so an agent can pre-plan success + failure recovery
+    // (issue #1408). The flat `dcc.next_tools` key mirrors the post-call
+    // `_meta` convention so agents look in the same place.
+    let mut action = sphere_action(true);
+    action.next_tools = dcc_mcp_models::NextTools {
+        on_success: vec!["validate_naming".into(), "inspect_usd".into()],
+        on_failure: vec!["dcc_diagnostics__screenshot".into()],
+    };
+    let (svc, _) = build_service(vec![action]);
+
+    let desc = svc
+        .describe(&DescribeRequest {
+            tool_slug: ToolSlug::build("maya", "spheres", "create_sphere"),
+            include_schema: false,
+        })
+        .expect("describe");
+    let next = &desc.metadata.as_ref().expect("metadata")["dcc.next_tools"];
+    assert_eq!(
+        next["on_success"],
+        serde_json::json!(["validate_naming", "inspect_usd"])
+    );
+    assert_eq!(
+        next["on_failure"],
+        serde_json::json!(["dcc_diagnostics__screenshot"])
+    );
+}
+
+#[test]
+fn describe_omits_next_tools_when_none_declared() {
+    // No follow-ups declared → the `dcc.next_tools` key must be absent so
+    // the describe payload stays lean.
+    let (svc, _) = build_service(vec![sphere_action(true)]);
+
+    let desc = svc
+        .describe(&DescribeRequest {
+            tool_slug: ToolSlug::build("maya", "spheres", "create_sphere"),
+            include_schema: false,
+        })
+        .expect("describe");
+    if let Some(metadata) = desc.metadata.as_ref() {
+        assert!(metadata.get("dcc.next_tools").is_none());
+    }
+}
+
+#[test]
 fn load_skill_then_search_makes_action_callable() {
     let (svc, _) = build_service(vec![sphere_action(false)]);
 
@@ -308,6 +356,7 @@ fn search_matches_aliases_and_schema_tokens_without_schema_expansion() {
         enforce_thread_affinity: false,
         available_groups: Vec::new(),
         runtime: None,
+        next_tools: Default::default(),
     };
 
     let (svc, _) = build_service(vec![maya, photoshop]);
