@@ -28,6 +28,8 @@ docs/.vitepress/cache
 docs/node_modules
 admin-ui/node_modules
 admin-ui/node_modules/
+admin-ui/playwright-report/
+admin-ui/test-results/
 crates/dcc-mcp-gateway/src/gateway/admin/generated/
 /venv/
 /run_pycharm.bat
