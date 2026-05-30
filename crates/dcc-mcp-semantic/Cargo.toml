@@ -26,8 +26,23 @@ workspace = true
 # ONNX Runtime at build time. The companion wheel build at
 # `pkg/dcc-mcp-core-semantic/pyproject.toml` explicitly enables
 # `python-bindings`.
+#
+# fastembed default features pull in `hf-hub-native-tls` +
+# `ort-download-binaries-native-tls`, which transitively activate
+# `openssl-sys` and refuse to compile against the OpenSSL 1.0.2 that
+# ships in the manylinux2014 (CentOS 7) base image used by the wheel
+# build container. Switch both transports to **rustls** so the dep
+# tree no longer touches openssl-sys at all — the whole TLS path is
+# pure-Rust and works identically on every Linux/macOS/Windows
+# manylinux/musllinux image. `image-models` is preserved because it's
+# part of fastembed's default set and disabling it changes the public
+# embedding API.
 anyhow = { workspace = true, optional = true }
-fastembed = { version = "5", optional = true }
+fastembed = { version = "5", optional = true, default-features = false, features = [
+    "hf-hub-rustls-tls",
+    "ort-download-binaries-rustls-tls",
+    "image-models",
+] }
 pyo3 = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
 tracing = { workspace = true }
