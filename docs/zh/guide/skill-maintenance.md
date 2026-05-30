@@ -10,7 +10,7 @@
 
 ## 实现前的所有权
 
-在添加或更改捆绑适配器技能之前，请阅读 [`docs/POLICY_SKILL_OWNERSHIP.md`](../POLICY_SKILL_OWNERSHIP.md) 和相关适配器的 `SKILL_OWNERSHIP.yml`（如果存在）。
+在添加或更改捆绑适配器技能之前，请阅读 [`docs/POLICY_SKILL_OWNERSHIP.md`](../../POLICY_SKILL_OWNERSHIP.md) 和相关适配器的 `SKILL_OWNERSHIP.yml`（如果存在）。
 
 - 常见文件操作（`open`、`save`、`import`、`export`、`read_file`、`write_file`、路径探测）必须为每个适配器有一个主要拥有技能包。
 - 不要仅仅为了提高可发现性而将文件操作工具复制到第二个技能中；相反，添加别名、搜索提示、配方或指向主要所有者的 `next-tools`。
