@@ -190,13 +190,13 @@ powershell -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/
 也可以固定版本或自定义安装目录：
 
 ```bash
-export DCC_MCP_VERSION=v0.17.17
+export DCC_MCP_VERSION=v0.17.44
 export DCC_MCP_INSTALL_DIR="$HOME/bin"
 curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | bash
 ```
 
 ```powershell
-$env:DCC_MCP_VERSION = "v0.17.17"
+$env:DCC_MCP_VERSION = "v0.17.44"
 $env:DCC_MCP_INSTALL_DIR = "$env:USERPROFILE\bin"
 irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex
 ```
