@@ -25,9 +25,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
-      - uses: loonghao/vx@v0.9.7
+      - uses: loonghao/vx@v0.9.11
         with:
-          version: "0.9.7"
+          version: "0.9.11"
           cache-key-prefix: "vx-tools-v0.9.7"
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
