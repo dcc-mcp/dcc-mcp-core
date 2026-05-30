@@ -22,7 +22,7 @@ import sys
 __all__ = ["__version__", "binary_path"]
 
 # Kept in sync with pyproject.toml / Rust crate via release-please.
-__version__ = "0.17.43"  # x-release-please-version
+__version__ = "0.17.44"  # x-release-please-version
 
 _BINARY_NAME = "dcc-mcp-server.exe" if os.name == "nt" else "dcc-mcp-server"
 

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.44](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.43...v0.17.44) (2026-05-30)
+
+
+### Bug Fixes
+
+* **ci:** install openssl-devel in manylinux semantic wheel build ([7526c01](https://github.com/loonghao/dcc-mcp-core/commit/7526c019a381a3a96dab1ec13de2ae7e4a6f8cb3))
+* **ci:** install openssl-devel in manylinux semantic wheel build ([7526c01](https://github.com/loonghao/dcc-mcp-core/commit/7526c019a381a3a96dab1ec13de2ae7e4a6f8cb3))
+* **ci:** install openssl-devel in manylinux semantic wheel build ([5ae67e0](https://github.com/loonghao/dcc-mcp-core/commit/5ae67e0b9aa8c8d283f088f91f1045b70ac2893f))
+
 ## [0.17.43](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.42...v0.17.43) (2026-05-29)
 
 
