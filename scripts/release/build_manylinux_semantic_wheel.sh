@@ -39,12 +39,19 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
 maturin_args_str="${maturin_args[*]}"
+# The `ghcr.io/pyo3/maturin` image declares `maturin` as its ENTRYPOINT, so any
+# trailing argv is forwarded to `maturin` (running `... sh -c "..."` therefore
+# fails with `unrecognized subcommand 'sh'`). We must install `openssl-devel`
+# *before* maturin runs (fastembed → hf-hub → native-tls → openssl-sys needs
+# libssl headers that the base manylinux_2_28 image omits), so override the
+# entrypoint to `/bin/sh` and let the shell receive `-c "..."` directly.
 docker run --rm \
+  --entrypoint /bin/sh \
   -v "$PWD:/io" \
   -e CARGO_TARGET_DIR=/io/target-manylinux-semantic \
   -w /io/pkg/dcc-mcp-core-semantic \
   ghcr.io/pyo3/maturin:v1.13.3 \
-  sh -c "dnf install -y openssl-devel && maturin build --release --manylinux 2_28 --out wheels ${maturin_args_str}"
+  -c "dnf install -y openssl-devel && maturin build --release --manylinux 2_28 --out wheels ${maturin_args_str}"
 
 if command -v sudo >/dev/null 2>&1; then
   sudo chown -R "$(id -u):$(id -g)" pkg/dcc-mcp-core-semantic/wheels
