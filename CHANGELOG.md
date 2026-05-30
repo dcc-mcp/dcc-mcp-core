@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.47](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.46...v0.17.47) (2026-05-30)
+
+
+### Bug Fixes
+
+* **semantic:** switch fastembed to rustls and ship aarch64-only macOS wheel ([a60cff1](https://github.com/loonghao/dcc-mcp-core/commit/a60cff10962919341794b40909dc2cea8e6f3c15))
+
 ## [0.17.46](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.45...v0.17.46) (2026-05-30)
 
 
