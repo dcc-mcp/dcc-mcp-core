@@ -88,6 +88,37 @@ export default defineConfig({
                 { text: 'FAQ', link: '/guide/faq' },
               ]
             },
+            {
+              text: 'DCC Integration',
+              items: [
+                { text: 'Admin UI', link: '/guide/admin-ui' },
+                { text: 'App UI Workflows', link: '/guide/app-ui-workflows' },
+                { text: 'Host Adapter', link: '/guide/host-adapter' },
+                { text: 'Adapter Runtime Contracts', link: '/guide/adapter-runtime-contracts' },
+                { text: 'Adapter Install Lifecycle', link: '/guide/adapter-install-lifecycle' },
+                { text: 'Adapter Dispatcher Migration', link: '/guide/adapter-dispatcher-migration' },
+              ]
+            },
+            {
+              text: 'Catalog & Skills',
+              items: [
+                { text: 'Catalog', link: '/guide/catalog' },
+                { text: 'Skill Maintenance', link: '/guide/skill-maintenance' },
+                { text: 'Rez Skill Packages', link: '/guide/rez-skill-packages' },
+                { text: 'Context Bundles', link: '/guide/context-bundles' },
+                { text: 'Translate', link: '/guide/translate' },
+              ]
+            },
+            {
+              text: 'Observability & Networking',
+              items: [
+                { text: 'Observability', link: '/guide/observability' },
+                { text: 'Middleware', link: '/guide/middleware' },
+                { text: 'OpenAPI Mount', link: '/guide/openapi-mount' },
+                { text: 'DCC REST Skill API', link: '/guide/dcc-rest-skill-api' },
+                { text: 'Cross-DCC Verification', link: '/guide/cross-dcc-verification' },
+              ]
+            },
           ],
           '/api/': [
             {
@@ -143,6 +174,9 @@ export default defineConfig({
                 { text: 'Hot Reload', link: '/api/hot-reload' },
                 { text: 'Server Factory', link: '/api/factory' },
                 { text: 'Callable Dispatcher', link: '/api/dispatcher' },
+                { text: 'Adapter Context', link: '/api/adapter-context' },
+                { text: 'Guardrails', link: '/api/guardrails' },
+                { text: 'Project', link: '/api/project' },
               ],
             }
           ],
@@ -236,6 +270,37 @@ export default defineConfig({
                 { text: '常见问题', link: '/zh/guide/faq' },
               ]
             },
+            {
+              text: 'DCC 集成',
+              items: [
+                { text: '管理界面', link: '/zh/guide/admin-ui' },
+                { text: 'App UI 工作流', link: '/zh/guide/app-ui-workflows' },
+                { text: '主机适配器', link: '/zh/guide/host-adapter' },
+                { text: '适配器运行时契约', link: '/zh/guide/adapter-runtime-contracts' },
+                { text: '适配器安装生命周期', link: '/zh/guide/adapter-install-lifecycle' },
+                { text: '适配器调度器迁移', link: '/zh/guide/adapter-dispatcher-migration' },
+              ]
+            },
+            {
+              text: '目录与技能',
+              items: [
+                { text: '技能目录', link: '/zh/guide/catalog' },
+                { text: '技能维护', link: '/zh/guide/skill-maintenance' },
+                { text: 'Rez 技能包', link: '/zh/guide/rez-skill-packages' },
+                { text: '上下文束', link: '/zh/guide/context-bundles' },
+                { text: '翻译', link: '/zh/guide/translate' },
+              ]
+            },
+            {
+              text: '可观测性与网络',
+              items: [
+                { text: '可观测性', link: '/zh/guide/observability' },
+                { text: '中间件', link: '/zh/guide/middleware' },
+                { text: 'OpenAPI 挂载', link: '/zh/guide/openapi-mount' },
+                { text: 'DCC REST Skill API', link: '/zh/guide/dcc-rest-skill-api' },
+                { text: '跨 DCC 验证', link: '/zh/guide/cross-dcc-verification' },
+              ]
+            },
           ],
           '/zh/api/': [
             {
@@ -291,6 +356,9 @@ export default defineConfig({
                 { text: '热重载', link: '/zh/api/hot-reload' },
                 { text: '服务器工厂', link: '/zh/api/factory' },
                 { text: '可调用对象调度器', link: '/zh/api/dispatcher' },
+                { text: '适配器上下文', link: '/zh/api/adapter-context' },
+                { text: '防护栏', link: '/zh/api/guardrails' },
+                { text: '项目', link: '/zh/api/project' },
               ],
             }
           ]
