@@ -77,7 +77,7 @@ impl NativeEmbedder {
             opts = opts.with_cache_dir(dir.clone());
         }
 
-        let model = TextEmbedding::try_new(opts).map_err(|err| EmbedderError::Load {
+        let mut model = TextEmbedding::try_new(opts).map_err(|err| EmbedderError::Load {
             model: model_name.clone(),
             source: anyhow::Error::msg(err.to_string()),
         })?;
@@ -115,7 +115,13 @@ impl NativeEmbedder {
 
     /// Embed a single text. Empty / whitespace-only inputs short-circuit
     /// to a zero vector of length [`Self::dim`] without invoking the model.
-    pub fn embed_one(&self, text: &str) -> Result<Vec<f32>, EmbedderError> {
+    ///
+    /// Takes `&mut self` because `fastembed::TextEmbedding::embed` requires
+    /// `&mut self` (it advances internal ONNX session state). The PyO3
+    /// wrapper handles the borrow at the `pyclass` level via runtime
+    /// borrow checking — concurrent embed calls from different Python
+    /// threads need separate `NativeEmbedder` instances.
+    pub fn embed_one(&mut self, text: &str) -> Result<Vec<f32>, EmbedderError> {
         if text.trim().is_empty() {
             return Ok(vec![0.0; self.dim]);
         }
@@ -131,7 +137,9 @@ impl NativeEmbedder {
     /// Batch embed. Empty inputs in the batch are padded with zero vectors
     /// in the corresponding output positions; non-empty inputs are sent to
     /// fastembed in one batch call so the ONNX session is invoked once.
-    pub fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, EmbedderError> {
+    ///
+    /// Takes `&mut self` for the same reason as [`Self::embed_one`].
+    pub fn embed_batch(&mut self, texts: &[String]) -> Result<Vec<Vec<f32>>, EmbedderError> {
         if texts.is_empty() {
             return Ok(Vec::new());
         }

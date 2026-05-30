@@ -3,7 +3,8 @@
 //! This crate is the **Rust-native opt-in** companion to the Python-side
 //! `OnnxEmbedder` in `dcc-mcp-core`. It exposes a single [`NativeEmbedder`]
 //! pyclass that wraps `fastembed::TextEmbedding` and releases the GIL during
-//! ONNX inference via [`pyo3::Python::allow_threads`].
+//! ONNX inference via [`pyo3::Python::detach`] (the pyo3 0.28 successor to
+//! the older `allow_threads` name).
 //!
 //! Shipped as a separate PyPI wheel `dcc-mcp-core-semantic` that the
 //! `dcc-mcp-core[semantic]` extra pulls in. The main `dcc-mcp-core` wheel

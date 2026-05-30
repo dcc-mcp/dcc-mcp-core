@@ -4,10 +4,10 @@
 //!
 //! 1. Convert between Python types (`Option<String>`, `Vec<String>`,
 //!    `Vec<f32>`) and the Rust core.
-//! 2. Release the GIL via [`pyo3::Python::allow_threads`] around every
-//!    fastembed call so concurrent Python threads can drive multiple
-//!    embedders (or other Python work) without serialising on the GIL
-//!    during ONNX inference.
+//! 2. Release the GIL via [`pyo3::Python::detach`] (renamed from
+//!    `allow_threads` in pyo3 0.28) around every fastembed call so
+//!    concurrent Python threads can drive multiple embedders (or other
+//!    Python work) without serialising on the GIL during ONNX inference.
 
 use std::path::PathBuf;
 
@@ -69,15 +69,20 @@ impl PyNativeEmbedder {
     /// Embed a single string. Returns a Python list of floats so the
     /// Python-side wrapper can convert to `array.array("d", ...)` without
     /// going through numpy.
-    fn embed(&self, py: Python<'_>, text: &str) -> PyResult<Vec<f32>> {
-        py.allow_threads(|| self.inner.embed_one(text))
-            .map_err(map_err)
+    ///
+    /// Takes `&mut self` because `fastembed::TextEmbedding::embed`
+    /// requires `&mut self` (it advances internal ONNX session state).
+    /// PyO3's runtime borrow checker enforces single-thread access on
+    /// the Python side, so callers wanting concurrency should hold a
+    /// separate `NativeEmbedder` per thread.
+    fn embed(&mut self, py: Python<'_>, text: &str) -> PyResult<Vec<f32>> {
+        py.detach(|| self.inner.embed_one(text)).map_err(map_err)
     }
 
     /// Batch embed. Equivalent to calling :meth:`embed` per input but
     /// invokes the ONNX session once for the whole batch.
-    fn embed_batch(&self, py: Python<'_>, texts: Vec<String>) -> PyResult<Vec<Vec<f32>>> {
-        py.allow_threads(|| self.inner.embed_batch(&texts))
+    fn embed_batch(&mut self, py: Python<'_>, texts: Vec<String>) -> PyResult<Vec<Vec<f32>>> {
+        py.detach(|| self.inner.embed_batch(&texts))
             .map_err(map_err)
     }
 
