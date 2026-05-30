@@ -164,7 +164,7 @@ zeroize = { version = "1.8.2", features = ["derive"] }
 [target.x86_64-unknown-linux-gnu.dependencies]
 bitflags = { version = "2.11.1", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4.2", default-features = false, features = ["std", "sys_rng"] }
-hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy", "client-proxy-system", "http2"] }
+hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
 libc = { version = "0.2.186", features = ["extra_traits"] }
 rustls = { version = "0.23.40", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103.13", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
@@ -175,7 +175,7 @@ tower-http = { version = "0.6.11", features = ["cors", "follow-redirect", "limit
 bitflags = { version = "2.11.1", default-features = false, features = ["std"] }
 cc = { version = "1.2.62", default-features = false, features = ["parallel"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4.2", default-features = false, features = ["std", "sys_rng"] }
-hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy", "client-proxy-system", "http2"] }
+hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
 libc = { version = "0.2.186", features = ["extra_traits"] }
 rustls = { version = "0.23.40", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103.13", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
@@ -185,7 +185,7 @@ tower-http = { version = "0.6.11", features = ["cors", "follow-redirect", "limit
 [target.aarch64-unknown-linux-gnu.dependencies]
 bitflags = { version = "2.11.1", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4.2", default-features = false, features = ["std", "sys_rng"] }
-hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy", "client-proxy-system", "http2"] }
+hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
 libc = { version = "0.2.186", features = ["extra_traits"] }
 rustls = { version = "0.23.40", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103.13", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
@@ -196,7 +196,7 @@ tower-http = { version = "0.6.11", features = ["cors", "follow-redirect", "limit
 bitflags = { version = "2.11.1", default-features = false, features = ["std"] }
 cc = { version = "1.2.62", default-features = false, features = ["parallel"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4.2", default-features = false, features = ["std", "sys_rng"] }
-hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy", "client-proxy-system", "http2"] }
+hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
 libc = { version = "0.2.186", features = ["extra_traits"] }
 rustls = { version = "0.23.40", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103.13", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
@@ -207,7 +207,7 @@ tower-http = { version = "0.6.11", features = ["cors", "follow-redirect", "limit
 bitflags = { version = "2.11.1", default-features = false, features = ["std"] }
 errno = { version = "0.3.14" }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4.2", default-features = false, features = ["std", "sys_rng"] }
-hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy", "client-proxy-system", "http2"] }
+hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
 libc = { version = "0.2.186", features = ["extra_traits"] }
 rustls = { version = "0.23.40", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103.13", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
@@ -219,7 +219,7 @@ bitflags = { version = "2.11.1", default-features = false, features = ["std"] }
 cc = { version = "1.2.62", default-features = false, features = ["parallel"] }
 errno = { version = "0.3.14" }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4.2", default-features = false, features = ["std", "sys_rng"] }
-hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy", "client-proxy-system", "http2"] }
+hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
 libc = { version = "0.2.186", features = ["extra_traits"] }
 rustls = { version = "0.23.40", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103.13", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
@@ -230,7 +230,7 @@ tower-http = { version = "0.6.11", features = ["cors", "follow-redirect", "limit
 bitflags = { version = "2.11.1", default-features = false, features = ["std"] }
 errno = { version = "0.3.14" }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4.2", default-features = false, features = ["std", "sys_rng"] }
-hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy", "client-proxy-system", "http2"] }
+hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
 libc = { version = "0.2.186", features = ["extra_traits"] }
 rustls = { version = "0.23.40", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103.13", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
@@ -242,7 +242,7 @@ bitflags = { version = "2.11.1", default-features = false, features = ["std"] }
 cc = { version = "1.2.62", default-features = false, features = ["parallel"] }
 errno = { version = "0.3.14" }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4.2", default-features = false, features = ["std", "sys_rng"] }
-hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy", "client-proxy-system", "http2"] }
+hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
 libc = { version = "0.2.186", features = ["extra_traits"] }
 rustls = { version = "0.23.40", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103.13", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
@@ -251,27 +251,27 @@ tower-http = { version = "0.6.11", features = ["cors", "follow-redirect", "limit
 
 [target.x86_64-pc-windows-msvc.dependencies]
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4.2", default-features = false, features = ["std", "sys_rng"] }
-hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy", "client-proxy-system", "http2"] }
+hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
 rustls = { version = "0.23.40", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103.13", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
 tower = { version = "0.5.3", default-features = false, features = ["retry", "timeout"] }
 tower-http = { version = "0.6.11", features = ["cors", "follow-redirect", "limit", "trace"] }
 winapi = { version = "0.3.9", default-features = false, features = ["cfg", "evntrace", "in6addr", "inaddr", "minwinbase", "ntsecapi", "sysinfoapi", "windef", "winioctl", "winsock2"] }
 windows = { version = "0.62.2", features = ["Wdk_System_SystemInformation", "Wdk_System_SystemServices", "Wdk_System_Threading", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Gdi", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_NetworkManagement_NetManagement", "Win32_Networking_WinSock", "Win32_Security_Authentication_Identity", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_Storage_Xps", "Win32_System_Com", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_Kernel", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Performance", "Win32_System_Power", "Win32_System_ProcessStatus", "Win32_System_Registry", "Win32_System_RemoteDesktop", "Win32_System_Rpc", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_Variant", "Win32_System_WindowsProgramming", "Win32_System_Wmi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
-windows-sys-4db8c43aad08e7ae = { package = "windows-sys", version = "0.60.2", features = ["Win32_Networking_WinSock", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Threading", "Win32_System_WindowsProgramming"] }
-windows-sys-d4189bed749088b6 = { package = "windows-sys", version = "0.61.2", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Globalization", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_Security_Authentication_Identity", "Win32_Security_Authorization", "Win32_Security_Credentials", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell"] }
+windows-sys-4db8c43aad08e7ae = { package = "windows-sys", version = "0.60.2", features = ["Win32_Globalization", "Win32_Networking_WinSock", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_IO", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Shell"] }
+windows-sys-d4189bed749088b6 = { package = "windows-sys", version = "0.61.2", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Input_KeyboardAndMouse"] }
 
 [target.x86_64-pc-windows-msvc.build-dependencies]
 cc = { version = "1.2.62", default-features = false, features = ["parallel"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4.2", default-features = false, features = ["std", "sys_rng"] }
-hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy", "client-proxy-system", "http2"] }
+hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
 rustls = { version = "0.23.40", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103.13", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
 tower = { version = "0.5.3", default-features = false, features = ["retry", "timeout"] }
 tower-http = { version = "0.6.11", features = ["cors", "follow-redirect", "limit", "trace"] }
 winapi = { version = "0.3.9", default-features = false, features = ["cfg", "evntrace", "in6addr", "inaddr", "minwinbase", "ntsecapi", "sysinfoapi", "windef", "winioctl", "winsock2"] }
 windows = { version = "0.62.2", features = ["Wdk_System_SystemInformation", "Wdk_System_SystemServices", "Wdk_System_Threading", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Gdi", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_NetworkManagement_NetManagement", "Win32_Networking_WinSock", "Win32_Security_Authentication_Identity", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_Storage_Xps", "Win32_System_Com", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_Kernel", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Performance", "Win32_System_Power", "Win32_System_ProcessStatus", "Win32_System_Registry", "Win32_System_RemoteDesktop", "Win32_System_Rpc", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_Variant", "Win32_System_WindowsProgramming", "Win32_System_Wmi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
-windows-sys-4db8c43aad08e7ae = { package = "windows-sys", version = "0.60.2", features = ["Win32_Networking_WinSock", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Threading", "Win32_System_WindowsProgramming"] }
-windows-sys-d4189bed749088b6 = { package = "windows-sys", version = "0.61.2", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Globalization", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_Security_Authentication_Identity", "Win32_Security_Authorization", "Win32_Security_Credentials", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell"] }
+windows-sys-4db8c43aad08e7ae = { package = "windows-sys", version = "0.60.2", features = ["Win32_Globalization", "Win32_Networking_WinSock", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_IO", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Shell"] }
+windows-sys-d4189bed749088b6 = { package = "windows-sys", version = "0.61.2", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Input_KeyboardAndMouse"] }
 
 ### END HAKARI SECTION
