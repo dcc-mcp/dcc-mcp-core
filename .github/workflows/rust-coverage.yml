@@ -37,6 +37,16 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
+      # `dcc-mcp-server` enables `dcc-mcp-gateway/admin` by default, so
+      # `cargo llvm-cov --workspace` triggers `crates/dcc-mcp-gateway/build.rs`
+      # which runs `npm ci --ignore-scripts` inside `admin-ui/`. Concurrent
+      # cargo + npm in coverage mode hits a known npm bug (`Exit handler
+      # never called!`) that crashes the build script. Pre-build the admin
+      # UI bundle once on the host so the build script reuses it via
+      # `DCC_MCP_ADMIN_UI_PREBUILT=1` and never invokes npm during coverage.
+      - name: Pre-build admin UI bundle
+        shell: bash
+        run: scripts/release/prebuild_admin_ui.sh
       - name: Run Rust coverage
         run: vx just rust-cov
       - name: Upload Rust coverage to Codecov
