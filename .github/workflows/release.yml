@@ -355,12 +355,28 @@ jobs:
       # Rust toolchain is only needed for non-Linux builds; the Linux
       # builds run inside the pyo3/maturin docker image which bundles its
       # own pinned toolchain.
+      #
+      # macos-latest (arm64) ships a pre-installed Rust 1.95.0 whose
+      # clippy/rustfmt binaries are physically present on disk but not
+      # registered in rustup's component manifest. When `rust-toolchain.toml`
+      # later triggers `rustup component add clippy` (because cargo metadata
+      # auto-syncs), rustup detects the existing `bin/cargo-clippy` and
+      # aborts with `detected conflict: 'bin/cargo-clippy'`. Force a clean
+      # toolchain reinstall so dtolnay can install the components rustup
+      # expects to own, then add x86_64-apple-darwin so maturin can build
+      # the universal2 wheel (the host already provides aarch64).
+      - name: Reset macOS Rust toolchain to clear stale components
+        if: matrix.target == 'macos-abi3'
+        shell: bash
+        run: rustup toolchain uninstall 1.95.0-aarch64-apple-darwin || true
+
       - name: Setup Rust
         if: matrix.target != 'linux-abi3' && matrix.target != 'linux-py37'
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: '1.95.0'
-          targets: ${{ matrix.target == 'macos-abi3' && 'aarch64-apple-darwin' || '' }}
+          components: clippy, rustfmt
+          targets: ${{ matrix.target == 'macos-abi3' && 'x86_64-apple-darwin' || '' }}
 
       - name: Setup Python (abi3 build)
         if: endsWith(matrix.target, '-abi3') && !startsWith(matrix.target, 'linux-')
