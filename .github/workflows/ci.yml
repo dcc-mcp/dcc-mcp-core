@@ -223,6 +223,55 @@ jobs:
           vx cargo check -p dcc-mcp-server --no-default-features --features gateway-daemon,admin
           vx cargo check -p dcc-mcp-server --no-default-features --features server,gateway-auto,gateway-daemon,admin
 
+      # `dcc-mcp-semantic` with `python-bindings` / `fastembed-backend`
+      # is the only path that touches `pyo3 0.28` and `fastembed 5`'s
+      # `&mut self` ONNX session API. It is gated off in the default
+      # workspace check so PRs do not pay the ORT runtime download
+      # cost — but that also means API drift only shows up at release
+      # wheel-build time. `cargo check` (no codegen for the C++ ORT
+      # runtime) is enough to catch the drift on every PR. See the
+      # v0.17.45/0.17.46 release postmortems.
+      - name: Semantic crate feature check
+        if: matrix.rust-validation == 'full'
+        shell: bash
+        run: vx cargo check -p dcc-mcp-semantic --features python-bindings,ext-module,abi3-py38
+
+  # ── Dependency policy gate (cargo-deny) ───────────────────────────────────
+  # Independent of `rust-check` so its install of `cargo-deny` does not
+  # bottleneck the slower clippy/nextest path. Catches: native-tls /
+  # openssl-sys regressions (the v0.17.45/0.17.46 manylinux2014 OpenSSL 1.0.2
+  # break), unmaintained / yanked deps, and license drift. Configuration
+  # lives in `deny.toml` at the repo root.
+  cargo-deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - name: cargo deny check
+        run: cargo deny --all-features check
+
+  # ── Dependency policy gate (cargo-deny) ───────────────────────────────────
+  # Independent of `rust-check` so its install of `cargo-deny` does not
+  # bottleneck the slower clippy/nextest path. Catches: native-tls /
+  # openssl-sys regressions (the v0.17.45/0.17.46 manylinux2014 OpenSSL 1.0.2
+  # break), unmaintained / yanked deps, and license drift. Configuration
+  # lives in `deny.toml` at the repo root.
+  cargo-deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - name: cargo deny check
+        run: cargo deny --all-features check
+
   # ── Build ABI3 wheel (one per OS, reused by python-test) ──
   # Intentionally does NOT `needs: [rust-check]` — maturin runs its own compile
   # and can start in parallel with rust-check. If rust-check fails, the PR merge

@@ -1,0 +1,107 @@
+# cargo-deny configuration for dcc-mcp-core.
+#
+# Run locally with: vx cargo deny check
+# CI gates: .github/workflows/ci.yml `cargo-deny` job.
+#
+# Schema reference: https://embarkstudios.github.io/cargo-deny/checks/cfg.html
+# Pinned to v2 schema (cargo-deny 0.14+) so future cargo-deny releases
+# don't silently change the meaning of fields.
+
+[graph]
+# Resolve features in lockstep with `cargo` (resolver = "2"). The dcc-mcp
+# workspace already opts into v2 in Cargo.toml, so this matches what the
+# build actually compiles.
+all-features = false
+no-default-features = false
+# Skip per-crate dev-dependencies — they're test-only and don't ship in
+# the published wheel/binary. Keeps the bans graph focused on runtime
+# code paths.
+exclude-dev = true
+
+[advisories]
+# RustSec advisory DB scan. Fail the build on any unresolved active
+# advisory (yanked / unmaintained crates surface as warnings so the
+# release is not blocked by upstream housekeeping).
+version = 2
+yanked = "warn"
+unmaintained = "workspace"
+ignore = []
+
+[licenses]
+version = 2
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    # Used by `webpki-root-certs` (root CA bundle pulled in by the
+    # rustls TLS path that replaced native-tls/openssl-sys).
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "NCSA",
+    "OpenSSL",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+]
+confidence-threshold = 0.8
+
+# Internal workspace crates (path deps) carry no SPDX license tag.
+# `private` carves them out so cargo-deny treats them as "ours" and skips
+# the SPDX check.
+[licenses.private]
+ignore = true
+
+[[licenses.exceptions]]
+# `ring` ships under a license string that mixes ISC, OpenSSL and MIT;
+# cargo-deny's parser flags the OpenSSL portion. We accept it for the
+# rustls TLS path that replaced native-tls/openssl-sys (see
+# `crates/dcc-mcp-semantic/Cargo.toml` fastembed pinning).
+allow = ["ISC", "MIT", "OpenSSL"]
+name = "ring"
+
+[bans]
+# Many small workspaces tolerate duplicate semver-major versions, but
+# this repo runs `cargo hakari` to keep features unified — duplicates
+# usually mean a hakari regen is missing, so flag them as warnings.
+multiple-versions = "warn"
+# Workspace inter-crate deps use `*` (resolved by Cargo to the workspace
+# member version). cargo-deny's `allow-wildcard-paths` only excludes
+# path-dep wildcards on *unpublished* crates, but our crates are
+# publishable (PyPI/crates.io), so the wildcard check fires
+# erroneously. Downgrade to `warn` so legitimate workspace path
+# wildcards don't block PRs while still flagging external `*` reqs in
+# review.
+wildcards = "warn"
+allow-wildcard-paths = true
+
+# Forbid native-tls / openssl-sys regressions: switching fastembed to
+# rustls (PR for v0.17.46 semantic wheels) is the durable fix for the
+# manylinux2014 OpenSSL 1.0.2 build break. If a future dep drags
+# native-tls back into the tree, cargo-deny fails the PR before the
+# release pipeline does.
+deny = [
+    { name = "native-tls", reason = "use rustls — see crates/dcc-mcp-semantic/Cargo.toml fastembed feature pinning" },
+    { name = "openssl-sys", reason = "use rustls — manylinux2014 ships OpenSSL 1.0.2 which openssl-sys >= 0.9.100 rejects" },
+]
+
+# Skip duplicate-version bans for crates that legitimately ship two
+# major versions across the dep graph (most of these are
+# clap/tonic/criterion ecosystem churn). Keep this list short and
+# annotated; revisit on every hakari regen.
+skip = []
+skip-tree = []
+
+[sources]
+# Restrict crates to the official crates.io registry. Vendored deps
+# from git would silently bypass advisory scans.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
