@@ -38,12 +38,13 @@ esac
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
+maturin_args_str="${maturin_args[*]}"
 docker run --rm \
   -v "$PWD:/io" \
   -e CARGO_TARGET_DIR=/io/target-manylinux-semantic \
   -w /io/pkg/dcc-mcp-core-semantic \
   ghcr.io/pyo3/maturin:v1.13.3 \
-  build --release --manylinux 2_28 --out wheels "${maturin_args[@]}"
+  sh -c "dnf install -y openssl-devel && maturin build --release --manylinux 2_28 --out wheels ${maturin_args_str}"
 
 if command -v sudo >/dev/null 2>&1; then
   sudo chown -R "$(id -u):$(id -g)" pkg/dcc-mcp-core-semantic/wheels
