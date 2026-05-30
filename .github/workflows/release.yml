@@ -115,9 +115,9 @@ jobs:
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
 
-      - uses: loonghao/vx@v0.9.7
+      - uses: loonghao/vx@v0.9.11
         with:
-          version: "0.9.7"
+          version: "0.9.11"
           cache-key-prefix: "vx-tools-v0.9.7"
 
       - name: Build admin UI bundle
@@ -186,9 +186,9 @@ jobs:
           toolchain: '1.95.0'
           targets: aarch64-apple-darwin  # needed for macOS universal2 lipo
 
-      - uses: loonghao/vx@v0.9.7
+      - uses: loonghao/vx@v0.9.11
         with:
-          version: "0.9.7"
+          version: "0.9.11"
           cache-key-prefix: "vx-tools-v0.9.7"
 
       - uses: actions/setup-python@v6
