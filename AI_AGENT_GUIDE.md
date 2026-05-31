@@ -220,6 +220,41 @@ catalog.deactivate_group("experimental")
 active = catalog.active_groups()
 ```
 
+### 5. Lifecycle Hooks — Observe and Control
+
+`LifecycleHooks` provides a typed, fail-safe observer system for skill/tool/session events:
+
+- **Policy events** (`BEFORE_SKILL_LOAD`, `BEFORE_TOOL_CALL`, `BEFORE_SEARCH`): Raise `HookDeny` to veto
+- **Observation events** (`AFTER_*`, `SESSION_*`): Log and analytics only — exceptions are swallowed
+
+```python
+from dcc_mcp_core import LifecycleHooks, HookEvent, HookDeny
+
+hooks = LifecycleHooks()
+
+@hooks.on(HookEvent.BEFORE_TOOL_CALL)
+def block_dangerous(ctx):
+    if "dangerous" in ctx.payload.get("tool_name", ""):
+        raise HookDeny("blocked", hint="use the safe alternative")
+
+server.register_lifecycle_hooks(hooks)
+```
+
+### 6. Agent Memory — Automatic Context Retention
+
+`MemoryRecorder` automatically records skill/tool outcomes and injects memory
+summaries into search and tool-call context — no manual logging needed:
+
+```python
+from dcc_mcp_core import InMemoryMemoryStore, MemoryRecorder
+
+store = InMemoryMemoryStore()
+MemoryRecorder(store).install(hooks)  # wires 6 lifecycle events
+# From now on: skill loads → EPHEMERAL, tool calls → WORKING,
+# session end → compacted to LONGTERM patterns
+# BEFORE_SEARCH and BEFORE_TOOL_CALL auto-inject memory_summary
+```
+
 ## 🔧 Common Tasks — Which API to Use
 
 | Task | Use this API |
@@ -229,6 +264,9 @@ active = catalog.active_groups()
 | **Return structured results** | `success_result()` / `error_result()` |
 | **Rich error with traceback** | `skill_error_with_trace()` |
 | **Bridge non-Python DCC** | `DccBridge` (WebSocket JSON-RPC 2.0) |
+| **Register lifecycle hooks** | `LifecycleHooks()` + `server.register_lifecycle_hooks(hooks)` |
+| **Enable agent memory** | `MemoryRecorder(InMemoryMemoryStore()).install(hooks)` |
+| **Register all built-in tools** | `register_all_builtin_skills(server, dcc_name=..., skills=...)` |
 | **IPC between processes** | `IpcChannelAdapter` / `SocketServerAdapter` |
 | **Hand off files between tools** | `FileRef` + `artefact_put_file()` / `artefact_get_bytes()` |
 | **Multi-DCC gateway** | `McpHttpConfig(gateway_port=9765)` |
@@ -289,6 +327,8 @@ tools:
 6. **Use `dcc_mcp_core.METADATA_*` / `LAYER_*` / `CATEGORY_*`** → re-exported at top level
 7. **Gateway wrappers accept only `tool_slug`, `arguments`, `meta`** → backend inputs go inside `arguments`
 8. **Return `ToolResult` from Python tool handlers** → `ToolResult.ok("...", **ctx).to_dict()`
+9. **Lifecycle hooks: policy events veto, observation events don't** → `BEFORE_*` events propagate `HookDeny`; `AFTER_*` events swallow it
+10. **Agent memory: `install()` is mandatory** → `MemoryRecorder` does nothing until wired to `LifecycleHooks` via `.install(hooks)`
 
 ## 📖 Further Reading
 
@@ -298,6 +338,8 @@ tools:
 - **Skill ownership policy**: [`docs/POLICY_SKILL_OWNERSHIP.md`](docs/POLICY_SKILL_OWNERSHIP.md) — avoid duplicating bundled adapter file-operation skills
 - **Bundled examples**: [`examples/skills/`](examples/skills/) — complete SKILL.md packages
 - **Detailed traps**: [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md)
+- **Lifecycle hooks reference**: [`docs/guide/agents-reference.md#lifecycle-hooks-typed-observerpub-sub-1337`](docs/guide/agents-reference.md#lifecycle-hooks-typed-observerpub-sub-1337)
+- **Agent memory reference**: [`docs/guide/agents-reference.md#agent-memory-three-tier-1334`](docs/guide/agents-reference.md#agent-memory-three-tier-1334)
 
 ## 💡 Pro Tips for AI Agents
 
@@ -308,6 +350,9 @@ tools:
 5. **Use progressive loading** — don't load all skills at once, activate groups as needed
 6. **Prefer MCP tools over raw scripting** — they provide validation, safety, and traceability
 7. **Check cancellations** — in long-running tools, periodically call `check_cancelled()`
+8. **Wire lifecycle hooks for policy control** — use `BEFORE_TOOL_CALL` + `HookDeny` to block dangerous operations without modifying tool code
+9. **Enable agent memory for smarter searches** — `MemoryRecorder` auto-injects `memory_prefer_tools`/`memory_avoid_tools` so search ranking improves over time
+10. **Use `register_all_builtin_skills` for a complete baseline** — one call registers diagnostics, introspection, feedback, recipes, UI inspector, and script materialization tools
 
 ---
 

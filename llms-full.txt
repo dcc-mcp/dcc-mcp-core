@@ -36,6 +36,8 @@
 | Wrap values for safe RPyC transport | `wrap_value()` / `unwrap_value()` |
 | Handle multiple versions of an action | `VersionedRegistry` + `VersionConstraint` |
 | Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig(port=8765))` — Skills-First one-call setup; gateway/slim agents use `search_tools` → `describe_tool` → `call_tool` / `call_tools`; wrapper payloads are `{tool_slug, arguments?, meta?}` and backend-specific fields live inside `arguments`; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
+| Bind adapter readiness probe | `AdapterReadinessBinder.bind_inline(server)` / `.bind_headless(server)` / `.bind_queue_dispatcher(server, dispatcher)` — publishes `ReadinessProbe` gating MCP `tools/call`, REST `/v1/readyz`, and REST `/v1/call` (#1331, #1206) |
+| Check DCC adapter readiness | `GET /v1/readyz` → 200 `ready` / 503 `booting` / 503 `not-ready` with per-bit details (process, dcc, catalog, dispatcher, host_bridge, main_thread_executor) (#1331) |
 | Discover gateway DCC instances / direct MCP URLs (#813 phase 1) | `resources/read uri="gateway://instances"` or `gateway://instances/{id}` — entries include `mcp_url`; `resources/list` shows the root pointer only; legacy `list_dcc_instances` / `get_dcc_instance` / `connect_to_dcc` and non-standard `instances/list` are removed |
 | Register MCP prompts from Python (issue #792) | `handle = server.prompts(); handle.register_prompt(name, template, description=..., arguments=[{"name": str, "description": str, "required": bool}])` — `server.prompts()` returns `PromptHandle`; registration upserts in-place and appears in the next `prompts/list` / `prompts/get` |
 | Persist and resume DCC project state | `DccProject.open/load(...)` + `register_project_tools(server, ...)` exposing `project_save`, `project_load`, `project_resume`, and `project_status` |
@@ -49,6 +51,12 @@
 | Skill warning / exception helpers | `skill_warning()` / `skill_exception()` |
 | Drive a DCC main-thread dispatcher (interactive/headless) | `HostAdapter` (subclass for your DCC) + `StandaloneHost` (pure-Python driver) + `QueueDispatcher` / `BlockingDispatcher` (Rust-backed primitives). Use public `TickableDispatcher` only for structural typing (`tick`, `shutdown`, `is_shutdown`); do not import private host protocols. Wire via `McpHttpServer.attach_dispatcher()`. See [`docs/guide/host-adapter.md`](docs/guide/host-adapter.md) |
 | Disable accumulated/evolved skills | `ENV_DISABLE_ACCUMULATED_SKILLS` |
+| Register lifecycle hooks | `LifecycleHooks()` + `.on(HookEvent.BEFORE_TOOL_CALL, handler)` + `server.register_lifecycle_hooks(hooks)` (#1337) |
+| Veto a skill load / tool call via policy | Raise `HookDeny(reason, hint=...)` from a `BEFORE_*` handler; only works for policy events (#1337) |
+| Observe lifecycle events | `HookEvent.AFTER_SEARCH` / `AFTER_SKILL_LOAD` / `AFTER_TOOL_CALL` / `SESSION_START` / `SESSION_END` (#1337) |
+| Enable three-tier agent memory | `MemoryRecorder(InMemoryMemoryStore()).install(hooks)` — auto-records skill/tool events, injects summaries (#1334) |
+| Query agent memory | `store.query(MemoryQuery(layer=MemoryLayer.WORKING, key_prefix="tool_call:"))` → sorted `tuple[MemoryEntry, ...]` (#1334) |
+| Register all built-in MCP tools | `register_all_builtin_skills(server, dcc_name=..., skills=...)` — idempotent one-call registration (#1332) |
 | Normalize MCP/REST call payloads | Rust: `dcc-mcp-wire::{normalize_arguments, normalize_meta, decode_call_tool, decode_rest_call}`; Python host wrappers: `dcc_mcp_core.host.normalize_tool_arguments()` / `normalize_tool_meta()` |
 
 ---
@@ -2550,6 +2558,280 @@ shutdown_file_logging()
 
 ---
 
+## Lifecycle Hooks (`dcc_mcp_core.lifecycle_hooks`, #1337)
+
+Typed, fail-safe observer/pub-sub framework for DCC adapter lifecycle events.
+Handlers fire in registration order; exceptions are caught and logged (never abort host execution).
+The only exception is `HookDeny` from **policy events**, which propagates to veto the operation.
+
+### HookEvent
+
+`str, Enum` of eight typed lifecycle hook points:
+
+| Event | Type | Fires when |
+|-------|------|------------|
+| `SESSION_START` | Observation | Agent session begins |
+| `BEFORE_SEARCH` | **Policy** | Before skill search executes |
+| `AFTER_SEARCH` | Observation | After skill search completes |
+| `BEFORE_SKILL_LOAD` | **Policy** | Before a skill is loaded |
+| `AFTER_SKILL_LOAD` | Observation | After a skill is loaded |
+| `BEFORE_TOOL_CALL` | **Policy** | Before a tool is invoked |
+| `AFTER_TOOL_CALL` | Observation | After a tool call completes |
+| `SESSION_END` | Observation | Agent session ends |
+
+`HookEvent.policy_events()` returns `frozenset({BEFORE_SKILL_LOAD, BEFORE_TOOL_CALL, BEFORE_SEARCH})`.
+
+### HookContext
+
+Immutable payload passed to every handler:
+
+```python
+@dataclass(frozen=True)
+class HookContext:
+    event: HookEvent          # which event is firing
+    dcc_name: str             # adapter identifier ("maya", "blender", "any")
+    payload: dict[str, Any]   # event-specific data (mutable — before-handlers enrich in-place)
+    session_id: str | None    # optional stable session identifier
+```
+
+### HookDeny
+
+Exception raised by policy handlers to veto an operation:
+
+```python
+class HookDeny(Exception):
+    def __init__(self, reason: str, *, hint: str | None = None): ...
+```
+
+Only meaningful for `HookEvent.policy_events()`. Non-policy events log and swallow `HookDeny`.
+
+### LifecycleHooks
+
+Bounded, fail-safe registry:
+
+```python
+class LifecycleHooks:
+    def on(self, event: HookEvent, handler: Callable[[HookContext], Any]) -> Callable: ...
+    def off(self, event: HookEvent, handler: Callable[[HookContext], Any]) -> bool: ...
+    def handlers(self, event: HookEvent) -> tuple[Callable[[HookContext], Any], ...]: ...
+    def dispatch(self, context: HookContext) -> None: ...
+```
+
+`on()` returns the handler for decorator usage. `off()` removes by identity (`is`). `handlers()` returns an immutable tuple snapshot.
+
+### Usage Patterns
+
+**Policy veto (block raw script when typed skill exists):**
+
+```python
+from dcc_mcp_core import LifecycleHooks, HookEvent, HookContext, HookDeny
+
+hooks = LifecycleHooks()
+
+@hooks.on(HookEvent.BEFORE_TOOL_CALL)
+def enforce_typed_policy(ctx: HookContext) -> None:
+    if "python_execute" in ctx.payload.get("tool_name", ""):
+        raise HookDeny("typed skill available", hint="search and load the typed skill first")
+
+server.register_lifecycle_hooks(hooks)
+```
+
+**Enrich search context:**
+
+```python
+@hooks.on(HookEvent.BEFORE_SEARCH)
+def add_context(ctx: HookContext) -> None:
+    ctx.payload.setdefault("tags", []).extend(["vetted", "production"])
+    ctx.payload["dcc"] = "maya"
+```
+
+**Observe skill loading for analytics:**
+
+```python
+@hooks.on(HookEvent.AFTER_SKILL_LOAD)
+def track_skill(ctx: HookContext) -> None:
+    logger.info("skill_loaded", name=ctx.payload["skill_name"],
+                actions=ctx.payload.get("registered_actions", 0))
+```
+
+**Fluent API:**
+
+```python
+server.register_lifecycle_hooks(
+    LifecycleHooks()
+    .on(HookEvent.SESSION_START, lambda ctx: init(ctx))
+    .on(HookEvent.SESSION_END, lambda ctx: cleanup(ctx))
+)
+```
+
+**DccServerBase integration:**
+`DccServerBase` auto-dispatches `BEFORE_SEARCH` / `AFTER_SEARCH` in `search_skills()` and
+`BEFORE_SKILL_LOAD` / `AFTER_SKILL_LOAD` in `load_skill()`. Public dispatch helpers:
+`dispatch_session_start/end`, `dispatch_before/after_tool_call`.
+
+---
+
+## Agent Memory (`dcc_mcp_core.agent_memory`, #1334)
+
+Three-tier memory model for DCC agents: **Ephemeral** → **Working** → **Longterm**.
+The `MemoryStore` Protocol allows pluggable backends (in-memory, SQLite, file).
+
+### MemoryLayer
+
+```python
+class MemoryLayer(str, Enum):
+    EPHEMERAL = "ephemeral"   # session-scoped ring buffer, never persisted
+    WORKING = "working"       # task-scoped, TTL-based expiry (default 6h)
+    LONGTERM = "longterm"     # durable, cross-session, summarised facts only
+```
+
+### MemoryEntry
+
+```python
+@dataclass(frozen=True)
+class MemoryEntry:
+    layer: MemoryLayer
+    key: str                        # e.g. "skill_loaded:modeling", "tool_call:export:ok"
+    session_id: str
+    dcc_name: str
+    payload: Mapping[str, Any]      # JSON-safe; raw prompts NEVER stored
+    created_unix_secs: float
+    score: float = 1.0              # >0 success, <0 failure
+```
+
+### MemoryQuery
+
+```python
+@dataclass(frozen=True)
+class MemoryQuery:
+    layer: MemoryLayer | None = None     # None = all layers
+    session_id: str | None = None
+    dcc_name: str | None = None
+    key_prefix: str | None = None        # startswith match
+    limit: int = 16
+```
+
+### MemoryStore (Protocol)
+
+```python
+class MemoryStore(Protocol):
+    def put(self, entry: MemoryEntry) -> None: ...
+    def query(self, q: MemoryQuery) -> tuple[MemoryEntry, ...]: ...
+    def forget(self, *, session_id: str | None = None, layer: MemoryLayer | None = None) -> int: ...
+```
+
+### InMemoryMemoryStore
+
+Threadsafe in-memory implementation with bounded retention:
+
+```python
+store = InMemoryMemoryStore(
+    ephemeral_cap_per_session=256,    # ring-buffer per session
+    working_cap_per_session=1024,
+    working_ttl_secs=6 * 60 * 60,     # 6h TTL
+    longterm_cap_total=4096,          # global cap
+)
+```
+
+### MemoryRecorder
+
+Bridge between `LifecycleHooks` events and a `MemoryStore`:
+
+```python
+recorder = MemoryRecorder(
+    store,
+    enabled=True,
+    summary_limit=8,
+    promote_on_session_end=True,  # compact WORKING → LONGTERM on SESSION_END
+)
+recorder.install(hooks)  # registers handlers for 6 lifecycle events
+```
+
+**Automatic event handling:**
+
+| Hook Event | Action |
+|------------|--------|
+| `SESSION_START` | Injects longterm `memory_summary` into context payload |
+| `BEFORE_SEARCH` | Injects `memory_summary`, `memory_prefer_tools`, `memory_avoid_tools` |
+| `AFTER_SKILL_LOAD` | Records EPHEMERAL entry (`skill_loaded:<name>`) |
+| `BEFORE_TOOL_CALL` | Injects `memory_summary` into context |
+| `AFTER_TOOL_CALL` | Records WORKING entry (`tool_call:<name>:ok`/`:fail`, score ±1.0) |
+| `SESSION_END` | Compacts WORKING→LONGTERM patterns, purges session-scoped entries |
+
+**Summarization:** `recorder.summarize(session_id=..., dcc_name=..., limit=8)` returns:
+`recent_successes`, `prefer_tools`, `recent_failures`, `avoid_tools`, `escape_hatches`,
+`missing_capabilities`, `skip_reasons`.
+
+**Safety:** All payloads are redacted through `_safe_payload` (filters `api_key`, `authorization`,
+`password`, `prompt`, `secret`, `token`; truncates strings to 512 chars). Raw prompts are never stored.
+
+**Wiring example:**
+
+```python
+from dcc_mcp_core import LifecycleHooks, MemoryRecorder, InMemoryMemoryStore
+
+hooks = LifecycleHooks()
+store = InMemoryMemoryStore()
+MemoryRecorder(store).install(hooks)
+server.register_lifecycle_hooks(hooks)
+```
+
+---
+
+## Built-in Skills (`dcc_mcp_core.skills.builtin`, #1332)
+
+`register_all_builtin_skills()` registers all standard host-level MCP tools in one call.
+Every DCC adapter should call this after `start()` for a complete baseline tool surface.
+
+```python
+from dcc_mcp_core.skills.builtin import register_all_builtin_skills
+
+register_all_builtin_skills(
+    server,
+    dcc_name="maya",
+    dcc_pid=os.getpid(),
+    dcc_window_handle=hwd,
+    dcc_window_title="Autodesk Maya 2025",
+    gateway_failover_resolver=lambda: {"gateway_url": "http://127.0.0.1:9765"},
+    skills=scanned_skills,  # optional — enables recipe and metadata-driven tools
+)
+```
+
+**Six categories registered:**
+
+| Category | Tool prefix | Description |
+|----------|-------------|-------------|
+| Diagnostics | `dcc_diagnostics__*` | Screenshot, audit log, metrics, gateway failover |
+| Introspection | `dcc_introspect__*` | Signature, search, evaluation |
+| Feedback | `dcc_feedback__*` | Agent report / rationale |
+| Recipes | `recipes__*` | List, search, get, validate, apply pre-configured parameter templates |
+| Qt UI Inspector | `qt_ui__*` | Lazy-loaded widget tree inspection |
+| Script Materialization | `materialize__*` | Ad-hoc script file creation with TTL/session scoping |
+
+Registration is **idempotent** — calling it multiple times is safe. Skills parameter
+allows re-registering with an updated scanned skill set (registration always appends).
+
+**Bundled skill packages** ship inside the wheel under `dcc_mcp_core/skills/`:
+
+```
+dcc_mcp_core/skills/
+├── app-ui/            # UI automation (activate, find, screenshot, snapshot)
+├── dcc-diagnostics/   # Diagnostics (audit, error report, metrics, process)
+├── media/             # Media processing (probe, transcode, thumbnail)
+├── workflow/          # Workflow orchestration (run chains)
+├── builtin.py         # register_all_builtin_skills
+└── qt_ui_inspector.py # Qt widget tree inspector
+```
+
+Retrieve bundled paths:
+```python
+from dcc_mcp_core import get_bundled_skills_dir, get_bundled_skill_paths
+paths = get_bundled_skill_paths()       # include bundled skills
+paths = get_bundled_skill_paths(False)  # opt-out
+```
+
+---
+
 ## Typical Integration Patterns
 
 ### Pattern 1: Register skill-based actions with an MCP server
@@ -2807,6 +3089,67 @@ handle = server.start()
 print(f"MCP server ready: {handle.mcp_url()}")
 # Claude Desktop config: {"mcpServers": {"maya": {"url": "<handle.mcp_url()>"}}}
 ```
+
+---
+
+## Host Execution Readiness (#1331, #1206)
+
+`AdapterReadinessBinder` publishes a unified `ReadinessProbe` that gates MCP `tools/call`,
+REST `/v1/readyz`, and REST `/v1/call` on a shared set of readiness conditions.
+This ensures agents and the admin dashboard can see whether a DCC adapter is truly
+ready to execute tools.
+
+### Readiness States
+
+`/v1/readyz` returns a 3-state readiness payload:
+
+| State | HTTP | Meaning |
+|-------|------|---------|
+| `ready` | 200 | All conditions satisfied — tools can be called |
+| `booting` | 503 | Adapter is starting up — retry after a few seconds |
+| `not-ready` | 503 | Critical condition not met — check the probe details |
+
+### Readiness Bits
+
+Each condition is a named boolean bit in the probe:
+
+| Bit | Description |
+|-----|-------------|
+| `process` | DCC process is alive and responding |
+| `dcc` | DCC application is fully initialized |
+| `catalog` | Skill catalog has finished discovery |
+| `dispatcher` | Main-thread dispatcher is installed and pumping |
+| `host_bridge` | `HostExecutionBridge` is wired |
+| `main_thread_executor` | In-process executor is ready (embedded DCC only) |
+
+### Binding Patterns
+
+```python
+from dcc_mcp_core import AdapterReadinessBinder
+
+# Pattern 1: Inline (embedded DCC — Maya, Blender, Houdini)
+AdapterReadinessBinder.bind_inline(server)
+# Sets process=true, dcc=true immediately; catalog/dispatcher set later
+
+# Pattern 2: Headless (mayapy, hython, standalone)
+AdapterReadinessBinder.bind_headless(server)
+# Process, dcc, catalog all true; no dispatcher needed
+
+# Pattern 3: Queue dispatcher (GUI hosts with main-thread queue)
+AdapterReadinessBinder.bind_queue_dispatcher(server, dispatcher, require_first_pump=True)
+# Dispatcher bit set after first successful pump tick
+```
+
+Call `.bind_*()` **before** `server.start()` — the probe is read at startup.
+Use `readiness_report_subset(...)` in tests to compare stable bit subsets without
+timing sensitivity.
+
+### Admin UI Integration
+
+The gateway admin dashboard (`GET /admin`) shows per-instance readiness status.
+The elected gateway probes each backend's `/v1/readyz` on startup and periodically,
+surfacing `booting` / `not-ready` instances with the specific failing bits so
+operators can diagnose why a DCC adapter isn't accepting tool calls.
 
 ---
 
