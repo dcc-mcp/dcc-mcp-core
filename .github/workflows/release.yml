@@ -314,8 +314,13 @@ jobs:
   # an opt-in PyPI package. Users only pay this wheel's cost when they
   # explicitly `pip install 'dcc-mcp-core[semantic]'`. The matrix mirrors
   # `build-wheels.yml` so the opt-in surface covers the same OS / Python set
-  # as the main wheel, minus macOS Python 3.7 (impossible on hosted runners:
-  # macOS-13 retired Sept 2025, macOS-15 ARM64 has no 3.7 build).
+  # as the main wheel, minus macOS cp37. macOS cp37 is NOT buildable for the
+  # semantic wheel because `ort-sys 2.x` no longer ships prebuilt ONNX Runtime
+  # binaries for `x86_64-apple-darwin`. The main `dcc-mcp-core` wheel now
+  # provides macOS cp37 via cross-compilation (see build-wheels.yml macos-py37
+  # job); users who need semantic embeddings on macOS Python 3.7 should use
+  # the pure-Python `fastembed` backend (automatic fallback in the Python
+  # wrapper).
   #
   # IMPORTANT: ort 2.x (pulled in transitively by fastembed-rs) requires
   # glibc >= 2.27, so Linux wheels target manylinux_2_28 — NOT manylinux2014
