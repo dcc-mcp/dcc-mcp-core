@@ -230,6 +230,8 @@ Gateway resources/prompts:
 | Discover team-level skills | `scan_and_load_team()` / `scan_and_load_team_lenient()` |
 | Discover user-level skills | `scan_and_load_user()` / `scan_and_load_user_lenient()` |
 | Pick up admin-UI-added skill paths in a running adapter | `DccServerBase.reload_skill_paths()` re-runs discovery with the gateway admin SQLite `skill_paths_custom` table merged in (#1400). The merge happens automatically inside `collect_skill_search_paths(include_admin_custom=True)` on every startup; `reload_skill_paths()` is the runtime trigger for re-scanning after a path is added through the dashboard. Read the raw rows via `dcc_mcp_core.read_custom_skill_paths()` / `resolve_admin_db_path()` |
+| Re-scan a running adapter's skill dirs from the gateway, no restart | Every `DccServerBase` auto-registers the `dcc_admin__reload_skills` tool in `register_builtin_actions`. The elected gateway pushes a best-effort `tools/call` for it to all live backends whenever an operator adds/removes a path **or just opens** the admin skill-paths panel (`GET /admin/api/skill-paths` now triggers a reload), so freshly dropped `~/.dcc-mcp/<dcc>/skills` packages appear without a restart. Event-driven only — zero idle cost (no file watcher / polling). |
+| Surface broken / non-compliant skills | `DccServerBase.reload_skill_paths_report()` returns `{"count", "skipped"}`; the inner core exposes `McpHttpServer.discover_report()`. Skipped directories (missing/invalid `SKILL.md`) are logged at WARNING in the adapter and folded into the gateway admin operator note so an operator can see *why* an expected skill stayed missing (maya#138). |
 | Persist `SkillCatalog.loaded` + active groups across restarts | `DccServerBase.enable_skill_load_persistence(policy="skip_on_drift")` (#1405) wires the catalog's after-load / after-unload / after-group-change hooks to a [`LoadedStateStore`](python/dcc_mcp_core/loaded_state_store.py) backed by `~/.dcc-mcp/<dcc>/loaded.json` (source of truth) and the gateway admin SQLite `skill_loaded_state` / `skill_active_groups` tables (best-effort mirror for admin UI visibility). Call after `start()` so the catalog has finished discovery before the persisted snapshot is replayed via `SkillCatalog.replay_loaded(state_json, policy)`. Policies: `"skip_on_drift"` (default), `"require_exact_version"`, `"ignore_version"` — see [`LoadReplayPolicy`](crates/dcc-mcp-skills/src/catalog/persistence.rs) |
 | Bridge stdio MCP server to HTTP/SSE | `dcc-mcp-server translate --stdio "cmd" --app-type foo --port N` |
 | Add audit/quota/redact to all gateway calls | `GatewayConfig::middleware_chain` + `AuditMiddleware` / `QuotaMiddleware` / `RedactionMiddleware` |
@@ -272,6 +274,17 @@ Gateway resources/prompts:
 | Build a registry-like container (Rust) | implement `Registry<V>` over your storage, or use `DefaultRegistry<V>` (#489) |
 | Build a JSON-RPC notification (Rust) | `NotificationBuilder::new("notifications/...").with_params(json).as_sse_event()` (#484) |
 | Typed DCC name (Rust) | `DccName::parse("Maya")` → `DccName::Maya`; canonicalises + hashes safely (#491) |
+| Register lifecycle hooks | `LifecycleHooks()` + `.on(HookEvent.BEFORE_TOOL_CALL, handler)` + `server.register_lifecycle_hooks(hooks)` — typed, fail-safe observer/pub-sub for skill/tool/session events (#1337) |
+| Veto a skill load or tool call by policy | Raise `HookDeny(reason, hint=...)` from a `BEFORE_SKILL_LOAD` / `BEFORE_TOOL_CALL` / `BEFORE_SEARCH` handler — only policy events propagate denial; non-policy events swallow it (#1337) |
+| Observe skill/tool lifecycle (analytics, audit) | `HookEvent.AFTER_SEARCH` / `AFTER_SKILL_LOAD` / `AFTER_TOOL_CALL` / `SESSION_START` / `SESSION_END` — non-policy events; handlers fire in registration order, exceptions logged & swallowed (#1337) |
+| Enrich search context before discovery | `HookEvent.BEFORE_SEARCH` handler mutates `ctx.payload` in-place (add tags, dcc filters); the mutated dict is visible to the search caller (#1337) |
+| Three-tier agent memory (ephemeral → working → longterm) | `InMemoryMemoryStore()` + `MemoryRecorder(store).install(hooks)` — session-scoped ring buffers for EPHEMERAL/WORKING, global cap for LONGTERM; auto-compacts working→longterm on SESSION_END (#1334) |
+| Inject memory summaries into search/tool-call context | `MemoryRecorder` auto-injects `memory_summary` / `memory_prefer_tools` / `memory_avoid_tools` on `BEFORE_SEARCH` and `BEFORE_TOOL_CALL` (#1334) |
+| Query agent memory | `store.query(MemoryQuery(layer=..., session_id=..., key_prefix=...))` → `tuple[MemoryEntry, ...]` sorted by recency then score (#1334) |
+| Pluggable memory backend | Implement `MemoryStore` Protocol (`put`, `query`, `forget`) — `InMemoryMemoryStore` is the default; swap in SQLite/file/Redis backends without changing recorder logic (#1334) |
+| Register all standard built-in MCP tools at once | `register_all_builtin_skills(server, dcc_name=..., skills=...)` — registers diagnostics, introspection, feedback, recipes, Qt UI inspector, and script materialization tools; idempotent (#1332) |
+| Structured skill recall metadata | `RecallContext`, `Precondition`, `SideEffects`, `ToolRole`, `RiskLevel` on `SkillMetadata` / `ToolDeclaration` — optional fields for ranking, capability graph, and policy decisions (#1335) |
+| Associate a tool with its safety role | `ToolRole.ReadOnly` / `Action` / `Destructive` / `EscapeHatch` / `DebugOnly` — ranking demotes `EscapeHatch`, safety surfaces warn on `Destructive` (#1335) |
 
 ### Skill layer taxonomy (`metadata.dcc-mcp.layer`)
 
@@ -359,6 +372,10 @@ restarts because the field is `#[serde(default)]`.
 6. **Use `dcc_mcp_core.METADATA_*` / `LAYER_*` / `CATEGORY_*`** → re-exported at top level (also in `constants` sub-module); no inline `"dcc-mcp.recipes"` / `"thin-harness"` literals (#487)
 7. **Return `ToolResult` from Python tool handlers** → `ToolResult.ok("...", **ctx).to_dict()` (or `success_(...)`); `success`/`error` are dataclass *fields*, the factories are `success_`/`error_` / `ok`/`fail` (#487)
 8. **Gateway REST `/v1/call` / `/v1/call_batch` payloads accept only `tool_slug`, `arguments`, and `meta`** → put backend fields (`code`, `file_path`, `radius`, …) inside `arguments`; use `dcc-mcp-wire` / `dcc_mcp_core.host.normalize_tool_arguments()` for shared normalization
+9. **Lifecycle hooks — policy events propagate `HookDeny`, observation events swallow it** → `BEFORE_SKILL_LOAD`, `BEFORE_TOOL_CALL`, `BEFORE_SEARCH` are policy; all others are observation-only. Raising `HookDeny` from an observation event is silently logged (#1337)
+10. **Lifecycle hooks — `off()` removes by identity (`is`), not equality** → store the handler reference; `hooks.off(event, lambda ctx: ...)` never matches (#1337)
+11. **Agent memory — `MemoryRecorder.install()` must be called** → the recorder does nothing until wired to a `LifecycleHooks` instance; forgetting `install()` means zero memory is recorded (#1334)
+12. **Agent memory — raw prompts are redacted** → never pass LLM prompts or `api_key`/`password`/`secret`/`token` keys in `MemoryEntry.payload`; the `_safe_payload` filter strips them (#1334)
 
 Full trap list + code examples → [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md)
 

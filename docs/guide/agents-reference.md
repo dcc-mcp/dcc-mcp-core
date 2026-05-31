@@ -475,6 +475,75 @@ json_str = result.to_json()    # JSON string
 # Also: result.to_dict()       # Python dict
 ```
 
+**Lifecycle hooks — policy vs observation events:**
+```python
+# Policy events (BEFORE_SKILL_LOAD, BEFORE_TOOL_CALL, BEFORE_SEARCH):
+# HookDeny propagates to veto the operation.
+@hooks.on(HookEvent.BEFORE_TOOL_CALL)
+def policy(ctx):
+    raise HookDeny("blocked", hint="use typed skill X instead")
+
+# Observation events (all others):
+# HookDeny is LOGGED and SWALLOWED — handlers continue.
+@hooks.on(HookEvent.AFTER_TOOL_CALL)
+def observe(ctx):
+    # Raising HookDeny here is silently logged — no veto.
+    pass
+```
+
+**Lifecycle hooks — handler registration is by identity (`is`), not equality:**
+```python
+hooks.on(HookEvent.AFTER_TOOL_CALL, my_handler)
+# Later removal must pass the EXACT same callable object:
+hooks.off(HookEvent.AFTER_TOOL_CALL, my_handler)  # ✅
+# A new lambda with the same body is a different object:
+hooks.off(HookEvent.AFTER_TOOL_CALL, lambda ctx: print(ctx))  # ❌ never matches
+```
+
+**Lifecycle hooks — `on()` returns the handler for decorator use:**
+```python
+@hooks.on(HookEvent.BEFORE_TOOL_CALL)
+def my_handler(ctx): ...  # ✅ handler is also registered
+```
+
+**Lifecycle hooks — `before_*` payload mutation is the side-channel:**
+```python
+@hooks.on(HookEvent.BEFORE_SEARCH)
+def add_tags(ctx):
+    ctx.payload.setdefault("tags", []).append("production")
+    # Mutated payload is visible to search caller — no return value needed.
+```
+
+**Agent memory — `MemoryRecorder.install()` wires 6 lifecycle events:**
+```python
+hooks = LifecycleHooks()
+store = InMemoryMemoryStore()
+recorder = MemoryRecorder(store)
+recorder.install(hooks)  # registers SESSION_START/END, BEFORE/AFTER handlers
+# Forgetting to call install() means no memory is recorded.
+```
+
+**Agent memory — raw prompts are NEVER stored:**
+```python
+# payload keys containing "prompt", "api_key", "password", "secret", "token"
+# are redacted. Always pass structured JSON-safe data, never raw LLM prompts.
+entry = MemoryEntry(
+    layer=MemoryLayer.WORKING,
+    key="tool_call:export:ok",
+    session_id="s1",
+    dcc_name="maya",
+    payload={"tool_name": "export_fbx", "duration_ms": 340}  # ✅ structured
+    # payload={"prompt": "export the scene"}                   # ❌ redacted
+)
+```
+
+**Agent memory — query sorts by recency then score:**
+```python
+# Results: most-recent-first, then highest-score-first within same timestamp.
+results = store.query(MemoryQuery(layer=MemoryLayer.WORKING, limit=8))
+# Order: (newest, score 1.0), (newest, score -1.0), ..., (oldest, score 1.0)
+```
+
 ---
 
 ## Do and Don't — Full Reference
@@ -504,6 +573,11 @@ json_str = result.to_json()    # JSON string
 - Start with `search_skills(query)` when looking for a tool — don't guess tool names. `search_skills` accepts `tags`, `dcc`, `scope`, and `limit`; call it with no arguments to browse by trust scope.
 - Use `init_file_logging(FileLoggingConfig(...))` for durable logs in multi-gateway setups; call `flush_logs()` to force events to disk immediately
 - Rely on client-safe tool names in `tools/call`; use `_` or `-`, not dotted tool names
+- Use `LifecycleHooks` for adapter policy and observation — typed events with fail-safe dispatch (#1337)
+- Raise `HookDeny(reason, hint=...)` from `BEFORE_*` handlers to veto — only works for policy events (#1337)
+- Use `MemoryRecorder(store).install(hooks)` for zero-code skill/tool memory — wires 6 lifecycle events automatically (#1334)
+- Pass structured, JSON-safe payloads to `MemoryEntry` — never raw prompts or sensitive keys (#1334)
+- Use `register_all_builtin_skills(server, dcc_name=..., skills=...)` — one call registers all standard MCP tools (#1332)
 
 ### Don't ❌
 
@@ -530,6 +604,9 @@ json_str = result.to_json()    # JSON string
 - Don't use `json.dumps()` on `ToolResult` — use `result.to_json()` or `serialize_result()`
 - Don't guess tool names — use `search_skills(query)` to discover the right tool.
 - **Don't add a generic `utils` / `common` / `helpers` crate** — every helper has a natural owner (a domain crate, `dcc-mcp-paths`, `dcc-mcp-logging`, or `dcc-mcp-pybridge`). See the Workspace Boundary Rationale section.
+- Don't raise `HookDeny` from observation events (`AFTER_*`, `SESSION_*`) — it is logged and swallowed, providing no veto (#1337)
+- Don't forget `MemoryRecorder.install(hooks)` — without it, no events are wired and zero memory is recorded (#1334)
+- Don't store raw prompts or credentials in `MemoryEntry.payload` — keys containing `prompt`/`api_key`/`password`/`secret`/`token` are redacted (#1334)
 
 ---
 
@@ -884,6 +961,94 @@ with server as handle:
 
 The same hook path is used by explicit `server.stop()`, context-manager
 exit, and the weak atexit fallback installed by `server.start()`.
+
+### Lifecycle Hooks (typed observer/pub-sub, #1337)
+
+`LifecycleHooks` is a typed, fail-safe registry of event handlers that
+`DccServerBase` dispatches at eight hook points. Handlers fire in registration
+order; exceptions are caught and logged — the host execution never aborts.
+
+**Architecture:**
+```
+Adapter / Policy Code
+    |  register handlers via LifecycleHooks.on()
+    v
+LifecycleHooks          (user-facing registry + dispatch engine)
+    ^  dispatch() called by
+    |
+LifecycleEventDispatcher (internal helper, owned by DccServerBase)
+    ^
+    |
+DccServerBase           (calls dispatch at event boundaries)
+```
+
+**Invariants:**
+1. **Policy events propagate denial.** `BEFORE_SKILL_LOAD`, `BEFORE_TOOL_CALL`,
+   `BEFORE_SEARCH` — raising `HookDeny` from any handler immediately aborts the
+   operation. Non-`HookDeny` exceptions are logged at WARNING and treated as
+   "no decision" (remaining handlers still run).
+2. **Observation events swallow everything.** All other events (`AFTER_*`,
+   `SESSION_*`) — `HookDeny` is logged at WARNING and swallowed. All other
+   exceptions are logged with `exc_info=True` and swallowed. Remaining handlers
+   always execute.
+3. **Before-event payload is mutable.** Handlers for `BEFORE_SEARCH`,
+   `BEFORE_SKILL_LOAD`, `BEFORE_TOOL_CALL` receive a mutable `ctx.payload` dict.
+   Mutations in-place are the side-channel — no return protocol.
+4. **Registration order is dispatch order.** `LifecycleHooks.on()` appends;
+   `LifecycleHooks.off()` removes by identity (`is`), not equality.
+5. **No-registry is no-op.** All dispatch paths handle `hooks_getter` returning
+   `None` gracefully — the hooks system is entirely optional.
+
+**Integration with DccServerBase:**
+`DccServerBase.register_lifecycle_hooks(hooks)` automatically bridges
+`BEFORE_SKILL_LOAD` and `AFTER_SKILL_LOAD` to the inner skill server's
+`set_skill_load_transform` / `set_after_load_skill_hook`. The `search_skills()`
+method dispatches `BEFORE_SEARCH` and `AFTER_SEARCH` automatically.
+
+**Consumers:** `agent_memory.py` (MemoryRecorder), `escape_hatch_policy.py`,
+and any custom adapter policy code.
+
+### Agent Memory (three-tier, #1334)
+
+`agent_memory.py` implements a three-tier memory model (EPHEMERAL → WORKING →
+LONGTERM) wired through `LifecycleHooks`. It records bounded, structured facts
+and injects safe memory summaries into search/tool-call context.
+
+**Tiers:**
+
+| Tier | Scope | Persistence | Retention | Typical Facts |
+|------|-------|-------------|-----------|---------------|
+| EPHEMERAL | Per session | Never | Ring-buffer (256/session) | Active scene, loaded skills |
+| WORKING | Per session | Never | TTL (6h) + ring-buffer (1024/session) | Multi-step decisions, tool outcomes |
+| LONGTERM | Global | Opt-in backend | Global cap (4096 total) | Frequently-used skills, conventions |
+
+**Invariants:**
+1. **Raw prompts are never stored.** The `_safe_payload` filter redacts keys
+   containing `prompt`, `api_key`, `authorization`, `password`, `secret`, `token`.
+   String values are truncated to 512 chars.
+2. **Compaction happens on SESSION_END.** When `promote_on_session_end=True`,
+   WORKING entries are grouped by key, aggregated into `pattern:<key>` LONGTERM
+   entries with score = `ok_count - fail_count`, then session-scoped entries are
+   purged.
+3. **MemoryStore is a pluggable Protocol.** `InMemoryMemoryStore` is the default;
+   adapters can implement `MemoryStore` with SQLite, Redis, or file backends.
+4. **MemoryRecorder.install() wires 6 events.** Call it once with a
+   `LifecycleHooks` instance; it registers handlers for `SESSION_START`,
+   `BEFORE_SEARCH`, `AFTER_SKILL_LOAD`, `BEFORE_TOOL_CALL`, `AFTER_TOOL_CALL`,
+   and `SESSION_END`.
+5. **Summarization is bounded.** `MemoryRecorder.summarize()` queries with
+   `limit * 4`, classifies into success/failure/escape-hatch/missing buckets,
+   and returns at most `summary_limit` items per bucket.
+
+**Wiring:**
+```python
+from dcc_mcp_core import LifecycleHooks, InMemoryMemoryStore, MemoryRecorder
+
+hooks = LifecycleHooks()
+store = InMemoryMemoryStore()
+MemoryRecorder(store).install(hooks)
+server.register_lifecycle_hooks(hooks)
+```
 
 For the lower-level PyO3 handle, prefer deterministic cleanup:
 
