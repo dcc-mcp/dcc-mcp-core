@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.48](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.47...v0.17.48) (2026-05-31)
+
+
+### Documentation
+
+* add lifecycle hooks, agent memory, built-in skills, and readiness documentation ([#1427](https://github.com/loonghao/dcc-mcp-core/issues/1427)) ([eee3f35](https://github.com/loonghao/dcc-mcp-core/commit/eee3f35780c5003295c0d19a81112ab2d368a3f5))
+* fix dead link in Chinese skill-maintenance translation ([1019a21](https://github.com/loonghao/dcc-mcp-core/commit/1019a2169b328222d4b413156c9020be6d3906bd))
+* update sidebar navigation and add missing Chinese translations ([4632f9e](https://github.com/loonghao/dcc-mcp-core/commit/4632f9ebde6c0c111d9134364b7eb8fdf72873e4))
+
 ## [0.17.47](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.46...v0.17.47) (2026-05-30)
 
 
