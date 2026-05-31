@@ -442,12 +442,12 @@ jobs:
           name: admin-ui-bundle
           path: crates/dcc-mcp-gateway/src/gateway/admin/generated
 
-      - name: Install Python 3.7.17 (x86_64, Rosetta 2)
+      - name: Install Python 3.7.9 (x86_64, Rosetta 2)
         shell: bash
         run: |
-          curl -fsSL -o /tmp/python-3.7.17-macosx10.9.pkg \
-            https://www.python.org/ftp/python/3.7.17/python-3.7.17-macosx10.9.pkg
-          sudo installer -pkg /tmp/python-3.7.17-macosx10.9.pkg -target /
+          curl -fsSL -o /tmp/python-3.7.9-macosx10.9.pkg \
+            https://www.python.org/ftp/python/3.7.9/python-3.7.9-macosx10.9.pkg
+          sudo installer -pkg /tmp/python-3.7.9-macosx10.9.pkg -target /
           PY37=/Library/Frameworks/Python.framework/Versions/3.7/bin/python3.7
           echo "PY37=${PY37}" >> "$GITHUB_ENV"
           "${PY37}" --version
