@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.49](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.48...v0.17.49) (2026-05-31)
+
+
+### Features
+
+* **ci:** add macOS cp37 wheel via Rosetta 2 cross-compilation ([6a14902](https://github.com/loonghao/dcc-mcp-core/commit/6a14902c09e3f3bc23283ac592f6c460b3978256))
+
 ## [0.17.48](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.47...v0.17.48) (2026-05-31)
 
 
