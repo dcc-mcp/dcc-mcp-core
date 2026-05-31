@@ -377,6 +377,105 @@ jobs:
           use-sccache: 'false'
           prebuild-admin-ui: "false"
 
+  # macOS cp37: cross-compile from ARM64 runner to x86_64 via Rosetta 2.
+  # The composite build-wheel action can't be used because actions/setup-python
+  # does not provide Python 3.7 on ARM64 macOS. We download the x86_64 Python
+  # 3.7 installer from python.org instead.
+  build-wheel-py37-macos:
+    name: Build wheel (py3.7, macos-latest)
+    needs: [admin-ui-bundle]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Download admin UI bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: admin-ui-bundle
+          path: crates/dcc-mcp-gateway/src/gateway/admin/generated
+
+      - name: Install Python 3.7.17 (x86_64, Rosetta 2)
+        shell: bash
+        run: |
+          curl -fsSL -o /tmp/python-3.7.17-macosx10.9.pkg \
+            https://www.python.org/ftp/python/3.7.17/python-3.7.17-macosx10.9.pkg
+          sudo installer -pkg /tmp/python-3.7.17-macosx10.9.pkg -target /
+          PY37=/Library/Frameworks/Python.framework/Versions/3.7/bin/python3.7
+          echo "PY37=${PY37}" >> "$GITHUB_ENV"
+          "${PY37}" --version
+          "${PY37}" -m pip install --upgrade "pip>=20.0"
+
+      - name: Setup host Python (runs maturin)
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95.0'
+
+      - name: Add x86_64-apple-darwin Rust target
+        run: rustup target add x86_64-apple-darwin
+
+      - uses: loonghao/vx@v0.9.11
+        with:
+          version: "0.9.11"
+          cache-key-prefix: "vx-tools-v0.9.7"
+          cache: "false"
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: rust-macos-py37
+          shared-key: rust-macos-py37
+
+      - name: Install maturin (host Python 3.11)
+        shell: bash
+        run: python -m pip install "maturin>=1.5,<2.0"
+
+      - name: Resolve build features (py37 non-abi3)
+        id: resolve-features
+        shell: bash
+        run: |
+          features=$(vx just print-wheel-features-py37)
+          echo "features=${features}" >> "$GITHUB_OUTPUT"
+
+      - name: Build wheel (x86_64-apple-darwin, cp37)
+        shell: bash
+        env:
+          DCC_MCP_ADMIN_UI_PREBUILT: "1"
+          ARCHFLAGS: "-arch x86_64"
+          MACOSX_DEPLOYMENT_TARGET: "10.9"
+        run: |
+          python -m maturin build \
+            --release \
+            --out dist \
+            --target x86_64-apple-darwin \
+            --features "${{ steps.resolve-features.outputs.features }}" \
+            -i "${PY37}"
+
+      - name: Check wheel contents
+        shell: bash
+        run: |
+          "${PY37}" -m pip install check-wheel-contents
+          "${PY37}" -m check_wheel_contents --ignore W004 dist/*.whl
+
+      - name: Test wheel
+        shell: bash
+        run: |
+          "${PY37}" -m venv test-env
+          source test-env/bin/activate
+          pip install --no-index --find-links dist dcc-mcp-core --force-reinstall --no-deps
+          pip check
+          python tests/test_imports.py
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v7
+        with:
+          name: wheel-py37-macos-latest
+          path: dist/
+          retention-days: 30
+
   # ── Lint Python source ──
   # ubuntu-22.04: setup-python still offers 3.7 for the cp37 syntax gate.
   lint:
