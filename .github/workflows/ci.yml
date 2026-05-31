@@ -254,23 +254,6 @@ jobs:
       - name: cargo deny check
         run: cargo deny --all-features check
 
-  # ── Dependency policy gate (cargo-deny) ───────────────────────────────────
-  # Independent of `rust-check` so its install of `cargo-deny` does not
-  # bottleneck the slower clippy/nextest path. Catches: native-tls /
-  # openssl-sys regressions (the v0.17.45/0.17.46 manylinux2014 OpenSSL 1.0.2
-  # break), unmaintained / yanked deps, and license drift. Configuration
-  # lives in `deny.toml` at the repo root.
-  cargo-deny:
-    name: cargo-deny
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-deny
-      - name: cargo deny check
-        run: cargo deny --all-features check
 
   # ── Build ABI3 wheel (one per OS, reused by python-test) ──
   # Intentionally does NOT `needs: [rust-check]` — maturin runs its own compile
