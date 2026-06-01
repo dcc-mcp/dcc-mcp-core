@@ -310,6 +310,7 @@ mod tests {
             iid,
             true,
             true,
+            None,
         )
         .with_surface_metadata(
             read_only.map(|read_only_hint| CapabilityAnnotations {

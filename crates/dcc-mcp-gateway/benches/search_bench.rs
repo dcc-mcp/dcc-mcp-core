@@ -119,6 +119,7 @@ fn capability_snapshot(size: usize) -> IndexSnapshot {
                 iid,
                 true,
                 true,
+                None,
             )
         })
         .collect();

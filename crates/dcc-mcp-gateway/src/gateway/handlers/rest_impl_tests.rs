@@ -208,6 +208,7 @@ fn seed_unloaded_render_capability(gs: &GatewayState) {
             "render",
             "Render the current scene",
             "maya",
+            None,
         ),
     ]);
 }
@@ -230,6 +231,7 @@ fn policy_record(
         instance_id,
         true,
         true,
+        None,
     )
     .with_surface_metadata(
         Some(crate::gateway::capability::CapabilityAnnotations {
