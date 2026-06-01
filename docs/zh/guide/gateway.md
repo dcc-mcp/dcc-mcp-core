@@ -22,9 +22,16 @@ dcc-mcp-server gateway --port 9765 --name studio-gateway
 
 Per-DCC sidecar 现在会在 `GET /health` 不可达时自动拉起这个进程。它们会
 在 registry 目录里使用单飞 `gateway-launch.lock`，因此三个 DCC 同时启动也
-最多只会 spawn 一个 gateway。使用 `dcc-mcp-server sidecar --no-ensure-gateway`
-可以关闭自动拉起；使用 `--legacy-gateway-election` 可以恢复旧的 per-DCC
-first-wins 选举。
+最多只会 spawn 一个 gateway。如果持有启动锁的进程在释放文件前崩溃，后续
+DCC 实例会在 `DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS` 秒（默认 `30`）
+后回收残留锁并重试 daemon 拉起。使用
+`dcc-mcp-server sidecar --no-ensure-gateway` 可以关闭自动拉起；使用
+`--legacy-gateway-election` 可以恢复旧的 per-DCC first-wins 选举。
+
+Python `DccServerBase` 适配器和 `dcc-mcp-server sidecar` 还会在
+daemon-backed 模式下保留一个轻量 guardian。启动后如果 `/health` 连续探测
+失败，guardian 会复用同一个启动锁重新执行 daemon ensure，因此任意仍存活的
+DCC 实例或 sidecar 都可以恢复共享 gateway URL，而不阻塞或重启 DCC 宿主。
 
 ## 独立 gateway 守护进程（#1358）
 
@@ -60,6 +67,14 @@ dcc-mcp-server gateway --remote-host 0.0.0.0 --remote-port 59765
 - `DCC_MCP_GATEWAY_ADMIN_DB` —— admin SQLite 路径（默认在 workspace 锚定位置）。
 - `DCC_MCP_GATEWAY_ADMIN_RETENTION_DAYS` —— admin SQLite 保留天数，
   自动 clamp 到 `[1, 3650]`，默认 `30`。
+- `DCC_MCP_GATEWAY_GUARDIAN_INTERVAL` —— 启动后 daemon guardian
+  探测间隔秒数，默认 `5`。
+- `DCC_MCP_GATEWAY_GUARDIAN_TIMEOUT` —— 单次 `/health` 探测超时秒数，
+  默认 `0.5`。
+- `DCC_MCP_GATEWAY_GUARDIAN_FAILURES` —— Python 适配器或 Rust sidecar
+  重新执行 daemon ensure 前允许的连续失败次数，默认 `2`。
+- `DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS` —— 后续 DCC 实例回收残留
+  `gateway-launch.lock` 前等待的秒数，默认 `30`。
 
 ### 守护进程模式保证
 

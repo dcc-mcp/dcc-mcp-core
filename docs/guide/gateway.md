@@ -25,7 +25,10 @@ dcc-mcp-server gateway --port 9765 --name studio-gateway
 Per-DCC servers and sidecars now auto-launch that process when
 `GET /health` is not reachable. They use a single-flight
 `gateway-launch.lock` in the registry directory so three DCCs starting at
-once still spawn at most one gateway. Use `--no-ensure-gateway` to disable
+once still spawn at most one gateway. If the process that owns the launch
+attempt crashes before releasing the file, any later DCC can reclaim a
+stale lock after `DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS` seconds (default
+`30`) and retry the daemon launch. Use `--no-ensure-gateway` to disable
 auto-launch, or `--legacy-gateway-election` to restore the old per-DCC
 first-wins election.
 
@@ -97,6 +100,9 @@ Additional environment knobs:
   seconds, default `0.5`.
 - `DCC_MCP_GATEWAY_GUARDIAN_FAILURES` — consecutive failed probes before
   a Python adapter or Rust sidecar re-runs daemon ensure, default `2`.
+- `DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS` — age after which a leftover
+  `gateway-launch.lock` is reclaimed by a later DCC instance, default
+  `30`.
 
 ### Daemon-mode guarantees
 

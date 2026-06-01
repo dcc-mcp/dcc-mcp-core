@@ -18,6 +18,8 @@ from urllib.request import urlopen
 from dcc_mcp_core.install_lifecycle import default_registry_dir
 
 _LAUNCH_LOCK = "gateway-launch.lock"
+_LAUNCH_LOCK_STALE_SECS_ENV = "DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS"
+_LAUNCH_LOCK_STALE_SECS_DEFAULT = 30.0
 
 
 def _is_healthy(host: str, port: int, timeout: float) -> bool:
@@ -52,11 +54,19 @@ class _LaunchLock:
 
     def acquire(self) -> bool:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            self._fd = os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            return False
-        return True
+        stale_after = _launch_lock_stale_secs()
+        for attempt in range(2):
+            try:
+                self._fd = os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                if attempt == 0 and _remove_stale_launch_lock(self.path, stale_after):
+                    continue
+                return False
+            else:
+                with contextlib.suppress(OSError):
+                    os.write(self._fd, f"pid={os.getpid()} ts={int(time.time())}\n".encode("ascii"))
+                return True
+        return False
 
     def release(self) -> None:
         if self._fd is not None:
@@ -64,6 +74,44 @@ class _LaunchLock:
             self._fd = None
         with contextlib.suppress(FileNotFoundError):
             self.path.unlink()
+
+
+def _launch_lock_stale_secs() -> float:
+    return _float_env(_LAUNCH_LOCK_STALE_SECS_ENV, _LAUNCH_LOCK_STALE_SECS_DEFAULT)
+
+
+def _remove_stale_launch_lock(path: Path, stale_after_secs: float) -> bool:
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+
+    age_secs = time.time() - stat.st_mtime
+    if age_secs < stale_after_secs:
+        return False
+
+    # Re-check immediately before unlinking so a newly recreated fresh lock is
+    # less likely to be removed after another process wins the launch race.
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+
+    age_secs = time.time() - stat.st_mtime
+    if age_secs < stale_after_secs:
+        return False
+
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    return True
 
 
 def _wait_gateway_ready(host: str, port: int, *, timeout_secs: float, probe_timeout: float = 0.5) -> bool:
