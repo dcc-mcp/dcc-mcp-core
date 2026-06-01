@@ -27,6 +27,7 @@ pub struct UnloadedCapabilityHint {
     pub summary: String,
     pub search_tokens: Vec<String>,
     pub available_groups: Vec<CapabilityGroupInfo>,
+    pub tool_group: Option<String>,
 }
 
 async fn rest_get_idempotent(
@@ -224,7 +225,37 @@ pub async fn try_fetch_tools(
             if loaded {
                 let annotations = parse_tool_annotations(v.get("annotations"));
                 let metadata = v.get("metadata");
-                let meta = mcp_meta_from_rest_metadata(metadata, v.get("skill"));
+                let mut meta = mcp_meta_from_rest_metadata(metadata, v.get("skill"));
+
+                // Inject available_groups and per-tool group info so the
+                // capability builder can surface progressive group state.
+                if let Some(available_groups) = v.get("available_groups")
+                    && let Some(dcc) = meta
+                        .get_or_insert_with(Default::default)
+                        .entry("dcc".to_string())
+                        .or_insert_with(|| json!({}))
+                        .as_object_mut()
+                {
+                    dcc.insert("available_groups".to_string(), available_groups.clone());
+                    // Determine which group this tool belongs to.
+                    if let Some(arr) = available_groups.as_array() {
+                        for group in arr {
+                            if let Some(tools) = group.get("tools").and_then(Value::as_array)
+                                && tools.iter().any(|t| t.as_str() == Some(&action))
+                            {
+                                if let Some(group_name) = group.get("name").and_then(Value::as_str)
+                                {
+                                    dcc.insert(
+                                        "group".to_string(),
+                                        Value::String(group_name.to_string()),
+                                    );
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+
                 loaded_tools.push(McpTool {
                     name: action,
                     description,
@@ -247,17 +278,23 @@ pub async fn try_fetch_tools(
                     .unwrap_or("")
                     .to_owned();
                 let metadata = v.get("metadata");
-                let available_groups = v
+                let available_groups: Vec<CapabilityGroupInfo> = v
                     .get("available_groups")
                     .cloned()
                     .and_then(|value| serde_json::from_value(value).ok())
                     .unwrap_or_default();
+                // Determine which group this tool belongs to.
+                let tool_group = available_groups
+                    .iter()
+                    .find(|g| g.tools.iter().any(|t| t == &action))
+                    .map(|g| g.name.clone());
                 unloaded_hints.push(UnloadedCapabilityHint {
                     skill_name,
                     tool_name: action,
                     summary: description,
                     search_tokens: rest_metadata_search_tokens(metadata),
                     available_groups,
+                    tool_group,
                 });
             }
         }
