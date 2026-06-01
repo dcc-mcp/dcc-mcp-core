@@ -22,7 +22,7 @@ Pin a release by setting `DCC_MCP_VERSION=v0.17.17` or passing
 | Binary | Role | Source |
 |---|---|---|
 | [`dcc-mcp-cli`](#dcc-mcp-cli) | User/CI control plane for local or remote DCC-MCP REST endpoints. | `crates/dcc-mcp-cli/` |
-| [`dcc-mcp-server`](#dcc-mcp-server) | Per-DCC MCP + REST server, with an integrated auto-gateway. | `crates/dcc-mcp-server/` |
+| [`dcc-mcp-server`](#dcc-mcp-server) | Per-DCC MCP + REST server and machine-wide gateway daemon. | `crates/dcc-mcp-server/` |
 | [`dcc-mcp-tunnel-relay`](#dcc-mcp-tunnel-relay) | Public-facing WebSocket relay for the zero-config remote tunnel (#504). | `crates/dcc-mcp-tunnel-relay/` |
 | [`dcc-mcp-tunnel-agent`](#dcc-mcp-tunnel-agent) | Local sidecar that registers with the relay and forwards MCP traffic. | `crates/dcc-mcp-tunnel-agent/` |
 
@@ -99,16 +99,18 @@ Default install locations are `~/.local/bin` on Linux/macOS and
 
 Standalone server runner with explicit run modes for per-DCC MCP servers and
 the machine-wide gateway daemon. Invoking `dcc-mcp-server` with no subcommand
-is still backwards compatible: it behaves exactly like `dcc-mcp-server auto`.
+behaves like `dcc-mcp-server auto`: it ensures a local gateway daemon exists,
+then registers the per-DCC server as a backend.
 
 ### Run modes
 
 | Command | Role | Gateway behavior |
 |---|---|---|
-| `dcc-mcp-server` | Backwards-compatible implicit `auto`. | Starts a per-DCC MCP server and participates in first-wins gateway election. |
+| `dcc-mcp-server` | Implicit `auto`. | Ensures the standalone gateway daemon, then registers as a backend. |
 | `dcc-mcp-server auto` | Explicit form of the default behavior. | Same as the no-subcommand path. |
-| `dcc-mcp-server serve` | Per-DCC MCP server. | Participates in first-wins gateway election unless told otherwise. |
-| `dcc-mcp-server serve --no-auto-gateway` | Per-DCC MCP server only. | Registers/serves tools but never tries to bind the gateway port. |
+| `dcc-mcp-server serve` | Per-DCC MCP server. | Ensures the standalone gateway daemon, then registers as a backend. |
+| `dcc-mcp-server serve --no-auto-gateway` | Per-DCC MCP server only. | Registers/serves tools but never ensures or binds the gateway port. |
+| `dcc-mcp-server auto --legacy-gateway-election` | Legacy embedded gateway mode. | The per-DCC process competes for the gateway port directly. |
 | `dcc-mcp-server gateway` | Machine-wide gateway daemon. | Hosts discovery, routing, resources/prompts, admin, and audit without running DCC tools inline. |
 
 `auto` and `serve` share the server flags below. `gateway` has its own smaller
@@ -133,7 +135,9 @@ flag surface and rejects server-only flags such as `--app`.
 
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
-| `--gateway-port` | `DCC_MCP_GATEWAY_PORT` | `9765` | Well-known port to compete for. `0` disables the gateway role entirely and therefore disables admin too. |
+| `--gateway-port` | `DCC_MCP_GATEWAY_PORT` | `9765` | Well-known gateway port to ensure/register with. `0` disables gateway ensure/election for this process. |
+| `--no-ensure-gateway` | — | `false` | Do not auto-launch the standalone gateway daemon before backend registration. |
+| `--legacy-gateway-election` | `DCC_MCP_LEGACY_GATEWAY_ELECTION` | `false` | Restore the old embedded first-wins election path. |
 | `--no-admin` | `DCC_MCP_NO_ADMIN` | `false` | Disable the read-only Admin UI on the elected gateway. Admin is enabled by default when a process wins the gateway role. |
 | `--admin-path` | `DCC_MCP_ADMIN_PATH` | `/admin` | URL prefix for the read-only Admin UI and its JSON APIs. |
 | `--registry-dir` | `DCC_MCP_REGISTRY_DIR` | platform temp dir | shared `FileRegistry` directory. |
