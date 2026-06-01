@@ -35,6 +35,44 @@ layout = resolve_deployment_layout(
 
 这使开发、松散内部交付和打包的 Rez 部署保持在同一代码路径上。
 
+## 轻量 sidecar 启动
+
+DCC 插件可以在应用启动钩子里构造或启动每个 DCC 对应的 sidecar，
+不导入 `_core`，也不阻塞主进程：
+
+```python
+from dcc_mcp_core.install_lifecycle import launch_sidecar
+
+result = launch_sidecar(
+    dcc_type="maya",
+    host_rpc="commandport://127.0.0.1:6000",
+    watch_pid=current_dcc_pid,
+    display_name="Maya-Anim",
+    adapter_version="1.2.3",
+)
+```
+
+`launch_sidecar()` 默认使用 `subprocess.Popen` 并分离
+stdin/stdout/stderr。子进程运行 `dcc-mcp-server sidecar`，在共享
+`FileRegistry` 写入 `per-dcc-sidecar` 行，除非传入
+`no_ensure_gateway=True`，否则会确保机器级 gateway daemon 已启动；
+当 `watch_pid` 对应的 DCC 进程退出时，sidecar 也会退出。若适配器
+希望把 argv 交给工作室自己的进程 supervisor，使用
+`build_sidecar_command()`：
+
+```python
+from dcc_mcp_core.install_lifecycle import build_sidecar_command
+
+contract = build_sidecar_command(
+    dcc_type="houdini",
+    host_rpc="qtserver://127.0.0.1:7001",
+    watch_pid=current_dcc_pid,
+    registry_dir=r"C:\dcc-mcp\registry",
+)
+command = contract["command"]
+env_updates = contract["environment"]["set"]
+```
+
 ## 导入轻量级预检
 
 ```python
@@ -158,6 +196,8 @@ replaced = safe_replace_tree(staged_payload, install_root)
 python -m dcc_mcp_core.install_lifecycle inspect C:\path\to\adapter
 python -m dcc_mcp_core.install_lifecycle stop --dcc-type 3dsmax
 python -m dcc_mcp_core.install_lifecycle layout --cache-root G:\_thm\rez_local_cache\ext --adapter-package dcc_mcp_maya
+python -m dcc_mcp_core.install_lifecycle sidecar-command --dcc maya --host-rpc commandport://127.0.0.1:6000 --watch-pid 12345
+python -m dcc_mcp_core.install_lifecycle launch-sidecar --dcc maya --host-rpc commandport://127.0.0.1:6000 --watch-pid 12345
 python -m dcc_mcp_core.install_lifecycle plan-update --target-version core=0.17.21 --target-version server=0.17.21
 python -m dcc_mcp_core.install_lifecycle remove C:\path\to\adapter
 ```

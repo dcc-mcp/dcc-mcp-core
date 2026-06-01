@@ -46,6 +46,43 @@ layout = resolve_deployment_layout(
 This keeps development, loose internal drops, and packaged Rez deployments on
 one code path.
 
+## Import-Light Sidecar Launch
+
+DCC plugins that run at application startup can build or launch the per-DCC
+sidecar without importing `_core` or blocking the host process:
+
+```python
+from dcc_mcp_core.install_lifecycle import launch_sidecar
+
+result = launch_sidecar(
+    dcc_type="maya",
+    host_rpc="commandport://127.0.0.1:6000",
+    watch_pid=current_dcc_pid,
+    display_name="Maya-Anim",
+    adapter_version="1.2.3",
+)
+```
+
+`launch_sidecar()` uses `subprocess.Popen` with stdin/stdout/stderr detached by
+default. The child runs `dcc-mcp-server sidecar`, registers a
+`per-dcc-sidecar` row in the shared `FileRegistry`, ensures the machine-wide
+gateway daemon unless `no_ensure_gateway=True`, and exits when `watch_pid`
+dies. Use `build_sidecar_command()` instead when the adapter wants to hand the
+argv list to a studio process supervisor:
+
+```python
+from dcc_mcp_core.install_lifecycle import build_sidecar_command
+
+contract = build_sidecar_command(
+    dcc_type="houdini",
+    host_rpc="qtserver://127.0.0.1:7001",
+    watch_pid=current_dcc_pid,
+    registry_dir=r"C:\dcc-mcp\registry",
+)
+command = contract["command"]
+env_updates = contract["environment"]["set"]
+```
+
 ## Import-Light Preflight
 
 ```python
@@ -194,6 +231,8 @@ JSON-only control path:
 python -m dcc_mcp_core.install_lifecycle inspect C:\path\to\adapter
 python -m dcc_mcp_core.install_lifecycle stop --dcc-type 3dsmax
 python -m dcc_mcp_core.install_lifecycle layout --cache-root G:\_thm\rez_local_cache\ext --adapter-package dcc_mcp_maya
+python -m dcc_mcp_core.install_lifecycle sidecar-command --dcc maya --host-rpc commandport://127.0.0.1:6000 --watch-pid 12345
+python -m dcc_mcp_core.install_lifecycle launch-sidecar --dcc maya --host-rpc commandport://127.0.0.1:6000 --watch-pid 12345
 python -m dcc_mcp_core.install_lifecycle plan-update --target-version core=0.17.21 --target-version server=0.17.21
 python -m dcc_mcp_core.install_lifecycle remove C:\path\to\adapter
 ```

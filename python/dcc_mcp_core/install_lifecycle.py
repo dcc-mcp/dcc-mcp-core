@@ -28,6 +28,8 @@ from typing import Union
 from ._install_lifecycle_process import entry_runtime_alive as _entry_runtime_alive
 from ._install_lifecycle_process import is_windows_lock_error as _is_windows_lock_error
 from ._install_lifecycle_process import terminate_pid as _terminate_pid
+from ._install_lifecycle_sidecar import build_sidecar_command
+from ._install_lifecycle_sidecar import launch_sidecar
 
 ROLE_METADATA_KEY = "dcc_mcp_role"
 ROLE_PER_DCC_SIDECAR = "per-dcc-sidecar"
@@ -67,8 +69,10 @@ __all__ = [
     "REGISTRY_ENV",
     "ROLE_METADATA_KEY",
     "ROLE_PER_DCC_SIDECAR",
+    "build_sidecar_command",
     "default_registry_dir",
     "inspect_install_root",
+    "launch_sidecar",
     "main",
     "plan_runtime_updates",
     "query_runtime_state",
@@ -782,6 +786,13 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     layout.add_argument("--package", action="append", dest="packages")
     layout.add_argument("--adapter-package")
 
+    sidecar_command = sub.add_parser("sidecar-command", help="Build a dcc-mcp-server sidecar argv.")
+    _add_sidecar_launch_args(sidecar_command)
+
+    launch = sub.add_parser("launch-sidecar", help="Start a sidecar without importing _core.")
+    _add_sidecar_launch_args(launch)
+    launch.add_argument("--foreground", action="store_true", help="Do not detach the sidecar on Windows.")
+
     plan = sub.add_parser("plan-update", help="Plan restart actions for mixed runtime versions.")
     plan.add_argument("--registry-dir")
     plan.add_argument("--dcc-type")
@@ -833,6 +844,15 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 adapter_package=args.adapter_package,
             )
         )
+    if args.command == "sidecar-command":
+        return _print_json(build_sidecar_command(**_sidecar_launch_kwargs(args)))
+    if args.command == "launch-sidecar":
+        return _print_json(
+            launch_sidecar(
+                **_sidecar_launch_kwargs(args),
+                detached=not args.foreground,
+            )
+        )
     if args.command == "plan-update":
         try:
             target_versions = _parse_target_versions(args.target_version)
@@ -854,6 +874,46 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         return _print_json(safe_replace_tree(args.source, args.destination))
     parser.error("unknown command")
     return 2
+
+
+def _add_sidecar_launch_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--dcc-type", "--dcc", dest="dcc_type", required=True)
+    parser.add_argument("--host-rpc", required=True)
+    parser.add_argument("--watch-pid", type=int, required=True)
+    parser.add_argument("--registry-dir")
+    parser.add_argument("--server-bin")
+    parser.add_argument("--instance-id")
+    parser.add_argument("--display-name")
+    parser.add_argument("--adapter-version")
+    parser.add_argument("--gateway-port", type=int)
+    parser.add_argument("--gateway-host")
+    parser.add_argument("--gateway-name")
+    parser.add_argument("--gateway-remote-host")
+    parser.add_argument("--gateway-remote-port", type=int)
+    parser.add_argument("--connect-timeout-secs", type=int)
+    parser.add_argument("--no-ensure-gateway", action="store_true")
+    parser.add_argument("--legacy-gateway-election", action="store_true")
+
+
+def _sidecar_launch_kwargs(args: argparse.Namespace) -> Dict[str, Any]:
+    return {
+        "dcc_type": args.dcc_type,
+        "host_rpc": args.host_rpc,
+        "watch_pid": args.watch_pid,
+        "registry_dir": args.registry_dir,
+        "server_bin": args.server_bin,
+        "instance_id": args.instance_id,
+        "display_name": args.display_name,
+        "adapter_version": args.adapter_version,
+        "gateway_port": args.gateway_port,
+        "gateway_host": args.gateway_host,
+        "gateway_name": args.gateway_name,
+        "gateway_remote_host": args.gateway_remote_host,
+        "gateway_remote_port": args.gateway_remote_port,
+        "connect_timeout_secs": args.connect_timeout_secs,
+        "no_ensure_gateway": args.no_ensure_gateway,
+        "legacy_gateway_election": args.legacy_gateway_election,
+    }
 
 
 if __name__ == "__main__":
