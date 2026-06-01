@@ -46,7 +46,8 @@ pub use persistence::{
 };
 pub use types::{SkillDetail, SkillEntry, SkillState, SkillSummary};
 
-use execute::{ScriptExecutorFn, execute_script, resolve_tool_script};
+pub use execute::resolve_tool_script;
+use execute::{ScriptExecutorFn, execute_script};
 
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::gen_stub_pyclass;
