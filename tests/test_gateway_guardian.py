@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import time
+
 import dcc_mcp_core._server.gateway_guardian as gg
 
 
@@ -100,6 +103,47 @@ def test_ensure_gateway_daemon_waits_when_launch_lock_exists(tmp_path, monkeypat
 
     assert result["ok"] is False
     assert result["reason"] == "launch_in_progress_timeout"
+
+
+def test_ensure_gateway_daemon_recovers_stale_launch_lock(tmp_path, monkeypatch):
+    lock_path = tmp_path / "gateway-launch.lock"
+    lock_path.write_text("stale", encoding="utf-8")
+    stale_time = time.time() - 120
+    os.utime(lock_path, (stale_time, stale_time))
+
+    state = {"calls": 0}
+
+    def _urlopen(*_args, **_kwargs):
+        state["calls"] += 1
+        if state["calls"] < 3:
+            raise OSError("down")
+        return _Resp()
+
+    seen = {}
+
+    def _popen(cmd, **kwargs):
+        seen["cmd"] = cmd
+        seen["env"] = kwargs.get("env", {})
+        return object()
+
+    monkeypatch.setenv("DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS", "1")
+    monkeypatch.setattr(gg, "urlopen", _urlopen)
+    monkeypatch.setattr(gg.subprocess, "Popen", _popen)
+    monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
+
+    result = gg.ensure_gateway_daemon(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=str(tmp_path),
+        dcc_type="houdini",
+        timeout_secs=1.0,
+    )
+
+    assert result["ok"] is True
+    assert result["reason"] == "spawned"
+    assert seen["cmd"][:2] == ["dcc-mcp-server", "gateway"]
+    assert seen["env"]["DCC_MCP_DCC_TYPE"] == "houdini"
+    assert not lock_path.exists()
 
 
 def test_gateway_daemon_guardian_restarts_after_failure_threshold(monkeypatch):
