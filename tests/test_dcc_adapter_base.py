@@ -547,11 +547,42 @@ class TestDccServerBase:
                 pass
 
         monkeypatch.setattr("dcc_mcp_core._server.runtime.DccGatewayElection", _FakeElection)
+        monkeypatch.setattr(
+            "dcc_mcp_core._server.runtime.ensure_gateway_daemon",
+            lambda **_kwargs: {"ok": False, "reason": "spawn_failed"},
+        )
 
         server.start()
 
         assert starts == [(server._dcc_name, server, 19765)]
         assert isinstance(server._gateway_election, _FakeElection)
+
+    def test_start_skips_embedded_election_when_daemon_backed(self, tmp_path, monkeypatch):
+        server = self._make_server(tmp_path)
+        server._enable_gateway_failover = True
+        server._config.gateway_port = 19765
+        started = {"election": 0}
+
+        class _FakeElection:
+            def __init__(self, *, dcc_name, server, gateway_port):
+                _ = (dcc_name, server, gateway_port)
+
+            def start(self):
+                started["election"] += 1
+
+            def stop(self):
+                pass
+
+        monkeypatch.setattr("dcc_mcp_core._server.runtime.DccGatewayElection", _FakeElection)
+        monkeypatch.setattr(
+            "dcc_mcp_core._server.runtime.ensure_gateway_daemon",
+            lambda **_kwargs: {"ok": True, "reason": "already_healthy"},
+        )
+
+        server.start()
+
+        assert started["election"] == 0
+        assert server.get_gateway_election_status()["gateway_runtime_mode"] == "daemon-backed"
 
     def test_gateway_election_start_failure_clears_runtime_state(self, tmp_path, monkeypatch):
         server = self._make_server(tmp_path)

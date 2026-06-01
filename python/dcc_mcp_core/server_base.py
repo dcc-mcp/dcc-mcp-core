@@ -157,6 +157,8 @@ class DccServerBase:
         # Lazy-initialised helpers
         self._hot_reloader: Any | None = None
         self._gateway_election: Any | None = None
+        self._gateway_runtime_mode: str = "unknown"
+        self._gateway_daemon_status: dict[str, Any] = {}
         self._snapshot_provider: Any | None = diag.snapshot_provider
         self._quit_hooks: list[Callable[[], Any]] = []
         self._quit_hooks_ran: bool = False
@@ -1186,6 +1188,7 @@ class DccServerBase:
         # first tool call onward.
         self._init_telemetry()
 
+        self._runtime_controller().ensure_gateway_daemon_if_needed()
         self._handle = self._server.start()
         server_version = getattr(self._config, "server_version", _PKG_VERSION)
         logger.info(
@@ -1316,11 +1319,15 @@ class DccServerBase:
                 "gateway_host": None,
                 "gateway_port": gateway_port,
                 "is_gateway": is_gateway,
+                "gateway_runtime_mode": getattr(self, "_gateway_runtime_mode", "unknown"),
+                "gateway_daemon_status": dict(getattr(self, "_gateway_daemon_status", {}) or {}),
             }
         status = self._gateway_election.get_status()
         status["enabled"] = bool(self._enable_gateway_failover)
         status.setdefault("gateway_port", gateway_port)
         status["is_gateway"] = is_gateway
+        status["gateway_runtime_mode"] = getattr(self, "_gateway_runtime_mode", "unknown")
+        status["gateway_daemon_status"] = dict(getattr(self, "_gateway_daemon_status", {}) or {})
         return status
 
     # ── DCC version hook (override in subclass) ───────────────────────────────

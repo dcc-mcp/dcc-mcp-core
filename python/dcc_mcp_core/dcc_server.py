@@ -433,6 +433,8 @@ def _handle_gateway_failover_status(params_json: str) -> str:
         "gateway_host": raw.get("gateway_host"),
         "gateway_port": gateway_port,
         "is_gateway": is_gateway,
+        "gateway_runtime_mode": raw.get("gateway_runtime_mode", "unknown"),
+        "gateway_daemon_status": raw.get("gateway_daemon_status", {}),
         "reason": reason,
         "timestamp_ms": int(time.time() * 1000),
     }
