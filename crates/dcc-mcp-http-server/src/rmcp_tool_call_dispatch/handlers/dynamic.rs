@@ -10,7 +10,7 @@ use crate::dynamic_tools::{
     build_execution_wrapper, handle_deregister_tool, handle_list_dynamic_tools,
     handle_register_tool,
 };
-use crate::mcp_tool_catalog::{action_meta_to_mcp_tool, resolve_action_by_id};
+use crate::mcp_tool_catalog::{SchemaProjection, action_meta_to_mcp_tool, resolve_action_by_id};
 use crate::server_state::ServerState;
 
 pub(in crate::rmcp_tool_call_dispatch) fn handle_list_actions(
@@ -76,6 +76,7 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_describe_action(
         include_output_schema,
         &bare_eligible_for_describe,
         state.declared_capabilities.as_ref(),
+        SchemaProjection::Full,
     );
     let payload = serde_json::to_value(tool).unwrap_or_default();
     CallToolResult::text(serde_json::to_string(&payload).unwrap_or_default())

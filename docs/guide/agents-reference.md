@@ -215,6 +215,15 @@ activation/deactivation. To force a fresh build for a single request, send
 `_meta.dcc.refresh=true` on the `tools/list` call. The cache does **not**
 apply to `tools/call` — only to `tools/list` response construction.
 
+**MCP-facing input schemas stay simple:**
+`tools/list` should expose a client-compatible object schema: top-level
+`type: object`, `properties`, `required`, primitive property types, bounds, and
+short descriptions. Do not rely on JSON Schema composition or conditionals
+(`anyOf`, `oneOf`, `allOf`, `not`, `if`/`then`/`else`, dependent schemas) to
+express tool semantics. Keep those rules in the handler/tool script so clients
+can register the MCP tool first, then receive normal validation errors at call
+time.
+
 **USD project resources (issue #1209):**
 ```python
 from dcc_mcp_core import register_usd_project_resources
