@@ -1672,6 +1672,7 @@ async fn gateway_rest_v1_call_batch_mixed_success_failure_continues_on_error() {
         instance_id,
         true, // has_schema
         true, // loaded
+        None,
     );
     gs.capability_index.upsert_instance(
         instance_id,
