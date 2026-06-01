@@ -1,6 +1,6 @@
 # Gateway
 
-The gateway (`McpHttpConfig::gateway_port > 0`) is a first-wins HTTP
+The gateway (`McpHttpConfig::gateway_port > 0`) is a centralized HTTP
 façade that presents every live DCC instance under one MCP endpoint.
 A single client can talk to Maya, Blender and Houdini through the same
 `/mcp` URL; the gateway discovers live backends via `FileRegistry`,
@@ -22,19 +22,21 @@ For production, prefer the machine-wide standalone gateway:
 dcc-mcp-server gateway --port 9765 --name studio-gateway
 ```
 
-Per-DCC sidecars now auto-launch that process when `GET /health` is not
-reachable. They use a single-flight `gateway-launch.lock` in the registry
-directory so three DCCs starting at once still spawn at most one gateway.
-Use `dcc-mcp-server sidecar --no-ensure-gateway` to disable auto-launch, or
-`--legacy-gateway-election` to restore the old per-DCC first-wins election.
+Per-DCC servers and sidecars now auto-launch that process when
+`GET /health` is not reachable. They use a single-flight
+`gateway-launch.lock` in the registry directory so three DCCs starting at
+once still spawn at most one gateway. Use `--no-ensure-gateway` to disable
+auto-launch, or `--legacy-gateway-election` to restore the old per-DCC
+first-wins election.
 
 For the standalone `dcc-mcp-server` binary, the run mode is explicit:
 
 ```bash
-dcc-mcp-server                  # implicit auto mode, backwards compatible
-dcc-mcp-server auto --app maya  # explicit auto-gateway participation
-dcc-mcp-server serve --app maya # per-DCC server, still auto-gateway capable
+dcc-mcp-server                  # implicit auto mode; ensures daemon + registers backend
+dcc-mcp-server auto --app maya  # explicit daemon-backed backend registration
+dcc-mcp-server serve --app maya # per-DCC server; ensures daemon + registers backend
 dcc-mcp-server serve --no-auto-gateway --app maya
+dcc-mcp-server auto --legacy-gateway-election --app maya
 dcc-mcp-server gateway --port 9765
 ```
 
@@ -109,9 +111,9 @@ standalone). At runtime it satisfies the following:
 
 | Scenario | Recommended mode |
 |----------|------------------|
-| Single artist machine, one DCC | `dcc-mcp-server` or `dcc-mcp-server auto --app <dcc>` |
-| Workstation hosting multiple DCCs | `auto` / `serve`; auto-gateway elects the first DCC to launch |
-| Workstation with a separate gateway owner | `dcc-mcp-server serve --no-auto-gateway --app <dcc>` plus `dcc-mcp-server gateway` |
+| Single artist machine, one DCC | `dcc-mcp-server` or `dcc-mcp-server auto --app <dcc>`; the server ensures a local gateway daemon and registers as a backend |
+| Workstation hosting multiple DCCs | `auto` / `serve`; each backend ensures the same daemon and then registers |
+| Workstation with a manually managed gateway owner | `dcc-mcp-server serve --no-ensure-gateway --app <dcc>` plus `dcc-mcp-server gateway` |
 | Studio render node / shared host / CI | `dcc-mcp-server gateway` daemon, sidecars launch DCCs |
 | Headless agent without any DCC installed | `dcc-mcp-server gateway` daemon — DCCs are reached via `FileRegistry`, HTTP registration, mDNS, or relay sources |
 
