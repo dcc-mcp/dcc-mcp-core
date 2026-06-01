@@ -230,22 +230,43 @@ def gateway_with_skill_backend(tmp_path, monkeypatch):
     # guarantees the env var is reset even if the test aborts mid-way.
     monkeypatch.setenv("DCC_MCP_SKILL_PATHS", EXAMPLES_SKILLS_DIR)
 
-    gw_port = _pick_free_port()
+    handle = None
+    gw_port = 0
+    last_start_error: RuntimeError | None = None
+    for _ in range(8):
+        gw_port = _pick_free_port()
 
-    # Backend = gateway winner (single-backend cluster is sufficient for
-    # this invariant; multi-backend aggregation is already covered by
-    # test_gateway_facade_aggregation.py).
-    cfg = McpHttpConfig(port=0, server_name="hello-backend")
-    cfg.gateway_port = gw_port
-    cfg.registry_dir = str(registry_dir)
-    cfg.dcc_type = "python"
-    cfg.heartbeat_secs = 1
-    cfg.stale_timeout_secs = 10
-    # ``include_bundled`` would also work but we keep the test hermetic
-    # to examples/skills so a regression in bundled skills cannot mask
-    # a regression in the load-skill → SSE pipeline.
-    server = create_skill_server("python", cfg)
-    handle = server.start()
+        # Backend = gateway winner (single-backend cluster is sufficient for
+        # this invariant; multi-backend aggregation is already covered by
+        # test_gateway_facade_aggregation.py).
+        cfg = McpHttpConfig(port=0, server_name="hello-backend")
+        cfg.gateway_port = gw_port
+        cfg.registry_dir = str(registry_dir)
+        cfg.dcc_type = "python"
+        cfg.heartbeat_secs = 1
+        cfg.stale_timeout_secs = 10
+        # ``include_bundled`` would also work but we keep the test hermetic
+        # to examples/skills so a regression in bundled skills cannot mask
+        # a regression in the load-skill → SSE pipeline.
+        server = create_skill_server("python", cfg)
+        try:
+            candidate = server.start()
+        except RuntimeError as exc:
+            # ``_pick_free_port`` has an unavoidable close-then-bind gap. On
+            # Windows CI another test or the OS can grab that port before the
+            # embedded gateway binds it, surfacing as WinError 10048.
+            last_start_error = exc
+            if "Only one usage of each socket address" in str(exc) or "os error 10048" in str(exc):
+                continue
+            raise
+        if candidate.is_gateway:
+            handle = candidate
+            break
+        with contextlib.suppress(Exception):
+            candidate.shutdown()
+    if handle is None:
+        detail = f": {last_start_error}" if last_start_error is not None else ""
+        pytest.fail(f"failed to start single-backend gateway after retrying ports{detail}")
 
     # Wait until both the instance port and the gateway port are up. The
     # self-probe inside start() guarantees this, but on slow CI it is
