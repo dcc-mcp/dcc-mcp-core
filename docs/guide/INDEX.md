@@ -28,7 +28,7 @@ document without scanning every file.
 | Document | Purpose |
 |----------|---------|
 | [agents-reference.md](agents-reference.md) | **Critical** — traps, do/don't, code style, full example list |
-| [skills.md](skills.md) | Skill system: scanning, loading, lifecycle |
+| [skills.md](skills.md) | Skill system: scanning, loading, lifecycle, persistence, semantic search, agent memory |
 | [skill-maintenance.md](skill-maintenance.md) | Checklist for SKILL/tools/scripts + `recipes` / `skill-reference-docs` |
 | [`../POLICY_SKILL_OWNERSHIP.md`](../POLICY_SKILL_OWNERSHIP.md) | Bundled adapter skill ownership policy; prevents duplicate file-operation tools |
 | [thin-harness.md](thin-harness.md) | Thin-harness layer: `execute_python` + recipes pattern |
