@@ -1477,3 +1477,274 @@ async fn mcp_search_and_call_apply_gateway_policy() {
     assert_eq!(call_body["error"]["kind"], "policy-denied");
     assert_eq!(call_body["error"]["policy"]["reason"], "skill-allowlist");
 }
+
+#[tokio::test]
+async fn gateway_rest_v1_call_rejects_missing_tool_slug_and_calls() {
+    let gs = test_gateway_state("1.2.3");
+    let (status, body) = response_json(
+        handle_v1_call(State(gs), HeaderMap::new(), Json(json!({"arguments": {}}))).await,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"]["kind"], "bad-request");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("tool_slug or calls")),
+        "expected message mentioning tool_slug or calls, got {:?}",
+        body["error"]["message"]
+    );
+}
+
+#[tokio::test]
+async fn gateway_rest_v1_call_batch_via_calls_dispatches_batch_response() {
+    let gs = test_gateway_state("1.2.3");
+    // Seeded capability — backend won't be reachable but batch dispatch
+    // is validated through the response envelope shape.
+    seed_unloaded_render_capability(&gs);
+    let slug = "maya.00000000-0000-0000-0000-000000000000.render";
+
+    let (status, body) = response_json(
+        handle_v1_call(
+            State(gs),
+            trace_headers(),
+            Json(json!({
+                "calls": [
+                    {"id": "step-1", "tool_slug": slug, "arguments": {"radius": 3.0}},
+                    {"id": "step-2", "tool_slug": "missing.slug", "arguments": {}}
+                ],
+                "stop_on_error": false
+            })),
+        )
+        .await,
+    )
+    .await;
+    // Batch dispatch succeeds at the gateway level — individual items may
+    // fail because no backend is live, but the response envelope is the
+    // batch shape.
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.get("success").is_some(),
+        "batch response should have 'success'"
+    );
+    assert!(
+        body.get("results").is_some(),
+        "batch response should have 'results'"
+    );
+    assert!(
+        body["results"].as_array().is_some_and(|r| r.len() == 2),
+        "expected 2 results, got {:?}",
+        body["results"]
+    );
+    // stop_on_error echoed back
+    assert_eq!(body["stop_on_error"], false);
+    // First result item carries the client id
+    assert_eq!(body["results"][0]["id"], "step-1");
+    assert_eq!(body["results"][1]["id"], "step-2");
+    // Items report index
+    assert_eq!(body["results"][0]["index"], 0);
+    assert_eq!(body["results"][1]["index"], 1);
+}
+
+#[tokio::test]
+async fn gateway_rest_v1_call_single_tool_slug_still_works() {
+    let gs = test_gateway_state("1.2.3");
+    // Without a live backend single-call returns SERVICE_UNAVAILABLE,
+    // but the dispatch path must still be exercised (backward compat).
+    seed_unloaded_render_capability(&gs);
+    let slug = "maya.00000000-0000-0000-0000-000000000000.render";
+
+    let (status, body) = response_json(
+        handle_v1_call(
+            State(gs),
+            HeaderMap::new(),
+            Json(json!({"tool_slug": slug, "arguments": {"radius": 3.0}})),
+        )
+        .await,
+    )
+    .await;
+    // Backend unreachable → 503 SERVICE_UNAVAILABLE (not 400).
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    // Error envelope is the single-call shape, not the batch envelope.
+    assert!(
+        body.get("error").is_some(),
+        "single-call error should have 'error', got {:?}",
+        body
+    );
+    assert!(
+        body.get("success").is_none(),
+        "single-call error should NOT have batch 'success' field"
+    );
+}
+
+/// Spawn a fake backend that responds to /v1/describe and /v1/call.
+async fn spawn_echo_backend() -> (u16, tokio::sync::oneshot::Sender<()>) {
+    let app = axum::Router::new()
+        .route(
+            "/health",
+            axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
+        )
+        .route(
+            "/v1/describe",
+            axum::routing::post(move |axum::Json(body): axum::Json<Value>| async move {
+                let slug = body.get("tool_slug").and_then(Value::as_str).unwrap_or("");
+                axum::Json(json!({
+                    "entry": {
+                        "slug": slug,
+                        "skill": "test-skill",
+                        "action": "echo",
+                        "dcc": "maya",
+                        "loaded": true
+                    },
+                    "description": "Echo test tool",
+                    "input_schema": {"type": "object", "properties": {}},
+                    "annotations": {
+                        "readOnlyHint": false,
+                        "destructiveHint": false,
+                        "openWorldHint": true
+                    }
+                }))
+            }),
+        )
+        .route(
+            "/v1/call",
+            axum::routing::post(move |axum::Json(body): axum::Json<Value>| async move {
+                let slug = body.get("tool_slug").and_then(Value::as_str).unwrap_or("");
+                axum::Json(json!({
+                    "content": [{
+                        "type": "text",
+                        "text": format!("called {slug} successfully")
+                    }],
+                    "isError": false
+                }))
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async {
+                let _ = rx.await;
+            })
+            .await
+            .ok();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    (port, tx)
+}
+
+#[tokio::test]
+async fn gateway_rest_v1_call_batch_mixed_success_failure_continues_on_error() {
+    let (backend_port, _stop_backend) = spawn_echo_backend().await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+        dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
+    ));
+    let instance_id = uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
+    {
+        let r = registry.read().await;
+        let mut entry = dcc_mcp_transport::discovery::types::ServiceEntry::new(
+            "maya",
+            "127.0.0.1",
+            backend_port,
+        );
+        entry.instance_id = instance_id;
+        r.register(entry).unwrap();
+    }
+
+    let mut gs = test_gateway_state("1.2.3");
+    // Replace the registry with one that points to our fake backend.
+    gs.registry = registry;
+    // Insert a loaded capability record so describe + call can route.
+    let good_slug = format!("maya.{instance_id}.echo");
+    let good_record = crate::gateway::capability::CapabilityRecord::new(
+        good_slug.clone(),
+        "echo".to_string(),
+        "echo".to_string(),
+        Some("test-skill".to_string()),
+        "Echo test tool",
+        vec![],
+        "maya".to_string(),
+        instance_id,
+        true, // has_schema
+        true, // loaded
+    );
+    gs.capability_index.upsert_instance(
+        instance_id,
+        vec![good_record],
+        crate::gateway::capability::InstanceFingerprint(1),
+    );
+
+    let app = crate::gateway::router::build_gateway_router(gs);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let gateway_port = listener.local_addr().unwrap().port();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let client = reqwest::Client::new();
+    let url = format!("http://127.0.0.1:{gateway_port}/v1/call");
+    // Non-routable slug: no backend for "blender" DCC type → instance-offline error.
+    let bad_slug = "blender.00000000-0000-0000-0000-000000000002.nonexistent";
+
+    let resp = client
+        .post(&url)
+        .header("Accept", "application/json")
+        .json(&json!({
+            "calls": [
+                {"id": "good-one", "tool_slug": good_slug, "arguments": {}},
+                {"id": "bad-one", "tool_slug": bad_slug, "arguments": {}},
+                {"id": "good-two", "tool_slug": good_slug, "arguments": {}}
+            ],
+            "stop_on_error": false
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await.unwrap();
+
+    // Batch envelope
+    assert_eq!(
+        body["success"], false,
+        "overall success false because one item failed"
+    );
+    assert_eq!(body["stop_on_error"], false);
+    let results = body["results"].as_array().unwrap();
+    assert_eq!(
+        results.len(),
+        3,
+        "all 3 items should be present (stop_on_error=false)"
+    );
+
+    // Item 0: success (routed to fake backend)
+    assert_eq!(results[0]["index"], 0);
+    assert_eq!(results[0]["id"], "good-one");
+    assert_eq!(results[0]["ok"], true);
+    assert!(results[0].get("result").is_some());
+
+    // Item 1: failure (no backend for blender DCC type)
+    assert_eq!(results[1]["index"], 1);
+    assert_eq!(results[1]["id"], "bad-one");
+    assert_eq!(results[1]["ok"], false);
+    assert!(results[1].get("error").is_some());
+
+    // Item 2: success (continued after item 1 failure — stop_on_error=false)
+    assert_eq!(results[2]["index"], 2);
+    assert_eq!(results[2]["id"], "good-two");
+    assert_eq!(results[2]["ok"], true);
+    assert!(results[2].get("result").is_some());
+
+    // Cleanup
+    let _ = shutdown_tx.send(());
+    let _ = server.await;
+}
