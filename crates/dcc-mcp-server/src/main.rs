@@ -289,6 +289,17 @@ pub(crate) fn spawn_pid_cleanup_watcher(path: &std::path::Path, pid: u32) {
     }
 }
 
+fn resolve_registry_dir(configured: Option<&PathBuf>) -> PathBuf {
+    configured
+        .cloned()
+        .or_else(|| {
+            std::env::var("DCC_MCP_REGISTRY_DIR")
+                .ok()
+                .map(PathBuf::from)
+        })
+        .unwrap_or_else(|| std::env::temp_dir().join("dcc-mcp-registry"))
+}
+
 fn run_pid_cleanup_watcher(path: PathBuf, pid: u32) {
     loop {
         if !is_process_alive(pid) {
@@ -550,6 +561,43 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
 
     let registry_dir_path: Option<PathBuf> = args.registry_dir.as_deref().map(PathBuf::from);
 
+    #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
+    if args.gateway_port > 0 && !args.no_ensure_gateway && !args.legacy_gateway_election {
+        let gateway_host = args
+            .gateway_host
+            .clone()
+            .unwrap_or_else(|| args.host.clone());
+        gateway_daemon::ensure_gateway_running(&gateway_daemon::EnsureGatewayOptions {
+            host: gateway_host,
+            port: args.gateway_port,
+            name: args
+                .gateway_name
+                .clone()
+                .or_else(|| Some(format!("gateway-for-{}", args.server_name))),
+            registry_dir: resolve_registry_dir(registry_dir_path.as_ref()),
+            remote_host: args.gateway_remote_host.clone(),
+            remote_port: args.gateway_remote_port,
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("ensuring standalone gateway is running: {e}"))?;
+        tracing::info!(
+            port = args.gateway_port,
+            "standalone gateway ensured; this server will register as a backend"
+        );
+    }
+
+    #[cfg(feature = "gateway-auto")]
+    let embedded_gateway_election = {
+        #[cfg(feature = "gateway-daemon")]
+        {
+            args.legacy_gateway_election
+        }
+        #[cfg(not(feature = "gateway-daemon"))]
+        {
+            true
+        }
+    };
+
     // `skill_paths_snapshot` is fed straight into the gateway admin UI's
     // `AdminPersistConfig`. Slim builds without `gateway-auto` drop the
     // entire admin pipeline, so we skip building the snapshot too.
@@ -780,7 +828,11 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
 
         let gateway_cfg = GatewayConfig {
             host: gateway_host,
-            gateway_port: args.gateway_port,
+            gateway_port: if embedded_gateway_election {
+                args.gateway_port
+            } else {
+                0
+            },
             remote_host: Some(args.gateway_remote_host.clone()),
             remote_gateway_port: args.gateway_remote_port,
             stale_timeout_secs: args.stale_timeout_secs,
@@ -918,5 +970,12 @@ mod tests {
         };
 
         assert!(should_enable_file_logging(&opts, true));
+    }
+
+    #[test]
+    fn resolve_registry_dir_prefers_explicit_path() {
+        let explicit = PathBuf::from(r"C:\dcc-mcp\registry");
+
+        assert_eq!(resolve_registry_dir(Some(&explicit)), explicit);
     }
 }
