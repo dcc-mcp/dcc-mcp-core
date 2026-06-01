@@ -162,7 +162,7 @@ getattr(_mod, "__mcp_result__", {"success": True, "message": ""})
 /// 1. `tool_decl.source_file` — explicit path set in ToolDeclaration
 /// 2. A script whose stem matches the tool name in the skill's scripts list
 /// 3. The only script in the skill (if exactly one exists)
-pub(crate) fn resolve_tool_script(
+pub fn resolve_tool_script(
     tool_decl: &ToolDeclaration,
     scripts: &[String],
     skill_path: &std::path::Path,
