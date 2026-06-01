@@ -3,6 +3,7 @@ import { LanguageSelector } from './components/LanguageSelector';
 import { ThemeSelector } from './components/ThemeSelector';
 import { LogsPanel } from './components/LogsPanel';
 import { SkillsPanel } from './features/skills';
+import dccMcpLogo from '../../docs/assets/brand/dcc-mcp-logo.png';
 import { createTranslator, detectBrowserLocale, type SupportedLocale } from './i18n';
 import { readLocaleOverride, storeLocaleOverride } from './locale';
 import { applyTheme, readThemeMode, resolveTheme, storeThemeMode, type ThemeMode } from './theme';
@@ -1283,7 +1284,7 @@ function App() {
     <div className="app-shell">
       <nav className="side-rail" aria-label={t('common.aria.adminNavigation')}>
         <div className="brand-lockup">
-          <div className="brand-accent" aria-hidden="true" />
+          <img className="brand-logo" src={dccMcpLogo} alt="DCC MCP" />
           <div className="brand-text">
             <h1>{t('chrome.app.title')}</h1>
             <p className="brand-tag">{t('chrome.app.subtitle')}</p>
