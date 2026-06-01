@@ -27,7 +27,7 @@
 | 文档 | 用途 |
 |------|------|
 | [agents-reference.md](agents-reference.md) | **关键** — 陷阱、注意事项、代码风格、完整示例 |
-| [skills.md](skills.md) | 技能系统：扫描、加载、生命周期 |
+| [skills.md](skills.md) | 技能系统：扫描、加载、生命周期、持久化、语义搜索、Agent 记忆 |
 | [thin-harness.md](thin-harness.md) | 薄封装层：`execute_python` + recipes 模式 |
 | [mcp-skills-integration.md](mcp-skills-integration.md) | 技能与 MCP HTTP 服务器的集成方式 |
 | [skill-scopes-policies.md](skill-scopes-policies.md) | SkillScope（信任级别）与 SkillPolicy |
