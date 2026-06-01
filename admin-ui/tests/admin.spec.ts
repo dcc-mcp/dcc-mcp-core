@@ -1154,6 +1154,7 @@ test.describe('Admin Page', () => {
     await page.goto('/admin/');
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
     await expect(page.locator('html')).toHaveAttribute('data-admin-locale', 'en');
+    await expect(page.getByRole('img', { name: 'DCC MCP' })).toBeVisible();
     await expect(page.locator('.brand-tag')).toContainText('DCC-MCP Gateway');
     await expect(page.locator('h1')).toContainText('Admin Dashboard');
     await expect(page.getByRole('navigation').getByRole('link', { name: 'Connect IDE' })).toHaveClass(/active/);
