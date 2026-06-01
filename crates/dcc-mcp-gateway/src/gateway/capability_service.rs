@@ -238,7 +238,10 @@ pub fn search_hit_to_value_with_context(
         if let Some(group_name) = hit.record.disabled_by_group() {
             // Tool is loaded but its progressive group is inactive.
             value["disabled_by_group"] = json!(group_name);
-            // Provide an activate_tool_group next_step.
+            // Provide an activate_tool_group next_step (MCP only —
+            // activate_tool_group is a gateway meta-tool, not a
+            // capability-indexed action, so there is no REST /v1/call
+            // route for it).
             if let Some(skill_name) = &hit.record.skill_name {
                 let mut arguments = json!({
                     "skill_name": skill_name,
@@ -258,17 +261,6 @@ pub fn search_hit_to_value_with_context(
                             "group": group_name,
                         },
                         "_meta": search_meta(context),
-                    },
-                    "rest": {
-                        "method": "POST",
-                        "path": "/v1/call",
-                        "body": {
-                            "tool": "activate_tool_group",
-                            "arguments": {
-                                "skill_name": skill_name,
-                                "group": group_name,
-                            },
-                        },
                     },
                 });
             }
@@ -1135,5 +1127,134 @@ mod unit_tests {
         }));
 
         assert_eq!(q.instance_id, Some(iid));
+    }
+
+    // ── progressive group-aware search hit tests ──────────────────────
+
+    fn make_group_record(
+        tool_slug: &str,
+        skill_name: Option<&str>,
+        loaded: bool,
+        tool_group: Option<&str>,
+        available_groups: Vec<crate::gateway::capability::CapabilityGroupInfo>,
+    ) -> CapabilityRecord {
+        let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        CapabilityRecord::new(
+            tool_slug.to_string(),
+            tool_slug
+                .split('.')
+                .next_back()
+                .unwrap_or(tool_slug)
+                .to_string(),
+            tool_slug
+                .split('.')
+                .next_back()
+                .unwrap_or(tool_slug)
+                .to_string(),
+            skill_name.map(str::to_string),
+            "Test capability",
+            Vec::new(),
+            tool_slug.split('.').next().unwrap_or("maya").to_string(),
+            iid,
+            false,
+            loaded,
+            tool_group.map(str::to_string),
+        )
+        .with_available_groups(available_groups)
+    }
+
+    #[test]
+    fn progressive_group_inactive_generates_activate_next_step() {
+        let rec = make_group_record(
+            "maya.abcdef01.create_sphere",
+            Some("maya-modeling"),
+            true,
+            Some("modeling"),
+            vec![crate::gateway::capability::CapabilityGroupInfo {
+                name: "modeling".to_string(),
+                description: "Modeling tools".to_string(),
+                tools: vec!["create_sphere".to_string()],
+                default_active: false,
+                active: Some(false),
+            }],
+        );
+        let hit = SearchHit {
+            record: rec,
+            rank: 1,
+            score: 10,
+            match_reasons: vec![],
+        };
+        let row = search_hit_to_value(hit);
+
+        assert_eq!(row["callable"], false);
+        assert_eq!(row["load_state"], "loaded");
+        assert_eq!(row["disabled_by_group"], "modeling");
+        assert_eq!(row["next_step"]["action"], "activate_tool_group");
+        assert_eq!(row["next_step"]["arguments"]["skill_name"], "maya-modeling");
+        assert_eq!(row["next_step"]["arguments"]["tool_group"], "modeling");
+        assert_eq!(row["next_step"]["mcp"]["tool"], "activate_tool_group");
+        assert_eq!(row["next_step"]["mcp"]["arguments"]["group"], "modeling");
+        // REST block must NOT be present for activate_tool_group
+        // (gateway meta-tool, not a capability-indexed action).
+        assert!(row["next_step"].get("rest").is_none());
+    }
+
+    #[test]
+    fn progressive_group_active_generates_describe_next_step() {
+        let rec = make_group_record(
+            "maya.abcdef01.create_sphere",
+            Some("maya-modeling"),
+            true,
+            Some("modeling"),
+            vec![crate::gateway::capability::CapabilityGroupInfo {
+                name: "modeling".to_string(),
+                description: "Modeling tools".to_string(),
+                tools: vec!["create_sphere".to_string()],
+                default_active: true,
+                active: Some(true),
+            }],
+        );
+        let hit = SearchHit {
+            record: rec,
+            rank: 1,
+            score: 10,
+            match_reasons: vec![],
+        };
+        let row = search_hit_to_value(hit);
+
+        assert_eq!(row["callable"], true);
+        assert_eq!(row["load_state"], "loaded");
+        assert!(row.get("disabled_by_group").is_none());
+        assert_eq!(row["next_step"]["action"], "describe");
+        assert_eq!(
+            row["next_step"]["arguments"]["tool_slug"],
+            "maya.abcdef01.create_sphere"
+        );
+        // Standard describe next_step must include both MCP and REST.
+        assert_eq!(row["next_step"]["rest"]["path"], "/v1/describe");
+        assert_eq!(row["next_step"]["mcp"]["tool"], "describe");
+    }
+
+    #[test]
+    fn loaded_no_group_is_callable_with_describe_next_step() {
+        let rec = make_group_record(
+            "maya.abcdef01.open_scene",
+            Some("maya-scene"),
+            true,
+            None, // no group
+            vec![],
+        );
+        let hit = SearchHit {
+            record: rec,
+            rank: 1,
+            score: 10,
+            match_reasons: vec![],
+        };
+        let row = search_hit_to_value(hit);
+
+        assert_eq!(row["callable"], true);
+        assert_eq!(row["load_state"], "loaded");
+        assert!(row.get("disabled_by_group").is_none());
+        assert_eq!(row["next_step"]["action"], "describe");
     }
 }
