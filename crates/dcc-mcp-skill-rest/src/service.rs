@@ -632,7 +632,28 @@ impl SkillCatalogSource for CatalogSource {
                     tool_decl.description.clone()
                 };
                 let input_schema = if tool_decl.input_schema.is_null() {
-                    serde_json::json!({"type": "object"})
+                    // Try to generate schema from Python script signature so
+                    // describe returns real inputSchema before load_skill
+                    // (same logic as load_skill_metadata in catalog_loading.rs).
+                    let skill_path = std::path::Path::new(&detail.skill_path);
+                    let script_path = dcc_mcp_skills::catalog::resolve_tool_script(
+                        tool_decl,
+                        &detail.scripts,
+                        skill_path,
+                    );
+                    if let Some(ref sp) = script_path {
+                        dcc_mcp_skills::catalog::schema_gen::generate_input_schema(sp, None)
+                            .unwrap_or_else(|| {
+                                tracing::warn!(
+                                    "Schema generation failed for '{}.{}', using fallback",
+                                    detail.name,
+                                    tool_decl.name
+                                );
+                                serde_json::json!({"type": "object"})
+                            })
+                    } else {
+                        serde_json::json!({"type": "object"})
+                    }
                 } else {
                     tool_decl.input_schema.clone()
                 };
