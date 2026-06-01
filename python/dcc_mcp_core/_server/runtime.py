@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from dcc_mcp_core._server.gateway_guardian import ensure_gateway_daemon
 from dcc_mcp_core.gateway_election import DccGatewayElection
 
 logger = logging.getLogger(__name__)
@@ -16,10 +17,40 @@ class ServerRuntimeController:
     def __init__(self, owner: Any) -> None:
         self._owner = owner
 
+    def ensure_gateway_daemon_if_needed(self) -> bool:
+        owner = self._owner
+        gateway_port = int(getattr(owner._config, "gateway_port", 0) or 0)
+        if gateway_port <= 0:
+            owner._gateway_runtime_mode = "not_configured"
+            return False
+        if not bool(getattr(owner, "_enable_gateway_failover", False)):
+            owner._gateway_runtime_mode = "failover_disabled_by_adapter"
+            return False
+
+        result = ensure_gateway_daemon(
+            gateway_host="127.0.0.1",
+            gateway_port=gateway_port,
+            registry_dir=getattr(owner._config, "registry_dir", None),
+            dcc_type=str(getattr(owner, "_dcc_name", "dcc")),
+        )
+        owner._gateway_daemon_status = dict(result)
+        if result.get("ok"):
+            owner._gateway_runtime_mode = "daemon-backed"
+            return True
+        owner._gateway_runtime_mode = "embedded-fallback"
+        logger.warning(
+            "[%s] Gateway daemon ensure failed (%s), falling back to embedded election",
+            owner._dcc_name,
+            result.get("reason", "unknown"),
+        )
+        return False
+
     def start_gateway_election_if_needed(self) -> None:
         owner = self._owner
         gateway_port = getattr(owner._config, "gateway_port", 0)
         if not (owner._enable_gateway_failover and gateway_port and gateway_port > 0):
+            return
+        if getattr(owner, "_gateway_runtime_mode", "") == "daemon-backed":
             return
         if owner._gateway_election is not None:
             return
