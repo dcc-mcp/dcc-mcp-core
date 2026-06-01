@@ -30,8 +30,8 @@ use dcc_mcp_jsonrpc::McpTool;
 
 use super::index::InstanceFingerprint;
 use super::record::{
-    CapabilityAnnotations, CapabilityMetadata, CapabilityRecord, SCHEMA_AVAILABLE,
-    is_valid_dcc_bucket, tool_slug,
+    CapabilityAnnotations, CapabilityGroupInfo, CapabilityMetadata, CapabilityRecord,
+    SCHEMA_AVAILABLE, is_valid_dcc_bucket, tool_slug,
 };
 
 pub use dcc_mcp_gateway_core::capability::builder::BuildOutcome;
@@ -102,6 +102,8 @@ pub fn build_records_from_backend(input: BuildInput<'_>) -> BuildOutcome {
         };
 
         let slug = tool_slug(input.dcc_type, &input.instance_id, &callable_id);
+        let tool_group = extract_tool_group_from_meta(tool.meta.as_ref());
+        let available_groups = extract_available_groups_from_meta(tool.meta.as_ref());
         records.push(
             CapabilityRecord::new(
                 slug,
@@ -114,11 +116,13 @@ pub fn build_records_from_backend(input: BuildInput<'_>) -> BuildOutcome {
                 input.instance_id,
                 has_schema,
                 true, // loaded: from live backend
+                tool_group,
             )
             .with_surface_metadata(
                 extract_annotations(&tool.annotations),
                 extract_metadata(tool.meta.as_ref()),
             )
+            .with_available_groups(available_groups)
             .with_search_tokens(search_tokens),
         );
     }
@@ -441,6 +445,33 @@ fn skill_name_from_meta(meta: Option<&serde_json::Map<String, Value>>) -> Option
         .and_then(Value::as_str)
         .filter(|name| !name.is_empty())
         .map(str::to_string)
+}
+
+/// Extract the progressive tool group name this tool belongs to, if any.
+fn extract_tool_group_from_meta(meta: Option<&serde_json::Map<String, Value>>) -> Option<String> {
+    meta.and_then(|map| map.get("dcc"))
+        .and_then(Value::as_object)
+        .and_then(|dcc| {
+            dcc.get("group")
+                .or_else(|| dcc.get("tool_group"))
+                .or_else(|| dcc.get("toolGroup"))
+        })
+        .and_then(Value::as_str)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+}
+
+/// Extract `available_groups` list from the tool's meta, if present.
+fn extract_available_groups_from_meta(
+    meta: Option<&serde_json::Map<String, Value>>,
+) -> Vec<CapabilityGroupInfo> {
+    let Some(groups_value) = meta
+        .and_then(|map| map.get("dcc").and_then(Value::as_object))
+        .and_then(|dcc| dcc.get("available_groups").or_else(|| dcc.get("groups")))
+    else {
+        return Vec::new();
+    };
+    serde_json::from_value(groups_value.clone()).unwrap_or_default()
 }
 
 // Tiny re-import helper removed: `idempotent` tags now consistently

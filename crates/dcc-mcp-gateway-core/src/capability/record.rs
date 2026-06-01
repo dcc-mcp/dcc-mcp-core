@@ -284,6 +284,11 @@ pub struct CapabilityRecord {
     /// Progressive tool groups declared by the owning skill, when known.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub available_groups: Vec<CapabilityGroupInfo>,
+    /// The progressive tool group this tool belongs to, if any.
+    /// `None` means the tool is not part of a progressive group and
+    /// is always callable when `loaded=true`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_group: Option<String>,
 }
 
 impl CapabilityRecord {
@@ -310,6 +315,7 @@ impl CapabilityRecord {
         instance_id: Uuid,
         has_schema: bool,
         loaded: bool,
+        tool_group: Option<String>,
     ) -> Self {
         Self {
             tool_slug,
@@ -326,6 +332,7 @@ impl CapabilityRecord {
             annotations: None,
             metadata: None,
             available_groups: Vec::new(),
+            tool_group,
         }
     }
 
@@ -378,6 +385,7 @@ impl CapabilityRecord {
         tool_name: &str,
         tool_description: &str,
         dcc_type: &str,
+        tool_group: Option<String>,
     ) -> Self {
         let nil = Uuid::nil();
         let slug = tool_slug(dcc_type, &nil, tool_name);
@@ -396,7 +404,42 @@ impl CapabilityRecord {
             annotations: None,
             metadata: None,
             available_groups: Vec::new(),
+            tool_group,
         }
+    }
+
+    /// Return `true` when the tool is currently callable.
+    ///
+    /// A tool is callable when:
+    /// - `loaded` is `true` (the owning skill is connected), AND
+    /// - the tool either has no group, or its group is active.
+    #[must_use]
+    pub fn is_callable(&self) -> bool {
+        if !self.loaded {
+            return false;
+        }
+        let Some(ref group_name) = self.tool_group else {
+            // No group → always callable when loaded.
+            return true;
+        };
+        // Check whether this tool's group is active.
+        self.available_groups
+            .iter()
+            .any(|g| g.name == *group_name && g.active == Some(true))
+    }
+
+    /// Return the group name that is blocking callability, if any.
+    #[must_use]
+    pub fn disabled_by_group(&self) -> Option<&str> {
+        if !self.loaded {
+            return None; // unloaded has its own next_step
+        }
+        self.tool_group.as_deref().filter(|group_name| {
+            !self
+                .available_groups
+                .iter()
+                .any(|g| g.name == *group_name && g.active == Some(true))
+        })
     }
 }
 
@@ -580,6 +623,7 @@ mod unit_tests {
             Uuid::nil(),
             false,
             false,
+            None,
         );
         assert!(rec.summary.len() <= CapabilityRecord::MAX_SUMMARY_LEN + 3);
         assert!(rec.summary.ends_with("..."));
@@ -601,6 +645,7 @@ mod unit_tests {
             Uuid::nil(),
             false,
             false,
+            None,
         );
         assert_eq!(rec.summary, "short and sweet");
     }
@@ -625,6 +670,7 @@ mod unit_tests {
             "set_keyframe",
             "Set a keyframe at the current time.",
             "maya",
+            None,
         );
         assert_eq!(rec.instance_id, Uuid::nil());
         assert_eq!(rec.tool_slug, "maya.00000000.set_keyframe");
@@ -646,6 +692,7 @@ mod unit_tests {
             Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap(),
             true,
             true,
+            None,
         );
         let s = serde_json::to_string(&rec).unwrap();
         let back: CapabilityRecord = serde_json::from_str(&s).unwrap();
@@ -664,6 +711,7 @@ mod unit_tests {
             Uuid::nil(),
             false,
             false,
+            None,
         );
         let s = serde_json::to_string(&bare).unwrap();
         assert!(!s.contains("\"tags\""), "bare record JSON: {s}");

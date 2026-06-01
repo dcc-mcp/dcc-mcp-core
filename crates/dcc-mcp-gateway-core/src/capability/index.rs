@@ -90,6 +90,7 @@ mod tests {
             Uuid::nil(),
             false,
             false,
+            None,
         )
     }
 

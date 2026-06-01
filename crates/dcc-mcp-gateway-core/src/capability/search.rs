@@ -58,6 +58,7 @@ mod tests {
             iid,
             has_schema,
             loaded,
+            None,
         )
     }
 
@@ -140,6 +141,7 @@ mod tests {
                 Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap(),
                 false,
                 true,
+                None,
             ),
             rank: 1,
             score: 42,
