@@ -937,23 +937,69 @@ pub async fn handle_v1_dcc_instance_describe(
     .await
 }
 
-/// `POST /v1/call` — invoke a backend action by slug.
+/// `POST /v1/call` — invoke a backend action by slug, or an ordered batch
+/// via `calls[]`.
 ///
-/// Request body: `{"tool_slug": "...", "arguments": {...},
-///                 "meta": {...}}` (meta optional).
+/// **Single call** (backward compatible):
+/// `{"tool_slug": "...", "arguments": {...}, "meta": {...}}` (meta optional).
+///
+/// **Batch call** (same semantics as `POST /v1/call_batch`):
+/// `{"calls": [{ "tool_slug", "arguments"?, "meta"?, "id"? }, ...],
+///   "stop_on_error"?: bool, "meta"?: {...}}`.
+/// When `calls` is present `tool_slug` at the top level is ignored.
 pub async fn handle_v1_call(
     State(gs): State<GatewayState>,
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
     let trace_context = TraceContext::from_headers(&headers);
+
+    // Batch path: when `calls` array is present, delegate to batch infrastructure.
+    if body.get("calls").and_then(Value::as_array).is_some() {
+        return match call_batch_with_admin_trace(&gs, &headers, &body, trace_context.clone()).await
+        {
+            Ok(value) => {
+                let compact = compact_call_batch_payload(&value);
+                let metadata = RestResponseMetadata::from_trace_context(&trace_context)
+                    .with_index_generation(index_generation(&gs.capability_index));
+                negotiated_response_with_metadata(
+                    &headers,
+                    &body,
+                    StatusCode::OK,
+                    value,
+                    Some(compact),
+                    &metadata,
+                    true,
+                )
+            }
+            Err(err) => {
+                let mut legacy = service_error_to_json(&err);
+                if let Some(obj) = legacy.as_object_mut() {
+                    obj.insert("success".to_string(), json!(false));
+                }
+                let metadata = RestResponseMetadata::from_trace_context(&trace_context)
+                    .with_index_generation(index_generation(&gs.capability_index));
+                negotiated_response_with_metadata(
+                    &headers,
+                    &body,
+                    service_error_status(&err),
+                    legacy,
+                    None,
+                    &metadata,
+                    true,
+                )
+            }
+        };
+    }
+
+    // Single-call path (backward compatible).
     let Some(slug) = body.get("tool_slug").and_then(Value::as_str) else {
         let metadata = RestResponseMetadata::from_trace_context(&trace_context)
             .with_index_generation(index_generation(&gs.capability_index));
         return service_error_response_with_metadata(
             &headers,
             &body,
-            &ServiceError::new("bad-request", "missing required field: tool_slug"),
+            &ServiceError::new("bad-request", "missing required field: tool_slug or calls"),
             &metadata,
             false,
         );

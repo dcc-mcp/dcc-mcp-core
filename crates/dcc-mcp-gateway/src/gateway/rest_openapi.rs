@@ -240,7 +240,7 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
         post_operation_with_params(
             &["tools"],
             "Call a gateway capability",
-            "Invokes one gateway capability by tool_slug.",
+            "Invokes one gateway capability by tool_slug, or up to 25 capabilities in order via calls[] with optional stop_on_error semantics. When calls is present the response shape follows the batch result envelope; single-call responses are returned unwrapped.",
             vec![accept_response_format_header()],
             request_body_ref("CallRequest"),
             gateway_response_ref("CallOutcome"),
@@ -676,6 +676,32 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
                     "response_format": {"type": "string", "enum": ["toon", "json"]},
                     "compact": {"type": "boolean"}
                 },
+                "additionalProperties": false,
+            }),
+        ),
+        (
+            "CallRequest",
+            json!({
+                "type": "object",
+                "description": "Invoke one gateway capability by tool_slug, or run an ordered batch via calls (maximum 25).",
+                "properties": {
+                    "tool_slug": {"type": "string"},
+                    "arguments": {"type": "object", "additionalProperties": true, "default": {}},
+                    "params": {"type": "object", "additionalProperties": true},
+                    "meta": {"type": "object", "additionalProperties": true},
+                    "calls": {
+                        "type": "array",
+                        "maxItems": 25,
+                        "items": {"$ref": "#/components/schemas/GatewayBatchCallItem"}
+                    },
+                    "stop_on_error": {"type": "boolean", "default": false},
+                    "response_format": {"type": "string", "enum": ["toon", "json"]},
+                    "compact": {"type": "boolean"}
+                },
+                "anyOf": [
+                    {"required": ["tool_slug"]},
+                    {"required": ["calls"]}
+                ],
                 "additionalProperties": false,
             }),
         ),
