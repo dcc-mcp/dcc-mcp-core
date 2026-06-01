@@ -79,6 +79,20 @@ const PPID_POLL_INTERVAL: Duration = Duration::from_millis(250);
 /// Keep the per-DCC sidecar registry row fresh while the parent DCC is alive.
 const SIDECAR_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 
+#[cfg(feature = "gateway-daemon")]
+const GATEWAY_DAEMON_GUARDIAN_INTERVAL: Duration = Duration::from_secs(5);
+#[cfg(feature = "gateway-daemon")]
+const GATEWAY_DAEMON_GUARDIAN_TIMEOUT: Duration = Duration::from_millis(500);
+#[cfg(feature = "gateway-daemon")]
+const GATEWAY_DAEMON_GUARDIAN_FAILURES: u32 = 2;
+
+#[cfg(feature = "gateway-daemon")]
+const ENV_GATEWAY_DAEMON_GUARDIAN_INTERVAL: &str = "DCC_MCP_GATEWAY_GUARDIAN_INTERVAL";
+#[cfg(feature = "gateway-daemon")]
+const ENV_GATEWAY_DAEMON_GUARDIAN_TIMEOUT: &str = "DCC_MCP_GATEWAY_GUARDIAN_TIMEOUT";
+#[cfg(feature = "gateway-daemon")]
+const ENV_GATEWAY_DAEMON_GUARDIAN_FAILURES: &str = "DCC_MCP_GATEWAY_GUARDIAN_FAILURES";
+
 /// Reason the sidecar exited; used by the integration test and structured
 /// logging.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,6 +101,42 @@ pub enum ExitReason {
     ParentDied,
     /// SIGINT / SIGTERM / `ctrl-c`.
     Signal,
+}
+
+#[cfg(feature = "gateway-daemon")]
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct GatewayDaemonGuardianSettings {
+    interval: Duration,
+    probe_timeout: Duration,
+    failure_threshold: u32,
+}
+
+#[cfg(feature = "gateway-daemon")]
+impl GatewayDaemonGuardianSettings {
+    fn from_env() -> Self {
+        Self {
+            interval: duration_secs_env(
+                ENV_GATEWAY_DAEMON_GUARDIAN_INTERVAL,
+                GATEWAY_DAEMON_GUARDIAN_INTERVAL,
+            ),
+            probe_timeout: duration_secs_env(
+                ENV_GATEWAY_DAEMON_GUARDIAN_TIMEOUT,
+                GATEWAY_DAEMON_GUARDIAN_TIMEOUT,
+            ),
+            failure_threshold: u32_env(
+                ENV_GATEWAY_DAEMON_GUARDIAN_FAILURES,
+                GATEWAY_DAEMON_GUARDIAN_FAILURES,
+            )
+            .max(1),
+        }
+    }
+}
+
+#[cfg(feature = "gateway-daemon")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GatewayDaemonGuardianAction {
+    None,
+    Reensure,
 }
 
 /// CLI surface for the `sidecar` subcommand.
@@ -208,28 +258,39 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
             .with_context(|| format!("opening FileRegistry at {}", registry_dir.display()))?,
     );
 
-    if args.gateway_port > 0 && !args.no_ensure_gateway {
-        let gateway_host = args
-            .gateway_host
-            .clone()
-            .unwrap_or_else(|| args.host.clone());
-        crate::gateway_daemon::ensure_gateway_running(
-            &crate::gateway_daemon::EnsureGatewayOptions {
-                host: gateway_host,
-                port: args.gateway_port,
-                name: args.gateway_name.clone().or_else(|| {
-                    args.display_name
-                        .as_ref()
-                        .map(|name| format!("gateway-for-{name}"))
-                }),
-                registry_dir: registry_dir.clone(),
-                remote_host: args.gateway_remote_host.clone(),
-                remote_port: args.gateway_remote_port,
-            },
-        )
-        .await
-        .with_context(|| "ensuring standalone gateway is running")?;
-    }
+    #[cfg(feature = "gateway-daemon")]
+    let gateway_guardian_handle = {
+        let gateway_daemon_options = if args.gateway_port > 0 && !args.no_ensure_gateway {
+            Some(build_gateway_daemon_options(&args, registry_dir.clone()))
+        } else {
+            None
+        };
+
+        if let Some(opts) = gateway_daemon_options.as_ref() {
+            crate::gateway_daemon::ensure_gateway_running(opts)
+                .await
+                .with_context(|| "ensuring standalone gateway is running")?;
+        }
+
+        if should_start_gateway_daemon_guardian(&args) {
+            gateway_daemon_options.clone().map(|opts| {
+                spawn_gateway_daemon_guardian(opts, GatewayDaemonGuardianSettings::from_env())
+            })
+        } else {
+            None
+        }
+    };
+
+    #[cfg(not(feature = "gateway-daemon"))]
+    let gateway_guardian_handle: Option<tokio::task::JoinHandle<()>> = {
+        if args.gateway_port > 0 && !args.no_ensure_gateway && !args.legacy_gateway_election {
+            tracing::warn!(
+                port = args.gateway_port,
+                "sidecar cannot auto-launch a gateway daemon because the binary was built without the gateway-daemon feature"
+            );
+        }
+        None
+    };
 
     let entry = build_service_entry(&args);
     let key = entry.key();
@@ -392,6 +453,10 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
 
     tracing::info!(reason = ?reason, "sidecar shutting down");
 
+    if let Some(handle) = gateway_guardian_handle {
+        handle.abort();
+    }
+
     if let Some(ctrl) = gateway_control.take() {
         ctrl.shutdown().await;
     }
@@ -489,6 +554,116 @@ async fn client_connect(
 ) -> Result<Box<dyn dcc_mcp_host_rpc::HostRpcClient>, dcc_mcp_host_rpc::HostRpcError> {
     client.connect(endpoint, timeout).await?;
     Ok(client)
+}
+
+#[cfg(feature = "gateway-daemon")]
+fn build_gateway_daemon_options(
+    args: &SidecarArgs,
+    registry_dir: PathBuf,
+) -> crate::gateway_daemon::EnsureGatewayOptions {
+    let gateway_host = args
+        .gateway_host
+        .clone()
+        .unwrap_or_else(|| args.host.clone());
+    crate::gateway_daemon::EnsureGatewayOptions {
+        host: gateway_host,
+        port: args.gateway_port,
+        name: args.gateway_name.clone().or_else(|| {
+            args.display_name
+                .as_ref()
+                .map(|name| format!("gateway-for-{name}"))
+        }),
+        registry_dir,
+        remote_host: args.gateway_remote_host.clone(),
+        remote_port: args.gateway_remote_port,
+    }
+}
+
+#[cfg(feature = "gateway-daemon")]
+fn should_start_gateway_daemon_guardian(args: &SidecarArgs) -> bool {
+    args.gateway_port > 0 && !args.no_ensure_gateway && !args.legacy_gateway_election
+}
+
+#[cfg(feature = "gateway-daemon")]
+fn spawn_gateway_daemon_guardian(
+    opts: crate::gateway_daemon::EnsureGatewayOptions,
+    settings: GatewayDaemonGuardianSettings,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut consecutive_failures = 0u32;
+        let mut interval = tokio::time::interval(settings.interval);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+        loop {
+            interval.tick().await;
+            let healthy = crate::gateway_daemon::gateway_health_ok_with_timeout(
+                &opts.host,
+                opts.port,
+                settings.probe_timeout,
+            )
+            .await;
+            match record_gateway_daemon_guardian_probe(
+                &settings,
+                &mut consecutive_failures,
+                healthy,
+            ) {
+                GatewayDaemonGuardianAction::None => {}
+                GatewayDaemonGuardianAction::Reensure => {
+                    tracing::warn!(
+                        host = %opts.host,
+                        port = opts.port,
+                        failures = consecutive_failures,
+                        threshold = settings.failure_threshold,
+                        "gateway daemon health failed; re-ensuring standalone gateway"
+                    );
+                    match crate::gateway_daemon::ensure_gateway_running(&opts).await {
+                        Ok(()) => consecutive_failures = 0,
+                        Err(err) => tracing::warn!(
+                            error = %err,
+                            "gateway daemon guardian failed to re-ensure standalone gateway"
+                        ),
+                    }
+                }
+            }
+        }
+    })
+}
+
+#[cfg(feature = "gateway-daemon")]
+fn record_gateway_daemon_guardian_probe(
+    settings: &GatewayDaemonGuardianSettings,
+    consecutive_failures: &mut u32,
+    healthy: bool,
+) -> GatewayDaemonGuardianAction {
+    if healthy {
+        *consecutive_failures = 0;
+        return GatewayDaemonGuardianAction::None;
+    }
+
+    *consecutive_failures = consecutive_failures.saturating_add(1);
+    if *consecutive_failures >= settings.failure_threshold {
+        GatewayDaemonGuardianAction::Reensure
+    } else {
+        GatewayDaemonGuardianAction::None
+    }
+}
+
+#[cfg(feature = "gateway-daemon")]
+fn duration_secs_env(name: &str, default: Duration) -> Duration {
+    std::env::var(name)
+        .ok()
+        .and_then(|raw| raw.parse::<f64>().ok())
+        .filter(|value| value.is_finite() && *value >= 0.1)
+        .map(Duration::from_secs_f64)
+        .unwrap_or(default)
+}
+
+#[cfg(feature = "gateway-daemon")]
+fn u32_env(name: &str, default: u32) -> u32 {
+    std::env::var(name)
+        .ok()
+        .and_then(|raw| raw.parse::<u32>().ok())
+        .unwrap_or(default)
 }
 
 fn build_service_entry(args: &SidecarArgs) -> ServiceEntry {
@@ -617,6 +792,29 @@ mod tests {
 
     static REGISTRY_ENV_LOCK: Mutex<()> = Mutex::new(());
 
+    #[cfg(feature = "gateway-daemon")]
+    fn guardian_test_args() -> SidecarArgs {
+        SidecarArgs {
+            dcc: "maya".to_string(),
+            host_rpc: "stub://localhost:0".to_string(),
+            watch_pid: std::process::id(),
+            registry_dir: None,
+            instance_id: Some(Uuid::nil()),
+            display_name: Some("Maya-Test".to_string()),
+            adapter_version: Some("0.0.0-test".to_string()),
+            connect_timeout_secs: 2,
+            ppid_poll_ms: Some(50),
+            gateway_port: 9765,
+            no_ensure_gateway: false,
+            legacy_gateway_election: false,
+            host: "127.0.0.1".to_string(),
+            gateway_host: None,
+            gateway_name: None,
+            gateway_remote_host: "0.0.0.0".to_string(),
+            gateway_remote_port: 59765,
+        }
+    }
+
     #[test]
     fn default_registry_dir_matches_gateway_runner_fallback() {
         let _guard = REGISTRY_ENV_LOCK.lock().expect("registry env lock");
@@ -671,6 +869,85 @@ mod tests {
             got, custom,
             "DCC_MCP_REGISTRY_DIR must win over the fallback path"
         );
+    }
+
+    #[cfg(feature = "gateway-daemon")]
+    #[test]
+    fn gateway_daemon_guardian_runs_only_in_daemon_backed_mode() {
+        let mut args = guardian_test_args();
+        assert!(
+            should_start_gateway_daemon_guardian(&args),
+            "default sidecar mode should keep a daemon guardian alive"
+        );
+
+        args.gateway_port = 0;
+        assert!(
+            !should_start_gateway_daemon_guardian(&args),
+            "gateway_port=0 explicitly disables gateway participation"
+        );
+
+        args.gateway_port = 9765;
+        args.no_ensure_gateway = true;
+        assert!(
+            !should_start_gateway_daemon_guardian(&args),
+            "--no-ensure-gateway opts out of daemon launch and guardian"
+        );
+
+        args.no_ensure_gateway = false;
+        args.legacy_gateway_election = true;
+        assert!(
+            !should_start_gateway_daemon_guardian(&args),
+            "legacy embedded election already owns its own probe loop"
+        );
+    }
+
+    #[cfg(feature = "gateway-daemon")]
+    #[test]
+    fn gateway_daemon_options_preserve_host_name_and_registry() {
+        let mut args = guardian_test_args();
+        args.gateway_host = Some("0.0.0.0".to_string());
+        args.gateway_name = Some("studio-gateway".to_string());
+        let registry_dir = PathBuf::from("/tmp/dcc-mcp-registry-test");
+
+        let opts = build_gateway_daemon_options(&args, registry_dir.clone());
+        assert_eq!(opts.host, "0.0.0.0");
+        assert_eq!(opts.name.as_deref(), Some("studio-gateway"));
+        assert_eq!(opts.registry_dir, registry_dir);
+        assert_eq!(opts.remote_host, "0.0.0.0");
+        assert_eq!(opts.remote_port, 59765);
+
+        let mut display_name_args = guardian_test_args();
+        display_name_args.display_name = Some("Blender-Lookdev".to_string());
+        let opts = build_gateway_daemon_options(&display_name_args, PathBuf::from("registry"));
+        assert_eq!(opts.host, "127.0.0.1");
+        assert_eq!(opts.name.as_deref(), Some("gateway-for-Blender-Lookdev"));
+    }
+
+    #[cfg(feature = "gateway-daemon")]
+    #[test]
+    fn gateway_daemon_guardian_probe_threshold_resets_after_health() {
+        let settings = GatewayDaemonGuardianSettings {
+            interval: Duration::from_secs(5),
+            probe_timeout: Duration::from_millis(500),
+            failure_threshold: 2,
+        };
+        let mut failures = 0;
+
+        assert_eq!(
+            record_gateway_daemon_guardian_probe(&settings, &mut failures, false),
+            GatewayDaemonGuardianAction::None
+        );
+        assert_eq!(failures, 1);
+        assert_eq!(
+            record_gateway_daemon_guardian_probe(&settings, &mut failures, false),
+            GatewayDaemonGuardianAction::Reensure
+        );
+        assert_eq!(failures, 2);
+        assert_eq!(
+            record_gateway_daemon_guardian_probe(&settings, &mut failures, true),
+            GatewayDaemonGuardianAction::None
+        );
+        assert_eq!(failures, 0);
     }
 
     #[tokio::test]
