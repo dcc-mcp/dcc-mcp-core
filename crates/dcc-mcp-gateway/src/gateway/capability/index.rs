@@ -223,6 +223,7 @@ mod unit_tests {
             id,
             false, // has_schema
             loaded,
+            None,
         )
     }
 
@@ -363,12 +364,14 @@ mod unit_tests {
                 "create_sphere",
                 "Create a sphere in Maya",
                 "maya",
+                None,
             ),
             CapabilityRecord::from_skill_tool(
                 "maya-geometry",
                 "create_cube",
                 "Create a cube in Maya",
                 "maya",
+                None,
             ),
         ];
         idx.set_unloaded_records(unloaded);
@@ -398,6 +401,7 @@ mod unit_tests {
             "set_keyframe",
             "Set a keyframe",
             "maya",
+            None,
         )];
         idx.set_unloaded_records(unloaded);
 
@@ -420,12 +424,14 @@ mod unit_tests {
                 "create_sphere",
                 "Create a sphere",
                 "maya",
+                None,
             ),
             CapabilityRecord::from_skill_tool(
                 "blender-geometry",
                 "create_cube",
                 "Create a cube",
                 "blender",
+                None,
             ),
         ];
         idx.set_unloaded_records(unloaded);
@@ -469,6 +475,7 @@ mod unit_tests {
             "create_sphere",
             "Create a sphere",
             "maya",
+            None,
         )];
         idx.set_unloaded_records(unloaded);
 

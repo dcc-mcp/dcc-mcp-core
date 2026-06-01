@@ -118,6 +118,7 @@ fn build_unloaded_records(
                 &hint.tool_name,
                 &hint.summary,
                 dcc_type,
+                hint.tool_group.clone(),
             )
             .with_available_groups(hint.available_groups)
             .with_search_tokens(hint.search_tokens);
@@ -135,6 +136,7 @@ fn compute_fingerprint(records: &[CapabilityRecord]) -> InstanceFingerprint {
         r.has_schema.hash(&mut hasher);
         r.summary.hash(&mut hasher);
         r.loaded.hash(&mut hasher);
+        r.tool_group.hash(&mut hasher);
         for group in &r.available_groups {
             group.name.hash(&mut hasher);
             group.default_active.hash(&mut hasher);
@@ -201,6 +203,7 @@ mod unit_tests {
                 iid,
                 false, // has_schema
                 true,  // loaded
+                None,
             )],
             InstanceFingerprint(1),
         );
@@ -239,6 +242,7 @@ mod unit_tests {
                 iid,
                 false,
                 true, // loaded
+                None,
             )],
             InstanceFingerprint(42),
         );
@@ -251,6 +255,7 @@ mod unit_tests {
                 summary: "Create a primitive sphere".to_string(),
                 search_tokens: Vec::new(),
                 available_groups: Vec::new(),
+                tool_group: None,
             }],
             iid,
             "maya",
@@ -328,6 +333,7 @@ mod unit_tests {
                     summary: "Create a primitive sphere".to_string(),
                     search_tokens: Vec::new(),
                     available_groups: Vec::new(),
+                    tool_group: None,
                 }],
                 iid,
                 "maya",
