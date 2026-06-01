@@ -156,7 +156,10 @@ jobs:
         shell: bash
         run: |
           vx node --version
-          vx npm --prefix admin-ui ci --ignore-scripts
+          if ! vx npm --prefix admin-ui ci --ignore-scripts; then
+            echo "::warning::npm ci failed; falling back to prebuilt admin UI artifact"
+            echo "DCC_MCP_ADMIN_UI_PREBUILT=1" >> "$GITHUB_ENV"
+          fi
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
