@@ -380,8 +380,9 @@ def _handle_gateway_failover_status(params_json: str) -> str:
     - ``is_gateway`` (bool, optional): whether *this* instance currently owns
       the gateway port.
     - ``reason`` (str): human-readable explanation, in priority order:
-      "failover_disabled_by_adapter", "gateway_port_not_configured",
-      "election_thread_not_started", "election_active", or "active_gateway".
+      "daemon-backed", "embedded-fallback", "failover_disabled_by_adapter",
+      "gateway_port_not_configured", "election_thread_not_started",
+      "election_active", or "active_gateway".
     """
     _ = params_json
     resolver = _instance_context.get("gateway_failover_resolver")
@@ -412,8 +413,11 @@ def _handle_gateway_failover_status(params_json: str) -> str:
     running = bool(raw.get("running", False))
     gateway_port = int(raw.get("gateway_port", 0) or 0)
     is_gateway = bool(raw.get("is_gateway", False))
+    gateway_runtime_mode = str(raw.get("gateway_runtime_mode", "unknown") or "unknown")
 
-    if is_gateway:
+    if gateway_runtime_mode in {"daemon-backed", "embedded-fallback"}:
+        reason = gateway_runtime_mode
+    elif is_gateway:
         reason = "active_gateway"
     elif not enabled:
         reason = "failover_disabled_by_adapter"
@@ -433,7 +437,7 @@ def _handle_gateway_failover_status(params_json: str) -> str:
         "gateway_host": raw.get("gateway_host"),
         "gateway_port": gateway_port,
         "is_gateway": is_gateway,
-        "gateway_runtime_mode": raw.get("gateway_runtime_mode", "unknown"),
+        "gateway_runtime_mode": gateway_runtime_mode,
         "gateway_daemon_status": raw.get("gateway_daemon_status", {}),
         "reason": reason,
         "timestamp_ms": int(time.time() * 1000),
