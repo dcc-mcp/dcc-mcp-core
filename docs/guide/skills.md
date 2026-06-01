@@ -528,21 +528,37 @@ architecture solves this by making each skill's scope and counter-examples expli
 in its `description`, and by tagging every skill with a `dcc-mcp.layer` metadata key
 that partitions discovery.
 
-### The three layers
+### The four layers
 
-| Layer | Role | `dcc-mcp.layer` value |
-|-------|------|----------------------|
-| **infrastructure** | Low-level, DCC-agnostic primitives. Stable API. Auto-loaded or shared. | `infrastructure` |
-| **domain** | Business workflows for a specific DCC or task. Depends on infrastructure. | `domain` |
-| **example** | Authoring references and demos. Never loaded in production. | `example` |
-
-**Infrastructure skills** (e.g. `dcc-diagnostics`, `workflow`, `usd-tools`) are the
-fallback and recovery layer. Every domain skill chains to them via `next-tools.on-failure`.
+| Layer | Role | `dcc-mcp.layer` value | Search rank |
+|-------|------|----------------------|-------------|
+| **domain** | Business workflows for a specific DCC or task. Depends on infrastructure. | `domain` | × 1.00 |
+| **infrastructure** | Low-level, DCC-agnostic primitives. Stable API. Auto-loaded or shared. | `infrastructure` | × 0.35 |
+| **thin-harness** | One Python script + minimal SKILL.md — raw `python` / `bash` / CLI wrappers. | `thin-harness` | × 0.20 |
+| **example** | Authoring references and demos. Never loaded in production. | `example` | **excluded** |
 
 **Domain skills** (e.g. `maya-geometry`, `maya-pipeline`) implement a specific DCC
 workflow. They declare `metadata.dcc-mcp.depends` for the infrastructure skills
 they chain to, and their tool descriptions guide agents toward other domain
 skills when the requested operation is out of scope.
+
+**Infrastructure skills** (e.g. `dcc-diagnostics`, `workflow`, `usd-tools`) are the
+fallback and recovery layer. Every domain skill chains to them via `next-tools.on-failure`.
+
+**Thin-harness skills** are the lowest tier that still appears in search results.
+They wrap a raw script with minimal SKILL.md boilerplate — useful as a last-resort
+escape hatch when no domain or infrastructure skill covers the needed operation.
+
+**Example skills** are dropped from search results entirely. They only surface when
+the caller explicitly asks for them via `search_skills(tags=["example"])` or types
+the exact skill name.
+
+::: tip Bypassing penalties
+The layer penalty and the `example` exclusion are bypassed when the caller filters
+by a known layer name through `tags=` (case-insensitive), e.g.
+`search_skills(tags=["thin-harness"])` or `search_skills(tags=["infrastructure"])`.
+The raw BM25 order is honoured inside the filtered slice.
+:::
 
 ### Description pattern: explicit negative routing
 
@@ -570,6 +586,33 @@ description: >-
   Not for raw USD file inspection — use usd-tools for that.
 ```
 
+### Skill path-source rank
+
+A second multiplier is layered on top of the layer multiplier based on
+where the skill was discovered from. User-curated locations rank at
+parity (× 1.00); bundled / platform-installed starter material is
+slightly damped so a local-dev skill always wins a tie.
+
+| Source | Where it comes from | Rank |
+|--------|---------------------|------|
+| `ExplicitArg` | `extra_paths` passed to `discover()` / `scan_*` | × 1.00 |
+| `AdminCustom` | Added through the admin UI (gateway SQLite lane) | × 1.00 |
+| `EnvVar` | `DCC_MCP_SKILL_PATHS` / `DCC_MCP_<APP>_SKILL_PATHS` | × 1.00 |
+| `LocalDev` | `~/.dcc-mcp/<dcc>/skills` (local iteration root) | × 1.00 |
+| `Platform` | Platform-wide install dir (`get_skills_dir`) | × 0.85 |
+| `Bundled` | Shipped with the dcc-mcp package itself | × 0.70 |
+
+The path-source multiplier compounds multiplicatively with the layer
+multiplier (both are ≤ 1.00). The exact-name fast-path bypasses it —
+`search_skills("dcc-diagnostics")` still surfaces a bundled diagnostics
+skill at the top regardless of source.
+
+Source tagging happens at scan time in
+`crates/dcc-mcp-skills/src/scanner.rs::scan_with_sources`. Adapters can
+read the assigned source via `SkillEntry.path_source` for diagnostic
+surfaces (e.g. the admin UI's skill panel) — it is stable across
+restarts because the field is `#[serde(default)]`.
+
 ### Metadata layer tag
 
 Tag every skill with its layer so `search_skills` can filter by layer:
@@ -577,7 +620,7 @@ Tag every skill with its layer so `search_skills` can filter by layer:
 ```yaml
 metadata:
   dcc-mcp:
-    layer: infrastructure   # or: domain | example
+    layer: domain   # or: infrastructure | thin-harness | example
 ```
 
 ```python
@@ -976,6 +1019,276 @@ group control in addition to the six skill-discovery tools:
 `tools/list` also returns `__group__<group>` stubs for any group
 that is inactive, making the full tool surface discoverable without
 exposing schemas or handlers.
+
+### Gateway Progressive Group Search
+
+When skills are exposed through the gateway, the capability index tracks
+group activation state. A search hit for a tool in an inactive group
+includes:
+
+- `callable: false` — the agent cannot call it yet
+- `load_state: "loaded"` — the skill is loaded but the group is inactive
+- `disabled_by_group: "modeling"` — which group blocks it
+- `next_step` with `action: "activate_tool_group"` — prescriptive agent guidance
+
+The gateway `load_skill` meta-tool supports progressive group activation:
+
+```json
+{
+  "tool": "load_skill",
+  "arguments": {
+    "skill_name": "maya-modeling",
+    "tool_group": "modeling",
+    "group_action": "activate"
+  }
+}
+```
+
+This implements "progressive tool exposure" — tools are discoverable but
+not callable until their group is activated, keeping `tools/list` compact
+while maintaining full discoverability.
+
+## Skill Persistence Across Restarts
+
+`DccServerBase.enable_skill_load_persistence(policy)` wires the catalog's
+after-load / after-unload / after-group-change hooks to a `LoadedStateStore`
+backed by `~/.dcc-mcp/<dcc>/loaded.json` (source of truth) and the gateway
+admin SQLite `skill_loaded_state` / `skill_active_groups` tables (best-effort
+mirror for admin UI visibility).
+
+```python
+server = DccServerBase(opts)
+server.start()
+server.enable_skill_load_persistence(policy="skip_on_drift")
+```
+
+On startup the store replays the persisted snapshot so previously loaded
+skills and active groups are restored without requiring the AI client to
+re-discover and re-activate them.
+
+### Replay policies
+
+| Policy | Behaviour |
+|--------|-----------|
+| `"skip_on_drift"` (default) | Skip a skill if its on-disk version differs from the persisted version |
+| `"require_exact_version"` | Fail the replay if any version mismatch is detected |
+| `"ignore_version"` | Always reload regardless of version drift |
+
+### Persistence contract
+
+- Source of truth: per-DCC JSON file at `~/.dcc-mcp/<dcc>/loaded.json`.
+- Gateway admin SQLite is a best-effort mirror for dashboard visibility.
+- All writes use atomic-replace (`write → fsync → rename`).
+- Hooks must never raise; missing files or schema mismatches behave like empty state.
+
+### Key types
+
+```python
+from dcc_mcp_core.loaded_state_store import (
+    LoadedStateStore,
+    LoadedSkillRecord,
+    PersistedCatalogState,
+)
+
+store = LoadedStateStore("maya")  # path defaults to ~/.dcc-mcp/maya/loaded.json
+store.record_loaded("maya-geometry", version="1.0.0", skill_path="/skills/maya-geometry")
+store.record_unloaded("maya-geometry")
+store.record_group_change("rigging", activated=True)
+snapshot = store.snapshot()  # -> PersistedCatalogState
+```
+
+## Semantic Skill Search
+
+dcc-mcp-core ships a lexical + vector fusion index so morphology variants
+and inflected queries (`rendering` vs `render`) still recall the right skill.
+
+### Standard fusion setup
+
+```python
+from dcc_mcp_core import LexicalSkillIndex, RrfFusionIndex, VectorSkillIndex
+
+fused = (
+    RrfFusionIndex()
+    .register("lex", LexicalSkillIndex())
+    .register("vec", VectorSkillIndex())
+)
+fused.index(documents)
+hits = fused.search("how do i create a polygon sphere", k=8)
+```
+
+### Components
+
+| Class | Purpose | Dependencies |
+|-------|---------|-------------|
+| `LexicalSkillIndex` | BM25-style keyword matching | Zero deps (pure Python) |
+| `VectorSkillIndex` | Dense embedding similarity search | Zero deps by default (`HashedEmbedder` + `InMemoryVectorStore`) |
+| `RrfFusionIndex` | Reciprocal Rank Fusion combiner (Cormack et al. 2009) | Zero deps |
+| `HashedEmbedder` | Deterministic feature-hashing embedder (~5 µs/doc at dim=256) | Zero deps |
+| `OnnxEmbedder` | High-quality neural embeddings (three-tier backend) | Optional: `dcc-mcp-core-semantic` or `fastembed` |
+
+### Embedder backends
+
+`OnnxEmbedder` uses a three-tier fallback:
+
+1. `dcc_mcp_core_semantic.native.NativeEmbedder` — Rust-native via fastembed-rs (fastest)
+2. `fastembed.TextEmbedding` — pure-Python fastembed
+3. Neither installed → `EmbedderError`
+
+```python
+from dcc_mcp_core import OnnxEmbedder, VectorSkillIndex
+
+emb = OnnxEmbedder(model_name="BAAI/bge-base-en-v1.5")
+idx = VectorSkillIndex(embedder=emb)
+```
+
+Environment variables for model overrides:
+
+| Variable | Purpose |
+|----------|---------|
+| `DCC_MCP_EMBED_MODEL` | Override the default ONNX model name |
+| `DCC_MCP_EMBED_MODEL_DIR` | Override the local model cache directory |
+
+### `SkillDocument` and `SkillSearchHit`
+
+```python
+from dcc_mcp_core.semantic_skill_index import SkillDocument, SkillSearchHit
+
+doc = SkillDocument(
+    skill_id="maya-geometry",
+    name="maya-geometry",
+    summary="Maya geometry creation and modification tools",
+    intent="Create spheres, cubes, and extrude polygon components",
+    tags=("geometry", "create"),
+    dcc_name="maya",
+)
+# doc.corpus() returns the concatenated text for embedding
+
+hit = SkillSearchHit(skill_id="maya-geometry", score=0.85, rank=1)
+```
+
+## Lifecycle Hooks
+
+The typed lifecycle-hook framework lets adapter and policy code subscribe to
+discovery, tool-call, and session events without patching `DccServerBase`
+internals.
+
+### Hook events
+
+```python
+from dcc_mcp_core.lifecycle_hooks import HookEvent
+
+# Available events:
+HookEvent.SESSION_START      # on_session_start
+HookEvent.BEFORE_SEARCH      # before_search      (policy — can veto)
+HookEvent.AFTER_SEARCH        # after_search
+HookEvent.BEFORE_SKILL_LOAD   # before_skill_load  (policy — can veto)
+HookEvent.AFTER_SKILL_LOAD    # after_skill_load
+HookEvent.BEFORE_TOOL_CALL    # before_tool_call   (policy — can veto)
+HookEvent.AFTER_TOOL_CALL     # after_tool_call
+HookEvent.SESSION_END         # on_session_end
+```
+
+Policy events (`BEFORE_SKILL_LOAD`, `BEFORE_TOOL_CALL`, `BEFORE_SEARCH`) can
+veto an operation by raising `HookDeny`:
+
+```python
+from dcc_mcp_core.lifecycle_hooks import HookDeny
+
+def my_policy(ctx):
+    if is_blocked(ctx.payload.get("tool_name")):
+        raise HookDeny("Tool blocked by policy", hint="Use dcc_diagnostics__screenshot instead")
+
+hooks.on(HookEvent.BEFORE_TOOL_CALL, my_policy)
+```
+
+### Registration
+
+```python
+from dcc_mcp_core.lifecycle_hooks import LifecycleHooks, HookEvent
+
+hooks = LifecycleHooks()
+server.register_lifecycle_hooks(hooks)
+
+@hooks.on(HookEvent.AFTER_TOOL_CALL)
+def log_call(ctx):
+    print(f"Tool {ctx.payload.get('tool_name')} called on {ctx.dcc_name}")
+```
+
+### Dispatch helpers
+
+`DccServerBase` provides convenience methods for adapter code to fire events:
+
+```python
+server.dispatch_session_start(session_id="abc-123")
+server.dispatch_before_tool_call("create_sphere", session_id="abc-123")
+server.dispatch_after_tool_call("create_sphere", payload={"ok": True})
+server.dispatch_session_end(session_id="abc-123")
+```
+
+### Fail-safe fan-out
+
+Handlers are dispatched in registration order. For non-policy events, handler
+exceptions are logged at WARNING and swallowed. For policy events, a `HookDeny`
+raised by any handler propagates to the caller; other exceptions are logged and
+treated as "no decision".
+
+## Agent Memory
+
+Three-tier memory model for DCC adapters: bounded, session-aware, and
+privacy-conscious. The contract is "summarised facts only, never raw prompts".
+
+### Memory layers
+
+| Layer | Scope | Persistence | Default cap |
+|-------|-------|-------------|-------------|
+| `EPHEMERAL` | Session-scoped ring-buffer | Never persisted | 256 per session |
+| `WORKING` | Task-scoped, TTL-based | Never persisted by default | 1024 per session, 6h TTL |
+| `LONGTERM` | Durable patterns | Requires explicit storage backend | 4096 total |
+
+### Quick start
+
+```python
+from dcc_mcp_core.agent_memory import InMemoryMemoryStore, MemoryRecorder
+from dcc_mcp_core.lifecycle_hooks import LifecycleHooks
+
+hooks = LifecycleHooks()
+store = InMemoryMemoryStore()
+recorder = MemoryRecorder(store).install(hooks)
+server.register_lifecycle_hooks(hooks)
+```
+
+`MemoryRecorder.install(hooks)` registers handlers for `SESSION_START`,
+`BEFORE_SEARCH`, `AFTER_SKILL_LOAD`, `BEFORE_TOOL_CALL`, `AFTER_TOOL_CALL`,
+and `SESSION_END`. The memory summary is automatically injected into
+`HookContext.payload` as `memory_summary`, `memory_prefer_tools`, and
+`memory_avoid_tools`.
+
+### Session compaction
+
+On `SESSION_END`, working entries are promoted to `LONGTERM` as `"pattern:*"`
+summaries, then ephemeral and working entries are forgotten. This keeps the
+memory footprint bounded while preserving learned patterns across sessions.
+
+### Privacy toggle
+
+```python
+recorder.set_enabled(False)  # disables capture/injection without unregistering hooks
+```
+
+### Querying memory
+
+```python
+from dcc_mcp_core.agent_memory import MemoryQuery, MemoryLayer
+
+# Query longterm patterns for a specific DCC
+results = store.query(MemoryQuery(layer=MemoryLayer.LONGTERM, dcc_name="maya", limit=10))
+
+# Query all layers for a session
+results = store.query(MemoryQuery(session_id="abc-123"))
+
+# Forget all entries for a session
+forgotten = store.forget(session_id="abc-123")
+```
 
 ## Environment Variables
 
