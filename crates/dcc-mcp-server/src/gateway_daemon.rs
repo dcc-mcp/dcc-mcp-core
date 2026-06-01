@@ -16,6 +16,11 @@ use anyhow::Context as _;
 use clap::Args;
 use dcc_mcp_gateway::{AdminPersistConfig, GatewayConfig, GatewayRunner, RelaySourceConfig};
 
+#[cfg(feature = "gateway-auto")]
+const ENV_GATEWAY_LAUNCH_LOCK_STALE_SECS: &str = "DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS";
+#[cfg(feature = "gateway-auto")]
+const DEFAULT_GATEWAY_LAUNCH_LOCK_STALE_SECS: u64 = 30;
+
 /// CLI parser for one relay discovery source.
 #[derive(Debug, Clone)]
 pub struct RelaySourceArg(pub RelaySourceConfig);
@@ -271,6 +276,29 @@ impl Drop for LaunchLock {
 
 #[cfg(feature = "gateway-auto")]
 fn acquire_launch_lock(path: &std::path::Path) -> std::io::Result<LaunchLock> {
+    acquire_launch_lock_with_stale(path, gateway_launch_lock_stale_after())
+}
+
+#[cfg(feature = "gateway-auto")]
+fn acquire_launch_lock_with_stale(
+    path: &std::path::Path,
+    stale_after: Duration,
+) -> std::io::Result<LaunchLock> {
+    match create_launch_lock(path) {
+        Ok(lock) => Ok(lock),
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+            if remove_stale_launch_lock(path, stale_after)? {
+                create_launch_lock(path)
+            } else {
+                Err(err)
+            }
+        }
+        Err(err) => Err(err),
+    }
+}
+
+#[cfg(feature = "gateway-auto")]
+fn create_launch_lock(path: &std::path::Path) -> std::io::Result<LaunchLock> {
     OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -279,6 +307,49 @@ fn acquire_launch_lock(path: &std::path::Path) -> std::io::Result<LaunchLock> {
             _file: file,
             path: path.to_path_buf(),
         })
+}
+
+#[cfg(feature = "gateway-auto")]
+fn gateway_launch_lock_stale_after() -> Duration {
+    std::env::var(ENV_GATEWAY_LAUNCH_LOCK_STALE_SECS)
+        .ok()
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .filter(|secs| *secs > 0)
+        .map(Duration::from_secs)
+        .unwrap_or_else(|| Duration::from_secs(DEFAULT_GATEWAY_LAUNCH_LOCK_STALE_SECS))
+}
+
+#[cfg(feature = "gateway-auto")]
+fn remove_stale_launch_lock(
+    path: &std::path::Path,
+    stale_after: Duration,
+) -> std::io::Result<bool> {
+    if !launch_lock_is_stale(path, stale_after)? {
+        return Ok(false);
+    }
+
+    // Re-check immediately before unlinking so a fresh lock created by another
+    // sidecar is not removed after the stale check wins a race.
+    if !launch_lock_is_stale(path, stale_after)? {
+        return Ok(false);
+    }
+
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(true),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(true),
+        Err(err) => Err(err),
+    }
+}
+
+#[cfg(feature = "gateway-auto")]
+fn launch_lock_is_stale(path: &std::path::Path, stale_after: Duration) -> std::io::Result<bool> {
+    let modified = match std::fs::metadata(path) {
+        Ok(meta) => meta.modified()?,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(true),
+        Err(err) => return Err(err),
+    };
+    let age = modified.elapsed().unwrap_or_default();
+    Ok(age >= stale_after)
 }
 
 #[cfg(feature = "gateway-auto")]
@@ -358,6 +429,37 @@ mod tests {
         );
         assert!(args.iter().any(|arg| arg == "gateway"));
         assert!(args.iter().any(|arg| arg == "--name"));
+    }
+
+    #[cfg(feature = "gateway-auto")]
+    #[test]
+    fn stale_gateway_launch_lock_is_reclaimed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gateway-launch.lock");
+        std::fs::write(&path, "stale").unwrap();
+
+        let lock = acquire_launch_lock_with_stale(&path, Duration::ZERO)
+            .expect("stale launch lock should be reclaimed");
+
+        assert!(path.exists());
+        drop(lock);
+        assert!(!path.exists());
+    }
+
+    #[cfg(feature = "gateway-auto")]
+    #[test]
+    fn fresh_gateway_launch_lock_stays_single_flight() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gateway-launch.lock");
+        std::fs::write(&path, "busy").unwrap();
+
+        let err = match acquire_launch_lock_with_stale(&path, Duration::from_secs(3600)) {
+            Ok(_) => panic!("fresh launch lock should remain busy"),
+            Err(err) => err,
+        };
+
+        assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
+        assert!(path.exists());
     }
 
     #[test]
