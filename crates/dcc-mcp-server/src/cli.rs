@@ -95,10 +95,22 @@ pub(crate) struct ServerArgs {
     #[arg(long, env = "DCC_MCP_SHUTDOWN_TIMEOUT_SECS", default_value = "10")]
     pub(crate) shutdown_timeout_secs: u64,
 
-    /// Gateway port to compete for. First instance to bind wins the gateway.
-    /// 0 = gateway disabled entirely (and therefore disables admin too).
+    /// Gateway port to ensure/register with. Default startup ensures a
+    /// standalone gateway daemon, then registers this process as a backend.
+    /// 0 disables gateway ensure/election for this process.
     #[arg(long, env = "DCC_MCP_GATEWAY_PORT", default_value = "9765")]
     pub(crate) gateway_port: u16,
+
+    /// Disable auto-launching the machine-wide standalone gateway before
+    /// registering this per-DCC server.
+    #[arg(long, default_value = "false")]
+    pub(crate) no_ensure_gateway: bool,
+
+    /// Legacy mode: let this per-DCC server compete for the gateway port
+    /// instead of using the standalone gateway daemon as the local control
+    /// plane.
+    #[arg(long, env = "DCC_MCP_LEGACY_GATEWAY_ELECTION", default_value = "false")]
+    pub(crate) legacy_gateway_election: bool,
 
     /// Gateway host/interface to bind. Defaults to the MCP `--host`.
     #[arg(long, env = "DCC_MCP_GATEWAY_HOST")]
@@ -258,6 +270,36 @@ mod tests {
         };
         assert_eq!(server.app, "blender");
         assert_eq!(server.gateway_port, 9765);
+        assert!(!server.legacy_gateway_election);
+    }
+
+    #[test]
+    fn legacy_gateway_election_is_explicit_opt_in() {
+        let parsed = Args::try_parse_from([
+            "dcc-mcp-server",
+            "auto",
+            "--app",
+            "maya",
+            "--legacy-gateway-election",
+        ])
+        .unwrap();
+
+        let Some(SubCmd::Auto(server)) = parsed.command else {
+            panic!("expected auto subcommand");
+        };
+        assert!(server.legacy_gateway_election);
+    }
+
+    #[test]
+    fn no_ensure_gateway_is_explicit_opt_out() {
+        let parsed =
+            Args::try_parse_from(["dcc-mcp-server", "serve", "--no-ensure-gateway"]).unwrap();
+
+        let Some(SubCmd::Serve(serve)) = parsed.command else {
+            panic!("expected serve subcommand");
+        };
+        assert!(serve.server.no_ensure_gateway);
+        assert!(!serve.server.legacy_gateway_election);
     }
 
     #[test]
