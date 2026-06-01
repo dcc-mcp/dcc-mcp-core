@@ -196,19 +196,20 @@ select {
 .brand-lockup {
   align-items: flex-start;
   display: flex;
-  gap: 0.75rem;
+  flex-direction: column;
+  gap: 0.55rem;
   margin: 0 1.05rem 1.15rem;
   padding-bottom: 1.05rem;
   border-bottom: 1px solid var(--sidebar-border);
 }
 
-.brand-accent {
-  background: var(--sidebar-primary);
-  border-radius: 2px;
-  flex-shrink: 0;
-  height: 2.85rem;
-  margin-top: 2px;
-  width: 4px;
+.brand-logo {
+  display: block;
+  height: auto;
+  max-height: 5.75rem;
+  object-fit: contain;
+  object-position: left center;
+  width: min(100%, 10.75rem);
 }
 
 .brand-text h1 {

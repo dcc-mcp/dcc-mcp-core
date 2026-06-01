@@ -1,5 +1,7 @@
 # dcc-mcp-core
 
+![dcc-mcp-core logo](docs/assets/brand/dcc-mcp-logo.png)
+
 [![Core PyPI](https://img.shields.io/pypi/v/dcc-mcp-core?label=core%20PyPI)](https://pypi.org/project/dcc-mcp-core/)
 [![Server PyPI](https://img.shields.io/pypi/v/dcc-mcp-server?label=server%20PyPI)](https://pypi.org/project/dcc-mcp-server/)
 [![Python](https://img.shields.io/pypi/pyversions/dcc-mcp-core?label=Python)](https://www.python.org/)
