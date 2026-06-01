@@ -289,6 +289,7 @@ pub(crate) fn spawn_pid_cleanup_watcher(path: &std::path::Path, pid: u32) {
     }
 }
 
+#[cfg(feature = "gateway-daemon")]
 fn resolve_registry_dir(configured: Option<&PathBuf>) -> PathBuf {
     configured
         .cloned()
@@ -972,6 +973,7 @@ mod tests {
         assert!(should_enable_file_logging(&opts, true));
     }
 
+    #[cfg(feature = "gateway-daemon")]
     #[test]
     fn resolve_registry_dir_prefers_explicit_path() {
         let explicit = PathBuf::from(r"C:\dcc-mcp\registry");

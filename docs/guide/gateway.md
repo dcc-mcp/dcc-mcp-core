@@ -29,12 +29,13 @@ once still spawn at most one gateway. Use `--no-ensure-gateway` to disable
 auto-launch, or `--legacy-gateway-election` to restore the old per-DCC
 first-wins election.
 
-Python `DccServerBase` adapters also keep a lightweight daemon guardian
-running after startup in daemon-backed mode. If `/health` later becomes
-unreachable for consecutive probes, the guardian reuses the same
-single-flight launch lock and re-runs the standalone daemon ensure path,
-so a surviving DCC instance can restore the shared gateway URL without
-blocking or restarting the DCC host.
+Python `DccServerBase` adapters and `dcc-mcp-server sidecar` processes
+also keep a lightweight daemon guardian running after startup in
+daemon-backed mode. If `/health` later becomes unreachable for consecutive
+probes, the guardian reuses the same single-flight launch lock and re-runs
+the standalone daemon ensure path, so any surviving DCC instance or
+sidecar can restore the shared gateway URL without blocking or restarting
+the DCC host.
 
 For the standalone `dcc-mcp-server` binary, the run mode is explicit:
 
@@ -90,6 +91,12 @@ Additional environment knobs:
   (defaults to a workspace-anchored location).
 - `DCC_MCP_GATEWAY_ADMIN_RETENTION_DAYS` — admin SQLite retention,
   clamped to `[1, 3650]`, default `30`.
+- `DCC_MCP_GATEWAY_GUARDIAN_INTERVAL` — seconds between post-startup
+  daemon guardian probes, default `5`.
+- `DCC_MCP_GATEWAY_GUARDIAN_TIMEOUT` — per-probe `/health` timeout in
+  seconds, default `0.5`.
+- `DCC_MCP_GATEWAY_GUARDIAN_FAILURES` — consecutive failed probes before
+  a Python adapter or Rust sidecar re-runs daemon ensure, default `2`.
 
 ### Daemon-mode guarantees
 
