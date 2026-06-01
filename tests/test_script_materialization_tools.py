@@ -62,7 +62,11 @@ def test_materialize_script_tool_list_entry_stays_compact(tmp_path: Path) -> Non
         tool = next(tool for tool in body["result"]["tools"] if tool["name"] == "materialize_script")
         payload = json.dumps(tool, separators=(",", ":"), sort_keys=True).encode("utf-8")
         assert len(payload) < 2048
-        assert tool["inputSchema"]["anyOf"] == [{"required": ["content"]}, {"required": ["code"]}]
+        assert tool["inputSchema"]["type"] == "object"
+        assert "anyOf" not in tool["inputSchema"]
+        assert "oneOf" not in tool["inputSchema"]
+        assert "allOf" not in tool["inputSchema"]
+        assert "not" not in tool["inputSchema"]
         assert set(tool["outputSchema"]["required"]) == {
             "file_ref",
             "file_path",
