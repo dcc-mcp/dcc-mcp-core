@@ -127,6 +127,32 @@ def test_gateway_port_not_configured(dcc_name) -> None:
 
 
 @pytest.mark.parametrize("dcc_name", ["blender", "photoshop"])
+@pytest.mark.parametrize("runtime_mode", ["daemon-backed", "embedded-fallback"])
+def test_runtime_mode_reason_takes_priority(dcc_name, runtime_mode) -> None:
+    """Daemon-first modes must not be described as missing election threads."""
+    with _with_resolver(
+        dcc_name,
+        lambda: {
+            "enabled": True,
+            "running": False,
+            "consecutive_failures": 0,
+            "gateway_host": "127.0.0.1",
+            "gateway_port": 9765,
+            "is_gateway": False,
+            "gateway_runtime_mode": runtime_mode,
+            "gateway_daemon_status": {"ok": runtime_mode == "daemon-backed"},
+        },
+    ):
+        payload = _call_tool()
+
+    assert payload["enabled"] is True
+    assert payload["running"] is False
+    assert payload["gateway_port"] == 9765
+    assert payload["gateway_runtime_mode"] == runtime_mode
+    assert payload["reason"] == runtime_mode
+
+
+@pytest.mark.parametrize("dcc_name", ["blender", "photoshop"])
 def test_election_active_state(dcc_name) -> None:
     """A running election with a configured port reports ``election_active``."""
     with _with_resolver(
