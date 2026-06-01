@@ -234,12 +234,18 @@ async fn wait_gateway_ready(host: &str, port: u16, timeout: Duration) -> anyhow:
 }
 
 #[cfg(feature = "gateway-auto")]
-async fn gateway_health_ok(host: &str, port: u16) -> bool {
+pub(crate) async fn gateway_health_ok(host: &str, port: u16) -> bool {
+    gateway_health_ok_with_timeout(host, port, Duration::from_millis(600)).await
+}
+
+#[cfg(feature = "gateway-auto")]
+pub(crate) async fn gateway_health_ok_with_timeout(
+    host: &str,
+    port: u16,
+    timeout: Duration,
+) -> bool {
     let url = format!("http://{host}:{port}/health");
-    let client = match reqwest::Client::builder()
-        .timeout(Duration::from_millis(600))
-        .build()
-    {
+    let client = match reqwest::Client::builder().timeout(timeout).build() {
         Ok(client) => client,
         Err(_) => return false,
     };
