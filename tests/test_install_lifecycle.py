@@ -12,6 +12,7 @@ import types
 
 import pytest
 
+import dcc_mcp_core._install_lifecycle_sidecar as sidecar_lifecycle
 import dcc_mcp_core.install_lifecycle as lifecycle
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -341,6 +342,145 @@ def test_resolve_deployment_layout_uses_cache_root_before_packages_exist(tmp_pat
     assert result["missing_packages"] == ["dcc_mcp_3dsmax"]
     assert result["packages"][0]["source"] == "cache-root"
     assert result["packages"][0]["root"] == str((cache_root / "dcc_mcp_core").resolve())
+
+
+def test_build_sidecar_command_uses_sidecar_cli_contract(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+
+    result = lifecycle.build_sidecar_command(
+        dcc_type="maya",
+        host_rpc="commandport://127.0.0.1:6000",
+        watch_pid=12345,
+        registry_dir=registry,
+        display_name="Maya-Anim",
+        adapter_version="1.2.3",
+        gateway_port=19765,
+        gateway_host="127.0.0.1",
+        server_bin="dcc-mcp-server-test",
+    )
+
+    assert result["success"] is True
+    assert result["role"] == "per-dcc-sidecar"
+    assert result["registry_dir"] == str(registry.resolve())
+    assert result["environment"]["set"] == {
+        "DCC_MCP_REGISTRY_DIR": str(registry.resolve()),
+        "DCC_MCP_GATEWAY_PORT": "19765",
+        "DCC_MCP_GATEWAY_HOST": "127.0.0.1",
+    }
+    assert result["command"] == [
+        "dcc-mcp-server-test",
+        "sidecar",
+        "--dcc",
+        "maya",
+        "--host-rpc",
+        "commandport://127.0.0.1:6000",
+        "--watch-pid",
+        "12345",
+        "--registry-dir",
+        str(registry.resolve()),
+        "--gateway-port",
+        "19765",
+        "--display-name",
+        "Maya-Anim",
+        "--adapter-version",
+        "1.2.3",
+        "--gateway-host",
+        "127.0.0.1",
+    ]
+
+
+def test_build_sidecar_command_returns_structured_validation_error() -> None:
+    result = lifecycle.build_sidecar_command(
+        dcc_type="",
+        host_rpc="commandport://127.0.0.1:6000",
+        watch_pid=12345,
+    )
+
+    assert result["success"] is False
+    assert result["reason"] == "invalid_dcc_type"
+
+
+def test_launch_sidecar_uses_detached_popen_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = {}
+
+    class FakePopen:
+        pid = 4242
+
+        def __init__(self, command, **kwargs):
+            captured["command"] = command
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(sidecar_lifecycle.subprocess, "Popen", FakePopen)
+
+    result = lifecycle.launch_sidecar(
+        dcc_type="houdini",
+        host_rpc="qtserver://127.0.0.1:7001",
+        watch_pid=2468,
+        registry_dir=tmp_path / "registry",
+        server_bin="dcc-mcp-server-test",
+        detached=True,
+        env={"PATH": ""},
+    )
+
+    assert result["success"] is True
+    assert result["status"] == "started"
+    assert result["pid"] == 4242
+    assert captured["command"] == result["command"]
+    assert captured["kwargs"]["stdin"] == sidecar_lifecycle.subprocess.DEVNULL
+    assert captured["kwargs"]["stdout"] == sidecar_lifecycle.subprocess.DEVNULL
+    assert captured["kwargs"]["stderr"] == sidecar_lifecycle.subprocess.DEVNULL
+    assert captured["kwargs"]["env"]["DCC_MCP_REGISTRY_DIR"] == str((tmp_path / "registry").resolve())
+    assert captured["kwargs"]["env"]["DCC_MCP_GATEWAY_PORT"] == "9765"
+
+
+def test_module_cli_sidecar_command_returns_json_without_loading_core(tmp_path: Path) -> None:
+    script = """
+import json
+import runpy
+import sys
+
+sys.argv = [
+    "dcc_mcp_core.install_lifecycle",
+    "sidecar-command",
+    "--dcc",
+    "photoshop",
+    "--host-rpc",
+    "ws://127.0.0.1:9000",
+    "--watch-pid",
+    "34567",
+    "--registry-dir",
+    sys.argv[1],
+    "--server-bin",
+    "dcc-mcp-server-test",
+]
+try:
+    runpy.run_module("dcc_mcp_core.install_lifecycle", run_name="__main__")
+except SystemExit as exc:
+    code = exc.code
+else:
+    code = 0
+print(json.dumps({"core_loaded": "dcc_mcp_core._core" in sys.modules, "exit_code": code}))
+"""
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(REPO_ROOT / "python")
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path / "registry")],
+        cwd=str(REPO_ROOT),
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload, end = json.JSONDecoder().raw_decode(result.stdout)
+    trailer = json.loads(result.stdout[end:].strip())
+
+    assert payload["success"] is True
+    assert payload["command"][:2] == ["dcc-mcp-server-test", "sidecar"]
+    assert payload["dcc_type"] == "photoshop"
+    assert trailer == {"core_loaded": False, "exit_code": 0}
 
 
 def test_plan_runtime_updates_marks_old_sidecar_restartable(tmp_path: Path) -> None:
