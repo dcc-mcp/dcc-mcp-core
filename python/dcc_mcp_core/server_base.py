@@ -157,6 +157,7 @@ class DccServerBase:
         # Lazy-initialised helpers
         self._hot_reloader: Any | None = None
         self._gateway_election: Any | None = None
+        self._gateway_guardian: Any | None = None
         self._gateway_runtime_mode: str = "unknown"
         self._gateway_daemon_status: dict[str, Any] = {}
         self._snapshot_provider: Any | None = diag.snapshot_provider
@@ -1197,6 +1198,7 @@ class DccServerBase:
             server_version,
             self._handle.mcp_url(),
         )
+        self._runtime_controller().start_gateway_guardian_if_needed()
         self._runtime_controller().start_gateway_election_if_needed()
 
         return self._handle
@@ -1204,6 +1206,7 @@ class DccServerBase:
     def stop(self) -> None:
         """Gracefully stop the server and gateway election thread."""
         self._run_quit_hooks()
+        self._runtime_controller().stop_gateway_guardian()
         self._runtime_controller().stop_gateway_election()
 
         if self._hot_reloader is not None:
