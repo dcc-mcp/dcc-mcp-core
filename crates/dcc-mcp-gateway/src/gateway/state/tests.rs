@@ -483,6 +483,7 @@ async fn test_instance_json_reports_app_ui_availability_from_capabilities() {
         entry.instance_id,
         true,
         true,
+        None,
     );
     gs.capability_index.upsert_instance(
         entry.instance_id,
