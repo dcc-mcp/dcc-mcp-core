@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.50](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.49...v0.17.50) (2026-06-01)
+
+
+### Features
+
+* add import-light sidecar launch helper ([ca89a05](https://github.com/loonghao/dcc-mcp-core/commit/ca89a05be4705b764656113fe636010dadf0c16b))
+* **gateway:** expose progressive tool-group active state in capability search ([f9a1dc9](https://github.com/loonghao/dcc-mcp-core/commit/f9a1dc981b6b6f468d5b183a07e4078c282cec75))
+* **gateway:** support calls[] batch on REST /v1/call ([d38b615](https://github.com/loonghao/dcc-mcp-core/commit/d38b61537b620a2797a3dbc4286f47390837eada))
+* **server:** ensure Python adapters start gateway daemon ([55b8704](https://github.com/loonghao/dcc-mcp-core/commit/55b8704e2806252c4d90dba24e9319d7bc4f2490))
+* **server:** ensure standalone gateway by default ([e953f60](https://github.com/loonghao/dcc-mcp-core/commit/e953f6088daea346f6a4d49dcd65e5b822e6272c))
+
+
+### Bug Fixes
+
+* **gateway:** address review feedback on progressive group search ([22b5910](https://github.com/loonghao/dcc-mcp-core/commit/22b5910bb2e1fd3f3fc751847f6c3150311c0b55))
+* **mcp:** simplify exposed input schemas ([095c548](https://github.com/loonghao/dcc-mcp-core/commit/095c5482067de4d4d0bb7543c614ba0a905e7ba8))
+* **server:** guard sidecar gateway daemon ([6b4b125](https://github.com/loonghao/dcc-mcp-core/commit/6b4b12532af616fc7fb6b1aa9f29baf95a91e77f))
+* **server:** recover stale gateway launch locks ([f7c07a2](https://github.com/loonghao/dcc-mcp-core/commit/f7c07a22750dea108c6e7a45d4c9063ddee3541d))
+* **server:** report daemon gateway diagnostic modes ([bdc2024](https://github.com/loonghao/dcc-mcp-core/commit/bdc2024d5c671c7b6a16f88b5ab2d211a1efc10b))
+* **server:** restart gateway daemon from Python guardian ([#1439](https://github.com/loonghao/dcc-mcp-core/issues/1439)) ([cfc7e8c](https://github.com/loonghao/dcc-mcp-core/commit/cfc7e8c5a9624b1a55cba55bd08e3ea5bacd2445))
+* **skill-rest:** generate inputSchema from Python signatures in describe for unloaded skills ([dbbaf0e](https://github.com/loonghao/dcc-mcp-core/commit/dbbaf0e6f87cd25f187fc42040163dd89cbf1595))
+
+
+### Documentation
+
+* add DCC MCP brand logo ([8e3045f](https://github.com/loonghao/dcc-mcp-core/commit/8e3045f666d9667fd9b93180c738014df3d137bf))
+* add skill persistence, semantic search, lifecycle hooks, and agent memory documentation ([12e1524](https://github.com/loonghao/dcc-mcp-core/commit/12e152495ddb18fc3ae0c881f7614a7943447af5))
+* **server:** document daemon-backed gateway default mode ([f496d51](https://github.com/loonghao/dcc-mcp-core/commit/f496d5166ce79af0e14c463c673d1f87cafaaae3))
+
 ## [0.17.49](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.48...v0.17.49) (2026-05-31)
 
 
