@@ -112,6 +112,11 @@ Generated `tools.yaml` entries follow the modern contract:
 - Local tool names are snake_case and client-safe. Do not use dotted names.
 - Loaded tools are published as `<skill-name>__<tool_name>` when namespacing is needed.
 - `input_schema` and `output_schema` are declared explicitly.
+- Keep MCP-facing `input_schema` shapes simple: prefer a top-level object with
+  `properties`, `required`, primitive `type`, bounds, and descriptions. Put
+  mutually exclusive forms, conditional requirements, and cross-field rules in
+  the tool script or handler validation instead of `anyOf`, `oneOf`, `allOf`,
+  `not`, `if`/`then`/`else`, or dependent-schema keywords.
 - `execution` is `sync` or `async`; use `async` for deferred/long-running work.
 - `affinity` is explicit. Use `main` for host API or scene mutation work and `any` for pure work.
 - `enforce_thread_affinity: true` is emitted so adapter dispatch stays honest.

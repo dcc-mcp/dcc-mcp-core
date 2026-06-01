@@ -8,7 +8,8 @@ use dcc_mcp_naming::validate_tool_name;
 
 use crate::handlers::build_core_tools;
 use crate::mcp_tool_catalog::{
-    action_meta_to_mcp_tool, build_group_stub, build_lazy_action_tools, build_skill_stub,
+    SchemaProjection, action_meta_to_mcp_tool, build_group_stub, build_lazy_action_tools,
+    build_skill_stub,
 };
 use crate::server_state::ServerState;
 
@@ -51,6 +52,7 @@ pub fn assemble_full_tool_list(
                 include_output_schema,
                 &bare_eligible,
                 state.declared_capabilities.as_ref(),
+                SchemaProjection::ToolsListCompatible,
             ));
         } else if !meta.group.is_empty() {
             inactive_groups

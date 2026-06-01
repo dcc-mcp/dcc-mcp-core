@@ -1173,11 +1173,7 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                     "stop_on_error": {"type": "boolean", "default": false},
                     "response_format": {"type": "string", "enum": ["json", "toon"], "description": "Wrapper-level output format; it is not forwarded to the backend capability."},
                     "compact": {"type": "boolean", "description": "Alias for response_format=toon when true."}
-                },
-                "anyOf": [
-                    {"required": ["tool_slug"]},
-                    {"required": ["calls"]}
-                ]
+                }
             },
             "annotations": {
                 "readOnlyHint": false,
@@ -1251,7 +1247,7 @@ mod tests {
     }
 
     #[test]
-    fn gateway_call_schema_accepts_single_and_batch_shapes() {
+    fn gateway_call_schema_keeps_compatibility_shape() {
         let defs = gateway_tool_defs();
         let call = defs
             .as_array()
@@ -1260,14 +1256,13 @@ mod tests {
             .find(|tool| tool["name"] == "call")
             .expect("call tool advertised");
 
-        assert_eq!(
-            call["inputSchema"]["anyOf"][0]["required"],
-            json!(["tool_slug"])
-        );
-        assert_eq!(
-            call["inputSchema"]["anyOf"][1]["required"],
-            json!(["calls"])
-        );
+        assert_eq!(call["inputSchema"]["type"], "object");
+        assert!(call["inputSchema"].get("anyOf").is_none());
+        assert!(call["inputSchema"].get("oneOf").is_none());
+        assert!(call["inputSchema"].get("allOf").is_none());
+        assert!(call["inputSchema"].get("not").is_none());
+        assert!(call["inputSchema"].get("required").is_none());
+        assert!(call["inputSchema"]["properties"]["tool_slug"].is_object());
         assert_eq!(call["inputSchema"]["properties"]["calls"]["maxItems"], 25);
         assert_eq!(call["annotations"]["destructiveHint"], true);
     }

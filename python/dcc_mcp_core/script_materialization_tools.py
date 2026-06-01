@@ -67,7 +67,6 @@ _MATERIALIZE_INPUT_SCHEMA: dict[str, Any] = {
             "description": "Optional trace id.",
         },
     },
-    "anyOf": [{"required": ["content"]}, {"required": ["code"]}],
 }
 
 

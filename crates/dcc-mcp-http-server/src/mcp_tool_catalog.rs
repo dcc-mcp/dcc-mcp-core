@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use serde_json::json;
+use serde_json::{Map, Value, json};
 
 use dcc_mcp_actions::registry::{ToolMeta, ToolRegistry};
 use dcc_mcp_gateway_core::naming::{
@@ -11,6 +11,12 @@ use dcc_mcp_gateway_core::naming::{
 use dcc_mcp_jsonrpc::{McpTool, McpToolAnnotations};
 use dcc_mcp_models::SkillScope;
 use dcc_mcp_skills::SkillSummary;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SchemaProjection {
+    Full,
+    ToolsListCompatible,
+}
 
 #[must_use]
 pub fn build_lazy_action_tools() -> Vec<McpTool> {
@@ -118,10 +124,13 @@ pub fn action_meta_to_mcp_tool(
     include_output_schema: bool,
     bare_eligible: &HashSet<(String, String)>,
     declared_capabilities: &[String],
+    schema_projection: SchemaProjection,
 ) -> McpTool {
     let schema_is_incomplete = meta.input_schema.is_null();
     let input_schema = if schema_is_incomplete {
         json!({"type": "object"})
+    } else if schema_projection == SchemaProjection::ToolsListCompatible {
+        simplify_mcp_input_schema(&meta.input_schema)
     } else {
         meta.input_schema.clone()
     };
@@ -167,6 +176,111 @@ pub fn action_meta_to_mcp_tool(
         annotations,
         meta: build_tool_meta(meta, declared_capabilities, schema_is_incomplete),
     }
+}
+
+/// Return a client-compatible projection of a tool input schema for MCP
+/// ``tools/list``.
+///
+/// The registry keeps the original JSON Schema for server-side validation.
+/// This projection strips JSON Schema composition/conditional keywords that
+/// several MCP clients reject during tool registration, while preserving the
+/// basic object/property/required shape that helps agents form calls.
+#[must_use]
+pub fn simplify_mcp_input_schema(schema: &Value) -> Value {
+    let simplified = simplify_schema_value(schema, true);
+    let Some(obj) = simplified.as_object() else {
+        return json!({"type": "object", "properties": {}});
+    };
+
+    let mut out = obj.clone();
+    match out.get("type").and_then(Value::as_str) {
+        Some("object") => {}
+        _ => {
+            out.insert("type".to_string(), Value::String("object".to_string()));
+        }
+    }
+    out.entry("properties".to_string())
+        .or_insert_with(|| Value::Object(Map::new()));
+    Value::Object(out)
+}
+
+fn simplify_schema_value(schema: &Value, root: bool) -> Value {
+    match schema {
+        Value::Object(original) => {
+            if let Some(nullable) = simplify_nullable_union(original) {
+                return simplify_schema_value(&nullable, root);
+            }
+
+            let mut out = Map::new();
+            for (key, value) in original {
+                if is_complex_schema_keyword(key) {
+                    continue;
+                }
+                if root && key == "enum" {
+                    continue;
+                }
+                if key == "type"
+                    && let Some(types) = value.as_array()
+                {
+                    let non_null: Vec<&Value> = types
+                        .iter()
+                        .filter(|item| item.as_str() != Some("null"))
+                        .collect();
+                    if non_null.len() == 1 {
+                        out.insert(key.clone(), non_null[0].clone());
+                    }
+                    continue;
+                }
+                out.insert(key.clone(), simplify_schema_value(value, false));
+            }
+            Value::Object(out)
+        }
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| simplify_schema_value(item, false))
+                .collect(),
+        ),
+        _ => schema.clone(),
+    }
+}
+
+fn simplify_nullable_union(schema: &Map<String, Value>) -> Option<Value> {
+    let alternatives = schema
+        .get("anyOf")
+        .or_else(|| schema.get("oneOf"))
+        .and_then(Value::as_array)?;
+    let non_null: Vec<&Value> = alternatives
+        .iter()
+        .filter(|item| item.get("type").and_then(Value::as_str) != Some("null"))
+        .collect();
+    if non_null.len() == 1 && non_null.len() + 1 == alternatives.len() {
+        let mut merged = schema.clone();
+        merged.remove("anyOf");
+        merged.remove("oneOf");
+        if let Some(alt) = non_null[0].as_object() {
+            for (key, value) in alt {
+                merged.entry(key.clone()).or_insert_with(|| value.clone());
+            }
+        }
+        return Some(Value::Object(merged));
+    }
+    None
+}
+
+fn is_complex_schema_keyword(key: &str) -> bool {
+    matches!(
+        key,
+        "anyOf"
+            | "oneOf"
+            | "allOf"
+            | "not"
+            | "if"
+            | "then"
+            | "else"
+            | "dependentSchemas"
+            | "dependentRequired"
+    )
 }
 
 #[must_use]
@@ -345,5 +459,112 @@ pub fn build_group_stub(group: &str, tool_names: &[String]) -> McpTool {
         output_schema: None,
         annotations: None,
         meta: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dcc_mcp_models::ToolAnnotations;
+
+    #[test]
+    fn simplify_mcp_input_schema_removes_composition_but_keeps_shape() {
+        let schema = json!({
+            "type": "object",
+            "oneOf": [
+                {"required": ["spec"]},
+                {"required": ["skill", "name"]}
+            ],
+            "properties": {
+                "spec": {
+                    "description": "Inline spec.",
+                    "oneOf": [
+                        {"type": "string"},
+                        {"type": "object"}
+                    ]
+                },
+                "label": {
+                    "anyOf": [
+                        {"type": "string"},
+                        {"type": "null"}
+                    ]
+                },
+                "count": {
+                    "type": ["integer", "null"],
+                    "minimum": 1
+                }
+            },
+            "required": ["spec"]
+        });
+
+        let simplified = simplify_mcp_input_schema(&schema);
+        assert_eq!(simplified["type"], "object");
+        assert_eq!(simplified["required"], json!(["spec"]));
+        assert!(simplified.get("oneOf").is_none());
+        assert!(simplified["properties"]["spec"].get("oneOf").is_none());
+        assert_eq!(
+            simplified["properties"]["spec"]["description"],
+            "Inline spec."
+        );
+        assert_eq!(simplified["properties"]["label"]["type"], "string");
+        assert_eq!(simplified["properties"]["count"]["type"], "integer");
+        assert_eq!(simplified["properties"]["count"]["minimum"], 1);
+    }
+
+    #[test]
+    fn action_meta_to_mcp_tool_projects_schema_by_requested_mode() {
+        let mut meta = ToolMeta {
+            name: "workflows_run".to_string(),
+            description: "Run workflow".to_string(),
+            category: "workflow".to_string(),
+            dcc: "core".to_string(),
+            version: "1.0.0".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "anyOf": [
+                    {"required": ["tool_slug"]},
+                    {"required": ["calls"]}
+                ],
+                "properties": {
+                    "tool_slug": {"type": "string"},
+                    "calls": {"type": "array", "maxItems": 25}
+                }
+            }),
+            annotations: ToolAnnotations {
+                destructive_hint: Some(true),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let original = meta.input_schema.clone();
+
+        let described =
+            action_meta_to_mcp_tool(&meta, true, &HashSet::new(), &[], SchemaProjection::Full);
+        assert_eq!(described.input_schema, original);
+
+        let listed = action_meta_to_mcp_tool(
+            &meta,
+            false,
+            &HashSet::new(),
+            &[],
+            SchemaProjection::ToolsListCompatible,
+        );
+        assert_eq!(listed.input_schema["type"], "object");
+        assert!(listed.input_schema.get("anyOf").is_none());
+        assert_eq!(listed.input_schema["properties"]["calls"]["maxItems"], 25);
+        assert_eq!(meta.input_schema, original);
+
+        meta.input_schema = Value::String("not an object".to_string());
+        let tool = action_meta_to_mcp_tool(
+            &meta,
+            false,
+            &HashSet::new(),
+            &[],
+            SchemaProjection::ToolsListCompatible,
+        );
+        assert_eq!(
+            tool.input_schema,
+            json!({"type": "object", "properties": {}})
+        );
     }
 }
