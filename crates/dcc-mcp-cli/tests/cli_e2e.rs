@@ -26,6 +26,25 @@ impl Drop for GatewayFixture {
     }
 }
 
+/// Fixture that always returns TOON regardless of Accept header,
+/// simulating gateway behaviour when `DCC_MCP_GATEWAY_RESPONSE_FORMAT=toon`.
+struct ToonOnlyFixture {
+    base_url: String,
+    shutdown: Option<oneshot::Sender<()>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for ToonOnlyFixture {
+    fn drop(&mut self) {
+        if let Some(shutdown) = self.shutdown.take() {
+            let _ = shutdown.send(());
+        }
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
 fn json_or_compact_fixture_response(
     headers: &HeaderMap,
     payload: Value,
@@ -45,6 +64,17 @@ fn json_or_compact_fixture_response(
         )
             .into_response()
     }
+}
+
+/// Return a TOON response with the given payload, ignoring Accept.
+fn toon_response(payload: &Value) -> Response {
+    let body = toon_format::encode_default(payload).unwrap();
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/toon; charset=utf-8")],
+        body,
+    )
+        .into_response()
 }
 
 fn spawn_gateway_fixture() -> GatewayFixture {
@@ -299,6 +329,203 @@ fn spawn_gateway_fixture() -> GatewayFixture {
     });
 
     GatewayFixture {
+        base_url: format!("http://{addr}"),
+        shutdown: Some(shutdown_tx),
+        thread: Some(thread),
+    }
+}
+
+/// Fixture that always returns TOON regardless of Accept header.
+/// Simulates `DCC_MCP_GATEWAY_RESPONSE_FORMAT=toon` env-var override.
+fn spawn_toon_only_fixture() -> ToonOnlyFixture {
+    let search_payload = json!({
+        "total": 1,
+        "hits": [{
+            "slug": "maya.abc12345.create_sphere",
+            "skill": "modeling",
+            "action": "create_sphere",
+            "dcc": "maya",
+            "summary": "sphere",
+            "loaded": true,
+            "scope": "gateway"
+        }]
+    });
+    let describe_payload = json!({
+        "record": {"tool_slug": "maya.abc12345.create_sphere"},
+        "tool": {"inputSchema": {"type": "object"}}
+    });
+    let describe_body = toon_format::encode_default(&describe_payload).unwrap();
+
+    let load_skill_payload = json!({
+        "loaded": true,
+        "skill_name": "workflow",
+        "dcc_type": "maya",
+        "instance_id": "abc12345",
+        "registered_tools": ["workflow__run"],
+        "tool_count": 1,
+        "tools": [{"name": "workflow__run", "inputSchema": {"type": "object"}}]
+    });
+    let load_skill_body = toon_format::encode_default(&load_skill_payload).unwrap();
+
+    let call_payload = json!({"success": true, "tool_slug": "maya.abc12345.create_sphere"});
+    let call_body = toon_format::encode_default(&call_payload).unwrap();
+
+    let healthz_payload = json!({"ok": true});
+    let healthz_body = toon_format::encode_default(&healthz_payload).unwrap();
+
+    let admin_health_payload = json!({
+        "status": "ok",
+        "gateway": {
+            "current": {
+                "name": "Maya-main-15084", "role": "active", "pid": 15084,
+                "host": "127.0.0.1", "port": 9765,
+                "instance_id": "11111111-0000-0000-0000-000000000000",
+                "version": "0.17.9", "adapter_version": "0.3.4", "adapter_dcc": "maya"
+            },
+            "candidates": []
+        }
+    });
+    let admin_health_body = toon_format::encode_default(&admin_health_payload).unwrap();
+
+    let instances_payload = json!({
+        "total": 1,
+        "instances": [{
+            "instance_id": "abc12345-0000-0000-0000-000000000000",
+            "instance_short": "abc12345",
+            "dcc_type": "maya",
+            "mcp_url": "http://127.0.0.1:18080/mcp",
+            "lifecycle": {"owner": "test", "session": "test", "supports_safe_stop": true,
+                "safe_stop_url": "http://127.0.0.1:18080/safe-stop"},
+            "diagnostics": {"readiness": {
+                "process": true, "dcc": true, "skill_catalog": true,
+                "dispatcher": true, "host_execution_bridge": true, "main_thread_executor": true
+            }}
+        }]
+    });
+    let instances_body = toon_format::encode_default(&instances_payload).unwrap();
+
+    let toon_content_type = "application/toon; charset=utf-8";
+
+    let app = Router::new()
+        .route("/v1/healthz", get({
+            let b = healthz_body.clone();
+            move || {
+                let b = b.clone();
+                async move { (StatusCode::OK, [(header::CONTENT_TYPE, toon_content_type)], b).into_response() }
+            }
+        }))
+        .route("/admin/api/health", get({
+            let b = admin_health_body.clone();
+            move || {
+                let b = b.clone();
+                async move { (StatusCode::OK, [(header::CONTENT_TYPE, toon_content_type)], b).into_response() }
+            }
+        }))
+        .route("/v1/instances", get({
+            let b = instances_body.clone();
+            move || {
+                let b = b.clone();
+                async move { (StatusCode::OK, [(header::CONTENT_TYPE, toon_content_type)], b).into_response() }
+            }
+        }))
+        .route("/v1/search", post({
+            let p = search_payload.clone();
+            move |Json(body): Json<Value>| {
+                let mut payload = p.clone();
+                if let Some(hits) = payload.get_mut("hits").and_then(Value::as_array_mut)
+                    && let Some(hit) = hits.first_mut()
+                {
+                        if let Some(inst_id) = body.get("instance_id") {
+                            hit["instance_id"] = inst_id.clone();
+                        }
+                        if let Some(q) = body.get("query") {
+                            hit["summary"] = q.clone();
+                        }
+                        if let Some(dcc) = body.get("dcc_type") {
+                            hit["dcc"] = dcc.clone();
+                        }
+                }
+                async move { toon_response(&payload) }
+            }
+        }))
+        .route("/v1/describe", post({
+            let p = describe_payload.clone();
+            let b = describe_body.clone();
+            move |Json(body): Json<Value>| {
+                let resp = if body["tool_slug"] == "maya.abc12345.create_sphere" {
+                    toon_response(&p)
+                } else {
+                    (StatusCode::OK, [(header::CONTENT_TYPE, toon_content_type)], b.clone())
+                        .into_response()
+                };
+                async move { resp }
+            }
+        }))
+        .route("/v1/load_skill", post({
+            let b = load_skill_body.clone();
+            move || {
+                let b = b.clone();
+                async move { (StatusCode::OK, [(header::CONTENT_TYPE, toon_content_type)], b).into_response() }
+            }
+        }))
+        .route("/v1/call", post({
+            let b = call_body.clone();
+            move || {
+                let b = b.clone();
+                async move { (StatusCode::OK, [(header::CONTENT_TYPE, toon_content_type)], b).into_response() }
+            }
+        }))
+        .route(
+            "/v1/dcc/{dcc_type}/instances/{instance_id}/call",
+            post(
+                |Path((dcc_type, instance_id)): Path<(String, String)>,
+                 Json(body): Json<Value>| async move {
+                    let payload = json!({
+                        "success": true,
+                        "dcc_type": dcc_type,
+                        "instance_id": instance_id,
+                        "backend_tool": body["backend_tool"],
+                    });
+                    toon_response(&payload)
+                },
+            ),
+        )
+        .route(
+            "/v1/dcc/{dcc_type}/instances/{instance_id}/stop",
+            post(
+                |Path((dcc_type, instance_id)): Path<(String, String)>,
+                 Json(body): Json<Value>| async move {
+                    let payload = json!({
+                        "ok": true,
+                        "stopping": true,
+                        "dcc_type": dcc_type,
+                        "instance_id": instance_id,
+                        "expected_owner": body.get("expected_owner").cloned().unwrap_or(Value::Null),
+                    });
+                    toon_response(&payload)
+                },
+            ),
+        );
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+
+    let thread = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async move {
+            let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+                .unwrap();
+        });
+    });
+
+    ToonOnlyFixture {
         base_url: format!("http://{addr}"),
         shutdown: Some(shutdown_tx),
         thread: Some(thread),
@@ -640,4 +867,109 @@ fn lint_bundled_skills_are_present_and_clean() {
     );
     assert_eq!(value["errors"], 0);
     assert_eq!(value["warnings"], 0);
+}
+
+#[test]
+fn search_describe_load_and_call_decode_toon_when_gateway_forces_toon_format() {
+    let fixture = spawn_toon_only_fixture();
+
+    // health — always-json route, but TOON fixture returns TOON
+    let health = run_json(&["--base-url", &fixture.base_url, "health"]);
+    assert_eq!(health["ok"], true);
+
+    // list — aggregates instances + admin/health
+    let list = run_json(&["--base-url", &fixture.base_url, "list"]);
+    assert_eq!(list["total"], 1);
+    assert_eq!(list["instances"][0]["dcc_type"], "maya");
+    assert_eq!(list["gateway"]["current"]["name"], "Maya-main-15084");
+
+    // search
+    let search = run_json(&[
+        "--base-url",
+        &fixture.base_url,
+        "search",
+        "--query",
+        "sphere",
+        "--dcc-type",
+        "maya",
+        "--instance-id",
+        "abc12345",
+    ]);
+    assert_eq!(search["total"], 1);
+    assert_eq!(search["hits"][0]["slug"], "maya.abc12345.create_sphere");
+    assert_eq!(search["hits"][0]["instance_id"], "abc12345");
+    assert_eq!(search["hits"][0]["dcc"], "maya");
+
+    // describe
+    let describe = run_json(&[
+        "--base-url",
+        &fixture.base_url,
+        "describe",
+        "maya.abc12345.create_sphere",
+    ]);
+    assert_eq!(
+        describe["record"]["tool_slug"],
+        "maya.abc12345.create_sphere"
+    );
+    assert!(describe["tool"]["inputSchema"].is_object());
+
+    // load-skill
+    let loaded = run_json(&[
+        "--base-url",
+        &fixture.base_url,
+        "load-skill",
+        "workflow",
+        "--dcc-type",
+        "maya",
+        "--instance-id",
+        "abc12345",
+    ]);
+    assert_eq!(loaded["loaded"], true);
+    assert_eq!(loaded["skill_name"], "workflow");
+    assert_eq!(loaded["tool_count"], 1);
+    assert_eq!(loaded["registered_tools"][0], "workflow__run");
+
+    // call
+    let call = run_json(&[
+        "--base-url",
+        &fixture.base_url,
+        "call",
+        "maya.abc12345.create_sphere",
+        "--json",
+        r#"{"radius":2}"#,
+    ]);
+    assert_eq!(call["success"], true);
+    assert_eq!(call["tool_slug"], "maya.abc12345.create_sphere");
+
+    // direct call
+    let direct = run_json(&[
+        "--base-url",
+        &fixture.base_url,
+        "call",
+        "maya_scene__get_session_info",
+        "--dcc-type",
+        "maya",
+        "--instance-id",
+        "abc12345",
+        "--json",
+        r#"{}"#,
+    ]);
+    assert_eq!(direct["success"], true);
+    assert_eq!(direct["dcc_type"], "maya");
+    assert_eq!(direct["backend_tool"], "maya_scene__get_session_info");
+
+    // stop-instance
+    let stop = run_json(&[
+        "--base-url",
+        &fixture.base_url,
+        "stop-instance",
+        "--dcc-type",
+        "maya",
+        "--instance-id",
+        "abc12345",
+        "--expected-owner",
+        "test",
+    ]);
+    assert_eq!(stop["ok"], true);
+    assert_eq!(stop["stopping"], true);
 }
