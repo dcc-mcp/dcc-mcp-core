@@ -437,6 +437,109 @@ def test_sidecar_readiness_status_reports_ready_entry(tmp_path: Path) -> None:
     assert result["entry"]["mcp_url"] == "http://127.0.0.1:18812/mcp"
 
 
+def test_sidecar_readiness_status_reports_ambiguous_host_rpc_selector(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    registry.mkdir()
+    host_rpc = "commandport://127.0.0.1:6000"
+    (registry / "services.json").write_text(
+        json.dumps(
+            [
+                {
+                    "dcc_type": "maya",
+                    "instance_id": "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
+                    "host": "127.0.0.1",
+                    "port": 18812,
+                    "pid": os.getpid(),
+                    "metadata": {
+                        "dcc_mcp_role": "per-dcc-sidecar",
+                        "sidecar_pid": str(os.getpid()),
+                        "mcp_url": "http://127.0.0.1:18812/mcp",
+                        "host_rpc_uri": host_rpc,
+                        "dispatch_status": "ready",
+                    },
+                },
+                {
+                    "dcc_type": "maya",
+                    "instance_id": "bbbbbbbb-1111-2222-3333-cccccccccccc",
+                    "host": "127.0.0.1",
+                    "port": 18813,
+                    "pid": os.getpid(),
+                    "metadata": {
+                        "dcc_mcp_role": "per-dcc-sidecar",
+                        "sidecar_pid": str(os.getpid()),
+                        "mcp_url": "http://127.0.0.1:18813/mcp",
+                        "host_rpc_uri": host_rpc,
+                        "dispatch_status": "ready",
+                    },
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = lifecycle.sidecar_readiness_status(registry, dcc_type="maya", host_rpc=host_rpc)
+    aggregate = lifecycle.sidecar_readiness_status(registry, dcc_type="maya")
+
+    assert result["success"] is False
+    assert result["status"] == "ambiguous"
+    assert result["ready"] is False
+    assert len(result["entries"]) == 2
+    assert "host_rpc" in result["message"]
+    assert "full unique instance_id" in result["recommended_next_action"]
+    assert aggregate["status"] == "ready"
+
+
+def test_sidecar_readiness_status_reports_ambiguous_instance_prefix(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    registry.mkdir()
+    first_instance = "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb"
+    second_instance = "aaaaaaaa-9999-2222-3333-cccccccccccc"
+    (registry / "services.json").write_text(
+        json.dumps(
+            [
+                {
+                    "dcc_type": "houdini",
+                    "instance_id": first_instance,
+                    "host": "127.0.0.1",
+                    "port": 18812,
+                    "pid": os.getpid(),
+                    "metadata": {
+                        "dcc_mcp_role": "per-dcc-sidecar",
+                        "sidecar_pid": str(os.getpid()),
+                        "mcp_url": "http://127.0.0.1:18812/mcp",
+                        "host_rpc_uri": "qtserver://127.0.0.1:7001",
+                        "dispatch_status": "ready",
+                    },
+                },
+                {
+                    "dcc_type": "houdini",
+                    "instance_id": second_instance,
+                    "host": "127.0.0.1",
+                    "port": 18813,
+                    "pid": os.getpid(),
+                    "metadata": {
+                        "dcc_mcp_role": "per-dcc-sidecar",
+                        "sidecar_pid": str(os.getpid()),
+                        "mcp_url": "http://127.0.0.1:18813/mcp",
+                        "host_rpc_uri": "qtserver://127.0.0.1:7002",
+                        "dispatch_status": "ready",
+                    },
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    ambiguous = lifecycle.sidecar_readiness_status(registry, dcc_type="houdini", instance_id="aaaaaaaa")
+    exact = lifecycle.sidecar_readiness_status(registry, dcc_type="houdini", instance_id=first_instance)
+
+    assert ambiguous["success"] is False
+    assert ambiguous["status"] == "ambiguous"
+    assert "instance_id" in ambiguous["message"]
+    assert exact["success"] is True
+    assert exact["entry"]["instance_id"] == first_instance
+
+
 def test_probe_sidecar_tool_posts_jsonrpc_tools_call() -> None:
     server, url, requests = _start_probe_server({"jsonrpc": "2.0", "id": "ignored", "result": {"success": True}})
     try:
@@ -663,6 +766,22 @@ def test_wait_for_sidecar_ready_returns_non_retryable_unavailable(
     result = lifecycle.wait_for_sidecar_ready(timeout_secs=5.0, poll_interval_secs=0.05)
 
     assert result["status"] == "unavailable"
+    assert len(calls) == 1
+
+
+def test_wait_for_sidecar_ready_returns_ambiguous_without_polling(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+
+    def fake_status(*args: object, **kwargs: object) -> dict:
+        calls.append((args, kwargs))
+        return {"success": False, "status": "ambiguous", "ready": False}
+
+    monkeypatch.setattr(readiness_lifecycle, "sidecar_readiness_status", fake_status)
+    monkeypatch.setattr(readiness_lifecycle.time, "sleep", lambda _secs: None)
+
+    result = lifecycle.wait_for_sidecar_ready(timeout_secs=5.0, poll_interval_secs=0.05)
+
+    assert result["status"] == "ambiguous"
     assert len(calls) == 1
 
 
