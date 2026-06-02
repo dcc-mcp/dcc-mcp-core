@@ -12,6 +12,7 @@ import types
 
 import pytest
 
+import dcc_mcp_core._install_lifecycle_readiness as readiness_lifecycle
 import dcc_mcp_core._install_lifecycle_sidecar as sidecar_lifecycle
 import dcc_mcp_core.install_lifecycle as lifecycle
 
@@ -275,6 +276,125 @@ def test_query_runtime_state_surfaces_unavailable_sidecar_dispatch(tmp_path: Pat
     assert entry["failure_reason"] == "host-rpc connect failed"
 
 
+def test_sidecar_readiness_status_reports_ready_entry(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    registry.mkdir()
+    (registry / "services.json").write_text(
+        json.dumps(
+            [
+                {
+                    "dcc_type": "maya",
+                    "instance_id": "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
+                    "host": "127.0.0.1",
+                    "port": 18812,
+                    "pid": os.getpid(),
+                    "metadata": {
+                        "dcc_mcp_role": "per-dcc-sidecar",
+                        "sidecar_pid": str(os.getpid()),
+                        "mcp_url": "http://127.0.0.1:18812/mcp",
+                        "host_rpc_uri": "commandport://127.0.0.1:6000",
+                        "dispatch_status": "ready",
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = lifecycle.sidecar_readiness_status(
+        registry,
+        dcc_type="maya",
+        instance_id="aaaaaaaa",
+        host_rpc="commandport://127.0.0.1:6000",
+    )
+
+    assert result["success"] is True
+    assert result["status"] == "ready"
+    assert result["ready"] is True
+    assert result["entry"]["mcp_url"] == "http://127.0.0.1:18812/mcp"
+
+
+def test_sidecar_readiness_status_reports_unavailable_failure(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    registry.mkdir()
+    (registry / "services.json").write_text(
+        json.dumps(
+            [
+                {
+                    "dcc_type": "maya",
+                    "instance_id": "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
+                    "host": "127.0.0.1",
+                    "port": 0,
+                    "pid": os.getpid(),
+                    "metadata": {
+                        "dcc_mcp_role": "per-dcc-sidecar",
+                        "sidecar_pid": str(os.getpid()),
+                        "host_rpc_uri": "commandport://127.0.0.1:6000",
+                        "dispatch_status": "unavailable",
+                        "failure_stage": "host-rpc-connect",
+                        "failure_reason": "connection refused",
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = lifecycle.sidecar_readiness_status(registry, dcc_type="maya")
+
+    assert result["success"] is False
+    assert result["status"] == "unavailable"
+    assert result["failure_stage"] == "host-rpc-connect"
+    assert result["failure_reason"] == "connection refused"
+    assert "host RPC bridge" in result["recommended_next_action"]
+
+
+def test_sidecar_readiness_status_reports_missing_selector(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    registry.mkdir()
+    (registry / "services.json").write_text("[]", encoding="utf-8")
+
+    result = lifecycle.sidecar_readiness_status(registry, dcc_type="houdini")
+
+    assert result["success"] is False
+    assert result["status"] == "missing"
+    assert result["selector"]["dcc_type"] == "houdini"
+    assert result["entries"] == []
+
+
+def test_wait_for_sidecar_ready_polls_until_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    responses = iter(
+        [
+            {"success": False, "status": "missing", "ready": False},
+            {"success": False, "status": "booting", "ready": False},
+            {"success": True, "status": "ready", "ready": True},
+        ]
+    )
+    monkeypatch.setattr(readiness_lifecycle, "sidecar_readiness_status", lambda *args, **kwargs: next(responses))
+    monkeypatch.setattr(readiness_lifecycle.time, "sleep", lambda _secs: None)
+
+    result = lifecycle.wait_for_sidecar_ready(timeout_secs=5.0, poll_interval_secs=0.05)
+
+    assert result["success"] is True
+    assert result["status"] == "ready"
+    assert result["elapsed_secs"] >= 0
+
+
+def test_wait_for_sidecar_ready_returns_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        readiness_lifecycle,
+        "sidecar_readiness_status",
+        lambda *args, **kwargs: {"success": False, "status": "booting", "ready": False},
+    )
+    monkeypatch.setattr(readiness_lifecycle.time, "sleep", lambda _secs: None)
+
+    result = lifecycle.wait_for_sidecar_ready(timeout_secs=0.0, poll_interval_secs=0.05)
+
+    assert result["success"] is False
+    assert result["status"] == "timeout"
+    assert result["last_status"] == "booting"
+
+
 def test_stop_runtime_entries_does_not_kill_host_by_default(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -525,6 +645,68 @@ print(json.dumps({"core_loaded": "dcc_mcp_core._core" in sys.modules, "exit_code
     assert payload["success"] is True
     assert payload["command"][:2] == ["dcc-mcp-server-test", "sidecar"]
     assert payload["dcc_type"] == "photoshop"
+    assert trailer == {"core_loaded": False, "exit_code": 0}
+
+
+def test_module_cli_sidecar_ready_returns_json_without_loading_core(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    registry.mkdir()
+    (registry / "services.json").write_text(
+        json.dumps(
+            [
+                {
+                    "dcc_type": "maya",
+                    "instance_id": "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
+                    "host": "127.0.0.1",
+                    "port": 18812,
+                    "pid": os.getpid(),
+                    "metadata": {
+                        "dcc_mcp_role": "per-dcc-sidecar",
+                        "sidecar_pid": str(os.getpid()),
+                        "mcp_url": "http://127.0.0.1:18812/mcp",
+                        "dispatch_status": "ready",
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    script = """
+import json
+import runpy
+import sys
+
+sys.argv = [
+    "dcc_mcp_core.install_lifecycle",
+    "sidecar-ready",
+    "--dcc",
+    "maya",
+    "--registry-dir",
+    sys.argv[1],
+]
+try:
+    runpy.run_module("dcc_mcp_core.install_lifecycle", run_name="__main__")
+except SystemExit as exc:
+    code = exc.code
+else:
+    code = 0
+print(json.dumps({"core_loaded": "dcc_mcp_core._core" in sys.modules, "exit_code": code}))
+"""
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(REPO_ROOT / "python")
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(registry)],
+        cwd=str(REPO_ROOT),
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload, end = json.JSONDecoder().raw_decode(result.stdout)
+    trailer = json.loads(result.stdout[end:].strip())
+
+    assert payload["success"] is True
+    assert payload["status"] == "ready"
     assert trailer == {"core_loaded": False, "exit_code": 0}
 
 

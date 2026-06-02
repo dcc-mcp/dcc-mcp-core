@@ -28,6 +28,8 @@ from typing import Union
 from ._install_lifecycle_process import entry_runtime_alive as _entry_runtime_alive
 from ._install_lifecycle_process import is_windows_lock_error as _is_windows_lock_error
 from ._install_lifecycle_process import terminate_pid as _terminate_pid
+from ._install_lifecycle_readiness import sidecar_readiness_status
+from ._install_lifecycle_readiness import wait_for_sidecar_ready
 from ._install_lifecycle_sidecar import build_sidecar_command
 from ._install_lifecycle_sidecar import launch_sidecar
 
@@ -87,7 +89,9 @@ __all__ = [
     "resolve_deployment_layout",
     "safe_remove_tree",
     "safe_replace_tree",
+    "sidecar_readiness_status",
     "stop_runtime_entries",
+    "wait_for_sidecar_ready",
 ]
 
 
@@ -819,6 +823,14 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     _add_sidecar_launch_args(launch)
     launch.add_argument("--foreground", action="store_true", help="Do not detach the sidecar on Windows.")
 
+    ready = sub.add_parser("sidecar-ready", help="Check per-DCC sidecar dispatch readiness.")
+    ready.add_argument("--registry-dir")
+    ready.add_argument("--dcc-type", "--dcc", dest="dcc_type")
+    ready.add_argument("--instance-id")
+    ready.add_argument("--host-rpc")
+    ready.add_argument("--timeout-secs", type=float, default=0.0)
+    ready.add_argument("--poll-interval-secs", type=float, default=0.25)
+
     plan = sub.add_parser("plan-update", help="Plan restart actions for mixed runtime versions.")
     plan.add_argument("--registry-dir")
     plan.add_argument("--dcc-type")
@@ -877,6 +889,26 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             launch_sidecar(
                 **_sidecar_launch_kwargs(args),
                 detached=not args.foreground,
+            )
+        )
+    if args.command == "sidecar-ready":
+        if args.timeout_secs > 0:
+            return _print_json(
+                wait_for_sidecar_ready(
+                    args.registry_dir,
+                    dcc_type=args.dcc_type,
+                    instance_id=args.instance_id,
+                    host_rpc=args.host_rpc,
+                    timeout_secs=args.timeout_secs,
+                    poll_interval_secs=args.poll_interval_secs,
+                )
+            )
+        return _print_json(
+            sidecar_readiness_status(
+                args.registry_dir,
+                dcc_type=args.dcc_type,
+                instance_id=args.instance_id,
+                host_rpc=args.host_rpc,
             )
         )
     if args.command == "plan-update":
