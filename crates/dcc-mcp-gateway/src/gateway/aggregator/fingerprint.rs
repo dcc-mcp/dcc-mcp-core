@@ -1,4 +1,5 @@
 use super::super::http_registration::entry_mcp_url;
+use super::helpers::is_fingerprint_eligible_instance;
 use super::*;
 
 /// Compute a fingerprint of the aggregated tool list across every live backend.
@@ -53,18 +54,11 @@ pub(crate) async fn compute_tools_fingerprint_with_own(
             .into_iter()
             .filter(|e| {
                 !e.is_stale(stale_timeout)
-                    && e.dcc_type != super::GATEWAY_SENTINEL_DCC_TYPE
-                    && !matches!(
-                        e.status,
-                        dcc_mcp_transport::discovery::types::ServiceStatus::ShuttingDown
-                            | dcc_mcp_transport::discovery::types::ServiceStatus::Unreachable
-                            | dcc_mcp_transport::discovery::types::ServiceStatus::Booting
-                    )
+                    && is_fingerprint_eligible_instance(e)
                     && match own_host {
                         Some(h) => !super::super::is_own_instance(e, h, own_port),
                         None => true,
                     }
-                    && !e.dcc_type.eq_ignore_ascii_case("unknown")
             })
             .collect()
     };
