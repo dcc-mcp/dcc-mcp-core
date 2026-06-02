@@ -99,8 +99,10 @@ async fn spawn_dedicated(
     shutdown_tx: watch::Sender<bool>,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> HttpResult<(Option<JoinHandle<()>>, Option<std::thread::JoinHandle<()>>)> {
-    let rebind_addr = actual_bind.clone();
-    drop(listener);
+    let std_listener = listener.into_std().map_err(|err| HttpError::BindFailed {
+        addr: actual_bind.clone(),
+        source: err,
+    })?;
 
     let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<Result<(), std::io::Error>>(1);
     let self_probe_timeout_ms = config.server.self_probe_timeout_ms;
@@ -122,7 +124,7 @@ async fn spawn_dedicated(
                 }
             };
             runtime.block_on(async move {
-                let listener = match TcpListener::bind(&rebind_addr).await {
+                let listener = match TcpListener::from_std(std_listener) {
                     Ok(listener) => listener,
                     Err(err) => {
                         let _ = ready_tx.send(Err(err));
