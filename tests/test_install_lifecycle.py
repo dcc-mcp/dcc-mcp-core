@@ -16,6 +16,7 @@ import types
 import pytest
 
 import dcc_mcp_core._install_lifecycle_readiness as readiness_lifecycle
+import dcc_mcp_core._install_lifecycle_runtime as runtime_lifecycle
 import dcc_mcp_core._install_lifecycle_sidecar as sidecar_lifecycle
 import dcc_mcp_core.install_lifecycle as lifecycle
 
@@ -263,6 +264,7 @@ def test_query_runtime_state_reads_sidecar_pid(tmp_path: Path) -> None:
                         "host_rpc_uri": "commandport://127.0.0.1:6000",
                         "host_rpc_scheme": "commandport",
                         "dispatch_status": "ready",
+                        "dispatch_ready_at_unix": "1800000000",
                     },
                 },
                 {
@@ -290,6 +292,52 @@ def test_query_runtime_state_reads_sidecar_pid(tmp_path: Path) -> None:
     assert result["entries"][0]["host_rpc_scheme"] == "commandport"
     assert result["entries"][0]["dispatch_status"] == "ready"
     assert result["entries"][0]["dispatch_ready"] is True
+    assert result["entries"][0]["dispatch"] == {
+        "reported": True,
+        "status": "ready",
+        "ready": True,
+        "ready_at_unix": "1800000000",
+        "host_rpc_uri": "commandport://127.0.0.1:6000",
+        "host_rpc_scheme": "commandport",
+        "failure_stage": None,
+        "failure_reason": None,
+    }
+
+
+def test_query_runtime_state_marks_missing_dispatch_not_reported(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    registry.mkdir()
+    (registry / "services.json").write_text(
+        json.dumps(
+            [
+                {
+                    "dcc_type": "photoshop",
+                    "instance_id": "22222222-2222-2222-2222-222222222222",
+                    "host": "127.0.0.1",
+                    "port": 18813,
+                    "pid": os.getpid(),
+                    "metadata": {},
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = lifecycle.query_runtime_state(registry, dcc_type="photoshop")
+
+    assert result["total"] == 1
+    assert result["entries"][0]["dispatch_status"] is None
+    assert result["entries"][0]["dispatch_ready"] is False
+    assert result["entries"][0]["dispatch"] == {
+        "reported": False,
+        "status": "not_reported",
+        "ready": None,
+        "ready_at_unix": None,
+        "host_rpc_uri": None,
+        "host_rpc_scheme": None,
+        "failure_stage": None,
+        "failure_reason": None,
+    }
 
 
 def test_query_runtime_state_surfaces_unavailable_sidecar_dispatch(tmp_path: Path) -> None:
@@ -328,6 +376,16 @@ def test_query_runtime_state_surfaces_unavailable_sidecar_dispatch(tmp_path: Pat
     assert entry["mcp_url"] is None
     assert entry["failure_stage"] == "host-rpc-connect"
     assert entry["failure_reason"] == "host-rpc connect failed"
+    assert entry["dispatch"] == {
+        "reported": True,
+        "status": "unavailable",
+        "ready": False,
+        "ready_at_unix": None,
+        "host_rpc_uri": "commandport://127.0.0.1:6000",
+        "host_rpc_scheme": "commandport",
+        "failure_stage": "host-rpc-connect",
+        "failure_reason": "host-rpc connect failed",
+    }
 
 
 def test_sidecar_readiness_status_reports_ready_entry(tmp_path: Path) -> None:
@@ -606,7 +664,7 @@ def test_stop_runtime_entries_does_not_kill_host_by_default(
         encoding="utf-8",
     )
     killed = []
-    monkeypatch.setattr(lifecycle, "_entry_runtime_alive", lambda _sentinel, _pid: True)
+    monkeypatch.setattr(runtime_lifecycle, "_entry_runtime_alive", lambda _sentinel, _pid: True)
     monkeypatch.setattr(lifecycle.os, "kill", lambda pid, sig: killed.append((pid, sig)))
 
     result = lifecycle.stop_runtime_entries(registry, dcc_type="zbrush")
