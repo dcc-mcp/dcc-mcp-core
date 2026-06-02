@@ -70,6 +70,16 @@ gateway daemon unless `no_ensure_gateway=True`, and exits when `watch_pid`
 dies. Use `build_sidecar_command()` instead when the adapter wants to hand the
 argv list to a studio process supervisor:
 
+Registration is not the same thing as dispatch readiness. The generic sidecar
+only becomes callable after its `--host-rpc` URI resolves to a supported
+`HostRpcClient`, that client connects to the DCC, and the sidecar publishes
+`metadata.dispatch_status=ready` plus a live `metadata.mcp_url` in the registry
+row. Startup failures keep the row visible for operators but mark
+`metadata.dispatch_status=unavailable` with `failure_stage` / `failure_reason`
+metadata. Adapter plugins must still expose a real host RPC bridge to their
+DCC dispatcher or skills; `launch_sidecar()` only launches and supervises the
+sidecar process.
+
 ```python
 from dcc_mcp_core.install_lifecycle import build_sidecar_command
 
