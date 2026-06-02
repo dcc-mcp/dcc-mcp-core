@@ -69,7 +69,12 @@ default. The child runs `dcc-mcp-server sidecar`, registers a
 gateway daemon and keeps a lightweight guardian unless `no_ensure_gateway=True`
 or `legacy_gateway_election=True`, and exits when `watch_pid` dies. Use
 `build_sidecar_command()` instead when the adapter wants to hand the argv list
-to a studio process supervisor:
+to a studio process supervisor. Both helpers include `readiness_selector`,
+`readiness_argv`, and `readiness_command` so installers can run the matching
+import-light readiness check without re-deriving registry paths or host RPC
+filters. `readiness_command` uses `DCC_MCP_PYTHON_EXECUTABLE` when it is set;
+otherwise prefer `readiness_argv` if the DCC's `sys.executable` is a GUI host
+binary rather than a Python command-line executable.
 
 The Rust implementation of that child lives in the `dcc-mcp-sidecar` crate.
 Adapter launch helpers intentionally keep emitting the stable
@@ -116,6 +121,26 @@ ready = wait_for_sidecar_ready(
     probe_tool="houdini_diagnostics__ping",
 )
 ```
+
+When the startup hook is already running on a background thread or inside an
+installer/supervisor, `launch_sidecar()` can perform the same bounded check in
+one call:
+
+```python
+result = launch_sidecar(
+    dcc_type="maya",
+    host_rpc="commandport://127.0.0.1:6000",
+    watch_pid=current_dcc_pid,
+    wait_ready_timeout_secs=5,
+    probe_tool="maya_diagnostics__ping",
+)
+ready = result.get("readiness", {})
+```
+
+Leaving `wait_ready_timeout_secs` unset preserves the non-blocking startup
+contract. Pass `extra_args=[...]` only for deliberate sidecar flags not yet
+modeled by the helper; for CLI values that start with `--`, use
+`--extra-sidecar-arg=--flag-name`.
 
 Use `sidecar_readiness_status()` for a one-shot verdict (`ready`, `missing`,
 `booting`, `unavailable`, or `dead`) and `wait_for_sidecar_ready()` from an
