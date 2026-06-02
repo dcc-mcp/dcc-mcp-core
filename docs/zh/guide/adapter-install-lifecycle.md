@@ -73,12 +73,22 @@ release asset 不需要改成新的二进制名称。
 `--host-rpc` URI 命中已支持的 `HostRpcClient`、该 client 成功连接到 DCC、
 并且 registry 行发布 `metadata.dispatch_status=ready` 与可用
 `metadata.mcp_url` 后才可调用。启动失败时，row 仍会保留供运维排障，
-但会标记 `metadata.dispatch_status=unavailable`，并写入
-`failure_stage` / `failure_reason`。Gateway `GET /v1/readyz` 也会在每个
-instance row 中镜像 `dispatch`，并提供 dispatch-ready 计数，因此 launcher
-可以区分“DCC 进程已列出”和“sidecar dispatcher 真的可调用”。适配器插件仍然
-必须暴露真正连接到 DCC dispatcher 或 skills 的 host RPC bridge；
-`launch_sidecar()` 只负责启动与守护 sidecar 进程。
+但会标记 `metadata.dispatch_status=unavailable`，并写入 `failure_stage` /
+`failure_reason`，也可能继续发布 `metadata.mcp_url` 作为结构化诊断端点。
+在 `dispatch_status=ready` 之前，不要把这个 URL 当作可路由端点：它的
+`/v1/readyz` 会返回 dispatcher false，`tools/call` 会返回启动失败的
+transport-error envelope。Gateway `GET /v1/readyz` 也会在每个 instance row
+中镜像 `dispatch`，并提供 dispatch-ready 计数，因此 launcher 可以区分
+“DCC 进程已列出”和“sidecar dispatcher 真的可调用”。
+
+对于 `commandport://`、`qtserver://` 和 `ws://` 这类受支持的真实 host RPC
+scheme，只要父 DCC 进程仍然存活，sidecar 会持续重试；当 DCC 侧 bridge
+后续接受连接时，同一个 listener 会替换为已连接 dispatcher，并把 registry
+row 提升为 `dispatch_status=ready`。适配器插件仍然必须暴露真正连接到 DCC
+dispatcher 或 skills 的 host RPC bridge；`launch_sidecar()` 只负责启动与
+守护 sidecar 进程。`stub://` 只用于测试和占位实验：即使 stub transport
+可以“连接”，sidecar 默认仍会保持 `dispatch_status=unavailable`，适配器不应
+用它证明启动 ready。
 
 ```python
 from dcc_mcp_core.install_lifecycle import build_sidecar_command

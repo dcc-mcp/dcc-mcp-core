@@ -90,6 +90,16 @@ impl SidecarMcpState {
         let guard = self.host_rpc.lock().await;
         guard.close().await;
     }
+
+    /// Replace the dispatcher behind the already-bound MCP listener.
+    ///
+    /// Used by the sidecar lifecycle when the DCC host RPC endpoint appears
+    /// after the sidecar has already started with a diagnostic placeholder.
+    pub async fn replace_host_rpc(&self, host_rpc: Box<dyn HostRpcClient>) {
+        let mut guard = self.host_rpc.lock().await;
+        guard.close().await;
+        *guard = host_rpc;
+    }
 }
 
 /// Handle returned by [`spawn_listener`].

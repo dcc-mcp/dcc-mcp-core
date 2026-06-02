@@ -611,6 +611,54 @@ def test_wait_for_sidecar_ready_polls_until_ready(monkeypatch: pytest.MonkeyPatc
     assert result["elapsed_secs"] >= 0
 
 
+def test_wait_for_sidecar_ready_polls_retryable_unavailable_until_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = iter(
+        [
+            {
+                "success": False,
+                "status": "unavailable",
+                "ready": False,
+                "failure_stage": "host-rpc-connect",
+                "entry": {"host_rpc_scheme": "commandport"},
+            },
+            {"success": True, "status": "ready", "ready": True},
+        ]
+    )
+    monkeypatch.setattr(readiness_lifecycle, "sidecar_readiness_status", lambda *args, **kwargs: next(responses))
+    monkeypatch.setattr(readiness_lifecycle.time, "sleep", lambda _secs: None)
+
+    result = lifecycle.wait_for_sidecar_ready(timeout_secs=5.0, poll_interval_secs=0.05)
+
+    assert result["success"] is True
+    assert result["status"] == "ready"
+
+
+def test_wait_for_sidecar_ready_returns_non_retryable_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    def fake_status(*args: object, **kwargs: object) -> dict:
+        calls.append((args, kwargs))
+        return {
+            "success": False,
+            "status": "unavailable",
+            "ready": False,
+            "failure_stage": "host-rpc-scheme",
+            "entry": {"host_rpc_scheme": "stub"},
+        }
+
+    monkeypatch.setattr(readiness_lifecycle, "sidecar_readiness_status", fake_status)
+    monkeypatch.setattr(readiness_lifecycle.time, "sleep", lambda _secs: None)
+
+    result = lifecycle.wait_for_sidecar_ready(timeout_secs=5.0, poll_interval_secs=0.05)
+
+    assert result["status"] == "unavailable"
+    assert len(calls) == 1
+
+
 def test_wait_for_sidecar_ready_polls_probe_failure_until_success(monkeypatch: pytest.MonkeyPatch) -> None:
     responses = iter(
         [

@@ -171,6 +171,34 @@ pub(crate) fn mark_sidecar_boot_failure(
     Ok(())
 }
 
+pub(crate) fn mark_sidecar_dispatch_ready(
+    registry: &Arc<FileRegistry>,
+    key: &ServiceKey,
+) -> anyhow::Result<()> {
+    let Some(mut entry) = registry.get(key) else {
+        anyhow::bail!("registry row vanished before sidecar dispatch-ready update")
+    };
+    entry.status = ServiceStatus::Available;
+    entry.metadata.insert(
+        DISPATCH_STATUS_METADATA_KEY.to_string(),
+        DISPATCH_STATUS_READY.to_string(),
+    );
+    entry.metadata.insert(
+        DISPATCH_READY_AT_UNIX_METADATA_KEY.to_string(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            .to_string(),
+    );
+    entry.metadata.remove(FAILURE_REASON_METADATA_KEY);
+    entry.metadata.remove(FAILURE_STAGE_METADATA_KEY);
+    entry.metadata.remove(FAILURE_AT_UNIX_METADATA_KEY);
+    registry.deregister(key)?;
+    registry.register(entry)?;
+    Ok(())
+}
+
 #[cfg(feature = "gateway-daemon")]
 fn sidecar_gateway_runtime_mode(args: &SidecarArgs) -> &'static str {
     if args.gateway_port == 0 {
