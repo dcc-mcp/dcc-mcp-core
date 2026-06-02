@@ -219,7 +219,7 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
 
     #[cfg(feature = "gateway-daemon")]
     let gateway_guardian_handle = {
-        let gateway_daemon_options = if args.gateway_port > 0 && !args.no_ensure_gateway {
+        let gateway_daemon_options = if should_use_gateway_daemon(&args) {
             Some(build_gateway_daemon_options(&args, registry_dir.clone()))
         } else {
             None
@@ -575,6 +575,10 @@ fn build_gateway_daemon_options(
 
 #[cfg(feature = "gateway-daemon")]
 fn should_start_gateway_daemon_guardian(args: &SidecarArgs) -> bool {
+    should_use_gateway_daemon(args)
+}
+
+fn should_use_gateway_daemon(args: &SidecarArgs) -> bool {
     args.gateway_port > 0 && !args.no_ensure_gateway && !args.legacy_gateway_election
 }
 
@@ -798,8 +802,12 @@ mod tests {
     fn gateway_daemon_guardian_runs_only_in_daemon_backed_mode() {
         let mut args = guardian_test_args();
         assert!(
+            should_use_gateway_daemon(&args),
+            "default sidecar mode should ensure the daemon"
+        );
+        assert!(
             should_start_gateway_daemon_guardian(&args),
-            "default sidecar mode should keep a daemon guardian alive"
+            "default sidecar mode should keep a guardian alive"
         );
 
         args.gateway_port = 0;
@@ -818,8 +826,12 @@ mod tests {
         args.no_ensure_gateway = false;
         args.legacy_gateway_election = true;
         assert!(
+            !should_use_gateway_daemon(&args),
+            "legacy embedded election must not auto-launch a standalone daemon"
+        );
+        assert!(
             !should_start_gateway_daemon_guardian(&args),
-            "legacy embedded election already owns its own probe loop"
+            "legacy embedded election must not keep a daemon guardian alive"
         );
     }
 
