@@ -104,13 +104,16 @@ pub struct LiveSnapshot {
     pub documents: Vec<String>,
     /// Human-readable instance label (e.g. `"PS-Marketing"`).
     pub display_name: Option<String>,
+    /// Arbitrary string metadata to merge into the FileRegistry row.
+    pub metadata: HashMap<String, String>,
 }
 
 /// Closure type for supplying live instance metadata to the heartbeat task.
 ///
 /// Called on every heartbeat tick; the returned [`LiveSnapshot`] is written
 /// to `FileRegistry` via `update_documents` (when `documents` is non-empty)
-/// or `update_metadata` (single-document DCCs).
+/// or `update_metadata` (single-document DCCs), plus `update_instance_metadata`
+/// when arbitrary string metadata is present.
 pub type MetadataProvider = Arc<dyn Fn() -> LiveSnapshot + Send + Sync>;
 
 use tokio::sync::{RwLock, broadcast, watch};

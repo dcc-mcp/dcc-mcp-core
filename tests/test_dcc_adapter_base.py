@@ -352,8 +352,14 @@ class _FakeHandle:
     is_gateway = False
     instance_id = "fake-id-001"
 
+    def __init__(self):
+        self.gateway_metadata_updates = []
+
     def mcp_url(self):
         return f"http://127.0.0.1:{self.port}/mcp"
+
+    def update_gateway_metadata(self, metadata):
+        self.gateway_metadata_updates.append(dict(metadata))
 
     def shutdown(self):
         pass
@@ -367,6 +373,17 @@ class _FakeConfig:
     registry_dir = ""
     dcc_version = ""
     scene = ""
+
+    def __init__(self):
+        self._instance_metadata = {}
+
+    @property
+    def instance_metadata(self):
+        return dict(self._instance_metadata)
+
+    @instance_metadata.setter
+    def instance_metadata(self, metadata):
+        self._instance_metadata = dict(metadata)
 
 
 class TestDccServerBase:
@@ -604,9 +621,19 @@ class TestDccServerBase:
 
         assert started["election"] == 0
         assert server.get_gateway_election_status()["gateway_runtime_mode"] == "daemon-backed"
+        assert server._config.instance_metadata["gateway_runtime_mode"] == "daemon-backed"
+        assert server._config.instance_metadata["gateway_guardian_enabled"] == "true"
+        assert server._handle.gateway_metadata_updates[-1] == {
+            "gateway_runtime_mode": "daemon-backed",
+            "gateway_guardian_enabled": "true",
+        }
         assert len(guardians) == 1
         assert guardians[0].started is True
         assert server.get_gateway_election_status()["gateway_daemon_status"]["reason"] == "guardian_started"
+
+        server.stop()
+        assert server._config.instance_metadata["gateway_guardian_enabled"] == "false"
+        assert server._server._handle.gateway_metadata_updates[-1]["gateway_guardian_enabled"] == "false"
 
     def test_gateway_election_start_failure_clears_runtime_state(self, tmp_path, monkeypatch):
         server = self._make_server(tmp_path)
