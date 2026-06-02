@@ -76,6 +76,13 @@ filters. `readiness_command` uses `DCC_MCP_PYTHON_EXECUTABLE` when it is set;
 otherwise prefer `readiness_argv` if the DCC's `sys.executable` is a GUI host
 binary rather than a Python command-line executable.
 
+Both helpers also return a `dispatch_contract` object describing the host RPC
+scheme, whether it is test-only, and whether it can ever become
+dispatch-ready. Pass `require_dispatch_capable=True` (or CLI
+`--require-dispatch-capable`) when installer or startup code must fail fast
+before a non-callable sidecar is spawned. The default remains permissive so
+unsupported schemes can still register a diagnostic row for operators.
+
 The Rust implementation of that child lives in the `dcc-mcp-sidecar` crate.
 Adapter launch helpers intentionally keep emitting the stable
 `dcc-mcp-server sidecar` command so existing installers and release assets do
@@ -118,6 +125,7 @@ contract = build_sidecar_command(
     host_rpc="qtserver://127.0.0.1:7001",
     watch_pid=current_dcc_pid,
     registry_dir=r"C:\dcc-mcp\registry",
+    require_dispatch_capable=True,
 )
 command = contract["command"]
 env_updates = contract["environment"]["set"]
