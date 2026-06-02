@@ -112,6 +112,7 @@ while the backend is alive so the daemon can be re-ensured after a crash.
 | `dcc-mcp-server serve` | Per-DCC MCP server. | Ensures the standalone gateway daemon, then registers as a backend. |
 | `dcc-mcp-server serve --no-auto-gateway` | Per-DCC MCP server only. | Registers/serves tools but never ensures or binds the gateway port. |
 | `dcc-mcp-server auto --legacy-gateway-election` | Legacy embedded gateway mode. | The per-DCC process competes for the gateway port directly. |
+| `dcc-mcp-server translate` | External stdio MCP bridge. | Ensures the standalone gateway daemon and registers the bridge as a backend unless `--no-register` is set. |
 | `dcc-mcp-server gateway` | Machine-wide gateway daemon. | Hosts discovery, routing, resources/prompts, admin, and audit without running DCC tools inline. |
 
 `auto` and `serve` share the server flags below. `gateway` has its own smaller
@@ -226,6 +227,10 @@ dcc-mcp-server auto --app maya --server-name maya-shotgun-alpha \
 # 4) Workstation-wide gateway daemon.
 dcc-mcp-server gateway --host 127.0.0.1 --port 9765 \
                        --registry-dir /var/lib/dcc-mcp
+
+# 5) Bridge an external stdio MCP server behind the same daemon gateway.
+dcc-mcp-server translate --stdio "uvx mcp-server-git" \
+                         --app-type git --port 0
 ```
 
 ---
