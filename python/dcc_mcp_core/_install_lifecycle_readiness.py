@@ -363,7 +363,7 @@ def _json_loads(value: str) -> Any:
 
 
 def _query_runtime_state(*args: Any, **kwargs: Any) -> Dict[str, Any]:
-    from .install_lifecycle import query_runtime_state
+    from ._install_lifecycle_runtime import query_runtime_state
 
     return query_runtime_state(*args, **kwargs)
 

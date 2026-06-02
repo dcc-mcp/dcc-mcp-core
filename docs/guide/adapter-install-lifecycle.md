@@ -171,8 +171,11 @@ stop = stop_runtime_entries(dcc_type="3dsmax")
 
 For sidecars, each normalized entry exposes `dispatch_status`,
 `dispatch_ready`, `host_rpc_uri`, `host_rpc_scheme`, `failure_stage`, and
-`failure_reason` at the top level. Startup hooks can poll
-`dispatch_ready=True` after `launch_sidecar()` without importing `_core`.
+`failure_reason` at the top level for compatibility. New installer and
+startup-hook code can read the same contract from the nested `dispatch` object
+(`reported`, `status`, `ready`, `ready_at_unix`, `host_rpc_uri`,
+`host_rpc_scheme`, `failure_stage`, and `failure_reason`). Startup hooks can
+poll `dispatch.ready=True` after `launch_sidecar()` without importing `_core`.
 Gateway Admin exposes the same sidecar readiness contract on
 `GET /admin/api/workers` as `dispatch_status`, `dispatch_ready`,
 `host_rpc_uri`, `host_rpc_scheme`, `failure_stage`, and `failure_reason`, so

@@ -121,8 +121,11 @@ stop = stop_runtime_entries(dcc_type="3dsmax")
 
 对于 sidecar，标准化后的每个 entry 会在顶层暴露 `dispatch_status`、
 `dispatch_ready`、`host_rpc_uri`、`host_rpc_scheme`、`failure_stage` 和
-`failure_reason`。启动钩子可以在 `launch_sidecar()` 后轮询
-`dispatch_ready=True`，且无需导入 `_core`。Gateway Admin 也会在
+`failure_reason`，以兼容既有调用方。新的安装器和启动钩子也可以读取
+嵌套的 `dispatch` 对象（`reported`、`status`、`ready`、
+`ready_at_unix`、`host_rpc_uri`、`host_rpc_scheme`、`failure_stage` 和
+`failure_reason`）。启动钩子可以在 `launch_sidecar()` 后轮询
+`dispatch.ready=True`，且无需导入 `_core`。Gateway Admin 也会在
 `GET /admin/api/workers` 中暴露同一组 sidecar readiness 字段：
 `dispatch_status`、`dispatch_ready`、`host_rpc_uri`、`host_rpc_scheme`、
 `failure_stage` 和 `failure_reason`，方便运维区分“已注册但不可调用”
