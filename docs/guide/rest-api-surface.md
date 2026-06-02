@@ -778,7 +778,11 @@ registry view. Besides `live_instance_count`, `ready_instance_count`, and
 instance row also includes the same nested `dispatch` object exposed by
 `GET /v1/instances`. Use those dispatch counters for sidecar-driven adapters:
 they distinguish "the DCC process is listed" from "the sidecar dispatcher is
-actually callable".
+actually callable". The same response includes the per-instance `gateway`
+object plus `gateway_recovery_driver_counts`, `registration_refresh_mode_counts`,
+`gateway_daemon_guardian_instance_count`, and `gateway_daemon_guardian_ready`.
+Those fields let launchers and admin panels answer whether at least one live DCC
+service can restart the machine-wide gateway daemon.
 
 Per-DCC `/v1/readyz` endpoints use the readiness states below:
 

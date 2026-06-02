@@ -351,6 +351,19 @@ async fn gateway_readyz_summarises_instance_readiness_bits() {
     entry
         .metadata
         .insert("dispatch_ready_at_unix".into(), "1800000000".into());
+    entry
+        .metadata
+        .insert("gateway_runtime_mode".into(), "daemon-backed".into());
+    entry
+        .metadata
+        .insert("gateway_guardian_enabled".into(), "true".into());
+    entry
+        .metadata
+        .insert("gateway_recovery_driver".into(), "daemon_guardian".into());
+    entry.metadata.insert(
+        "registration_refresh_mode".into(),
+        "file_registry_heartbeat".into(),
+    );
     let mut unavailable_dispatch = ServiceEntry::new("houdini", "127.0.0.1", 18813);
     unavailable_dispatch.instance_id =
         uuid::Uuid::parse_str("12345678-2345-6789-abcd-ef0123456789").unwrap();
@@ -364,6 +377,9 @@ async fn gateway_readyz_summarises_instance_readiness_bits() {
     unavailable_dispatch
         .metadata
         .insert("failure_stage".into(), "host-rpc-connect".into());
+    unavailable_dispatch
+        .metadata
+        .insert("gateway_runtime_mode".into(), "embedded-fallback".into());
     {
         let registry = gs.registry.read().await;
         registry.register(entry.clone()).unwrap();
@@ -390,6 +406,17 @@ async fn gateway_readyz_summarises_instance_readiness_bits() {
     assert_eq!(body["dispatch_reported_instance_count"], 2);
     assert_eq!(body["dispatch_ready_instance_count"], 1);
     assert_eq!(body["dispatch_not_ready_instance_count"], 1);
+    assert_eq!(body["gateway_recovery_driver_counts"]["daemon_guardian"], 1);
+    assert_eq!(
+        body["gateway_recovery_driver_counts"]["embedded_election"],
+        1
+    );
+    assert_eq!(
+        body["registration_refresh_mode_counts"]["file_registry_heartbeat"],
+        2
+    );
+    assert_eq!(body["gateway_daemon_guardian_instance_count"], 1);
+    assert_eq!(body["gateway_daemon_guardian_ready"], true);
     let instances = body["instances"].as_array().expect("instances array");
     let maya = instances
         .iter()
@@ -406,11 +433,21 @@ async fn gateway_readyz_summarises_instance_readiness_bits() {
     assert_eq!(maya["dispatch"]["status"], "ready");
     assert_eq!(maya["dispatch"]["ready"], true);
     assert_eq!(maya["dispatch"]["ready_at_unix"], "1800000000");
+    assert_eq!(maya["gateway"]["runtime_mode"], "daemon-backed");
+    assert_eq!(maya["gateway"]["guardian_enabled"], true);
+    assert_eq!(maya["gateway"]["recovery_driver"], "daemon_guardian");
+    assert_eq!(
+        maya["gateway"]["registration_refresh_mode"],
+        "file_registry_heartbeat"
+    );
     assert_eq!(houdini["readiness"], Value::Null);
     assert_eq!(houdini["dispatch"]["reported"], true);
     assert_eq!(houdini["dispatch"]["status"], "unavailable");
     assert_eq!(houdini["dispatch"]["ready"], false);
     assert_eq!(houdini["dispatch"]["failure_stage"], "host-rpc-connect");
+    assert_eq!(houdini["gateway"]["runtime_mode"], "embedded-fallback");
+    assert_eq!(houdini["gateway"]["guardian_enabled"], false);
+    assert_eq!(houdini["gateway"]["recovery_driver"], "embedded_election");
 }
 
 #[tokio::test]
@@ -468,6 +505,28 @@ async fn gateway_openapi_lists_gateway_routes_not_per_dcc_routes() {
             "gateway OpenAPI doc must not advertise per-DCC-only path {forbidden}: {doc:#}"
         );
     }
+    let readyz_properties = doc["components"]["schemas"]["GatewayReadyz"]["properties"]
+        .as_object()
+        .expect("GatewayReadyz properties");
+    for property in [
+        "dispatch_reported_instance_count",
+        "dispatch_ready_instance_count",
+        "dispatch_not_ready_instance_count",
+        "gateway_recovery_driver_counts",
+        "registration_refresh_mode_counts",
+        "gateway_daemon_guardian_instance_count",
+        "gateway_daemon_guardian_ready",
+    ] {
+        assert!(
+            readyz_properties.get(property).is_some(),
+            "GatewayReadyz schema missing {property}: {doc:#}"
+        );
+    }
+    let instance_properties = doc["components"]["schemas"]["GatewayInstance"]["properties"]
+        .as_object()
+        .expect("GatewayInstance properties");
+    assert!(instance_properties.get("dispatch").is_some());
+    assert!(instance_properties.get("gateway").is_some());
 }
 
 #[tokio::test]

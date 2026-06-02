@@ -486,6 +486,8 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
                     "source": {"type": "string", "enum": ["file", "http", "mdns", "relay"]},
                     "source_meta": {"type": "object", "additionalProperties": true},
                     "lifecycle": {"type": "object", "additionalProperties": true},
+                    "dispatch": {"type": "object", "additionalProperties": true},
+                    "gateway": {"type": "object", "additionalProperties": true},
                     "diagnostics": {"type": "object", "additionalProperties": true}
                 },
                 "additionalProperties": true,
@@ -576,7 +578,21 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
             "GatewayReadyz",
             json!({
                 "type": "object",
-                "required": ["ok", "checks", "live_instance_count", "ready_instance_count", "not_ready_instance_count", "instances"],
+                "required": [
+                    "ok",
+                    "checks",
+                    "live_instance_count",
+                    "ready_instance_count",
+                    "not_ready_instance_count",
+                    "dispatch_reported_instance_count",
+                    "dispatch_ready_instance_count",
+                    "dispatch_not_ready_instance_count",
+                    "gateway_recovery_driver_counts",
+                    "registration_refresh_mode_counts",
+                    "gateway_daemon_guardian_instance_count",
+                    "gateway_daemon_guardian_ready",
+                    "instances"
+                ],
                 "properties": {
                     "ok": {"type": "boolean"},
                     "checks": {
@@ -586,6 +602,19 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
                     "live_instance_count": {"type": "integer", "minimum": 0},
                     "ready_instance_count": {"type": "integer", "minimum": 0},
                     "not_ready_instance_count": {"type": "integer", "minimum": 0},
+                    "dispatch_reported_instance_count": {"type": "integer", "minimum": 0},
+                    "dispatch_ready_instance_count": {"type": "integer", "minimum": 0},
+                    "dispatch_not_ready_instance_count": {"type": "integer", "minimum": 0},
+                    "gateway_recovery_driver_counts": {
+                        "type": "object",
+                        "additionalProperties": {"type": "integer", "minimum": 0}
+                    },
+                    "registration_refresh_mode_counts": {
+                        "type": "object",
+                        "additionalProperties": {"type": "integer", "minimum": 0}
+                    },
+                    "gateway_daemon_guardian_instance_count": {"type": "integer", "minimum": 0},
+                    "gateway_daemon_guardian_ready": {"type": "boolean"},
                     "instances": {
                         "type": "array",
                         "items": {"$ref": "#/components/schemas/GatewayInstance"}
