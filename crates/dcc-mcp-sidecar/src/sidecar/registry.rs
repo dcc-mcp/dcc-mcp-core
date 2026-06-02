@@ -1,12 +1,12 @@
-//! FileRegistry row and metadata helpers for per-DCC sidecars.
-
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceKey, ServiceStatus};
 
-use crate::sidecar::SidecarArgs;
+use super::SidecarArgs;
+use super::gateway::{sidecar_gateway_guardian_enabled, sidecar_gateway_runtime_mode};
 
 /// FileRegistry `metadata` key used to tag sidecar rows.
 ///
@@ -31,57 +31,6 @@ pub(crate) const GATEWAY_GUARDIAN_ENABLED_METADATA_KEY: &str = "gateway_guardian
 pub(crate) const DISPATCH_STATUS_BOOTING: &str = "booting";
 pub(crate) const DISPATCH_STATUS_READY: &str = "ready";
 pub(crate) const DISPATCH_STATUS_UNAVAILABLE: &str = "unavailable";
-
-pub(crate) fn build_service_entry(args: &SidecarArgs) -> ServiceEntry {
-    // The sidecar starts as Booting with a placeholder port. Once the MCP
-    // listener binds, `republish_mcp_listener` swaps in the real endpoint. If
-    // the HostRpc connection fails, the row still gets a diagnostic MCP URL but
-    // stays Booting/unavailable so operators can diagnose it in Admin without
-    // making it routable.
-    let mut entry = ServiceEntry::new(&args.dcc, "127.0.0.1", 0).with_pid(args.watch_pid);
-    entry.status = ServiceStatus::Booting;
-
-    if let Some(uuid) = args.instance_id {
-        entry.instance_id = uuid;
-    }
-    if let Some(ref name) = args.display_name {
-        entry.display_name = Some(name.clone());
-    }
-    if let Some(ref ver) = args.adapter_version {
-        entry.adapter_version = Some(ver.clone());
-        entry.adapter_dcc = Some(args.dcc.clone());
-    }
-
-    entry.metadata.insert(
-        ROLE_METADATA_KEY.to_string(),
-        ROLE_PER_DCC_SIDECAR.to_string(),
-    );
-    entry
-        .metadata
-        .insert(HOST_RPC_URI_METADATA_KEY.to_string(), args.host_rpc.clone());
-    if let Ok(scheme) = dcc_mcp_host_rpc::parse_scheme(&args.host_rpc) {
-        entry
-            .metadata
-            .insert(HOST_RPC_SCHEME_METADATA_KEY.to_string(), scheme);
-    }
-    entry.metadata.insert(
-        DISPATCH_STATUS_METADATA_KEY.to_string(),
-        DISPATCH_STATUS_BOOTING.to_string(),
-    );
-    entry.metadata.insert(
-        GATEWAY_RUNTIME_MODE_METADATA_KEY.to_string(),
-        sidecar_gateway_runtime_mode(args).to_string(),
-    );
-    entry.metadata.insert(
-        GATEWAY_GUARDIAN_ENABLED_METADATA_KEY.to_string(),
-        sidecar_gateway_guardian_enabled(args).to_string(),
-    );
-    entry
-        .metadata
-        .insert("sidecar_pid".to_string(), std::process::id().to_string());
-
-    entry
-}
 
 /// Re-write the FileRegistry row with the live MCP URL once the listener is
 /// bound. The original `register()` call happens before the listener exists so
@@ -199,38 +148,81 @@ pub(crate) fn mark_sidecar_dispatch_ready(
     Ok(())
 }
 
-#[cfg(feature = "gateway-daemon")]
-fn sidecar_gateway_runtime_mode(args: &SidecarArgs) -> &'static str {
-    if args.gateway_port == 0 {
-        "not_configured"
-    } else if args.no_ensure_gateway {
-        "failover_disabled_by_adapter"
-    } else if args.legacy_gateway_election {
-        "embedded-fallback"
-    } else {
-        "daemon-backed"
+pub(crate) fn build_service_entry(args: &SidecarArgs) -> ServiceEntry {
+    // The sidecar starts as Booting with a placeholder port. Once the MCP
+    // listener binds, `republish_mcp_listener` swaps in the real endpoint. If
+    // the HostRpc connection fails, the row still gets a diagnostic MCP URL but
+    // stays Booting/unavailable so operators can diagnose it in Admin without
+    // making it routable.
+    let mut entry = ServiceEntry::new(&args.dcc, "127.0.0.1", 0).with_pid(args.watch_pid);
+    entry.status = ServiceStatus::Booting;
+
+    if let Some(uuid) = args.instance_id {
+        entry.instance_id = uuid;
     }
-}
-
-#[cfg(not(feature = "gateway-daemon"))]
-fn sidecar_gateway_runtime_mode(args: &SidecarArgs) -> &'static str {
-    if args.gateway_port == 0 {
-        "not_configured"
-    } else if args.no_ensure_gateway {
-        "failover_disabled_by_adapter"
-    } else if args.legacy_gateway_election {
-        "embedded-fallback"
-    } else {
-        "daemon-unavailable"
+    if let Some(ref name) = args.display_name {
+        entry.display_name = Some(name.clone());
     }
+    if let Some(ref ver) = args.adapter_version {
+        entry.adapter_version = Some(ver.clone());
+        entry.adapter_dcc = Some(args.dcc.clone());
+    }
+
+    entry.metadata.insert(
+        ROLE_METADATA_KEY.to_string(),
+        ROLE_PER_DCC_SIDECAR.to_string(),
+    );
+    entry
+        .metadata
+        .insert(HOST_RPC_URI_METADATA_KEY.to_string(), args.host_rpc.clone());
+    if let Ok(scheme) = dcc_mcp_host_rpc::parse_scheme(&args.host_rpc) {
+        entry
+            .metadata
+            .insert(HOST_RPC_SCHEME_METADATA_KEY.to_string(), scheme);
+    }
+    entry.metadata.insert(
+        DISPATCH_STATUS_METADATA_KEY.to_string(),
+        DISPATCH_STATUS_BOOTING.to_string(),
+    );
+    entry.metadata.insert(
+        GATEWAY_RUNTIME_MODE_METADATA_KEY.to_string(),
+        sidecar_gateway_runtime_mode(args).to_string(),
+    );
+    entry.metadata.insert(
+        GATEWAY_GUARDIAN_ENABLED_METADATA_KEY.to_string(),
+        sidecar_gateway_guardian_enabled(args).to_string(),
+    );
+    entry
+        .metadata
+        .insert("sidecar_pid".to_string(), std::process::id().to_string());
+
+    entry
 }
 
-#[cfg(feature = "gateway-daemon")]
-fn sidecar_gateway_guardian_enabled(args: &SidecarArgs) -> bool {
-    args.gateway_port > 0 && !args.no_ensure_gateway && !args.legacy_gateway_election
-}
-
-#[cfg(not(feature = "gateway-daemon"))]
-fn sidecar_gateway_guardian_enabled(_args: &SidecarArgs) -> bool {
-    false
+pub(crate) fn default_registry_dir() -> PathBuf {
+    // Must match ``GatewayRunner::new``'s fallback exactly:
+    //     std::env::temp_dir().join("dcc-mcp-registry")
+    //
+    // Previously this used ``<tempdir>/dcc-mcp/registry/`` (extra dir
+    // level), which split-brained the FileRegistry whenever an in-DCC
+    // adapter spawned a sidecar without explicitly forwarding
+    // ``--registry-dir``: the sidecar wrote rows to one path while the
+    // adapter's gateway runner read from another, so gateway election
+    // saw only its own candidates. Observed on 2026-05-16 in a live
+    // three-Maya session: 36 stale sidecar rows accumulated in the
+    // wrong dir, gateway port stayed dark despite all peers alive
+    // (see dcc-mcp-maya #248 follow-up commit a6e4dea7).
+    //
+    // RFC #998 follow-up. Aligned with:
+    //   - ``crates/dcc-mcp-gateway/src/gateway/runner.rs::GatewayRunner::new``
+    //   - ``python/dcc_mcp_core/server_base.py`` defaults
+    //   - ``crates/dcc-mcp-server/src/main.rs`` (the non-sidecar paths)
+    //
+    // The env var ``DCC_MCP_REGISTRY_DIR`` always wins so deployments
+    // pinning an explicit path (CI, multi-host, custom temp policy)
+    // keep working.
+    if let Ok(dir) = std::env::var("DCC_MCP_REGISTRY_DIR") {
+        return PathBuf::from(dir);
+    }
+    std::env::temp_dir().join("dcc-mcp-registry")
 }
