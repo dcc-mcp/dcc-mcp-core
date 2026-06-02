@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 from typing import Any
 from typing import Dict
@@ -134,9 +135,28 @@ def build_sidecar_command(
         "gateway_port": port,
         "command": command,
         "environment": {"set": env_set},
+        "readiness_selector": {
+            "dcc_type": dcc,
+            "instance_id": instance_id,
+            "host_rpc": endpoint,
+        },
+        "readiness_argv": _build_readiness_argv(
+            dcc_type=dcc,
+            host_rpc=endpoint,
+            registry_path=registry_path,
+            instance_id=instance_id,
+        ),
+        "readiness_command": _build_readiness_command(
+            environment,
+            dcc_type=dcc,
+            host_rpc=endpoint,
+            registry_path=registry_path,
+            instance_id=instance_id,
+        ),
         "detached": True,
         "recommended_next_action": (
-            "Spawn this command from the DCC startup hook and keep using the shared gateway URL."
+            "Spawn this command from the DCC startup hook; use readiness_command "
+            "or wait_for_sidecar_ready() before claiming tools are callable."
         ),
     }
 
@@ -159,11 +179,23 @@ def launch_sidecar(
     connect_timeout_secs: Optional[int] = None,
     no_ensure_gateway: bool = False,
     legacy_gateway_election: bool = False,
+    extra_args: Optional[Iterable[Any]] = None,
     detached: bool = True,
     cwd: Optional[Any] = None,
     env: Optional[Dict[str, str]] = None,
+    wait_ready_timeout_secs: Optional[float] = None,
+    poll_interval_secs: float = 0.25,
+    probe_tool: Optional[str] = None,
+    probe_arguments: Optional[Dict[str, Any]] = None,
+    probe_timeout_secs: float = 3.0,
 ) -> Dict[str, Any]:
-    """Start a per-DCC sidecar without importing native ``dcc_mcp_core``."""
+    """Start a per-DCC sidecar without importing native ``dcc_mcp_core``.
+
+    By default the helper returns as soon as ``subprocess.Popen`` succeeds so
+    DCC startup hooks do not block their host UI. Pass
+    ``wait_ready_timeout_secs`` from a background startup task or installer when
+    the caller wants a bounded dispatch-readiness verdict in the same result.
+    """
     contract = build_sidecar_command(
         dcc_type=dcc_type,
         host_rpc=host_rpc,
@@ -181,6 +213,7 @@ def launch_sidecar(
         connect_timeout_secs=connect_timeout_secs,
         no_ensure_gateway=no_ensure_gateway,
         legacy_gateway_election=legacy_gateway_election,
+        extra_args=extra_args,
         env=env,
     )
     if not contract.get("success"):
@@ -211,13 +244,27 @@ def launch_sidecar(
         failed["command"] = contract["command"]
         return failed
 
-    return {
+    result = {
         **contract,
         "success": True,
         "status": "started",
         "pid": proc.pid,
         "detached": detached,
     }
+    if wait_ready_timeout_secs is not None:
+        result["readiness"] = _check_launch_readiness(
+            registry_dir=contract["registry_dir"],
+            dcc_type=contract["dcc_type"],
+            instance_id=contract.get("readiness_selector", {}).get("instance_id"),
+            host_rpc=contract["host_rpc"],
+            timeout_secs=wait_ready_timeout_secs,
+            poll_interval_secs=poll_interval_secs,
+            probe_tool=probe_tool,
+            probe_arguments=probe_arguments,
+            probe_timeout_secs=probe_timeout_secs,
+        )
+        result["ready"] = bool(result["readiness"].get("ready"))
+    return result
 
 
 def default_registry_dir() -> str:
@@ -263,6 +310,87 @@ def _append_flag_value(command: List[str], flag: str, value: Optional[Any]) -> N
     if value in (None, ""):
         return
     command.extend([flag, str(value)])
+
+
+def _build_readiness_argv(
+    *,
+    dcc_type: str,
+    host_rpc: str,
+    registry_path: Path,
+    instance_id: Optional[str],
+) -> List[str]:
+    command = [
+        "sidecar-ready",
+        "--dcc",
+        dcc_type,
+        "--host-rpc",
+        host_rpc,
+        "--registry-dir",
+        str(registry_path),
+    ]
+    _append_flag_value(command, "--instance-id", instance_id)
+    return command
+
+
+def _build_readiness_command(
+    env: Dict[str, str],
+    *,
+    dcc_type: str,
+    host_rpc: str,
+    registry_path: Path,
+    instance_id: Optional[str],
+) -> List[str]:
+    python_bin = str(env.get("DCC_MCP_PYTHON_EXECUTABLE") or sys.executable)
+    return [
+        python_bin,
+        "-m",
+        "dcc_mcp_core.install_lifecycle",
+        *_build_readiness_argv(
+            dcc_type=dcc_type,
+            host_rpc=host_rpc,
+            registry_path=registry_path,
+            instance_id=instance_id,
+        ),
+    ]
+
+
+def _check_launch_readiness(
+    *,
+    registry_dir: str,
+    dcc_type: str,
+    instance_id: Optional[str],
+    host_rpc: str,
+    timeout_secs: float,
+    poll_interval_secs: float,
+    probe_tool: Optional[str],
+    probe_arguments: Optional[Dict[str, Any]],
+    probe_timeout_secs: float,
+) -> Dict[str, Any]:
+    from ._install_lifecycle_readiness import sidecar_readiness_status
+    from ._install_lifecycle_readiness import wait_for_sidecar_ready
+
+    timeout = max(0.0, float(timeout_secs))
+    if timeout > 0:
+        return wait_for_sidecar_ready(
+            registry_dir,
+            dcc_type=dcc_type,
+            instance_id=instance_id,
+            host_rpc=host_rpc,
+            timeout_secs=timeout,
+            poll_interval_secs=poll_interval_secs,
+            probe_tool=probe_tool,
+            probe_arguments=probe_arguments,
+            probe_timeout_secs=probe_timeout_secs,
+        )
+    return sidecar_readiness_status(
+        registry_dir,
+        dcc_type=dcc_type,
+        instance_id=instance_id,
+        host_rpc=host_rpc,
+        probe_tool=probe_tool,
+        probe_arguments=probe_arguments,
+        probe_timeout_secs=probe_timeout_secs,
+    )
 
 
 def _failed(reason: str, message: str) -> Dict[str, Any]:
