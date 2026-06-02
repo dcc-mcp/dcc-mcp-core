@@ -440,7 +440,7 @@ dcc-mcp-app-ui (independent pure app_ui observation/action/wait/policy/audit con
 
 ### dcc-mcp-server
 
-**Purpose**: Binary composition entry point (`dcc-mcp-server` CLI). The implicit root mode and explicit `auto` mode run a per-DCC MCP server with first-wins auto-gateway support, `serve --no-auto-gateway` runs a per-DCC server without binding the shared gateway port, and `gateway` runs the machine-wide gateway daemon without inline DCC execution.
+**Purpose**: Binary composition entry point (`dcc-mcp-server` CLI). The implicit root mode, explicit `auto`, and default `serve` modes run a per-DCC MCP server, ensure the machine-wide gateway daemon, register as a backend, and keep a daemon guardian while the backend is alive. `serve --no-auto-gateway` runs a per-DCC server without touching the shared gateway, `auto --legacy-gateway-election` restores the old embedded first-wins path, and `gateway` runs the machine-wide gateway daemon without inline DCC execution.
 
 ### dcc-mcp-cli
 

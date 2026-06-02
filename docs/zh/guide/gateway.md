@@ -1,15 +1,16 @@
 # Gateway
 
-Gateway（`McpHttpConfig::gateway_port > 0`）是一个 first-wins HTTP
-门面，将所有在线的 DCC 实例呈现在一个 MCP 端点下。
+Gateway（`McpHttpConfig::gateway_port > 0`）是一个共享 HTTP 门面，默认由
+机器级 `dcc-mcp-server gateway` daemon 承载，将所有在线的 DCC 实例呈现在
+一个 MCP 端点下。
 单个客户端可以通过同一个 `/mcp` URL 与 Maya、Blender 和 Houdini
 通信；Gateway 通过 `FileRegistry` 发现在线后端，将自身 MCP
 `tools/list` 固定为四个规范工作流原语，按需索引后端能力，用 MCP
 `search` / `describe` / `load_skill` / `call` 完成发现、加载与执行，并把 REST `/v1/*` 调用路由到正确的后端，
 同时将服务器推送的通知多路复用回原始客户端会话。
 
-可以在每个候选进程上设置 `gateway_name`、`--gateway-name` 或
-`DCC_MCP_GATEWAY_NAME` 来显式声明身份。赢得选举的进程会把这个标签写入
+可以在 gateway daemon 或 legacy 候选进程上设置 `gateway_name`、
+`--gateway-name` 或 `DCC_MCP_GATEWAY_NAME` 来显式声明身份。当前 owner 会把这个标签写入
 `__gateway__` sentinel，并暴露在 `/admin/api/health.gateway.current`；
 challenger 会以 `gateway_role=challenger` 写入同类标签，因此排障时能同时
 看到当前网关和正在尝试接班的下一个候选。
@@ -20,18 +21,19 @@ challenger 会以 `gateway_role=challenger` 写入同类标签，因此排障时
 dcc-mcp-server gateway --port 9765 --name studio-gateway
 ```
 
-Per-DCC sidecar 现在会在 `GET /health` 不可达时自动拉起这个进程。它们会
-在 registry 目录里使用单飞 `gateway-launch.lock`，因此三个 DCC 同时启动也
-最多只会 spawn 一个 gateway。如果持有启动锁的进程在释放文件前崩溃，后续
-DCC 实例会在 `DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS` 秒（默认 `30`）
-后回收残留锁并重试 daemon 拉起。使用
-`dcc-mcp-server sidecar --no-ensure-gateway` 可以关闭自动拉起；使用
+Per-DCC server 和 sidecar 现在会在 `GET /health` 不可达时自动拉起这个
+进程。它们会在 registry 目录里使用单飞 `gateway-launch.lock`，因此三个
+DCC 同时启动也最多只会 spawn 一个 gateway。如果持有启动锁的进程在释放
+文件前崩溃，后续 DCC 实例会在
+`DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS` 秒（默认 `30`）后回收残留锁并
+重试 daemon 拉起。使用 `--no-ensure-gateway` 可以关闭自动拉起；使用
 `--legacy-gateway-election` 可以恢复旧的 per-DCC first-wins 选举。
 
-Python `DccServerBase` 适配器和 `dcc-mcp-server sidecar` 还会在
-daemon-backed 模式下保留一个轻量 guardian。启动后如果 `/health` 连续探测
-失败，guardian 会复用同一个启动锁重新执行 daemon ensure，因此任意仍存活的
-DCC 实例或 sidecar 都可以恢复共享 gateway URL，而不阻塞或重启 DCC 宿主。
+Python `DccServerBase` 适配器、`dcc-mcp-server sidecar` 以及
+`dcc-mcp-server` 隐式/`auto`/`serve` backend 还会在 daemon-backed 模式下
+保留一个轻量 guardian。启动后如果 `/health` 连续探测失败，guardian 会复用
+同一个启动锁重新执行 daemon ensure，因此任意仍存活的 DCC 实例都可以恢复
+共享 gateway URL，而不阻塞或重启 DCC 宿主。
 
 ## 独立 gateway 守护进程（#1358）
 
@@ -122,15 +124,16 @@ generic standalone）。运行时满足：
 你的约束挑一种，并参考迁移指南了解配方之间的切换路径
 （[`docs/zh/guide/migration/from-embedded-to-daemon.md`](migration/from-embedded-to-daemon.md)）。
 
-### 配方 1 —— 单工作站（内嵌自动网关）
+### 配方 1 —— 单工作站（daemon-backed 自动网关）
 
-默认零配置流程。一个 DCC 适配器赢得网关端口，为整台机器服务。
+默认零配置流程。第一个 DCC 确保机器级 gateway daemon 已启动；后续 DCC
+都注册为同一个 gateway 后端。
 
 ```bash
 # Maya 插件宿主：
 dcc-mcp-server --app maya
 
-# 同一工作站第二个 DCC —— 作为后端加入已选举的网关：
+# 同一工作站第二个 DCC —— 作为后端加入同一个 gateway：
 dcc-mcp-server --app blender
 ```
 
