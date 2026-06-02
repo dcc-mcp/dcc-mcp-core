@@ -1577,11 +1577,11 @@ dependencies = [
  "dcc-mcp-actions",
  "dcc-mcp-catalog",
  "dcc-mcp-gateway",
- "dcc-mcp-host-rpc",
  "dcc-mcp-http",
  "dcc-mcp-jsonrpc",
  "dcc-mcp-logging",
  "dcc-mcp-protocols",
+ "dcc-mcp-sidecar",
  "dcc-mcp-skills",
  "dcc-mcp-telemetry",
  "dcc-mcp-transport",
@@ -1620,6 +1620,26 @@ dependencies = [
  "tracing",
  "uuid",
  "workspace-hack",
+]
+
+[[package]]
+name = "dcc-mcp-sidecar"
+version = "0.17.50"
+dependencies = [
+ "anyhow",
+ "axum",
+ "clap",
+ "dcc-mcp-gateway",
+ "dcc-mcp-host-rpc",
+ "dcc-mcp-transport",
+ "reqwest 0.13.4",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

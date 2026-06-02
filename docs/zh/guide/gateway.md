@@ -91,7 +91,7 @@ generic standalone）。运行时满足：
   里完全找不到 `pyo3`、`dcc-mcp-pybridge`、`dcc-mcp-host`、
   `dcc-mcp-sandbox` 或 `dcc-mcp-capture`。
 - **无 DCC backend 也能跑。** `GET /health` 在空 registry 下返回
-  `200 OK`，回归用例在 `crates/dcc-mcp-server/src/gateway_daemon.rs`
+  `200 OK`，回归用例在 `crates/dcc-mcp-sidecar/src/gateway_daemon.rs`
   的 `gateway_daemon::tests::standalone_daemon_serves_health_without_any_backend`。
 - **与 auto-gateway 共存。** 使用 `dcc-mcp-http` 默认 feature 的 per-DCC
   server 在没有 daemon 时仍会自我选举（#1357 把 auto-gateway 路径放到

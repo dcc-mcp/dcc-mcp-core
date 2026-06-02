@@ -24,10 +24,10 @@ pub(crate) enum SubCmd {
     /// and supervised via `--watch-pid`. Exits cleanly when its parent
     /// DCC dies so we never leak stale workers.
     #[cfg(feature = "gateway-auto")]
-    Sidecar(crate::sidecar::SidecarArgs),
+    Sidecar(dcc_mcp_sidecar::SidecarArgs),
     /// Machine-wide gateway daemon. Per-DCC sidecars auto-launch this when needed.
     #[cfg(feature = "gateway-daemon")]
-    Gateway(crate::gateway_daemon::GatewayArgs),
+    Gateway(dcc_mcp_sidecar::gateway_daemon::GatewayArgs),
     /// Replay or diff gateway traffic capture files.
     Capture {
         #[command(subcommand)]

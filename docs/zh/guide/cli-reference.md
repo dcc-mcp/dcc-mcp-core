@@ -105,6 +105,7 @@ per-DCC server 为 backend，并在 backend 存活期间保留轻量 guardian。
 | `dcc-mcp-server serve` | per-DCC MCP server。 | 确保独立 gateway daemon，然后注册为 backend。 |
 | `dcc-mcp-server serve --no-auto-gateway` | 仅运行 per-DCC MCP server。 | 提供 MCP 工具，但绝不尝试绑定 gateway port。 |
 | `dcc-mcp-server auto --legacy-gateway-election` | 旧的嵌入式 gateway 模式。 | per-DCC 进程直接竞争 gateway port。 |
+| `dcc-mcp-server sidecar` | per-DCC sidecar worker。 | 确保独立 gateway daemon，注册 `per-dcc-sidecar` 行，并通过 host RPC 派发。运行时由 `dcc-mcp-sidecar` 实现。 |
 | `dcc-mcp-server gateway` | 整机 gateway daemon。 | 只托管 discovery、routing、resources/prompts、admin 与 audit，不内联执行 DCC tool。 |
 
 `auto` 与 `serve` 共享下面的 server 旗标。`gateway` 有更小的独立旗标面，

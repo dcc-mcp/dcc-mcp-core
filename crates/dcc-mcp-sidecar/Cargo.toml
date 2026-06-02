@@ -1,0 +1,50 @@
+[package]
+name = "dcc-mcp-sidecar"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Sidecar and gateway-daemon runtime support for DCC-MCP hosts"
+
+[dependencies]
+dcc-mcp-gateway = { version = "0.17.0", path = "../dcc-mcp-gateway", optional = true }
+dcc-mcp-host-rpc.workspace = true
+dcc-mcp-transport.workspace = true
+anyhow.workspace = true
+axum = { version = "0.8", features = ["http1", "tokio"] }
+clap = { version = "4", features = ["derive", "env"] }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sysinfo.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[features]
+default = ["gateway-auto", "gateway-daemon"]
+
+# Per-DCC sidecar lifecycle, diagnostic MCP listener, and legacy embedded
+# gateway failover path.
+gateway-auto = ["dep:dcc-mcp-gateway"]
+
+# Machine-wide gateway daemon CLI/runtime plus daemon guardian helpers.
+gateway-daemon = ["dep:dcc-mcp-gateway"]
+
+admin = [
+    "dcc-mcp-gateway?/admin",
+    "dcc-mcp-gateway?/admin-persist-sqlite",
+]
+
+mdns = [
+    "dcc-mcp-transport/mdns",
+    "dcc-mcp-gateway?/mdns",
+]
+
+prometheus = ["dcc-mcp-gateway?/prometheus"]
+
+[dev-dependencies]
+tempfile = "3"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }

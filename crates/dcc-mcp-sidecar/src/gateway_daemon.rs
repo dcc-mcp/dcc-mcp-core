@@ -130,7 +130,7 @@ pub struct EnsureGatewayOptions {
 
 #[cfg(feature = "gateway-auto")]
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct GatewayGuardianSettings {
+pub struct GatewayGuardianSettings {
     interval: Duration,
     probe_timeout: Duration,
     failure_threshold: u32,
@@ -138,7 +138,7 @@ pub(crate) struct GatewayGuardianSettings {
 
 #[cfg(feature = "gateway-auto")]
 impl GatewayGuardianSettings {
-    pub(crate) fn from_env() -> Self {
+    pub fn from_env() -> Self {
         Self {
             interval: duration_secs_env(ENV_GATEWAY_GUARDIAN_INTERVAL, GATEWAY_GUARDIAN_INTERVAL),
             probe_timeout: duration_secs_env(
@@ -268,7 +268,7 @@ pub async fn ensure_gateway_running(opts: &EnsureGatewayOptions) -> anyhow::Resu
 
 /// Keep a daemon-backed per-DCC process able to revive the standalone gateway.
 #[cfg(feature = "gateway-auto")]
-pub(crate) fn spawn_gateway_guardian(
+pub fn spawn_gateway_guardian(
     opts: EnsureGatewayOptions,
     settings: GatewayGuardianSettings,
 ) -> tokio::task::JoinHandle<()> {

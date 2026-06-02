@@ -33,6 +33,7 @@ members = [
     "crates/dcc-mcp-http-py",
     "crates/dcc-mcp-cli",
     "crates/dcc-mcp-server",
+    "crates/dcc-mcp-sidecar",
     "crates/dcc-mcp-workflow",
     "crates/dcc-mcp-scheduler",
     "crates/dcc-mcp-artefact",
@@ -80,6 +81,7 @@ dcc-mcp-http-server = { path = "crates/dcc-mcp-http-server" }
 dcc-mcp-http-py = { path = "crates/dcc-mcp-http-py" }
 dcc-mcp-cli = { path = "crates/dcc-mcp-cli" }
 dcc-mcp-server = { path = "crates/dcc-mcp-server" }
+dcc-mcp-sidecar = { path = "crates/dcc-mcp-sidecar" }
 dcc-mcp-workflow = { path = "crates/dcc-mcp-workflow" }
 dcc-mcp-scheduler = { path = "crates/dcc-mcp-scheduler" }
 dcc-mcp-artefact = { path = "crates/dcc-mcp-artefact" }
