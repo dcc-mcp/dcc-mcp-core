@@ -71,6 +71,7 @@ class ServerRuntimeController:
         if guardian.start():
             owner._gateway_guardian = guardian
             owner._gateway_daemon_status = guardian.status()
+            owner._publish_gateway_runtime_metadata()
             logger.info("[%s] Gateway daemon guardian enabled", owner._dcc_name)
 
     def start_gateway_election_if_needed(self) -> None:
@@ -118,6 +119,7 @@ class ServerRuntimeController:
             logger.warning("[%s] Error stopping gateway guardian: %s", owner._dcc_name, exc)
         finally:
             owner._gateway_guardian = None
+            owner._publish_gateway_runtime_metadata()
 
     def shutdown_server_handle(self) -> None:
         owner = self._owner

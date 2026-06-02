@@ -810,6 +810,36 @@ impl FileRegistry {
         })
     }
 
+    /// Merge arbitrary string metadata for a service and refresh heartbeat.
+    ///
+    /// Values are merged into [`ServiceEntry::metadata`]. Passing an empty value
+    /// removes that key, which gives embedders a small clearing mechanism
+    /// without replacing unrelated adapter metadata.
+    pub fn update_instance_metadata(
+        &self,
+        key: &ServiceKey,
+        metadata: &std::collections::HashMap<String, String>,
+    ) -> TransportResult<bool> {
+        self.with_write_transaction(|| {
+            let found = if let Some(mut entry) = self.services.get_mut(key) {
+                let e = entry.value_mut();
+                for (name, value) in metadata {
+                    if value.is_empty() {
+                        e.metadata.remove(name);
+                    } else {
+                        e.metadata.insert(name.clone(), value.clone());
+                    }
+                }
+                e.touch();
+                true
+            } else {
+                false
+            };
+
+            Ok((found, found))
+        })
+    }
+
     /// Set the OS process ID for a registered service.
     ///
     /// Normally called once at registration time; exposed separately so that

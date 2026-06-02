@@ -3,6 +3,7 @@
 use axum::{Json, Router, routing};
 use parking_lot::RwLock;
 use serde_json::json;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::{net::TcpListener, sync::watch, task::JoinHandle};
 use tower_http::cors::{Any, CorsLayer};
@@ -41,6 +42,8 @@ pub struct LiveMetaInner {
     pub documents: Vec<String>,
     /// Human-readable instance label shown in disambiguation (e.g. `"PS-Marketing"`).
     pub display_name: Option<String>,
+    /// Arbitrary string metadata merged into the FileRegistry row on heartbeat.
+    pub metadata: HashMap<String, String>,
 }
 
 pub type LiveMeta = Arc<RwLock<LiveMetaInner>>;
@@ -269,6 +272,21 @@ impl McpHttpServer {
         }
         if let Some(name) = display_name {
             guard.display_name = if name.is_empty() { None } else { Some(name) };
+        }
+    }
+
+    /// Merge arbitrary string metadata pushed to `FileRegistry` each heartbeat.
+    ///
+    /// Empty values clear the matching metadata key. Existing unrelated keys
+    /// remain unchanged.
+    pub fn update_live_metadata(&self, metadata: HashMap<String, String>) {
+        let mut guard = self.live_meta.write();
+        for (name, value) in metadata {
+            if value.is_empty() {
+                guard.metadata.remove(&name);
+            } else {
+                guard.metadata.insert(name, value);
+            }
         }
     }
 

@@ -537,6 +537,63 @@ async fn test_gateway_handle_drop_deregisters_instance_row() {
 }
 
 #[tokio::test]
+async fn test_gateway_heartbeat_merges_live_instance_metadata() {
+    let dir = tempfile::tempdir().unwrap();
+    let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = occupied.local_addr().unwrap().port();
+
+    let cfg = GatewayConfig {
+        host: "127.0.0.1".to_string(),
+        gateway_port: port,
+        heartbeat_secs: 1,
+        registry_dir: Some(dir.path().to_path_buf()),
+        ..GatewayConfig::default()
+    };
+    let runner = GatewayRunner::new(cfg).unwrap();
+
+    let entry = ServiceEntry::new("maya", "127.0.0.1", 0);
+    let key = entry.key();
+    let provider: MetadataProvider = std::sync::Arc::new(|| LiveSnapshot {
+        metadata: std::collections::HashMap::from([
+            (
+                "gateway_runtime_mode".to_string(),
+                "daemon-backed".to_string(),
+            ),
+            ("gateway_guardian_enabled".to_string(), "true".to_string()),
+        ]),
+        ..LiveSnapshot::default()
+    });
+    let handle = runner.start(entry, Some(provider)).await.unwrap();
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        {
+            let reg = runner.registry.read().await;
+            let row = reg.get(&key).expect("registered row");
+            if row
+                .metadata
+                .get("gateway_guardian_enabled")
+                .is_some_and(|value| value == "true")
+            {
+                assert_eq!(
+                    row.metadata.get("gateway_runtime_mode").map(String::as_str),
+                    Some("daemon-backed")
+                );
+                break;
+            }
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "heartbeat did not merge live metadata into FileRegistry"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    drop(handle);
+    drop(occupied);
+}
+
+#[tokio::test]
 async fn test_explicit_deregister_all_is_idempotent() {
     // `McpServerHandle::shutdown` calls `deregister_all` explicitly
     // before dropping the gateway. Verify both the explicit path and
