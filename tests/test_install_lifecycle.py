@@ -199,12 +199,15 @@ def test_query_runtime_state_reads_sidecar_pid(tmp_path: Path) -> None:
                     "instance_id": "11111111-1111-1111-1111-111111111111",
                     "host": "127.0.0.1",
                     "port": 18812,
-                    "pid": 1234,
+                    "pid": os.getpid(),
                     "status": "available",
                     "metadata": {
                         "dcc_mcp_role": "per-dcc-sidecar",
-                        "sidecar_pid": "2345",
+                        "sidecar_pid": str(os.getpid()),
                         "mcp_url": "http://127.0.0.1:18812/mcp",
+                        "host_rpc_uri": "commandport://127.0.0.1:6000",
+                        "host_rpc_scheme": "commandport",
+                        "dispatch_status": "ready",
                     },
                 },
                 {
@@ -224,10 +227,52 @@ def test_query_runtime_state_reads_sidecar_pid(tmp_path: Path) -> None:
 
     assert result["total"] == 1
     assert result["entries"][0]["dcc_type"] == "maya"
-    assert result["entries"][0]["parent_pid"] == 1234
-    assert result["entries"][0]["sidecar_pid"] == 2345
-    assert result["entries"][0]["runtime_pid"] == 2345
+    assert result["entries"][0]["parent_pid"] == os.getpid()
+    assert result["entries"][0]["sidecar_pid"] == os.getpid()
+    assert result["entries"][0]["runtime_pid"] == os.getpid()
     assert result["entries"][0]["mcp_url"] == "http://127.0.0.1:18812/mcp"
+    assert result["entries"][0]["host_rpc_uri"] == "commandport://127.0.0.1:6000"
+    assert result["entries"][0]["host_rpc_scheme"] == "commandport"
+    assert result["entries"][0]["dispatch_status"] == "ready"
+    assert result["entries"][0]["dispatch_ready"] is True
+
+
+def test_query_runtime_state_surfaces_unavailable_sidecar_dispatch(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    registry.mkdir()
+    (registry / "services.json").write_text(
+        json.dumps(
+            [
+                {
+                    "dcc_type": "maya",
+                    "instance_id": "11111111-1111-1111-1111-111111111111",
+                    "host": "127.0.0.1",
+                    "port": 0,
+                    "pid": 1234,
+                    "status": "booting",
+                    "metadata": {
+                        "dcc_mcp_role": "per-dcc-sidecar",
+                        "sidecar_pid": "2345",
+                        "host_rpc_uri": "commandport://127.0.0.1:6000",
+                        "host_rpc_scheme": "commandport",
+                        "dispatch_status": "unavailable",
+                        "failure_stage": "host-rpc-connect",
+                        "failure_reason": "host-rpc connect failed",
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = lifecycle.query_runtime_state(registry, dcc_type="maya", role="per-dcc-sidecar")
+
+    entry = result["entries"][0]
+    assert entry["dispatch_status"] == "unavailable"
+    assert entry["dispatch_ready"] is False
+    assert entry["mcp_url"] is None
+    assert entry["failure_stage"] == "host-rpc-connect"
+    assert entry["failure_reason"] == "host-rpc connect failed"
 
 
 def test_stop_runtime_entries_does_not_kill_host_by_default(
