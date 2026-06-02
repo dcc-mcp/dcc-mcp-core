@@ -409,6 +409,16 @@ content 上增加 `mimeType: "application/toon"` 并把文本换成 TOON。JSON-
 
 ## 就绪状态（`GET /v1/readyz`）
 
+在 gateway 上，`GET /v1/readyz` 始终返回 `200`，并汇总当前 registry
+视图。除了 `live_instance_count`、`ready_instance_count` 和
+`not_ready_instance_count`，它还会返回 `dispatch_reported_instance_count`、
+`dispatch_ready_instance_count` 与 `dispatch_not_ready_instance_count`；每个
+instance row 也包含与 `GET /v1/instances` 相同的嵌套 `dispatch` 对象。
+sidecar 型 adapter 应使用这些 dispatch 计数区分“DCC 进程已列出”和
+“sidecar dispatcher 真的可调用”。
+
+每个 DCC 自己的 `/v1/readyz` endpoint 使用下列状态：
+
 | 状态 | HTTP | Body | 含义 |
 |---|---|---|---|
 | `Ready` | 200 | `{"process": true, "dcc": true, "skill_catalog": true, "dispatcher": true, "host_execution_bridge": true, "main_thread_executor": true}` | 基础路由就绪位已绿；`POST /v1/call` 会派发。 |
