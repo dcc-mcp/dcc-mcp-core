@@ -17,6 +17,7 @@ from typing import Dict
 from typing import Iterable
 from typing import List
 from typing import Optional
+from urllib.parse import urlsplit
 
 REGISTRY_ENV = "DCC_MCP_REGISTRY_DIR"
 ROLE_PER_DCC_SIDECAR = "per-dcc-sidecar"
@@ -39,6 +40,8 @@ def sidecar_host_rpc_dispatch_contract(host_rpc: Any) -> Dict[str, Any]:
         "scheme": scheme,
         "supported_schemes": list(SUPPORTED_DISPATCH_HOST_RPC_SCHEMES),
         "test_only_schemes": list(TEST_ONLY_HOST_RPC_SCHEMES),
+        "uri_valid": False,
+        "validation_error": None,
     }
     if not endpoint:
         return {
@@ -50,20 +53,34 @@ def sidecar_host_rpc_dispatch_contract(host_rpc: Any) -> Dict[str, Any]:
             "message": "host_rpc is required before sidecar dispatch can be proven.",
         }
     if scheme is None:
+        message = "host_rpc must include a URI scheme such as commandport://, qtserver://, ws://, or wss://."
         return {
             **base,
             "status": "invalid",
             "dispatch_ready_capable": False,
             "test_only": False,
             "reason": "missing_scheme",
-            "message": "host_rpc must include a URI scheme such as commandport://, qtserver://, ws://, or wss://.",
+            "validation_error": message,
+            "message": message,
         }
     if scheme in SUPPORTED_DISPATCH_HOST_RPC_SCHEMES:
+        validation_error = _dispatch_uri_validation_error(endpoint, scheme)
+        if validation_error is not None:
+            return {
+                **base,
+                "status": "invalid",
+                "dispatch_ready_capable": False,
+                "test_only": False,
+                "reason": "invalid_host_rpc_uri",
+                "validation_error": validation_error,
+                "message": validation_error,
+            }
         return {
             **base,
             "status": "dispatch_capable",
             "dispatch_ready_capable": True,
             "test_only": False,
+            "uri_valid": True,
             "reason": None,
             "message": "The sidecar can become dispatch-ready once the DCC host RPC bridge accepts a connection.",
         }
@@ -73,6 +90,7 @@ def sidecar_host_rpc_dispatch_contract(host_rpc: Any) -> Dict[str, Any]:
             "status": "test_only",
             "dispatch_ready_capable": False,
             "test_only": True,
+            "uri_valid": True,
             "reason": "test_only_host_rpc",
             "message": "stub:// is test-only and must not be used as adapter startup proof.",
         }
@@ -397,6 +415,54 @@ def _uri_scheme(value: Any) -> Optional[str]:
     if "://" not in text:
         return None
     return text.split("://", 1)[0].lower()
+
+
+def _dispatch_uri_validation_error(endpoint: str, scheme: str) -> Optional[str]:
+    if scheme in ("commandport", "qtserver"):
+        return _tcp_dispatch_uri_validation_error(endpoint, scheme)
+    if scheme in ("ws", "wss"):
+        return _websocket_dispatch_uri_validation_error(endpoint, scheme)
+    return None
+
+
+def _tcp_dispatch_uri_validation_error(endpoint: str, scheme: str) -> Optional[str]:
+    try:
+        parsed = urlsplit(endpoint)
+    except ValueError as exc:
+        return f"{scheme} host_rpc URI is invalid: {exc}."
+    if parsed.scheme.lower() != scheme:
+        return f"host_rpc must start with {scheme}://."
+    if not parsed.hostname:
+        return f"{scheme} host_rpc URI must include a host."
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        return f"{scheme} host_rpc URI has an invalid port: {exc}."
+    if port is None:
+        return f"{scheme} host_rpc URI must include a non-zero port."
+    if port <= 0:
+        return f"{scheme} host_rpc URI port must be non-zero."
+    if parsed.path or parsed.query or parsed.fragment:
+        return f"{scheme} host_rpc URI must be host:port only; path, query, and fragment are not supported."
+    return None
+
+
+def _websocket_dispatch_uri_validation_error(endpoint: str, scheme: str) -> Optional[str]:
+    try:
+        parsed = urlsplit(endpoint)
+    except ValueError as exc:
+        return f"{scheme} host_rpc URI is invalid: {exc}."
+    if parsed.scheme.lower() != scheme:
+        return f"host_rpc must start with {scheme}://."
+    if not parsed.hostname:
+        return f"{scheme} host_rpc URI must include a host."
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        return f"{scheme} host_rpc URI has an invalid port: {exc}."
+    if port == 0:
+        return f"{scheme} host_rpc URI port must be non-zero."
+    return None
 
 
 def _sidecar_launch_next_action(dispatch_contract: Dict[str, Any]) -> str:

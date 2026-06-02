@@ -77,11 +77,12 @@ otherwise prefer `readiness_argv` if the DCC's `sys.executable` is a GUI host
 binary rather than a Python command-line executable.
 
 Both helpers also return a `dispatch_contract` object describing the host RPC
-scheme, whether it is test-only, and whether it can ever become
-dispatch-ready. Pass `require_dispatch_capable=True` (or CLI
-`--require-dispatch-capable`) when installer or startup code must fail fast
-before a non-callable sidecar is spawned. The default remains permissive so
-unsupported schemes can still register a diagnostic row for operators.
+scheme, whether the URI shape is valid, whether it is test-only, and whether
+it can ever become dispatch-ready. Pass `require_dispatch_capable=True` (or
+CLI `--require-dispatch-capable`) when installer or startup code must fail
+fast before a malformed or non-callable sidecar is spawned. The default remains
+permissive so unsupported schemes can still register a diagnostic row for
+operators.
 
 The Rust implementation of that child lives in the `dcc-mcp-sidecar` crate.
 Adapter launch helpers intentionally keep emitting the stable

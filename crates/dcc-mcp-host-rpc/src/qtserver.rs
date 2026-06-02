@@ -346,9 +346,14 @@ fn interpret_envelope(envelope: Value, action: &str) -> Result<Value, HostRpcErr
 /// so the error envelopes carry consistent diagnostics between the
 /// two transports.
 pub fn parse_endpoint(endpoint: &str) -> Result<(String, u16), HostRpcError> {
-    let rest = endpoint.strip_prefix("qtserver://").ok_or_else(|| {
-        HostRpcError::transport(format!("expected qtserver:// URI, got {endpoint:?}"))
-    })?;
+    let prefix = "qtserver://";
+    let rest = endpoint
+        .get(..prefix.len())
+        .filter(|candidate| candidate.eq_ignore_ascii_case(prefix))
+        .map(|_| &endpoint[prefix.len()..])
+        .ok_or_else(|| {
+            HostRpcError::transport(format!("expected qtserver:// URI, got {endpoint:?}"))
+        })?;
     let (host, port_str) = rest.rsplit_once(':').ok_or_else(|| {
         HostRpcError::transport(format!("qtserver URI missing :port — got {endpoint:?}"))
     })?;
@@ -487,6 +492,13 @@ mod tests {
     #[test]
     fn parse_endpoint_happy_path() {
         let (host, port) = parse_endpoint("qtserver://127.0.0.1:18765").unwrap();
+        assert_eq!(host, "127.0.0.1");
+        assert_eq!(port, 18765);
+    }
+
+    #[test]
+    fn parse_endpoint_accepts_case_insensitive_scheme() {
+        let (host, port) = parse_endpoint("QtServer://127.0.0.1:18765").unwrap();
         assert_eq!(host, "127.0.0.1");
         assert_eq!(port, 18765);
     }

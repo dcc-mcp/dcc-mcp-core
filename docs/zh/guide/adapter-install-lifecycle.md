@@ -65,11 +65,12 @@ stdin/stdout/stderr。子进程运行 `dcc-mcp-server sidecar`，在共享
 DCC 的 `sys.executable` 是 GUI host binary 而不是命令行 Python，
 请优先把 `readiness_argv` 交给适配器自己的 Python runner：
 
-两个 helper 还会返回 `dispatch_contract`，说明 host RPC scheme、是否为
-test-only，以及是否可能达到 dispatch-ready。installer 或 startup code
-需要在启动前 fail-fast 时，传 `require_dispatch_capable=True`（CLI 为
-`--require-dispatch-capable`）。默认仍保持宽松，未知 scheme 仍可注册
-diagnostic row 供 operator 排查。
+两个 helper 还会返回 `dispatch_contract`，说明 host RPC scheme、URI 形状
+是否有效、是否为 test-only，以及是否可能达到 dispatch-ready。installer
+或 startup code 需要在启动前 fail-fast 时，传
+`require_dispatch_capable=True`（CLI 为 `--require-dispatch-capable`），
+这样 malformed 或不可调用的 sidecar 不会被当作 ready 路径。默认仍保持
+宽松，未知 scheme 仍可注册 diagnostic row 供 operator 排查。
 
 这个子进程的 Rust 实现位于 `dcc-mcp-sidecar` crate。适配器启动 helper
 仍然故意输出稳定的 `dcc-mcp-server sidecar` 命令，因此已有 installer 和
