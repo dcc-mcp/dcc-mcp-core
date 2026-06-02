@@ -115,6 +115,12 @@ state = query_runtime_state(dcc_type="3dsmax", role="per-dcc-sidecar")
 stop = stop_runtime_entries(dcc_type="3dsmax")
 ```
 
+对于 sidecar，标准化后的每个 entry 会在顶层暴露 `dispatch_status`、
+`dispatch_ready`、`host_rpc_uri`、`host_rpc_scheme`、`failure_stage` 和
+`failure_reason`。启动钩子可以在 `launch_sidecar()` 后轮询
+`dispatch_ready=True`，且无需导入 `_core`；Admin 界面应把
+`dispatch_status=unavailable` 的 row 展示为“已注册但不可调用”。
+
 默认情况下，`stop_runtime_entries()` 仅定位发布 `metadata.sidecar_pid` 的行。除非显式传递 `include_host_processes=True`，否则不会终止父 DCC 进程。
 
 ## 混合运行时版本计划

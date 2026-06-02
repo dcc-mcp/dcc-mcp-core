@@ -33,6 +33,10 @@ from ._install_lifecycle_sidecar import launch_sidecar
 
 ROLE_METADATA_KEY = "dcc_mcp_role"
 ROLE_PER_DCC_SIDECAR = "per-dcc-sidecar"
+DISPATCH_STATUS_METADATA_KEY = "dispatch_status"
+DISPATCH_STATUS_BOOTING = "booting"
+DISPATCH_STATUS_READY = "ready"
+DISPATCH_STATUS_UNAVAILABLE = "unavailable"
 REGISTRY_ENV = "DCC_MCP_REGISTRY_DIR"
 REGISTRY_FILE = "services.json"
 REZ_CACHE_ROOT_ENV = "DCC_MCP_REZ_LOCAL_CACHE_ROOT"
@@ -66,6 +70,10 @@ _NATIVE_SUFFIXES = tuple(
 
 __all__ = [
     "DEPLOYMENT_MODE_ENV",
+    "DISPATCH_STATUS_BOOTING",
+    "DISPATCH_STATUS_METADATA_KEY",
+    "DISPATCH_STATUS_READY",
+    "DISPATCH_STATUS_UNAVAILABLE",
     "REGISTRY_ENV",
     "ROLE_METADATA_KEY",
     "ROLE_PER_DCC_SIDECAR",
@@ -118,6 +126,12 @@ def _normalise_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
     port = _parse_int(entry.get("port")) or 0
     mcp_url = metadata.get("mcp_url") or (f"http://{host}:{port}/mcp" if port else None)
     role = str(metadata.get(ROLE_METADATA_KEY) or "runtime")
+    dispatch_status = _optional_text(metadata.get(DISPATCH_STATUS_METADATA_KEY))
+    host_rpc_uri = _optional_text(metadata.get("host_rpc_uri"))
+    host_rpc_scheme = _optional_text(metadata.get("host_rpc_scheme"))
+    failure_stage = _optional_text(metadata.get("failure_stage"))
+    failure_reason = _optional_text(metadata.get("failure_reason"))
+    dispatch_ready = bool(dispatch_status == DISPATCH_STATUS_READY and mcp_url and runtime_alive is not False)
 
     install_roots = []
     for key in _INSTALL_ROOT_KEYS:
@@ -141,6 +155,12 @@ def _normalise_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
         "host": host,
         "port": port,
         "mcp_url": mcp_url,
+        "dispatch_status": dispatch_status,
+        "dispatch_ready": dispatch_ready,
+        "host_rpc_uri": host_rpc_uri,
+        "host_rpc_scheme": host_rpc_scheme,
+        "failure_stage": failure_stage,
+        "failure_reason": failure_reason,
         "parent_pid": parent_pid,
         "sidecar_pid": sidecar_pid,
         "runtime_pid": runtime_pid,
@@ -168,6 +188,12 @@ def _first_present(metadata: Dict[str, Any], keys: Iterable[str]) -> Any:
         if value not in (None, ""):
             return value
     return None
+
+
+def _optional_text(value: Any) -> Optional[str]:
+    if value in (None, ""):
+        return None
+    return str(value)
 
 
 def _parse_int(value: Any) -> Optional[int]:
