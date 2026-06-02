@@ -60,6 +60,15 @@ stdin/stdout/stderr。子进程运行 `dcc-mcp-server sidecar`，在共享
 希望把 argv 交给工作室自己的进程 supervisor，使用
 `build_sidecar_command()`：
 
+注册成功并不等于工具已经可以派发。Generic sidecar 只有在
+`--host-rpc` URI 命中已支持的 `HostRpcClient`、该 client 成功连接到 DCC、
+并且 registry 行发布 `metadata.dispatch_status=ready` 与可用
+`metadata.mcp_url` 后才可调用。启动失败时，row 仍会保留供运维排障，
+但会标记 `metadata.dispatch_status=unavailable`，并写入
+`failure_stage` / `failure_reason`。适配器插件仍然必须暴露真正连接到
+DCC dispatcher 或 skills 的 host RPC bridge；`launch_sidecar()` 只负责
+启动与守护 sidecar 进程。
+
 ```python
 from dcc_mcp_core.install_lifecycle import build_sidecar_command
 

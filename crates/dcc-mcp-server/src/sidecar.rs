@@ -7,10 +7,11 @@
 //!    never leak stale workers.
 //! 2. Register itself in the shared `FileRegistry` with the
 //!    `per-dcc-sidecar` role tag so the gateway can discover it.
-//! 3. Hold a stable RPC channel to the live DCC (`commandPort://...`,
-//!    `hrpyc://...`, `http://...`).  When the DCC dies, the sidecar sees a
-//!    transport disconnect — **not** a process death — and can emit a
-//!    structured `host-died` envelope instead of cascading transport errors.
+//! 3. Hold a stable RPC channel to the live DCC through a registered
+//!    `HostRpcClient` scheme such as `commandport://...`, `qtserver://...`,
+//!    or `ws://...`.  When the DCC dies, the sidecar sees a transport
+//!    disconnect — **not** a process death — and can emit a structured
+//!    `host-died` envelope instead of cascading transport errors.
 //! 4. On graceful shutdown (PPID death or `ctrl-c`), deregister from
 //!    `FileRegistry` and drop the OS-held sentinel lock.
 //!
@@ -39,7 +40,7 @@
 //! # Blender addon spawns this:
 //! dcc-mcp-server sidecar \
 //!     --dcc blender \
-//!     --host-rpc http://127.0.0.1:7100/rpc \
+//!     --host-rpc ws://127.0.0.1:7100/rpc \
 //!     --watch-pid 67890
 //! ```
 
@@ -70,6 +71,13 @@ pub const ROLE_PER_DCC_SIDECAR: &str = "per-dcc-sidecar";
 const FAILURE_REASON_METADATA_KEY: &str = "failure_reason";
 const FAILURE_STAGE_METADATA_KEY: &str = "failure_stage";
 const FAILURE_AT_UNIX_METADATA_KEY: &str = "failure_at_unix";
+const HOST_RPC_URI_METADATA_KEY: &str = "host_rpc_uri";
+const HOST_RPC_SCHEME_METADATA_KEY: &str = "host_rpc_scheme";
+const DISPATCH_STATUS_METADATA_KEY: &str = "dispatch_status";
+const DISPATCH_READY_AT_UNIX_METADATA_KEY: &str = "dispatch_ready_at_unix";
+const DISPATCH_STATUS_BOOTING: &str = "booting";
+const DISPATCH_STATUS_READY: &str = "ready";
+const DISPATCH_STATUS_UNAVAILABLE: &str = "unavailable";
 
 /// How often we re-check whether `--watch-pid` is still alive.
 ///
@@ -150,14 +158,14 @@ pub struct SidecarArgs {
     ///
     /// Examples:
     /// * `commandport://127.0.0.1:6000` — Maya `commandPort`
-    /// * `hrpyc://127.0.0.1:18811` — Houdini `hrpyc`
-    /// * `http://127.0.0.1:7100/rpc` — Blender custom JSON-RPC listener
+    /// * `qtserver://127.0.0.1:18765` — Qt in-process sidecar server
     /// * `ws://127.0.0.1:9000` — Photoshop UXP / Figma plugin
+    /// * `stub://localhost` — tests only; connects but returns transport errors
     ///
-    /// The scheme selects which `HostRpcClient` impl handles the connection.
-    /// The actual client wiring is **not** implemented in this MVP — the
-    /// sidecar registers and waits; tools/call returns a structured
-    /// `not-implemented` envelope until per-DCC `HostRpcClient` impls land.
+    /// The scheme selects which registered `HostRpcClient` impl handles the
+    /// connection. Unsupported schemes still leave a visible registry row with
+    /// `dispatch_status=unavailable`, but the sidecar will not publish an MCP
+    /// URL until host RPC is connected.
     #[arg(long, value_name = "URI")]
     pub host_rpc: String,
 
@@ -502,6 +510,18 @@ fn republish_mcp_url(
     entry
         .metadata
         .insert("mcp_url".to_string(), handle.mcp_url.clone());
+    entry.metadata.insert(
+        DISPATCH_STATUS_METADATA_KEY.to_string(),
+        DISPATCH_STATUS_READY.to_string(),
+    );
+    entry.metadata.insert(
+        DISPATCH_READY_AT_UNIX_METADATA_KEY.to_string(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            .to_string(),
+    );
     entry.metadata.remove(FAILURE_REASON_METADATA_KEY);
     entry.metadata.remove(FAILURE_STAGE_METADATA_KEY);
     entry.metadata.remove(FAILURE_AT_UNIX_METADATA_KEY);
@@ -523,6 +543,11 @@ fn mark_sidecar_boot_failure(
         anyhow::bail!("registry row vanished before sidecar failure metadata update")
     };
     entry.status = ServiceStatus::Booting;
+    entry.metadata.insert(
+        DISPATCH_STATUS_METADATA_KEY.to_string(),
+        DISPATCH_STATUS_UNAVAILABLE.to_string(),
+    );
+    entry.metadata.remove(DISPATCH_READY_AT_UNIX_METADATA_KEY);
     entry
         .metadata
         .insert(FAILURE_STAGE_METADATA_KEY.to_string(), stage.to_string());
@@ -691,7 +716,16 @@ fn build_service_entry(args: &SidecarArgs) -> ServiceEntry {
     );
     entry
         .metadata
-        .insert("host_rpc_uri".to_string(), args.host_rpc.clone());
+        .insert(HOST_RPC_URI_METADATA_KEY.to_string(), args.host_rpc.clone());
+    if let Ok(scheme) = dcc_mcp_host_rpc::parse_scheme(&args.host_rpc) {
+        entry
+            .metadata
+            .insert(HOST_RPC_SCHEME_METADATA_KEY.to_string(), scheme);
+    }
+    entry.metadata.insert(
+        DISPATCH_STATUS_METADATA_KEY.to_string(),
+        DISPATCH_STATUS_BOOTING.to_string(),
+    );
     entry
         .metadata
         .insert("sidecar_pid".to_string(), std::process::id().to_string());
@@ -1147,6 +1181,31 @@ mod tests {
         )
         .await
         .expect("sidecar registered itself within 2s");
+        let ready_row = wait_for_dispatch_status(
+            registry_dir.path(),
+            &key_dcc,
+            pinned_uuid,
+            DISPATCH_STATUS_READY,
+            Duration::from_secs(3),
+        )
+        .await
+        .expect("sidecar must publish dispatch-ready metadata");
+        assert_eq!(ready_row.status, ServiceStatus::Available);
+        assert_ne!(ready_row.port, 0);
+        assert_eq!(
+            ready_row
+                .metadata
+                .get(HOST_RPC_SCHEME_METADATA_KEY)
+                .map(String::as_str),
+            Some("commandport")
+        );
+        assert!(ready_row.metadata.contains_key("mcp_url"));
+        assert!(
+            ready_row
+                .metadata
+                .contains_key(DISPATCH_READY_AT_UNIX_METADATA_KEY),
+            "dispatch-ready row should include a timestamp"
+        );
 
         // Kill the parent and assert clean shutdown.
         child.kill().expect("kill sleep child");
@@ -1245,6 +1304,20 @@ mod tests {
         assert_eq!(
             failed_row
                 .metadata
+                .get(HOST_RPC_SCHEME_METADATA_KEY)
+                .map(String::as_str),
+            Some("commandport")
+        );
+        assert_eq!(
+            failed_row
+                .metadata
+                .get(DISPATCH_STATUS_METADATA_KEY)
+                .map(String::as_str),
+            Some(DISPATCH_STATUS_UNAVAILABLE)
+        );
+        assert_eq!(
+            failed_row
+                .metadata
                 .get(FAILURE_STAGE_METADATA_KEY)
                 .map(String::as_str),
             Some("host-rpc-connect")
@@ -1303,6 +1376,36 @@ mod tests {
             };
             if registry.get(&key).is_some() {
                 return Ok(());
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+
+    async fn wait_for_dispatch_status(
+        registry_dir: &std::path::Path,
+        dcc: &str,
+        instance_id: Uuid,
+        expected: &str,
+        timeout: Duration,
+    ) -> anyhow::Result<ServiceEntry> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if Instant::now() >= deadline {
+                anyhow::bail!("registry row never reached dispatch_status={expected}");
+            }
+            let registry =
+                FileRegistry::new(registry_dir).with_context(|| "reopen registry while polling")?;
+            let key = ServiceKey {
+                dcc_type: dcc.to_string(),
+                instance_id,
+            };
+            if let Some(row) = registry.get(&key)
+                && row
+                    .metadata
+                    .get(DISPATCH_STATUS_METADATA_KEY)
+                    .is_some_and(|status| status == expected)
+            {
+                return Ok(row);
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
