@@ -18,14 +18,17 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::sync::Arc;
 use uuid::Uuid;
 
 use dcc_mcp_gateway_core::policy::{GatewayPolicy, GatewayPolicyDenial, GatewayPolicyOperation};
 use dcc_mcp_jsonrpc::McpTool;
-use dcc_mcp_transport::discovery::types::ServiceEntry;
+use dcc_mcp_transport::discovery::{file_registry::FileRegistry, types::ServiceEntry};
 
 use crate::gateway::admin::trace::TraceContext;
-use crate::gateway::http_registration::entry_mcp_url;
+use crate::gateway::http_registration::{
+    HttpInstanceDeregisterRequest, HttpInstanceRegistry, entry_mcp_url,
+};
 
 use super::admin::trace::AgentContext;
 use super::backend_client::{ForwardToolsCallRequest, forward_tools_call, try_describe_tool};
@@ -516,6 +519,13 @@ pub async fn call_service(
             );
             if kind == "host-died" {
                 record_host_died(gs, &entry, &record, &e);
+                evict_host_died_instance(
+                    &gs.capability_index,
+                    &gs.registry,
+                    &gs.http_instance_registry,
+                    &entry,
+                )
+                .await;
             }
             Err(ServiceError::new(
                 kind,
@@ -760,6 +770,57 @@ fn record_host_died(
         }))
         .unwrap_or_default();
         let _ = gs.events_tx.send(notif);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HostDiedEviction {
+    capability_records_removed: bool,
+    file_registry_row_removed: bool,
+    http_registry_row_removed: bool,
+}
+
+async fn evict_host_died_instance(
+    index: &Arc<CapabilityIndex>,
+    registry: &Arc<tokio::sync::RwLock<FileRegistry>>,
+    http_registry: &Arc<parking_lot::RwLock<HttpInstanceRegistry>>,
+    entry: &ServiceEntry,
+) -> HostDiedEviction {
+    let capability_records_removed = remove_instance(index, entry.instance_id);
+    let file_registry_row_removed = {
+        let reg = registry.read().await;
+        match reg.deregister(&entry.key()) {
+            Ok(removed) => removed.is_some(),
+            Err(err) => {
+                tracing::warn!(
+                    instance_id = %entry.instance_id,
+                    dcc = %entry.dcc_type,
+                    error = %err,
+                    "gateway failed to deregister host-died instance"
+                );
+                false
+            }
+        }
+    };
+    let http_registry_row_removed = http_registry
+        .write()
+        .deregister(HttpInstanceDeregisterRequest {
+            instance_id: entry.instance_id.to_string(),
+        })
+        .map(|removed| removed.is_some())
+        .unwrap_or(false);
+    tracing::info!(
+        instance_id = %entry.instance_id,
+        dcc = %entry.dcc_type,
+        capability_records_removed,
+        file_registry_row_removed,
+        http_registry_row_removed,
+        "gateway evicted host-died instance"
+    );
+    HostDiedEviction {
+        capability_records_removed,
+        file_registry_row_removed,
+        http_registry_row_removed,
     }
 }
 
@@ -1066,6 +1127,92 @@ mod unit_tests {
         assert!(!is_host_died_backend_error(
             "transport error: connection refused"
         ));
+    }
+
+    #[tokio::test]
+    async fn host_died_eviction_drops_index_and_registry_row() {
+        let registry_dir = tempfile::TempDir::new().expect("tempdir");
+        let registry = Arc::new(tokio::sync::RwLock::new(
+            FileRegistry::new(registry_dir.path()).expect("registry"),
+        ));
+        let http_registry = Arc::new(parking_lot::RwLock::new(HttpInstanceRegistry::default()));
+        let mut entry =
+            dcc_mcp_transport::discovery::types::ServiceEntry::new("maya", "127.0.0.1", 8765);
+        entry.instance_id = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        let key = entry.key();
+        registry
+            .read()
+            .await
+            .register(entry.clone())
+            .expect("register row");
+        http_registry
+            .write()
+            .register(
+                crate::gateway::http_registration::HttpInstanceRegistrationRequest {
+                    instance_id: entry.instance_id.to_string(),
+                    dcc_type: "maya".to_string(),
+                    mcp_url: "http://127.0.0.1:8765/mcp".to_string(),
+                    capabilities_fingerprint: None,
+                    adapter_version: None,
+                    scene: None,
+                    ttl_secs: Some(30),
+                },
+                std::time::SystemTime::now(),
+            )
+            .expect("register http row");
+
+        let index = Arc::new(CapabilityIndex::new());
+        push(
+            &index,
+            "maya",
+            entry.instance_id,
+            "maya_scene__list_objects",
+            true,
+        );
+        assert_eq!(
+            search_service(
+                &index,
+                &SearchQuery {
+                    query: "objects".into(),
+                    ..Default::default()
+                }
+            )
+            .len(),
+            1
+        );
+
+        let eviction = evict_host_died_instance(&index, &registry, &http_registry, &entry).await;
+
+        assert_eq!(
+            eviction,
+            HostDiedEviction {
+                capability_records_removed: true,
+                file_registry_row_removed: true,
+                http_registry_row_removed: true,
+            }
+        );
+        assert!(
+            registry.read().await.get(&key).is_none(),
+            "host-died instance must be removed from the shared registry"
+        );
+        assert!(
+            http_registry
+                .read()
+                .live_entries(std::time::SystemTime::now())
+                .is_empty(),
+            "host-died instance must be removed from HTTP registrations"
+        );
+        assert!(
+            search_service(
+                &index,
+                &SearchQuery {
+                    query: "objects".into(),
+                    ..Default::default()
+                }
+            )
+            .is_empty(),
+            "host-died instance must be removed from the gateway capability index"
+        );
     }
 
     #[test]
