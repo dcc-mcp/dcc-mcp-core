@@ -114,8 +114,9 @@ pub struct SidecarArgs {
     ///
     /// The scheme selects which registered `HostRpcClient` impl handles the
     /// connection. Unsupported schemes still leave a visible registry row with
-    /// `dispatch_status=unavailable`, but the sidecar will not publish an MCP
-    /// URL until host RPC is connected.
+    /// `dispatch_status=unavailable`; the sidecar may still publish a
+    /// diagnostic MCP URL that returns structured transport errors instead of
+    /// becoming routable.
     #[arg(long, value_name = "URI")]
     pub host_rpc: String,
 
@@ -272,118 +273,122 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
     // the sidecar keeps running so PPID-watch / FileRegistry still
     // serve their purpose, and a future PR will add a reconnect loop
     // for transient DCC unavailability.
-    let host_rpc_client = match dcc_mcp_host_rpc::client_for_uri(&args.host_rpc) {
-        Ok(client) => {
-            let connect_timeout = Duration::from_secs(args.connect_timeout_secs);
-            match client_connect(client, &args.host_rpc, connect_timeout).await {
-                Ok(connected) => {
-                    tracing::info!(
-                        host_rpc = %args.host_rpc,
-                        "HostRpcClient connected"
-                    );
-                    Some(connected)
-                }
-                Err(err) => {
-                    let reason = format!("host-rpc connect to `{}` failed: {}", args.host_rpc, err);
-                    tracing::warn!(
-                        host_rpc = %args.host_rpc,
-                        error = %err,
-                        "HostRpcClient connect failed; sidecar keeps running disconnected"
-                    );
-                    if let Err(mark_err) =
-                        mark_sidecar_boot_failure(&registry, &key, "host-rpc-connect", reason)
-                    {
-                        tracing::warn!(
-                            error = %mark_err,
-                            "FileRegistry failed to record sidecar host-rpc failure"
+    let (host_rpc_client, dispatch_ready): (Box<dyn dcc_mcp_host_rpc::HostRpcClient>, bool) =
+        match dcc_mcp_host_rpc::client_for_uri(&args.host_rpc) {
+            Ok(client) => {
+                let connect_timeout = Duration::from_secs(args.connect_timeout_secs);
+                match client_connect(client, &args.host_rpc, connect_timeout).await {
+                    Ok(connected) => {
+                        tracing::info!(
+                            host_rpc = %args.host_rpc,
+                            "HostRpcClient connected"
                         );
+                        (connected, true)
                     }
-                    None
+                    Err(err) => {
+                        let reason =
+                            format!("host-rpc connect to `{}` failed: {}", args.host_rpc, err);
+                        tracing::warn!(
+                            host_rpc = %args.host_rpc,
+                            error = %err,
+                            "HostRpcClient connect failed; sidecar keeps running disconnected"
+                        );
+                        if let Err(mark_err) = mark_sidecar_boot_failure(
+                            &registry,
+                            &key,
+                            "host-rpc-connect",
+                            reason.clone(),
+                        ) {
+                            tracing::warn!(
+                                error = %mark_err,
+                                "FileRegistry failed to record sidecar host-rpc failure"
+                            );
+                        }
+                        (
+                            Box::new(dcc_mcp_host_rpc::UnavailableHostRpcClient::new(reason)),
+                            false,
+                        )
+                    }
                 }
             }
+            Err(err) => {
+                let reason = format!("unsupported host-rpc URI `{}`: {}", args.host_rpc, err);
+                tracing::error!(
+                    host_rpc = %args.host_rpc,
+                    error = %err,
+                    "unsupported --host-rpc scheme; sidecar keeps running but cannot dispatch"
+                );
+                if let Err(mark_err) =
+                    mark_sidecar_boot_failure(&registry, &key, "host-rpc-scheme", reason.clone())
+                {
+                    tracing::warn!(
+                        error = %mark_err,
+                        "FileRegistry failed to record sidecar host-rpc scheme failure"
+                    );
+                }
+                (
+                    Box::new(dcc_mcp_host_rpc::UnavailableHostRpcClient::new(reason)),
+                    false,
+                )
+            }
+        };
+
+    // Spin up the sidecar's own MCP HTTP listener so the gateway can
+    // POST `tools/call` requests to us. If HostRpcClient connect failed,
+    // the listener still starts with an unavailable diagnostic client; the
+    // registry row stays Booting/unavailable so gateway routing skips it, but
+    // direct probes get a structured `transport-error` envelope.
+    let mut gateway_control: Option<crate::sidecar_gateway::SidecarGatewayControl> = None;
+
+    let state =
+        crate::sidecar_mcp::SidecarMcpState::new(host_rpc_client, env!("CARGO_PKG_VERSION"));
+    let mcp_handle = match crate::sidecar_mcp::spawn_listener(state, "127.0.0.1", 0).await {
+        Ok(handle) => {
+            tracing::info!(
+                mcp_url = %handle.mcp_url,
+                dispatch_ready,
+                "sidecar MCP listener up"
+            );
+            // Re-register the FileRegistry row so the discovery/diagnostic
+            // surface includes the actual URL. Only a dispatch-ready sidecar
+            // becomes Available; unavailable rows keep Booting status so the
+            // gateway live view does not route traffic to them.
+            if let Err(err) = republish_mcp_listener(&registry, &key, &handle, dispatch_ready) {
+                tracing::warn!(
+                    error = %err,
+                    "FileRegistry republish with mcp_url failed; gateway will route via stub"
+                );
+            }
+            if dispatch_ready
+                && args.legacy_gateway_election
+                && args.gateway_port > 0
+                && let Some(entry) = registry.get(&key)
+            {
+                match crate::sidecar_gateway::start_sidecar_gateway(&args, registry.clone(), entry)
+                    .await
+                {
+                    Ok(ctrl) => gateway_control = ctrl,
+                    Err(err) => {
+                        tracing::error!(
+                            error = %err,
+                            "sidecar gateway election failed; MCP listener still up"
+                        );
+                    }
+                }
+            }
+            Some(handle)
         }
         Err(err) => {
-            let reason = format!("unsupported host-rpc URI `{}`: {}", args.host_rpc, err);
-            tracing::error!(
-                host_rpc = %args.host_rpc,
-                error = %err,
-                "unsupported --host-rpc scheme; sidecar keeps running but cannot dispatch"
-            );
+            let reason = format!("sidecar MCP listener bind failed: {err}");
+            tracing::error!(error = %err, "sidecar MCP listener bind failed");
             if let Err(mark_err) =
-                mark_sidecar_boot_failure(&registry, &key, "host-rpc-scheme", reason)
+                mark_sidecar_boot_failure(&registry, &key, "mcp-listener-bind", reason)
             {
                 tracing::warn!(
                     error = %mark_err,
-                    "FileRegistry failed to record sidecar host-rpc scheme failure"
+                    "FileRegistry failed to record sidecar listener failure"
                 );
             }
-            None
-        }
-    };
-
-    // Spin up the sidecar's own MCP HTTP listener so the gateway can
-    // POST `tools/call` requests to us. If HostRpcClient connect
-    // failed, we still start the listener — it returns structured
-    // `transport-error` envelopes per call, which is much friendlier
-    // than the gateway seeing a registered-but-unreachable backend.
-    let mut gateway_control: Option<crate::sidecar_gateway::SidecarGatewayControl> = None;
-
-    let mcp_handle = match host_rpc_client {
-        Some(client) => {
-            let state = crate::sidecar_mcp::SidecarMcpState::new(client, env!("CARGO_PKG_VERSION"));
-            match crate::sidecar_mcp::spawn_listener(state, "127.0.0.1", 0).await {
-                Ok(handle) => {
-                    tracing::info!(
-                        mcp_url = %handle.mcp_url,
-                        "sidecar MCP listener up"
-                    );
-                    // Re-register the FileRegistry row so the gateway
-                    // discovery surface includes our actual URL.
-                    if let Err(err) = republish_mcp_url(&registry, &key, &handle) {
-                        tracing::warn!(
-                            error = %err,
-                            "FileRegistry republish with mcp_url failed; gateway will route via stub"
-                        );
-                    }
-                    if args.legacy_gateway_election
-                        && args.gateway_port > 0
-                        && let Some(entry) = registry.get(&key)
-                    {
-                        match crate::sidecar_gateway::start_sidecar_gateway(
-                            &args,
-                            registry.clone(),
-                            entry,
-                        )
-                        .await
-                        {
-                            Ok(ctrl) => gateway_control = ctrl,
-                            Err(err) => {
-                                tracing::error!(
-                                    error = %err,
-                                    "sidecar gateway election failed; MCP listener still up"
-                                );
-                            }
-                        }
-                    }
-                    Some(handle)
-                }
-                Err(err) => {
-                    let reason = format!("sidecar MCP listener bind failed: {err}");
-                    tracing::error!(error = %err, "sidecar MCP listener bind failed");
-                    if let Err(mark_err) =
-                        mark_sidecar_boot_failure(&registry, &key, "mcp-listener-bind", reason)
-                    {
-                        tracing::warn!(
-                            error = %mark_err,
-                            "FileRegistry failed to record sidecar listener failure"
-                        );
-                    }
-                    None
-                }
-            }
-        }
-        None => {
-            tracing::warn!("skipping sidecar MCP listener — no HostRpcClient to dispatch through");
             None
         }
     };
@@ -443,41 +448,52 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Re-write the FileRegistry row with the live MCP URL once the
-/// listener is bound. The original `register()` call happens before
-/// the listener exists so the row carries a placeholder
-/// `127.0.0.1:0` until this step runs — gateway discovery treats a
-/// zero port as "registered but not yet routable" and avoids
-/// dispatching to us during the brief startup window.
-fn republish_mcp_url(
+/// Re-write the FileRegistry row with the live MCP URL once the listener is
+/// bound. The original `register()` call happens before the listener exists so
+/// the row carries a placeholder `127.0.0.1:0` until this step runs.
+///
+/// Dispatch-ready sidecars become `Available`; diagnostic listeners keep
+/// `Booting` plus `dispatch_status=unavailable` so gateway discovery can show
+/// the URL for operators without routing calls through it.
+fn republish_mcp_listener(
     registry: &Arc<FileRegistry>,
     key: &dcc_mcp_transport::discovery::types::ServiceKey,
     handle: &crate::sidecar_mcp::SidecarMcpListenerHandle,
+    dispatch_ready: bool,
 ) -> anyhow::Result<()> {
     let Some(mut entry) = registry.get(key) else {
         anyhow::bail!("registry row vanished before mcp_url republish")
     };
     entry.host = handle.bind_addr.ip().to_string();
     entry.port = handle.bind_addr.port();
-    entry.status = ServiceStatus::Available;
     entry
         .metadata
         .insert("mcp_url".to_string(), handle.mcp_url.clone());
-    entry.metadata.insert(
-        DISPATCH_STATUS_METADATA_KEY.to_string(),
-        DISPATCH_STATUS_READY.to_string(),
-    );
-    entry.metadata.insert(
-        DISPATCH_READY_AT_UNIX_METADATA_KEY.to_string(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
-            .to_string(),
-    );
-    entry.metadata.remove(FAILURE_REASON_METADATA_KEY);
-    entry.metadata.remove(FAILURE_STAGE_METADATA_KEY);
-    entry.metadata.remove(FAILURE_AT_UNIX_METADATA_KEY);
+    if dispatch_ready {
+        entry.status = ServiceStatus::Available;
+        entry.metadata.insert(
+            DISPATCH_STATUS_METADATA_KEY.to_string(),
+            DISPATCH_STATUS_READY.to_string(),
+        );
+        entry.metadata.insert(
+            DISPATCH_READY_AT_UNIX_METADATA_KEY.to_string(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+                .to_string(),
+        );
+        entry.metadata.remove(FAILURE_REASON_METADATA_KEY);
+        entry.metadata.remove(FAILURE_STAGE_METADATA_KEY);
+        entry.metadata.remove(FAILURE_AT_UNIX_METADATA_KEY);
+    } else {
+        entry.status = ServiceStatus::Booting;
+        entry.metadata.insert(
+            DISPATCH_STATUS_METADATA_KEY.to_string(),
+            DISPATCH_STATUS_UNAVAILABLE.to_string(),
+        );
+        entry.metadata.remove(DISPATCH_READY_AT_UNIX_METADATA_KEY);
+    }
     // Deregister + register is atomic enough for our needs — the
     // FileRegistry only flushes after register() returns, so the
     // on-disk snapshot transitions in one step.
@@ -564,9 +580,10 @@ fn should_start_gateway_daemon_guardian(args: &SidecarArgs) -> bool {
 
 fn build_service_entry(args: &SidecarArgs) -> ServiceEntry {
     // The sidecar starts as Booting with a placeholder port. Once the MCP
-    // listener binds, `republish_mcp_url` swaps in the real endpoint. If the
-    // HostRpc connection/listener fails, the row stays Booting with
-    // `failure_reason` metadata so operators can diagnose it in Admin.
+    // listener binds, `republish_mcp_listener` swaps in the real endpoint. If
+    // the HostRpc connection fails, the row still gets a diagnostic MCP URL but
+    // stays Booting/unavailable so operators can diagnose it in Admin without
+    // making it routable.
     let mut entry = ServiceEntry::new(&args.dcc, "127.0.0.1", 0).with_pid(args.watch_pid);
     entry.status = ServiceStatus::Booting;
 
@@ -1135,16 +1152,19 @@ mod tests {
         )
         .await
         .expect("sidecar must register even when connect fails");
-        let failed_row = wait_for_failure_reason(
+        let failed_row = wait_for_unavailable_listener(
             registry_dir.path(),
             &key_dcc,
             pinned_uuid,
             Duration::from_secs(3),
         )
         .await
-        .expect("sidecar should expose host-rpc failure metadata");
+        .expect("sidecar should expose host-rpc failure metadata and diagnostic listener");
         assert_eq!(failed_row.status, ServiceStatus::Booting);
-        assert_eq!(failed_row.port, 0);
+        assert_ne!(
+            failed_row.port, 0,
+            "unavailable sidecar still publishes a diagnostic listener"
+        );
         assert_eq!(
             failed_row
                 .metadata
@@ -1171,6 +1191,36 @@ mod tests {
                 .metadata
                 .get(FAILURE_REASON_METADATA_KEY)
                 .is_some_and(|reason| reason.contains("host-rpc connect"))
+        );
+        let mcp_url = failed_row
+            .metadata
+            .get("mcp_url")
+            .expect("diagnostic listener should publish mcp_url")
+            .clone();
+        let body: serde_json::Value = post_mcp(
+            &mcp_url,
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "failed-connect",
+                "method": "tools/call",
+                "params": {
+                    "name": "maya_primitives__create_sphere",
+                    "arguments": {}
+                }
+            }),
+        )
+        .await
+        .json()
+        .await
+        .expect("parse diagnostic tools/call response");
+        assert_eq!(body["error"]["message"], "transport-error");
+        assert_eq!(body["error"]["data"]["kind"], "transport-error");
+        assert!(
+            body["error"]["data"]["message"]
+                .as_str()
+                .unwrap_or("")
+                .contains("host-rpc connect"),
+            "diagnostic listener should preserve startup failure: {body}"
         );
 
         child.kill().expect("kill sleep child");
@@ -1255,7 +1305,7 @@ mod tests {
         }
     }
 
-    async fn wait_for_failure_reason(
+    async fn wait_for_unavailable_listener(
         registry_dir: &std::path::Path,
         dcc: &str,
         instance_id: Uuid,
@@ -1264,7 +1314,7 @@ mod tests {
         let deadline = Instant::now() + timeout;
         loop {
             if Instant::now() >= deadline {
-                anyhow::bail!("registry row never recorded failure metadata");
+                anyhow::bail!("registry row never recorded unavailable diagnostic listener");
             }
             let registry =
                 FileRegistry::new(registry_dir).with_context(|| "reopen registry while polling")?;
@@ -1274,11 +1324,27 @@ mod tests {
             };
             if let Some(row) = registry.get(&key)
                 && row.metadata.contains_key(FAILURE_REASON_METADATA_KEY)
+                && row
+                    .metadata
+                    .get(DISPATCH_STATUS_METADATA_KEY)
+                    .is_some_and(|status| status == DISPATCH_STATUS_UNAVAILABLE)
+                && row.port != 0
+                && row.metadata.contains_key("mcp_url")
             {
                 return Ok(row);
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
+    }
+
+    async fn post_mcp(url: &str, body: serde_json::Value) -> reqwest::Response {
+        reqwest::Client::new()
+            .post(url)
+            .json(&body)
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await
+            .expect("POST diagnostic /mcp")
     }
 
     #[test]
