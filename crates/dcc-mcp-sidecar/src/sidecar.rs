@@ -51,12 +51,14 @@ use std::time::Duration;
 use anyhow::Context as _;
 use clap::Args;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
+use dcc_mcp_transport::discovery::types::ServiceKey;
 use tokio::sync::watch;
 use uuid::Uuid;
 
 pub use crate::sidecar_registry::{ROLE_METADATA_KEY, ROLE_PER_DCC_SIDECAR};
 use crate::sidecar_registry::{
-    build_service_entry, mark_sidecar_boot_failure, republish_mcp_listener,
+    build_service_entry, mark_sidecar_boot_failure, mark_sidecar_dispatch_ready,
+    republish_mcp_listener,
 };
 use crate::sidecar_watchdog::{spawn_ppid_watcher, spawn_sidecar_heartbeat};
 
@@ -72,6 +74,14 @@ const PPID_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 /// Keep the per-DCC sidecar registry row fresh while the parent DCC is alive.
 const SIDECAR_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Retry interval for HostRpc endpoints that are not ready yet at DCC startup.
+#[cfg(not(test))]
+const HOST_RPC_RECONNECT_INTERVAL: Duration = Duration::from_secs(2);
+
+/// Keep reconnect tests quick without changing production retry cadence.
+#[cfg(test)]
+const HOST_RPC_RECONNECT_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Reason the sidecar exited; used by the integration test and structured
 /// logging.
@@ -263,10 +273,10 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
         spawn_sidecar_heartbeat(registry.clone(), key.clone(), SIDECAR_HEARTBEAT_INTERVAL);
 
     // Instantiate the HostRpcClient impl for the URI's scheme and try
-    // to dial the DCC. Failure to connect is logged but non-fatal —
-    // the sidecar keeps running so PPID-watch / FileRegistry still
-    // serve their purpose, and a future PR will add a reconnect loop
-    // for transient DCC unavailability.
+    // to dial the DCC. Failure to connect is logged but non-fatal: the
+    // sidecar keeps running so PPID-watch / FileRegistry still serve their
+    // purpose, and a background reconnect loop can promote the row once the
+    // DCC-side dispatcher appears.
     let (host_rpc_client, dispatch_ready): (Box<dyn dcc_mcp_host_rpc::HostRpcClient>, bool) =
         match dcc_mcp_host_rpc::client_for_uri(&args.host_rpc) {
             Ok(client) => {
@@ -360,8 +370,10 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
     // direct probes get a structured `transport-error` envelope.
     let mut gateway_control: Option<crate::sidecar_gateway::SidecarGatewayControl> = None;
 
+    let mut host_rpc_reconnect_handle: Option<tokio::task::JoinHandle<()>> = None;
     let state =
         crate::sidecar_mcp::SidecarMcpState::new(host_rpc_client, env!("CARGO_PKG_VERSION"));
+    let reconnect_state = state.clone();
     let mcp_handle = match crate::sidecar_mcp::spawn_listener(state, "127.0.0.1", 0).await {
         Ok(handle) => {
             tracing::info!(
@@ -378,6 +390,17 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
                     error = %err,
                     "FileRegistry republish with mcp_url failed; gateway will route via stub"
                 );
+            }
+            if !dispatch_ready && should_retry_host_rpc_connect(&args) {
+                host_rpc_reconnect_handle = Some(spawn_host_rpc_reconnector(
+                    reconnect_state,
+                    registry.clone(),
+                    key.clone(),
+                    args.host_rpc.clone(),
+                    Duration::from_secs(args.connect_timeout_secs),
+                    args.allow_stub_dispatch_ready,
+                    HOST_RPC_RECONNECT_INTERVAL,
+                ));
             }
             if dispatch_ready
                 && args.legacy_gateway_election
@@ -447,6 +470,10 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
         ctrl.shutdown().await;
     }
 
+    if let Some(handle) = host_rpc_reconnect_handle {
+        handle.abort();
+    }
+
     // Stop the HTTP listener first so the gateway sees the URL
     // disappear before we start tearing down the inner client. This
     // ordering also closes the HostRpcClient inside the listener's
@@ -466,6 +493,74 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn should_retry_host_rpc_connect(args: &SidecarArgs) -> bool {
+    match dcc_mcp_host_rpc::parse_scheme(&args.host_rpc) {
+        Ok(scheme) => scheme != "stub" || args.allow_stub_dispatch_ready,
+        Err(_) => false,
+    }
+}
+
+fn spawn_host_rpc_reconnector(
+    state: crate::sidecar_mcp::SidecarMcpState,
+    registry: Arc<FileRegistry>,
+    key: ServiceKey,
+    host_rpc: String,
+    connect_timeout: Duration,
+    allow_stub_dispatch_ready: bool,
+    interval: Duration,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(interval).await;
+            let client = match dcc_mcp_host_rpc::client_for_uri(&host_rpc) {
+                Ok(client) => client,
+                Err(err) => {
+                    tracing::warn!(
+                        host_rpc = %host_rpc,
+                        error = %err,
+                        "sidecar host-rpc reconnect stopped because the URI scheme is unsupported"
+                    );
+                    return;
+                }
+            };
+            match client_connect(client, &host_rpc, connect_timeout).await {
+                Ok(connected) => {
+                    if connected.uri_scheme() == "stub" && !allow_stub_dispatch_ready {
+                        tracing::debug!(
+                            host_rpc = %host_rpc,
+                            "sidecar host-rpc reconnect ignored test-only stub endpoint"
+                        );
+                        return;
+                    }
+                    state.replace_host_rpc(connected).await;
+                    if let Err(err) = mark_sidecar_dispatch_ready(&registry, &key) {
+                        tracing::warn!(
+                            dcc = %key.dcc_type,
+                            instance_id = %key.instance_id,
+                            error = %err,
+                            "FileRegistry failed to publish sidecar dispatch-ready after host-rpc reconnect"
+                        );
+                    }
+                    tracing::info!(
+                        dcc = %key.dcc_type,
+                        instance_id = %key.instance_id,
+                        host_rpc = %host_rpc,
+                        "sidecar host-rpc reconnect succeeded"
+                    );
+                    return;
+                }
+                Err(err) => {
+                    tracing::debug!(
+                        host_rpc = %host_rpc,
+                        error = %err,
+                        "sidecar host-rpc reconnect attempt failed"
+                    );
+                }
+            }
+        }
+    })
 }
 
 /// Connect the freshly-instantiated [`HostRpcClient`] to the DCC.
