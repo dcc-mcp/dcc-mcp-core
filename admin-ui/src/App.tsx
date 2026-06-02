@@ -1764,6 +1764,16 @@ function App() {
                               <div className="instance-kv">
                                 <span>App type</span><span>{instance.dcc_type}</span>
                                 <span>Status</span><span><StatusBadge value={instance.status} /></span>
+                                {instance.dispatch_status ? (
+                                  <>
+                                    <span>Dispatch</span><span><StatusBadge value={instance.dispatch_status} /> {instance.dispatch_ready ? 'callable' : 'not callable'}</span>
+                                  </>
+                                ) : null}
+                                {instance.host_rpc_uri || instance.host_rpc_scheme ? (
+                                  <>
+                                    <span>Host RPC</span><span title={instance.host_rpc_uri ?? undefined}>{instance.host_rpc_scheme ?? instance.host_rpc_uri}</span>
+                                  </>
+                                ) : null}
                                 {instance.failure_reason ? (
                                   <>
                                     <span>Failure</span><span>{instance.failure_reason}</span>

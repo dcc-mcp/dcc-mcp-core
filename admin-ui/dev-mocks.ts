@@ -132,6 +132,54 @@ const SKILL_PATHS_PAYLOAD = {
   ],
 };
 
+const WORKERS_PAYLOAD = {
+  total: 2,
+  summary: { live: 1, stale: 0, unhealthy: 1 },
+  workers: [
+    {
+      instance_id: 'maya-1234567890',
+      display_name: 'Maya Layout',
+      dcc_type: 'maya',
+      status: 'ready',
+      stale: false,
+      pid: 4242,
+      uptime_secs: 120,
+      version: '2026',
+      adapter_version: '0.5.0',
+      cpu_percent: 3.5,
+      memory_bytes: 734003200,
+      mcp_url: 'http://localhost:8765/mcp',
+      scene: 'shot010.ma',
+      dispatch_status: 'ready',
+      dispatch_ready: true,
+      dispatch_ready_at_unix: '1780367000',
+      host_rpc_uri: 'commandport://127.0.0.1:6000',
+      host_rpc_scheme: 'commandport',
+    },
+    {
+      instance_id: 'houdini-abcdef1234',
+      display_name: 'Houdini FX',
+      dcc_type: 'houdini',
+      status: 'booting',
+      stale: false,
+      pid: null,
+      uptime_secs: null,
+      version: null,
+      adapter_version: null,
+      cpu_percent: null,
+      memory_bytes: null,
+      mcp_url: 'http://127.0.0.1:0/mcp',
+      scene: null,
+      failure_reason: 'host-rpc connect failed',
+      failure_stage: 'host-rpc-connect',
+      dispatch_status: 'unavailable',
+      dispatch_ready: false,
+      host_rpc_uri: 'commandport://127.0.0.1:6001',
+      host_rpc_scheme: 'commandport',
+    },
+  ],
+};
+
 function send(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json');
@@ -145,6 +193,7 @@ export function adminApiMockPlugin(): Plugin {
       server.middlewares.use('/admin/api', (req: IncomingMessage, res: ServerResponse, next) => {
         const url = req.url ?? '';
         if (url.startsWith('/health')) return send(res, 200, HEALTH);
+        if (url.startsWith('/workers')) return send(res, 200, WORKERS_PAYLOAD);
         if (url.startsWith('/skills')) return send(res, 200, SKILLS_PAYLOAD);
         if (url.startsWith('/skill-paths')) {
           if (req.method === 'POST' || req.method === 'DELETE') return send(res, 200, { ok: true });

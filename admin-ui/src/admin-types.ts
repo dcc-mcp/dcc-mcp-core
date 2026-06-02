@@ -792,6 +792,11 @@ export type InstanceRow = {
   scene?: string | null;
   failure_reason?: string | null;
   failure_stage?: string | null;
+  dispatch_status?: string | null;
+  dispatch_ready?: boolean;
+  dispatch_ready_at_unix?: string | null;
+  host_rpc_uri?: string | null;
+  host_rpc_scheme?: string | null;
 };
 
 export type InstanceSummary = {
