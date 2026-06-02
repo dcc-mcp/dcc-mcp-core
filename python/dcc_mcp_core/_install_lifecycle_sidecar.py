@@ -252,6 +252,7 @@ def build_sidecar_command(
             instance_id=instance_id,
         ),
         "dispatch_contract": dispatch_contract,
+        "readiness_contract": _sidecar_readiness_contract(dispatch_contract),
         "detached": True,
         "recommended_next_action": _sidecar_launch_next_action(dispatch_contract),
     }
@@ -348,6 +349,9 @@ def launch_sidecar(
         "status": "started",
         "pid": proc.pid,
         "detached": detached,
+        "ready": False,
+        "readiness_checked": False,
+        "readiness": _unchecked_launch_readiness(contract),
     }
     if wait_ready_timeout_secs is not None:
         result["readiness"] = _check_launch_readiness(
@@ -362,6 +366,7 @@ def launch_sidecar(
             probe_timeout_secs=probe_timeout_secs,
         )
         result["ready"] = bool(result["readiness"].get("ready"))
+        result["readiness_checked"] = True
     return result
 
 
@@ -476,6 +481,44 @@ def _sidecar_launch_next_action(dispatch_contract: Dict[str, Any]) -> str:
         "DCC tool dispatch with the configured host_rpc. Use a supported real "
         "host RPC scheme before claiming the plugin is directly usable."
     )
+
+
+def _sidecar_readiness_contract(dispatch_contract: Dict[str, Any]) -> Dict[str, Any]:
+    dispatch_capable = bool(dispatch_contract.get("dispatch_ready_capable"))
+    direct_use_status = "requires_ready_verdict" if dispatch_capable else "diagnostics_only"
+    message = (
+        "Launching the sidecar only proves that a helper process was requested; "
+        "tool calls are directly usable only after sidecar readiness reports ready."
+        if dispatch_capable
+        else (
+            "Launching the sidecar with this host_rpc can publish diagnostics, but it cannot prove DCC tool dispatch."
+        )
+    )
+    return {
+        "ready_on_launch": False,
+        "requires_readiness_check": True,
+        "requires_dispatch_capable_host_rpc": True,
+        "dispatch_ready_capable": dispatch_capable,
+        "direct_use_status": direct_use_status,
+        "ready_verdict": "sidecar_readiness_status(...).ready == true" if dispatch_capable else None,
+        "message": message,
+    }
+
+
+def _unchecked_launch_readiness(contract: Dict[str, Any]) -> Dict[str, Any]:
+    readiness_contract = contract.get("readiness_contract")
+    if not isinstance(readiness_contract, dict):
+        readiness_contract = _sidecar_readiness_contract(contract.get("dispatch_contract", {}))
+    status = "not_checked" if readiness_contract.get("dispatch_ready_capable") else "dispatch_not_capable"
+    return {
+        "success": False,
+        "status": status,
+        "ready": False,
+        "checked": False,
+        "selector": contract.get("readiness_selector"),
+        "message": readiness_contract.get("message"),
+        "recommended_next_action": contract.get("recommended_next_action"),
+    }
 
 
 def _build_readiness_argv(
