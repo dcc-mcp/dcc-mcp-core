@@ -178,6 +178,10 @@ Gateway Admin exposes the same sidecar readiness contract on
 `host_rpc_uri`, `host_rpc_scheme`, `failure_stage`, and `failure_reason`, so
 operators can distinguish registered-but-not-callable sidecars from routing
 failures.
+Gateway instance surfaces (`gateway://instances`, `GET /v1/instances`, and
+`/admin/api/instances`) also expose a nested `dispatch` object with
+`reported`, `status`, `ready`, host-RPC metadata, and failure metadata for the
+same distinction.
 
 By default, `stop_runtime_entries()` only targets rows that publish
 `metadata.sidecar_pid`. It does not terminate the parent DCC process unless
