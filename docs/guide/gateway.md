@@ -41,6 +41,12 @@ launch lock and re-runs the standalone daemon ensure path, so any surviving
 DCC or bridge instance can restore the shared gateway URL without blocking or
 restarting the host process.
 
+If a routed backend call returns the terminal `host-died` envelope, the gateway
+does not wait for ordinary heartbeat or stale cleanup. It records the event,
+drops that instance's dynamic capabilities, and deregisters the matching
+FileRegistry or HTTP registration row immediately so the next search/call
+routes around the dead host.
+
 For the standalone `dcc-mcp-server` binary, the run mode is explicit:
 
 ```bash
