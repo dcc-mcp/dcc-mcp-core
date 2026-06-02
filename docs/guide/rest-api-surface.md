@@ -771,6 +771,17 @@ Async jobs can be watched with `GET /v1/jobs/{id}/events` and cancelled with
 
 ## Readiness (`GET /v1/readyz`)
 
+On the gateway, `GET /v1/readyz` always returns `200` and summarises the current
+registry view. Besides `live_instance_count`, `ready_instance_count`, and
+`not_ready_instance_count`, it reports `dispatch_reported_instance_count`,
+`dispatch_ready_instance_count`, and `dispatch_not_ready_instance_count`; each
+instance row also includes the same nested `dispatch` object exposed by
+`GET /v1/instances`. Use those dispatch counters for sidecar-driven adapters:
+they distinguish "the DCC process is listed" from "the sidecar dispatcher is
+actually callable".
+
+Per-DCC `/v1/readyz` endpoints use the readiness states below:
+
 | State | HTTP | Body | Meaning |
 |---|---|---|---|
 | `Ready` | 200 | `{ "process": true, "dcc": true, "skill_catalog": true, "dispatcher": true, "host_execution_bridge": true, "main_thread_executor": true }` | Base routing bits are green; `POST /v1/call` will dispatch. |

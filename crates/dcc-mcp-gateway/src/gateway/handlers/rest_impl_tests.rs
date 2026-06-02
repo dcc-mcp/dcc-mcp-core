@@ -2,7 +2,7 @@ use super::*;
 use axum::body::{Body, to_bytes};
 use axum::http::Request;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
-use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};
+use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -342,9 +342,32 @@ async fn gateway_readyz_summarises_instance_readiness_bits() {
     let gs = test_gateway_state("1.2.3");
     let mut entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
     entry.instance_id = uuid::Uuid::parse_str("abcdef01-2345-6789-abcd-ef0123456789").unwrap();
+    entry
+        .metadata
+        .insert("mcp_url".into(), "http://127.0.0.1:18812/mcp".into());
+    entry
+        .metadata
+        .insert("dispatch_status".into(), "ready".into());
+    entry
+        .metadata
+        .insert("dispatch_ready_at_unix".into(), "1800000000".into());
+    let mut unavailable_dispatch = ServiceEntry::new("houdini", "127.0.0.1", 18813);
+    unavailable_dispatch.instance_id =
+        uuid::Uuid::parse_str("12345678-2345-6789-abcd-ef0123456789").unwrap();
+    unavailable_dispatch.status = ServiceStatus::Available;
+    unavailable_dispatch
+        .metadata
+        .insert("mcp_url".into(), "http://127.0.0.1:18813/mcp".into());
+    unavailable_dispatch
+        .metadata
+        .insert("dispatch_status".into(), "unavailable".into());
+    unavailable_dispatch
+        .metadata
+        .insert("failure_stage".into(), "host-rpc-connect".into());
     {
         let registry = gs.registry.read().await;
         registry.register(entry.clone()).unwrap();
+        registry.register(unavailable_dispatch).unwrap();
     }
     gs.instance_diagnostics.record_readiness(
         entry.instance_id,
@@ -361,14 +384,33 @@ async fn gateway_readyz_summarises_instance_readiness_bits() {
     let (status, body) = response_json(handle_v1_readyz(State(gs)).await.into_response()).await;
 
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["live_instance_count"], 1);
+    assert_eq!(body["live_instance_count"], 2);
     assert_eq!(body["ready_instance_count"], 1);
-    assert_eq!(body["instances"][0]["instance_short"], "abcdef01");
-    assert_eq!(body["instances"][0]["readiness"]["skill_catalog"], true);
-    assert_eq!(
-        body["instances"][0]["readiness"]["host_execution_bridge"],
-        false
-    );
+    assert_eq!(body["not_ready_instance_count"], 1);
+    assert_eq!(body["dispatch_reported_instance_count"], 2);
+    assert_eq!(body["dispatch_ready_instance_count"], 1);
+    assert_eq!(body["dispatch_not_ready_instance_count"], 1);
+    let instances = body["instances"].as_array().expect("instances array");
+    let maya = instances
+        .iter()
+        .find(|instance| instance["dcc_type"] == "maya")
+        .expect("maya row");
+    let houdini = instances
+        .iter()
+        .find(|instance| instance["dcc_type"] == "houdini")
+        .expect("houdini row");
+    assert_eq!(maya["instance_short"], "abcdef01");
+    assert_eq!(maya["readiness"]["skill_catalog"], true);
+    assert_eq!(maya["readiness"]["host_execution_bridge"], false);
+    assert_eq!(maya["dispatch"]["reported"], true);
+    assert_eq!(maya["dispatch"]["status"], "ready");
+    assert_eq!(maya["dispatch"]["ready"], true);
+    assert_eq!(maya["dispatch"]["ready_at_unix"], "1800000000");
+    assert_eq!(houdini["readiness"], Value::Null);
+    assert_eq!(houdini["dispatch"]["reported"], true);
+    assert_eq!(houdini["dispatch"]["status"], "unavailable");
+    assert_eq!(houdini["dispatch"]["ready"], false);
+    assert_eq!(houdini["dispatch"]["failure_stage"], "host-rpc-connect");
 }
 
 #[tokio::test]

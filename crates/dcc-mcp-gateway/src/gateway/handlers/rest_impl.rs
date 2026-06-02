@@ -290,6 +290,7 @@ pub async fn handle_v1_readyz(State(gs): State<GatewayState>) -> impl IntoRespon
                     .and_then(|diag| diag.get("readiness"))
                     .cloned()
                     .unwrap_or(Value::Null),
+                "dispatch": row["dispatch"].clone(),
                 "lifecycle": row["lifecycle"].clone(),
             })
         })
@@ -297,6 +298,14 @@ pub async fn handle_v1_readyz(State(gs): State<GatewayState>) -> impl IntoRespon
     let ready_instance_count = instances
         .iter()
         .filter(|instance| readiness_value_is_ready(&instance["readiness"]))
+        .count();
+    let dispatch_reported_instance_count = instances
+        .iter()
+        .filter(|instance| dispatch_value_is_reported(&instance["dispatch"]))
+        .count();
+    let dispatch_ready_instance_count = instances
+        .iter()
+        .filter(|instance| dispatch_value_is_ready(&instance["dispatch"]))
         .count();
     (
         StatusCode::OK,
@@ -306,6 +315,10 @@ pub async fn handle_v1_readyz(State(gs): State<GatewayState>) -> impl IntoRespon
             "live_instance_count": instances.len(),
             "ready_instance_count": ready_instance_count,
             "not_ready_instance_count": instances.len().saturating_sub(ready_instance_count),
+            "dispatch_reported_instance_count": dispatch_reported_instance_count,
+            "dispatch_ready_instance_count": dispatch_ready_instance_count,
+            "dispatch_not_ready_instance_count": dispatch_reported_instance_count
+                .saturating_sub(dispatch_ready_instance_count),
             "instances": instances,
         })),
     )
@@ -316,6 +329,14 @@ fn readiness_value_is_ready(readiness: &Value) -> bool {
         && readiness.get("dcc").and_then(Value::as_bool) == Some(true)
         && readiness.get("skill_catalog").and_then(Value::as_bool) == Some(true)
         && readiness.get("dispatcher").and_then(Value::as_bool) == Some(true)
+}
+
+fn dispatch_value_is_reported(dispatch: &Value) -> bool {
+    dispatch.get("reported").and_then(Value::as_bool) == Some(true)
+}
+
+fn dispatch_value_is_ready(dispatch: &Value) -> bool {
+    dispatch.get("ready").and_then(Value::as_bool) == Some(true)
 }
 
 /// `GET /v1/openapi.json` — gateway REST contract.

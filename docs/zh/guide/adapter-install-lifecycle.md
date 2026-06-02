@@ -69,9 +69,11 @@ release asset 不需要改成新的二进制名称。
 并且 registry 行发布 `metadata.dispatch_status=ready` 与可用
 `metadata.mcp_url` 后才可调用。启动失败时，row 仍会保留供运维排障，
 但会标记 `metadata.dispatch_status=unavailable`，并写入
-`failure_stage` / `failure_reason`。适配器插件仍然必须暴露真正连接到
-DCC dispatcher 或 skills 的 host RPC bridge；`launch_sidecar()` 只负责
-启动与守护 sidecar 进程。
+`failure_stage` / `failure_reason`。Gateway `GET /v1/readyz` 也会在每个
+instance row 中镜像 `dispatch`，并提供 dispatch-ready 计数，因此 launcher
+可以区分“DCC 进程已列出”和“sidecar dispatcher 真的可调用”。适配器插件仍然
+必须暴露真正连接到 DCC dispatcher 或 skills 的 host RPC bridge；
+`launch_sidecar()` 只负责启动与守护 sidecar 进程。
 
 ```python
 from dcc_mcp_core.install_lifecycle import build_sidecar_command
