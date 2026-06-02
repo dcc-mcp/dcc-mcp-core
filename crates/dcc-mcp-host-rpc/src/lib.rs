@@ -48,6 +48,9 @@
 //! accepts connect attempts, but calls always return
 //! `HostRpcError::TransportError("stub client")` so integration tests for the
 //! sidecar binary can exercise the call path without depending on a real DCC.
+//! [`UnavailableHostRpcClient`] is the diagnostic placeholder used after the
+//! sidecar already knows host RPC cannot be reached; calls return the original
+//! startup failure as a stable transport error.
 //!
 //! # Example
 //!
@@ -306,6 +309,62 @@ pub trait HostRpcClient: Send + Sync {
     async fn close(&self);
 }
 
+// ── UnavailableHostRpcClient ──────────────────────────────────────────────
+
+/// Permanently-unavailable diagnostic client for sidecar startup failures.
+///
+/// The generic sidecar uses this when the configured host RPC URI is
+/// unsupported or the initial connect attempt fails. It lets the sidecar still
+/// bind its MCP dispatch listener and answer `tools/call` with a structured
+/// [`HostRpcError::TransportError`] instead of leaving clients with only a
+/// missing socket.
+#[derive(Debug, Clone)]
+pub struct UnavailableHostRpcClient {
+    reason: String,
+}
+
+impl UnavailableHostRpcClient {
+    /// Construct a diagnostic client that will report `reason` on every call.
+    #[must_use]
+    pub fn new(reason: impl Into<String>) -> Self {
+        Self {
+            reason: reason.into(),
+        }
+    }
+
+    /// Human-readable startup failure that made this client unavailable.
+    #[must_use]
+    pub fn reason(&self) -> &str {
+        &self.reason
+    }
+}
+
+#[async_trait]
+impl HostRpcClient for UnavailableHostRpcClient {
+    fn uri_scheme(&self) -> &'static str {
+        "unavailable"
+    }
+
+    async fn connect(&mut self, _endpoint: &str, _timeout: Duration) -> Result<(), HostRpcError> {
+        Err(HostRpcError::transport(self.reason.clone()))
+    }
+
+    async fn call(
+        &self,
+        _action: &str,
+        _args: serde_json::Value,
+        _request_id: &str,
+    ) -> Result<serde_json::Value, HostRpcError> {
+        Err(HostRpcError::transport(self.reason.clone()))
+    }
+
+    fn is_alive(&self) -> bool {
+        false
+    }
+
+    async fn close(&self) {}
+}
+
 // ── StubHostRpcClient ─────────────────────────────────────────────────────
 
 /// Reference implementation that **never connects**, used by sidecar
@@ -488,5 +547,40 @@ mod tests {
         // dispatch on it without breaking when this crate ships.
         let client = StubHostRpcClient::new();
         assert_eq!(client.uri_scheme(), "stub");
+    }
+
+    #[tokio::test]
+    async fn unavailable_client_reports_startup_failure() {
+        let reason = "host-rpc connect to `commandport://127.0.0.1:1` failed";
+        let mut client = UnavailableHostRpcClient::new(reason);
+        assert_eq!(client.uri_scheme(), "unavailable");
+        assert_eq!(client.reason(), reason);
+        assert!(!client.is_alive());
+
+        let connect = client
+            .connect("unavailable://diagnostic", Duration::from_millis(10))
+            .await;
+        assert!(
+            matches!(
+                connect,
+                Err(HostRpcError::TransportError { ref message }) if message.contains(reason)
+            ),
+            "connect should preserve the startup failure: {connect:?}"
+        );
+
+        let call = client
+            .call(
+                "maya_primitives__create_sphere",
+                serde_json::json!({}),
+                "req",
+            )
+            .await;
+        assert!(
+            matches!(
+                call,
+                Err(HostRpcError::TransportError { ref message }) if message.contains(reason)
+            ),
+            "call should preserve the startup failure: {call:?}"
+        );
     }
 }
