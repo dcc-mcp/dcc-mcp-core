@@ -110,6 +110,11 @@ mod cli;
 mod event_webhooks;
 mod translate;
 
+#[cfg(feature = "gateway-auto")]
+pub(crate) const GATEWAY_RUNTIME_MODE_METADATA_KEY: &str = "gateway_runtime_mode";
+#[cfg(feature = "gateway-auto")]
+pub(crate) const GATEWAY_GUARDIAN_ENABLED_METADATA_KEY: &str = "gateway_guardian_enabled";
+
 #[derive(Debug, Default)]
 struct FileLoggingCliOptions {
     no_log_file: bool,
@@ -299,6 +304,52 @@ fn resolve_registry_dir(configured: Option<&PathBuf>) -> PathBuf {
 #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
 fn should_start_gateway_daemon_guardian(args: &ServerArgs) -> bool {
     args.gateway_port > 0 && !args.no_ensure_gateway && !args.legacy_gateway_election
+}
+
+#[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
+fn server_gateway_runtime_mode(args: &ServerArgs) -> &'static str {
+    if args.gateway_port == 0 {
+        "not_configured"
+    } else if args.no_ensure_gateway {
+        "failover_disabled_by_adapter"
+    } else if args.legacy_gateway_election {
+        "embedded-fallback"
+    } else {
+        "daemon-backed"
+    }
+}
+
+#[cfg(all(feature = "gateway-auto", not(feature = "gateway-daemon")))]
+fn server_gateway_runtime_mode(args: &ServerArgs) -> &'static str {
+    if args.gateway_port == 0 {
+        "not_configured"
+    } else if args.no_ensure_gateway {
+        "failover_disabled_by_adapter"
+    } else {
+        "daemon-unavailable"
+    }
+}
+
+#[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
+fn server_gateway_guardian_enabled(args: &ServerArgs) -> bool {
+    should_start_gateway_daemon_guardian(args)
+}
+
+#[cfg(all(feature = "gateway-auto", not(feature = "gateway-daemon")))]
+fn server_gateway_guardian_enabled(_args: &ServerArgs) -> bool {
+    false
+}
+
+#[cfg(feature = "gateway-auto")]
+fn stamp_server_gateway_runtime_metadata(entry: &mut ServiceEntry, args: &ServerArgs) {
+    entry.metadata.insert(
+        GATEWAY_RUNTIME_MODE_METADATA_KEY.to_string(),
+        server_gateway_runtime_mode(args).to_string(),
+    );
+    entry.metadata.insert(
+        GATEWAY_GUARDIAN_ENABLED_METADATA_KEY.to_string(),
+        server_gateway_guardian_enabled(args).to_string(),
+    );
 }
 
 #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
@@ -893,6 +944,7 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
             "mcp_url".to_string(),
             format!("http://{}:{}/mcp", args.host, handle.port),
         );
+        stamp_server_gateway_runtime_metadata(&mut entry, &args);
 
         // Standalone binary: scene is fixed at launch; no live provider needed.
         runner
@@ -1113,5 +1165,48 @@ mod tests {
         let opts = build_server_gateway_daemon_options(&args.server, None);
         assert_eq!(opts.host, "127.0.0.1");
         assert_eq!(opts.name.as_deref(), Some("gateway-for-houdini-lookdev"));
+    }
+
+    #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
+    #[test]
+    fn server_registration_metadata_reports_gateway_guardian_mode() {
+        let args =
+            Args::try_parse_from(["dcc-mcp-server", "--app", "maya"]).expect("valid CLI args");
+        let mut entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+
+        stamp_server_gateway_runtime_metadata(&mut entry, &args.server);
+
+        assert_eq!(
+            entry
+                .metadata
+                .get(GATEWAY_RUNTIME_MODE_METADATA_KEY)
+                .map(String::as_str),
+            Some("daemon-backed")
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(GATEWAY_GUARDIAN_ENABLED_METADATA_KEY)
+                .map(String::as_str),
+            Some("true")
+        );
+
+        let args = Args::try_parse_from(["dcc-mcp-server", "--app", "maya", "--gateway-port", "0"])
+            .expect("valid CLI args");
+        stamp_server_gateway_runtime_metadata(&mut entry, &args.server);
+        assert_eq!(
+            entry
+                .metadata
+                .get(GATEWAY_RUNTIME_MODE_METADATA_KEY)
+                .map(String::as_str),
+            Some("not_configured")
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(GATEWAY_GUARDIAN_ENABLED_METADATA_KEY)
+                .map(String::as_str),
+            Some("false")
+        );
     }
 }

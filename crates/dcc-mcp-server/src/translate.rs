@@ -69,6 +69,50 @@ fn should_start_gateway_daemon_guardian(args: &TranslateArgs) -> bool {
 }
 
 #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
+fn translate_gateway_runtime_mode(args: &TranslateArgs) -> &'static str {
+    if args.no_register {
+        "not_registered"
+    } else if args.gateway_port == 0 {
+        "not_configured"
+    } else {
+        "daemon-backed"
+    }
+}
+
+#[cfg(all(feature = "gateway-auto", not(feature = "gateway-daemon")))]
+fn translate_gateway_runtime_mode(args: &TranslateArgs) -> &'static str {
+    if args.no_register {
+        "not_registered"
+    } else if args.gateway_port == 0 {
+        "not_configured"
+    } else {
+        "daemon-unavailable"
+    }
+}
+
+#[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
+fn translate_gateway_guardian_enabled(args: &TranslateArgs) -> bool {
+    should_start_gateway_daemon_guardian(args)
+}
+
+#[cfg(all(feature = "gateway-auto", not(feature = "gateway-daemon")))]
+fn translate_gateway_guardian_enabled(_args: &TranslateArgs) -> bool {
+    false
+}
+
+#[cfg(feature = "gateway-auto")]
+fn stamp_translate_gateway_runtime_metadata(entry: &mut ServiceEntry, args: &TranslateArgs) {
+    entry.metadata.insert(
+        crate::GATEWAY_RUNTIME_MODE_METADATA_KEY.to_string(),
+        translate_gateway_runtime_mode(args).to_string(),
+    );
+    entry.metadata.insert(
+        crate::GATEWAY_GUARDIAN_ENABLED_METADATA_KEY.to_string(),
+        translate_gateway_guardian_enabled(args).to_string(),
+    );
+}
+
+#[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
 fn gateway_runner_port(args: &TranslateArgs) -> u16 {
     if should_start_gateway_daemon_guardian(args) {
         0
@@ -695,6 +739,7 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
         entry
             .metadata
             .insert("stdio_command".to_string(), args.stdio.clone());
+        stamp_translate_gateway_runtime_metadata(&mut entry, &args);
 
         let handle = runner
             .start(entry, None)
@@ -879,5 +924,45 @@ mod tests {
         assert_eq!(opts.registry_dir, PathBuf::from("C:/dcc-mcp/registry"));
         assert_eq!(opts.remote_host, "0.0.0.0");
         assert_eq!(opts.remote_port, 59765);
+    }
+
+    #[test]
+    fn translate_registration_metadata_reports_gateway_guardian_mode() {
+        let mut args = translate_args();
+        let mut entry = ServiceEntry::new("external", "127.0.0.1", 18812);
+
+        stamp_translate_gateway_runtime_metadata(&mut entry, &args);
+
+        assert_eq!(
+            entry
+                .metadata
+                .get(crate::GATEWAY_RUNTIME_MODE_METADATA_KEY)
+                .map(String::as_str),
+            Some("daemon-backed")
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(crate::GATEWAY_GUARDIAN_ENABLED_METADATA_KEY)
+                .map(String::as_str),
+            Some("true")
+        );
+
+        args.gateway_port = 0;
+        stamp_translate_gateway_runtime_metadata(&mut entry, &args);
+        assert_eq!(
+            entry
+                .metadata
+                .get(crate::GATEWAY_RUNTIME_MODE_METADATA_KEY)
+                .map(String::as_str),
+            Some("not_configured")
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(crate::GATEWAY_GUARDIAN_ENABLED_METADATA_KEY)
+                .map(String::as_str),
+            Some("false")
+        );
     }
 }
