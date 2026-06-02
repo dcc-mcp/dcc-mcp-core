@@ -32,13 +32,13 @@ stale lock after `DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS` seconds (default
 auto-launch, or `--legacy-gateway-election` to restore the old per-DCC
 first-wins election.
 
-Python `DccServerBase` adapters and `dcc-mcp-server sidecar` processes
-also keep a lightweight daemon guardian running after startup in
-daemon-backed mode. If `/health` later becomes unreachable for consecutive
-probes, the guardian reuses the same single-flight launch lock and re-runs
-the standalone daemon ensure path, so any surviving DCC instance or
-sidecar can restore the shared gateway URL without blocking or restarting
-the DCC host.
+Python `DccServerBase` adapters, `dcc-mcp-server sidecar`, and
+`dcc-mcp-server` implicit/`auto`/`serve` backends also keep a lightweight
+daemon guardian running after startup in daemon-backed mode. If `/health`
+later becomes unreachable for consecutive probes, the guardian reuses the
+same single-flight launch lock and re-runs the standalone daemon ensure
+path, so any surviving DCC instance can restore the shared gateway URL
+without blocking or restarting the DCC host.
 
 For the standalone `dcc-mcp-server` binary, the run mode is explicit:
 
