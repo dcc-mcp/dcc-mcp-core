@@ -39,7 +39,12 @@ running after startup in daemon-backed mode. If `/health` later becomes
 unreachable for consecutive probes, the guardian reuses the same single-flight
 launch lock and re-runs the standalone daemon ensure path, so any surviving
 DCC or bridge instance can restore the shared gateway URL without blocking or
-restarting the host process.
+restarting the host process. Daemon-backed `dcc-mcp-server` backend and
+translate rows stamp `gateway_runtime_mode=daemon-backed` plus
+`gateway_guardian_enabled=true` into their FileRegistry metadata; opt-out and
+legacy modes stamp a non-daemon mode with `gateway_guardian_enabled=false` so
+Admin and `gateway://instances` can show which registered services can revive
+the gateway.
 
 If a routed backend call returns the terminal `host-died` envelope, the gateway
 does not wait for ordinary heartbeat or stale cleanup. It records the event,
