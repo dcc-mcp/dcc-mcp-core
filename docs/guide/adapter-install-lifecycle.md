@@ -83,6 +83,11 @@ only becomes callable after its `--host-rpc` URI resolves to a supported
 row. Startup failures keep the row visible for operators, mark
 `metadata.dispatch_status=unavailable` with `failure_stage` / `failure_reason`
 metadata, and may still publish `metadata.mcp_url` for structured diagnostics.
+For supported real host RPC schemes, the sidecar keeps retrying that connection
+in the background while the sidecar and owning DCC process remain alive; once it
+connects, the same sidecar listener becomes dispatch-ready, refreshes the
+registry row to `metadata.dispatch_status=ready`, and clears the stale failure
+metadata. Unsupported schemes and `stub://` startup failures do not auto-promote.
 Treat that URL as non-routable until `dispatch_status=ready`: its `/v1/readyz`
 returns dispatcher false, and `tools/call` returns the startup failure as a
 transport-error envelope. Adapter plugins must still expose a real host RPC

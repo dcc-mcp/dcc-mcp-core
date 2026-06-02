@@ -90,6 +90,14 @@ impl SidecarMcpState {
         let guard = self.host_rpc.lock().await;
         guard.close().await;
     }
+
+    /// Replace the inner client after a previously-unavailable sidecar
+    /// reconnects to the live DCC.
+    pub(crate) async fn replace_host_rpc(&self, host_rpc: Box<dyn HostRpcClient>) {
+        let mut guard = self.host_rpc.lock().await;
+        guard.close().await;
+        *guard = host_rpc;
+    }
 }
 
 /// Handle returned by [`spawn_listener`].

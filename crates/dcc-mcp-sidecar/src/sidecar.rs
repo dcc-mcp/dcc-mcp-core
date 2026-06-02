@@ -87,6 +87,9 @@ const PPID_POLL_INTERVAL: Duration = Duration::from_millis(250);
 /// Keep the per-DCC sidecar registry row fresh while the parent DCC is alive.
 const SIDECAR_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 
+/// Retry host RPC after the sidecar starts before the DCC dispatcher is ready.
+const HOST_RPC_RECONNECT_INTERVAL: Duration = Duration::from_secs(1);
+
 /// Reason the sidecar exited; used by the integration test and structured
 /// logging.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -279,93 +282,12 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
     // Instantiate the HostRpcClient impl for the URI's scheme and try
     // to dial the DCC. Failure to connect is logged but non-fatal —
     // the sidecar keeps running so PPID-watch / FileRegistry still
-    // serve their purpose, and a future PR will add a reconnect loop
-    // for transient DCC unavailability.
-    let (host_rpc_client, dispatch_ready): (Box<dyn dcc_mcp_host_rpc::HostRpcClient>, bool) =
-        match dcc_mcp_host_rpc::client_for_uri(&args.host_rpc) {
-            Ok(client) => {
-                let connect_timeout = Duration::from_secs(args.connect_timeout_secs);
-                match client_connect(client, &args.host_rpc, connect_timeout).await {
-                    Ok(connected) => {
-                        if connected.uri_scheme() == "stub" && !args.allow_stub_dispatch_ready {
-                            let reason = format!(
-                                "host-rpc URI `{}` uses stub://, which is test-only and cannot prove DCC dispatch readiness",
-                                args.host_rpc
-                            );
-                            tracing::warn!(
-                                host_rpc = %args.host_rpc,
-                                "stub HostRpcClient connected; sidecar remains unavailable unless --allow-stub-dispatch-ready is set"
-                            );
-                            if let Err(mark_err) = mark_sidecar_boot_failure(
-                                &registry,
-                                &key,
-                                "host-rpc-stub",
-                                reason.clone(),
-                            ) {
-                                tracing::warn!(
-                                    error = %mark_err,
-                                    "FileRegistry failed to record sidecar stub host-rpc failure"
-                                );
-                            }
-                            (
-                                Box::new(dcc_mcp_host_rpc::UnavailableHostRpcClient::new(reason)),
-                                false,
-                            )
-                        } else {
-                            tracing::info!(
-                                host_rpc = %args.host_rpc,
-                                "HostRpcClient connected"
-                            );
-                            (connected, true)
-                        }
-                    }
-                    Err(err) => {
-                        let reason =
-                            format!("host-rpc connect to `{}` failed: {}", args.host_rpc, err);
-                        tracing::warn!(
-                            host_rpc = %args.host_rpc,
-                            error = %err,
-                            "HostRpcClient connect failed; sidecar keeps running disconnected"
-                        );
-                        if let Err(mark_err) = mark_sidecar_boot_failure(
-                            &registry,
-                            &key,
-                            "host-rpc-connect",
-                            reason.clone(),
-                        ) {
-                            tracing::warn!(
-                                error = %mark_err,
-                                "FileRegistry failed to record sidecar host-rpc failure"
-                            );
-                        }
-                        (
-                            Box::new(dcc_mcp_host_rpc::UnavailableHostRpcClient::new(reason)),
-                            false,
-                        )
-                    }
-                }
-            }
-            Err(err) => {
-                let reason = format!("unsupported host-rpc URI `{}`: {}", args.host_rpc, err);
-                tracing::error!(
-                    host_rpc = %args.host_rpc,
-                    error = %err,
-                    "unsupported --host-rpc scheme; sidecar keeps running but cannot dispatch"
-                );
-                if let Err(mark_err) =
-                    mark_sidecar_boot_failure(&registry, &key, "host-rpc-scheme", reason.clone())
-                {
-                    tracing::warn!(
-                        error = %mark_err,
-                        "FileRegistry failed to record sidecar host-rpc scheme failure"
-                    );
-                }
-                (
-                    Box::new(dcc_mcp_host_rpc::UnavailableHostRpcClient::new(reason)),
-                    false,
-                )
-            }
-        };
+    // serve their purpose. Supported schemes retry in the background so
+    // adapter startup order can be "spawn sidecar, then expose host RPC".
+    let host_rpc_startup = connect_host_rpc_or_unavailable(&args, &registry, &key).await;
+    let host_rpc_client = host_rpc_startup.client;
+    let dispatch_ready = host_rpc_startup.dispatch_ready;
+    let should_reconnect_host_rpc = host_rpc_startup.retry_connect;
 
     // Spin up the sidecar's own MCP HTTP listener so the gateway can
     // POST `tools/call` requests to us. If HostRpcClient connect failed,
@@ -376,7 +298,7 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
 
     let state =
         crate::sidecar_mcp::SidecarMcpState::new(host_rpc_client, env!("CARGO_PKG_VERSION"));
-    let mcp_handle = match crate::sidecar_mcp::spawn_listener(state, "127.0.0.1", 0).await {
+    let mcp_handle = match crate::sidecar_mcp::spawn_listener(state.clone(), "127.0.0.1", 0).await {
         Ok(handle) => {
             tracing::info!(
                 mcp_url = %handle.mcp_url,
@@ -426,6 +348,19 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
             None
         }
     };
+    let host_rpc_reconnect_handle =
+        if should_reconnect_host_rpc && mcp_handle.is_some() && !dispatch_ready {
+            Some(spawn_host_rpc_reconnector(
+                registry.clone(),
+                key.clone(),
+                state,
+                args.host_rpc.clone(),
+                Duration::from_secs(args.connect_timeout_secs),
+                HOST_RPC_RECONNECT_INTERVAL,
+            ))
+        } else {
+            None
+        };
 
     // PPID-watch lives on its own task; on parent-death it flips the
     // `exit_tx` watch channel.  Same channel is used by the ctrl-c branch
@@ -454,6 +389,10 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
     tracing::info!(reason = ?reason, "sidecar shutting down");
 
     if let Some(handle) = gateway_guardian_handle {
+        handle.abort();
+    }
+
+    if let Some(handle) = host_rpc_reconnect_handle {
         handle.abort();
     }
 
@@ -570,6 +509,34 @@ fn mark_sidecar_boot_failure(
     Ok(())
 }
 
+fn mark_sidecar_dispatch_ready(
+    registry: &Arc<FileRegistry>,
+    key: &dcc_mcp_transport::discovery::types::ServiceKey,
+) -> anyhow::Result<()> {
+    let Some(mut entry) = registry.get(key) else {
+        anyhow::bail!("registry row vanished before sidecar ready metadata update")
+    };
+    entry.status = ServiceStatus::Available;
+    entry.metadata.insert(
+        DISPATCH_STATUS_METADATA_KEY.to_string(),
+        DISPATCH_STATUS_READY.to_string(),
+    );
+    entry.metadata.insert(
+        DISPATCH_READY_AT_UNIX_METADATA_KEY.to_string(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            .to_string(),
+    );
+    entry.metadata.remove(FAILURE_REASON_METADATA_KEY);
+    entry.metadata.remove(FAILURE_STAGE_METADATA_KEY);
+    entry.metadata.remove(FAILURE_AT_UNIX_METADATA_KEY);
+    registry.deregister(key)?;
+    registry.register(entry)?;
+    Ok(())
+}
+
 /// Connect the freshly-instantiated [`HostRpcClient`] to the DCC.
 ///
 /// Wrapped as a separate helper so the caller can keep the `match`
@@ -582,6 +549,149 @@ async fn client_connect(
 ) -> Result<Box<dyn dcc_mcp_host_rpc::HostRpcClient>, dcc_mcp_host_rpc::HostRpcError> {
     client.connect(endpoint, timeout).await?;
     Ok(client)
+}
+
+struct HostRpcStartup {
+    client: Box<dyn dcc_mcp_host_rpc::HostRpcClient>,
+    dispatch_ready: bool,
+    retry_connect: bool,
+}
+
+async fn connect_host_rpc_or_unavailable(
+    args: &SidecarArgs,
+    registry: &Arc<FileRegistry>,
+    key: &dcc_mcp_transport::discovery::types::ServiceKey,
+) -> HostRpcStartup {
+    let connect_timeout = Duration::from_secs(args.connect_timeout_secs);
+    match dcc_mcp_host_rpc::client_for_uri(&args.host_rpc) {
+        Ok(client) => {
+            let scheme = client.uri_scheme();
+            let retry_connect = scheme != "stub";
+            match client_connect(client, &args.host_rpc, connect_timeout).await {
+                Ok(connected) => {
+                    if connected.uri_scheme() == "stub" && !args.allow_stub_dispatch_ready {
+                        let reason = format!(
+                            "host-rpc URI `{}` uses stub://, which is test-only and cannot prove DCC dispatch readiness",
+                            args.host_rpc
+                        );
+                        tracing::warn!(
+                            host_rpc = %args.host_rpc,
+                            "stub HostRpcClient connected; sidecar remains unavailable unless --allow-stub-dispatch-ready is set"
+                        );
+                        mark_boot_failure_or_log(registry, key, "host-rpc-stub", reason.clone());
+                        HostRpcStartup {
+                            client: Box::new(dcc_mcp_host_rpc::UnavailableHostRpcClient::new(
+                                reason,
+                            )),
+                            dispatch_ready: false,
+                            retry_connect: false,
+                        }
+                    } else {
+                        tracing::info!(
+                            host_rpc = %args.host_rpc,
+                            "HostRpcClient connected"
+                        );
+                        HostRpcStartup {
+                            client: connected,
+                            dispatch_ready: true,
+                            retry_connect: false,
+                        }
+                    }
+                }
+                Err(err) => {
+                    let reason = format!("host-rpc connect to `{}` failed: {}", args.host_rpc, err);
+                    tracing::warn!(
+                        host_rpc = %args.host_rpc,
+                        error = %err,
+                        "HostRpcClient connect failed; sidecar keeps running disconnected"
+                    );
+                    mark_boot_failure_or_log(registry, key, "host-rpc-connect", reason.clone());
+                    HostRpcStartup {
+                        client: Box::new(dcc_mcp_host_rpc::UnavailableHostRpcClient::new(reason)),
+                        dispatch_ready: false,
+                        retry_connect,
+                    }
+                }
+            }
+        }
+        Err(err) => {
+            let reason = format!("unsupported host-rpc URI `{}`: {}", args.host_rpc, err);
+            tracing::error!(
+                host_rpc = %args.host_rpc,
+                error = %err,
+                "unsupported --host-rpc scheme; sidecar keeps running but cannot dispatch"
+            );
+            mark_boot_failure_or_log(registry, key, "host-rpc-scheme", reason.clone());
+            HostRpcStartup {
+                client: Box::new(dcc_mcp_host_rpc::UnavailableHostRpcClient::new(reason)),
+                dispatch_ready: false,
+                retry_connect: false,
+            }
+        }
+    }
+}
+
+fn mark_boot_failure_or_log(
+    registry: &Arc<FileRegistry>,
+    key: &dcc_mcp_transport::discovery::types::ServiceKey,
+    stage: &str,
+    reason: String,
+) {
+    if let Err(mark_err) = mark_sidecar_boot_failure(registry, key, stage, reason) {
+        tracing::warn!(
+            error = %mark_err,
+            "FileRegistry failed to record sidecar host-rpc failure"
+        );
+    }
+}
+
+fn spawn_host_rpc_reconnector(
+    registry: Arc<FileRegistry>,
+    key: dcc_mcp_transport::discovery::types::ServiceKey,
+    state: crate::sidecar_mcp::SidecarMcpState,
+    host_rpc: String,
+    connect_timeout: Duration,
+    interval: Duration,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(interval).await;
+            let client = match dcc_mcp_host_rpc::client_for_uri(&host_rpc) {
+                Ok(client) => client,
+                Err(err) => {
+                    tracing::warn!(
+                        host_rpc = %host_rpc,
+                        error = %err,
+                        "sidecar host-rpc reconnect skipped unsupported URI"
+                    );
+                    return;
+                }
+            };
+            match client_connect(client, &host_rpc, connect_timeout).await {
+                Ok(connected) => {
+                    tracing::info!(
+                        host_rpc = %host_rpc,
+                        "sidecar host-rpc reconnected"
+                    );
+                    state.replace_host_rpc(connected).await;
+                    if let Err(err) = mark_sidecar_dispatch_ready(&registry, &key) {
+                        tracing::warn!(
+                            error = %err,
+                            "FileRegistry failed to promote reconnected sidecar to dispatch-ready"
+                        );
+                    }
+                    return;
+                }
+                Err(err) => {
+                    tracing::debug!(
+                        host_rpc = %host_rpc,
+                        error = %err,
+                        "sidecar host-rpc reconnect attempt failed"
+                    );
+                }
+            }
+        }
+    })
 }
 
 #[cfg(feature = "gateway-daemon")]
