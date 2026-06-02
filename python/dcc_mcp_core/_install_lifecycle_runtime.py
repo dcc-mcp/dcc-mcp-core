@@ -22,6 +22,10 @@ DISPATCH_STATUS_METADATA_KEY = "dispatch_status"
 DISPATCH_STATUS_BOOTING = "booting"
 DISPATCH_STATUS_READY = "ready"
 DISPATCH_STATUS_UNAVAILABLE = "unavailable"
+GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN = "daemon_guardian"
+GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION = "embedded_election"
+GATEWAY_RECOVERY_DRIVER_NONE = "none"
+REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT = "file_registry_heartbeat"
 REGISTRY_ENV = "DCC_MCP_REGISTRY_DIR"
 REGISTRY_FILE = "services.json"
 
@@ -99,6 +103,16 @@ def _normalise_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
     host_rpc_scheme = _optional_text(metadata.get("host_rpc_scheme"))
     failure_stage = _optional_text(metadata.get("failure_stage"))
     failure_reason = _optional_text(metadata.get("failure_reason"))
+    gateway_runtime_mode = _optional_text(metadata.get("gateway_runtime_mode"))
+    gateway_guardian_enabled = _metadata_bool(metadata.get("gateway_guardian_enabled"))
+    gateway_recovery_driver = _gateway_recovery_driver(
+        metadata.get("gateway_recovery_driver"),
+        gateway_runtime_mode,
+        gateway_guardian_enabled,
+    )
+    registration_refresh_mode = _optional_text(metadata.get("registration_refresh_mode"))
+    if registration_refresh_mode is None:
+        registration_refresh_mode = REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT
     dispatch_ready = bool(dispatch_status == DISPATCH_STATUS_READY and mcp_url and runtime_alive is not False)
     dispatch = {
         "reported": dispatch_status is not None,
@@ -140,8 +154,10 @@ def _normalise_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
         "host_rpc_scheme": host_rpc_scheme,
         "failure_stage": failure_stage,
         "failure_reason": failure_reason,
-        "gateway_runtime_mode": _optional_text(metadata.get("gateway_runtime_mode")),
-        "gateway_guardian_enabled": _metadata_bool(metadata.get("gateway_guardian_enabled")),
+        "gateway_runtime_mode": gateway_runtime_mode,
+        "gateway_guardian_enabled": gateway_guardian_enabled,
+        "gateway_recovery_driver": gateway_recovery_driver,
+        "registration_refresh_mode": registration_refresh_mode,
         "parent_pid": parent_pid,
         "sidecar_pid": sidecar_pid,
         "runtime_pid": runtime_pid,
@@ -210,6 +226,21 @@ def _metadata_bool(value: Any) -> bool:
     if value in (None, ""):
         return False
     return str(value).strip().lower() in {"true", "1", "yes"}
+
+
+def _gateway_recovery_driver(
+    raw: Any,
+    runtime_mode: Optional[str],
+    guardian_enabled: bool,
+) -> str:
+    text = _optional_text(raw)
+    if text is not None:
+        return text
+    if guardian_enabled:
+        return GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN
+    if runtime_mode == "embedded-fallback":
+        return GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION
+    return GATEWAY_RECOVERY_DRIVER_NONE
 
 
 def _parse_int(value: Any) -> Optional[int]:

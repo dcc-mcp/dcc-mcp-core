@@ -414,6 +414,17 @@ def _handle_gateway_failover_status(params_json: str) -> str:
     gateway_port = int(raw.get("gateway_port", 0) or 0)
     is_gateway = bool(raw.get("is_gateway", False))
     gateway_runtime_mode = str(raw.get("gateway_runtime_mode", "unknown") or "unknown")
+    gateway_recovery_driver = str(raw.get("gateway_recovery_driver", "") or "")
+    if not gateway_recovery_driver:
+        if _metadata_truthy(raw.get("gateway_guardian_enabled")):
+            gateway_recovery_driver = "daemon_guardian"
+        elif gateway_runtime_mode == "embedded-fallback":
+            gateway_recovery_driver = "embedded_election"
+        else:
+            gateway_recovery_driver = "none"
+    registration_refresh_mode = str(
+        raw.get("registration_refresh_mode", "file_registry_heartbeat") or "file_registry_heartbeat"
+    )
 
     if gateway_runtime_mode in {"daemon-backed", "embedded-fallback"}:
         reason = gateway_runtime_mode
@@ -438,11 +449,21 @@ def _handle_gateway_failover_status(params_json: str) -> str:
         "gateway_port": gateway_port,
         "is_gateway": is_gateway,
         "gateway_runtime_mode": gateway_runtime_mode,
+        "gateway_recovery_driver": gateway_recovery_driver,
+        "registration_refresh_mode": registration_refresh_mode,
         "gateway_daemon_status": raw.get("gateway_daemon_status", {}),
         "reason": reason,
         "timestamp_ms": int(time.time() * 1000),
     }
     return json_dumps(payload)
+
+
+def _metadata_truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value in (None, ""):
+        return False
+    return str(value).strip().lower() in {"true", "1", "yes"}
 
 
 def _handle_dispatch_tool(params_json: str) -> str:
