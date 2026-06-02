@@ -169,16 +169,17 @@ complete, copy-pasteable command set; pick the one that matches your
 constraints and read the migration guide for the path between them
 ([`docs/guide/migration/from-embedded-to-daemon.md`](migration/from-embedded-to-daemon.md)).
 
-### Recipe 1 — Single workstation (embedded auto-gateway)
+### Recipe 1 — Single workstation (daemon-backed auto-gateway)
 
-Default zero-config flow. One DCC adapter wins the gateway port and
-serves the whole machine.
+Default zero-config flow. The first DCC ensures the machine-wide gateway
+daemon is running; every DCC, including that first one, registers as a
+backend behind the same gateway URL.
 
 ```bash
 # Maya plugin host:
 dcc-mcp-server --app maya
 
-# Same workstation, second DCC — joins the elected gateway as a backend:
+# Same workstation, second DCC — registers behind the same gateway daemon:
 dcc-mcp-server --app blender
 ```
 
@@ -896,7 +897,8 @@ let cfg = GatewayConfig { auth, ..GatewayConfig::default() };
 
 By default `GatewayAuth::disabled()` is used, which preserves the
 historical zero-auth behaviour and remains the safe default for the
-embedded auto-gateway (Recipe 1 in the topology section).
+single-workstation daemon-backed auto-gateway (Recipe 1 in the topology
+section).
 
 ### Wire format
 

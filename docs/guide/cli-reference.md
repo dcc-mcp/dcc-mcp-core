@@ -219,8 +219,8 @@ dcc-mcp-server --app maya
 # 2) Per-DCC server only, never competing for the shared gateway port.
 dcc-mcp-server serve --no-auto-gateway --app maya
 
-# 3) Gateway-winner on a workstation with multiple DCCs.
-#    First terminal wins the gateway port, subsequent ones register as plain instances.
+# 3) Daemon-backed backend on a workstation with multiple DCCs.
+#    Each process ensures the same gateway daemon and registers as a backend.
 dcc-mcp-server auto --app maya --server-name maya-shotgun-alpha \
                --scene /shots/ep101/sh0200/shot.ma \
                --log-dir /var/log/dcc-mcp

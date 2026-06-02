@@ -1,21 +1,26 @@
-# Migrating from Embedded Auto-Gateway to a Standalone Daemon
+# Migrating Legacy Embedded Auto-Gateway to a Standalone Daemon
 
 > **[中文版](../../zh/guide/migration/from-embedded-to-daemon)**
 
-This guide walks you through moving a working zero-config single-workstation
-setup (embedded auto-gateway) to one of the supported multi-process / multi-
-machine topologies introduced by epic [#1367][epic]. The default zero-config
-flow is **not** going away — every step here is opt-in.
+This guide is for older deployments, or adapters explicitly launched with
+`--legacy-gateway-election`, that still use the embedded first-wins gateway.
+Current `dcc-mcp-server` zero-config startup is already daemon-backed: a
+per-DCC process ensures the machine-wide `dcc-mcp-server gateway` daemon and
+then registers as a backend. The steps below are only needed when you are
+retiring a legacy embedded topology or moving to a separately managed daemon /
+multi-machine discovery source introduced by epic [#1367][epic].
 
 [epic]: https://github.com/loonghao/dcc-mcp-core/issues/1367
 
 ## When should you migrate?
 
-Stay on the embedded auto-gateway if:
+Staying on legacy embedded auto-gateway is reasonable only if:
 
 - You only run DCC tools on a single workstation, and
 - All DCC processes (Maya, Blender, Houdini, …) are started on the same OS
-  user and share the local `FileRegistry`.
+  user and share the local `FileRegistry`, and
+- You deliberately pass `--legacy-gateway-election` for compatibility with an
+  older supervisor.
 
 Migrate to a standalone gateway daemon when **any** of the following is
 true:
@@ -29,15 +34,14 @@ true:
   lifetime (a restart of Maya should not blink the gateway URL for active
   agents).
 
-## Step 0 — Take a baseline snapshot
+## Step 0 — Take a legacy baseline snapshot
 
-Before changing anything, run the embedded flow once and capture the
+Before changing a legacy deployment, run the embedded flow once and capture the
 state so you have something to compare against and roll back to:
 
 ```bash
-# Start any DCC adapter (e.g. Maya) normally so the embedded auto-gateway
-# binds the well-known port.
-dcc-mcp-server --app maya
+# Start any DCC adapter (e.g. Maya) with the legacy embedded election path.
+dcc-mcp-server --app maya --legacy-gateway-election
 
 # In another terminal, list the live instances the gateway sees:
 curl -s http://127.0.0.1:9765/v1/instances | jq '.by_source'
@@ -47,24 +51,32 @@ Save the output. After the migration the `by_source` counts should still
 make sense (`file` may become `http`/`relay`/`mdns` depending on which
 topology you adopt).
 
-## Step 1 — Stop competing for the gateway port from embedded adapters
+## Step 1 — Stop competing for the gateway port from legacy adapters
 
-The first reversible change is to tell every DCC adapter to **never** bid
-for the gateway port. This lets you operate the gateway daemon out of
-band while keeping the same registry, scenes, and skill paths.
+For same-workstation deployments, the simplest migration is to remove
+`--legacy-gateway-election` and use the current default `auto` path. Each DCC
+process will ensure the same standalone daemon and register as a backend:
 
 ```bash
-# Every DCC sidecar / plugin host launcher gets the new flag:
-dcc-mcp-server serve --no-auto-gateway --app maya
-dcc-mcp-server serve --no-auto-gateway --app blender
+dcc-mcp-server --app maya
+dcc-mcp-server --app blender
 ```
 
-`serve --no-auto-gateway` is a strict subset of `auto` — it never tries
-to bind `--gateway-port`. The DCC still registers itself with whichever
-gateway is reachable (whether embedded in a peer, or standalone).
+If an external supervisor owns the daemon lifecycle and you only want DCC
+processes to publish FileRegistry rows, disable daemon launch/guardian from the
+adapter process:
 
-Roll back: drop the `--no-auto-gateway` flag and the adapter rejoins
-first-wins election.
+```bash
+dcc-mcp-server --app maya --no-ensure-gateway
+dcc-mcp-server --app blender --no-ensure-gateway
+```
+
+`serve --no-auto-gateway` remains available for per-DCC-only launches: it sets
+`gateway_port=0`, so the process never ensures, guards, or binds the gateway
+port. With the `gateway-auto` feature enabled it still writes a FileRegistry
+service row, which a separately managed same-machine daemon can read.
+
+Roll back to the legacy topology only by re-adding `--legacy-gateway-election`.
 
 ## Step 2 — Start the standalone gateway daemon
 
@@ -86,10 +98,9 @@ behavior contract.
 
 [standalone]: ../gateway.md#standalone-gateway-daemon-1358
 
-Roll back: stop the daemon. Embedded adapters will detect the missing
-gateway sentinel on their next election tick and (if they did **not**
-have `--no-auto-gateway`) take over. See [Gateway Election → Failover
-Diagnostics][failover-diag] for how to inspect that state.
+Roll back: stop the daemon and restart the adapters with
+`--legacy-gateway-election`. See [Gateway Election → Failover
+Diagnostics][failover-diag] for how to inspect that legacy state.
 
 [failover-diag]: ../gateway-election.md#failover-diagnostics-issue-1355
 
@@ -130,9 +141,10 @@ curl -s http://127.0.0.1:9765/v1/health
 #    different `source`.
 curl -s http://127.0.0.1:9765/v1/instances | jq '.by_source'
 
-# 3. The failover diagnostic on each embedded adapter reports
-#    "failover_disabled_by_adapter" (because of --no-auto-gateway) or
-#    "gateway_port_not_configured" — both are stable, expected states.
+# 3. Gateway metadata reports the intended mode:
+#    "daemon-backed" for default auto-launch,
+#    "failover_disabled_by_adapter" for --no-ensure-gateway, or
+#    "gateway_port_not_configured" for --no-auto-gateway / gateway_port=0.
 ```
 
 Rollback recipe in one block:
@@ -141,10 +153,8 @@ Rollback recipe in one block:
 # Stop the daemon.
 pkill -f "dcc-mcp-server gateway"
 
-# Restart every DCC adapter without --no-auto-gateway. The first one up
-# wins the gateway port and the topology is back to single-workstation
-# embedded auto-gateway.
-dcc-mcp-server --app maya
+# Restart every DCC adapter with the legacy election flag.
+dcc-mcp-server --app maya --legacy-gateway-election
 ```
 
 ## Related reading
