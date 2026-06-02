@@ -105,10 +105,13 @@ import json
 import sys
 
 from dcc_mcp_core import inspect_install_root
+from dcc_mcp_core import sidecar_host_rpc_dispatch_contract
 
 print(json.dumps({
     "core_loaded": "dcc_mcp_core._core" in sys.modules,
     "module": inspect_install_root.__module__,
+    "sidecar_contract_module": sidecar_host_rpc_dispatch_contract.__module__,
+    "sidecar_contract_status": sidecar_host_rpc_dispatch_contract("stub://localhost:0")["status"],
 }))
 """
     env = os.environ.copy()
@@ -125,6 +128,8 @@ print(json.dumps({
     assert json.loads(result.stdout) == {
         "core_loaded": False,
         "module": "dcc_mcp_core.install_lifecycle",
+        "sidecar_contract_module": "dcc_mcp_core._install_lifecycle_sidecar",
+        "sidecar_contract_status": "test_only",
     }
 
 
@@ -871,6 +876,17 @@ def test_build_sidecar_command_uses_sidecar_cli_contract(tmp_path: Path) -> None
         "dcc_mcp_core.install_lifecycle",
         *result["readiness_argv"],
     ]
+    assert result["dispatch_contract"] == {
+        "host_rpc": "commandport://127.0.0.1:6000",
+        "scheme": "commandport",
+        "supported_schemes": ["commandport", "qtserver", "ws", "wss"],
+        "test_only_schemes": ["stub"],
+        "status": "dispatch_capable",
+        "dispatch_ready_capable": True,
+        "test_only": False,
+        "reason": None,
+        "message": "The sidecar can become dispatch-ready once the DCC host RPC bridge accepts a connection.",
+    }
 
 
 def test_build_sidecar_command_readiness_command_honors_python_env(tmp_path: Path) -> None:
@@ -903,6 +919,34 @@ def test_build_sidecar_command_forwards_extra_sidecar_args(tmp_path: Path) -> No
 
     assert result["success"] is True
     assert result["command"][-3:] == ["--allow-stub-dispatch-ready", "--ppid-poll-ms", "25"]
+    assert result["dispatch_contract"]["status"] == "test_only"
+    assert result["dispatch_contract"]["dispatch_ready_capable"] is False
+    assert "diagnostic row" in result["recommended_next_action"]
+
+
+def test_build_sidecar_command_can_require_dispatch_capable(tmp_path: Path) -> None:
+    result = lifecycle.build_sidecar_command(
+        dcc_type="maya",
+        host_rpc="stub://localhost:0",
+        watch_pid=12345,
+        registry_dir=tmp_path / "registry",
+        server_bin="dcc-mcp-server-test",
+        require_dispatch_capable=True,
+    )
+
+    assert result["success"] is False
+    assert result["reason"] == "dispatch_not_capable"
+    assert result["dispatch_contract"]["status"] == "test_only"
+    assert result["dispatch_contract"]["dispatch_ready_capable"] is False
+
+
+def test_sidecar_host_rpc_dispatch_contract_reports_unsupported_scheme() -> None:
+    result = lifecycle.sidecar_host_rpc_dispatch_contract("foo://127.0.0.1:6000")
+
+    assert result["status"] == "unsupported"
+    assert result["scheme"] == "foo"
+    assert result["dispatch_ready_capable"] is False
+    assert result["reason"] == "unsupported_host_rpc_scheme"
 
 
 def test_build_sidecar_command_returns_structured_validation_error() -> None:
@@ -1157,11 +1201,32 @@ def test_cli_launch_sidecar_passes_readiness_and_extra_args(
     assert code == 0
     assert json.loads(capsys.readouterr().out)["pid"] == 4242
     assert seen["extra_args"] == ["--ppid-poll-ms", "25"]
+    assert seen["require_dispatch_capable"] is False
     assert seen["wait_ready_timeout_secs"] == 5.0
     assert seen["poll_interval_secs"] == 0.1
     assert seen["probe_tool"] == "maya_diagnostics__ping"
     assert seen["probe_arguments"] == {"level": "quick"}
     assert seen["probe_timeout_secs"] == 1.5
+
+
+def test_cli_sidecar_command_can_require_dispatch_capable(capsys: pytest.CaptureFixture[str]) -> None:
+    code = lifecycle.main(
+        [
+            "sidecar-command",
+            "--dcc",
+            "maya",
+            "--host-rpc",
+            "foo://127.0.0.1:6000",
+            "--watch-pid",
+            "2468",
+            "--require-dispatch-capable",
+        ]
+    )
+
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["reason"] == "dispatch_not_capable"
+    assert payload["dispatch_contract"]["status"] == "unsupported"
 
 
 def test_cli_sidecar_ready_passes_probe_arguments(

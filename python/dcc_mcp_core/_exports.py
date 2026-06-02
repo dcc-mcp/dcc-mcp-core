@@ -540,6 +540,7 @@ _LAZY: dict[str, str] = {
     "resolve_deployment_layout": "dcc_mcp_core.install_lifecycle",
     "safe_remove_tree": "dcc_mcp_core.install_lifecycle",
     "safe_replace_tree": "dcc_mcp_core.install_lifecycle",
+    "sidecar_host_rpc_dispatch_contract": "dcc_mcp_core.install_lifecycle",
     "sidecar_readiness_status": "dcc_mcp_core.install_lifecycle",
     "stop_runtime_entries": "dcc_mcp_core.install_lifecycle",
     "wait_for_sidecar_ready": "dcc_mcp_core.install_lifecycle",
