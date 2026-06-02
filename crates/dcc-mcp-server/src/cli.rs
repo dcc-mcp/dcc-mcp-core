@@ -7,7 +7,7 @@ use crate::{capture, translate};
 /// DCC-MCP subcommands.
 #[derive(Debug, Subcommand)]
 pub(crate) enum SubCmd {
-    /// Run the default per-DCC server with first-wins auto-gateway.
+    /// Run the default per-DCC server with daemon-backed auto-gateway.
     Auto(ServerArgs),
     /// Run a per-DCC server, optionally without participating in auto-gateway.
     Serve(ServeArgs),
