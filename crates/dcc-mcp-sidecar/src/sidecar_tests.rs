@@ -1,9 +1,11 @@
 use super::*;
-use dcc_mcp_transport::discovery::types::ServiceKey;
+use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceKey, ServiceStatus};
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Mutex;
 use std::time::Instant;
 use tempfile::TempDir;
+use uuid::Uuid;
 
 // ── Regression: ``default_registry_dir`` must match GatewayRunner's ──
 
