@@ -265,6 +265,8 @@ def test_query_runtime_state_reads_sidecar_pid(tmp_path: Path) -> None:
                         "host_rpc_scheme": "commandport",
                         "dispatch_status": "ready",
                         "dispatch_ready_at_unix": "1800000000",
+                        "gateway_runtime_mode": "daemon-backed",
+                        "gateway_guardian_enabled": "true",
                     },
                 },
                 {
@@ -292,6 +294,8 @@ def test_query_runtime_state_reads_sidecar_pid(tmp_path: Path) -> None:
     assert result["entries"][0]["host_rpc_scheme"] == "commandport"
     assert result["entries"][0]["dispatch_status"] == "ready"
     assert result["entries"][0]["dispatch_ready"] is True
+    assert result["entries"][0]["gateway_runtime_mode"] == "daemon-backed"
+    assert result["entries"][0]["gateway_guardian_enabled"] is True
     assert result["entries"][0]["dispatch"] == {
         "reported": True,
         "status": "ready",

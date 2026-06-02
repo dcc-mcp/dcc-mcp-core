@@ -75,6 +75,8 @@ const HOST_RPC_URI_METADATA_KEY: &str = "host_rpc_uri";
 const HOST_RPC_SCHEME_METADATA_KEY: &str = "host_rpc_scheme";
 const DISPATCH_STATUS_METADATA_KEY: &str = "dispatch_status";
 const DISPATCH_READY_AT_UNIX_METADATA_KEY: &str = "dispatch_ready_at_unix";
+const GATEWAY_RUNTIME_MODE_METADATA_KEY: &str = "gateway_runtime_mode";
+const GATEWAY_GUARDIAN_ENABLED_METADATA_KEY: &str = "gateway_guardian_enabled";
 const DISPATCH_STATUS_BOOTING: &str = "booting";
 const DISPATCH_STATUS_READY: &str = "ready";
 const DISPATCH_STATUS_UNAVAILABLE: &str = "unavailable";
@@ -617,6 +619,42 @@ fn should_use_gateway_daemon(args: &SidecarArgs) -> bool {
     args.gateway_port > 0 && !args.no_ensure_gateway && !args.legacy_gateway_election
 }
 
+#[cfg(feature = "gateway-daemon")]
+fn sidecar_gateway_runtime_mode(args: &SidecarArgs) -> &'static str {
+    if args.gateway_port == 0 {
+        "not_configured"
+    } else if args.no_ensure_gateway {
+        "failover_disabled_by_adapter"
+    } else if args.legacy_gateway_election {
+        "embedded-fallback"
+    } else {
+        "daemon-backed"
+    }
+}
+
+#[cfg(not(feature = "gateway-daemon"))]
+fn sidecar_gateway_runtime_mode(args: &SidecarArgs) -> &'static str {
+    if args.gateway_port == 0 {
+        "not_configured"
+    } else if args.no_ensure_gateway {
+        "failover_disabled_by_adapter"
+    } else if args.legacy_gateway_election {
+        "embedded-fallback"
+    } else {
+        "daemon-unavailable"
+    }
+}
+
+#[cfg(feature = "gateway-daemon")]
+fn sidecar_gateway_guardian_enabled(args: &SidecarArgs) -> bool {
+    should_start_gateway_daemon_guardian(args)
+}
+
+#[cfg(not(feature = "gateway-daemon"))]
+fn sidecar_gateway_guardian_enabled(_args: &SidecarArgs) -> bool {
+    false
+}
+
 fn build_service_entry(args: &SidecarArgs) -> ServiceEntry {
     // The sidecar starts as Booting with a placeholder port. Once the MCP
     // listener binds, `republish_mcp_listener` swaps in the real endpoint. If
@@ -652,6 +690,14 @@ fn build_service_entry(args: &SidecarArgs) -> ServiceEntry {
     entry.metadata.insert(
         DISPATCH_STATUS_METADATA_KEY.to_string(),
         DISPATCH_STATUS_BOOTING.to_string(),
+    );
+    entry.metadata.insert(
+        GATEWAY_RUNTIME_MODE_METADATA_KEY.to_string(),
+        sidecar_gateway_runtime_mode(args).to_string(),
+    );
+    entry.metadata.insert(
+        GATEWAY_GUARDIAN_ENABLED_METADATA_KEY.to_string(),
+        sidecar_gateway_guardian_enabled(args).to_string(),
     );
     entry
         .metadata

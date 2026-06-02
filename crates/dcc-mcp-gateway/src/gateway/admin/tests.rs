@@ -2895,6 +2895,12 @@ filters:
             entry
                 .metadata
                 .insert("mcp_url".into(), "http://127.0.0.1:18813/mcp".into());
+            entry
+                .metadata
+                .insert("gateway_runtime_mode".into(), "daemon-backed".into());
+            entry
+                .metadata
+                .insert("gateway_guardian_enabled".into(), "true".into());
             reg.register(entry).unwrap();
         }
         let state = AdminState::new(gs);
@@ -2915,6 +2921,8 @@ filters:
         assert_eq!(w["dispatch_status"], "ready");
         assert_eq!(w["dispatch_ready"], true);
         assert_eq!(w["dispatch_ready_at_unix"], "1780367000");
+        assert_eq!(w["gateway_runtime_mode"], "daemon-backed");
+        assert_eq!(w["gateway_guardian_enabled"], true);
         // CPU/memory not yet wired — see workers.rs module docs.
         assert!(w["cpu_percent"].is_null());
         assert!(w["memory_bytes"].is_null());

@@ -176,11 +176,15 @@ startup-hook code can read the same contract from the nested `dispatch` object
 (`reported`, `status`, `ready`, `ready_at_unix`, `host_rpc_uri`,
 `host_rpc_scheme`, `failure_stage`, and `failure_reason`). Startup hooks can
 poll `dispatch.ready=True` after `launch_sidecar()` without importing `_core`.
+Daemon-backed sidecars also publish `gateway_runtime_mode` and
+`gateway_guardian_enabled`, so operators can confirm whether the row is
+actually participating in standalone gateway self-recovery.
 Gateway Admin exposes the same sidecar readiness contract on
 `GET /admin/api/workers` as `dispatch_status`, `dispatch_ready`,
 `host_rpc_uri`, `host_rpc_scheme`, `failure_stage`, and `failure_reason`, so
 operators can distinguish registered-but-not-callable sidecars from routing
-failures.
+failures. It also mirrors `gateway_runtime_mode` and
+`gateway_guardian_enabled` for guardian observability.
 Gateway instance surfaces (`gateway://instances`, `GET /v1/instances`, and
 `/admin/api/instances`) also expose a nested `dispatch` object with
 `reported`, `status`, `ready`, host-RPC metadata, and failure metadata for the
