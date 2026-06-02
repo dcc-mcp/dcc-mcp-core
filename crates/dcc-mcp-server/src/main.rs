@@ -96,6 +96,8 @@ use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
 use dcc_mcp_gateway::{AdminPersistConfig, GatewayConfig, GatewayRunner, SkillPathEntry};
 use dcc_mcp_http::{McpHttpConfig, McpHttpServer};
 use dcc_mcp_logging::file_logging::prune_old_logs;
+#[cfg(feature = "gateway-daemon")]
+use dcc_mcp_sidecar::gateway_daemon;
 use dcc_mcp_skills::SkillCatalog;
 use dcc_mcp_skills::constants::resolve_registry_dcc_type;
 #[cfg(feature = "gateway-auto")]
@@ -106,14 +108,6 @@ use sysinfo::{Pid, ProcessesToUpdate, System};
 mod capture;
 mod cli;
 mod event_webhooks;
-#[cfg(feature = "gateway-daemon")]
-mod gateway_daemon;
-#[cfg(feature = "gateway-auto")]
-mod sidecar;
-#[cfg(feature = "gateway-auto")]
-mod sidecar_gateway;
-#[cfg(feature = "gateway-auto")]
-mod sidecar_mcp;
 mod translate;
 
 #[derive(Debug, Default)]
@@ -490,7 +484,7 @@ async fn main() -> anyhow::Result<()> {
         Some(SubCmd::Translate(translate_args)) => return translate::run(translate_args).await,
         Some(SubCmd::Catalog { action }) => return run_catalog_cmd(&action),
         #[cfg(feature = "gateway-auto")]
-        Some(SubCmd::Sidecar(sidecar_args)) => return sidecar::run(sidecar_args).await,
+        Some(SubCmd::Sidecar(sidecar_args)) => return dcc_mcp_sidecar::run(sidecar_args).await,
         #[cfg(feature = "gateway-daemon")]
         Some(SubCmd::Gateway(gateway_args)) => return gateway_daemon::run(gateway_args).await,
         Some(SubCmd::Capture { action }) => return capture::run(action).await,

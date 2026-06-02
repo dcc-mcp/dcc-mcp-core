@@ -129,7 +129,7 @@ standalone). At runtime it satisfies the following:
 - **Runs without any DCC backend.** `GET /health` returns `200 OK`
   with an empty registry. Regression covered by
   `gateway_daemon::tests::standalone_daemon_serves_health_without_any_backend`
-  in `crates/dcc-mcp-server/src/gateway_daemon.rs`.
+  in `crates/dcc-mcp-sidecar/src/gateway_daemon.rs`.
 - **Coexists with auto-gateway.** A DCC server built with
   `dcc-mcp-http` default features still elects itself when a daemon is
   absent (issue #1357 made the auto-gateway path a default-on cargo

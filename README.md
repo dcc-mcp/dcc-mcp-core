@@ -617,9 +617,9 @@ tools/list response (Maya session, nothing loaded yet):
 
 ---
 
-## Architecture Overview — 42 Workspace Packages
+## Architecture Overview — 43 Workspace Packages
 
-`dcc-mcp-core` is organised as a **Rust workspace of 42 packages** (41 functional packages + `workspace-hack`). Most library crates compile into the native Python extension (`_core`) via PyO3 / maturin, while operator-facing crates such as `dcc-mcp-cli`, `dcc-mcp-server`, and tunnel binaries also ship as release assets. The root `Cargo.toml` is the source of truth for membership. Selected crates:
+`dcc-mcp-core` is organised as a **Rust workspace of 43 packages** (42 functional packages + `workspace-hack`). Most library crates compile into the native Python extension (`_core`) via PyO3 / maturin, while operator-facing crates such as `dcc-mcp-cli`, `dcc-mcp-server`, and tunnel binaries also ship as release assets. The root `Cargo.toml` is the source of truth for membership. Selected crates:
 
 | Crate | Responsibility | Key Types |
 |---|---|---|
@@ -647,6 +647,7 @@ tools/list response (Maya session, nothing loaded yet):
 | `dcc-mcp-http` | MCP Streamable HTTP facade | `McpHttpServer`, `McpHttpConfig`, `McpServerHandle`, PyO3 bindings, compatibility re-exports |
 | `dcc-mcp-cli` | Client control-plane CLI | `dcc-mcp-cli list/search/load-skill/describe/call/wait-ready/stop-instance/install` |
 | `dcc-mcp-server` | Binary entry point | `dcc-mcp-server` CLI, gateway runner |
+| `dcc-mcp-sidecar` | Sidecar runtime | `SidecarArgs`, sidecar MCP dispatch listener, gateway daemon guardian helpers |
 | `dcc-mcp-workflow` | Workflow engine (opt-in) | `WorkflowSpec`, `WorkflowExecutor`, `WorkflowHost`, `StepPolicy`, `RetryPolicy` |
 | `dcc-mcp-scheduler` | Cron + webhook scheduler (opt-in) | `ScheduleSpec`, `TriggerSpec`, `SchedulerService`, HMAC verification |
 | `dcc-mcp-artefact` | Content-addressed artefact store | `FileRef`, `FilesystemArtefactStore`, `InMemoryArtefactStore` |

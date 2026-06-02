@@ -71,6 +71,11 @@ or `legacy_gateway_election=True`, and exits when `watch_pid` dies. Use
 `build_sidecar_command()` instead when the adapter wants to hand the argv list
 to a studio process supervisor:
 
+The Rust implementation of that child lives in the `dcc-mcp-sidecar` crate.
+Adapter launch helpers intentionally keep emitting the stable
+`dcc-mcp-server sidecar` command so existing installers and release assets do
+not need a new binary name.
+
 Registration is not the same thing as dispatch readiness. The generic sidecar
 only becomes callable after its `--host-rpc` URI resolves to a supported
 `HostRpcClient`, that client connects to the DCC, and the sidecar publishes
