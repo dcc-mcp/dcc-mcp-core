@@ -102,13 +102,23 @@ fn translate_gateway_guardian_enabled(_args: &TranslateArgs) -> bool {
 
 #[cfg(feature = "gateway-auto")]
 fn stamp_translate_gateway_runtime_metadata(entry: &mut ServiceEntry, args: &TranslateArgs) {
+    let runtime_mode = translate_gateway_runtime_mode(args);
+    let guardian_enabled = translate_gateway_guardian_enabled(args);
     entry.metadata.insert(
         crate::GATEWAY_RUNTIME_MODE_METADATA_KEY.to_string(),
-        translate_gateway_runtime_mode(args).to_string(),
+        runtime_mode.to_string(),
     );
     entry.metadata.insert(
         crate::GATEWAY_GUARDIAN_ENABLED_METADATA_KEY.to_string(),
-        translate_gateway_guardian_enabled(args).to_string(),
+        guardian_enabled.to_string(),
+    );
+    entry.metadata.insert(
+        crate::GATEWAY_RECOVERY_DRIVER_METADATA_KEY.to_string(),
+        crate::gateway_recovery_driver(runtime_mode, guardian_enabled).to_string(),
+    );
+    entry.metadata.insert(
+        crate::REGISTRATION_REFRESH_MODE_METADATA_KEY.to_string(),
+        crate::REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT.to_string(),
     );
 }
 
@@ -947,6 +957,20 @@ mod tests {
                 .map(String::as_str),
             Some("true")
         );
+        assert_eq!(
+            entry
+                .metadata
+                .get(crate::GATEWAY_RECOVERY_DRIVER_METADATA_KEY)
+                .map(String::as_str),
+            Some(crate::GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN)
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(crate::REGISTRATION_REFRESH_MODE_METADATA_KEY)
+                .map(String::as_str),
+            Some(crate::REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT)
+        );
 
         args.gateway_port = 0;
         stamp_translate_gateway_runtime_metadata(&mut entry, &args);
@@ -963,6 +987,13 @@ mod tests {
                 .get(crate::GATEWAY_GUARDIAN_ENABLED_METADATA_KEY)
                 .map(String::as_str),
             Some("false")
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(crate::GATEWAY_RECOVERY_DRIVER_METADATA_KEY)
+                .map(String::as_str),
+            Some(crate::GATEWAY_RECOVERY_DRIVER_NONE)
         );
     }
 }

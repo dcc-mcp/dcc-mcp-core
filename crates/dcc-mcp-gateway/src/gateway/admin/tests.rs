@@ -2923,6 +2923,8 @@ filters:
         assert_eq!(w["dispatch_ready_at_unix"], "1780367000");
         assert_eq!(w["gateway_runtime_mode"], "daemon-backed");
         assert_eq!(w["gateway_guardian_enabled"], true);
+        assert_eq!(w["gateway_recovery_driver"], "daemon_guardian");
+        assert_eq!(w["registration_refresh_mode"], "file_registry_heartbeat");
         // CPU/memory not yet wired — see workers.rs module docs.
         assert!(w["cpu_percent"].is_null());
         assert!(w["memory_bytes"].is_null());

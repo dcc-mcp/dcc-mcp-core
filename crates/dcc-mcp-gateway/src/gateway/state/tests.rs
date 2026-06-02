@@ -133,6 +133,10 @@ async fn live_instances_includes_http_registered_rows() {
     let row = gs.instance_json(&live[0]);
     assert_eq!(row["source"], "http");
     assert_eq!(row["mcp_url"], "http://remote.example:28765/mcp");
+    assert_eq!(
+        row["gateway"]["registration_refresh_mode"],
+        "http_ttl_heartbeat"
+    );
 }
 
 #[tokio::test]
@@ -184,6 +188,10 @@ async fn live_instances_includes_mdns_rows_and_http_wins_conflicts() {
     let row = gs.instance_json(&live[0]);
     assert_eq!(row["source"], "http");
     assert_eq!(row["mcp_url"], "http://remote.example:28765/mcp");
+    assert_eq!(
+        row["gateway"]["registration_refresh_mode"],
+        "http_ttl_heartbeat"
+    );
 }
 
 #[tokio::test]
@@ -289,6 +297,23 @@ async fn live_instances_merges_file_mdns_relay_and_http_in_priority_order() {
     assert_eq!(live[3].instance_id, http_id, "HTTP must shadow file/mDNS");
 
     let rows: Vec<_> = live.iter().map(|entry| gs.instance_json(entry)).collect();
+    assert_eq!(
+        rows[0]["gateway"]["registration_refresh_mode"],
+        "file_registry_heartbeat"
+    );
+    assert_eq!(
+        rows[1]["gateway"]["registration_refresh_mode"],
+        "mdns_discovery"
+    );
+    assert_eq!(
+        rows[2]["gateway"]["registration_refresh_mode"],
+        "relay_poll"
+    );
+    assert_eq!(
+        rows[3]["gateway"]["registration_refresh_mode"],
+        "http_ttl_heartbeat"
+    );
+
     let counts = crate::gateway::state::instance_source_counts(&rows);
     assert_eq!(counts["file"], 1);
     assert_eq!(counts["mdns"], 1);
@@ -458,6 +483,36 @@ fn test_entry_json_exposes_lifecycle_metadata_for_admin() {
         row["lifecycle"]["restart_command"],
         "rez-env dcc_mcp_maya -- maya-sidecar"
     );
+}
+
+#[test]
+fn test_entry_json_exposes_gateway_recovery_metadata() {
+    let mut entry = ServiceEntry::new("maya", "127.0.0.1", 28812).with_pid(4242);
+    entry
+        .metadata
+        .insert("gateway_runtime_mode".into(), "daemon-backed".into());
+    entry
+        .metadata
+        .insert("gateway_guardian_enabled".into(), "true".into());
+
+    let row = entry_to_json(&entry, Duration::from_secs(30), None);
+
+    assert_eq!(row["gateway"]["runtime_mode"], "daemon-backed");
+    assert_eq!(row["gateway"]["guardian_enabled"], true);
+    assert_eq!(row["gateway"]["recovery_driver"], "daemon_guardian");
+    assert_eq!(
+        row["gateway"]["registration_refresh_mode"],
+        "file_registry_heartbeat"
+    );
+
+    entry
+        .metadata
+        .insert("gateway_runtime_mode".into(), "embedded-fallback".into());
+    entry
+        .metadata
+        .insert("gateway_guardian_enabled".into(), "false".into());
+    let row = entry_to_json(&entry, Duration::from_secs(30), None);
+    assert_eq!(row["gateway"]["recovery_driver"], "embedded_election");
 }
 
 #[test]
