@@ -1053,7 +1053,7 @@ Full guide: `docs/guide/remote-server.md`. Per-module API: `docs/api/{auth,batch
 
 | I want to… | Use this |
 |------------|---------|
-| Bridge stdio MCP server to HTTP/SSE | `dcc-mcp-server translate --stdio "cmd" --port N --app-type external` — Streamable HTTP `/mcp` is on by default; add `--expose-sse true` only for legacy `/sse` clients |
+| Bridge stdio MCP server to HTTP/SSE | `dcc-mcp-server translate --stdio "cmd" --port N --app-type external` — Streamable HTTP `/mcp` is on by default; registered bridges ensure the standalone gateway daemon and keep a daemon guardian unless `--no-register`; add `--expose-sse true` only for legacy `/sse` clients |
 | Search DCC-MCP adapter catalog | MCP `resources/read uri=gateway://catalog?query=...` (or `gateway://catalog/{name}` for a single entry); CLI: `dcc-mcp-server catalog search` |
 | Mount OpenAPI REST API as MCP tools | `GatewayBuilder::mount_openapi(OpenApiMount::from_url(...).auth(...))` |
 | Add audit/quota/redact to gateway calls | `GatewayConfig::middleware_chain` with built-in middleware |
@@ -1099,7 +1099,7 @@ dcc-mcp-server translate \
 ```
 
 Default endpoint: `http://127.0.0.1:3333/mcp` (Streamable HTTP). Add `--expose-sse true` to also serve legacy `/sse`.
-Flags: `--no-register` (standalone), `--restart-on-exit false` (disable supervisor), `--max-restarts N` (default 10).
+By default, the bridge ensures the standalone gateway daemon, registers as a backend, and keeps a guardian so a surviving bridge can re-ensure the daemon after `/health` fails. Flags: `--no-register` (standalone), `--restart-on-exit false` (disable supervisor), `--max-restarts N` (default 10).
 
 ### Admin Dashboard (#772)
 

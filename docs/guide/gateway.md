@@ -32,13 +32,14 @@ stale lock after `DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS` seconds (default
 auto-launch, or `--legacy-gateway-election` to restore the old per-DCC
 first-wins election.
 
-Python `DccServerBase` adapters, `dcc-mcp-server sidecar`, and
-`dcc-mcp-server` implicit/`auto`/`serve` backends also keep a lightweight
-daemon guardian running after startup in daemon-backed mode. If `/health`
-later becomes unreachable for consecutive probes, the guardian reuses the
-same single-flight launch lock and re-runs the standalone daemon ensure
-path, so any surviving DCC instance can restore the shared gateway URL
-without blocking or restarting the DCC host.
+Python `DccServerBase` adapters, `dcc-mcp-server sidecar`,
+`dcc-mcp-server` implicit/`auto`/`serve` backends, and registered
+`dcc-mcp-server translate` bridges also keep a lightweight daemon guardian
+running after startup in daemon-backed mode. If `/health` later becomes
+unreachable for consecutive probes, the guardian reuses the same single-flight
+launch lock and re-runs the standalone daemon ensure path, so any surviving
+DCC or bridge instance can restore the shared gateway URL without blocking or
+restarting the host process.
 
 For the standalone `dcc-mcp-server` binary, the run mode is explicit:
 
@@ -48,11 +49,13 @@ dcc-mcp-server auto --app maya  # explicit daemon-backed backend registration
 dcc-mcp-server serve --app maya # per-DCC server; ensures daemon + registers backend
 dcc-mcp-server serve --no-auto-gateway --app maya
 dcc-mcp-server auto --legacy-gateway-election --app maya
+dcc-mcp-server translate --stdio "uvx mcp-server-git" --app-type git
 dcc-mcp-server gateway --port 9765
 ```
 
-Use `serve --no-auto-gateway` when an external daemon owns the shared gateway
-port and this process should never try to bind it.
+Use `serve --no-auto-gateway` or `translate --no-register` when an external
+daemon owns the shared gateway port and this process should never try to bind
+or register with it.
 
 ## Standalone gateway daemon (#1358)
 

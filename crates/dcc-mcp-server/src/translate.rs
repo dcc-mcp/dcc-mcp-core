@@ -63,6 +63,42 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 use tower_http::cors::CorsLayer;
 use tracing::{debug, error, info, warn};
 
+#[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
+fn should_start_gateway_daemon_guardian(args: &TranslateArgs) -> bool {
+    !args.no_register && args.gateway_port > 0
+}
+
+#[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
+fn gateway_runner_port(args: &TranslateArgs) -> u16 {
+    if should_start_gateway_daemon_guardian(args) {
+        0
+    } else {
+        args.gateway_port
+    }
+}
+
+#[cfg(all(feature = "gateway-auto", not(feature = "gateway-daemon")))]
+fn gateway_runner_port(args: &TranslateArgs) -> u16 {
+    args.gateway_port
+}
+
+#[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
+fn build_translate_gateway_daemon_options(
+    args: &TranslateArgs,
+    server_name: &str,
+    registry_dir_path: Option<&PathBuf>,
+    gateway_host: &str,
+) -> crate::gateway_daemon::EnsureGatewayOptions {
+    crate::gateway_daemon::EnsureGatewayOptions {
+        host: gateway_host.to_string(),
+        port: args.gateway_port,
+        name: Some(format!("gateway-for-{server_name}")),
+        registry_dir: crate::resolve_registry_dir(registry_dir_path),
+        remote_host: args.gateway_remote_host.clone(),
+        remote_port: args.gateway_remote_port,
+    }
+}
+
 // ── CLI Args ──────────────────────────────────────────────────────────────────
 
 /// Bridge any stdio MCP server to HTTP/SSE/Streamable-HTTP.
@@ -589,21 +625,46 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
         );
     }
 
+    #[cfg(feature = "gateway-auto")]
+    let registry_dir_path: Option<PathBuf> = args.registry_dir.as_deref().map(PathBuf::from);
+
+    #[cfg(feature = "gateway-auto")]
+    let gateway_host = args
+        .gateway_host
+        .clone()
+        .unwrap_or_else(|| args.host.clone());
+
+    #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
+    let translate_gateway_daemon_options = if should_start_gateway_daemon_guardian(&args) {
+        Some(build_translate_gateway_daemon_options(
+            &args,
+            &server_name,
+            registry_dir_path.as_ref(),
+            &gateway_host,
+        ))
+    } else {
+        None
+    };
+
+    #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
+    if let Some(opts) = translate_gateway_daemon_options.as_ref() {
+        crate::gateway_daemon::ensure_gateway_running(opts)
+            .await
+            .map_err(|err| anyhow::anyhow!("ensuring standalone gateway is running: {err}"))?;
+        info!(
+            port = args.gateway_port,
+            "standalone gateway ensured; translate bridge will register as a backend"
+        );
+    }
+
     // ── Gateway registration ──────────────────────────────────────────────
     #[cfg(feature = "gateway-auto")]
     let gw_handle_opt = if !args.no_register {
         use dcc_mcp_gateway::{GatewayConfig, GatewayRunner};
 
-        let registry_dir_path: Option<PathBuf> = args.registry_dir.as_deref().map(PathBuf::from);
-
-        let gateway_host = args
-            .gateway_host
-            .clone()
-            .unwrap_or_else(|| args.host.clone());
-
         let gateway_cfg = GatewayConfig {
             host: gateway_host,
-            gateway_port: args.gateway_port,
+            gateway_port: gateway_runner_port(&args),
             remote_host: Some(args.gateway_remote_host.clone()),
             remote_gateway_port: args.gateway_remote_port,
             stale_timeout_secs: args.stale_timeout_secs,
@@ -646,6 +707,11 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
                 "This translate bridge instance won the gateway port {}",
                 args.gateway_port
             );
+        } else if cfg!(feature = "gateway-daemon") && args.gateway_port > 0 {
+            info!(
+                "Registered translate bridge behind daemon gateway at port {}",
+                args.gateway_port
+            );
         } else {
             info!(
                 "Registered translate bridge with gateway at port {}",
@@ -658,6 +724,15 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
         info!("--no-register: skipping gateway registration");
         None
     };
+
+    #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
+    let gateway_guardian_handle = translate_gateway_daemon_options.clone().map(|opts| {
+        crate::gateway_daemon::spawn_gateway_guardian(
+            opts,
+            crate::gateway_daemon::GatewayGuardianSettings::from_env(),
+        )
+    });
+
     // Slim builds without `gateway-auto` always behave as `--no-register`:
     // there is no GatewayRunner compiled in. The local HTTP/SSE/Streamable
     // bridge still works; only registration with a gateway is dropped.
@@ -704,6 +779,11 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
         "Shutdown signal received; stopping translate bridge"
     );
 
+    #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
+    if let Some(handle) = gateway_guardian_handle {
+        handle.abort();
+    }
+
     // Drop gateway handle (stops heartbeat). In slim builds this is
     // `Option<()>` and the drop is a no-op; `let _ =` keeps the variable
     // alive until this point without tripping `dropping_copy_types`.
@@ -719,4 +799,85 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(all(test, feature = "gateway-auto", feature = "gateway-daemon"))]
+mod tests {
+    use super::*;
+
+    fn translate_args() -> TranslateArgs {
+        TranslateArgs {
+            stdio: "echo".to_string(),
+            app_type: "external".to_string(),
+            expose_streamable_http: true,
+            expose_sse: false,
+            port: 0,
+            host: "127.0.0.1".to_string(),
+            no_register: false,
+            restart_on_exit: true,
+            max_restarts: 10,
+            gateway_port: 9765,
+            gateway_host: None,
+            gateway_remote_host: "0.0.0.0".to_string(),
+            gateway_remote_port: 59765,
+            no_admin: false,
+            admin_path: "/admin".to_string(),
+            registry_dir: None,
+            stale_timeout_secs: 30,
+            heartbeat_secs: 5,
+            shutdown_timeout_secs: 10,
+            server_name: None,
+            pid_file: None,
+            force: false,
+        }
+    }
+
+    #[test]
+    fn translate_uses_daemon_backed_registration_by_default() {
+        let args = translate_args();
+
+        assert!(should_start_gateway_daemon_guardian(&args));
+        assert_eq!(
+            gateway_runner_port(&args),
+            0,
+            "daemon-backed translate must register only and avoid embedded gateway election"
+        );
+    }
+
+    #[test]
+    fn translate_daemon_guardian_respects_opt_outs() {
+        let mut args = translate_args();
+        args.no_register = true;
+        assert!(!should_start_gateway_daemon_guardian(&args));
+        assert_eq!(gateway_runner_port(&args), 9765);
+
+        args.no_register = false;
+        args.gateway_port = 0;
+        assert!(!should_start_gateway_daemon_guardian(&args));
+        assert_eq!(gateway_runner_port(&args), 0);
+    }
+
+    #[test]
+    fn translate_gateway_daemon_options_use_shared_registry_and_name() {
+        let mut args = translate_args();
+        args.registry_dir = Some("C:/dcc-mcp/registry".to_string());
+
+        let registry_dir_path = args.registry_dir.as_deref().map(PathBuf::from);
+        let opts = build_translate_gateway_daemon_options(
+            &args,
+            "translate-filesystem",
+            registry_dir_path.as_ref(),
+            "127.0.0.1",
+        );
+
+        assert_eq!(opts.host, "127.0.0.1");
+        assert_eq!(opts.port, 9765);
+        assert_eq!(
+            opts.name.as_deref(),
+            Some("gateway-for-translate-filesystem")
+        );
+        assert_eq!(opts.registry_dir, PathBuf::from("C:/dcc-mcp/registry"));
+        assert_eq!(opts.remote_host, "0.0.0.0");
+        assert_eq!(opts.remote_port, 59765);
+    }
 }
