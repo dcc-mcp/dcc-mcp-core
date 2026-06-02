@@ -5,6 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.51](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.50...v0.17.51) (2026-06-02)
+
+
+### Features
+
+* **admin:** refresh dcc mcp logo ([af801de](https://github.com/loonghao/dcc-mcp-core/commit/af801de093e564f1c140b5d3bae12b2081be6b5d))
+* **brand:** refresh DCC MCP logo ([f646252](https://github.com/loonghao/dcc-mcp-core/commit/f646252e9940fe846ce12f3f275b4997599c0393))
+* **gateway:** expose dispatch readiness in instances ([7ec2f46](https://github.com/loonghao/dcc-mcp-core/commit/7ec2f46d3318d733f4d0cb3f612735f496a4b65b))
+* **gateway:** expose dispatch readiness in readyz ([a4387d6](https://github.com/loonghao/dcc-mcp-core/commit/a4387d66576f680cacaf64059845a85d7b6c6f65))
+* **gateway:** expose recovery diagnostics ([6d5ecfa](https://github.com/loonghao/dcc-mcp-core/commit/6d5ecfa5fa64acd23fb40c937baaeedded4a49a1))
+* **gateway:** publish live guardian metadata ([167263b](https://github.com/loonghao/dcc-mcp-core/commit/167263b9edefe6fdd6fe2cd5bc22d23cbc6bedde))
+* **install:** classify sidecar dispatch capability ([3b09a32](https://github.com/loonghao/dcc-mcp-core/commit/3b09a3233e9967ac51a127c11530660130d452d1))
+* **install:** expose sidecar dispatch contract ([c8def96](https://github.com/loonghao/dcc-mcp-core/commit/c8def96b232d01c1d728882bd6fe3e94d32220d4))
+* **server:** publish gateway guardian metadata ([4b53056](https://github.com/loonghao/dcc-mcp-core/commit/4b53056d62b3ad4e13a60be87dd7d6d43fbdd3a7))
+* **sidecar:** add launch readiness contract ([e227eae](https://github.com/loonghao/dcc-mcp-core/commit/e227eaeb5cf949755587642e4af26be551be620c))
+* **sidecar:** reconnect delayed host rpc ([9039c25](https://github.com/loonghao/dcc-mcp-core/commit/9039c2581f0277668a9df322de07db592667956f))
+* **sidecar:** surface gateway guardian mode ([33f871a](https://github.com/loonghao/dcc-mcp-core/commit/33f871a46ed1228c874669c99ccf0e49882bea3d))
+
+
+### Bug Fixes
+
+* **admin:** expose sidecar dispatch state ([1df91e5](https://github.com/loonghao/dcc-mcp-core/commit/1df91e5db566f2ad1156dc96331ae9d4e57d9d23))
+* **gateway:** evict host-died instances immediately ([8b577e0](https://github.com/loonghao/dcc-mcp-core/commit/8b577e0fa70e7b48b200f478162d6a4a58daa26d))
+* **gateway:** ignore stale rows in fingerprints ([193e5ab](https://github.com/loonghao/dcc-mcp-core/commit/193e5abafde44fae449c5859ea75befbebccfe02))
+* **gateway:** reject ambiguous instance resource prefixes ([450e672](https://github.com/loonghao/dcc-mcp-core/commit/450e672f9d4c526c2b158450ecaa4392c81de85c))
+* **gateway:** summarize daemon recovery readiness ([6170652](https://github.com/loonghao/dcc-mcp-core/commit/6170652a340228f6181ffce1afe721d98efeb872))
+* **host-rpc:** surface Maya sidecar bootstrap failures ([90b195d](https://github.com/loonghao/dcc-mcp-core/commit/90b195d6cfcc686cac98a3a0d0c81604a1c5b8bb))
+* **install:** validate sidecar host rpc uri ([dadaecc](https://github.com/loonghao/dcc-mcp-core/commit/dadaecc11b0c624c5749c6a3f35156381cdd561f))
+* **python:** add sidecar readiness verdict ([712a02b](https://github.com/loonghao/dcc-mcp-core/commit/712a02b807ae5fd604d5995ed9c01049abe6fb24))
+* **python:** expose sidecar dispatch readiness ([c2e2b80](https://github.com/loonghao/dcc-mcp-core/commit/c2e2b805b5a108c47987750c884bd17daa6a14fb))
+* **python:** probe sidecar tool readiness ([998be07](https://github.com/loonghao/dcc-mcp-core/commit/998be077120cc045743a09b376ebb20e245ba4c6))
+* **server:** expose sidecar diagnostics listener ([dfa6b69](https://github.com/loonghao/dcc-mcp-core/commit/dfa6b6916d6332d61c73c1a35cdf08cf80b77508))
+* **server:** expose sidecar dispatch readiness ([b4286f4](https://github.com/loonghao/dcc-mcp-core/commit/b4286f4ff3dc9319e837518ff0566cb3b2b77191))
+* **server:** guard auto gateway daemon ([cc8d5a8](https://github.com/loonghao/dcc-mcp-core/commit/cc8d5a895196363569b0cad952346949f5c3a5e1))
+* **server:** guard translate gateway daemon ([39a9d74](https://github.com/loonghao/dcc-mcp-core/commit/39a9d74ba93c300985657af62034a512f21c6b95))
+* **sidecar:** keep stub host rpc non-routable ([1211c77](https://github.com/loonghao/dcc-mcp-core/commit/1211c77f4f1ea9d98f17da897077a8a1bf8b7bbe))
+* **sidecar:** make launch readiness explicit ([8bacd85](https://github.com/loonghao/dcc-mcp-core/commit/8bacd857ccd5bb9f99ddd838b249ddc44ce88371))
+* **sidecar:** reject ambiguous readiness selectors ([3b24bc5](https://github.com/loonghao/dcc-mcp-core/commit/3b24bc5ef4746efc9d723967001f7ebdd0f76ffb))
+* **sidecar:** respect legacy gateway mode ([fa1d798](https://github.com/loonghao/dcc-mcp-core/commit/fa1d7986ce70a81dbc83dc93f1966c877e838636))
+
+
+### Code Refactoring
+
+* **sidecar:** split gateway daemon modules ([7397539](https://github.com/loonghao/dcc-mcp-core/commit/73975399febd3fed12317789d11117ed49ece1e2))
+* **sidecar:** split MCP listener modules ([d81a0fa](https://github.com/loonghao/dcc-mcp-core/commit/d81a0faf21c01e3d76916913d691693d538bce42))
+* **sidecar:** split runtime modules ([0bc7f4b](https://github.com/loonghao/dcc-mcp-core/commit/0bc7f4bc87125a5ca5d7279cf894cb3e02193f70))
+* **sidecar:** split sidecar runtime crate ([5ca4311](https://github.com/loonghao/dcc-mcp-core/commit/5ca431181bd2c110501d0e669491b97c0aeb82e8))
+
+
+### Documentation
+
+* **gateway:** clarify daemon-backed auto mode ([79ae717](https://github.com/loonghao/dcc-mcp-core/commit/79ae717eda17172d01a3e89e3be0cbf7ae5b23f5))
+
 ## [0.17.50](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.49...v0.17.50) (2026-06-01)
 
 
