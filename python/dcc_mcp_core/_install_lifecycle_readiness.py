@@ -17,6 +17,8 @@ import uuid
 ROLE_PER_DCC_SIDECAR = "per-dcc-sidecar"
 DISPATCH_STATUS_BOOTING = "booting"
 DISPATCH_STATUS_UNAVAILABLE = "unavailable"
+RETRYABLE_HOST_RPC_SCHEMES = {"commandport", "qtserver", "ws", "wss"}
+RETRYABLE_FAILURE_STAGES = {"host-rpc-connect"}
 
 
 def sidecar_readiness_status(
@@ -170,7 +172,7 @@ def wait_for_sidecar_ready(
 
     while True:
         status = last.get("status")
-        if last.get("success") or status == DISPATCH_STATUS_UNAVAILABLE:
+        if last.get("success") or (status == DISPATCH_STATUS_UNAVAILABLE and not _is_retryable_unavailable(last)):
             last["elapsed_secs"] = round(time.monotonic() - started, 3)
             return last
         if time.monotonic() >= deadline:
@@ -233,6 +235,7 @@ def probe_sidecar_tool(
         },
         method="POST",
     )
+
     try:
         with urllib.request.urlopen(request, timeout=max(0.1, float(timeout_secs))) as response:
             status_code = int(getattr(response, "status", 200))
@@ -318,6 +321,25 @@ def probe_sidecar_tool(
         http_status=status_code,
         result=result,
     )
+
+
+def _is_retryable_unavailable(result: Dict[str, Any]) -> bool:
+    entry = result.get("entry") if isinstance(result.get("entry"), dict) else {}
+    failure_stage = result.get("failure_stage") or entry.get("failure_stage")
+    if failure_stage not in RETRYABLE_FAILURE_STAGES:
+        return False
+    scheme = entry.get("host_rpc_scheme") or _uri_scheme(entry.get("host_rpc_uri"))
+    if not scheme:
+        selector = result.get("selector") if isinstance(result.get("selector"), dict) else {}
+        scheme = _uri_scheme(selector.get("host_rpc"))
+    return str(scheme).lower() in RETRYABLE_HOST_RPC_SCHEMES
+
+
+def _uri_scheme(value: Any) -> Optional[str]:
+    text = str(value or "").strip()
+    if "://" not in text:
+        return None
+    return text.split("://", 1)[0].lower()
 
 
 def _maybe_probe_ready_entry(

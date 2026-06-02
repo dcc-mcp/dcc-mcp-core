@@ -92,13 +92,18 @@ Treat that URL as non-routable until `dispatch_status=ready`: its `/v1/readyz`
 returns dispatcher false, and `tools/call` returns the startup failure as a
 transport-error envelope. Gateway `GET /v1/readyz` mirrors this as per-instance
 `dispatch` plus dispatch-ready counters, so launchers can distinguish a listed
-DCC process from a callable sidecar dispatcher. Adapter plugins must still
-expose a real host RPC bridge to their DCC dispatcher or skills;
-`launch_sidecar()` only launches and supervises the sidecar process. `stub://`
-is reserved for tests and placeholder
-experiments: the sidecar keeps it `dispatch_status=unavailable` by default, even
-though the stub transport can "connect", so an adapter must never use it to
-claim startup readiness. For Maya `commandport://` sidecars, a present
+DCC process from a callable sidecar dispatcher.
+
+For supported real host RPC schemes such as `commandport://`, `qtserver://`,
+and `ws://`, the sidecar keeps retrying while the parent DCC process is alive.
+When the DCC-side bridge eventually accepts a connection, the same listener
+swaps in the connected dispatcher and the registry row is promoted to
+`dispatch_status=ready`. Adapter plugins must still expose a real host RPC
+bridge to their DCC dispatcher or skills; `launch_sidecar()` only launches and
+supervises the sidecar process. `stub://` is reserved for tests and placeholder
+experiments: the sidecar keeps it `dispatch_status=unavailable` by default,
+even though the stub transport can "connect", so an adapter must never use it
+to claim startup readiness. For Maya `commandport://` sidecars, a present
 `dcc_mcp_maya` package with a missing `dcc_mcp_maya.sidecar._dispatcher`
 returns a structured `sidecar-dispatcher-unavailable` backend envelope on the
 first call instead of a generic transport error, so installers can distinguish
