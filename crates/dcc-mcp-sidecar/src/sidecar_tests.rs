@@ -716,6 +716,140 @@ async fn sidecar_survives_failed_initial_connect() {
     result.expect("run() returned ok");
 }
 
+/// Delayed-dispatcher path: a DCC plugin may spawn the sidecar before its
+/// commandPort / Qt dispatcher is accepting connections. The sidecar should
+/// start non-routable, keep watching the still-live parent, then promote the
+/// same registry row once host RPC appears.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sidecar_reconnects_when_host_rpc_appears_after_startup() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::TcpListener;
+    use tokio::sync::oneshot;
+
+    let registry_dir = TempDir::new().expect("tempdir");
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let delayed_port = listener.local_addr().expect("local_addr").port();
+    drop(listener);
+
+    let mut child = std::process::Command::new(sleep_cmd())
+        .args(sleep_args())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn sleep child");
+
+    let parent_pid = child.id();
+    let key_dcc = "maya".to_string();
+    let pinned_uuid = Uuid::new_v4();
+    let args = SidecarArgs {
+        dcc: key_dcc.clone(),
+        host_rpc: format!("commandport://127.0.0.1:{delayed_port}"),
+        watch_pid: parent_pid,
+        registry_dir: Some(registry_dir.path().to_path_buf()),
+        instance_id: Some(pinned_uuid),
+        display_name: Some("delayed-maya".to_string()),
+        adapter_version: Some("0.0.0-test".to_string()),
+        connect_timeout_secs: 1,
+        allow_stub_dispatch_ready: false,
+        ppid_poll_ms: Some(50),
+        gateway_port: 0,
+        no_ensure_gateway: false,
+        legacy_gateway_election: false,
+        host: "127.0.0.1".to_string(),
+        gateway_host: None,
+        gateway_name: None,
+        gateway_remote_host: "0.0.0.0".to_string(),
+        gateway_remote_port: 59765,
+    };
+
+    let sidecar_handle = tokio::spawn(async move { run(args).await });
+
+    let failed_row = wait_for_unavailable_listener(
+        registry_dir.path(),
+        &key_dcc,
+        pinned_uuid,
+        Duration::from_secs(3),
+    )
+    .await
+    .expect("sidecar should first publish an unavailable diagnostic listener");
+    assert_eq!(failed_row.status, ServiceStatus::Booting);
+    assert_eq!(
+        failed_row
+            .metadata
+            .get(FAILURE_STAGE_METADATA_KEY)
+            .map(String::as_str),
+        Some("host-rpc-connect")
+    );
+
+    let delayed_listener = TcpListener::bind(("127.0.0.1", delayed_port))
+        .await
+        .expect("bind delayed fake commandPort");
+    let (connect_tx, connect_rx) = oneshot::channel::<()>();
+    tokio::spawn(async move {
+        if let Ok((mut stream, _)) = delayed_listener.accept().await {
+            let _ = connect_tx.send(());
+            let (read_half, mut write_half) = stream.split();
+            let mut reader = BufReader::new(read_half);
+            let mut bootstrap_line = String::new();
+            let _ = reader.read_line(&mut bootstrap_line).await;
+            let _ = write_half.write_all(b"None\n").await;
+            let _ = write_half.flush().await;
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    });
+
+    tokio::time::timeout(Duration::from_secs(5), connect_rx)
+        .await
+        .expect("sidecar should reconnect to delayed commandPort")
+        .expect("connect channel closed without firing");
+
+    let ready_row = wait_for_dispatch_status(
+        registry_dir.path(),
+        &key_dcc,
+        pinned_uuid,
+        DISPATCH_STATUS_READY,
+        Duration::from_secs(5),
+    )
+    .await
+    .expect("sidecar should promote delayed host-rpc connection to ready");
+    assert_eq!(ready_row.status, ServiceStatus::Available);
+    assert!(!ready_row.metadata.contains_key(FAILURE_STAGE_METADATA_KEY));
+    assert!(!ready_row.metadata.contains_key(FAILURE_REASON_METADATA_KEY));
+    assert!(
+        ready_row
+            .metadata
+            .contains_key(DISPATCH_READY_AT_UNIX_METADATA_KEY),
+        "reconnected sidecar should publish dispatch-ready timestamp"
+    );
+
+    let mcp_url = ready_row
+        .metadata
+        .get("mcp_url")
+        .expect("ready row should keep mcp_url")
+        .clone();
+    let base_url = mcp_url
+        .strip_suffix("/mcp")
+        .expect("sidecar mcp_url should end with /mcp");
+    let ready_response = reqwest::Client::new()
+        .get(format!("{base_url}/v1/readyz"))
+        .timeout(Duration::from_secs(5))
+        .send()
+        .await
+        .expect("GET reconnected /v1/readyz");
+    assert_eq!(ready_response.status(), reqwest::StatusCode::OK);
+
+    child.kill().expect("kill sleep child");
+    let _ = child.wait();
+
+    let result = tokio::time::timeout(Duration::from_secs(4), sidecar_handle)
+        .await
+        .expect("sidecar exited after parent death")
+        .expect("no panic");
+    result.expect("run() returned ok");
+}
+
 fn sleep_cmd() -> &'static str {
     if cfg!(windows) {
         "powershell.exe"
