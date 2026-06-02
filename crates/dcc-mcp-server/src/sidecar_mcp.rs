@@ -69,7 +69,11 @@ pub struct SidecarMcpState {
 }
 
 impl SidecarMcpState {
-    /// Wrap a connected [`HostRpcClient`] for the HTTP handler.
+    /// Wrap a [`HostRpcClient`] for the HTTP handler.
+    ///
+    /// The common path passes a connected client. Startup-failure diagnostics
+    /// may pass an unavailable client so `/v1/readyz` and `tools/call` can
+    /// report structured failure details through the same listener.
     pub fn new(host_rpc: Box<dyn HostRpcClient>, server_version: impl Into<String>) -> Self {
         Self {
             host_rpc: Arc::new(Mutex::new(host_rpc)),
@@ -199,13 +203,25 @@ async fn handle_v1_healthz() -> Response {
     (StatusCode::OK, axum::Json(json!({"ok": true}))).into_response()
 }
 
-async fn handle_v1_readyz() -> Response {
+async fn handle_v1_readyz(State(state): State<SidecarMcpState>) -> Response {
+    let dispatcher_ready = match state.host_rpc.try_lock() {
+        Ok(guard) => guard.is_alive(),
+        // A locked dispatcher is busy serving a call, not unavailable. Keep
+        // readiness probes non-blocking so long DCC calls do not look like a
+        // dead sidecar.
+        Err(_) => true,
+    };
+    let status = if dispatcher_ready {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
     (
-        StatusCode::OK,
+        status,
         axum::Json(json!({
             "process": true,
-            "dispatcher": true,
-            "dcc": true,
+            "dispatcher": dispatcher_ready,
+            "dcc": dispatcher_ready,
         })),
     )
         .into_response()
@@ -450,11 +466,20 @@ fn attach_session(response: &mut Response, session_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dcc_mcp_host_rpc::StubHostRpcClient;
+    use dcc_mcp_host_rpc::{StubHostRpcClient, UnavailableHostRpcClient};
     use std::time::Duration;
 
+    async fn connected_stub_client() -> Box<dyn HostRpcClient> {
+        let mut client = StubHostRpcClient::new();
+        client
+            .connect("stub://localhost", Duration::from_millis(10))
+            .await
+            .expect("connect stub client");
+        Box::new(client)
+    }
+
     async fn fresh_listener() -> SidecarMcpListenerHandle {
-        let client: Box<dyn HostRpcClient> = Box::new(StubHostRpcClient::new());
+        let client = connected_stub_client().await;
         let state = SidecarMcpState::new(client, "test-0.0.0");
         spawn_listener(state, "127.0.0.1", 0)
             .await
@@ -518,19 +543,41 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn readyz_reports_fully_ready() {
         let handle = fresh_listener().await;
-        let body: Value = reqwest::Client::new()
+        let response = reqwest::Client::new()
             .get(format!("http://{}/v1/readyz", handle.bind_addr))
             .timeout(Duration::from_secs(2))
             .send()
             .await
-            .expect("GET /v1/readyz")
-            .json()
-            .await
-            .expect("parse /v1/readyz");
+            .expect("GET /v1/readyz");
+        assert_eq!(response.status().as_u16(), 200);
+        let body: Value = response.json().await.expect("parse /v1/readyz");
 
         assert_eq!(body["process"], true);
         assert_eq!(body["dispatcher"], true);
         assert_eq!(body["dcc"], true);
+        handle.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn readyz_reports_dispatcher_unavailable() {
+        let client: Box<dyn HostRpcClient> = Box::new(UnavailableHostRpcClient::new(
+            "host-rpc connect to `qtserver://127.0.0.1:1` failed",
+        ));
+        let state = SidecarMcpState::new(client, "test-0.0.0");
+        let handle = spawn_listener(state, "127.0.0.1", 0).await.expect("spawn");
+
+        let response = reqwest::Client::new()
+            .get(format!("http://{}/v1/readyz", handle.bind_addr))
+            .timeout(Duration::from_secs(2))
+            .send()
+            .await
+            .expect("GET /v1/readyz");
+        assert_eq!(response.status().as_u16(), 503);
+        let body: Value = response.json().await.expect("parse /v1/readyz");
+
+        assert_eq!(body["process"], true);
+        assert_eq!(body["dispatcher"], false);
+        assert_eq!(body["dcc"], false);
         handle.shutdown().await;
     }
 
