@@ -523,6 +523,14 @@ fn first_metadata_value<'a>(
         .find(|value| !value.trim().is_empty())
 }
 
+fn metadata_bool(metadata: &HashMap<String, String>, key: &str) -> bool {
+    metadata
+        .get(key)
+        .map(String::as_str)
+        .map(str::trim)
+        .is_some_and(|value| matches!(value.to_ascii_lowercase().as_str(), "true" | "1" | "yes"))
+}
+
 fn lifecycle_json(e: &ServiceEntry) -> Value {
     let role = e
         .metadata
@@ -598,6 +606,38 @@ fn lifecycle_json(e: &ServiceEntry) -> Value {
         "restart_command": restart_command,
         "launch_command": launch_command,
         "install_root": install_root,
+    })
+}
+
+fn gateway_json(e: &ServiceEntry) -> Value {
+    let runtime_mode = first_metadata_value(&e.metadata, &["gateway_runtime_mode"]);
+    let guardian_enabled = metadata_bool(&e.metadata, "gateway_guardian_enabled");
+    let recovery_driver = first_metadata_value(&e.metadata, &["gateway_recovery_driver"])
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| {
+            if guardian_enabled {
+                "daemon_guardian".to_string()
+            } else if runtime_mode == Some("embedded-fallback") {
+                "embedded_election".to_string()
+            } else {
+                "none".to_string()
+            }
+        });
+    let registration_refresh_mode =
+        first_metadata_value(&e.metadata, &["registration_refresh_mode"]).unwrap_or_else(|| {
+            match entry_registry_source(e) {
+                "http" => "http_ttl_heartbeat",
+                "relay" => "relay_poll",
+                "mdns" => "mdns_discovery",
+                _ => "file_registry_heartbeat",
+            }
+        });
+
+    json!({
+        "runtime_mode": runtime_mode,
+        "guardian_enabled": guardian_enabled,
+        "recovery_driver": recovery_driver,
+        "registration_refresh_mode": registration_refresh_mode,
     })
 }
 
@@ -731,6 +771,7 @@ pub fn entry_to_json(
         "adapter_version": e.adapter_version,
         "adapter_dcc":     e.adapter_dcc,
         "lifecycle":       lifecycle_json(e),
+        "gateway":         gateway_json(e),
         "dispatch":        dispatch_json(e, stale),
         "metadata":        e.metadata,
         "pool": {

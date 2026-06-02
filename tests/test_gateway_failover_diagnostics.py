@@ -140,6 +140,7 @@ def test_runtime_mode_reason_takes_priority(dcc_name, runtime_mode) -> None:
             "gateway_port": 9765,
             "is_gateway": False,
             "gateway_runtime_mode": runtime_mode,
+            "gateway_guardian_enabled": "true" if runtime_mode == "daemon-backed" else "false",
             "gateway_daemon_status": {"ok": runtime_mode == "daemon-backed"},
         },
     ):
@@ -149,7 +150,29 @@ def test_runtime_mode_reason_takes_priority(dcc_name, runtime_mode) -> None:
     assert payload["running"] is False
     assert payload["gateway_port"] == 9765
     assert payload["gateway_runtime_mode"] == runtime_mode
+    assert payload["registration_refresh_mode"] == "file_registry_heartbeat"
+    assert payload["gateway_recovery_driver"] == (
+        "embedded_election" if runtime_mode == "embedded-fallback" else "daemon_guardian"
+    )
     assert payload["reason"] == runtime_mode
+
+
+def test_gateway_recovery_driver_reports_daemon_guardian() -> None:
+    with _with_resolver(
+        "maya",
+        lambda: {
+            "enabled": True,
+            "running": False,
+            "gateway_port": 9765,
+            "gateway_runtime_mode": "daemon-backed",
+            "gateway_recovery_driver": "daemon_guardian",
+            "registration_refresh_mode": "file_registry_heartbeat",
+        },
+    ):
+        payload = _call_tool()
+
+    assert payload["gateway_recovery_driver"] == "daemon_guardian"
+    assert payload["registration_refresh_mode"] == "file_registry_heartbeat"
 
 
 @pytest.mark.parametrize("dcc_name", ["blender", "photoshop"])

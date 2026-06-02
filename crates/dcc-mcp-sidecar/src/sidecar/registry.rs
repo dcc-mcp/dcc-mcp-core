@@ -28,9 +28,26 @@ pub(crate) const DISPATCH_STATUS_METADATA_KEY: &str = "dispatch_status";
 pub(crate) const DISPATCH_READY_AT_UNIX_METADATA_KEY: &str = "dispatch_ready_at_unix";
 pub(crate) const GATEWAY_RUNTIME_MODE_METADATA_KEY: &str = "gateway_runtime_mode";
 pub(crate) const GATEWAY_GUARDIAN_ENABLED_METADATA_KEY: &str = "gateway_guardian_enabled";
+pub(crate) const GATEWAY_RECOVERY_DRIVER_METADATA_KEY: &str = "gateway_recovery_driver";
+pub(crate) const REGISTRATION_REFRESH_MODE_METADATA_KEY: &str = "registration_refresh_mode";
+pub(crate) const GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN: &str = "daemon_guardian";
+pub(crate) const GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION: &str = "embedded_election";
+pub(crate) const GATEWAY_RECOVERY_DRIVER_NONE: &str = "none";
+pub(crate) const REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT: &str =
+    "file_registry_heartbeat";
 pub(crate) const DISPATCH_STATUS_BOOTING: &str = "booting";
 pub(crate) const DISPATCH_STATUS_READY: &str = "ready";
 pub(crate) const DISPATCH_STATUS_UNAVAILABLE: &str = "unavailable";
+
+pub(crate) fn gateway_recovery_driver(runtime_mode: &str, guardian_enabled: bool) -> &'static str {
+    if guardian_enabled {
+        GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN
+    } else if runtime_mode == "embedded-fallback" {
+        GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION
+    } else {
+        GATEWAY_RECOVERY_DRIVER_NONE
+    }
+}
 
 /// Re-write the FileRegistry row with the live MCP URL once the listener is
 /// bound. The original `register()` call happens before the listener exists so
@@ -184,13 +201,23 @@ pub(crate) fn build_service_entry(args: &SidecarArgs) -> ServiceEntry {
         DISPATCH_STATUS_METADATA_KEY.to_string(),
         DISPATCH_STATUS_BOOTING.to_string(),
     );
+    let gateway_runtime_mode = sidecar_gateway_runtime_mode(args);
+    let gateway_guardian_enabled = sidecar_gateway_guardian_enabled(args);
     entry.metadata.insert(
         GATEWAY_RUNTIME_MODE_METADATA_KEY.to_string(),
-        sidecar_gateway_runtime_mode(args).to_string(),
+        gateway_runtime_mode.to_string(),
     );
     entry.metadata.insert(
         GATEWAY_GUARDIAN_ENABLED_METADATA_KEY.to_string(),
-        sidecar_gateway_guardian_enabled(args).to_string(),
+        gateway_guardian_enabled.to_string(),
+    );
+    entry.metadata.insert(
+        GATEWAY_RECOVERY_DRIVER_METADATA_KEY.to_string(),
+        gateway_recovery_driver(gateway_runtime_mode, gateway_guardian_enabled).to_string(),
+    );
+    entry.metadata.insert(
+        REGISTRATION_REFRESH_MODE_METADATA_KEY.to_string(),
+        REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT.to_string(),
     );
     entry
         .metadata

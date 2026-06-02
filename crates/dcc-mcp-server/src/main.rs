@@ -114,6 +114,19 @@ mod translate;
 pub(crate) const GATEWAY_RUNTIME_MODE_METADATA_KEY: &str = "gateway_runtime_mode";
 #[cfg(feature = "gateway-auto")]
 pub(crate) const GATEWAY_GUARDIAN_ENABLED_METADATA_KEY: &str = "gateway_guardian_enabled";
+#[cfg(feature = "gateway-auto")]
+pub(crate) const GATEWAY_RECOVERY_DRIVER_METADATA_KEY: &str = "gateway_recovery_driver";
+#[cfg(feature = "gateway-auto")]
+pub(crate) const REGISTRATION_REFRESH_MODE_METADATA_KEY: &str = "registration_refresh_mode";
+#[cfg(feature = "gateway-auto")]
+pub(crate) const GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN: &str = "daemon_guardian";
+#[cfg(feature = "gateway-auto")]
+pub(crate) const GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION: &str = "embedded_election";
+#[cfg(feature = "gateway-auto")]
+pub(crate) const GATEWAY_RECOVERY_DRIVER_NONE: &str = "none";
+#[cfg(feature = "gateway-auto")]
+pub(crate) const REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT: &str =
+    "file_registry_heartbeat";
 
 #[derive(Debug, Default)]
 struct FileLoggingCliOptions {
@@ -341,14 +354,35 @@ fn server_gateway_guardian_enabled(_args: &ServerArgs) -> bool {
 }
 
 #[cfg(feature = "gateway-auto")]
+fn gateway_recovery_driver(runtime_mode: &str, guardian_enabled: bool) -> &'static str {
+    if guardian_enabled {
+        GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN
+    } else if runtime_mode == "embedded-fallback" {
+        GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION
+    } else {
+        GATEWAY_RECOVERY_DRIVER_NONE
+    }
+}
+
+#[cfg(feature = "gateway-auto")]
 fn stamp_server_gateway_runtime_metadata(entry: &mut ServiceEntry, args: &ServerArgs) {
+    let runtime_mode = server_gateway_runtime_mode(args);
+    let guardian_enabled = server_gateway_guardian_enabled(args);
     entry.metadata.insert(
         GATEWAY_RUNTIME_MODE_METADATA_KEY.to_string(),
-        server_gateway_runtime_mode(args).to_string(),
+        runtime_mode.to_string(),
     );
     entry.metadata.insert(
         GATEWAY_GUARDIAN_ENABLED_METADATA_KEY.to_string(),
-        server_gateway_guardian_enabled(args).to_string(),
+        guardian_enabled.to_string(),
+    );
+    entry.metadata.insert(
+        GATEWAY_RECOVERY_DRIVER_METADATA_KEY.to_string(),
+        gateway_recovery_driver(runtime_mode, guardian_enabled).to_string(),
+    );
+    entry.metadata.insert(
+        REGISTRATION_REFRESH_MODE_METADATA_KEY.to_string(),
+        REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT.to_string(),
     );
 }
 
@@ -1190,6 +1224,20 @@ mod tests {
                 .map(String::as_str),
             Some("true")
         );
+        assert_eq!(
+            entry
+                .metadata
+                .get(GATEWAY_RECOVERY_DRIVER_METADATA_KEY)
+                .map(String::as_str),
+            Some(GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN)
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(REGISTRATION_REFRESH_MODE_METADATA_KEY)
+                .map(String::as_str),
+            Some(REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT)
+        );
 
         let args = Args::try_parse_from(["dcc-mcp-server", "--app", "maya", "--gateway-port", "0"])
             .expect("valid CLI args");
@@ -1207,6 +1255,29 @@ mod tests {
                 .get(GATEWAY_GUARDIAN_ENABLED_METADATA_KEY)
                 .map(String::as_str),
             Some("false")
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(GATEWAY_RECOVERY_DRIVER_METADATA_KEY)
+                .map(String::as_str),
+            Some(GATEWAY_RECOVERY_DRIVER_NONE)
+        );
+
+        let args = Args::try_parse_from([
+            "dcc-mcp-server",
+            "--app",
+            "maya",
+            "--legacy-gateway-election",
+        ])
+        .expect("valid CLI args");
+        stamp_server_gateway_runtime_metadata(&mut entry, &args.server);
+        assert_eq!(
+            entry
+                .metadata
+                .get(GATEWAY_RECOVERY_DRIVER_METADATA_KEY)
+                .map(String::as_str),
+            Some(GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION)
         );
     }
 }

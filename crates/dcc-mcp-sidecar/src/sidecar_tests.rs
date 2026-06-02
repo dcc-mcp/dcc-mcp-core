@@ -1,4 +1,9 @@
 use super::*;
+use crate::sidecar::registry::{
+    GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN, GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION,
+    GATEWAY_RECOVERY_DRIVER_METADATA_KEY, GATEWAY_RECOVERY_DRIVER_NONE,
+    REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT, REGISTRATION_REFRESH_MODE_METADATA_KEY,
+};
 use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceKey, ServiceStatus};
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -132,7 +137,7 @@ fn gateway_daemon_guardian_runs_only_in_daemon_backed_mode() {
 #[cfg(feature = "gateway-daemon")]
 #[test]
 fn sidecar_service_entry_reports_gateway_guardian_metadata() {
-    fn assert_mode(args: SidecarArgs, mode: &str, enabled: bool) {
+    fn assert_mode(args: SidecarArgs, mode: &str, enabled: bool, recovery_driver: &str) {
         let entry = build_service_entry(&args);
         assert_eq!(
             entry
@@ -148,21 +153,55 @@ fn sidecar_service_entry_reports_gateway_guardian_metadata() {
                 .map(String::as_str),
             Some(if enabled { "true" } else { "false" })
         );
+        assert_eq!(
+            entry
+                .metadata
+                .get(GATEWAY_RECOVERY_DRIVER_METADATA_KEY)
+                .map(String::as_str),
+            Some(recovery_driver)
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(REGISTRATION_REFRESH_MODE_METADATA_KEY)
+                .map(String::as_str),
+            Some(REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT)
+        );
     }
 
-    assert_mode(guardian_test_args(), "daemon-backed", true);
+    assert_mode(
+        guardian_test_args(),
+        "daemon-backed",
+        true,
+        GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN,
+    );
 
     let mut disabled = guardian_test_args();
     disabled.gateway_port = 0;
-    assert_mode(disabled, "not_configured", false);
+    assert_mode(
+        disabled,
+        "not_configured",
+        false,
+        GATEWAY_RECOVERY_DRIVER_NONE,
+    );
 
     let mut opted_out = guardian_test_args();
     opted_out.no_ensure_gateway = true;
-    assert_mode(opted_out, "failover_disabled_by_adapter", false);
+    assert_mode(
+        opted_out,
+        "failover_disabled_by_adapter",
+        false,
+        GATEWAY_RECOVERY_DRIVER_NONE,
+    );
 
     let mut legacy = guardian_test_args();
     legacy.legacy_gateway_election = true;
-    assert_mode(legacy, "embedded-fallback", false);
+    assert_mode(
+        legacy,
+        "embedded-fallback",
+        false,
+        GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION,
+    );
 }
 
 #[cfg(feature = "gateway-daemon")]
