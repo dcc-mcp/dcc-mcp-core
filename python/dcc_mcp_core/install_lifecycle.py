@@ -679,17 +679,16 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     launch = sub.add_parser("launch-sidecar", help="Start a sidecar without importing _core.")
     _add_sidecar_launch_args(launch)
     launch.add_argument("--foreground", action="store_true", help="Do not detach the sidecar on Windows.")
+    launch.add_argument("--poll-interval-secs", type=float, default=0.25)
+    _add_sidecar_probe_args(launch)
+    launch.add_argument(
+        "--wait-ready-timeout-secs",
+        type=float,
+        help="Optionally wait for dispatch readiness after spawning the sidecar.",
+    )
 
     ready = sub.add_parser("sidecar-ready", help="Check per-DCC sidecar dispatch readiness.")
-    ready.add_argument("--registry-dir")
-    ready.add_argument("--dcc-type", "--dcc", dest="dcc_type")
-    ready.add_argument("--instance-id")
-    ready.add_argument("--host-rpc")
-    ready.add_argument("--timeout-secs", type=float, default=0.0)
-    ready.add_argument("--poll-interval-secs", type=float, default=0.25)
-    ready.add_argument("--probe-tool", help="Optional read-only tool slug to call before reporting ready.")
-    ready.add_argument("--probe-args-json", help="JSON object arguments for --probe-tool.")
-    ready.add_argument("--probe-timeout-secs", type=float, default=3.0)
+    _add_sidecar_ready_args(ready)
 
     plan = sub.add_parser("plan-update", help="Plan restart actions for mixed runtime versions.")
     plan.add_argument("--registry-dir")
@@ -745,17 +744,24 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     if args.command == "sidecar-command":
         return _print_json(build_sidecar_command(**_sidecar_launch_kwargs(args)))
     if args.command == "launch-sidecar":
+        try:
+            probe_arguments = _parse_probe_args(args.probe_args_json)
+        except ValueError as exc:
+            return _print_json(_failed("invalid_probe_args", str(exc), None))
         return _print_json(
             launch_sidecar(
                 **_sidecar_launch_kwargs(args),
                 detached=not args.foreground,
+                wait_ready_timeout_secs=args.wait_ready_timeout_secs,
+                poll_interval_secs=args.poll_interval_secs,
+                probe_tool=args.probe_tool,
+                probe_arguments=probe_arguments,
+                probe_timeout_secs=args.probe_timeout_secs,
             )
         )
     if args.command == "sidecar-ready":
         try:
-            probe_arguments = json.loads(args.probe_args_json) if args.probe_args_json else None
-            if probe_arguments is not None and not isinstance(probe_arguments, dict):
-                raise ValueError("--probe-args-json must decode to a JSON object")
+            probe_arguments = _parse_probe_args(args.probe_args_json)
         except ValueError as exc:
             return _print_json(_failed("invalid_probe_args", str(exc), None))
         if args.timeout_secs > 0:
@@ -823,6 +829,29 @@ def _add_sidecar_launch_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--connect-timeout-secs", type=int)
     parser.add_argument("--no-ensure-gateway", action="store_true")
     parser.add_argument("--legacy-gateway-election", action="store_true")
+    parser.add_argument(
+        "--extra-sidecar-arg",
+        action="append",
+        dest="extra_args",
+        help="Append a raw argument to the dcc-mcp-server sidecar argv.",
+    )
+
+
+def _add_sidecar_ready_args(parser: argparse.ArgumentParser, *, include_timeout: bool = True) -> None:
+    parser.add_argument("--registry-dir")
+    parser.add_argument("--dcc-type", "--dcc", dest="dcc_type")
+    parser.add_argument("--instance-id")
+    parser.add_argument("--host-rpc")
+    if include_timeout:
+        parser.add_argument("--timeout-secs", type=float, default=0.0)
+    parser.add_argument("--poll-interval-secs", type=float, default=0.25)
+    _add_sidecar_probe_args(parser)
+
+
+def _add_sidecar_probe_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--probe-tool", help="Optional read-only tool slug to call before reporting ready.")
+    parser.add_argument("--probe-args-json", help="JSON object arguments for --probe-tool.")
+    parser.add_argument("--probe-timeout-secs", type=float, default=3.0)
 
 
 def _sidecar_launch_kwargs(args: argparse.Namespace) -> Dict[str, Any]:
@@ -843,7 +872,17 @@ def _sidecar_launch_kwargs(args: argparse.Namespace) -> Dict[str, Any]:
         "connect_timeout_secs": args.connect_timeout_secs,
         "no_ensure_gateway": args.no_ensure_gateway,
         "legacy_gateway_election": args.legacy_gateway_election,
+        "extra_args": args.extra_args,
     }
+
+
+def _parse_probe_args(value: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not value:
+        return None
+    probe_arguments = json.loads(value)
+    if not isinstance(probe_arguments, dict):
+        raise ValueError("--probe-args-json must decode to a JSON object")
+    return probe_arguments
 
 
 if __name__ == "__main__":
