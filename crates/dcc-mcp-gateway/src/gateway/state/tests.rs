@@ -460,6 +460,83 @@ fn test_entry_json_exposes_lifecycle_metadata_for_admin() {
     );
 }
 
+#[test]
+fn test_entry_json_exposes_dispatch_contract_for_sidecars() {
+    let mut entry = ServiceEntry::new("maya", "127.0.0.1", 28812).with_pid(4242);
+    entry.status = ServiceStatus::Available;
+    entry
+        .metadata
+        .insert("dcc_mcp_role".into(), "per-dcc-sidecar".into());
+    entry
+        .metadata
+        .insert("mcp_url".into(), "http://127.0.0.1:28812/mcp".into());
+    entry
+        .metadata
+        .insert("dispatch_status".into(), "ready".into());
+    entry
+        .metadata
+        .insert("dispatch_ready_at_unix".into(), "1800000000".into());
+    entry
+        .metadata
+        .insert("host_rpc_uri".into(), "commandport://127.0.0.1:6000".into());
+    entry
+        .metadata
+        .insert("host_rpc_scheme".into(), "commandport".into());
+
+    let row = entry_to_json(&entry, Duration::from_secs(30), None);
+
+    assert_eq!(row["dispatch"]["reported"], true);
+    assert_eq!(row["dispatch"]["status"], "ready");
+    assert_eq!(row["dispatch"]["ready"], true);
+    assert_eq!(row["dispatch"]["ready_at_unix"], "1800000000");
+    assert_eq!(
+        row["dispatch"]["host_rpc_uri"],
+        "commandport://127.0.0.1:6000"
+    );
+    assert_eq!(row["dispatch"]["host_rpc_scheme"], "commandport");
+}
+
+#[test]
+fn test_entry_json_distinguishes_registered_unavailable_sidecar() {
+    let mut entry = ServiceEntry::new("maya", "127.0.0.1", 28812).with_pid(4242);
+    entry.status = ServiceStatus::Booting;
+    entry
+        .metadata
+        .insert("dcc_mcp_role".into(), "per-dcc-sidecar".into());
+    entry
+        .metadata
+        .insert("mcp_url".into(), "http://127.0.0.1:28812/mcp".into());
+    entry
+        .metadata
+        .insert("dispatch_status".into(), "unavailable".into());
+    entry
+        .metadata
+        .insert("failure_stage".into(), "host-rpc-connect".into());
+    entry
+        .metadata
+        .insert("failure_reason".into(), "host-rpc connect failed".into());
+
+    let row = entry_to_json(&entry, Duration::from_secs(30), None);
+
+    assert_eq!(row["status"], "booting");
+    assert_eq!(row["dispatch"]["reported"], true);
+    assert_eq!(row["dispatch"]["status"], "unavailable");
+    assert_eq!(row["dispatch"]["ready"], false);
+    assert_eq!(row["dispatch"]["failure_stage"], "host-rpc-connect");
+    assert_eq!(row["dispatch"]["failure_reason"], "host-rpc connect failed");
+}
+
+#[test]
+fn test_entry_json_marks_dispatch_not_reported_for_in_process_servers() {
+    let entry = ServiceEntry::new("houdini", "127.0.0.1", 18812).with_pid(4242);
+
+    let row = entry_to_json(&entry, Duration::from_secs(30), None);
+
+    assert_eq!(row["dispatch"]["reported"], false);
+    assert_eq!(row["dispatch"]["status"], "not_reported");
+    assert!(row["dispatch"]["ready"].is_null());
+}
+
 #[tokio::test]
 async fn test_instance_json_reports_app_ui_availability_from_capabilities() {
     let dir = tempfile::tempdir().unwrap();
