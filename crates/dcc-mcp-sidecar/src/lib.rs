@@ -12,10 +12,6 @@ pub mod sidecar;
 pub mod sidecar_gateway;
 #[cfg(feature = "gateway-auto")]
 pub mod sidecar_mcp;
-#[cfg(feature = "gateway-auto")]
-pub(crate) mod sidecar_registry;
-#[cfg(feature = "gateway-auto")]
-pub(crate) mod sidecar_watchdog;
 
 #[cfg(feature = "gateway-auto")]
 pub use sidecar::{ExitReason, SidecarArgs, run};
