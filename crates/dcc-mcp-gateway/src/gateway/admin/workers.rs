@@ -25,6 +25,8 @@ const DISPATCH_STATUS_METADATA_KEY: &str = "dispatch_status";
 const DISPATCH_READY_AT_UNIX_METADATA_KEY: &str = "dispatch_ready_at_unix";
 const HOST_RPC_URI_METADATA_KEY: &str = "host_rpc_uri";
 const HOST_RPC_SCHEME_METADATA_KEY: &str = "host_rpc_scheme";
+const GATEWAY_RUNTIME_MODE_METADATA_KEY: &str = "gateway_runtime_mode";
+const GATEWAY_GUARDIAN_ENABLED_METADATA_KEY: &str = "gateway_guardian_enabled";
 const DISPATCH_STATUS_READY: &str = "ready";
 
 fn metadata_text(e: &ServiceEntry, key: &str) -> Option<String> {
@@ -34,6 +36,14 @@ fn metadata_text(e: &ServiceEntry, key: &str) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
+}
+
+fn metadata_bool(e: &ServiceEntry, key: &str) -> bool {
+    e.metadata
+        .get(key)
+        .map(String::as_str)
+        .map(str::trim)
+        .is_some_and(|value| matches!(value.to_ascii_lowercase().as_str(), "true" | "1" | "yes"))
 }
 
 /// Build a single Worker JSON record from a `ServiceEntry`.
@@ -96,6 +106,8 @@ fn entry_to_worker_json(e: &ServiceEntry, gs: &GatewayState) -> Value {
         "dispatch_ready_at_unix": metadata_text(e, DISPATCH_READY_AT_UNIX_METADATA_KEY),
         "host_rpc_uri":         metadata_text(e, HOST_RPC_URI_METADATA_KEY),
         "host_rpc_scheme":      metadata_text(e, HOST_RPC_SCHEME_METADATA_KEY),
+        "gateway_runtime_mode":  metadata_text(e, GATEWAY_RUNTIME_MODE_METADATA_KEY),
+        "gateway_guardian_enabled": metadata_bool(e, GATEWAY_GUARDIAN_ENABLED_METADATA_KEY),
         "metadata":             e.metadata,
         // CPU / memory not yet available — see module docs.
         "cpu_percent":          Value::Null,

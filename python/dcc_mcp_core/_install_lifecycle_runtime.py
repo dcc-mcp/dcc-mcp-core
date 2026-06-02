@@ -140,6 +140,8 @@ def _normalise_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
         "host_rpc_scheme": host_rpc_scheme,
         "failure_stage": failure_stage,
         "failure_reason": failure_reason,
+        "gateway_runtime_mode": _optional_text(metadata.get("gateway_runtime_mode")),
+        "gateway_guardian_enabled": _metadata_bool(metadata.get("gateway_guardian_enabled")),
         "parent_pid": parent_pid,
         "sidecar_pid": sidecar_pid,
         "runtime_pid": runtime_pid,
@@ -200,6 +202,14 @@ def _normalise_dispatch_status(value: Any) -> Optional[str]:
         return None
     status = text.strip().lower()
     return status or None
+
+
+def _metadata_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value in (None, ""):
+        return False
+    return str(value).strip().lower() in {"true", "1", "yes"}
 
 
 def _parse_int(value: Any) -> Optional[int]:

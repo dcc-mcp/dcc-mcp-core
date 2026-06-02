@@ -129,6 +129,42 @@ fn gateway_daemon_guardian_runs_only_in_daemon_backed_mode() {
 
 #[cfg(feature = "gateway-daemon")]
 #[test]
+fn sidecar_service_entry_reports_gateway_guardian_metadata() {
+    fn assert_mode(args: SidecarArgs, mode: &str, enabled: bool) {
+        let entry = build_service_entry(&args);
+        assert_eq!(
+            entry
+                .metadata
+                .get(GATEWAY_RUNTIME_MODE_METADATA_KEY)
+                .map(String::as_str),
+            Some(mode)
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(GATEWAY_GUARDIAN_ENABLED_METADATA_KEY)
+                .map(String::as_str),
+            Some(if enabled { "true" } else { "false" })
+        );
+    }
+
+    assert_mode(guardian_test_args(), "daemon-backed", true);
+
+    let mut disabled = guardian_test_args();
+    disabled.gateway_port = 0;
+    assert_mode(disabled, "not_configured", false);
+
+    let mut opted_out = guardian_test_args();
+    opted_out.no_ensure_gateway = true;
+    assert_mode(opted_out, "failover_disabled_by_adapter", false);
+
+    let mut legacy = guardian_test_args();
+    legacy.legacy_gateway_election = true;
+    assert_mode(legacy, "embedded-fallback", false);
+}
+
+#[cfg(feature = "gateway-daemon")]
+#[test]
 fn gateway_daemon_options_preserve_host_name_and_registry() {
     let mut args = guardian_test_args();
     args.gateway_host = Some("0.0.0.0".to_string());
