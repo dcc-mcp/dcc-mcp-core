@@ -74,11 +74,14 @@ Registration is not the same thing as dispatch readiness. The generic sidecar
 only becomes callable after its `--host-rpc` URI resolves to a supported
 `HostRpcClient`, that client connects to the DCC, and the sidecar publishes
 `metadata.dispatch_status=ready` plus a live `metadata.mcp_url` in the registry
-row. Startup failures keep the row visible for operators but mark
+row. Startup failures keep the row visible for operators, mark
 `metadata.dispatch_status=unavailable` with `failure_stage` / `failure_reason`
-metadata. Adapter plugins must still expose a real host RPC bridge to their
-DCC dispatcher or skills; `launch_sidecar()` only launches and supervises the
-sidecar process. For Maya `commandport://` sidecars, a present
+metadata, and may still publish `metadata.mcp_url` for structured diagnostics.
+Treat that URL as non-routable until `dispatch_status=ready`: its `/v1/readyz`
+returns dispatcher false, and `tools/call` returns the startup failure as a
+transport-error envelope. Adapter plugins must still expose a real host RPC
+bridge to their DCC dispatcher or skills; `launch_sidecar()` only launches and
+supervises the sidecar process. For Maya `commandport://` sidecars, a present
 `dcc_mcp_maya` package with a missing `dcc_mcp_maya.sidecar._dispatcher`
 returns a structured `sidecar-dispatcher-unavailable` backend envelope on the
 first call instead of a generic transport error, so installers can distinguish
