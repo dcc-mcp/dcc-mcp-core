@@ -104,6 +104,7 @@ ready = wait_for_sidecar_ready(
     dcc_type="houdini",
     host_rpc="qtserver://127.0.0.1:7001",
     timeout_secs=5,
+    probe_tool="houdini_diagnostics__ping",
 )
 ```
 
@@ -112,6 +113,15 @@ Use `sidecar_readiness_status()` for a one-shot verdict (`ready`, `missing`,
 installer, supervisor, or background startup task when a short bounded poll is
 acceptable. Do not block a DCC UI or main thread waiting for readiness; launch
 the sidecar first and surface the verdict through logs or Gateway Admin.
+
+When an adapter wants to claim "open DCC, directly usable", pass a cheap
+read-only diagnostic tool as `probe_tool` (or CLI `--probe-tool`). The helper
+will first require `metadata.dispatch_status=ready`, then POST one sidecar
+`tools/call` with optional `probe_arguments` / `--probe-args-json` before
+returning success. This distinguishes "the generic sidecar listener is alive"
+from "the adapter dispatcher and at least one skill path can execute". Probe
+failures are reported as `status="probe_failed"` and keep polling until the
+bounded timeout in `wait_for_sidecar_ready()`.
 
 ## Import-Light Preflight
 
