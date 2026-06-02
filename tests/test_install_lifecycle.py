@@ -884,6 +884,8 @@ def test_build_sidecar_command_uses_sidecar_cli_contract(tmp_path: Path) -> None
         "status": "dispatch_capable",
         "dispatch_ready_capable": True,
         "test_only": False,
+        "uri_valid": True,
+        "validation_error": None,
         "reason": None,
         "message": "The sidecar can become dispatch-ready once the DCC host RPC bridge accepts a connection.",
     }
@@ -924,6 +926,24 @@ def test_build_sidecar_command_forwards_extra_sidecar_args(tmp_path: Path) -> No
     assert "diagnostic row" in result["recommended_next_action"]
 
 
+def test_build_sidecar_command_can_require_well_formed_dispatch_uri(tmp_path: Path) -> None:
+    result = lifecycle.build_sidecar_command(
+        dcc_type="maya",
+        host_rpc="commandport://127.0.0.1",
+        watch_pid=12345,
+        registry_dir=tmp_path / "registry",
+        server_bin="dcc-mcp-server-test",
+        require_dispatch_capable=True,
+    )
+
+    assert result["success"] is False
+    assert result["reason"] == "dispatch_not_capable"
+    assert result["dispatch_contract"]["status"] == "invalid"
+    assert result["dispatch_contract"]["reason"] == "invalid_host_rpc_uri"
+    assert result["dispatch_contract"]["uri_valid"] is False
+    assert "non-zero port" in result["dispatch_contract"]["validation_error"]
+
+
 def test_build_sidecar_command_can_require_dispatch_capable(tmp_path: Path) -> None:
     result = lifecycle.build_sidecar_command(
         dcc_type="maya",
@@ -946,7 +966,27 @@ def test_sidecar_host_rpc_dispatch_contract_reports_unsupported_scheme() -> None
     assert result["status"] == "unsupported"
     assert result["scheme"] == "foo"
     assert result["dispatch_ready_capable"] is False
+    assert result["uri_valid"] is False
     assert result["reason"] == "unsupported_host_rpc_scheme"
+
+
+def test_sidecar_host_rpc_dispatch_contract_validates_websocket_uri() -> None:
+    result = lifecycle.sidecar_host_rpc_dispatch_contract("ws://:9001")
+
+    assert result["status"] == "invalid"
+    assert result["reason"] == "invalid_host_rpc_uri"
+    assert result["dispatch_ready_capable"] is False
+    assert result["uri_valid"] is False
+    assert "must include a host" in result["validation_error"]
+
+
+def test_sidecar_host_rpc_dispatch_contract_accepts_case_insensitive_scheme() -> None:
+    result = lifecycle.sidecar_host_rpc_dispatch_contract("QtServer://127.0.0.1:18765")
+
+    assert result["status"] == "dispatch_capable"
+    assert result["scheme"] == "qtserver"
+    assert result["dispatch_ready_capable"] is True
+    assert result["uri_valid"] is True
 
 
 def test_build_sidecar_command_returns_structured_validation_error() -> None:
