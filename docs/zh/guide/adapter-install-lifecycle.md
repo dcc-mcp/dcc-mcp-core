@@ -127,6 +127,9 @@ stop = stop_runtime_entries(dcc_type="3dsmax")
 `dispatch_status`、`dispatch_ready`、`host_rpc_uri`、`host_rpc_scheme`、
 `failure_stage` 和 `failure_reason`，方便运维区分“已注册但不可调用”
 与 gateway 路由故障。
+Gateway 实例表面（`gateway://instances`、`GET /v1/instances` 和
+`/admin/api/instances`）也会暴露嵌套的 `dispatch` 对象，包含
+`reported`、`status`、`ready`、host RPC 元数据与失败元数据，用于同样的区分。
 
 默认情况下，`stop_runtime_entries()` 仅定位发布 `metadata.sidecar_pid` 的行。除非显式传递 `include_host_processes=True`，否则不会终止父 DCC 进程。
 
