@@ -415,7 +415,11 @@ content 上增加 `mimeType: "application/toon"` 并把文本换成 TOON。JSON-
 `dispatch_ready_instance_count` 与 `dispatch_not_ready_instance_count`；每个
 instance row 也包含与 `GET /v1/instances` 相同的嵌套 `dispatch` 对象。
 sidecar 型 adapter 应使用这些 dispatch 计数区分“DCC 进程已列出”和
-“sidecar dispatcher 真的可调用”。
+“sidecar dispatcher 真的可调用”。同一个响应还包含每个实例的 `gateway`
+对象，以及 `gateway_recovery_driver_counts`、`registration_refresh_mode_counts`、
+`gateway_daemon_guardian_instance_count` 和 `gateway_daemon_guardian_ready`。
+这些字段让启动器和 admin 面板可以直接判断是否至少有一个仍存活的 DCC
+service 能重启机器级 gateway daemon。
 
 每个 DCC 自己的 `/v1/readyz` endpoint 使用下列状态：
 
