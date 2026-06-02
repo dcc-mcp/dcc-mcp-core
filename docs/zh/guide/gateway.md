@@ -102,8 +102,8 @@ generic standalone）。运行时满足：
 
 | 场景 | 推荐模式 |
 |------|----------|
-| 单艺术家本机，单 DCC | per-DCC server 默认自带的 auto-gateway |
-| 工作站多 DCC | 任意；auto-gateway 让最先启动的 DCC 当选 |
+| 单艺术家本机，单 DCC | per-DCC server 默认确保机器级 gateway daemon 并注册为后端 |
+| 工作站多 DCC | `auto` / `serve`；每个 DCC 确保同一个 daemon 并注册为后端 |
 | 渲染机 / 共享主机 / CI | `dcc-mcp-server gateway` daemon，sidecar 拉起 DCC |
 | 无任何 DCC 安装的 headless agent | `dcc-mcp-server gateway` daemon —— DCC 通过 `FileRegistry` / HTTP 注册接入 |
 
