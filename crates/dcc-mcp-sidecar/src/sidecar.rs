@@ -612,6 +612,7 @@ fn should_start_gateway_daemon_guardian(args: &SidecarArgs) -> bool {
     should_use_gateway_daemon(args)
 }
 
+#[cfg(feature = "gateway-daemon")]
 fn should_use_gateway_daemon(args: &SidecarArgs) -> bool {
     args.gateway_port > 0 && !args.no_ensure_gateway && !args.legacy_gateway_election
 }

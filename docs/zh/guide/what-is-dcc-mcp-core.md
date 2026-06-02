@@ -67,7 +67,7 @@ flowchart LR
 
 ## 架构
 
-仓库是一个 41 个包的 Rust workspace（40 个功能包 + `workspace-hack`；根 `Cargo.toml` 是成员列表的唯一来源），由 maturin 编译成单一 Python 扩展 `dcc_mcp_core._core`：
+仓库是一个 43 个包的 Rust workspace（42 个功能包 + `workspace-hack`；根 `Cargo.toml` 是成员列表的唯一来源），由 maturin 编译成单一 Python 扩展 `dcc_mcp_core._core`：
 
 ```
 dcc-mcp-core/
@@ -100,6 +100,7 @@ dcc-mcp-core/
 │   ├── dcc-mcp-gateway-search/      # 可复用 capability search/ranking 引擎
 │   ├── dcc-mcp-gateway/             # 多实例网关 + 最小 MCP 表面
 │   ├── dcc-mcp-server/              # `dcc-mcp-server` CLI
+│   ├── dcc-mcp-sidecar/             # per-DCC sidecar + gateway-daemon runtime
 │   ├── dcc-mcp-tunnel-protocol/     # 隧道帧格式 + JWT
 │   ├── dcc-mcp-tunnel-relay/        # `dcc-mcp-tunnel-relay` CLI + 库
 │   ├── dcc-mcp-tunnel-agent/        # `dcc-mcp-tunnel-agent` CLI + 库

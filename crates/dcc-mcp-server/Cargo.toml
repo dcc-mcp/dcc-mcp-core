@@ -28,7 +28,7 @@ dcc-mcp-transport.workspace = true
 dcc-mcp-telemetry = { path = "../dcc-mcp-telemetry", optional = true }
 dcc-mcp-catalog.workspace = true
 dcc-mcp-jsonrpc = { path = "../dcc-mcp-jsonrpc" }
-dcc-mcp-host-rpc.workspace = true
+dcc-mcp-sidecar = { path = "../dcc-mcp-sidecar", default-features = false, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 serde_yaml_ng.workspace = true
@@ -69,18 +69,25 @@ server = []
 # turns on the matching `auto-gateway` feature on `dcc-mcp-http`.
 gateway-auto = [
     "dep:dcc-mcp-gateway",
+    "dep:dcc-mcp-sidecar",
+    "dcc-mcp-sidecar/gateway-auto",
     "dcc-mcp-http/auto-gateway",
 ]
 
 # Standalone gateway daemon (`dcc-mcp-server gateway` subcommand). Can
 # be enabled together with or independently of `gateway-auto`.
-gateway-daemon = ["dep:dcc-mcp-gateway"]
+gateway-daemon = [
+    "dep:dcc-mcp-gateway",
+    "dep:dcc-mcp-sidecar",
+    "dcc-mcp-sidecar/gateway-daemon",
+]
 
 # Read-only Admin UI on the elected gateway. Forwarded to whichever of
 # `gateway-auto` / `gateway-daemon` happens to be enabled.
 admin = [
     "dcc-mcp-gateway?/admin",
     "dcc-mcp-gateway?/admin-persist-sqlite",
+    "dcc-mcp-sidecar?/admin",
 ]
 
 # Placeholder for embedding the relay tunnel agent in-process. Wired
@@ -93,12 +100,14 @@ mdns = [
     "dcc-mcp-http/mdns",
     "dcc-mcp-transport/mdns",
     "dcc-mcp-gateway?/mdns",
+    "dcc-mcp-sidecar?/mdns",
 ]
 
 # Prometheus `/metrics` endpoint on the MCP server (and admin UI).
 prometheus = [
     "dcc-mcp-http/prometheus",
     "dcc-mcp-gateway?/prometheus",
+    "dcc-mcp-sidecar?/prometheus",
 ]
 
 otlp-exporter = ["dcc-mcp-telemetry/otlp-exporter", "dep:dcc-mcp-telemetry"]

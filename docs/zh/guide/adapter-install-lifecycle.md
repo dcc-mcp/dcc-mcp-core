@@ -60,6 +60,10 @@ stdin/stdout/stderr。子进程运行 `dcc-mcp-server sidecar`，在共享
 希望把 argv 交给工作室自己的进程 supervisor，使用
 `build_sidecar_command()`：
 
+这个子进程的 Rust 实现位于 `dcc-mcp-sidecar` crate。适配器启动 helper
+仍然故意输出稳定的 `dcc-mcp-server sidecar` 命令，因此已有 installer 和
+release asset 不需要改成新的二进制名称。
+
 注册成功并不等于工具已经可以派发。Generic sidecar 只有在
 `--host-rpc` URI 命中已支持的 `HostRpcClient`、该 client 成功连接到 DCC、
 并且 registry 行发布 `metadata.dispatch_status=ready` 与可用

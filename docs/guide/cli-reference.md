@@ -112,6 +112,7 @@ while the backend is alive so the daemon can be re-ensured after a crash.
 | `dcc-mcp-server serve` | Per-DCC MCP server. | Ensures the standalone gateway daemon, then registers as a backend. |
 | `dcc-mcp-server serve --no-auto-gateway` | Per-DCC MCP server only. | Registers/serves tools but never ensures or binds the gateway port. |
 | `dcc-mcp-server auto --legacy-gateway-election` | Legacy embedded gateway mode. | The per-DCC process competes for the gateway port directly. |
+| `dcc-mcp-server sidecar` | Per-DCC sidecar worker. | Ensures the standalone gateway daemon, registers a `per-dcc-sidecar` row, and dispatches through host RPC. Runtime is implemented by `dcc-mcp-sidecar`. |
 | `dcc-mcp-server translate` | External stdio MCP bridge. | Ensures the standalone gateway daemon and registers the bridge as a backend unless `--no-register` is set. |
 | `dcc-mcp-server gateway` | Machine-wide gateway daemon. | Hosts discovery, routing, resources/prompts, admin, and audit without running DCC tools inline. |
 

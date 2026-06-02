@@ -88,8 +88,8 @@ fn build_translate_gateway_daemon_options(
     server_name: &str,
     registry_dir_path: Option<&PathBuf>,
     gateway_host: &str,
-) -> crate::gateway_daemon::EnsureGatewayOptions {
-    crate::gateway_daemon::EnsureGatewayOptions {
+) -> dcc_mcp_sidecar::gateway_daemon::EnsureGatewayOptions {
+    dcc_mcp_sidecar::gateway_daemon::EnsureGatewayOptions {
         host: gateway_host.to_string(),
         port: args.gateway_port,
         name: Some(format!("gateway-for-{server_name}")),
@@ -648,7 +648,7 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
 
     #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
     if let Some(opts) = translate_gateway_daemon_options.as_ref() {
-        crate::gateway_daemon::ensure_gateway_running(opts)
+        dcc_mcp_sidecar::gateway_daemon::ensure_gateway_running(opts)
             .await
             .map_err(|err| anyhow::anyhow!("ensuring standalone gateway is running: {err}"))?;
         info!(
@@ -727,9 +727,9 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
 
     #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
     let gateway_guardian_handle = translate_gateway_daemon_options.clone().map(|opts| {
-        crate::gateway_daemon::spawn_gateway_guardian(
+        dcc_mcp_sidecar::gateway_daemon::spawn_gateway_guardian(
             opts,
-            crate::gateway_daemon::GatewayGuardianSettings::from_env(),
+            dcc_mcp_sidecar::gateway_daemon::GatewayGuardianSettings::from_env(),
         )
     });
 
