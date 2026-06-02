@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import errno
+from http.server import BaseHTTPRequestHandler
+from http.server import HTTPServer
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import types
 
 import pytest
@@ -17,6 +20,57 @@ import dcc_mcp_core._install_lifecycle_sidecar as sidecar_lifecycle
 import dcc_mcp_core.install_lifecycle as lifecycle
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _start_probe_server(response_payload: dict) -> tuple[HTTPServer, str, list[dict]]:
+    requests: list[dict] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("content-length", "0"))
+            requests.append(json.loads(self.rfile.read(length).decode("utf-8")))
+            body = json.dumps(response_payload).encode("utf-8")
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, _format: str, *args: object) -> None:
+            return
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{server.server_port}/mcp"
+    return server, url, requests
+
+
+def _write_ready_sidecar_registry(tmp_path: Path) -> Path:
+    registry = tmp_path / "registry"
+    registry.mkdir()
+    (registry / "services.json").write_text(
+        json.dumps(
+            [
+                {
+                    "dcc_type": "maya",
+                    "instance_id": "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
+                    "host": "127.0.0.1",
+                    "port": 18812,
+                    "pid": os.getpid(),
+                    "metadata": {
+                        "dcc_mcp_role": "per-dcc-sidecar",
+                        "sidecar_pid": str(os.getpid()),
+                        "mcp_url": "http://127.0.0.1:18812/mcp",
+                        "host_rpc_uri": "commandport://127.0.0.1:6000",
+                        "dispatch_status": "ready",
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return registry
 
 
 def test_package_import_does_not_load_core_in_fresh_process() -> None:
@@ -314,6 +368,121 @@ def test_sidecar_readiness_status_reports_ready_entry(tmp_path: Path) -> None:
     assert result["entry"]["mcp_url"] == "http://127.0.0.1:18812/mcp"
 
 
+def test_probe_sidecar_tool_posts_jsonrpc_tools_call() -> None:
+    server, url, requests = _start_probe_server({"jsonrpc": "2.0", "id": "ignored", "result": {"success": True}})
+    try:
+        result = lifecycle.probe_sidecar_tool(
+            url,
+            "maya_diagnostics__ping",
+            {"level": "quick"},
+            timeout_secs=2.0,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert result["success"] is True
+    assert result["status"] == "probe_ok"
+    assert result["result"] == {"success": True}
+    assert requests[0]["method"] == "tools/call"
+    assert requests[0]["params"] == {
+        "name": "maya_diagnostics__ping",
+        "arguments": {"level": "quick"},
+    }
+
+
+def test_probe_sidecar_tool_reports_jsonrpc_error() -> None:
+    server, url, _requests = _start_probe_server(
+        {
+            "jsonrpc": "2.0",
+            "id": "ignored",
+            "error": {
+                "code": -32000,
+                "message": "sidecar-dispatcher-unavailable",
+                "data": {"kind": "backend-error"},
+            },
+        }
+    )
+    try:
+        result = lifecycle.probe_sidecar_tool(url, "maya_diagnostics__ping", timeout_secs=2.0)
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert result["success"] is False
+    assert result["status"] == "probe_failed"
+    assert result["error"]["message"] == "sidecar-dispatcher-unavailable"
+
+
+def test_probe_sidecar_tool_reports_mcp_error_result() -> None:
+    server, url, _requests = _start_probe_server(
+        {
+            "jsonrpc": "2.0",
+            "id": "ignored",
+            "result": {
+                "isError": True,
+                "content": [{"type": "text", "text": "dispatcher unavailable"}],
+            },
+        }
+    )
+    try:
+        result = lifecycle.probe_sidecar_tool(url, "maya_diagnostics__ping", timeout_secs=2.0)
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert result["success"] is False
+    assert result["status"] == "probe_failed"
+    assert result["result"]["isError"] is True
+
+
+def test_sidecar_readiness_status_accepts_probe_success(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = _write_ready_sidecar_registry(tmp_path)
+    monkeypatch.setattr(
+        readiness_lifecycle,
+        "probe_sidecar_tool",
+        lambda *args, **kwargs: {"success": True, "status": "probe_ok", "tool_name": args[1]},
+    )
+
+    result = lifecycle.sidecar_readiness_status(
+        registry,
+        dcc_type="maya",
+        probe_tool="maya_diagnostics__ping",
+        probe_arguments={"level": "quick"},
+    )
+
+    assert result["success"] is True
+    assert result["status"] == "ready"
+    assert result["probe"]["status"] == "probe_ok"
+
+
+def test_sidecar_readiness_status_reports_probe_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = _write_ready_sidecar_registry(tmp_path)
+    monkeypatch.setattr(
+        readiness_lifecycle,
+        "probe_sidecar_tool",
+        lambda *args, **kwargs: {
+            "success": False,
+            "status": "probe_failed",
+            "message": "sidecar-dispatcher-unavailable",
+        },
+    )
+
+    result = lifecycle.sidecar_readiness_status(registry, dcc_type="maya", probe_tool="maya_diagnostics__ping")
+
+    assert result["success"] is False
+    assert result["ready"] is False
+    assert result["status"] == "probe_failed"
+    assert result["probe"]["message"] == "sidecar-dispatcher-unavailable"
+    assert "dispatcher" in result["recommended_next_action"]
+
+
 def test_sidecar_readiness_status_reports_unavailable_failure(tmp_path: Path) -> None:
     registry = tmp_path / "registry"
     registry.mkdir()
@@ -378,6 +547,26 @@ def test_wait_for_sidecar_ready_polls_until_ready(monkeypatch: pytest.MonkeyPatc
     assert result["success"] is True
     assert result["status"] == "ready"
     assert result["elapsed_secs"] >= 0
+
+
+def test_wait_for_sidecar_ready_polls_probe_failure_until_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    responses = iter(
+        [
+            {"success": False, "status": "probe_failed", "ready": False},
+            {"success": True, "status": "ready", "ready": True},
+        ]
+    )
+    monkeypatch.setattr(readiness_lifecycle, "sidecar_readiness_status", lambda *args, **kwargs: next(responses))
+    monkeypatch.setattr(readiness_lifecycle.time, "sleep", lambda _secs: None)
+
+    result = lifecycle.wait_for_sidecar_ready(
+        timeout_secs=5.0,
+        poll_interval_secs=0.05,
+        probe_tool="maya_diagnostics__ping",
+    )
+
+    assert result["success"] is True
+    assert result["status"] == "ready"
 
 
 def test_wait_for_sidecar_ready_returns_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -708,6 +897,60 @@ print(json.dumps({"core_loaded": "dcc_mcp_core._core" in sys.modules, "exit_code
     assert payload["success"] is True
     assert payload["status"] == "ready"
     assert trailer == {"core_loaded": False, "exit_code": 0}
+
+
+def test_cli_sidecar_ready_passes_probe_arguments(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    registry = _write_ready_sidecar_registry(tmp_path)
+    seen: dict[str, object] = {}
+
+    def fake_status(*args: object, **kwargs: object) -> dict:
+        seen.update(kwargs)
+        return {"success": True, "status": "ready", "ready": True}
+
+    monkeypatch.setattr(lifecycle, "sidecar_readiness_status", fake_status)
+
+    code = lifecycle.main(
+        [
+            "sidecar-ready",
+            "--dcc",
+            "maya",
+            "--registry-dir",
+            str(registry),
+            "--probe-tool",
+            "maya_diagnostics__ping",
+            "--probe-args-json",
+            '{"level":"quick"}',
+            "--probe-timeout-secs",
+            "1.5",
+        ]
+    )
+
+    assert code == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "ready"
+    assert seen["probe_tool"] == "maya_diagnostics__ping"
+    assert seen["probe_arguments"] == {"level": "quick"}
+    assert seen["probe_timeout_secs"] == 1.5
+
+
+def test_cli_sidecar_ready_rejects_non_object_probe_arguments(capsys: pytest.CaptureFixture[str]) -> None:
+    code = lifecycle.main(
+        [
+            "sidecar-ready",
+            "--probe-tool",
+            "maya_diagnostics__ping",
+            "--probe-args-json",
+            '["not", "an", "object"]',
+        ]
+    )
+
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["reason"] == "invalid_probe_args"
+    assert "JSON object" in payload["message"]
 
 
 def test_plan_runtime_updates_marks_old_sidecar_restartable(tmp_path: Path) -> None:

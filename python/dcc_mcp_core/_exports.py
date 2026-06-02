@@ -535,6 +535,7 @@ _LAZY: dict[str, str] = {
     "inspect_install_root": "dcc_mcp_core.install_lifecycle",
     "launch_sidecar": "dcc_mcp_core.install_lifecycle",
     "plan_runtime_updates": "dcc_mcp_core.install_lifecycle",
+    "probe_sidecar_tool": "dcc_mcp_core.install_lifecycle",
     "query_runtime_state": "dcc_mcp_core.install_lifecycle",
     "resolve_deployment_layout": "dcc_mcp_core.install_lifecycle",
     "safe_remove_tree": "dcc_mcp_core.install_lifecycle",
