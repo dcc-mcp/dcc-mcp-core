@@ -78,7 +78,11 @@ row. Startup failures keep the row visible for operators but mark
 `metadata.dispatch_status=unavailable` with `failure_stage` / `failure_reason`
 metadata. Adapter plugins must still expose a real host RPC bridge to their
 DCC dispatcher or skills; `launch_sidecar()` only launches and supervises the
-sidecar process.
+sidecar process. For Maya `commandport://` sidecars, a present
+`dcc_mcp_maya` package with a missing `dcc_mcp_maya.sidecar._dispatcher`
+returns a structured `sidecar-dispatcher-unavailable` backend envelope on the
+first call instead of a generic transport error, so installers can distinguish
+partial adapter installs from gateway routing failures.
 
 ```python
 from dcc_mcp_core.install_lifecycle import build_sidecar_command

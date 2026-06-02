@@ -24,6 +24,7 @@ from __future__ import annotations
 
 # Import built-in modules
 import ast
+import json
 from pathlib import Path
 import sys
 import types
@@ -194,7 +195,7 @@ class TestBootstrapNoOpPaths:
         _exec_bootstrap()
         assert "dcc_mcp_maya._sidecar" not in sys.modules
 
-    def test_silent_when_dispatcher_module_missing(self, fresh_sys_modules):
+    def test_installs_fallback_when_dispatcher_module_missing(self, fresh_sys_modules):
         # Plant the parent + sub, but leave the dispatcher module out
         # of sys.modules. This emulates a partial install / refactor.
         parent = types.ModuleType("dcc_mcp_maya")
@@ -207,9 +208,36 @@ class TestBootstrapNoOpPaths:
         # NB: no `_dispatcher` registered.
 
         _exec_bootstrap()
-        # We don't register a half-baked module; the next dispatch call
-        # will surface a structured error envelope instead.
-        assert "dcc_mcp_maya._sidecar" not in sys.modules
+        installed = sys.modules["dcc_mcp_maya._sidecar"]
+        envelope = json.loads(
+            installed.dispatch(
+                {
+                    "action": "maya_model__create_cube",
+                    "args": {"size": 1},
+                    "request_id": "req-1",
+                }
+            )
+        )
+
+        assert parent._sidecar is installed
+        assert envelope["success"] is False
+        assert envelope["error"] == "sidecar-dispatcher-unavailable"
+        assert envelope["context"]["kind"] == "sidecar_dispatcher_unavailable"
+        assert envelope["context"]["action"] == "maya_model__create_cube"
+        assert envelope["context"]["request_id"] == "req-1"
+
+    def test_fallback_dispatch_payload_returns_dict(self, fresh_sys_modules):
+        parent = types.ModuleType("dcc_mcp_maya")
+        parent.__path__ = []
+        sys.modules["dcc_mcp_maya"] = parent
+
+        _exec_bootstrap()
+        installed = sys.modules["dcc_mcp_maya._sidecar"]
+        envelope = installed.dispatch_payload({"action": "maya_render__playblast"})
+
+        assert envelope["success"] is False
+        assert envelope["error"] == "sidecar-dispatcher-unavailable"
+        assert envelope["context"]["action"] == "maya_render__playblast"
 
 
 # ── pinned-source guard ───────────────────────────────────────────
