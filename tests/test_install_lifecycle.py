@@ -891,6 +891,18 @@ def test_build_sidecar_command_uses_sidecar_cli_contract(tmp_path: Path) -> None
         "reason": None,
         "message": "The sidecar can become dispatch-ready once the DCC host RPC bridge accepts a connection.",
     }
+    assert result["readiness_contract"] == {
+        "ready_on_launch": False,
+        "requires_readiness_check": True,
+        "requires_dispatch_capable_host_rpc": True,
+        "dispatch_ready_capable": True,
+        "direct_use_status": "requires_ready_verdict",
+        "ready_verdict": "sidecar_readiness_status(...).ready == true",
+        "message": (
+            "Launching the sidecar only proves that a helper process was requested; "
+            "tool calls are directly usable only after sidecar readiness reports ready."
+        ),
+    }
 
 
 def test_build_sidecar_command_readiness_command_honors_python_env(tmp_path: Path) -> None:
@@ -925,6 +937,8 @@ def test_build_sidecar_command_forwards_extra_sidecar_args(tmp_path: Path) -> No
     assert result["command"][-3:] == ["--allow-stub-dispatch-ready", "--ppid-poll-ms", "25"]
     assert result["dispatch_contract"]["status"] == "test_only"
     assert result["dispatch_contract"]["dispatch_ready_capable"] is False
+    assert result["readiness_contract"]["direct_use_status"] == "diagnostics_only"
+    assert result["readiness_contract"]["ready_verdict"] is None
     assert "diagnostic row" in result["recommended_next_action"]
 
 
@@ -1031,6 +1045,11 @@ def test_launch_sidecar_uses_detached_popen_contract(
     assert result["success"] is True
     assert result["status"] == "started"
     assert result["pid"] == 4242
+    assert result["ready"] is False
+    assert result["readiness_checked"] is False
+    assert result["readiness"]["status"] == "not_checked"
+    assert result["readiness"]["ready"] is False
+    assert result["readiness"]["selector"] == result["readiness_selector"]
     assert captured["command"] == result["command"]
     assert captured["command"][-2:] == ["--ppid-poll-ms", "50"]
     assert captured["kwargs"]["stdin"] == sidecar_lifecycle.subprocess.DEVNULL
@@ -1078,6 +1097,7 @@ def test_launch_sidecar_can_return_bounded_readiness_verdict(
     assert result["success"] is True
     assert result["status"] == "started"
     assert result["ready"] is True
+    assert result["readiness_checked"] is True
     assert result["readiness"] == {"success": True, "status": "ready", "ready": True}
     assert captured["readiness_kwargs"] == {
         "registry_dir": str((tmp_path / "registry").resolve()),
