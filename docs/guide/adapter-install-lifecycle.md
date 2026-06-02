@@ -125,15 +125,18 @@ contract = build_sidecar_command(
     dcc_type="houdini",
     host_rpc="qtserver://127.0.0.1:7001",
     watch_pid=current_dcc_pid,
+    instance_id=current_instance_id,
     registry_dir=r"C:\dcc-mcp\registry",
     require_dispatch_capable=True,
 )
 command = contract["command"]
 env_updates = contract["environment"]["set"]
+selector = contract["readiness_selector"]
 
 ready = wait_for_sidecar_ready(
-    dcc_type="houdini",
-    host_rpc="qtserver://127.0.0.1:7001",
+    dcc_type=selector["dcc_type"],
+    instance_id=selector["instance_id"],
+    host_rpc=selector["host_rpc"],
     timeout_secs=5,
     probe_tool="houdini_diagnostics__ping",
 )
@@ -160,10 +163,19 @@ modeled by the helper; for CLI values that start with `--`, use
 `--extra-sidecar-arg=--flag-name`.
 
 Use `sidecar_readiness_status()` for a one-shot verdict (`ready`, `missing`,
-`booting`, `unavailable`, or `dead`) and `wait_for_sidecar_ready()` from an
-installer, supervisor, or background startup task when a short bounded poll is
-acceptable. Do not block a DCC UI or main thread waiting for readiness; launch
-the sidecar first and surface the verdict through logs or Gateway Admin.
+`booting`, `unavailable`, `ambiguous`, or `dead`) and
+`wait_for_sidecar_ready()` from an installer, supervisor, or background startup
+task when a short bounded poll is acceptable. Do not block a DCC UI or main
+thread waiting for readiness; launch the sidecar first and surface the verdict
+through logs or Gateway Admin.
+
+When a startup hook wants to prove one newly-opened DCC instance is directly
+usable, pass the full `instance_id` and `host_rpc` from `readiness_selector`.
+If that selector still matches multiple live sidecars, the helpers return
+`status="ambiguous"` instead of selecting an arbitrary row. A `dcc_type`-only
+check remains useful for aggregate diagnostics such as "is any Maya sidecar
+ready?", but it is not an instance-level direct-use proof in a multi-DCC
+session.
 
 When an adapter wants to claim "open DCC, directly usable", pass a cheap
 read-only diagnostic tool as `probe_tool` (or CLI `--probe-tool`). The helper
