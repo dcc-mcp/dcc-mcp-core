@@ -21,6 +21,7 @@ use super::*;
 
 use super::super::backend_client::{fetch_prompts, forward_prompts_get, try_fetch_prompts};
 use super::super::http_registration::entry_mcp_url;
+use super::helpers::is_fingerprint_eligible_instance;
 
 /// Build the unified `prompts/list` result by aggregating every live backend.
 ///
@@ -244,18 +245,11 @@ pub(crate) async fn compute_prompts_fingerprint_with_own(
             .into_iter()
             .filter(|e| {
                 !e.is_stale(stale_timeout)
-                    && e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
-                    && !matches!(
-                        e.status,
-                        dcc_mcp_transport::discovery::types::ServiceStatus::ShuttingDown
-                            | dcc_mcp_transport::discovery::types::ServiceStatus::Unreachable
-                            | dcc_mcp_transport::discovery::types::ServiceStatus::Booting
-                    )
+                    && is_fingerprint_eligible_instance(e)
                     && match own_host {
                         Some(h) => !super::super::is_own_instance(e, h, own_port),
                         None => true,
                     }
-                    && !e.dcc_type.eq_ignore_ascii_case("unknown")
             })
             .collect()
     };

@@ -1,4 +1,17 @@
 use super::*;
+use dcc_mcp_transport::discovery::types::ServiceStatus;
+
+pub(crate) fn is_fingerprint_eligible_instance(entry: &ServiceEntry) -> bool {
+    entry.dcc_type != super::GATEWAY_SENTINEL_DCC_TYPE
+        && !entry.dcc_type.eq_ignore_ascii_case("unknown")
+        && !matches!(
+            entry.status,
+            ServiceStatus::ShuttingDown
+                | ServiceStatus::Unreachable
+                | ServiceStatus::Booting
+                | ServiceStatus::Stale
+        )
+}
 
 pub(crate) async fn live_backends(gs: &GatewayState) -> Vec<ServiceEntry> {
     let reg = gs.registry.read().await;

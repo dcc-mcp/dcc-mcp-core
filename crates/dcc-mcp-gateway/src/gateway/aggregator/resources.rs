@@ -15,14 +15,14 @@ use futures::future::join_all;
 use serde_json::{Value, json};
 
 use dcc_mcp_gateway_core::resource_uri::encode_resource_uri;
-use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus};
+use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};
 
 use super::super::backend_client::fetch_resources;
 use super::super::handlers::resources::GATEWAY_EVENTS_URI;
 use super::super::http_registration::entry_mcp_url;
 use super::super::native_resources::pointers_for_list as gateway_native_pointers;
 use super::super::state::GatewayState;
-use super::helpers::live_backends;
+use super::helpers::{is_fingerprint_eligible_instance, live_backends};
 
 fn backend_mcp_url(entry: &ServiceEntry) -> String {
     entry_mcp_url(entry)
@@ -34,12 +34,7 @@ fn backend_mcp_url(entry: &ServiceEntry) -> String {
 /// toggle, which the fingerprint keeps permissive to avoid emitting a
 /// spurious `resources/list_changed` when the toggle flips.
 fn is_registry_row_eligible_for_resources(entry: &ServiceEntry) -> bool {
-    entry.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
-        && !entry.dcc_type.eq_ignore_ascii_case("unknown")
-        && !matches!(
-            entry.status,
-            ServiceStatus::ShuttingDown | ServiceStatus::Unreachable | ServiceStatus::Booting
-        )
+    is_fingerprint_eligible_instance(entry)
 }
 
 async fn fetch_resources_for_entries(
@@ -62,7 +57,7 @@ pub(crate) async fn fetch_backend_resources(
     gs: &GatewayState,
 ) -> Vec<(uuid::Uuid, String, Vec<Value>)> {
     // `live_instances` already filters out sentinel rows, own row, stale
-    // rows, and rows in `ShuttingDown | Unreachable | Booting`, and
+    // rows, and non-live status rows, and
     // respects the `allow_unknown_tools` toggle — no further filter is
     // needed here.
     let instances = live_backends(gs).await;
@@ -271,11 +266,12 @@ mod eligibility_tests {
     }
 
     #[test]
-    fn rejects_shutting_down_unreachable_and_booting() {
+    fn rejects_non_live_statuses() {
         for status in [
             ServiceStatus::ShuttingDown,
             ServiceStatus::Unreachable,
             ServiceStatus::Booting,
+            ServiceStatus::Stale,
         ] {
             assert!(
                 !is_registry_row_eligible_for_resources(&entry("maya", status)),
