@@ -652,7 +652,7 @@ export function detailTraceTokens(trace: TraceDetailPayload): {
 
 export function statusClass(value: string): string {
   const status = value.toLowerCase();
-  if (status.includes('fail') || status.includes('error') || status.includes('err') || status.includes('rejected') || status.includes('cancel')) {
+  if (status.includes('fail') || status.includes('error') || status.includes('err') || status.includes('rejected') || status.includes('cancel') || status.includes('unavailable') || status.includes('unreachable')) {
     return 'badge badge-err';
   }
   if (status.includes('ok') || status.includes('success') || status.includes('complete') || status.includes('completed') || status.includes('done') || status.includes('ready') || status.includes('available')) {

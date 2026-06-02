@@ -108,6 +108,11 @@ async function mockAdminApi(page: Page) {
             memory_bytes: 734003200,
             mcp_url: 'http://localhost:8765/mcp',
             scene: 'shot010.ma',
+            dispatch_status: 'ready',
+            dispatch_ready: true,
+            dispatch_ready_at_unix: '1780367000',
+            host_rpc_uri: 'commandport://127.0.0.1:6000',
+            host_rpc_scheme: 'commandport',
           },
           {
             instance_id: 'blender-abcdef1234',
@@ -124,6 +129,11 @@ async function mockAdminApi(page: Page) {
             mcp_url: 'http://127.0.0.1:0/mcp',
             scene: null,
             failure_reason: 'host-rpc connect failed',
+            failure_stage: 'host-rpc-connect',
+            dispatch_status: 'unavailable',
+            dispatch_ready: false,
+            host_rpc_uri: 'commandport://127.0.0.1:6001',
+            host_rpc_scheme: 'commandport',
           },
         ],
       };
@@ -1372,6 +1382,11 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.instances-panel')).toContainText('app-type: blender');
     await expect(page.locator('.instances-panel')).toContainText('Access URL');
     await expect(page.locator('.instances-panel')).toContainText('http://127.0.0.1:8765');
+    await expect(page.locator('.instances-panel')).toContainText('Dispatch');
+    await expect(page.locator('.instances-panel')).toContainText('ready callable');
+    await expect(page.locator('.instances-panel')).toContainText('unavailable not callable');
+    await expect(page.locator('.instances-panel')).toContainText('Host RPC');
+    await expect(page.locator('.instances-panel')).toContainText('commandport');
     await expect(page.locator('.instances-panel')).toContainText('host-rpc connect failed');
     const mayaCard = page.locator('.instance-card').filter({ hasText: 'Maya Layout' });
     await expect(mayaCard.getByRole('link', { name: 'docs' }).first()).toHaveAttribute('href', 'http://127.0.0.1:8765/docs');
