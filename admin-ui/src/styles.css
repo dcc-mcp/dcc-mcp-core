@@ -204,11 +204,16 @@ select {
 }
 
 .brand-logo {
+  background: #ffffff;
+  border: 1px solid var(--sidebar-border);
+  border-radius: var(--radius-sm);
   display: block;
   height: auto;
   max-height: 5.75rem;
   object-fit: contain;
   object-position: left center;
+  padding: 0.25rem;
+  box-shadow: var(--shadow-sm);
   width: min(100%, 10.75rem);
 }
 
