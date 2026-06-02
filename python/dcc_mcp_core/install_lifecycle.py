@@ -28,6 +28,7 @@ from typing import Union
 from ._install_lifecycle_process import entry_runtime_alive as _entry_runtime_alive
 from ._install_lifecycle_process import is_windows_lock_error as _is_windows_lock_error
 from ._install_lifecycle_process import terminate_pid as _terminate_pid
+from ._install_lifecycle_readiness import probe_sidecar_tool
 from ._install_lifecycle_readiness import sidecar_readiness_status
 from ._install_lifecycle_readiness import wait_for_sidecar_ready
 from ._install_lifecycle_sidecar import build_sidecar_command
@@ -85,6 +86,7 @@ __all__ = [
     "launch_sidecar",
     "main",
     "plan_runtime_updates",
+    "probe_sidecar_tool",
     "query_runtime_state",
     "resolve_deployment_layout",
     "safe_remove_tree",
@@ -830,6 +832,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     ready.add_argument("--host-rpc")
     ready.add_argument("--timeout-secs", type=float, default=0.0)
     ready.add_argument("--poll-interval-secs", type=float, default=0.25)
+    ready.add_argument("--probe-tool", help="Optional read-only tool slug to call before reporting ready.")
+    ready.add_argument("--probe-args-json", help="JSON object arguments for --probe-tool.")
+    ready.add_argument("--probe-timeout-secs", type=float, default=3.0)
 
     plan = sub.add_parser("plan-update", help="Plan restart actions for mixed runtime versions.")
     plan.add_argument("--registry-dir")
@@ -892,6 +897,12 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             )
         )
     if args.command == "sidecar-ready":
+        try:
+            probe_arguments = json.loads(args.probe_args_json) if args.probe_args_json else None
+            if probe_arguments is not None and not isinstance(probe_arguments, dict):
+                raise ValueError("--probe-args-json must decode to a JSON object")
+        except ValueError as exc:
+            return _print_json(_failed("invalid_probe_args", str(exc), None))
         if args.timeout_secs > 0:
             return _print_json(
                 wait_for_sidecar_ready(
@@ -901,6 +912,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                     host_rpc=args.host_rpc,
                     timeout_secs=args.timeout_secs,
                     poll_interval_secs=args.poll_interval_secs,
+                    probe_tool=args.probe_tool,
+                    probe_arguments=probe_arguments,
+                    probe_timeout_secs=args.probe_timeout_secs,
                 )
             )
         return _print_json(
@@ -909,6 +923,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 dcc_type=args.dcc_type,
                 instance_id=args.instance_id,
                 host_rpc=args.host_rpc,
+                probe_tool=args.probe_tool,
+                probe_arguments=probe_arguments,
+                probe_timeout_secs=args.probe_timeout_secs,
             )
         )
     if args.command == "plan-update":
