@@ -128,6 +128,13 @@ state = query_runtime_state(dcc_type="3dsmax", role="per-dcc-sidecar")
 stop = stop_runtime_entries(dcc_type="3dsmax")
 ```
 
+For sidecars, each normalized entry exposes `dispatch_status`,
+`dispatch_ready`, `host_rpc_uri`, `host_rpc_scheme`, `failure_stage`, and
+`failure_reason` at the top level. Startup hooks can poll
+`dispatch_ready=True` after `launch_sidecar()` without importing `_core`; Admin
+surfaces should show `dispatch_status=unavailable` rows as registered but not
+callable.
+
 By default, `stop_runtime_entries()` only targets rows that publish
 `metadata.sidecar_pid`. It does not terminate the parent DCC process unless
 `include_host_processes=True` is passed explicitly.
