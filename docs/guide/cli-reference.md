@@ -100,7 +100,8 @@ Default install locations are `~/.local/bin` on Linux/macOS and
 Standalone server runner with explicit run modes for per-DCC MCP servers and
 the machine-wide gateway daemon. Invoking `dcc-mcp-server` with no subcommand
 behaves like `dcc-mcp-server auto`: it ensures a local gateway daemon exists,
-then registers the per-DCC server as a backend.
+registers the per-DCC server as a backend, and keeps a lightweight guardian
+while the backend is alive so the daemon can be re-ensured after a crash.
 
 ### Run modes
 

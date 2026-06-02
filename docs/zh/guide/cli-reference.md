@@ -93,16 +93,18 @@ dcc-mcp-cli lint path/to/skills
 
 独立服务器入口，显式区分 per-DCC MCP server 与整机 gateway daemon。
 不带子命令调用 `dcc-mcp-server` 仍保持向后兼容：行为等同于
-`dcc-mcp-server auto`。
+`dcc-mcp-server auto`，会确保本机 gateway daemon 已启动，注册当前
+per-DCC server 为 backend，并在 backend 存活期间保留轻量 guardian。
 
 ### 运行模式
 
 | 命令 | 角色 | 网关行为 |
 |---|---|---|
-| `dcc-mcp-server` | 向后兼容的隐式 `auto`。 | 启动 per-DCC MCP server，并参与 first-wins 网关选举。 |
+| `dcc-mcp-server` | 向后兼容的隐式 `auto`。 | 确保独立 gateway daemon，然后注册为 backend。 |
 | `dcc-mcp-server auto` | 默认行为的显式写法。 | 与无子命令路径相同。 |
-| `dcc-mcp-server serve` | per-DCC MCP server。 | 默认仍参与 first-wins 网关选举。 |
+| `dcc-mcp-server serve` | per-DCC MCP server。 | 确保独立 gateway daemon，然后注册为 backend。 |
 | `dcc-mcp-server serve --no-auto-gateway` | 仅运行 per-DCC MCP server。 | 提供 MCP 工具，但绝不尝试绑定 gateway port。 |
+| `dcc-mcp-server auto --legacy-gateway-election` | 旧的嵌入式 gateway 模式。 | per-DCC 进程直接竞争 gateway port。 |
 | `dcc-mcp-server gateway` | 整机 gateway daemon。 | 只托管 discovery、routing、resources/prompts、admin 与 audit，不内联执行 DCC tool。 |
 
 `auto` 与 `serve` 共享下面的 server 旗标。`gateway` 有更小的独立旗标面，

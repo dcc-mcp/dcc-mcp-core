@@ -1,21 +1,22 @@
-//! Standalone `dcc-mcp-server` — DCC MCP server with integrated gateway.
+//! Standalone `dcc-mcp-server` — DCC MCP server with daemon-backed gateway.
 //!
-//! Every instance registers itself in a shared `FileRegistry` and **competes**
-//! for a single well-known gateway port (default `:9765`).  Whichever process
-//! wins the race becomes the **gateway**; the others are plain DCC instances.
+//! In the default daemon-backed mode, every per-DCC instance starts its own
+//! MCP endpoint, ensures one machine-wide `dcc-mcp-server gateway` exists,
+//! and registers itself in the shared `FileRegistry`. The legacy first-wins
+//! embedded gateway can still be enabled with `--legacy-gateway-election`.
 //!
 //! ## Why this matters
 //!
 //! You can start N DCC servers without any extra configuration:
 //!
 //! ```bash
-//! # Terminal 1 — Maya, gets OS-assigned port :18812, wins gateway :9765
+//! # Terminal 1 — Maya, gets OS-assigned port :18812, ensures gateway :9765
 //! dcc-mcp-server --app maya
 //!
-//! # Terminal 2 — Maya, gets :18813, gateway port already taken → plain instance
+//! # Terminal 2 — Maya, gets :18813, registers behind the same gateway
 //! dcc-mcp-server --app maya
 //!
-//! # Terminal 3 — Photoshop, gets :18814, plain instance
+//! # Terminal 3 — Photoshop, gets :18814, also registers as a backend
 //! dcc-mcp-server --app photoshop
 //! ```
 //!
@@ -289,7 +290,7 @@ pub(crate) fn spawn_pid_cleanup_watcher(path: &std::path::Path, pid: u32) {
     }
 }
 
-#[cfg(feature = "gateway-daemon")]
+#[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
 fn resolve_registry_dir(configured: Option<&PathBuf>) -> PathBuf {
     configured
         .cloned()
@@ -299,6 +300,33 @@ fn resolve_registry_dir(configured: Option<&PathBuf>) -> PathBuf {
                 .map(PathBuf::from)
         })
         .unwrap_or_else(|| std::env::temp_dir().join("dcc-mcp-registry"))
+}
+
+#[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
+fn should_start_gateway_daemon_guardian(args: &ServerArgs) -> bool {
+    args.gateway_port > 0 && !args.no_ensure_gateway && !args.legacy_gateway_election
+}
+
+#[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
+fn build_server_gateway_daemon_options(
+    args: &ServerArgs,
+    registry_dir_path: Option<&PathBuf>,
+) -> gateway_daemon::EnsureGatewayOptions {
+    let gateway_host = args
+        .gateway_host
+        .clone()
+        .unwrap_or_else(|| args.host.clone());
+    gateway_daemon::EnsureGatewayOptions {
+        host: gateway_host,
+        port: args.gateway_port,
+        name: args
+            .gateway_name
+            .clone()
+            .or_else(|| Some(format!("gateway-for-{}", args.server_name))),
+        registry_dir: resolve_registry_dir(registry_dir_path),
+        remote_host: args.gateway_remote_host.clone(),
+        remote_port: args.gateway_remote_port,
+    }
 }
 
 fn run_pid_cleanup_watcher(path: PathBuf, pid: u32) {
@@ -563,24 +591,20 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
     let registry_dir_path: Option<PathBuf> = args.registry_dir.as_deref().map(PathBuf::from);
 
     #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
-    if args.gateway_port > 0 && !args.no_ensure_gateway && !args.legacy_gateway_election {
-        let gateway_host = args
-            .gateway_host
-            .clone()
-            .unwrap_or_else(|| args.host.clone());
-        gateway_daemon::ensure_gateway_running(&gateway_daemon::EnsureGatewayOptions {
-            host: gateway_host,
-            port: args.gateway_port,
-            name: args
-                .gateway_name
-                .clone()
-                .or_else(|| Some(format!("gateway-for-{}", args.server_name))),
-            registry_dir: resolve_registry_dir(registry_dir_path.as_ref()),
-            remote_host: args.gateway_remote_host.clone(),
-            remote_port: args.gateway_remote_port,
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("ensuring standalone gateway is running: {e}"))?;
+    let server_gateway_daemon_options = if should_start_gateway_daemon_guardian(&args) {
+        Some(build_server_gateway_daemon_options(
+            &args,
+            registry_dir_path.as_ref(),
+        ))
+    } else {
+        None
+    };
+
+    #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
+    if let Some(opts) = server_gateway_daemon_options.as_ref() {
+        gateway_daemon::ensure_gateway_running(opts)
+            .await
+            .map_err(|e| anyhow::anyhow!("ensuring standalone gateway is running: {e}"))?;
         tracing::info!(
             port = args.gateway_port,
             "standalone gateway ensured; this server will register as a backend"
@@ -887,6 +911,14 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
     #[cfg(not(feature = "gateway-auto"))]
     let _ = (&registry_dir_path, &registry_dcc);
 
+    #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
+    let gateway_guardian_handle = server_gateway_daemon_options.clone().map(|opts| {
+        gateway_daemon::spawn_gateway_guardian(
+            opts,
+            gateway_daemon::GatewayGuardianSettings::from_env(),
+        )
+    });
+
     // ── Start WebSocket bridge (optional) ─────────────────────────────────
 
     if !args.no_bridge {
@@ -900,6 +932,11 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
 
     let shutdown_reason = select_shutdown_signal().await?;
     tracing::info!(shutdown_reason, "Shutdown signal received");
+
+    #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
+    if let Some(handle) = gateway_guardian_handle {
+        handle.abort();
+    }
 
     #[cfg(feature = "gateway-auto")]
     {
@@ -973,11 +1010,114 @@ mod tests {
         assert!(should_enable_file_logging(&opts, true));
     }
 
-    #[cfg(feature = "gateway-daemon")]
+    #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
     #[test]
     fn resolve_registry_dir_prefers_explicit_path() {
         let explicit = PathBuf::from(r"C:\dcc-mcp\registry");
 
         assert_eq!(resolve_registry_dir(Some(&explicit)), explicit);
+    }
+
+    #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
+    #[test]
+    fn server_gateway_daemon_guardian_runs_only_in_daemon_backed_mode() {
+        let mut args =
+            Args::try_parse_from(["dcc-mcp-server", "--app", "maya"]).expect("valid CLI args");
+        assert!(
+            should_start_gateway_daemon_guardian(&args.server),
+            "implicit auto mode should keep a daemon guardian alive"
+        );
+
+        args = Args::try_parse_from(["dcc-mcp-server", "auto", "--app", "houdini"])
+            .expect("valid CLI args");
+        let Some(SubCmd::Auto(auto_args)) = args.command else {
+            panic!("expected auto subcommand");
+        };
+        assert!(
+            should_start_gateway_daemon_guardian(&auto_args),
+            "explicit auto mode should keep a daemon guardian alive"
+        );
+
+        let args = Args::try_parse_from(["dcc-mcp-server", "--app", "maya", "--gateway-port", "0"])
+            .expect("valid CLI args");
+        assert!(
+            !should_start_gateway_daemon_guardian(&args.server),
+            "--gateway-port 0 disables gateway participation"
+        );
+
+        let args = Args::try_parse_from(["dcc-mcp-server", "--app", "maya", "--no-ensure-gateway"])
+            .expect("valid CLI args");
+        assert!(
+            !should_start_gateway_daemon_guardian(&args.server),
+            "--no-ensure-gateway opts out of daemon launch and guardian"
+        );
+
+        let args = Args::try_parse_from([
+            "dcc-mcp-server",
+            "--app",
+            "maya",
+            "--legacy-gateway-election",
+        ])
+        .expect("valid CLI args");
+        assert!(
+            !should_start_gateway_daemon_guardian(&args.server),
+            "legacy embedded election owns its own gateway loop"
+        );
+
+        let parsed = Args::try_parse_from([
+            "dcc-mcp-server",
+            "serve",
+            "--app",
+            "maya",
+            "--no-auto-gateway",
+        ])
+        .expect("valid CLI args");
+        let Some(SubCmd::Serve(serve)) = parsed.command else {
+            panic!("expected serve subcommand");
+        };
+        assert!(
+            !should_start_gateway_daemon_guardian(&serve.into_server_args()),
+            "serve --no-auto-gateway must not start a daemon guardian"
+        );
+    }
+
+    #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
+    #[test]
+    fn server_gateway_daemon_options_preserve_cli_identity() {
+        let args = Args::try_parse_from([
+            "dcc-mcp-server",
+            "--app",
+            "maya",
+            "--server-name",
+            "maya-prod",
+            "--host",
+            "127.0.0.2",
+            "--gateway-host",
+            "0.0.0.0",
+            "--gateway-name",
+            "studio-gateway",
+            "--gateway-remote-host",
+            "10.0.0.10",
+            "--gateway-remote-port",
+            "59766",
+            "--registry-dir",
+            r"C:\dcc-mcp\registry",
+        ])
+        .expect("valid CLI args");
+        let registry_dir_path = args.server.registry_dir.as_deref().map(PathBuf::from);
+
+        let opts = build_server_gateway_daemon_options(&args.server, registry_dir_path.as_ref());
+        assert_eq!(opts.host, "0.0.0.0");
+        assert_eq!(opts.port, 9765);
+        assert_eq!(opts.name.as_deref(), Some("studio-gateway"));
+        assert_eq!(opts.registry_dir, PathBuf::from(r"C:\dcc-mcp\registry"));
+        assert_eq!(opts.remote_host, "10.0.0.10");
+        assert_eq!(opts.remote_port, 59766);
+
+        let args = Args::try_parse_from(["dcc-mcp-server", "--server-name", "houdini-lookdev"])
+            .expect("valid CLI args");
+        let opts = build_server_gateway_daemon_options(&args.server, None);
+        assert_eq!(opts.host, "127.0.0.1");
+        assert_eq!(opts.name.as_deref(), Some("gateway-for-houdini-lookdev"));
     }
 }
