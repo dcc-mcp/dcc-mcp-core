@@ -131,15 +131,10 @@ pub async fn build_payload(gs: &GatewayState, query: &Query) -> Result<Value, St
         }
         Query::Single { instance_id } => {
             let reg = gs.registry.read().await;
-            let all = gs.live_instances(&reg);
-            let entry = all
-                .iter()
-                .find(|e| {
-                    let s = e.instance_id.to_string();
-                    s == *instance_id || s.starts_with(instance_id.as_str())
-                })
-                .ok_or_else(|| format!("Instance '{instance_id}' not found"))?;
-            Ok(gs.instance_json(entry))
+            let entry = gs
+                .resolve_instance(&reg, Some(instance_id.as_str()), None)
+                .map_err(|err| err.to_string())?;
+            Ok(gs.instance_json(&entry))
         }
     }
 }

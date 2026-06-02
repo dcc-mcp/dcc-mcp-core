@@ -1090,6 +1090,89 @@ async fn test_read_alive_instances_filters_sentinel_and_self() {
     );
 }
 
+#[tokio::test]
+async fn gateway_instances_resource_lists_many_dcc_rows_without_gateway_sentinel() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+
+    {
+        let r = registry.read().await;
+        let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
+        sentinel.version = Some(env!("CARGO_PKG_VERSION").into());
+        r.register(sentinel).unwrap();
+
+        for i in 0..10 {
+            r.register(ServiceEntry::new("maya", "127.0.0.1", 18000 + i))
+                .unwrap();
+            r.register(ServiceEntry::new("houdini", "127.0.0.1", 18100 + i))
+                .unwrap();
+        }
+    }
+
+    let gs = test_gateway_state_with_own(registry.clone(), "127.0.0.1", 9765);
+    let payload = crate::gateway::native_resources::instances::build_payload(
+        &gs,
+        &crate::gateway::native_resources::instances::Query::List {
+            include_stale: true,
+            include_dead: false,
+        },
+    )
+    .await
+    .expect("gateway://instances payload");
+
+    assert_eq!(payload["total"], 20);
+    assert_eq!(payload["by_source"]["file"], 20);
+    let rows = payload["instances"].as_array().expect("instances array");
+    assert_eq!(
+        rows.iter()
+            .filter(|row| row["dcc_type"] == serde_json::json!("maya"))
+            .count(),
+        10
+    );
+    assert_eq!(
+        rows.iter()
+            .filter(|row| row["dcc_type"] == serde_json::json!("houdini"))
+            .count(),
+        10
+    );
+    assert!(
+        rows.iter()
+            .all(|row| row["dcc_type"] != serde_json::json!(GATEWAY_SENTINEL_DCC_TYPE)),
+        "gateway://instances must expose only addressable DCC services"
+    );
+}
+
+#[tokio::test]
+async fn gateway_instances_resource_rejects_ambiguous_instance_prefix() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+
+    {
+        let r = registry.read().await;
+        let mut first = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        first.instance_id = uuid::Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        r.register(first).unwrap();
+        let mut second = ServiceEntry::new("houdini", "127.0.0.1", 18813);
+        second.instance_id = uuid::Uuid::parse_str("abcdef9923456789abcdef0123456789").unwrap();
+        r.register(second).unwrap();
+    }
+
+    let gs = test_gateway_state(registry.clone());
+    let err = crate::gateway::native_resources::instances::build_payload(
+        &gs,
+        &crate::gateway::native_resources::instances::Query::Single {
+            instance_id: "abcdef".to_string(),
+        },
+    )
+    .await
+    .expect_err("ambiguous resource prefix should be rejected");
+
+    assert!(
+        err.contains("multiple-instances-match"),
+        "ambiguous prefix should produce the same resolver error as REST routing: {err}"
+    );
+}
+
 // ── Sub-state view tests (issue #839) ──────────────────────────────────
 
 /// The discovery view exposes exactly the subset a registry-facing
