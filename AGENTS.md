@@ -511,7 +511,7 @@ If a split is genuinely out-of-scope for the current PR:
 ## Repo Layout (What Lives Where)
 
 ```
-crates/          # Rust workspace — 41 packages (40 functional packages + workspace-hack); `Cargo.toml` is source of truth
+crates/          # Rust workspace — 43 packages (42 functional packages + workspace-hack); `Cargo.toml` is source of truth
 python/dcc_mcp_core/__init__.py  # ← top-level Python public re-exports
 python/dcc_mcp_core/result_envelope.py  # ← typed ToolResult dataclass (#487)
 python/dcc_mcp_core/constants.py        # ← metadata key / layer / category constants (#487)

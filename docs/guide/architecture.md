@@ -52,7 +52,7 @@ DCC-MCP-Core is a Rust workspace with Python bindings via PyO3. It provides:
 
 - **Zero third-party runtime dependencies** in the Rust core
 - **Optional Python bindings** via PyO3 for DCC integration
-- **42 workspace packages** (41 functional packages + `workspace-hack`) for selective dependency usage; root `Cargo.toml` is the source of truth
+- **43 workspace packages** (42 functional packages + `workspace-hack`) for selective dependency usage; root `Cargo.toml` is the source of truth
 
 ## Crate Structure
 
@@ -71,12 +71,13 @@ dcc-mcp-core (workspace root)
 ├── dcc-mcp-gateway-core  # Pure gateway domain/search/ranking types
 ├── dcc-mcp-gateway-search # Reusable capability search/query/ranking engine
 ├── dcc-mcp-gateway       # Multi-DCC gateway app + dynamic wrappers
+├── dcc-mcp-sidecar       # Per-DCC sidecar + gateway daemon guardian runtime
 ├── dcc-mcp-http-types    # Pure HTTP wire/config/value types, McpHttpConfig
 ├── dcc-mcp-http-server   # Reusable HTTP runtime support
 ├── dcc-mcp-http-py       # PyO3 binding boundary for HTTP APIs
 ├── dcc-mcp-http          # Embedded MCP HTTP facade + compatibility re-exports
 ├── dcc-mcp-cli           # Client control-plane CLI for gateway REST
-├── dcc-mcp-server        # Binary entry point and gateway runner
+├── dcc-mcp-server        # Binary entry point and CLI wrapper
 ├── dcc-mcp-logging       # Rolling file logging
 ├── dcc-mcp-paths         # Platform path helpers
 ├── dcc-mcp-pybridge      # PyO3 helper macros / JSON / YAML bridge
@@ -119,14 +120,16 @@ dcc-mcp-gateway-core ← pure gateway domain/search/ranking types
 dcc-mcp-gateway-search ← reusable search/query/ranking engine
        ↓
 dcc-mcp-gateway ← dcc-mcp-gateway-core, dcc-mcp-gateway-search, dcc-mcp-wire, dcc-mcp-transport
-       ↓
+
+dcc-mcp-sidecar ← dcc-mcp-gateway, dcc-mcp-host-rpc, dcc-mcp-transport
+
 dcc-mcp-http-types ← pure HTTP wire/config/value types
        ↓
 dcc-mcp-http-server ← dcc-mcp-http-types, dcc-mcp-jsonrpc, dcc-mcp-job, dcc-mcp-host
        ↓
 dcc-mcp-http ← dcc-mcp-http-types, dcc-mcp-http-server, dcc-mcp-gateway, dcc-mcp-skill-rest
        ↓
-dcc-mcp-server ← dcc-mcp-http
+dcc-mcp-server ← dcc-mcp-http, dcc-mcp-sidecar
 
 dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 
@@ -381,6 +384,12 @@ dcc-mcp-app-ui (independent pure app_ui observation/action/wait/policy/audit con
 
 **Dependencies**: `dcc-mcp-gateway-core`, `dcc-mcp-gateway-search`, `dcc-mcp-wire`, `dcc-mcp-transport`, `dcc-mcp-skill-rest`, `reqwest`, `tokio`.
 
+### dcc-mcp-sidecar
+
+**Purpose**: Long-lived per-DCC sidecar and standalone gateway-daemon runtime. It owns `SidecarArgs`, the sidecar MCP dispatch listener, legacy embedded sidecar failover, `GatewayArgs`, daemon ensure helpers, and the post-startup daemon guardian. The public CLI remains `dcc-mcp-server sidecar` / `dcc-mcp-server gateway`; the binary crate delegates those subcommands here.
+
+**Dependencies**: `dcc-mcp-gateway`, `dcc-mcp-host-rpc`, `dcc-mcp-transport`, `axum`, `reqwest`, `tokio`, `sysinfo`.
+
 ### dcc-mcp-app-ui
 
 **Purpose**: DCC-agnostic application UI observation/action contract values. Keep these schemas independent from HTTP, Python bindings, OS accessibility, Qt, or webview automation so adapters can share the same contract without inheriting a backend.
@@ -440,7 +449,7 @@ dcc-mcp-app-ui (independent pure app_ui observation/action/wait/policy/audit con
 
 ### dcc-mcp-server
 
-**Purpose**: Binary composition entry point (`dcc-mcp-server` CLI). The implicit root mode, explicit `auto`, and default `serve` modes run a per-DCC MCP server, ensure the machine-wide gateway daemon, register as a backend, and keep a daemon guardian while the backend is alive. `serve --no-auto-gateway` runs a per-DCC server without touching the shared gateway, `auto --legacy-gateway-election` restores the old embedded first-wins path, and `gateway` runs the machine-wide gateway daemon without inline DCC execution.
+**Purpose**: Binary composition entry point (`dcc-mcp-server` CLI). The implicit root mode, explicit `auto`, and default `serve` modes run a per-DCC MCP server, ensure the machine-wide gateway daemon, register as a backend, and keep a daemon guardian while the backend is alive. `serve --no-auto-gateway` runs a per-DCC server without touching the shared gateway, `auto --legacy-gateway-election` restores the old embedded first-wins path, and `sidecar` / `gateway` delegate to `dcc-mcp-sidecar` for per-DCC sidecar and machine-wide gateway-daemon runtime.
 
 ### dcc-mcp-cli
 
