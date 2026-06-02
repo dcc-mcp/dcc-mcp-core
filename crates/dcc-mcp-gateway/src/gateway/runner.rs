@@ -139,6 +139,9 @@ impl GatewayRunner {
                                         snap.version.as_deref(),
                                     );
                                 }
+                                if !snap.metadata.is_empty() {
+                                    let _ = r.update_instance_metadata(&key_inner, &snap.metadata);
+                                }
                             } else {
                                 let _ = r.heartbeat(&key_inner);
                             }

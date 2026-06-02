@@ -1190,6 +1190,7 @@ class DccServerBase:
         self._init_telemetry()
 
         self._runtime_controller().ensure_gateway_daemon_if_needed()
+        self._stage_gateway_runtime_metadata()
         self._handle = self._server.start()
         server_version = getattr(self._config, "server_version", _PKG_VERSION)
         logger.info(
@@ -1202,6 +1203,37 @@ class DccServerBase:
         self._runtime_controller().start_gateway_election_if_needed()
 
         return self._handle
+
+    def _gateway_runtime_metadata(self) -> dict[str, str]:
+        guardian_running = getattr(self, "_gateway_guardian", None) is not None
+        return {
+            "gateway_runtime_mode": str(getattr(self, "_gateway_runtime_mode", "unknown") or "unknown"),
+            "gateway_guardian_enabled": str(bool(guardian_running)).lower(),
+        }
+
+    def _stage_gateway_runtime_metadata(self) -> None:
+        metadata = getattr(self._config, "instance_metadata", None)
+        if isinstance(metadata, dict):
+            updated = dict(metadata)
+            updated.update(self._gateway_runtime_metadata())
+            try:
+                self._config.instance_metadata = updated
+            except Exception as exc:
+                logger.debug("[%s] config.instance_metadata update failed: %s", self._dcc_name, exc)
+                metadata.update(updated)
+
+    def _publish_gateway_runtime_metadata(self) -> None:
+        self._stage_gateway_runtime_metadata()
+        handle = self._handle
+        if handle is None:
+            return
+        update = getattr(handle, "update_gateway_metadata", None)
+        if update is None:
+            return
+        try:
+            update(self._gateway_runtime_metadata())
+        except Exception as exc:
+            logger.debug("[%s] handle.update_gateway_metadata failed: %s", self._dcc_name, exc)
 
     def stop(self) -> None:
         """Gracefully stop the server and gateway election thread."""

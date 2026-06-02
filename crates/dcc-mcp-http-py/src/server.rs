@@ -1,6 +1,7 @@
 //! Handle returned by `McpHttpServer.start()`.
 
 use super::*;
+use std::collections::HashMap;
 use std::time::Duration;
 
 /// Handle returned by `McpHttpServer.start()`.
@@ -178,6 +179,21 @@ impl PyServerHandle {
         }
         if let Some(name) = display_name {
             guard.display_name = if name.is_empty() { None } else { Some(name) };
+        }
+    }
+
+    /// Merge arbitrary string metadata into the FileRegistry row.
+    ///
+    /// Values propagate on the next heartbeat tick. Empty values clear the
+    /// matching key while preserving unrelated metadata.
+    fn update_gateway_metadata(&self, metadata: HashMap<String, String>) {
+        let mut guard = self.live_meta.write();
+        for (name, value) in metadata {
+            if value.is_empty() {
+                guard.metadata.remove(&name);
+            } else {
+                guard.metadata.insert(name, value);
+            }
         }
     }
 
