@@ -3,20 +3,23 @@
 //! This crate is the **Phase 2 substrate** for the sidecar epic
 //! ([RFC #998](https://github.com/loonghao/dcc-mcp-core/issues/998),
 //! tracked under [#1002](https://github.com/loonghao/dcc-mcp-core/issues/1002)).
-//! It defines the abstract trait every per-DCC sidecar implementation will
-//! satisfy, plus the structured error envelope the gateway propagates as the
+//! It defines the abstract trait every per-DCC sidecar implementation
+//! satisfies, the concrete clients the generic sidecar can route to today,
+//! and the structured error envelope the gateway propagates as the
 //! `host_died` event.
 //!
 //! # What lives where
 //!
-//! * **This crate**: trait + envelope types + URI scheme registry. **No I/O.**
+//! * **This crate**: trait + envelope types + URI scheme registry + bundled
+//!   `commandport://`, `qtserver://`, `ws://`, `wss://`, and `stub://`
+//!   clients.
 //! * `dcc-mcp-server` `sidecar` subcommand (issue #1002 / PR #1003): owns the
 //!   process lifecycle, PPID-watch, and `FileRegistry` registration. Calls
 //!   into a [`HostRpcClient`] impl chosen by the `--host-rpc` URI scheme.
-//! * Per-DCC adapter repos (`dcc-mcp-maya`, `dcc-mcp-blender`, …): each
-//!   ships **one** [`HostRpcClient`] impl that speaks that DCC's native
-//!   RPC channel (Maya `commandPort`, Blender JSON-RPC listener, Houdini
-//!   `hrpyc`, Unreal Remote Execution Server, etc.).
+//! * Per-DCC adapter repos (`dcc-mcp-maya`, `dcc-mcp-blender`, ...): ship
+//!   the host-side dispatcher/bridge that those clients call inside the live
+//!   DCC process (Maya bootstrap module, Qt server entry point, WebSocket
+//!   handler, Houdini `hrpyc` bridge, Unreal Remote Execution Server, etc.).
 //!
 //! # Why a trait, not a concrete type
 //!
@@ -27,21 +30,24 @@
 //! the live host process — a trait is the cleanest way to make those
 //! impls pluggable while keeping the sidecar lifecycle code in one place.
 //!
-//! # Phase 2 status
+//! # Current status
 //!
-//! This crate landed initially as a **schema-only** scaffold: the trait
-//! is defined, the error envelope is defined, and tests round-trip
-//! both. Concrete impls land in:
+//! The generic sidecar can instantiate clients by URI scheme through
+//! [`client_for_uri`]:
 //!
-//! * `dcc-mcp-maya` — `MayaHostRpcClient` over `commandport://`
-//! * `dcc-mcp-blender` — `BlenderHostRpcClient` over `http://` (addon
-//!   listener using `bpy.app.timers`)
-//! * `dcc-mcp-houdini` — `HoudiniHostRpcClient` over `hrpyc://`
+//! * `commandport://` — Maya commandPort client. At connect time it injects
+//!   the bundled Maya bootstrap, then dispatches through
+//!   `dcc_mcp_maya._sidecar.dispatch(...)`.
+//! * `qtserver://` — line-oriented JSON client for DCC plugins that expose a
+//!   local Qt/TCP dispatcher.
+//! * `ws://` / `wss://` — JSON WebSocket client for adapters with an embedded
+//!   WebSocket dispatcher.
+//! * `stub://` — deterministic test client.
 //!
-//! The included [`StubHostRpcClient`] is a **never-connects** placeholder
-//! that always returns `HostRpcError::TransportError("stub client")` so
-//! integration tests for the sidecar binary can exercise the call path
-//! without depending on a real DCC.
+//! The included [`StubHostRpcClient`] is a deterministic placeholder: it
+//! accepts connect attempts, but calls always return
+//! `HostRpcError::TransportError("stub client")` so integration tests for the
+//! sidecar binary can exercise the call path without depending on a real DCC.
 //!
 //! # Example
 //!

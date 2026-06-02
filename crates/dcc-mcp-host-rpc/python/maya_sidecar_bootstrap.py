@@ -47,26 +47,63 @@ Failure semantics
 =================
 
 Bootstrap **never raises** out of Maya's eval. The function returns
-silently in three benign cases:
+silently in two benign cases:
 
 * ``dcc_mcp_maya`` is not installed (no sidecar mode available).
-* ``dcc_mcp_maya.sidecar._dispatcher`` import fails (e.g. partial
-  install or version with the dispatcher removed).
 * The module is already installed at this exact bootstrap version
   (re-entrant connect).
 
-The first real ``dispatch()`` call surfaces any of these as a
-structured envelope (``server-not-running`` / ``payload-malformed``
-/ ``unknown-action``) so the gateway sees an MCP-shaped error rather
-than a transport-error from Maya's eval.
+When ``dcc_mcp_maya`` is present but
+``dcc_mcp_maya.sidecar._dispatcher`` is not importable, bootstrap
+installs a fallback virtual module. The first real ``dispatch()``
+call then returns a structured ``sidecar-dispatcher-unavailable``
+envelope so the gateway sees an MCP-shaped error rather than a
+transport-error from Maya's eval.
 """
 
+import json
 import sys
 import types
 
 _BOOTSTRAP_VERSION = "1"
 _MODULE_NAME = "dcc_mcp_maya._sidecar"
 _PARENT_NAME = "dcc_mcp_maya"
+
+
+def _payload_field(payload, key):
+    if isinstance(payload, dict):
+        value = payload.get(key)
+        if value is None:
+            return None
+        return str(value)
+    return None
+
+
+def _failure_envelope(reason, payload):
+    return {
+        "success": False,
+        "error": "sidecar-dispatcher-unavailable",
+        "message": (
+            "dcc_mcp_maya.sidecar._dispatcher is not importable; "
+            "install or upgrade dcc-mcp-maya with sidecar dispatcher support."
+        ),
+        "context": {
+            "kind": "sidecar_dispatcher_unavailable",
+            "reason": reason,
+            "action": _payload_field(payload, "action"),
+            "request_id": _payload_field(payload, "request_id"),
+        },
+    }
+
+
+def _make_fallback_dispatch(reason):
+    def dispatch(payload):
+        return json.dumps(_failure_envelope(reason, payload), sort_keys=True)
+
+    def dispatch_payload(payload, **_kwargs):
+        return _failure_envelope(reason, payload)
+
+    return dispatch, dispatch_payload
 
 
 def _install():
@@ -77,11 +114,8 @@ def _install():
     try:
         from dcc_mcp_maya.sidecar._dispatcher import dispatch
         from dcc_mcp_maya.sidecar._dispatcher import dispatch_payload
-    except ImportError:
-        # dcc-mcp-maya is not on sys.path, or its sidecar sub-package
-        # has been refactored. Silent no-op — the next dispatch call
-        # surfaces this as a payload-malformed/unknown-action envelope.
-        return
+    except ImportError as exc:
+        dispatch, dispatch_payload = _make_fallback_dispatch(str(exc))
 
     parent = sys.modules.get(_PARENT_NAME)
     if parent is None:
