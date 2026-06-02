@@ -612,6 +612,145 @@ async fn commandport_connects_to_fake_server() {
     );
 }
 
+/// End-to-end dispatch proof: a ready sidecar must not only register a
+/// commandPort-backed MCP URL, it must route one real `tools/call` through the
+/// listener, HostRpcClient, and fake DCC dispatcher.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn commandport_sidecar_dispatches_tools_call_to_fake_server() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::TcpListener;
+    use tokio::sync::oneshot;
+
+    let registry_dir = TempDir::new().expect("tempdir");
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind 0");
+    let port = listener.local_addr().expect("local_addr").port();
+    let (call_line_tx, call_line_rx) = oneshot::channel::<String>();
+    tokio::spawn(async move {
+        if let Ok((mut stream, _)) = listener.accept().await {
+            let (read_half, mut write_half) = stream.split();
+            let mut reader = BufReader::new(read_half);
+
+            let mut bootstrap_line = String::new();
+            let _ = reader.read_line(&mut bootstrap_line).await;
+            let _ = write_half.write_all(b"None\n").await;
+            let _ = write_half.flush().await;
+
+            let mut call_line = String::new();
+            let _ = reader.read_line(&mut call_line).await;
+            let _ = call_line_tx.send(call_line);
+            let _ = write_half
+                .write_all(br#"{"success":true,"object_name":"pSphere1"}"#)
+                .await;
+            let _ = write_half.write_all(b"\n").await;
+            let _ = write_half.flush().await;
+
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    });
+
+    let mut child = std::process::Command::new(sleep_cmd())
+        .args(sleep_args())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn sleep child");
+
+    let parent_pid = child.id();
+    let key_dcc = "maya".to_string();
+    let pinned_uuid = Uuid::new_v4();
+    let args = SidecarArgs {
+        dcc: key_dcc.clone(),
+        host_rpc: format!("commandport://127.0.0.1:{port}"),
+        watch_pid: parent_pid,
+        registry_dir: Some(registry_dir.path().to_path_buf()),
+        instance_id: Some(pinned_uuid),
+        display_name: Some("dispatch-maya".to_string()),
+        adapter_version: Some("0.0.0-test".to_string()),
+        connect_timeout_secs: 2,
+        allow_stub_dispatch_ready: false,
+        ppid_poll_ms: Some(50),
+        gateway_port: 0,
+        no_ensure_gateway: false,
+        legacy_gateway_election: false,
+        host: "127.0.0.1".to_string(),
+        gateway_host: None,
+        gateway_name: None,
+        gateway_remote_host: "0.0.0.0".to_string(),
+        gateway_remote_port: 59765,
+    };
+
+    let sidecar_handle = tokio::spawn(async move { run(args).await });
+
+    let ready_row = wait_for_dispatch_status(
+        registry_dir.path(),
+        &key_dcc,
+        pinned_uuid,
+        DISPATCH_STATUS_READY,
+        Duration::from_secs(3),
+    )
+    .await
+    .expect("sidecar must publish dispatch-ready metadata");
+    let mcp_url = ready_row
+        .metadata
+        .get("mcp_url")
+        .expect("ready sidecar should publish mcp_url")
+        .clone();
+
+    let body: serde_json::Value = post_mcp(
+        &mcp_url,
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "sidecar-call-1",
+            "method": "tools/call",
+            "params": {
+                "name": "maya_primitives__create_sphere",
+                "arguments": {"radius": 2.5}
+            }
+        }),
+    )
+    .await
+    .json()
+    .await
+    .expect("parse sidecar tools/call response");
+
+    assert_eq!(body["jsonrpc"], "2.0");
+    assert_eq!(body["id"], "sidecar-call-1");
+    assert_eq!(body["result"]["success"], true);
+    assert_eq!(body["result"]["object_name"], "pSphere1");
+
+    let call_line = tokio::time::timeout(Duration::from_secs(2), call_line_rx)
+        .await
+        .expect("fake commandPort should receive a tools/call line")
+        .expect("call line channel closed");
+    assert!(
+        call_line.contains("dcc_mcp_maya._sidecar"),
+        "wire expression should invoke the Maya sidecar dispatcher: {call_line:?}"
+    );
+    assert!(
+        call_line.contains("maya_primitives__create_sphere"),
+        "wire frame should include the tool slug: {call_line:?}"
+    );
+    assert!(
+        call_line.contains("\"radius\":2.5"),
+        "wire frame should include serialized arguments: {call_line:?}"
+    );
+    assert!(
+        call_line.contains("\"request_id\":\"sidecar-call-1\""),
+        "wire frame should preserve the JSON-RPC id as request_id: {call_line:?}"
+    );
+
+    child.kill().expect("kill sleep child");
+    let _ = child.wait();
+
+    let result = tokio::time::timeout(Duration::from_secs(3), sidecar_handle)
+        .await
+        .expect("sidecar exited within 3s of parent death")
+        .expect("sidecar task did not panic");
+    result.expect("sidecar run returned ok");
+}
+
 /// Soft-failure path: when the URI's host:port is dead, the sidecar
 /// logs a warning but **keeps running** so its FileRegistry row
 /// stays visible and PPID-watch can still detect parent death.
