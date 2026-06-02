@@ -86,6 +86,7 @@ partial adapter installs from gateway routing failures.
 
 ```python
 from dcc_mcp_core.install_lifecycle import build_sidecar_command
+from dcc_mcp_core.install_lifecycle import wait_for_sidecar_ready
 
 contract = build_sidecar_command(
     dcc_type="houdini",
@@ -95,7 +96,19 @@ contract = build_sidecar_command(
 )
 command = contract["command"]
 env_updates = contract["environment"]["set"]
+
+ready = wait_for_sidecar_ready(
+    dcc_type="houdini",
+    host_rpc="qtserver://127.0.0.1:7001",
+    timeout_secs=5,
+)
 ```
+
+Use `sidecar_readiness_status()` for a one-shot verdict (`ready`, `missing`,
+`booting`, `unavailable`, or `dead`) and `wait_for_sidecar_ready()` from an
+installer, supervisor, or background startup task when a short bounded poll is
+acceptable. Do not block a DCC UI or main thread waiting for readiness; launch
+the sidecar first and surface the verdict through logs or Gateway Admin.
 
 ## Import-Light Preflight
 
@@ -126,9 +139,11 @@ objects:
 
 ```python
 from dcc_mcp_core.install_lifecycle import query_runtime_state
+from dcc_mcp_core.install_lifecycle import sidecar_readiness_status
 from dcc_mcp_core.install_lifecycle import stop_runtime_entries
 
 state = query_runtime_state(dcc_type="3dsmax", role="per-dcc-sidecar")
+ready = sidecar_readiness_status(dcc_type="3dsmax")
 stop = stop_runtime_entries(dcc_type="3dsmax")
 ```
 
@@ -257,6 +272,7 @@ python -m dcc_mcp_core.install_lifecycle stop --dcc-type 3dsmax
 python -m dcc_mcp_core.install_lifecycle layout --cache-root G:\_thm\rez_local_cache\ext --adapter-package dcc_mcp_maya
 python -m dcc_mcp_core.install_lifecycle sidecar-command --dcc maya --host-rpc commandport://127.0.0.1:6000 --watch-pid 12345
 python -m dcc_mcp_core.install_lifecycle launch-sidecar --dcc maya --host-rpc commandport://127.0.0.1:6000 --watch-pid 12345
+python -m dcc_mcp_core.install_lifecycle sidecar-ready --dcc maya --timeout-secs 5
 python -m dcc_mcp_core.install_lifecycle plan-update --target-version core=0.17.21 --target-version server=0.17.21
 python -m dcc_mcp_core.install_lifecycle remove C:\path\to\adapter
 ```
