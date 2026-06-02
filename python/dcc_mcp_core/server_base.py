@@ -1206,9 +1206,17 @@ class DccServerBase:
 
     def _gateway_runtime_metadata(self) -> dict[str, str]:
         guardian_running = getattr(self, "_gateway_guardian", None) is not None
+        runtime_mode = str(getattr(self, "_gateway_runtime_mode", "unknown") or "unknown")
+        gateway_recovery_driver = "none"
+        if guardian_running:
+            gateway_recovery_driver = "daemon_guardian"
+        elif runtime_mode == "embedded-fallback":
+            gateway_recovery_driver = "embedded_election"
         return {
-            "gateway_runtime_mode": str(getattr(self, "_gateway_runtime_mode", "unknown") or "unknown"),
+            "gateway_runtime_mode": runtime_mode,
             "gateway_guardian_enabled": str(bool(guardian_running)).lower(),
+            "gateway_recovery_driver": gateway_recovery_driver,
+            "registration_refresh_mode": "file_registry_heartbeat",
         }
 
     def _stage_gateway_runtime_metadata(self) -> None:
@@ -1346,6 +1354,7 @@ class DccServerBase:
         """
         gateway_port = int(getattr(self._config, "gateway_port", 0) or 0)
         is_gateway = bool(getattr(self, "is_gateway", False))
+        gateway_metadata = self._gateway_runtime_metadata()
         if self._gateway_election is None:
             return {
                 "enabled": bool(self._enable_gateway_failover),
@@ -1355,6 +1364,8 @@ class DccServerBase:
                 "gateway_port": gateway_port,
                 "is_gateway": is_gateway,
                 "gateway_runtime_mode": getattr(self, "_gateway_runtime_mode", "unknown"),
+                "gateway_recovery_driver": gateway_metadata["gateway_recovery_driver"],
+                "registration_refresh_mode": gateway_metadata["registration_refresh_mode"],
                 "gateway_daemon_status": dict(getattr(self, "_gateway_daemon_status", {}) or {}),
             }
         status = self._gateway_election.get_status()
@@ -1362,6 +1373,8 @@ class DccServerBase:
         status.setdefault("gateway_port", gateway_port)
         status["is_gateway"] = is_gateway
         status["gateway_runtime_mode"] = getattr(self, "_gateway_runtime_mode", "unknown")
+        status["gateway_recovery_driver"] = gateway_metadata["gateway_recovery_driver"]
+        status["registration_refresh_mode"] = gateway_metadata["registration_refresh_mode"]
         status["gateway_daemon_status"] = dict(getattr(self, "_gateway_daemon_status", {}) or {})
         return status
 

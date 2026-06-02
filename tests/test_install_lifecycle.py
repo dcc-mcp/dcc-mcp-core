@@ -301,6 +301,8 @@ def test_query_runtime_state_reads_sidecar_pid(tmp_path: Path) -> None:
     assert result["entries"][0]["dispatch_ready"] is True
     assert result["entries"][0]["gateway_runtime_mode"] == "daemon-backed"
     assert result["entries"][0]["gateway_guardian_enabled"] is True
+    assert result["entries"][0]["gateway_recovery_driver"] == "daemon_guardian"
+    assert result["entries"][0]["registration_refresh_mode"] == "file_registry_heartbeat"
     assert result["entries"][0]["dispatch"] == {
         "reported": True,
         "status": "ready",

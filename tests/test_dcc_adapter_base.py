@@ -623,9 +623,13 @@ class TestDccServerBase:
         assert server.get_gateway_election_status()["gateway_runtime_mode"] == "daemon-backed"
         assert server._config.instance_metadata["gateway_runtime_mode"] == "daemon-backed"
         assert server._config.instance_metadata["gateway_guardian_enabled"] == "true"
+        assert server._config.instance_metadata["gateway_recovery_driver"] == "daemon_guardian"
+        assert server._config.instance_metadata["registration_refresh_mode"] == "file_registry_heartbeat"
         assert server._handle.gateway_metadata_updates[-1] == {
             "gateway_runtime_mode": "daemon-backed",
             "gateway_guardian_enabled": "true",
+            "gateway_recovery_driver": "daemon_guardian",
+            "registration_refresh_mode": "file_registry_heartbeat",
         }
         assert len(guardians) == 1
         assert guardians[0].started is True
@@ -633,7 +637,9 @@ class TestDccServerBase:
 
         server.stop()
         assert server._config.instance_metadata["gateway_guardian_enabled"] == "false"
+        assert server._config.instance_metadata["gateway_recovery_driver"] == "none"
         assert server._server._handle.gateway_metadata_updates[-1]["gateway_guardian_enabled"] == "false"
+        assert server._server._handle.gateway_metadata_updates[-1]["gateway_recovery_driver"] == "none"
 
     def test_gateway_election_start_failure_clears_runtime_state(self, tmp_path, monkeypatch):
         server = self._make_server(tmp_path)
