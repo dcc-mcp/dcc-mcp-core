@@ -126,10 +126,14 @@ stop = stop_runtime_entries(dcc_type="3dsmax")
 `ready_at_unix`、`host_rpc_uri`、`host_rpc_scheme`、`failure_stage` 和
 `failure_reason`）。启动钩子可以在 `launch_sidecar()` 后轮询
 `dispatch.ready=True`，且无需导入 `_core`。Gateway Admin 也会在
+Daemon-backed sidecar 还会发布 `gateway_runtime_mode` 和
+`gateway_guardian_enabled`，方便运维确认该行是否真的参与独立 gateway
+的自恢复。Gateway Admin 也会在
 `GET /admin/api/workers` 中暴露同一组 sidecar readiness 字段：
 `dispatch_status`、`dispatch_ready`、`host_rpc_uri`、`host_rpc_scheme`、
 `failure_stage` 和 `failure_reason`，方便运维区分“已注册但不可调用”
-与 gateway 路由故障。
+与 gateway 路由故障；同时也会镜像 `gateway_runtime_mode` 和
+`gateway_guardian_enabled`，用于观察 guardian/self-recovery 模式。
 Gateway 实例表面（`gateway://instances`、`GET /v1/instances` 和
 `/admin/api/instances`）也会暴露嵌套的 `dispatch` 对象，包含
 `reported`、`status`、`ready`、host RPC 元数据与失败元数据，用于同样的区分。
