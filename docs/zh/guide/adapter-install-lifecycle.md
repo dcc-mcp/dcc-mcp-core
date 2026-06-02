@@ -58,7 +58,12 @@ stdin/stdout/stderr。子进程运行 `dcc-mcp-server sidecar`，在共享
 `no_ensure_gateway=True`，否则会确保机器级 gateway daemon 已启动；
 当 `watch_pid` 对应的 DCC 进程退出时，sidecar 也会退出。若适配器
 希望把 argv 交给工作室自己的进程 supervisor，使用
-`build_sidecar_command()`：
+`build_sidecar_command()`。两个 helper 都会返回 `readiness_selector`、
+`readiness_argv` 和 `readiness_command`，安装器无需重新推导 registry
+路径或 host RPC 筛选条件，就能运行对应的轻量 readiness 检查。
+`readiness_command` 会优先使用 `DCC_MCP_PYTHON_EXECUTABLE`；如果当前
+DCC 的 `sys.executable` 是 GUI host binary 而不是命令行 Python，
+请优先把 `readiness_argv` 交给适配器自己的 Python runner：
 
 这个子进程的 Rust 实现位于 `dcc-mcp-sidecar` crate。适配器启动 helper
 仍然故意输出稳定的 `dcc-mcp-server sidecar` 命令，因此已有 installer 和
@@ -87,6 +92,24 @@ contract = build_sidecar_command(
 command = contract["command"]
 env_updates = contract["environment"]["set"]
 ```
+
+如果启动钩子运行在后台线程，或当前调用来自安装器/supervisor，
+`launch_sidecar()` 也可以在同一次调用中执行有界 readiness 检查：
+
+```python
+result = launch_sidecar(
+    dcc_type="maya",
+    host_rpc="commandport://127.0.0.1:6000",
+    watch_pid=current_dcc_pid,
+    wait_ready_timeout_secs=5,
+    probe_tool="maya_diagnostics__ping",
+)
+ready = result.get("readiness", {})
+```
+
+不传 `wait_ready_timeout_secs` 时仍保持非阻塞启动语义。只有在 helper
+尚未建模某个 sidecar flag 时才使用 `extra_args=[...]`；CLI 中如果
+raw 参数本身以 `--` 开头，请写成 `--extra-sidecar-arg=--flag-name`。
 
 ## 导入轻量级预检
 

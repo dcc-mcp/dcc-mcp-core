@@ -803,6 +803,58 @@ def test_build_sidecar_command_uses_sidecar_cli_contract(tmp_path: Path) -> None
         "--gateway-host",
         "127.0.0.1",
     ]
+    assert result["readiness_selector"] == {
+        "dcc_type": "maya",
+        "instance_id": None,
+        "host_rpc": "commandport://127.0.0.1:6000",
+    }
+    assert result["readiness_argv"] == [
+        "sidecar-ready",
+        "--dcc",
+        "maya",
+        "--host-rpc",
+        "commandport://127.0.0.1:6000",
+        "--registry-dir",
+        str(registry.resolve()),
+    ]
+    assert result["readiness_command"] == [
+        sys.executable,
+        "-m",
+        "dcc_mcp_core.install_lifecycle",
+        *result["readiness_argv"],
+    ]
+
+
+def test_build_sidecar_command_readiness_command_honors_python_env(tmp_path: Path) -> None:
+    result = lifecycle.build_sidecar_command(
+        dcc_type="houdini",
+        host_rpc="qtserver://127.0.0.1:7001",
+        watch_pid=12345,
+        registry_dir=tmp_path / "registry",
+        server_bin="dcc-mcp-server-test",
+        env={"DCC_MCP_PYTHON_EXECUTABLE": r"C:\Houdini\bin\hython.exe"},
+    )
+
+    assert result["success"] is True
+    assert result["readiness_command"][:3] == [
+        r"C:\Houdini\bin\hython.exe",
+        "-m",
+        "dcc_mcp_core.install_lifecycle",
+    ]
+
+
+def test_build_sidecar_command_forwards_extra_sidecar_args(tmp_path: Path) -> None:
+    result = lifecycle.build_sidecar_command(
+        dcc_type="maya",
+        host_rpc="stub://localhost:0",
+        watch_pid=12345,
+        registry_dir=tmp_path / "registry",
+        server_bin="dcc-mcp-server-test",
+        extra_args=["--allow-stub-dispatch-ready", "--ppid-poll-ms", 25],
+    )
+
+    assert result["success"] is True
+    assert result["command"][-3:] == ["--allow-stub-dispatch-ready", "--ppid-poll-ms", "25"]
 
 
 def test_build_sidecar_command_returns_structured_validation_error() -> None:
@@ -838,6 +890,7 @@ def test_launch_sidecar_uses_detached_popen_contract(
         registry_dir=tmp_path / "registry",
         server_bin="dcc-mcp-server-test",
         detached=True,
+        extra_args=["--ppid-poll-ms", 50],
         env={"PATH": ""},
     )
 
@@ -845,11 +898,64 @@ def test_launch_sidecar_uses_detached_popen_contract(
     assert result["status"] == "started"
     assert result["pid"] == 4242
     assert captured["command"] == result["command"]
+    assert captured["command"][-2:] == ["--ppid-poll-ms", "50"]
     assert captured["kwargs"]["stdin"] == sidecar_lifecycle.subprocess.DEVNULL
     assert captured["kwargs"]["stdout"] == sidecar_lifecycle.subprocess.DEVNULL
     assert captured["kwargs"]["stderr"] == sidecar_lifecycle.subprocess.DEVNULL
     assert captured["kwargs"]["env"]["DCC_MCP_REGISTRY_DIR"] == str((tmp_path / "registry").resolve())
     assert captured["kwargs"]["env"]["DCC_MCP_GATEWAY_PORT"] == "9765"
+
+
+def test_launch_sidecar_can_return_bounded_readiness_verdict(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class FakePopen:
+        pid = 4343
+
+        def __init__(self, command, **kwargs):
+            captured["command"] = command
+            captured["kwargs"] = kwargs
+
+    def fake_check(**kwargs: object) -> dict:
+        captured["readiness_kwargs"] = kwargs
+        return {"success": True, "status": "ready", "ready": True}
+
+    monkeypatch.setattr(sidecar_lifecycle.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(sidecar_lifecycle, "_check_launch_readiness", fake_check)
+
+    result = lifecycle.launch_sidecar(
+        dcc_type="maya",
+        host_rpc="commandport://127.0.0.1:6000",
+        watch_pid=2468,
+        registry_dir=tmp_path / "registry",
+        instance_id="aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
+        server_bin="dcc-mcp-server-test",
+        wait_ready_timeout_secs=5.0,
+        poll_interval_secs=0.1,
+        probe_tool="maya_diagnostics__ping",
+        probe_arguments={"level": "quick"},
+        probe_timeout_secs=1.5,
+        env={"PATH": ""},
+    )
+
+    assert result["success"] is True
+    assert result["status"] == "started"
+    assert result["ready"] is True
+    assert result["readiness"] == {"success": True, "status": "ready", "ready": True}
+    assert captured["readiness_kwargs"] == {
+        "registry_dir": str((tmp_path / "registry").resolve()),
+        "dcc_type": "maya",
+        "instance_id": "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
+        "host_rpc": "commandport://127.0.0.1:6000",
+        "timeout_secs": 5.0,
+        "poll_interval_secs": 0.1,
+        "probe_tool": "maya_diagnostics__ping",
+        "probe_arguments": {"level": "quick"},
+        "probe_timeout_secs": 1.5,
+    }
 
 
 def test_module_cli_sidecar_command_returns_json_without_loading_core(tmp_path: Path) -> None:
@@ -959,6 +1065,55 @@ print(json.dumps({"core_loaded": "dcc_mcp_core._core" in sys.modules, "exit_code
     assert payload["success"] is True
     assert payload["status"] == "ready"
     assert trailer == {"core_loaded": False, "exit_code": 0}
+
+
+def test_cli_launch_sidecar_passes_readiness_and_extra_args(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_launch(**kwargs: object) -> dict:
+        seen.update(kwargs)
+        return {"success": True, "status": "started", "pid": 4242}
+
+    monkeypatch.setattr(lifecycle, "launch_sidecar", fake_launch)
+
+    code = lifecycle.main(
+        [
+            "launch-sidecar",
+            "--dcc",
+            "maya",
+            "--host-rpc",
+            "commandport://127.0.0.1:6000",
+            "--watch-pid",
+            "2468",
+            "--server-bin",
+            "dcc-mcp-server-test",
+            "--extra-sidecar-arg=--ppid-poll-ms",
+            "--extra-sidecar-arg",
+            "25",
+            "--wait-ready-timeout-secs",
+            "5",
+            "--poll-interval-secs",
+            "0.1",
+            "--probe-tool",
+            "maya_diagnostics__ping",
+            "--probe-args-json",
+            '{"level":"quick"}',
+            "--probe-timeout-secs",
+            "1.5",
+        ]
+    )
+
+    assert code == 0
+    assert json.loads(capsys.readouterr().out)["pid"] == 4242
+    assert seen["extra_args"] == ["--ppid-poll-ms", "25"]
+    assert seen["wait_ready_timeout_secs"] == 5.0
+    assert seen["poll_interval_secs"] == 0.1
+    assert seen["probe_tool"] == "maya_diagnostics__ping"
+    assert seen["probe_arguments"] == {"level": "quick"}
+    assert seen["probe_timeout_secs"] == 1.5
 
 
 def test_cli_sidecar_ready_passes_probe_arguments(
