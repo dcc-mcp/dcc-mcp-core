@@ -82,7 +82,10 @@ Treat that URL as non-routable until `dispatch_status=ready`: its `/v1/readyz`
 returns dispatcher false, and `tools/call` returns the startup failure as a
 transport-error envelope. Adapter plugins must still expose a real host RPC
 bridge to their DCC dispatcher or skills; `launch_sidecar()` only launches and
-supervises the sidecar process. For Maya `commandport://` sidecars, a present
+supervises the sidecar process. `stub://` is reserved for tests and placeholder
+experiments: the sidecar keeps it `dispatch_status=unavailable` by default, even
+though the stub transport can "connect", so an adapter must never use it to
+claim startup readiness. For Maya `commandport://` sidecars, a present
 `dcc_mcp_maya` package with a missing `dcc_mcp_maya.sidecar._dispatcher`
 returns a structured `sidecar-dispatcher-unavailable` backend envelope on the
 first call instead of a generic transport error, so installers can distinguish
