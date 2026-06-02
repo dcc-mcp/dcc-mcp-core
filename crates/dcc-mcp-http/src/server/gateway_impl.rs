@@ -108,6 +108,7 @@ fn build_metadata_provider(live_meta: LiveMeta) -> MetadataProvider {
             version: guard.version.clone(),
             documents: guard.documents.clone(),
             display_name: guard.display_name.clone(),
+            metadata: guard.metadata.clone(),
         }
     })
 }

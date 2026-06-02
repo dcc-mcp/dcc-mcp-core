@@ -130,6 +130,38 @@ fn test_file_registry_heartbeat() {
 }
 
 #[test]
+fn test_file_registry_update_instance_metadata_merges_and_clears_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+
+    let mut entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+    entry.metadata.insert("existing".into(), "kept".into());
+    entry.metadata.insert("remove_me".into(), "old".into());
+    let key = entry.key();
+    registry.register(entry).unwrap();
+
+    let mut metadata = std::collections::HashMap::new();
+    metadata.insert("gateway_runtime_mode".into(), "daemon-backed".into());
+    metadata.insert("remove_me".into(), "".into());
+
+    assert!(registry.update_instance_metadata(&key, &metadata).unwrap());
+
+    let updated = registry.get(&key).unwrap();
+    assert_eq!(
+        updated.metadata.get("existing").map(String::as_str),
+        Some("kept")
+    );
+    assert_eq!(
+        updated
+            .metadata
+            .get("gateway_runtime_mode")
+            .map(String::as_str),
+        Some("daemon-backed")
+    );
+    assert!(!updated.metadata.contains_key("remove_me"));
+}
+
+#[test]
 fn test_file_registry_cleanup_stale() {
     let dir = tempfile::tempdir().unwrap();
     let registry = FileRegistry::new(dir.path()).unwrap();

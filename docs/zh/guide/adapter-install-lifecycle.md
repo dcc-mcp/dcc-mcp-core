@@ -125,8 +125,8 @@ stop = stop_runtime_entries(dcc_type="3dsmax")
 嵌套的 `dispatch` 对象（`reported`、`status`、`ready`、
 `ready_at_unix`、`host_rpc_uri`、`host_rpc_scheme`、`failure_stage` 和
 `failure_reason`）。启动钩子可以在 `launch_sidecar()` 后轮询
-`dispatch.ready=True`，且无需导入 `_core`。Gateway Admin 也会在
-Daemon-backed sidecar 还会发布 `gateway_runtime_mode` 和
+`dispatch.ready=True`，且无需导入 `_core`。Daemon-backed sidecar 和
+Python `DccServerBase` adapter 还会发布 `gateway_runtime_mode` 和
 `gateway_guardian_enabled`，方便运维确认该行是否真的参与独立 gateway
 的自恢复。Gateway Admin 也会在
 `GET /admin/api/workers` 中暴露同一组 sidecar readiness 字段：
