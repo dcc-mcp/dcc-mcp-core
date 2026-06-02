@@ -17,6 +17,7 @@ import uuid
 ROLE_PER_DCC_SIDECAR = "per-dcc-sidecar"
 DISPATCH_STATUS_BOOTING = "booting"
 DISPATCH_STATUS_UNAVAILABLE = "unavailable"
+DISPATCH_STATUS_AMBIGUOUS = "ambiguous"
 RETRYABLE_HOST_RPC_SCHEMES = {"commandport", "qtserver", "ws", "wss"}
 RETRYABLE_FAILURE_STAGES = {"host-rpc-connect"}
 
@@ -59,6 +60,18 @@ def sidecar_readiness_status(
             "entries": [],
             "message": "No matching per-DCC sidecar is registered.",
             "recommended_next_action": "Launch the sidecar from the DCC startup hook, then check readiness again.",
+        }
+
+    ambiguity = _selector_ambiguity(entries, instance_id=instance_id, host_rpc=host_rpc)
+    if ambiguity:
+        return {
+            "success": False,
+            "status": DISPATCH_STATUS_AMBIGUOUS,
+            "ready": False,
+            "selector": selector,
+            "entries": entries,
+            "message": ambiguity["message"],
+            "recommended_next_action": ambiguity["recommended_next_action"],
         }
 
     ready = [entry for entry in entries if entry.get("dispatch_ready") is True]
@@ -172,7 +185,11 @@ def wait_for_sidecar_ready(
 
     while True:
         status = last.get("status")
-        if last.get("success") or (status == DISPATCH_STATUS_UNAVAILABLE and not _is_retryable_unavailable(last)):
+        if (
+            last.get("success")
+            or status == DISPATCH_STATUS_AMBIGUOUS
+            or (status == DISPATCH_STATUS_UNAVAILABLE and not _is_retryable_unavailable(last))
+        ):
             last["elapsed_secs"] = round(time.monotonic() - started, 3)
             return last
         if time.monotonic() >= deadline:
@@ -406,6 +423,39 @@ def _filter_sidecar_readiness_entries(
             continue
         result.append(entry)
     return result
+
+
+def _selector_ambiguity(
+    entries: List[Dict[str, Any]],
+    *,
+    instance_id: Optional[str],
+    host_rpc: Optional[str],
+) -> Optional[Dict[str, str]]:
+    if len(entries) <= 1:
+        return None
+    instance_selector = str(instance_id).strip() if instance_id else None
+    host_rpc_selector = str(host_rpc).strip() if host_rpc else None
+    if not instance_selector and not host_rpc_selector:
+        return None
+    live_entries = [entry for entry in entries if entry.get("runtime_alive") is not False]
+    if len(live_entries) <= 1:
+        return None
+    labels = []
+    if instance_selector:
+        labels.append("instance_id")
+    if host_rpc_selector:
+        labels.append("host_rpc")
+    selector_name = " and ".join(labels)
+    return {
+        "message": (
+            f"Multiple live per-DCC sidecars match the {selector_name} readiness selector; "
+            "a direct-use readiness proof requires one matching sidecar."
+        ),
+        "recommended_next_action": (
+            "Pass the full unique instance_id from build_sidecar_command().readiness_selector "
+            "or make the host_rpc URI unique for this DCC instance, then check readiness again."
+        ),
+    }
 
 
 def _instance_id_matches(value: Any, selector: str) -> bool:
