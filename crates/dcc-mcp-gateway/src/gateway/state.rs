@@ -601,6 +601,31 @@ fn lifecycle_json(e: &ServiceEntry) -> Value {
     })
 }
 
+fn dispatch_json(e: &ServiceEntry, stale: bool) -> Value {
+    let dispatch_status = first_metadata_value(&e.metadata, &["dispatch_status"])
+        .map(|value| value.trim().to_ascii_lowercase());
+    let ready = dispatch_status.as_deref() == Some("ready")
+        && first_metadata_value(&e.metadata, &["mcp_url"]).is_some()
+        && matches!(e.status, ServiceStatus::Available | ServiceStatus::Busy)
+        && !stale;
+    let ready_value = if dispatch_status.is_some() {
+        Value::Bool(ready)
+    } else {
+        Value::Null
+    };
+
+    json!({
+        "reported": dispatch_status.is_some(),
+        "status": dispatch_status.as_deref().unwrap_or("not_reported"),
+        "ready": ready_value,
+        "ready_at_unix": first_metadata_value(&e.metadata, &["dispatch_ready_at_unix"]),
+        "host_rpc_uri": first_metadata_value(&e.metadata, &["host_rpc_uri"]),
+        "host_rpc_scheme": first_metadata_value(&e.metadata, &["host_rpc_scheme"]),
+        "failure_stage": first_metadata_value(&e.metadata, &["failure_stage"]),
+        "failure_reason": first_metadata_value(&e.metadata, &["failure_reason"]),
+    })
+}
+
 fn app_ui_diagnostics(e: &ServiceEntry, snap: &crate::gateway::capability::IndexSnapshot) -> Value {
     let explicit_status = first_metadata_value(
         &e.metadata,
@@ -706,6 +731,7 @@ pub fn entry_to_json(
         "adapter_version": e.adapter_version,
         "adapter_dcc":     e.adapter_dcc,
         "lifecycle":       lifecycle_json(e),
+        "dispatch":        dispatch_json(e, stale),
         "metadata":        e.metadata,
         "pool": {
             "capacity": e.capacity,

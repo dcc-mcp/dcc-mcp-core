@@ -117,7 +117,7 @@ Gateway dynamic-capability / REST exposure:
 
 Gateway instance discovery:
 1. Usually skip instance discovery and go straight to `search` / `POST /v1/search` → `describe` / `POST /v1/describe` → `POST /v1/call` (or `/v1/call_batch` when invoking several slugs in order).
-2. When you need a concrete DCC session or direct MCP URL, call resources/read with uri="gateway://instances"; rows always include `mcp_url`, `instance_short`, `source`, and `source_meta`, and the list payload includes `by_source` counts.
+2. When you need a concrete DCC session or direct MCP URL, call resources/read with uri="gateway://instances"; rows always include `mcp_url`, `instance_short`, `source`, `source_meta`, and a normalized `dispatch` object (`reported`, `status`, `ready`, failure metadata), and the list payload includes `by_source` counts.
 3. For one instance, read gateway://instances/{instance_id}; full UUID, `instance_short`, or any unique ≥4-char UUID prefix works across gateway tools and tool slugs.
 4. Instance rows may come from the local FileRegistry (`source: "file"`), HTTP registration (`source: "http"`), relay-backed tunnels (`source: "relay"`), or optional mDNS/DNS-SD LAN discovery (`source: "mdns"`); HTTP rows win conflicts, then relay, then mDNS, then file rows.
 5. Do not call legacy list_dcc_instances / get_dcc_instance / connect_to_dcc; #813 removed them from tools/list.

@@ -403,6 +403,12 @@ families; it does not enumerate every instance-specific URI. Backend
 capability indexes refresh on demand before gateway `search` / `describe`,
 so instances registered after gateway startup are picked up without a restart.
 
+Rows also include a normalized `dispatch` object. For sidecars this tells
+clients whether dispatch readiness has been reported (`reported`), whether the
+backend is callable (`ready`), the current `status` (`ready`, `unavailable`, or
+`not_reported`), and any host-RPC failure metadata. This keeps "registered" and
+"callable" separate without requiring clients to parse raw metadata.
+
 ### Remote HTTP Instance Registration (#1361)
 
 When a DCC adapter cannot share the gateway's local `FileRegistry` directory
