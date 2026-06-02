@@ -47,7 +47,7 @@ modeled as an MCP resource instead of a tool:
 | `gateway://instances` | `application/json` | Live DCC registry. Rows include `instance_id`, `dcc_type`, health/status fields, metadata, and `mcp_url` for direct sessions. |
 | `gateway://instances?include_stale=false` | `application/json` | Same registry with stale-but-parseable rows hidden. |
 | `gateway://instances?include_dead=true` | `application/json` | Rawer registry view including rows whose owner process has exited. |
-| `gateway://instances/{instance_id}` | `application/json` | One instance selected by full UUID or unique prefix. |
+| `gateway://instances/{instance_id}` | `application/json` | One instance selected by full UUID, `instance_short`, or a unique 4+ character UUID prefix. |
 | `gateway://diagnostics/process` | `application/json` | Gateway process metadata plus live/stale/unhealthy instance counts; optional `?dcc_type=<type>` filter. |
 | `gateway://diagnostics/audit` | `application/json` | Pending-call and resource-subscription summary. Backend audit logs remain per-instance. |
 | `gateway://diagnostics/metrics` | `application/json` | Local gateway tool count, live backend count, timeout settings, and `publishes_backend_tools=false`. |

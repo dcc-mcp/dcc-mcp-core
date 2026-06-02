@@ -49,7 +49,7 @@ Resources 在 `initialize` 中通告为：
 | `gateway://instances` | `application/json` | 实时 DCC 注册表。行内包含 `instance_id`、`dcc_type`、健康/状态字段、metadata，以及用于直连会话的 `mcp_url`。 |
 | `gateway://instances?include_stale=false` | `application/json` | 隐藏 stale 但可解析行的同一注册表视图。 |
 | `gateway://instances?include_dead=true` | `application/json` | 更接近原始注册表的视图，包含拥有进程已退出的行。 |
-| `gateway://instances/{instance_id}` | `application/json` | 通过完整 UUID 或唯一前缀选择的单个实例。 |
+| `gateway://instances/{instance_id}` | `application/json` | 通过完整 UUID、`instance_short` 或唯一的 4 字符以上 UUID 前缀选择的单个实例。 |
 | `resources://gateway/events` | `application/jsonl` | Gateway 竞争和选举事件 ring buffer。 |
 
 `resources/list` 只通告 `gateway://instances` 根指针；不会枚举每个
