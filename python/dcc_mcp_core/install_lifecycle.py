@@ -40,6 +40,7 @@ from ._install_lifecycle_runtime import default_registry_dir
 from ._install_lifecycle_runtime import query_runtime_state
 from ._install_lifecycle_sidecar import build_sidecar_command
 from ._install_lifecycle_sidecar import launch_sidecar
+from ._install_lifecycle_sidecar import sidecar_host_rpc_dispatch_contract
 
 REZ_CACHE_ROOT_ENV = "DCC_MCP_REZ_LOCAL_CACHE_ROOT"
 DEPLOYMENT_MODE_ENV = "DCC_MCP_DEPLOYMENT_MODE"
@@ -79,6 +80,7 @@ __all__ = [
     "resolve_deployment_layout",
     "safe_remove_tree",
     "safe_replace_tree",
+    "sidecar_host_rpc_dispatch_contract",
     "sidecar_readiness_status",
     "stop_runtime_entries",
     "wait_for_sidecar_ready",
@@ -830,6 +832,11 @@ def _add_sidecar_launch_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--no-ensure-gateway", action="store_true")
     parser.add_argument("--legacy-gateway-election", action="store_true")
     parser.add_argument(
+        "--require-dispatch-capable",
+        action="store_true",
+        help="Fail if --host-rpc cannot prove production sidecar tool dispatch.",
+    )
+    parser.add_argument(
         "--extra-sidecar-arg",
         action="append",
         dest="extra_args",
@@ -872,6 +879,7 @@ def _sidecar_launch_kwargs(args: argparse.Namespace) -> Dict[str, Any]:
         "connect_timeout_secs": args.connect_timeout_secs,
         "no_ensure_gateway": args.no_ensure_gateway,
         "legacy_gateway_election": args.legacy_gateway_election,
+        "require_dispatch_capable": args.require_dispatch_capable,
         "extra_args": args.extra_args,
     }
 
