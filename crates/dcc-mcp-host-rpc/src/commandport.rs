@@ -366,9 +366,14 @@ fn io_error_to_host_rpc(
 
 /// Parse a `commandport://host:port` URI into its TCP target.
 fn parse_endpoint(endpoint: &str) -> Result<(String, u16), HostRpcError> {
-    let rest = endpoint.strip_prefix("commandport://").ok_or_else(|| {
-        HostRpcError::transport(format!("expected commandport:// URI, got {endpoint:?}"))
-    })?;
+    let prefix = "commandport://";
+    let rest = endpoint
+        .get(..prefix.len())
+        .filter(|candidate| candidate.eq_ignore_ascii_case(prefix))
+        .map(|_| &endpoint[prefix.len()..])
+        .ok_or_else(|| {
+            HostRpcError::transport(format!("expected commandport:// URI, got {endpoint:?}"))
+        })?;
     let (host, port_str) = rest.rsplit_once(':').ok_or_else(|| {
         HostRpcError::transport(format!("commandport URI missing :port — got {endpoint:?}"))
     })?;
@@ -405,6 +410,13 @@ mod tests {
     #[test]
     fn parse_endpoint_happy_path() {
         let (host, port) = parse_endpoint("commandport://127.0.0.1:6042").unwrap();
+        assert_eq!(host, "127.0.0.1");
+        assert_eq!(port, 6042);
+    }
+
+    #[test]
+    fn parse_endpoint_accepts_case_insensitive_scheme() {
+        let (host, port) = parse_endpoint("CommandPort://127.0.0.1:6042").unwrap();
         assert_eq!(host, "127.0.0.1");
         assert_eq!(port, 6042);
     }
