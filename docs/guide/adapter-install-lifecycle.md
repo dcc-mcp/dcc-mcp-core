@@ -66,9 +66,10 @@ result = launch_sidecar(
 `launch_sidecar()` uses `subprocess.Popen` with stdin/stdout/stderr detached by
 default. The child runs `dcc-mcp-server sidecar`, registers a
 `per-dcc-sidecar` row in the shared `FileRegistry`, ensures the machine-wide
-gateway daemon unless `no_ensure_gateway=True`, and exits when `watch_pid`
-dies. Use `build_sidecar_command()` instead when the adapter wants to hand the
-argv list to a studio process supervisor:
+gateway daemon and keeps a lightweight guardian unless `no_ensure_gateway=True`
+or `legacy_gateway_election=True`, and exits when `watch_pid` dies. Use
+`build_sidecar_command()` instead when the adapter wants to hand the argv list
+to a studio process supervisor:
 
 Registration is not the same thing as dispatch readiness. The generic sidecar
 only becomes callable after its `--host-rpc` URI resolves to a supported
