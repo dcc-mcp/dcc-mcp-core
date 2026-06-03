@@ -120,9 +120,21 @@ jobs:
           version: "0.9.11"
           cache-key-prefix: "vx-tools-v0.9.7"
 
+      # Workflow YAML comes from main on workflow_dispatch backfill, but the
+      # checkout ref is the release tag. Wrap the tag's prebuild script with
+      # retries so flaky npm ("Exit handler never called!") can still recover.
       - name: Build admin UI bundle
         shell: bash
-        run: scripts/release/prebuild_admin_ui.sh
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if scripts/release/prebuild_admin_ui.sh; then
+              exit 0
+            fi
+            echo "::warning::admin UI prebuild attempt ${attempt}/3 failed; retrying in 15s..."
+            sleep 15
+          done
+          exit 1
 
       - name: Upload admin UI bundle
         uses: actions/upload-artifact@v4
