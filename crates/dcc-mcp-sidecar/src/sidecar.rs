@@ -60,6 +60,8 @@ pub use registry::{ROLE_METADATA_KEY, ROLE_PER_DCC_SIDECAR};
 pub(crate) use gateway::{
     build_gateway_daemon_options, should_start_gateway_daemon_guardian, should_use_gateway_daemon,
 };
+#[cfg(feature = "gateway-daemon")]
+use lifecycle::spawn_guardian_status_publisher;
 use lifecycle::{
     client_connect, should_retry_host_rpc_connect, spawn_host_rpc_reconnector, spawn_ppid_watcher,
     spawn_sidecar_heartbeat,
@@ -163,6 +165,22 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
     );
     let heartbeat_handle =
         spawn_sidecar_heartbeat(registry.clone(), key.clone(), SIDECAR_HEARTBEAT_INTERVAL);
+
+    #[cfg(feature = "gateway-daemon")]
+    let gateway_guardian_publisher_handle: Option<tokio::task::JoinHandle<()>> =
+        gateway_guardian_handle.as_ref().map(|guardian| {
+            // Spawn a lightweight publisher that periodically syncs the
+            // guardian's live status into the sidecar's FileRegistry metadata
+            // so admin UI and /v1/readyz can expose the fallback reason/state.
+            spawn_guardian_status_publisher(
+                guardian.clone(),
+                registry.clone(),
+                key.clone(),
+                crate::gateway_daemon::GatewayGuardianSettings::from_env().interval(),
+            )
+        });
+    #[cfg(not(feature = "gateway-daemon"))]
+    let gateway_guardian_publisher_handle: Option<tokio::task::JoinHandle<()>> = None;
 
     // Instantiate the HostRpcClient impl for the URI's scheme and try to dial
     // the DCC. Failure is non-fatal: the diagnostic listener stays up and a
@@ -342,6 +360,9 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
     tracing::info!(reason = ?reason, "sidecar shutting down");
 
     if let Some(handle) = gateway_guardian_handle {
+        handle.abort();
+    }
+    if let Some(handle) = gateway_guardian_publisher_handle {
         handle.abort();
     }
 

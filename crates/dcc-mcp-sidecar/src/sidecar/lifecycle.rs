@@ -8,6 +8,8 @@ use tokio::sync::watch;
 use crate::is_process_alive;
 
 use super::registry::mark_sidecar_dispatch_ready;
+#[cfg(feature = "gateway-daemon")]
+use super::registry::publish_guardian_status;
 use super::{ExitReason, SidecarArgs};
 
 /// Connect the freshly-instantiated [`dcc_mcp_host_rpc::HostRpcClient`] to the DCC.
@@ -69,6 +71,32 @@ pub(crate) fn spawn_sidecar_heartbeat(
                         "sidecar heartbeat failed"
                     );
                 }
+            }
+        }
+    })
+}
+
+/// Periodically sync the guardian watchdog's live status into the sidecar's
+/// FileRegistry metadata so admin UI and diagnostics surfaces can show the
+/// fallback reason and current watchdog state.
+#[cfg(feature = "gateway-daemon")]
+pub(crate) fn spawn_guardian_status_publisher(
+    handle: crate::gateway_daemon::GatewayGuardianHandle,
+    registry: Arc<FileRegistry>,
+    key: ServiceKey,
+    interval: Duration,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(interval).await;
+            let status = handle.status();
+            if let Err(err) = publish_guardian_status(&registry, &key, &status) {
+                tracing::warn!(
+                    dcc = %key.dcc_type,
+                    instance_id = %key.instance_id,
+                    error = %err,
+                    "sidecar guardian status publisher failed to update registry"
+                );
             }
         }
     })

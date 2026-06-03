@@ -35,6 +35,11 @@ pub(crate) const GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION: &str = "embedded_ele
 pub(crate) const GATEWAY_RECOVERY_DRIVER_NONE: &str = "none";
 pub(crate) const REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT: &str =
     "file_registry_heartbeat";
+/// Live guardian watchdog status published so admin UI and `/v1/readyz` can
+/// expose the fallback reason and current state.
+pub(crate) const GATEWAY_GUARDIAN_FAILURES_KEY: &str = "gateway_guardian_failures";
+pub(crate) const GATEWAY_GUARDIAN_RESTARTS_KEY: &str = "gateway_guardian_restarts";
+pub(crate) const GATEWAY_GUARDIAN_ACTIVE_KEY: &str = "gateway_guardian_active";
 pub(crate) const DISPATCH_STATUS_BOOTING: &str = "booting";
 pub(crate) const DISPATCH_STATUS_READY: &str = "ready";
 pub(crate) const DISPATCH_STATUS_UNAVAILABLE: &str = "unavailable";
@@ -47,6 +52,37 @@ pub(crate) fn gateway_recovery_driver(runtime_mode: &str, guardian_enabled: bool
     } else {
         GATEWAY_RECOVERY_DRIVER_NONE
     }
+}
+
+/// Publish the guardian's live runtime status into the sidecar's registry
+/// metadata so admin UI and diagnostics surfaces can surface the fallback
+/// reason and current watchdog state.
+#[cfg(feature = "gateway-daemon")]
+pub(crate) fn publish_guardian_status(
+    registry: &Arc<FileRegistry>,
+    key: &ServiceKey,
+    status: &crate::gateway_daemon::GatewayGuardianStatus,
+) -> anyhow::Result<()> {
+    let Some(mut entry) = registry.get(key) else {
+        // Row may have been deregistered already (shutdown race). This is
+        // not an error — the publisher just skips this tick.
+        return Ok(());
+    };
+    entry.metadata.insert(
+        GATEWAY_GUARDIAN_FAILURES_KEY.to_string(),
+        status.consecutive_failures.to_string(),
+    );
+    entry.metadata.insert(
+        GATEWAY_GUARDIAN_RESTARTS_KEY.to_string(),
+        status.restart_attempts.to_string(),
+    );
+    entry.metadata.insert(
+        GATEWAY_GUARDIAN_ACTIVE_KEY.to_string(),
+        status.guardian_running.to_string(),
+    );
+    registry.deregister(key)?;
+    registry.register(entry)?;
+    Ok(())
 }
 
 /// Re-write the FileRegistry row with the live MCP URL once the listener is
