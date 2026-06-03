@@ -1185,6 +1185,7 @@ class TestPublicExports:
             "create_dcc_server",
             "make_start_stop",
             "get_server_instance",
+            "ensure_gateway_daemon",
         ]:
             assert name in dcc_mcp_core.__all__, f"{name!r} missing from __all__"
 
