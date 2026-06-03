@@ -10,6 +10,22 @@ import { applyTheme, readThemeMode, resolveTheme, storeThemeMode, type ThemeMode
 import { filterLogs, isProblemLog, normalizeLogRow, summarizeLogSeverity, type LogRow, type LogSeverityFilter } from './logs';
 import { CRITICAL_LATENCY_MS, SLOW_LATENCY_MS, type ActivityEvent, type CallRow, type ClientPlatform, type DebugSignal, type FailureSignal, type GovernancePayload, type HealthPayload, type IdeTarget, type InstanceRow, type InstanceSummary, type OpenApiSource, type OpenApiSpec, type Panel, type SetupUrlMode, type StatsPayload, type TaskRow, type TokenBreakdownEntry, type ToolRow, type TraceDetailPayload, type TraceRow, type TrafficPayload, type WorkflowRow } from './admin-types';
 import { actorLabel, agentLabel, apiJson, API_BASE, AttributionFacetList, BackendAccessUrl, backendAccessUrls, BackendOpenApiLinks, callGroupLabel, compactId, compactInstanceId, compactList, configPathFileUrl, configPathForTarget, detectClientPlatform, DocsIcon, downloadJsonText, EmptyRow, errorRateTone, fetchOpenApiSpecText, firstTrust, flattenOpenApiOperations, formatBytes, formatDurationMs, formatSavingsPct, formatTokenCount, formatTraceDate, formatUptime, gatewayLabel, gatewayMcpUrl, gatewayOpenApiSource, GovernanceControlCard, groupRows, haystack, HealthCard, HeroMetric, HourlyChart, hrefForAdmin, IDE_TARGETS, ideConfigText, IdeIcon, instanceGroupLabel, instanceSetupLabel, isErrStatus, isOkStatus, isProblemActivity, isSlowLatency, issueReportFilename, issueReportJsonText, isWarnStatus, lanGatewayMcpUrl, latencyClass, latencyTone, LatencyValue, matchesListFilter, McpBackendLinks, MetricTile, MiniSparkline, NavIcon, OpenApiInspectorPanel, openApiSpecFilename, PanelHeader, PANELS, platformLabel, projectDocsHref, readOpenApiSourceFromUrl, readPanelFromUrl, readStatsRangeFromUrl, readTraceIdFromUrl, resolveDccIcon, responseFormatLabel, returnedTokensLabel, savedTokensLabel, sourceIpLabel, StatBarList, STATS_RANGE_IDS, StatusBadge, statusClass, StatusLine, taskActorLabel, taskOutcomeText, taskPrimaryRequestId, taskRequestCount, taskWorkflowLabel, TimeValue, TokenBreakdownList, toolGroupLabel, toolInstanceLabel, totalTraceTokens, TraceDetailPanel, traceGroupLabel, traceLatency, traceLinks, trafficBodyBytes, trafficEmptyKey, trafficFrameDetail, trafficMethod, trafficRedactedPaths, trafficRequestId, trafficSessionId, trafficStatusDetailKey, trafficStatusLabelKey, trafficStatusTone, trafficTimestamp, trustChip, trustFor, WorkflowCard, WorkflowGraphDetail } from './admin-ui-core';
+import {
+  useActivityQuery,
+  useCallsQuery,
+  useGovernanceQuery,
+  useHealthQuery,
+  useLogsQuery,
+  useOpenApiSpecQuery,
+  useStatsQuery,
+  useTasksQuery,
+  useToolsQuery,
+  useTraceDetailQuery,
+  useTracesQuery,
+  useTrafficQuery,
+  useWorkersQuery,
+  useWorkflowsQuery,
+} from './hooks/queries';
 
 function App() {
   const [localeOverride, setLocaleOverride] = useState<SupportedLocale | null>(() => readLocaleOverride());
@@ -17,56 +33,140 @@ function App() {
   const localeDetection = useMemo(() => detectBrowserLocale(localeOverride), [localeOverride]);
   const t = useMemo(() => createTranslator(localeDetection.locale), [localeDetection.locale]);
   const [activePanel, setActivePanel] = useState<Panel>(() => readPanelFromUrl());
-  const [health, setHealth] = useState<HealthPayload | null>(null);
-  const [activity, setActivity] = useState<ActivityEvent[]>([]);
-  const [tools, setTools] = useState<ToolRow[]>([]);
-  const [workflows, setWorkflows] = useState<WorkflowRow[]>([]);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
-  const [tasks, setTasks] = useState<TaskRow[]>([]);
-  const [calls, setCalls] = useState<CallRow[]>([]);
-  const [traces, setTraces] = useState<TraceRow[]>([]);
-  const [traffic, setTraffic] = useState<TrafficPayload | null>(null);
-  const [stats, setStats] = useState<StatsPayload | null>(null);
-  const [governance, setGovernance] = useState<GovernancePayload | null>(null);
   const [statsRange, setStatsRange] = useState(() => readStatsRangeFromUrl());
   const [openApiSource, setOpenApiSource] = useState<OpenApiSource>(() => readOpenApiSourceFromUrl());
-  const [openApiSpec, setOpenApiSpec] = useState<OpenApiSpec | null>(null);
-  const [openApiRaw, setOpenApiRaw] = useState('');
-  const [instanceRows, setInstanceRows] = useState<InstanceRow[]>([]);
-  const [instanceSummary, setInstanceSummary] = useState<InstanceSummary>({ live: 0, stale: 0, unhealthy: 0 });
   const [setupUrlMode, setSetupUrlMode] = useState<SetupUrlMode>('local');
   const [clientPlatform] = useState<ClientPlatform>(() => detectClientPlatform());
   const [directInstanceId, setDirectInstanceId] = useState<string>('');
-  const [logs, setLogs] = useState<LogRow[]>([]);
   const [logSeverityFilter, setLogSeverityFilter] = useState<LogSeverityFilter>('all');
   /// Filtered counts from the SkillsPanel for the cross-panel search-meta line.
   const [skillCounts, setSkillCounts] = useState({ skills: 0, paths: 0 });
-  const [traceDetail, setTraceDetail] = useState<string>('Select a trace row for detail.');
-  const [traceDetailPayload, setTraceDetailPayload] = useState<TraceDetailPayload | null>(null);
+  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(() => {
+    const panel = readPanelFromUrl();
+    return panel === 'traces' ? readTraceIdFromUrl() : null;
+  });
   const [trafficDetail, setTrafficDetail] = useState<string>('Select a traffic frame row for detail.');
   const [callDetail, setCallDetail] = useState<string>('Select a call row for trace detail.');
   const [slowOnly, setSlowOnly] = useState(false);
   const [copiedNotice, setCopiedNotice] = useState<string>('');
-  const [updatedAt, setUpdatedAt] = useState<Record<Panel, string>>(() => ({
-    setup: t('common.status.loading'),
-    debug: t('common.status.loading'),
-    activity: t('common.status.loading'),
-    health: t('common.status.loading'),
-    instances: t('common.status.loading'),
-    tools: t('common.status.loading'),
-    workflows: t('common.status.loading'),
-    tasks: t('common.status.loading'),
-    openapi: t('common.status.loading'),
-    calls: t('common.status.loading'),
-    traces: t('common.status.loading'),
-    traffic: t('common.status.loading'),
-    stats: t('common.status.loading'),
-    governance: t('common.status.loading'),
-    logs: t('common.status.loading'),
-    'skill-paths': t('common.status.loading'),
-  }));
-  const [errors, setErrors] = useState<Partial<Record<Panel, string>>>({});
   const [listSearch, setListSearch] = useState('');
+
+  // ── data queries (TanStack Query) ──────────────────────────────────────
+  // Each query is enabled only when its owning panel(s) are active.
+  // Polling is driven by refetchInterval (5s), replacing the old setInterval.
+  // ────────────────────────────────────────────────────────────────────────
+
+  const isActive = useCallback((...panels: Panel[]) => panels.includes(activePanel), [activePanel]);
+
+  // Panels that need each data source (mirrors the old fetchPanel dispatch):
+  // setup→health+workers | debug→all | health→health | instances→workers
+  // activity→activity | tools→tools | openapi→openApiSpec | workflows→workflows
+  // tasks→tasks | calls→calls | traces→traces | traffic→traffic
+  // stats→stats+calls+traces | governance→governance | logs→logs
+
+  const healthQuery = useHealthQuery(isActive('health', 'debug', 'setup'));
+  const workersQuery = useWorkersQuery(isActive('instances', 'debug', 'setup'));
+  const activityQuery = useActivityQuery(isActive('activity', 'debug'));
+  const toolsQuery = useToolsQuery(isActive('tools', 'debug'));
+  const callsQuery = useCallsQuery(isActive('calls', 'debug', 'stats'));
+  const tracesQuery = useTracesQuery(isActive('traces', 'debug', 'stats'));
+  const trafficQuery = useTrafficQuery(isActive('traffic', 'debug'));
+  const tasksQuery = useTasksQuery(isActive('tasks', 'debug'));
+  const workflowsQuery = useWorkflowsQuery(isActive('workflows', 'debug'));
+  const statsQuery = useStatsQuery(isActive('stats', 'debug'), statsRange);
+  const governanceQuery = useGovernanceQuery(isActive('governance', 'debug'));
+  const logsQuery = useLogsQuery(isActive('logs', 'debug'));
+  const openApiQuery = useOpenApiSpecQuery(openApiSource.specUrl, isActive('openapi'));
+
+  // Derived data (with fallbacks matching the old useState initial values)
+  const health = healthQuery.data ?? null;
+  const activity = activityQuery.data ?? [];
+  const tools = toolsQuery.data ?? [];
+  const workflows = workflowsQuery.data ?? [];
+  const tasks = tasksQuery.data ?? [];
+  const calls = callsQuery.data ?? [];
+  const traces = tracesQuery.data ?? [];
+  const traffic = trafficQuery.data ?? null;
+  const stats = statsQuery.data ?? null;
+  const governance = governanceQuery.data ?? null;
+  const logs = useMemo(() => (logsQuery.data ?? []).map(normalizeLogRow), [logsQuery.data]);
+  const instanceRows = workersQuery.data?.workers ?? [];
+  const instanceSummary: InstanceSummary = workersQuery.data?.summary ?? { live: 0, stale: 0, unhealthy: 0 };
+  const openApiSpec = openApiQuery.data?.spec ?? null;
+  const openApiRaw = openApiQuery.data?.raw ?? '';
+
+  // On-demand trace detail (enabled only when a trace ID is selected)
+  const traceDetailQuery = useTraceDetailQuery(selectedTraceId);
+  const traceDetail = useMemo(() => {
+    if (!selectedTraceId) return 'Select a trace row for detail.';
+    if (traceDetailQuery.isLoading) return 'Loading…';
+    if (traceDetailQuery.error) return `Error: ${traceDetailQuery.error.message}`;
+    if (traceDetailQuery.data != null) return JSON.stringify(traceDetailQuery.data, null, 2);
+    return 'No data.';
+  }, [selectedTraceId, traceDetailQuery]);
+  const traceDetailPayload: TraceDetailPayload | null = useMemo(() => {
+    if (!selectedTraceId || traceDetailQuery.error || traceDetailQuery.isLoading) return null;
+    return traceDetailQuery.data as TraceDetailPayload | null;
+  }, [selectedTraceId, traceDetailQuery]);
+
+  // ── derived status (replaces old markUpdated / markError) ──────────────
+
+  type QueryMeta = { dataUpdatedAt: number; error: Error | null; isLoading: boolean };
+  function queryMeta(q: QueryMeta): string {
+    if (q.error) return `Error: ${q.error.message}`;
+    if (q.isLoading) return 'Loading…';
+    if (q.dataUpdatedAt > 0) {
+      return new Date(q.dataUpdatedAt).toLocaleTimeString();
+    }
+    return 'Waiting…';
+  }
+
+  // SkillsPanel manages its own data; we keep lightweight status state for it
+  const [skillPathsUpdatedAt, setSkillPathsUpdatedAt] = useState(t('common.status.autoRefreshing'));
+  const [skillPathsError, setSkillPathsError] = useState<string | undefined>();
+
+  const updatedAt = useMemo<Record<Panel, string>>(() => {
+    const qm = (q: QueryMeta) => queryMeta(q);
+    return {
+      setup: qm(healthQuery) || qm(workersQuery),
+      debug: 'auto-refreshing',
+      activity: qm(activityQuery),
+      health: qm(healthQuery),
+      instances: qm(workersQuery),
+      tools: qm(toolsQuery),
+      workflows: qm(workflowsQuery),
+      tasks: qm(tasksQuery),
+      openapi: qm(openApiQuery),
+      calls: qm(callsQuery),
+      traces: qm(tracesQuery),
+      traffic: qm(trafficQuery),
+      stats: qm(statsQuery),
+      governance: qm(governanceQuery),
+      logs: qm(logsQuery),
+      'skill-paths': skillPathsUpdatedAt,
+    };
+  }, [healthQuery, workersQuery, activityQuery, toolsQuery, callsQuery, tracesQuery, trafficQuery, tasksQuery, workflowsQuery, statsQuery, governanceQuery, logsQuery, openApiQuery, skillPathsUpdatedAt]);
+
+  const errors = useMemo<Partial<Record<Panel, string>>>(() => {
+    const errs: Partial<Record<Panel, string>> = {};
+    const set = (panel: Panel, q: QueryMeta) => { if (q.error) errs[panel] = q.error.message; };
+    set('health', healthQuery);
+    set('instances', workersQuery);
+    set('activity', activityQuery);
+    set('tools', toolsQuery);
+    set('calls', callsQuery);
+    set('traces', tracesQuery);
+    set('traffic', trafficQuery);
+    set('tasks', tasksQuery);
+    set('workflows', workflowsQuery);
+    set('stats', statsQuery);
+    set('governance', governanceQuery);
+    set('logs', logsQuery);
+    set('openapi', openApiQuery);
+    if (skillPathsError) errs['skill-paths'] = skillPathsError;
+    return errs;
+  }, [healthQuery, workersQuery, activityQuery, toolsQuery, callsQuery, tracesQuery, trafficQuery, tasksQuery, workflowsQuery, statsQuery, governanceQuery, logsQuery, openApiQuery, skillPathsError]);
 
   const panels = useMemo(
     () => PANELS.map((panel) => ({ ...panel, label: t(panel.labelKey), group: t(panel.groupKey) })),
@@ -896,15 +996,6 @@ function App() {
 
   const debugIssues = debugSignals.filter((signal) => signal.tone !== 'ok').length;
 
-  const markUpdated = useCallback((panel: Panel, text: string) => {
-    setUpdatedAt((current) => ({ ...current, [panel]: text }));
-    setErrors((current) => ({ ...current, [panel]: undefined }));
-  }, []);
-
-  const markError = useCallback((panel: Panel, error: unknown) => {
-    setErrors((current) => ({ ...current, [panel]: error instanceof Error ? error.message : String(error) }));
-  }, []);
-
   const copyText = useCallback(async (text: string, label: string) => {
     if (!text) {
       return;
@@ -971,189 +1062,13 @@ function App() {
     }
   }, [t]);
 
-  const fetchActivity = useCallback(async () => {
-    try {
-      const payload = await apiJson<{ events: ActivityEvent[] }>('/activity?limit=300');
-      setActivity(Array.isArray(payload.events) ? payload.events : []);
-      markUpdated('activity', t('common.updated.events', { count: payload.events?.length ?? 0, time: new Date().toLocaleTimeString() }));
-    } catch (error) {
-      markError('activity', error);
-    }
-  }, [markError, markUpdated, t]);
-
-  const fetchHealth = useCallback(async () => {
-    try {
-      const payload = await apiJson<HealthPayload>('/health');
-      setHealth(payload);
-      markUpdated('health', t('common.updated.lastUpdated', { time: new Date().toLocaleTimeString() }));
-    } catch (error) {
-      markError('health', error);
-    }
-  }, [markError, markUpdated, t]);
-
-  const fetchInstanceBackends = useCallback(async () => {
-    try {
-      const payload = await apiJson<{ workers: InstanceRow[]; summary: InstanceSummary }>('/workers');
-      setInstanceRows(payload.workers);
-      setInstanceSummary(payload.summary);
-      markUpdated(
-        'instances',
-        t('common.updated.instances', { count: payload.workers.length, live: payload.summary.live, stale: payload.summary.stale, unhealthy: payload.summary.unhealthy, time: new Date().toLocaleTimeString() }),
-      );
-    } catch (error) {
-      markError('instances', error);
-    }
-  }, [markError, markUpdated, t]);
-
-  const fetchTools = useCallback(async () => {
-    try {
-      const payload = await apiJson<{ tools: ToolRow[] }>('/tools');
-      setTools(payload.tools);
-      markUpdated('tools', t('common.updated.tools', { count: payload.tools.length, time: new Date().toLocaleTimeString() }));
-    } catch (error) {
-      markError('tools', error);
-    }
-  }, [markError, markUpdated, t]);
-
-  const fetchOpenApi = useCallback(async () => {
-    try {
-      const { spec, raw } = await fetchOpenApiSpecText(openApiSource.specUrl);
-      const operations = flattenOpenApiOperations(spec);
-      setOpenApiSpec(spec);
-      setOpenApiRaw(raw);
-      markUpdated('openapi', t('common.updated.operations', { label: openApiSource.label, count: operations.length, time: new Date().toLocaleTimeString() }));
-    } catch (error) {
-      markError('openapi', error);
-    }
-  }, [markError, markUpdated, openApiSource, t]);
-
-  const fetchCalls = useCallback(async () => {
-    try {
-      const payload = await apiJson<{ calls: CallRow[] }>('/calls');
-      const rows = Array.isArray(payload.calls) ? payload.calls : [];
-      setCalls(rows);
-      markUpdated('calls', t('common.updated.calls', { count: rows.length, time: new Date().toLocaleTimeString() }));
-    } catch (error) {
-      markError('calls', error);
-    }
-  }, [markError, markUpdated, t]);
-
-  const fetchTraces = useCallback(async () => {
-    try {
-      const payload = await apiJson<{ traces: TraceRow[] }>('/traces?limit=200');
-      const rows = Array.isArray(payload.traces) ? payload.traces : [];
-      setTraces(rows);
-      markUpdated('traces', t('common.updated.traces', { count: rows.length, time: new Date().toLocaleTimeString() }));
-    } catch (error) {
-      markError('traces', error);
-    }
-  }, [markError, markUpdated, t]);
-
-  const fetchTraffic = useCallback(async () => {
-    try {
-      const payload = await apiJson<TrafficPayload>('/traffic?limit=300');
-      const rows = Array.isArray(payload.frames) ? payload.frames : [];
-      setTraffic({ ...payload, frames: rows });
-      markUpdated('traffic', t('common.updated.frames', { count: rows.length, time: new Date().toLocaleTimeString() }));
-    } catch (error) {
-      markError('traffic', error);
-    }
-  }, [markError, markUpdated, t]);
-
-  const fetchTasks = useCallback(async () => {
-    try {
-      const payload = await apiJson<{ tasks: TaskRow[] }>('/tasks?limit=300');
-      setTasks(Array.isArray(payload.tasks) ? payload.tasks : []);
-      markUpdated('tasks', t('common.updated.tasks', { count: payload.tasks?.length ?? 0, time: new Date().toLocaleTimeString() }));
-    } catch (error) {
-      markError('tasks', error);
-    }
-  }, [markError, markUpdated, t]);
-
-  const fetchWorkflows = useCallback(async () => {
-    try {
-      const payload = await apiJson<{ workflows: WorkflowRow[] }>('/workflows?limit=200');
-      const rows = Array.isArray(payload.workflows) ? payload.workflows : [];
-      setWorkflows(rows);
-      markUpdated('workflows', t('common.updated.workflows', { count: rows.length, time: new Date().toLocaleTimeString() }));
-    } catch (error) {
-      markError('workflows', error);
-    }
-  }, [markError, markUpdated, t]);
-
-  const fetchStats = useCallback(async () => {
-    try {
-      const payload = await apiJson<StatsPayload>(`/stats?range=${encodeURIComponent(statsRange)}`);
-      setStats(payload);
-      markUpdated('stats', t('common.updated.range', { range: payload.range, time: new Date().toLocaleTimeString() }));
-    } catch (error) {
-      markError('stats', error);
-    }
-  }, [markError, markUpdated, statsRange, t]);
-
-  const fetchGovernance = useCallback(async () => {
-    try {
-      const payload = await apiJson<GovernancePayload>('/governance?limit=300');
-      setGovernance(payload);
-      markUpdated('governance', t('common.updated.decisions', { count: payload.recent_decisions?.length ?? 0, time: new Date().toLocaleTimeString() }));
-    } catch (error) {
-      markError('governance', error);
-    }
-  }, [markError, markUpdated, t]);
-
-  const fetchLogs = useCallback(async () => {
-    try {
-      const payload = await apiJson<{ logs?: unknown[] }>('/logs');
-      const raw = Array.isArray(payload.logs) ? payload.logs : [];
-      setLogs(raw.map(normalizeLogRow));
-      markUpdated('logs', t('common.updated.events', { count: raw.length, time: new Date().toLocaleTimeString() }));
-    } catch (error) {
-      markError('logs', error);
-    }
-  }, [markError, markUpdated, t]);
-
-  /// Skills / skill-paths fetching lives inside features/skills/.
-
-
-
-  const fetchSetup = useCallback(async () => {
-    await Promise.allSettled([fetchHealth(), fetchInstanceBackends()]);
-    markUpdated('setup', t('common.updated.gatewayTarget', { time: new Date().toLocaleTimeString() }));
-  }, [fetchHealth, fetchInstanceBackends, markUpdated, t]);
-
-  const fetchDebug = useCallback(async () => {
-    await Promise.allSettled([
-      fetchHealth(),
-      fetchInstanceBackends(),
-      fetchActivity(),
-      fetchCalls(),
-      fetchTraces(),
-      fetchTraffic(),
-      fetchStats(),
-      fetchGovernance(),
-      fetchLogs(),
-    ]);
-    markUpdated('debug', t('common.updated.debugSnapshot', { time: new Date().toLocaleTimeString() }));
-  }, [fetchActivity, fetchCalls, fetchGovernance, fetchHealth, fetchInstanceBackends, fetchLogs, fetchStats, fetchTraces, fetchTraffic, markUpdated, t]);
-
-  const fetchTraceInto = useCallback(async (requestId: string, target: 'call' | 'trace') => {
+  /// On-demand trace detail expand (one-off, not polled — uses apiJson directly).
+  const expandTraceDetail = useCallback(async (requestId: string) => {
     try {
       const payload = await apiJson<unknown>(`/traces/${encodeURIComponent(requestId)}`);
-      const detail = JSON.stringify(payload, null, 2);
-      if (target === 'call') {
-        setCallDetail(detail);
-      } else {
-        setTraceDetail(detail);
-        setTraceDetailPayload(payload as TraceDetailPayload);
-      }
+      setCallDetail(JSON.stringify(payload, null, 2));
     } catch (error) {
-      const detail = `Error: ${error instanceof Error ? error.message : String(error)}`;
-      if (target === 'call') {
-        setCallDetail(detail);
-      } else {
-        setTraceDetail(detail);
-        setTraceDetailPayload(null);
-      }
+      setCallDetail(`Error: ${error instanceof Error ? error.message : String(error)}`);
     }
   }, []);
 
@@ -1211,14 +1126,13 @@ function App() {
         openApiSource: panel === 'openapi' ? (opts?.openApiSource ?? gatewayOpenApiSource()) : null,
         replace: opts?.replace,
       });
-      if (panel === 'traces' && opts?.traceId) {
-        void fetchTraceInto(opts.traceId, 'trace');
-      } else if (panel === 'traces' && !opts?.traceId) {
-        setTraceDetail('Select a trace row for detail.');
-        setTraceDetailPayload(null);
+      if (opts?.traceId) {
+        setSelectedTraceId(opts.traceId);
+      } else if (panel === 'traces') {
+        setSelectedTraceId(null);
       }
     },
-    [fetchTraceInto, pushAdminUrl, statsRange],
+    [pushAdminUrl, statsRange],
   );
 
   useEffect(() => {
@@ -1228,50 +1142,13 @@ function App() {
       setStatsRange(readStatsRangeFromUrl());
       setOpenApiSource(readOpenApiSourceFromUrl());
       const tid = readTraceIdFromUrl();
-      if (panel === 'traces' && tid) {
-        void fetchTraceInto(tid, 'trace');
-      } else if (panel === 'traces') {
-        setTraceDetail('Select a trace row for detail.');
-        setTraceDetailPayload(null);
+      if (panel === 'traces') {
+        setSelectedTraceId(tid);
       }
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, [fetchTraceInto]);
-
-  useEffect(() => {
-    const panel = readPanelFromUrl();
-    setOpenApiSource(readOpenApiSourceFromUrl());
-    const tid = readTraceIdFromUrl();
-    if (panel === 'traces' && tid) {
-      void fetchTraceInto(tid, 'trace');
-    }
-  }, [fetchTraceInto]);
-
-  const fetchPanel = useCallback((panel: Panel) => {
-    if (panel === 'setup') void fetchSetup();
-    if (panel === 'debug') void fetchDebug();
-    if (panel === 'activity') void fetchActivity();
-    if (panel === 'health') void fetchHealth();
-    if (panel === 'instances') void fetchInstanceBackends();
-    if (panel === 'tools') void fetchTools();
-    if (panel === 'openapi') void fetchOpenApi();
-    if (panel === 'workflows') void fetchWorkflows();
-    if (panel === 'tasks') void fetchTasks();
-    if (panel === 'calls') void fetchCalls();
-    if (panel === 'traces') void fetchTraces();
-    if (panel === 'traffic') void fetchTraffic();
-    if (panel === 'stats') void Promise.allSettled([fetchStats(), fetchCalls(), fetchTraces()]);
-    if (panel === 'governance') void fetchGovernance();
-    // `skill-paths` refreshes itself from the SkillsPanel orchestrator.
-    if (panel === 'logs') void fetchLogs();
-  }, [fetchActivity, fetchCalls, fetchDebug, fetchGovernance, fetchHealth, fetchInstanceBackends, fetchLogs, fetchOpenApi, fetchSetup, fetchStats, fetchTasks, fetchTools, fetchTraces, fetchTraffic, fetchWorkflows]);
-
-  useEffect(() => {
-    fetchPanel(activePanel);
-    const timer = window.setInterval(() => fetchPanel(activePanel), 5000);
-    return () => window.clearInterval(timer);
-  }, [activePanel, fetchPanel]);
+  }, []);
 
   const hasLatencyFilter = activePanel === 'calls' || activePanel === 'traces';
   const showListSearchMeta = Boolean(listSearch.trim()) || (hasLatencyFilter && slowOnly);
@@ -1690,7 +1567,7 @@ function App() {
                 </tbody>
               </table>
             )}
-            <button className="refresh-btn" type="button" onClick={fetchActivity}>{t('action.refresh')}</button>
+            <button className="refresh-btn" type="button" onClick={() => activityQuery.refetch()}>{t('action.refresh')}</button>
           </section>
         )}
 
@@ -1727,7 +1604,7 @@ function App() {
                 value={health?.circuits ? `${health.circuits.circuits_open} / ${health.circuits.tracked_backends}` : '?'}
               />
             </div>
-            <button className="refresh-btn" type="button" onClick={fetchHealth}>{t('action.refresh')}</button>
+            <button className="refresh-btn" type="button" onClick={() => healthQuery.refetch()}>{t('action.refresh')}</button>
           </section>
         )}
 
@@ -1799,7 +1676,7 @@ function App() {
               </div>
             )}
             <div className="status-bar">Summary: live {instanceSummary.live}, stale {instanceSummary.stale}, unhealthy {instanceSummary.unhealthy}</div>
-            <button className="refresh-btn" type="button" onClick={fetchInstanceBackends}>{t('action.refresh')}</button>
+            <button className="refresh-btn" type="button" onClick={() => workersQuery.refetch()}>{t('action.refresh')}</button>
           </section>
         )}
 
@@ -2079,7 +1956,7 @@ function App() {
                             </td>
                             <td>
                               <div className="table-actions">
-                                <button className="refresh-btn" type="button" onClick={() => void fetchTraceInto(call.request_id, 'call')}>{t('calls.action.expand')}</button>
+                                <button className="refresh-btn" type="button" onClick={() => void expandTraceDetail(call.request_id)}>{t('calls.action.expand')}</button>
                                 <button className="refresh-btn" type="button" onClick={() => void copyText(traceLinks(call.request_id, call.links).admin_trace_url ?? '', 'trace URL')}>{t('traces.action.copyUrl')}</button>
                                 <button className="refresh-btn" type="button" onClick={() => void copyIssueReport(call.request_id)}>{t('traces.action.copyIssueJson')}</button>
                               </div>
@@ -2509,8 +2386,8 @@ function App() {
           search={listSearch}
           updatedAt={updatedAt['skill-paths']}
           error={errors['skill-paths']}
-          onUpdated={(text) => markUpdated('skill-paths', text)}
-          onError={(err) => markError('skill-paths', err)}
+          onUpdated={(text) => setSkillPathsUpdatedAt(text)}
+          onError={(err) => setSkillPathsError(err instanceof Error ? err.message : String(err))}
           onCountsChange={setSkillCounts}
           t={t}
         />
