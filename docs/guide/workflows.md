@@ -2,7 +2,7 @@
 
 > First-class, spec-driven, persistable, cancellable pipelines of MCP tool
 > calls. Parsing, validation, and the full step execution engine all ship
-> in issue [#348](https://github.com/loonghao/dcc-mcp-core/issues/348).
+> in issue [#348](https://github.com/dcc-mcp/dcc-mcp-core/issues/348).
 
 ## What is a workflow?
 

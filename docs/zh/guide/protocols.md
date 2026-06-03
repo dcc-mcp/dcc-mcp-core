@@ -242,8 +242,8 @@ caps = DccCapabilities(
 | 项目 | 桥接模式 | 状态 |
 |------|----------|------|
 | [dcc-mcp-unreal](https://github.com/loonghao/dcc-mcp-unreal) | Python embedded（同 Maya） | 占位 |
-| [dcc-mcp-photoshop](https://github.com/loonghao/dcc-mcp-photoshop) | WebSocket bridge (UXP) | 占位 |
-| [dcc-mcp-zbrush](https://github.com/loonghao/dcc-mcp-zbrush) | HTTP bridge (ZBrush 2024+ REST) | 占位 |
+| [dcc-mcp-photoshop](https://github.com/dcc-mcp/dcc-mcp-photoshop) | WebSocket bridge (UXP) | 占位 |
+| [dcc-mcp-zbrush](https://github.com/dcc-mcp/dcc-mcp-zbrush) | HTTP bridge (ZBrush 2024+ REST) | 占位 |
 
 ---
 

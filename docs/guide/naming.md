@@ -2,7 +2,7 @@
 
 > **Status**: mandatory. Every DCC-MCP crate, Python wheel and skill author
 > must pick names that pass the two validators shipped in
-> [`dcc_mcp_core::naming`](https://github.com/loonghao/dcc-mcp-core/tree/main/crates/dcc-mcp-naming).
+> [`dcc_mcp_core::naming`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/crates/dcc-mcp-naming).
 > Related spec: [MCP `draft/server/tools#tool-names`](https://modelcontextprotocol.io/specification/draft/server/tools#tool-names).
 
 There are **two** naming rules in the ecosystem. Know which one applies to

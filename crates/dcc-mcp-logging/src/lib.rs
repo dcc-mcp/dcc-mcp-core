@@ -3,7 +3,7 @@
 //! Extracted from the former `dcc-mcp-utils::file_logging` /
 //! `dcc-mcp-utils::log_config` modules so that pure data crates no longer
 //! transitively depend on `tracing-appender`, `tracing-subscriber`, etc.
-//! See [issue #496](https://github.com/loonghao/dcc-mcp-core/issues/496).
+//! See [issue #496](https://github.com/dcc-mcp/dcc-mcp-core/issues/496).
 
 pub mod config;
 pub mod constants;

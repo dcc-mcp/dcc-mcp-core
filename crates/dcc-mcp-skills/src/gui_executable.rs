@@ -5,7 +5,7 @@
 //! interpreter* (`mayapy.exe`, `hython.exe`, `UnrealEditor-Cmd.exe`).
 //! Pointing `DCC_MCP_PYTHON_EXECUTABLE` at the GUI binary spawns a new
 //! DCC window instead of running the skill script — see
-//! `loonghao/dcc-mcp-maya#125`.
+//! `dcc-mcp/dcc-mcp-maya#125`.
 //!
 //! `is_gui_executable` lets every DCC plugin (Maya, Houdini, Unreal …)
 //! detect the misconfiguration *before* it reaches the skill executor

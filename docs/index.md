@@ -17,7 +17,7 @@ hero:
       link: /guide/what-is-dcc-mcp-core
     - theme: alt
       text: GitHub
-      link: https://github.com/loonghao/dcc-mcp-core
+      link: https://github.com/dcc-mcp/dcc-mcp-core
 
 features:
   - icon: 🎯

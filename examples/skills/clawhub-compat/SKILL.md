@@ -23,7 +23,7 @@ metadata:
         - curl
     primaryEnv: EXAMPLE_API_KEY
     emoji: "🦀"
-    homepage: https://github.com/loonghao/dcc-mcp-core
+    homepage: https://github.com/dcc-mcp/dcc-mcp-core
     install:
       - kind: node
         package: prettier

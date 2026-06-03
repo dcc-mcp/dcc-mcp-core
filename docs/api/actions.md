@@ -129,7 +129,7 @@ assert meta.get("required_capabilities", []) == ["scene", "timeline", "render"]
 ```
 
 The reference predicate consuming this field lives at
-[`dcc_mcp_core.adapters.WebViewAdapter.matches_requirements`](https://github.com/loonghao/dcc-mcp-core/blob/main/python/dcc_mcp_core/adapters/webview.py).
+[`dcc_mcp_core.adapters.WebViewAdapter.matches_requirements`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/adapters/webview.py).
 
 ## ToolValidator
 

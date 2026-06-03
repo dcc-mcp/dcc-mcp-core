@@ -35,4 +35,4 @@ Semver follows the workspace version. Runtime support moves here from
 `dcc-mcp-http` one self-contained subsystem at a time so each step can be
 reviewed independently and the dependency direction stays easy to audit.
 
-[#852]: https://github.com/loonghao/dcc-mcp-core/issues/852
+[#852]: https://github.com/dcc-mcp/dcc-mcp-core/issues/852

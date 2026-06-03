@@ -1,6 +1,6 @@
 # Auth — API Key and OAuth 2.1 / CIMD
 
-> Source: [`python/dcc_mcp_core/auth.py`](https://github.com/loonghao/dcc-mcp-core/blob/main/python/dcc_mcp_core/auth.py) · Issue [#408](https://github.com/loonghao/dcc-mcp-core/issues/408)
+> Source: [`python/dcc_mcp_core/auth.py`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/auth.py) · Issue [#408](https://github.com/dcc-mcp/dcc-mcp-core/issues/408)
 >
 > **[中文版](../zh/api/auth.md)**
 
@@ -123,7 +123,7 @@ that configures an edge proxy.
 
 Full Rust-side enforcement of the `/.well-known/oauth-client-metadata`
 endpoint and the `/mcp` Bearer check is tracked in issue
-[#408](https://github.com/loonghao/dcc-mcp-core/issues/408). Until that lands,
+[#408](https://github.com/dcc-mcp/dcc-mcp-core/issues/408). Until that lands,
 do not treat `McpHttpConfig` as an auth boundary; enforce API keys or OAuth in
 a reverse proxy / dedicated MCP OAuth gateway.
 

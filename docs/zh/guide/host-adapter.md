@@ -158,6 +158,6 @@ def test_my_host_drives_dispatcher(live_dcc_fixture):
 - [ ] 编写 `README.md` 指回本文档，使未来维护者理解契约
 - [ ] 在你的仓库中开一个跟踪 issue；交叉引用核心的 [总揽 issue][umbrella]，使进度跨仓库可见
 
-[HostAdapter]: https://github.com/loonghao/dcc-mcp-core/blob/main/python/dcc_mcp_core/host/_adapter.py
+[HostAdapter]: https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/host/_adapter.py
 [thread-safety]: ./dcc-thread-safety.md
-[umbrella]: https://github.com/loonghao/dcc-mcp-core/issues/690
+[umbrella]: https://github.com/dcc-mcp/dcc-mcp-core/issues/690

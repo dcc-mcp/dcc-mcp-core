@@ -8,10 +8,10 @@
 Release 资产发布。CLI 可以通过 URL 直接安装：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | bash
 
 # Windows PowerShell
-powershell -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+powershell -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
 ```
 
 需要固定版本时，设置 `DCC_MCP_VERSION=v0.17.17`，或给安装脚本传
@@ -25,7 +25,7 @@ powershell -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/
 | [`dcc-mcp-tunnel-agent`](#dcc-mcp-tunnel-agent) | 在工作站上注册到中继、转发 MCP 流量的本地 sidecar。 | `crates/dcc-mcp-tunnel-agent/` |
 
 开发辅助二进制（`stub_gen`）在
-[`AGENTS.md`](https://github.com/loonghao/dcc-mcp-core/blob/main/AGENTS.md) 里。
+[`AGENTS.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md) 里。
 
 ---
 

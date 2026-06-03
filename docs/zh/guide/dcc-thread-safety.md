@@ -127,7 +127,7 @@ bpy.app.timers.register(render_next)
 ### 2. 协作式检查点
 
 在每块之间检查取消标志，并把控制权交还给 DCC。参见
-[issue #329 — `check_cancelled()`](https://github.com/loonghao/dcc-mcp-core/issues/329)
+[issue #329 — `check_cancelled()`](https://github.com/dcc-mcp/dcc-mcp-core/issues/329)
 了解计划中的协作式取消原语。
 
 ```python
@@ -154,7 +154,7 @@ executor.poll_pending_bounded(max=8)
 
 60 FPS 下合理的起点是 `max=8`；如果单个任务较重，请调小。
 
-[issue #332 — `@chunked_job`](https://github.com/loonghao/dcc-mcp-core/issues/332)
+[issue #332 — `@chunked_job`](https://github.com/dcc-mcp/dcc-mcp-core/issues/332)
 中计划的分块任务装饰器落地后，会自动编码规则 (1) 和 (2)。
 
 ## 禁止的模式
@@ -209,7 +209,7 @@ executor.execute(lambda: apply_to_scene(payload))    # 主线程
   —— 最小 "hello world" 示例。
 - [agents-reference.md → DCC Integration Architectures](./agents-reference.md#dcc-integration-architectures)
   —— 各 DCC 的桥接模式（嵌入式 Python / WebSocket / WebView）。
-- [Issue #329 — `check_cancelled()`](https://github.com/loonghao/dcc-mcp-core/issues/329)
+- [Issue #329 — `check_cancelled()`](https://github.com/dcc-mcp/dcc-mcp-core/issues/329)
   —— 分块任务的协作式取消。
-- [Issue #332 — `@chunked_job`](https://github.com/loonghao/dcc-mcp-core/issues/332)
+- [Issue #332 — `@chunked_job`](https://github.com/dcc-mcp/dcc-mcp-core/issues/332)
   —— 将分块 + 检查点规则封装进的装饰器。

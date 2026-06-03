@@ -10,10 +10,10 @@ same configuration surface.
 assets on every release. The CLI can be installed directly from a URL:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | bash
 
 # Windows PowerShell
-powershell -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+powershell -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
 ```
 
 Pin a release by setting `DCC_MCP_VERSION=v0.17.17` or passing
@@ -27,7 +27,7 @@ Pin a release by setting `DCC_MCP_VERSION=v0.17.17` or passing
 | [`dcc-mcp-tunnel-agent`](#dcc-mcp-tunnel-agent) | Local sidecar that registers with the relay and forwards MCP traffic. | `crates/dcc-mcp-tunnel-agent/` |
 
 Development helper binaries (`stub_gen`) are documented in
-[`AGENTS.md`](https://github.com/loonghao/dcc-mcp-core/blob/main/AGENTS.md).
+[`AGENTS.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md).
 
 ---
 

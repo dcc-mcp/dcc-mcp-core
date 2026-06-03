@@ -1,6 +1,6 @@
 # Plugin Manifest — 为 Claude Code 打包一键安装包
 
-> 源码：[`python/dcc_mcp_core/plugin_manifest.py`](https://github.com/loonghao/dcc-mcp-core/blob/main/python/dcc_mcp_core/plugin_manifest.py) · Issue [#410](https://github.com/loonghao/dcc-mcp-core/issues/410) · [Claude Code 插件参考](https://code.claude.com/docs/en/plugins-reference#plugin-components-reference)
+> 源码：[`python/dcc_mcp_core/plugin_manifest.py`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/plugin_manifest.py) · Issue [#410](https://github.com/dcc-mcp/dcc-mcp-core/issues/410) · [Claude Code 插件参考](https://code.claude.com/docs/en/plugins-reference#plugin-components-reference)
 >
 > **[English](../../api/plugin-manifest.md)**
 

@@ -19,10 +19,10 @@ DCC-MCP-Core 是一个基础 Rust 库（含 Python 绑定），提供：
 
 dcc-mcp-core 是 DCC 无关的 — 核心库提供基础设施，DCC 特定集成由独立项目提供：
 
-- **Maya** — 通过 [dcc-mcp-maya](https://github.com/loonghao/dcc-mcp-maya)
+- **Maya** — 通过 [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya)
 - **Unreal** — 通过 [dcc-mcp-unreal](https://github.com/loonghao/dcc-mcp-unreal)（Python embedded）
-- **Photoshop** — 通过 [dcc-mcp-photoshop](https://github.com/loonghao/dcc-mcp-photoshop)（WebSocket bridge）
-- **ZBrush** — 通过 [dcc-mcp-zbrush](https://github.com/loonghao/dcc-mcp-zbrush)（HTTP bridge）
+- **Photoshop** — 通过 [dcc-mcp-photoshop](https://github.com/dcc-mcp/dcc-mcp-photoshop)（WebSocket bridge）
+- **ZBrush** — 通过 [dcc-mcp-zbrush](https://github.com/dcc-mcp/dcc-mcp-zbrush)（HTTP bridge）
 - **Blender、Houdini、3ds Max** — 社区/第三方集成
 
 核心库适用于任何 Python 3.7+ 环境。
@@ -64,7 +64,7 @@ pip install dcc-mcp-core
 
 **从源码编译（需要 Rust 1.95+ 和 maturin）：**
 ```bash
-git clone https://github.com/loonghao/dcc-mcp-core.git
+git clone https://github.com/dcc-mcp/dcc-mcp-core.git
 cd dcc-mcp-core
 pip install maturin
 maturin develop
@@ -360,7 +360,7 @@ cfg.init()
 
 ### 如何报告 Bug 或请求功能？
 
-请在 [GitHub](https://github.com/loonghao/dcc-mcp-core/issues) 上提 Issue，并包含：
+请在 [GitHub](https://github.com/dcc-mcp/dcc-mcp-core/issues) 上提 Issue，并包含：
 - DCC 应用及版本
 - Python 版本（`python --version`）
 - dcc-mcp-core 版本（`python -c "import dcc_mcp_core; print(dcc_mcp_core.__version__)"`）
@@ -371,7 +371,7 @@ cfg.init()
 
 ### 如何贡献代码？
 
-参阅 [CONTRIBUTING.md](https://github.com/loonghao/dcc-mcp-core/blob/main/CONTRIBUTING.md)。关键步骤：
+参阅 [CONTRIBUTING.md](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CONTRIBUTING.md)。关键步骤：
 
 1. 安装 Rust 1.95+ 和 Python 3.8+
 2. 克隆仓库
@@ -380,4 +380,4 @@ cfg.init()
 
 ### 是否有社区讨论渠道？
 
-在 [GitHub Discussions](https://github.com/loonghao/dcc-mcp-core/discussions) 参与讨论。
+在 [GitHub Discussions](https://github.com/dcc-mcp/dcc-mcp-core/discussions) 参与讨论。

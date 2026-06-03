@@ -1,6 +1,6 @@
 # Rich Content — MCP Apps Inline UI
 
-> Source: [`python/dcc_mcp_core/rich_content.py`](https://github.com/loonghao/dcc-mcp-core/blob/main/python/dcc_mcp_core/rich_content.py) · Issue [#409](https://github.com/loonghao/dcc-mcp-core/issues/409) · [MCP Apps overview](https://modelcontextprotocol.io/extensions/apps/overview)
+> Source: [`python/dcc_mcp_core/rich_content.py`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/rich_content.py) · Issue [#409](https://github.com/dcc-mcp/dcc-mcp-core/issues/409) · [MCP Apps overview](https://modelcontextprotocol.io/extensions/apps/overview)
 >
 > **[中文版](../zh/api/rich-content.md)**
 
@@ -154,7 +154,7 @@ return skill_success_with_image(
 Rich content is stored today in `result.context["__rich__"]` as a
 JSON-serialisable dict. Full wiring into `tools/call` responses using
 the MCP Apps canonical envelope is tracked in issue
-[#409](https://github.com/loonghao/dcc-mcp-core/issues/409).
+[#409](https://github.com/dcc-mcp/dcc-mcp-core/issues/409).
 
 Skills written against these helpers today will automatically surface
 rich content to MCP-Apps clients once the Rust layer ships.

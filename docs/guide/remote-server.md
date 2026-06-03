@@ -178,7 +178,7 @@ docker run -p 127.0.0.1:8765:8765 my-mcp-server
 
 ## Example: Minimal Remote-Accessible Skill Server
 
-See [`examples/remote-server/`](https://github.com/loonghao/dcc-mcp-core/tree/main/examples/remote-server) for a
+See [`examples/remote-server/`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/examples/remote-server) for a
 complete, deployable example that:
 
 - Starts a publicly reachable MCP server on `0.0.0.0:8765`

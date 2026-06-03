@@ -78,6 +78,6 @@ def commands():
 对于现有的松散技能目录，为每个上下文切片创建一个 Rez 包，并将目录移动到 `skills/` 下。从共享的工作室原语开始，仅在工具接口有实质性差异时才拆分项目、部门和任务包。避免每个部门默认加载的全包；它会重新造成 MCP 上下文膨胀，使 Agent 更难以理解 `tools/list`。
 
 参见 [context-bundles.md](context-bundles.md)、[gateway.md](gateway.md)，以及
-[#611](https://github.com/loonghao/dcc-mcp-core/issues/611) 中的 toolset-profile 设计、
-[#608](https://github.com/loonghao/dcc-mcp-core/issues/608) 中的 instruction resources 和
-[#616](https://github.com/loonghao/dcc-mcp-core/issues/616) 中的 recipe packs。
+[#611](https://github.com/dcc-mcp/dcc-mcp-core/issues/611) 中的 toolset-profile 设计、
+[#608](https://github.com/dcc-mcp/dcc-mcp-core/issues/608) 中的 instruction resources 和
+[#616](https://github.com/dcc-mcp/dcc-mcp-core/issues/616) 中的 recipe packs。

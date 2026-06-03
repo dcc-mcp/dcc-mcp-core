@@ -22,4 +22,4 @@ Semver follows the workspace version. Types move here from
 `dcc-mcp-gateway` one at a time so each move can be reviewed in isolation
 and the dependency direction verified.
 
-[#845]: https://github.com/loonghao/dcc-mcp-core/issues/845
+[#845]: https://github.com/dcc-mcp/dcc-mcp-core/issues/845

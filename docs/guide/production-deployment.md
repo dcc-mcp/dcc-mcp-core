@@ -25,7 +25,7 @@ If you just want to run the server on a developer laptop, start with
 
 ### Building the Binary
 
-The binary is the Rust bin crate [`crates/dcc-mcp-server/`](https://github.com/loonghao/dcc-mcp-core/tree/main/crates/dcc-mcp-server).
+The binary is the Rust bin crate [`crates/dcc-mcp-server/`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/crates/dcc-mcp-server).
 It is statically-linked apart from the platform libc and needs no Python
 runtime.
 
@@ -98,7 +98,7 @@ curl -s http://127.0.0.1:9765/instances # → JSON list of registered instances
 
 ### Multi-Stage Image
 
-See [`examples/compose/gateway-ha/Dockerfile`](https://github.com/loonghao/dcc-mcp-core/tree/main/examples/compose/gateway-ha)
+See [`examples/compose/gateway-ha/Dockerfile`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/examples/compose/gateway-ha)
 for the canonical image. Sketch:
 
 ```Dockerfile
@@ -127,7 +127,7 @@ docker run --rm -p 9765:9765 dcc-mcp-server:latest \
 
 ### docker-compose for HA
 
-The [`examples/compose/gateway-ha/docker-compose.yml`](https://github.com/loonghao/dcc-mcp-core/tree/main/examples/compose/gateway-ha)
+The [`examples/compose/gateway-ha/docker-compose.yml`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/examples/compose/gateway-ha)
 file brings up **two gateway candidates** (both compete for `9765`; one
 wins, the other becomes a plain instance that can take over on failure)
 plus **two mock DCC servers**, all sharing a single registry volume.
@@ -146,7 +146,7 @@ docker compose down
 
 Use systemd on bare-metal or long-lived VMs where you want the OS to keep
 `dcc-mcp-server` alive. The canonical unit lives in
-[`examples/systemd/dcc-mcp-gateway.service`](https://github.com/loonghao/dcc-mcp-core/tree/main/examples/systemd).
+[`examples/systemd/dcc-mcp-gateway.service`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/examples/systemd).
 
 The unit enables these hardening options:
 
@@ -430,4 +430,4 @@ consult the release notes.
 - [Gateway Election](gateway-election.md) — how the well-known port is claimed.
 - [Transport Layer](transport.md) — IPC between DCC processes.
 - [MCP 2025-03-26 spec](https://modelcontextprotocol.io/specification/2025-03-26) — Streamable HTTP, `Mcp-Session-Id`.
-- Example artifacts: [`examples/compose/gateway-ha/`](https://github.com/loonghao/dcc-mcp-core/tree/main/examples/compose/gateway-ha), [`examples/k8s/gateway-ha/`](https://github.com/loonghao/dcc-mcp-core/tree/main/examples/k8s/gateway-ha), [`examples/systemd/`](https://github.com/loonghao/dcc-mcp-core/tree/main/examples/systemd).
+- Example artifacts: [`examples/compose/gateway-ha/`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/examples/compose/gateway-ha), [`examples/k8s/gateway-ha/`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/examples/k8s/gateway-ha), [`examples/systemd/`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/examples/systemd).

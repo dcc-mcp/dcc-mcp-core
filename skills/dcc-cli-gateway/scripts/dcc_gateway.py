@@ -17,7 +17,7 @@ import urllib.error
 import urllib.request
 
 DEFAULT_BASE_URL = "http://127.0.0.1:9765"
-DEFAULT_REPO = "loonghao/dcc-mcp-core"
+DEFAULT_REPO = "dcc-mcp/dcc-mcp-core"
 DEFAULT_VERSION = "latest"
 
 

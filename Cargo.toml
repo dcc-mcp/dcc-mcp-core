@@ -55,7 +55,7 @@ edition = "2024"
 rust-version = "1.95"
 authors = ["Hal Long <hal.long@outlook.com>"]
 license = "MIT"
-repository = "https://github.com/loonghao/dcc-mcp-core"
+repository = "https://github.com/dcc-mcp/dcc-mcp-core"
 
 [workspace.dependencies]
 # Internal crates
