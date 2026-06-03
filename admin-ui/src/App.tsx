@@ -8,8 +8,8 @@ import { createTranslator, detectBrowserLocale, type SupportedLocale } from './i
 import { readLocaleOverride, storeLocaleOverride } from './locale';
 import { applyTheme, readThemeMode, resolveTheme, storeThemeMode, type ThemeMode } from './theme';
 import { filterLogs, isProblemLog, normalizeLogRow, summarizeLogSeverity, type LogRow, type LogSeverityFilter } from './logs';
-import { CRITICAL_LATENCY_MS, SLOW_LATENCY_MS, type ActivityEvent, type CallRow, type ClientPlatform, type DebugSignal, type FailureSignal, type GovernancePayload, type HealthPayload, type IdeTarget, type InstanceRow, type InstanceSummary, type OpenApiSource, type OpenApiSpec, type Panel, type SetupUrlMode, type StatsPayload, type TaskRow, type TokenBreakdownEntry, type ToolRow, type TraceDetailPayload, type TraceRow, type TrafficPayload, type WorkflowRow } from './admin-types';
-import { actorLabel, agentLabel, apiJson, API_BASE, AttributionFacetList, BackendAccessUrl, backendAccessUrls, BackendOpenApiLinks, callGroupLabel, compactId, compactInstanceId, compactList, configPathFileUrl, configPathForTarget, detectClientPlatform, DocsIcon, downloadJsonText, EmptyRow, errorRateTone, fetchOpenApiSpecText, firstTrust, flattenOpenApiOperations, formatBytes, formatDurationMs, formatSavingsPct, formatTokenCount, formatTraceDate, formatUptime, gatewayLabel, gatewayMcpUrl, gatewayOpenApiSource, GovernanceControlCard, groupRows, haystack, HealthCard, HeroMetric, HourlyChart, hrefForAdmin, IDE_TARGETS, ideConfigText, IdeIcon, instanceGroupLabel, instanceSetupLabel, isErrStatus, isOkStatus, isProblemActivity, isSlowLatency, issueReportFilename, issueReportJsonText, isWarnStatus, lanGatewayMcpUrl, latencyClass, latencyTone, LatencyValue, matchesListFilter, McpBackendLinks, MetricTile, MiniSparkline, NavIcon, OpenApiInspectorPanel, openApiSpecFilename, PanelHeader, PANELS, platformLabel, projectDocsHref, readOpenApiSourceFromUrl, readPanelFromUrl, readStatsRangeFromUrl, readTraceIdFromUrl, resolveDccIcon, responseFormatLabel, returnedTokensLabel, savedTokensLabel, sourceIpLabel, StatBarList, STATS_RANGE_IDS, StatusBadge, statusClass, StatusLine, taskActorLabel, taskOutcomeText, taskPrimaryRequestId, taskRequestCount, taskWorkflowLabel, TimeValue, TokenBreakdownList, toolGroupLabel, toolInstanceLabel, totalTraceTokens, TraceDetailPanel, traceGroupLabel, traceLatency, traceLinks, trafficBodyBytes, trafficEmptyKey, trafficFrameDetail, trafficMethod, trafficRedactedPaths, trafficRequestId, trafficSessionId, trafficStatusDetailKey, trafficStatusLabelKey, trafficStatusTone, trafficTimestamp, trustChip, trustFor, WorkflowCard, WorkflowGraphDetail } from './admin-ui-core';
+import { CRITICAL_LATENCY_MS, SLOW_LATENCY_MS, type ClientPlatform, type DebugSignal, type FailureSignal, type IdeTarget, type InstanceSummary, type OpenApiSource, type Panel, type SetupUrlMode, type TokenBreakdownEntry, type TraceDetailPayload, type TraceRow } from './admin-types';
+import { actorLabel, agentLabel, apiJson, API_BASE, AttributionFacetList, BackendAccessUrl, backendAccessUrls, BackendOpenApiLinks, callGroupLabel, compactId, compactInstanceId, compactList, configPathFileUrl, configPathForTarget, detectClientPlatform, DocsIcon, downloadJsonText, EmptyRow, errorRateTone, firstTrust, flattenOpenApiOperations, formatBytes, formatDurationMs, formatSavingsPct, formatTokenCount, formatTraceDate, formatUptime, gatewayLabel, gatewayMcpUrl, gatewayOpenApiSource, GovernanceControlCard, groupRows, haystack, HealthCard, HeroMetric, HourlyChart, hrefForAdmin, IDE_TARGETS, ideConfigText, IdeIcon, instanceGroupLabel, instanceSetupLabel, isErrStatus, isOkStatus, isProblemActivity, isSlowLatency, issueReportFilename, issueReportJsonText, isWarnStatus, lanGatewayMcpUrl, latencyClass, latencyTone, LatencyValue, matchesListFilter, McpBackendLinks, MetricTile, MiniSparkline, NavIcon, OpenApiInspectorPanel, openApiSpecFilename, PanelHeader, PANELS, platformLabel, projectDocsHref, readOpenApiSourceFromUrl, readPanelFromUrl, readStatsRangeFromUrl, readTraceIdFromUrl, resolveDccIcon, responseFormatLabel, returnedTokensLabel, savedTokensLabel, sourceIpLabel, StatBarList, STATS_RANGE_IDS, StatusBadge, statusClass, StatusLine, taskActorLabel, taskOutcomeText, taskPrimaryRequestId, taskRequestCount, taskWorkflowLabel, TimeValue, TokenBreakdownList, toolGroupLabel, toolInstanceLabel, totalTraceTokens, TraceDetailPanel, traceGroupLabel, traceLatency, traceLinks, trafficBodyBytes, trafficEmptyKey, trafficFrameDetail, trafficMethod, trafficRedactedPaths, trafficRequestId, trafficSessionId, trafficStatusDetailKey, trafficStatusLabelKey, trafficStatusTone, trafficTimestamp, trustChip, trustFor, WorkflowCard, WorkflowGraphDetail } from './admin-ui-core';
 import {
   useActivityQuery,
   useCallsQuery,
@@ -123,7 +123,7 @@ function App() {
   }
 
   // SkillsPanel manages its own data; we keep lightweight status state for it
-  const [skillPathsUpdatedAt, setSkillPathsUpdatedAt] = useState(t('common.status.autoRefreshing'));
+  const [skillPathsUpdatedAt, setSkillPathsUpdatedAt] = useState('');
   const [skillPathsError, setSkillPathsError] = useState<string | undefined>();
 
   const updatedAt = useMemo<Record<Panel, string>>(() => {
@@ -1072,6 +1072,30 @@ function App() {
     }
   }, []);
 
+  // Combo-refresh wrappers for panels that pull multiple data sources
+  const refreshSetup = useCallback(() => {
+    healthQuery.refetch();
+    workersQuery.refetch();
+  }, [healthQuery, workersQuery]);
+
+  const refreshDebug = useCallback(() => {
+    healthQuery.refetch();
+    workersQuery.refetch();
+    activityQuery.refetch();
+    callsQuery.refetch();
+    tracesQuery.refetch();
+    trafficQuery.refetch();
+    statsQuery.refetch();
+    governanceQuery.refetch();
+    logsQuery.refetch();
+  }, [healthQuery, workersQuery, activityQuery, callsQuery, tracesQuery, trafficQuery, statsQuery, governanceQuery, logsQuery]);
+
+  const refreshStats = useCallback(() => {
+    statsQuery.refetch();
+    callsQuery.refetch();
+    tracesQuery.refetch();
+  }, [statsQuery, callsQuery, tracesQuery]);
+
   const pushAdminUrl = useCallback(
     (panel: Panel, opts?: { traceId?: string | null; range?: string | null; openApiSource?: OpenApiSource | null; replace?: boolean }) => {
       const u = new URL(window.location.href);
@@ -1265,7 +1289,7 @@ function App() {
             <PanelHeader
               title={t('navigation.panel.setup')}
               meta={setupMcpUrl}
-              action={<button className="refresh-btn" type="button" onClick={fetchSetup}>{t('action.refresh')}</button>}
+              action={<button className="refresh-btn" type="button" onClick={refreshSetup}>{t('action.refresh')}</button>}
             />
             <StatusLine text={copiedNotice || updatedAt.setup} error={errors.setup} />
             <div className="setup-controls">
@@ -1526,7 +1550,7 @@ function App() {
                 {problemLogs.length === 0 && problemActivity.length === 0 ? <p className="empty">{t('debug.empty.events')}</p> : null}
               </div>
             </div>
-            <button className="refresh-btn" type="button" onClick={fetchDebug}>{t('debug.action.refreshSnapshot')}</button>
+            <button className="refresh-btn" type="button" onClick={refreshDebug}>{t('debug.action.refreshSnapshot')}</button>
           </section>
         )}
         {activePanel === 'activity' && (
@@ -1708,7 +1732,7 @@ function App() {
                   </table>
                 </div>
               )))}
-            <button className="refresh-btn" type="button" onClick={fetchTools}>{t('action.refresh')}</button>
+            <button className="refresh-btn" type="button" onClick={() => toolsQuery.refetch()}>{t('action.refresh')}</button>
           </section>
         )}
 
@@ -1730,7 +1754,7 @@ function App() {
                   {openApiSource.kind === 'instance' ? (
                     <button className="refresh-btn" type="button" onClick={() => goToPanel('openapi', { replace: true })}>{t('openapi.action.gatewaySpec')}</button>
                   ) : null}
-                  <button className="refresh-btn" type="button" onClick={fetchOpenApi}>{t('action.refresh')}</button>
+                  <button className="refresh-btn" type="button" onClick={() => openApiQuery.refetch()}>{t('action.refresh')}</button>
                 </>
               )}
             />
@@ -1767,7 +1791,7 @@ function App() {
             <PanelHeader
               title={t('workflows.title')}
               meta={t('workflows.meta')}
-              action={<button className="refresh-btn" type="button" onClick={fetchWorkflows}>{t('action.refresh')}</button>}
+              action={<button className="refresh-btn" type="button" onClick={() => workflowsQuery.refetch()}>{t('action.refresh')}</button>}
             />
             <StatusLine text={copiedNotice || updatedAt.workflows} error={errors.workflows} />
             <div className="metric-grid compact">
@@ -1813,7 +1837,7 @@ function App() {
             <PanelHeader
               title={t('tasks.title')}
               meta={t('tasks.meta')}
-              action={<button className="refresh-btn" type="button" onClick={fetchTasks}>{t('action.refresh')}</button>}
+              action={<button className="refresh-btn" type="button" onClick={() => tasksQuery.refetch()}>{t('action.refresh')}</button>}
             />
             <StatusLine text={updatedAt.tasks} error={errors.tasks} />
             <div className="metric-grid compact">
@@ -1969,7 +1993,7 @@ function App() {
                 </div>
               )))}
             <pre className="empty">{callDetail}</pre>
-            <button className="refresh-btn" type="button" onClick={fetchCalls}>{t('action.refresh')}</button>
+            <button className="refresh-btn" type="button" onClick={() => callsQuery.refetch()}>{t('action.refresh')}</button>
           </section>
         )}
 
@@ -1978,7 +2002,7 @@ function App() {
             <PanelHeader
               title={t('traces.title')}
               meta={t('traces.meta')}
-              action={<button className="refresh-btn" type="button" onClick={fetchTraces}>{t('action.refresh')}</button>}
+              action={<button className="refresh-btn" type="button" onClick={() => tracesQuery.refetch()}>{t('action.refresh')}</button>}
             />
             <StatusLine text={copiedNotice || updatedAt.traces} error={errors.traces} />
             <div className="metric-grid compact">
@@ -2063,7 +2087,7 @@ function App() {
                   >
                     {t('action.exportJsonl')}
                   </a>
-                  <button className="refresh-btn" type="button" onClick={fetchTraffic}>{t('action.refresh')}</button>
+                  <button className="refresh-btn" type="button" onClick={() => trafficQuery.refetch()}>{t('action.refresh')}</button>
                 </div>
               )}
             />
@@ -2176,7 +2200,7 @@ function App() {
                       <option value="all">All</option>
                     </select>
                   </label>
-                  <button className="refresh-btn" type="button" onClick={fetchStats}>{t('action.refresh')}</button>
+                  <button className="refresh-btn" type="button" onClick={refreshStats}>{t('action.refresh')}</button>
                 </div>
               )}
             />
@@ -2272,7 +2296,7 @@ function App() {
             <PanelHeader
               title={t('governance.title')}
               meta={governance?.mode?.reason ?? t('governance.meta')}
-              action={<button className="refresh-btn" type="button" onClick={fetchGovernance}>{t('action.refresh')}</button>}
+              action={<button className="refresh-btn" type="button" onClick={() => governanceQuery.refetch()}>{t('action.refresh')}</button>}
             />
             <StatusLine text={updatedAt.governance} error={errors.governance} />
             <div className="metric-grid">
@@ -2401,7 +2425,7 @@ function App() {
             updatedAt={updatedAt.logs}
             error={errors.logs}
             onSeverityFilterChange={setLogSeverityFilter}
-            onRefresh={fetchLogs}
+            onRefresh={() => logsQuery.refetch()}
             t={t}
           />
         )}
