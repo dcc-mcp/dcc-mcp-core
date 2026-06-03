@@ -12,11 +12,53 @@ The **gateway** is a single Rust HTTP server (running on `localhost:9765` by def
 - Exposes skill lifecycle and execution through the canonical MCP tools plus REST (`/v1/load_skill`, `/v1/unload_skill`, `/v1/call`) while retaining hidden MCP compatibility routes for pinned clients
 - Pushes progress, job/workflow, resource, and prompt notifications over SSE as instances come and go
 
-**One gateway per machine**. It's started automatically when the first DCC instance registers.
+**One gateway per machine**. In the default daemon-backed mode, each per-DCC
+process acts as a **Runtime Supervisor** that auto-launches a standalone
+gateway daemon if one is not already healthy, then patrols `/health` and
+restarts it when necessary. The legacy first-wins election (where a per-DCC
+process binds the gateway port directly) is available as opt-in via
+`--legacy-gateway-election`.
+
+### Default: Runtime Supervisor + Central Gateway Daemon
+
+```
+Boot order:
+  Maya starts  →  checks /health → daemon not running → acquires single-flight lock
+               →  spawns dcc-mcp-server gateway
+               →  registers as backend (gateway_runtime_mode=daemon-backed)
+  Blender starts → checks /health → daemon healthy → registers as backend
+  Houdini starts → checks /health → daemon healthy → registers as backend
+
+Crash recovery:
+  Gateway daemon crashes
+               → Maya guardian (probes every 5 s) detects /health miss after 2 failures
+               → re-acquires single-flight lock
+               → re-spawns dcc-mcp-server gateway
+               → Blender + Houdini guardians see /health restored, reset failure count
+
+Idle shutdown:
+  All backends exit
+               → daemon polls FileRegistry every 5 s
+               → no live backends for DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS (default 30 s)
+               → orderly shutdown
+```
+
+### Legacy: Per-DCC First-Wins Election
+
+```
+Script:
+  Maya v0.12.6 starts → binds port 9765 → becomes gateway
+  Maya v0.12.29 starts → port 9765 taken → becomes plain instance
+  ❌ Old version controls routing; new features ignored
+```
+
+The legacy mode is still fully supported via `--legacy-gateway-election`. Use it
+when the binary was compiled without the `gateway-daemon` feature or when a
+smaller per-DCC footprint is preferred over the three-layer architecture.
 
 ## The Problem: First-Come-First-Served and Unsafe Preemption
 
-Without version awareness, the oldest DCC wins the gateway role:
+In the legacy per-DCC first-wins model, the oldest DCC wins the gateway role:
 
 ```
 Maya v0.12.6 starts → binds port 9999 → becomes gateway
@@ -28,7 +70,22 @@ Pure version preemption has the opposite failure mode: a healthy existing
 gateway can be asked to yield just because a newer adapter starts, dropping
 long-lived MCP clients even though no failover is needed.
 
-## Our Solution: Liveness-Aware Election
+## Our Solution: Default Daemon-Backed, Legacy Election on Opt-In
+
+The default runtime mode since v0.17 removes the per-DCC election
+entirely for the common case:
+
+1. **Runtime Supervisor** — every per-DCC process ensures a standalone
+   `dcc-mcp-server gateway` daemon is running and healthy.
+2. **Guardian Watchdog** — a lightweight background task in each backend
+   probes `/health` and re-runs daemon ensure when the daemon becomes
+   unreachable.
+3. **Legacy election as fallback** — `--legacy-gateway-election` restores the
+   per-DCC first-wins election with the liveness-aware properties below.
+   This is the codepath for builds without `gateway-daemon` or for operators
+   who prefer embedded ownership.
+
+### Legacy Mode: Liveness-Aware Election
 
 ```
 Maya v0.12.6 (gateway)           Maya v0.12.29 (new)

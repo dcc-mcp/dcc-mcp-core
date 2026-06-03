@@ -1,7 +1,41 @@
 # Gateway
 
-The gateway (`McpHttpConfig::gateway_port > 0`) is a centralized HTTP
-façade that presents every live DCC instance under one MCP endpoint.
+## Default topology: Runtime Supervisor → Central Gateway → Per-DCC Registration
+
+The gateway follows a **three-layer architecture** that runs without
+manual orchestration on a single workstation:
+
+1. **Runtime Supervisor** — every per-DCC process (`dcc-mcp-server`,
+   `dcc-mcp-server auto`, `dcc-mcp-server serve`, `dcc-mcp-server sidecar`,
+   and Python `DccServerBase` adapters) acts as a daemon lifecycle manager.
+   On startup it checks whether a machine-wide gateway daemon is already
+   healthy; if not, it uses a **single-flight lock** (`gateway-launch.lock`)
+   so that N concurrent DCC launches still spawn at most one gateway process.
+   A **guardian watchdog** in each backend continuously probes `/health`
+   (default every 5 s); after two consecutive misses it re-evaluates the
+   daemon's liveness using the same single-flight lock and restarts the
+   daemon when necessary.
+
+2. **Central Gateway** — the single `dcc-mcp-server gateway` daemon that
+   owns the well-known port (default `9765`). It hosts only the gateway
+   plane: discovery, multi-source instance aggregation, bounded `tools/list`
+   with four canonical workflow primitives, dynamic capability indexing,
+   SSE multiplexing, REST routing, and the read-only admin UI. It never
+   executes a tool inline — every `tools/call` is forwarded to the
+   owning DCC backend.
+
+3. **Per-DCC Registration** — each backend process stamps its
+   `FileRegistry` row with `gateway_runtime_mode=daemon-backed`,
+   `gateway_guardian_enabled=true`, and the
+   `gateway_recovery_driver=daemon_guardian` annotation, so
+   Admin and `gateway://instances` can show which registered services
+   can revive the gateway and what fallback strategy is active.
+
+The legacy first-wins election where a per-DCC process binds the gateway
+port directly is still available as `--legacy-gateway-election`. It is the
+fallback for environments where the binary was built without the
+`gateway-daemon` feature.
+
 A single client can talk to Maya, Blender and Houdini through the same
 `/mcp` URL; the gateway discovers live backends via `FileRegistry`,
 keeps its MCP `tools/list` bounded to four canonical workflow primitives,
@@ -22,7 +56,7 @@ For production, prefer the machine-wide standalone gateway:
 dcc-mcp-server gateway --port 9765 --name studio-gateway
 ```
 
-Per-DCC servers and sidecars now auto-launch that process when
+Per-DCC servers and sidecars auto-launch that process when
 `GET /health` is not reachable. They use a single-flight
 `gateway-launch.lock` in the registry directory so three DCCs starting at
 once still spawn at most one gateway. If the process that owns the launch
@@ -117,6 +151,12 @@ Additional environment knobs:
 - `DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS` — age after which a leftover
   `gateway-launch.lock` is reclaimed by a later DCC instance, default
   `30`.
+- `DCC_MCP_GATEWAY_PERSIST` — keep the daemon alive when no backends
+  remain. Default `false`; set to `1` for studio/headless deployments
+  where backends start and stop independently.
+- `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` — grace period in seconds before
+  the daemon shuts down after the last backend exits. Default `30`;
+  `0` disables the timer (same as `PERSIST=1`).
 
 ### Daemon-mode guarantees
 
@@ -150,17 +190,58 @@ standalone). At runtime it satisfies the following:
 | Workstation with a manually managed gateway owner | `dcc-mcp-server serve --no-ensure-gateway --app <dcc>` plus `dcc-mcp-server gateway` |
 | Studio render node / shared host / CI | `dcc-mcp-server gateway` daemon, sidecars launch DCCs |
 | Headless agent without any DCC installed | `dcc-mcp-server gateway` daemon — DCCs are reached via `FileRegistry`, HTTP registration, mDNS, or relay sources |
+| Legacy per-DCC first-wins election | `dcc-mcp-server auto --legacy-gateway-election --app <dcc>` — the first DCC to bind the gateway port becomes the gateway |
+
+### Runtime layers
+
+| Layer | Component | Lifecycle |
+|-------|-----------|-----------|
+| **Runtime Supervisor** | `spawn_gateway_guardian()` in every daemon-backed backend | Probes `/health` every 5 s; re-uses single-flight lock to restart daemon after 2 consecutive misses |
+| **Central Gateway** | `dcc-mcp-server gateway` daemon process | Auto-launched by the supervisor; survives backend restarts; idle-timeout (default 30 s) after last backend exits, unless `DCC_MCP_GATEWAY_PERSIST=1` |
+| **Per-DCC Registration** | `FileRegistry` row + 5 s heartbeat | Each backend stamps `gateway_runtime_mode`, `gateway_guardian_enabled`, `gateway_recovery_driver` into its row so admin tools can answer "which services can revive the gateway?" |
 
 ## Topology
 
 ```
-              ┌──────────────── gateway ────────────────┐
-  client_A ──▶│  POST /mcp  (tools/list, tools/call)    │───▶ backend (maya)
-              │  GET  /mcp  (SSE — MCP 2025-03-26)      │───▶ backend (blender)
-  client_B ──▶│  subscribers: per-client broadcast sink │
-              │  backend SSE sub: one per backend URL   │
-              └────────────────────────────────────────┘
+┌─── Runtime Supervisor (per backend) ──────────────────────────────────────────┐
+│  Maya sidecar        Blender sidecar        Houdini sidecar                   │
+│  ┌─────────────┐     ┌─────────────┐        ┌─────────────┐                  │
+│  │ guardian     │     │ guardian    │        │ guardian    │                  │
+│  │ watchdog     │     │ watchdog    │        │ watchdog    │                  │
+│  │ /health poll │     │ /health poll│        │ /health poll│                  │
+│  └──────┬──────┘     └──────┬──────┘        └──────┬──────┘                  │
+│         │  single-flight   │                      │                          │
+│         └──────┬───────────┴──────────────────────┘                          │
+│                │  gateway-launch.lock                                         │
+│                ▼                                                              │
+├─── Central Gateway (machine-wide daemon) ─────────────────────────────────────┤
+│  dcc-mcp-server gateway --port 9765                                          │
+│  ┌──────────────────────────────────────────────────────────────┐            │
+│  │  POST /mcp  (tools/list, tools/call)                         │            │
+│  │  GET  /mcp  (SSE — MCP 2025-03-26)                           │            │
+│  │  GET  /admin (read-only dashboard)                            │            │
+│  │  GET  /v1/readyz (readiness probe + lifecycle diagnostics)    │            │
+│  │  backend SSE sub: one per backend URL                         │            │
+│  └────────┬──────────┬──────────┬───────────────────────────────┘            │
+│           │          │          │                                              │
+├─── Per-DCC Backend Registration ──────────────────────────────────────────────┤
+│  Maya @ :18812      Blender @ :18813      Houdini @ :18814                    │
+│  dcc_type: maya     dcc_type: blender    dcc_type: houdini                    │
+│  gateway_runtime_mode: daemon-backed                                          │
+│  gateway_guardian_enabled: true                                               │
+│  gateway_recovery_driver: daemon_guardian                                     │
+└───────────────────────────────────────────────────────────────────────────────┘
+
+  client_A ──▶│  talks to Maya through the same /mcp URL                      │
+  client_B ──▶│  SSE subscribers: per-client broadcast sink                   │
 ```
+
+**Key invariants:**
+
+- Guardians from multiple DCC types share one `gateway-launch.lock` — at most one daemon spawn.
+- The daemon hosts the gateway plane only; DCC backends handle tool execution.
+- If the daemon crashes, any surviving guardian restarts it within ~10-15 s (two probe misses + re-ensure time).
+- When all backends exit, the daemon shuts down after `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` (default 30 s), unless `DCC_MCP_GATEWAY_PERSIST=1`.
 
 ## Topology recipes (issue #1366)
 

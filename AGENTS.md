@@ -180,8 +180,8 @@ Gateway resources/prompts:
 | Bridge non-Python DCC | `DccBridge` (WebSocket JSON-RPC 2.0) |
 | IPC | `IpcChannelAdapter` / `SocketServerAdapter` + `DccLinkFrame` |
 | Hand off files between tools | `FileRef` + `artefact_put_file()` / `artefact_get_bytes()` |
-| Multi-DCC gateway | `McpHttpConfig(gateway_port=9765)` |
-| Choose `dcc-mcp-server` run mode | No subcommand or `auto` = per-DCC server + first-wins auto-gateway; `serve --no-auto-gateway` = per-DCC server only; `gateway` = machine-wide gateway daemon with no inline DCC execution |
+| Multi-DCC gateway (three-layer default) | Runtime Supervisor (per-backend guardian) → Central Gateway (machine-wide daemon) → Per-DCC FileRegistry registration; auto-launch with single-flight lock; guard patrol |
+| Choose `dcc-mcp-server` run mode | No subcommand or `auto` = per-DCC server + Runtime Supervisor (auto-launches and patrols the machine-wide `gateway` daemon); `serve --no-auto-gateway` = per-DCC server only; `gateway` = machine-wide gateway daemon with no inline DCC execution; `auto --legacy-gateway-election` = per-DCC first-wins election (fallback when `gateway-daemon` feature is off) |
 | Discover gateway DCC instances / direct MCP URLs | `resources/read uri="gateway://instances"` or `gateway://instances/{id}`; entries carry `mcp_url` and replace the removed `list_dcc_instances` / `get_dcc_instance` / `connect_to_dcc` tools |
 | Register a remote DCC with a gateway that cannot share `FileRegistry` | `POST /v1/instances/register` with `{instance_id, dcc_type, mcp_url, ttl_secs?}`; refresh with `/heartbeat`, remove with `/deregister`; `gateway://instances` marks these rows with `source: "http"` |
 | Discover NAT-hidden DCCs through a relay | `GatewayConfig.relay_sources` / `dcc-mcp-server gateway --relay-source ADMIN_URL=PUBLIC_BASE_URL` polls relay `/tunnels`, probes `<PUBLIC_BASE_URL>/tunnel/<id>/mcp`, and exposes healthy rows with `source: "relay"` (#1363) |
@@ -195,7 +195,8 @@ Gateway resources/prompts:
 | Spawn the local tunnel agent | `dcc_mcp_tunnel_agent::run_once(AgentConfig::new(relay_url, jwt, dcc, local_target)).await` — registers, holds the connection open, bridges per-session bytes to the local DCC HTTP server, and may advertise `instance_id`, `capabilities_fingerprint`, `adapter_version`, and `scene` |
 | Long-lived agent with back-off | `dcc_mcp_tunnel_agent::run_with_reconnect(cfg, shutdown_rx).await` — wraps `run_once` in a reconnect loop honouring `AgentConfig::reconnect` (Constant or Exponential); fails fast on `Rejected` |
 | Mint a tunnel JWT | `dcc_mcp_tunnel_protocol::auth::issue(&TunnelClaims { sub, iat, exp, iss, allowed_dcc }, secret)` — relay uses `auth::validate` to enforce DCC scope on every registration |
-| Gateway failover | `DccGatewayElection(dcc_name, server)` — auto-promote on gateway failure |
+| Gateway lifecycle (idle shutdown) | `DCC_MCP_GATEWAY_PERSIST=1` keeps daemon alive with no backends; `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` (default `30`) controls grace period before shutdown |
+| Gateway failover | `DccGatewayElection(dcc_name, server)` — auto-promote on gateway failure (legacy election mode) |
 | Hide unknown DCC types from gateway | `McpHttpConfig.allow_unknown_tools = false` (default) — drops tools whose `dcc_type` is not registered with the gateway (#553, #555) |
 | Auto-evict dead gateway instances | Gateway runs a TCP probe loop; deregisters after 3 consecutive failures, also runs a startup probe to evict instances whose listener died while the registry entry survived (#551, #552, #556) |
 | Crash-safe heartbeat | `FileRegistry::heartbeat` writes via `tempfile::persist` + Windows `LockFileEx` so concurrent processes can't stomp each other's entry (#554) |

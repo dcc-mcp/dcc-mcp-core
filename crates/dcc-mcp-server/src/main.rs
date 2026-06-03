@@ -1280,4 +1280,119 @@ mod tests {
             Some(GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION)
         );
     }
+
+    // ── Cross-DCC regression: gateway runtime mode (PIP-488) ──────────────────
+    //
+    // Verify that daemon-backed registration stamps the right metadata for at
+    // least two DCC families so the admin UI, diagnostics, and agent tools
+    // do not encode Maya-only assumptions.
+
+    #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
+    #[test]
+    fn multi_dcc_daemon_registration_metadata_is_consistent() {
+        // Maya and Blender: both in default daemon-backed mode must stamp the
+        // same metadata keys with DCC-appropriate values.
+        for dcc in &["maya", "blender"] {
+            let args = Args::try_parse_from(["dcc-mcp-server", "--app", dcc])
+                .unwrap_or_else(|_| panic!("valid CLI args for {dcc}"));
+            let mut entry = ServiceEntry::new(*dcc, "127.0.0.1", 18812);
+
+            stamp_server_gateway_runtime_metadata(&mut entry, &args.server);
+
+            assert_eq!(
+                entry
+                    .metadata
+                    .get(GATEWAY_RUNTIME_MODE_METADATA_KEY)
+                    .map(String::as_str),
+                Some("daemon-backed"),
+                "{dcc}: default mode must be daemon-backed"
+            );
+            assert_eq!(
+                entry
+                    .metadata
+                    .get(GATEWAY_GUARDIAN_ENABLED_METADATA_KEY)
+                    .map(String::as_str),
+                Some("true"),
+                "{dcc}: guardian must be enabled by default"
+            );
+            assert_eq!(
+                entry
+                    .metadata
+                    .get(GATEWAY_RECOVERY_DRIVER_METADATA_KEY)
+                    .map(String::as_str),
+                Some(GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN),
+                "{dcc}: recovery driver must be daemon_guardian"
+            );
+        }
+    }
+
+    #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
+    #[test]
+    fn multi_dcc_legacy_fallback_is_explicit_opt_in() {
+        // Photoshop and ZBrush: `--legacy-gateway-election` must consistently
+        // disable the daemon and stamp embedded_election across DCC families.
+        for dcc in &["photoshop", "zbrush"] {
+            let args =
+                Args::try_parse_from(["dcc-mcp-server", "--app", dcc, "--legacy-gateway-election"])
+                    .unwrap_or_else(|_| panic!("valid CLI args for {dcc}"));
+            let mut entry = ServiceEntry::new(*dcc, "127.0.0.1", 18813);
+
+            stamp_server_gateway_runtime_metadata(&mut entry, &args.server);
+
+            assert_eq!(
+                entry
+                    .metadata
+                    .get(GATEWAY_RUNTIME_MODE_METADATA_KEY)
+                    .map(String::as_str),
+                Some("embedded-fallback"),
+                "{dcc}: legacy mode must stamp embedded-fallback"
+            );
+            assert_eq!(
+                entry
+                    .metadata
+                    .get(GATEWAY_GUARDIAN_ENABLED_METADATA_KEY)
+                    .map(String::as_str),
+                Some("false"),
+                "{dcc}: guardian must be disabled in legacy mode"
+            );
+            assert_eq!(
+                entry
+                    .metadata
+                    .get(GATEWAY_RECOVERY_DRIVER_METADATA_KEY)
+                    .map(String::as_str),
+                Some(GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION),
+                "{dcc}: recovery driver must be embedded_election in legacy mode"
+            );
+        }
+    }
+
+    #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
+    #[test]
+    fn multi_dcc_gateway_port_zero_disables_guardian() {
+        for dcc in &["maya", "houdini"] {
+            let args =
+                Args::try_parse_from(["dcc-mcp-server", "--app", dcc, "--gateway-port", "0"])
+                    .unwrap_or_else(|_| panic!("valid CLI args for {dcc}"));
+            let mut entry = ServiceEntry::new(*dcc, "127.0.0.1", 18814);
+
+            stamp_server_gateway_runtime_metadata(&mut entry, &args.server);
+
+            assert_eq!(
+                entry
+                    .metadata
+                    .get(GATEWAY_RUNTIME_MODE_METADATA_KEY)
+                    .map(String::as_str),
+                Some("not_configured"),
+                "{dcc}: gateway_port=0 must stamp not_configured"
+            );
+            assert_eq!(
+                entry
+                    .metadata
+                    .get(GATEWAY_RECOVERY_DRIVER_METADATA_KEY)
+                    .map(String::as_str),
+                Some(GATEWAY_RECOVERY_DRIVER_NONE),
+                "{dcc}: recovery driver must be none when port is 0"
+            );
+        }
+    }
 }
