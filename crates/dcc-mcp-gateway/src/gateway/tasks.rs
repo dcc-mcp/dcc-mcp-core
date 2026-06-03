@@ -327,6 +327,8 @@ pub(crate) async fn start_gateway_tasks(
     health_check_interval_secs: u64,
     health_check_failures: u32,
     auth: crate::gateway::security::GatewayAuth,
+    gateway_persist: bool,
+    gateway_idle_timeout_secs: u64,
 ) -> Result<GatewayTasks, Box<dyn std::error::Error + Send + Sync>> {
     // ── Yield channel ─────────────────────────────────────────────────────
     let (yield_tx, yield_rx) = watch::channel(false);
@@ -899,6 +901,8 @@ pub(crate) async fn start_gateway_tasks(
         search_telemetry: Arc::new(crate::gateway::search_telemetry::SearchTelemetryStore::new()),
         debug_routes_enabled: false,
         auth: Arc::new(auth),
+        gateway_persist,
+        gateway_idle_timeout_secs,
     };
 
     // ── Admin UI state (#772, #864) ────────────────────────────────────────

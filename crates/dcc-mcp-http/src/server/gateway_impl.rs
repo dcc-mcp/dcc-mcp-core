@@ -65,6 +65,8 @@ pub(crate) async fn start_gateway_runner(
         // GatewayRunner::with_config and is documented in
         // docs/guide/gateway.md § Security.
         auth: dcc_mcp_gateway::GatewayAuth::disabled(),
+        gateway_persist: false,
+        gateway_idle_timeout_secs: 30,
     };
 
     let runner = match GatewayRunner::new(gateway_config) {

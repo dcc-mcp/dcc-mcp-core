@@ -615,6 +615,13 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
                     },
                     "gateway_daemon_guardian_instance_count": {"type": "integer", "minimum": 0},
                     "gateway_daemon_guardian_ready": {"type": "boolean"},
+                    "gateway_lifecycle": {
+                        "type": "object",
+                        "properties": {
+                            "persist": {"type": "boolean"},
+                            "idle_timeout_secs": {"type": "integer", "minimum": 0}
+                        }
+                    },
                     "instances": {
                         "type": "array",
                         "items": {"$ref": "#/components/schemas/GatewayInstance"}
