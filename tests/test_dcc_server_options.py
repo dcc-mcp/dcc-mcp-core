@@ -47,10 +47,11 @@ class TestGatewayOptions:
         gw = GatewayOptions.from_env()
         assert gw.port == 9999
 
-    def test_from_env_invalid_port_defaults_to_zero(self, monkeypatch):
+    def test_from_env_invalid_port_preserves_none(self, monkeypatch):
+        """Invalid DCC_MCP_GATEWAY_PORT keeps port=None so Rust default is used."""
         monkeypatch.setenv("DCC_MCP_GATEWAY_PORT", "not_a_number")
         gw = GatewayOptions.from_env()
-        assert gw.port == 0
+        assert gw.port is None
 
     def test_from_env_reads_registry_dir(self, monkeypatch):
         monkeypatch.setenv("DCC_MCP_REGISTRY_DIR", "/some/registry")
@@ -62,9 +63,22 @@ class TestGatewayOptions:
         gw = GatewayOptions.from_env(port=1234)
         assert gw.port == 1234
 
-    def test_from_env_no_env_port_gives_zero(self, monkeypatch):
+    def test_from_env_no_env_port_keeps_none(self, monkeypatch):
+        """When DCC_MCP_GATEWAY_PORT is not set, port stays None (use Rust default 9765)."""
         monkeypatch.delenv("DCC_MCP_GATEWAY_PORT", raising=False)
         gw = GatewayOptions.from_env()
+        assert gw.port is None
+
+    def test_from_env_explicit_zero_port_disables_gateway(self, monkeypatch):
+        """Explicit port=0 should disable gateway through build_mcp_http_config."""
+        monkeypatch.setenv("DCC_MCP_GATEWAY_PORT", "9999")
+        gw = GatewayOptions.from_env(port=0)
+        assert gw.port == 0  # explicit 0 wins over env
+
+    def test_from_env_direct_zero_port_disables_gateway(self, monkeypatch):
+        """GatewayOptions(port=0) means gateway is explicitly disabled."""
+        monkeypatch.delenv("DCC_MCP_GATEWAY_PORT", raising=False)
+        gw = GatewayOptions.from_env(port=0)
         assert gw.port == 0
 
     def test_frozen(self):

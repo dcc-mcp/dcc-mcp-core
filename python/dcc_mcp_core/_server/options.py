@@ -76,11 +76,17 @@ class GatewayOptions:
         scene: str | None = None,
         enable_failover: bool = True,
     ) -> GatewayOptions:
-        """Resolve gateway options, reading env-vars where parameters are ``None``."""
+        """Resolve gateway options, reading env-vars where parameters are ``None``.
+
+        When ``port`` is ``None`` and ``DCC_MCP_GATEWAY_PORT`` is not set (or
+        invalid), the result keeps ``port=None`` so downstream builders can
+        fall back to the Rust-side default (9765).  Pass ``port=0`` explicitly
+        to disable the gateway.
+        """
         resolved_port = port
         if resolved_port is None:
             env_val = os.environ.get("DCC_MCP_GATEWAY_PORT", "")
-            resolved_port = int(env_val) if env_val.isdigit() else 0
+            resolved_port = int(env_val) if env_val.isdigit() else None
 
         resolved_registry_dir = registry_dir
         if resolved_registry_dir is None:
