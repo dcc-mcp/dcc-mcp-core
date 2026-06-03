@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.52](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.17.51...v0.17.52) (2026-06-03)
+
+
+### Documentation
+
+* **gateway:** define daemon runtime vocabulary ([d89537b](https://github.com/dcc-mcp/dcc-mcp-core/commit/d89537bb47859b687fa5df5bce6f3c6678c51a20))
+
 ## [0.17.51](https://github.com/loonghao/dcc-mcp-core/compare/v0.17.50...v0.17.51) (2026-06-02)
 
 
