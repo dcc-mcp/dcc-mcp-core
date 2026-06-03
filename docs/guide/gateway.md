@@ -673,10 +673,10 @@ For REST-only clients, `POST /v1/search` with `loaded_only=false` returns
 unloaded hits with `load_state`, `available_groups` when the backend knows
 them, and a machine-executable `next_step`. POST that `next_step.arguments`
 object to `/v1/load_skill`, or call MCP `load_skill` with the `next_step.mcp`
-arguments, then search or describe again. Gateway `load_skill` defaults to
-lazy group activation (`activate_groups=false` unless supplied), so only
-default-active/core groups become active automatically; use an explicit
-`tool_group` activation for heavier groups.
+arguments, then search or describe again. Gateway `load_skill` activates all
+declared groups by default (`activate_groups=true` when omitted). Pass
+`activate_groups=false` for lazy loading, or use `tool_group` to activate one
+group explicitly.
 
 ### Gateway call wrapper payloads
 
