@@ -697,7 +697,7 @@ starting point. Reach for an internal Tools / Services / Utils split when:
 - one `execute.py` file has grown past ~200 lines.
 
 Reference implementation:
-[`examples/skills/example-layered-skill/`](https://github.com/loonghao/dcc-mcp-core/tree/main/examples/skills/example-layered-skill).
+[`examples/skills/example-layered-skill/`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/examples/skills/example-layered-skill).
 
 ### Recommended layout
 
@@ -1422,7 +1422,7 @@ schemas.
 
 #### How `search_skills` ranks results
 
-Since dcc-mcp-core 0.15 (issue [#343](https://github.com/loonghao/dcc-mcp-core/issues/343))
+Since dcc-mcp-core 0.15 (issue [#343](https://github.com/dcc-mcp/dcc-mcp-core/issues/343))
 the ranker is a tokenised BM25-lite scorer. It is deterministic — the same
 skill set + query always yields the same order.
 
@@ -1464,7 +1464,7 @@ The `tags` and `dcc` filter arguments are applied *before* scoring.
 
 ## Migrating pre-0.15 SKILL.md
 
-Starting with dcc-mcp-core 0.15 (issue [#356](https://github.com/loonghao/dcc-mcp-core/issues/356)), dcc-mcp-core-specific extension keys (`dcc`, `version`, `tags`, `tools`, …) MUST live under the agentskills.io-compliant nested `metadata.dcc-mcp` namespace rather than at the top level of SKILL.md frontmatter. The strict v0.15+ loader also no longer promotes the pre-0.15 flat dotted form (`metadata: { "dcc-mcp.dcc": ... }`) into typed fields. A SKILL.md with legacy top-level keys fails to load and emits a `tracing::error!`.
+Starting with dcc-mcp-core 0.15 (issue [#356](https://github.com/dcc-mcp/dcc-mcp-core/issues/356)), dcc-mcp-core-specific extension keys (`dcc`, `version`, `tags`, `tools`, …) MUST live under the agentskills.io-compliant nested `metadata.dcc-mcp` namespace rather than at the top level of SKILL.md frontmatter. The strict v0.15+ loader also no longer promotes the pre-0.15 flat dotted form (`metadata: { "dcc-mcp.dcc": ... }`) into typed fields. A SKILL.md with legacy top-level keys fails to load and emits a `tracing::error!`.
 
 ### Before (pre-0.15 legacy form — no longer accepted)
 

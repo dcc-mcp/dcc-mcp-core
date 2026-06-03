@@ -8,8 +8,8 @@
 
 | 优先级 | 文档 | 说明 |
 |--------|------|------|
-| 1 | [`AGENTS.md`](https://github.com/loonghao/dcc-mcp-core/blob/main/AGENTS.md) | 导航地图、响应规则、PR 规则及链接 |
-| 2 | [`AI_AGENT_GUIDE.md`](https://github.com/loonghao/dcc-mcp-core/blob/main/AI_AGENT_GUIDE.md) | AI Agent 的技能优先使用工作流 |
+| 1 | [`AGENTS.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md) | 导航地图、响应规则、PR 规则及链接 |
+| 2 | [`AI_AGENT_GUIDE.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AI_AGENT_GUIDE.md) | AI Agent 的技能优先使用工作流 |
 | 3 | [agents-reference.md](agents-reference.md) | **关键** — 陷阱、注意事项、代码风格、常量 |
 | 4 | [skills.md](skills.md) | 如何编写和注册技能 |
 | 5 | [gateway.md](gateway.md) + [dcc-rest-skill-api.md](dcc-rest-skill-api.md) | 网关动态能力与 REST 工作流 |

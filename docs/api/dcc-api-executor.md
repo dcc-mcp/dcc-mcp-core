@@ -1,6 +1,6 @@
 # DCC API Executor — Code-Orchestration for Huge APIs
 
-> Source: [`python/dcc_mcp_core/dcc_api_executor.py`](https://github.com/loonghao/dcc-mcp-core/blob/main/python/dcc_mcp_core/dcc_api_executor.py) · Issue [#411](https://github.com/loonghao/dcc-mcp-core/issues/411)
+> Source: [`python/dcc_mcp_core/dcc_api_executor.py`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/dcc_api_executor.py) · Issue [#411](https://github.com/dcc-mcp/dcc-mcp-core/issues/411)
 >
 > **[中文版](../zh/api/dcc-api-executor.md)**
 
@@ -154,7 +154,7 @@ dispatches never consume tokens.
 
 Python helpers ship today. The Rust-level MCP built-in `dcc_search` /
 `dcc_execute` tools are tracked in issue
-[#411](https://github.com/loonghao/dcc-mcp-core/issues/411). Until they
+[#411](https://github.com/dcc-mcp/dcc-mcp-core/issues/411). Until they
 land, register via `register_dcc_api_executor(server, executor)` — the
 Python handlers behave identically.
 

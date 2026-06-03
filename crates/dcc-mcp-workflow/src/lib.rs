@@ -22,7 +22,7 @@
 //! | [`sqlite`]      | SQLite persistence for workflow runs (gated behind `job-persist-sqlite`) |
 //! | [`tools`]       | `workflows_*` built-in MCP tool metadata + handler wiring |
 //!
-//! See issue [#348](https://github.com/loonghao/dcc-mcp-core/issues/348).
+//! See issue [#348](https://github.com/dcc-mcp/dcc-mcp-core/issues/348).
 
 #![deny(missing_docs)]
 

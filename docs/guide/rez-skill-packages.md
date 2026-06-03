@@ -103,6 +103,6 @@ to reason about.
 
 See also [context-bundles.md](context-bundles.md), [gateway.md](gateway.md),
 the toolset-profile design in
-[#611](https://github.com/loonghao/dcc-mcp-core/issues/611), instruction
-resources in [#608](https://github.com/loonghao/dcc-mcp-core/issues/608), and
-recipe packs in [#616](https://github.com/loonghao/dcc-mcp-core/issues/616).
+[#611](https://github.com/dcc-mcp/dcc-mcp-core/issues/611), instruction
+resources in [#608](https://github.com/dcc-mcp/dcc-mcp-core/issues/608), and
+recipe packs in [#616](https://github.com/dcc-mcp/dcc-mcp-core/issues/616).

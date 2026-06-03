@@ -287,6 +287,6 @@ custom adapter-owned schemes.
 - [ ] Open a tracking issue in your repo; cross-reference the core's
   [umbrella issue][umbrella] so progress is visible across repos.
 
-[HostAdapter]: https://github.com/loonghao/dcc-mcp-core/blob/main/python/dcc_mcp_core/host/_adapter.py
+[HostAdapter]: https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/host/_adapter.py
 [thread-safety]: ./dcc-thread-safety.md
-[umbrella]: https://github.com/loonghao/dcc-mcp-core/issues/690
+[umbrella]: https://github.com/dcc-mcp/dcc-mcp-core/issues/690

@@ -1,6 +1,6 @@
 # Auth — API Key 与 OAuth 2.1 / CIMD
 
-> 源码：[`python/dcc_mcp_core/auth.py`](https://github.com/loonghao/dcc-mcp-core/blob/main/python/dcc_mcp_core/auth.py) · Issue [#408](https://github.com/loonghao/dcc-mcp-core/issues/408)
+> 源码：[`python/dcc_mcp_core/auth.py`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/auth.py) · Issue [#408](https://github.com/dcc-mcp/dcc-mcp-core/issues/408)
 >
 > **[English](../../api/auth.md)**
 
@@ -109,7 +109,7 @@ def secure_handler(params, *, request_headers=None):
 `validate_bearer_token`，或由部署代码拿来配置边界代理。
 
 Rust 侧对 `/.well-known/oauth-client-metadata` 端点以及 `/mcp` 请求 Bearer
-检查的完整支持，跟踪于 issue [#408](https://github.com/loonghao/dcc-mcp-core/issues/408)。
+检查的完整支持，跟踪于 issue [#408](https://github.com/dcc-mcp/dcc-mcp-core/issues/408)。
 在它落地前，不要把 `McpHttpConfig` 当作认证边界；API key 或 OAuth 应在
 反向代理 / 专用 MCP OAuth 网关中 enforcement。
 

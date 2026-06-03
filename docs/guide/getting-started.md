@@ -5,10 +5,10 @@
 ### CLI from GitHub Releases
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | sh
+curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
 
 # Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
 ```
 
 This installs the standalone `dcc-mcp-cli` control-plane binary from the
@@ -23,7 +23,7 @@ pip install dcc-mcp-core
 ### From Source (requires Rust toolchain)
 
 ```bash
-git clone https://github.com/loonghao/dcc-mcp-core.git
+git clone https://github.com/dcc-mcp/dcc-mcp-core.git
 cd dcc-mcp-core
 pip install -e .
 ```
@@ -259,7 +259,7 @@ For low-level servers built around `McpHttpServer` directly, call
 ## Development Setup
 
 ```bash
-git clone https://github.com/loonghao/dcc-mcp-core.git
+git clone https://github.com/dcc-mcp/dcc-mcp-core.git
 cd dcc-mcp-core
 
 # Install with vx (recommended)

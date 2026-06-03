@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-05-14
-- **Issue:** [#985](https://github.com/loonghao/dcc-mcp-core/issues/985)
+- **Issue:** [#985](https://github.com/dcc-mcp/dcc-mcp-core/issues/985)
 
 ## Context
 

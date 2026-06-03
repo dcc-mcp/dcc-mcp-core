@@ -24,7 +24,7 @@ metadata:
         - DCC_MCP_BASE_URL
     primaryEnv: DCC_MCP_BASE_URL
     emoji: "🖥️"
-    homepage: https://github.com/loonghao/dcc-mcp-core/blob/main/skills/dcc-cli-gateway/SKILL.md
+    homepage: https://github.com/dcc-mcp/dcc-mcp-core/blob/main/skills/dcc-cli-gateway/SKILL.md
 ---
 
 # DCC CLI Gateway — Agent Control Plane
@@ -42,7 +42,7 @@ Connection order:
 3. If the download fails, use the bundled Python stdlib REST fallback.
 
 Install via OpenClaw/ClawHub, or point your agent at this `SKILL.md` after cloning
-[`dcc-mcp-core/skills/dcc-cli-gateway/`](https://github.com/loonghao/dcc-mcp-core/tree/main/skills/dcc-cli-gateway).
+[`dcc-mcp-core/skills/dcc-cli-gateway/`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/skills/dcc-cli-gateway).
 
 ---
 

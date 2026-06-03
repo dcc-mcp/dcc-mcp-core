@@ -32,9 +32,9 @@ Keep code adapter-local when it is only:
 
 ## Current Core Requests From Adapter Review
 
-- [RFC: add adapter skill-load transform hooks](https://github.com/loonghao/dcc-mcp-core/issues/1204): adapters need a core-owned hook so metadata transforms apply consistently to programmatic `load_skill`, MCP `load_skill`, REST `/v1/load_skill`, and gateway-mediated loads.
-- [RFC: expose public DccServerBase resource registration surface](https://github.com/loonghao/dcc-mcp-core/issues/1205): adapters need a public resource handle/helper instead of private inner-server access.
-- [RFC: add reusable adapter readiness binder](https://github.com/loonghao/dcc-mcp-core/issues/1206): embedded adapters need a shared readiness binder for process, dispatcher, host-execution, main-thread, and DCC-ready state.
+- [RFC: add adapter skill-load transform hooks](https://github.com/dcc-mcp/dcc-mcp-core/issues/1204): adapters need a core-owned hook so metadata transforms apply consistently to programmatic `load_skill`, MCP `load_skill`, REST `/v1/load_skill`, and gateway-mediated loads.
+- [RFC: expose public DccServerBase resource registration surface](https://github.com/dcc-mcp/dcc-mcp-core/issues/1205): adapters need a public resource handle/helper instead of private inner-server access.
+- [RFC: add reusable adapter readiness binder](https://github.com/dcc-mcp/dcc-mcp-core/issues/1206): embedded adapters need a shared readiness binder for process, dispatcher, host-execution, main-thread, and DCC-ready state.
 
 ## Issue Template
 

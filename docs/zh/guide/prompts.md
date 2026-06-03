@@ -1,8 +1,8 @@
 # MCP Prompts 原语
 
 > 为 dcc-mcp-core 实现 [MCP 2025-03-26 — Prompts](https://modelcontextprotocol.io/specification/2025-03-26/server/prompts)。
-> Issues [#351](https://github.com/loonghao/dcc-mcp-core/issues/351)
-> 和 [#355](https://github.com/loonghao/dcc-mcp-core/issues/355)。
+> Issues [#351](https://github.com/dcc-mcp/dcc-mcp-core/issues/351)
+> 和 [#355](https://github.com/dcc-mcp/dcc-mcp-core/issues/355)。
 
 **Prompts** 原语是 `McpHttpServer` 通告的第三个 MCP 面，
 与 `tools` 和 `resources` 并列。它使 AI 客户端能够发现可重用的
@@ -35,7 +35,7 @@
 
 ## 来源: 兄弟 `prompts.yaml`
 
-遵循项目范围的**兄弟文件规则** ([#356](https://github.com/loonghao/dcc-mcp-core/issues/356))，
+遵循项目范围的**兄弟文件规则** ([#356](https://github.com/dcc-mcp/dcc-mcp-core/issues/356))，
 提示模板从不内联到 `SKILL.md` 中。技能作者从 `metadata.dcc-mcp`
 命名空间引用一个兄弟文件：
 
@@ -200,8 +200,8 @@ adapter 自有、依赖运行时能力的 prompt 才建议动态注册。
 
 ## 相关 issues
 
-- [#351](https://github.com/loonghao/dcc-mcp-core/issues/351) — MCP prompts 原语
-- [#355](https://github.com/loonghao/dcc-mcp-core/issues/355) — 从 SKILL.md 示例 + 工作流派生的 prompts
-- [#348](https://github.com/loonghao/dcc-mcp-core/issues/348) — 工作流 specs（自动派生 prompts 的来源）
-- [#356](https://github.com/loonghao/dcc-mcp-core/issues/356) — 兄弟文件模式
-- [#350](https://github.com/loonghao/dcc-mcp-core/issues/350) — MCP resources 原语（姐妹功能）
+- [#351](https://github.com/dcc-mcp/dcc-mcp-core/issues/351) — MCP prompts 原语
+- [#355](https://github.com/dcc-mcp/dcc-mcp-core/issues/355) — 从 SKILL.md 示例 + 工作流派生的 prompts
+- [#348](https://github.com/dcc-mcp/dcc-mcp-core/issues/348) — 工作流 specs（自动派生 prompts 的来源）
+- [#356](https://github.com/dcc-mcp/dcc-mcp-core/issues/356) — 兄弟文件模式
+- [#350](https://github.com/dcc-mcp/dcc-mcp-core/issues/350) — MCP resources 原语（姐妹功能）

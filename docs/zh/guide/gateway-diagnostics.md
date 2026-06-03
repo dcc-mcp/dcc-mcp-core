@@ -301,4 +301,4 @@ tail -F "$DCC_MCP_LOG_DIR/dcc-mcp.*.log" | grep -E 'Gateway|ghost|stale|Health'
 
 - [REST API 面板](rest-api-surface.md) —— `/v1/readyz`、错误 kind、envelope 对齐。
 - [CLI 参考](cli-reference.md) —— `dcc-mcp-server` 的每个旗标和环境变量。
-- [AGENTS.md](https://github.com/loonghao/dcc-mcp-core/blob/main/AGENTS.md) —— 公共 API 完整决策表。
+- [AGENTS.md](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md) —— 公共 API 完整决策表。

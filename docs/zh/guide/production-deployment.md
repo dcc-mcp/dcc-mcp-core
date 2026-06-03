@@ -26,7 +26,7 @@
 ### 编译二进制
 
 二进制来自 Rust bin crate
-[`crates/dcc-mcp-server/`](https://github.com/loonghao/dcc-mcp-core/tree/main/crates/dcc-mcp-server)。
+[`crates/dcc-mcp-server/`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/crates/dcc-mcp-server)。
 除平台 libc 以外它是静态链接的，不依赖 Python 运行时。
 
 ```bash
@@ -98,7 +98,7 @@ curl -s http://127.0.0.1:9765/instances # → 已注册实例的 JSON 列表
 ### 多阶段镜像
 
 完整示例见
-[`examples/compose/gateway-ha/Dockerfile`](https://github.com/loonghao/dcc-mcp-core/tree/main/examples/compose/gateway-ha)。
+[`examples/compose/gateway-ha/Dockerfile`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/examples/compose/gateway-ha)。
 示意：
 
 ```Dockerfile
@@ -127,7 +127,7 @@ docker run --rm -p 9765:9765 dcc-mcp-server:latest \
 
 ### docker-compose 高可用
 
-[`examples/compose/gateway-ha/docker-compose.yml`](https://github.com/loonghao/dcc-mcp-core/tree/main/examples/compose/gateway-ha)
+[`examples/compose/gateway-ha/docker-compose.yml`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/examples/compose/gateway-ha)
 启动**两个网关候选**（都抢占 `9765`，一个胜出、另一个作为后备普通实例，
 可在故障时接管）以及**两个 mock DCC 服务器**，共享同一个 registry
 卷。
@@ -146,7 +146,7 @@ docker compose down
 
 在裸机或长期存在的 VM 上使用 systemd，让操作系统维持
 `dcc-mcp-server` 的生命周期。标准 unit 文件在
-[`examples/systemd/dcc-mcp-gateway.service`](https://github.com/loonghao/dcc-mcp-core/tree/main/examples/systemd)。
+[`examples/systemd/dcc-mcp-gateway.service`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/examples/systemd)。
 
 该 unit 启用了下列加固选项：
 
@@ -407,4 +407,4 @@ curl -sf http://<副本 A IP>:9765/health
 - [网关选举机制](gateway-election.md) —— 知名端口如何被抢占。
 - [传输层](transport.md) —— DCC 进程间 IPC。
 - [MCP 2025-03-26 规范](https://modelcontextprotocol.io/specification/2025-03-26) —— Streamable HTTP、`Mcp-Session-Id`。
-- 示例工件：[`examples/compose/gateway-ha/`](https://github.com/loonghao/dcc-mcp-core/tree/main/examples/compose/gateway-ha)、[`examples/k8s/gateway-ha/`](https://github.com/loonghao/dcc-mcp-core/tree/main/examples/k8s/gateway-ha)、[`examples/systemd/`](https://github.com/loonghao/dcc-mcp-core/tree/main/examples/systemd)。
+- 示例工件：[`examples/compose/gateway-ha/`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/examples/compose/gateway-ha)、[`examples/k8s/gateway-ha/`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/examples/k8s/gateway-ha)、[`examples/systemd/`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/examples/systemd)。

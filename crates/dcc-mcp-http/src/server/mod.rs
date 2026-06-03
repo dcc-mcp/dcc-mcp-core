@@ -473,7 +473,7 @@ impl McpHttpServer {
                 tracing::warn!(
                     requested_policy = "requeue",
                     effective_policy = "drop",
-                    issue = "loonghao/dcc-mcp-core#567",
+                    issue = "dcc-mcp/dcc-mcp-core#567",
                     "job_recovery=Requeue is accepted but degrades to Drop until tool-arg persistence lands; \
                      in-flight rows will be marked Interrupted as if Drop were configured"
                 );
@@ -517,7 +517,7 @@ impl McpHttpServer {
                 }
                 (Some(_), None) => {
                     tracing::warn!(
-                        issue = "loonghao/dcc-mcp-core#1055",
+                        issue = "dcc-mcp/dcc-mcp-core#1055",
                         "McpHttpServer: executor without host_bridge_runtime — MCP tools/call \
                      keeps main-thread routing; REST POST /v1/call uses direct dispatch. \
                      Call with_host_bridge_runtime(Handle) when the executor comes from \

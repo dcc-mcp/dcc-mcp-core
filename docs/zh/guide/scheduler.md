@@ -1,10 +1,10 @@
 # 调度器 — cron + webhook 触发的工作流
 
-> Issue [#352](https://github.com/loonghao/dcc-mcp-core/issues/352)。
+> Issue [#352](https://github.com/dcc-mcp/dcc-mcp-core/issues/352)。
 > 通过 Cargo `scheduler` feature opt-in。默认关闭。
 
 调度器子系统在两种触发器上触发预注册的工作流
-（来自 [#348](https://github.com/loonghao/dcc-mcp-core/issues/348) 的 `WorkflowSpec`）：
+（来自 [#348](https://github.com/dcc-mcp/dcc-mcp-core/issues/348) 的 `WorkflowSpec`）：
 
 - **Cron** — 基于 `chrono-tz` 时区的下次触发时间循环，可选均匀随机 jitter。
 - **Webhook** — 主 Axum 路由器上的 HTTP POST 端点，可选通过
@@ -14,7 +14,7 @@
 并将其交给调用者提供的 `JobSink`。sink 针对 `WorkflowCatalog`
 解析工作流名称，并通过主机首选的任何分派路径将 `WorkflowJob` 入队。
 
-## 兄弟文件模式 ([#356](https://github.com/loonghao/dcc-mcp-core/issues/356))
+## 兄弟文件模式 ([#356](https://github.com/dcc-mcp/dcc-mcp-core/issues/356))
 
 调度计划存放在 `SKILL.md` 旁边的 `*.schedules.yaml` 文件中，
 从不内联在 `SKILL.md` frontmatter 本身。技能通过
@@ -195,4 +195,4 @@ Python 目前无法直接构造 `SchedulerService`。
 
 - `crates/dcc-mcp-scheduler/src/lib.rs` — crate 级文档和示例。
 - `docs/proposals/workflow-orchestration-gap.md` §G — 设计原理。
-- Issue [#352](https://github.com/loonghao/dcc-mcp-core/issues/352)。
+- Issue [#352](https://github.com/dcc-mcp/dcc-mcp-core/issues/352)。

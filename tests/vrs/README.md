@@ -113,19 +113,19 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 
 ## Related issues
 
-- maya [#215](https://github.com/loonghao/dcc-mcp-maya/issues/215) — execute_python crash regression
-- maya [#199](https://github.com/loonghao/dcc-mcp-maya/issues/199) — prior crash report
-- maya [#235](https://github.com/loonghao/dcc-mcp-maya/issues/235) — playblast / capture_viewport stops MCP HTTP server
-- core [#992](https://github.com/loonghao/dcc-mcp-core/issues/992) — schema stripped between backend and gateway
-- core [#993](https://github.com/loonghao/dcc-mcp-core/issues/993) — search_tools excludes unloaded skill actions
-- core [#994](https://github.com/loonghao/dcc-mcp-core/issues/994) — search ranking dominated by meta-tools
-- core [#995](https://github.com/loonghao/dcc-mcp-core/issues/995) — list_skills returns full metadata for every skill
-- core [#996](https://github.com/loonghao/dcc-mcp-core/issues/996) — instance-offline envelope must carry restart cause
-- core [#1037](https://github.com/loonghao/dcc-mcp-core/issues/1037) — cooperative gateway yield fallback should be structured and non-alarming
-- core [#1092](https://github.com/loonghao/dcc-mcp-core/issues/1092) — stable `/v1/debug/*` API for agent diagnostics
-- core [#1093](https://github.com/loonghao/dcc-mcp-core/issues/1093) — first-class Trace Context for full-chain debug bundles
-- core [#1124](https://github.com/loonghao/dcc-mcp-core/issues/1124) — HostExecutionBridge registration must satisfy main-affinity tools/call routing
-- core [#1125](https://github.com/loonghao/dcc-mcp-core/issues/1125) — bundled diagnostics screenshot must return a dict through REST dispatch
-- core [#1133](https://github.com/loonghao/dcc-mcp-core/issues/1133) — app_ui gateway discovery and REST dispatch
-- core [#1134](https://github.com/loonghao/dcc-mcp-core/issues/1134) — app_ui DCC debugging workflow examples and REST traces
-- core [#1365](https://github.com/loonghao/dcc-mcp-core/issues/1365) — gateway must enforce authentication and scope-bound DCC registration
+- maya [#215](https://github.com/dcc-mcp/dcc-mcp-maya/issues/215) — execute_python crash regression
+- maya [#199](https://github.com/dcc-mcp/dcc-mcp-maya/issues/199) — prior crash report
+- maya [#235](https://github.com/dcc-mcp/dcc-mcp-maya/issues/235) — playblast / capture_viewport stops MCP HTTP server
+- core [#992](https://github.com/dcc-mcp/dcc-mcp-core/issues/992) — schema stripped between backend and gateway
+- core [#993](https://github.com/dcc-mcp/dcc-mcp-core/issues/993) — search_tools excludes unloaded skill actions
+- core [#994](https://github.com/dcc-mcp/dcc-mcp-core/issues/994) — search ranking dominated by meta-tools
+- core [#995](https://github.com/dcc-mcp/dcc-mcp-core/issues/995) — list_skills returns full metadata for every skill
+- core [#996](https://github.com/dcc-mcp/dcc-mcp-core/issues/996) — instance-offline envelope must carry restart cause
+- core [#1037](https://github.com/dcc-mcp/dcc-mcp-core/issues/1037) — cooperative gateway yield fallback should be structured and non-alarming
+- core [#1092](https://github.com/dcc-mcp/dcc-mcp-core/issues/1092) — stable `/v1/debug/*` API for agent diagnostics
+- core [#1093](https://github.com/dcc-mcp/dcc-mcp-core/issues/1093) — first-class Trace Context for full-chain debug bundles
+- core [#1124](https://github.com/dcc-mcp/dcc-mcp-core/issues/1124) — HostExecutionBridge registration must satisfy main-affinity tools/call routing
+- core [#1125](https://github.com/dcc-mcp/dcc-mcp-core/issues/1125) — bundled diagnostics screenshot must return a dict through REST dispatch
+- core [#1133](https://github.com/dcc-mcp/dcc-mcp-core/issues/1133) — app_ui gateway discovery and REST dispatch
+- core [#1134](https://github.com/dcc-mcp/dcc-mcp-core/issues/1134) — app_ui DCC debugging workflow examples and REST traces
+- core [#1365](https://github.com/dcc-mcp/dcc-mcp-core/issues/1365) — gateway must enforce authentication and scope-bound DCC registration

@@ -70,7 +70,7 @@ example-layered-skill/
 
 ## Why a sibling `tools.yaml`
 
-Per [#356](https://github.com/loonghao/dcc-mcp-core/issues/356), tool
+Per [#356](https://github.com/dcc-mcp/dcc-mcp-core/issues/356), tool
 declarations live in a sibling YAML referenced from
 `metadata.dcc-mcp.tools` so that SKILL.md frontmatter stays
 agentskills.io 1.0 compliant.

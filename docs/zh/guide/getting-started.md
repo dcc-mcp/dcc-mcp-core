@@ -5,10 +5,10 @@
 ### 从 GitHub Release 安装 CLI
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | sh
+curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
 
 # Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
 ```
 
 这会从最新 GitHub Release 安装独立的 `dcc-mcp-cli` 控制面二进制。
@@ -23,7 +23,7 @@ pip install dcc-mcp-core
 ### 从源代码安装（需要 Rust 工具链）
 
 ```bash
-git clone https://github.com/loonghao/dcc-mcp-core.git
+git clone https://github.com/dcc-mcp/dcc-mcp-core.git
 cd dcc-mcp-core
 pip install -e .
 ```
@@ -151,7 +151,7 @@ print(f"MCP 服务器运行在 {handle.mcp_url()}")
 ## 开发环境设置
 
 ```bash
-git clone https://github.com/loonghao/dcc-mcp-core.git
+git clone https://github.com/dcc-mcp/dcc-mcp-core.git
 cd dcc-mcp-core
 
 # 使用 vx 安装（推荐）

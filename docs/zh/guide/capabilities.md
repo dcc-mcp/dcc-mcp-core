@@ -1,6 +1,6 @@
 # 能力与工作区根目录
 
-> **Issue:** [#354](https://github.com/loonghao/dcc-mcp-core/issues/354) —
+> **Issue:** [#354](https://github.com/dcc-mcp/dcc-mcp-core/issues/354) —
 > 能力声明 + 类型化工作区路径握手
 >
 > **状态:** 自 v0.15 起可用

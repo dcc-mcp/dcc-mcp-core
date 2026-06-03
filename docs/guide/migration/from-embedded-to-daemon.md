@@ -10,7 +10,7 @@ then registers as a backend. The steps below are only needed when you are
 retiring a legacy embedded topology or moving to a separately managed daemon /
 multi-machine discovery source introduced by epic [#1367][epic].
 
-[epic]: https://github.com/loonghao/dcc-mcp-core/issues/1367
+[epic]: https://github.com/dcc-mcp/dcc-mcp-core/issues/1367
 
 ## When should you migrate?
 
@@ -129,7 +129,7 @@ bearer token on every cross-host source. Until then the daemon is safe
 **only** on a trusted local network or behind a reverse proxy that
 terminates auth in front of it.
 
-[1365]: https://github.com/loonghao/dcc-mcp-core/issues/1365
+[1365]: https://github.com/dcc-mcp/dcc-mcp-core/issues/1365
 
 ## Step 5 — Verify and keep a rollback handy
 

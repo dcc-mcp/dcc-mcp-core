@@ -957,7 +957,7 @@ impl FileRegistry {
     /// `services.json` happens automatically inside `prune_dead_pids` whenever
     /// at least one entry is evicted.
     ///
-    /// Closes loonghao/dcc-mcp-maya#126.
+    /// Closes dcc-mcp/dcc-mcp-maya#126.
     pub fn read_alive(&self) -> TransportResult<(Vec<ServiceEntry>, usize)> {
         let evicted = self.prune_dead_entries()?;
         Ok((self.list_all(), evicted))

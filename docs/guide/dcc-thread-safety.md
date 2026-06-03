@@ -236,7 +236,7 @@ warnings; will be upgraded to hard errors when `@chunked_job` lands):
 See [ADR 002](../adr/002-dcc-main-thread-affinity.md) for the
 architectural rationale.
 
-[chunked]: https://github.com/loonghao/dcc-mcp-core/issues/332
+[chunked]: https://github.com/dcc-mcp/dcc-mcp-core/issues/332
 
 ## Dispatcher-first server construction
 
@@ -310,7 +310,7 @@ bpy.app.timers.register(render_next)
 ### 2. Cooperative checkpoints
 
 Between chunks, check a cancellation flag and yield control back to the
-DCC. See [issue #329 — `check_cancelled()`](https://github.com/loonghao/dcc-mcp-core/issues/329)
+DCC. See [issue #329 — `check_cancelled()`](https://github.com/dcc-mcp/dcc-mcp-core/issues/329)
 for the planned cooperative-cancellation primitive.
 
 ```python
@@ -340,7 +340,7 @@ A reasonable starting value is `max=8` at 60 FPS; tune down if individual
 tasks are expensive.
 
 The chunked-job decorator described in
-[issue #332 — `@chunked_job`](https://github.com/loonghao/dcc-mcp-core/issues/332)
+[issue #332 — `@chunked_job`](https://github.com/dcc-mcp/dcc-mcp-core/issues/332)
 will encode rules (1) and (2) automatically once it lands.
 
 ## Forbidden patterns
@@ -406,9 +406,9 @@ executor.execute(lambda: apply_to_scene(payload))  # main thread
   — minimal "hello world" example.
 - [agents-reference.md → DCC Integration Architectures](./agents-reference.md#dcc-integration-architectures)
   — per-DCC bridge patterns (embedded Python / WebSocket / WebView).
-- [Issue #329 — `check_cancelled()`](https://github.com/loonghao/dcc-mcp-core/issues/329)
+- [Issue #329 — `check_cancelled()`](https://github.com/dcc-mcp/dcc-mcp-core/issues/329)
   — cooperative cancellation for chunked jobs.
-- [Issue #332 — `@chunked_job`](https://github.com/loonghao/dcc-mcp-core/issues/332)
+- [Issue #332 — `@chunked_job`](https://github.com/dcc-mcp/dcc-mcp-core/issues/332)
   — decorator that encodes the chunking + checkpoint rules.
 
-[HostAdapter]: https://github.com/loonghao/dcc-mcp-core/blob/main/python/dcc_mcp_core/host/_adapter.py
+[HostAdapter]: https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/host/_adapter.py
