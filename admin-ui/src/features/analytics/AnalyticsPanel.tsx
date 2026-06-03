@@ -49,7 +49,7 @@ type HeatmapCell = {
 
 const RANGES = ['7d', '30d', '90d', '180d', '365d'] as const;
 
-function useAnalytics(range: string) {
+function useAnalytics(range: string, active: boolean) {
   const [overview, setOverview] = useState<AnalyticsOverview | null>(null);
   const [timeseries, setTimeseries] = useState<TimeseriesPoint[]>([]);
   const [heatmap, setHeatmap] = useState<HeatmapCell[]>([]);
@@ -75,7 +75,11 @@ function useAnalytics(range: string) {
     }
   }, [range]);
 
-  useEffect(() => { void fetchAll(); }, [fetchAll]);
+  useEffect(() => {
+    if (active) {
+      void fetchAll();
+    }
+  }, [fetchAll, active]);
 
   return { overview, timeseries, heatmap, loading, error, refetch: fetchAll };
 }
@@ -143,34 +147,18 @@ function MiniBarChart({ data, maxVal, height }: { data: { label: string; value: 
 export function AnalyticsPanel({
   active,
   t,
-  onUpdated,
-  onError,
 }: {
   active: boolean;
   t: Translator;
-  onUpdated: (text: string) => void;
-  onError: (error: unknown) => void;
 }) {
   const [range, setRange] = useState<string>('30d');
-  const { overview, timeseries, heatmap, loading, error, refetch } = useAnalytics(range);
+  const { overview, timeseries, heatmap, loading, error, refetch } = useAnalytics(range, active);
 
   useEffect(() => {
     if (!active) return;
     refetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, range]);
-
-  useEffect(() => {
-    if (error) {
-      onError(new Error(error));
-    }
-  }, [error, onError]);
-
-  useEffect(() => {
-    if (overview) {
-      onUpdated(`Last updated: ${new Date().toLocaleTimeString()}`);
-    }
-  }, [overview, onUpdated]);
 
   const maxDayCalls = useMemo(() => Math.max(...timeseries.map((p) => p.calls), 1), [timeseries]);
   const maxHeatCalls = useMemo(() => Math.max(...heatmap.map((c) => c.calls), 1), [heatmap]);

@@ -367,6 +367,17 @@ fn merge_daily(
         entry.llm_completion += agg.llm_completion;
         entry.llm_total += agg.llm_total;
         entry.duration_ms_sum += agg.duration_ms_sum;
+        // Merge unique instance and agent ids
+        for id in &agg.instance_ids {
+            if !entry.instance_ids.iter().any(|i| i == id) {
+                entry.instance_ids.push(id.clone());
+            }
+        }
+        for id in &agg.agent_ids {
+            if !entry.agent_ids.iter().any(|i| i == id) {
+                entry.agent_ids.push(id.clone());
+            }
+        }
     }
     let mut result: Vec<_> = day_map.into_values().collect();
     result.sort_by(|a, b| a.date.cmp(&b.date));
@@ -395,6 +406,22 @@ pub async fn handle_admin_analytics_overview(
     let total_llm: u64 = daily.iter().map(|d| d.llm_total).sum();
     let total_dur_ms: u64 = daily.iter().map(|d| d.duration_ms_sum).sum();
 
+    // Compute unique instance/agent counts from the merged daily series.
+    let mut unique_instances: Vec<&str> = Vec::new();
+    let mut unique_agents: Vec<&str> = Vec::new();
+    for d in &daily {
+        for id in &d.instance_ids {
+            if !unique_instances.iter().any(|i| i == id) {
+                unique_instances.push(id);
+            }
+        }
+        for id in &d.agent_ids {
+            if !unique_agents.iter().any(|i| i == id) {
+                unique_agents.push(id);
+            }
+        }
+    }
+
     let top_tools = compute_top_tools(&audits, 10);
     let period_start = cutoff
         .map(|c| format_day_ts(c.duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64))
@@ -417,6 +444,8 @@ pub async fn handle_admin_analytics_overview(
             "llm_tokens_total": total_llm,
             "avg_duration_ms": format!("{:.1}", if total_calls > 0 { total_dur_ms as f64 / total_calls as f64 } else { 0.0 }),
             "avg_tokens_per_call": format!("{:.1}", if total_calls > 0 { (total_input + total_output) as f64 / total_calls as f64 } else { 0.0 }),
+            "unique_instances": unique_instances.len(),
+            "unique_agents": unique_agents.len(),
         },
         "top_tools": top_tools,
         "daily_series": daily.iter().map(|d| json!({
@@ -571,15 +600,15 @@ pub async fn handle_admin_analytics_export(
 
             csv.push_str(&format!(
                 "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
-                a.request_id,
+                csv_escape(&a.request_id),
                 ts,
-                a.action,
-                a.dcc_type.as_deref().unwrap_or(""),
+                csv_escape(&a.action),
+                csv_escape(a.dcc_type.as_deref().unwrap_or("")),
                 a.success as u8,
                 a.duration_ms.unwrap_or(0),
-                a.instance_id.as_deref().unwrap_or(""),
-                a.agent_id.as_deref().unwrap_or(""),
-                a.agent_name.as_deref().unwrap_or(""),
+                csv_escape(a.instance_id.as_deref().unwrap_or("")),
+                csv_escape(a.agent_id.as_deref().unwrap_or("")),
+                csv_escape(a.agent_name.as_deref().unwrap_or("")),
                 ti,
                 to,
                 tsaved,
@@ -604,6 +633,34 @@ pub async fn handle_admin_analytics_export(
     } else {
         let mut jsonl = String::new();
         for a in &audits {
+            let (ti, to, tsaved, tsaved_pct, tokens_estimator) =
+                if let Some(t) = &a.token_accounting {
+                    (
+                        Value::from(t.original_tokens),
+                        Value::from(t.returned_tokens),
+                        Value::from(t.saved_tokens),
+                        Value::from(t.savings_pct),
+                        Value::from(t.token_estimator.as_str()),
+                    )
+                } else {
+                    (
+                        Value::Null,
+                        Value::Null,
+                        Value::Null,
+                        Value::Null,
+                        Value::Null,
+                    )
+                };
+            let llm = if let Some(llm) = &a.llm_usage {
+                json!({
+                    "prompt_tokens": llm.prompt_tokens,
+                    "completion_tokens": llm.completion_tokens,
+                    "total_tokens": llm.total_tokens,
+                    "model": llm.model,
+                })
+            } else {
+                Value::Null
+            };
             let obj = json!({
                 "request_id": a.request_id,
                 "timestamp": a.timestamp.duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
@@ -615,6 +672,14 @@ pub async fn handle_admin_analytics_export(
                 "agent_id": a.agent_id,
                 "agent_name": a.agent_name,
                 "agent_model": a.agent_model,
+                "token_accounting": {
+                    "original_tokens": ti,
+                    "returned_tokens": to,
+                    "saved_tokens": tsaved,
+                    "savings_pct": tsaved_pct,
+                    "token_estimator": tokens_estimator,
+                },
+                "llm_usage": llm,
             });
             jsonl.push_str(&obj.to_string());
             jsonl.push('\n');
@@ -641,6 +706,33 @@ fn format_2dp(v: f64) -> String {
     format!("{:.2}", v)
 }
 
+/// Escape a CSV field per RFC 4180 and prevent spreadsheet formula injection.
+///
+/// Fields containing commas, double-quotes, line breaks, or spreadsheet-dangerous
+/// prefixes (`=`, `+`, `-`, `@`) are wrapped in double-quotes with internal
+/// quotes escaped. Dangerous prefixes are prefixed with a tab to neutralise
+/// formula execution in Excel / Google Sheets without changing the visible text.
+fn csv_escape(value: &str) -> String {
+    let needs_quoting =
+        value.contains(',') || value.contains('"') || value.contains('\n') || value.contains('\r');
+    let needs_formula_guard = value.starts_with('=')
+        || value.starts_with('+')
+        || value.starts_with('-')
+        || value.starts_with('@');
+    let escaped = value.replace('"', "\"\"");
+
+    if needs_quoting || needs_formula_guard {
+        let inner = if needs_formula_guard {
+            format!("\t{escaped}")
+        } else {
+            escaped
+        };
+        format!("\"{inner}\"")
+    } else {
+        escaped
+    }
+}
+
 /// Fetch audit records from SQLite or in-memory ring buffer.
 fn fetch_audits(s: &AdminState, cutoff: Option<SystemTime>) -> Vec<super::state::AdminAuditRecord> {
     if let Some(ref lane) = s.admin_sqlite_lane {
@@ -654,5 +746,183 @@ fn fetch_audits(s: &AdminState, cutoff: Option<SystemTime>) -> Vec<super::state:
             .collect::<Vec<_>>()
     } else {
         Vec::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gateway::admin::state::AdminAuditRecord;
+    use crate::gateway::admin::trace::TokenTelemetry;
+
+    struct AuditSpec {
+        timestamp: SystemTime,
+        action: String,
+        dcc_type: String,
+        success: bool,
+        instance_id: String,
+        agent_id: String,
+        tokens: TokenTelemetry,
+    }
+
+    fn make_audit(spec: AuditSpec) -> AdminAuditRecord {
+        AdminAuditRecord {
+            timestamp: spec.timestamp,
+            request_id: format!(
+                "req-{}",
+                spec.timestamp
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_micros()
+            ),
+            trace_id: None,
+            span_id: None,
+            parent_span_id: None,
+            method: Some("tools/call".to_string()),
+            instance_id: Some(spec.instance_id),
+            session_id: None,
+            transport: Some("mcp".to_string()),
+            agent_id: Some(spec.agent_id),
+            agent_name: Some("test-agent".to_string()),
+            agent_model: None,
+            actor_id: None,
+            actor_name: None,
+            actor_email_hash: None,
+            client_platform: None,
+            client_os: None,
+            client_host: None,
+            auth_subject: None,
+            source_ip: None,
+            attribution_trust: None,
+            parent_request_id: None,
+            action: spec.action,
+            dcc_type: Some(spec.dcc_type),
+            success: spec.success,
+            error: None,
+            duration_ms: Some(150),
+            token_accounting: Some(spec.tokens),
+            llm_usage: None,
+        }
+    }
+
+    fn default_tokens() -> TokenTelemetry {
+        TokenTelemetry {
+            response_format: "compact".to_string(),
+            token_estimator: "tiktoken".to_string(),
+            original_bytes: 1000,
+            returned_bytes: 500,
+            original_tokens: 100,
+            returned_tokens: 50,
+            saved_tokens: 50,
+            savings_pct: 50.0,
+        }
+    }
+
+    fn spec(
+        action: &str,
+        dcc: &str,
+        success: bool,
+        instance: &str,
+        agent: &str,
+        t: SystemTime,
+    ) -> AuditSpec {
+        AuditSpec {
+            timestamp: t,
+            action: action.to_string(),
+            dcc_type: dcc.to_string(),
+            success,
+            instance_id: instance.to_string(),
+            agent_id: agent.to_string(),
+            tokens: default_tokens(),
+        }
+    }
+
+    #[test]
+    fn csv_escape_plain_value() {
+        assert_eq!(csv_escape("hello"), "hello");
+    }
+
+    #[test]
+    fn csv_escape_comma_quotes_value() {
+        assert_eq!(csv_escape("hello,world"), "\"hello,world\"");
+    }
+
+    #[test]
+    fn csv_escape_embedded_double_quotes() {
+        assert_eq!(csv_escape("say \"hi\""), "\"say \"\"hi\"\"\"");
+    }
+
+    #[test]
+    fn csv_escape_formula_guard() {
+        assert_eq!(csv_escape("=SUM(A1:A10)"), "\"\t=SUM(A1:A10)\"");
+        assert_eq!(csv_escape("+SUM(A1:A10)"), "\"\t+SUM(A1:A10)\"");
+        assert_eq!(csv_escape("-SUM(A1:A10)"), "\"\t-SUM(A1:A10)\"");
+        assert_eq!(csv_escape("@SUM(A1:A10)"), "\"\t@SUM(A1:A10)\"");
+    }
+
+    #[test]
+    fn aggregate_collects_unique_instance_and_agent_ids() {
+        let t0 = UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let t1 = t0 + Duration::from_secs(86_400);
+
+        let audits = vec![
+            make_audit(spec("tool_a", "maya", true, "inst-1", "agent-x", t0)),
+            make_audit(spec("tool_b", "maya", false, "inst-2", "agent-y", t0)),
+            make_audit(spec("tool_a", "blender", true, "inst-1", "agent-x", t1)),
+        ];
+
+        let aggregates = aggregate_audits(&audits);
+        let daily = merge_daily(&aggregates);
+        assert_eq!(daily.len(), 2);
+
+        let mut instances: Vec<&str> = Vec::new();
+        let mut agents: Vec<&str> = Vec::new();
+        for d in &daily {
+            for id in &d.instance_ids {
+                if !instances.iter().any(|i| i == id) {
+                    instances.push(id);
+                }
+            }
+            for id in &d.agent_ids {
+                if !agents.iter().any(|i| i == id) {
+                    agents.push(id);
+                }
+            }
+        }
+
+        assert_eq!(instances.len(), 2);
+        assert_eq!(agents.len(), 2);
+    }
+
+    #[test]
+    fn heatmap_aggregates_by_weekday_and_hour() {
+        let audits = vec![make_audit(spec("t1", "maya", true, "i1", "a1", UNIX_EPOCH))];
+
+        let heatmap = compute_heatmap(&audits);
+        assert_eq!(heatmap.len(), 1);
+        assert_eq!(heatmap[0].weekday, 4); // Thursday
+        assert_eq!(heatmap[0].hour, 0);
+        assert_eq!(heatmap[0].calls, 1);
+    }
+
+    #[test]
+    fn top_tools_limits_to_n() {
+        let t0 = UNIX_EPOCH + Duration::from_secs(1_000_000);
+
+        let mut audits = Vec::new();
+        for i in 0..15 {
+            audits.push(make_audit(spec(
+                &format!("tool_{}", i % 5),
+                "maya",
+                true,
+                &format!("inst-{}", i % 3),
+                "agent-x",
+                t0 + Duration::from_secs(i * 60),
+            )));
+        }
+
+        let top = compute_top_tools(&audits, 5);
+        assert_eq!(top.len(), 5);
+        assert!(top[0].calls >= top[1].calls);
     }
 }

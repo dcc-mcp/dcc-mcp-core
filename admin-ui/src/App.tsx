@@ -146,6 +146,7 @@ function App() {
       governance: qm(governanceQuery),
       logs: qm(logsQuery),
       'skill-paths': skillPathsUpdatedAt,
+      analytics: skillPathsUpdatedAt, // AnalyticsPanel self-manages; placeholder
     };
   }, [healthQuery, workersQuery, activityQuery, toolsQuery, callsQuery, tracesQuery, trafficQuery, tasksQuery, workflowsQuery, statsQuery, governanceQuery, logsQuery, openApiQuery, skillPathsUpdatedAt]);
 
@@ -2420,8 +2421,6 @@ function App() {
         <AnalyticsPanel
           active={activePanel === 'analytics'}
           t={t}
-          onUpdated={(text) => markUpdated('analytics', text)}
-          onError={(err) => markError('analytics', err)}
         />
 
         {activePanel === 'logs' && (
