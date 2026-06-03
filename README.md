@@ -40,6 +40,28 @@ Use it when you want agents to operate production DCC sessions without flooding 
 | Debug live workstation state | Admin UI, viewport diagnostics, audit logs, traces, metrics |
 | Survive production constraints | Main-thread dispatch, async jobs, sidecar/server binaries, workflow and artefact primitives |
 
+## Runtime Architecture
+
+Use the process names this way:
+
+- **DCC startup hook** runs inside Maya, Houdini, 3ds Max, or another host and
+  should only launch the service path without blocking the UI/main thread.
+- **Per-DCC service** is one registered runtime row for one concrete DCC
+  instance.
+- **Sidecar** is the `dcc-mcp-sidecar` child launched by
+  `dcc-mcp-server sidecar`; it bridges host RPC to MCP/REST and watches the DCC
+  process.
+- **Gateway daemon** is the one machine-wide routing/Admin process.
+- **Guardian** is the live service loop that probes gateway `/health` and
+  re-ensures the daemon through `gateway-launch.lock`.
+- **Service heartbeat** keeps registry rows fresh; it is not the gateway restart
+  trigger.
+
+The intended plugin experience is: open DCC -> startup hook launches a
+per-DCC service/sidecar -> that service ensures the machine-wide gateway daemon
+exists -> it registers and heartbeats one instance row -> the gateway routes
+across every live DCC instance.
+
 ## Why This Matters
 
 Generic MCP servers and CLI wrappers expose commands. `dcc-mcp-core` exposes a

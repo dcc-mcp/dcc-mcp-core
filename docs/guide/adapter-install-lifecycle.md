@@ -9,6 +9,34 @@ Use `dcc_mcp_core.install_lifecycle` for installer and uninstaller code that
 must stay import-light. The module uses only the Python standard library and
 does not import `_core`.
 
+## Runtime Vocabulary
+
+Use these terms consistently when documenting or implementing DCC startup:
+
+| Term | Meaning | Process ownership |
+|------|---------|-------------------|
+| DCC startup hook | The adapter code that runs when Maya, Houdini, 3ds Max, or another host opens. It should only prepare environment data and launch the service path. | Runs inside the DCC process and must not block the UI/main thread. |
+| Per-DCC service | One lightweight runtime registered for one concrete DCC instance. Python adapters may provide this through `DccServerBase`; plugin-startup adapters usually launch the sidecar service. | One row per DCC instance in the shared registry. |
+| Sidecar | The Rust `dcc-mcp-sidecar` runtime launched through the stable `dcc-mcp-server sidecar` CLI. It bridges a real host RPC endpoint to MCP/REST, registers as a per-DCC service, and exits when the watched DCC process dies. | Separate child process owned by one DCC instance. |
+| Gateway daemon | The machine-wide `dcc-mcp-server gateway` process that owns routing, dynamic capability search/describe/call, Gateway Admin, and the singleton gateway listener. | One process per workstation/registry/port. |
+| Guardian | A lightweight loop kept by daemon-backed services. It probes gateway `/health` and re-runs the single-flight ensure path when the daemon disappears. | Not a separate process; it belongs to a live service/sidecar/backend. |
+| Service heartbeat | The registry refresh that keeps a service row fresh while the owning DCC/service is alive. | Updates registration state only. It is not the gateway restart trigger. |
+
+The ideal plugin startup flow is:
+
+```text
+open DCC
+  -> startup hook launches the per-DCC service/sidecar without blocking
+  -> the service ensures the machine-wide gateway daemon exists
+  -> the service registers one instance row and keeps heartbeat fresh
+  -> the gateway daemon reads all rows and routes across all live instances
+  -> any surviving daemon-backed service guardian can re-ensure the gateway
+```
+
+In other words, heartbeat keeps instance registration fresh; guardian recovery
+restarts the gateway daemon after `/health` disappears. Do not describe
+gateway recovery as "the next heartbeat restarts the gateway".
+
 ## Rez Or Filesystem Deployment Layout
 
 Pipeline teams can use the same bootstrap script before packages are formally
