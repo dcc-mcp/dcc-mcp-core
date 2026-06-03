@@ -9,8 +9,8 @@ document without scanning every file.
 
 | Priority | Document | Why |
 |----------|----------|-----|
-| 1 | [`AGENTS.md`](https://github.com/loonghao/dcc-mcp-core/blob/main/AGENTS.md) | Navigation map, response rules, PR rules, and links |
-| 2 | [`AI_AGENT_GUIDE.md`](https://github.com/loonghao/dcc-mcp-core/blob/main/AI_AGENT_GUIDE.md) | Skills-First usage workflow for AI agents |
+| 1 | [`AGENTS.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md) | Navigation map, response rules, PR rules, and links |
+| 2 | [`AI_AGENT_GUIDE.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AI_AGENT_GUIDE.md) | Skills-First usage workflow for AI agents |
 | 3 | [agents-reference.md](agents-reference.md) | **Critical** — traps, do/don't, code style, constants |
 | 4 | [skills.md](skills.md) | How to write and register skills |
 | 5 | [gateway.md](gateway.md) + [rest-api-surface.md](rest-api-surface.md) + [dcc-rest-skill-api.md](dcc-rest-skill-api.md) | Gateway dynamic-capability, call wrapper payloads, and REST workflows |

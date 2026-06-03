@@ -2,7 +2,7 @@
 
 > **状态**：强制规范。每个 DCC-MCP crate、Python wheel 和 skill 作者
 > 必须选择能通过
-> [`dcc_mcp_core::naming`](https://github.com/loonghao/dcc-mcp-core/tree/main/crates/dcc-mcp-naming)
+> [`dcc_mcp_core::naming`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/crates/dcc-mcp-naming)
 > 中两个验证器的名称。
 > 相关规范：[MCP `draft/server/tools#tool-names`](https://modelcontextprotocol.io/specification/draft/server/tools#tool-names)。
 

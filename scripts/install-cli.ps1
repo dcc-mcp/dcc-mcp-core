@@ -5,7 +5,7 @@ param(
 )
 
 # One-line install:
-# powershell -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+# powershell -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
 
 $ErrorActionPreference = "Stop"
 
@@ -16,7 +16,7 @@ if ([string]::IsNullOrWhiteSpace($InstallDir)) {
     $InstallDir = Join-Path $env:LOCALAPPDATA "dcc-mcp\bin"
 }
 if ([string]::IsNullOrWhiteSpace($Repo)) {
-    $Repo = "loonghao/dcc-mcp-core"
+    $Repo = "dcc-mcp/dcc-mcp-core"
 }
 
 $asset = "dcc-mcp-cli-windows-x86_64.exe"

@@ -1,7 +1,7 @@
 //! dcc-mcp-pybridge: Python<->Rust bridge helpers.
 //!
 //! Hosts the conversion utilities and type wrappers that used to live in
-//! `dcc-mcp-utils` (see [issue #497](https://github.com/loonghao/dcc-mcp-core/issues/497)).
+//! `dcc-mcp-utils` (see [issue #497](https://github.com/dcc-mcp/dcc-mcp-core/issues/497)).
 //! Keeping these out of `dcc-mcp-utils` allows pure data crates to opt out of
 //! `pyo3` when they only need filesystem helpers and constants.
 //!

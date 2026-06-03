@@ -6,16 +6,16 @@
 [![Server PyPI](https://img.shields.io/pypi/v/dcc-mcp-server?label=server%20PyPI)](https://pypi.org/project/dcc-mcp-server/)
 [![Python](https://img.shields.io/pypi/pyversions/dcc-mcp-core?label=Python)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![CI](https://img.shields.io/github/actions/workflow/status/loonghao/dcc-mcp-core/ci.yml?branch=main&label=CI)](https://github.com/loonghao/dcc-mcp-core/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/codecov/c/github/loonghao/dcc-mcp-core?label=coverage)](https://codecov.io/gh/loonghao/dcc-mcp-core)
-[![GitHub Release](https://img.shields.io/github/v/release/loonghao/dcc-mcp-core?label=GitHub%20release)](https://github.com/loonghao/dcc-mcp-core/releases)
-[![Release Downloads](https://img.shields.io/github/downloads/loonghao/dcc-mcp-core/total?label=release%20downloads)](https://github.com/loonghao/dcc-mcp-core/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/dcc-mcp/dcc-mcp-core/ci.yml?branch=main&label=CI)](https://github.com/dcc-mcp/dcc-mcp-core/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/codecov/c/github/dcc-mcp/dcc-mcp-core?label=coverage)](https://codecov.io/gh/dcc-mcp/dcc-mcp-core)
+[![GitHub Release](https://img.shields.io/github/v/release/dcc-mcp/dcc-mcp-core?label=GitHub%20release)](https://github.com/dcc-mcp/dcc-mcp-core/releases)
+[![Release Downloads](https://img.shields.io/github/downloads/dcc-mcp/dcc-mcp-core/total?label=release%20downloads)](https://github.com/dcc-mcp/dcc-mcp-core/releases)
 [![Core Downloads](https://img.shields.io/pypi/dm/dcc-mcp-core?label=core%20PyPI%20downloads)](https://pypistats.org/packages/dcc-mcp-core)
 [![Core Pepy](https://static.pepy.tech/badge/dcc-mcp-core)](https://pepy.tech/project/dcc-mcp-core)
 [![Server Downloads](https://img.shields.io/pypi/dm/dcc-mcp-server?label=server%20PyPI%20downloads)](https://pypistats.org/packages/dcc-mcp-server)
-[![CLI Linux](https://img.shields.io/github/downloads/loonghao/dcc-mcp-core/latest/dcc-mcp-cli-linux-x86_64?label=cli%20linux)](https://github.com/loonghao/dcc-mcp-core/releases/latest)
-[![CLI Windows](https://img.shields.io/github/downloads/loonghao/dcc-mcp-core/latest/dcc-mcp-cli-windows-x86_64.exe?label=cli%20windows)](https://github.com/loonghao/dcc-mcp-core/releases/latest)
-[![CLI macOS](https://img.shields.io/github/downloads/loonghao/dcc-mcp-core/latest/dcc-mcp-cli-macos-universal2?label=cli%20macOS)](https://github.com/loonghao/dcc-mcp-core/releases/latest)
+[![CLI Linux](https://img.shields.io/github/downloads/dcc-mcp/dcc-mcp-core/latest/dcc-mcp-cli-linux-x86_64?label=cli%20linux)](https://github.com/dcc-mcp/dcc-mcp-core/releases/latest)
+[![CLI Windows](https://img.shields.io/github/downloads/dcc-mcp/dcc-mcp-core/latest/dcc-mcp-cli-windows-x86_64.exe?label=cli%20windows)](https://github.com/dcc-mcp/dcc-mcp-core/releases/latest)
+[![CLI macOS](https://img.shields.io/github/downloads/dcc-mcp/dcc-mcp-core/latest/dcc-mcp-cli-macos-universal2?label=cli%20macOS)](https://github.com/dcc-mcp/dcc-mcp-core/releases/latest)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
 [English](README.md) | 中文
@@ -67,10 +67,10 @@ instance row -> gateway 统一路由所有 live DCC instance。
 
 ```bash
 # Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | bash
 
 # Windows PowerShell
-powershell -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+powershell -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
 ```
 
 安装后：
@@ -91,7 +91,7 @@ pip install dcc-mcp-core
 也可以用仓库的标准 feature set 从源码构建：
 
 ```bash
-git clone https://github.com/loonghao/dcc-mcp-core.git
+git clone https://github.com/dcc-mcp/dcc-mcp-core.git
 cd dcc-mcp-core
 vx just dev
 ```
@@ -194,10 +194,10 @@ AI 友好文档：[AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](d
 
 ```bash
 # Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | bash
 
 # Windows PowerShell
-powershell -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+powershell -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
 ```
 
 默认会下载最新 GitHub Release 里的对应资产：
@@ -213,13 +213,13 @@ powershell -c "irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/
 ```bash
 export DCC_MCP_VERSION=v0.17.44
 export DCC_MCP_INSTALL_DIR="$HOME/bin"
-curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | bash
 ```
 
 ```powershell
 $env:DCC_MCP_VERSION = "v0.17.44"
 $env:DCC_MCP_INSTALL_DIR = "$env:USERPROFILE\bin"
-irm https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.ps1 | iex
+irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex
 ```
 
 安装后：
@@ -238,7 +238,7 @@ dcc-mcp-cli lint path/to/skills
 pip install dcc-mcp-core
 
 # 从源码构建（需要 Rust 1.95+）
-git clone https://github.com/loonghao/dcc-mcp-core.git
+git clone https://github.com/dcc-mcp/dcc-mcp-core.git
 cd dcc-mcp-core
 vx just dev           # 推荐 —— 使用项目标准 feature 集合
 # 或：pip install -e .
@@ -691,7 +691,7 @@ assert artefact_get_bytes(ref.uri) == b"hello"
 ## 开发环境
 
 ```bash
-git clone https://github.com/loonghao/dcc-mcp-core.git
+git clone https://github.com/dcc-mcp/dcc-mcp-core.git
 cd dcc-mcp-core
 
 # 推荐：使用 vx（通用开发工具管理器）—— https://github.com/loonghao/vx

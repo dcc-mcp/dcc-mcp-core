@@ -12,7 +12,7 @@ Please review our project policies before contributing:
 
 ```bash
 # Clone and setup
-git clone https://github.com/loonghao/dcc-mcp-core.git
+git clone https://github.com/dcc-mcp/dcc-mcp-core.git
 cd dcc-mcp-core
 
 # Install dependencies (requires vx: https://github.com/loonghao/vx)
@@ -166,4 +166,4 @@ This project uses [Release Please](https://github.com/googleapis/release-please)
 
 ## Questions?
 
-Open an [issue](https://github.com/loonghao/dcc-mcp-core/issues) or start a [discussion](https://github.com/loonghao/dcc-mcp-core/discussions).
+Open an [issue](https://github.com/dcc-mcp/dcc-mcp-core/issues) or start a [discussion](https://github.com/dcc-mcp/dcc-mcp-core/discussions).

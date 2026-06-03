@@ -50,10 +50,10 @@
 //! * [`refresh`] — lifecycle: rebuild on instance join/leave, skill
 //!   load/unload, `tools/list_changed`.
 //!
-//! [#657]: https://github.com/loonghao/dcc-mcp-core/issues/657
-//! [#653]: https://github.com/loonghao/dcc-mcp-core/issues/653
-//! [#654]: https://github.com/loonghao/dcc-mcp-core/issues/654
-//! [#655]: https://github.com/loonghao/dcc-mcp-core/issues/655
+//! [#657]: https://github.com/dcc-mcp/dcc-mcp-core/issues/657
+//! [#653]: https://github.com/dcc-mcp/dcc-mcp-core/issues/653
+//! [#654]: https://github.com/dcc-mcp/dcc-mcp-core/issues/654
+//! [#655]: https://github.com/dcc-mcp/dcc-mcp-core/issues/655
 
 mod builder;
 mod index;

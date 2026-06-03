@@ -1,6 +1,6 @@
 # Rich Content — MCP Apps 内联 UI
 
-> 源码：[`python/dcc_mcp_core/rich_content.py`](https://github.com/loonghao/dcc-mcp-core/blob/main/python/dcc_mcp_core/rich_content.py) · Issue [#409](https://github.com/loonghao/dcc-mcp-core/issues/409) · [MCP Apps 总览](https://modelcontextprotocol.io/extensions/apps/overview)
+> 源码：[`python/dcc_mcp_core/rich_content.py`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/rich_content.py) · Issue [#409](https://github.com/dcc-mcp/dcc-mcp-core/issues/409) · [MCP Apps 总览](https://modelcontextprotocol.io/extensions/apps/overview)
 >
 > **[English](../../api/rich-content.md)**
 
@@ -107,7 +107,7 @@ return skill_success_with_image(
 
 ## 当前状态——上下文存储就绪，Rust 层对接中
 
-目前富内容以 JSON 可序列化字典形式存储在 `result.context["__rich__"]`。完整对接到 `tools/call` 响应的 MCP Apps 标准信封跟踪于 issue [#409](https://github.com/loonghao/dcc-mcp-core/issues/409)。
+目前富内容以 JSON 可序列化字典形式存储在 `result.context["__rich__"]`。完整对接到 `tools/call` 响应的 MCP Apps 标准信封跟踪于 issue [#409](https://github.com/dcc-mcp/dcc-mcp-core/issues/409)。
 
 **今天**基于这些 helper 编写的技能，在 Rust 层落地后会自动向支持 MCP Apps 的客户端暴露富内容。
 

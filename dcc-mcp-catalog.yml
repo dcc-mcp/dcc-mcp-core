@@ -44,5 +44,5 @@ entries:
   - name: "dcc-mcp-core"
     description: "Foundational Rust + Python library for the DCC-MCP ecosystem"
     dcc: []
-    url: "https://github.com/loonghao/dcc-mcp-core"
+    url: "https://github.com/dcc-mcp/dcc-mcp-core"
     tags: ["core", "official", "rust", "python", "library"]

@@ -146,4 +146,4 @@ dcc_mcp_active_sessions
   `crates/dcc-mcp-http/src/metrics.rs`。
 - 测试: `crates/dcc-mcp-http/tests/prometheus_endpoint.rs`,
   `tests/test_prometheus.py`。
-- Issue: [#331](https://github.com/loonghao/dcc-mcp-core/issues/331)。
+- Issue: [#331](https://github.com/dcc-mcp/dcc-mcp-core/issues/331)。

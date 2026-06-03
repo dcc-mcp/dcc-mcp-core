@@ -1,6 +1,6 @@
 # Batch Dispatch — 批量工具调用与 Eval 沙箱
 
-> 源码：[`python/dcc_mcp_core/batch.py`](https://github.com/loonghao/dcc-mcp-core/blob/main/python/dcc_mcp_core/batch.py) · Issue [#406](https://github.com/loonghao/dcc-mcp-core/issues/406)
+> 源码：[`python/dcc_mcp_core/batch.py`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/batch.py) · Issue [#406](https://github.com/dcc-mcp/dcc-mcp-core/issues/406)
 >
 > **[English](../zh/api/batch.md)**（中文本页）
 
@@ -129,7 +129,7 @@ return frames
 
 The Python helpers ship today. The Rust-level `tools/batch` and
 `dcc_mcp_core__eval` built-in MCP tools are tracked in issue
-[#406](https://github.com/loonghao/dcc-mcp-core/issues/406) and will call
+[#406](https://github.com/dcc-mcp/dcc-mcp-core/issues/406) and will call
 through this same logic once implemented.
 
 ## See also

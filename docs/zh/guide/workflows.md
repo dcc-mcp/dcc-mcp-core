@@ -2,7 +2,7 @@
 
 > 一等公民、基于 spec 的、可持久化、可取消的 MCP 工具调用流水线。
 > 解析器、验证器以及完整的步骤执行引擎均已随 issue
-> [#348](https://github.com/loonghao/dcc-mcp-core/issues/348) 落地。
+> [#348](https://github.com/dcc-mcp/dcc-mcp-core/issues/348) 落地。
 
 ## 什么是工作流？
 

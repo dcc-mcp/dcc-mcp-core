@@ -1,8 +1,8 @@
 # 每个 DCC 的 REST 技能 API
 
-> Issue 参考：[#658](https://github.com/loonghao/dcc-mcp-core/issues/658) ·
-> [#660](https://github.com/loonghao/dcc-mcp-core/issues/660) ·
-> 总揽 [#657](https://github.com/loonghao/dcc-mcp-core/issues/657)
+> Issue 参考：[#658](https://github.com/dcc-mcp/dcc-mcp-core/issues/658) ·
+> [#660](https://github.com/dcc-mcp/dcc-mcp-core/issues/660) ·
+> 总揽 [#657](https://github.com/dcc-mcp/dcc-mcp-core/issues/657)
 
 MCP 网关**并非**唯一能让外部调用 DCC 技能的方式。每个嵌入 DCC 进程的 `McpHttpServer` 也可以将已发现的技能暴露为一个小型、带版本的 REST 接口，挂载在 `/v1/*` 路径下。网关随后**索引并路由**到这些每个 DCC 的服务，而不是将每个后端 Action 单独发布为 MCP 工具。
 

@@ -28,4 +28,4 @@ Semver follows the workspace version. Types move here from
 `dcc-mcp-http` one at a time so each move can be reviewed in isolation
 and the dependency direction verified.
 
-[#852]: https://github.com/loonghao/dcc-mcp-core/issues/852
+[#852]: https://github.com/dcc-mcp/dcc-mcp-core/issues/852

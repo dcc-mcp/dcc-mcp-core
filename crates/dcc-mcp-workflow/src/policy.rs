@@ -14,7 +14,7 @@
 //! parses, validates, and exposes helpers (`RetryPolicy::next_delay`) so
 //! that the executor PR can plug in without reshaping the schema.
 //!
-//! See issue [#353](https://github.com/loonghao/dcc-mcp-core/issues/353).
+//! See issue [#353](https://github.com/dcc-mcp/dcc-mcp-core/issues/353).
 
 use std::collections::HashSet;
 use std::time::Duration;

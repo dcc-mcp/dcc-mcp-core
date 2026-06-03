@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-REPO="${DCC_MCP_REPO:-loonghao/dcc-mcp-core}"
+REPO="${DCC_MCP_REPO:-dcc-mcp/dcc-mcp-core}"
 VERSION="${DCC_MCP_VERSION:-latest}"
 INSTALL_DIR="${DCC_MCP_INSTALL_DIR:-$HOME/.local/bin}"
 RELEASE_FALLBACK="${DCC_MCP_RELEASE_FALLBACK:-1}"
@@ -14,10 +14,10 @@ Usage:
   install-cli.sh [--version v0.17.4] [--install-dir ~/.local/bin]
 
 One-line install:
-  curl -fsSL https://raw.githubusercontent.com/loonghao/dcc-mcp-core/main/scripts/install-cli.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | bash
 
 Environment:
-  DCC_MCP_REPO         GitHub repo, default loonghao/dcc-mcp-core
+  DCC_MCP_REPO         GitHub repo, default dcc-mcp/dcc-mcp-core
   DCC_MCP_VERSION      Release tag, default latest
   DCC_MCP_INSTALL_DIR  Install directory, default ~/.local/bin
   DCC_MCP_RELEASE_FALLBACK

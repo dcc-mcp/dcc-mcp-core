@@ -1,6 +1,6 @@
 # Project-Level State Persistence
 
-Project persistence (issue [#576](https://github.com/loonghao/dcc-mcp-core/issues/576))
+Project persistence (issue [#576](https://github.com/dcc-mcp/dcc-mcp-core/issues/576))
 gives a DCC session a durable, file-based view of *what the artist is working on
 right now*: which scene is open, which assets are loaded, which skills and tool
 groups are active, and which jobs have checkpoints.  Core keeps the schema
@@ -153,7 +153,7 @@ if scene_path:
 - `dcc_mcp_core.checkpoint` — job-scoped resume state.
   See [Job Persistence](./job-persistence.md).
 - `workflows_resume` — workflow-level resume (issue
-  [#565](https://github.com/loonghao/dcc-mcp-core/issues/565)).  A future
+  [#565](https://github.com/dcc-mcp/dcc-mcp-core/issues/565)).  A future
   enhancement may bridge `project_resume` into the workflow engine so a
   workflow can restore the DCC session before re-running steps.
 - `AGENTS.md` at the repo root — how to discover and call these tools from an

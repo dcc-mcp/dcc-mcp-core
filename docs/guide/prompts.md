@@ -1,8 +1,8 @@
 # MCP Prompts Primitive
 
 > Implements [MCP 2025-03-26 — Prompts](https://modelcontextprotocol.io/specification/2025-03-26/server/prompts)
-> for dcc-mcp-core. Issues [#351](https://github.com/loonghao/dcc-mcp-core/issues/351)
-> and [#355](https://github.com/loonghao/dcc-mcp-core/issues/355).
+> for dcc-mcp-core. Issues [#351](https://github.com/dcc-mcp/dcc-mcp-core/issues/351)
+> and [#355](https://github.com/dcc-mcp/dcc-mcp-core/issues/355).
 
 The **prompts** primitive is the third MCP surface `McpHttpServer`
 advertises, alongside `tools` and `resources`. It gives AI clients a way
@@ -38,7 +38,7 @@ Three JSON-RPC methods are exposed:
 
 ## Source: explicit sibling `prompts.yaml`
 
-Following the project-wide **sibling-file rule** ([#356](https://github.com/loonghao/dcc-mcp-core/issues/356)),
+Following the project-wide **sibling-file rule** ([#356](https://github.com/dcc-mcp/dcc-mcp-core/issues/356)),
 hand-authored prompt templates never inline into `SKILL.md`. The skill author
 references a sibling file from the `metadata.dcc-mcp` namespace:
 
@@ -279,8 +279,8 @@ on runtime capabilities.
 
 ## Related issues
 
-- [#351](https://github.com/loonghao/dcc-mcp-core/issues/351) — MCP prompts primitive
-- [#355](https://github.com/loonghao/dcc-mcp-core/issues/355) — prompts derived from SKILL.md examples + workflows
-- [#348](https://github.com/loonghao/dcc-mcp-core/issues/348) — workflow specs (source for auto-derived prompts)
-- [#356](https://github.com/loonghao/dcc-mcp-core/issues/356) — sibling-file pattern
-- [#350](https://github.com/loonghao/dcc-mcp-core/issues/350) — MCP resources primitive (sister feature)
+- [#351](https://github.com/dcc-mcp/dcc-mcp-core/issues/351) — MCP prompts primitive
+- [#355](https://github.com/dcc-mcp/dcc-mcp-core/issues/355) — prompts derived from SKILL.md examples + workflows
+- [#348](https://github.com/dcc-mcp/dcc-mcp-core/issues/348) — workflow specs (source for auto-derived prompts)
+- [#356](https://github.com/dcc-mcp/dcc-mcp-core/issues/356) — sibling-file pattern
+- [#350](https://github.com/dcc-mcp/dcc-mcp-core/issues/350) — MCP resources primitive (sister feature)

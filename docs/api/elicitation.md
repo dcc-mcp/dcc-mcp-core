@@ -1,6 +1,6 @@
 # Elicitation — Mid-tool-call User Input
 
-> Source: [`python/dcc_mcp_core/elicitation.py`](https://github.com/loonghao/dcc-mcp-core/blob/main/python/dcc_mcp_core/elicitation.py) · Issue [#407](https://github.com/loonghao/dcc-mcp-core/issues/407) · [MCP 2025-11-25 Elicitation spec](https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation)
+> Source: [`python/dcc_mcp_core/elicitation.py`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/elicitation.py) · Issue [#407](https://github.com/dcc-mcp/dcc-mcp-core/issues/407) · [MCP 2025-11-25 Elicitation spec](https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation)
 >
 > **[中文版](../zh/api/elicitation.md)**
 
@@ -107,7 +107,7 @@ is returned with `accepted=True, message="fallback_values_used"`.
 The Rust-level MCP HTTP layer support for forwarding
 `notifications/elicitation/request` and awaiting
 `notifications/elicitation/response` is planned in issue
-[#407](https://github.com/loonghao/dcc-mcp-core/issues/407). Until that
+[#407](https://github.com/dcc-mcp/dcc-mcp-core/issues/407). Until that
 lands, all three helpers:
 
 - log a warning (`"MCP Elicitation is not yet wired to the HTTP transport"`),

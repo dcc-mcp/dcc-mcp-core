@@ -1024,16 +1024,16 @@ Full guide: `docs/guide/remote-server.md`. Per-module API: `docs/api/{auth,batch
 
 ## Documentation
 
-- [README (English)](https://github.com/loonghao/dcc-mcp-core/blob/main/README.md)
-- [README (中文)](https://github.com/loonghao/dcc-mcp-core/blob/main/README_zh.md)
-- [AI Agent Guide (AGENTS.md)](https://github.com/loonghao/dcc-mcp-core/blob/main/AGENTS.md)
-- [Claude Guide (CLAUDE.md)](https://github.com/loonghao/dcc-mcp-core/blob/main/CLAUDE.md)
-- [Gemini Guide (GEMINI.md)](https://github.com/loonghao/dcc-mcp-core/blob/main/GEMINI.md)
-- [CodeBuddy Guide (CODEBUDDY.md)](https://github.com/loonghao/dcc-mcp-core/blob/main/CODEBUDDY.md)
-- [Contributing Guide](https://github.com/loonghao/dcc-mcp-core/blob/main/CONTRIBUTING.md)
-- [Changelog](https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md)
-- [Full API Reference](https://github.com/loonghao/dcc-mcp-core/blob/main/llms-full.txt)
-- [VitePress Docs](https://loonghao.github.io/dcc-mcp-core/)
+- [README (English)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/README.md)
+- [README (中文)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/README_zh.md)
+- [AI Agent Guide (AGENTS.md)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md)
+- [Claude Guide (CLAUDE.md)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CLAUDE.md)
+- [Gemini Guide (GEMINI.md)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/GEMINI.md)
+- [CodeBuddy Guide (CODEBUDDY.md)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CODEBUDDY.md)
+- [Contributing Guide](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CONTRIBUTING.md)
+- [Changelog](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CHANGELOG.md)
+- [Full API Reference](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/llms-full.txt)
+- [VitePress Docs](https://dcc-mcp.github.io/dcc-mcp-core/)
 
 ## Development
 
@@ -1047,7 +1047,7 @@ Full guide: `docs/guide/remote-server.md`. Per-module API: `docs/api/{auth,batch
 ## Related Projects
 
 - [dcc-mcp-rpyc](https://github.com/loonghao/dcc-mcp-rpyc) — RPyC bridge for remote DCC operations
-- [dcc-mcp-maya](https://github.com/loonghao/dcc-mcp-maya) — Maya MCP server implementation
+- [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya) — Maya MCP server implementation
 
 ---
 

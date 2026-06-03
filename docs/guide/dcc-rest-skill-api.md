@@ -1,9 +1,9 @@
 # Per-DCC REST Skill API
 
-> Issue refs: [#658](https://github.com/loonghao/dcc-mcp-core/issues/658) ·
-> [#660](https://github.com/loonghao/dcc-mcp-core/issues/660) ·
-> [#818](https://github.com/loonghao/dcc-mcp-core/issues/818) ·
-> umbrella [#657](https://github.com/loonghao/dcc-mcp-core/issues/657)
+> Issue refs: [#658](https://github.com/dcc-mcp/dcc-mcp-core/issues/658) ·
+> [#660](https://github.com/dcc-mcp/dcc-mcp-core/issues/660) ·
+> [#818](https://github.com/dcc-mcp/dcc-mcp-core/issues/818) ·
+> umbrella [#657](https://github.com/dcc-mcp/dcc-mcp-core/issues/657)
 
 The MCP gateway is **not** the only way to make a DCC's skills callable from
 outside. Each `McpHttpServer` embedded in a DCC process can also expose its

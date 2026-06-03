@@ -1,6 +1,6 @@
 # Artefact Hand-Off (FileRef + ArtefactStore)
 
-> **Issue**: [#349](https://github.com/loonghao/dcc-mcp-core/issues/349)
+> **Issue**: [#349](https://github.com/dcc-mcp/dcc-mcp-core/issues/349)
 > **Crate**: `dcc-mcp-artefact`
 > **Scheme**: `artefact://sha256/<hex>`
 
@@ -175,7 +175,7 @@ integration is out of scope.
 
 - [`docs/api/resources.md`](../api/resources.md) — the broader Resources
   primitive that hosts `artefact://`.
-- Issue [#348](https://github.com/loonghao/dcc-mcp-core/issues/348) —
+- Issue [#348](https://github.com/dcc-mcp/dcc-mcp-core/issues/348) —
   workflow runner that consumes `FileRef`s.
-- Issue [#350](https://github.com/loonghao/dcc-mcp-core/issues/350) —
+- Issue [#350](https://github.com/dcc-mcp/dcc-mcp-core/issues/350) —
   Resources primitive (merged).

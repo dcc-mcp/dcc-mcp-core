@@ -76,9 +76,9 @@ semantic = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/loonghao/dcc-mcp-core"
-Repository = "https://github.com/loonghao/dcc-mcp-core"
-Issues = "https://github.com/loonghao/dcc-mcp-core/issues"
+Homepage = "https://github.com/dcc-mcp/dcc-mcp-core"
+Repository = "https://github.com/dcc-mcp/dcc-mcp-core"
+Issues = "https://github.com/dcc-mcp/dcc-mcp-core/issues"
 
 [tool.maturin]
 python-source = "python"

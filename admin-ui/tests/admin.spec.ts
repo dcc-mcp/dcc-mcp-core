@@ -1171,7 +1171,7 @@ test.describe('Admin Page', () => {
     for (const label of ['Connect IDE', 'Debug', 'Activity', 'Health', 'Instances', 'Tools', 'Workflows', 'Tasks', 'Calls', 'Traces', 'Stats', 'Governance', 'Skills', 'Logs', 'Docs']) {
       await expect(page.getByRole('navigation').getByRole('link', { name: label })).toBeVisible();
     }
-    await expect(page.getByRole('navigation').getByRole('link', { name: 'Docs' })).toHaveAttribute('href', 'https://github.com/loonghao/dcc-mcp-core/tree/main/docs');
+    await expect(page.getByRole('navigation').getByRole('link', { name: 'Docs' })).toHaveAttribute('href', 'https://github.com/dcc-mcp/dcc-mcp-core/tree/main/docs');
     await expect(page.locator('.setup-panel')).toContainText('Claude Desktop');
     await expect(page.locator('.setup-panel')).toContainText('http://127.0.0.1:9765/mcp');
     await expect(page.locator('.setup-panel')).not.toContainText('http://127.0.0.1:3721/mcp');

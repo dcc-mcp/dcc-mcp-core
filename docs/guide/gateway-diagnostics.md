@@ -358,4 +358,4 @@ tail -F "$DCC_MCP_LOG_DIR/dcc-mcp.*.log" | grep -E 'Gateway|ghost|stale|Health'
 
 - [REST API surface](rest-api-surface.md) — `/v1/readyz`, error kinds, envelope parity.
 - [CLI reference](cli-reference.md) — every flag and env var on `dcc-mcp-server`.
-- [AGENTS.md](https://github.com/loonghao/dcc-mcp-core/blob/main/AGENTS.md) — full decision table for the public API.
+- [AGENTS.md](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md) — full decision table for the public API.

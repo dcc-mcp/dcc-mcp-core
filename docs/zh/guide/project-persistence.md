@@ -1,6 +1,6 @@
 # 项目级状态持久化
 
-项目级持久化（issue [#576](https://github.com/loonghao/dcc-mcp-core/issues/576)）
+项目级持久化（issue [#576](https://github.com/dcc-mcp/dcc-mcp-core/issues/576)）
 给 DCC 会话提供一份**持久的、基于文件的视图**：当前打开的是哪个场景、加载了
 哪些资产、哪些技能和工具组处于激活状态、哪些任务留有检查点。核心保持 schema
 与 DCC 无关；适配器通过 `ProjectState.metadata` 附加宿主相关的提示。
@@ -144,6 +144,6 @@ if scene_path:
 - `dcc_mcp_core.checkpoint` —— 任务级恢复状态。参见
   [任务持久化](./job-persistence.md)。
 - `workflows_resume` —— 工作流级恢复（issue
-  [#565](https://github.com/loonghao/dcc-mcp-core/issues/565)）。未来可能把
+  [#565](https://github.com/dcc-mcp/dcc-mcp-core/issues/565)）。未来可能把
   `project_resume` 桥接到工作流引擎，让工作流在重跑步骤前先恢复 DCC 会话。
 - 仓库根目录的 `AGENTS.md` —— 代理如何发现并调用这些工具。
