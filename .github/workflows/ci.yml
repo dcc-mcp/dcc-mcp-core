@@ -118,6 +118,7 @@ jobs:
   #   manual dispatch for drift detection outside the PR fast path.
   rust-check:
     name: Rust (${{ matrix.os }})
+    needs: admin-ui-bundle
     strategy:
       matrix:
         include:
@@ -160,6 +161,12 @@ jobs:
             echo "::warning::npm ci failed; falling back to prebuilt admin UI artifact"
             echo "DCC_MCP_ADMIN_UI_PREBUILT=1" >> "$GITHUB_ENV"
           fi
+      - name: Download prebuilt admin UI bundle
+        if: env.DCC_MCP_ADMIN_UI_PREBUILT == '1'
+        uses: actions/download-artifact@v4
+        with:
+          name: admin-ui-bundle
+          path: crates/dcc-mcp-gateway/src/gateway/admin/generated
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
