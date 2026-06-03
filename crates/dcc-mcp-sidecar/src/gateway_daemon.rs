@@ -156,6 +156,10 @@ pub fn build_gateway_config(args: &GatewayArgs, gateway_name: &str) -> GatewayCo
     }
 }
 
+fn is_backend_entry(entry: &dcc_mcp_transport::discovery::types::ServiceEntry) -> bool {
+    entry.dcc_type != dcc_mcp_transport::discovery::types::GATEWAY_SENTINEL_DCC_TYPE
+}
+
 /// Run the standalone gateway until a shutdown signal arrives (or the
 /// idle-timeout fires when no backends remain).
 pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
@@ -200,11 +204,8 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
     // the grace period cancel the timer; expiry triggers an orderly shutdown.
     let idle_shutdown = if !gateway_persist && gateway_idle_timeout_secs > 0 {
         let registry = runner.registry.clone();
-        let host = args.host.clone();
-        let port = args.port;
         let (idle_tx, idle_rx) = tokio::sync::watch::channel(false);
         tokio::spawn(async move {
-            use dcc_mcp_transport::discovery::types::GATEWAY_SENTINEL_DCC_TYPE;
             let poll = Duration::from_secs(5);
             let grace = Duration::from_secs(gateway_idle_timeout_secs);
             let mut idle_since: Option<std::time::Instant> = None;
@@ -213,15 +214,7 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
                 tokio::time::sleep(poll).await;
                 let live_count = {
                     match registry.try_read() {
-                        Ok(reg) => reg
-                            .list_all()
-                            .into_iter()
-                            .filter(|e| {
-                                e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
-                                    && e.host != host
-                                    && e.port != port
-                            })
-                            .count(),
+                        Ok(reg) => reg.list_all().into_iter().filter(is_backend_entry).count(),
                         Err(_) => continue,
                     }
                 };
@@ -294,6 +287,7 @@ fn default_gateway_name() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};
 
     #[test]
     fn relay_source_arg_maps_into_gateway_config() {
@@ -340,6 +334,17 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         drop(listener);
         port
+    }
+
+    #[test]
+    fn idle_lifecycle_counts_backends_on_same_host_as_gateway() {
+        let maya = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        let photoshop = ServiceEntry::new("photoshop", "127.0.0.1", 18813);
+        let gateway = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
+
+        assert!(is_backend_entry(&maya));
+        assert!(is_backend_entry(&photoshop));
+        assert!(!is_backend_entry(&gateway));
     }
 
     /// Issue #1358 — the standalone gateway daemon must serve gateway-

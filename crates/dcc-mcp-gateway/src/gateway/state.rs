@@ -279,6 +279,12 @@ pub struct GatewayState {
     /// supplying a populated [`super::security::GatewayAuth`] through
     /// [`super::config::GatewayConfig::auth`].
     pub auth: Arc<super::security::GatewayAuth>,
+
+    /// Runtime lifecycle policy advertised by diagnostics for the standalone
+    /// gateway daemon. Embedded gateway paths keep the default non-persistent
+    /// policy; daemon mode overrides this from CLI/env configuration.
+    pub gateway_persist: bool,
+    pub gateway_idle_timeout_secs: u64,
 }
 
 impl GatewayState {
