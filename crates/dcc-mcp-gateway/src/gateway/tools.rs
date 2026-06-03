@@ -1120,14 +1120,15 @@ pub fn gateway_tool_defs() -> serde_json::Value {
             "name": "load_skill",
             "description": "Load a discovered skill on a target DCC instance, or activate/deactivate a \
                 progressive tool group. Use `skill_name` from search results and pass `instance_id` or \
-                `dcc`/`dcc_type` when more than one backend is live. Default loading is lazy: \
-                only default-active groups become active unless `activate_groups=true` or `tool_group` is supplied.",
+                `dcc`/`dcc_type` when more than one backend is live. By default the gateway \
+                activates all declared groups; set `activate_groups=false` for lazy loading, \
+                or pass `tool_group` to activate one group explicitly.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "skill_name": {"type": "string"},
                     "skill_names": {"type": "array", "items": {"type": "string"}},
-                    "activate_groups": {"type": "boolean", "default": false},
+                    "activate_groups": {"type": "boolean", "default": true},
                     "tool_group": {"type": "string", "description": "Progressive group to activate after loading."},
                     "group_name": {"type": "string", "description": "Alias of tool_group."},
                     "group_action": {"type": "string", "enum": ["activate", "deactivate"], "default": "activate"},

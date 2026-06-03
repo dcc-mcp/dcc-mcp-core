@@ -52,7 +52,7 @@ pub(crate) async fn skill_mgmt_dispatch(
                         obj.remove("meta");
                         obj.remove("_meta");
                         if tool == "load_skill" && !obj.contains_key("activate_groups") {
-                            obj.insert("activate_groups".to_string(), Value::Bool(false));
+                            obj.insert("activate_groups".to_string(), Value::Bool(true));
                         }
                         if let Some(group_name) = obj.get("group_name").cloned()
                             && !obj.contains_key("group")
@@ -407,7 +407,7 @@ pub(crate) fn skill_management_tool_defs() -> Vec<Value> {
                 "properties": {
                     "skill_name":      {"type": "string"},
                     "skill_names":     {"type": "array", "items": {"type": "string"}},
-                    "activate_groups": {"type": "boolean", "default": false, "description": "Gateway default is lazy: activate only default-active/core groups. Set true to cascade-activate all declared tool groups."},
+                    "activate_groups": {"type": "boolean", "default": true, "description": "Gateway default activates all declared tool groups. Set false for lazy loading when you only want default-active/core groups."},
                     "instance_id":     {"type": "string", "description": "Target instance (full UUID or short prefix)"},
                     "dcc":             {"type": "string", "description": "DCC type when only one instance of that type is live"}
                 },
