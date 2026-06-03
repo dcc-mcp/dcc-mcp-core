@@ -12,7 +12,9 @@ mod guardian;
 mod launcher;
 
 #[cfg(feature = "gateway-auto")]
-pub use guardian::{GatewayGuardianSettings, spawn_gateway_guardian};
+pub use guardian::{
+    GatewayGuardianHandle, GatewayGuardianSettings, GatewayGuardianStatus, spawn_gateway_guardian,
+};
 #[cfg(feature = "gateway-auto")]
 pub use launcher::{EnsureGatewayOptions, ensure_gateway_running};
 

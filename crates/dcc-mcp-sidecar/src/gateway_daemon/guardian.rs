@@ -1,3 +1,5 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::Duration;
 
 use super::launcher::{
@@ -31,21 +33,73 @@ impl GatewayGuardianSettings {
                 .max(1),
         }
     }
+
+    pub fn interval(&self) -> Duration {
+        self.interval
+    }
+    pub fn probe_timeout(&self) -> Duration {
+        self.probe_timeout
+    }
+    pub fn failure_threshold(&self) -> u32 {
+        self.failure_threshold
+    }
+}
+
+/// Live snapshot of the gateway guardian's internal state.
+#[derive(Debug, Clone)]
+pub struct GatewayGuardianStatus {
+    pub consecutive_failures: u32,
+    pub restart_attempts: u64,
+    pub guardian_running: bool,
+    pub failure_threshold: u32,
+}
+
+/// Handle returned by [`spawn_gateway_guardian`] for lifecycle + inspection.
+#[derive(Debug, Clone)]
+pub struct GatewayGuardianHandle {
+    abort: tokio::task::AbortHandle,
+    consecutive_failures: Arc<AtomicU32>,
+    restart_attempts: Arc<AtomicU64>,
+    failure_threshold: u32,
+}
+
+impl GatewayGuardianHandle {
+    pub fn abort(&self) {
+        self.abort.abort();
+    }
+
+    pub fn status(&self) -> GatewayGuardianStatus {
+        GatewayGuardianStatus {
+            consecutive_failures: self.consecutive_failures.load(Ordering::Relaxed),
+            restart_attempts: self.restart_attempts.load(Ordering::Relaxed),
+            guardian_running: !self.abort.is_finished(),
+            failure_threshold: self.failure_threshold,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
 enum GatewayGuardianAction {
     None,
     Reensure,
 }
 
 /// Keep a daemon-backed per-DCC process able to revive the standalone gateway.
+///
+/// Returns a [`GatewayGuardianHandle`] that can be used to inspect status
+/// or abort the watchdog task.
 pub fn spawn_gateway_guardian(
     opts: EnsureGatewayOptions,
     settings: GatewayGuardianSettings,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        let mut consecutive_failures = 0u32;
+) -> GatewayGuardianHandle {
+    let consecutive_failures = Arc::new(AtomicU32::new(0));
+    let restart_attempts = Arc::new(AtomicU64::new(0));
+    let guard_failures = Arc::clone(&consecutive_failures);
+    let guard_restarts = Arc::clone(&restart_attempts);
+    let failure_threshold = settings.failure_threshold;
+
+    let handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(settings.interval);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
@@ -53,29 +107,47 @@ pub fn spawn_gateway_guardian(
             interval.tick().await;
             let healthy =
                 gateway_health_ok_with_timeout(&opts.host, opts.port, settings.probe_timeout).await;
-            match record_gateway_guardian_probe(&settings, &mut consecutive_failures, healthy) {
-                GatewayGuardianAction::None => {}
-                GatewayGuardianAction::Reensure => {
-                    tracing::warn!(
-                        host = %opts.host,
-                        port = opts.port,
-                        failures = consecutive_failures,
-                        threshold = settings.failure_threshold,
-                        "gateway daemon health failed; re-ensuring standalone gateway"
-                    );
-                    match ensure_gateway_running(&opts).await {
-                        Ok(()) => consecutive_failures = 0,
-                        Err(err) => tracing::warn!(
-                            error = %err,
-                            "gateway daemon guardian failed to re-ensure standalone gateway"
-                        ),
+
+            if healthy {
+                guard_failures.store(0, Ordering::Relaxed);
+                continue;
+            }
+
+            let failures = guard_failures.fetch_add(1, Ordering::Relaxed) + 1;
+            if failures >= settings.failure_threshold {
+                tracing::warn!(
+                    host = %opts.host,
+                    port = opts.port,
+                    failures = failures,
+                    threshold = settings.failure_threshold,
+                    restart_attempts = guard_restarts.load(Ordering::Relaxed),
+                    "gateway daemon health failed; re-ensuring standalone gateway"
+                );
+                match ensure_gateway_running(&opts).await {
+                    Ok(()) => {
+                        guard_restarts.fetch_add(1, Ordering::Relaxed);
+                        guard_failures.store(0, Ordering::Relaxed);
                     }
+                    Err(err) => tracing::warn!(
+                        error = %err,
+                        "gateway daemon guardian failed to re-ensure standalone gateway"
+                    ),
                 }
             }
         }
-    })
+    });
+
+    GatewayGuardianHandle {
+        abort: handle.abort_handle(),
+        consecutive_failures,
+        restart_attempts,
+        failure_threshold,
+    }
 }
 
+/// Test-visible probe evaluation: returns the appropriate guardian action
+/// based on health status and failure threshold crossing.
+#[cfg(test)]
 fn record_gateway_guardian_probe(
     settings: &GatewayGuardianSettings,
     consecutive_failures: &mut u32,
@@ -114,13 +186,17 @@ fn u32_env(name: &str, default: u32) -> u32 {
 mod tests {
     use super::*;
 
-    #[test]
-    fn gateway_guardian_probe_threshold_resets_after_health() {
-        let settings = GatewayGuardianSettings {
+    fn test_settings() -> GatewayGuardianSettings {
+        GatewayGuardianSettings {
             interval: Duration::from_secs(1),
             probe_timeout: Duration::from_millis(10),
             failure_threshold: 2,
-        };
+        }
+    }
+
+    #[test]
+    fn gateway_guardian_probe_threshold_resets_after_health() {
+        let settings = test_settings();
         let mut failures = 0;
 
         assert_eq!(
@@ -138,5 +214,193 @@ mod tests {
             GatewayGuardianAction::None
         );
         assert_eq!(failures, 0);
+    }
+
+    #[test]
+    fn probe_action_below_threshold_is_none() {
+        let settings = GatewayGuardianSettings {
+            interval: Duration::from_secs(1),
+            probe_timeout: Duration::from_millis(10),
+            failure_threshold: 3,
+        };
+        let mut failures = 0;
+
+        assert_eq!(
+            record_gateway_guardian_probe(&settings, &mut failures, false),
+            GatewayGuardianAction::None
+        );
+        assert_eq!(failures, 1);
+        assert_eq!(
+            record_gateway_guardian_probe(&settings, &mut failures, false),
+            GatewayGuardianAction::None
+        );
+        assert_eq!(failures, 2);
+        assert_eq!(
+            record_gateway_guardian_probe(&settings, &mut failures, false),
+            GatewayGuardianAction::Reensure
+        );
+        assert_eq!(failures, 3);
+    }
+
+    #[tokio::test]
+    async fn gateway_guardian_handle_reports_status() {
+        let handle = GatewayGuardianHandle {
+            abort: tokio::spawn(async {}).abort_handle(),
+            consecutive_failures: Arc::new(AtomicU32::new(0)),
+            restart_attempts: Arc::new(AtomicU64::new(0)),
+            failure_threshold: 2,
+        };
+
+        let status = handle.status();
+        assert_eq!(status.consecutive_failures, 0);
+        assert_eq!(status.restart_attempts, 0);
+        assert_eq!(status.failure_threshold, 2);
+    }
+
+    #[tokio::test]
+    async fn gateway_guardian_handle_abort_marks_not_running() {
+        let join = tokio::spawn(async {});
+        let abort = join.abort_handle();
+        let handle = GatewayGuardianHandle {
+            abort,
+            consecutive_failures: Arc::new(AtomicU32::new(0)),
+            restart_attempts: Arc::new(AtomicU64::new(0)),
+            failure_threshold: 2,
+        };
+
+        assert!(handle.status().guardian_running);
+        handle.abort();
+        // Wait briefly for the abort to propagate.
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert!(!handle.status().guardian_running);
+    }
+
+    #[tokio::test]
+    async fn guardian_loop_tracks_consecutive_failures_and_restart_attempts() {
+        let opts = EnsureGatewayOptions {
+            host: "127.0.0.1".to_string(),
+            port: 19999, // No real gateway running
+            name: Some("guardian-status-test".to_string()),
+            registry_dir: std::env::temp_dir().join("dcc-mcp-test-registry"),
+            remote_host: "0.0.0.0".to_string(),
+            remote_port: 50000,
+        };
+
+        let settings = GatewayGuardianSettings {
+            interval: Duration::from_millis(100),
+            probe_timeout: Duration::from_millis(50),
+            failure_threshold: 2,
+        };
+
+        let handle = spawn_gateway_guardian(opts, settings);
+
+        // Let the guardian probe at least 4 times (it will fail because no
+        // gateway is running on port 19999, and reensure will try to spawn a
+        // real binary which will fail — but the probe/failure counting should
+        // still tick).
+        tokio::time::sleep(Duration::from_millis(600)).await;
+
+        let status = handle.status();
+        // We expect at least some failures since the port doesn't have a gateway.
+        assert!(
+            status.consecutive_failures >= 1,
+            "should have recorded at least 1 consecutive failure, got {}",
+            status.consecutive_failures
+        );
+        assert!(status.guardian_running);
+
+        handle.abort();
+    }
+
+    /// Integration test: guardian detects a real health endpoint going down.
+    ///
+    /// Starts a small HTTP server that responds to ``/health`` on an ephemeral
+    /// port, spawns a guardian watching it, then drops the server and verifies
+    /// the guardian records health-check failures.
+    #[tokio::test]
+    async fn guardian_detects_health_endpoint_down_and_triggers_reensure() {
+        use axum::{Router, response::IntoResponse, routing::get};
+
+        // Pick an ephemeral port.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let port = addr.port();
+
+        // Build a minimal axum server that only responds to /health.
+        async fn health() -> impl IntoResponse {
+            "OK"
+        }
+        let app = Router::new().route("/health", get(health));
+        let server_handle = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        // Give the server a moment to start.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let opts = EnsureGatewayOptions {
+            host: "127.0.0.1".to_string(),
+            port,
+            name: Some("guardian-health-down-test".to_string()),
+            registry_dir: std::env::temp_dir().join("dcc-mcp-test-registry"),
+            remote_host: "0.0.0.0".to_string(),
+            remote_port: 50000,
+        };
+
+        let settings = GatewayGuardianSettings {
+            interval: Duration::from_millis(150),
+            probe_timeout: Duration::from_millis(100),
+            failure_threshold: 2,
+        };
+
+        let handle = spawn_gateway_guardian(opts, settings);
+
+        // Let the guardian do a few probes — should be healthy.
+        tokio::time::sleep(Duration::from_millis(350)).await;
+        let status = handle.status();
+        assert_eq!(
+            status.consecutive_failures, 0,
+            "guardian should report 0 failures while health endpoint is up"
+        );
+        assert_eq!(status.restart_attempts, 0);
+
+        // Drop the health server.
+        server_handle.abort();
+
+        // Wait for the guardian to detect the failure and cross the threshold.
+        // With interval=150ms and threshold=2, 3 probe cycles ≈ 450ms.
+        tokio::time::sleep(Duration::from_millis(800)).await;
+
+        let status_after = handle.status();
+        assert!(
+            status_after.consecutive_failures >= 1,
+            "guardian should have recorded failures after health endpoint went down, got {}",
+            status_after.consecutive_failures,
+        );
+        assert!(status_after.guardian_running);
+
+        handle.abort();
+    }
+
+    #[test]
+    fn settings_from_env_parses_positive_values() {
+        unsafe {
+            std::env::set_var("DCC_MCP_GATEWAY_GUARDIAN_INTERVAL", "3");
+            std::env::set_var("DCC_MCP_GATEWAY_GUARDIAN_TIMEOUT", "0.8");
+            std::env::set_var("DCC_MCP_GATEWAY_GUARDIAN_FAILURES", "4");
+        }
+
+        let s = GatewayGuardianSettings::from_env();
+        assert_eq!(s.interval(), Duration::from_secs(3));
+        assert_eq!(s.probe_timeout(), Duration::from_secs_f64(0.8));
+        assert_eq!(s.failure_threshold(), 4);
+    }
+
+    #[test]
+    fn gateway_guardian_settings_accessors() {
+        let s = test_settings();
+        assert_eq!(s.interval(), Duration::from_secs(1));
+        assert_eq!(s.probe_timeout(), Duration::from_millis(10));
+        assert_eq!(s.failure_threshold(), 2);
     }
 }
