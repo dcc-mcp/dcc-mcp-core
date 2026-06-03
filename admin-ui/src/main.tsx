@@ -1,7 +1,9 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClientProvider } from '@tanstack/react-query';
 
 import App from './App';
+import { queryClient } from './lib/query-client';
 import { applyTheme, readThemeMode, resolveTheme } from './theme';
 // Stylesheets are imported in cascade order: base/layout/components/panels
 // first, then the skills detail view, then responsive overrides (last so
@@ -18,6 +20,8 @@ applyTheme(resolveTheme(readThemeMode()));
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <QueryClientProvider client={queryClient}>
+      <App />
+    </QueryClientProvider>
   </StrictMode>,
 );
