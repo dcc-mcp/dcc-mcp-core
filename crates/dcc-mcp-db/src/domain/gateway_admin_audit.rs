@@ -52,4 +52,6 @@ pub struct GatewayAdminAuditPersistedJson {
     pub duration_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_accounting: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub llm_usage: Option<Value>,
 }
