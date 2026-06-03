@@ -333,6 +333,16 @@ pub async fn handle_v1_readyz(State(gs): State<GatewayState>) -> impl IntoRespon
             "registration_refresh_mode_counts": registration_refresh_mode_counts,
             "gateway_daemon_guardian_instance_count": gateway_daemon_guardian_instance_count,
             "gateway_daemon_guardian_ready": gateway_daemon_guardian_instance_count > 0,
+            "gateway_lifecycle": {
+                "persist": std::env::var("DCC_MCP_GATEWAY_PERSIST")
+                    .ok()
+                    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                    .unwrap_or(false),
+                "idle_timeout_secs": std::env::var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS")
+                    .ok()
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .unwrap_or(30),
+            },
             "instances": instances,
         })),
     )
