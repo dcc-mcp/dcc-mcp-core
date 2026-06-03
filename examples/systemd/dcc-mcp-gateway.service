@@ -1,6 +1,6 @@
 [Unit]
 Description=DCC-MCP gateway server
-Documentation=https://github.com/loonghao/dcc-mcp-core/blob/main/docs/guide/production-deployment.md
+Documentation=https://github.com/dcc-mcp/dcc-mcp-core/blob/main/docs/guide/production-deployment.md
 After=network-online.target
 Wants=network-online.target
 

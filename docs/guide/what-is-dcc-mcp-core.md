@@ -126,7 +126,7 @@ dcc-mcp-core/
 
 ## Python API overview
 
-All public APIs import directly from `dcc_mcp_core`. AI agents should read [`llms.txt`](https://github.com/loonghao/dcc-mcp-core/blob/main/llms.txt) first (compact index) and fall back to [`llms-full.txt`](https://github.com/loonghao/dcc-mcp-core/blob/main/llms-full.txt) only when it lacks detail:
+All public APIs import directly from `dcc_mcp_core`. AI agents should read [`llms.txt`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/llms.txt) first (compact index) and fall back to [`llms-full.txt`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/llms-full.txt) only when it lacks detail:
 
 ```python
 from dcc_mcp_core import (
@@ -174,7 +174,7 @@ Full symbol listing lives in the [API reference](/api/actions).
 
 ## Recent breaking changes (2026-05)
 
-> This table is for callers in the middle of an upgrade. Full history in [`CHANGELOG.md`](https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md).
+> This table is for callers in the middle of an upgrade. Full history in [`CHANGELOG.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CHANGELOG.md).
 
 | Change | Impact | Migration |
 |---|---|---|
@@ -203,12 +203,12 @@ Full symbol listing lives in the [API reference](/api/actions).
 - [REST API surface](/guide/rest-api-surface) — `/v1/search`, `/v1/describe`, `/v1/call`, `tool_slug` format, OpenAPI snapshot
 - [CLI reference](/guide/cli-reference) — full flag tables for `dcc-mcp-server`, `dcc-mcp-tunnel-relay`, `dcc-mcp-tunnel-agent`, plus deployment scenarios
 - [Gateway diagnostics](/guide/gateway-diagnostics) — multi-instance contention, election, heartbeat, ghost eviction, troubleshooting matrix
-- [`AGENTS.md`](https://github.com/loonghao/dcc-mcp-core/blob/main/AGENTS.md) — rules for integrating AI agents
-- [`AI_AGENT_GUIDE.md`](https://github.com/loonghao/dcc-mcp-core/blob/main/AI_AGENT_GUIDE.md) — best practices for agents using dcc-mcp-core
+- [`AGENTS.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md) — rules for integrating AI agents
+- [`AI_AGENT_GUIDE.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AI_AGENT_GUIDE.md) — best practices for agents using dcc-mcp-core
 
 ## Related projects
 
-- [dcc-mcp-maya](https://github.com/loonghao/dcc-mcp-maya) — Maya adapter
-- [dcc-mcp-blender](https://github.com/loonghao/dcc-mcp-blender) — Blender adapter
-- [dcc-mcp-houdini](https://github.com/loonghao/dcc-mcp-houdini) — Houdini adapter
-- [dcc-mcp-photoshop](https://github.com/loonghao/dcc-mcp-photoshop) — Photoshop adapter
+- [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya) — Maya adapter
+- [dcc-mcp-blender](https://github.com/dcc-mcp/dcc-mcp-blender) — Blender adapter
+- [dcc-mcp-houdini](https://github.com/dcc-mcp/dcc-mcp-houdini) — Houdini adapter
+- [dcc-mcp-photoshop](https://github.com/dcc-mcp/dcc-mcp-photoshop) — Photoshop adapter

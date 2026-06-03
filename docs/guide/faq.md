@@ -19,10 +19,10 @@ DCC-MCP-Core is a foundational Rust library with Python bindings that provides:
 
 dcc-mcp-core is DCC-agnostic — the core library provides the infrastructure. DCC-specific integrations are separate projects:
 
-- **Maya** — via [dcc-mcp-maya](https://github.com/loonghao/dcc-mcp-maya)
+- **Maya** — via [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya)
 - **Unreal Engine** — via [dcc-mcp-unreal](https://github.com/loonghao/dcc-mcp-unreal) (in development, Python embedded)
-- **Photoshop** — via [dcc-mcp-photoshop](https://github.com/loonghao/dcc-mcp-photoshop) (in development, WebSocket bridge)
-- **ZBrush** — via [dcc-mcp-zbrush](https://github.com/loonghao/dcc-mcp-zbrush) (in development, HTTP bridge)
+- **Photoshop** — via [dcc-mcp-photoshop](https://github.com/dcc-mcp/dcc-mcp-photoshop) (in development, WebSocket bridge)
+- **ZBrush** — via [dcc-mcp-zbrush](https://github.com/dcc-mcp/dcc-mcp-zbrush) (in development, HTTP bridge)
 - **Blender, Houdini, 3ds Max** — community/third-party integrations using this library
 
 The core library works with any Python 3.7+ environment.
@@ -46,7 +46,7 @@ pip install dcc-mcp-core
 
 **From source (requires Rust 1.95+ and maturin):**
 ```bash
-git clone https://github.com/loonghao/dcc-mcp-core.git
+git clone https://github.com/dcc-mcp/dcc-mcp-core.git
 cd dcc-mcp-core
 pip install maturin
 maturin develop
@@ -341,7 +341,7 @@ cfg.init()
 
 ### How do I report a bug or request a feature?
 
-Please open an issue on [GitHub](https://github.com/loonghao/dcc-mcp-core/issues) with:
+Please open an issue on [GitHub](https://github.com/dcc-mcp/dcc-mcp-core/issues) with:
 - DCC application and version
 - Python version (`python --version`)
 - dcc-mcp-core version (`python -c "import dcc_mcp_core; print(dcc_mcp_core.__version__)"`)
@@ -352,7 +352,7 @@ Please open an issue on [GitHub](https://github.com/loonghao/dcc-mcp-core/issues
 
 ### How do I contribute to the project?
 
-See the [CONTRIBUTING.md](https://github.com/loonghao/dcc-mcp-core/blob/main/CONTRIBUTING.md) guide. Key steps:
+See the [CONTRIBUTING.md](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CONTRIBUTING.md) guide. Key steps:
 
 1. Install Rust 1.95+ and Python 3.8+
 2. Clone the repository
@@ -361,4 +361,4 @@ See the [CONTRIBUTING.md](https://github.com/loonghao/dcc-mcp-core/blob/main/CON
 
 ### Is there a community chat?
 
-Join the discussion on [GitHub Discussions](https://github.com/loonghao/dcc-mcp-core/discussions).
+Join the discussion on [GitHub Discussions](https://github.com/dcc-mcp/dcc-mcp-core/discussions).

@@ -1,6 +1,6 @@
 # DCC API Executor — 面向巨型 API 的代码编排模式
 
-> 源码：[`python/dcc_mcp_core/dcc_api_executor.py`](https://github.com/loonghao/dcc-mcp-core/blob/main/python/dcc_mcp_core/dcc_api_executor.py) · Issue [#411](https://github.com/loonghao/dcc-mcp-core/issues/411)
+> 源码：[`python/dcc_mcp_core/dcc_api_executor.py`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/dcc_api_executor.py) · Issue [#411](https://github.com/dcc-mcp/dcc-mcp-core/issues/411)
 >
 > **[English](../../api/dcc-api-executor.md)**
 
@@ -137,7 +137,7 @@ Server: { "output": {"created": 5}, "success": true }
 
 ## 当前状态
 
-Python 助手已可用。Rust 级 `dcc_search` / `dcc_execute` 内建 MCP 工具跟踪于 issue [#411](https://github.com/loonghao/dcc-mcp-core/issues/411)。之前通过 `register_dcc_api_executor(server, executor)` 注册——Python 处理器行为完全一致。
+Python 助手已可用。Rust 级 `dcc_search` / `dcc_execute` 内建 MCP 工具跟踪于 issue [#411](https://github.com/dcc-mcp/dcc-mcp-core/issues/411)。之前通过 `register_dcc_api_executor(server, executor)` 注册——Python 处理器行为完全一致。
 
 ## 参见
 

@@ -173,7 +173,7 @@ docker run -p 127.0.0.1:8765:8765 my-mcp-server
 
 ## 示例：最小可远程访问 Skill 服务器
 
-见 [`examples/remote-server/`](https://github.com/loonghao/dcc-mcp-core/tree/main/examples/remote-server) 获取一个
+见 [`examples/remote-server/`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/examples/remote-server) 获取一个
 完整的、可部署的示例，包含：
 
 - 在 `0.0.0.0:8765` 启动可公开访问的 MCP 服务器

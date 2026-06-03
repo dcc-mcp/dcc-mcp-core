@@ -1,6 +1,6 @@
 # dcc-mcp-core-semantic
 
-Native Rust semantic embeddings for [dcc-mcp-core](https://github.com/loonghao/dcc-mcp-core),
+Native Rust semantic embeddings for [dcc-mcp-core](https://github.com/dcc-mcp/dcc-mcp-core),
 shipped as a separate PyPI wheel so the main `dcc-mcp-core` install stays
 free of ONNX Runtime and the ~25-40 MB wheel size that comes with it.
 

@@ -154,4 +154,4 @@ reference dashboard. Until then the queries above are stable.
   `crates/dcc-mcp-http/src/metrics.rs`.
 - Tests: `crates/dcc-mcp-http/tests/prometheus_endpoint.rs`,
   `tests/test_prometheus.py`.
-- Issue: [#331](https://github.com/loonghao/dcc-mcp-core/issues/331).
+- Issue: [#331](https://github.com/dcc-mcp/dcc-mcp-core/issues/331).

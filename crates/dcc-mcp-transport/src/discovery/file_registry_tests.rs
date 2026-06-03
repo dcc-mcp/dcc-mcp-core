@@ -875,7 +875,7 @@ fn test_read_alive_with_log_returns_same_result() {
 
 #[test]
 fn test_read_alive_handles_multiple_ghosts_for_dcc_maya_126() {
-    // Reproduces loonghao/dcc-mcp-maya#126: gateway sees N stale instances
+    // Reproduces dcc-mcp/dcc-mcp-maya#126: gateway sees N stale instances
     // because Maya crashed N times without cleanup. read_alive should
     // evict them all in a single sweep.
     let dir = tempfile::tempdir().unwrap();

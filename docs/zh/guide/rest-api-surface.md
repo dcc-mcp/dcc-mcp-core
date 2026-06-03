@@ -486,4 +486,4 @@ auth / audit / invocation 永远不用碰 `handle_call`。
 
 - [网关争用与调试](gateway-diagnostics.md) —— 如何读懂竞争、探针、选举、ghost 剔除。
 - [CLI 参考](cli-reference.md) —— 启动 per-DCC 服务、tunnel relay + agent。
-- [AGENTS.md](https://github.com/loonghao/dcc-mcp-core/blob/main/AGENTS.md) —— AI Agent 接入规则。
+- [AGENTS.md](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md) —— AI Agent 接入规则。

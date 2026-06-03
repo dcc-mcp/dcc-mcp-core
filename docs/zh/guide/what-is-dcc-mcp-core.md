@@ -124,7 +124,7 @@ dcc-mcp-core/
 
 ## Python API 概览
 
-所有公共 API 都能从顶层 `dcc_mcp_core` 直接导入。AI Agent 建议先读 [`llms.txt`](https://github.com/loonghao/dcc-mcp-core/blob/main/llms.txt)（精简索引），再按需翻 [`llms-full.txt`](https://github.com/loonghao/dcc-mcp-core/blob/main/llms-full.txt)（完整索引）：
+所有公共 API 都能从顶层 `dcc_mcp_core` 直接导入。AI Agent 建议先读 [`llms.txt`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/llms.txt)（精简索引），再按需翻 [`llms-full.txt`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/llms-full.txt)（完整索引）：
 
 ```python
 from dcc_mcp_core import (
@@ -172,7 +172,7 @@ from dcc_mcp_core import (
 
 ## 最近的破坏性更改（2026-05）
 
-> 这一节专门给升级中的调用方。完整历史见 [`CHANGELOG.md`](https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md)。
+> 这一节专门给升级中的调用方。完整历史见 [`CHANGELOG.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CHANGELOG.md)。
 
 | 变更 | 影响 | 迁移 |
 |---|---|---|
@@ -201,12 +201,12 @@ from dcc_mcp_core import (
 - [REST API 接入指南](/zh/guide/rest-api-surface) —— `/v1/search`、`/v1/describe`、`/v1/call`、`tool_slug` 格式、OpenAPI snapshot
 - [CLI 参考](/zh/guide/cli-reference) —— `dcc-mcp-server`、`dcc-mcp-tunnel-relay`、`dcc-mcp-tunnel-agent` 的完整旗标 + 典型部署场景
 - [网关争用与调试](/zh/guide/gateway-diagnostics) —— 多实例竞争、选举、心跳、ghost 清除、故障排查手册
-- [`AGENTS.md`](https://github.com/loonghao/dcc-mcp-core/blob/main/AGENTS.md) —— AI Agent 接入核心规则
-- [`AI_AGENT_GUIDE.md`](https://github.com/loonghao/dcc-mcp-core/blob/main/AI_AGENT_GUIDE.md) —— AI Agent 使用 dcc-mcp-core 的最佳实践
+- [`AGENTS.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md) —— AI Agent 接入核心规则
+- [`AI_AGENT_GUIDE.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AI_AGENT_GUIDE.md) —— AI Agent 使用 dcc-mcp-core 的最佳实践
 
 ## 相关项目
 
-- [dcc-mcp-maya](https://github.com/loonghao/dcc-mcp-maya) — Maya 适配器
-- [dcc-mcp-blender](https://github.com/loonghao/dcc-mcp-blender) — Blender 适配器
-- [dcc-mcp-houdini](https://github.com/loonghao/dcc-mcp-houdini) — Houdini 适配器
-- [dcc-mcp-photoshop](https://github.com/loonghao/dcc-mcp-photoshop) — Photoshop 适配器
+- [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya) — Maya 适配器
+- [dcc-mcp-blender](https://github.com/dcc-mcp/dcc-mcp-blender) — Blender 适配器
+- [dcc-mcp-houdini](https://github.com/dcc-mcp/dcc-mcp-houdini) — Houdini 适配器
+- [dcc-mcp-photoshop](https://github.com/dcc-mcp/dcc-mcp-photoshop) — Photoshop 适配器

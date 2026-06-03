@@ -853,4 +853,4 @@ auth / audit / invocation.
 
 - [Gateway diagnostics](gateway-diagnostics.md) — how to read contention, probes, election, and ghost eviction.
 - [CLI reference](cli-reference.md) — launching per-DCC servers, tunnel relay + agent.
-- [AGENTS.md](https://github.com/loonghao/dcc-mcp-core/blob/main/AGENTS.md) — rules for AI agents.
+- [AGENTS.md](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md) — rules for AI agents.

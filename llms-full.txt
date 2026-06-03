@@ -3511,7 +3511,7 @@ Keep `SKILL.md` body < 500 lines / < 5000 tokens; move details to `references/` 
 ## Related Projects
 
 - [dcc-mcp-rpyc](https://github.com/loonghao/dcc-mcp-rpyc) — RPyC bridge for remote DCC operations
-- [dcc-mcp-maya](https://github.com/loonghao/dcc-mcp-maya) — Maya MCP server implementation
+- [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya) — Maya MCP server implementation
 
 ---
 

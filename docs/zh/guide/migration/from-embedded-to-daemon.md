@@ -9,7 +9,7 @@
 淘汰 legacy 内嵌拓扑，或迁到独立托管 daemon / 多机发现源时，才需要下面的
 步骤；这些拓扑来自 epic [#1367][epic]。
 
-[epic]: https://github.com/loonghao/dcc-mcp-core/issues/1367
+[epic]: https://github.com/dcc-mcp/dcc-mcp-core/issues/1367
 
 ## 什么时候迁移？
 
@@ -115,7 +115,7 @@ inline 执行工具；每个 `tools/call` 都会被转发到拥有该工具的 D
 跨主机的每个源都带 bearer token。在那之前，守护进程**只能**部署在受信
 LAN 上，或者放在能在前面终结 auth 的反向代理后面。
 
-[1365]: https://github.com/loonghao/dcc-mcp-core/issues/1365
+[1365]: https://github.com/dcc-mcp/dcc-mcp-core/issues/1365
 
 ## 第 5 步 —— 验证并保留回滚方案
 

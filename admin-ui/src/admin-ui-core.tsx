@@ -164,7 +164,7 @@ export function gatewayDocsHref(): string {
 }
 
 export function projectDocsHref(): string {
-  return 'https://github.com/loonghao/dcc-mcp-core/tree/main/docs';
+  return 'https://github.com/dcc-mcp/dcc-mcp-core/tree/main/docs';
 }
 
 export function gatewayOpenApiHref(): string {

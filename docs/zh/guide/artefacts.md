@@ -1,6 +1,6 @@
 # 制品传递 (Artefact Hand-Off)
 
-> **Issue**: [#349](https://github.com/loonghao/dcc-mcp-core/issues/349)
+> **Issue**: [#349](https://github.com/dcc-mcp/dcc-mcp-core/issues/349)
 > **Crate**: `dcc-mcp-artefact`
 > **Scheme**: `artefact://sha256/<hex>`
 
@@ -138,7 +138,7 @@ let refs = store.list(ArtefactFilter {
 
 - [`docs/api/resources.md`](../api/resources.md) — 承载 `artefact://` 的
   更广泛的 Resources 原语。
-- Issue [#348](https://github.com/loonghao/dcc-mcp-core/issues/348) —
+- Issue [#348](https://github.com/dcc-mcp/dcc-mcp-core/issues/348) —
   消费 `FileRef` 的工作流运行器。
-- Issue [#350](https://github.com/loonghao/dcc-mcp-core/issues/350) —
+- Issue [#350](https://github.com/dcc-mcp/dcc-mcp-core/issues/350) —
   Resources 原语（已合并）。

@@ -1,8 +1,8 @@
 //! `dcc-mcp-host-rpc` — out-of-process **sidecar → DCC** RPC contract.
 //!
 //! This crate is the **Phase 2 substrate** for the sidecar epic
-//! ([RFC #998](https://github.com/loonghao/dcc-mcp-core/issues/998),
-//! tracked under [#1002](https://github.com/loonghao/dcc-mcp-core/issues/1002)).
+//! ([RFC #998](https://github.com/dcc-mcp/dcc-mcp-core/issues/998),
+//! tracked under [#1002](https://github.com/dcc-mcp/dcc-mcp-core/issues/1002)).
 //! It defines the abstract trait every per-DCC sidecar implementation
 //! satisfies, the concrete clients the generic sidecar can route to today,
 //! and the structured error envelope the gateway propagates as the

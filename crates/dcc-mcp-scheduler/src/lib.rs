@@ -4,7 +4,7 @@
 //! workflows on cron schedules or HTTP webhook events without a human
 //! tool call.
 //!
-//! See issue [#352](https://github.com/loonghao/dcc-mcp-core/issues/352).
+//! See issue [#352](https://github.com/dcc-mcp/dcc-mcp-core/issues/352).
 //!
 //! ## Design summary
 //!

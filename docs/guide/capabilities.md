@@ -1,6 +1,6 @@
 # Capabilities & Workspace Roots
 
-> **Issue:** [#354](https://github.com/loonghao/dcc-mcp-core/issues/354) — capability declaration + typed workspace path handshake
+> **Issue:** [#354](https://github.com/dcc-mcp/dcc-mcp-core/issues/354) — capability declaration + typed workspace path handshake
 >
 > **Status:** Available since v0.15
 

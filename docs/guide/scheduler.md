@@ -1,10 +1,10 @@
 # Scheduler — cron + webhook-triggered workflows
 
-> Issue [#352](https://github.com/loonghao/dcc-mcp-core/issues/352).
+> Issue [#352](https://github.com/dcc-mcp/dcc-mcp-core/issues/352).
 > Opt-in via the Cargo `scheduler` feature. Off by default.
 
 The scheduler subsystem fires pre-registered workflows (`WorkflowSpec` from
-[#348](https://github.com/loonghao/dcc-mcp-core/issues/348)) on two kinds of
+[#348](https://github.com/dcc-mcp/dcc-mcp-core/issues/348)) on two kinds of
 triggers:
 
 - **Cron** — a next-fire-time loop on a `chrono-tz` timezone, optional
@@ -17,7 +17,7 @@ The scheduler **does not execute workflows itself**. On fire it builds a
 resolves the workflow name against the `WorkflowCatalog` and enqueues a
 `WorkflowJob` through whatever dispatch path the host prefers.
 
-## Sibling-file pattern ([#356](https://github.com/loonghao/dcc-mcp-core/issues/356))
+## Sibling-file pattern ([#356](https://github.com/dcc-mcp/dcc-mcp-core/issues/356))
 
 Schedules live in `*.schedules.yaml` files alongside `SKILL.md`, never
 embedded in the `SKILL.md` frontmatter itself. A skill points at them via
@@ -202,4 +202,4 @@ Python cannot currently construct a `SchedulerService` directly.
 
 - `crates/dcc-mcp-scheduler/src/lib.rs` — crate-level docs and example.
 - `docs/proposals/workflow-orchestration-gap.md` §G — design rationale.
-- Issue [#352](https://github.com/loonghao/dcc-mcp-core/issues/352).
+- Issue [#352](https://github.com/dcc-mcp/dcc-mcp-core/issues/352).
