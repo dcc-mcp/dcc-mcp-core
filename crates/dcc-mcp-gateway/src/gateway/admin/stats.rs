@@ -706,6 +706,7 @@ mod tests {
             input: None,
             output: None,
             token_accounting: None,
+            llm_usage: None,
         }
     }
 

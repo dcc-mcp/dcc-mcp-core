@@ -16,7 +16,7 @@ use crate::gateway::middleware::{AuditEntry, AuditSink};
 use crate::gateway::state::GatewayState;
 
 use super::stats::StatsAggregator;
-use super::trace::{AgentContextTrust, DispatchTrace, TokenTelemetry, TraceLog};
+use super::trace::{AgentContextTrust, DispatchTrace, LlmUsage, TokenTelemetry, TraceLog};
 
 type SqliteTracePersistFn = Arc<dyn Fn(&DispatchTrace) + Send + Sync>;
 type SqliteAuditPersistFn = Arc<dyn Fn(&AdminAuditRecord) + Send + Sync>;
@@ -80,6 +80,8 @@ pub struct AdminAuditRecord {
     pub duration_ms: Option<u64>,
     /// Token accounting for the client-visible response, if available.
     pub token_accounting: Option<TokenTelemetry>,
+    /// Optional upstream LLM billing token counts, when supplied.
+    pub llm_usage: Option<LlmUsage>,
 }
 
 pub type AuditLog = Mutex<Vec<AdminAuditRecord>>;
@@ -140,6 +142,8 @@ struct PersistedAuditRecord {
     duration_ms: Option<u64>,
     #[serde(default)]
     token_accounting: Option<TokenTelemetry>,
+    #[serde(default)]
+    llm_usage: Option<LlmUsage>,
 }
 
 impl DurableAuditStore {
@@ -307,6 +311,7 @@ impl From<&AdminAuditRecord> for PersistedAuditRecord {
             error: record.error.clone(),
             duration_ms: record.duration_ms,
             token_accounting: record.token_accounting.clone(),
+            llm_usage: record.llm_usage.clone(),
         }
     }
 }
@@ -342,6 +347,7 @@ impl From<PersistedAuditRecord> for AdminAuditRecord {
             error: record.error,
             duration_ms: record.duration_ms,
             token_accounting: record.token_accounting,
+            llm_usage: record.llm_usage,
         }
     }
 }
@@ -445,6 +451,7 @@ impl AuditSink for AdminAuditSink {
             },
             duration_ms: entry.duration_ms,
             token_accounting: entry.token_accounting.clone(),
+            llm_usage: entry.llm_usage.clone(),
         };
         if let Some(store) = &self.durable_store {
             store.append_audit(&record);
@@ -484,6 +491,7 @@ impl AuditSink for AdminAuditSink {
                 input: entry.input_payload,
                 output: entry.output_payload,
                 token_accounting: entry.token_accounting,
+                llm_usage: entry.llm_usage.clone(),
             };
             if let Some(store) = &self.durable_store {
                 store.append_trace(&trace);
@@ -530,6 +538,7 @@ mod durable_tests {
             error: None,
             duration_ms: Some(7),
             token_accounting: None,
+            llm_usage: None,
         }
     }
 
@@ -575,6 +584,7 @@ mod durable_tests {
             input: None,
             output: None,
             token_accounting: Some(token_telemetry()),
+            llm_usage: None,
         };
         store.append_trace(&trace);
 

@@ -68,6 +68,8 @@ pub struct CallContext {
     pub agent_context: Option<AgentContext>,
     /// Transport surface that produced this call (`mcp`, `rest`, ...).
     pub transport: Option<String>,
+    /// Optional upstream LLM billing token counts from `x-dcc-mcp-llm-usage`.
+    pub llm_usage: Option<Value>,
 }
 
 impl CallContext {
@@ -109,6 +111,7 @@ impl CallContext {
             input_payload: None,
             output_payload: None,
             token_accounting: None,
+            llm_usage: None,
             started_at: SystemTime::now(),
             agent_context: None,
             transport: None,
