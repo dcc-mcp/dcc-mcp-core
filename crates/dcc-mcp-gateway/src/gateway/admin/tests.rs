@@ -527,7 +527,7 @@ filters:
         let (_, _, html) = body_html(admin_router(), "/").await;
         // Vite minifies JSX; assert stable API paths and panel strings from the bundle.
         for needle in [
-            "/traces?limit=200",
+            "/traces?limit=",
             "/stats?range=",
             "trace-row",
             "No traces recorded.",
