@@ -93,9 +93,22 @@ fn test_gateway_state_with_debug_routes(
         search_telemetry: Arc::new(crate::gateway::search_telemetry::SearchTelemetryStore::new()),
         debug_routes_enabled,
         auth: Arc::new(crate::gateway::security::GatewayAuth::disabled()),
+        gateway_persist: false,
+        gateway_idle_timeout_secs: 30,
         #[cfg(feature = "prometheus")]
         gateway_metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
     }
+}
+
+fn test_gateway_state_with_lifecycle(
+    server_version: &str,
+    gateway_persist: bool,
+    gateway_idle_timeout_secs: u64,
+) -> GatewayState {
+    let mut state = test_gateway_state(server_version);
+    state.gateway_persist = gateway_persist;
+    state.gateway_idle_timeout_secs = gateway_idle_timeout_secs;
+    state
 }
 
 async fn response_json(resp: Response) -> (StatusCode, Value) {
@@ -448,6 +461,17 @@ async fn gateway_readyz_summarises_instance_readiness_bits() {
     assert_eq!(houdini["gateway"]["runtime_mode"], "embedded-fallback");
     assert_eq!(houdini["gateway"]["guardian_enabled"], false);
     assert_eq!(houdini["gateway"]["recovery_driver"], "embedded_election");
+}
+
+#[tokio::test]
+async fn readyz_reports_configured_gateway_lifecycle_policy() {
+    let gs = test_gateway_state_with_lifecycle("test-version", true, 7);
+
+    let (status, body) = response_json(handle_v1_readyz(State(gs)).await.into_response()).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["gateway_lifecycle"]["persist"], true);
+    assert_eq!(body["gateway_lifecycle"]["idle_timeout_secs"], 7);
 }
 
 #[tokio::test]

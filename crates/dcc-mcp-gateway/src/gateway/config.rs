@@ -179,6 +179,20 @@ pub struct GatewayConfig {
     /// values when running the daemon mode over a network the operator
     /// does not fully trust.
     pub auth: super::security::GatewayAuth,
+
+    /// Keep the standalone gateway daemon alive even when no backend
+    /// instances remain. Useful for studio/headless deployments where
+    /// backends start and stop independently.
+    ///
+    /// Default: `false`. Override with `DCC_MCP_GATEWAY_PERSIST=1`.
+    pub gateway_persist: bool,
+
+    /// Grace period in seconds before the gateway daemon performs an
+    /// orderly shutdown after the last backend instance exits.
+    /// `0` disables idle-timeout altogether (equivalent to `gateway_persist`).
+    ///
+    /// Default: `30`. Override with `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS`.
+    pub gateway_idle_timeout_secs: u64,
 }
 
 impl Default for GatewayConfig {
@@ -215,6 +229,8 @@ impl Default for GatewayConfig {
             health_check_failures: 2,
             admin_persist: AdminPersistConfig::default(),
             auth: super::security::GatewayAuth::disabled(),
+            gateway_persist: false,
+            gateway_idle_timeout_secs: 30,
         }
     }
 }
