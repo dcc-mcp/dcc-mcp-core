@@ -452,6 +452,11 @@ async fn spawn_canonical_workflow_backend() -> (u16, tokio::sync::oneshot::Sende
                     .and_then(Value::as_str)
                     .unwrap_or("");
                 let result = if name == "load_skill" {
+                    let received_arguments = body
+                        .get("params")
+                        .and_then(|params| params.get("arguments"))
+                        .cloned()
+                        .unwrap_or_else(|| json!({}));
                     json!({
                         "content": [{
                             "type": "text",
@@ -460,6 +465,7 @@ async fn spawn_canonical_workflow_backend() -> (u16, tokio::sync::oneshot::Sende
                                 "skill_name": "maya-primitives",
                                 "dcc_type": "maya",
                                 "activated_groups": ["core"],
+                                "received_arguments": received_arguments,
                             })).unwrap()
                         }],
                         "isError": false
@@ -887,6 +893,7 @@ async fn gateway_mcp_four_tool_workflow_covers_search_describe_load_and_call() {
         "aaaaaaaa-0000-0000-0000-000000000001"
     );
     assert_eq!(load_payload["activated_groups"], json!(["core"]));
+    assert_eq!(load_payload["received_arguments"]["activate_groups"], true);
     assert_eq!(
         load_payload["new_tool_slugs"][0],
         "maya.aaaaaaaa.create_sphere"
@@ -896,12 +903,37 @@ async fn gateway_mcp_four_tool_workflow_covers_search_describe_load_and_call() {
     assert_eq!(load_payload["next_step"]["mcp"]["tool"], "describe");
     assert_eq!(load_payload["next_step"]["rest"]["path"], "/v1/describe");
 
-    let single = post_mcp_json(
+    let load_lazy = post_mcp_json(
         &client,
         &url,
         json!({
             "jsonrpc": "2.0",
             "id": 5,
+            "method": "tools/call",
+            "params": {
+                "name": "load_skill",
+                "arguments": {
+                    "skill_name": "maya-primitives",
+                    "dcc_type": "maya",
+                    "activate_groups": false
+                }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(load_lazy["result"]["isError"], false);
+    let load_lazy_payload = mcp_call_text_json(&load_lazy);
+    assert_eq!(
+        load_lazy_payload["received_arguments"]["activate_groups"],
+        false
+    );
+
+    let single = post_mcp_json(
+        &client,
+        &url,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 6,
             "method": "tools/call",
             "params": {
                 "name": "call",
