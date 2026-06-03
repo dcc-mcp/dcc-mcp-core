@@ -22,8 +22,13 @@ Staying on legacy embedded auto-gateway is reasonable only if:
 - You deliberately pass `--legacy-gateway-election` for compatibility with an
   older supervisor.
 
-Migrate to a standalone gateway daemon when **any** of the following is
-true:
+**Since v0.17, the default runtime mode is already daemon-backed.** The
+embedded auto-gateway is now accessed via `--legacy-gateway-election`.
+If you are already running the default (`auto` / `serve`) without the
+legacy flag, you are using the three-layer architecture and this guide
+is a reference for how it works under the hood — no migration needed.
+
+Use explicit `dcc-mcp-server gateway` when:
 
 - You run more than one workstation that should share a single gateway URL.
 - The host that issues MCP calls (CI runner, headless agent, render farm
@@ -156,6 +161,17 @@ pkill -f "dcc-mcp-server gateway"
 # Restart every DCC adapter with the legacy election flag.
 dcc-mcp-server --app maya --legacy-gateway-election
 ```
+
+## Daemon environment reference
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `DCC_MCP_GATEWAY_GUARDIAN_INTERVAL` | `5` | Seconds between daemon `/health` probes |
+| `DCC_MCP_GATEWAY_GUARDIAN_TIMEOUT` | `0.5` | Per-probe `/health` timeout in seconds |
+| `DCC_MCP_GATEWAY_GUARDIAN_FAILURES` | `2` | Consecutive failed probes before re-ensure |
+| `DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS` | `30` | Age after which a stale launch lock is reclaimed by another backend |
+| `DCC_MCP_GATEWAY_PERSIST` | `false` | Keep daemon alive when no backends remain |
+| `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` | `30` | Grace period (seconds) before daemon shutdown after last backend exits; `0` = never |
 
 ## Related reading
 
