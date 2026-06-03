@@ -69,6 +69,8 @@ fn test_gateway_state_with_own_and_unknown(
         search_telemetry: Arc::new(crate::gateway::search_telemetry::SearchTelemetryStore::new()),
         debug_routes_enabled: false,
         auth: std::sync::Arc::new(crate::gateway::security::GatewayAuth::disabled()),
+        gateway_persist: false,
+        gateway_idle_timeout_secs: 30,
     }
 }
 

@@ -333,6 +333,10 @@ pub async fn handle_v1_readyz(State(gs): State<GatewayState>) -> impl IntoRespon
             "registration_refresh_mode_counts": registration_refresh_mode_counts,
             "gateway_daemon_guardian_instance_count": gateway_daemon_guardian_instance_count,
             "gateway_daemon_guardian_ready": gateway_daemon_guardian_instance_count > 0,
+            "gateway_lifecycle": {
+                "persist": gs.gateway_persist,
+                "idle_timeout_secs": gs.gateway_idle_timeout_secs,
+            },
             "instances": instances,
         })),
     )

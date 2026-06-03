@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::time::Duration;
 
 use clap::Args;
 use dcc_mcp_gateway::{AdminPersistConfig, GatewayConfig, GatewayRunner, RelaySourceConfig};
@@ -97,6 +98,17 @@ pub struct GatewayArgs {
         value_name = "ADMIN_URL=PUBLIC_BASE_URL"
     )]
     pub relay_sources: Vec<RelaySourceArg>,
+
+    /// Keep the gateway daemon alive even when no backends remain.
+    /// Default: false. Use for studio/headless deployments.
+    #[arg(long, env = "DCC_MCP_GATEWAY_PERSIST", default_value = "false")]
+    pub gateway_persist: bool,
+
+    /// Seconds to wait after the last backend exits before shutting down
+    /// the gateway daemon. `0` disables idle timeout (same as `--gateway-persist`).
+    /// Default: 30.
+    #[arg(long, env = "DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", default_value = "30")]
+    pub gateway_idle_timeout_secs: u64,
 }
 
 /// Build the [`GatewayConfig`] that the standalone daemon uses.
@@ -134,11 +146,22 @@ pub fn build_gateway_config(args: &GatewayArgs, gateway_name: &str) -> GatewayCo
             sqlite_retention_days: admin_retention,
             ..AdminPersistConfig::default()
         },
+        gateway_persist: args.gateway_persist
+            || std::env::var("DCC_MCP_GATEWAY_PERSIST")
+                .ok()
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false),
+        gateway_idle_timeout_secs: args.gateway_idle_timeout_secs,
         ..GatewayConfig::default()
     }
 }
 
-/// Run the standalone gateway until a shutdown signal arrives.
+fn is_backend_entry(entry: &dcc_mcp_transport::discovery::types::ServiceEntry) -> bool {
+    entry.dcc_type != dcc_mcp_transport::discovery::types::GATEWAY_SENTINEL_DCC_TYPE
+}
+
+/// Run the standalone gateway until a shutdown signal arrives (or the
+/// idle-timeout fires when no backends remain).
 pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
     let gateway_name = args.name.clone().unwrap_or_else(default_gateway_name);
     let cfg = build_gateway_config(&args, &gateway_name);
@@ -158,14 +181,90 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
         return Ok(());
     }
 
+    let gateway_persist = args.gateway_persist
+        || std::env::var("DCC_MCP_GATEWAY_PERSIST")
+            .ok()
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+    let gateway_idle_timeout_secs = args.gateway_idle_timeout_secs;
+
     tracing::info!(
         gateway_name = %gateway_name,
         host = %args.host,
         port = args.port,
+        gateway_persist,
+        gateway_idle_timeout_secs,
         "standalone gateway running"
     );
 
-    let shutdown_reason = crate::select_shutdown_signal().await?;
+    // ── Idle-timeout watch (PIP-487) ───────────────────────────────────────
+    //
+    // Polls the FileRegistry for live backends. When no backend remains and
+    // persistence is off, starts a countdown. Backends that reconnect during
+    // the grace period cancel the timer; expiry triggers an orderly shutdown.
+    let idle_shutdown = if !gateway_persist && gateway_idle_timeout_secs > 0 {
+        let registry = runner.registry.clone();
+        let (idle_tx, idle_rx) = tokio::sync::watch::channel(false);
+        tokio::spawn(async move {
+            let poll = Duration::from_secs(5);
+            let grace = Duration::from_secs(gateway_idle_timeout_secs);
+            let mut idle_since: Option<std::time::Instant> = None;
+
+            loop {
+                tokio::time::sleep(poll).await;
+                let live_count = {
+                    match registry.try_read() {
+                        Ok(reg) => reg.list_all().into_iter().filter(is_backend_entry).count(),
+                        Err(_) => continue,
+                    }
+                };
+
+                if live_count > 0 {
+                    if idle_since.take().is_some() {
+                        tracing::info!(
+                            live_backends = live_count,
+                            "gateway idle countdown cancelled — backends reconnected"
+                        );
+                    }
+                    continue;
+                }
+
+                let since = *idle_since.get_or_insert_with(std::time::Instant::now);
+                let elapsed = since.elapsed();
+                tracing::debug!(
+                    elapsed_secs = elapsed.as_secs(),
+                    grace_period_secs = grace.as_secs(),
+                    "gateway idle: no live backends"
+                );
+
+                if elapsed >= grace {
+                    tracing::warn!(
+                        grace_period_secs = grace.as_secs(),
+                        "gateway idle timeout reached — shutting down"
+                    );
+                    let _ = idle_tx.send(true);
+                    return;
+                }
+            }
+        });
+        Some(idle_rx)
+    } else {
+        None
+    };
+
+    // ── Wait for shutdown trigger ──────────────────────────────────────────
+    let shutdown_reason = if let Some(mut idle_rx) = idle_shutdown {
+        tokio::select! {
+            sig = crate::select_shutdown_signal() => {
+                sig.unwrap_or("signal")
+            }
+            _ = idle_rx.changed() => {
+                "idle_timeout"
+            }
+        }
+    } else {
+        crate::select_shutdown_signal().await?
+    };
     tracing::info!(shutdown_reason, "standalone gateway shutting down");
 
     if let Some(abort) = outcome.gateway_abort.take() {
@@ -188,6 +287,7 @@ fn default_gateway_name() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};
 
     #[test]
     fn relay_source_arg_maps_into_gateway_config() {
@@ -216,6 +316,8 @@ mod tests {
             #[cfg(feature = "mdns")]
             discover_mdns: false,
             relay_sources: vec![source],
+            gateway_persist: false,
+            gateway_idle_timeout_secs: 30,
         };
 
         let cfg = build_gateway_config(&args, "relay-source-test");
@@ -232,6 +334,17 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         drop(listener);
         port
+    }
+
+    #[test]
+    fn idle_lifecycle_counts_backends_on_same_host_as_gateway() {
+        let maya = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        let photoshop = ServiceEntry::new("photoshop", "127.0.0.1", 18813);
+        let gateway = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
+
+        assert!(is_backend_entry(&maya));
+        assert!(is_backend_entry(&photoshop));
+        assert!(!is_backend_entry(&gateway));
     }
 
     /// Issue #1358 — the standalone gateway daemon must serve gateway-
@@ -255,6 +368,8 @@ mod tests {
             #[cfg(feature = "mdns")]
             discover_mdns: false,
             relay_sources: Vec::new(),
+            gateway_persist: false,
+            gateway_idle_timeout_secs: 30,
         };
         let cfg = build_gateway_config(&args, args.name.as_deref().unwrap());
         assert_eq!(
