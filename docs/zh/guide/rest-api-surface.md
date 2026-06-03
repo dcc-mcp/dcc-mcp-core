@@ -31,7 +31,7 @@ OpenAPI 契约。
 | `GET` | `/v1/skills` | 把已加载 gateway capability records 投影成 skill entries。 |
 | `POST` | `/v1/list_skills` | 把 skill-list 请求转发给选中的 backend instance。 |
 | `POST` | `/v1/search` | 模糊 / 精确搜索 loaded + unloaded skills。 |
-| `POST` | `/v1/load_skill` | 不经过 MCP `tools/call`，加载一个 backend skill；gateway 默认 lazy group activation。 |
+| `POST` | `/v1/load_skill` | 不经过 MCP `tools/call`，加载一个 backend skill；gateway 默认激活已声明的全部 group。 |
 | `POST` | `/v1/unload_skill` | 不经过 MCP `tools/call`，卸载一个 backend skill。 |
 | `POST` | `/v1/describe` | 按 `tool_slug` 返回完整 input schema + 注解。 |
 | `GET` | `/v1/tools/{slug}` | `/v1/describe` 的别名（只读 URL 查询）。 |
@@ -379,9 +379,9 @@ compact search 仍保留 agent 后续工作需要的字段：`tool_slug`、
 `backend_tool` 相同的 `callable_id`、空数组和空 object。这里把 RTK 的
 语义压缩模型作为设计参考；gateway 内部直接使用确定性的 `toon-format`
 库，让 `serde_json::Value` payload 在 Rust 测试中可 round-trip，不需要
-派生外部 codec 进程。Gateway `load_skill` 默认惰性激活 group
-（未传入时等价于 `activate_groups=false`）：默认/core group 可自动可用，
-更重的 group 需要显式 `tool_group` 激活。
+派生外部 codec 进程。Gateway `load_skill` 默认激活已声明的全部 group
+（未传入时等价于 `activate_groups=true`）。如需惰性加载，传
+`activate_groups=false`；如只想激活单个 group，显式传 `tool_group`。
 
 compact describe 会对 `record` 应用相同的小记录规则，但完整保留 `tool`
 定义，包括 `inputSchema`、annotations 和 validation hints。compact call

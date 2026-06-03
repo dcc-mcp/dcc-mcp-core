@@ -34,7 +34,7 @@ continue to serve their own adapter OpenAPI contract from the same path.
 | `GET` | `/v1/skills` | Loaded gateway capability records projected as skill entries. |
 | `POST` | `/v1/list_skills` | Forward a skill-list request to a selected backend instance. |
 | `POST` | `/v1/search` | Fuzzy / exact search across loaded + unloaded skills. |
-| `POST` | `/v1/load_skill` | Load a discovered backend skill without using MCP `tools/call`; gateway default is lazy group activation. |
+| `POST` | `/v1/load_skill` | Load a discovered backend skill without using MCP `tools/call`; gateway activates declared groups by default. |
 | `POST` | `/v1/unload_skill` | Unload a backend skill without using MCP `tools/call`. |
 | `POST` | `/v1/describe` | Return the full input schema + annotations for one `tool_slug`. |
 | `GET` | `/v1/tools/{slug}` | Alias of `/v1/describe` (read-only lookup via URL). |
@@ -642,8 +642,9 @@ When `loaded=false`, clients may POST `next_step.arguments` directly to
 `/v1/load_skill`, then repeat `/v1/search` or call `/v1/describe` for the same
 tool. Per-DCC REST omits `instance_id` because there is only one owning server;
 the gateway includes it so same-DCC multi-instance calls stay routed. Gateway
-`load_skill` defaults to lazy group activation (`activate_groups=false` unless
-supplied), so heavier groups should be activated explicitly.
+`load_skill` activates declared groups by default (`activate_groups=true` when
+omitted). Pass `activate_groups=false` for lazy loading, or use `tool_group` to
+activate one group explicitly.
 
 ### Compact output
 
