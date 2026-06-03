@@ -122,7 +122,9 @@ fn admin_audit_from_persisted(p: GatewayAdminAuditPersistedJson) -> AdminAuditRe
         token_accounting: p
             .token_accounting
             .and_then(|value| serde_json::from_value(value).ok()),
-        llm_usage: None,
+        llm_usage: p
+            .llm_usage
+            .and_then(|value| serde_json::from_value(value).ok()),
     }
 }
 
@@ -219,6 +221,10 @@ fn audit_to_persisted(r: &AdminAuditRecord) -> GatewayAdminAuditPersistedJson {
         duration_ms: r.duration_ms,
         token_accounting: r
             .token_accounting
+            .as_ref()
+            .and_then(|value| serde_json::to_value(value).ok()),
+        llm_usage: r
+            .llm_usage
             .as_ref()
             .and_then(|value| serde_json::to_value(value).ok()),
     }

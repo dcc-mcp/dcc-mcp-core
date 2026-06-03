@@ -464,6 +464,9 @@ fn admin_audit_row_json(r: &AdminAuditRecord, links: Option<AdminLinkBuilder>) -
         "duration_ms": r.duration_ms,
     });
     apply_token_fields(&mut row, r.token_accounting.as_ref());
+    if let Some(llm) = r.llm_usage.as_ref() {
+        row["llm_usage"] = serde_json::to_value(llm).unwrap_or_default();
+    }
     if let Some(links) = links {
         row["links"] = links.request_links(&r.request_id);
     }
@@ -1347,6 +1350,9 @@ fn dispatch_trace_to_admin_row(t: &DispatchTrace, links: Option<AdminLinkBuilder
         "slowest_span_ms": slowest_span_ms,
     });
     apply_token_fields(&mut row, t.token_accounting.as_ref());
+    if let Some(llm) = t.llm_usage.as_ref() {
+        row["llm_usage"] = serde_json::to_value(llm).unwrap_or_default();
+    }
     if let Some(links) = links {
         row["links"] = links.request_links(&t.request_id);
     }
