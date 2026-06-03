@@ -1136,6 +1136,16 @@ export function tokenAccounting(row: TokenCarrier | null | undefined): TokenAcco
   return null;
 }
 
+/** Extract LLM billing token counts from a row (separate from byte4 TokenAccounting). */
+export function llmUsage(row: TokenCarrier | null | undefined): import("./admin-types").LlmUsage | null {
+  const r = row as any;
+  if (!r) return null;
+  if (r.llm_usage && (r.llm_usage.prompt_tokens || r.llm_usage.completion_tokens || r.llm_usage.total_tokens)) {
+    return r.llm_usage;
+  }
+  return null;
+}
+
 export function numericValue(value: number | string | null | undefined): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;

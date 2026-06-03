@@ -474,6 +474,7 @@ fn trace_log_evicts_oldest_at_capacity() {
             input: None,
             output: None,
             token_accounting: None,
+            llm_usage: None,
         });
     }
     let recent = log.recent(10);
@@ -508,6 +509,7 @@ fn trace_log_get_by_request_id() {
         input: None,
         output: None,
         token_accounting: None,
+        llm_usage: None,
     });
     let found = log.get("abc-123");
     assert!(found.is_some());
@@ -545,6 +547,7 @@ fn arb_trace(idx: u32) -> DispatchTrace {
         input: None,
         output: None,
         token_accounting: None,
+        llm_usage: None,
     }
 }
 

@@ -7,7 +7,7 @@ use super::context::{CallContext, CallResult};
 use super::governance::MiddlewareGovernanceControl;
 use super::traits::{AfterCallMiddleware, BeforeCallMiddleware, MiddlewareFuture};
 use crate::gateway::admin::trace::{
-    AgentContext, TokenTelemetry, TraceContext, TracePayload, TraceSpan,
+    AgentContext, LlmUsage, TokenTelemetry, TraceContext, TracePayload, TraceSpan,
 };
 
 /// A single audit record produced for each tool call.
@@ -67,6 +67,8 @@ pub struct AuditEntry {
     pub output_payload: Option<TracePayload>,
     /// Token accounting for the client-visible response, when known.
     pub token_accounting: Option<TokenTelemetry>,
+    /// Optional upstream LLM billing token counts, when supplied.
+    pub llm_usage: Option<LlmUsage>,
 }
 
 /// Sink that receives completed [`AuditEntry`] records.
@@ -194,6 +196,21 @@ impl AfterCallMiddleware for AuditMiddleware {
             input_payload: ctx.input_payload.clone(),
             output_payload: ctx.output_payload.clone(),
             token_accounting: ctx.token_accounting.clone(),
+            llm_usage: ctx.llm_usage.as_ref().and_then(|v| {
+                let prompt = v.get("prompt_tokens").and_then(|v| v.as_u64());
+                let completion = v.get("completion_tokens").and_then(|v| v.as_u64());
+                let total = v.get("total_tokens").and_then(|v| v.as_u64());
+                let model = v.get("model").and_then(|v| v.as_str()).map(str::to_string);
+                if prompt.is_none() && completion.is_none() && total.is_none() {
+                    return None;
+                }
+                Some(LlmUsage {
+                    prompt_tokens: prompt,
+                    completion_tokens: completion,
+                    total_tokens: total,
+                    model,
+                })
+            }),
         };
         let sink = self.sink.clone();
         Box::pin(async move {

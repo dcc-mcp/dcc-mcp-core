@@ -49,6 +49,13 @@ pub(super) async fn call_service_with_admin_trace(
     if let Some(session_id) = session_id_from_headers(headers) {
         ctx = ctx.with_session_id(session_id);
     }
+    // Parse optional upstream LLM billing token counts from header.
+    if let Some(raw) = headers
+        .get("x-dcc-mcp-llm-usage")
+        .and_then(|v| v.to_str().ok())
+    {
+        ctx.llm_usage = serde_json::from_str(raw).ok();
+    }
     if let Some((dcc_type, instance_hint, _)) = parse_slug(slug) {
         ctx = ctx.with_backend(dcc_type, instance_hint);
     }
