@@ -425,6 +425,7 @@ mod tests {
                 "response_format": "toon",
                 "saved_tokens": 12,
             })),
+            llm_usage: None,
         };
         lane.try_persist_audit_json(&serde_json::to_string(&row).unwrap());
         drop(lane);
