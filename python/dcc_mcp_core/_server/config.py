@@ -149,7 +149,8 @@ def build_mcp_http_config(
     )
 
     gateway = options.gateway
-    if gateway.port is not None and gateway.port > 0:
+    # Explicit port (including 0 to disable) overrides the Rust default.
+    if gateway.port is not None:
         config.gateway_port = gateway.port
     if gateway.registry_dir:
         config.registry_dir = gateway.registry_dir
