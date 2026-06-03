@@ -174,6 +174,7 @@ export type TraceRow = {
   input_tokens?: number | null;
   output_tokens?: number | null;
   total_tokens?: number | null;
+  llm_usage?: LlmUsage | null;
   payload_token_estimator?: string | null;
   links?: AdminLinks;
 };
@@ -189,8 +190,17 @@ export type TokenAccounting = {
   savings_pct?: number | string | null;
 };
 
+/** Upstream LLM billing token counts — separate from byte4 TokenAccounting. */
+export type LlmUsage = {
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  total_tokens?: number | null;
+  model?: string | null;
+};
+
 export type TokenCarrier = {
   token_accounting?: TokenAccounting | null;
+  llm_usage?: LlmUsage | null;
   response_format?: string | null;
   token_estimator?: string | null;
   original_bytes?: number | null;

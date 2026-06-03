@@ -368,6 +368,45 @@ fn round_two(value: f64) -> f64 {
     (value * 100.0).round() / 100.0
 }
 
+// ── LLM usage ────────────────────────────────────────────────────────────────
+
+/// Optional upstream LLM billing token counts provided by the client via
+/// the `x-dcc-mcp-llm-usage` header. Stored alongside the gateway's own
+/// byte4 token estimation but NEVER aggregated with it — the two
+/// estimators measure different things and must stay separate.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LlmUsage {
+    /// Input/prompt tokens charged by the LLM provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_tokens: Option<u64>,
+    /// Output/completion tokens charged by the LLM provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion_tokens: Option<u64>,
+    /// Total tokens (provider-supplied or prompt+completion sum).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_tokens: Option<u64>,
+    /// Model identifier (e.g. `"claude-opus-4-6"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+impl LlmUsage {
+    /// Parse a compact JSON object from the `x-dcc-mcp-llm-usage` header.
+    pub fn from_header_value(value: &str) -> Option<Self> {
+        let v: Value = serde_json::from_str(value).ok()?;
+        let obj = v.as_object()?;
+        if obj.is_empty() {
+            return None;
+        }
+        Some(Self {
+            prompt_tokens: obj.get("prompt_tokens").and_then(Value::as_u64),
+            completion_tokens: obj.get("completion_tokens").and_then(Value::as_u64),
+            total_tokens: obj.get("total_tokens").and_then(Value::as_u64),
+            model: obj.get("model").and_then(Value::as_str).map(str::to_string),
+        })
+    }
+}
+
 // ── Agent / caller context ───────────────────────────────────────────────────
 
 pub const TRUST_SELF_REPORTED: &str = "self_reported";
@@ -1387,6 +1426,10 @@ pub struct DispatchTrace {
     /// Token accounting for the client-visible response, if available.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_accounting: Option<TokenTelemetry>,
+    /// Optional upstream LLM billing token counts from `x-dcc-mcp-llm-usage`.
+    /// Kept separate from `token_accounting` — they measure different things.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub llm_usage: Option<LlmUsage>,
 }
 
 impl DispatchTrace {

@@ -122,6 +122,7 @@ fn admin_audit_from_persisted(p: GatewayAdminAuditPersistedJson) -> AdminAuditRe
         token_accounting: p
             .token_accounting
             .and_then(|value| serde_json::from_value(value).ok()),
+        llm_usage: None,
     }
 }
 
@@ -353,6 +354,7 @@ mod tests {
             input: None,
             output: None,
             token_accounting: None,
+            llm_usage: None,
         };
         lane.try_persist_trace(&t);
         drop(lane);

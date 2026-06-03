@@ -246,6 +246,7 @@ mod admin_tests {
             error: error.map(str::to_string),
             duration_ms: Some(12),
             token_accounting: None,
+            llm_usage: None,
         }
     }
 
@@ -907,6 +908,7 @@ filters:
                 error: None,
                 duration_ms: Some(42),
                 token_accounting: Some(token_telemetry("toon", 100, 40)),
+                llm_usage: None,
             },
             AdminAuditRecord {
                 timestamp: std::time::SystemTime::now(),
@@ -937,6 +939,7 @@ filters:
                 error: Some("timeout".to_string()),
                 duration_ms: None,
                 token_accounting: None,
+                llm_usage: None,
             },
         ]));
         let state = AdminState::new(make_gateway_state()).with_audit_log(audit_log);
@@ -1030,6 +1033,7 @@ filters:
             error: None,
             duration_ms: Some(100),
             token_accounting: None,
+            llm_usage: None,
         }]));
         let state = AdminState::new(make_gateway_state()).with_audit_log(audit_log);
         let (_, body) = body_json(build_admin_router(state), "/api/calls").await;
@@ -1324,6 +1328,7 @@ filters:
             error: None,
             duration_ms: Some(11),
             token_accounting: None,
+            llm_usage: None,
         }]));
         let traces = Arc::new(TraceLog::new(10));
         traces.push(DispatchTrace {
@@ -1352,6 +1357,7 @@ filters:
             input: None,
             output: None,
             token_accounting: Some(token_telemetry("toon", 100, 40)),
+            llm_usage: None,
         });
         let state = AdminState::new(make_gateway_state())
             .with_audit_log(audit_log)
@@ -1582,6 +1588,7 @@ filters:
             input: None,
             output: None,
             token_accounting: Some(token_telemetry("toon", 100, 40)),
+            llm_usage: None,
         });
 
         let zero_id = SearchTelemetryStore::new_search_id();
@@ -1631,6 +1638,7 @@ filters:
             error: Some("document closed".into()),
             duration_ms: Some(9),
             token_accounting: None,
+            llm_usage: None,
         }]));
 
         let state = AdminState::new(gs)
@@ -1754,6 +1762,7 @@ filters:
             )),
             output: None,
             token_accounting: None,
+            llm_usage: None,
         });
         traces.push(DispatchTrace {
             request_id: "req-task".into(),
@@ -1777,6 +1786,7 @@ filters:
             input: None,
             output: None,
             token_accounting: None,
+            llm_usage: None,
         });
         let gateway = make_gateway_state();
         gateway.event_log.push(ContendEvent::new(
@@ -1817,6 +1827,7 @@ filters:
             ),
             duration_ms: Some(25),
             token_accounting: Some(token_telemetry("toon", 100, 40)),
+            llm_usage: None,
         }]));
         let state = AdminState::new(gateway)
             .with_audit_log(audit_log)
@@ -2384,6 +2395,7 @@ filters:
                 error: None,
                 duration_ms: Some(12),
                 token_accounting: Some(token_telemetry("json", 50, 50)),
+                llm_usage: None,
             },
             AdminAuditRecord {
                 timestamp: UNIX_EPOCH + Duration::from_millis(1),
@@ -2414,6 +2426,7 @@ filters:
                 error: Some("boom".into()),
                 duration_ms: Some(24),
                 token_accounting: None,
+                llm_usage: None,
             },
         ]);
         let state = AdminState::new(gs).with_audit_log(Arc::new(audit));
@@ -2533,6 +2546,7 @@ filters:
             input: None,
             output: None,
             token_accounting: None,
+            llm_usage: None,
         });
         log.push(DispatchTrace {
             request_id: "r2".into(),
@@ -2556,6 +2570,7 @@ filters:
             input: None,
             output: None,
             token_accounting: None,
+            llm_usage: None,
         });
 
         let state = make_admin_state().with_trace_log(log, None);
@@ -2627,6 +2642,7 @@ filters:
             )),
             output: None,
             token_accounting: None,
+            llm_usage: None,
         };
         with_input.trace_id = "trace-row-input-trace-id".into();
         with_input.agent_context = Some(AgentContext {
@@ -2672,6 +2688,7 @@ filters:
                 1024,
             )),
             token_accounting: None,
+            llm_usage: None,
         };
         log.push(with_output);
 
@@ -2747,6 +2764,7 @@ filters:
                 1024,
             )),
             token_accounting: None,
+            llm_usage: None,
         };
         log.push(trace);
         let state = make_admin_state().with_trace_log(log, None);
