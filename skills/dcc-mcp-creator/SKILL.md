@@ -35,6 +35,15 @@ install lifecycle, or cross-DCC verification.
 For individual skill packages (`SKILL.md`, `tools.yaml`, scripts, groups, and
 skill taxonomy), load `dcc-mcp-skills-creator` instead.
 
+## Runtime Vocabulary
+
+- DCC startup hook: adapter code running inside the host at application startup; it prepares env/instance data and launches the service path without blocking the DCC UI/main thread.
+- Per-DCC service: one registered runtime row for one concrete DCC instance; Python `DccServerBase` and Rust sidecars both participate as per-DCC services.
+- Sidecar: the Rust `dcc-mcp-sidecar` child launched through the stable `dcc-mcp-server sidecar` command; it bridges host RPC to MCP/REST and exits when the watched DCC dies.
+- Gateway daemon: the one machine-wide `dcc-mcp-server gateway` process that owns routing, dynamic capability search/describe/call, and Gateway Admin.
+- Guardian: a lightweight loop inside daemon-backed services that probes gateway `/health` and re-ensures the daemon through `gateway-launch.lock`; it is not a separate process.
+- Service heartbeat: registry freshness for the service row only. Do not describe heartbeat as the gateway restart trigger.
+
 ## Fast Workflow
 
 1. Classify the host integration:

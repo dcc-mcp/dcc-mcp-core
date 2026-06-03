@@ -40,6 +40,25 @@
 | 调试真实工作站状态 | Admin UI、视口诊断、审计日志、trace、metrics |
 | 扛住生产约束 | 主线程调度、异步 job、sidecar/server 二进制、workflow 与 artefact 原语 |
 
+## 运行时架构
+
+这些进程和角色按下面的含义使用：
+
+- **DCC startup hook** 运行在 Maya、Houdini、3ds Max 或其他宿主内部，只负责
+  准备环境和启动 service 路径，不能阻塞 UI/main thread。
+- **Per-DCC service** 是一个具体 DCC 实例对应的一条注册 runtime row。
+- **Sidecar** 是通过 `dcc-mcp-server sidecar` 启动的 `dcc-mcp-sidecar` 子进
+  程，负责把 host RPC 桥接到 MCP/REST，并监视 DCC 进程。
+- **Gateway daemon** 是机器级唯一的路由/Admin 进程。
+- **Guardian** 是 daemon-backed service 内部的轻量循环，探测 gateway
+  `/health`，并通过 `gateway-launch.lock` 重新 ensure daemon。
+- **Service heartbeat** 只负责保持 registry row 新鲜，不是 gateway 重启触
+  发器。
+
+理想插件体验是：打开 DCC -> startup hook 启动 per-DCC service/sidecar ->
+service 确保 machine-wide gateway daemon 存在 -> 注册并 heartbeat 一个
+instance row -> gateway 统一路由所有 live DCC instance。
+
 ## 快速开始
 
 ### 安装独立 CLI
