@@ -75,6 +75,7 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 |------|-----------------|--------|
 | `traces/gateway-smoke.jsonl` | No | `GET /v1/healthz` + browse `POST /v1/search`. |
 | `traces/core-1360-gateway-daemon-mode.jsonl` | No | `dcc-mcp-server gateway` daemon exposes gateway REST without a live DCC backend. |
+| `traces/core-1483-gateway-runtime-supervisor.jsonl` | No | Gateway daemon exposes `/v1/readyz` lifecycle and recovery-count fields while `/v1/instances` remains empty without a registered backend (PIP-483). |
 | `traces/core-1361-http-instance-registration.jsonl` | No | Gateway daemon accepts remote HTTP instance register → heartbeat → path-call resolution → deregister. |
 | `traces/core-1363-relay-gateway-source.jsonl` | Relay + live backend | Gateway daemon configured with `--relay-source` exposes active tunnel rows with `source: "relay"` and routable `/tunnel/<id>/mcp` URLs. |
 | `traces/core-1364-unified-instances.jsonl` | Relay + live backend | `resources/read gateway://instances` exposes merged relay + HTTP rows with `instance_short`, `source_meta`, and `by_source` counts. |

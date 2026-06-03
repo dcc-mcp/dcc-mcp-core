@@ -1,0 +1,6 @@
+{"_vrs": {"version": 1}, "trace_id": "pip-483-gateway-runtime-supervisor", "title": "Gateway daemon auto-launch and guardian watchdog (Runtime Supervisor → Central Gateway → Per-DCC)"}
+{"id": "healthz", "http": {"method": "GET", "path": "/v1/healthz"}, "expect": {"status": 200, "json_subset": {"ok": true}}}
+{"id": "readyz_has_lifecycle", "http": {"method": "GET", "path": "/v1/readyz"}, "expect": {"status": 200, "json_subset": {"ok": true, "gateway_lifecycle": {"persist": false}}}}
+{"id": "readyz_has_recovery_counts", "http": {"method": "GET", "path": "/v1/readyz"}, "expect": {"status": 200, "json_subset": {"gateway_daemon_guardian_instance_count": 0, "gateway_daemon_guardian_ready": false}}}
+{"id": "instances_empty_without_backend", "http": {"method": "GET", "path": "/v1/instances"}, "expect": {"status": 200, "json_subset": {"total": 0, "instances": []}}}
+{"id": "search_empty", "http": {"method": "POST", "path": "/v1/search", "json": {"query": "", "limit": 5}}, "expect": {"status": 200, "body_contains": "\"hits\""}}
