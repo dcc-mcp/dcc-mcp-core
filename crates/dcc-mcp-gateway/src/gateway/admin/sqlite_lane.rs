@@ -74,6 +74,22 @@ impl AdminSqliteReader {
             .collect()
     }
 
+    /// Read persisted audit rows in a time range, newest first (for analytics aggregation).
+    pub fn list_audits_since(
+        &self,
+        cutoff: Option<SystemTime>,
+        limit: usize,
+    ) -> Vec<AdminAuditRecord> {
+        self.inner
+            .list_audits_since_json(cutoff, limit)
+            .into_iter()
+            .filter_map(|s| {
+                let p: GatewayAdminAuditPersistedJson = serde_json::from_str(&s).ok()?;
+                Some(admin_audit_from_persisted(p))
+            })
+            .collect()
+    }
+
     pub fn list_custom_skill_paths(&self) -> Vec<(i64, String)> {
         self.inner.list_custom_skill_paths()
     }
@@ -274,6 +290,14 @@ impl AdminSqliteReader {
     }
 
     pub fn list_audits_recent(&self, _limit: usize) -> Vec<AdminAuditRecord> {
+        vec![]
+    }
+
+    pub fn list_audits_since(
+        &self,
+        _cutoff: Option<SystemTime>,
+        _limit: usize,
+    ) -> Vec<AdminAuditRecord> {
         vec![]
     }
 

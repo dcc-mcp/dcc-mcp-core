@@ -98,6 +98,31 @@ impl GatewayAdminSqliteReader {
         rows.filter_map(|r| r.ok()).collect()
     }
 
+    /// Raw `audit_json` rows with `ts_ms >= cutoff_ms`, newest first, bounded by `limit`.
+    pub fn list_audits_since_json(&self, cutoff: Option<SystemTime>, limit: usize) -> Vec<String> {
+        let Some(conn) = self.open_ro() else {
+            return Vec::new();
+        };
+        let cutoff_ms = cutoff
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        let mut stmt = match conn.prepare_cached(
+            "SELECT audit_json FROM audits WHERE ts_ms >= ?1 ORDER BY ts_ms DESC LIMIT ?2",
+        ) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let rows = stmt.query_map(params![cutoff_ms, limit as i64], |row| {
+            let s: String = row.get(0)?;
+            Ok(s)
+        });
+        let Ok(rows) = rows else {
+            return Vec::new();
+        };
+        rows.filter_map(|r| r.ok()).collect()
+    }
+
     pub fn list_custom_skill_paths(&self) -> Vec<(i64, String)> {
         let Some(conn) = self.open_ro() else {
             return Vec::new();

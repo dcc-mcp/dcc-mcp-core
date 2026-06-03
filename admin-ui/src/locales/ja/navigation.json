@@ -17,10 +17,12 @@
   "panel.calls": "呼び出し",
   "panel.logs": "ログ",
   "panel.skillPaths": "スキル",
+  "panel.analytics": "アナリティクス",
   "group.onboarding": "オンボーディング",
   "group.operations": "運用",
   "group.workspace": "ワークスペース",
   "group.contracts": "契約",
   "group.observability": "可観測性",
-  "group.configuration": "設定"
+  "group.configuration": "設定",
+  "group.insights": "インサイト"
 }

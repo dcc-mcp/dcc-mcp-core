@@ -3,6 +3,7 @@ import { LanguageSelector } from './components/LanguageSelector';
 import { ThemeSelector } from './components/ThemeSelector';
 import { LogsPanel } from './components/LogsPanel';
 import { SkillsPanel } from './features/skills';
+import { AnalyticsPanel } from './features/analytics/AnalyticsPanel';
 import dccMcpLogo from '../../docs/assets/brand/dcc-mcp-logo.png';
 import { createTranslator, detectBrowserLocale, type SupportedLocale } from './i18n';
 import { readLocaleOverride, storeLocaleOverride } from './locale';
@@ -2414,6 +2415,13 @@ function App() {
           onError={(err) => setSkillPathsError(err instanceof Error ? err.message : String(err))}
           onCountsChange={setSkillCounts}
           t={t}
+        />
+
+        <AnalyticsPanel
+          active={activePanel === 'analytics'}
+          t={t}
+          onUpdated={(text) => markUpdated('analytics', text)}
+          onError={(err) => markError('analytics', err)}
         />
 
         {activePanel === 'logs' && (

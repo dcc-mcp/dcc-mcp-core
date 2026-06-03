@@ -17,10 +17,12 @@
   "panel.calls": "Calls",
   "panel.logs": "Logs",
   "panel.skillPaths": "Skills",
+  "panel.analytics": "Analytics",
   "group.onboarding": "Onboarding",
   "group.operations": "Operations",
   "group.workspace": "Workspace",
   "group.contracts": "Contracts",
   "group.observability": "Observability",
-  "group.configuration": "Configuration"
+  "group.configuration": "Configuration",
+  "group.insights": "Insights"
 }

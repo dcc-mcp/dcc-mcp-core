@@ -3,6 +3,10 @@
 use axum::{Router, routing};
 
 use super::agent_trace::handle_v1_debug_agent_trace_packet;
+use super::analytics::{
+    handle_admin_analytics_export, handle_admin_analytics_heatmap, handle_admin_analytics_overview,
+    handle_admin_analytics_timeseries,
+};
 use super::handlers::{
     handle_admin_activity, handle_admin_calls, handle_admin_debug_bundle,
     handle_admin_deregistered, handle_admin_governance, handle_admin_health,
@@ -80,6 +84,22 @@ pub fn build_admin_router(state: AdminState) -> Router {
         .route("/api/logs", routing::get(handle_admin_logs))
         .route("/api/deregistered", routing::get(handle_admin_deregistered))
         .route("/api/stats", routing::get(handle_admin_stats))
+        .route(
+            "/api/analytics/overview",
+            routing::get(handle_admin_analytics_overview),
+        )
+        .route(
+            "/api/analytics/timeseries",
+            routing::get(handle_admin_analytics_timeseries),
+        )
+        .route(
+            "/api/analytics/heatmap",
+            routing::get(handle_admin_analytics_heatmap),
+        )
+        .route(
+            "/api/analytics/export",
+            routing::get(handle_admin_analytics_export),
+        )
         .route("/api/governance", routing::get(handle_admin_governance))
         .route(
             "/api/search-telemetry",
@@ -130,6 +150,22 @@ pub fn build_v1_debug_router(state: AdminState) -> Router {
             routing::get(handle_admin_deregistered),
         )
         .route("/v1/debug/stats", routing::get(handle_admin_stats))
+        .route(
+            "/v1/debug/analytics/overview",
+            routing::get(handle_admin_analytics_overview),
+        )
+        .route(
+            "/v1/debug/analytics/timeseries",
+            routing::get(handle_admin_analytics_timeseries),
+        )
+        .route(
+            "/v1/debug/analytics/heatmap",
+            routing::get(handle_admin_analytics_heatmap),
+        )
+        .route(
+            "/v1/debug/analytics/export",
+            routing::get(handle_admin_analytics_export),
+        )
         .route(
             "/v1/debug/governance",
             routing::get(handle_admin_governance),
