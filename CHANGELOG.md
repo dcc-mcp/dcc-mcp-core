@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.53](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.17.52...v0.17.53) (2026-06-03)
+
+
+### Features
+
+* **gateway:** add LLM usage header support and token visibility plumbing ([fdbe4c6](https://github.com/dcc-mcp/dcc-mcp-core/commit/fdbe4c66995ff1cb21a7efa7b30a2291354da732))
+
+
+### Bug Fixes
+
+* **gateway:** project llm_usage into admin API rows and SQLite persistence ([44f7a3d](https://github.com/dcc-mcp/dcc-mcp-core/commit/44f7a3d13e05e9a8d8da04279e71edcd3711680f))
+* **release:** retry flaky admin-ui npm ci on release builds ([#1486](https://github.com/dcc-mcp/dcc-mcp-core/issues/1486)) ([6e699c0](https://github.com/dcc-mcp/dcc-mcp-core/commit/6e699c05805753caf812ead8bee0714990cf184e))
+
 ## [0.17.52](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.17.51...v0.17.52) (2026-06-03)
 
 
