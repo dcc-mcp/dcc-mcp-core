@@ -226,6 +226,81 @@ fn gateway_daemon_options_preserve_host_name_and_registry() {
     assert_eq!(opts.name.as_deref(), Some("gateway-for-Blender-Lookdev"));
 }
 
+#[cfg(feature = "gateway-daemon")]
+#[test]
+fn publish_guardian_status_writes_live_metadata() {
+    use crate::gateway_daemon::GatewayGuardianStatus;
+    use crate::sidecar::registry::{
+        GATEWAY_GUARDIAN_ACTIVE_KEY, GATEWAY_GUARDIAN_FAILURES_KEY, GATEWAY_GUARDIAN_RESTARTS_KEY,
+        publish_guardian_status,
+    };
+
+    let dir = TempDir::new().expect("tempdir");
+    let registry = Arc::new(FileRegistry::new(dir.path()).expect("registry"));
+    let mut entry = ServiceEntry::new("maya", "127.0.0.1", 18812).with_pid(std::process::id());
+    entry.instance_id = uuid::Uuid::new_v4();
+    let key = entry.key();
+    registry.register(entry).expect("register");
+
+    // Simulate a guardian that has seen 3 consecutive failures and
+    // performed 1 restart, and is still running.
+    let status = GatewayGuardianStatus {
+        consecutive_failures: 3,
+        restart_attempts: 1,
+        guardian_running: true,
+        failure_threshold: 2,
+    };
+    publish_guardian_status(&registry, &key, &status).expect("publish");
+
+    let updated = registry.get(&key).expect("entry still exists");
+    assert_eq!(
+        updated
+            .metadata
+            .get(GATEWAY_GUARDIAN_FAILURES_KEY)
+            .map(String::as_str),
+        Some("3")
+    );
+    assert_eq!(
+        updated
+            .metadata
+            .get(GATEWAY_GUARDIAN_RESTARTS_KEY)
+            .map(String::as_str),
+        Some("1")
+    );
+    assert_eq!(
+        updated
+            .metadata
+            .get(GATEWAY_GUARDIAN_ACTIVE_KEY)
+            .map(String::as_str),
+        Some("true")
+    );
+}
+
+#[cfg(feature = "gateway-daemon")]
+#[test]
+fn publish_guardian_status_is_noop_when_row_gone() {
+    use crate::gateway_daemon::GatewayGuardianStatus;
+    use crate::sidecar::registry::publish_guardian_status;
+
+    let dir = TempDir::new().expect("tempdir");
+    let registry = Arc::new(FileRegistry::new(dir.path()).expect("registry"));
+    // A key for a row that was never registered — simulates a
+    // shutdown race where the row was deregistered before the
+    // publisher's next tick.
+    let key = ServiceKey {
+        dcc_type: "maya".to_string(),
+        instance_id: uuid::Uuid::new_v4(),
+    };
+    let status = GatewayGuardianStatus {
+        consecutive_failures: 0,
+        restart_attempts: 0,
+        guardian_running: false,
+        failure_threshold: 2,
+    };
+    // Must not panic — just a no-op.
+    publish_guardian_status(&registry, &key, &status).expect("noop");
+}
+
 #[tokio::test]
 async fn sidecar_heartbeat_keeps_registry_row_fresh() {
     let registry_dir = TempDir::new().expect("tempdir");
