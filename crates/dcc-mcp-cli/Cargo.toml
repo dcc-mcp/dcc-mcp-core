@@ -20,10 +20,13 @@ dcc-mcp-skills.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.11"
 thiserror.workspace = true
 tokio.workspace = true
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 axum = { version = "0.8", features = ["http1", "tokio"] }
+hex = "0.4"
 tempfile = "3"

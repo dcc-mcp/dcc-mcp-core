@@ -1,11 +1,13 @@
 use std::collections::BTreeSet;
 use std::fs;
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use dcc_mcp_catalog::{CatalogEntry, CatalogInstall};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::domain::marketplace::{
@@ -55,6 +57,14 @@ pub enum MarketplaceError {
     CommandFailed(String),
     #[error("installed package does not contain SKILL.md at '{0}'")]
     MissingSkill(String),
+    #[error("marketplace archive SHA-256 mismatch for '{url}': expected {expected}, got {actual}")]
+    HashMismatch {
+        url: String,
+        expected: String,
+        actual: String,
+    },
+    #[error("marketplace archive error for '{0}': {1}")]
+    Archive(String, String),
     #[error(
         "invalid marketplace {kind} '{value}'; use only ASCII letters, numbers, '.', '_' or '-'"
     )]
@@ -223,7 +233,7 @@ impl MarketplaceService {
         let install_result = match install.install_type.as_str() {
             "git" => install_from_git(&install, &staging),
             "path" => install_from_path(&install, &staging),
-            "zip" => return Err(MarketplaceError::UnsupportedInstallType("zip".into())),
+            "zip" => self.install_from_zip(&install, &staging).await,
             other => return Err(MarketplaceError::UnsupportedInstallType(other.into())),
         };
         if let Err(err) = install_result {
@@ -569,6 +579,51 @@ impl MarketplaceService {
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     }
 
+    async fn install_from_zip(
+        &self,
+        install: &CatalogInstall,
+        dest: &PathBuf,
+    ) -> Result<(), MarketplaceError> {
+        let (url, bytes) = self.load_install_archive(install).await?;
+        verify_archive_sha256(&bytes, install.sha256.as_deref(), &url)?;
+        extract_zip_archive(&bytes, dest)?;
+        flatten_single_skill_directory(dest)?;
+        Ok(())
+    }
+
+    async fn load_install_archive(
+        &self,
+        install: &CatalogInstall,
+    ) -> Result<(String, Vec<u8>), MarketplaceError> {
+        let url = install
+            .url
+            .as_deref()
+            .ok_or_else(|| MarketplaceError::MissingInstall("zip.url".into()))?;
+        if url.starts_with("http://") || url.starts_with("https://") {
+            let bytes = self
+                .client
+                .get(url)
+                .header("User-Agent", "dcc-mcp-cli marketplace")
+                .send()
+                .await
+                .map_err(|err| MarketplaceError::Fetch(url.to_string(), err))?
+                .error_for_status()
+                .map_err(|err| MarketplaceError::Fetch(url.to_string(), err))?
+                .bytes()
+                .await
+                .map_err(|err| MarketplaceError::Fetch(url.to_string(), err))?;
+            return Ok((url.to_string(), bytes.to_vec()));
+        }
+
+        let path = url
+            .strip_prefix("file://")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(url));
+        let bytes = fs::read(&path)
+            .map_err(|err| MarketplaceError::Read(path.display().to_string(), err))?;
+        Ok((url.to_string(), bytes))
+    }
+
     async fn find_latest_entry_for_package(
         &self,
         sources: &[MarketplaceSource],
@@ -900,6 +955,121 @@ fn install_from_git(install: &CatalogInstall, dest: &PathBuf) -> Result<(), Mark
         output.status,
         String::from_utf8_lossy(&output.stderr)
     )))
+}
+
+fn verify_archive_sha256(
+    bytes: &[u8],
+    expected: Option<&str>,
+    url: &str,
+) -> Result<(), MarketplaceError> {
+    let Some(expected) = expected
+        .map(normalize_sha256)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(());
+    };
+    let actual = sha256_hex(bytes);
+    if actual.eq_ignore_ascii_case(&expected) {
+        return Ok(());
+    }
+    Err(MarketplaceError::HashMismatch {
+        url: url.to_string(),
+        expected,
+        actual,
+    })
+}
+
+fn normalize_sha256(value: &str) -> String {
+    value
+        .trim()
+        .strip_prefix("sha256:")
+        .unwrap_or(value.trim())
+        .to_ascii_lowercase()
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut out = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        use std::fmt::Write as _;
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
+fn extract_zip_archive(bytes: &[u8], dest: &Path) -> Result<(), MarketplaceError> {
+    fs::create_dir_all(dest)
+        .map_err(|err| MarketplaceError::ConfigIo(dest.display().to_string(), err))?;
+    let cursor = Cursor::new(bytes);
+    let mut archive = zip::ZipArchive::new(cursor)
+        .map_err(|err| MarketplaceError::Archive("zip".into(), err.to_string()))?;
+
+    for index in 0..archive.len() {
+        let mut file = archive
+            .by_index(index)
+            .map_err(|err| MarketplaceError::Archive("zip".into(), err.to_string()))?;
+        let Some(enclosed_name) = file.enclosed_name() else {
+            return Err(MarketplaceError::Archive(
+                file.name().to_string(),
+                "archive entry escapes install root".into(),
+            ));
+        };
+        let out_path = dest.join(enclosed_name);
+        if file.is_dir() {
+            fs::create_dir_all(&out_path)
+                .map_err(|err| MarketplaceError::ConfigIo(out_path.display().to_string(), err))?;
+            continue;
+        }
+        if let Some(parent) = out_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|err| MarketplaceError::ConfigIo(parent.display().to_string(), err))?;
+        }
+        let mut out = fs::File::create(&out_path)
+            .map_err(|err| MarketplaceError::ConfigIo(out_path.display().to_string(), err))?;
+        std::io::copy(&mut file, &mut out)
+            .map_err(|err| MarketplaceError::ConfigIo(out_path.display().to_string(), err))?;
+    }
+    Ok(())
+}
+
+fn flatten_single_skill_directory(dest: &PathBuf) -> Result<(), MarketplaceError> {
+    if dest.join("SKILL.md").is_file() {
+        return Ok(());
+    }
+
+    let child_dirs = fs::read_dir(dest)
+        .map_err(|err| MarketplaceError::Read(dest.display().to_string(), err))?
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            entry
+                .file_type()
+                .ok()
+                .filter(|file_type| file_type.is_dir())
+                .map(|_| entry.path())
+        })
+        .collect::<Vec<_>>();
+
+    let [child] = child_dirs.as_slice() else {
+        return Ok(());
+    };
+    if !child.join("SKILL.md").is_file() {
+        return Ok(());
+    }
+
+    let flatten_root = dest.join(format!(".flattening-{}", now_ms()));
+    fs::rename(child, &flatten_root)
+        .map_err(|err| MarketplaceError::ConfigIo(flatten_root.display().to_string(), err))?;
+    for entry in fs::read_dir(&flatten_root)
+        .map_err(|err| MarketplaceError::Read(flatten_root.display().to_string(), err))?
+    {
+        let entry =
+            entry.map_err(|err| MarketplaceError::Read(flatten_root.display().to_string(), err))?;
+        let target = dest.join(entry.file_name());
+        fs::rename(entry.path(), &target)
+            .map_err(|err| MarketplaceError::ConfigIo(target.display().to_string(), err))?;
+    }
+    remove_install_path(&flatten_root)?;
+    Ok(())
 }
 
 fn install_url_path(install: &CatalogInstall) -> Result<PathBuf, MarketplaceError> {
