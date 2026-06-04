@@ -17,6 +17,10 @@ use super::handlers::{
     handle_admin_traces, handle_admin_traffic, handle_admin_traffic_export, handle_admin_ui,
     handle_admin_workers, handle_admin_workflows, handle_v1_debug_trace_lookup,
 };
+use super::marketplace::{
+    handle_marketplace_catalog, handle_marketplace_install, handle_marketplace_installed,
+    handle_marketplace_uninstall,
+};
 use super::state::AdminState;
 
 /// Build the admin sub-router.
@@ -107,6 +111,22 @@ pub fn build_admin_router(state: AdminState) -> Router {
         )
         .route("/api/workers", routing::get(handle_admin_workers))
         .route("/api/health", routing::get(handle_admin_health))
+        .route(
+            "/api/marketplace/catalog",
+            routing::get(handle_marketplace_catalog),
+        )
+        .route(
+            "/api/marketplace/installed",
+            routing::get(handle_marketplace_installed),
+        )
+        .route(
+            "/api/marketplace/install",
+            routing::post(handle_marketplace_install),
+        )
+        .route(
+            "/api/marketplace/uninstall",
+            routing::post(handle_marketplace_uninstall),
+        )
         .with_state(state)
 }
 
