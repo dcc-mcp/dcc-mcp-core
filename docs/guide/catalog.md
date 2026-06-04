@@ -68,6 +68,35 @@ result = client.resources_read("gateway://catalog/dcc-mcp-blender-skills")
 # Returns: single entry, or `-32002` error if not found
 ```
 
+## Opt-in Documentation Connectors
+
+Catalog entries can also point at read-only documentation MCP servers. These
+entries are discovery hints only; they do not auto-enable remote connectors on
+gateway startup.
+
+Autodesk Product Help is modeled as a separate documentation backend, not as a
+Maya, Houdini, Photoshop, or pipeline adapter:
+
+```json
+{
+  "mcpServers": {
+    "autodesk-product-help": {
+      "url": "https://developer.api.autodesk.com/knowledge/public/v1/mcp"
+    }
+  }
+}
+```
+
+Use `tags: [docs, autodesk, read-only, infrastructure]` for this connector.
+Keep documentation lookups separate from `pipeline` / `shotgrid` searches so
+production-tracking tools do not compete with product-help results.
+
+Studio note: treat public documentation MCP servers as optional internet
+dependencies. Autodesk Product Help is suitable for best-effort reference
+lookup, but studios that require offline operation, pinned documentation, or
+formal service guarantees should keep it disabled and route agents to approved
+internal docs instead.
+
 ## Custom Catalog Path
 
 Override the default `dcc-mcp-catalog.yml` location:

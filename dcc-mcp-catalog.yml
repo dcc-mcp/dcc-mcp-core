@@ -46,3 +46,9 @@ entries:
     dcc: []
     url: "https://github.com/dcc-mcp/dcc-mcp-core"
     tags: ["core", "official", "rust", "python", "library"]
+
+  - name: "autodesk-product-help"
+    description: "Opt-in Autodesk Product Help remote MCP connector for read-only documentation lookup"
+    dcc: ["autodesk-help"]
+    url: "https://developer.api.autodesk.com/knowledge/public/v1/mcp"
+    tags: ["docs", "autodesk", "read-only", "infrastructure"]
