@@ -348,6 +348,7 @@ impl MarketplaceService {
                 (None, _) => false,
             };
             if is_outdated && let Some(entry) = entry {
+                let latest_install = entry.install.as_ref();
                 outdated.push(OutdatedMarketplacePackage {
                     name: pkg.name,
                     dcc: pkg.dcc,
@@ -355,9 +356,15 @@ impl MarketplaceService {
                     latest_version: entry.version,
                     source_name: pkg.source_name,
                     source_url: pkg.source_url,
-                    install_type: pkg.install_type,
-                    install_url: pkg.install_url,
-                    install_ref: pkg.install_ref,
+                    install_type: latest_install
+                        .map(|install| install.install_type.clone())
+                        .unwrap_or(pkg.install_type),
+                    install_url: latest_install
+                        .and_then(|install| install.url.clone())
+                        .or(pkg.install_url),
+                    install_ref: latest_install
+                        .and_then(|install| install.ref_.clone())
+                        .or(pkg.install_ref),
                     path: pkg.path,
                 });
             }
@@ -446,7 +453,13 @@ impl MarketplaceService {
         dest: &Path,
     ) -> Result<MarketplaceUpdateResult, MarketplaceError> {
         let git_dir = dest.join(".git");
-        if git_dir.is_dir() {
+        let install_url_changed = pkg.install_url.as_deref().is_some_and(|url| {
+            self.git_remote_url(dest)
+                .ok()
+                .is_some_and(|remote_url| remote_url.trim() != url)
+        });
+
+        if git_dir.is_dir() && !install_url_changed {
             // Existing git repo: fetch the ref and checkout
             if let Some(ref_) = pkg.install_ref.as_deref() {
                 self.git_fetch_and_checkout(dest, ref_)?;
@@ -455,17 +468,28 @@ impl MarketplaceService {
                 self.git_pull(dest)?;
             }
         } else {
-            // Re-clone: remove old, clone fresh from URL
-            if dest.exists() {
-                remove_install_path(dest)?;
-            }
-            let install = dcc_mcp_catalog::CatalogInstall {
-                install_type: "git".to_string(),
-                url: pkg.install_url.clone(),
-                ref_: pkg.install_ref.clone(),
-                sha256: None,
-            };
-            install_from_git(&install, &dest.to_path_buf())?;
+            // Missing or changed git checkout: go through install(), which stages
+            // the replacement before deleting the existing package.
+            let result = self
+                .install(
+                    pkg.name.clone(),
+                    Some(pkg.dcc.clone()),
+                    vec![pkg.source_url.clone()],
+                    true,
+                )
+                .await?;
+            return Ok(MarketplaceUpdateResult {
+                updated: true,
+                name: pkg.name.clone(),
+                dcc: pkg.dcc.clone(),
+                previous_version: pkg.installed_version.clone(),
+                new_version: result.version,
+                path: result.path,
+                install_type: result.install_type,
+                source_name: pkg.source_name.clone(),
+                source_url: pkg.source_url.clone(),
+                reload_required: true,
+            });
         }
 
         // Determine new version by re-reading catalog
@@ -528,6 +552,21 @@ impl MarketplaceService {
             )));
         }
         Ok(())
+    }
+
+    fn git_remote_url(&self, repo_path: &Path) -> Result<String, MarketplaceError> {
+        let output = Command::new("git")
+            .args(["remote", "get-url", "origin"])
+            .current_dir(repo_path)
+            .output()
+            .map_err(|err| MarketplaceError::CommandFailed(format!("git remote get-url: {err}")))?;
+        if !output.status.success() {
+            return Err(MarketplaceError::CommandFailed(format!(
+                "git remote get-url failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     }
 
     async fn find_latest_entry_for_package(
