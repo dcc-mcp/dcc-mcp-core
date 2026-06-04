@@ -806,7 +806,7 @@ This project uses [Release Please](https://github.com/googleapis/release-please)
 1. **Develop**: Create a branch from `main` and commit using [Conventional Commits](https://www.conventionalcommits.org/).
 2. **Merge**: Open a PR and merge to `main`.
 3. **Release PR**: Release Please automatically creates / updates a release PR that bumps the version and updates `CHANGELOG.md`.
-4. **Publish**: When the release PR merges, a GitHub Release is created with `dcc-mcp-cli` and `dcc-mcp-server` binaries, `dcc-mcp-core` wheels are published to PyPI, and `dcc-mcp-server` wheels are uploaded when its trusted publisher is configured.
+4. **Publish**: When the release PR merges, a GitHub Release is created with `dcc-mcp-cli` and `dcc-mcp-server` binaries, and separate PyPI jobs publish `dcc-mcp-core`, `dcc-mcp-server`, and `dcc-mcp-core-semantic` wheels through Trusted Publishing.
 
 ### Commit Message Format
 
