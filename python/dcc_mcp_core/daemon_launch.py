@@ -267,9 +267,9 @@ class Daemon:
         si = open(self._stdin or devnull, "rb")  # noqa: PTH123, SIM115
         so = open(self._stdout or devnull, "ab")  # noqa: PTH123, SIM115
         se = open(self._stderr or devnull, "ab")  # noqa: PTH123, SIM115
-        os.dup2(si.fileno(), sys.stdin.fileno())
-        os.dup2(so.fileno(), sys.stdout.fileno())
-        os.dup2(se.fileno(), sys.stderr.fileno())
+        os.dup2(si.fileno(), 0)
+        os.dup2(so.fileno(), 1)
+        os.dup2(se.fileno(), 2)
         si.close()
         so.close()
         se.close()

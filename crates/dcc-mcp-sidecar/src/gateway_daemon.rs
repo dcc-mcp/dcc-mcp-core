@@ -1,11 +1,14 @@
 //! Machine-wide standalone gateway daemon and auto-launch helper.
 
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use std::str::FromStr;
 use std::time::Duration;
 
 use clap::Args;
 use dcc_mcp_gateway::{AdminPersistConfig, GatewayConfig, GatewayRunner, RelaySourceConfig};
+
+const DAEMONIZED_ENV: &str = "DCC_MCP__DAEMONIZED";
 
 #[cfg(feature = "gateway-auto")]
 mod guardian;
@@ -111,7 +114,7 @@ pub struct GatewayArgs {
     pub gateway_idle_timeout_secs: u64,
 
     /// Detach from the terminal and run as a background daemon.
-    /// On Unix this performs the classic double-fork; on Windows
+    /// On Unix this respawns a fresh child in a new session; on Windows
     /// the process respawns itself with DETACHED_PROCESS and
     /// CREATE_NEW_PROCESS_GROUP flags.
     #[arg(long, env = "DCC_MCP_DAEMON", default_value = "false")]
@@ -177,7 +180,7 @@ fn is_backend_entry(entry: &dcc_mcp_transport::discovery::types::ServiceEntry) -
 pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
     // ── Daemonize if requested ────────────────────────────────────────────
     let _pidfile = if args.daemon || args.pidfile.is_some() {
-        daemonize_gateway(&args)
+        daemonize_gateway(&args)?
     } else {
         None
     };
@@ -299,95 +302,85 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Daemonize the gateway process and return a pidfile guard.
-#[cfg(unix)]
-fn daemonize_gateway(args: &GatewayArgs) -> Option<PidfileGuard> {
-    // Double-fork: parent exits, child becomes session leader.
-    let pid = unsafe { libc::fork() };
-    if pid > 0 {
-        std::process::exit(0);
-    }
-    unsafe { libc::setsid() };
-    let pid = unsafe { libc::fork() };
-    if pid > 0 {
-        std::process::exit(0);
-    }
-
-    // Redirect stdio to /dev/null.
-    if let Ok(devnull) = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open("/dev/null")
-    {
-        use std::os::unix::io::AsRawFd;
-        let fd = devnull.as_raw_fd();
-        unsafe {
-            libc::dup2(fd, 0);
-            libc::dup2(fd, 1);
-            libc::dup2(fd, 2);
-        }
-    }
-
-    let guard = write_gateway_pidfile(&args.pidfile);
-    if args.daemon && args.pidfile.is_none() {
-        tracing::info!(pid = std::process::id(), "gateway daemonized");
-    }
-    guard
-}
-
-#[cfg(not(unix))]
-fn daemonize_gateway(args: &GatewayArgs) -> Option<PidfileGuard> {
-    // Windows: respawn ourselves with DETACHED_PROCESS so the parent
-    // exits and the child runs as a background process.  The child
-    // re-enters this function, detects the sentinel env var, writes
-    // its pidfile, and carries on.
-    if std::env::var("DCC_MCP__DAEMONIZED").is_ok() {
-        let guard = write_gateway_pidfile(&args.pidfile);
+/// Daemonize the gateway process and return a pidfile guard for the child.
+fn daemonize_gateway(args: &GatewayArgs) -> anyhow::Result<Option<PidfileGuard>> {
+    if matches!(std::env::var(DAEMONIZED_ENV).as_deref(), Ok("1")) {
+        configure_daemon_child()?;
+        let guard = write_gateway_pidfile(&args.pidfile)?;
         if args.daemon && args.pidfile.is_none() {
             tracing::info!(pid = std::process::id(), "gateway running detached");
         }
-        return guard;
+        return Ok(guard);
     }
 
-    let exe = match std::env::current_exe() {
-        Ok(exe) => exe,
-        Err(e) => {
-            tracing::error!(error = %e, "cannot resolve current executable for detached respawn");
-            return None;
-        }
-    };
-    let mut cmd = std::process::Command::new(exe);
+    let exe = std::env::current_exe().map_err(|err| {
+        anyhow::anyhow!("cannot resolve current executable for detached respawn: {err}")
+    })?;
+    let mut cmd = Command::new(exe);
     cmd.args(std::env::args().skip(1));
-    cmd.env("DCC_MCP__DAEMONIZED", "1");
-    cmd.stdin(std::process::Stdio::null());
-    cmd.stdout(std::process::Stdio::null());
-    cmd.stderr(std::process::Stdio::null());
+    cmd.env(DAEMONIZED_ENV, "1");
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::null());
+    cmd.stderr(Stdio::null());
+    configure_detached_command(&mut cmd);
 
-    use std::os::windows::process::CommandExt;
-    const DETACHED_PROCESS: u32 = 0x0000_0008;
-    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-    cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
-
-    let child = match cmd.spawn() {
-        Ok(child) => child,
-        Err(e) => {
-            tracing::error!(error = %e, "failed to respawn detached gateway");
-            return None;
-        }
-    };
+    let child = cmd
+        .spawn()
+        .map_err(|err| anyhow::anyhow!("failed to respawn detached gateway: {err}"))?;
 
     // Write pidfile for the spawned child before the parent exits.
     if let Some(ref pidfile) = args.pidfile {
-        if let Some(parent) = pidfile.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = std::fs::write(pidfile, format!("{}\n", child.id()));
+        write_pidfile_value(pidfile, child.id())?;
     }
     if args.daemon && args.pidfile.is_none() {
         tracing::info!(pid = child.id(), "gateway daemonized (detached child)");
     }
     std::process::exit(0);
 }
+
+#[cfg(unix)]
+fn configure_daemon_child() -> anyhow::Result<()> {
+    let session_id = unsafe { libc::setsid() };
+    if session_id < 0 {
+        let err = std::io::Error::last_os_error();
+        if err.raw_os_error() != Some(libc::EPERM) {
+            return Err(err).map_err(|err| anyhow::anyhow!("setsid failed in daemon child: {err}"));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn configure_daemon_child() -> anyhow::Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn configure_detached_command(cmd: &mut Command) {
+    use std::os::unix::process::CommandExt;
+
+    unsafe {
+        cmd.pre_exec(|| {
+            if libc::setsid() < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+}
+
+#[cfg(windows)]
+fn configure_detached_command(cmd: &mut Command) {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+}
+
+#[cfg(not(any(unix, windows)))]
+fn configure_detached_command(_cmd: &mut Command) {}
 
 /// ```ignore
 /// A sentinel that removes the pidfile on Drop.
@@ -402,13 +395,22 @@ impl Drop for PidfileGuard {
     }
 }
 
-fn write_gateway_pidfile(pidfile: &Option<PathBuf>) -> Option<PidfileGuard> {
-    let path = pidfile.as_ref()?;
+fn write_gateway_pidfile(pidfile: &Option<PathBuf>) -> anyhow::Result<Option<PidfileGuard>> {
+    let Some(path) = pidfile.as_ref() else {
+        return Ok(None);
+    };
+    write_pidfile_value(path, std::process::id())?;
+    Ok(Some(PidfileGuard { path: path.clone() }))
+}
+
+fn write_pidfile_value(path: &PathBuf, pid: u32) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        std::fs::create_dir_all(parent).map_err(|err| {
+            anyhow::anyhow!("creating pidfile directory {}: {err}", parent.display())
+        })?;
     }
-    std::fs::write(path, format!("{}\n", std::process::id())).ok()?;
-    Some(PidfileGuard { path: path.clone() })
+    std::fs::write(path, format!("{pid}\n"))
+        .map_err(|err| anyhow::anyhow!("writing pidfile {}: {err}", path.display()))
 }
 
 fn default_gateway_name() -> String {
