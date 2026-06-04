@@ -1290,6 +1290,81 @@ results = store.query(MemoryQuery(session_id="abc-123"))
 forgotten = store.forget(session_id="abc-123")
 ```
 
+## Capability Graph (#1336)
+
+The `CapabilityGraph` models directed relationships between skills, tools, and
+named capabilities so the search ranker, agent planner, and admin UI can answer:
+
+- "What else do I need before this skill is useful?" (`REQUIRES`)
+- "What does this skill produce that other skills need?" (`PRODUCES`)
+- "If this skill is missing, what is the fallback?" (`FALLBACK_FOR`)
+
+### Edge kinds
+
+| Kind | Direction | Meaning |
+|------|-----------|---------|
+| `DEPENDS_ON` | source → target | Source depends on target (weaker than `REQUIRES`) |
+| `REQUIRES` | source → target | Source cannot function without target |
+| `PRODUCES` | source → target | Source generates capability that target consumes |
+| `USED_IN` | source → target | Source capability is used in target context |
+| `COMPATIBLE_WITH` | source ↔ target | Bidirectional compatibility (soft) |
+| `REPLACES` | source → target | Source supersedes target |
+| `FALLBACK_FOR` | source → target | Source is a fallback when target is unavailable |
+
+### Quick start
+
+```python
+from dcc_mcp_core import CapabilityGraph, CapabilityEdge, EdgeKind
+
+graph = CapabilityGraph()
+
+# Register a skill with its declared metadata
+graph.register_skill(
+    "maya-geometry",
+    requires=["dcc-diagnostics"],
+    produces=["geometry-output"],
+    depends_on=["maya-core"],
+    compatible_with=["maya-render"],
+)
+
+# Add individual edges
+graph.add_edge(CapabilityEdge(
+    source="maya-geometry",
+    target="maya-modeling",
+    kind=EdgeKind.COMPATIBLE_WITH,
+    weight=0.8,
+))
+```
+
+### Expansion and query
+
+```python
+# Bounded BFS expansion (depth clamped to [1, 16])
+reachable = graph.expand(["maya-geometry"], max_depth=2, direction="out")
+
+# Inspect neighbors
+deps = graph.neighbors("maya-geometry", kinds=[EdgeKind.REQUIRES], direction="out")
+
+# Serialize
+payload = graph.to_json()  # {"nodes": [...], "edges": [...]}
+restored = CapabilityGraph.from_json(payload)
+
+# Stats
+print(len(graph))          # node count
+print(graph.edge_count())  # edge count
+```
+
+The graph is **threadsafe** (RLock) and designed as pure data with bounded
+expansion — no I/O, no async, no embedding inference. Idempotent inserts
+prevent duplicate edges on re-registration.
+
+### Integration points
+
+The capability graph feeds into:
+- **Semantic skill index** (#1333) — enrichment of search hits with graph context
+- **Agent memory layers** (#1334) — pattern-level recall of successful skill chains
+- **Gateway search reranker** — boosting results that have verified `REQUIRES` edges satisfied by loaded skills
+
 ## Environment Variables
 
 | Variable | Description |
@@ -1340,6 +1415,87 @@ def create_skill_server(
 | `config` | `McpHttpConfig \| None` | HTTP config; defaults to port 8765 |
 | `extra_paths` | `list[str] \| None` | Extra skill dirs to scan in addition to env vars |
 | `dcc_name` | `str \| None` | Override DCC filter for skill scanning (defaults to `app_name`) |
+
+## Built-in Skills Unified Registration (#1332)
+
+`register_all_builtin_skills()` registers the full set of standard, host-local
+tools in one idempotent call. Every DCC adapter gets diagnostics, introspection,
+feedback, recipes, Qt UI inspection, and script materialization without wiring
+each family by hand.
+
+```python
+from dcc_mcp_core import DccServerBase, DccServerOptions
+from dcc_mcp_core.skills.builtin import register_all_builtin_skills
+
+opts = DccServerOptions.from_env("maya")
+server = DccServerBase(opts)
+register_all_builtin_skills(
+    server,
+    dcc_name="maya",
+    dcc_pid=os.getpid(),
+    dcc_window_title="Autodesk Maya",
+)
+server.start()
+```
+
+### Registered tool families
+
+| Family | Prefix | Tools | Description |
+|--------|--------|-------|-------------|
+| Diagnostics | `dcc_diagnostics__*` | `screenshot`, `audit_log`, `tool_metrics`, `process_status`, `gateway_failover` | Host-local diagnostics and observability |
+| Introspection | `dcc_introspect__*` | `list_module`, `signature`, `search`, `eval` | Runtime DCC namespace introspection |
+| Feedback | `dcc_feedback__*` | `report` | Agent feedback / rationale capture |
+| Recipes | `dcc_recipes__*` | `list`, `search`, `get`, `validate`, `apply` | Skill/domain recipe operations |
+| Qt Inspector | `qt_ui_inspector__*` | `list_windows`, `find_widgets`, `describe_widget`, `snapshot_tree`, `wait_for_widget` | DCC-agnostic Qt widget introspection |
+| Script Materialization | `materialize__*` | `materialize_script` | Host-local script file materialization |
+
+The call is **idempotent** — adapters can call it multiple times (e.g. once at
+base-server init with an empty skill set, then again after scanning skills to
+populate recipe data). The `skills` parameter forwards `SkillMetadata` objects
+to `register_recipes_tools`; pass `None` (the default) when skills haven't been
+scanned yet.
+
+`DccServerBase.__init__` calls `register_all_builtin_skills` automatically, so
+most adapters don't need to call it directly. Use the standalone function only
+when building a custom server that does not inherit from `DccServerBase`.
+
+## Qt UI Inspector (#1332)
+
+The Qt UI inspector is a **DCC-agnostic, read-only** capability that lets AI
+agents inspect the Qt widget tree of any Qt-based DCC host (Maya, Houdini, Nuke,
+Substance, Katana, etc.). It imports the Qt binding lazily so the module never
+pulls Qt into the host on import.
+
+### Supported Qt bindings (priority order)
+
+1. `qtpy` — abstraction layer (recommended)
+2. `PySide6` — Qt 6 official bindings
+3. `PySide2` — Qt 5 official bindings
+4. `PyQt6` — Qt 6 Riverbank bindings
+5. `PyQt5` — Qt 5 Riverbank bindings
+
+When no binding is importable, every tool returns a structured
+`qt-binding-unavailable` envelope rather than crashing the host.
+
+### Tools
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `qt_ui_inspector__list_windows` | List every top-level Qt window with object name, class, visibility, geometry, and child count | `include_hidden`, `max_results` (max 256) |
+| `qt_ui_inspector__find_widgets` | Locate Qt widgets by object name (exact/substring/regex), class name, and visibility | `object_name`, `class_name`, `visible_only`, `max_results` |
+| `qt_ui_inspector__describe_widget` | Return a single widget's structured state: class, geometry, flags, accessible name/description, bounded property snapshot (≤32 properties) | `widget_id` (required) |
+| `qt_ui_inspector__snapshot_tree` | Walk the Qt widget tree from a root and return a JSON-safe tree with depth (≤16) and node-count (≤4096) budgets | `root_widget_id`, `max_depth`, `max_nodes` |
+| `qt_ui_inspector__wait_for_widget` | Poll for a widget by name/class with visible/enabled gates and bounded timeout (≤60 s) | `object_name`, `class_name`, `visible`, `enabled`, `timeout_ms` |
+
+### One-line registration
+
+```python
+from dcc_mcp_core import register_qt_ui_inspector
+register_qt_ui_inspector(server, dcc_name="maya")
+```
+
+Call this **before** `server.start()`. `register_all_builtin_skills` calls it
+automatically, so adapters using that path don't need a separate call.
 
 ## Supported Script Types
 
