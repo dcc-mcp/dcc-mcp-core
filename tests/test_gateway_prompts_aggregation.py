@@ -107,6 +107,31 @@ def _split_gateway_prefixed(name: str) -> tuple[str, str] | None:
     return prefix, decoded
 
 
+def _bare_prompt_names(prompts: list[dict]) -> set[str]:
+    decoded = (_split_gateway_prefixed(prompt["name"]) for prompt in prompts)
+    return {bare for split in decoded if split is not None for bare in (split[1],)}
+
+
+def _wait_for_gateway_prompts(gateway_url: str, expected: set[str], timeout: float = 20.0) -> None:
+    """Wait until the gateway prompts watcher has observed loaded backend skills."""
+    deadline = time.monotonic() + timeout
+    last_resp: dict | None = None
+
+    while time.monotonic() < deadline:
+        last_resp = _post_mcp(gateway_url, "prompts/list")
+        if "error" not in last_resp:
+            prompts = last_resp.get("result", {}).get("prompts", [])
+            if expected.issubset(_bare_prompt_names(prompts)):
+                return
+        time.sleep(0.25)
+
+    prompts = [] if last_resp is None else last_resp.get("result", {}).get("prompts", [])
+    names = [p.get("name") for p in prompts]
+    pytest.fail(
+        f"gateway prompts did not include {sorted(expected)} within {timeout}s; names={names}; last_resp={last_resp}"
+    )
+
+
 def _start_backend(dcc: str, skill_parent: Path, registry_dir: Path, gw_port: int) -> object:
     """Start an ``McpHttpServer`` via ``create_skill_server`` discovering ``skill_parent``."""
     cfg = McpHttpConfig(port=0, server_name=f"{dcc}-prompts-backend")
@@ -212,9 +237,13 @@ def prompts_cluster(tmp_path_factory):
         )
         assert "error" not in resp, f"load_skill({skill}) on {backend_url} failed: {resp.get('error')}"
 
-    # One more tick so the prompts watcher picks up the newly loaded
-    # prompts before the first assertion runs.
-    time.sleep(3.2)
+    # The gateway prompts watcher is asynchronous and can lag on slower
+    # macOS/Python 3.8 runners. Poll the public surface until it reflects
+    # the loaded backend skills instead of relying on a fixed sleep.
+    _wait_for_gateway_prompts(
+        gateway_url,
+        {"bake_animation", "render_preview", "export_gltf"},
+    )
 
     try:
         yield {
