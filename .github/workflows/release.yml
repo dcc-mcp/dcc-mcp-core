@@ -480,21 +480,13 @@ jobs:
       publish: true
     secrets: inherit
 
-  # ── Publish to PyPI ──
-  publish:
-    needs: [release-please, build-wheels, build-binaries, build-semantic-wheels]
-    if: |
-      needs.release-please.outputs.release_created == 'true' &&
-      needs.build-wheels.result == 'success' &&
-      needs.build-binaries.result == 'success' &&
-      needs.build-semantic-wheels.result == 'success'
+  # ── Validate release metadata once before publishing artefacts ──
+  validate-release-version:
+    needs: [release-please]
+    if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/p/dcc-mcp-core
     permissions:
-      id-token: write
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v6
         with:
@@ -539,6 +531,135 @@ jobs:
                       print(f"::warning::Cargo.lock:{name} has {ver}, expected {release_version}")
           PY
 
+  # ── Publish dcc-mcp-core to PyPI ──
+  publish-core-pypi:
+    needs: [release-please, validate-release-version, build-wheels]
+    if: |
+      needs.release-please.outputs.release_created == 'true' &&
+      needs.validate-release-version.result == 'success' &&
+      needs.build-wheels.result == 'success'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/dcc-mcp-core
+    permissions:
+      id-token: write
+      actions: read
+      contents: read
+    steps:
+      - name: Download dcc-mcp-core wheel artefacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+
+      - name: List dcc-mcp-core artefacts
+        run: ls -la dist/
+
+      - name: Upload dcc-mcp-core to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          verbose: true
+          print-hash: true
+          skip-existing: true
+
+  # ── Publish dcc-mcp-server to PyPI ──
+  publish-server-pypi:
+    needs: [release-please, validate-release-version, build-binaries]
+    if: |
+      needs.release-please.outputs.release_created == 'true' &&
+      needs.validate-release-version.result == 'success' &&
+      needs.build-binaries.result == 'success'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/dcc-mcp-server
+    permissions:
+      id-token: write
+      actions: read
+      contents: read
+    steps:
+      - name: Download dcc-mcp-server wheel artefacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: server-wheel-*
+          path: dist-server
+          merge-multiple: true
+
+      - name: List dcc-mcp-server artefacts
+        run: ls -la dist-server/
+
+      # The PyPI project must have a Trusted Publisher for:
+      # Owner = dcc-mcp, Repo = dcc-mcp-core, Workflow = release.yml,
+      # Environment = pypi, Project = dcc-mcp-server.
+      - name: Upload dcc-mcp-server to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist-server
+          verbose: true
+          print-hash: true
+          skip-existing: true
+
+  # ── Publish dcc-mcp-core-semantic to PyPI ──
+  publish-semantic-pypi:
+    needs: [release-please, validate-release-version, build-semantic-wheels]
+    if: |
+      needs.release-please.outputs.release_created == 'true' &&
+      needs.validate-release-version.result == 'success' &&
+      needs.build-semantic-wheels.result == 'success'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/dcc-mcp-core-semantic
+    permissions:
+      id-token: write
+      actions: read
+      contents: read
+    steps:
+      - name: Download dcc-mcp-core-semantic wheel artefacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: semantic-wheel-*
+          path: dist-semantic
+          merge-multiple: true
+
+      - name: List dcc-mcp-core-semantic artefacts
+        run: ls -la dist-semantic/
+
+      # The PyPI project must have a Trusted Publisher for:
+      # Owner = dcc-mcp, Repo = dcc-mcp-core, Workflow = release.yml,
+      # Environment = pypi, Project = dcc-mcp-core-semantic.
+      - name: Upload dcc-mcp-core-semantic to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist-semantic
+          verbose: true
+          print-hash: true
+          skip-existing: true
+
+  # ── Keep GitHub Release assets complete even if PyPI rejects one package ──
+  publish-github-release-assets:
+    needs:
+      - release-please
+      - build-wheels
+      - build-binaries
+      - build-semantic-wheels
+      - publish-core-pypi
+      - publish-server-pypi
+      - publish-semantic-pypi
+    if: |
+      always() &&
+      needs.release-please.outputs.release_created == 'true' &&
+      needs.build-wheels.result == 'success' &&
+      needs.build-binaries.result == 'success' &&
+      needs.build-semantic-wheels.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
       - name: Download dcc-mcp-core wheel artefacts
         uses: actions/download-artifact@v8
         with:
@@ -562,64 +683,12 @@ jobs:
 
       - name: List artefacts
         run: |
-          echo "── dcc-mcp-core wheels ──"
+          echo "dcc-mcp-core wheels:"
           ls -la dist/
-          echo "── dcc-mcp-server wheels ──"
-          ls -la dist-server/ 2>/dev/null || echo "(no server wheels — check build-binaries job)"
-          echo "── dcc-mcp-core-semantic wheels ──"
-          ls -la dist-semantic/ 2>/dev/null || echo "(no semantic wheels — check build-semantic-wheels job)"
-
-      # ── PyPI: dcc-mcp-core (existing trusted publisher) ──
-      # continue-on-error so that a PyPI failure (e.g. file already exists from
-      # a previous partial run) does not block the GitHub Release upload below.
-      - name: Upload dcc-mcp-core to PyPI
-        id: pypi-core
-        continue-on-error: true
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          packages-dir: dist
-          verbose: true
-          print-hash: true
-          skip-existing: true
-
-      # ── PyPI: dcc-mcp-server (new — requires its own trusted publisher) ──
-      # Setup steps for the maintainer (one-time):
-      #   1. https://pypi.org/manage/account/publishing/
-      #   2. Add a new "pending publisher" with:
-      #      Owner = loonghao, Repo = dcc-mcp-core,
-      #      Workflow = release.yml, Environment = pypi, Project = dcc-mcp-server
-      # Until that's configured this step degrades gracefully — the
-      # wheels are still published to GitHub Release below.
-      - name: Upload dcc-mcp-server to PyPI
-        id: pypi-server
-        if: hashFiles('dist-server/*.whl') != ''
-        continue-on-error: true
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          packages-dir: dist-server
-          verbose: true
-          print-hash: true
-          skip-existing: true
-
-      # ── PyPI: dcc-mcp-core-semantic (companion wheel, issue #1395) ──
-      # Trusted publisher setup (one-time, identical pattern to dcc-mcp-server):
-      #   1. https://pypi.org/manage/account/publishing/
-      #   2. Add a new "pending publisher" with:
-      #      Owner = loonghao, Repo = dcc-mcp-core,
-      #      Workflow = release.yml, Environment = pypi,
-      #      Project = dcc-mcp-core-semantic
-      # Until that's configured this step degrades gracefully — the
-      # wheels are still published to GitHub Release below by the safety net.
-      - name: Upload dcc-mcp-core-semantic to PyPI
-        id: pypi-semantic
-        if: hashFiles('dist-semantic/*.whl') != ''
-        continue-on-error: true
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          packages-dir: dist-semantic
-          verbose: true
-          print-hash: true
-          skip-existing: true
+          echo "dcc-mcp-server wheels:"
+          ls -la dist-server/
+          echo "dcc-mcp-core-semantic wheels:"
+          ls -la dist-semantic/
 
       # Always attempt the GitHub Release upload, even if PyPI failed; this is
       # the user-visible artefact set and must be complete per release tag.
@@ -627,7 +696,6 @@ jobs:
       # per-platform wheel directly to the Release. This step is the safety
       # net for the (unlikely) case where the per-platform upload was skipped.
       - name: Upload wheels to GitHub Release (safety net)
-        if: always()
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.release-please.outputs.tag_name }}
@@ -636,8 +704,38 @@ jobs:
             dist-server/*
             dist-semantic/*
 
-      - name: Fail job if PyPI upload failed
-        if: steps.pypi-core.outcome == 'failure' || steps.pypi-server.outcome == 'failure' || steps.pypi-semantic.outcome == 'failure'
+  # ── Aggregate release publication status for branch protection / humans ──
+  publish:
+    needs:
+      - release-please
+      - publish-core-pypi
+      - publish-server-pypi
+      - publish-semantic-pypi
+      - publish-github-release-assets
+    if: always() && needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Summarize publication
         run: |
-          echo "::error::PyPI upload failed (core=${{ steps.pypi-core.outcome }} server=${{ steps.pypi-server.outcome }} semantic=${{ steps.pypi-semantic.outcome }}); GitHub Release artefacts were still uploaded above."
-          exit 1
+          core="${{ needs.publish-core-pypi.result }}"
+          server="${{ needs.publish-server-pypi.result }}"
+          semantic="${{ needs.publish-semantic-pypi.result }}"
+          release_assets="${{ needs.publish-github-release-assets.result }}"
+
+          echo "PyPI dcc-mcp-core: ${core}"
+          echo "PyPI dcc-mcp-server: ${server}"
+          echo "PyPI dcc-mcp-core-semantic: ${semantic}"
+          echo "GitHub Release assets: ${release_assets}"
+
+          failed=0
+          if [ "$core" != "success" ] || [ "$server" != "success" ] || [ "$semantic" != "success" ]; then
+            echo "::error::PyPI upload failed (core=${core} server=${server} semantic=${semantic})."
+            failed=1
+          fi
+          if [ "$release_assets" != "success" ]; then
+            echo "::error::GitHub Release safety-net upload did not complete (result=${release_assets})."
+            failed=1
+          fi
+          exit "$failed"
