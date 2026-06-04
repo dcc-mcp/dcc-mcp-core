@@ -17,10 +17,12 @@
   "panel.calls": "호출",
   "panel.logs": "로그",
   "panel.skillPaths": "스킬",
+  "panel.analytics": "분석",
   "group.onboarding": "시작",
   "group.operations": "운영",
   "group.workspace": "작업 영역",
   "group.contracts": "계약",
   "group.observability": "관측성",
-  "group.configuration": "설정"
+  "group.configuration": "설정",
+  "group.insights": "인사이트"
 }

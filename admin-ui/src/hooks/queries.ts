@@ -29,6 +29,9 @@ import {
 } from '../admin-ui-core';
 import type {
   ActivityEvent,
+  AnalyticsHeatmapCell,
+  AnalyticsOverview,
+  AnalyticsTimeseriesPoint,
   CallRow,
   GovernancePayload,
   HealthPayload,
@@ -56,6 +59,9 @@ export const adminKeys = {
   tasks: (limit?: number) => [...adminKeys.all, 'tasks', { limit }] as const,
   workflows: (limit?: number) => [...adminKeys.all, 'workflows', { limit }] as const,
   stats: (range: string) => [...adminKeys.all, 'stats', { range }] as const,
+  analyticsOverview: (range: string) => [...adminKeys.all, 'analytics', 'overview', { range }] as const,
+  analyticsTimeseries: (range: string, granularity: string) => [...adminKeys.all, 'analytics', 'timeseries', { range, granularity }] as const,
+  analyticsHeatmap: (range: string) => [...adminKeys.all, 'analytics', 'heatmap', { range }] as const,
   governance: (limit?: number) => [...adminKeys.all, 'governance', { limit }] as const,
   logs: () => [...adminKeys.all, 'logs'] as const,
   skills: () => [...adminKeys.all, 'skills'] as const,
@@ -163,6 +169,35 @@ export function useStatsQuery(enabled: boolean, range: string) {
   return useQuery({
     queryKey: adminKeys.stats(range),
     queryFn: () => apiJson<StatsPayload>(`/stats?range=${encodeURIComponent(range)}`),
+    enabled,
+    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+  });
+}
+
+export function useAnalyticsOverviewQuery(enabled: boolean, range: string) {
+  return useQuery({
+    queryKey: adminKeys.analyticsOverview(range),
+    queryFn: () => apiJson<AnalyticsOverview>(`/analytics/overview?range=${encodeURIComponent(range)}`),
+    enabled,
+    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+  });
+}
+
+export function useAnalyticsTimeseriesQuery(enabled: boolean, range: string, granularity = 'day') {
+  return useQuery({
+    queryKey: adminKeys.analyticsTimeseries(range, granularity),
+    queryFn: () => apiJson<{ series: AnalyticsTimeseriesPoint[] }>(`/analytics/timeseries?range=${encodeURIComponent(range)}&granularity=${encodeURIComponent(granularity)}`),
+    select: (payload) => (Array.isArray(payload.series) ? payload.series : []),
+    enabled,
+    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+  });
+}
+
+export function useAnalyticsHeatmapQuery(enabled: boolean, range: string) {
+  return useQuery({
+    queryKey: adminKeys.analyticsHeatmap(range),
+    queryFn: () => apiJson<{ heatmap: AnalyticsHeatmapCell[] }>(`/analytics/heatmap?range=${encodeURIComponent(range)}`),
+    select: (payload) => (Array.isArray(payload.heatmap) ? payload.heatmap : []),
     enabled,
     refetchInterval: enabled ? POLL_INTERVAL_MS : false,
   });

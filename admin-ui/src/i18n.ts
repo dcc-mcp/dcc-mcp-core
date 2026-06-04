@@ -100,6 +100,10 @@ import skillPathsEn from './locales/en/skill-paths.json' with { type: 'json' };
 import skillPathsZhCN from './locales/zh-CN/skill-paths.json' with { type: 'json' };
 import skillPathsJa from './locales/ja/skill-paths.json' with { type: 'json' };
 import skillPathsKo from './locales/ko/skill-paths.json' with { type: 'json' };
+import analyticsEn from './locales/en/analytics.json' with { type: 'json' };
+import analyticsZhCN from './locales/zh-CN/analytics.json' with { type: 'json' };
+import analyticsJa from './locales/ja/analytics.json' with { type: 'json' };
+import analyticsKo from './locales/ko/analytics.json' with { type: 'json' };
 
 export const I18N_MESSAGES = {
   common: {
@@ -227,6 +231,12 @@ export const I18N_MESSAGES = {
     'zh-CN': skillPathsZhCN,
     ja: skillPathsJa,
     ko: skillPathsKo,
+  },
+  analytics: {
+    en: analyticsEn,
+    'zh-CN': analyticsZhCN,
+    ja: analyticsJa,
+    ko: analyticsKo,
   },
 } as const;
 
