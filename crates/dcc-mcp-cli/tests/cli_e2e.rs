@@ -366,6 +366,37 @@ fn write_skill(root: &std::path::Path, relative: &str, content: &str) -> std::pa
     dir
 }
 
+fn run_git(repo: &std::path::Path, args: &[&str]) {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(repo)
+        .env("GIT_AUTHOR_NAME", "dcc-mcp-test")
+        .env("GIT_AUTHOR_EMAIL", "dcc-mcp-test@example.com")
+        .env("GIT_COMMITTER_NAME", "dcc-mcp-test")
+        .env("GIT_COMMITTER_EMAIL", "dcc-mcp-test@example.com")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git {:?}\nstdout: {}\nstderr: {}",
+        args,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn commit_git_skill_version(repo: &std::path::Path, version: &str, marker: &str) {
+    std::fs::write(
+        repo.join("SKILL.md"),
+        format!("---\nname: git-skill\ndescription: Git skill {version}\n---\n"),
+    )
+    .unwrap();
+    std::fs::write(repo.join("marker.txt"), marker).unwrap();
+    run_git(repo, &["add", "."]);
+    run_git(repo, &["commit", "-m", version]);
+    run_git(repo, &["tag", version]);
+}
+
 #[test]
 fn list_search_describe_and_call_gateway_rest_surface() {
     let fixture = spawn_gateway_fixture();
@@ -964,6 +995,118 @@ fn marketplace_force_install_keeps_existing_package_when_replacement_fails() {
     );
     assert!(stderr.contains("does not contain SKILL.md"));
     assert!(installed_path.join("SKILL.md").is_file());
+}
+
+#[test]
+fn marketplace_update_git_package_uses_latest_catalog_ref() {
+    let tmp = TempDir::new().unwrap();
+    let repo = tmp.path().join("git-skill-repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    run_git(&repo, &["init"]);
+    run_git(&repo, &["config", "user.name", "dcc-mcp-test"]);
+    run_git(&repo, &["config", "user.email", "dcc-mcp-test@example.com"]);
+    commit_git_skill_version(&repo, "v0.1.0", "v1");
+    commit_git_skill_version(&repo, "v0.2.0", "v2");
+
+    let catalog_path = tmp.path().join("marketplace.json");
+    let source = catalog_path.to_string_lossy().to_string();
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let install_root = tmp
+        .path()
+        .join("marketplace-root")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+        ("DCC_MCP_MARKETPLACE_INSTALL_ROOT", install_root.as_str()),
+    ];
+
+    let catalog_v1 = json!({
+        "version": "1",
+        "entries": [{
+            "name": "git-skill",
+            "description": "Git skill",
+            "dcc": ["maya"],
+            "tags": ["test"],
+            "version": "0.1.0",
+            "install": {
+                "type": "git",
+                "url": repo.to_string_lossy(),
+                "ref": "v0.1.0"
+            }
+        }]
+    });
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&catalog_v1).unwrap(),
+    )
+    .unwrap();
+
+    let installed = run_json_with_env(
+        &[
+            "marketplace",
+            "install",
+            "git-skill",
+            "--dcc",
+            "maya",
+            "--source",
+            &source,
+        ],
+        &envs,
+    );
+    let installed_path = std::path::PathBuf::from(installed["path"].as_str().unwrap());
+    assert_eq!(
+        std::fs::read_to_string(installed_path.join("marker.txt")).unwrap(),
+        "v1"
+    );
+
+    let catalog_v2 = json!({
+        "version": "1",
+        "entries": [{
+            "name": "git-skill",
+            "description": "Git skill",
+            "dcc": ["maya"],
+            "tags": ["test"],
+            "version": "0.2.0",
+            "install": {
+                "type": "git",
+                "url": repo.to_string_lossy(),
+                "ref": "v0.2.0"
+            }
+        }]
+    });
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&catalog_v2).unwrap(),
+    )
+    .unwrap();
+
+    let outdated = run_json_with_env(
+        &["marketplace", "outdated", "git-skill", "--dcc", "maya"],
+        &envs,
+    );
+    assert_eq!(outdated["count"], 1);
+    assert_eq!(outdated["packages"][0]["latest_version"], "0.2.0");
+    assert_eq!(outdated["packages"][0]["install_ref"], "v0.2.0");
+
+    let updated = run_json_with_env(
+        &["marketplace", "update", "git-skill", "--dcc", "maya"],
+        &envs,
+    );
+    assert_eq!(updated[0]["new_version"], "0.2.0");
+    assert_eq!(
+        std::fs::read_to_string(installed_path.join("marker.txt")).unwrap(),
+        "v2"
+    );
+
+    let listed = run_json_with_env(&["marketplace", "list-installed", "--dcc", "maya"], &envs);
+    assert_eq!(listed["packages"][0]["version"], "0.2.0");
+    assert_eq!(listed["packages"][0]["install_ref"], "v0.2.0");
 }
 
 #[test]
