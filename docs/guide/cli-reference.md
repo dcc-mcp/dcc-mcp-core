@@ -197,6 +197,15 @@ Admin audit/trace persistence is configured by environment only: set `DCC_MCP_GA
 > `DCC_MCP_GATEWAY_CURSOR_SAFE_TOOL_NAMES`. Aggregated gateway `prompts/list`
 > always emits the cursor-safe `i_<id8>__<escaped>` wire form (#656).
 
+### Standalone gateway flags (`gateway`)
+
+| Flag | Env | Default | Meaning |
+|---|---|---|---|
+| `--daemon` | `DCC_MCP_DAEMON` | `false` | Respawn the current executable as a detached gateway child and exit the parent. Unix children start in a new session; Windows children use detached process flags. Respawn failures fail before the parent exits. |
+| `--pidfile PATH` | `DCC_MCP_PIDFILE` | — | Implies daemon mode. The pidfile records the detached child PID and is removed when that child exits cleanly. Pidfile write failures fail before the parent exits. |
+| `--gateway-persist` | `DCC_MCP_GATEWAY_PERSIST` | `false` | Keep the gateway daemon alive with no registered backends. |
+| `--gateway-idle-timeout-secs` | `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` | `30` | Seconds to wait after the last backend disappears before shutdown. `0` disables idle shutdown. |
+
 ### File-logging flags
 
 | Flag | Env | Default | Meaning |
@@ -266,6 +275,11 @@ dcc-mcp-server auto --app maya --server-name maya-shotgun-alpha \
 # 4) Workstation-wide gateway daemon.
 dcc-mcp-server gateway --host 127.0.0.1 --port 9765 \
                        --registry-dir /var/lib/dcc-mcp
+
+# 4b) Same gateway as an explicit detached daemon.
+dcc-mcp-server gateway --host 127.0.0.1 --port 9765 \
+                       --registry-dir /var/lib/dcc-mcp \
+                       --daemon --pidfile /var/run/dcc-mcp-gateway.pid
 
 # 5) Bridge an external stdio MCP server behind the same daemon gateway.
 dcc-mcp-server translate --stdio "uvx mcp-server-git" \
