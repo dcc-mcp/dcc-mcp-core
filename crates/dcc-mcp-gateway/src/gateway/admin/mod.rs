@@ -45,6 +45,8 @@
 
 pub mod activity;
 mod agent_trace;
+#[cfg(feature = "admin")]
+pub mod analytics;
 mod compact;
 mod debug_response;
 pub mod governance;
