@@ -39,13 +39,13 @@ def test_ensure_gateway_daemon_spawns_and_becomes_healthy(tmp_path, monkeypatch)
 
     seen = {}
 
-    def _popen(cmd, **kwargs):
+    def _launch_detached(cmd, **kwargs):
         seen["cmd"] = cmd
         seen["env"] = kwargs.get("env", {})
-        return object()
+        return {"ok": True, "pid": 1}
 
     monkeypatch.setattr(gg, "urlopen", _urlopen)
-    monkeypatch.setattr(gg.subprocess, "Popen", _popen)
+    monkeypatch.setattr(gg, "launch_detached", _launch_detached)
     monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
     result = gg.ensure_gateway_daemon(
         gateway_host="127.0.0.1",
@@ -68,10 +68,11 @@ def test_ensure_gateway_daemon_spawns_and_becomes_healthy(tmp_path, monkeypatch)
 def test_ensure_gateway_daemon_spawn_failure_returns_embedded_fallback_reason(monkeypatch):
     monkeypatch.setattr(gg, "urlopen", lambda *_a, **_k: (_ for _ in ()).throw(OSError("down")))
 
-    def _boom(*_args, **_kwargs):
-        raise RuntimeError("spawn fail")
-
-    monkeypatch.setattr(gg.subprocess, "Popen", _boom)
+    monkeypatch.setattr(
+        gg,
+        "launch_detached",
+        lambda *_a, **_k: {"ok": False, "reason": "spawn_failed", "error": "spawn fail"},
+    )
     monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
     result = gg.ensure_gateway_daemon(
         gateway_host="127.0.0.1",
@@ -88,8 +89,8 @@ def test_ensure_gateway_daemon_waits_when_launch_lock_exists(tmp_path, monkeypat
     (tmp_path / "gateway-launch.lock").write_text("busy", encoding="utf-8")
     monkeypatch.setattr(gg, "urlopen", lambda *_a, **_k: (_ for _ in ()).throw(OSError("down")))
     monkeypatch.setattr(
-        gg.subprocess,
-        "Popen",
+        gg,
+        "launch_detached",
         lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("must not spawn")),
     )
 
@@ -121,14 +122,14 @@ def test_ensure_gateway_daemon_recovers_stale_launch_lock(tmp_path, monkeypatch)
 
     seen = {}
 
-    def _popen(cmd, **kwargs):
+    def _launch_detached(cmd, **kwargs):
         seen["cmd"] = cmd
         seen["env"] = kwargs.get("env", {})
-        return object()
+        return {"ok": True, "pid": 1}
 
     monkeypatch.setenv("DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS", "1")
     monkeypatch.setattr(gg, "urlopen", _urlopen)
-    monkeypatch.setattr(gg.subprocess, "Popen", _popen)
+    monkeypatch.setattr(gg, "launch_detached", _launch_detached)
     monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
 
     result = gg.ensure_gateway_daemon(
@@ -194,3 +195,103 @@ def test_gateway_daemon_guardian_resets_failures_on_health(monkeypatch):
     assert first["reason"] == "probe_failed"
     assert second["reason"] == "healthy"
     assert second["consecutive_failures"] == 0
+
+
+def test_build_gateway_daemon_command_includes_persist_flags(monkeypatch, tmp_path):
+    monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
+    cmd, env = gg.build_gateway_daemon_command(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=str(tmp_path),
+        dcc_type="custom-host",
+        gateway_persist=True,
+        gateway_idle_timeout_secs=0,
+    )
+    assert cmd[:2] == ["dcc-mcp-server", "gateway"]
+    assert "--gateway-persist" in cmd
+    assert "--gateway-idle-timeout-secs" in cmd
+    assert env["DCC_MCP_GATEWAY_PERSIST"] == "1"
+    assert env["DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS"] == "0"
+    assert env["DCC_MCP_REGISTRY_DIR"] == str(tmp_path)
+    assert env["DCC_MCP_DCC_TYPE"] == "custom-host"
+
+
+def test_build_gateway_daemon_command_omits_persist_by_default(monkeypatch, tmp_path):
+    monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
+    cmd, env = gg.build_gateway_daemon_command(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=str(tmp_path),
+        dcc_type="maya",
+    )
+    assert "--gateway-persist" not in cmd
+    assert "--gateway-idle-timeout-secs" not in cmd
+    assert "DCC_MCP_GATEWAY_PERSIST" not in env
+    assert "DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS" not in env
+
+
+def test_build_gateway_daemon_command_respects_custom_server_bin(monkeypatch, tmp_path):
+    cmd, _env = gg.build_gateway_daemon_command(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=str(tmp_path),
+        dcc_type="nuke",
+        server_bin="/opt/bin/dcc-gw",
+    )
+    assert cmd[0] == "/opt/bin/dcc-gw"
+
+
+def test_ensure_gateway_daemon_spawn_includes_persist_flags(tmp_path, monkeypatch):
+    state = {"calls": 0}
+
+    class _Resp:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    def _urlopen(*_args, **_kwargs):
+        state["calls"] += 1
+        if state["calls"] < 3:
+            raise OSError("down")
+        return _Resp()
+
+    seen: dict = {}
+
+    def _launch_detached(cmd, **kwargs):
+        seen["cmd"] = cmd
+        seen["env"] = kwargs.get("env", {})
+        return {"ok": True, "pid": 99}
+
+    monkeypatch.setattr(gg, "urlopen", _urlopen)
+    monkeypatch.setattr(gg, "launch_detached", _launch_detached)
+    monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
+    result = gg.ensure_gateway_daemon(
+        gateway_host="127.0.0.1",
+        gateway_port=9876,
+        registry_dir=str(tmp_path),
+        dcc_type="ftrack",
+        timeout_secs=1.0,
+        gateway_persist=True,
+        gateway_idle_timeout_secs=120,
+    )
+    assert result["ok"] is True
+    assert "--gateway-persist" in seen["cmd"]
+    assert "--gateway-idle-timeout-secs" in seen["cmd"]
+    assert seen["env"]["DCC_MCP_GATEWAY_PERSIST"] == "1"
+    assert seen["env"]["DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS"] == "120"
+
+
+def test_launch_gateway_daemon_is_alias(monkeypatch):
+    monkeypatch.setattr(gg, "urlopen", lambda *args, **kwargs: _Resp())
+    result = gg.launch_gateway_daemon(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=None,
+        dcc_type="blender",
+    )
+    assert result["ok"] is True
+    assert result["reason"] == "already_healthy"

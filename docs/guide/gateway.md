@@ -213,6 +213,55 @@ standalone). At runtime it satisfies the following:
 | **Central Gateway** | `dcc-mcp-server gateway` daemon process | Auto-launched by the supervisor; survives backend restarts; idle-timeout (default 30 s) after last backend exits, unless `DCC_MCP_GATEWAY_PERSIST=1` |
 | **Per-DCC Registration** | `FileRegistry` row + 5 s heartbeat | Each backend stamps `gateway_runtime_mode`, `gateway_guardian_enabled`, `gateway_recovery_driver` into its row so admin tools can answer "which services can revive the gateway?" |
 
+### Python daemon helpers (PIP-513)
+
+The `dcc_mcp_core.daemon_launch` module and the extended `ensure_gateway_daemon`
+API provide three tiers of daemon control from Python, usable by any adapter or
+studio pipeline service.
+
+| Mode | API | Typical use |
+|------|-----|-------------|
+| **Gateway ensure** | `ensure_gateway_daemon(gateway_persist=True, ...)` | DCC adapter startup auto-ensures a machine-wide gateway daemon; single-flight lock prevents duplicate spawns |
+| **Gateway launch** | `launch_gateway_daemon(gateway_host=..., ...)` | Alias for `ensure_gateway_daemon` with explicit daemon naming |
+| **Arbitrary command detach** | `launch_detached(["my-svc", "--flag"])` | Studio-owned pipeline adapters, sidecars, custom MCP hosts |
+
+```python
+from dcc_mcp_core import ensure_gateway_daemon, launch_detached
+
+# Gateway auto-ensure with persist/idle-timeout flags
+result = ensure_gateway_daemon(
+    gateway_host="127.0.0.1",
+    gateway_port=9765,
+    registry_dir=None,
+    dcc_type="ftrack",
+    gateway_persist=True,
+    gateway_idle_timeout_secs=0,
+)
+assert result["ok"]
+
+# Detach an arbitrary pipeline service without blocking
+spawn = launch_detached(["python", "-m", "my_pipeline.sidecar"])
+assert spawn["ok"]
+print(f"Spawned PID: {spawn['pid']}")
+```
+
+The `build_gateway_daemon_command()` function is also exported for inspection:
+
+```python
+from dcc_mcp_core import build_gateway_daemon_command
+
+cmd, env = build_gateway_daemon_command(
+    gateway_host="127.0.0.1",
+    gateway_port=9765,
+    registry_dir="/tmp/reg",
+    dcc_type="maya",
+    gateway_persist=True,
+)
+# cmd == ["dcc-mcp-server", "gateway", "--host", "127.0.0.1",
+#         "--port", "9765", "--gateway-persist"]
+# env["DCC_MCP_GATEWAY_PERSIST"] == "1"
+```
+
 ## Topology
 
 ```
