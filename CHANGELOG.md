@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.55](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.17.54...v0.17.55) (2026-06-04)
+
+
+### Features
+
+* **cli:** add marketplace catalog discovery ([fb38554](https://github.com/dcc-mcp/dcc-mcp-core/commit/fb385540fbbd3b380810e6c89ecd9f0b1108975c))
+* **cli:** install marketplace skill packages ([221cd36](https://github.com/dcc-mcp/dcc-mcp-core/commit/221cd3645e0d392d87185abf9fe8a93212492bad))
+* **gateway:** add daemon mode support for gateway server and Python API ([2145b91](https://github.com/dcc-mcp/dcc-mcp-core/commit/2145b9144daf43ba8e3b3698ac0b57229e150863))
+* **marketplace:** add update/outdated commands and migrate gateway catalog ([3f46148](https://github.com/dcc-mcp/dcc-mcp-core/commit/3f461489ff328368147bb88e75b7fc5e2ea17ee0))
+
+
+### Bug Fixes
+
+* **cli:** harden marketplace package installs ([2c7e839](https://github.com/dcc-mcp/dcc-mcp-core/commit/2c7e8397d8e8614ee4980cf9fd34c5afbc8a3930))
+* **daemon:** address review feedback for PIP-513 daemon mode ([9580852](https://github.com/dcc-mcp/dcc-mcp-core/commit/95808525e0f93c3953efcb53a838c65ed4ad9f48))
+* **daemon:** harden gateway detach semantics ([156ba2d](https://github.com/dcc-mcp/dcc-mcp-core/commit/156ba2d7e66f5805a30e29a499d04200cb6a8fce))
+* **marketplace:** update packages from latest catalog refs ([7c2a7c4](https://github.com/dcc-mcp/dcc-mcp-core/commit/7c2a7c4af37cf1ef1995fc12e2e2b6827bd103b8))
+
+
+### Documentation
+
+* add built-in skills, Qt inspector, capability graph, dispatch readiness documentation ([ece42cf](https://github.com/dcc-mcp/dcc-mcp-core/commit/ece42cf2a4c9603b599e50637b7d4c785a114075))
+* update cli-reference.md with outdated/update commands ([3f46148](https://github.com/dcc-mcp/dcc-mcp-core/commit/3f461489ff328368147bb88e75b7fc5e2ea17ee0))
+
 ## [0.17.54](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.17.53...v0.17.54) (2026-06-04)
 
 
