@@ -16,7 +16,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::json;
 
 use super::state::AdminState;
 
@@ -26,9 +26,6 @@ const OFFICIAL_MARKETPLACE_SOURCE: &str =
 
 /// Default fetch timeout for marketplace catalog sources.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(20);
-
-/// Install operation timeout (git clone can take a while on slow networks).
-const INSTALL_TIMEOUT: Duration = Duration::from_secs(120);
 
 // ── Response types (mirror frontend admin-types.ts) ────────────────────
 
@@ -370,15 +367,15 @@ async fn install_package(
 
     for source in &sources {
         let entries = fetch_source_entries(client, source).await?;
-        if let Some(entry) = entries.into_iter().find(|e| e.name == safe_name) {
-            if entry_targets_dcc(&entry, &safe_dcc) {
-                matched_entry = Some(entry);
-                matched_source = Some(MarketplaceSourceInfo {
-                    name: source.name.clone(),
-                    url: source.url.clone(),
-                });
-                break;
-            }
+        if let Some(entry) = entries.into_iter().find(|e| e.name == safe_name)
+            && entry_targets_dcc(&entry, &safe_dcc)
+        {
+            matched_entry = Some(entry);
+            matched_source = Some(MarketplaceSourceInfo {
+                name: source.name.clone(),
+                url: source.url.clone(),
+            });
+            break;
         }
     }
 
