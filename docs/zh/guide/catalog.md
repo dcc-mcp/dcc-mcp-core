@@ -67,6 +67,32 @@ result = client.resources_read("gateway://catalog/dcc-mcp-blender-skills")
 # 返回：单个条目，未找到时返回 `-32002` error
 ```
 
+## 可选文档连接器
+
+Catalog 条目也可以指向只读文档 MCP server。这类条目只是发现提示，不会让
+gateway 在启动时自动启用远程连接器。
+
+Autodesk Product Help 按独立文档后端建模，不属于 Maya、Houdini、
+Photoshop 或 pipeline adapter：
+
+```json
+{
+  "mcpServers": {
+    "autodesk-product-help": {
+      "url": "https://developer.api.autodesk.com/knowledge/public/v1/mcp"
+    }
+  }
+}
+```
+
+这个连接器使用 `tags: [docs, autodesk, read-only, infrastructure]`。
+文档查询应和 `pipeline` / `shotgrid` 搜索分开，避免生产跟踪工具和产品帮助结果
+互相竞争。
+
+Studio note：公共文档 MCP server 应视为可选互联网依赖。Autodesk Product
+Help 适合 best-effort 参考查询；如果 studio 要求离线运行、固定版本文档或正式
+服务保障，应保持禁用，并把 agent 路由到内部批准的文档源。
+
 ## 自定义目录路径
 
 覆盖默认的 `dcc-mcp-catalog.yml` 位置：

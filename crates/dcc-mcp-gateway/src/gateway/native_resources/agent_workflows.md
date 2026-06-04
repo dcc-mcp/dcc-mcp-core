@@ -14,6 +14,143 @@
 4. **Skills vs tools** — `search(kind="skill")` / `load_skill` load packaged workflows on a host; `search(kind="tool")` resolves a **`tool_slug`** for the dynamic surface. Keep names straight; use `describe` before calling an unfamiliar slug. Unloaded hits carry `load_state`, `available_groups` when known, and `next_step` with both MCP and REST call shapes.
 5. **Progressive groups** — gateway `load_skill` activates declared groups by default (`activate_groups=true` when omitted). Pass `activate_groups=false` for lazy loading, or `load_skill(..., tool_group="...")` when you only want one group.
 
+### Capability tag taxonomy for pipeline and docs connectors
+
+Gateway search treats `tags` as a narrowing filter. Use a small shared
+vocabulary so pipeline, production-tracking, and documentation connectors rank
+and filter consistently across hosts:
+
+| Tag | Use for |
+|-----|---------|
+| `pipeline` | Studio pipeline systems, publish/intake/review automation, and production data hand-offs. |
+| `production-tracking` | Shot/asset/task/status tracking systems regardless of vendor. |
+| `shotgrid` | Autodesk Flow Production Tracking / ShotGrid-specific tools. |
+| `ftrack` | ftrack-specific tools. |
+| `docs` | Documentation, product help, reference lookup, and guide resources. |
+| `read-only` | Discovery/read operations. Also set MCP `readOnlyHint` (`annotations.read_only_hint: true` in `tools.yaml`); the tag is for search, not policy. |
+| `destructive` | Mutating or irreversible operations. Also set MCP `destructiveHint` (`annotations.destructive_hint: true` in `tools.yaml`); the tag is for search, not policy. |
+
+Current `tags` semantics are **AND**: a request containing both the `pipeline`
+and `production-tracking` tags returns records that carry both tags. Do not add
+`docs` to a production-tracking search unless the user explicitly asks for help
+or reference material. Planned search fields will add `tags_any` for OR-style
+matching and `dcc_types[]` for multi-host filtering; until those fields land,
+send separate `POST /v1/search` requests for alternatives and use singular
+`dcc_type` for one backend family.
+
+Vendor tags can be added when they sharpen routing without replacing the
+canonical tags. For example, Autodesk Product Help should use `docs`,
+`read-only`, and the vendor tag `autodesk`.
+
+Pipeline tool search example:
+
+```json
+{
+  "query": "find shots assigned to lighting",
+  "dcc_type": "shotgrid",
+  "tags": ["pipeline", "production-tracking"],
+  "loaded_only": false,
+  "limit": 10
+}
+```
+
+ShotGrid-specific write-capable search example:
+
+```json
+{
+  "query": "update task status",
+  "dcc_type": "shotgrid",
+  "tags": ["pipeline", "production-tracking", "shotgrid"],
+  "loaded_only": false,
+  "limit": 10
+}
+```
+
+Documentation connector search example:
+
+```json
+{
+  "query": "Maya polySphere command reference",
+  "tags": ["docs", "autodesk", "read-only"],
+  "loaded_only": false,
+  "limit": 5
+}
+```
+
+Keep the examples separated: a default pipeline search should not include
+`docs`, and a documentation lookup should include `docs` plus `read-only` so it
+does not compete with production-tracking tools.
+
+### Pipeline and documentation backend registration
+
+Pipeline systems can register with the gateway like any other backend when
+they expose an MCP HTTP endpoint. For ShotGrid / Flow Production Tracking, use
+`dcc_type="shotgrid"` so agents can filter with `dcc_type` today and
+`dcc_types[]` later:
+
+```http
+POST /v1/instances/register HTTP/1.1
+Authorization: Bearer <gateway-token>
+Content-Type: application/json
+
+{
+  "instance_id": "9a7f2a20-3f47-4e09-9d2d-5b9e973b9f61",
+  "dcc_type": "shotgrid",
+  "mcp_url": "https://pipeline.example.com/shotgrid/mcp",
+  "adapter_version": "1.0.0",
+  "scene": "show=KAI; project=robot-short",
+  "ttl_secs": 90
+}
+```
+
+The canonical tags live on that backend's skills and tools, not on the
+registration envelope. A ShotGrid backend should tag its skills with
+`pipeline`, `production-tracking`, and `shotgrid`; individual read tools should
+also carry `read-only`, while mutating publish/update tools should carry
+`destructive` when applicable.
+
+Autodesk Product Help should be an explicit opt-in documentation connector,
+disabled by default in operator config. The remote MCP server advertises
+read-only skills tagged for documentation lookup:
+
+```yaml
+# Connector deployment record (example; keep disabled unless an operator opts in)
+enabled: false
+name: autodesk-product-help
+dcc_type: autodesk-help
+mcp_url: https://developer.api.autodesk.com/knowledge/public/v1/mcp
+tags: [docs, autodesk, read-only, infrastructure]
+```
+
+```yaml
+# SKILL.md metadata on the remote connector
+metadata:
+  dcc-mcp:
+    dcc: autodesk-help
+    layer: infrastructure
+    tags: [docs, autodesk, read-only, infrastructure]
+    search-hint: "Autodesk Product Help, Maya help, 3ds Max help, API reference"
+    tools: tools.yaml
+```
+
+When enabled, register it through the same HTTP plane:
+
+```json
+{
+  "instance_id": "3ab2ec8b-8c1d-4fd9-b8f4-7f5163f3ad55",
+  "dcc_type": "autodesk-help",
+  "mcp_url": "https://developer.api.autodesk.com/knowledge/public/v1/mcp",
+  "adapter_version": "docs-connector-1.0.0",
+  "scene": "read-only product help",
+  "ttl_secs": 300
+}
+```
+
+Studio note: public documentation connectors are optional internet
+dependencies. Use Autodesk Product Help for best-effort reference lookup only;
+offline or tightly controlled studios should leave it disabled and provide an
+approved internal docs connector instead.
+
 ### Telemetry correlation
 
 When you use a `next_step` from `search`, keep its `meta.search_id` as REST
