@@ -11,8 +11,9 @@ use thiserror::Error;
 use crate::domain::marketplace::{
     InstalledMarketplacePackage, MarketplaceHit, MarketplaceInspectResult,
     MarketplaceInstallResult, MarketplaceInstalledList, MarketplaceInstalledState,
-    MarketplaceSearchResult, MarketplaceSource, MarketplaceSourceConfig, MarketplaceSourceOrigin,
-    MarketplaceUninstallResult, StoredMarketplaceSource, builtin_source, entry_targets_dcc,
+    MarketplaceOutdatedList, MarketplaceSearchResult, MarketplaceSource, MarketplaceSourceConfig,
+    MarketplaceSourceOrigin, MarketplaceUninstallResult, MarketplaceUpdateResult,
+    OutdatedMarketplacePackage, StoredMarketplaceSource, builtin_source, entry_targets_dcc,
     normalise_source,
 };
 
@@ -319,6 +320,260 @@ impl MarketplaceService {
             count: packages.len(),
             packages,
         })
+    }
+
+    pub async fn outdated(
+        &self,
+        dcc: Option<String>,
+        names: Vec<String>,
+    ) -> Result<MarketplaceOutdatedList, MarketplaceError> {
+        let packages = self.list_installed(dcc)?.packages;
+        let filtered: Vec<InstalledMarketplacePackage> = if names.is_empty() {
+            packages
+        } else {
+            packages
+                .into_iter()
+                .filter(|p| names.iter().any(|name| name == &p.name))
+                .collect()
+        };
+        let sources = self.list_sources()?;
+        let mut outdated = Vec::new();
+        for pkg in filtered {
+            let entry = self.find_latest_entry_for_package(&sources, &pkg).await?;
+            let is_outdated = match (&entry, &pkg.version) {
+                (Some(entry), Some(installed)) => {
+                    entry.version.as_deref() != Some(installed.as_str())
+                }
+                (Some(_), None) => true,
+                (None, _) => false,
+            };
+            if is_outdated && let Some(entry) = entry {
+                outdated.push(OutdatedMarketplacePackage {
+                    name: pkg.name,
+                    dcc: pkg.dcc,
+                    installed_version: pkg.version,
+                    latest_version: entry.version,
+                    source_name: pkg.source_name,
+                    source_url: pkg.source_url,
+                    install_type: pkg.install_type,
+                    install_url: pkg.install_url,
+                    install_ref: pkg.install_ref,
+                    path: pkg.path,
+                });
+            }
+        }
+        Ok(MarketplaceOutdatedList {
+            dcc: None,
+            count: outdated.len(),
+            packages: outdated,
+        })
+    }
+
+    pub async fn update(
+        &self,
+        name: Option<String>,
+        all: bool,
+        dcc: Option<String>,
+    ) -> Result<Vec<MarketplaceUpdateResult>, MarketplaceError> {
+        let outdated = self
+            .outdated(dcc.clone(), name.into_iter().collect())
+            .await?;
+        if outdated.packages.is_empty() {
+            return Ok(Vec::new());
+        }
+        if !all && outdated.packages.len() > 1 {
+            // If --all not set and multiple outdated, suggest passing --all
+            return Err(MarketplaceError::CommandFailed(format!(
+                "{} packages are outdated; use --all to update all, or specify a name. Use 'marketplace outdated' to list them.",
+                outdated.packages.len()
+            )));
+        }
+
+        let mut results = Vec::new();
+        for pkg in outdated.packages {
+            let dest = PathBuf::from(&pkg.path);
+            let previous_version = pkg.installed_version.clone();
+
+            let update_result = match pkg.install_type.as_str() {
+                "git" => self.update_git_package(&pkg, &dest).await,
+                _ => {
+                    // For non-git types, re-install from catalog
+                    self.install(
+                        pkg.name.clone(),
+                        Some(pkg.dcc.clone()),
+                        vec![pkg.source_url.clone()],
+                        true, // force
+                    )
+                    .await
+                    .map(|result| MarketplaceUpdateResult {
+                        updated: true,
+                        name: pkg.name.clone(),
+                        dcc: pkg.dcc.clone(),
+                        previous_version,
+                        new_version: result.version,
+                        path: result.path,
+                        install_type: result.install_type,
+                        source_name: pkg.source_name.clone(),
+                        source_url: pkg.source_url.clone(),
+                        reload_required: true,
+                    })
+                }
+            }?;
+
+            // Update installed state with new version
+            if let Some(ref vs) = update_result.new_version {
+                self.upsert_installed(InstalledMarketplacePackage {
+                    name: update_result.name.clone(),
+                    dcc: update_result.dcc.clone(),
+                    version: Some(vs.clone()),
+                    path: update_result.path.clone(),
+                    source_name: update_result.source_name.clone(),
+                    source_url: update_result.source_url.clone(),
+                    install_type: update_result.install_type.clone(),
+                    install_url: pkg.install_url.clone(),
+                    install_ref: pkg.install_ref.clone(),
+                    installed_at_ms: now_ms(),
+                })?;
+            }
+            results.push(update_result);
+        }
+        Ok(results)
+    }
+
+    async fn update_git_package(
+        &self,
+        pkg: &OutdatedMarketplacePackage,
+        dest: &Path,
+    ) -> Result<MarketplaceUpdateResult, MarketplaceError> {
+        let git_dir = dest.join(".git");
+        if git_dir.is_dir() {
+            // Existing git repo: fetch the ref and checkout
+            if let Some(ref_) = pkg.install_ref.as_deref() {
+                self.git_fetch_and_checkout(dest, ref_)?;
+            } else {
+                // No ref specified, pull default branch
+                self.git_pull(dest)?;
+            }
+        } else {
+            // Re-clone: remove old, clone fresh from URL
+            if dest.exists() {
+                remove_install_path(dest)?;
+            }
+            let install = dcc_mcp_catalog::CatalogInstall {
+                install_type: "git".to_string(),
+                url: pkg.install_url.clone(),
+                ref_: pkg.install_ref.clone(),
+                sha256: None,
+            };
+            install_from_git(&install, &dest.to_path_buf())?;
+        }
+
+        // Determine new version by re-reading catalog
+        let sources = self.list_sources()?;
+        let new_version = self
+            .find_latest_entry_for_package_by_source_url(&sources, &pkg.source_url, &pkg.name)
+            .await?
+            .and_then(|entry| entry.version);
+
+        Ok(MarketplaceUpdateResult {
+            updated: true,
+            name: pkg.name.clone(),
+            dcc: pkg.dcc.clone(),
+            previous_version: pkg.installed_version.clone(),
+            new_version,
+            path: dest.display().to_string(),
+            install_type: pkg.install_type.clone(),
+            source_name: pkg.source_name.clone(),
+            source_url: pkg.source_url.clone(),
+            reload_required: true,
+        })
+    }
+
+    fn git_fetch_and_checkout(&self, repo_path: &Path, ref_: &str) -> Result<(), MarketplaceError> {
+        let output = Command::new("git")
+            .args(["fetch", "origin", "--tags"])
+            .current_dir(repo_path)
+            .output()
+            .map_err(|err| MarketplaceError::CommandFailed(format!("git fetch: {err}")))?;
+        if !output.status.success() {
+            return Err(MarketplaceError::CommandFailed(format!(
+                "git fetch failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+        let output = Command::new("git")
+            .args(["checkout", ref_])
+            .current_dir(repo_path)
+            .output()
+            .map_err(|err| MarketplaceError::CommandFailed(format!("git checkout: {err}")))?;
+        if !output.status.success() {
+            return Err(MarketplaceError::CommandFailed(format!(
+                "git checkout failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+        Ok(())
+    }
+
+    fn git_pull(&self, repo_path: &Path) -> Result<(), MarketplaceError> {
+        let output = Command::new("git")
+            .args(["pull", "--ff-only"])
+            .current_dir(repo_path)
+            .output()
+            .map_err(|err| MarketplaceError::CommandFailed(format!("git pull: {err}")))?;
+        if !output.status.success() {
+            return Err(MarketplaceError::CommandFailed(format!(
+                "git pull failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+        Ok(())
+    }
+
+    async fn find_latest_entry_for_package(
+        &self,
+        sources: &[MarketplaceSource],
+        pkg: &InstalledMarketplacePackage,
+    ) -> Result<Option<dcc_mcp_catalog::CatalogEntry>, MarketplaceError> {
+        for source in sources {
+            if source.url == pkg.source_url {
+                let entries = self.load_source_entries(source).await?;
+                if let Some(entry) = dcc_mcp_catalog::describe(&entries, &pkg.name) {
+                    return Ok(Some(entry));
+                }
+            }
+        }
+        // Source may have been removed; try direct URL
+        let temp_source = MarketplaceSource {
+            name: pkg.source_name.clone(),
+            url: pkg.source_url.clone(),
+            origin: MarketplaceSourceOrigin::Explicit,
+        };
+        let entries = self.load_source_entries(&temp_source).await?;
+        Ok(dcc_mcp_catalog::describe(&entries, &pkg.name))
+    }
+
+    async fn find_latest_entry_for_package_by_source_url(
+        &self,
+        sources: &[MarketplaceSource],
+        source_url: &str,
+        name: &str,
+    ) -> Result<Option<dcc_mcp_catalog::CatalogEntry>, MarketplaceError> {
+        for source in sources {
+            if source.url == source_url {
+                let entries = self.load_source_entries(source).await?;
+                if let Some(entry) = dcc_mcp_catalog::describe(&entries, name) {
+                    return Ok(Some(entry));
+                }
+            }
+        }
+        let temp_source = MarketplaceSource {
+            name: source_url.to_string(),
+            url: source_url.to_string(),
+            origin: MarketplaceSourceOrigin::Explicit,
+        };
+        let entries = self.load_source_entries(&temp_source).await?;
+        Ok(dcc_mcp_catalog::describe(&entries, name))
     }
 
     async fn resolve_install_hit(
