@@ -99,10 +99,19 @@ pub fn load_from_file(path: impl AsRef<Path>) -> Result<Vec<CatalogEntry>, Catal
     load_from_str(&text)
 }
 
-/// Parse catalog entries from a YAML or JSON string.
-pub fn load_from_str(yaml: &str) -> Result<Vec<CatalogEntry>, CatalogError> {
+/// Parse catalog entries from a JSON or YAML string.
+///
+/// Tries JSON first (marketplace repo uses `marketplace.json`), then falls
+/// back to YAML for backward compatibility with `dcc-mcp-catalog.yml`.
+pub fn load_from_str(text: &str) -> Result<Vec<CatalogEntry>, CatalogError> {
+    let trimmed = text.trim();
+    // JSON detection: starts with `{` or `[` and doesn't start with `---`.
+    let looks_like_json = trimmed.starts_with('{') || trimmed.starts_with('[');
+    if looks_like_json && let Ok(doc) = serde_json::from_str::<CatalogDoc>(trimmed) {
+        return Ok(doc.entries);
+    }
     let doc: CatalogDoc =
-        serde_yaml_ng::from_str(yaml).map_err(|e| CatalogError::Parse(e.to_string()))?;
+        serde_yaml_ng::from_str(text).map_err(|e| CatalogError::Parse(e.to_string()))?;
     Ok(doc.entries)
 }
 

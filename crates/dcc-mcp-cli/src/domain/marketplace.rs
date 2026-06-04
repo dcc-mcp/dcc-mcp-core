@@ -105,6 +105,41 @@ pub struct MarketplaceInstalledList {
     pub packages: Vec<InstalledMarketplacePackage>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OutdatedMarketplacePackage {
+    pub name: String,
+    pub dcc: String,
+    pub installed_version: Option<String>,
+    pub latest_version: Option<String>,
+    pub source_name: String,
+    pub source_url: String,
+    pub install_type: String,
+    pub install_url: Option<String>,
+    pub install_ref: Option<String>,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MarketplaceOutdatedList {
+    pub dcc: Option<String>,
+    pub count: usize,
+    pub packages: Vec<OutdatedMarketplacePackage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MarketplaceUpdateResult {
+    pub updated: bool,
+    pub name: String,
+    pub dcc: String,
+    pub previous_version: Option<String>,
+    pub new_version: Option<String>,
+    pub path: String,
+    pub install_type: String,
+    pub source_name: String,
+    pub source_url: String,
+    pub reload_required: bool,
+}
+
 pub fn builtin_source() -> MarketplaceSource {
     MarketplaceSource {
         name: "dcc-mcp/marketplace".to_string(),

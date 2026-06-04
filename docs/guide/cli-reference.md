@@ -56,6 +56,9 @@ dcc-mcp-cli marketplace search --query hunyuan --dcc maya
 dcc-mcp-cli marketplace inspect dcc-asset-hunyuan-download
 dcc-mcp-cli marketplace install dcc-asset-hunyuan-download --dcc maya
 dcc-mcp-cli marketplace list-installed --dcc maya
+dcc-mcp-cli marketplace outdated --dcc maya
+dcc-mcp-cli marketplace update dcc-mcp-maya-skills --dcc maya
+dcc-mcp-cli marketplace update --all
 dcc-mcp-cli lint path/to/skills
 ```
 
@@ -80,6 +83,8 @@ dcc-mcp-cli lint path/to/skills
 | `marketplace install <name> [--dcc <dcc>] [--source <source>] [--force]` | marketplace catalog + local filesystem/git | Install a skill package to `~/.dcc-mcp/marketplace/<dcc>/<name>/`. |
 | `marketplace list-installed [--dcc <dcc>]` | local installed-state file | List locally installed marketplace packages and their versions/paths. |
 | `marketplace uninstall <name> --dcc <dcc>` | local installed-state file + filesystem | Remove an installed marketplace package. |
+| `marketplace outdated [NAME...] [--dcc <dcc>]` | marketplace catalog + local installed state | Compare installed versions against latest catalog entries and list packages with newer versions available. |
+| `marketplace update [<name>] [--all] [--dcc <dcc>]` | marketplace catalog + git/filesystem + local installed state | Upgrade installed packages to the latest catalog version. For `git` installs, fetches the new ref in place; for other types, re-installs from the catalog. Use `--all` to update every outdated package. |
 | `lint [PATH ...]` | local filesystem validator | Recursively validate SKILL.md packages two levels below each path by default. |
 
 `install` intentionally starts as a planning contract: it resolves catalog
@@ -100,6 +105,13 @@ supports `install.type: git` and `install.type: path`; `zip` entries are
 reserved for a later archive installer. DCC adapters include
 `~/.dcc-mcp/marketplace/<dcc>` in their skill search paths, so installed skills
 are discovered on adapter startup or the next `reload_skill_paths`.
+
+`update` compares each installed package version against the latest catalog
+entry. For `git`-type installs, if a `.git` directory already exists the
+command runs `git fetch && git checkout <ref>` in place; otherwise it
+re-clones. The local installed-state file is updated with the new version
+metadata. Installed packages with no matching catalog entry (e.g. the
+source was removed) are silently skipped.
 
 `lint` reuses the production `dcc-mcp-skills` validator, so local checks and
 runtime loading fail for the same structural problems. CI runs the same command
