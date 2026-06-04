@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.54](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.17.53...v0.17.54) (2026-06-04)
+
+
+### Features
+
+* **admin:** add P1 analytics dashboard with daily aggregation API ([38ea196](https://github.com/dcc-mcp/dcc-mcp-core/commit/38ea19649a35e87496e1c6be17a3ed397d77ecf2))
+* **gateway:** add idle lifecycle policy ([d425305](https://github.com/dcc-mcp/dcc-mcp-core/commit/d4253059448cd241797f7bee845eba26a03e9758))
+* **gateway:** add status tracking and handle to Rust gateway guardian ([65d7dc4](https://github.com/dcc-mcp/dcc-mcp-core/commit/65d7dc45136102a4e160925470ded271d160bb28))
+* **gateway:** publish guardian watchdog status to sidecar registry metadata ([afccb4d](https://github.com/dcc-mcp/dcc-mcp-core/commit/afccb4dcb8297798053edf4e653136c667d1679f))
+* **gateway:** wire gateway ensure into Python DccServerBase default startup ([72f1ed6](https://github.com/dcc-mcp/dcc-mcp-core/commit/72f1ed64e5d7dba90e03cf1ee0d392a86223563b))
+
+
+### Bug Fixes
+
+* **admin-ui:** wire refresh buttons to query refetch, fix i18n key and unused imports ([2e2d678](https://github.com/dcc-mcp/dcc-mcp-core/commit/2e2d678810022f6e12cb2c7dc6072b7159867ac9))
+* **gateway:** activate skill groups by default ([98959e1](https://github.com/dcc-mcp/dcc-mcp-core/commit/98959e18712912586a2a4ad16688ddfbd3c97fa1))
+* **gateway:** update admin HTML test to match @tanstack/query template literal URL ([3c09c30](https://github.com/dcc-mcp/dcc-mcp-core/commit/3c09c301a2528235e775e956a0b1556602a25579))
+
+
+### Code Refactoring
+
+* **admin-ui:** replace manual fetch/polling with @tanstack/react-query ([95a676c](https://github.com/dcc-mcp/dcc-mcp-core/commit/95a676c11646177a757b0b1886906c6c64a9e28c))
+
+
+### Documentation
+
+* **gateway:** document runtime supervisor topology + add cross-DCC regression tests ([2b603da](https://github.com/dcc-mcp/dcc-mcp-core/commit/2b603da7164b1859b83c864b56440e657931bc5d))
+
 ## [0.17.53](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.17.52...v0.17.53) (2026-06-03)
 
 
