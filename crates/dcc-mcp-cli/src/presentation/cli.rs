@@ -195,6 +195,25 @@ enum MarketplaceAction {
         #[arg(long)]
         dcc: Option<String>,
     },
+    /// List installed packages that have newer versions in the catalog.
+    Outdated {
+        #[arg(long)]
+        dcc: Option<String>,
+        /// Only check these package names.
+        #[arg(value_name = "NAME")]
+        names: Vec<String>,
+    },
+    /// Upgrade installed marketplace packages to the latest catalog version.
+    Update {
+        /// Upgrade a specific package by name.
+        name: Option<String>,
+        /// Upgrade all outdated packages.
+        #[arg(long, short = 'a')]
+        all: bool,
+        /// Filter to installed packages for this DCC.
+        #[arg(long)]
+        dcc: Option<String>,
+    },
 }
 
 #[derive(Debug, clap::Args)]
@@ -408,6 +427,12 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                     to_json(service.uninstall(name, dcc)?)?
                 }
                 MarketplaceAction::ListInstalled { dcc } => to_json(service.list_installed(dcc)?)?,
+                MarketplaceAction::Outdated { dcc, names } => {
+                    to_json(service.outdated(dcc, names).await?)?
+                }
+                MarketplaceAction::Update { name, all, dcc } => {
+                    to_json(service.update(name, all, dcc).await?)?
+                }
             }
         }
         Command::Lint(lint_args) => {
