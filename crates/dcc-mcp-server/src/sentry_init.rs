@@ -67,3 +67,96 @@ pub fn init_sentry() -> Option<sentry::ClientInitGuard> {
 
     Some(guard)
 }
+
+#[cfg(all(test, feature = "sentry"))]
+mod tests {
+    use super::init_sentry;
+    use std::sync::{Mutex, MutexGuard};
+    use std::time::Duration;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<String>,
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: Option<&str>) -> Self {
+            let lock = ENV_LOCK.lock().expect("env lock poisoned");
+            let previous = std::env::var(key).ok();
+            match value {
+                Some(v) => std::env::set_var(key, v),
+                None => std::env::remove_var(key),
+            }
+            Self {
+                key,
+                previous,
+                _lock: lock,
+            }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(v) => std::env::set_var(self.key, v),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
+
+    #[test]
+    fn init_sentry_absent_dsn_returns_none() {
+        let _guard = EnvVarGuard::set("DCC_MCP_SENTRY_DSN", None);
+        assert!(init_sentry().is_none());
+    }
+
+    #[test]
+    fn init_sentry_blank_dsn_returns_none() {
+        let _guard = EnvVarGuard::set("DCC_MCP_SENTRY_DSN", Some("   "));
+        assert!(init_sentry().is_none());
+    }
+
+    #[test]
+    fn init_sentry_invalid_dsn_returns_none() {
+        let _guard = EnvVarGuard::set("DCC_MCP_SENTRY_DSN", Some("not-a-valid-dsn"));
+        assert!(init_sentry().is_none());
+    }
+
+    /// Real Sentry ingest E2E — posts a probe event and flushes the transport.
+    ///
+    /// Skips when `DCC_MCP_SENTRY_DSN` is unset (local dev / PR CI without the
+    /// secret). The dedicated `sentry-e2e` workflow job sets the secret from
+    /// GitHub Actions and runs this test with `--test-threads=1`.
+    #[test]
+    fn sentry_real_ingest_e2e() {
+        let dsn = match std::env::var("DCC_MCP_SENTRY_DSN") {
+            Ok(v) if !v.trim().is_empty() => v,
+            _ => {
+                eprintln!("SKIP sentry_real_ingest_e2e: DCC_MCP_SENTRY_DSN not set");
+                return;
+            }
+        };
+
+        let _lock = ENV_LOCK.lock().expect("env lock poisoned");
+        std::env::set_var("DCC_MCP_SENTRY_DSN", &dsn);
+        std::env::set_var("DCC_MCP_SENTRY_ENVIRONMENT", "ci-e2e");
+        std::env::set_var("DCC_MCP_SENTRY_SAMPLE_RATE", "1.0");
+
+        let guard = init_sentry().expect("valid DCC_MCP_SENTRY_DSN should initialise Sentry");
+        let probe = format!("dcc-mcp-core sentry e2e probe {}", uuid::Uuid::new_v4());
+        let event_id = sentry::capture_message(&probe, sentry::Level::Info);
+        assert!(
+            !event_id.is_nil(),
+            "Sentry SDK should assign an event id for captured messages"
+        );
+
+        let flushed = guard.flush(Some(Duration::from_secs(15)));
+        assert!(
+            flushed,
+            "Sentry transport flush should succeed for real ingest (dsn host reachable)"
+        );
+    }
+}
