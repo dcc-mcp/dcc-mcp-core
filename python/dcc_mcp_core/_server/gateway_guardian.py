@@ -6,7 +6,6 @@ import contextlib
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import threading
 import time
 from typing import Any
@@ -15,6 +14,7 @@ from urllib.error import HTTPError
 from urllib.error import URLError
 from urllib.request import urlopen
 
+from dcc_mcp_core.daemon_launch import launch_detached
 from dcc_mcp_core.install_lifecycle import default_registry_dir
 
 _LAUNCH_LOCK = "gateway-launch.lock"
@@ -123,6 +123,70 @@ def _wait_gateway_ready(host: str, port: int, *, timeout_secs: float, probe_time
     return False
 
 
+def _resolve_gateway_persist(gateway_persist: bool | None) -> bool:
+    if gateway_persist is not None:
+        return bool(gateway_persist)
+    return (os.environ.get("DCC_MCP_GATEWAY_PERSIST") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _resolve_gateway_idle_timeout_secs(gateway_idle_timeout_secs: int | None) -> int | None:
+    if gateway_idle_timeout_secs is not None:
+        return max(int(gateway_idle_timeout_secs), 0)
+    raw = (os.environ.get("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS") or "").strip()
+    if not raw:
+        return None
+    try:
+        return max(int(raw), 0)
+    except ValueError:
+        return None
+
+
+def build_gateway_daemon_command(
+    *,
+    gateway_host: str,
+    gateway_port: int,
+    registry_dir: str | None,
+    dcc_type: str,
+    gateway_persist: bool | None = None,
+    gateway_idle_timeout_secs: int | None = None,
+    server_bin: str | None = None,
+) -> tuple[list[str], dict[str, str]]:
+    """Build argv and env for ``dcc-mcp-server gateway``."""
+    exe = (server_bin or "").strip() or _resolve_server_bin()
+    cmd = [
+        exe,
+        "gateway",
+        "--host",
+        gateway_host,
+        "--port",
+        str(gateway_port),
+    ]
+    persist = _resolve_gateway_persist(gateway_persist)
+    idle_timeout = _resolve_gateway_idle_timeout_secs(gateway_idle_timeout_secs)
+    if persist:
+        cmd.append("--gateway-persist")
+    if idle_timeout is not None:
+        cmd.extend(["--gateway-idle-timeout-secs", str(idle_timeout)])
+
+    env = os.environ.copy()
+    if not env.get("DCC_MCP_GATEWAY_PORT"):
+        env["DCC_MCP_GATEWAY_PORT"] = str(gateway_port)
+    registry_path = _resolve_registry_dir(registry_dir)
+    env["DCC_MCP_REGISTRY_DIR"] = str(registry_path)
+    if dcc_type and not env.get("DCC_MCP_DCC_TYPE"):
+        env["DCC_MCP_DCC_TYPE"] = dcc_type
+    if persist:
+        env["DCC_MCP_GATEWAY_PERSIST"] = "1"
+    if idle_timeout is not None:
+        env["DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS"] = str(idle_timeout)
+    return cmd, env
+
+
 def ensure_gateway_daemon(
     *,
     gateway_host: str,
@@ -130,8 +194,16 @@ def ensure_gateway_daemon(
     registry_dir: str | None,
     dcc_type: str,
     timeout_secs: float = 5.0,
+    gateway_persist: bool | None = None,
+    gateway_idle_timeout_secs: int | None = None,
+    server_bin: str | None = None,
 ) -> dict[str, Any]:
-    """Ensure a machine-wide gateway daemon is healthy on ``gateway_port``."""
+    """Ensure a machine-wide gateway daemon is healthy on ``gateway_port``.
+
+    When spawning a new daemon, lifecycle options are forwarded to
+    ``dcc-mcp-server gateway``. Unset values fall back to
+    ``DCC_MCP_GATEWAY_PERSIST`` / ``DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS``.
+    """
     if gateway_port <= 0:
         return {"ok": False, "reason": "gateway_port_not_configured"}
     if _is_healthy(gateway_host, gateway_port, timeout=0.5):
@@ -153,52 +225,49 @@ def ensure_gateway_daemon(
             "registry_dir": str(registry_path),
         }
 
-    exe = _resolve_server_bin()
-    cmd = [
-        exe,
-        "gateway",
-        "--host",
-        gateway_host,
-        "--port",
-        str(gateway_port),
-    ]
-
-    env = os.environ.copy()
-    if not env.get("DCC_MCP_GATEWAY_PORT"):
-        env["DCC_MCP_GATEWAY_PORT"] = str(gateway_port)
-    env["DCC_MCP_REGISTRY_DIR"] = str(registry_path)
-    if dcc_type and not env.get("DCC_MCP_DCC_TYPE"):
-        env["DCC_MCP_DCC_TYPE"] = dcc_type
-
-    kwargs: dict[str, Any] = {
-        "env": env,
-        "stdin": subprocess.DEVNULL,
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
-        "cwd": str(Path.cwd()),
-        "close_fds": os.name != "nt",
-    }
-    if os.name == "nt":
-        flags = 0
-        flags |= getattr(subprocess, "DETACHED_PROCESS", 0)
-        flags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        flags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        kwargs["creationflags"] = flags
+    cmd, env = build_gateway_daemon_command(
+        gateway_host=gateway_host,
+        gateway_port=gateway_port,
+        registry_dir=str(registry_path),
+        dcc_type=dcc_type,
+        gateway_persist=gateway_persist,
+        gateway_idle_timeout_secs=gateway_idle_timeout_secs,
+        server_bin=server_bin,
+    )
 
     try:
         try:
             if _is_healthy(gateway_host, gateway_port, timeout=0.5):
                 return {"ok": True, "reason": "already_healthy", "registry_dir": str(registry_path)}
-            subprocess.Popen(cmd, **kwargs)
+            spawn = launch_detached(cmd, env=env, cwd=Path.cwd())
+            if not spawn.get("ok"):
+                return {
+                    "ok": False,
+                    "reason": spawn.get("reason", "spawn_failed"),
+                    "error": spawn.get("error"),
+                    "command": cmd,
+                    "registry_dir": str(registry_path),
+                }
         except Exception as exc:
             return {"ok": False, "reason": "spawn_failed", "error": str(exc), "command": cmd}
 
         if _wait_gateway_ready(gateway_host, gateway_port, timeout_secs=timeout_secs):
-            return {"ok": True, "reason": "spawned", "command": cmd, "registry_dir": str(registry_path)}
+            return {
+                "ok": True,
+                "reason": "spawned",
+                "command": cmd,
+                "registry_dir": str(registry_path),
+                "pid": spawn.get("pid"),
+            }
 
         return {"ok": False, "reason": "spawn_timeout", "command": cmd, "registry_dir": str(registry_path)}
     finally:
         launch_lock.release()
+
+
+def launch_gateway_daemon(**kwargs: Any) -> dict[str, Any]:
+    """Alias for :func:`ensure_gateway_daemon` with explicit daemon naming."""
+    return ensure_gateway_daemon(**kwargs)
 
 
 class GatewayDaemonGuardian:

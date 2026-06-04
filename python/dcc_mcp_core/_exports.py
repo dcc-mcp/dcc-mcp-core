@@ -366,8 +366,11 @@ _LAZY: dict[str, str] = {
     "start_embedded_dcc_server": "dcc_mcp_core.factory",
     "DccGatewayElection": "dcc_mcp_core.gateway_election",
     "DccSkillHotReloader": "dcc_mcp_core.hotreload",
-    # Gateway daemon helpers (PIP-485)
+    # Gateway daemon helpers (PIP-485 / PIP-513)
+    "build_gateway_daemon_command": "dcc_mcp_core._server.gateway_guardian",
     "ensure_gateway_daemon": "dcc_mcp_core._server.gateway_guardian",
+    "GatewayDaemonGuardian": "dcc_mcp_core._server.gateway_guardian",
+    "launch_gateway_daemon": "dcc_mcp_core._server.gateway_guardian",
     # Daemon helpers (PIP-513)
     "Daemon": "dcc_mcp_core.daemon_launch",
     "detached_popen_kwargs": "dcc_mcp_core.daemon_launch",
