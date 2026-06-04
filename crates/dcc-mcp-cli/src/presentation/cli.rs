@@ -172,6 +172,29 @@ enum MarketplaceAction {
         #[arg(long = "source")]
         sources: Vec<String>,
     },
+    /// Install a marketplace skill package to the local marketplace root.
+    Install {
+        name: String,
+        #[arg(long)]
+        dcc: Option<String>,
+        /// Use this source for the query instead of configured sources.
+        #[arg(long = "source")]
+        sources: Vec<String>,
+        /// Replace an existing installed package.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Remove an installed marketplace skill package.
+    Uninstall {
+        name: String,
+        #[arg(long)]
+        dcc: String,
+    },
+    /// List installed marketplace skill packages.
+    ListInstalled {
+        #[arg(long)]
+        dcc: Option<String>,
+    },
 }
 
 #[derive(Debug, clap::Args)]
@@ -375,6 +398,16 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 MarketplaceAction::Inspect { name, sources } => {
                     to_json(service.inspect(name, sources).await?)?
                 }
+                MarketplaceAction::Install {
+                    name,
+                    dcc,
+                    sources,
+                    force,
+                } => to_json(service.install(name, dcc, sources, force).await?)?,
+                MarketplaceAction::Uninstall { name, dcc } => {
+                    to_json(service.uninstall(name, dcc)?)?
+                }
+                MarketplaceAction::ListInstalled { dcc } => to_json(service.list_installed(dcc)?)?,
             }
         }
         Command::Lint(lint_args) => {

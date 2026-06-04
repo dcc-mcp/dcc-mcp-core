@@ -54,6 +54,8 @@ dcc-mcp-cli install --dcc-type maya --version 2026
 dcc-mcp-cli marketplace add dcc-mcp/marketplace
 dcc-mcp-cli marketplace search --query hunyuan --dcc maya
 dcc-mcp-cli marketplace inspect dcc-asset-hunyuan-download
+dcc-mcp-cli marketplace install dcc-asset-hunyuan-download --dcc maya
+dcc-mcp-cli marketplace list-installed --dcc maya
 dcc-mcp-cli lint path/to/skills
 ```
 
@@ -75,6 +77,9 @@ dcc-mcp-cli lint path/to/skills
 | `marketplace list` | local source registry | List the built-in, configured, and environment-provided marketplace sources. |
 | `marketplace search [--query <q>] [--dcc <dcc>] [--source <source>]` | marketplace catalog JSON/YAML | Search skill package entries across configured or explicit sources. |
 | `marketplace inspect <name> [--source <source>]` | marketplace catalog JSON/YAML | Print exact entry metadata including version and install fields. |
+| `marketplace install <name> [--dcc <dcc>] [--source <source>] [--force]` | marketplace catalog + local filesystem/git | Install a skill package to `~/.dcc-mcp/marketplace/<dcc>/<name>/`. |
+| `marketplace list-installed [--dcc <dcc>]` | local installed-state file | List locally installed marketplace packages and their versions/paths. |
+| `marketplace uninstall <name> --dcc <dcc>` | local installed-state file + filesystem | Remove an installed marketplace package. |
 | `lint [PATH ...]` | local filesystem validator | Recursively validate SKILL.md packages two levels below each path by default. |
 
 `install` intentionally starts as a planning contract: it resolves catalog
@@ -88,9 +93,13 @@ skill package catalogs. The built-in source is
 Additional sources are persisted under
 `~/.dcc-mcp/marketplace/sources.json`, overridden with
 `DCC_MCP_MARKETPLACE_SOURCES_FILE`, or supplied ephemerally with
-`DCC_MCP_MARKETPLACE_SOURCES` (comma-separated). `marketplace install/update`
-are separate follow-up commands; this discovery layer only reads catalog
-metadata.
+`DCC_MCP_MARKETPLACE_SOURCES` (comma-separated). Installs land in
+`~/.dcc-mcp/marketplace/<dcc>/<name>/`, with
+`DCC_MCP_MARKETPLACE_INSTALL_ROOT` overriding the root. The current installer
+supports `install.type: git` and `install.type: path`; `zip` entries are
+reserved for a later archive installer. DCC adapters include
+`~/.dcc-mcp/marketplace/<dcc>` in their skill search paths, so installed skills
+are discovered on adapter startup or the next `reload_skill_paths`.
 
 `lint` reuses the production `dcc-mcp-skills` validator, so local checks and
 runtime loading fail for the same structural problems. CI runs the same command
