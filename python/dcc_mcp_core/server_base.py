@@ -14,6 +14,7 @@ from __future__ import annotations
 import atexit
 import contextlib
 import logging
+import os
 from pathlib import Path
 import sys
 from typing import Any
@@ -317,9 +318,10 @@ class DccServerBase:
         3. ``DCC_MCP_{DCC_NAME}_SKILL_PATHS`` env var (DCC-specific)
         4. ``DCC_MCP_SKILL_PATHS`` env var (global fallback)
         5. Local developer skills in ``~/.dcc-mcp/{dcc_name}/skills``
-        6. Bundled skills shipped with dcc-mcp-core (when ``include_bundled=True``)
-        7. Platform default skills dir
-        8. Admin-UI-added skill discovery roots from the gateway SQLite lane
+        6. Marketplace-installed skills in ``~/.dcc-mcp/marketplace/{dcc_name}``
+        7. Bundled skills shipped with dcc-mcp-core (when ``include_bundled=True``)
+        8. Platform default skills dir
+        9. Admin-UI-added skill discovery roots from the gateway SQLite lane
            (when ``include_admin_custom=True``; issue #1400)
 
         Args:
@@ -355,6 +357,21 @@ class DccServerBase:
                 paths.append(local_default_dir)
         except Exception as exc:
             logger.debug("[%s] Could not initialise local skill path: %s", self._dcc_name, exc)
+
+        try:
+            marketplace_root = Path(
+                os.environ.get(
+                    "DCC_MCP_MARKETPLACE_INSTALL_ROOT",
+                    str(Path.home() / ".dcc-mcp" / "marketplace"),
+                )
+            )
+            marketplace_dir = marketplace_root / self._dcc_name.lower()
+            if marketplace_dir.is_dir():
+                marketplace_dir_str = str(marketplace_dir)
+                if marketplace_dir_str not in paths:
+                    paths.append(marketplace_dir_str)
+        except Exception as exc:
+            logger.debug("[%s] Could not resolve marketplace skill path: %s", self._dcc_name, exc)
 
         if include_bundled:
             try:

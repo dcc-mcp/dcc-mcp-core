@@ -675,6 +675,110 @@ fn marketplace_add_list_search_and_inspect_local_source() {
 }
 
 #[test]
+fn marketplace_install_list_and_uninstall_path_package() {
+    let tmp = TempDir::new().unwrap();
+    let skill_dir = write_skill(
+        tmp.path(),
+        "source-skill",
+        "---\nname: dcc-asset-hunyuan-download\ndescription: Hunyuan downloads\n---\n",
+    );
+    std::fs::write(
+        skill_dir.join("tools.yaml"),
+        "tools:\n  - name: download\n    description: Download\n",
+    )
+    .unwrap();
+    let catalog_path = tmp.path().join("marketplace.json");
+    let catalog = json!({
+        "version": "1",
+        "entries": [{
+            "name": "dcc-asset-hunyuan-download",
+            "description": "Search and download Hunyuan 3D models via official API",
+            "dcc": ["maya", "blender"],
+            "tags": ["asset", "hunyuan", "download", "domain"],
+            "version": "0.1.0",
+            "install": {
+                "type": "path",
+                "url": skill_dir.to_string_lossy()
+            }
+        }]
+    });
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&catalog).unwrap(),
+    )
+    .unwrap();
+
+    let source = catalog_path.to_string_lossy().to_string();
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let install_root = tmp
+        .path()
+        .join("marketplace-root")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+        ("DCC_MCP_MARKETPLACE_INSTALL_ROOT", install_root.as_str()),
+    ];
+
+    let installed = run_json_with_env(
+        &[
+            "marketplace",
+            "install",
+            "dcc-asset-hunyuan-download",
+            "--dcc",
+            "maya",
+            "--source",
+            &source,
+        ],
+        &envs,
+    );
+    assert_eq!(installed["installed"], true);
+    assert_eq!(installed["dcc"], "maya");
+    assert_eq!(installed["install_type"], "path");
+    assert_eq!(installed["reload_required"], true);
+    let installed_path = installed["path"].as_str().unwrap();
+    assert!(
+        std::path::Path::new(installed_path)
+            .join("SKILL.md")
+            .is_file()
+    );
+    assert!(
+        installed["skill_search_path"]
+            .as_str()
+            .unwrap()
+            .ends_with("maya")
+    );
+
+    let listed = run_json_with_env(&["marketplace", "list-installed", "--dcc", "maya"], &envs);
+    assert_eq!(listed["count"], 1);
+    assert_eq!(listed["packages"][0]["name"], "dcc-asset-hunyuan-download");
+    assert_eq!(listed["packages"][0]["install_type"], "path");
+
+    let uninstalled = run_json_with_env(
+        &[
+            "marketplace",
+            "uninstall",
+            "dcc-asset-hunyuan-download",
+            "--dcc",
+            "maya",
+        ],
+        &envs,
+    );
+    assert_eq!(uninstalled["uninstalled"], true);
+    assert_eq!(uninstalled["removed_files"], true);
+    assert_eq!(uninstalled["removed_state"], true);
+    assert!(!std::path::Path::new(installed_path).exists());
+
+    let listed = run_json_with_env(&["marketplace", "list-installed", "--dcc", "maya"], &envs);
+    assert_eq!(listed["count"], 0);
+}
+
+#[test]
 fn lint_recurses_two_levels_and_reports_validation_errors() {
     let tmp = TempDir::new().unwrap();
     write_skill(
