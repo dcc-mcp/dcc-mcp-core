@@ -48,3 +48,6 @@ prometheus = ["dcc-mcp-gateway?/prometheus"]
 [dev-dependencies]
 tempfile = "3"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
