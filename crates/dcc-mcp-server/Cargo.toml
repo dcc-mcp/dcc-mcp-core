@@ -52,10 +52,23 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 # admin) or `gateway-daemon` (standalone daemon subcommand) is enabled.
 dcc-mcp-gateway = { version = "0.17.0", path = "../dcc-mcp-gateway", optional = true }
 
+# Sentry error monitoring (backend). Controlled by DCC_MCP_SENTRY_DSN
+# env var at startup; no-op when absent. Feature-gated so slim builds
+# (gateway-only) can skip the dependency entirely.
+sentry = { version = "0.39", default-features = false, features = [
+    "backtrace",
+    "contexts",
+    "panic",
+    "reqwest",
+    "rustls",
+    "transport",
+], optional = true }
+
 [features]
 # Default matches today's binary: per-DCC MCP server with embedded
-# first-wins gateway election and the read-only Admin UI.
-default = ["server", "gateway-auto", "gateway-daemon", "admin"]
+# first-wins gateway election, the read-only Admin UI, and Sentry
+# error monitoring (auto-disabled when DCC_MCP_SENTRY_DSN is absent).
+default = ["server", "gateway-auto", "gateway-daemon", "admin", "sentry"]
 
 # Per-DCC MCP HTTP server (mandatory for the default `dcc-mcp-server`
 # entry point). Currently a marker feature; opting it out leaves only
@@ -112,6 +125,10 @@ prometheus = [
 
 otlp-exporter = ["dcc-mcp-telemetry/otlp-exporter", "dep:dcc-mcp-telemetry"]
 telemetry = ["dep:dcc-mcp-telemetry"]
+
+# Sentry error monitoring (Rust backend). Controlled by DCC_MCP_SENTRY_DSN
+# env var at startup. Does nothing when the env var is absent.
+sentry = ["dep:sentry"]
 
 [dev-dependencies]
 tempfile = "3"

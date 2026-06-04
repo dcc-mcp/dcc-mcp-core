@@ -838,6 +838,69 @@ are documented in `crates/dcc-mcp-telemetry/src/prometheus.rs`.
 values above, including `xff_trusted_depth`), and a `circuits` snapshot
 (`tracked_backends`, `circuits_open`).
 
+### Event webhooks
+
+Set `DCC_MCP_WEBHOOKS_CONFIG` to a YAML file path to forward EventBus
+envelopes (`tool.*`, `skill.*`, `trace.*`, `gateway.*`) to external HTTP
+endpoints. Each webhook specifies:
+
+- `name` — stable identifier for logs and delivery-failed events.
+- `url` — `http` / `https` endpoint.
+- `events` — event name patterns (e.g. `["tool.*", "trace.*"]`).
+- `filters` — optional dotted-path matchers with `*`-wildcard support
+  (e.g. `attributes.tool_slug: "maya.*"`).
+- `delivery.attempts` — retry count (default `3`).
+- `delivery.timeout_ms` — per-attempt timeout (default `2_000` ms).
+- `backoff_ms` — per-retry delay sequence (default `[200, 1000, 5000]` ms).
+- `payload_template` — optional template string using double-braced
+  `source.dcc_type` / `attributes.*` paths. When omitted, the raw event
+  envelope is POSTed as JSON.
+
+Example `webhooks.yaml` to forward analytics events:
+
+```yaml
+queue_capacity: 256
+webhooks:
+  - name: analytics-forwarder
+    url: https://internal.example.com/api/dcc-analytics
+    events:
+      - "tool.*"
+      - "skill.*"
+      - "trace.*"
+      - "gateway.instance.*"
+    headers:
+      Authorization: "Bearer ${ANALYTICS_WEBHOOK_TOKEN}"
+    delivery:
+      attempts: 3
+      timeout_ms: 5000
+    filters:
+      - name: "tool.completed"
+      - name: "skill.loaded"
+```
+
+The webhook runtime starts automatically when the env var points at a
+valid YAML file. Headers support `${ENV_VAR}` interpolation so tokens
+stay out of version control.
+
+### Sentry error monitoring (Rust backend)
+
+Set `DCC_MCP_SENTRY_DSN` to your Sentry project DSN. The SDK initialises
+at server startup and captures panics automatically. Use
+`sentry::capture_error` or `sentry::capture_message` for explicit
+instrumentation points.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `DCC_MCP_SENTRY_DSN` | (disabled) | Sentry project DSN |
+| `DCC_MCP_SENTRY_ENVIRONMENT` | `production` | Environment tag |
+| `DCC_MCP_SENTRY_RELEASE` | crate version | Release identifier for source-map / commit correlation |
+| `DCC_MCP_SENTRY_SAMPLE_RATE` | `1.0` | Error event sample rate (0.0–1.0) |
+
+The feature is compiled by default and skips initialisation entirely when
+`DCC_MCP_SENTRY_DSN` is absent, so zero-config deployments pay no overhead.
+Build with `--no-default-features` and opt out of `sentry` to exclude the
+crate from the binary entirely.
+
 ## Dynamic Capability Index and Bounded Tool Exposure (#652-#657)
 
 For large multi-DCC deployments, the gateway **never** publishes every backend
