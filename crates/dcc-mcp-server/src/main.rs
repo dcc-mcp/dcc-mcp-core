@@ -108,6 +108,8 @@ use sysinfo::{Pid, ProcessesToUpdate, System};
 mod capture;
 mod cli;
 mod event_webhooks;
+#[cfg(feature = "sentry")]
+mod sentry_init;
 mod translate;
 
 #[cfg(feature = "gateway-auto")]
@@ -558,6 +560,12 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(not(feature = "telemetry"))]
     {
         // No telemetry crate compiled in — nothing to do.
+    }
+
+    // ── Auto-init Sentry from DCC_MCP_SENTRY_DSN ─────────────────────────
+    #[cfg(feature = "sentry")]
+    {
+        sentry_init::init_sentry();
     }
 
     let args = Args::parse();
