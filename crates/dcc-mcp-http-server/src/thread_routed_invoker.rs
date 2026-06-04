@@ -17,7 +17,7 @@ use serde_json::Value;
 use tokio::runtime::Handle;
 
 use crate::executor::DccExecutorHandle;
-use crate::rmcp_tool_call_dispatch::dispatch_action_with_thread_routing;
+use crate::rmcp_tool_call_dispatch::{ThreadRoutingDispatch, dispatch_action_with_thread_routing};
 
 /// Invoke backend actions with main-thread routing when a host executor is wired.
 pub struct ThreadRoutedInvoker {
@@ -84,14 +84,16 @@ impl ToolInvoker for ThreadRoutedInvoker {
                     },
                     || {
                         bridge_runtime.block_on(dispatch_action_with_thread_routing(
-                            dispatcher.as_ref().clone(),
-                            Some(&executor),
-                            &action,
-                            params,
-                            meta,
-                            affinity,
-                            enforce,
-                            false,
+                            ThreadRoutingDispatch {
+                                dispatcher: dispatcher.as_ref().clone(),
+                                executor: Some(&executor),
+                                resolved_name: &action,
+                                call_params: params,
+                                meta,
+                                thread_affinity: affinity,
+                                enforce_thread_affinity: enforce,
+                                standalone_main_thread_execution: false,
+                            },
                         ))
                     },
                 )

@@ -558,7 +558,7 @@ fn bounded_meta(meta: Value) -> Value {
                 .collect();
             Value::Object(filtered)
         }
-        other => other,
+        _ => Value::Object(serde_json::Map::new()),
     }
 }
 
@@ -577,12 +577,6 @@ fn meta_with_agent_context(
             let mut filtered = bounded_meta(m);
             if let Value::Object(ref mut map) = filtered {
                 map.insert("agent_context".to_string(), agent_context_value);
-            } else {
-                // Non-object client meta: wrap with agent_context.
-                filtered = json!({
-                    "agent_context": agent_context_value,
-                    "upstream_meta": filtered,
-                });
             }
             Some(filtered)
         }
@@ -1468,6 +1462,13 @@ mod unit_tests {
     }
 
     #[test]
+    fn bounded_meta_drops_non_object_meta() {
+        let filtered = bounded_meta(json!(["not", "an", "object"]));
+        let obj = filtered.as_object().unwrap();
+        assert!(obj.is_empty());
+    }
+
+    #[test]
     fn meta_with_agent_context_client_agent_context_is_replaced_by_server() {
         // Client-supplied agent_context should be stripped by bounded_meta;
         // only the server-derived one survives.
@@ -1509,5 +1510,18 @@ mod unit_tests {
         assert_eq!(merged["agent_context"]["actor_id"], "a1");
         // No client meta keys present
         assert!(merged.get("credential_profile").is_none());
+    }
+
+    #[test]
+    fn meta_with_agent_context_drops_non_object_client_meta() {
+        let agent_ctx = AgentContext {
+            actor_id: Some("server-artist".to_string()),
+            ..AgentContext::default()
+        };
+        let merged = meta_with_agent_context(Some(json!("inline-secret")), Some(&agent_ctx))
+            .expect("merged");
+
+        assert_eq!(merged["agent_context"]["actor_id"], "server-artist");
+        assert!(merged.get("upstream_meta").is_none());
     }
 }
