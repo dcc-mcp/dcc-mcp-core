@@ -101,8 +101,9 @@ Additional sources are persisted under
 `DCC_MCP_MARKETPLACE_SOURCES` (comma-separated). Installs land in
 `~/.dcc-mcp/marketplace/<dcc>/<name>/`, with
 `DCC_MCP_MARKETPLACE_INSTALL_ROOT` overriding the root. The current installer
-supports `install.type: git` and `install.type: path`; `zip` entries are
-reserved for a later archive installer. DCC adapters include
+supports `install.type: git`, `install.type: path`, and `install.type: zip`.
+Archive installs verify `install.sha256` when present and reject entries that
+escape the install root. DCC adapters include
 `~/.dcc-mcp/marketplace/<dcc>` in their skill search paths, so installed skills
 are discovered on adapter startup or the next `reload_skill_paths`.
 

@@ -397,6 +397,24 @@ fn commit_git_skill_version(repo: &std::path::Path, version: &str, marker: &str)
     run_git(repo, &["tag", version]);
 }
 
+fn write_zip(entries: &[(&str, &str)], dest: &std::path::Path) -> Vec<u8> {
+    let file = std::fs::File::create(dest).unwrap();
+    let mut zip = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    for (name, content) in entries {
+        zip.start_file(name, options).unwrap();
+        std::io::Write::write_all(&mut zip, content.as_bytes()).unwrap();
+    }
+    zip.finish().unwrap();
+    std::fs::read(dest).unwrap()
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(bytes))
+}
+
 #[test]
 fn list_search_describe_and_call_gateway_rest_surface() {
     let fixture = spawn_gateway_fixture();
@@ -822,6 +840,193 @@ fn marketplace_install_list_and_uninstall_path_package() {
 
     let listed = run_json_with_env(&["marketplace", "list-installed", "--dcc", "maya"], &envs);
     assert_eq!(listed["count"], 0);
+}
+
+#[test]
+fn marketplace_install_zip_package_verifies_sha256_and_flattens_archive_root() {
+    let tmp = TempDir::new().unwrap();
+    let zip_path = tmp.path().join("zip-skill.zip");
+    let zip_bytes = write_zip(
+        &[
+            (
+                "zip-skill-main/SKILL.md",
+                "---\nname: zip-skill\ndescription: Zip skill\n---\n",
+            ),
+            ("zip-skill-main/tools.yaml", "tools: []\n"),
+        ],
+        &zip_path,
+    );
+    let digest = sha256_hex(&zip_bytes);
+
+    let catalog_path = tmp.path().join("marketplace.json");
+    let catalog = json!({
+        "version": "1",
+        "entries": [{
+            "name": "zip-skill",
+            "description": "Zip skill package",
+            "dcc": ["maya"],
+            "tags": ["test"],
+            "version": "0.1.0",
+            "install": {
+                "type": "zip",
+                "url": zip_path.to_string_lossy(),
+                "sha256": format!("sha256:{digest}")
+            }
+        }]
+    });
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&catalog).unwrap(),
+    )
+    .unwrap();
+
+    let source = catalog_path.to_string_lossy().to_string();
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let install_root = tmp
+        .path()
+        .join("marketplace-root")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+        ("DCC_MCP_MARKETPLACE_INSTALL_ROOT", install_root.as_str()),
+    ];
+
+    let installed = run_json_with_env(
+        &[
+            "marketplace",
+            "install",
+            "zip-skill",
+            "--dcc",
+            "maya",
+            "--source",
+            &source,
+        ],
+        &envs,
+    );
+    let installed_path = std::path::PathBuf::from(installed["path"].as_str().unwrap());
+    assert_eq!(installed["install_type"], "zip");
+    assert!(installed_path.join("SKILL.md").is_file());
+    assert!(installed_path.join("tools.yaml").is_file());
+    assert!(!installed_path.join("zip-skill-main").exists());
+
+    let listed = run_json_with_env(&["marketplace", "list-installed", "--dcc", "maya"], &envs);
+    assert_eq!(listed["packages"][0]["install_type"], "zip");
+}
+
+#[test]
+fn marketplace_install_zip_rejects_sha256_mismatch_without_replacing_existing_package() {
+    let tmp = TempDir::new().unwrap();
+    let good_skill = write_skill(
+        tmp.path(),
+        "good-skill",
+        "---\nname: zip-skill\ndescription: Existing skill\n---\n",
+    );
+    let zip_path = tmp.path().join("zip-skill.zip");
+    write_zip(
+        &[(
+            "SKILL.md",
+            "---\nname: zip-skill\ndescription: Broken hash skill\n---\n",
+        )],
+        &zip_path,
+    );
+
+    let catalog_path = tmp.path().join("marketplace.json");
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let install_root = tmp
+        .path()
+        .join("marketplace-root")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+        ("DCC_MCP_MARKETPLACE_INSTALL_ROOT", install_root.as_str()),
+    ];
+
+    let good_catalog = json!({
+        "version": "1",
+        "entries": [{
+            "name": "zip-skill",
+            "description": "Existing skill",
+            "dcc": ["maya"],
+            "tags": ["test"],
+            "version": "0.1.0",
+            "install": {
+                "type": "path",
+                "url": good_skill.to_string_lossy()
+            }
+        }]
+    });
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&good_catalog).unwrap(),
+    )
+    .unwrap();
+    let source = catalog_path.to_string_lossy().to_string();
+    let installed = run_json_with_env(
+        &[
+            "marketplace",
+            "install",
+            "zip-skill",
+            "--dcc",
+            "maya",
+            "--source",
+            &source,
+        ],
+        &envs,
+    );
+    let installed_path = std::path::PathBuf::from(installed["path"].as_str().unwrap());
+
+    let bad_catalog = json!({
+        "version": "1",
+        "entries": [{
+            "name": "zip-skill",
+            "description": "Bad hash skill",
+            "dcc": ["maya"],
+            "tags": ["test"],
+            "version": "0.2.0",
+            "install": {
+                "type": "zip",
+                "url": zip_path.to_string_lossy(),
+                "sha256": "sha256:0000"
+            }
+        }]
+    });
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&bad_catalog).unwrap(),
+    )
+    .unwrap();
+
+    let stderr = run_failure_with_env(
+        &[
+            "marketplace",
+            "install",
+            "zip-skill",
+            "--dcc",
+            "maya",
+            "--source",
+            &source,
+            "--force",
+        ],
+        &envs,
+    );
+    assert!(stderr.contains("SHA-256 mismatch"));
+    assert!(installed_path.join("SKILL.md").is_file());
+
+    let listed = run_json_with_env(&["marketplace", "list-installed", "--dcc", "maya"], &envs);
+    assert_eq!(listed["packages"][0]["version"], "0.1.0");
+    assert_eq!(listed["packages"][0]["install_type"], "path");
 }
 
 #[test]
