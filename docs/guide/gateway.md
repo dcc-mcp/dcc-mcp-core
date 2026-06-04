@@ -496,6 +496,63 @@ backend is callable (`ready`), the current `status` (`ready`, `unavailable`, or
 `not_reported`), and any host-RPC failure metadata. This keeps "registered" and
 "callable" separate without requiring clients to parse raw metadata.
 
+### Instance Row Metadata Fields
+
+Every instance row in `gateway://instances` and `GET /v1/instances` carries
+three structured sub-objects: `gateway`, `dispatch`, and `lifecycle`. These
+replace ad-hoc raw metadata parsing with typed, stable fields.
+
+#### `gateway` object
+
+Describes the instance's relationship to the gateway daemon lifecycle.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `runtime_mode` | `string \| null` | Gateway runtime mode: `"daemon-backed"`, `"embedded-fallback"`, or `null` (not registered) |
+| `guardian_enabled` | `bool` | Whether the instance runs a post-startup daemon guardian |
+| `recovery_driver` | `string` | How this instance can recover the gateway: `"daemon_guardian"`, `"embedded_election"`, or `"none"` |
+| `registration_refresh_mode` | `string` | How the instance row is kept alive: `"file_registry_heartbeat"`, `"http_ttl_heartbeat"`, `"relay_poll"`, or `"mdns_discovery"` |
+
+`recovery_driver="daemon_guardian"` means the instance runs periodic `/health`
+probes against the gateway daemon and can re-launch it. The `readyz` endpoint
+exposes aggregate counts so launchers and admin panels can answer whether at
+least one live DCC service can restart the shared daemon without scanning each
+row.
+
+#### `dispatch` object
+
+Separates "the DCC process is registered" from "the sidecar dispatcher is
+actually callable."
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `reported` | `bool` | Whether the sidecar has published dispatch status metadata |
+| `status` | `string` | Current dispatch state: `"ready"`, `"unavailable"`, or `"not_reported"` |
+| `ready` | `bool \| null` | `true` when dispatch is ready AND `mcp_url` is set AND the instance is not stale; `null` when dispatch status hasn't been reported |
+| `ready_at_unix` | `int \| null` | Unix timestamp of last dispatch-ready transition |
+| `host_rpc_uri` | `string \| null` | Canonical host-RPC URI (`commandport://...`, `qtserver://...`) |
+| `host_rpc_scheme` | `string \| null` | Scheme portion of the host-RPC URI |
+| `failure_stage` | `string \| null` | If not ready, which stage failed (`launch`, `probe`, `rpc_connect`) |
+| `failure_reason` | `string \| null` | Human-readable reason for the failure |
+
+For sidecar-driven adapters, use the dispatch counters in `GET /v1/readyz`
+(`dispatch_reported_instance_count`, `dispatch_ready_instance_count`,
+`dispatch_not_ready_instance_count`) to distinguish "listed in registry" from
+"actually callable." A `ready: false` instance with `reported: true` and
+`status: "unavailable"` is a sidecar that started but whose dispatcher isn't
+ready yet — wait and re-probe, don't route calls to it.
+
+#### `lifecycle` object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `pid` | `int \| null` | OS process ID of the DCC or sidecar |
+| `dcc_pid` | `int \| null` | OS process ID of the DCC host (when different from sidecar) |
+| `session` | `string \| null` | DCC session identifier (e.g. `"untitled"`) |
+| `sidecar_pid` | `int \| null` | OS process ID of the sidecar process |
+| `supports_safe_stop` | `bool` | Whether the instance advertises a safe-stop endpoint |
+| `restartable` | `bool` | Whether the instance can be restarted (has sidecar_pid or restart/launch command) |
+
 ### Remote HTTP Instance Registration (#1361)
 
 When a DCC adapter cannot share the gateway's local `FileRegistry` directory
