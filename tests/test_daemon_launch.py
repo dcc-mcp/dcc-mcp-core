@@ -8,7 +8,6 @@ from pathlib import Path
 import signal
 import subprocess as _sp  # imported as _sp to avoid shadowing daemon_launch.subprocess
 import sys
-import tempfile
 import textwrap
 
 import pytest
@@ -109,37 +108,75 @@ class TestDaemonApi:
         assert "Daemon" in r
         assert "foo.pid" in r
 
-    @pytest.mark.skipif(sys.platform == "win32", reason="no real daemonize on Windows")
-    def test_daemonize_on_unix_fork_and_setsid(self):
-        """Integration smoke: daemonize() does a double-fork on Unix."""
-        pidfile = tempfile.mktemp(suffix=".pid")
-        daemon = Daemon(pidfile=pidfile, workdir="/tmp")
-        try:
-            pid = os.fork()
-            if pid == 0:
-                # Child: daemonize then exit immediately
-                daemon.daemonize()
-                os._exit(0)
-            else:
-                # Parent: wait for child (the intermediate process should exit
-                # quickly, and the grandchild writes pidfile).
-                os.waitpid(pid, 0)
-                # Small delay for pidfile write
-                import time
+    @pytest.mark.skipif(sys.platform == "win32", reason="Unix daemonize respawn test")
+    def test_daemonize_on_unix_fork_and_setsid(self, tmp_path):
+        """daemonize() on Unix detaches and continues after daemonize()."""
+        pidfile = tmp_path / "daemon.pid"
+        marker = tmp_path / "daemon_ready.txt"
+        error = tmp_path / "daemon_error.txt"
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+        worker = tmp_path / "daemon_worker.py"
+        package_root = Path(__file__).resolve().parent.parent / "python"
+        worker.write_text(
+            textwrap.dedent(f"""\
+            from pathlib import Path
+            import os
+            import sys
+            import time
+            import traceback
 
-                pf = Path(pidfile)
-                for _ in range(50):
-                    time.sleep(0.02)
-                    if pf.exists():
-                        break
-                assert pf.exists(), "pidfile should be written by the daemon grandchild"
-                grand_pid = int(pf.read_text().strip())
-                # Kill the grandchild
-                with contextlib.suppress(OSError):
-                    os.kill(grand_pid, signal.SIGTERM)
+            sys.path.insert(0, {str(package_root)!r})
+            from dcc_mcp_core.daemon_launch import Daemon
+
+            pidfile = Path({str(pidfile)!r})
+            marker = Path({str(marker)!r})
+            error = Path({str(error)!r})
+
+            try:
+                d = Daemon(pidfile=pidfile, workdir={str(workdir)!r})
+                d.daemonize()
+                marker.write_text(
+                    f"daemonized pid={{os.getpid()}} pgid={{os.getpgrp()}} cwd={{os.getcwd()}}",
+                    encoding="ascii",
+                )
+                time.sleep(10)
+            except BaseException:
+                error.write_text(traceback.format_exc(), encoding="utf-8")
+                raise
+            """),
+            encoding="ascii",
+        )
+        proc = _sp.Popen(
+            [sys.executable, str(worker)],
+            stdout=_sp.DEVNULL,
+            stderr=_sp.DEVNULL,
+        )
+        proc.wait(timeout=15)
+        assert proc.returncode == 0
+
+        import time
+
+        daemon_pid: int | None = None
+        try:
+            for _ in range(100):
+                time.sleep(0.05)
+                if error.exists():
+                    pytest.fail(error.read_text(encoding="utf-8"))
+                if marker.exists() and pidfile.exists():
+                    break
+
+            assert marker.exists(), "daemon_ready marker should be written by daemon child"
+            assert pidfile.exists(), "pidfile should be written by daemon child"
+            daemon_pid = int(pidfile.read_text(encoding="ascii").strip())
+            assert daemon_pid != proc.pid
+            assert f"pid={daemon_pid}" in marker.read_text(encoding="ascii")
         finally:
+            if daemon_pid is not None:
+                with contextlib.suppress(ProcessLookupError, OSError):
+                    os.kill(daemon_pid, signal.SIGTERM)
             with contextlib.suppress(FileNotFoundError):
-                Path(pidfile).unlink()
+                pidfile.unlink()
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows daemonize respawn test")
     def test_daemonize_on_windows_respawns_detached(self, tmp_path):

@@ -46,9 +46,17 @@ per-DCC server 解耦。它只承载 gateway 平面 —— 发现、聚合、路
 # 前台运行，带可读的 owner 标签
 dcc-mcp-server gateway --host 127.0.0.1 --port 9765 --name studio-gateway
 
+# detached 运行，pidfile 记录 gateway child PID
+dcc-mcp-server gateway --host 127.0.0.1 --port 9765 \
+    --daemon --pidfile /var/run/dcc-mcp-gateway.pid
+
 # 同时监听 LAN，让同子网内其他主机加入
 dcc-mcp-server gateway --remote-host 0.0.0.0 --remote-port 59765
 ```
+
+`--daemon` 会重新执行当前 binary，启动 detached gateway child，然后父进程退出；
+它不会在 async runtime 内直接 fork。`--pidfile` 隐式开启 daemon mode，记录
+detached child PID；如果 child 无法启动或 pidfile 无法写入，会在父进程退出前失败。
 
 常用 flag（也接受对应的 `DCC_MCP_*` 环境变量）：
 
@@ -63,6 +71,10 @@ dcc-mcp-server gateway --remote-host 0.0.0.0 --remote-port 59765
 | `--no-admin` | `DCC_MCP_NO_ADMIN` | admin 默认开启 |
 | `--admin-path` | `DCC_MCP_ADMIN_PATH` | `/admin` |
 | `--stale-timeout-secs` | `DCC_MCP_STALE_TIMEOUT` | `30` |
+| `--daemon` | `DCC_MCP_DAEMON` | `false` |
+| `--pidfile` | `DCC_MCP_PIDFILE` | 无 |
+| `--gateway-persist` | `DCC_MCP_GATEWAY_PERSIST` | `false` |
+| `--gateway-idle-timeout-secs` | `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` | `30` |
 
 附加环境变量：
 
