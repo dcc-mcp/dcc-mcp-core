@@ -115,9 +115,18 @@ the owning DCC backend.
 # Foreground, with a friendly owner label
 dcc-mcp-server gateway --host 127.0.0.1 --port 9765 --name studio-gateway
 
+# Detached, with a pidfile that records the gateway child PID
+dcc-mcp-server gateway --host 127.0.0.1 --port 9765 \
+    --daemon --pidfile /var/run/dcc-mcp-gateway.pid
+
 # Bind a LAN listener as well so peers on the same subnet can join
 dcc-mcp-server gateway --remote-host 0.0.0.0 --remote-port 59765
 ```
+
+`--daemon` re-executes the current binary as a detached gateway child and then
+exits the parent; it does not fork inside the async runtime. `--pidfile`
+implies daemon mode, records that detached child PID, and fails before the
+parent exits if the child cannot be spawned or the pidfile cannot be written.
 
 Common flags (all also accept the matching `DCC_MCP_*` environment
 variable):
@@ -133,6 +142,10 @@ variable):
 | `--no-admin` | `DCC_MCP_NO_ADMIN` | admin enabled |
 | `--admin-path` | `DCC_MCP_ADMIN_PATH` | `/admin` |
 | `--stale-timeout-secs` | `DCC_MCP_STALE_TIMEOUT` | `30` |
+| `--daemon` | `DCC_MCP_DAEMON` | `false` |
+| `--pidfile` | `DCC_MCP_PIDFILE` | none |
+| `--gateway-persist` | `DCC_MCP_GATEWAY_PERSIST` | `false` |
+| `--gateway-idle-timeout-secs` | `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` | `30` |
 | `--discover-mdns` | `DCC_MCP_DISCOVER_MDNS` | `false` when built with `mdns` |
 | `--relay-source ADMIN_URL=PUBLIC_BASE_URL` | `DCC_MCP_RELAY_SOURCES` | none |
 

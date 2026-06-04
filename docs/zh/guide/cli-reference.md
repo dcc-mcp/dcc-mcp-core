@@ -149,6 +149,15 @@ Admin 审计/trace 持久化只通过环境变量配置：设置 `DCC_MCP_GATEWA
 > `DCC_MCP_GATEWAY_CURSOR_SAFE_TOOL_NAMES`。聚合网关的 `prompts/list` 始终使用
 > cursor-safe 的 `i_<id8>__<escaped>` 线格式（#656）。
 
+### 独立 gateway 旗标（`gateway`）
+
+| 旗标 | 环境变量 | 默认值 | 说明 |
+|---|---|---|---|
+| `--daemon` | `DCC_MCP_DAEMON` | `false` | 重新执行当前可执行文件，启动 detached gateway child，然后父进程退出。Unix child 会进入新 session；Windows child 使用 detached process flags。respawn 失败会在父进程退出前报错。 |
+| `--pidfile PATH` | `DCC_MCP_PIDFILE` | — | 隐式开启 daemon mode。pidfile 记录 detached child PID，并在 child 正常退出时移除。pidfile 写入失败会在父进程退出前报错。 |
+| `--gateway-persist` | `DCC_MCP_GATEWAY_PERSIST` | `false` | 即使没有已注册 backend，也保持 gateway daemon 存活。 |
+| `--gateway-idle-timeout-secs` | `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` | `30` | 最后一个 backend 消失后等待多少秒再关闭。`0` 关闭 idle shutdown。 |
+
 ### 文件日志旗标
 
 | 旗标 | 环境变量 | 默认值 | 说明 |
@@ -217,6 +226,11 @@ dcc-mcp-server auto --app maya --server-name maya-shotgun-alpha \
 # 4) 整台工作站的 gateway daemon。
 dcc-mcp-server gateway --host 127.0.0.1 --port 9765 \
                        --registry-dir /var/lib/dcc-mcp
+
+# 4b) 同一个 gateway，以显式 detached daemon 方式运行。
+dcc-mcp-server gateway --host 127.0.0.1 --port 9765 \
+                       --registry-dir /var/lib/dcc-mcp \
+                       --daemon --pidfile /var/run/dcc-mcp-gateway.pid
 ```
 
 ---
