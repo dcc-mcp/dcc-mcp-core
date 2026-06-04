@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -54,6 +54,10 @@ pub enum MarketplaceError {
     CommandFailed(String),
     #[error("installed package does not contain SKILL.md at '{0}'")]
     MissingSkill(String),
+    #[error(
+        "invalid marketplace {kind} '{value}'; use only ASCII letters, numbers, '.', '_' or '-'"
+    )]
+    InvalidPathComponent { kind: String, value: String },
 }
 
 pub struct MarketplaceService {
@@ -196,40 +200,60 @@ impl MarketplaceService {
             .install
             .clone()
             .ok_or_else(|| MarketplaceError::MissingInstall(hit.entry.name.clone()))?;
+        let package_name = marketplace_path_component("package name", &hit.entry.name)?;
         let dcc_root = marketplace_dcc_dir(&dcc)?;
-        let dest = dcc_root.join(&hit.entry.name);
+        let dest = dcc_root.join(&package_name);
 
-        if dest.exists() {
-            if !force {
-                return Err(MarketplaceError::AlreadyInstalled {
-                    name: hit.entry.name.clone(),
-                    dcc: dcc.clone(),
-                    path: dest.display().to_string(),
-                });
-            }
-            fs::remove_dir_all(&dest)
-                .map_err(|err| MarketplaceError::ConfigIo(dest.display().to_string(), err))?;
+        if dest.exists() && !force {
+            return Err(MarketplaceError::AlreadyInstalled {
+                name: package_name.clone(),
+                dcc: dcc.clone(),
+                path: dest.display().to_string(),
+            });
         }
         fs::create_dir_all(&dcc_root)
             .map_err(|err| MarketplaceError::ConfigIo(dcc_root.display().to_string(), err))?;
 
-        match install.install_type.as_str() {
-            "git" => install_from_git(&install, &dest)?,
-            "path" => install_from_path(&install, &dest)?,
-            "zip" => return Err(MarketplaceError::UnsupportedInstallType("zip".into())),
-            other => return Err(MarketplaceError::UnsupportedInstallType(other.into())),
+        let staging = dcc_root.join(format!(".{package_name}.installing-{}", now_ms()));
+        if staging.exists() {
+            remove_install_path(&staging)?;
         }
 
-        let skill_md = dest.join("SKILL.md");
+        let install_result = match install.install_type.as_str() {
+            "git" => install_from_git(&install, &staging),
+            "path" => install_from_path(&install, &staging),
+            "zip" => return Err(MarketplaceError::UnsupportedInstallType("zip".into())),
+            other => return Err(MarketplaceError::UnsupportedInstallType(other.into())),
+        };
+        if let Err(err) = install_result {
+            let _ = remove_install_path(&staging);
+            return Err(err);
+        }
+
+        let skill_md = staging.join("SKILL.md");
         if !skill_md.is_file() {
-            let _ = fs::remove_dir_all(&dest);
+            let _ = remove_install_path(&staging);
             return Err(MarketplaceError::MissingSkill(
                 skill_md.display().to_string(),
             ));
         }
 
+        if dest.exists() {
+            if !force {
+                let _ = remove_install_path(&staging);
+                return Err(MarketplaceError::AlreadyInstalled {
+                    name: package_name.clone(),
+                    dcc: dcc.clone(),
+                    path: dest.display().to_string(),
+                });
+            }
+            remove_install_path(&dest)?;
+        }
+        fs::rename(&staging, &dest)
+            .map_err(|err| MarketplaceError::ConfigIo(dest.display().to_string(), err))?;
+
         let package = InstalledMarketplacePackage {
-            name: hit.entry.name.clone(),
+            name: package_name.clone(),
             dcc: dcc.clone(),
             version: hit.entry.version.clone(),
             path: dest.display().to_string(),
@@ -244,7 +268,7 @@ impl MarketplaceService {
 
         Ok(MarketplaceInstallResult {
             installed: true,
-            name: hit.entry.name.clone(),
+            name: package_name,
             dcc,
             version: hit.entry.version.clone(),
             path: dest.display().to_string(),
@@ -261,11 +285,11 @@ impl MarketplaceService {
         name: String,
         dcc: String,
     ) -> Result<MarketplaceUninstallResult, MarketplaceError> {
+        let name = marketplace_path_component("package name", &name)?;
         let dcc_root = marketplace_dcc_dir(&dcc)?;
         let dest = dcc_root.join(&name);
         let removed_files = if dest.exists() {
-            fs::remove_dir_all(&dest)
-                .map_err(|err| MarketplaceError::ConfigIo(dest.display().to_string(), err))?;
+            remove_install_path(&dest)?;
             true
         } else {
             false
@@ -483,7 +507,7 @@ fn marketplace_root() -> Result<PathBuf, MarketplaceError> {
 }
 
 fn marketplace_dcc_dir(dcc: &str) -> Result<PathBuf, MarketplaceError> {
-    Ok(marketplace_root()?.join(dcc.to_lowercase()))
+    Ok(marketplace_root()?.join(marketplace_dcc_name(dcc)?))
 }
 
 fn installed_state_path() -> Result<PathBuf, MarketplaceError> {
@@ -495,8 +519,9 @@ fn resolve_install_dcc(
     requested: Option<&str>,
 ) -> Result<String, MarketplaceError> {
     if let Some(dcc) = requested {
-        if entry_targets_dcc(entry, dcc) {
-            return Ok(dcc.to_lowercase());
+        let dcc_name = marketplace_dcc_name(dcc)?;
+        if entry_targets_dcc(entry, &dcc_name) {
+            return Ok(dcc_name);
         }
         return Err(MarketplaceError::DccMismatch {
             name: entry.name.clone(),
@@ -504,7 +529,11 @@ fn resolve_install_dcc(
         });
     }
 
-    let mut dccs: Vec<String> = entry.dcc.iter().map(|dcc| dcc.to_lowercase()).collect();
+    let mut dccs: Vec<String> = entry
+        .dcc
+        .iter()
+        .map(|dcc| marketplace_dcc_name(dcc))
+        .collect::<Result<_, _>>()?;
     dccs.sort();
     dccs.dedup();
     match dccs.as_slice() {
@@ -513,6 +542,37 @@ fn resolve_install_dcc(
             name: entry.name.clone(),
         }),
     }
+}
+
+fn marketplace_dcc_name(dcc: &str) -> Result<String, MarketplaceError> {
+    Ok(marketplace_path_component("DCC name", dcc)?.to_lowercase())
+}
+
+fn marketplace_path_component(kind: &str, value: &str) -> Result<String, MarketplaceError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty()
+        || trimmed == "."
+        || trimmed == ".."
+        || trimmed.starts_with('.')
+        || !trimmed
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-'))
+    {
+        return Err(MarketplaceError::InvalidPathComponent {
+            kind: kind.to_string(),
+            value: value.to_string(),
+        });
+    }
+    Ok(trimmed.to_string())
+}
+
+fn remove_install_path(path: &Path) -> Result<(), MarketplaceError> {
+    if path.is_dir() {
+        fs::remove_dir_all(path)
+    } else {
+        fs::remove_file(path)
+    }
+    .map_err(|err| MarketplaceError::ConfigIo(path.display().to_string(), err))
 }
 
 fn install_from_path(install: &CatalogInstall, dest: &PathBuf) -> Result<(), MarketplaceError> {
