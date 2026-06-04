@@ -1571,7 +1571,7 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.stats-panel')).toContainText('json');
     await page.getByLabel('Range').selectOption('7d');
     await expect(page).toHaveURL(/range=7d/);
-    await expect(page.locator('.stats-panel')).toContainText('Range 7d');
+    await expect(page.locator('.stats-panel')).toContainText('7d window');
     await page.getByLabel('Filter current panel').fill('rest');
     await expect(page.locator('.stats-panel')).toContainText('rest');
   });
