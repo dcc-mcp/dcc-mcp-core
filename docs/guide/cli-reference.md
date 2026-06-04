@@ -51,6 +51,9 @@ dcc-mcp-cli call maya_scene__get_session_info --dcc-type maya --instance-id abc1
 dcc-mcp-cli wait-ready --dcc-type maya --instance-id abc12345 --require skill_catalog,host_execution_bridge
 dcc-mcp-cli stop-instance --dcc-type maya --instance-id abc12345 --expected-owner release-smoke-test
 dcc-mcp-cli install --dcc-type maya --version 2026
+dcc-mcp-cli marketplace add dcc-mcp/marketplace
+dcc-mcp-cli marketplace search --query hunyuan --dcc maya
+dcc-mcp-cli marketplace inspect dcc-asset-hunyuan-download
 dcc-mcp-cli lint path/to/skills
 ```
 
@@ -68,12 +71,26 @@ dcc-mcp-cli lint path/to/skills
 | `wait-ready [--dcc-type <dcc>] [--instance-id <id>] [--require <bits>]` | `GET /v1/instances` + per-instance `/v1/readyz` | Wait for smoke-test readiness bits such as `skill_catalog` or `host_execution_bridge`. |
 | `stop-instance --dcc-type <dcc> --instance-id <id>` | `POST /v1/dcc/{dcc}/instances/{id}/stop` | Forward a guarded safe-stop request to instances that advertise `safe_stop_url`. |
 | `install --dcc-type <dcc> [--version <v>]` | catalog-backed local plan | Resolve the matching adapter and emit an auditable install plan. |
+| `marketplace add <source>` | local source registry | Register a marketplace source (`dcc-mcp/marketplace`, a GitHub `owner/repo`, raw JSON URL, or local catalog file). |
+| `marketplace list` | local source registry | List the built-in, configured, and environment-provided marketplace sources. |
+| `marketplace search [--query <q>] [--dcc <dcc>] [--source <source>]` | marketplace catalog JSON/YAML | Search skill package entries across configured or explicit sources. |
+| `marketplace inspect <name> [--source <source>]` | marketplace catalog JSON/YAML | Print exact entry metadata including version and install fields. |
 | `lint [PATH ...]` | local filesystem validator | Recursively validate SKILL.md packages two levels below each path by default. |
 
 `install` intentionally starts as a planning contract: it resolves catalog
 entries and spells out the runtime / adapter / verification steps without
 silently modifying DCC plugin folders. DCC-specific installers can attach to
 that contract incrementally.
+
+`marketplace` is the CLI-first discovery surface for official and private
+skill package catalogs. The built-in source is
+`https://raw.githubusercontent.com/dcc-mcp/marketplace/main/marketplace.json`.
+Additional sources are persisted under
+`~/.dcc-mcp/marketplace/sources.json`, overridden with
+`DCC_MCP_MARKETPLACE_SOURCES_FILE`, or supplied ephemerally with
+`DCC_MCP_MARKETPLACE_SOURCES` (comma-separated). `marketplace install/update`
+are separate follow-up commands; this discovery layer only reads catalog
+metadata.
 
 `lint` reuses the production `dcc-mcp-skills` validator, so local checks and
 runtime loading fail for the same structural problems. CI runs the same command

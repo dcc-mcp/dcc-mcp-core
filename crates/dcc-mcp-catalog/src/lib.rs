@@ -1,6 +1,6 @@
 //! Public DCC-MCP catalog for ecosystem discovery.
 //!
-//! Provides [`CatalogEntry`] (a typed YAML record), and two discovery
+//! Provides [`CatalogEntry`] (a typed YAML/JSON record), and two discovery
 //! functions — [`search`] and [`describe`] — that can be wired up as
 //! gateway MCP tools (`dcc_catalog__search` / `dcc_catalog__describe`).
 //!
@@ -41,13 +41,44 @@ pub struct CatalogEntry {
     /// Searchable tags.
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Package version advertised by a marketplace catalog.
+    #[serde(default)]
+    pub version: Option<String>,
+    /// Minimum dcc-mcp-core version required by this package.
+    #[serde(default)]
+    pub min_core_version: Option<String>,
+    /// Installation metadata for CLI-driven marketplace installs.
+    #[serde(default)]
+    pub install: Option<CatalogInstall>,
+    /// Maintainer or publishing organization.
+    #[serde(default)]
+    pub maintainer: Option<String>,
+}
+
+/// Installation metadata for a marketplace catalog entry.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CatalogInstall {
+    /// Install source type (`git`, `zip`, `path`, ...).
+    #[serde(rename = "type")]
+    pub install_type: String,
+    /// Source URL or local path.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Git ref, tag, branch, or revision where applicable.
+    #[serde(default, rename = "ref")]
+    pub ref_: Option<String>,
+    /// Optional content hash for archive installs.
+    #[serde(default)]
+    pub sha256: Option<String>,
 }
 
 /// Top-level catalog document.
 #[derive(Debug, Deserialize)]
 struct CatalogDoc {
     #[allow(dead_code)]
-    version: String,
+    #[serde(default)]
+    version: Option<String>,
+    #[serde(default, alias = "items", alias = "skills")]
     entries: Vec<CatalogEntry>,
 }
 
@@ -68,7 +99,7 @@ pub fn load_from_file(path: impl AsRef<Path>) -> Result<Vec<CatalogEntry>, Catal
     load_from_str(&text)
 }
 
-/// Parse catalog entries from a YAML string.
+/// Parse catalog entries from a YAML or JSON string.
 pub fn load_from_str(yaml: &str) -> Result<Vec<CatalogEntry>, CatalogError> {
     let doc: CatalogDoc =
         serde_yaml_ng::from_str(yaml).map_err(|e| CatalogError::Parse(e.to_string()))?;
@@ -80,7 +111,8 @@ pub fn load_from_str(yaml: &str) -> Result<Vec<CatalogEntry>, CatalogError> {
 /// Search catalog entries.
 ///
 /// `query` is matched case-insensitively against `name`, `description`,
-/// `dcc`, and `tags`.  An empty query returns all entries.
+/// `dcc`, `tags`, version/maintainer metadata, and install URL.  An empty query
+/// returns all entries.
 pub fn search(entries: &[CatalogEntry], query: &str) -> Vec<CatalogEntry> {
     if query.is_empty() {
         return entries.to_vec();
@@ -93,6 +125,16 @@ pub fn search(entries: &[CatalogEntry], query: &str) -> Vec<CatalogEntry> {
                 || e.description.to_lowercase().contains(&q)
                 || e.dcc.iter().any(|d| d.to_lowercase().contains(&q))
                 || e.tags.iter().any(|t| t.to_lowercase().contains(&q))
+                || e.version
+                    .as_deref()
+                    .is_some_and(|version| version.to_lowercase().contains(&q))
+                || e.maintainer
+                    .as_deref()
+                    .is_some_and(|maintainer| maintainer.to_lowercase().contains(&q))
+                || e.install
+                    .as_ref()
+                    .and_then(|install| install.url.as_deref())
+                    .is_some_and(|url| url.to_lowercase().contains(&q))
         })
         .cloned()
         .collect()
@@ -194,5 +236,35 @@ entries:
         f.write_all(SAMPLE_YAML.as_bytes()).unwrap();
         let entries = load_from_file(f.path()).unwrap();
         assert_eq!(entries.len(), 3);
+    }
+
+    #[test]
+    fn test_load_marketplace_json_with_install_metadata() {
+        let json = r#"
+{
+  "version": "1",
+  "entries": [{
+    "name": "dcc-asset-hunyuan-download",
+    "description": "Search and download Hunyuan 3D models",
+    "dcc": ["maya", "blender"],
+    "tags": ["asset", "hunyuan", "download"],
+    "version": "0.1.0",
+    "min_core_version": "0.17.0",
+    "maintainer": "dcc-mcp",
+    "install": {
+      "type": "git",
+      "url": "https://github.com/dcc-mcp/dcc-asset-hunyuan-download",
+      "ref": "v0.1.0"
+    }
+  }]
+}
+"#;
+
+        let entries = load_from_str(json).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].version.as_deref(), Some("0.1.0"));
+        let install = entries[0].install.as_ref().unwrap();
+        assert_eq!(install.install_type, "git");
+        assert_eq!(install.ref_.as_deref(), Some("v0.1.0"));
     }
 }

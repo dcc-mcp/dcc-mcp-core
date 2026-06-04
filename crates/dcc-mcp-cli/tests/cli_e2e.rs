@@ -319,6 +319,21 @@ fn run_json(args: &[&str]) -> Value {
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
+fn run_json_with_env(args: &[&str], envs: &[(&str, &str)]) -> Value {
+    let mut command = cli_command();
+    command.args(args);
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
 fn run_text(args: &[&str]) -> String {
     let output = cli_command().args(args).output().unwrap();
     assert!(
@@ -567,6 +582,96 @@ entries:
     assert_eq!(plan["version"], "2026");
     assert_eq!(plan["adapter"]["name"], "dcc-mcp-maya");
     assert_eq!(plan["steps"].as_array().unwrap().len(), 4);
+}
+
+#[test]
+fn marketplace_add_list_search_and_inspect_local_source() {
+    let tmp = TempDir::new().unwrap();
+    let catalog_path = tmp.path().join("marketplace.json");
+    std::fs::write(
+        &catalog_path,
+        r#"
+{
+  "version": "1",
+  "entries": [{
+    "name": "dcc-asset-hunyuan-download",
+    "description": "Search and download Hunyuan 3D models via official API",
+    "dcc": ["maya", "blender"],
+    "tags": ["asset", "hunyuan", "download", "domain"],
+    "version": "0.1.0",
+    "min_core_version": "0.17.0",
+    "maintainer": "dcc-mcp",
+    "install": {
+      "type": "git",
+      "url": "https://github.com/dcc-mcp/dcc-asset-hunyuan-download",
+      "ref": "v0.1.0"
+    }
+  }, {
+    "name": "dcc-asset-polyhaven",
+    "description": "Search and download Poly Haven CC0 assets",
+    "dcc": ["blender"],
+    "tags": ["asset", "polyhaven", "download"],
+    "version": "0.1.0",
+    "install": {
+      "type": "git",
+      "url": "https://github.com/dcc-mcp/dcc-asset-polyhaven",
+      "ref": "v0.1.0"
+    }
+  }]
+}
+"#,
+    )
+    .unwrap();
+
+    let source = catalog_path.to_string_lossy().to_string();
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+    ];
+
+    let sources = run_json_with_env(&["marketplace", "add", &source], &envs);
+    assert_eq!(sources.as_array().unwrap().len(), 1);
+    assert_eq!(sources[0]["url"], source);
+
+    let listed = run_json_with_env(&["marketplace", "list"], &envs);
+    assert_eq!(listed.as_array().unwrap().len(), 1);
+    assert_eq!(listed[0]["origin"], "config");
+
+    let search = run_json_with_env(
+        &[
+            "marketplace",
+            "search",
+            "--query",
+            "download",
+            "--dcc",
+            "maya",
+        ],
+        &envs,
+    );
+    assert_eq!(search["count"], 1);
+    assert_eq!(
+        search["hits"][0]["entry"]["name"],
+        "dcc-asset-hunyuan-download"
+    );
+    assert_eq!(search["hits"][0]["entry"]["install"]["type"], "git");
+
+    let inspect = run_json_with_env(
+        &[
+            "marketplace",
+            "inspect",
+            "dcc-asset-hunyuan-download",
+            "--source",
+            &source,
+        ],
+        &envs,
+    );
+    assert_eq!(inspect["count"], 1);
+    assert_eq!(inspect["matches"][0]["entry"]["install"]["ref"], "v0.1.0");
 }
 
 #[test]
