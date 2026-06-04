@@ -231,6 +231,7 @@ async fn dispatch_registry_tool(
         state,
         &resolved_name,
         call_params.clone(),
+        None,
         action_meta.thread_affinity,
         action_meta.enforce_thread_affinity,
     )

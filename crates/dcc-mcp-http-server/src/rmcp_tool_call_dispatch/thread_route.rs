@@ -18,6 +18,7 @@ async fn run_on_main_thread(
     dispatcher: dcc_mcp_actions::ToolDispatcher,
     resolved_name: String,
     call_params: Value,
+    meta: Option<Value>,
     exec_ctx: DispatchExecutionContext,
 ) -> Result<DispatchResult, DispatchError> {
     let json_str = executor
@@ -25,7 +26,7 @@ async fn run_on_main_thread(
             with_execution_context(exec_ctx, || {
                 encode_dispatch_wire(dcc_mcp_actions::with_thread_affinity(
                     ThreadAffinity::Main,
-                    || dispatcher.dispatch(&resolved_name, call_params),
+                    || dispatcher.dispatch(&resolved_name, call_params, meta),
                 ))
             })
         }))
@@ -38,6 +39,7 @@ async fn run_on_worker(
     dispatcher: dcc_mcp_actions::ToolDispatcher,
     resolved_name: String,
     call_params: Value,
+    meta: Option<Value>,
     exec_ctx: DispatchExecutionContext,
     standalone_main_thread_execution: bool,
     thread_affinity: ThreadAffinity,
@@ -46,10 +48,10 @@ async fn run_on_worker(
         with_execution_context(exec_ctx, || {
             if standalone_main_thread_execution && matches!(thread_affinity, ThreadAffinity::Main) {
                 dcc_mcp_actions::with_thread_affinity(ThreadAffinity::Main, || {
-                    dispatcher.dispatch(&resolved_name, call_params)
+                    dispatcher.dispatch(&resolved_name, call_params, meta)
                 })
             } else {
-                dispatcher.dispatch(&resolved_name, call_params)
+                dispatcher.dispatch(&resolved_name, call_params, meta)
             }
         })
     });
@@ -77,6 +79,7 @@ pub async fn dispatch_action_with_thread_routing(
     executor: Option<&DccExecutorHandle>,
     resolved_name: &str,
     call_params: Value,
+    meta: Option<Value>,
     thread_affinity: ThreadAffinity,
     enforce_thread_affinity: bool,
     standalone_main_thread_execution: bool,
@@ -110,6 +113,7 @@ pub async fn dispatch_action_with_thread_routing(
             dispatcher,
             resolved_name.to_string(),
             call_params,
+            meta,
             exec_ctx,
         )
         .await
@@ -118,6 +122,7 @@ pub async fn dispatch_action_with_thread_routing(
             dispatcher,
             resolved_name.to_string(),
             call_params,
+            meta,
             exec_ctx,
             standalone_main,
             thread_affinity,
@@ -130,6 +135,7 @@ pub(super) async fn execute_threaded_dispatch(
     state: &ServerState,
     resolved_name: &str,
     call_params: Value,
+    meta: Option<Value>,
     thread_affinity: ThreadAffinity,
     enforce_thread_affinity: bool,
 ) -> Result<Value, String> {
@@ -138,6 +144,7 @@ pub(super) async fn execute_threaded_dispatch(
         state.executor.as_ref(),
         resolved_name,
         call_params,
+        meta,
         thread_affinity,
         enforce_thread_affinity,
         state.standalone_main_thread_execution,

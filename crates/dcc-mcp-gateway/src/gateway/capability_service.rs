@@ -536,24 +536,57 @@ pub async fn call_service(
     }
 }
 
+/// Allowed top-level keys in client-supplied `_meta` that may be passed
+/// through to adapter tool params.  `agent_context` is always server-derived
+/// and is appended separately — it is NOT subject to this allowlist.
+const DEFAULT_META_ALLOWLIST: &[&str] = &[
+    "credential_profile",
+    "permission_hint",
+    "project_scope",
+    "search_id",
+];
+
+/// Filter a client-supplied `_meta` object to only contain allowlisted keys.
+/// Prevents inline secrets or arbitrary client data from piggybacking on the
+/// meta passthrough channel.
+fn bounded_meta(meta: Value) -> Value {
+    match meta {
+        Value::Object(map) => {
+            let filtered: serde_json::Map<String, Value> = map
+                .into_iter()
+                .filter(|(k, _)| DEFAULT_META_ALLOWLIST.contains(&k.as_str()))
+                .collect();
+            Value::Object(filtered)
+        }
+        other => other,
+    }
+}
+
 fn meta_with_agent_context(
     meta: Option<Value>,
     agent_context: Option<&AgentContext>,
 ) -> Option<Value> {
     let Some(agent_context) = agent_context else {
-        return meta;
+        // No agent context: still apply bounded passthrough on client meta.
+        return meta.map(bounded_meta);
     };
-    let agent_context = serde_json::to_value(agent_context).ok()?;
+    let agent_context_value = serde_json::to_value(agent_context).ok()?;
     match meta {
-        Some(Value::Object(mut map)) => {
-            map.insert("agent_context".to_string(), agent_context);
-            Some(Value::Object(map))
+        Some(m) => {
+            // Bounded passthrough: only allowlisted client _meta keys survive.
+            let mut filtered = bounded_meta(m);
+            if let Value::Object(ref mut map) = filtered {
+                map.insert("agent_context".to_string(), agent_context_value);
+            } else {
+                // Non-object client meta: wrap with agent_context.
+                filtered = json!({
+                    "agent_context": agent_context_value,
+                    "upstream_meta": filtered,
+                });
+            }
+            Some(filtered)
         }
-        Some(other) => Some(json!({
-            "agent_context": agent_context,
-            "upstream_meta": other,
-        })),
-        None => Some(json!({ "agent_context": agent_context })),
+        None => Some(json!({ "agent_context": agent_context_value })),
     }
 }
 
@@ -1403,5 +1436,78 @@ mod unit_tests {
         assert_eq!(row["load_state"], "loaded");
         assert!(row.get("disabled_by_group").is_none());
         assert_eq!(row["next_step"]["action"], "describe");
+    }
+
+    // ── bounded passthrough tests (PIP-520) ─────────────────────────
+
+    #[test]
+    fn bounded_meta_strips_unknown_fields() {
+        let meta = json!({
+            "credential_profile": "prod",
+            "permission_hint": "read-only",
+            "project_scope": "movie-42",
+            "secret_token": "should-be-stripped",
+            "inline_secret": "also-stripped",
+        });
+        let filtered = bounded_meta(meta);
+        let obj = filtered.as_object().unwrap();
+        assert!(obj.contains_key("credential_profile"));
+        assert!(obj.contains_key("permission_hint"));
+        assert!(obj.contains_key("project_scope"));
+        assert!(!obj.contains_key("secret_token"));
+        assert!(!obj.contains_key("inline_secret"));
+    }
+
+    #[test]
+    fn bounded_meta_preserves_search_id() {
+        let meta = json!({"search_id": "abc-123", "evil": "no"});
+        let filtered = bounded_meta(meta);
+        let obj = filtered.as_object().unwrap();
+        assert_eq!(obj["search_id"], "abc-123");
+        assert!(!obj.contains_key("evil"));
+    }
+
+    #[test]
+    fn meta_with_agent_context_client_agent_context_is_replaced_by_server() {
+        // Client-supplied agent_context should be stripped by bounded_meta;
+        // only the server-derived one survives.
+        let agent_ctx = AgentContext {
+            actor_id: Some("server-artist".to_string()),
+            session_id: Some("s1".into()),
+            ..AgentContext::default()
+        };
+        let merged = meta_with_agent_context(
+            Some(json!({
+                "agent_context": {"actor_id": "fake-client"},
+                "credential_profile": "prod",
+            })),
+            Some(&agent_ctx),
+        )
+        .expect("merged meta");
+
+        // Client's self-reported agent_context is stripped
+        let ac = &merged["agent_context"];
+        assert_eq!(ac["actor_id"], "server-artist");
+        assert_eq!(ac["session_id"], "s1");
+        // Allowlisted field survives
+        assert_eq!(merged["credential_profile"], "prod");
+    }
+
+    #[test]
+    fn meta_with_agent_context_no_meta_is_backward_compatible() {
+        let result = meta_with_agent_context(None, None);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn meta_with_agent_context_only_agent_context_no_client_meta() {
+        let agent_ctx = AgentContext {
+            actor_id: Some("a1".to_string()),
+            ..AgentContext::default()
+        };
+        let merged = meta_with_agent_context(None, Some(&agent_ctx)).expect("merged");
+        assert_eq!(merged["agent_context"]["actor_id"], "a1");
+        // No client meta keys present
+        assert!(merged.get("credential_profile").is_none());
     }
 }

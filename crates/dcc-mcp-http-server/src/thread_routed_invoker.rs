@@ -47,8 +47,13 @@ impl ThreadRoutedInvoker {
 }
 
 impl ToolInvoker for ThreadRoutedInvoker {
-    fn invoke(&self, action_name: &str, params: Value) -> Result<CallOutcome, ServiceError> {
-        let meta = self
+    fn invoke(
+        &self,
+        action_name: &str,
+        params: Value,
+        meta: Option<Value>,
+    ) -> Result<CallOutcome, ServiceError> {
+        let action_meta = self
             .dispatcher
             .registry()
             .get_action(action_name, None)
@@ -62,8 +67,8 @@ impl ToolInvoker for ThreadRoutedInvoker {
         let dispatcher = Arc::clone(&self.dispatcher);
         let executor = self.executor.clone();
         let action = action_name.to_string();
-        let affinity = meta.thread_affinity;
-        let enforce = meta.enforce_thread_affinity;
+        let affinity = action_meta.thread_affinity;
+        let enforce = action_meta.enforce_thread_affinity;
 
         // `SkillRestService::call` is synchronous on the dedicated HTTP
         // thread's `current_thread` runtime — `Handle::block_on` there
@@ -83,6 +88,7 @@ impl ToolInvoker for ThreadRoutedInvoker {
                             Some(&executor),
                             &action,
                             params,
+                            meta,
                             affinity,
                             enforce,
                             false,
@@ -159,7 +165,7 @@ mod tests {
         // runtime; it calls `invoke` which `block_on`s the bridge runtime.
         let outcome = std::thread::spawn(move || {
             invoker
-                .invoke("thread_probe", json!({}))
+                .invoke("thread_probe", json!({}), None)
                 .expect("main-thread REST invoke")
         })
         .join()
