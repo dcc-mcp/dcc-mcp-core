@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.56](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.17.55...v0.17.56) (2026-06-04)
+
+
+### Features
+
+* **marketplace:** install zip skill packages ([0e0ab4b](https://github.com/dcc-mcp/dcc-mcp-core/commit/0e0ab4b9a70673b0b5b95675df094ca4c5c9faaf))
+
 ## [0.17.55](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.17.54...v0.17.55) (2026-06-04)
 
 
