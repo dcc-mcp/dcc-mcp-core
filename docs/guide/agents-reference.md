@@ -760,6 +760,138 @@ Stateless tools are easier to test, retry, and compose into workflows.
 
 ---
 
+## Request-Level Context Passthrough (`_meta`) — PIP-520
+
+When a client (AI agent, CI pipeline, or external service) calls a tool through
+the dcc-mcp Gateway, it can attach **request-level context** via the MCP
+`_meta` block.  The Gateway forwards this context to the backend adapter skill,
+where the tool handler can read it from `params._meta`.
+
+### What Gets Passed Through
+
+The Gateway applies a **bounded passthrough** allowlist — only these fields
+survive the trip from client to tool handler:
+
+| Field | Purpose | Example |
+|-------|---------|---------|
+| `agent_context` | **Server-derived** caller identity (actor, agent name, session, model) | `{"actor_id":"artist-42","agent_name":"claude-code"}` |
+| `credential_profile` | Which credential/profile to use for backend services | `"prod"`, `"staging"` |
+| `permission_hint` | Caller's permission level for enforcement | `"read-only"`, `"read-write"` |
+| `project_scope` | Project context for data isolation | `"movie-42"`, `"game-99"` |
+| `search_id` | Telemetry correlation id (set by gateway) | `"srch-abc123"` |
+
+**Security**: The client's self-reported `agent_context` is **stripped** by the
+Gateway. The `agent_context` the tool sees is **always server-derived** —
+populated from HTTP headers, JWT claims, and network attribution. Never trust
+client-supplied identity fields; always read `_meta.agent_context` from the
+server.
+
+### How Tool Handlers Consume `_meta`
+
+The `_meta` is injected into `params` as a top-level key **after** schema
+validation. This means tools with `"additionalProperties": false` in their
+`input_schema` are safe — the validator never sees `_meta`.
+
+#### Rust Handler
+
+```rust
+dispatcher.register_handler("my_tool", |params: Value| {
+    // Read credential_profile from _meta
+    let profile = params
+        .pointer("/_meta/credential_profile")
+        .and_then(Value::as_str)
+        .unwrap_or("default");
+
+    // Read server-derived agent_context
+    let actor = params
+        .pointer("/_meta/agent_context/actor_id")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+
+    Ok(json!({"resolved": true, "profile": profile, "actor": actor}))
+});
+```
+
+#### Python Handler
+
+```python
+def my_tool_handler(params: dict) -> dict:
+    meta = params.get("_meta", {})
+
+    # Read credential_profile
+    profile = meta.get("credential_profile", "default")
+
+    # Read server-derived agent_context
+    agent_ctx = meta.get("agent_context", {})
+    actor_id = agent_ctx.get("actor_id", "unknown")
+    agent_name = agent_ctx.get("agent_name", "unknown-agent")
+
+    # Use for credential resolution, permission checks, scope isolation...
+    if profile == "prod":
+        endpoint = "https://prod.api.example.com"
+    else:
+        endpoint = "https://staging.api.example.com"
+
+    return {"resolved": True, "endpoint": endpoint, "actor": actor_id}
+```
+
+### Common Patterns
+
+**Pattern 1: Credential resolution** — select API endpoints/tokens based on
+`credential_profile`:
+```python
+profile = params.get("_meta", {}).get("credential_profile", "default")
+client = get_client_for_profile(profile)
+return client.call(params["service"], **params.get("arguments", {}))
+```
+
+**Pattern 2: Permission enforcement** — reject destructive actions when
+`permission_hint` is `"read-only"`:
+```python
+hint = params.get("_meta", {}).get("permission_hint", "read-write")
+if hint == "read-only" and params.get("action") == "delete":
+    return error_result("action 'delete' denied: permission_hint is 'read-only'")
+```
+
+**Pattern 3: Project-scoped data isolation** — filter results by
+`project_scope`:
+```python
+scope = params.get("_meta", {}).get("project_scope", "")
+results = [a for a in all_assets if not scope or a["project"] == scope]
+```
+
+**Pattern 4: Caller attribution** — log or route based on `agent_context`:
+```python
+actor = params.get("_meta", {}).get("agent_context", {}).get("actor_id", "unknown")
+logger.info(f"Tool call by {actor}", extra={"actor_id": actor, "tool": action_name})
+```
+
+### When to Use Each Field
+
+- **`agent_context`**: telemetry, audit logs, per-user rate limiting, routing.
+- **`credential_profile`**: switching between prod/staging/dev backends.
+- **`permission_hint`**: read-only enforcement, guard destructive operations.
+- **`project_scope`**: multi-project isolation, data filtering, path scoping.
+
+### Backward Compatibility
+
+When `_meta` is absent (no client context sent, or legacy client), the
+`_meta` key is simply not injected into `params`. Tool handlers should always
+use `.get("_meta", {})` with a sensible default. No handler signature changes
+are required — the `_meta` key is transparently present or absent.
+
+### Gateway-Side Filtering
+
+The Gateway's `bounded_meta()` filter (in
+`crates/dcc-mcp-gateway/src/gateway/capability_service.rs`) strips all
+client-supplied `_meta` keys that are not in the allowlist.  If you need a
+new field added to the allowlist, open a PR against
+`DEFAULT_META_ALLOWLIST`.  The same filter removes any client-supplied
+`agent_context` and replaces it with the server-derived one — preventing
+spoofing.
+
+---
+
 ## Adding a New Public Symbol — Checklist
 
 When adding a Rust type/function that needs to be callable from Python:
@@ -821,7 +953,7 @@ When adding a Rust type/function that needs to be callable from Python:
 - PRs must pass: `vx just preflight` + `vx just test` + `vx just lint`
 - CI matrix: Python 3.7, 3.9, 3.11, 3.13 on Linux / macOS / Windows
 - Versioning: Release Please (Conventional Commits) — never manually bump
-- PyPI: Trusted Publishing (no tokens)
+- PyPI: Trusted Publishing (no tokens) — **each** of `dcc-mcp-core`, `dcc-mcp-server`, and `dcc-mcp-core-semantic` needs its own PyPI Trusted Publisher; see [PyPI Trusted Publishers](https://docs.pypi.org/trusted-publishers/)
 - Docs-only changes skip Rust rebuild → CI passes quickly
 - Squash merge convention for PRs
 
@@ -1393,7 +1525,7 @@ either a single `prompts.yaml` (top-level `prompts:` + `workflows:` lists)
 or a `prompts/*.prompt.yaml` glob. Workflows referenced by the spec
 auto-generate a summary prompt.
 
-Template engine is minimal: only `{{arg_name}}` substitution; missing
+Template engine is minimal: only <code v-pre>{{arg_name}}</code> substitution; missing
 required args return JSON-RPC `INVALID_PARAMS`.
 `notifications/prompts/list_changed` fires on skill load / unload.
 

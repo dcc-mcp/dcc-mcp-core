@@ -119,7 +119,7 @@ async fn run_async_execution_lane(
             cancel_token.clone(),
             Box::new(move || {
                 match dcc_mcp_actions::with_thread_affinity(ThreadAffinity::Main, || {
-                    dispatch.dispatch(&dispatch_name, dispatch_params)
+                    dispatch.dispatch(&dispatch_name, dispatch_params, None)
                 }) {
                     Ok(result) => encode_dispatch_wire(Ok(result)),
                     Err(err) => encode_dispatch_wire(Err(err)),
@@ -145,10 +145,10 @@ async fn run_async_execution_lane(
             }
             let result = if standalone_main {
                 dcc_mcp_actions::with_thread_affinity(ThreadAffinity::Main, || {
-                    dispatch.dispatch(&dispatch_name, dispatch_params)
+                    dispatch.dispatch(&dispatch_name, dispatch_params, None)
                 })
             } else {
-                dispatch.dispatch(&dispatch_name, dispatch_params)
+                dispatch.dispatch(&dispatch_name, dispatch_params, None)
             };
             result
                 .map(|result| result.output)

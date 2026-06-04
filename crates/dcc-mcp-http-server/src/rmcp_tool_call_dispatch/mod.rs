@@ -5,7 +5,7 @@ mod helpers;
 mod thread_route;
 mod wire;
 
-pub use thread_route::dispatch_action_with_thread_routing;
+pub use thread_route::{ThreadRoutingDispatch, dispatch_action_with_thread_routing};
 pub(crate) use wire::{decode_dispatch_output, encode_dispatch_wire, use_main_thread_route};
 
 use serde_json::Value;
@@ -231,6 +231,7 @@ async fn dispatch_registry_tool(
         state,
         &resolved_name,
         call_params.clone(),
+        None,
         action_meta.thread_affinity,
         action_meta.enforce_thread_affinity,
     )

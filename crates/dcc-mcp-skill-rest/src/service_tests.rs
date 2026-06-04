@@ -62,7 +62,7 @@ impl SkillCatalogSource for FakeCatalog {
 
 #[derive(Default)]
 struct FakeInvoker {
-    calls: Mutex<Vec<(String, Value)>>,
+    calls: Mutex<Vec<(String, Value, Option<Value>)>>,
     next: Mutex<Option<Result<Value, ServiceError>>>,
 }
 
@@ -73,11 +73,16 @@ impl FakeInvoker {
 }
 
 impl ToolInvoker for FakeInvoker {
-    fn invoke(&self, name: &str, params: Value) -> Result<CallOutcome, ServiceError> {
+    fn invoke(
+        &self,
+        name: &str,
+        params: Value,
+        meta: Option<Value>,
+    ) -> Result<CallOutcome, ServiceError> {
         self.calls
             .lock()
             .unwrap()
-            .push((name.to_owned(), params.clone()));
+            .push((name.to_owned(), params.clone(), meta));
         let r = self.next.lock().unwrap().take().unwrap_or(Ok(Value::Null));
         r.map(|v| CallOutcome {
             slug: ToolSlug(name.to_owned()),
@@ -537,6 +542,7 @@ fn call_rejects_unloaded_skill() {
         .call(&CallRequest {
             tool_slug: ToolSlug::build("maya", "spheres", "create_sphere"),
             params: Value::Null,
+            meta: None,
         })
         .unwrap_err();
     assert_eq!(err.kind, ServiceErrorKind::SkillNotLoaded);
@@ -576,6 +582,7 @@ fn call_dispatches_and_normalises_slug() {
         .call(&CallRequest {
             tool_slug: ToolSlug::build("maya", "spheres", "create_sphere"),
             params: serde_json::json!({"radius": 1.5}),
+            meta: None,
         })
         .unwrap();
     assert_eq!(out.slug.0, "maya.spheres.create_sphere");
@@ -593,6 +600,7 @@ fn invalid_slug_format_is_bad_request() {
         .call(&CallRequest {
             tool_slug: ToolSlug("not-a-slug".into()),
             params: Value::Null,
+            meta: None,
         })
         .unwrap_err();
     assert_eq!(err.kind, ServiceErrorKind::BadRequest);
