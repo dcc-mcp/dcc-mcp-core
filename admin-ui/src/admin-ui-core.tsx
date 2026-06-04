@@ -154,6 +154,7 @@ export const PANELS: PanelDefinition[] = [
   { id: 'logs', labelKey: 'navigation.panel.logs', groupKey: 'navigation.group.observability' },
   { id: 'skill-paths', labelKey: 'navigation.panel.skillPaths', groupKey: 'navigation.group.configuration' },
   { id: 'analytics', labelKey: 'navigation.panel.analytics', groupKey: 'navigation.group.insights' },
+  { id: 'marketplace', labelKey: 'navigation.panel.marketplace', groupKey: 'navigation.group.configuration' },
 ];
 
 export const PANEL_ID_SET = new Set<Panel>(PANELS.map((p) => p.id));
@@ -757,6 +758,7 @@ export function NavIcon({ panel }: { panel: Panel }) {
     openapi: ['M5 5h14v14H5z', 'M8 9h8', 'M8 13h5', 'M8 17h8'],
     'skill-paths': ['M5 12h14', 'M12 5v14', 'M7 7l10 10', 'M17 7L7 17'],
     analytics: ['M3 3v18h18', 'M7 16l4-8 4 4 4-6'],
+    marketplace: ['M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z', 'M3 6h18', 'M16 10a4 4 0 01-8 0'],
   };
   return (
     <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
