@@ -368,6 +368,10 @@ _LAZY: dict[str, str] = {
     "DccSkillHotReloader": "dcc_mcp_core.hotreload",
     # Gateway daemon helpers (PIP-485)
     "ensure_gateway_daemon": "dcc_mcp_core._server.gateway_guardian",
+    # Daemon helpers (PIP-513)
+    "Daemon": "dcc_mcp_core.daemon_launch",
+    "detached_popen_kwargs": "dcc_mcp_core.daemon_launch",
+    "launch_detached": "dcc_mcp_core.daemon_launch",
     "read_custom_skill_paths": "dcc_mcp_core.admin_sqlite_lane",
     "resolve_admin_db_path": "dcc_mcp_core.admin_sqlite_lane",
     # Pure-Python constants
