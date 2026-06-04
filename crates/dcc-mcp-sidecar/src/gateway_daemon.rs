@@ -112,8 +112,8 @@ pub struct GatewayArgs {
 
     /// Detach from the terminal and run as a background daemon.
     /// On Unix this performs the classic double-fork; on Windows
-    /// the process is spawned detached via the same flags used by
-    /// sidecar auto-launch.
+    /// the process respawns itself with DETACHED_PROCESS and
+    /// CREATE_NEW_PROCESS_GROUP flags.
     #[arg(long, env = "DCC_MCP_DAEMON", default_value = "false")]
     pub daemon: bool,
 
@@ -336,14 +336,57 @@ fn daemonize_gateway(args: &GatewayArgs) -> Option<PidfileGuard> {
 }
 
 #[cfg(not(unix))]
-fn daemonize_gateway(_args: &GatewayArgs) -> Option<PidfileGuard> {
-    // Windows: the process is already detached when launched via
-    // spawn_detached_gateway(). Just write the pidfile.
-    let guard = write_gateway_pidfile(&_args.pidfile);
-    if _args.daemon && _args.pidfile.is_none() {
-        tracing::info!(pid = std::process::id(), "gateway running detached");
+fn daemonize_gateway(args: &GatewayArgs) -> Option<PidfileGuard> {
+    // Windows: respawn ourselves with DETACHED_PROCESS so the parent
+    // exits and the child runs as a background process.  The child
+    // re-enters this function, detects the sentinel env var, writes
+    // its pidfile, and carries on.
+    if std::env::var("DCC_MCP__DAEMONIZED").is_ok() {
+        let guard = write_gateway_pidfile(&args.pidfile);
+        if args.daemon && args.pidfile.is_none() {
+            tracing::info!(pid = std::process::id(), "gateway running detached");
+        }
+        return guard;
     }
-    guard
+
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(e) => {
+            tracing::error!(error = %e, "cannot resolve current executable for detached respawn");
+            return None;
+        }
+    };
+    let mut cmd = std::process::Command::new(exe);
+    cmd.args(std::env::args().skip(1));
+    cmd.env("DCC_MCP__DAEMONIZED", "1");
+    cmd.stdin(std::process::Stdio::null());
+    cmd.stdout(std::process::Stdio::null());
+    cmd.stderr(std::process::Stdio::null());
+
+    use std::os::windows::process::CommandExt;
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+
+    let child = match cmd.spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            tracing::error!(error = %e, "failed to respawn detached gateway");
+            return None;
+        }
+    };
+
+    // Write pidfile for the spawned child before the parent exits.
+    if let Some(ref pidfile) = args.pidfile {
+        if let Some(parent) = pidfile.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(pidfile, format!("{}\n", child.id()));
+    }
+    if args.daemon && args.pidfile.is_none() {
+        tracing::info!(pid = child.id(), "gateway daemonized (detached child)");
+    }
+    std::process::exit(0);
 }
 
 /// ```ignore
