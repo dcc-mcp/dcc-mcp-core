@@ -1384,4 +1384,5 @@ mod unit_tests {
         assert!(row.get("disabled_by_group").is_none());
         assert_eq!(row["next_step"]["action"], "describe");
     }
+
 }
