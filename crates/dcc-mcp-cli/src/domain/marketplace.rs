@@ -53,6 +53,58 @@ pub struct MarketplaceInspectResult {
     pub matches: Vec<MarketplaceHit>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MarketplaceInstallResult {
+    pub installed: bool,
+    pub name: String,
+    pub dcc: String,
+    pub version: Option<String>,
+    pub path: String,
+    pub skill_search_path: String,
+    pub source: MarketplaceSource,
+    pub entry: CatalogEntry,
+    pub install_type: String,
+    pub reload_required: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MarketplaceUninstallResult {
+    pub uninstalled: bool,
+    pub name: String,
+    pub dcc: String,
+    pub path: String,
+    pub removed_state: bool,
+    pub removed_files: bool,
+    pub reload_required: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct InstalledMarketplacePackage {
+    pub name: String,
+    pub dcc: String,
+    pub version: Option<String>,
+    pub path: String,
+    pub source_name: String,
+    pub source_url: String,
+    pub install_type: String,
+    pub install_url: Option<String>,
+    pub install_ref: Option<String>,
+    pub installed_at_ms: u128,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct MarketplaceInstalledState {
+    #[serde(default)]
+    pub packages: Vec<InstalledMarketplacePackage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MarketplaceInstalledList {
+    pub dcc: Option<String>,
+    pub count: usize,
+    pub packages: Vec<InstalledMarketplacePackage>,
+}
+
 pub fn builtin_source() -> MarketplaceSource {
     MarketplaceSource {
         name: "dcc-mcp/marketplace".to_string(),
