@@ -772,20 +772,41 @@ Async jobs can be watched with `GET /v1/jobs/{id}/events` and cancelled with
 
 ## Readiness (`GET /v1/readyz`)
 
-On the gateway, `GET /v1/readyz` always returns `200` and summarises the current
-registry view. Besides `live_instance_count`, `ready_instance_count`, and
-`not_ready_instance_count`, it reports `dispatch_reported_instance_count`,
-`dispatch_ready_instance_count`, and `dispatch_not_ready_instance_count`; each
-instance row also includes the same nested `dispatch` object exposed by
-`GET /v1/instances`. Use those dispatch counters for sidecar-driven adapters:
-they distinguish "the DCC process is listed" from "the sidecar dispatcher is
-actually callable". The same response includes the per-instance `gateway`
-object plus `gateway_recovery_driver_counts`, `registration_refresh_mode_counts`,
-`gateway_daemon_guardian_instance_count`, and `gateway_daemon_guardian_ready`.
-Those fields let launchers and admin panels answer whether at least one live DCC
-service can restart the machine-wide gateway daemon.
+### Gateway `/v1/readyz`
 
-Per-DCC `/v1/readyz` endpoints use the readiness states below:
+On the gateway, `GET /v1/readyz` always returns `200` and summarises the current
+registry view. Beyond basic instance counts, it reports sidecar dispatch
+readiness and daemon guardian aggregates.
+
+**Response fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ok` | `bool` | Always `true` (gateway itself is healthy) |
+| `checks` | `array` | Health check results (at minimum `[{"name":"gateway","ok":true}]`) |
+| `live_instance_count` | `int` | Total instances in the registry (all sources) |
+| `ready_instance_count` | `int` | Instances whose `readiness` reports ready |
+| `not_ready_instance_count` | `int` | `live - ready` |
+| `dispatch_reported_instance_count` | `int` | Sidecars that have published dispatch status |
+| `dispatch_ready_instance_count` | `int` | Sidecars whose dispatch is `ready` AND `mcp_url` is set AND instance is not stale |
+| `dispatch_not_ready_instance_count` | `int` | Sidecars that reported dispatch but are not yet ready |
+| `gateway_recovery_driver_counts` | `object` | Counts by recovery driver: `{"daemon_guardian": N, "embedded_election": N, "none": N}` |
+| `registration_refresh_mode_counts` | `object` | Counts by refresh mode: `{"file_registry_heartbeat": N, "http_ttl_heartbeat": N, ...}` |
+| `gateway_daemon_guardian_instance_count` | `int` | How many live services can restart the shared gateway daemon |
+| `gateway_daemon_guardian_ready` | `bool` | `true` when ≥1 daemon guardian instance is live |
+| `instances` | `array` | Per-instance readiness rows with nested `readiness`, `dispatch`, `gateway`, and `lifecycle` objects |
+
+Use the **dispatch counters** for sidecar-driven adapters: they distinguish
+"the DCC process is listed" from "the sidecar dispatcher is actually callable."
+An instance with `dispatch.ready: false` but `dispatch.reported: true` is a
+sidecar that started but whose dispatcher isn't ready yet.
+
+The **daemon guardian** fields let launchers and admin panels answer whether
+at least one live DCC service can restart the machine-wide gateway daemon. If
+`gateway_daemon_guardian_ready` remains `false` after all expected DCCs have
+started, check that at least one backend is running in `daemon-backed` mode.
+
+### Per-DCC `/v1/readyz`
 
 | State | HTTP | Body | Meaning |
 |---|---|---|---|
