@@ -5,5 +5,6 @@
   "input.stats": "統計チャートを絞り込み...",
   "meta.skillsPaths": "{skills} 件のスキル、{paths} 件のパス",
   "meta.statsCharts": "チャート: {apps} 件のアプリ種別 / {tools} 件のツール / {instances} 件のインスタンス / {agents} 件の agents / {actors} 件の actors / {platforms} 件の platforms / {sources} 件の sources / {formats} 件の形式",
-  "meta.governancePressure": "{denied} 件拒否 / {throttled} 件スロットル"
+  "meta.governancePressure": "{denied} 件拒否 / {throttled} 件スロットル",
+  "meta.marketplace": "合計 {total} パッケージ"
 }

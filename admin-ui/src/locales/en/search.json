@@ -5,5 +5,6 @@
   "input.stats": "Filter stats charts...",
   "meta.skillsPaths": "{skills} skill(s), {paths} path(s)",
   "meta.statsCharts": "charts: {apps} app types / {tools} tools / {instances} instances / {agents} agents / {actors} actors / {platforms} platforms / {sources} sources / {formats} formats",
-  "meta.governancePressure": "{denied} denied / {throttled} throttled"
+  "meta.governancePressure": "{denied} denied / {throttled} throttled",
+  "meta.marketplace": "{total} packages"
 }
