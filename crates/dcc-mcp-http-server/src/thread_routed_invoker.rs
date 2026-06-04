@@ -17,7 +17,7 @@ use serde_json::Value;
 use tokio::runtime::Handle;
 
 use crate::executor::DccExecutorHandle;
-use crate::rmcp_tool_call_dispatch::dispatch_action_with_thread_routing;
+use crate::rmcp_tool_call_dispatch::{ThreadRoutingDispatch, dispatch_action_with_thread_routing};
 
 /// Invoke backend actions with main-thread routing when a host executor is wired.
 pub struct ThreadRoutedInvoker {
@@ -47,8 +47,13 @@ impl ThreadRoutedInvoker {
 }
 
 impl ToolInvoker for ThreadRoutedInvoker {
-    fn invoke(&self, action_name: &str, params: Value) -> Result<CallOutcome, ServiceError> {
-        let meta = self
+    fn invoke(
+        &self,
+        action_name: &str,
+        params: Value,
+        meta: Option<Value>,
+    ) -> Result<CallOutcome, ServiceError> {
+        let action_meta = self
             .dispatcher
             .registry()
             .get_action(action_name, None)
@@ -62,8 +67,8 @@ impl ToolInvoker for ThreadRoutedInvoker {
         let dispatcher = Arc::clone(&self.dispatcher);
         let executor = self.executor.clone();
         let action = action_name.to_string();
-        let affinity = meta.thread_affinity;
-        let enforce = meta.enforce_thread_affinity;
+        let affinity = action_meta.thread_affinity;
+        let enforce = action_meta.enforce_thread_affinity;
 
         // `SkillRestService::call` is synchronous on the dedicated HTTP
         // thread's `current_thread` runtime — `Handle::block_on` there
@@ -79,13 +84,16 @@ impl ToolInvoker for ThreadRoutedInvoker {
                     },
                     || {
                         bridge_runtime.block_on(dispatch_action_with_thread_routing(
-                            dispatcher.as_ref().clone(),
-                            Some(&executor),
-                            &action,
-                            params,
-                            affinity,
-                            enforce,
-                            false,
+                            ThreadRoutingDispatch {
+                                dispatcher: dispatcher.as_ref().clone(),
+                                executor: Some(&executor),
+                                resolved_name: &action,
+                                call_params: params,
+                                meta,
+                                thread_affinity: affinity,
+                                enforce_thread_affinity: enforce,
+                                standalone_main_thread_execution: false,
+                            },
                         ))
                     },
                 )
@@ -159,7 +167,7 @@ mod tests {
         // runtime; it calls `invoke` which `block_on`s the bridge runtime.
         let outcome = std::thread::spawn(move || {
             invoker
-                .invoke("thread_probe", json!({}))
+                .invoke("thread_probe", json!({}), None)
                 .expect("main-thread REST invoke")
         })
         .join()

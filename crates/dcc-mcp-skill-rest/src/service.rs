@@ -240,6 +240,23 @@ pub struct DescribeResponse {
 }
 
 /// Payload for `POST /v1/call`.
+///
+/// The `meta` field carries request-level context forwarded by the Gateway
+/// from the MCP `_meta` block.  It is injected as `params["_meta"]` before
+/// the tool handler runs (after schema validation, so `additionalProperties:
+/// false` tools are safe).
+///
+/// ## `meta` keys (bounded passthrough)
+///
+/// | Key | Source | Purpose |
+/// |-----|--------|---------|
+/// | `agent_context` | Server-derived | Caller identity (actor, agent, session) |
+/// | `credential_profile` | Client | Environment tier (`"prod"`/`"staging"`/`"dev"`) |
+/// | `permission_hint` | Client | `"read-only"` or `"read-write"` |
+/// | `project_scope` | Client | Project identifier for data isolation |
+/// | `search_id` | Client/Gateway | Telemetry correlation id |
+///
+/// See `docs/guide/agents-reference.md#request-level-context-passthrough-_meta----pip-520`.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CallRequest {
     pub tool_slug: ToolSlug,
@@ -249,6 +266,12 @@ pub struct CallRequest {
     #[serde(default, alias = "arguments")]
     #[schema(value_type = Object)]
     pub params: Value,
+    /// Optional request-level metadata forwarded from the gateway/client.
+    /// Contains allowlisted fields such as `agent_context`,
+    /// `credential_profile`, `permission_hint`, `project_scope`.
+    #[serde(default)]
+    #[schema(value_type = Object)]
+    pub meta: Option<Value>,
 }
 
 /// Successful invocation outcome.
@@ -332,7 +355,12 @@ pub struct CatalogAction {
 /// synchronously. Embedders that marshal to a host main thread swap
 /// in their own impl here (e.g. Maya's `DccExecutorHandle`).
 pub trait ToolInvoker: Send + Sync {
-    fn invoke(&self, action_name: &str, params: Value) -> Result<CallOutcome, ServiceError>;
+    fn invoke(
+        &self,
+        action_name: &str,
+        params: Value,
+        meta: Option<Value>,
+    ) -> Result<CallOutcome, ServiceError>;
 }
 
 // ── Resource & prompt providers (#818 phase 1) ───────────────────────
@@ -815,7 +843,12 @@ fn is_host_busy_dispatch_error(message: &str) -> bool {
 }
 
 impl ToolInvoker for DispatcherInvoker {
-    fn invoke(&self, action_name: &str, params: Value) -> Result<CallOutcome, ServiceError> {
+    fn invoke(
+        &self,
+        action_name: &str,
+        params: Value,
+        meta: Option<Value>,
+    ) -> Result<CallOutcome, ServiceError> {
         // Default REST path has no host main-thread bridge — publish that so
         // affinity diagnostics can surface host_dispatcher_attached=false (#1075).
         let exec_ctx = DispatchExecutionContext {
@@ -830,10 +863,10 @@ impl ToolInvoker for DispatcherInvoker {
         with_execution_context(exec_ctx, || {
             let dispatched = if standalone_main {
                 with_thread_affinity(ThreadAffinity::Main, || {
-                    self.dispatcher.dispatch(action_name, params)
+                    self.dispatcher.dispatch(action_name, params, meta.clone())
                 })
             } else {
-                self.dispatcher.dispatch(action_name, params)
+                self.dispatcher.dispatch(action_name, params, meta.clone())
             };
             match dispatched {
                 Ok(r) => Ok(CallOutcome {
@@ -1102,9 +1135,9 @@ impl SkillRestService {
             .with_hint("call load_skill first"));
         }
         // Dispatcher registers under the action name, not the slug.
-        let mut outcome = self
-            .invoker
-            .invoke(&action.action_name, req.params.clone())?;
+        let mut outcome =
+            self.invoker
+                .invoke(&action.action_name, req.params.clone(), req.meta.clone())?;
         // Normalise the outcome to report the slug the caller used.
         outcome.slug = req.tool_slug.clone();
         Ok(outcome)
@@ -1141,7 +1174,7 @@ impl SkillRestService {
             )
             .with_hint("call load_skill first"));
         }
-        let mut outcome = self.invoker.invoke(&action.action_name, params)?;
+        let mut outcome = self.invoker.invoke(&action.action_name, params, None)?;
         outcome.slug = ToolSlug::build(&action.dcc, &action.skill_name, &action.action_name);
         Ok(outcome)
     }

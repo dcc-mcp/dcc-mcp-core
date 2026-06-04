@@ -19,7 +19,7 @@
 //! use serde_json::{json, Value};
 //!
 //! let registry = ToolRegistry::new();
-//! let mut dispatcher = ToolDispatcher::new(registry.clone());
+//! let dispatcher = ToolDispatcher::new(registry.clone());
 //!
 //! // 1. Register metadata
 //! registry.register_action(ToolMeta {
@@ -40,7 +40,7 @@
 //! });
 //!
 //! // 3. Dispatch
-//! let result = dispatcher.dispatch("create_sphere", json!({"radius": 2.0}));
+//! let result = dispatcher.dispatch("create_sphere", json!({"radius": 2.0}), None);
 //! assert!(result.is_ok());
 //! ```
 
@@ -179,7 +179,7 @@ pub struct DispatchResult {
 /// use serde_json::json;
 ///
 /// let registry = ToolRegistry::new();
-/// let mut dispatcher = ToolDispatcher::new(registry.clone());
+/// let dispatcher = ToolDispatcher::new(registry.clone());
 ///
 /// registry.register_action(ToolMeta {
 ///     name: "echo".into(),
@@ -188,7 +188,7 @@ pub struct DispatchResult {
 /// });
 /// dispatcher.register_handler("echo", |params| Ok(params));
 ///
-/// let result = dispatcher.dispatch("echo", json!({"msg": "hello"})).unwrap();
+/// let result = dispatcher.dispatch("echo", json!({"msg": "hello"}), None).unwrap();
 /// assert_eq!(result.output, json!({"msg": "hello"}));
 /// ```
 #[derive(Clone)]
@@ -291,7 +291,26 @@ impl ToolDispatcher {
     /// 2. Look up metadata from the registry (for schema validation).
     /// 3. Validate `params` against `input_schema` (unless schema is empty and
     ///    `skip_empty_schema_validation` is `true`).
-    /// 4. Call the handler and return the result.
+    /// 4. Inject `meta` as `params["_meta"]` **after** validation — safe for
+    ///    tools that declare `additionalProperties: false`.
+    /// 5. Call the handler and return the result.
+    ///
+    /// ## Request-level context (`meta`)
+    ///
+    /// When `meta` is `Some`, the following keys are injected into
+    /// `params["_meta"]` before the handler runs:
+    /// - `agent_context` — server-derived caller identity (actor, agent,
+    ///   session, model, source IP)
+    /// - `credential_profile` — environment tier selector (`"prod"`,
+    ///   `"staging"`, `"dev"`)
+    /// - `permission_hint` — `"read-only"` or `"read-write"`
+    /// - `project_scope` — project identifier for data isolation
+    /// - `search_id` — telemetry correlation id
+    ///
+    /// Tool handlers access this via `params["_meta"]` (Rust) or
+    /// `params.get("_meta", {})` (Python).  See the agent reference
+    /// (`docs/guide/agents-reference.md#request-level-context-passthrough-_meta----pip-520`)
+    /// for usage patterns.
     ///
     /// # Errors
     ///
@@ -303,8 +322,9 @@ impl ToolDispatcher {
         &self,
         action_name: &str,
         params: Value,
+        meta: Option<Value>,
     ) -> Result<DispatchResult, DispatchError> {
-        self.dispatch_inner(action_name, params, true)
+        self.dispatch_inner(action_name, params, meta, true)
     }
 
     #[cfg_attr(not(feature = "python-bindings"), allow(dead_code))]
@@ -313,13 +333,14 @@ impl ToolDispatcher {
         action_name: &str,
         params: Value,
     ) -> Result<DispatchResult, DispatchError> {
-        self.dispatch_inner(action_name, params, false)
+        self.dispatch_inner(action_name, params, None, false)
     }
 
     fn dispatch_inner(
         &self,
         action_name: &str,
-        params: Value,
+        mut params: Value,
+        meta: Option<Value>,
         emit_events: bool,
     ) -> Result<DispatchResult, DispatchError> {
         let started = Instant::now();
@@ -366,6 +387,8 @@ impl ToolDispatcher {
         }
 
         // 3. Validation via pluggable strategy (#493).
+        //    Runs on the original params WITHOUT _meta — safe for tools
+        //    that declare `additionalProperties: false`.
         let outcome = match select_strategy(meta_opt.as_ref(), self.skip_empty_schema_validation)
             .validate(&params)
         {
@@ -378,6 +401,15 @@ impl ToolDispatcher {
                 return Err(err);
             }
         };
+
+        // 3b. Inject _meta into params AFTER validation so the handler
+        //     can consume request-level context (e.g. agent_context,
+        //     credential_profile, permission_hint, project_scope).
+        if let Value::Object(ref mut map) = params
+            && let Some(m) = meta
+        {
+            map.insert("_meta".to_string(), m);
+        }
 
         // 4. Call handler.
         if emit_events
@@ -622,7 +654,7 @@ mod tests {
         dispatcher.register_handler("echo", Ok);
 
         let result = dispatcher
-            .dispatch("echo", json!({"msg": "hello"}))
+            .dispatch("echo", json!({"msg": "hello"}), None)
             .unwrap();
         assert_eq!(result.action, "echo");
         assert_eq!(result.output, json!({"msg": "hello"}));
@@ -641,12 +673,14 @@ mod tests {
         let dispatcher = ToolDispatcher::new(reg);
         dispatcher.register_handler("main_only", |_| Ok(json!({"ok": true})));
 
-        let err = dispatcher.dispatch("main_only", json!({})).unwrap_err();
+        let err = dispatcher
+            .dispatch("main_only", json!({}), None)
+            .unwrap_err();
         assert!(matches!(err, DispatchError::ThreadAffinityViolation { .. }));
         assert!(err.to_string().contains("THREAD_AFFINITY_VIOLATION"));
 
         let result = with_thread_affinity(ThreadAffinity::Main, || {
-            dispatcher.dispatch("main_only", json!({}))
+            dispatcher.dispatch("main_only", json!({}), None)
         })
         .unwrap();
         assert_eq!(result.output, json!({"ok": true}));
@@ -665,7 +699,7 @@ mod tests {
         });
 
         let result = dispatcher
-            .dispatch("test_action", json!({"radius": 5.0}))
+            .dispatch("test_action", json!({"radius": 5.0}), None)
             .unwrap();
         assert_eq!(result.output["radius"], json!(5.0));
         assert!(!result.validation_skipped);
@@ -696,7 +730,7 @@ mod tests {
             });
 
         let result = dispatcher
-            .dispatch("echo", json!({"msg": "hello"}))
+            .dispatch("echo", json!({"msg": "hello"}), None)
             .unwrap();
         assert_eq!(result.output, json!({"msg": "hello"}));
 
@@ -749,7 +783,9 @@ mod tests {
             })
             .unwrap();
 
-        let err = dispatcher.dispatch("delete_scene", json!({})).unwrap_err();
+        let err = dispatcher
+            .dispatch("delete_scene", json!({}), None)
+            .unwrap_err();
 
         assert!(matches!(
             err,
@@ -795,7 +831,7 @@ mod tests {
                     .push((event.name.clone(), event.attributes.clone()));
             });
 
-        let result = dispatcher.dispatch("soft_fail", json!({})).unwrap();
+        let result = dispatcher.dispatch("soft_fail", json!({}), None).unwrap();
         assert_eq!(result.output["success"], false);
 
         let events = events.lock().unwrap();
@@ -829,7 +865,9 @@ mod tests {
                     .push((event.name.clone(), event.attributes.clone()));
             });
 
-        let err = dispatcher.dispatch("test_action", json!({})).unwrap_err();
+        let err = dispatcher
+            .dispatch("test_action", json!({}), None)
+            .unwrap_err();
         assert!(matches!(err, DispatchError::ValidationFailed(_)));
 
         let events = events.lock().unwrap();
@@ -846,7 +884,7 @@ mod tests {
         dispatcher.register_handler("test_action", |_params| Ok(json!("ok")));
 
         let result = dispatcher
-            .dispatch("test_action", json!({"anything": "goes"}))
+            .dispatch("test_action", json!({"anything": "goes"}), None)
             .unwrap();
         assert!(result.validation_skipped);
     }
@@ -857,7 +895,7 @@ mod tests {
         let dispatcher = ToolDispatcher::new(reg);
         dispatcher.register_handler("orphan", |_| Ok(json!("no meta needed")));
 
-        let result = dispatcher.dispatch("orphan", json!(null)).unwrap();
+        let result = dispatcher.dispatch("orphan", json!(null), None).unwrap();
         assert!(result.validation_skipped);
     }
 
@@ -868,7 +906,7 @@ mod tests {
         let reg = ToolRegistry::new();
         let dispatcher = ToolDispatcher::new(reg);
 
-        let err = dispatcher.dispatch("missing", json!({})).unwrap_err();
+        let err = dispatcher.dispatch("missing", json!({}), None).unwrap_err();
         assert!(matches!(err, DispatchError::HandlerNotFound(_)));
         assert!(err.to_string().contains("missing"));
     }
@@ -881,7 +919,9 @@ mod tests {
         }));
         dispatcher.register_handler("test_action", |_| Ok(json!("ok")));
 
-        let err = dispatcher.dispatch("test_action", json!({})).unwrap_err();
+        let err = dispatcher
+            .dispatch("test_action", json!({}), None)
+            .unwrap_err();
         assert!(matches!(err, DispatchError::ValidationFailed(_)));
         assert!(err.to_string().contains("radius"));
     }
@@ -895,7 +935,7 @@ mod tests {
         dispatcher.register_handler("test_action", |_| Ok(json!("ok")));
 
         let err = dispatcher
-            .dispatch("test_action", json!({"x": "not_a_number"}))
+            .dispatch("test_action", json!({"x": "not_a_number"}), None)
             .unwrap_err();
         assert!(matches!(err, DispatchError::ValidationFailed(_)));
     }
@@ -906,7 +946,7 @@ mod tests {
         let dispatcher = ToolDispatcher::new(reg);
         dispatcher.register_handler("failing", |_| Err("something went wrong".into()));
 
-        let err = dispatcher.dispatch("failing", json!({})).unwrap_err();
+        let err = dispatcher.dispatch("failing", json!({}), None).unwrap_err();
         assert!(matches!(err, DispatchError::HandlerError(_)));
         assert!(err.to_string().contains("something went wrong"));
     }
@@ -962,7 +1002,7 @@ mod tests {
         dispatcher.register_handler("action", |_| Ok(json!("v1")));
         dispatcher.register_handler("action", |_| Ok(json!("v2")));
 
-        let result = dispatcher.dispatch("action", json!({})).unwrap();
+        let result = dispatcher.dispatch("action", json!({}), None).unwrap();
         assert_eq!(result.output, json!("v2"));
     }
 
@@ -1024,5 +1064,111 @@ mod tests {
     fn test_dispatch_error_is_error() {
         let err: Box<dyn std::error::Error> = Box::new(DispatchError::HandlerNotFound("x".into()));
         assert!(!err.to_string().is_empty());
+    }
+
+    // ── _meta injection tests (PIP-520) ──────────────────────────────
+
+    #[test]
+    fn meta_is_injected_after_validation() {
+        let registry = ToolRegistry::new();
+        registry.register_action(ToolMeta {
+            name: "test_tool".into(),
+            dcc: "maya".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+            }),
+            ..Default::default()
+        });
+        let dispatcher = ToolDispatcher::new(registry.clone());
+        dispatcher.register_handler("test_tool", |params| {
+            let meta = params.get("_meta");
+            assert!(
+                meta.is_some(),
+                "_meta should be injected when meta is provided"
+            );
+            assert_eq!(meta.unwrap()["allowed_key"], "value1");
+            Ok(json!({"status": "ok"}))
+        });
+        let meta = json!({"allowed_key": "value1"});
+        let result = dispatcher
+            .dispatch("test_tool", json!({"name": "test"}), Some(meta))
+            .unwrap();
+        assert_eq!(result.output["status"], "ok");
+    }
+
+    #[test]
+    fn no_meta_no_injection_backward_compatible() {
+        let registry = ToolRegistry::new();
+        registry.register_action(ToolMeta {
+            name: "test_tool".into(),
+            dcc: "maya".into(),
+            input_schema: json!({"type": "object", "properties": {"name": {"type": "string"}}}),
+            ..Default::default()
+        });
+        let dispatcher = ToolDispatcher::new(registry.clone());
+        dispatcher.register_handler("test_tool", |params| {
+            assert!(
+                params.get("_meta").is_none(),
+                "_meta should NOT be present when meta is None"
+            );
+            Ok(json!({"status": "ok"}))
+        });
+        let result = dispatcher
+            .dispatch("test_tool", json!({"name": "test"}), None)
+            .unwrap();
+        assert_eq!(result.output["status"], "ok");
+    }
+
+    #[test]
+    fn additional_properties_false_still_works_with_meta() {
+        let registry = ToolRegistry::new();
+        registry.register_action(ToolMeta {
+            name: "strict_tool".into(),
+            dcc: "maya".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {"radius": {"type": "number"}},
+                "required": ["radius"],
+                "additionalProperties": false,
+            }),
+            ..Default::default()
+        });
+        let dispatcher = ToolDispatcher::new(registry.clone());
+        dispatcher.register_handler("strict_tool", |params| {
+            // Handler receives _meta injected AFTER validation
+            assert!(params.get("_meta").is_some());
+            // The declared property still works
+            assert_eq!(params["radius"], 2.0);
+            Ok(json!({"created": true}))
+        });
+        let meta = json!({"agent_context": {"session_id": "123"}});
+        // This should pass validation (no _meta during validation), then handler gets _meta
+        let result = dispatcher
+            .dispatch("strict_tool", json!({"radius": 2.0}), Some(meta))
+            .unwrap();
+        assert_eq!(result.output["created"], true);
+    }
+
+    #[test]
+    fn meta_is_not_injected_when_params_is_not_object() {
+        let registry = ToolRegistry::new();
+        registry.register_action(ToolMeta {
+            name: "array_tool".into(),
+            dcc: "maya".into(),
+            input_schema: json!({"type": "array", "items": {"type": "number"}}),
+            ..Default::default()
+        });
+        let dispatcher = ToolDispatcher::new(registry.clone());
+        dispatcher.register_handler("array_tool", |params| {
+            // params is an array, not an object, so _meta is not injected
+            assert!(params.as_array().is_some());
+            Ok(json!({"handled": true}))
+        });
+        let meta = json!({"agent_context": {"session_id": "123"}});
+        let result = dispatcher
+            .dispatch("array_tool", json!([1, 2, 3]), Some(meta))
+            .unwrap();
+        assert_eq!(result.output["handled"], true);
     }
 }

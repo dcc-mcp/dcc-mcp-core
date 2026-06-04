@@ -89,7 +89,8 @@ impl ToolCaller for ToolDispatcherCaller {
         let dispatcher = self.dispatcher.clone();
         let name = tool_name.to_string();
         Box::pin(async move {
-            let dispatch = tokio::task::spawn_blocking(move || dispatcher.dispatch(&name, args));
+            let dispatch =
+                tokio::task::spawn_blocking(move || dispatcher.dispatch(&name, args, None));
             tokio::select! {
                 biased;
                 _ = cancel.cancelled() => Err("cancelled".to_string()),
