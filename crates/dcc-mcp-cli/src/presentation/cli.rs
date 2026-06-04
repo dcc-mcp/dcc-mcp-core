@@ -11,6 +11,7 @@ use serde_json::{Map, Value};
 
 use crate::application::client::DccMcpClient;
 use crate::application::install::InstallService;
+use crate::application::marketplace::MarketplaceService;
 use crate::domain::install::InstallRequest;
 use crate::domain::rest::{
     CallRequest, DescribeRequest, DirectCallRequest, Endpoint, LoadSkillRequest, SearchRequest,
@@ -134,8 +135,43 @@ enum Command {
         #[arg(long, env = "DCC_MCP_CATALOG_PATH")]
         catalog: Option<PathBuf>,
     },
+    /// Search and manage DCC-MCP marketplace sources.
+    Marketplace {
+        #[command(subcommand)]
+        action: MarketplaceAction,
+    },
     /// Validate local SKILL.md packages before loading them at runtime.
     Lint(LintArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum MarketplaceAction {
+    /// Add a marketplace source (raw URL, local file, or GitHub owner/repo).
+    Add {
+        #[arg(value_name = "SOURCE")]
+        source: String,
+    },
+    /// List configured marketplace sources.
+    List,
+    /// Search marketplace entries across configured sources.
+    Search {
+        #[arg(long)]
+        query: Option<String>,
+        #[arg(long)]
+        dcc: Option<String>,
+        /// Use this source for the query instead of configured sources.
+        #[arg(long = "source")]
+        sources: Vec<String>,
+        #[arg(long)]
+        limit: Option<usize>,
+    },
+    /// Inspect one marketplace entry by exact name.
+    Inspect {
+        name: String,
+        /// Use this source for the query instead of configured sources.
+        #[arg(long = "source")]
+        sources: Vec<String>,
+    },
 }
 
 #[derive(Debug, clap::Args)]
@@ -324,6 +360,22 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 version,
                 catalog_path: catalog,
             })?)?
+        }
+        Command::Marketplace { action } => {
+            let service = MarketplaceService::new()?;
+            match action {
+                MarketplaceAction::Add { source } => to_json(service.add_source(&source)?)?,
+                MarketplaceAction::List => to_json(service.list_sources()?)?,
+                MarketplaceAction::Search {
+                    query,
+                    dcc,
+                    sources,
+                    limit,
+                } => to_json(service.search(query, dcc, sources, limit).await?)?,
+                MarketplaceAction::Inspect { name, sources } => {
+                    to_json(service.inspect(name, sources).await?)?
+                }
+            }
         }
         Command::Lint(lint_args) => {
             let result = run_lint_cmd(&lint_args)?;
