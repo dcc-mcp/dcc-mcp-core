@@ -21,7 +21,7 @@ export default defineConfig({
           { text: 'API', link: '/api/models' },
           { text: 'RFCs', link: '/rfcs/' },
           {
-            text: 'v0.17.54', // x-release-please-version
+            text: 'v0.17.55', // x-release-please-version
             items: [
               { text: 'Changelog', link: 'https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md' },
               { text: 'PyPI', link: 'https://pypi.org/project/dcc-mcp-core/' },
@@ -203,7 +203,7 @@ export default defineConfig({
           { text: '指南', link: '/zh/guide/what-is-dcc-mcp-core' },
           { text: 'API', link: '/zh/api/models' },
           {
-            text: 'v0.17.54', // x-release-please-version
+            text: 'v0.17.55', // x-release-please-version
             items: [
               { text: '更新日志', link: 'https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md' },
               { text: 'PyPI', link: 'https://pypi.org/project/dcc-mcp-core/' },

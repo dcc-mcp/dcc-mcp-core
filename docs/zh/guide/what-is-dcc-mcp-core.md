@@ -189,7 +189,7 @@ from dcc_mcp_core import (
 
 ## 版本 / 语言支持
 
-- **当前版本**：0.17.54 <!-- x-release-please-version -->
+- **当前版本**：0.17.55 <!-- x-release-please-version -->
 - **Python**：3.7–3.13（`abi3-py38` wheel）
 - **Rust**：Edition 2024；MSRV 见仓库根 `rust-toolchain.toml`
 - **构建**：maturin + PyO3
