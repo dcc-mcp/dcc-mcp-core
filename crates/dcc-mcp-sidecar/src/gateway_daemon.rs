@@ -95,6 +95,18 @@ pub struct GatewayArgs {
         value_name = "ADMIN_URL=PUBLIC_BASE_URL"
     )]
     pub relay_sources: Vec<RelaySourceArg>,
+
+    /// Detach from the terminal and run as a background daemon.
+    /// On Unix this performs the classic double-fork; on Windows
+    /// the process is spawned detached via the same flags used by
+    /// sidecar auto-launch.
+    #[arg(long, env = "DCC_MCP_DAEMON", default_value = "false")]
+    pub daemon: bool,
+
+    /// Write the daemon process ID to this file. Implicitly enables
+    /// --daemon when a path is provided.
+    #[arg(long, env = "DCC_MCP_PIDFILE", value_name = "PATH")]
+    pub pidfile: Option<PathBuf>,
 }
 
 /// Build the [`GatewayConfig`] that the standalone daemon uses.
@@ -138,6 +150,13 @@ pub fn build_gateway_config(args: &GatewayArgs, gateway_name: &str) -> GatewayCo
 
 /// Run the standalone gateway until a shutdown signal arrives.
 pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
+    // ── Daemonize if requested ────────────────────────────────────────────
+    let _pidfile = if args.daemon || args.pidfile.is_some() {
+        daemonize_gateway(&args)
+    } else {
+        None
+    };
+
     let gateway_name = args.name.clone().unwrap_or_else(default_gateway_name);
     let cfg = build_gateway_config(&args, &gateway_name);
     let runner =
@@ -173,7 +192,79 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
         let reg = runner.registry.read().await;
         let _ = reg.deregister(&key);
     }
+
+    // Drop the pidfile guard so the file is cleaned up.
+    drop(_pidfile);
     Ok(())
+}
+
+/// Daemonize the gateway process and return a pidfile guard.
+#[cfg(unix)]
+fn daemonize_gateway(args: &GatewayArgs) -> Option<PidfileGuard> {
+    // Double-fork: parent exits, child becomes session leader.
+    let pid = unsafe { libc::fork() };
+    if pid > 0 {
+        std::process::exit(0);
+    }
+    unsafe { libc::setsid() };
+    let pid = unsafe { libc::fork() };
+    if pid > 0 {
+        std::process::exit(0);
+    }
+
+    // Redirect stdio to /dev/null.
+    if let Ok(devnull) = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/null")
+    {
+        use std::os::unix::io::AsRawFd;
+        let fd = devnull.as_raw_fd();
+        unsafe {
+            libc::dup2(fd, 0);
+            libc::dup2(fd, 1);
+            libc::dup2(fd, 2);
+        }
+    }
+
+    let guard = write_gateway_pidfile(&args.pidfile);
+    if args.daemon && args.pidfile.is_none() {
+        tracing::info!(pid = std::process::id(), "gateway daemonized");
+    }
+    guard
+}
+
+#[cfg(not(unix))]
+fn daemonize_gateway(_args: &GatewayArgs) -> Option<PidfileGuard> {
+    // Windows: the process is already detached when launched via
+    // spawn_detached_gateway(). Just write the pidfile.
+    let guard = write_gateway_pidfile(&_args.pidfile);
+    if _args.daemon && _args.pidfile.is_none() {
+        tracing::info!(pid = std::process::id(), "gateway running detached");
+    }
+    guard
+}
+
+/// ```ignore
+/// A sentinel that removes the pidfile on Drop.
+/// ```
+struct PidfileGuard {
+    path: PathBuf,
+}
+
+impl Drop for PidfileGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+fn write_gateway_pidfile(pidfile: &Option<PathBuf>) -> Option<PidfileGuard> {
+    let path = pidfile.as_ref()?;
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(path, format!("{}\n", std::process::id())).ok()?;
+    Some(PidfileGuard { path: path.clone() })
 }
 
 fn default_gateway_name() -> String {
@@ -214,6 +305,8 @@ mod tests {
             #[cfg(feature = "mdns")]
             discover_mdns: false,
             relay_sources: vec![source],
+            daemon: false,
+            pidfile: None,
         };
 
         let cfg = build_gateway_config(&args, "relay-source-test");
@@ -253,6 +346,8 @@ mod tests {
             #[cfg(feature = "mdns")]
             discover_mdns: false,
             relay_sources: Vec::new(),
+            daemon: false,
+            pidfile: None,
         };
         let cfg = build_gateway_config(&args, args.name.as_deref().unwrap());
         assert_eq!(
