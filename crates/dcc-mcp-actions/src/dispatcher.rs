@@ -405,10 +405,10 @@ impl ToolDispatcher {
         // 3b. Inject _meta into params AFTER validation so the handler
         //     can consume request-level context (e.g. agent_context,
         //     credential_profile, permission_hint, project_scope).
-        if let Value::Object(ref mut map) = params {
-            if let Some(m) = meta {
-                map.insert("_meta".to_string(), m);
-            }
+        if let Value::Object(ref mut map) = params
+            && let Some(m) = meta
+        {
+            map.insert("_meta".to_string(), m);
         }
 
         // 4. Call handler.
