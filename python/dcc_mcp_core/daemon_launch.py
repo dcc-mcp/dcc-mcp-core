@@ -68,11 +68,17 @@ def launch_detached(
     Returns a dict with ``ok``, ``pid`` (when spawned), ``command``, and
     ``detached``. On failure, ``reason`` is ``spawn_failed`` and ``error``
     carries the exception text.
+
+    When ``detached=True`` on Unix, the child gets its own process group
+    (``start_new_session=True``) so it is immune to the parent's terminal
+    signals. On Windows the typical creation flags are applied.
     """
     cmd = [str(part) for part in command]
     popen_env = dict(os.environ if env is None else env)
     kwargs = detached_popen_kwargs(detached=detached, cwd=cwd)
     kwargs["env"] = popen_env
+    if detached and sys.platform != "win32":
+        kwargs["start_new_session"] = True
     try:
         proc = subprocess.Popen(cmd, **kwargs)
     except Exception as exc:
@@ -208,13 +214,37 @@ class Daemon:
     # ------------------------------------------------------------------
 
     def _daemonize_windows(self) -> None:
-        # Windows cannot really daemonize in-process. The recommended
-        # approach is to re-spawn ourselves with DETACHED_PROCESS and
-        # CREATE_NEW_PROCESS_GROUP flags, passing the same argv + env.
-        # We keep things simple and just redirect stdio — true
-        # daemonization on Windows is handled by the caller via
-        # launch_detached().
-        self._setup_daemon_environment()
+        # Already daemonized — sentinel env var set by the respawn below.
+        if os.environ.get("DCC_MCP__DAEMONIZED") == "1":
+            self._setup_daemon_environment()
+            return
+
+        # Respawn ourselves with DETACHED_PROCESS so the parent exits
+        # and the child runs as a fully detached background process.
+        exe = sys.executable
+        args = [exe, *sys.argv]
+        env = dict(os.environ)
+        env["DCC_MCP__DAEMONIZED"] = "1"
+
+        flags = 0
+        flags |= getattr(subprocess, "DETACHED_PROCESS", 0x0000_0008)
+        flags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x0000_0200)
+
+        child = subprocess.Popen(
+            args,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=flags,
+        )
+
+        # Write pidfile for the spawned child before parent exits.
+        if self._pidfile:
+            self._pidfile.parent.mkdir(parents=True, exist_ok=True)
+            self._pidfile.write_text(f"{child.pid}\n", encoding="ascii")
+
+        os._exit(0)
 
     # ------------------------------------------------------------------
     # Shared post-detach setup
