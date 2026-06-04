@@ -36,6 +36,7 @@ use super::capability::{
     CapabilityIndex, CapabilityRecord, RANKER_VERSION, RefreshReason, SearchHit, SearchQuery,
     parse_slug, refresh_instance, remove_instance, search,
 };
+use super::request_meta::meta_with_agent_context;
 use super::state::GatewayState;
 use dcc_mcp_gateway_core::naming::instance_short;
 
@@ -533,27 +534,6 @@ pub async fn call_service(
             )
             .with_backend(backend_attachment))
         }
-    }
-}
-
-fn meta_with_agent_context(
-    meta: Option<Value>,
-    agent_context: Option<&AgentContext>,
-) -> Option<Value> {
-    let Some(agent_context) = agent_context else {
-        return meta;
-    };
-    let agent_context = serde_json::to_value(agent_context).ok()?;
-    match meta {
-        Some(Value::Object(mut map)) => {
-            map.insert("agent_context".to_string(), agent_context);
-            Some(Value::Object(map))
-        }
-        Some(other) => Some(json!({
-            "agent_context": agent_context,
-            "upstream_meta": other,
-        })),
-        None => Some(json!({ "agent_context": agent_context })),
     }
 }
 

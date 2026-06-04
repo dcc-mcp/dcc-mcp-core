@@ -158,6 +158,7 @@ async fn mcp_wrapper_and_rest_agree_on_call_output() {
         .call(&super::service::CallRequest {
             tool_slug: super::service::ToolSlug("maya.spheres.create_sphere".into()),
             params: json!({"radius": 3.0}),
+            meta: None,
         })
         .expect("mcp call ok");
 
@@ -1136,4 +1137,521 @@ async fn call_thread_affinity_violation_includes_context() {
     assert_eq!(ctx["observed_affinity"], "any");
     assert_eq!(ctx["host_dispatcher_attached"], false);
     assert_eq!(ctx["observed_context"], "worker_no_dispatcher");
+}
+
+// ── PIP-520: _meta passthrough business scenario tests ──────────────
+
+/// Fixture that registers tools which consume `_meta` from their params.
+/// Models realistic adapter skills that need request-level context.
+fn fixture_meta_aware_tools() -> (SkillRestService, Arc<ToolRegistry>, Arc<ToolDispatcher>) {
+    let registry = Arc::new(ToolRegistry::new());
+
+    // Tool 1: credential_profile — selects credentials based on profile
+    let cred_schema = json!({
+        "type": "object",
+        "properties": {"service": {"type": "string"}},
+        "required": ["service"]
+    });
+    registry.register_action(ToolMeta {
+        name: "credential_resolver".into(),
+        dcc: "maya".into(),
+        description: "Resolves credentials via _meta.credential_profile".into(),
+        input_schema: cred_schema,
+        skill_name: Some("auth".into()),
+        enabled: true,
+        ..Default::default()
+    });
+
+    // Tool 2: permission_hint — enforces read-only mode
+    let perm_schema = json!({
+        "type": "object",
+        "properties": {"action": {"type": "string"}},
+        "required": ["action"]
+    });
+    registry.register_action(ToolMeta {
+        name: "permission_gate".into(),
+        dcc: "maya".into(),
+        description: "Enforces read-only via _meta.permission_hint".into(),
+        input_schema: perm_schema,
+        skill_name: Some("auth".into()),
+        enabled: true,
+        ..Default::default()
+    });
+
+    // Tool 3: project_scope — filters data by project
+    let scope_schema = json!({
+        "type": "object",
+        "properties": {"asset_name": {"type": "string"}},
+        "required": ["asset_name"]
+    });
+    registry.register_action(ToolMeta {
+        name: "asset_lookup".into(),
+        dcc: "maya".into(),
+        description: "Filters assets by _meta.project_scope".into(),
+        input_schema: scope_schema,
+        skill_name: Some("pipeline".into()),
+        enabled: true,
+        ..Default::default()
+    });
+
+    // Tool 4: agent_context — identifies the calling agent/actor
+    let agent_schema = json!({
+        "type": "object",
+        "properties": {"message": {"type": "string"}},
+        "required": ["message"]
+    });
+    registry.register_action(ToolMeta {
+        name: "agent_greeter".into(),
+        dcc: "maya".into(),
+        description: "Reads _meta.agent_context for caller identity".into(),
+        input_schema: agent_schema,
+        skill_name: Some("telemetry".into()),
+        enabled: true,
+        ..Default::default()
+    });
+
+    // Tool 5: additionalProperties: false — strict schema, must still work
+    let strict_schema = json!({
+        "type": "object",
+        "properties": {"value": {"type": "number"}},
+        "required": ["value"],
+        "additionalProperties": false
+    });
+    registry.register_action(ToolMeta {
+        name: "strict_tool".into(),
+        dcc: "maya".into(),
+        description: "Strict additionalProperties:false schema".into(),
+        input_schema: strict_schema,
+        skill_name: Some("pipeline".into()),
+        enabled: true,
+        ..Default::default()
+    });
+
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
+
+    // Handler 1: reads credential_profile from _meta
+    dispatcher.register_handler("credential_resolver", |params: Value| {
+        let profile = params
+            .pointer("/_meta/credential_profile")
+            .and_then(Value::as_str)
+            .unwrap_or("default");
+        let creds = match profile {
+            "prod" => json!({"endpoint": "https://prod.api.example.com", "token": "prod-token"}),
+            "staging" => {
+                json!({"endpoint": "https://staging.api.example.com", "token": "staging-token"})
+            }
+            _ => json!({"endpoint": "https://dev.api.example.com", "token": "dev-token"}),
+        };
+        Ok(json!({
+            "resolved": true,
+            "profile": profile,
+            "credentials": creds,
+            "service": params["service"]
+        }))
+    });
+
+    // Handler 2: enforces read-only via permission_hint
+    dispatcher.register_handler("permission_gate", |params: Value| {
+        let hint = params
+            .pointer("/_meta/permission_hint")
+            .and_then(Value::as_str)
+            .unwrap_or("read-write");
+        let action = params["action"].as_str().unwrap_or("");
+        if hint == "read-only" && action == "delete" {
+            return Ok(json!({
+                "allowed": false,
+                "reason": format!("action '{}' denied: permission_hint is '{}'", action, hint),
+                "hint": hint,
+            }));
+        }
+        Ok(json!({
+            "allowed": true,
+            "action": action,
+            "hint": hint,
+        }))
+    });
+
+    // Handler 3: filters by project_scope from _meta
+    dispatcher.register_handler("asset_lookup", |params: Value| {
+        let scope = params
+            .pointer("/_meta/project_scope")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let asset_name = params["asset_name"].as_str().unwrap_or("");
+        // Simulated asset database — only returns assets in scope
+        let all_assets = vec![
+            json!({"name": "hero_model", "project": "movie-42", "path": "/scenes/movie42/hero.ma"}),
+            json!({"name": "prop_chair", "project": "movie-99", "path": "/scenes/movie99/chair.ma"}),
+            json!({"name": "env_forest", "project": "movie-42", "path": "/scenes/movie42/forest.ma"}),
+        ];
+        let filtered: Vec<_> = if scope.is_empty() {
+            all_assets.clone()
+        } else {
+            all_assets
+                .into_iter()
+                .filter(|a| a["project"] == scope)
+                .collect()
+        };
+        Ok(json!({
+            "scope": scope,
+            "query": asset_name,
+            "results": filtered.len(),
+            "assets": filtered,
+        }))
+    });
+
+    // Handler 4: reads agent_context from _meta for caller identity
+    dispatcher.register_handler("agent_greeter", |params: Value| {
+        let meta = params.get("_meta");
+        let agent_ctx = meta.and_then(|m| m.get("agent_context"));
+        let actor_id = agent_ctx
+            .and_then(|ac| ac.get("actor_id"))
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let agent_name = agent_ctx
+            .and_then(|ac| ac.get("agent_name"))
+            .and_then(Value::as_str)
+            .unwrap_or("unknown-agent");
+        let session_id = agent_ctx
+            .and_then(|ac| ac.get("session_id"))
+            .and_then(Value::as_str)
+            .unwrap_or("no-session");
+        Ok(json!({
+            "greeting": format!("Hello {}! I see you're using {}. Session: {}", actor_id, agent_name, session_id),
+            "message": params["message"],
+            "actor_id": actor_id,
+            "agent_name": agent_name,
+            "session_id": session_id,
+        }))
+    });
+
+    // Handler 5: strict schema, just echoes — validates additionalProperties:false still works
+    dispatcher.register_handler("strict_tool", |params: Value| {
+        Ok(json!({
+            "echoed_value": params["value"],
+            "has_meta": params.get("_meta").is_some(),
+        }))
+    });
+
+    let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+        registry.clone(),
+        dispatcher.clone(),
+    ));
+
+    for (skill_name, dcc, desc, tags) in [
+        (
+            "auth",
+            "maya",
+            "Authentication & authorization",
+            vec!["security"],
+        ),
+        ("pipeline", "maya", "Pipeline utilities", vec!["pipeline"]),
+        (
+            "telemetry",
+            "maya",
+            "Telemetry & observability",
+            vec!["observability"],
+        ),
+    ] {
+        let meta = SkillMetadata {
+            name: skill_name.into(),
+            dcc: dcc.into(),
+            description: desc.into(),
+            tags: tags.into_iter().map(String::from).collect(),
+            ..Default::default()
+        };
+        catalog.add_skill(meta);
+        let _ = catalog.load_skill(skill_name);
+    }
+
+    let service = SkillRestService::from_catalog_and_dispatcher(catalog, dispatcher.clone());
+    (service, registry, dispatcher)
+}
+
+// ── Scenario 1: credential_profile resolution ────────────────
+
+#[tokio::test]
+async fn meta_credential_profile_selects_prod_credentials() {
+    let (svc, _, _) = fixture_meta_aware_tools();
+    let (server, _) = build_server(svc);
+
+    let resp = server
+        .post("/v1/call")
+        .json(&json!({
+            "tool_slug": "maya.auth.credential_resolver",
+            "params": {"service": "fpt"},
+            "meta": {
+                "credential_profile": "prod",
+                "agent_context": {"actor_id": "artist-1"}
+            }
+        }))
+        .await;
+    resp.assert_status_ok();
+    let out: Value = resp.json();
+    assert_eq!(out["output"]["profile"], "prod");
+    assert_eq!(out["output"]["resolved"], true);
+    assert_eq!(
+        out["output"]["credentials"]["endpoint"],
+        "https://prod.api.example.com"
+    );
+    assert_eq!(out["output"]["credentials"]["token"], "prod-token");
+    assert_eq!(out["output"]["service"], "fpt");
+}
+
+#[tokio::test]
+async fn meta_credential_profile_defaults_when_absent() {
+    let (svc, _, _) = fixture_meta_aware_tools();
+    let (server, _) = build_server(svc);
+
+    // No meta at all — handler should fall back to "default"
+    let resp = server
+        .post("/v1/call")
+        .json(&json!({
+            "tool_slug": "maya.auth.credential_resolver",
+            "params": {"service": "fpt"}
+        }))
+        .await;
+    resp.assert_status_ok();
+    let out: Value = resp.json();
+    assert_eq!(out["output"]["profile"], "default");
+    assert_eq!(
+        out["output"]["credentials"]["endpoint"],
+        "https://dev.api.example.com"
+    );
+}
+
+// ── Scenario 2: permission_hint enforcement ────────────────
+
+#[tokio::test]
+async fn meta_permission_hint_read_only_blocks_delete() {
+    let (svc, _, _) = fixture_meta_aware_tools();
+    let (server, _) = build_server(svc);
+
+    let resp = server
+        .post("/v1/call")
+        .json(&json!({
+            "tool_slug": "maya.auth.permission_gate",
+            "params": {"action": "delete"},
+            "meta": {"permission_hint": "read-only"}
+        }))
+        .await;
+    resp.assert_status_ok();
+    let out: Value = resp.json();
+    assert_eq!(out["output"]["allowed"], false);
+    assert!(out["output"]["reason"].as_str().unwrap().contains("denied"));
+}
+
+#[tokio::test]
+async fn meta_permission_hint_read_write_allows_delete() {
+    let (svc, _, _) = fixture_meta_aware_tools();
+    let (server, _) = build_server(svc);
+
+    let resp = server
+        .post("/v1/call")
+        .json(&json!({
+            "tool_slug": "maya.auth.permission_gate",
+            "params": {"action": "delete"},
+            "meta": {"permission_hint": "read-write"}
+        }))
+        .await;
+    resp.assert_status_ok();
+    let out: Value = resp.json();
+    assert_eq!(out["output"]["allowed"], true);
+    assert_eq!(out["output"]["hint"], "read-write");
+}
+
+// ── Scenario 3: project_scope isolation ────────────────
+
+#[tokio::test]
+async fn meta_project_scope_filters_assets_to_movie_42() {
+    let (svc, _, _) = fixture_meta_aware_tools();
+    let (server, _) = build_server(svc);
+
+    let resp = server
+        .post("/v1/call")
+        .json(&json!({
+            "tool_slug": "maya.pipeline.asset_lookup",
+            "params": {"asset_name": "hero"},
+            "meta": {"project_scope": "movie-42"}
+        }))
+        .await;
+    resp.assert_status_ok();
+    let out: Value = resp.json();
+    assert_eq!(out["output"]["scope"], "movie-42");
+    assert_eq!(out["output"]["results"], 2); // hero_model + env_forest
+    let assets = out["output"]["assets"].as_array().unwrap();
+    for asset in assets {
+        assert_eq!(asset["project"], "movie-42");
+    }
+}
+
+#[tokio::test]
+async fn meta_project_scope_empty_returns_all_assets() {
+    let (svc, _, _) = fixture_meta_aware_tools();
+    let (server, _) = build_server(svc);
+
+    // No meta — should return all assets (scope is empty string)
+    let resp = server
+        .post("/v1/call")
+        .json(&json!({
+            "tool_slug": "maya.pipeline.asset_lookup",
+            "params": {"asset_name": "hero"}
+        }))
+        .await;
+    resp.assert_status_ok();
+    let out: Value = resp.json();
+    assert_eq!(out["output"]["scope"], "");
+    assert_eq!(out["output"]["results"], 3); // all 3 assets
+}
+
+// ── Scenario 4: agent_context passthrough ────────────────
+
+#[tokio::test]
+async fn meta_agent_context_identifies_caller() {
+    let (svc, _, _) = fixture_meta_aware_tools();
+    let (server, _) = build_server(svc);
+
+    let resp = server
+        .post("/v1/call")
+        .json(&json!({
+            "tool_slug": "maya.telemetry.agent_greeter",
+            "params": {"message": "hello"},
+            "meta": {
+                "agent_context": {
+                    "actor_id": "artist-42",
+                    "agent_name": "claude-code",
+                    "session_id": "sess-abc-123",
+                    "agent_version": "4.6.0"
+                }
+            }
+        }))
+        .await;
+    resp.assert_status_ok();
+    let out: Value = resp.json();
+    assert_eq!(out["output"]["actor_id"], "artist-42");
+    assert_eq!(out["output"]["agent_name"], "claude-code");
+    assert_eq!(out["output"]["session_id"], "sess-abc-123");
+    let greeting = out["output"]["greeting"].as_str().unwrap();
+    assert!(greeting.contains("artist-42"));
+    assert!(greeting.contains("claude-code"));
+}
+
+#[tokio::test]
+async fn meta_agent_context_unknown_when_absent() {
+    let (svc, _, _) = fixture_meta_aware_tools();
+    let (server, _) = build_server(svc);
+
+    // No meta — handler falls back to "unknown"
+    let resp = server
+        .post("/v1/call")
+        .json(&json!({
+            "tool_slug": "maya.telemetry.agent_greeter",
+            "params": {"message": "hi"}
+        }))
+        .await;
+    resp.assert_status_ok();
+    let out: Value = resp.json();
+    assert_eq!(out["output"]["actor_id"], "unknown");
+    assert_eq!(out["output"]["agent_name"], "unknown-agent");
+}
+
+// ── Scenario 5: strict schema (additionalProperties: false) ──
+
+#[tokio::test]
+async fn meta_passthrough_with_strict_schema_additional_properties_false() {
+    let (svc, _, _) = fixture_meta_aware_tools();
+    let (server, _) = build_server(svc);
+
+    // This would fail validation if _meta were injected BEFORE validation
+    let resp = server
+        .post("/v1/call")
+        .json(&json!({
+            "tool_slug": "maya.pipeline.strict_tool",
+            "params": {"value": 42.0},
+            "meta": {
+                "agent_context": {"actor_id": "strict-user"},
+                "credential_profile": "prod",
+                "permission_hint": "read-only",
+                "project_scope": "movie-42",
+            }
+        }))
+        .await;
+    resp.assert_status_ok();
+    let out: Value = resp.json();
+    assert_eq!(out["output"]["echoed_value"], 42.0);
+    // _meta should be present in handler params (injected after validation)
+    assert_eq!(out["output"]["has_meta"], true);
+}
+
+// ── Scenario 6: service-layer meta passthrough ─────────────
+
+#[test]
+fn service_layer_call_passes_meta_through_to_invoker() {
+    let (svc, _, _) = fixture_meta_aware_tools();
+
+    // Service-layer call (bypasses HTTP) — the same path the gateway
+    // MCP wrapper uses via `call_tool` -> `call_service`.
+    let outcome = svc
+        .call(&super::service::CallRequest {
+            tool_slug: super::service::ToolSlug("maya.auth.credential_resolver".into()),
+            params: json!({"service": "fpt"}),
+            meta: Some(json!({
+                "credential_profile": "staging",
+                "agent_context": {"actor_id": "svc-caller"}
+            })),
+        })
+        .expect("service call");
+    let output = &outcome.output;
+    assert_eq!(output["profile"], "staging");
+    assert_eq!(
+        output["credentials"]["endpoint"],
+        "https://staging.api.example.com"
+    );
+}
+
+#[test]
+fn service_layer_call_without_meta_is_backward_compatible() {
+    let (svc, _, _) = fixture_meta_aware_tools();
+
+    let outcome = svc
+        .call(&super::service::CallRequest {
+            tool_slug: super::service::ToolSlug("maya.auth.credential_resolver".into()),
+            params: json!({"service": "fpt"}),
+            meta: None,
+        })
+        .expect("service call");
+    assert_eq!(outcome.output["profile"], "default");
+}
+
+// ── Scenario 7: multi-field passthrough ────────────────────
+
+#[tokio::test]
+async fn meta_multiple_fields_all_passed_through_together() {
+    let (svc, _, _) = fixture_meta_aware_tools();
+    let (server, _) = build_server(svc);
+
+    // Send all allowlisted fields + agent_context at once
+    let resp = server
+        .post("/v1/call")
+        .json(&json!({
+            "tool_slug": "maya.telemetry.agent_greeter",
+            "params": {"message": "multi-test"},
+            "meta": {
+                "agent_context": {
+                    "actor_id": "multi-user",
+                    "agent_name": "test-agent",
+                    "session_id": "multi-session"
+                },
+                "credential_profile": "prod",
+                "permission_hint": "read-write",
+                "project_scope": "movie-42",
+                "search_id": "search-xyz"
+            }
+        }))
+        .await;
+    resp.assert_status_ok();
+    let out: Value = resp.json();
+    assert_eq!(out["output"]["actor_id"], "multi-user");
+    assert_eq!(out["output"]["agent_name"], "test-agent");
+    assert_eq!(out["output"]["session_id"], "multi-session");
 }

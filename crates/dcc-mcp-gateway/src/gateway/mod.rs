@@ -51,6 +51,7 @@ pub mod native_resources;
 pub mod openapi;
 pub mod proxy;
 pub mod relay_registration;
+pub(crate) mod request_meta;
 pub mod resilience;
 pub(crate) mod response_codec;
 pub(crate) mod rest_openapi;

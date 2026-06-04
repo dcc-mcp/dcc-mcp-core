@@ -3099,7 +3099,7 @@ class ToolDispatcher:
         r"""
         Alphabetically sorted list of registered handler names.
         """
-    def dispatch(self, action_name: builtins.str, params_json: builtins.str = 'null') -> dict:
+    def dispatch(self, action_name: builtins.str, params_json: builtins.str = 'null', meta_json: builtins.str = 'null') -> dict:
         r"""
         Dispatch an action call.
 
@@ -3239,7 +3239,7 @@ class ToolPipeline:
             before_fn: Optional callable ``(action_name: str) -> None`` called before dispatch.
             after_fn:  Optional callable ``(action_name: str, success: bool) -> None`` called after.
         """
-    def dispatch(self, action_name: builtins.str, params_json: builtins.str = 'null') -> dict:
+    def dispatch(self, action_name: builtins.str, params_json: builtins.str = 'null', meta_json: builtins.str = 'null') -> dict:
         r"""
         Dispatch an action through the middleware pipeline.
 

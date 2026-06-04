@@ -345,12 +345,12 @@ fn test_load_skill_propagates_thread_affinity_enforcement() {
     catalog.load_skill("main-thread").unwrap();
 
     let err = dispatcher
-        .dispatch("main_thread__execute_python", serde_json::json!({}))
+        .dispatch("main_thread__execute_python", serde_json::json!({}), None)
         .expect_err("worker-thread dispatch must be rejected");
     assert!(matches!(err, DispatchError::ThreadAffinityViolation { .. }));
 
     let ok = with_thread_affinity(ThreadAffinity::Main, || {
-        dispatcher.dispatch("main_thread__execute_python", serde_json::json!({}))
+        dispatcher.dispatch("main_thread__execute_python", serde_json::json!({}), None)
     })
     .expect("main-thread dispatch should pass enforcement");
     assert_eq!(ok.output, serde_json::json!({"ok": true}));
@@ -400,7 +400,7 @@ fn test_load_skill_object_applies_tool_declaration_overrides() {
     assert!(!meta.enforce_thread_affinity);
 
     let ok = dispatcher
-        .dispatch("mutable_affinity__host_scene", serde_json::json!({}))
+        .dispatch("mutable_affinity__host_scene", serde_json::json!({}), None)
         .expect("worker dispatch should be allowed after override");
     assert_eq!(ok.output, serde_json::json!({"ok": true}));
 }

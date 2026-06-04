@@ -218,15 +218,24 @@ impl PyToolPipeline {
     ///     KeyError:     No handler registered for ``action_name``.
     ///     ValueError:   Invalid JSON or schema validation failure.
     ///     RuntimeError: Handler error or rate-limit exceeded.
-    #[pyo3(signature = (action_name, params_json = "null"))]
+    #[pyo3(signature = (action_name, params_json = "null", meta_json = "null"))]
     pub fn dispatch<'py>(
         &self,
         py: Python<'py>,
         action_name: &str,
         params_json: &str,
+        meta_json: &str,
     ) -> PyResult<Bound<'py, PyDict>> {
-        let params: Value = serde_json::from_str(params_json)
+        let mut params: Value = serde_json::from_str(params_json)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("invalid JSON: {e}")))?;
+        // Parse optional meta (request-level context like agent_context)
+        let meta: Option<Value> = if meta_json == "null" {
+            None
+        } else {
+            Some(serde_json::from_str(meta_json).map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!("invalid meta JSON: {e}"))
+            })?)
+        };
 
         // Run Python callable before_fn hooks
         for hook in &self.callable_hooks {
@@ -237,7 +246,7 @@ impl PyToolPipeline {
             }
         }
 
-        // Run through Rust middleware pipeline (stubs return null)
+        // Run through Rust middleware pipeline (stubs return null, validates without _meta)
         let result = self.inner.dispatch(action_name, params.clone());
 
         // Determine success for Python after_fn hooks
@@ -252,6 +261,12 @@ impl PyToolPipeline {
 
         match result {
             Ok(dispatch_result) => {
+                // Inject _meta into params AFTER validation (safe for additionalProperties: false).
+                if let Some(m) = meta {
+                    if let Value::Object(ref mut map) = params {
+                        map.insert("_meta".to_string(), m);
+                    }
+                }
                 // Call the real Python handler
                 let handler = self.handler_map.get(action_name).ok_or_else(|| {
                     pyo3::exceptions::PyKeyError::new_err(format!("no handler for '{action_name}'"))

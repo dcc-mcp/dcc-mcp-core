@@ -209,7 +209,7 @@ async fn register_workflow_handlers_wires_run_and_cancel() {
 
     let yaml = "name: t\nsteps:\n  - id: s1\n    tool: scene_echo\n    args: {x: 1}\n";
     let out = dispatcher
-        .dispatch(tools::names::RUN, json!({"spec": yaml, "inputs": {}}))
+        .dispatch(tools::names::RUN, json!({"spec": yaml, "inputs": {}}), None)
         .unwrap()
         .output;
     let wid = out["workflow_id"].as_str().unwrap();
@@ -217,7 +217,7 @@ async fn register_workflow_handlers_wires_run_and_cancel() {
 
     // Cancel via dispatcher.
     let cancelled = dispatcher
-        .dispatch(tools::names::CANCEL, json!({"workflow_id": wid}))
+        .dispatch(tools::names::CANCEL, json!({"workflow_id": wid}), None)
         .unwrap()
         .output;
     assert_eq!(cancelled["cancelled"], true);

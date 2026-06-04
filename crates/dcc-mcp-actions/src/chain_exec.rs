@@ -150,7 +150,7 @@ impl ActionChain {
             };
 
             // Dispatch
-            let dispatch_result = dispatcher.dispatch(&step.action, params);
+            let dispatch_result = dispatcher.dispatch(&step.action, params, None);
 
             match dispatch_result {
                 Ok(res) => {
