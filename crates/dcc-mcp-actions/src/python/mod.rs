@@ -315,17 +315,26 @@ impl PyToolDispatcher {
     ///     KeyError:     No handler registered for ``action_name``.
     ///     ValueError:   Invalid JSON or validation failure.
     ///     RuntimeError: Handler raised an exception.
-    #[pyo3(signature = (action_name, params_json = "null"))]
+    #[pyo3(signature = (action_name, params_json = "null", meta_json = "null"))]
     pub fn dispatch<'py>(
         &self,
         py: Python<'py>,
         action_name: &str,
         params_json: &str,
+        meta_json: &str,
     ) -> PyResult<Bound<'py, PyDict>> {
         let started = Instant::now();
         // 1. Parse params
-        let params: Value = serde_json::from_str(params_json)
+        let mut params: Value = serde_json::from_str(params_json)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("invalid JSON: {e}")))?;
+        // 1b. Parse optional meta (request-level context like agent_context)
+        let meta: Option<Value> = if meta_json == "null" {
+            None
+        } else {
+            Some(serde_json::from_str(meta_json).map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!("invalid meta JSON: {e}"))
+            })?)
+        };
 
         // 2. Validate via Rust dispatcher (the stub handler is registered there too)
         let validation_skipped = if !self.handler_map.contains_key(action_name) {
@@ -380,6 +389,13 @@ impl PyToolDispatcher {
                 }
             }
         };
+
+        // 2b. Inject _meta into params AFTER validation (safe for additionalProperties: false).
+        if let Some(m) = meta {
+            if let Value::Object(ref mut map) = params {
+                map.insert("_meta".to_string(), m);
+            }
+        }
 
         // 3. Call the Python handler
         if let Err(veto) = self.emit_vetoable_tool_event(

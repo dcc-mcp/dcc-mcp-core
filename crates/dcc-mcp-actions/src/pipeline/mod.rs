@@ -191,6 +191,16 @@ impl ToolPipeline {
         action_name: &str,
         params: Value,
     ) -> Result<DispatchResult, DispatchError> {
+        self.dispatch_with_meta(action_name, params, None)
+    }
+
+    /// Like [`dispatch`] but also passes request-level `meta` to the handler.
+    pub fn dispatch_with_meta(
+        &self,
+        action_name: &str,
+        params: Value,
+        meta: Option<Value>,
+    ) -> Result<DispatchResult, DispatchError> {
         let mut ctx = MiddlewareContext::new(action_name, params.clone());
 
         // Run before_dispatch in registration order
@@ -200,7 +210,7 @@ impl ToolPipeline {
 
         // Use (possibly mutated) params from context
         let dispatch_params = ctx.params.clone();
-        let result = self.dispatcher.dispatch(action_name, dispatch_params);
+        let result = self.dispatcher.dispatch(action_name, dispatch_params, meta);
 
         // Run after_dispatch in reverse order
         for middleware in self.middlewares.iter().rev() {
