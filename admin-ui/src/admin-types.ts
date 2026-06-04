@@ -2,7 +2,7 @@ import { type InterpolationValues, type MessageKey } from './i18n';
 
 export type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 
-export type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'workflows' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'traffic' | 'stats' | 'governance' | 'logs' | 'skill-paths' | 'analytics';
+export type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'workflows' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'traffic' | 'stats' | 'governance' | 'logs' | 'skill-paths' | 'analytics' | 'marketplace';
 
 export type AnalyticsOverview = {
   range: string;
@@ -1195,6 +1195,62 @@ export function normalizeSkillDetailPayload(raw: unknown): SkillDetailPayload {
     error: o.error == null ? null : String(o.error),
   };
 }
+
+/// Marketplace catalog entry — mirrors dcc_mcp_catalog::CatalogEntry.
+export type MarketplaceEntry = {
+  name: string;
+  description: string;
+  dcc: string[];
+  url?: string | null;
+  tags: string[];
+  version?: string | null;
+  min_core_version?: string | null;
+  maintainer?: string | null;
+  source_name?: string;
+  source_url?: string;
+  install?: {
+    type: string;
+    url?: string | null;
+    ref?: string | null;
+  } | null;
+};
+
+/// Installed marketplace package — mirrors CLI domain InstalledMarketplacePackage.
+export type InstalledMarketplacePackage = {
+  name: string;
+  dcc: string;
+  version?: string | null;
+  path: string;
+  source_name: string;
+  source_url: string;
+  install_type: string;
+  install_url?: string | null;
+  install_ref?: string | null;
+  installed_at_ms: number;
+};
+
+/// Marketplace install result.
+export type MarketplaceInstallResult = {
+  installed: boolean;
+  name: string;
+  dcc: string;
+  version?: string | null;
+  path: string;
+  skill_search_path: string;
+  install_type: string;
+  reload_required: boolean;
+};
+
+/// Marketplace uninstall result.
+export type MarketplaceUninstallResult = {
+  uninstalled: boolean;
+  name: string;
+  dcc: string;
+  path: string;
+  removed_state: boolean;
+  removed_files: boolean;
+  reload_required: boolean;
+};
 
 /// DCC-type → icon URL (local SVGs, bundled by Vite + vite-plugin-singlefile).
 /// Unknown/missing types fall back to a generic puzzle-piece icon.

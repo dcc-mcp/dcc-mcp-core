@@ -5,5 +5,6 @@
   "input.stats": "통계 차트 필터...",
   "meta.skillsPaths": "스킬 {skills}개, 경로 {paths}개",
   "meta.statsCharts": "차트: 앱 유형 {apps}개 / 도구 {tools}개 / 인스턴스 {instances}개 / agents {agents}개 / actors {actors}개 / platforms {platforms}개 / sources {sources}개 / 형식 {formats}개",
-  "meta.governancePressure": "거부 {denied}개 / 제한 {throttled}개"
+  "meta.governancePressure": "거부 {denied}개 / 제한 {throttled}개",
+  "meta.marketplace": "총 {total}개 패키지"
 }

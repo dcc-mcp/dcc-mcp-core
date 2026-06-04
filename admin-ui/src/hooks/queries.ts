@@ -37,6 +37,10 @@ import type {
   HealthPayload,
   InstanceRow,
   InstanceSummary,
+  InstalledMarketplacePackage,
+  MarketplaceEntry,
+  MarketplaceInstallResult,
+  MarketplaceUninstallResult,
   StatsPayload,
   TaskRow,
   ToolRow,
@@ -69,6 +73,8 @@ export const adminKeys = {
   skillPaths: () => [...adminKeys.all, 'skill-paths'] as const,
   traceDetail: (requestId: string) => [...adminKeys.all, 'trace-detail', requestId] as const,
   openApiSpec: (specUrl: string) => [...adminKeys.all, 'openapi-spec', specUrl] as const,
+  marketplaceCatalog: () => [...adminKeys.all, 'marketplace', 'catalog'] as const,
+  marketplaceInstalled: () => [...adminKeys.all, 'marketplace', 'installed'] as const,
 };
 
 // ── polling config ─────────────────────────────────────────────────────────
@@ -281,6 +287,70 @@ export function useDeleteSkillPath() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: adminKeys.skillPaths() });
       queryClient.invalidateQueries({ queryKey: adminKeys.skills() });
+    },
+  });
+}
+
+// ── marketplace query hooks ─────────────────────────────────────────────────
+
+export function useMarketplaceCatalogQuery(enabled: boolean) {
+  return useQuery({
+    queryKey: adminKeys.marketplaceCatalog(),
+    queryFn: () => apiJson<{ entries: MarketplaceEntry[] }>('/marketplace/catalog'),
+    select: (payload) => (Array.isArray(payload.entries) ? payload.entries : []),
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+export function useInstalledMarketplaceQuery(enabled: boolean) {
+  return useQuery({
+    queryKey: adminKeys.marketplaceInstalled(),
+    queryFn: () => apiJson<{ packages: InstalledMarketplacePackage[] }>('/marketplace/installed'),
+    select: (payload) => (Array.isArray(payload.packages) ? payload.packages : []),
+    enabled,
+    staleTime: 10_000,
+  });
+}
+
+// ── marketplace mutations ───────────────────────────────────────────────────
+
+export function useMarketplaceInstall() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { name: string; dcc: string; source?: string }) =>
+      fetch(`${API_BASE}/marketplace/install`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(ADMIN_FETCH_TIMEOUT_MS),
+      }).then((res) => {
+        if (!res.ok) throw new Error(`Install failed: ${res.status}`);
+        return res.json() as Promise<MarketplaceInstallResult>;
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: adminKeys.marketplaceInstalled() });
+      queryClient.invalidateQueries({ queryKey: adminKeys.marketplaceCatalog() });
+    },
+  });
+}
+
+export function useMarketplaceUninstall() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { name: string; dcc: string }) =>
+      fetch(`${API_BASE}/marketplace/uninstall`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(ADMIN_FETCH_TIMEOUT_MS),
+      }).then((res) => {
+        if (!res.ok) throw new Error(`Uninstall failed: ${res.status}`);
+        return res.json() as Promise<MarketplaceUninstallResult>;
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: adminKeys.marketplaceInstalled() });
+      queryClient.invalidateQueries({ queryKey: adminKeys.marketplaceCatalog() });
     },
   });
 }
