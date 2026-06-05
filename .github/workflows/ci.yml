@@ -264,6 +264,16 @@ jobs:
       - name: cargo deny check
         run: cargo deny --all-features check
 
+  server-binary-dependency-policy:
+    name: Server binary dependency policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Forbid OpenSSL in release server graph
+        shell: bash
+        run: bash scripts/ci/check_server_binary_tls_graph.sh
+
 
   # ── Build ABI3 wheel (one per OS, reused by python-test) ──
   # Intentionally does NOT `needs: [rust-check]` — maturin runs its own compile
