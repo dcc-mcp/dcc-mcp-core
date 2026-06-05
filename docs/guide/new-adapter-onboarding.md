@@ -183,16 +183,14 @@ metadata:
 ```
 
 Plus a sibling `tools.yaml` with one tool definition and a `scripts/` directory
-with the implementation. Refer to the
-[dcc-mcp-skills-creator](../../skills/dcc-mcp-skills-creator/SKILL.md) skill
-for detailed authoring guidance.
+with the implementation. Refer to the `skills/dcc-mcp-skills-creator/SKILL.md`
+skill for detailed authoring guidance.
 
 ## 7. VRS Smoke Trace
 
 Add one VRS trace under `tests/vrs/traces/<dcc>-smoke.jsonl` to verify the
 gateway can discover the new adapter. Copy the pattern from
-[tests/vrs/traces/](../../tests/vrs/traces/) and adjust `dcc_type` / expected
-tool slugs.
+`tests/vrs/traces/` and adjust `dcc_type` / expected tool slugs.
 
 ## 8. Post-Onboarding
 
@@ -200,4 +198,4 @@ tool slugs.
       [Adapter Compatibility Matrix](adapter-compatibility-matrix.md).
 - [ ] Verify the gateway smoke runs (see [adapter-release-checklist.md](adapter-release-checklist.md#2-gateway-smoke-steps)).
 - [ ] File a core issue if any adapter-local code should be escalated
-      (see [CORE_ESCALATION_CHECKLIST.md](../../skills/dcc-mcp-creator/references/CORE_ESCALATION_CHECKLIST.md)).
+      (see `skills/dcc-mcp-creator/references/CORE_ESCALATION_CHECKLIST.md`).
