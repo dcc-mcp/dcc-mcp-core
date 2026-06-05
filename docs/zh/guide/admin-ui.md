@@ -457,7 +457,7 @@ GatewayConfig {
 HTML 仪表盘包含：
 - **Debug Workbench**：默认首屏会组合 health、instances、calls、traces、stats 和 warning logs，方便排查 gateway 故障时不用在多个面板之间来回跳转
 - **Gateway owner identity**：Health 和 Debug 面板会展示来自 `gateway_name` / `DCC_MCP_GATEWAY_NAME` 的当前 `__gateway__` sentinel 标签，以及 challenger 候选
-- **左侧导航**：Debug / Activity / Health / 实例 / 工具 / Tasks / Calls / Traces / Traffic / Stats / Skill paths / 日志面板
+- **左侧导航**：Debug / Activity / Health / 实例 / 工具 / Tasks / Calls / Traces / Traffic / Stats / Skill paths / 集成 / 日志面板
 - **自动刷新**：每个面板每 5 秒轮询对应 JSON 端点
 - **DCC 图标**：Maya/Autodesk、Blender、GIMP、Inkscape、Krita、Unity、Unreal 等常见宿主显示可识别图标，自定义宿主使用安全 fallback
 - **实例卡片**：按实例展示状态、心跳与路由元数据
@@ -466,9 +466,60 @@ HTML 仪表盘包含：
 - **Traffic 面板**：当 traffic config 包含 `kind: admin_live` 时，`/admin/api/traffic` 暴露内存环形缓冲区中的 frame，`/admin/api/traffic/export` 可下载 JSONL
 - **Governance 面板**：展示 read-only 状态、allowlists、traffic capture 模式/sink、生产 guardrail、redaction path 汇总、中间件限流控制，以及最近 allowed/denied/throttled/capture 决策
 - **Logs 面板**：将标准化的 `contention`、`file`、`audit` 行分组，方便在一条时间线里关联路由事件、滚动日志和工具调用。文件日志读取会限制为最近文件与尾部片段，避免 admin API 扫描无界历史日志
+- **集成面板**：第三方集成的只读配置摘要——Sentry DSN 状态、活跃 webhook 数量和名称、OTLP 端点，以及需要重启才能生效的配置变更 pending_restart 标记
 - **可选持久化**：`DCC_MCP_GATEWAY_AUDIT_DIR` 可让 Calls 与 Traces 面板跨重启保留，且不改变 JSON API 结构
 - **深色主题**：Vite/React 源码，运行时嵌入资产，不要求现场构建
 - **响应式布局**：窄屏会切换为顶部导航，debug 卡片和图表保持可用的单列宽度
+
+## 集成面板
+
+集成面板（`GET /admin/api/integrations`）展示网关第三方集成配置的只读摘要。面板显示哪些集成处于活跃状态，以及环境变量配置变更是否需要重启服务器才能生效。
+
+| 集成 | 配置方式 | 面板展示内容 |
+|------|----------|--------------|
+| Sentry | `DCC_MCP_SENTRY_DSN` 环境变量 | DSN 状态（已设置/未设置）、环境、采样率 |
+| Webhooks | `DCC_MCP_WEBHOOKS_CONFIG` 环境变量 → YAML 文件 | 活跃 webhook 名称、事件模式、投递统计 |
+| OTLP 追踪 | `OTEL_EXPORTER_OTLP_ENDPOINT` 环境变量 | 端点 URL、服务名称、span 采样率 |
+
+面板为**只读**——所有三种集成均通过环境变量或配置文件在服务器启动时配置。当操作员通过部署工具修改了环境变量但尚未重启网关进程时，面板会标记 `pending_restart`。详见 [gateway.md](gateway.md) 的完整配置参考。
+
+### 后端 API
+
+```json
+// GET /admin/api/integrations
+{
+  "sentry": {
+    "configured": true,
+    "dsn_prefix": "https://***@o***.ingest.sentry.io",
+    "environment": "production",
+    "sample_rate": 1.0,
+    "pending_restart": false
+  },
+  "webhooks": {
+    "configured": true,
+    "config_path": "/etc/dcc-mcp/webhooks.yaml",
+    "active_webhooks": 2,
+    "names": ["analytics-forwarder", "error-reporter"],
+    "pending_restart": false
+  },
+  "otlp": {
+    "configured": true,
+    "endpoint": "http://localhost:4317",
+    "service_name": "dcc-mcp-gateway",
+    "pending_restart": false
+  }
+}
+```
+
+响应中会省略密钥：DSN 前缀仅用于标识，完整的 DSN（包含 secret key）不会暴露。当集成未配置时，其区块包含 `"configured": false`。
+
+如果检测到配置变更（例如 `DCC_MCP_SENTRY_DSN` 自进程启动后被设置或清除），`pending_restart` 为 `true`，面板会显示视觉指示器提示操作员重启网关。
+
+### 稳定版面向 agent 的路由
+
+| 稳定路由 | 镜像来源 |
+|----------|----------|
+| `GET /v1/debug/integrations` | `/admin/api/integrations` |
 
 ## 安全注意事项
 
@@ -482,4 +533,5 @@ Admin UI 是**只读**的，默认**无认证**。它绑定在赢得选举的 ga
 
 - [middleware.md](middleware.md) — 填充 `/admin/api/calls` 的 `AuditMiddleware`
 - [observability.md](observability.md) — 填充 `/admin/api/logs` 的 `EventLog`
-- [gateway.md](gateway.md) — 完整的网关配置参考
+- [gateway.md](gateway.md) — 完整的网关配置参考（webhooks、Sentry、OTLP）
+- [sentry.md](sentry.md) — Sentry 错误监控参考

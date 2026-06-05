@@ -1246,6 +1246,87 @@ above continues to work end-to-end as long as the proxy forwards the
 - Rate-limit + WAF rules on the reverse proxy for the `/v1/instances/*`
   paths so token brute-force is bounded.
 
+## Event webhooks
+
+Set `DCC_MCP_WEBHOOKS_CONFIG` to a YAML file path to forward EventBus
+envelopes (`tool.*`, `skill.*`, `trace.*`, `gateway.*`) to external HTTP
+endpoints. Each webhook specifies:
+
+- `name` — stable identifier for logs and delivery-failed events.
+- `url` — `http` / `https` endpoint.
+- `events` — event name patterns (e.g. `["tool.*", "trace.*"]`).
+- `filters` — optional dotted-path matchers with `*`-wildcard support.
+- `delivery.attempts` — retry count (default `3`).
+- `delivery.timeout_ms` — per-attempt timeout (default `2_000` ms).
+- `backoff_ms` — per-retry delay sequence (default `[200, 1000, 5000]` ms).
+- `payload_template` — optional template string using double-braced paths.
+
+Example `webhooks.yaml`:
+
+```yaml
+queue_capacity: 256
+webhooks:
+  - name: analytics-forwarder
+    url: https://internal.example.com/api/dcc-analytics
+    events:
+      - "tool.*"
+      - "skill.*"
+      - "trace.*"
+      - "gateway.instance.*"
+    headers:
+      Authorization: "Bearer ${ANALYTICS_WEBHOOK_TOKEN}"
+    delivery:
+      attempts: 3
+      timeout_ms: 5000
+    filters:
+      - name: "tool.completed"
+      - name: "skill.loaded"
+```
+
+Headers support `${ENV_VAR}` interpolation so tokens stay out of version
+control. The webhook runtime starts automatically when the env var points at a
+valid YAML file.
+
+## Sentry error monitoring (Rust backend)
+
+Set `DCC_MCP_SENTRY_DSN` to your Sentry project DSN. The SDK initialises
+at server startup and captures panics automatically. Use
+`sentry::capture_error` or `sentry::capture_message` for explicit
+instrumentation points.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `DCC_MCP_SENTRY_DSN` | (disabled) | Sentry project DSN |
+| `DCC_MCP_SENTRY_ENVIRONMENT` | `production` | Environment tag |
+| `DCC_MCP_SENTRY_RELEASE` | crate version | Release identifier for source-map / commit correlation |
+| `DCC_MCP_SENTRY_SAMPLE_RATE` | `1.0` | Error event sample rate (0.0–1.0) |
+
+The feature is compiled by default and skips initialisation entirely when
+`DCC_MCP_SENTRY_DSN` is absent. Build with `--no-default-features` to
+exclude the crate from the binary entirely.
+
+See [sentry.md](sentry.md) for full reference including Python API and E2E
+tests.
+
+## Admin Integrations panel
+
+The gateway admin dashboard exposes a read-only **Integrations** panel at
+`GET /admin/api/integrations` (mirrored at `GET /v1/debug/integrations` for
+agent access). The panel summarises the effective configuration for Sentry,
+webhooks, and OTLP tracing:
+
+| Integration | Configuration | Panel shows |
+|-------------|---------------|-------------|
+| Sentry | `DCC_MCP_SENTRY_DSN` | DSN status (set/unset), environment, sample rate |
+| Webhooks | `DCC_MCP_WEBHOOKS_CONFIG` → YAML | Active webhook count and names |
+| OTLP tracing | `OTEL_EXPORTER_OTLP_ENDPOINT` | Endpoint URL, service name |
+
+All three integrations are configured through environment variables or
+config files set before server startup — the panel is **read-only** and
+flags `pending_restart` when a configuration change requires a gateway
+restart to take effect. Secrets are never exposed in the JSON response.
+See [admin-ui.md](admin-ui.md) for the full API reference.
+
 ## Non-goals
 
 HTTP/2 multiplexing tuning and multi-backend failover for the routing
