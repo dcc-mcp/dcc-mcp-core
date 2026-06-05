@@ -180,6 +180,49 @@ const WORKERS_PAYLOAD = {
   ],
 };
 
+const INTEGRATIONS_PAYLOAD = {
+  integrations: [
+    {
+      kind: 'sentry',
+      label: 'Sentry Error Monitoring',
+      description: 'Send panics, error events, and span breadcrumbs to Sentry.',
+      status: 'active',
+      config: {
+        dsn: 'https://examplePublicKey@o0.ingest.sentry.io/0',
+        environment: 'production',
+        release: '0.18.0',
+        sample_rate: 1.0,
+      },
+      env_locked_fields: [
+        { key: 'dsn', locked: true, env_var: 'DCC_MCP_SENTRY_DSN' },
+        { key: 'environment', locked: false, env_var: 'DCC_MCP_SENTRY_ENVIRONMENT' },
+        { key: 'release', locked: false, env_var: 'DCC_MCP_SENTRY_RELEASE' },
+        { key: 'sample_rate', locked: false, env_var: 'DCC_MCP_SENTRY_SAMPLE_RATE' },
+      ],
+    },
+    {
+      kind: 'webhooks',
+      label: 'Event Webhooks',
+      description: 'Outbound delivery of EventBus events to HTTP endpoints.',
+      status: 'inactive',
+      config: { config_path: '' },
+      env_locked_fields: [
+        { key: 'config_path', locked: false, env_var: 'DCC_MCP_WEBHOOKS_CONFIG' },
+      ],
+    },
+    {
+      kind: 'otlp',
+      label: 'OTLP Telemetry',
+      description: 'Export distributed traces via gRPC.',
+      status: 'inactive',
+      config: { endpoint: '', service_name: 'dcc-mcp', headers: '' },
+      env_locked_fields: [
+        { key: 'endpoint', locked: false, env_var: 'OTEL_EXPORTER_OTLP_ENDPOINT' },
+      ],
+    },
+  ],
+};
+
 function send(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json');
@@ -198,6 +241,10 @@ export function adminApiMockPlugin(): Plugin {
         if (url.startsWith('/skill-paths')) {
           if (req.method === 'POST' || req.method === 'DELETE') return send(res, 200, { ok: true });
           return send(res, 200, SKILL_PATHS_PAYLOAD);
+        }
+        if (url.startsWith('/integrations')) {
+          if (req.method === 'PUT') return send(res, 200, INTEGRATIONS_PAYLOAD.integrations[0]);
+          return send(res, 200, INTEGRATIONS_PAYLOAD);
         }
         if (url.startsWith('/skill-detail')) {
           return send(res, 200, {
