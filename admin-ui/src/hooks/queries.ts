@@ -41,6 +41,10 @@ import type {
   MarketplaceEntry,
   MarketplaceInstallResult,
   MarketplaceUninstallResult,
+  IntegrationEntry,
+  IntegrationsPayload,
+  UpdateIntegrationRequest,
+  UpdateIntegrationResult,
   StatsPayload,
   TaskRow,
   ToolRow,
@@ -75,6 +79,7 @@ export const adminKeys = {
   openApiSpec: (specUrl: string) => [...adminKeys.all, 'openapi-spec', specUrl] as const,
   marketplaceCatalog: () => [...adminKeys.all, 'marketplace', 'catalog'] as const,
   marketplaceInstalled: () => [...adminKeys.all, 'marketplace', 'installed'] as const,
+  integrations: () => [...adminKeys.all, 'integrations'] as const,
 };
 
 // ── polling config ─────────────────────────────────────────────────────────
@@ -351,6 +356,50 @@ export function useMarketplaceUninstall() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: adminKeys.marketplaceInstalled() });
       queryClient.invalidateQueries({ queryKey: adminKeys.marketplaceCatalog() });
+    },
+  });
+}
+
+// ── integrations query hooks ─────────────────────────────────────────────────
+
+export function useIntegrationsQuery(enabled: boolean) {
+  return useQuery({
+    queryKey: adminKeys.integrations(),
+    queryFn: () => apiJson<IntegrationsPayload>('/integrations'),
+    select: (payload) => (Array.isArray(payload.integrations) ? payload.integrations : []),
+    enabled,
+    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+  });
+}
+
+export function useUpdateIntegration() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: UpdateIntegrationRequest) =>
+      fetch(`${API_BASE}/integrations`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(ADMIN_FETCH_TIMEOUT_MS),
+      }).then(async (res) => {
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          throw new Error(text || `Update failed: ${res.status}`);
+        }
+        return res.json() as Promise<UpdateIntegrationResult>;
+      }),
+    onSuccess: (data) => {
+      queryClient.setQueryData<IntegrationsPayload>(
+        adminKeys.integrations(),
+        (prev) => {
+          const list = prev?.integrations ?? [];
+          return {
+            integrations: list.map((entry) =>
+              entry.kind === data.kind ? data : entry,
+            ),
+          };
+        },
+      );
     },
   });
 }
