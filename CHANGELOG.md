@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.2](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.1...v0.18.2) (2026-06-05)
+
+
+### Bug Fixes
+
+* **ci:** install Windows Python 3.7 for release wheels ([#1520](https://github.com/dcc-mcp/dcc-mcp-core/issues/1520)) ([a9e8ddd](https://github.com/dcc-mcp/dcc-mcp-core/commit/a9e8dddee03fbb6a5a2c739145fc6dcd3658f8f8))
+
 ## [0.18.1](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.0...v0.18.1) (2026-06-05)
 
 
