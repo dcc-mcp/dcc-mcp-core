@@ -108,6 +108,10 @@ import marketplaceEn from './locales/en/marketplace.json' with { type: 'json' };
 import marketplaceZhCN from './locales/zh-CN/marketplace.json' with { type: 'json' };
 import marketplaceJa from './locales/ja/marketplace.json' with { type: 'json' };
 import marketplaceKo from './locales/ko/marketplace.json' with { type: 'json' };
+import integrationsEn from './locales/en/integrations.json' with { type: 'json' };
+import integrationsZhCN from './locales/zh-CN/integrations.json' with { type: 'json' };
+import integrationsJa from './locales/ja/integrations.json' with { type: 'json' };
+import integrationsKo from './locales/ko/integrations.json' with { type: 'json' };
 
 export const I18N_MESSAGES = {
   common: {
@@ -247,6 +251,12 @@ export const I18N_MESSAGES = {
     'zh-CN': marketplaceZhCN,
     ja: marketplaceJa,
     ko: marketplaceKo,
+  },
+  integrations: {
+    en: integrationsEn,
+    'zh-CN': integrationsZhCN,
+    ja: integrationsJa,
+    ko: integrationsKo,
   },
 } as const;
 

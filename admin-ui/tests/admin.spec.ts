@@ -1142,6 +1142,80 @@ async function mockAdminApi(page: Page) {
     } else if (path === '/skill-paths/7' && method === 'DELETE') {
       state.skillPaths = state.skillPaths.filter((row) => row.id !== 7);
       body = { ok: true, id: 7 };
+    } else if (path === '/integrations') {
+      const sentryConfig = {
+        dsn: 'https://examplePublicKey@o0.ingest.sentry.io/0',
+        environment: 'production',
+        release: '0.18.0',
+        sample_rate: 1.0,
+      };
+      if (method === 'PUT') {
+        const payload = route.request().postDataJSON() as { kind?: string; config?: Record<string, unknown> };
+        if (payload.kind === 'sentry') {
+          // Simulate invalid DSN error
+          if (payload.config?.dsn === 'invalid-dsn') {
+            status = 400;
+            body = { error: 'Invalid DSN format' };
+          } else {
+            status = 200;
+            body = {
+              kind: 'sentry',
+              label: 'Sentry Error Monitoring',
+              description: 'Send panics to Sentry.',
+              status: 'pending_restart' as const,
+              config: { ...sentryConfig, ...payload.config },
+              env_locked_fields: [
+                { key: 'dsn', locked: true, env_var: 'DCC_MCP_SENTRY_DSN' },
+                { key: 'environment', locked: false, env_var: 'DCC_MCP_SENTRY_ENVIRONMENT' },
+                { key: 'release', locked: false, env_var: 'DCC_MCP_SENTRY_RELEASE' },
+                { key: 'sample_rate', locked: false, env_var: 'DCC_MCP_SENTRY_SAMPLE_RATE' },
+              ],
+            };
+          }
+        } else {
+          status = 400;
+          body = { error: `Unknown integration kind: ${payload.kind}` };
+        }
+      } else {
+        // GET
+        body = {
+          integrations: [
+            {
+              kind: 'sentry',
+              label: 'Sentry Error Monitoring',
+              description: 'Send panics, error events, and span breadcrumbs to Sentry.',
+              status: 'active',
+              config: sentryConfig,
+              env_locked_fields: [
+                { key: 'dsn', locked: true, env_var: 'DCC_MCP_SENTRY_DSN' },
+                { key: 'environment', locked: false, env_var: 'DCC_MCP_SENTRY_ENVIRONMENT' },
+                { key: 'release', locked: false, env_var: 'DCC_MCP_SENTRY_RELEASE' },
+                { key: 'sample_rate', locked: false, env_var: 'DCC_MCP_SENTRY_SAMPLE_RATE' },
+              ],
+            },
+            {
+              kind: 'webhooks',
+              label: 'Event Webhooks',
+              description: 'Outbound delivery of EventBus events.',
+              status: 'inactive',
+              config: { config_path: '' },
+              env_locked_fields: [
+                { key: 'config_path', locked: false, env_var: 'DCC_MCP_WEBHOOKS_CONFIG' },
+              ],
+            },
+            {
+              kind: 'otlp',
+              label: 'OTLP Telemetry',
+              description: 'Export distributed traces via gRPC.',
+              status: 'inactive',
+              config: { endpoint: '', service_name: 'dcc-mcp', headers: '' },
+              env_locked_fields: [
+                { key: 'endpoint', locked: false, env_var: 'OTEL_EXPORTER_OTLP_ENDPOINT' },
+              ],
+            },
+          ],
+        };
+      }
     } else {
       status = 404;
       body = { error: `Unhandled test route: ${method} ${path}` };
@@ -1168,7 +1242,7 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.brand-tag')).toContainText('DCC-MCP Gateway');
     await expect(page.locator('h1')).toContainText('Admin Dashboard');
     await expect(page.getByRole('navigation').getByRole('link', { name: 'Connect IDE' })).toHaveClass(/active/);
-    for (const label of ['Connect IDE', 'Debug', 'Activity', 'Health', 'Instances', 'Tools', 'Workflows', 'Tasks', 'Calls', 'Traces', 'Stats', 'Governance', 'Skills', 'Logs', 'Docs']) {
+    for (const label of ['Connect IDE', 'Debug', 'Activity', 'Health', 'Instances', 'Tools', 'Workflows', 'Tasks', 'Calls', 'Traces', 'Stats', 'Governance', 'Skills', 'Integrations', 'Logs', 'Docs']) {
       await expect(page.getByRole('navigation').getByRole('link', { name: label })).toBeVisible();
     }
     await expect(page.getByRole('navigation').getByRole('link', { name: 'Docs' })).toHaveAttribute('href', 'https://github.com/dcc-mcp/dcc-mcp-core/tree/main/docs');
@@ -1765,5 +1839,94 @@ test.describe('Admin Page', () => {
     await page.reload();
     await expect(page.locator('html')).toHaveClass(/dark/);
     await expect(page.getByLabel('Theme')).toHaveValue('dark');
+  });
+
+  test.describe('Integrations panel', () => {
+    test('shows three integration cards with empty state for webhooks/otlp', async ({ page }) => {
+      await page.goto('/admin/?panel=integrations');
+      await expect(page.locator('.integrations-panel')).toBeVisible();
+      await expect(page.locator('.integrations-panel h2')).toContainText('Integrations');
+      // Three cards
+      await expect(page.locator('.integration-card')).toHaveCount(3);
+      // Sentry is active
+      await expect(page.locator('.integration-card[data-kind="sentry"]')).toContainText('Sentry Error Monitoring');
+      await expect(page.locator('.integration-card[data-kind="sentry"] .badge-ok')).toContainText('Active');
+      // Webhooks is inactive (placeholder)
+      await expect(page.locator('.integration-card[data-kind="webhooks"]')).toContainText('Event Webhooks');
+      await expect(page.locator('.integration-card[data-kind="webhooks"] .badge-muted')).toContainText('Inactive');
+      // OTLP is inactive (placeholder)
+      await expect(page.locator('.integration-card[data-kind="otlp"]')).toContainText('OTLP Telemetry');
+      await expect(page.locator('.integration-card[data-kind="otlp"] .badge-muted')).toContainText('Inactive');
+    });
+
+    test('shows env-locked Sentry with masked DSN', async ({ page }) => {
+      await page.goto('/admin/?panel=integrations');
+      // Click edit on Sentry
+      await page.locator('.integration-card[data-kind="sentry"] button').click();
+      // Edit form visible
+      await expect(page.locator('.integration-edit-form')).toBeVisible();
+      // DSN field is env-locked
+      const dsnField = page.locator('.integration-edit-field.env-locked').first();
+      await expect(dsnField).toBeVisible();
+      await expect(dsnField.locator('input')).toBeDisabled();
+      // Shows env var hint
+      await expect(page.locator('.integration-env-hint code')).toContainText('DCC_MCP_SENTRY_DSN');
+      // Other fields are editable
+      await expect(page.locator('#integration-sentry-environment')).toBeEnabled();
+      await expect(page.locator('#integration-sentry-release')).toBeEnabled();
+      await expect(page.locator('#integration-sentry-sample_rate')).toBeEnabled();
+    });
+
+    test('save shows pending_restart badge', async ({ page }) => {
+      await page.goto('/admin/?panel=integrations');
+      // Click edit on Sentry
+      await page.locator('.integration-card[data-kind="sentry"] button').click();
+      await expect(page.locator('.integration-edit-form')).toBeVisible();
+      // Change environment
+      await page.locator('#integration-sentry-environment').fill('staging');
+      // Save
+      await page.locator('.integration-edit-actions button[type="submit"]').click();
+      // Wait for edit form to close
+      await expect(page.locator('.integration-edit-form')).not.toBeVisible({ timeout: 5000 });
+      // After save, the panel should re-render with pending_restart
+      await expect(page.locator('.integration-card[data-kind="sentry"].pending-restart')).toBeVisible({ timeout: 5000 });
+      await expect(page.locator('.integration-card[data-kind="sentry"] .integration-card-head .badge-warn')).toContainText('Pending Restart');
+    });
+
+    test('shows error for invalid DSN', async ({ page }) => {
+      // Override mock: DSN is NOT env-locked (allows editing)
+      await page.route('**/admin/api/integrations', async (route) => {
+        const method = route.request().method();
+        if (method === 'GET') {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              integrations: [{
+                kind: 'sentry',
+                label: 'Sentry Error Monitoring',
+                description: 'Send panics.',
+                status: 'inactive',
+                config: { dsn: '', environment: '', release: '', sample_rate: 1.0 },
+                env_locked_fields: [],
+              }],
+            }),
+          });
+        } else {
+          await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+        }
+      });
+
+      await page.goto('/admin/?panel=integrations');
+      // Click edit on Sentry
+      await page.locator('.integration-card[data-kind="sentry"] button').click();
+      await expect(page.locator('.integration-edit-form')).toBeVisible();
+      // Enter invalid DSN (doesn't start with 'http')
+      await page.locator('#integration-sentry-dsn').fill('bad-dsn-string');
+      // Submit
+      await page.locator('.integration-edit-actions button[type="submit"]').click();
+      // Should see field-level error for invalid DSN
+      await expect(page.locator('.integration-field-error')).toContainText(/Invalid DSN|error/i, { timeout: 5000 });
+    });
   });
 });
