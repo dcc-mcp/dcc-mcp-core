@@ -59,9 +59,8 @@ sentry = { version = "0.39", default-features = false, features = [
     "backtrace",
     "contexts",
     "panic",
-    "reqwest",
     "rustls",
-    "transport",
+    "ureq",
 ], optional = true }
 
 [features]

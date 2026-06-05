@@ -231,6 +231,11 @@ jobs:
         shell: bash
         run: echo "DCC_MCP_ADMIN_UI_PREBUILT=1" >> "$GITHUB_ENV"
 
+      - name: Forbid OpenSSL in Linux server binary graph
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: bash scripts/ci/check_server_binary_tls_graph.sh
+
       - name: Build raw binary (macOS universal2)
         if: matrix.os == 'macos-latest'
         run: |
