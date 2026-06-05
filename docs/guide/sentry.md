@@ -51,12 +51,19 @@ except Exception as exc:
     capture_exception(exc)
 ```
 
+## Admin UI Configuration Summary
+
+The gateway admin dashboard includes a read-only **Integrations** panel
+(`GET /admin/api/integrations`) that shows the effective Sentry configuration
+status: whether `DCC_MCP_SENTRY_DSN` is set, the environment tag, and the
+sample rate. The full DSN is never exposed in the JSON response. See
+[admin-ui.md](admin-ui.md) for the Integrations panel reference.
+
 ## Disabling Sentry
 
 The Sentry crate is compiled in by default. To exclude it from the binary:
 
 ```bash
-# Build without default features, then opt in only what you need
 cargo build --no-default-features -p dcc-mcp-server
 ```
 
@@ -81,4 +88,6 @@ ingest pipeline end-to-end. They are excluded from CI unless the
 - [gateway.md](gateway.md) — gateway configuration including webhooks and
   observability
 - [observability.md](observability.md) — metrics, OTLP tracing, Prometheus
+- [admin-ui.md](admin-ui.md) — Admin UI Integrations panel for read-only
+  Sentry configuration summary
 - [production-deployment.md](production-deployment.md) — production checklist
