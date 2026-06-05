@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.17.56...v0.18.0) (2026-06-05)
+
+
+### Features
+
+* **admin-ui:** add Marketplace panel with per-DCC install/uninstall ([9bff7e5](https://github.com/dcc-mcp/dcc-mcp-core/commit/9bff7e5b44b8c6788d5e4e5e8a23de9e9fb93013))
+* **daemon:** refactor gateway guardian to use launch_detached, add build_gateway_daemon_command ([#1509](https://github.com/dcc-mcp/dcc-mcp-core/issues/1509)) ([3a14199](https://github.com/dcc-mcp/dcc-mcp-core/commit/3a141992f83ef37006c0acc73bf146b53085444d))
+* **gateway:** add _meta passthrough to adapter skill params + marketplace admin API endpoints ([6dca6ad](https://github.com/dcc-mcp/dcc-mcp-core/commit/6dca6ad71f8f875f2463a0960c23790f331bb1ee))
+* **gateway:** passthrough bounded request meta ([bfbbd0a](https://github.com/dcc-mcp/dcc-mcp-core/commit/bfbbd0a241042779d30d6328f5c3faf3ee0bf0b9))
+* **server:** add Sentry real-ingest E2E tests and CI job ([e63b4cc](https://github.com/dcc-mcp/dcc-mcp-core/commit/e63b4ccede62d6f1709e210d55e73b10ddedc2a8))
+* **server:** Sentry error monitoring and webhook analytics documentation ([1010bb8](https://github.com/dcc-mcp/dcc-mcp-core/commit/1010bb84782247d38a4592375a7fe6527528e08b))
+
+
+### Bug Fixes
+
+* **gateway:** harden meta passthrough for CI ([8e063d2](https://github.com/dcc-mcp/dcc-mcp-core/commit/8e063d2590f9f5559b044dde8bda3ba21b8b2a3c))
+
+
+### Documentation
+
+* add adapter release train onboarding docs ([197d124](https://github.com/dcc-mcp/dcc-mcp-core/commit/197d1240efcdf390f4ce79aabf310624ab59286a))
+* add Autodesk Product Help catalog connector ([c320fac](https://github.com/dcc-mcp/dcc-mcp-core/commit/c320facd0ebeb42543a334c5fd9c3d69db194d45))
+* add marketplace, analytics dashboard, and sentry monitoring docs ([b006143](https://github.com/dcc-mcp/dcc-mcp-core/commit/b006143ad70798525e4886ffa35c07020bfb4318))
+* **release:** document 0.18.0 minor rationale ([5428b7b](https://github.com/dcc-mcp/dcc-mcp-core/commit/5428b7bb69635c72df5e3ab63fa4e872cddb8cff))
+
 ## [0.17.56](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.17.55...v0.17.56) (2026-06-04)
 
 
