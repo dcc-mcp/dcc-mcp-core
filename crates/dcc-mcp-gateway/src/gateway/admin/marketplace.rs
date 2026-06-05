@@ -293,6 +293,9 @@ fn resolve_source_url(raw: &str) -> String {
     if trimmed.eq_ignore_ascii_case("dcc-mcp/marketplace") {
         return OFFICIAL_MARKETPLACE_SOURCE.to_string();
     }
+    if trimmed.starts_with('/') || Path::new(trimmed).is_absolute() {
+        return trimmed.to_string();
+    }
     let looks_like_slug =
         trimmed.contains('/') && !trimmed.contains("://") && !trimmed.contains('\\');
     if looks_like_slug {
@@ -669,6 +672,12 @@ mod tests {
     fn resolve_source_url_passes_through_urls() {
         let url = resolve_source_url("https://example.com/catalog.json");
         assert_eq!(url, "https://example.com/catalog.json");
+    }
+
+    #[test]
+    fn resolve_source_url_passes_through_absolute_paths() {
+        let url = resolve_source_url("/tmp/catalog.json");
+        assert_eq!(url, "/tmp/catalog.json");
     }
 
     #[test]
