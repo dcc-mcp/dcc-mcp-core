@@ -54,7 +54,10 @@ skill taxonomy), load `dcc-mcp-skills-creator` instead.
    - [ADAPTER_WORKFLOW.md](references/ADAPTER_WORKFLOW.md) for the build path.
    - [HOST_PATTERN_MATRIX.md](references/HOST_PATTERN_MATRIX.md) for host-specific wiring.
    - [CORE_ESCALATION_CHECKLIST.md](references/CORE_ESCALATION_CHECKLIST.md) before adding adapter-local glue.
-   - [TESTING_AND_RELEASE.md](references/TESTING_AND_RELEASE.md) before validating or publishing.
+    - [TESTING_AND_RELEASE.md](references/TESTING_AND_RELEASE.md) before validating or publishing.
+    - [docs/guide/adapter-release-checklist.md](../../docs/guide/adapter-release-checklist.md) for release train compliance.
+    - [docs/guide/new-adapter-onboarding.md](../../docs/guide/new-adapter-onboarding.md) for new adapter scaffolding.
+    - [docs/guide/adapter-compatibility-matrix.md](../../docs/guide/adapter-compatibility-matrix.md) for the per-DCC compatibility table.
 3. Start from `DccServerBase` + `DccServerOptions.from_env(...)`.
 4. Route host API calls through `HostExecutionBridge`; do not hand-roll a second script executor.
 5. Keep DCC identity data-driven: `dcc_name`, `server_name`, env-var prefix, skill names, and gateway metadata.

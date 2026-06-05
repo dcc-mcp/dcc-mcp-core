@@ -38,6 +38,11 @@
 
 **New to this project?** Read [`AI_AGENT_GUIDE.md`](AI_AGENT_GUIDE.md) FIRST.
 
+**Building a DCC-MCP adapter?** Follow the release train docs in order:
+1. [`new-adapter-onboarding.md`](docs/guide/new-adapter-onboarding.md) — scaffolding template
+2. [`adapter-release-checklist.md`](docs/guide/adapter-release-checklist.md) — release gate checklist
+3. [`adapter-compatibility-matrix.md`](docs/guide/adapter-compatibility-matrix.md) — per-DCC version table
+
 ---
 
 ## Quick Decision Guide

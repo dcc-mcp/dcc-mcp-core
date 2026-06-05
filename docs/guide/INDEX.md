@@ -92,8 +92,15 @@ document without scanning every file.
 | [dcc-thread-safety.md](dcc-thread-safety.md) | DCC main-thread dispatch, cooperative cancellation |
 | [host-adapter.md](host-adapter.md) | `HostAdapter` base class for per-DCC dispatcher wiring |
 | [adapter-dispatcher-migration.md](adapter-dispatcher-migration.md) | Dispatcher migration decision table, fake adapter conformance fixtures, and adapter-specific checklist |
-| [release-0.18-adapter-checklist.md](release-0.18-adapter-checklist.md) | dcc-mcp-core 0.18 adapter migration checklist, release rationale, and dependency floor |
 | [cross-dcc-verification.md](cross-dcc-verification.md) | `SceneStats` contract for producer→file→verifier round-trips |
+
+## Adapter Release Train & Onboarding
+
+| Document | Purpose |
+|----------|---------|
+| [adapter-release-checklist.md](adapter-release-checklist.md) | Release train checklist: core pin, sidecar metadata, gateway smoke, release-please config |
+| [new-adapter-onboarding.md](new-adapter-onboarding.md) | Onboarding template: pyproject deps, adapter_version, readiness, CI/CD, first skill |
+| [adapter-compatibility-matrix.md](adapter-compatibility-matrix.md) | Per-DCC compatibility rows: core pin, adapter version, DCC min version, dispatcher pattern |
 
 ## Integration
 
