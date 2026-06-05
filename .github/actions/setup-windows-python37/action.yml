@@ -1,0 +1,41 @@
+name: Setup Windows Python 3.7
+description: Install Python 3.7 on Windows runners after setup-python dropped it.
+
+runs:
+  using: composite
+  steps:
+    - name: Install Python 3.7.9
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = "Stop"
+
+        $version = "3.7.9"
+        $target = Join-Path $env:RUNNER_TEMP "python-$version-x64"
+        $installer = Join-Path $env:RUNNER_TEMP "python-$version-amd64.exe"
+        $url = "https://www.python.org/ftp/python/$version/python-$version-amd64.exe"
+
+        Invoke-WebRequest -Uri $url -OutFile $installer
+
+        $arguments = @(
+          "/quiet",
+          "InstallAllUsers=0",
+          "PrependPath=0",
+          "Include_launcher=0",
+          "Include_test=0",
+          "TargetDir=$target"
+        )
+        $process = Start-Process -FilePath $installer -ArgumentList $arguments -Wait -PassThru
+        if ($process.ExitCode -ne 0) {
+          throw "Python $version installer failed with exit code $($process.ExitCode)"
+        }
+
+        $python = Join-Path $target "python.exe"
+        Copy-Item -Path $python -Destination (Join-Path $target "python3.7.exe") -Force
+
+        & $python -m pip install --upgrade "pip<24.1" "setuptools<69" "wheel<0.43"
+
+        Add-Content -Path $env:GITHUB_PATH -Value $target
+        Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $target "Scripts")
+
+        & $python --version
+        & $python -m pip --version

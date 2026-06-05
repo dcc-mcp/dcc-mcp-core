@@ -92,7 +92,7 @@ jobs:
           use-sccache: 'false'
 
   windows-py37:
-    runs-on: windows-2022  # Python 3.7 not available on newer Windows runners
+    runs-on: windows-2022  # Installs Python 3.7 from python.org.
     steps:
       - uses: actions/checkout@v6
         with:
