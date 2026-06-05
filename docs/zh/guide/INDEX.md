@@ -47,6 +47,9 @@
 | [protocols.md](protocols.md) | MCP 协议类型与版本管理 |
 | [middleware.md](middleware.md) | 可插拔 BeforeCall/AfterCall 中间件链：审计、限流、脱敏 |
 | [admin-ui.md](admin-ui.md) | 内置零构建 `/admin` 仪表盘（实例、工具、调用、traces、stats、workers、日志、健康、JSONL 审计/trace 持久化） |
+| [analytics-dashboard.md](analytics-dashboard.md) | 分析仪表盘：KPI、时序、热力图、Top 工具、CSV/JSONL 导出 |
+| [sentry.md](sentry.md) | Sentry 错误监控：DSN 配置、环境标签、采样率、E2E 测试 |
+| [marketplace.md](marketplace.md) | 市场技能包：目录源、安装/更新生命周期、安全机制 |
 | [translate.md](translate.md) | `translate` 子命令：将任意 stdio MCP 服务器桥接到 HTTP/SSE |
 | [openapi-mount.md](openapi-mount.md) | OpenAPI → MCP 挂载助手：将任意 REST API 暴露为 MCP 工具 |
 | [catalog.md](catalog.md) | DCC-MCP 公共适配器目录：搜索与描述 |
