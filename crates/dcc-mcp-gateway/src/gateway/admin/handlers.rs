@@ -16,6 +16,7 @@ use super::debug_response::{DebugListQuery, debug_response};
 use super::html::ADMIN_HTML;
 use super::issue_report::{IssueReportMode, issue_report_filename, issue_report_json};
 use super::links::AdminLinkBuilder;
+use super::skill_reload::reload_skill_paths_and_refresh_backends;
 use super::state::{AdminAuditRecord, AdminState};
 use super::trace::{AgentContext, DispatchTrace};
 use crate::gateway::capability::RefreshReason;
@@ -1132,13 +1133,6 @@ fn push_admin_operator_note(state: &AdminState, msg: String) {
         "gateway",
         Some(msg),
     ));
-}
-
-async fn reload_skill_paths_and_refresh_backends(state: &AdminState, reason: RefreshReason) {
-    if let Some(cb) = state.skill_paths_reload.clone() {
-        cb();
-    }
-    refresh_all_live_backends(&state.gateway, reason).await;
 }
 
 /// `GET /admin/api/skill-paths` — skill search paths (snapshot + SQLite custom).
