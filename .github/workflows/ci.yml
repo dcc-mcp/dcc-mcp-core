@@ -558,6 +558,36 @@ jobs:
               --base-url http://127.0.0.1:1 --dry-run --trace "$f"
           done
 
+  # -- Sentry E2E: real ingest through dcc-mcp-server init_sentry() --
+  # Requires DCC_MCP_SENTRY_DSN GitHub Actions secret. Skips cleanly when
+  # the secret is absent so forks / local clones do not fail the workflow.
+  sentry-e2e:
+    name: Sentry E2E
+    needs: [rust-check]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: loonghao/vx@v0.9.11
+        with:
+          version: "0.9.11"
+          cache: "false"
+
+      - name: Run Sentry real-ingest E2E
+        env:
+          DCC_MCP_SENTRY_DSN: ${{ secrets.DCC_MCP_SENTRY_DSN }}
+          DCC_MCP_SENTRY_ENVIRONMENT: ci-e2e
+          DCC_MCP_SENTRY_SAMPLE_RATE: "1.0"
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${DCC_MCP_SENTRY_DSN:-}" ]; then
+            echo "DCC_MCP_SENTRY_DSN secret not configured; skipping Sentry E2E"
+            exit 0
+          fi
+          vx cargo test -p dcc-mcp-server --features sentry sentry_real_ingest_e2e \
+            -- --exact --test-threads=1 --nocapture
+
   # -- mcpcall e2e: real MCP client vs live MCP servers/gateway --
   # Exercises the full HTTP stack from outside the process:
   #   tools/list, tools/call, find_skills, load_skill, unload_skill,
