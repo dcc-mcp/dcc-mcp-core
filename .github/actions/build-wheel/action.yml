@@ -44,9 +44,14 @@ runs:
   using: 'composite'
   steps:
     - name: Setup Python
+      if: runner.os != 'Windows' || inputs.python-version != '3.7'
       uses: actions/setup-python@v6
       with:
         python-version: ${{ inputs.python-version }}
+
+    - name: Setup Windows Python 3.7
+      if: runner.os == 'Windows' && inputs.python-version == '3.7'
+      uses: ./.github/actions/setup-windows-python37
 
     - name: Remove pre-installed cargo-clippy (conflict workaround)
       # GitHub-hosted runners (macOS aarch64 AND ubuntu-latest) pre-install Rust
