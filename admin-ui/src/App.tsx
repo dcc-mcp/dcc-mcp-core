@@ -4,6 +4,7 @@ import { ThemeSelector } from './components/ThemeSelector';
 import { LogsPanel } from './components/LogsPanel';
 import { SkillsPanel } from './features/skills';
 import { MarketplacePanel } from './features/marketplace';
+import { IntegrationsPanel } from './features/integrations';
 import { AnalyticsPanel } from './features/analytics/AnalyticsPanel';
 import dccMcpLogo from '../../docs/assets/brand/dcc-mcp-logo.png';
 import { createTranslator, detectBrowserLocale, type SupportedLocale } from './i18n';
@@ -130,6 +131,9 @@ function App() {
   const [marketplaceCounts, setMarketplaceCounts] = useState({ total: 0, installed: 0 });
   const [marketplaceUpdatedAt, setMarketplaceUpdatedAt] = useState('');
   const [marketplaceError, setMarketplaceError] = useState<string | undefined>();
+  const [integrationsCounts, setIntegrationsCounts] = useState({ total: 0, active: 0 });
+  const [integrationsUpdatedAt, setIntegrationsUpdatedAt] = useState('');
+  const [integrationsError, setIntegrationsError] = useState<string | undefined>();
 
   const updatedAt = useMemo<Record<Panel, string>>(() => {
     const qm = (q: QueryMeta) => queryMeta(q);
@@ -152,6 +156,7 @@ function App() {
       'skill-paths': skillPathsUpdatedAt,
       analytics: '',
       marketplace: marketplaceUpdatedAt,
+      integrations: integrationsUpdatedAt,
     };
   }, [healthQuery, workersQuery, activityQuery, toolsQuery, callsQuery, tracesQuery, trafficQuery, tasksQuery, workflowsQuery, statsQuery, governanceQuery, logsQuery, openApiQuery, skillPathsUpdatedAt, marketplaceUpdatedAt]);
 
@@ -173,8 +178,9 @@ function App() {
     set('openapi', openApiQuery);
     if (skillPathsError) errs['skill-paths'] = skillPathsError;
     if (marketplaceError) errs.marketplace = marketplaceError;
+    if (integrationsError) errs.integrations = integrationsError;
     return errs;
-  }, [healthQuery, workersQuery, activityQuery, toolsQuery, callsQuery, tracesQuery, trafficQuery, tasksQuery, workflowsQuery, statsQuery, governanceQuery, logsQuery, openApiQuery, skillPathsError, marketplaceError]);
+  }, [healthQuery, workersQuery, activityQuery, toolsQuery, callsQuery, tracesQuery, trafficQuery, tasksQuery, workflowsQuery, statsQuery, governanceQuery, logsQuery, openApiQuery, skillPathsError, marketplaceError, integrationsError]);
 
   const panels = useMemo(
     () => PANELS.map((panel) => ({ ...panel, label: t(panel.labelKey), group: t(panel.groupKey) })),
@@ -1277,6 +1283,7 @@ function App() {
                 {activePanel === 'governance' ? `${filteredGovernanceDecisions.length} / ${governance?.recent_decisions?.length ?? 0}` : ''}
                 {activePanel === 'skill-paths' ? t('search.meta.skillsPaths', { skills: skillCounts.skills, paths: skillCounts.paths }) : ''}
                 {activePanel === 'marketplace' ? t('search.meta.marketplace', { total: marketplaceCounts.total }) : ''}
+                {activePanel === 'integrations' ? t('integrations.detail.count', { count: integrationsCounts.total }) : ''}
                 {activePanel === 'logs' ? `${filteredLogs.length} / ${logs.length}` : ''}
                 {activePanel === 'stats' ? t('search.meta.statsCharts', {
                   apps: filteredTopAppTypes.length,
@@ -2438,6 +2445,17 @@ function App() {
           onUpdated={(text) => setMarketplaceUpdatedAt(text)}
           onError={(err) => setMarketplaceError(err instanceof Error ? err.message : String(err))}
           onCountsChange={setMarketplaceCounts}
+          t={t}
+        />
+
+        <IntegrationsPanel
+          active={activePanel === 'integrations'}
+          search={listSearch}
+          updatedAt={integrationsUpdatedAt}
+          error={integrationsError}
+          onUpdated={(text) => setIntegrationsUpdatedAt(text)}
+          onError={(err) => setIntegrationsError(err instanceof Error ? err.message : String(err))}
+          onCountsChange={setIntegrationsCounts}
           t={t}
         />
 
