@@ -9,7 +9,7 @@ repository.workspace = true
 description = "Sidecar and gateway-daemon runtime support for DCC-MCP hosts"
 
 [dependencies]
-dcc-mcp-gateway = { version = "0.17.0", path = "../dcc-mcp-gateway", optional = true }
+dcc-mcp-gateway = { workspace = true, optional = true }
 dcc-mcp-host-rpc.workspace = true
 dcc-mcp-transport.workspace = true
 anyhow.workspace = true
