@@ -41,7 +41,7 @@ a PR updating this matrix before the release PR merges.
 | **Adapter Version** | Latest released semver of the adapter. |
 | **Core Pin** | Dependency range for `dcc-mcp-core`. Must exclude `<1.0.0` until core reaches 1.0. |
 | **DCC Min Version** | Minimum host version (e.g. `2024+`, `3.6+`, `20.5+`). |
-| **Dispatcher Pattern** | One of: `Qt sidecar`, `Background blocking`, `Event-loop callback`, `InProcessCallableDispatcher`, `External bridge`. See [HOST_PATTERN_MATRIX.md](../../skills/dcc-mcp-creator/references/HOST_PATTERN_MATRIX.md) for details. |
+| **Dispatcher Pattern** | One of: `Qt sidecar`, `Background blocking`, `Event-loop callback`, `InProcessCallableDispatcher`, `External bridge`. See `skills/dcc-mcp-creator/references/HOST_PATTERN_MATRIX.md` for details. |
 | **Last Verified** | Month the last gateway smoke was run (format: `YYYY-MM`). |
 
 ## Core Version Policy
