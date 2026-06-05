@@ -50,7 +50,7 @@ sysinfo.workspace = true
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 # Optional — only linked when either `gateway-auto` (embedded election +
 # admin) or `gateway-daemon` (standalone daemon subcommand) is enabled.
-dcc-mcp-gateway = { version = "0.17.0", path = "../dcc-mcp-gateway", optional = true }
+dcc-mcp-gateway = { workspace = true, optional = true }
 
 # Sentry error monitoring (backend). Controlled by DCC_MCP_SENTRY_DSN
 # env var at startup; no-op when absent. Feature-gated so slim builds
