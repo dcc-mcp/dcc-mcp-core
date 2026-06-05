@@ -56,6 +56,7 @@ mod issue_report;
 mod links;
 pub mod marketplace;
 mod skill_health;
+mod skill_reload;
 pub mod sqlite_lane;
 pub mod state;
 pub mod stats;

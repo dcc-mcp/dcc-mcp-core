@@ -18,7 +18,9 @@ use axum::response::IntoResponse;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use super::skill_reload::reload_skill_paths_and_refresh_backends;
 use super::state::AdminState;
+use crate::gateway::capability::RefreshReason;
 
 /// Official marketplace catalog URL.
 const OFFICIAL_MARKETPLACE_SOURCE: &str =
@@ -207,7 +209,12 @@ pub async fn handle_marketplace_install(
     )
     .await
     {
-        Ok(result) => Json(result).into_response(),
+        Ok(result) => {
+            if result.reload_required {
+                reload_skill_paths_and_refresh_backends(&s, RefreshReason::ToolsListChanged).await;
+            }
+            Json(result).into_response()
+        }
         Err(err) => (StatusCode::BAD_REQUEST, Json(json!({ "error": err }))).into_response(),
     }
 }
@@ -216,11 +223,16 @@ pub async fn handle_marketplace_install(
 ///
 /// Body: `{ "name": "...", "dcc": "..." }`
 pub async fn handle_marketplace_uninstall(
-    State(_s): State<AdminState>,
+    State(s): State<AdminState>,
     Json(body): Json<UninstallRequestBody>,
 ) -> impl IntoResponse {
     match uninstall_package(&body.name, &body.dcc) {
-        Ok(result) => Json(result).into_response(),
+        Ok(result) => {
+            if result.reload_required {
+                reload_skill_paths_and_refresh_backends(&s, RefreshReason::ToolsListChanged).await;
+            }
+            Json(result).into_response()
+        }
         Err(err) => (StatusCode::BAD_REQUEST, Json(json!({ "error": err }))).into_response(),
     }
 }
@@ -280,6 +292,9 @@ fn resolve_source_url(raw: &str) -> String {
     let trimmed = raw.trim();
     if trimmed.eq_ignore_ascii_case("dcc-mcp/marketplace") {
         return OFFICIAL_MARKETPLACE_SOURCE.to_string();
+    }
+    if trimmed.starts_with('/') || Path::new(trimmed).is_absolute() {
+        return trimmed.to_string();
     }
     let looks_like_slug =
         trimmed.contains('/') && !trimmed.contains("://") && !trimmed.contains('\\');
@@ -657,6 +672,12 @@ mod tests {
     fn resolve_source_url_passes_through_urls() {
         let url = resolve_source_url("https://example.com/catalog.json");
         assert_eq!(url, "https://example.com/catalog.json");
+    }
+
+    #[test]
+    fn resolve_source_url_passes_through_absolute_paths() {
+        let url = resolve_source_url("/tmp/catalog.json");
+        assert_eq!(url, "/tmp/catalog.json");
     }
 
     #[test]
