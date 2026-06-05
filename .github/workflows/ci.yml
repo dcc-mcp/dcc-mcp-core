@@ -399,7 +399,8 @@ jobs:
   # `just build-py37` directly, which hid a pyo3-stub-gen Python<3.10 compat
   # bug (PyEncodingWarning missing on py37) that only surfaced in the release
   # build-wheels workflow. Now both paths go through the same composite action.
-  # Note: Must use older OS runners where Python 3.7 is still available via setup-python
+  # Windows runners no longer expose Python 3.7 via setup-python, so the
+  # composite action installs the python.org build there.
   build-wheel-py37:
     name: Build wheel (py3.7, ${{ matrix.os }})
     needs: [admin-ui-bundle]
@@ -408,7 +409,7 @@ jobs:
         include:
           - os: ubuntu-22.04  # Ubuntu 24.04 dropped Python 3.7 support
             target: x86_64
-          - os: windows-2022  # Use Windows 2022 for Python 3.7 availability
+          - os: windows-2022
             target: x64
       fail-fast: false
     runs-on: ${{ matrix.os }}
