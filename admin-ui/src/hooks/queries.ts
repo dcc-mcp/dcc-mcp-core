@@ -41,7 +41,6 @@ import type {
   MarketplaceEntry,
   MarketplaceInstallResult,
   MarketplaceUninstallResult,
-  IntegrationEntry,
   IntegrationsPayload,
   UpdateIntegrationRequest,
   UpdateIntegrationResult,

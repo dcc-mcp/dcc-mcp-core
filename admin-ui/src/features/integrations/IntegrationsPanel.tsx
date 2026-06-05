@@ -13,6 +13,7 @@ import {
 import type { IntegrationKind } from '../../admin-types';
 import { IntegrationCard } from './IntegrationCard';
 import { IntegrationEditForm } from './IntegrationEditForm';
+import './integrations.css';
 
 type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 
