@@ -86,9 +86,12 @@ mod tests {
         fn set(key: &'static str, value: Option<&str>) -> Self {
             let lock = ENV_LOCK.lock().expect("env lock poisoned");
             let previous = std::env::var(key).ok();
-            match value {
-                Some(v) => std::env::set_var(key, v),
-                None => std::env::remove_var(key),
+            // SAFETY: serialized by ENV_LOCK; tests restore previous values on drop.
+            unsafe {
+                match value {
+                    Some(v) => std::env::set_var(key, v),
+                    None => std::env::remove_var(key),
+                }
             }
             Self {
                 key,
@@ -100,9 +103,12 @@ mod tests {
 
     impl Drop for EnvVarGuard {
         fn drop(&mut self) {
-            match &self.previous {
-                Some(v) => std::env::set_var(self.key, v),
-                None => std::env::remove_var(self.key),
+            // SAFETY: serialized by ENV_LOCK held for the guard lifetime.
+            unsafe {
+                match &self.previous {
+                    Some(v) => std::env::set_var(self.key, v),
+                    None => std::env::remove_var(self.key),
+                }
             }
         }
     }
@@ -141,9 +147,12 @@ mod tests {
         };
 
         let _lock = ENV_LOCK.lock().expect("env lock poisoned");
-        std::env::set_var("DCC_MCP_SENTRY_DSN", &dsn);
-        std::env::set_var("DCC_MCP_SENTRY_ENVIRONMENT", "ci-e2e");
-        std::env::set_var("DCC_MCP_SENTRY_SAMPLE_RATE", "1.0");
+        // SAFETY: serialized by ENV_LOCK; e2e probe restores env when the lock drops.
+        unsafe {
+            std::env::set_var("DCC_MCP_SENTRY_DSN", &dsn);
+            std::env::set_var("DCC_MCP_SENTRY_ENVIRONMENT", "ci-e2e");
+            std::env::set_var("DCC_MCP_SENTRY_SAMPLE_RATE", "1.0");
+        }
 
         let guard = init_sentry().expect("valid DCC_MCP_SENTRY_DSN should initialise Sentry");
         let probe = format!("dcc-mcp-core sentry e2e probe {}", uuid::Uuid::new_v4());
