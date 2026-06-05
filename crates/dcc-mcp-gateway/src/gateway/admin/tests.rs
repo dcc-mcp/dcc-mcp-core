@@ -29,6 +29,9 @@ mod admin_tests {
     /// point at a non-existent directory for the duration of the request.
     static API_LOGS_ENV_LOCK: Mutex<()> = Mutex::new(());
 
+    /// Marketplace install/uninstall tests mutate `DCC_MCP_MARKETPLACE_INSTALL_ROOT`.
+    static MARKETPLACE_ENV_LOCK: Mutex<()> = Mutex::new(());
+
     struct ScopedNoDiskLogsDir {
         previous: Option<String>,
     }
@@ -90,6 +93,36 @@ mod admin_tests {
                 match &self.previous {
                     Some(v) => std::env::set_var("DCC_MCP_LOG_DIR", v),
                     None => std::env::remove_var("DCC_MCP_LOG_DIR"),
+                }
+            }
+        }
+    }
+
+    struct ScopedMarketplaceInstallRoot {
+        previous: Option<String>,
+    }
+
+    impl ScopedMarketplaceInstallRoot {
+        fn new(root: &std::path::Path) -> Self {
+            let previous = std::env::var("DCC_MCP_MARKETPLACE_INSTALL_ROOT").ok();
+            // SAFETY: tests are serialized with `MARKETPLACE_ENV_LOCK`.
+            unsafe {
+                std::env::set_var(
+                    "DCC_MCP_MARKETPLACE_INSTALL_ROOT",
+                    root.to_string_lossy().as_ref(),
+                );
+            }
+            Self { previous }
+        }
+    }
+
+    impl Drop for ScopedMarketplaceInstallRoot {
+        fn drop(&mut self) {
+            // SAFETY: same as `new` — guarded by the test mutex.
+            unsafe {
+                match &self.previous {
+                    Some(v) => std::env::set_var("DCC_MCP_MARKETPLACE_INSTALL_ROOT", v),
+                    None => std::env::remove_var("DCC_MCP_MARKETPLACE_INSTALL_ROOT"),
                 }
             }
         }
@@ -3203,5 +3236,124 @@ filters:
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn test_marketplace_install_triggers_skill_paths_reload_hook() {
+        let _env_guard = MARKETPLACE_ENV_LOCK.lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let marketplace_root = tmp.path().join("marketplace");
+        let _scoped_root = ScopedMarketplaceInstallRoot::new(&marketplace_root);
+
+        let skill_src = tmp.path().join("skill-src");
+        std::fs::create_dir_all(&skill_src).unwrap();
+        std::fs::write(skill_src.join("SKILL.md"), "---\nname: test-skill\n---\n").unwrap();
+
+        let catalog_path = tmp.path().join("catalog.json");
+        let skill_src_str = skill_src.display().to_string();
+        let catalog = serde_json::json!({
+            "version": "1",
+            "entries": [{
+                "name": "test-skill",
+                "description": "test",
+                "dcc": ["maya"],
+                "tags": [],
+                "install": {
+                    "type": "path",
+                    "url": skill_src_str
+                }
+            }]
+        });
+        std::fs::write(
+            &catalog_path,
+            serde_json::to_string_pretty(&catalog).unwrap(),
+        )
+        .unwrap();
+
+        let reload_calls = Arc::new(AtomicUsize::new(0));
+        let reload_calls_for_hook = reload_calls.clone();
+        let state = make_admin_state().with_skill_paths_reload(Some(Arc::new(move || {
+            reload_calls_for_hook.fetch_add(1, Ordering::SeqCst);
+        })));
+        let router = build_admin_router(state);
+
+        let source_path = catalog_path.display().to_string();
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/marketplace/install")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&serde_json::json!({
+                            "name": "test-skill",
+                            "dcc": "maya",
+                            "source": source_path
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(reload_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_marketplace_uninstall_triggers_skill_paths_reload_hook() {
+        let _env_guard = MARKETPLACE_ENV_LOCK.lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let marketplace_root = tmp.path().join("marketplace");
+        let _scoped_root = ScopedMarketplaceInstallRoot::new(&marketplace_root);
+
+        let dcc_root = marketplace_root.join("maya");
+        let pkg_root = dcc_root.join("test-skill");
+        std::fs::create_dir_all(&pkg_root).unwrap();
+        std::fs::write(pkg_root.join("SKILL.md"), "---\nname: test-skill\n---\n").unwrap();
+        std::fs::write(
+            marketplace_root.join("installed.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "packages": [{
+                    "name": "test-skill",
+                    "dcc": "maya",
+                    "version": "0.1.0",
+                    "path": pkg_root.display().to_string(),
+                    "source_name": "test",
+                    "source_url": "file://test",
+                    "install_type": "path",
+                    "installed_at_ms": 1
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let reload_calls = Arc::new(AtomicUsize::new(0));
+        let reload_calls_for_hook = reload_calls.clone();
+        let state = make_admin_state().with_skill_paths_reload(Some(Arc::new(move || {
+            reload_calls_for_hook.fetch_add(1, Ordering::SeqCst);
+        })));
+        let router = build_admin_router(state);
+
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/marketplace/uninstall")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&serde_json::json!({
+                            "name": "test-skill",
+                            "dcc": "maya"
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(reload_calls.load(Ordering::SeqCst), 1);
     }
 }
