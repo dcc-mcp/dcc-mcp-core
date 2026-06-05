@@ -20,6 +20,10 @@ behaviour changed in ways that are larger than a patch:
 Adapter repositories should set their minimum core dependency to
 `dcc-mcp-core>=0.18.0` when they adopt this checklist.
 
+Release notes should call this out as: minor release for daemon-backed gateway
+startup, bounded gateway request metadata, Sentry server monitoring, and the
+adapter dependency floor of `dcc-mcp-core>=0.18.0`.
+
 ## Required adapter changes
 
 | Area | What changed | Adapter action |
