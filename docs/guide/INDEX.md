@@ -50,6 +50,9 @@ document without scanning every file.
 | [protocols.md](protocols.md) | MCP protocol types and versioning |
 | [middleware.md](middleware.md) | Pluggable BeforeCall/AfterCall middleware chain: audit, quota, redaction |
 | [admin-ui.md](admin-ui.md) | Built-in embedded `/admin` dashboard (instances, tools, calls, traces, stats, workers, merged logs, health, durable JSONL audit/trace persistence) |
+| [analytics-dashboard.md](analytics-dashboard.md) | Analytics dashboard: KPIs, timeseries, heatmap, top tools, CSV/JSONL export |
+| [sentry.md](sentry.md) | Sentry error monitoring: DSN config, environment tags, sample rate, E2E tests |
+| [marketplace.md](marketplace.md) | Marketplace skill packages: catalog sources, install/update lifecycle, security |
 | [translate.md](translate.md) | `translate` subcommand: bridge any stdio MCP server to HTTP/SSE |
 | [openapi-mount.md](openapi-mount.md) | OpenAPI-to-MCP mount helper: expose any REST API as MCP tools |
 | [catalog.md](catalog.md) | DCC-MCP public adapter catalog: search and describe |

@@ -92,6 +92,8 @@ export default defineConfig({
               text: 'DCC Integration',
               items: [
                 { text: 'Admin UI', link: '/guide/admin-ui' },
+                { text: 'Analytics Dashboard', link: '/guide/analytics-dashboard' },
+                { text: 'Sentry Error Monitoring', link: '/guide/sentry' },
                 { text: 'App UI Workflows', link: '/guide/app-ui-workflows' },
                 { text: 'Host Adapter', link: '/guide/host-adapter' },
                 { text: 'Adapter Runtime Contracts', link: '/guide/adapter-runtime-contracts' },
@@ -103,6 +105,7 @@ export default defineConfig({
               text: 'Catalog & Skills',
               items: [
                 { text: 'Catalog', link: '/guide/catalog' },
+                { text: 'Marketplace', link: '/guide/marketplace' },
                 { text: 'Skill Maintenance', link: '/guide/skill-maintenance' },
                 { text: 'Rez Skill Packages', link: '/guide/rez-skill-packages' },
                 { text: 'Context Bundles', link: '/guide/context-bundles' },
@@ -274,6 +277,8 @@ export default defineConfig({
               text: 'DCC 集成',
               items: [
                 { text: '管理界面', link: '/zh/guide/admin-ui' },
+                { text: '分析仪表盘', link: '/zh/guide/analytics-dashboard' },
+                { text: 'Sentry 错误监控', link: '/zh/guide/sentry' },
                 { text: 'App UI 工作流', link: '/zh/guide/app-ui-workflows' },
                 { text: '主机适配器', link: '/zh/guide/host-adapter' },
                 { text: '适配器运行时契约', link: '/zh/guide/adapter-runtime-contracts' },
@@ -285,6 +290,7 @@ export default defineConfig({
               text: '目录与技能',
               items: [
                 { text: '技能目录', link: '/zh/guide/catalog' },
+                { text: '市场技能包', link: '/zh/guide/marketplace' },
                 { text: '技能维护', link: '/zh/guide/skill-maintenance' },
                 { text: 'Rez 技能包', link: '/zh/guide/rez-skill-packages' },
                 { text: '上下文束', link: '/zh/guide/context-bundles' },
