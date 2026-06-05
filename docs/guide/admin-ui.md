@@ -177,6 +177,7 @@ Markdown body for developer review.
 | `GET /admin/api/skill-paths` | `application/json` | Current skill discovery roots with safe path aliases, present/missing status, and source/id metadata for public-safe screenshots and exports |
 | `POST /admin/api/skill-paths` | `application/json` | Add a SQLite-backed custom skill discovery root, then refresh live backend skill indexes |
 | `DELETE /admin/api/skill-paths/{id}` | `application/json` | Remove a SQLite-backed custom skill discovery root, then refresh live backend skill indexes |
+| `GET /admin/api/integrations` | `application/json` | Read-only integration configuration summary: Sentry DSN status, webhook count, OTLP endpoint, and pending-restart flags |
 
 Stable agent-facing mirrors are exposed under `/v1/debug/*` and are included in
 `GET /v1/openapi.json`. The Admin routes above remain the dashboard
@@ -909,7 +910,7 @@ Set `DCC_MCP_GATEWAY_AUDIT_DIR` to enable durable JSONL persistence. The gateway
 The HTML dashboard includes:
 - **Debug Workbench**: the default first screen combines health, instances, calls, traces, stats, warning logs, and per-instance OpenAPI entry points so operators can triage gateway failures without jumping between panels.
 - **Gateway owner identity**: the Health and Debug panels show the current `__gateway__` sentinel label from `gateway_name` / `DCC_MCP_GATEWAY_NAME`, plus any challenger candidates.
-- **Left navigation**: Debug / Activity / Health / Instances / Tools / Tasks / OpenAPI Inspector / Calls / Traces / Stats / Skill paths / Logs panels
+- **Left navigation**: Debug / Activity / Health / Instances / Tools / Tasks / OpenAPI Inspector / Calls / Traces / Stats / Skill paths / Integrations / Logs panels
 - **Auto-refresh**: Panels poll their JSON endpoints every 5 seconds
 - **DCC icons**: common hosts such as Maya/Autodesk, Blender, GIMP, Inkscape, Krita, Unity, and Unreal get recognizable icons, with a safe fallback for custom hosts.
 - **Instance cards**: Per-instance status, heartbeat, and routing metadata
@@ -926,9 +927,78 @@ The HTML dashboard includes:
   and redaction paths remain visible.
 - **Governance panel**: shows read-only state, allowlists, traffic capture mode/sinks, production guardrails, redaction path summaries, middleware rate-limit controls, and recent allowed/denied/throttled/capture decisions.
 - **Logs panel**: groups normalized `contention`, `file`, and `audit` rows so operators can correlate routing events, rolling files, and tool calls in one timeline. File log reads are bounded to recent files and tail slices so the admin API does not scan unbounded historical logs.
+- **Integrations panel**: read-only summary of enabled third-party integrations — Sentry DSN status (set/unset), active webhook count and name list, OTLP endpoint, and any pending-restart flags for configuration changes that require a server restart to take effect.
 - **Durable audit option**: `DCC_MCP_GATEWAY_AUDIT_DIR` preserves the Calls and Traces panels across restarts without changing the JSON API shapes.
 - **Dark theme**: Vite/React source with embedded runtime asset and no required runtime build step
 - **Responsive**: narrow screens switch to a top navigation rail, and debug cards/charts keep a usable single-column width.
+
+## Integrations Panel
+
+The Integrations panel (`GET /admin/api/integrations`) displays a read-only
+summary of the gateway's third-party integration configuration. The panel shows
+which integrations are active and whether a server restart is pending for
+environment-provided settings.
+
+| Integration | Configuration mechanism | Admin panel shows |
+|-------------|------------------------|-------------------|
+| Sentry | `DCC_MCP_SENTRY_DSN` env var | DSN status (set/unset), environment, sample rate |
+| Webhooks | `DCC_MCP_WEBHOOKS_CONFIG` env var → YAML file | Active webhook names, event patterns, and delivery stats |
+| OTLP tracing | `OTEL_EXPORTER_OTLP_ENDPOINT` env var | Endpoint URL, service name, span sample rate |
+
+The panel is **read-only** by design — all three integrations are configured
+through environment variables or config files applied at server startup. The
+panel flags pending-restart changes when the operator modifies an env var
+through the host deployment tooling but has not yet restarted the gateway
+process. See [gateway.md](gateway.md) for full configuration reference.
+
+### Backend API
+
+```json
+// GET /admin/api/integrations
+{
+  "sentry": {
+    "configured": true,
+    "dsn_prefix": "https://***@o***.ingest.sentry.io",
+    "environment": "production",
+    "sample_rate": 1.0,
+    "pending_restart": false
+  },
+  "webhooks": {
+    "configured": true,
+    "config_path": "/etc/dcc-mcp/webhooks.yaml",
+    "active_webhooks": 2,
+    "names": ["analytics-forwarder", "error-reporter"],
+    "pending_restart": false
+  },
+  "otlp": {
+    "configured": true,
+    "endpoint": "http://localhost:4317",
+    "service_name": "dcc-mcp-gateway",
+    "pending_restart": false
+  }
+}
+```
+
+The response omits secrets: the DSN prefix is shown for identification but
+the full DSN (including the secret key) is never exposed. When an integration
+is unconfigured, its block contains `"configured": false` and no further
+fields.
+
+If a configuration change is detected (e.g. `DCC_MCP_SENTRY_DSN` was set or
+cleared since process start), `pending_restart` is `true` and the panel
+displays a visual indicator prompting the operator to restart the gateway.
+
+### Routes
+
+| Route | Content-Type | Description |
+|-------|-------------|-------------|
+| `GET /admin/api/integrations` | `application/json` | Read-only integration configuration summary |
+
+### Stable agent-facing route
+
+| Stable route | Mirrors |
+|--------------|---------|
+| `GET /v1/debug/integrations` | `/admin/api/integrations` |
 
 ## Security Note
 
@@ -942,4 +1012,5 @@ The admin UI is **read-only** and has **no authentication** by default. It binds
 
 - [middleware.md](middleware.md) — `AuditMiddleware` that feeds `/admin/api/calls`
 - [observability.md](observability.md) — `EventLog` that feeds `/admin/api/logs`
-- [gateway.md](gateway.md) — full gateway configuration reference
+- [gateway.md](gateway.md) — full gateway configuration reference (webhooks, Sentry, OTLP)
+- [sentry.md](sentry.md) — Sentry error monitoring reference
