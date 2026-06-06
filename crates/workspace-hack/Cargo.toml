@@ -15,7 +15,7 @@ publish = false
 
 ### BEGIN HAKARI SECTION
 [dependencies]
-aho-corasick = { version = "1.1.4", default-features = false, features = ["std", "perf-literal"] }
+aho-corasick = { version = "1.1.4" }
 axum = { version = "0.8.9", features = ["ws"] }
 bit-set = { version = "0.8.0" }
 bit-vec = { version = "0.8.0" }
@@ -96,7 +96,7 @@ zerocopy = { version = "0.8.48", default-features = false, features = ["derive",
 zeroize = { version = "1.8.2", features = ["derive"] }
 
 [build-dependencies]
-aho-corasick = { version = "1.1.4", default-features = false, features = ["std", "perf-literal"] }
+aho-corasick = { version = "1.1.4" }
 axum = { version = "0.8.9", features = ["ws"] }
 bit-set = { version = "0.8.0" }
 bit-vec = { version = "0.8.0" }
