@@ -17,8 +17,6 @@ publish = false
 [dependencies]
 aho-corasick = { version = "1.1.4" }
 axum = { version = "0.8.9", features = ["ws"] }
-bit-set = { version = "0.8.0" }
-bit-vec = { version = "0.8.0" }
 chrono = { version = "0.4.44", features = ["serde"] }
 clap = { version = "4.6.1", features = ["derive", "env"] }
 clap_builder = { version = "4.6.0", default-features = false, features = ["color", "env", "help", "std", "suggestions", "usage"] }
@@ -35,14 +33,12 @@ futures-sink = { version = "0.3.32" }
 futures-task = { version = "0.3.32", default-features = false, features = ["std"] }
 futures-util = { version = "0.3.32", features = ["channel", "io", "sink"] }
 generic-array = { version = "0.14.9", default-features = false, features = ["more_lengths", "zeroize"] }
-getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3.4", default-features = false, features = ["std"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2.17", default-features = false, features = ["std"] }
 half = { version = "2.7.1" }
 hashbrown = { version = "0.16.1", features = ["serde"] }
 httparse = { version = "1.10.1" }
 hyper = { version = "1.9.0", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1.20", features = ["client-legacy", "http1", "server", "service"] }
-idna = { version = "1.1.0" }
 image = { version = "0.25.10" }
 indexmap = { version = "2.14.0", features = ["serde"] }
 lazy_static = { version = "1.5.0", default-features = false, features = ["spin_no_std"] }
@@ -51,7 +47,6 @@ memchr = { version = "2.8.0" }
 miniz_oxide = { version = "0.8.9", features = ["simd"] }
 mio = { version = "1.2.0", features = ["net", "os-ext"] }
 ndarray = { version = "0.17.2" }
-num = { version = "0.4.3" }
 num-bigint = { version = "0.4.6" }
 num-complex = { version = "0.4.6" }
 num-integer = { version = "0.1.46", features = ["i128"] }
@@ -59,6 +54,7 @@ num-iter = { version = "0.1.45", default-features = false, features = ["i128", "
 num-rational = { version = "0.4.2", features = ["num-bigint-std"] }
 num-traits = { version = "0.2.19", features = ["i128", "libm"] }
 once_cell = { version = "1.21.4" }
+percent-encoding = { version = "2.3.2" }
 phf = { version = "0.11.3", features = ["macros"] }
 phf_shared = { version = "0.11.3" }
 ppv-lite86 = { version = "0.2.21", default-features = false, features = ["simd", "std"] }
@@ -66,7 +62,7 @@ rand-274715c4dabd11b0 = { package = "rand", version = "0.9.4" }
 rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8.6", features = ["small_rng"] }
 rand_chacha = { version = "0.9.0", default-features = false, features = ["std"] }
 rand_core = { version = "0.6.4", default-features = false, features = ["std"] }
-regex-automata = { version = "0.4.14", default-features = false, features = ["dfa", "hybrid", "meta", "nfa", "perf", "std", "unicode"] }
+regex-automata = { version = "0.4.14", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
 regex-syntax = { version = "0.8.10" }
 reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "rustls", "stream"] }
 serde = { version = "1.0.228", features = ["alloc", "derive", "rc"] }
@@ -90,7 +86,6 @@ tracing-core = { version = "0.1.36" }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 typenum = { version = "1.20.0", default-features = false, features = ["const-generics"] }
 url = { version = "2.5.8", features = ["serde"] }
-uuid = { version = "1.23.1", features = ["serde", "v4", "v5"] }
 winnow = { version = "1.0.3" }
 zerocopy = { version = "0.8.48", default-features = false, features = ["derive", "simd"] }
 zeroize = { version = "1.8.2", features = ["derive"] }
@@ -98,8 +93,6 @@ zeroize = { version = "1.8.2", features = ["derive"] }
 [build-dependencies]
 aho-corasick = { version = "1.1.4" }
 axum = { version = "0.8.9", features = ["ws"] }
-bit-set = { version = "0.8.0" }
-bit-vec = { version = "0.8.0" }
 chrono = { version = "0.4.44", features = ["serde"] }
 clap = { version = "4.6.1", features = ["derive", "env"] }
 clap_builder = { version = "4.6.0", default-features = false, features = ["color", "env", "help", "std", "suggestions", "usage"] }
@@ -116,14 +109,12 @@ futures-sink = { version = "0.3.32" }
 futures-task = { version = "0.3.32", default-features = false, features = ["std"] }
 futures-util = { version = "0.3.32", features = ["channel", "io", "sink"] }
 generic-array = { version = "0.14.9", default-features = false, features = ["more_lengths", "zeroize"] }
-getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3.4", default-features = false, features = ["std"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2.17", default-features = false, features = ["std"] }
 half = { version = "2.7.1" }
 hashbrown = { version = "0.16.1", features = ["serde"] }
 httparse = { version = "1.10.1" }
 hyper = { version = "1.9.0", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1.20", features = ["client-legacy", "http1", "server", "service"] }
-idna = { version = "1.1.0" }
 image = { version = "0.25.10" }
 indexmap = { version = "2.14.0", features = ["serde"] }
 lazy_static = { version = "1.5.0", default-features = false, features = ["spin_no_std"] }
@@ -132,7 +123,6 @@ memchr = { version = "2.8.0" }
 miniz_oxide = { version = "0.8.9", features = ["simd"] }
 mio = { version = "1.2.0", features = ["net", "os-ext"] }
 ndarray = { version = "0.17.2" }
-num = { version = "0.4.3" }
 num-bigint = { version = "0.4.6" }
 num-complex = { version = "0.4.6" }
 num-integer = { version = "0.1.46", features = ["i128"] }
@@ -140,6 +130,7 @@ num-iter = { version = "0.1.45", default-features = false, features = ["i128", "
 num-rational = { version = "0.4.2", features = ["num-bigint-std"] }
 num-traits = { version = "0.2.19", features = ["i128", "libm"] }
 once_cell = { version = "1.21.4" }
+percent-encoding = { version = "2.3.2" }
 phf = { version = "0.11.3", features = ["macros"] }
 phf_shared = { version = "0.11.3" }
 ppv-lite86 = { version = "0.2.21", default-features = false, features = ["simd", "std"] }
@@ -149,7 +140,7 @@ rand-274715c4dabd11b0 = { package = "rand", version = "0.9.4" }
 rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8.6", features = ["small_rng"] }
 rand_chacha = { version = "0.9.0", default-features = false, features = ["std"] }
 rand_core = { version = "0.6.4", default-features = false, features = ["std"] }
-regex-automata = { version = "0.4.14", default-features = false, features = ["dfa", "hybrid", "meta", "nfa", "perf", "std", "unicode"] }
+regex-automata = { version = "0.4.14", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
 regex-syntax = { version = "0.8.10" }
 reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "rustls", "stream"] }
 serde = { version = "1.0.228", features = ["alloc", "derive", "rc"] }
@@ -174,7 +165,6 @@ tracing-core = { version = "0.1.36" }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 typenum = { version = "1.20.0", default-features = false, features = ["const-generics"] }
 url = { version = "2.5.8", features = ["serde"] }
-uuid = { version = "1.23.1", features = ["serde", "v4", "v5"] }
 winnow = { version = "1.0.3" }
 zerocopy = { version = "0.8.48", default-features = false, features = ["derive", "simd"] }
 zeroize = { version = "1.8.2", features = ["derive"] }
