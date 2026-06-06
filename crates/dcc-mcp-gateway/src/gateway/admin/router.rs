@@ -18,8 +18,9 @@ use super::handlers::{
     handle_admin_workers, handle_admin_workflows, handle_v1_debug_trace_lookup,
 };
 use super::marketplace::{
-    handle_marketplace_catalog, handle_marketplace_install, handle_marketplace_installed,
-    handle_marketplace_uninstall,
+    handle_marketplace_add_source, handle_marketplace_catalog, handle_marketplace_install,
+    handle_marketplace_installed, handle_marketplace_outdated, handle_marketplace_sources,
+    handle_marketplace_uninstall, handle_marketplace_update,
 };
 use super::state::AdminState;
 
@@ -126,6 +127,22 @@ pub fn build_admin_router(state: AdminState) -> Router {
         .route(
             "/api/marketplace/uninstall",
             routing::post(handle_marketplace_uninstall),
+        )
+        .route(
+            "/api/marketplace/sources",
+            routing::get(handle_marketplace_sources),
+        )
+        .route(
+            "/api/marketplace/sources",
+            routing::post(handle_marketplace_add_source),
+        )
+        .route(
+            "/api/marketplace/outdated",
+            routing::get(handle_marketplace_outdated),
+        )
+        .route(
+            "/api/marketplace/update",
+            routing::post(handle_marketplace_update),
         )
         .with_state(state)
 }

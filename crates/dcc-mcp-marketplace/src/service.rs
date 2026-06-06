@@ -5,6 +5,7 @@ use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use dcc_mcp_catalog::{self, CatalogEntry, CatalogInstall};
@@ -711,8 +712,7 @@ impl MarketplaceService {
         }
         let text = serde_json::to_string_pretty(state)
             .expect("MarketplaceInstalledState serialization should not fail");
-        fs::write(&path, text)
-            .map_err(|err| MarketplaceError::ConfigIo(path.display().to_string(), err))
+        write_atomic(&path, &text)
     }
 
     fn upsert_installed(
@@ -748,6 +748,71 @@ impl MarketplaceService {
 }
 
 // ── free functions ────────────────────────────────────────────────────────────
+
+/// Serialises all marketplace file writes so concurrent callers (two
+/// `save_config()` or two `save_installed_state()`) never share the same
+/// temp file.  A `static Mutex` is fine here because the critical section
+/// is disk I/O — tens of ms, not nanoseconds.
+static WRITE_LOCK: Mutex<()> = Mutex::new(());
+
+/// Atomic write — write to a temp file, sync, then rename into place.
+///
+/// Same pattern as `FileRegistry::write_atomic` in `dcc-mcp-transport`.
+/// Callers are serialised by [`WRITE_LOCK`] so same-target-path writes
+/// cannot clobber one another.
+fn write_atomic(path: &Path, content: &str) -> Result<(), MarketplaceError> {
+    let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    let pid = std::process::id();
+    let temp_path = dir.join(format!(".tmp.{pid}.marketplace.json"));
+
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&temp_path)
+        .map_err(|err| {
+            let _ = fs::remove_file(&temp_path);
+            MarketplaceError::ConfigIo(temp_path.display().to_string(), err)
+        })?;
+
+    if let Err(err) = std::io::Write::write_all(&mut file, content.as_bytes()) {
+        drop(file);
+        let _ = fs::remove_file(&temp_path);
+        return Err(MarketplaceError::ConfigIo(
+            temp_path.display().to_string(),
+            err,
+        ));
+    }
+
+    if let Err(err) = file.sync_data() {
+        drop(file);
+        let _ = fs::remove_file(&temp_path);
+        return Err(MarketplaceError::ConfigIo(
+            temp_path.display().to_string(),
+            err,
+        ));
+    }
+    drop(file);
+
+    const MAX_ATTEMPTS: u32 = 8;
+    const BACKOFF_MS: u64 = 10;
+    for attempt in 0..MAX_ATTEMPTS {
+        match fs::rename(&temp_path, path) {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                std::thread::sleep(std::time::Duration::from_millis(
+                    BACKOFF_MS * (attempt as u64 + 1),
+                ));
+                if attempt == MAX_ATTEMPTS - 1 {
+                    let _ = fs::remove_file(&temp_path);
+                    return Err(MarketplaceError::ConfigIo(path.display().to_string(), e));
+                }
+            }
+        }
+    }
+    unreachable!()
+}
 
 /// Check whether the `DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES` env var is set.
 pub fn default_sources_disabled() -> bool {
@@ -805,7 +870,7 @@ fn save_config(path: &Path, config: &MarketplaceSourceConfig) -> Result<(), Mark
     }
     let text = serde_json::to_string_pretty(config)
         .expect("MarketplaceSourceConfig serialization should not fail");
-    fs::write(path, text).map_err(|err| MarketplaceError::ConfigIo(path.display().to_string(), err))
+    write_atomic(path, &text)
 }
 
 fn resolve_install_dcc(

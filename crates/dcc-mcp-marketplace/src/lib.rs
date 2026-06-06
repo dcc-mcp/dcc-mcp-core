@@ -12,12 +12,14 @@
 //! - A unified [`MarketplaceError`] covering all known failure modes.
 
 pub mod error;
+pub mod path;
 pub mod service;
 pub mod source;
 pub mod types;
 
 // Re-export the public API for convenience.
 pub use error::MarketplaceError;
+pub use path::{default_config_path, home_dir, marketplace_root, marketplace_root_or_default};
 pub use service::{MarketplaceService, default_sources_disabled, env_sources, path_component};
 pub use source::{builtin_source, dedupe_sources, normalise_source};
 pub use types::{

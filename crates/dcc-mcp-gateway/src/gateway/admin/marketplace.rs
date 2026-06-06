@@ -1,22 +1,25 @@
-//! Marketplace admin API handlers — PIP-521 / PIP-626.
+//! Marketplace admin API handlers — PIP-521 / PIP-626 / PIP-699.
 //!
 //! Thin HTTP adapter that delegates to
 //! [`dcc_mcp_marketplace::MarketplaceService`]. The response types below are
 //! the HTTP contract with the admin-ui frontend and are intentionally kept
 //! separate from the shared domain types.
 //!
-//! Exposes four endpoints under `/admin/api/marketplace/`:
+//! Exposes eight endpoints under `/admin/api/marketplace/`:
 //! - `GET  /catalog`   — list available packages from marketplace sources
 //! - `GET  /installed` — list installed packages
-//! - `POST /install`   — install a package
+//! - `POST /install`   — install a package (supports optional `force: true`)
 //! - `POST /uninstall` — uninstall a package
-
-use std::path::PathBuf;
+//! - `GET  /sources`   — list configured sources (builtin + config + env)
+//! - `POST /sources`   — add a new source to the persistent config
+//! - `GET  /outdated`  — list installed packages with outdated versions
+//! - `POST /update`    — update one or all outdated packages
 
 use axum::Json;
+use axum::body::Body;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
 use dcc_mcp_marketplace::MarketplaceService;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -108,6 +111,9 @@ pub struct InstallRequestBody {
     pub dcc: String,
     #[serde(default)]
     pub source: Option<String>,
+    /// Force re-install even if the package already exists at the destination.
+    #[serde(default)]
+    pub force: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -116,27 +122,125 @@ pub struct UninstallRequestBody {
     pub dcc: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct SourcesResponse {
+    pub sources: Vec<MarketplaceSourceResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MarketplaceSourceResponse {
+    pub name: String,
+    pub url: String,
+    pub origin: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AddSourceRequest {
+    pub source: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OutdatedResponse {
+    pub dcc: Option<String>,
+    pub count: usize,
+    pub packages: Vec<OutdatedPackageResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct OutdatedPackageResponse {
+    pub name: String,
+    pub dcc: String,
+    pub installed_version: Option<String>,
+    pub latest_version: Option<String>,
+    pub source_name: String,
+    pub source_url: String,
+    pub install_type: String,
+    pub install_url: Option<String>,
+    pub install_ref: Option<String>,
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateRequest {
+    /// Optional package name for single-package update.
+    pub name: Option<String>,
+    /// Required when updating a single package by name.
+    pub dcc: Option<String>,
+    /// Update all outdated packages.
+    #[serde(default)]
+    pub all: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UpdateResponse {
+    pub updated: usize,
+    pub results: Vec<UpdateResultItem>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UpdateResultItem {
+    pub updated: bool,
+    pub name: String,
+    pub dcc: String,
+    pub previous_version: Option<String>,
+    pub new_version: Option<String>,
+    pub path: String,
+    pub install_type: String,
+    pub source_name: String,
+    pub source_url: String,
+    pub reload_required: bool,
+}
+
+// ── Error envelope ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+struct ErrorResponse {
+    kind: String,
+    message: String,
+}
+
+impl ErrorResponse {
+    fn from_error(err: &dcc_mcp_marketplace::MarketplaceError) -> Self {
+        let kind = match err {
+            dcc_mcp_marketplace::MarketplaceError::NotFound(_) => "not_found",
+            dcc_mcp_marketplace::MarketplaceError::AlreadyInstalled { .. } => "already_installed",
+            dcc_mcp_marketplace::MarketplaceError::DccMismatch { .. } => "dcc_mismatch",
+            dcc_mcp_marketplace::MarketplaceError::AmbiguousDcc { .. } => "ambiguous_dcc",
+            dcc_mcp_marketplace::MarketplaceError::MissingInstall(_) => "missing_install",
+            dcc_mcp_marketplace::MarketplaceError::UnsupportedInstallType(_) => {
+                "unsupported_install_type"
+            }
+            dcc_mcp_marketplace::MarketplaceError::MissingSkill(_) => "missing_skill",
+            dcc_mcp_marketplace::MarketplaceError::CommandFailed(_) => "command_failed",
+            dcc_mcp_marketplace::MarketplaceError::HashMismatch { .. } => "hash_mismatch",
+            dcc_mcp_marketplace::MarketplaceError::Archive(..) => "archive_error",
+            dcc_mcp_marketplace::MarketplaceError::InvalidPathComponent { .. } => {
+                "invalid_path_component"
+            }
+            _ => "internal_error",
+        };
+        Self {
+            kind: kind.to_string(),
+            message: err.to_string(),
+        }
+    }
+}
+
+fn error_response(
+    err: &dcc_mcp_marketplace::MarketplaceError,
+    status: StatusCode,
+) -> Response<Body> {
+    let body = Json(json!({ "error": ErrorResponse::from_error(err) }));
+    (status, body).into_response()
+}
+
 // ── Service helper ───────────────────────────────────────────────────────────
 
 fn marketplace_service() -> MarketplaceService {
-    let root = marketplace_root();
-    MarketplaceService::new(root)
-}
-
-fn marketplace_root() -> PathBuf {
-    if let Ok(root) = std::env::var("DCC_MCP_MARKETPLACE_INSTALL_ROOT")
-        && !root.trim().is_empty()
-    {
-        return PathBuf::from(root);
-    }
-    home_dir().join(".dcc-mcp").join("marketplace")
-}
-
-fn home_dir() -> PathBuf {
-    std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
+    let root = dcc_mcp_marketplace::marketplace_root_or_default();
+    let config_path =
+        dcc_mcp_marketplace::default_config_path().unwrap_or_else(|_| root.join("sources.json"));
+    MarketplaceService::new(root).with_config_path(config_path)
 }
 
 // ── Handlers ─────────────────────────────────────────────────────────────────
@@ -172,11 +276,7 @@ pub async fn handle_marketplace_catalog(State(_s): State<AdminState>) -> impl In
                 .collect();
             Json(json!({ "entries": entries })).into_response()
         }
-        Err(err) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": err.to_string() })),
-        )
-            .into_response(),
+        Err(err) => error_response(&err, StatusCode::INTERNAL_SERVER_ERROR),
     }
 }
 
@@ -203,11 +303,7 @@ pub async fn handle_marketplace_installed(State(_s): State<AdminState>) -> impl 
                 .collect();
             Json(json!({ "packages": packages })).into_response()
         }
-        Err(err) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": err.to_string() })),
-        )
-            .into_response(),
+        Err(err) => error_response(&err, StatusCode::INTERNAL_SERVER_ERROR),
     }
 }
 
@@ -219,7 +315,12 @@ pub async fn handle_marketplace_install(
     let service = marketplace_service();
     let sources: Vec<String> = body.source.into_iter().collect();
     match service
-        .install(body.name.clone(), Some(body.dcc.clone()), sources, false)
+        .install(
+            body.name.clone(),
+            Some(body.dcc.clone()),
+            sources,
+            body.force,
+        )
         .await
     {
         Ok(result) => {
@@ -238,11 +339,7 @@ pub async fn handle_marketplace_install(
             })
             .into_response()
         }
-        Err(err) => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": err.to_string() })),
-        )
-            .into_response(),
+        Err(err) => error_response(&err, StatusCode::BAD_REQUEST),
     }
 }
 
@@ -268,11 +365,126 @@ pub async fn handle_marketplace_uninstall(
             })
             .into_response()
         }
-        Err(err) => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": err.to_string() })),
-        )
-            .into_response(),
+        Err(err) => error_response(&err, StatusCode::BAD_REQUEST),
+    }
+}
+
+// ── New endpoints — PIP-699 M1 ────────────────────────────────────────────────
+
+/// `GET /admin/api/marketplace/sources`
+pub async fn handle_marketplace_sources(State(_s): State<AdminState>) -> impl IntoResponse {
+    let service = marketplace_service();
+    match service.list_sources() {
+        Ok(sources) => {
+            let items: Vec<MarketplaceSourceResponse> = sources
+                .into_iter()
+                .map(|s| MarketplaceSourceResponse {
+                    name: s.name,
+                    url: s.url,
+                    origin: format!("{:?}", s.origin).to_lowercase(),
+                })
+                .collect();
+            Json(json!({ "sources": items })).into_response()
+        }
+        Err(err) => error_response(&err, StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+/// `POST /admin/api/marketplace/sources`
+pub async fn handle_marketplace_add_source(
+    State(_s): State<AdminState>,
+    Json(body): Json<AddSourceRequest>,
+) -> impl IntoResponse {
+    let service = marketplace_service();
+    match service.add_source(&body.source) {
+        Ok(sources) => {
+            let items: Vec<MarketplaceSourceResponse> = sources
+                .into_iter()
+                .map(|s| MarketplaceSourceResponse {
+                    name: s.name,
+                    url: s.url,
+                    origin: format!("{:?}", s.origin).to_lowercase(),
+                })
+                .collect();
+            Json(json!({ "sources": items })).into_response()
+        }
+        Err(err) => error_response(&err, StatusCode::BAD_REQUEST),
+    }
+}
+
+/// `GET /admin/api/marketplace/outdated`
+pub async fn handle_marketplace_outdated(
+    State(_s): State<AdminState>,
+    axum::extract::Query(params): axum::extract::Query<OutdatedQueryParams>,
+) -> impl IntoResponse {
+    let service = marketplace_service();
+    match service
+        .outdated(params.dcc.as_deref(), params.name.into_iter().collect())
+        .await
+    {
+        Ok(list) => {
+            let packages: Vec<OutdatedPackageResponse> = list
+                .packages
+                .into_iter()
+                .map(|p| OutdatedPackageResponse {
+                    name: p.name,
+                    dcc: p.dcc,
+                    installed_version: p.installed_version,
+                    latest_version: p.latest_version,
+                    source_name: p.source_name,
+                    source_url: p.source_url,
+                    install_type: p.install_type,
+                    install_url: p.install_url,
+                    install_ref: p.install_ref,
+                    path: p.path,
+                })
+                .collect();
+            Json(json!({ "dcc": list.dcc, "count": list.count, "packages": packages }))
+                .into_response()
+        }
+        Err(err) => error_response(&err, StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OutdatedQueryParams {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    dcc: Option<String>,
+}
+
+/// `POST /admin/api/marketplace/update`
+pub async fn handle_marketplace_update(
+    State(s): State<AdminState>,
+    Json(body): Json<UpdateRequest>,
+) -> impl IntoResponse {
+    let service = marketplace_service();
+    match service.update(body.name, body.all, body.dcc).await {
+        Ok(results) => {
+            let any_reload = results.iter().any(|r| r.reload_required);
+            if any_reload {
+                reload_skill_paths_and_refresh_backends(&s, RefreshReason::ToolsListChanged).await;
+            }
+            let items: Vec<UpdateResultItem> = results
+                .into_iter()
+                .map(|r| UpdateResultItem {
+                    updated: r.updated,
+                    name: r.name,
+                    dcc: r.dcc,
+                    previous_version: r.previous_version,
+                    new_version: r.new_version,
+                    path: r.path,
+                    install_type: r.install_type,
+                    source_name: r.source_name,
+                    source_url: r.source_url,
+                    reload_required: r.reload_required,
+                })
+                .collect();
+            let count = items.len();
+            Json(json!({ "updated": count, "results": items })).into_response()
+        }
+        Err(err) => error_response(&err, StatusCode::BAD_REQUEST),
     }
 }
 
