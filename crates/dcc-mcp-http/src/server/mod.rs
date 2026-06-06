@@ -90,7 +90,7 @@ impl McpServerHandle {
         // correctness safety net for callers who skip `shutdown()`.
         #[cfg(feature = "auto-gateway")]
         if let Some(gw) = self._gateway.as_mut() {
-            gw.deregister_all();
+            gw.abort_and_wait().await;
         }
 
         let _ = self.shutdown_tx.send(true);
