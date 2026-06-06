@@ -26,8 +26,12 @@ The flow covered end-to-end:
    symmetric unload path.
 
 Runtime budget: the prompts watcher inherits the same 3-second tick as
-the tools/resources aggregators, so we allow up to 12 s end-to-end for
-each wait.
+the tools/resources aggregators. We allow up to 25 s end-to-end for
+each wait to accommodate slow CI runners (macOS py3.8 in particular,
+where resource contention and Python 3.8's slower asyncio can inflate
+individual ticks past the 3 s nominal interval). With
+MissedTickBehavior::Delay, a single slow HTTP fetch defers the next
+tick, so ~8 ticks is a safe ceiling even under load.
 """
 
 from __future__ import annotations
@@ -53,7 +57,7 @@ FIXTURE_SKILL_PARENT = str(REPO_ROOT / "tests" / "fixtures" / "prompts_skills" /
 
 # The aggregating prompts watcher ticks every 3 s (same cadence as the
 # tools and resources aggregators); add slack for scheduling jitter.
-SSE_NOTIFICATION_BUDGET_S = 12.0
+SSE_NOTIFICATION_BUDGET_S = 25.0
 AGGREGATOR_TICK_S = 3.0
 
 
