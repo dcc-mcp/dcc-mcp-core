@@ -228,6 +228,15 @@ async fn skill_rest_metadata_survives_fetch_and_describe() {
             .meta
             .as_ref()
             .and_then(|meta| meta.get("dcc"))
+            .and_then(|dcc| dcc.get("has_schema"))
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        tools[0]
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get("dcc"))
             .and_then(|dcc| dcc.get("timeoutHintSecs"))
             .and_then(Value::as_u64),
         Some(2)

@@ -239,6 +239,15 @@ pub async fn try_fetch_tools(
                 let metadata = v.get("metadata");
                 let mut meta = mcp_meta_from_rest_metadata(metadata, v.get("skill"));
 
+                if let Some(dcc) = meta
+                    .get_or_insert_with(Default::default)
+                    .entry("dcc".to_string())
+                    .or_insert_with(|| json!({}))
+                    .as_object_mut()
+                {
+                    dcc.insert("has_schema".to_string(), Value::Bool(has_schema));
+                }
+
                 // Inject available_groups and per-tool group info so the
                 // capability builder can surface progressive group state.
                 if let Some(available_groups) = v.get("available_groups")
