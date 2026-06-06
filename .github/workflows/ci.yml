@@ -571,9 +571,7 @@ jobs:
 
   # -- Sentry E2E: real ingest through dcc-mcp-server init_sentry() --
   # Requires DCC_MCP_SENTRY_DSN GitHub Actions secret. Skips cleanly when
-  # the secret is absent so local clones do not fail.
-  # Fork PR coverage is handled by the sentry-e2e-pr.yml (pull_request_target)
-  # workflow, which has access to secrets and runs in a base-branch context.
+  # the secret is absent so forks / local clones do not fail the workflow.
   sentry-e2e:
     name: Sentry E2E
     needs: [rust-check]
