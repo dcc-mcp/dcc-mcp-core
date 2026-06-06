@@ -53,6 +53,9 @@ pub struct CatalogEntry {
     /// Maintainer or publishing organization.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub maintainer: Option<String>,
+    /// Icon path or URL (e.g. `"icon.png"` for repo-relative, or an absolute URL).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 /// Installation metadata for a marketplace catalog entry.
