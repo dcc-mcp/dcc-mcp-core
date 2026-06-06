@@ -1417,10 +1417,7 @@ fn marketplace_schema_validation_rejects_empty_name() {
     ];
 
     // Without --skip-validation, search should fail with a validation error.
-    let stderr = run_failure_with_env(
-        &["marketplace", "search", "--source", &source],
-        &envs,
-    );
+    let stderr = run_failure_with_env(&["marketplace", "search", "--source", &source], &envs);
     assert!(
         stderr.contains("validation"),
         "expected validation error, got: {stderr}"
@@ -1611,10 +1608,7 @@ fn marketplace_search_dedupes_same_entry_from_multiple_sources() {
 
     // Search with explicit source for catalog2 — skill-b should come from
     // catalog2 (explicit, higher priority), not catalog1 (config, lower).
-    let search = run_json_with_env(
-        &["marketplace", "search", "--source", &source2],
-        &envs,
-    );
+    let search = run_json_with_env(&["marketplace", "search", "--source", &source2], &envs);
     // Should have exactly 3 unique entries (skill-a, skill-b, skill-c).
     // skill-b deduped to catalog2's version (explicit > config).
     assert_eq!(search["count"], 3);

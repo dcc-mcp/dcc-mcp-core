@@ -692,7 +692,9 @@ impl MarketplaceService {
         let sources = self.sources_for_query(explicit_sources)?;
         let validate = !skip_validation;
         for source in sources {
-            let entries = self.load_source_entries_validated(&source, validate).await?;
+            let entries = self
+                .load_source_entries_validated(&source, validate)
+                .await?;
             if let Some(entry) = dcc_mcp_catalog::describe(&entries, name) {
                 if let Some(dcc) = dcc
                     && !entry_targets_dcc(&entry, dcc)
@@ -1268,7 +1270,11 @@ mod tests {
         }
     }
 
-    fn marketplace_source(name: &str, url: &str, origin: MarketplaceSourceOrigin) -> MarketplaceSource {
+    fn marketplace_source(
+        name: &str,
+        url: &str,
+        origin: MarketplaceSourceOrigin,
+    ) -> MarketplaceSource {
         MarketplaceSource {
             name: name.into(),
             url: url.into(),
@@ -1332,10 +1338,7 @@ mod tests {
         // Set env source (priority 1)
         // SAFETY: single-threaded test environment
         unsafe {
-            std::env::set_var(
-                "DCC_MCP_MARKETPLACE_SOURCES",
-                "studio/private",
-            );
+            std::env::set_var("DCC_MCP_MARKETPLACE_SOURCES", "studio/private");
         }
         // Disable default so builtin source does not appear
         // SAFETY: single-threaded test environment
@@ -1346,8 +1349,12 @@ mod tests {
         let sources = service.list_sources().unwrap();
 
         // Env (priority 1) should come before Config (priority 2)
-        let env_idx = sources.iter().position(|s| s.origin == MarketplaceSourceOrigin::Env);
-        let config_idx = sources.iter().position(|s| s.origin == MarketplaceSourceOrigin::Config);
+        let env_idx = sources
+            .iter()
+            .position(|s| s.origin == MarketplaceSourceOrigin::Env);
+        let config_idx = sources
+            .iter()
+            .position(|s| s.origin == MarketplaceSourceOrigin::Config);
         assert!(env_idx.is_some());
         assert!(config_idx.is_some());
         assert!(
