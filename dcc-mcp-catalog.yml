@@ -1,6 +1,11 @@
 # DCC-MCP Public Catalog
 # Ecosystem index for DCC adapters, skill packs, and plugins.
 #
+# This catalog is consumed by `dcc-mcp-cli install --dcc-type <name>` to build
+# installation plans for DCC adapters. It is NOT a marketplace source — use the
+# `marketplace` subcommand for skill-package discovery and installation from
+# marketplace.json sources (GitHub, custom URLs, etc.).
+#
 # Schema version: "1"
 # Fields:
 #   name        - Unique package / adapter name (required)

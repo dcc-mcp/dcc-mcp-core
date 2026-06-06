@@ -1386,3 +1386,247 @@ fn lint_bundled_skills_are_present_and_clean() {
     assert_eq!(value["errors"], 0);
     assert_eq!(value["warnings"], 0);
 }
+
+#[test]
+fn marketplace_schema_validation_rejects_empty_name() {
+    let tmp = TempDir::new().unwrap();
+    let catalog_path = tmp.path().join("marketplace.json");
+    // Entry with empty name — passes serde but fails schema (minLength: 1).
+    std::fs::write(
+        &catalog_path,
+        r#"{
+  "version": "1",
+  "entries": [{
+    "name": "",
+    "description": "Has empty name",
+    "dcc": ["maya"]
+  }]
+}"#,
+    )
+    .unwrap();
+
+    let source = catalog_path.to_string_lossy().to_string();
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+    ];
+
+    // Without --skip-validation, search should fail with a validation error.
+    let stderr = run_failure_with_env(
+        &["marketplace", "search", "--source", &source],
+        &envs,
+    );
+    assert!(
+        stderr.contains("validation"),
+        "expected validation error, got: {stderr}"
+    );
+}
+
+#[test]
+fn marketplace_skip_validation_flag_filters_invalid_entries() {
+    let tmp = TempDir::new().unwrap();
+    let catalog_path = tmp.path().join("marketplace.json");
+    // One valid entry, one with empty name (schema-invalid).
+    std::fs::write(
+        &catalog_path,
+        r#"{
+  "version": "1",
+  "entries": [
+    {
+      "name": "valid-skill",
+      "description": "A valid skill",
+      "dcc": ["maya"]
+    },
+    {
+      "name": "",
+      "description": "Empty name entry",
+      "dcc": ["blender"]
+    }
+  ]
+}"#,
+    )
+    .unwrap();
+
+    let source = catalog_path.to_string_lossy().to_string();
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+    ];
+
+    // With --skip-validation, the invalid entry should be silently dropped.
+    let search = run_json_with_env(
+        &[
+            "marketplace",
+            "search",
+            "--source",
+            &source,
+            "--skip-validation",
+        ],
+        &envs,
+    );
+    assert_eq!(search["count"], 1);
+    assert_eq!(search["hits"][0]["entry"]["name"], "valid-skill");
+}
+
+#[test]
+fn marketplace_merge_priority_explicit_overrides_config() {
+    let tmp = TempDir::new().unwrap();
+
+    // Config source (lower priority) — old version
+    let config_catalog = tmp.path().join("config-marketplace.json");
+    std::fs::write(
+        &config_catalog,
+        json!({
+            "version": "1",
+            "entries": [{
+                "name": "shared-skill",
+                "description": "From config source — old version",
+                "dcc": ["maya"],
+                "version": "0.1.0"
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    // Explicit source (higher priority) — newer version
+    let explicit_catalog = tmp.path().join("explicit-marketplace.json");
+    std::fs::write(
+        &explicit_catalog,
+        json!({
+            "version": "1",
+            "entries": [{
+                "name": "shared-skill",
+                "description": "From explicit source — new version",
+                "dcc": ["maya"],
+                "version": "0.3.0"
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    // Pre-configure the config source
+    let config_source_url = config_catalog.to_string_lossy().to_string();
+    std::fs::write(
+        &config_path,
+        json!({"sources": [{"name": "config-catalog", "url": config_source_url}]}).to_string(),
+    )
+    .unwrap();
+
+    let explicit_source = explicit_catalog.to_string_lossy().to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+    ];
+
+    // Search with explicit source — explicit's entry should win.
+    let search = run_json_with_env(
+        &[
+            "marketplace",
+            "search",
+            "--source",
+            &explicit_source,
+            "--query",
+            "shared-skill",
+        ],
+        &envs,
+    );
+    assert_eq!(search["count"], 1);
+    assert_eq!(search["hits"][0]["entry"]["version"], "0.3.0");
+    assert_eq!(
+        search["hits"][0]["entry"]["description"],
+        "From explicit source — new version"
+    );
+    assert_eq!(search["hits"][0]["source"]["origin"], "explicit");
+}
+
+#[test]
+fn marketplace_search_dedupes_same_entry_from_multiple_sources() {
+    let tmp = TempDir::new().unwrap();
+
+    // Two config sources with overlapping entry names
+    let catalog1 = tmp.path().join("catalog1.json");
+    std::fs::write(
+        &catalog1,
+        json!({
+            "version": "1",
+            "entries": [
+                {"name": "skill-a", "description": "From catalog 1", "dcc": ["maya"]},
+                {"name": "skill-b", "description": "Shared skill from catalog 1", "dcc": ["blender"]}
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let catalog2 = tmp.path().join("catalog2.json");
+    std::fs::write(
+        &catalog2,
+        json!({
+            "version": "1",
+            "entries": [
+                {"name": "skill-b", "description": "Shared skill from catalog 2", "dcc": ["blender"]},
+                {"name": "skill-c", "description": "From catalog 2", "dcc": ["houdini"]}
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let source1 = catalog1.to_string_lossy().to_string();
+    let source2 = catalog2.to_string_lossy().to_string();
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    // Register catalog1 (lower priority — registered first in config)
+    // and pass catalog2 as explicit (higher priority).
+    std::fs::write(
+        &config_path,
+        json!({"sources": [{"name": "catalog1", "url": source1}]}).to_string(),
+    )
+    .unwrap();
+
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+    ];
+
+    // Search with explicit source for catalog2 — skill-b should come from
+    // catalog2 (explicit, higher priority), not catalog1 (config, lower).
+    let search = run_json_with_env(
+        &["marketplace", "search", "--source", &source2],
+        &envs,
+    );
+    // Should have exactly 3 unique entries (skill-a, skill-b, skill-c).
+    // skill-b deduped to catalog2's version (explicit > config).
+    assert_eq!(search["count"], 3);
+    let skill_b = search["hits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|h| h["entry"]["name"] == "skill-b")
+        .unwrap();
+    assert_eq!(
+        skill_b["entry"]["description"],
+        "Shared skill from catalog 2"
+    );
+    assert_eq!(skill_b["source"]["origin"], "explicit");
+}
