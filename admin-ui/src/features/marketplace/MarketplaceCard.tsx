@@ -1,3 +1,4 @@
+import './MarketplaceCard.css';
 import type { InterpolationValues, MessageKey } from '../../i18n';
 import type { MarketplaceEntry, InstalledMarketplacePackage } from '../../admin-types';
 
