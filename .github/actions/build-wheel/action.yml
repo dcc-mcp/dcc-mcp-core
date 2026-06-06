@@ -131,7 +131,17 @@ runs:
       shell: bash
       run: |
         set -eux
-        vx npm --prefix admin-ui ci --ignore-scripts
+        for attempt in 1 2 3; do
+          if vx npm --prefix admin-ui ci --ignore-scripts; then
+            break
+          fi
+          if [ "$attempt" -eq 3 ]; then
+            echo "::error::npm ci failed after 3 attempts"
+            exit 1
+          fi
+          echo "::warning::npm ci attempt ${attempt}/3 failed; retrying in 15s..."
+          sleep 15
+        done
         vx npm --prefix admin-ui run build
         test -f crates/dcc-mcp-gateway/src/gateway/admin/generated/index.html
 
