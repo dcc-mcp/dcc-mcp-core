@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.6](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.5...v0.18.6) (2026-06-06)
+
+
+### Features
+
+* **marketplace:** CLI read-only commands with schema validation and multi-source merge ([beeea34](https://github.com/dcc-mcp/dcc-mcp-core/commit/beeea34e7a19dde49a4a0e20290a30ac99e3f5e6))
+
+
+### Bug Fixes
+
+* add icon field to CatalogEntry for compatibility with feat/marketplace-icon ([336a0fc](https://github.com/dcc-mcp/dcc-mcp-core/commit/336a0fc68dc25b25d1f548287e431aeb931b56e8))
+* **ci:** isolate workflow_dispatch from push concurrency in release workflow ([792a1f7](https://github.com/dcc-mcp/dcc-mcp-core/commit/792a1f752a149e3db7bf3c56eee6d92cd50060e8))
+* **ci:** scope cancel-in-progress to push events only in release concurrency ([588455f](https://github.com/dcc-mcp/dcc-mcp-core/commit/588455f4105148c77a7aeefb05e4e84e63333451))
+* **ci:** set cancel-in-progress to true in release workflow concurrency ([a273a25](https://github.com/dcc-mcp/dcc-mcp-core/commit/a273a250294ebac7d2b545d4c79a25c6e20d2100))
+
 ## [0.18.5](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.4...v0.18.5) (2026-06-06)
 
 
