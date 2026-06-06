@@ -20,6 +20,19 @@ pub enum MarketplaceSourceOrigin {
     Explicit,
 }
 
+impl MarketplaceSourceOrigin {
+    /// Priority value: lower = higher priority.
+    /// Explicit(0) > Env(1) > Config(2) > Builtin(3)
+    pub fn priority(&self) -> u8 {
+        match self {
+            Self::Explicit => 0,
+            Self::Env => 1,
+            Self::Config => 2,
+            Self::Builtin => 3,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StoredMarketplaceSource {
     pub name: String,

@@ -8,6 +8,7 @@ license.workspace = true
 description = "Public DCC-MCP catalog for ecosystem discovery — adapters, skill packs, and plugins"
 
 [dependencies]
+jsonschema = "0.28"
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml_ng = { workspace = true }

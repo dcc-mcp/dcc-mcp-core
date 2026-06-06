@@ -37,6 +37,8 @@ pub enum MarketplaceError {
     Read(String, #[source] std::io::Error),
     #[error(transparent)]
     Catalog(#[from] dcc_mcp_catalog::CatalogError),
+    #[error("marketplace catalog entry validation failed: {0}")]
+    Validation(#[from] dcc_mcp_catalog::CatalogValidationError),
     #[error("marketplace entry '{0}' was not found")]
     NotFound(String),
     #[error("marketplace entry '{0}' does not declare install metadata")]
@@ -128,6 +130,8 @@ impl MarketplaceService {
 
         sources.extend(self.config_sources()?);
         sources.extend(env_sources());
+        // Sort by priority: Explicit(0) → Env(1) → Config(2) → Builtin(3)
+        sources.sort_by_key(|s| s.origin.priority());
         Ok(dedupe_sources(sources))
     }
 
@@ -137,11 +141,13 @@ impl MarketplaceService {
         dcc: Option<String>,
         explicit_sources: Vec<String>,
         limit: Option<usize>,
+        skip_validation: bool,
     ) -> Result<MarketplaceSearchResult, MarketplaceError> {
         let sources = self.sources_for_query(explicit_sources)?;
+        let validate = !skip_validation;
         let mut hits = Vec::new();
-        for source in sources {
-            let entries = self.load_source_entries(&source).await?;
+        for source in &sources {
+            let entries = self.load_source_entries_validated(source, validate).await?;
             let matched = dcc_mcp_catalog::search(&entries, query.as_deref().unwrap_or(""));
             for entry in matched {
                 if let Some(dcc) = dcc.as_deref()
@@ -153,13 +159,12 @@ impl MarketplaceService {
                     source: source.clone(),
                     entry,
                 });
-                if limit.is_some_and(|limit| hits.len() >= limit) {
-                    break;
-                }
             }
-            if limit.is_some_and(|limit| hits.len() >= limit) {
-                break;
-            }
+        }
+        // Entry-level dedup: keep first hit (highest-priority source) per name.
+        hits = merge_entries(hits);
+        if let Some(limit) = limit {
+            hits.truncate(limit);
         }
         Ok(MarketplaceSearchResult {
             query,
@@ -173,11 +178,13 @@ impl MarketplaceService {
         &self,
         name: String,
         explicit_sources: Vec<String>,
+        skip_validation: bool,
     ) -> Result<MarketplaceInspectResult, MarketplaceError> {
         let sources = self.sources_for_query(explicit_sources)?;
+        let validate = !skip_validation;
         let mut matches = Vec::new();
-        for source in sources {
-            let entries = self.load_source_entries(&source).await?;
+        for source in &sources {
+            let entries = self.load_source_entries_validated(source, validate).await?;
             if let Some(entry) = dcc_mcp_catalog::describe(&entries, &name) {
                 matches.push(MarketplaceHit {
                     source: source.clone(),
@@ -185,6 +192,8 @@ impl MarketplaceService {
                 });
             }
         }
+        // Entry-level dedup: keep only highest-priority source's match.
+        matches = merge_entries(matches);
         if matches.is_empty() {
             return Err(MarketplaceError::NotFound(name));
         }
@@ -201,9 +210,10 @@ impl MarketplaceService {
         dcc: Option<String>,
         explicit_sources: Vec<String>,
         force: bool,
+        skip_validation: bool,
     ) -> Result<MarketplaceInstallResult, MarketplaceError> {
         let hit = self
-            .resolve_install_hit(&name, dcc.as_deref(), explicit_sources)
+            .resolve_install_hit(&name, dcc.as_deref(), explicit_sources, skip_validation)
             .await?;
         let dcc = resolve_install_dcc(&hit.entry, dcc.as_deref())?;
         let install = hit
@@ -419,7 +429,8 @@ impl MarketplaceService {
                         pkg.name.clone(),
                         Some(pkg.dcc.clone()),
                         vec![pkg.source_url.clone()],
-                        true, // force
+                        true,  // force
+                        false, // skip_validation
                     )
                     .await
                     .map(|result| MarketplaceUpdateResult {
@@ -485,7 +496,8 @@ impl MarketplaceService {
                     pkg.name.clone(),
                     Some(pkg.dcc.clone()),
                     vec![pkg.source_url.clone()],
-                    true,
+                    true,  // force
+                    false, // skip_validation
                 )
                 .await?;
             return Ok(MarketplaceUpdateResult {
@@ -675,10 +687,12 @@ impl MarketplaceService {
         name: &str,
         dcc: Option<&str>,
         explicit_sources: Vec<String>,
+        skip_validation: bool,
     ) -> Result<MarketplaceHit, MarketplaceError> {
         let sources = self.sources_for_query(explicit_sources)?;
+        let validate = !skip_validation;
         for source in sources {
-            let entries = self.load_source_entries(&source).await?;
+            let entries = self.load_source_entries_validated(&source, validate).await?;
             if let Some(entry) = dcc_mcp_catalog::describe(&entries, name) {
                 if let Some(dcc) = dcc
                     && !entry_targets_dcc(&entry, dcc)
@@ -695,15 +709,20 @@ impl MarketplaceService {
         &self,
         explicit_sources: Vec<String>,
     ) -> Result<Vec<MarketplaceSource>, MarketplaceError> {
+        let configured = self.list_sources()?;
         if explicit_sources.is_empty() {
-            return self.list_sources();
+            return Ok(configured);
         }
-        Ok(dedupe_sources(
-            explicit_sources
-                .iter()
-                .map(|source| normalise_source(source, MarketplaceSourceOrigin::Explicit))
-                .collect(),
-        ))
+
+        // Explicit sources get highest priority; configured sources follow.
+        let mut all: Vec<MarketplaceSource> = explicit_sources
+            .iter()
+            .map(|raw| normalise_source(raw, MarketplaceSourceOrigin::Explicit))
+            .collect();
+        all.extend(configured);
+        // Sort by priority so higher-priority sources are searched first.
+        all.sort_by_key(|s| s.origin.priority());
+        Ok(dedupe_sources(all))
     }
 
     async fn load_source_entries(
@@ -731,7 +750,38 @@ impl MarketplaceService {
             std::fs::read_to_string(&path)
                 .map_err(|err| MarketplaceError::Read(path.display().to_string(), err))?
         };
-        dcc_mcp_catalog::load_from_str(&text).map_err(Into::into)
+        let entries = dcc_mcp_catalog::load_from_str(&text)?;
+        Ok(entries)
+    }
+
+    /// Same as [`load_source_entries`] but validates entries against the
+    /// marketplace-v1 JSON Schema. When `validate` is true, invalid entries
+    /// cause a hard error. When false, invalid entries are silently filtered out
+    /// with a `tracing::warn!` log.
+    async fn load_source_entries_validated(
+        &self,
+        source: &MarketplaceSource,
+        validate: bool,
+    ) -> Result<Vec<dcc_mcp_catalog::CatalogEntry>, MarketplaceError> {
+        let entries = self.load_source_entries(source).await?;
+        if validate {
+            dcc_mcp_catalog::validate_catalog_entries(&entries)?;
+            Ok(entries)
+        } else {
+            let mut valid = Vec::with_capacity(entries.len());
+            for entry in entries {
+                match dcc_mcp_catalog::validate_entry(&entry) {
+                    Ok(()) => valid.push(entry),
+                    Err(err) => {
+                        eprintln!(
+                            "warning: skipping invalid marketplace entry from '{}': {err}",
+                            source.name
+                        );
+                    }
+                }
+            }
+            Ok(valid)
+        }
     }
 
     fn config_sources(&self) -> Result<Vec<MarketplaceSource>, MarketplaceError> {
@@ -1160,6 +1210,22 @@ fn default_sources_disabled() -> bool {
         .unwrap_or(false)
 }
 
+/// Merge marketplace hits, keeping only the first occurrence of each entry name.
+///
+/// Input `hits` must be ordered by source priority (highest priority first).
+/// Returns a deduplicated vector where duplicates (same entry name) retain the
+/// hit from the highest-priority source.
+fn merge_entries(hits: Vec<MarketplaceHit>) -> Vec<MarketplaceHit> {
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    for hit in hits {
+        if seen.insert(hit.entry.name.clone()) {
+            out.push(hit);
+        }
+    }
+    out
+}
+
 fn dedupe_sources(sources: Vec<MarketplaceSource>) -> Vec<MarketplaceSource> {
     let mut seen = BTreeSet::new();
     let mut out = Vec::new();
@@ -1186,5 +1252,113 @@ mod tests {
         assert!(sources.iter().any(|source| source.name == "studio/private"));
         let saved = std::fs::read_to_string(dir.path().join("sources.json")).unwrap();
         assert!(saved.contains("studio/private"));
+    }
+
+    fn catalog_entry(name: &str, description: &str) -> dcc_mcp_catalog::CatalogEntry {
+        dcc_mcp_catalog::CatalogEntry {
+            name: name.into(),
+            description: description.into(),
+            dcc: vec![],
+            url: None,
+            tags: vec![],
+            version: None,
+            min_core_version: None,
+            install: None,
+            maintainer: None,
+        }
+    }
+
+    fn marketplace_source(name: &str, url: &str, origin: MarketplaceSourceOrigin) -> MarketplaceSource {
+        MarketplaceSource {
+            name: name.into(),
+            url: url.into(),
+            origin,
+        }
+    }
+
+    #[test]
+    fn merge_entries_keeps_highest_priority_source() {
+        let hits = vec![
+            MarketplaceHit {
+                source: marketplace_source("explicit", "url1", MarketplaceSourceOrigin::Explicit),
+                entry: catalog_entry("my-skill", "From explicit source"),
+            },
+            MarketplaceHit {
+                source: marketplace_source("env", "url2", MarketplaceSourceOrigin::Env),
+                entry: catalog_entry("my-skill", "From env source"),
+            },
+        ];
+        let merged = merge_entries(hits);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].entry.description, "From explicit source");
+        assert_eq!(merged[0].source.origin, MarketplaceSourceOrigin::Explicit);
+    }
+
+    #[test]
+    fn merge_entries_preserves_unique_entries() {
+        let hits = vec![
+            MarketplaceHit {
+                source: marketplace_source("s1", "url1", MarketplaceSourceOrigin::Builtin),
+                entry: catalog_entry("skill-a", "First skill"),
+            },
+            MarketplaceHit {
+                source: marketplace_source("s2", "url2", MarketplaceSourceOrigin::Builtin),
+                entry: catalog_entry("skill-b", "Second skill"),
+            },
+        ];
+        let merged = merge_entries(hits);
+        assert_eq!(merged.len(), 2);
+    }
+
+    #[test]
+    fn merge_entries_empty_input() {
+        let merged = merge_entries(vec![]);
+        assert!(merged.is_empty());
+    }
+
+    #[test]
+    fn list_sources_sorts_by_priority() {
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("sources.json");
+        let service = MarketplaceService::with_config_path(config_path.clone());
+
+        // Add a config source (priority 2)
+        std::fs::write(
+            &config_path,
+            r#"{"sources":[{"name":"custom","url":"https://example.com/marketplace.json"}]}"#,
+        )
+        .unwrap();
+
+        // Set env source (priority 1)
+        // SAFETY: single-threaded test environment
+        unsafe {
+            std::env::set_var(
+                "DCC_MCP_MARKETPLACE_SOURCES",
+                "studio/private",
+            );
+        }
+        // Disable default so builtin source does not appear
+        // SAFETY: single-threaded test environment
+        unsafe {
+            std::env::set_var("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1");
+        }
+
+        let sources = service.list_sources().unwrap();
+
+        // Env (priority 1) should come before Config (priority 2)
+        let env_idx = sources.iter().position(|s| s.origin == MarketplaceSourceOrigin::Env);
+        let config_idx = sources.iter().position(|s| s.origin == MarketplaceSourceOrigin::Config);
+        assert!(env_idx.is_some());
+        assert!(config_idx.is_some());
+        assert!(
+            env_idx.unwrap() < config_idx.unwrap(),
+            "Env sources (priority 1) must come before Config sources (priority 2)"
+        );
+
+        // SAFETY: single-threaded test environment
+        unsafe {
+            std::env::remove_var("DCC_MCP_MARKETPLACE_SOURCES");
+            std::env::remove_var("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES");
+        }
     }
 }

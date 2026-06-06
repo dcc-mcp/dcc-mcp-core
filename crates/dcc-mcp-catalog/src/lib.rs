@@ -21,7 +21,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 mod error;
-pub use error::CatalogError;
+pub use error::{CatalogError, CatalogValidationError};
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -33,29 +33,26 @@ pub struct CatalogEntry {
     /// Human-readable description.
     pub description: String,
     /// DCC application(s) this entry targets (e.g. `["maya", "blender"]`).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dcc: Vec<String>,
     /// Canonical URL (GitHub repo, docs site, …).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     /// Searchable tags.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
     /// Package version advertised by a marketplace catalog.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
     /// Minimum dcc-mcp-core version required by this package.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_core_version: Option<String>,
     /// Installation metadata for CLI-driven marketplace installs.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub install: Option<CatalogInstall>,
     /// Maintainer or publishing organization.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub maintainer: Option<String>,
-    /// Icon path or URL (e.g. `"icon.png"` for repo-relative, or an absolute URL).
-    #[serde(default)]
-    pub icon: Option<String>,
 }
 
 /// Installation metadata for a marketplace catalog entry.
@@ -65,13 +62,13 @@ pub struct CatalogInstall {
     #[serde(rename = "type")]
     pub install_type: String,
     /// Source URL or local path.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     /// Git ref, tag, branch, or revision where applicable.
-    #[serde(default, rename = "ref")]
+    #[serde(default, rename = "ref", skip_serializing_if = "Option::is_none")]
     pub ref_: Option<String>,
     /// Optional content hash for archive installs.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,
 }
 
@@ -155,6 +152,117 @@ pub fn search(entries: &[CatalogEntry], query: &str) -> Vec<CatalogEntry> {
 /// Look up a single entry by exact name.
 pub fn describe(entries: &[CatalogEntry], name: &str) -> Option<CatalogEntry> {
     entries.iter().find(|e| e.name == name).cloned()
+}
+
+// ── schema validation ─────────────────────────────────────────────────────────
+
+/// JSON Schema (Draft 2020-12) for marketplace-v1 catalog entries.
+///
+/// Each entry must declare at least `name` and `description`; all other
+/// fields are optional.  `additionalProperties: false` on both the top-level
+/// document and each entry catches typos early.
+const MARKETPLACE_V1_SCHEMA_JSON: &str = r##"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dcc-mcp.github.io/schemas/marketplace-v1.schema.json",
+  "title": "DCC-MCP Marketplace Catalog",
+  "description": "Schema for marketplace.json catalog entries",
+  "type": "object",
+  "required": ["entries"],
+  "properties": {
+    "version": { "type": "string" },
+    "entries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "required": ["name", "description"],
+      "properties": {
+        "name":        { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 },
+        "dcc":         { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "url":         { "type": "string" },
+        "tags":        { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "version":          { "type": "string" },
+        "min_core_version": { "type": "string" },
+        "maintainer":       { "type": "string" },
+        "install": {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type":   { "type": "string", "enum": ["git", "zip", "path"] },
+            "url":    { "type": "string" },
+            "ref":    { "type": "string" },
+            "sha256": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}"##;
+
+/// Validate a single [`CatalogEntry`] against the marketplace-v1 JSON Schema.
+///
+/// Returns `Ok(())` if the entry is valid, or a
+/// [`CatalogValidationError::ValidationFailed`] with a human-readable message
+/// describing what failed.
+pub fn validate_entry(entry: &CatalogEntry) -> Result<(), CatalogValidationError> {
+    let value = serde_json::to_value(entry).map_err(|e| {
+        CatalogValidationError::SchemaError(format!(
+            "failed to serialize entry '{}' for validation: {e}",
+            entry.name
+        ))
+    })?;
+
+    let schema = entry_schema()?;
+    let validation = schema.validate(&value);
+    if let Err(err) = validation {
+        return Err(CatalogValidationError::ValidationFailed {
+            name: entry.name.clone(),
+            message: format!("  - {}: {}", err.instance_path, err),
+        });
+    }
+    Ok(())
+}
+
+/// Validate a slice of [`CatalogEntry`] against the marketplace-v1 JSON Schema.
+///
+/// Returns `Ok(())` if all entries pass, or
+/// [`CatalogValidationError::MultipleFailures`] aggregating each failed entry.
+pub fn validate_catalog_entries(entries: &[CatalogEntry]) -> Result<(), CatalogValidationError> {
+    let mut failures = Vec::new();
+    for entry in entries {
+        if let Err(err) = validate_entry(entry) {
+            failures.push(err);
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        let count = failures.len();
+        Err(CatalogValidationError::MultipleFailures { count, failures })
+    }
+}
+
+/// Compile the entry sub-schema once from `$defs/entry`.
+fn entry_schema() -> Result<jsonschema::Validator, CatalogValidationError> {
+    let schema_value: serde_json::Value = serde_json::from_str(MARKETPLACE_V1_SCHEMA_JSON)
+        .map_err(|e| {
+            CatalogValidationError::SchemaError(format!("invalid embedded schema: {e}"))
+        })?;
+    let entry_schema_value = schema_value
+        .pointer("/$defs/entry")
+        .cloned()
+        .ok_or_else(|| {
+            CatalogValidationError::SchemaError("missing $defs/entry in schema".into())
+        })?;
+    jsonschema::validator_for(&entry_schema_value)
+        .map_err(|e| CatalogValidationError::SchemaError(format!("failed to compile schema: {e}")))
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────
@@ -280,41 +388,94 @@ entries:
         assert_eq!(install.ref_.as_deref(), Some("v0.1.0"));
     }
 
-    #[test]
-    fn test_load_marketplace_json_with_icon() {
-        let json = r#"
-{
-  "version": "1",
-  "entries": [{
-    "name": "dcc-mcp-maya-mgear",
-    "description": "mGear Shifter integration",
-    "dcc": ["maya"],
-    "tags": ["skills", "maya", "rigging"],
-    "version": "0.1.0",
-    "icon": "icon.png"
-  }]
-}
-"#;
-        let entries = load_from_str(json).unwrap();
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].icon.as_deref(), Some("icon.png"));
+    // -- schema validation tests ------------------------------------------------
+
+    fn make_entry(name: &str, description: &str) -> CatalogEntry {
+        CatalogEntry {
+            name: name.into(),
+            description: description.into(),
+            dcc: vec![],
+            url: None,
+            tags: vec![],
+            version: None,
+            min_core_version: None,
+            install: None,
+            maintainer: None,
+            icon: None,
+        }
     }
 
     #[test]
-    fn test_catalog_entry_optional_icon_missing() {
-        let json = r#"
-{
-  "version": "1",
-  "entries": [{
-    "name": "dcc-mcp-maya-mgear",
-    "description": "mGear Shifter integration",
-    "dcc": ["maya"],
-    "tags": ["skills"]
-  }]
-}
-"#;
-        let entries = load_from_str(json).unwrap();
-        assert_eq!(entries.len(), 1);
-        assert!(entries[0].icon.is_none());
+    fn test_validate_entry_minimal_valid() {
+        let entry = make_entry("my-skill", "A useful skill");
+        assert!(validate_entry(&entry).is_ok());
+    }
+
+    #[test]
+    fn test_validate_entry_empty_name_fails() {
+        let entry = make_entry("", "A useful skill");
+        let err = validate_entry(&entry).unwrap_err();
+        assert!(
+            matches!(err, CatalogValidationError::ValidationFailed { .. }),
+            "expected ValidationFailed, got {err}"
+        );
+    }
+
+    #[test]
+    fn test_validate_entry_empty_description_fails() {
+        let entry = make_entry("my-skill", "");
+        let err = validate_entry(&entry).unwrap_err();
+        assert!(
+            matches!(err, CatalogValidationError::ValidationFailed { .. }),
+            "expected ValidationFailed, got {err}"
+        );
+    }
+
+    #[test]
+    fn test_validate_entry_with_full_install_metadata_passes() {
+        let entry = CatalogEntry {
+            name: "zip-skill".into(),
+            description: "A zip-installed skill".into(),
+            dcc: vec!["maya".into()],
+            url: Some("https://example.com/skill".into()),
+            tags: vec!["test".into()],
+            version: Some("0.1.0".into()),
+            min_core_version: Some("0.17.0".into()),
+            maintainer: Some("dcc-mcp".into()),
+            install: Some(CatalogInstall {
+                install_type: "zip".into(),
+                url: Some("https://example.com/skill.zip".into()),
+                ref_: Some("v0.1.0".into()),
+                sha256: Some("abc123".into()),
+            }),
+            icon: None,
+        };
+        assert!(validate_entry(&entry).is_ok());
+    }
+
+    #[test]
+    fn test_validate_catalog_entries_all_valid() {
+        let entries = vec![
+            make_entry("skill-a", "First skill"),
+            make_entry("skill-b", "Second skill"),
+        ];
+        assert!(validate_catalog_entries(&entries).is_ok());
+    }
+
+    #[test]
+    fn test_validate_catalog_entries_mixed() {
+        let entries = vec![
+            make_entry("valid-skill", "A valid skill"),
+            make_entry("", "Missing name"),
+            make_entry("valid-2", ""),
+        ];
+        let err = validate_catalog_entries(&entries).unwrap_err();
+        match err {
+            CatalogValidationError::MultipleFailures { count, failures } => {
+                assert_eq!(count, 2);
+                assert_eq!(failures.len(), 2);
+            }
+            other => panic!("expected MultipleFailures, got {other}"),
+        }
     }
 }
