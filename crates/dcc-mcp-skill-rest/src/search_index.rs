@@ -9,6 +9,10 @@ use crate::service::CatalogAction;
 use dcc_mcp_models::ToolAnnotations;
 
 pub(crate) fn action_metadata(action: &CatalogAction) -> Value {
+    action_metadata_with_options(action, true)
+}
+
+fn action_metadata_with_options(action: &CatalogAction, include_call_examples: bool) -> Value {
     let mut dcc = serde_json::Map::new();
     dcc.insert(
         "affinity".to_string(),
@@ -35,6 +39,9 @@ pub(crate) fn action_metadata(action: &CatalogAction) -> Value {
         "risk".to_string(),
         Value::String(action_risk(&action.annotations).to_string()),
     );
+    if include_call_examples && let Some(ref examples) = action.call_examples {
+        dcc.insert("call_examples".to_string(), serde_json::json!(examples));
+    }
 
     let mut out = serde_json::Map::new();
     out.insert("dcc".to_string(), Value::Object(dcc));
@@ -60,7 +67,7 @@ pub(crate) fn search_metadata(action: &CatalogAction) -> Option<Value> {
     }
 
     let mut metadata = if has_non_default_execution {
-        action_metadata(action)
+        action_metadata_with_options(action, false)
     } else {
         serde_json::json!({"dcc": {}})
     };
