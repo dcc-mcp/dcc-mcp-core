@@ -446,13 +446,13 @@ pub async fn tool_describe_tool(
     let Some(slug) = args.get("tool_slug").and_then(|v| v.as_str()) else {
         return Err("missing required argument: tool_slug".to_string());
     };
-    // Refresh on demand — a `describe_tool` call immediately after
-    // `load_skill` must see the newly-registered action.
-    crate::gateway::capability_service::refresh_all_live_backends(
-        gs,
-        crate::gateway::capability::RefreshReason::Periodic,
-    )
-    .await;
+    if describe_needs_refresh(gs, slug, args, meta) {
+        crate::gateway::capability_service::refresh_all_live_backends(
+            gs,
+            crate::gateway::capability::RefreshReason::Periodic,
+        )
+        .await;
+    }
     let search_id = search_id_from_inputs(args, meta);
     match crate::gateway::capability_service::describe_tool_full(gs, slug).await {
         Ok((record, tool)) => {
@@ -1021,6 +1021,49 @@ fn search_id_from_inputs(args: &Value, meta: Option<&Value>) -> Option<String> {
     search_id_from_payload(args).or_else(|| meta.and_then(search_id_from_meta))
 }
 
+fn index_generation_from_inputs(args: &Value, meta: Option<&Value>) -> Option<String> {
+    fn from_payload(value: &Value) -> Option<String> {
+        value
+            .get("index_generation")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or_else(|| {
+                value
+                    .get("meta")
+                    .and_then(|meta| meta.get("index_generation"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .or_else(|| {
+                value
+                    .get("_meta")
+                    .and_then(|meta| meta.get("index_generation"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+    }
+
+    from_payload(args).or_else(|| meta.and_then(from_payload))
+}
+
+fn describe_needs_refresh(
+    gs: &GatewayState,
+    slug: &str,
+    args: &Value,
+    meta: Option<&Value>,
+) -> bool {
+    if let Some(generation) = index_generation_from_inputs(args, meta) {
+        let current = crate::gateway::capability_service::index_generation(&gs.capability_index);
+        if generation != current {
+            return true;
+        }
+    }
+
+    crate::gateway::capability_service::describe_service(&gs.capability_index, slug)
+        .map(|_| false)
+        .unwrap_or(true)
+}
+
 fn skill_name_from_payload(payload: &Value) -> Option<String> {
     payload
         .get("skill_name")
@@ -1081,8 +1124,10 @@ pub fn gateway_tool_defs() -> serde_json::Value {
         {
             "name": "search",
             "description": "Discover backend capabilities and/or skills. Default `kind=tool` runs the \
-                capability index (`search_tools` semantics): compact hits with `tool_slug` — always \
-                follow with `describe` before `call` to fetch `input_schema` / required parameter names. \
+                capability index (`search_tools` semantics): compact hits with `tool_slug` and \
+                executable `next_step`. Follow `next_step`: tools with `has_schema=false` can go \
+                straight to `call`; tools with schema still use `describe` first to fetch \
+                `input_schema` / required parameter names. \
                 `kind=skill` lists or searches skills (`list_skills` / `search_skills`). `kind=all` returns both.",
             "inputSchema": {
                 "type": "object",
@@ -1103,13 +1148,16 @@ pub fn gateway_tool_defs() -> serde_json::Value {
             "name": "describe",
             "description": "Fetch full metadata. Pass `tool_slug` from `search` to get `input_schema`, \
                 `properties`, and `required` (e.g. maya_geometry export uses `path`, not `destination`). \
-                Pass `skill_name` for skill-level detail (tools list, dependencies).",
+                MCP describe refreshes backend capabilities only when the slug is missing or the \
+                supplied `meta.index_generation` is stale. Pass `skill_name` for skill-level detail \
+                (tools list, dependencies).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "tool_slug": {"type": "string"},
                     "skill_name": {"type": "string"},
                     "dcc": {"type": "string"},
+                    "meta": {"type": "object", "additionalProperties": true, "description": "Correlation metadata from search/load_skill next_step, including index_generation."},
                     "response_format": {"type": "string", "enum": ["json", "toon"], "description": "Wrapper-level output format. Prefer MCP params._meta.response_format for clients that keep tool arguments pure."},
                     "compact": {"type": "boolean", "description": "Alias for response_format=toon when true."}
                 }
@@ -1122,7 +1170,9 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                 progressive tool group. Use `skill_name` from search results and pass `instance_id` or \
                 `dcc`/`dcc_type` when more than one backend is live. By default the gateway \
                 activates all declared groups; set `activate_groups=false` for lazy loading, \
-                or pass `tool_group` to activate one group explicitly.",
+                or pass `tool_group` to activate one group explicitly. When following a correlated \
+                search `next_step`, keep `target_tool_slug` and `meta.search_id`; the response may \
+                inline `compact_schema` and point directly to `call`.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -1135,6 +1185,8 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                     "instance_id": {"type": "string", "description": "Target instance UUID or unique prefix."},
                     "dcc": {"type": "string", "description": "DCC type filter such as maya, blender, or a custom host."},
                     "dcc_type": {"type": "string", "description": "Alias of dcc."},
+                    "target_tool_slug": {"type": "string", "description": "Tool slug from a correlated search hit; lets load_skill inline compact_schema for the intended follow-up call."},
+                    "meta": {"type": "object", "additionalProperties": true, "description": "Correlation metadata from search next_step, including search_id and index_generation."},
                     "response_format": {"type": "string", "enum": ["json", "toon"], "description": "Wrapper-level output format. Prefer MCP params._meta.response_format for clients that keep tool arguments pure."},
                     "compact": {"type": "boolean", "description": "Alias for response_format=toon when true."}
                 },
@@ -1150,7 +1202,8 @@ pub fn gateway_tool_defs() -> serde_json::Value {
         {
             "name": "call",
             "description": "Invoke one backend capability by `tool_slug`, or run an ordered batch with \
-                `calls` (maximum 25). Always copy parameter names from `describe` into `arguments`; \
+                `calls` (maximum 25). Copy parameter names from `describe` or `load_skill.compact_schema` \
+                into `arguments`; `has_schema=false` tools can use empty `{}` arguments. \
                 backend-specific fields never belong at this wrapper's top level.",
             "inputSchema": {
                 "type": "object",
@@ -1190,6 +1243,68 @@ pub fn gateway_tool_defs() -> serde_json::Value {
 mod tests {
     use super::*;
     use serde_json::{Map, Value, json};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::{RwLock, broadcast, watch};
+    use uuid::Uuid;
+
+    fn test_gateway_state() -> GatewayState {
+        let dir = tempfile::tempdir().unwrap();
+        let (yield_tx, _) = watch::channel(false);
+        let (events_tx, _) = broadcast::channel::<String>(8);
+        GatewayState {
+            registry: Arc::new(RwLock::new(
+                dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
+            )),
+            http_instance_registry: Arc::new(parking_lot::RwLock::new(
+                crate::gateway::http_registration::HttpInstanceRegistry::default(),
+            )),
+            mdns_instance_registry: Arc::new(parking_lot::RwLock::new(
+                crate::gateway::mdns_registration::MdnsInstanceRegistry::default(),
+            )),
+            relay_instance_registry: Arc::new(parking_lot::RwLock::new(
+                crate::gateway::relay_registration::RelayInstanceRegistry::default(),
+            )),
+            stale_timeout: Duration::from_secs(30),
+            backend_timeout: Duration::from_secs(10),
+            async_dispatch_timeout: Duration::from_secs(60),
+            wait_terminal_timeout: Duration::from_secs(600),
+            server_name: "test".into(),
+            server_version: env!("CARGO_PKG_VERSION").into(),
+            own_host: "127.0.0.1".into(),
+            own_port: 0,
+            http_client: reqwest::Client::new(),
+            yield_tx: Arc::new(yield_tx),
+            events_tx: Arc::new(events_tx),
+            protocol_version: Arc::new(RwLock::new(None)),
+            resource_subscriptions: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            client_attribution: Arc::new(
+                crate::gateway::caller_attribution::ClientAttributionStore::default(),
+            ),
+            pending_calls: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
+            allow_unknown_tools: false,
+            policy: Arc::new(crate::gateway::GatewayPolicy::default()),
+            adapter_version: None,
+            adapter_dcc: None,
+            capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
+            event_log: Arc::new(crate::gateway::event_log::EventLog::new()),
+            #[cfg(feature = "prometheus")]
+            gateway_metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
+            middleware_chain: Arc::new(crate::gateway::middleware::MiddlewareChain::new()),
+            instance_diagnostics: Arc::new(
+                crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new(),
+            ),
+            traffic_capture: Arc::new(crate::gateway::traffic::TrafficCapture::disabled()),
+            search_telemetry: Arc::new(
+                crate::gateway::search_telemetry::SearchTelemetryStore::new(),
+            ),
+            debug_routes_enabled: false,
+            auth: Arc::new(crate::gateway::security::GatewayAuth::disabled()),
+            gateway_persist: false,
+            gateway_idle_timeout_secs: 30,
+        }
+    }
 
     fn annotations_by_tool() -> Map<String, Value> {
         gateway_tool_defs()
@@ -1280,5 +1395,53 @@ mod tests {
             annotations.get("describe"),
             Some(&json!({"readOnlyHint": true, "openWorldHint": true}))
         );
+    }
+
+    #[test]
+    fn describe_refresh_is_conditional_on_generation_and_index_hit() {
+        let gs = test_gateway_state();
+        let instance_id = Uuid::from_u128(0x1234);
+        let record = crate::gateway::capability::CapabilityRecord::new(
+            crate::gateway::capability::tool_slug("maya", &instance_id, "maya_scene__list_objects"),
+            "maya_scene__list_objects".to_string(),
+            "maya_scene__list_objects".to_string(),
+            Some("maya-scene".into()),
+            "List scene objects",
+            vec!["scene".into()],
+            "maya".into(),
+            instance_id,
+            false,
+            true,
+            None,
+        );
+        let fingerprint = crate::gateway::capability::InstanceFingerprint(1);
+        gs.capability_index
+            .upsert_instance(instance_id, vec![record.clone()], fingerprint);
+
+        let current_generation =
+            crate::gateway::capability_service::index_generation(&gs.capability_index);
+        let args = json!({
+            "tool_slug": record.tool_slug,
+            "meta": {"index_generation": current_generation}
+        });
+        assert!(!describe_needs_refresh(&gs, &record.tool_slug, &args, None));
+
+        let stale_args = json!({
+            "tool_slug": record.tool_slug,
+            "meta": {"index_generation": "stale"}
+        });
+        assert!(describe_needs_refresh(
+            &gs,
+            &record.tool_slug,
+            &stale_args,
+            None
+        ));
+
+        assert!(describe_needs_refresh(
+            &gs,
+            "maya.abcdef01.__missing__",
+            &json!({}),
+            None
+        ));
     }
 }

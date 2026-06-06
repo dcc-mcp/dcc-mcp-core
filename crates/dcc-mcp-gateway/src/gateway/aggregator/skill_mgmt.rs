@@ -51,6 +51,7 @@ pub(crate) async fn skill_mgmt_dispatch(
                         obj.remove("instance_id");
                         obj.remove("meta");
                         obj.remove("_meta");
+                        obj.remove("target_tool_slug");
                         if tool == "load_skill" && !obj.contains_key("activate_groups") {
                             obj.insert("activate_groups".to_string(), Value::Bool(true));
                         }
@@ -112,10 +113,12 @@ pub(crate) async fn skill_mgmt_dispatch(
                                 decorate_load_skill_success(
                                     gs,
                                     &entry,
+                                    &args,
                                     &forward_args,
                                     &text,
                                     search_id.as_deref(),
                                 )
+                                .await
                             } else {
                                 text
                             };
@@ -460,9 +463,10 @@ pub(crate) fn skill_management_tool_defs() -> Vec<Value> {
     ]
 }
 
-fn decorate_load_skill_success(
+async fn decorate_load_skill_success(
     gs: &GatewayState,
     entry: &ServiceEntry,
+    request_args: &Value,
     forwarded_args: &Value,
     text: &str,
     search_id: Option<&str>,
@@ -517,6 +521,11 @@ fn decorate_load_skill_success(
     );
 
     let tool_slugs = new_tool_slugs_for_skill(gs, entry.instance_id, requested_skill.as_deref());
+    let target_tool_slug = request_args
+        .get("target_tool_slug")
+        .and_then(Value::as_str)
+        .filter(|slug| tool_slugs.iter().any(|candidate| candidate == *slug))
+        .map(str::to_string);
     obj.insert("new_tool_slugs".to_string(), json!(tool_slugs));
     obj.insert(
         "index_generation".to_string(),
@@ -533,16 +542,29 @@ fn decorate_load_skill_success(
         obj.insert("activated_groups".to_string(), active_groups);
     }
 
-    let next_step = suggested_post_load_next_step(
-        requested_skill.as_deref(),
-        &entry.dcc_type,
-        entry.instance_id,
+    let selected_tool_slug = target_tool_slug.or_else(|| {
         obj.get("new_tool_slugs")
             .and_then(Value::as_array)
             .and_then(|items| items.first())
-            .and_then(Value::as_str),
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    });
+    let compact_schema =
+        inline_compact_schema_for_correlated_load(gs, selected_tool_slug.as_deref(), search_id)
+            .await;
+    if let Some(schema) = compact_schema.as_ref() {
+        obj.insert("compact_schema".to_string(), schema.clone());
+    }
+
+    let next_step = suggested_post_load_next_step(
+        gs,
+        requested_skill.as_deref(),
+        &entry.dcc_type,
+        entry.instance_id,
+        selected_tool_slug.as_deref(),
         search_id,
         obj.get("index_generation").and_then(Value::as_str),
+        compact_schema.as_ref(),
     );
     obj.insert("next_step".to_string(), next_step);
 
@@ -574,15 +596,60 @@ fn new_tool_slugs_for_skill(
     slugs
 }
 
+#[allow(clippy::too_many_arguments)]
 fn suggested_post_load_next_step(
+    gs: &GatewayState,
     skill_name: Option<&str>,
     dcc_type: &str,
     instance_id: Uuid,
     first_tool_slug: Option<&str>,
     search_id: Option<&str>,
     index_generation: Option<&str>,
+    compact_schema: Option<&Value>,
 ) -> Value {
     if let Some(tool_slug) = first_tool_slug {
+        if compact_schema.is_some() {
+            let mut arguments = json!({ "tool_slug": tool_slug, "arguments": {} });
+            attach_search_meta(&mut arguments, search_id, index_generation);
+            return json!({
+                "action": "call",
+                "arguments": arguments.clone(),
+                "mcp": {
+                    "tool": "call",
+                    "arguments": arguments.clone(),
+                    "_meta": arguments.get("meta").cloned().unwrap_or(Value::Null),
+                },
+                "rest": {
+                    "method": "POST",
+                    "path": "/v1/call",
+                    "body": arguments,
+                },
+                "schema_source": "load_skill.compact_schema",
+            });
+        }
+
+        if let Ok(record) =
+            crate::gateway::capability_service::describe_service(&gs.capability_index, tool_slug)
+            && !record.has_schema
+        {
+            let mut arguments = json!({ "tool_slug": tool_slug, "arguments": {} });
+            attach_search_meta(&mut arguments, search_id, index_generation);
+            return json!({
+                "action": "call",
+                "arguments": arguments.clone(),
+                "mcp": {
+                    "tool": "call",
+                    "arguments": arguments.clone(),
+                    "_meta": arguments.get("meta").cloned().unwrap_or(Value::Null),
+                },
+                "rest": {
+                    "method": "POST",
+                    "path": "/v1/call",
+                    "body": arguments,
+                },
+            });
+        }
+
         let mut arguments = json!({ "tool_slug": tool_slug });
         attach_search_meta(&mut arguments, search_id, index_generation);
         return json!({
@@ -622,6 +689,59 @@ fn suggested_post_load_next_step(
             "path": "/v1/search",
             "body": arguments,
         },
+    })
+}
+
+async fn inline_compact_schema_for_correlated_load(
+    gs: &GatewayState,
+    tool_slug: Option<&str>,
+    search_id: Option<&str>,
+) -> Option<Value> {
+    let tool_slug = tool_slug?;
+    search_id?;
+    let record =
+        crate::gateway::capability_service::describe_service(&gs.capability_index, tool_slug)
+            .ok()?;
+    if !record.has_schema {
+        return Some(compact_schema_payload(
+            tool_slug,
+            &record,
+            &json!({"type": "object"}),
+        ));
+    }
+    let (record, tool) = crate::gateway::capability_service::describe_tool_full(gs, tool_slug)
+        .await
+        .ok()?;
+    Some(compact_schema_payload(
+        tool_slug,
+        &record,
+        &tool.input_schema,
+    ))
+}
+
+fn compact_schema_payload(
+    tool_slug: &str,
+    record: &crate::gateway::capability::CapabilityRecord,
+    input_schema: &Value,
+) -> Value {
+    let required = input_schema
+        .get("required")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    let properties = input_schema
+        .get("properties")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let property_keys: Vec<String> = properties
+        .as_object()
+        .map(|props| props.keys().cloned().collect())
+        .unwrap_or_default();
+    json!({
+        "tool_slug": tool_slug,
+        "has_schema": record.has_schema,
+        "required": required,
+        "property_keys": property_keys,
+        "properties": properties,
     })
 }
 
