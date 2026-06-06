@@ -1,0 +1,58 @@
+name: Sentry E2E (PR)
+
+# Runs Sentry real-ingest E2E for pull requests from forked repositories.
+#
+# GitHub Actions `pull_request` workflow does NOT expose secrets to fork
+# PRs, so the inline sentry-e2e job in ci.yml gracefully skips.
+# This `pull_request_target` workflow runs with full secret access and
+# explicitly checks out the PR code, covering the fork case.
+#
+# Security: `pull_request_target` runs the workflow from the base branch
+# (main), not the PR branch.  The PR code is only checked out — not
+# executed as a script — and the test command is fixed.  Changing the
+# test name or command requires a reviewed change to this file on main.
+
+on:
+  pull_request_target:
+    branches: [main]
+    paths:
+      - "crates/dcc-mcp-server/**"
+      - "tests/test_sentry_e2e.py"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/sentry-e2e-pr.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  sentry-e2e:
+    name: Sentry E2E (fork-safe)
+    runs-on: ubuntu-latest
+    # Only run for fork PRs; same-repo PRs are covered by ci.yml inline job.
+    if: github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
+    steps:
+      - name: Checkout PR code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: loonghao/vx@v0.9.11
+        with:
+          version: "0.9.11"
+          cache: "false"
+
+      - name: Run Sentry real-ingest E2E
+        env:
+          DCC_MCP_SENTRY_DSN: ${{ secrets.DCC_MCP_SENTRY_DSN }}
+          DCC_MCP_SENTRY_ENVIRONMENT: ci-e2e
+          DCC_MCP_SENTRY_SAMPLE_RATE: "1.0"
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${DCC_MCP_SENTRY_DSN:-}" ]; then
+            echo "DCC_MCP_SENTRY_DSN secret not configured; skipping Sentry E2E"
+            exit 0
+          fi
+          vx cargo test -p dcc-mcp-server --features sentry sentry_real_ingest_e2e \
+            -- --exact --test-threads=1 --nocapture
