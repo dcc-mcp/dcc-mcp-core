@@ -27,6 +27,41 @@ DCC-MCP extension pointers such as `tools`, `prompts`, `recipes`, `workflows`,
 and `depends` under `metadata.dcc-mcp.*`. Use `references/` for long-form docs,
 recipes, examples, and notes that agents should load only when needed.
 
+### Gateway-Facing Tags (`metadata.dcc-mcp.tags`)
+
+Gateway search treats `tags` as a narrowing filter. Declare `tags` under
+`metadata.dcc-mcp.tags` in `SKILL.md` frontmatter so pipeline,
+production-tracking, and documentation connectors rank and filter consistently
+across hosts. The canonical tag vocabulary:
+
+| Tag | Use for |
+|-----|---------|
+| `pipeline` | Studio pipeline systems, publish/intake/review automation, and production data hand-offs. |
+| `production-tracking` | Shot/asset/task/status tracking systems regardless of vendor. |
+| `shotgrid` | Autodesk Flow Production Tracking / ShotGrid-specific tools. |
+| `ftrack` | ftrack-specific tools. |
+| `docs` | Documentation, product help, reference lookup, and guide resources. |
+| `read-only` | Discovery/read operations. Also set MCP `readOnlyHint` (`annotations.read_only_hint: true` in `tools.yaml`); the tag is for search, not policy. |
+| `destructive` | Mutating or irreversible operations. Also set MCP `destructiveHint` (`annotations.destructive_hint: true` in `tools.yaml`); the tag is for search, not policy. |
+
+Current `tags` semantics are **AND**: a search containing both `pipeline` and
+`production-tracking` returns records that carry both tags. To match any of
+several tags, issue separate searches or omit the tag filter.
+`dcc_type` is a singular filter — pass one DCC family per request.
+
+**Vendor tags** can be added when they sharpen routing without replacing the
+canonical tags. For example, Autodesk Product Help should use `docs`,
+`read-only`, and the vendor tag `autodesk`. Do not add `docs` to a
+production-tracking search unless the user explicitly asks for help or reference
+material.
+
+**Tagging rule of thumb:**
+- Pipeline/ShotGrid skills → `pipeline`, `production-tracking`, plus
+  vendor-specific (`shotgrid` or `ftrack`).
+- Documentation connectors → `docs`, `read-only`, plus vendor tag.
+- Individual read tools → add `read-only` in `tools.yaml` tags.
+- Mutating publish/update tools → add `destructive` in `tools.yaml` tags.
+
 ## 3. Keep Runtime Scripts Host-Safe
 
 Scripts should lazy-import host APIs inside the callable function. This keeps
