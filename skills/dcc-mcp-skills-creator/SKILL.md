@@ -121,6 +121,7 @@ Generated `tools.yaml` entries follow the modern contract:
 - `affinity` is explicit. Use `main` for host API or scene mutation work and `any` for pure work.
 - `enforce_thread_affinity: true` is emitted so adapter dispatch stays honest.
 - `annotations` use MCP hints: read-only, destructive, idempotent, open-world, and deferred.
+- `call_examples`: optional list of ready-to-copy argument payloads. Each entry has `arguments` (JSON object matching `input_schema.properties`) and an optional `note`. Surfaced in describe responses at `metadata.dcc.call_examples` so agents can construct correct arguments on the first attempt.
 
 ## Authoring Workflow
 
@@ -128,7 +129,7 @@ Generated `tools.yaml` entries follow the modern contract:
 2. Give the skill a kebab-case name and each local tool a snake_case name.
 3. Keep host API calls inside scripts, with lazy imports so discovery works without the host running.
 4. Import dependency-light runtime helpers from `dcc_mcp_core.skills_helper` first: JSON/YAML codecs, bounded HTTP helpers, safe file/path helpers, validation, cancellation checks, and result helpers.
-5. Declare `execution`, `affinity`, `timeout_hint_secs`, schemas, annotations, and failure recovery chains in `tools.yaml`.
+5. Declare `execution`, `affinity`, `timeout_hint_secs`, schemas, annotations, and failure recovery chains in `tools.yaml`. For high-frequency tools, add `call_examples` so agents can copy argument payloads without trial-and-error.
 6. Put long examples, recipes, and host-specific notes under `references/`.
 7. Validate with `validate_skill_dir` or `dcc_mcp_core.validate_skill()` before loading it in an adapter.
 8. If the desired behavior requires parsing core internals or adapter-private YAML at runtime, stop and request a core API instead.

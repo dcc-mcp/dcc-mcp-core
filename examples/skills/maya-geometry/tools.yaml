@@ -21,6 +21,12 @@ tools:
     destructive: false
     idempotent: false
     source_file: scripts/create_sphere.py
+    call_examples:
+      - arguments:
+          radius: 5.0
+          subdivisionsX: 32
+          subdivisionsY: 32
+        note: "Create a high-res sphere with 32x32 subdivisions"
     next-tools:
       on-success: [maya_geometry__bevel_edges, maya_pipeline__export_usd]
       on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
