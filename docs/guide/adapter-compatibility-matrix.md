@@ -22,10 +22,11 @@ a PR updating this matrix before the release PR merges.
 
 | DCC | Repository | Adapter Version | Core Pin | DCC Min Version | Dispatcher Pattern | Last Verified |
 |-----|-----------|----------------|----------|-----------------|-------------------|---------------|
-| Maya | [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya) | 0.3.0 | >=0.18.0,<1.0.0 | 2024+ | Qt sidecar + HostUiDispatcherBase | 2026-06 |
-| 3ds Max | [dcc-mcp-3dsmax](https://github.com/dcc-mcp/dcc-mcp-3dsmax) | 0.2.0 | >=0.18.0,<1.0.0 | 2025+ | Qt sidecar + HostPumpController | 2026-05 |
-| Blender | [dcc-mcp-blender](https://github.com/dcc-mcp/dcc-mcp-blender) | 0.1.0 | >=0.17.0,<1.0.0 | 3.6+ | Background blocking dispatcher | 2026-04 |
-| Houdini | [dcc-mcp-houdini](https://github.com/dcc-mcp/dcc-mcp-houdini) | 0.1.0 | >=0.17.0,<1.0.0 | 20.5+ | Event-loop callback | 2026-04 |
+| Maya | [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya) | ⏳ pending | >=0.18.0,<1.0.0 | 2024+ | Qt sidecar + HostUiDispatcherBase | 2026-06 |
+| 3ds Max | [dcc-mcp-3dsmax](https://github.com/dcc-mcp/dcc-mcp-3dsmax) | ⏳ pending | >=0.18.0,<1.0.0 | 2025+ | Qt sidecar + HostPumpController | 2026-05 |
+| Blender | [dcc-mcp-blender](https://github.com/dcc-mcp/dcc-mcp-blender) | ⏳ pending | >=0.18.0,<1.0.0 | 3.6+ | Background blocking dispatcher | 2026-04 |
+| Houdini | [dcc-mcp-houdini](https://github.com/dcc-mcp/dcc-mcp-houdini) | ⏳ pending | >=0.18.0,<1.0.0 | 20.5+ | Event-loop callback | 2026-04 |
+| FPT | [dcc-mcp-fpt](https://github.com/dcc-mcp/dcc-mcp-fpt) | 0.2.0 | >=0.18.0,<1.0.0 | — | REST bridge | 2026-06 |
 | Nuke | _(planned)_ | — | — | — | — | — |
 | Unreal | _(planned)_ | — | — | — | — | — |
 | ZBrush | _(planned)_ | — | — | — | — | — |
@@ -54,6 +55,12 @@ a PR updating this matrix before the release PR merges.
 - Major version zero (`0.x.y`) means breaking changes can happen at any minor
   bump; the `<1.0.0` guard ensures adapters don't silently consume a breaking
   core change.
+
+## Legend
+
+| Marker | Meaning |
+|--------|---------|
+| ⏳ | Release tag pending — adapter PR in review, version subject to change. Remove marker after tag. |
 
 ## Outdated Policy
 
