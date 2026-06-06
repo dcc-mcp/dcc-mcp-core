@@ -94,6 +94,7 @@ mod tests {
             min_core_version: None,
             install: None,
             maintainer: None,
+            icon: None,
         }
     }
 

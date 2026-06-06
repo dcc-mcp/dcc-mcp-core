@@ -53,6 +53,9 @@ pub struct CatalogEntry {
     /// Maintainer or publishing organization.
     #[serde(default)]
     pub maintainer: Option<String>,
+    /// Icon path or URL (e.g. `"icon.png"` for repo-relative, or an absolute URL).
+    #[serde(default)]
+    pub icon: Option<String>,
 }
 
 /// Installation metadata for a marketplace catalog entry.
@@ -275,5 +278,43 @@ entries:
         let install = entries[0].install.as_ref().unwrap();
         assert_eq!(install.install_type, "git");
         assert_eq!(install.ref_.as_deref(), Some("v0.1.0"));
+    }
+
+    #[test]
+    fn test_load_marketplace_json_with_icon() {
+        let json = r#"
+{
+  "version": "1",
+  "entries": [{
+    "name": "dcc-mcp-maya-mgear",
+    "description": "mGear Shifter integration",
+    "dcc": ["maya"],
+    "tags": ["skills", "maya", "rigging"],
+    "version": "0.1.0",
+    "icon": "icon.png"
+  }]
+}
+"#;
+        let entries = load_from_str(json).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].icon.as_deref(), Some("icon.png"));
+    }
+
+    #[test]
+    fn test_catalog_entry_optional_icon_missing() {
+        let json = r#"
+{
+  "version": "1",
+  "entries": [{
+    "name": "dcc-mcp-maya-mgear",
+    "description": "mGear Shifter integration",
+    "dcc": ["maya"],
+    "tags": ["skills"]
+  }]
+}
+"#;
+        let entries = load_from_str(json).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].icon.is_none());
     }
 }

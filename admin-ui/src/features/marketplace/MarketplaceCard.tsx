@@ -40,6 +40,20 @@ export function MarketplaceCard({
     >
       <div className="marketplace-card-body">
         <div className="marketplace-card-head">
+          {entry.icon ? (
+            <img
+              className="marketplace-card-icon"
+              src={entry.icon}
+              alt={entry.name}
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = 'none';
+              }}
+            />
+          ) : (
+            <span className="marketplace-card-icon-fallback">
+              {entry.name.charAt(0).toUpperCase()}
+            </span>
+          )}
           <h3 className="marketplace-card-name" title={entry.name}>
             {entry.name}
           </h3>

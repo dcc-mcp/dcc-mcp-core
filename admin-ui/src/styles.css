@@ -2807,6 +2807,29 @@ pre.empty {
   min-width: 0;
 }
 
+.marketplace-card-icon {
+  border-radius: 6px;
+  flex-shrink: 0;
+  height: 40px;
+  object-fit: contain;
+  width: 40px;
+}
+
+.marketplace-card-icon-fallback {
+  align-items: center;
+  background: var(--muted);
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  display: flex;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  font-weight: 700;
+  height: 40px;
+  justify-content: center;
+  width: 40px;
+}
+
 .marketplace-card-name {
   color: var(--foreground);
   font-family: var(--font-mono);
