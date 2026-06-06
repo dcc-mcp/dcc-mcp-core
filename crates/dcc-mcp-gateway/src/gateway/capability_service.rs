@@ -215,6 +215,7 @@ pub fn search_hit_to_value_with_context(
                 "dcc": &hit.record.dcc_type,
                 "dcc_type": &hit.record.dcc_type,
                 "instance_id": hit.record.instance_id.to_string(),
+                "target_tool_slug": &hit.record.tool_slug,
             });
             // If the tool belongs to a group that will need activation,
             // hint the tool_group so the agent can activate it after load.
@@ -268,29 +269,56 @@ pub fn search_hit_to_value_with_context(
                     },
                 });
             }
+        } else if hit.record.has_schema {
+            value["next_step"] = describe_next_step(&hit.record.tool_slug, context);
         } else {
-            // Tool is loaded and callable — standard describe next_step.
-            let mut arguments = json!({
-                "tool_slug": hit.record.tool_slug,
-            });
-            attach_search_meta(&mut arguments, context);
-            value["next_step"] = json!({
-                "action": "describe",
-                "arguments": arguments.clone(),
-                "mcp": {
-                    "tool": "describe",
-                    "arguments": arguments.clone(),
-                    "_meta": search_meta(context),
-                },
-                "rest": {
-                    "method": "POST",
-                    "path": "/v1/describe",
-                    "body": arguments,
-                },
-            });
+            value["next_step"] = call_next_step(&hit.record.tool_slug, context);
         }
     }
     value
+}
+
+pub fn describe_next_step(slug: &str, context: Option<&SearchResponseContext>) -> Value {
+    let mut arguments = json!({
+        "tool_slug": slug,
+    });
+    attach_search_meta(&mut arguments, context);
+    json!({
+        "action": "describe",
+        "arguments": arguments.clone(),
+        "mcp": {
+            "tool": "describe",
+            "arguments": arguments.clone(),
+            "_meta": search_meta(context),
+        },
+        "rest": {
+            "method": "POST",
+            "path": "/v1/describe",
+            "body": arguments,
+        },
+    })
+}
+
+pub fn call_next_step(slug: &str, context: Option<&SearchResponseContext>) -> Value {
+    let mut arguments = json!({
+        "tool_slug": slug,
+        "arguments": {},
+    });
+    attach_search_meta(&mut arguments, context);
+    json!({
+        "action": "call",
+        "arguments": arguments.clone(),
+        "mcp": {
+            "tool": "call",
+            "arguments": arguments.clone(),
+            "_meta": search_meta(context),
+        },
+        "rest": {
+            "method": "POST",
+            "path": "/v1/call",
+            "body": arguments,
+        },
+    })
 }
 
 fn attach_search_meta(arguments: &mut Value, context: Option<&SearchResponseContext>) {
@@ -953,6 +981,10 @@ mod unit_tests {
             rows[0]["next_step"]["arguments"]["instance_id"],
             iid.to_string()
         );
+        assert_eq!(
+            rows[0]["next_step"]["arguments"]["target_tool_slug"],
+            tool_slug("maya", &iid, "maya_primitives__create_sphere")
+        );
         assert_eq!(rows[0]["next_step"]["rest"]["path"], "/v1/load_skill");
         assert_eq!(
             rows[0]["next_step"]["rest"]["body"]["instance_id"],
@@ -1265,6 +1297,24 @@ mod unit_tests {
         tool_group: Option<&str>,
         available_groups: Vec<crate::gateway::capability::CapabilityGroupInfo>,
     ) -> CapabilityRecord {
+        make_group_record_with_schema(
+            tool_slug,
+            skill_name,
+            loaded,
+            tool_group,
+            available_groups,
+            false,
+        )
+    }
+
+    fn make_group_record_with_schema(
+        tool_slug: &str,
+        skill_name: Option<&str>,
+        loaded: bool,
+        tool_group: Option<&str>,
+        available_groups: Vec<crate::gateway::capability::CapabilityGroupInfo>,
+        has_schema: bool,
+    ) -> CapabilityRecord {
         let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
         CapabilityRecord::new(
             tool_slug.to_string(),
@@ -1283,7 +1333,7 @@ mod unit_tests {
             Vec::new(),
             tool_slug.split('.').next().unwrap_or("maya").to_string(),
             iid,
-            false,
+            has_schema,
             loaded,
             tool_group.map(str::to_string),
         )
@@ -1328,7 +1378,7 @@ mod unit_tests {
 
     #[test]
     fn progressive_group_active_generates_describe_next_step() {
-        let rec = make_group_record(
+        let rec = make_group_record_with_schema(
             "maya.abcdef01.create_sphere",
             Some("maya-modeling"),
             true,
@@ -1340,6 +1390,7 @@ mod unit_tests {
                 default_active: true,
                 active: Some(true),
             }],
+            true,
         );
         let hit = SearchHit {
             record: rec,
@@ -1363,7 +1414,31 @@ mod unit_tests {
     }
 
     #[test]
-    fn loaded_no_group_is_callable_with_describe_next_step() {
+    fn loaded_no_group_with_schema_is_callable_with_describe_next_step() {
+        let rec = make_group_record_with_schema(
+            "maya.abcdef01.open_scene",
+            Some("maya-scene"),
+            true,
+            None,
+            vec![],
+            true,
+        );
+        let hit = SearchHit {
+            record: rec,
+            rank: 1,
+            score: 10,
+            match_reasons: vec![],
+        };
+        let row = search_hit_to_value(hit);
+
+        assert_eq!(row["callable"], true);
+        assert_eq!(row["load_state"], "loaded");
+        assert!(row.get("disabled_by_group").is_none());
+        assert_eq!(row["next_step"]["action"], "describe");
+    }
+
+    #[test]
+    fn loaded_no_group_without_schema_is_callable_with_call_next_step() {
         let rec = make_group_record(
             "maya.abcdef01.open_scene",
             Some("maya-scene"),
@@ -1382,6 +1457,9 @@ mod unit_tests {
         assert_eq!(row["callable"], true);
         assert_eq!(row["load_state"], "loaded");
         assert!(row.get("disabled_by_group").is_none());
-        assert_eq!(row["next_step"]["action"], "describe");
+        assert_eq!(row["next_step"]["action"], "call");
+        assert_eq!(row["next_step"]["arguments"]["arguments"], json!({}));
+        assert_eq!(row["next_step"]["rest"]["path"], "/v1/call");
+        assert_eq!(row["next_step"]["mcp"]["tool"], "call");
     }
 }
