@@ -138,6 +138,60 @@ Read [AUTHORING_WORKFLOW.md](references/AUTHORING_WORKFLOW.md) and
 [DCC_TOOL_CONTRACTS.md](references/DCC_TOOL_CONTRACTS.md) before changing a
 production skill package.
 
+## Gateway-Facing Tag Taxonomy
+
+Gateway search treats `tags` as a narrowing filter. Use a small shared vocabulary
+so pipeline, production-tracking, and documentation connectors rank and filter
+consistently across hosts. When authoring `SKILL.md` frontmatter, include the
+appropriate tags under `metadata.dcc-mcp.tags`:
+
+| Tag | Use for |
+|-----|---------|
+| `pipeline` | Studio pipeline systems, publish/intake/review automation, and production data hand-offs. |
+| `production-tracking` | Shot/asset/task/status tracking systems regardless of vendor. |
+| `shotgrid` | Autodesk Flow Production Tracking / ShotGrid-specific tools. |
+| `ftrack` | ftrack-specific tools. |
+| `docs` | Documentation, product help, reference lookup, and guide resources. |
+| `read-only` | Discovery/read operations. Also set MCP `readOnlyHint` (`annotations.read_only_hint: true` in `tools.yaml`); the tag is for search, not policy. |
+| `destructive` | Mutating or irreversible operations. Also set MCP `destructiveHint` (`annotations.destructive_hint: true` in `tools.yaml`); the tag is for search, not policy. |
+
+Current `tags` semantics are **AND**: a request containing both `pipeline` and
+`production-tracking` returns records that carry both tags. To match any of
+several tags, issue separate searches or omit the tag filter.
+`dcc_type` is a singular filter — pass one DCC family per request.
+
+**Vendor tags** can be added when they sharpen routing without replacing the
+canonical tags. For example, Autodesk Product Help should use `docs`,
+`read-only`, and the vendor tag `autodesk`. Do not add `docs` to a
+production-tracking search unless the user explicitly asks for help or reference
+material.
+
+**Skill SKILL.md example** (frontmatter excerpt):
+
+```yaml
+metadata:
+  dcc-mcp:
+    dcc: shotgrid
+    layer: domain
+    tags: [pipeline, production-tracking, shotgrid]
+    search-hint: "ShotGrid task status, find shots, update task assignments"
+    tools: tools.yaml
+```
+
+```yaml
+# Read-only docs connector (SKILL.md excerpt)
+metadata:
+  dcc-mcp:
+    dcc: autodesk-help
+    layer: infrastructure
+    tags: [docs, autodesk, read-only, infrastructure]
+    search-hint: "Autodesk Product Help, Maya help, 3ds Max help, API reference"
+    tools: tools.yaml
+```
+
+Individual read tools should also carry `read-only` in their tool-level tags;
+mutating publish/update tools should carry `destructive` when applicable.
+
 ## Validation Rules
 
 The validator checks:
