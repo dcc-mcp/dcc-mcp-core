@@ -35,6 +35,9 @@ pub(crate) fn action_metadata(action: &CatalogAction) -> Value {
         "risk".to_string(),
         Value::String(action_risk(&action.annotations).to_string()),
     );
+    if let Some(ref examples) = action.call_examples {
+        dcc.insert("call_examples".to_string(), serde_json::json!(examples));
+    }
 
     let mut out = serde_json::Map::new();
     out.insert("dcc".to_string(), Value::Object(dcc));

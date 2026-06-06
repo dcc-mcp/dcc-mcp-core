@@ -112,6 +112,7 @@ fn sphere_action(loaded: bool) -> CatalogAction {
         available_groups: Vec::new(),
         runtime: None,
         next_tools: Default::default(),
+        call_examples: None,
     }
 }
 
@@ -362,6 +363,7 @@ fn search_matches_aliases_and_schema_tokens_without_schema_expansion() {
         available_groups: Vec::new(),
         runtime: None,
         next_tools: Default::default(),
+        call_examples: None,
     };
 
     let (svc, _) = build_service(vec![maya, photoshop]);

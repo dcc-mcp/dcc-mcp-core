@@ -26,7 +26,7 @@ use dcc_mcp_actions::{
     DispatchExecutionContext, current_execution_context, with_execution_context,
 };
 use dcc_mcp_models::{
-    ExecutionMode, NextTools, SkillRuntimeSummary, ThreadAffinity, ToolAnnotations,
+    CallExample, ExecutionMode, NextTools, SkillRuntimeSummary, ThreadAffinity, ToolAnnotations,
 };
 use dcc_mcp_skills::SkillCatalog;
 
@@ -347,6 +347,9 @@ pub struct CatalogAction {
     /// Suggested follow-up tools (`on-success` / `on-failure`). Surfaced at
     /// describe-time so agents can pre-plan recovery steps (issue #1408).
     pub next_tools: NextTools,
+    /// Ready-to-copy call examples from `tools.yaml`. Surfaced in
+    /// `metadata.dcc.call_examples` at describe-time (PIP-577).
+    pub call_examples: Option<Vec<CallExample>>,
 }
 
 /// Anything that can invoke a tool by name and return its output.
@@ -614,6 +617,13 @@ impl SkillCatalogSource for CatalogSource {
                 });
             seen.insert(meta.name.clone());
             let search_tokens = schema_search_tokens(&meta.input_schema);
+            let call_examples = self.catalog.get_skill_info(&skill_name).and_then(|detail| {
+                detail
+                    .tools
+                    .iter()
+                    .find(|t| t.name == meta.name)
+                    .and_then(|t| t.call_examples.clone())
+            });
             out.push(CatalogAction {
                 action_name: meta.name,
                 skill_name: skill_name.clone(),
@@ -636,6 +646,7 @@ impl SkillCatalogSource for CatalogSource {
                     .unwrap_or_default(),
                 runtime,
                 next_tools: meta.next_tools,
+                call_examples,
             });
         }
 
@@ -710,6 +721,7 @@ impl SkillCatalogSource for CatalogSource {
                         .unwrap_or_default(),
                     runtime: detail.runtime.clone(),
                     next_tools: tool_decl.next_tools.clone(),
+                    call_examples: tool_decl.call_examples.clone(),
                 });
             }
         }
