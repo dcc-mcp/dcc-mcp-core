@@ -91,7 +91,8 @@ pub fn build_records_from_backend(input: BuildInput<'_>) -> BuildOutcome {
         let callable_id = tool.name.clone();
         let tags = extract_tags(&tool.annotations, tool.meta.as_ref());
         let search_tokens = extract_search_tokens(tool);
-        let has_schema = has_meaningful_schema(&tool.input_schema);
+        let has_schema =
+            has_meaningful_schema(&tool.input_schema) || meta_declares_schema(tool.meta.as_ref());
         let summary = if tool.description.is_empty() && has_schema {
             // Keep the search text non-empty even when the backend
             // omitted the description — the input schema name still
@@ -248,6 +249,14 @@ fn has_meaningful_schema(schema: &Value) -> bool {
         .and_then(Value::as_array)
         .is_some_and(|r| !r.is_empty());
     props_ok || required_ok
+}
+
+fn meta_declares_schema(meta: Option<&serde_json::Map<String, Value>>) -> bool {
+    meta.and_then(|meta| meta.get("dcc"))
+        .and_then(Value::as_object)
+        .and_then(|dcc| dcc.get("has_schema"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
 }
 
 fn compute_fingerprint(records: &[CapabilityRecord]) -> InstanceFingerprint {
@@ -741,6 +750,23 @@ mod unit_tests {
         assert!(by_tool["needs_radius"].has_schema);
         assert!(by_tool["optional_radius"].has_schema);
         assert!(!by_tool["no_params"].has_schema);
+    }
+
+    #[test]
+    fn has_schema_honours_backend_search_marker() {
+        let iid = Uuid::from_u128(33);
+        let tools = vec![tool_with_meta(
+            "deferred_schema",
+            "",
+            json!({"type": "object", "properties": {}}),
+            json!({"dcc": {"has_schema": true}}),
+        )];
+        let out = build_records_from_backend(BuildInput {
+            instance_id: iid,
+            dcc_type: "maya",
+            backend_tools: &tools,
+        });
+        assert!(out.records[0].has_schema);
     }
 
     #[test]

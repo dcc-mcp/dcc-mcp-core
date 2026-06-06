@@ -16,7 +16,7 @@ pub fn pointer() -> Value {
     json!({
         "uri":         ROOT_URI,
         "name":        "DCC-MCP Gateway — agent workflow guide",
-        "description": "How to use the MCP gateway well: tools/list exposes search→describe→load_skill→call; unloaded search hits carry executable next_step and available_groups; REST GET /v1/context (instances), GET /v1/dcc/{dcc}/instances/{id}/describe, POST /v1/dcc/{dcc}/instances/{id}/call; refresh instances after DCC restart; resources/list+read; prompts; call/call_batch (≤25). Connector wrappers (e.g. get_sessions) map to gateway://instances or GET /v1/instances — not extra MCP tools. DCC names in chat → dcc_type / gateway://instances.",
+        "description": "How to use the MCP gateway well: tools/list exposes search→describe/load_skill→call; search hits carry executable next_step, has_schema=false may skip describe, unloaded hits carry target_tool_slug/available_groups, and correlated load_skill may inline compact_schema; REST GET /v1/context (instances), GET /v1/dcc/{dcc}/instances/{id}/describe, POST /v1/dcc/{dcc}/instances/{id}/call; refresh instances after DCC restart; resources/list+read; prompts; call/call_batch (≤25). Connector wrappers (e.g. get_sessions) map to gateway://instances or GET /v1/instances — not extra MCP tools. DCC names in chat → dcc_type / gateway://instances.",
         "mimeType":    "application/json"
     })
 }
