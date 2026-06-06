@@ -131,6 +131,32 @@ mod tests {
         assert!(init_sentry().is_none());
     }
 
+    /// Validates that `init_sentry` with a well-formed DSN initialises the SDK
+    /// and captures events without requiring a live ingest endpoint.
+    ///
+    /// Uses a syntactically valid DSN that points to a non-existent project.
+    /// The SDK initialises anyway and assigns event ids; only the transport
+    /// flush is expected to fail (no network reachability assertion).
+    /// This test runs in every PR CI regardless of secret availability.
+    #[test]
+    fn init_sentry_valid_dsn_initialises_and_captures() {
+        let _guard = EnvVarGuard::set(
+            "DCC_MCP_SENTRY_DSN",
+            Some("https://key@o0.ingest.sentry.io/0"),
+        );
+        let guard = init_sentry().expect("valid-format DSN should initialise Sentry SDK");
+
+        let event_id =
+            sentry::capture_message("unit test probe — no real DSN", sentry::Level::Info);
+        assert!(
+            !event_id.is_nil(),
+            "Sentry SDK should assign a non-nil event id for captured messages"
+        );
+
+        // Flush may fail (no live ingest) — that is expected for a unit test.
+        drop(guard);
+    }
+
     /// Real Sentry ingest E2E — posts a probe event and flushes the transport.
     ///
     /// Skips when `DCC_MCP_SENTRY_DSN` is unset (local dev / PR CI without the
