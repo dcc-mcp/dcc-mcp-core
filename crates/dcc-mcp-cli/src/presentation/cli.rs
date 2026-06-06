@@ -164,6 +164,9 @@ enum MarketplaceAction {
         sources: Vec<String>,
         #[arg(long)]
         limit: Option<usize>,
+        /// Bypass JSON Schema validation of marketplace entries.
+        #[arg(long)]
+        skip_validation: bool,
     },
     /// Inspect one marketplace entry by exact name.
     Inspect {
@@ -171,6 +174,9 @@ enum MarketplaceAction {
         /// Use this source for the query instead of configured sources.
         #[arg(long = "source")]
         sources: Vec<String>,
+        /// Bypass JSON Schema validation of marketplace entries.
+        #[arg(long)]
+        skip_validation: bool,
     },
     /// Install a marketplace skill package to the local marketplace root.
     Install {
@@ -183,6 +189,9 @@ enum MarketplaceAction {
         /// Replace an existing installed package.
         #[arg(long)]
         force: bool,
+        /// Bypass JSON Schema validation of marketplace entries.
+        #[arg(long)]
+        skip_validation: bool,
     },
     /// Remove an installed marketplace skill package.
     Uninstall {
@@ -413,16 +422,22 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                     dcc,
                     sources,
                     limit,
-                } => to_json(service.search(query, dcc, sources, limit).await?)?,
-                MarketplaceAction::Inspect { name, sources } => {
-                    to_json(service.inspect(name, sources).await?)?
+                    skip_validation,
+                } => to_json(service.search(query, dcc, sources, limit, skip_validation).await?)?,
+                MarketplaceAction::Inspect {
+                    name,
+                    sources,
+                    skip_validation,
+                } => {
+                    to_json(service.inspect(name, sources, skip_validation).await?)?
                 }
                 MarketplaceAction::Install {
                     name,
                     dcc,
                     sources,
                     force,
-                } => to_json(service.install(name, dcc, sources, force).await?)?,
+                    skip_validation,
+                } => to_json(service.install(name, dcc, sources, force, skip_validation).await?)?,
                 MarketplaceAction::Uninstall { name, dcc } => {
                     to_json(service.uninstall(name, dcc)?)?
                 }
