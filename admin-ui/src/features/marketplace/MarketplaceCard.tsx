@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import './MarketplaceCard.css';
 import type { InterpolationValues, MessageKey } from '../../i18n';
 import type { MarketplaceEntry, InstalledMarketplacePackage } from '../../admin-types';
 
@@ -32,6 +34,7 @@ export function MarketplaceCard({
   const version = entry.version ?? t('marketplace.card.noVersion');
   const maintainer = entry.maintainer ?? undefined;
   const isInstalling = installingKeyName(installingKey) === entry.name;
+  const [iconFailed, setIconFailed] = useState(false);
 
   return (
     <article
@@ -40,6 +43,18 @@ export function MarketplaceCard({
     >
       <div className="marketplace-card-body">
         <div className="marketplace-card-head">
+          {entry.icon && !iconFailed ? (
+            <img
+              className="marketplace-card-icon"
+              src={entry.icon}
+              alt={entry.name}
+              onError={() => setIconFailed(true)}
+            />
+          ) : (
+            <span className="marketplace-card-icon-fallback">
+              {entry.name.charAt(0).toUpperCase()}
+            </span>
+          )}
           <h3 className="marketplace-card-name" title={entry.name}>
             {entry.name}
           </h3>

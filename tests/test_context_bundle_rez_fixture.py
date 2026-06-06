@@ -85,6 +85,27 @@ def _post_mcp(url: str, method: str, params: dict | None = None, rpc_id: int = 1
     return resp
 
 
+def _post_mcp_retry(
+    url: str,
+    method: str,
+    params: dict | None = None,
+    rpc_id: int = 1,
+    max_retries: int = 8,
+    base_backoff: float = 0.5,
+) -> dict:
+    """Post an MCP request, retrying with exponential backoff until the response contains 'result'."""
+    for attempt in range(max_retries):
+        resp = _post_mcp(url, method, params, rpc_id)
+        if "result" in resp:
+            return resp
+        if attempt < max_retries - 1:
+            time.sleep(base_backoff * (2**attempt))
+    raise RuntimeError(
+        f"MCP {method} missing 'result' key after {max_retries} retries: "
+        f"{resp.get('error', {}).get('message', list(resp.keys()))}"
+    )
+
+
 def _backend(
     dcc: str,
     tool_name: str,
@@ -271,7 +292,8 @@ def test_rez_context_bundle_fixture_exposes_distinct_instance_metadata(tmp_path:
 
         gateway_url = f"http://127.0.0.1:{gateway_port}/mcp"
         # #813 phase 1: list_dcc_instances was replaced by the gateway://instances resource.
-        resp = _post_mcp(gateway_url, "resources/read", {"uri": "gateway://instances"})
+        # Retry with backoff — rez fixture backends may still be registering on slow runners.
+        resp = _post_mcp_retry(gateway_url, "resources/read", {"uri": "gateway://instances"})
         instances = json.loads(resp["result"]["contents"][0]["text"])["instances"]
         by_task = {item["metadata"]["task"]: item for item in instances}
 
