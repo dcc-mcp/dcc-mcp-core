@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.5](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.4...v0.18.5) (2026-06-06)
+
+
+### Bug Fixes
+
+* **ci:** remove pull_request_target workflow for Sentry E2E on fork PRs ([#1535](https://github.com/dcc-mcp/dcc-mcp-core/issues/1535)) ([fa44899](https://github.com/dcc-mcp/dcc-mcp-core/commit/fa44899caaa6401bf7364449390549375d05b27c))
+
 ## [0.18.4](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.3...v0.18.4) (2026-06-06)
 
 
