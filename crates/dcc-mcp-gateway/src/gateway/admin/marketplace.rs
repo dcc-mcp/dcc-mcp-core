@@ -50,6 +50,8 @@ pub struct MarketplaceEntryResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub install: Option<InstallMetadataResponse>,
 }
 
@@ -346,6 +348,7 @@ fn catalog_entry_to_response(
         version: entry.version.clone(),
         min_core_version: entry.min_core_version.clone(),
         maintainer: entry.maintainer.clone(),
+        icon: resolve_icon_url(entry.icon.as_deref(), source),
         source_name: source.map(|s| s.name.clone()),
         source_url: source.map(|s| s.url.clone()),
         install: entry.install.as_ref().map(|i| InstallMetadataResponse {
@@ -354,6 +357,27 @@ fn catalog_entry_to_response(
             ref_: i.ref_.clone(),
         }),
     }
+}
+
+/// Resolve an icon path to a full URL.
+///
+/// Absolute URLs are passed through unchanged. Relative paths are resolved
+/// against the source URL when it is a `raw.githubusercontent.com` URL
+/// (e.g. `icon.png` → `https://raw.githubusercontent.com/.../main/icon.png`).
+fn resolve_icon_url(icon: Option<&str>, source: Option<&MarketplaceSourceInfo>) -> Option<String> {
+    let icon = icon?;
+    if icon.starts_with("http://") || icon.starts_with("https://") {
+        return Some(icon.to_string());
+    }
+    // Resolve relative paths against raw.githubusercontent.com source URLs.
+    let source_url = source?.url.as_str();
+    if source_url.contains("raw.githubusercontent.com") {
+        // Strip the filename (marketplace.json) and append the icon path.
+        if let Some(base) = source_url.rsplit_once('/') {
+            return Some(format!("{}/{}", base.0, icon.trim_start_matches('/')));
+        }
+    }
+    Some(icon.to_string())
 }
 
 // ── Package install / uninstall ──────────────────────────────────────
@@ -692,9 +716,49 @@ mod tests {
             min_core_version: None,
             install: None,
             maintainer: None,
+            icon: None,
         };
         assert!(entry_targets_dcc(&entry, "Maya"));
         assert!(entry_targets_dcc(&entry, "BLENDER"));
         assert!(!entry_targets_dcc(&entry, "houdini"));
+    }
+
+    #[test]
+    fn resolve_icon_url_none_when_icon_is_none() {
+        assert_eq!(resolve_icon_url(None, None), None);
+    }
+
+    #[test]
+    fn resolve_icon_url_passes_through_absolute_url() {
+        let icon = "https://cdn.example.com/icons/my-icon.png";
+        assert_eq!(resolve_icon_url(Some(icon), None), Some(icon.to_string()));
+    }
+
+    #[test]
+    fn resolve_icon_url_resolves_relative_against_raw_github() {
+        let source = MarketplaceSourceInfo {
+            name: "test".into(),
+            url:
+                "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya-mgear/main/marketplace.json"
+                    .into(),
+        };
+        assert_eq!(
+            resolve_icon_url(Some("icon.png"), Some(&source)),
+            Some(
+                "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya-mgear/main/icon.png".into()
+            )
+        );
+    }
+
+    #[test]
+    fn resolve_icon_url_passes_through_relative_without_raw_github_source() {
+        let source = MarketplaceSourceInfo {
+            name: "custom".into(),
+            url: "https://example.com/catalog.json".into(),
+        };
+        assert_eq!(
+            resolve_icon_url(Some("icon.png"), Some(&source)),
+            Some("icon.png".into())
+        );
     }
 }
