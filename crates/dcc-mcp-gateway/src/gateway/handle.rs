@@ -70,6 +70,42 @@ impl GatewayHandle {
         self.registry.clone()
     }
 
+    /// Async shutdown: deregister from the file registry, abort all
+    /// background tasks, and wait for the supervisor to join so every
+    /// spawned child is cooperatively cancelled before the tokio
+    /// [`Runtime`] is dropped.
+    ///
+    /// Callers embedded via PyO3 **must** call this inside the runtime
+    /// before letting the process exit, otherwise aborted-but-not-yet-
+    /// cancelled tasks may hold `tokio::sync` primitives that panic or
+    /// abort when the runtime tears down (observed as exit code 134 /
+    /// SIGABRT in CI).
+    ///
+    /// After calling this method the `GatewayHandle::Drop` impl is a
+    /// cheap no-op — all handles have already been taken.
+    pub async fn abort_and_wait(&mut self) {
+        self.deregister_all();
+
+        if let Some(h) = self.heartbeat_abort.take() {
+            h.abort();
+        }
+        if let Some(h) = self.gateway_abort.take() {
+            h.abort();
+        }
+        if let Some(h) = self.challenger_abort.take() {
+            h.abort();
+        }
+
+        // Await the combined supervisor so all child task handles get
+        // a chance to observe cancellation before we detach.
+        if let Some(supervisor) = self.gateway_supervisor.take() {
+            let _ = tokio::time::timeout(Duration::from_secs(5), supervisor).await;
+        }
+
+        // Best-effort detach for dedicated-mode threads (same as Drop).
+        drop(self.gateway_thread.take());
+    }
+
     /// Deregister every pending `ServiceKey` from the `FileRegistry` and
     /// clear the queue. Idempotent and cheap — safe to call from both
     /// async shutdown paths and `Drop`.
