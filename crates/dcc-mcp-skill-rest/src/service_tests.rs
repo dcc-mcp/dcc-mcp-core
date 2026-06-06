@@ -112,6 +112,7 @@ fn sphere_action(loaded: bool) -> CatalogAction {
         available_groups: Vec::new(),
         runtime: None,
         next_tools: Default::default(),
+        call_examples: None,
     }
 }
 
@@ -289,6 +290,53 @@ fn describe_omits_next_tools_when_none_declared() {
 }
 
 #[test]
+fn describe_surfaces_call_examples_in_dcc_metadata() {
+    let mut action = sphere_action(true);
+    action.call_examples = Some(vec![dcc_mcp_models::CallExample {
+        arguments: serde_json::json!({
+            "radius": 5.0,
+            "subdivisionsX": 32,
+            "subdivisionsY": 32
+        }),
+        note: Some("Create a high-res sphere".into()),
+    }]);
+    let (svc, _) = build_service(vec![action]);
+
+    let desc = svc
+        .describe(&DescribeRequest {
+            tool_slug: ToolSlug::build("maya", "spheres", "create_sphere"),
+            include_schema: false,
+        })
+        .expect("describe");
+    let examples = &desc.metadata.as_ref().expect("metadata")["dcc"]["call_examples"];
+    assert_eq!(examples[0]["arguments"]["radius"], serde_json::json!(5.0));
+    assert_eq!(
+        examples[0]["arguments"]["subdivisionsX"],
+        serde_json::json!(32)
+    );
+    assert_eq!(examples[0]["note"], "Create a high-res sphere");
+}
+
+#[test]
+fn search_metadata_keeps_call_examples_behind_describe() {
+    let mut action = sphere_action(true);
+    action.timeout_hint_secs = Some(5);
+    action.call_examples = Some(vec![dcc_mcp_models::CallExample {
+        arguments: serde_json::json!({"radius": 5.0}),
+        note: Some("Create a sphere".into()),
+    }]);
+    let (svc, _) = build_service(vec![action]);
+
+    let search = svc.search(&SearchRequest {
+        query: Some("sphere".into()),
+        ..Default::default()
+    });
+    let metadata = search.hits[0].metadata.as_ref().expect("metadata");
+    assert_eq!(metadata["dcc"]["timeoutHintSecs"], serde_json::json!(5));
+    assert!(metadata["dcc"].get("call_examples").is_none());
+}
+
+#[test]
 fn load_skill_then_search_makes_action_callable() {
     let (svc, _) = build_service(vec![sphere_action(false)]);
 
@@ -362,6 +410,7 @@ fn search_matches_aliases_and_schema_tokens_without_schema_expansion() {
         available_groups: Vec::new(),
         runtime: None,
         next_tools: Default::default(),
+        call_examples: None,
     };
 
     let (svc, _) = build_service(vec![maya, photoshop]);

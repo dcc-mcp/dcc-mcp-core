@@ -94,6 +94,7 @@ impl ToolDeclaration {
             side_effects: None,
             produces: Vec::new(),
             requires: Vec::new(),
+            call_examples: None,
         })
     }
 
