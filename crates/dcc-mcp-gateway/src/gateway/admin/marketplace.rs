@@ -731,21 +731,22 @@ mod tests {
     #[test]
     fn resolve_icon_url_passes_through_absolute_url() {
         let icon = "https://cdn.example.com/icons/my-icon.png";
-        assert_eq!(
-            resolve_icon_url(Some(icon), None),
-            Some(icon.to_string())
-        );
+        assert_eq!(resolve_icon_url(Some(icon), None), Some(icon.to_string()));
     }
 
     #[test]
     fn resolve_icon_url_resolves_relative_against_raw_github() {
         let source = MarketplaceSourceInfo {
             name: "test".into(),
-            url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya-mgear/main/marketplace.json".into(),
+            url:
+                "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya-mgear/main/marketplace.json"
+                    .into(),
         };
         assert_eq!(
             resolve_icon_url(Some("icon.png"), Some(&source)),
-            Some("https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya-mgear/main/icon.png".into())
+            Some(
+                "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya-mgear/main/icon.png".into()
+            )
         );
     }
 
