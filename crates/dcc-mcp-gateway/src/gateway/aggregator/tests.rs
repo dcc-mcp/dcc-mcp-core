@@ -907,6 +907,51 @@ async fn gateway_mcp_four_tool_workflow_covers_search_describe_load_and_call() {
     assert_eq!(load_payload["next_step"]["mcp"]["tool"], "describe");
     assert_eq!(load_payload["next_step"]["rest"]["path"], "/v1/describe");
 
+    let correlated_load = post_mcp_json(
+        &client,
+        &url,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 40,
+            "method": "tools/call",
+            "params": {
+                "name": "load_skill",
+                "arguments": {
+                    "skill_name": "maya-primitives",
+                    "dcc_type": "maya",
+                    "target_tool_slug": tool_slug.clone(),
+                    "meta": {
+                        "search_id": search_payload["search_id"],
+                        "index_generation": search_payload["index_generation"]
+                    }
+                }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(correlated_load["result"]["isError"], false);
+    let correlated_payload = mcp_call_text_json(&correlated_load);
+    assert_eq!(correlated_payload["compact_schema"]["tool_slug"], tool_slug);
+    assert_eq!(
+        correlated_payload["compact_schema"]["required"],
+        json!(["radius"])
+    );
+    assert_eq!(
+        correlated_payload["compact_schema"]["properties"]["radius"]["type"],
+        "number"
+    );
+    assert_eq!(correlated_payload["next_step"]["action"], "call");
+    assert_eq!(
+        correlated_payload["next_step"]["schema_source"],
+        "load_skill.compact_schema"
+    );
+    assert!(
+        correlated_payload["received_arguments"]
+            .get("target_tool_slug")
+            .is_none(),
+        "gateway-only target_tool_slug must not be forwarded to the backend"
+    );
+
     let load_lazy = post_mcp_json(
         &client,
         &url,
