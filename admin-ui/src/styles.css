@@ -2806,7 +2806,6 @@ pre.empty {
   justify-content: space-between;
   min-width: 0;
 }
-
 .marketplace-card-icon,
 .marketplace-card-icon-fallback {
   border-radius: 6px;
@@ -2814,11 +2813,9 @@ pre.empty {
   height: 40px;
   width: 40px;
 }
-
 .marketplace-card-icon {
   object-fit: contain;
 }
-
 .marketplace-card-icon-fallback {
   align-items: center;
   background: var(--muted);
@@ -2829,7 +2826,6 @@ pre.empty {
   font-weight: 700;
   justify-content: center;
 }
-
 .marketplace-card-name {
   color: var(--foreground);
   font-family: var(--font-mono);
