@@ -407,6 +407,34 @@ pub struct ToolDeclaration {
     /// `required_capabilities`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub requires: Vec<String>,
+
+    /// Ready-to-copy call examples that help agents construct correct
+    /// arguments on the first attempt.
+    ///
+    /// YAML key is `call_examples` (snake_case).
+    ///
+    /// ```yaml
+    /// call_examples:
+    ///   - arguments: {path: "C:/scenes/export.fbx", selected_only: true}
+    ///     note: "Export current selection to FBX"
+    /// ```
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "call_examples"
+    )]
+    pub call_examples: Option<Vec<CallExample>>,
+}
+
+/// A single call example — argument payload and optional human-readable note.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct CallExample {
+    /// JSON object matching the tool's `input_schema.properties`.
+    pub arguments: serde_json::Value,
+
+    /// Short description of what this example demonstrates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 // ── ToolDeclaration custom deserializer (issue #344) ──────────────────────
@@ -530,6 +558,10 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
             produces: Vec<String>,
             #[serde(default)]
             requires: Vec<String>,
+
+            // ── Call examples (PIP-577) ─────────────────────────────
+            #[serde(default, rename = "call_examples")]
+            call_examples: Option<Vec<CallExample>>,
         }
 
         let w = Wire::deserialize(deserializer)?;
@@ -586,6 +618,7 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
             side_effects: w.side_effects,
             produces: w.produces,
             requires: w.requires,
+            call_examples: w.call_examples,
         })
     }
 }
