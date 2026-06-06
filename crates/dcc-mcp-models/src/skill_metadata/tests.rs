@@ -80,6 +80,31 @@ fn test_tool_declaration_parses_required_capabilities() {
 }
 
 #[test]
+fn test_tool_declaration_parses_call_examples() {
+    let json = r#"{
+            "name": "export_fbx",
+            "call_examples": [
+                {
+                    "arguments": {
+                        "path": "C:/exports/scene.fbx",
+                        "selected_only": true
+                    },
+                    "note": "Export selected objects to FBX"
+                }
+            ]
+        }"#;
+    let decl: ToolDeclaration = serde_json::from_str(json).unwrap();
+    let examples = decl.call_examples.expect("call_examples should parse");
+    assert_eq!(examples.len(), 1);
+    assert_eq!(examples[0].arguments["path"], "C:/exports/scene.fbx");
+    assert_eq!(examples[0].arguments["selected_only"], true);
+    assert_eq!(
+        examples[0].note.as_deref(),
+        Some("Export selected objects to FBX")
+    );
+}
+
+#[test]
 fn test_skill_and_tool_search_aliases_parse() {
     let json = r#"{
             "name": "export-skill",

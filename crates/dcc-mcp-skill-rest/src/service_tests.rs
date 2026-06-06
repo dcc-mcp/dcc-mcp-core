@@ -290,6 +290,34 @@ fn describe_omits_next_tools_when_none_declared() {
 }
 
 #[test]
+fn describe_surfaces_call_examples_in_dcc_metadata() {
+    let mut action = sphere_action(true);
+    action.call_examples = Some(vec![dcc_mcp_models::CallExample {
+        arguments: serde_json::json!({
+            "radius": 5.0,
+            "subdivisionsX": 32,
+            "subdivisionsY": 32
+        }),
+        note: Some("Create a high-res sphere".into()),
+    }]);
+    let (svc, _) = build_service(vec![action]);
+
+    let desc = svc
+        .describe(&DescribeRequest {
+            tool_slug: ToolSlug::build("maya", "spheres", "create_sphere"),
+            include_schema: false,
+        })
+        .expect("describe");
+    let examples = &desc.metadata.as_ref().expect("metadata")["dcc"]["call_examples"];
+    assert_eq!(examples[0]["arguments"]["radius"], serde_json::json!(5.0));
+    assert_eq!(
+        examples[0]["arguments"]["subdivisionsX"],
+        serde_json::json!(32)
+    );
+    assert_eq!(examples[0]["note"], "Create a high-res sphere");
+}
+
+#[test]
 fn load_skill_then_search_makes_action_callable() {
     let (svc, _) = build_service(vec![sphere_action(false)]);
 
