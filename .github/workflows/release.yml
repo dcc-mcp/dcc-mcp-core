@@ -17,7 +17,7 @@ on:
         default: ""
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}${{ inputs.release_tag && format('-{0}', inputs.release_tag) || '' }}
   cancel-in-progress: ${{ github.event_name == 'push' }}
 
 permissions:
