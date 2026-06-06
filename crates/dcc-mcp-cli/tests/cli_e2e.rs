@@ -1606,12 +1606,12 @@ fn marketplace_search_dedupes_same_entry_from_multiple_sources() {
         ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
     ];
 
-    // Search with explicit source for catalog2 — skill-b should come from
-    // catalog2 (explicit, higher priority), not catalog1 (config, lower).
+    // Search with explicit source for catalog2 — only catalog2 is searched
+    // because explicit sources are exclusive (replace configured sources).
     let search = run_json_with_env(&["marketplace", "search", "--source", &source2], &envs);
-    // Should have exactly 3 unique entries (skill-a, skill-b, skill-c).
-    // skill-b deduped to catalog2's version (explicit > config).
-    assert_eq!(search["count"], 3);
+    // Should have exactly 2 unique entries (skill-b, skill-c) from catalog2.
+    // catalog1 is not searched because --source is exclusive.
+    assert_eq!(search["count"], 2);
     let skill_b = search["hits"]
         .as_array()
         .unwrap()
@@ -1623,4 +1623,124 @@ fn marketplace_search_dedupes_same_entry_from_multiple_sources() {
         "Shared skill from catalog 2"
     );
     assert_eq!(skill_b["source"]["origin"], "explicit");
+    // skill-a from catalog1 must not appear.
+    assert!(
+        !search["hits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|h| h["entry"]["name"] == "skill-a"),
+        "configured-source entries must not appear when explicit --source is given"
+    );
+}
+
+#[test]
+fn marketplace_explicit_source_is_exclusive_regression() {
+    let tmp = TempDir::new().unwrap();
+
+    // Configured source with one entry
+    let config_catalog = tmp.path().join("config-catalog.json");
+    std::fs::write(
+        &config_catalog,
+        json!({
+            "version": "1",
+            "entries": [
+                {"name": "config-only", "description": "Only in configured source", "dcc": ["maya"]}
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    // Explicit source with a different entry
+    let explicit_catalog = tmp.path().join("explicit-catalog.json");
+    std::fs::write(
+        &explicit_catalog,
+        json!({
+            "version": "1",
+            "entries": [
+                {"name": "explicit-only", "description": "Only in explicit source", "dcc": ["blender"]}
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    std::fs::write(
+        &config_path,
+        json!({"sources": [{"name": "config", "url": config_catalog.to_string_lossy()}]})
+            .to_string(),
+    )
+    .unwrap();
+
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+    ];
+
+    // Search with explicit source — config-only must NOT appear.
+    let search = run_json_with_env(
+        &[
+            "marketplace",
+            "search",
+            "--source",
+            &explicit_catalog.to_string_lossy().to_string(),
+            "--query",
+            "config",
+        ],
+        &envs,
+    );
+    let hit_names: Vec<&str> = search["hits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|h| h["entry"]["name"].as_str().unwrap())
+        .collect();
+    assert!(
+        !hit_names.contains(&"config-only"),
+        "configured-source entries must not appear when explicit --source is given; got {hit_names:?}"
+    );
+}
+
+#[test]
+fn marketplace_entry_with_icon_validates() {
+    let tmp = TempDir::new().unwrap();
+    let catalog_path = tmp.path().join("catalog-with-icon.json");
+    // Entry with an icon field — must pass schema validation.
+    std::fs::write(
+        &catalog_path,
+        json!({
+            "version": "1",
+            "entries": [{
+                "name": "skill-with-icon",
+                "description": "A skill that ships an icon",
+                "dcc": ["maya"],
+                "icon": "icon.png"
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let source = catalog_path.to_string_lossy().to_string();
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+    ];
+
+    // Without --skip-validation, search should succeed because icon is a valid
+    // property in the schema.
+    let search = run_json_with_env(&["marketplace", "search", "--source", &source], &envs);
+    assert_eq!(search["count"], 1);
+    assert_eq!(search["hits"][0]["entry"]["name"], "skill-with-icon");
 }
