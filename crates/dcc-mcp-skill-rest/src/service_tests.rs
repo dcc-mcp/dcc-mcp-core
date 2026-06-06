@@ -318,6 +318,25 @@ fn describe_surfaces_call_examples_in_dcc_metadata() {
 }
 
 #[test]
+fn search_metadata_keeps_call_examples_behind_describe() {
+    let mut action = sphere_action(true);
+    action.timeout_hint_secs = Some(5);
+    action.call_examples = Some(vec![dcc_mcp_models::CallExample {
+        arguments: serde_json::json!({"radius": 5.0}),
+        note: Some("Create a sphere".into()),
+    }]);
+    let (svc, _) = build_service(vec![action]);
+
+    let search = svc.search(&SearchRequest {
+        query: Some("sphere".into()),
+        ..Default::default()
+    });
+    let metadata = search.hits[0].metadata.as_ref().expect("metadata");
+    assert_eq!(metadata["dcc"]["timeoutHintSecs"], serde_json::json!(5));
+    assert!(metadata["dcc"].get("call_examples").is_none());
+}
+
+#[test]
 fn load_skill_then_search_makes_action_callable() {
     let (svc, _) = build_service(vec![sphere_action(false)]);
 
