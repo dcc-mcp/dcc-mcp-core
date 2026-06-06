@@ -423,21 +423,27 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                     sources,
                     limit,
                     skip_validation,
-                } => to_json(service.search(query, dcc, sources, limit, skip_validation).await?)?,
+                } => to_json(
+                    service
+                        .search(query, dcc, sources, limit, skip_validation)
+                        .await?,
+                )?,
                 MarketplaceAction::Inspect {
                     name,
                     sources,
                     skip_validation,
-                } => {
-                    to_json(service.inspect(name, sources, skip_validation).await?)?
-                }
+                } => to_json(service.inspect(name, sources, skip_validation).await?)?,
                 MarketplaceAction::Install {
                     name,
                     dcc,
                     sources,
                     force,
                     skip_validation,
-                } => to_json(service.install(name, dcc, sources, force, skip_validation).await?)?,
+                } => to_json(
+                    service
+                        .install(name, dcc, sources, force, skip_validation)
+                        .await?,
+                )?,
                 MarketplaceAction::Uninstall { name, dcc } => {
                     to_json(service.uninstall(name, dcc)?)?
                 }
