@@ -1133,6 +1133,7 @@ dependencies = [
  "axum",
  "clap",
  "dcc-mcp-catalog",
+ "dcc-mcp-marketplace",
  "dcc-mcp-skills",
  "hex",
  "reqwest 0.13.4",
@@ -1205,6 +1206,7 @@ dependencies = [
  "dcc-mcp-db",
  "dcc-mcp-gateway-core",
  "dcc-mcp-jsonrpc",
+ "dcc-mcp-marketplace",
  "dcc-mcp-naming",
  "dcc-mcp-skill-rest",
  "dcc-mcp-skills",
@@ -1458,6 +1460,22 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "workspace-hack",
+]
+
+[[package]]
+name = "dcc-mcp-marketplace"
+version = "0.18.5"
+dependencies = [
+ "dcc-mcp-catalog",
+ "reqwest 0.13.4",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "workspace-hack",
+ "zip",
 ]
 
 [[package]]
