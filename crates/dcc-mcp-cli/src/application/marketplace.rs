@@ -711,20 +711,15 @@ impl MarketplaceService {
         &self,
         explicit_sources: Vec<String>,
     ) -> Result<Vec<MarketplaceSource>, MarketplaceError> {
-        let configured = self.list_sources()?;
-        if explicit_sources.is_empty() {
-            return Ok(configured);
+        // Explicit sources replace, rather than augment, configured sources.
+        if !explicit_sources.is_empty() {
+            let sources: Vec<MarketplaceSource> = explicit_sources
+                .iter()
+                .map(|raw| normalise_source(raw, MarketplaceSourceOrigin::Explicit))
+                .collect();
+            return Ok(dedupe_sources(sources));
         }
-
-        // Explicit sources get highest priority; configured sources follow.
-        let mut all: Vec<MarketplaceSource> = explicit_sources
-            .iter()
-            .map(|raw| normalise_source(raw, MarketplaceSourceOrigin::Explicit))
-            .collect();
-        all.extend(configured);
-        // Sort by priority so higher-priority sources are searched first.
-        all.sort_by_key(|s| s.origin.priority());
-        Ok(dedupe_sources(all))
+        self.list_sources()
     }
 
     async fn load_source_entries(

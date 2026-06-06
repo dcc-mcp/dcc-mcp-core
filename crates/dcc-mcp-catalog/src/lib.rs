@@ -192,6 +192,7 @@ const MARKETPLACE_V1_SCHEMA_JSON: &str = r##"{
         "version":          { "type": "string" },
         "min_core_version": { "type": "string" },
         "maintainer":       { "type": "string" },
+        "icon":        { "type": "string" },
         "install": {
           "type": "object",
           "required": ["type"],
@@ -452,6 +453,23 @@ entries:
                 sha256: Some("abc123".into()),
             }),
             icon: None,
+        };
+        assert!(validate_entry(&entry).is_ok());
+    }
+
+    #[test]
+    fn test_validate_entry_with_icon_passes() {
+        let entry = CatalogEntry {
+            name: "icon-skill".into(),
+            description: "A skill with an icon".into(),
+            dcc: vec![],
+            url: None,
+            tags: vec![],
+            version: None,
+            min_core_version: None,
+            install: None,
+            maintainer: None,
+            icon: Some("icon.png".into()),
         };
         assert!(validate_entry(&entry).is_ok());
     }
