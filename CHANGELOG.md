@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.4](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.3...v0.18.4) (2026-06-06)
+
+
+### Features
+
+* **marketplace:** add icon field to CatalogEntry and admin UI cards ([3b40e89](https://github.com/dcc-mcp/dcc-mcp-core/commit/3b40e89016a55bb6b742fd28cad2290df8ff3e26))
+
+
+### Bug Fixes
+
+* **ci:** add pull_request_target workflow for Sentry E2E on fork PRs ([0db35c7](https://github.com/dcc-mcp/dcc-mcp-core/commit/0db35c799690fe8dee4c08e468b19449c4a82735))
+* **marketplace:** cargo fmt ([03a3646](https://github.com/dcc-mcp/dcc-mcp-core/commit/03a36464d1fd7943c1aaeb7d7a8dafdd805cf8c1))
+* **marketplace:** compact icon CSS to stay under 3000-line file-size gate ([2ad39b9](https://github.com/dcc-mcp/dcc-mcp-core/commit/2ad39b9517f21e5674e8f643d350112893229c94))
+* **marketplace:** extract CSS to feature directory to stay under file-size gate ([fc645aa](https://github.com/dcc-mcp/dcc-mcp-core/commit/fc645aa50a3493810b662df0ffd22a4173e1efd5))
+* **marketplace:** remove blank lines to pass 3000-line file-size gate ([ee1222c](https://github.com/dcc-mcp/dcc-mcp-core/commit/ee1222cb33dae8a414d94c4f8dd5ffa77fd5da92))
+* **marketplace:** switch to letter fallback when icon image fails to load ([6d896bd](https://github.com/dcc-mcp/dcc-mcp-core/commit/6d896bdb295a0fbf5d311acd3e0315b07125ddfd))
+
 ## [0.18.3](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.2...v0.18.3) (2026-06-06)
 
 
