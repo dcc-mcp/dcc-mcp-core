@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.3](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.2...v0.18.3) (2026-06-06)
+
+
+### Features
+
+* **admin-ui:** add integrations panel ([6e493a0](https://github.com/dcc-mcp/dcc-mcp-core/commit/6e493a0a1aca59d55b817aa6ff7957f39baf85a7))
+* **gateway:** optimize discovery workflow ([880cc63](https://github.com/dcc-mcp/dcc-mcp-core/commit/880cc632422f586fc974f15b98b1cb8fd702ca83))
+* **models:** add call_examples to describe responses ([ee534c4](https://github.com/dcc-mcp/dcc-mcp-core/commit/ee534c41d12c1d0667f3b7250af47a20f2014b68))
+
+
+### Documentation
+
+* add Admin Integrations configuration docs ([ee5bc18](https://github.com/dcc-mcp/dcc-mcp-core/commit/ee5bc18acffbbcc2bdb05ac20b3c5ed768629e7f))
+* add FPT to compatibility matrix, mark pending adapter tags ([898ba2c](https://github.com/dcc-mcp/dcc-mcp-core/commit/898ba2c31deec2fb43c1ba74db1a4f270f933685))
+* **skills-creator:** document gateway-facing tag taxonomy ([1755018](https://github.com/dcc-mcp/dcc-mcp-core/commit/1755018eaa5ee9e386d652d9df6ff3b35d7b8736))
+
 ## [0.18.2](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.1...v0.18.2) (2026-06-05)
 
 
