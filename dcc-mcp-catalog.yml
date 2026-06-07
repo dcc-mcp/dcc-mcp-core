@@ -22,6 +22,20 @@ entries:
     url: "https://github.com/loonghao/dcc-mcp-maya-skills"
     tags: ["skills", "maya", "official", "rigging", "render"]
 
+  - name: "dcc-mcp-maya-mgear"
+    description: "mGear Shifter rigging integration for DCC-MCP — inspect, list, create guides, build rigs, export templates"
+    dcc: ["maya"]
+    url: "https://github.com/loonghao/dcc-mcp-maya-mgear"
+    tags: ["skills", "maya", "rigging", "mgear", "shifter"]
+    version: "0.1.0"
+    min_core_version: "0.17.0"
+    maintainer: "dcc-mcp"
+    icon: "icon.png"
+    install:
+      type: git
+      url: "https://github.com/loonghao/dcc-mcp-maya-mgear"
+      ref: "main"
+
   - name: "dcc-mcp-blender-skills"
     description: "Official Blender skill pack for DCC-MCP — modeling, shading, and render tools"
     dcc: ["blender"]
