@@ -29,7 +29,7 @@ fn normalise_host(host: &str) -> &str {
 ///
 /// The sentinel row is filtered elsewhere via `GATEWAY_SENTINEL_DCC_TYPE`;
 /// this helper is for the plain DCC row.
-pub(crate) fn is_own_instance(
+pub fn is_own_instance(
     entry: &dcc_mcp_transport::discovery::types::ServiceEntry,
     own_host: &str,
     own_port: u16,
@@ -55,7 +55,7 @@ pub(crate) fn is_own_instance(
 /// which layers crate version → adapter version → real-DCC tiebreaker on
 /// top of the original semver check.  `own` carries the crate + adapter
 /// info this process is willing to advertise.
-pub(crate) fn has_newer_sentinel(
+pub fn has_newer_sentinel(
     reg: &FileRegistry,
     own: super::ElectionInfo<'_>,
     stale_timeout: Duration,

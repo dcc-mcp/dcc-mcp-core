@@ -224,8 +224,16 @@ class DccGatewayElection:
 
             # Spread plain-instance GET /health probes across time so several
             # DCCs on one workstation do not hit the gateway in lockstep (reduces
-            # burst load and connection churn when scaling past a few instances).
-            jitter_s = (id(self._server) % 15) * 0.03
+            # burst load, connection churn, and the thundering-herd effect when
+            # many DCC instances start simultaneously).
+            #
+            # Pre-PIP-901.2 max jitter was 0.42 s (id % 15 x 0.03) --
+            # demonstrably too small when 10+ Maya sidecars boot at once.
+            # Scaling the modulus by ~7x gives a 0-5 s spread per the original
+            # design intent while keeping the formula deterministic (no random
+            # import needed) and id-based so probe intervals are stable per
+            # server instance.
+            jitter_s = min((id(self._server) % 100) * 0.05, self._probe_interval)  # 0..4.95 s, capped at interval
             self._stop_event.wait(self._probe_interval + jitter_s)
 
     def _probe_gateway(self) -> bool:
