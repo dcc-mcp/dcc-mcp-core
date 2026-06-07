@@ -59,5 +59,10 @@
   "updated.skillInventory": "로드된 스킬 {loaded}개, 작업 {actions}개 - {time}",
   "updated.skillDetail": "스킬 {name} 세부 정보 로드됨 - {time}",
   "updated.gatewayTarget": "게이트웨이 대상 새로 고침 - {time}",
-  "updated.debugSnapshot": "디버그 스냅샷 - {time}"
+  "updated.debugSnapshot": "디버그 스냅샷 - {time}",
+  "action.copy": "복사",
+  "action.openFile": "파일 열기",
+  "status.errorPrefix": "오류: {message}",
+  "status.waiting": "대기 중...",
+  "status.noData": "데이터 없음."
 }

@@ -59,5 +59,10 @@
   "updated.skillInventory": "{loaded} loaded skill(s), {actions} action(s) - {time}",
   "updated.skillDetail": "Skill {name} detail loaded - {time}",
   "updated.gatewayTarget": "Gateway target refreshed - {time}",
-  "updated.debugSnapshot": "Debug snapshot - {time}"
+  "updated.debugSnapshot": "Debug snapshot - {time}",
+  "action.copy": "Copy",
+  "action.openFile": "Open file",
+  "status.errorPrefix": "Error: {message}",
+  "status.waiting": "Waiting...",
+  "status.noData": "No data."
 }
