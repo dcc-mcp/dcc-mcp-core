@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.11](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.10...v0.18.11) (2026-06-07)
+
+
+### Features
+
+* add marketplace-create-extension and formalize publish-extension skills ([#1564](https://github.com/dcc-mcp/dcc-mcp-core/issues/1564)) ([e5816b9](https://github.com/dcc-mcp/dcc-mcp-core/commit/e5816b9455cd1ef49eccfd6195594473c16e67c1))
+
 ## [0.18.10](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.9...v0.18.10) (2026-06-07)
 
 
