@@ -171,8 +171,12 @@ pub fn build_gateway_config(args: &GatewayArgs, gateway_name: &str) -> GatewayCo
     }
 }
 
-fn is_backend_entry(entry: &dcc_mcp_transport::discovery::types::ServiceEntry) -> bool {
+fn is_backend_entry(
+    entry: &dcc_mcp_transport::discovery::types::ServiceEntry,
+    stale_timeout: Duration,
+) -> bool {
     entry.dcc_type != dcc_mcp_transport::discovery::types::GATEWAY_SENTINEL_DCC_TYPE
+        && !entry.is_stale(stale_timeout)
 }
 
 /// Run the standalone gateway until a shutdown signal arrives (or the
@@ -227,6 +231,7 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
     let idle_shutdown = if !gateway_persist && gateway_idle_timeout_secs > 0 {
         let registry = runner.registry.clone();
         let (idle_tx, idle_rx) = tokio::sync::watch::channel(false);
+        let stale_timeout = Duration::from_secs(args.stale_timeout_secs);
         tokio::spawn(async move {
             let poll = Duration::from_secs(5);
             let grace = Duration::from_secs(gateway_idle_timeout_secs);
@@ -236,7 +241,11 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
                 tokio::time::sleep(poll).await;
                 let live_count = {
                     match registry.try_read() {
-                        Ok(reg) => reg.list_all().into_iter().filter(is_backend_entry).count(),
+                        Ok(reg) => reg
+                            .list_all()
+                            .into_iter()
+                            .filter(|e| is_backend_entry(e, stale_timeout))
+                            .count(),
                         Err(_) => continue,
                     }
                 };
@@ -480,9 +489,9 @@ mod tests {
         let photoshop = ServiceEntry::new("photoshop", "127.0.0.1", 18813);
         let gateway = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
 
-        assert!(is_backend_entry(&maya));
-        assert!(is_backend_entry(&photoshop));
-        assert!(!is_backend_entry(&gateway));
+        assert!(is_backend_entry(&maya, Duration::from_secs(30)));
+        assert!(is_backend_entry(&photoshop, Duration::from_secs(30)));
+        assert!(!is_backend_entry(&gateway, Duration::from_secs(30)));
     }
 
     /// Issue #1358 — the standalone gateway daemon must serve gateway-

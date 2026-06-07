@@ -407,6 +407,13 @@ fn build_server_gateway_daemon_options(
         registry_dir: resolve_registry_dir(registry_dir_path),
         remote_host: args.gateway_remote_host.clone(),
         remote_port: args.gateway_remote_port,
+        crate_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        adapter_version: None,
+        adapter_dcc: None,
+        gateway_idle_timeout_secs: std::env::var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(30),
     }
 }
 
