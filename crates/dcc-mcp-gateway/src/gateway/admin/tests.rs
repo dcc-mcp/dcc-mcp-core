@@ -3356,4 +3356,390 @@ filters:
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(reload_calls.load(Ordering::SeqCst), 1);
     }
+
+    // ── PIP-699 M1: sources / outdated / update / force / error envelope ──────
+
+    #[tokio::test]
+    async fn test_marketplace_sources_returns_builtin_config_and_env() {
+        let _env_guard = MARKETPLACE_ENV_LOCK.lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("marketplace");
+        std::fs::create_dir_all(&root).unwrap();
+        let _scoped_root = ScopedMarketplaceInstallRoot::new(&root);
+
+        let state = make_admin_state();
+        let router = build_admin_router(state);
+
+        let (status, json) = body_json(router, "/api/marketplace/sources").await;
+        assert_eq!(status, StatusCode::OK);
+        let sources = json["sources"]
+            .as_array()
+            .expect("sources should be an array");
+        assert!(!sources.is_empty(), "should have at least builtin source");
+        // builtin source has origin "builtin"
+        let builtin = sources
+            .iter()
+            .find(|s| s["origin"].as_str() == Some("builtin"));
+        assert!(builtin.is_some(), "should include builtin source");
+    }
+
+    #[tokio::test]
+    async fn test_marketplace_add_source_persists_and_is_visible() {
+        let _env_guard = MARKETPLACE_ENV_LOCK.lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("marketplace");
+        std::fs::create_dir_all(&root).unwrap();
+        let _scoped_root = ScopedMarketplaceInstallRoot::new(&root);
+
+        let state = make_admin_state();
+        let router = build_admin_router(state);
+
+        // Add a new source
+        let resp = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/marketplace/sources")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&json!({"source": "studio/my-catalog"})).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Read back — should include the new source
+        let (status, json) = body_json(router, "/api/marketplace/sources").await;
+        assert_eq!(status, StatusCode::OK);
+        let sources = json["sources"]
+            .as_array()
+            .expect("sources should be an array");
+        let added = sources
+            .iter()
+            .find(|s| s["name"].as_str() == Some("studio/my-catalog"));
+        assert!(added.is_some(), "should include the newly added source");
+    }
+
+    #[tokio::test]
+    async fn test_marketplace_add_source_duplicate_is_idempotent() {
+        let _env_guard = MARKETPLACE_ENV_LOCK.lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("marketplace");
+        std::fs::create_dir_all(&root).unwrap();
+        let _scoped_root = ScopedMarketplaceInstallRoot::new(&root);
+
+        let state = make_admin_state();
+        let router = build_admin_router(state);
+
+        let make_body = || {
+            axum::body::Body::from(
+                serde_json::to_vec(&json!({"source": "studio/dupe-catalog"})).unwrap(),
+            )
+        };
+
+        // Add twice
+        for _ in 0..2 {
+            let resp = router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/api/marketplace/sources")
+                        .header("content-type", "application/json")
+                        .body(make_body())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), StatusCode::OK);
+        }
+
+        // Sources should not have duplicate entries
+        let (status, json) = body_json(router, "/api/marketplace/sources").await;
+        assert_eq!(status, StatusCode::OK);
+        let sources = json["sources"].as_array().expect("sources");
+        let dupes: Vec<_> = sources
+            .iter()
+            .filter(|s| s["name"].as_str() == Some("studio/dupe-catalog"))
+            .collect();
+        assert_eq!(dupes.len(), 1, "duplicate add should be a no-op");
+    }
+
+    #[tokio::test]
+    async fn test_marketplace_install_supports_force_parameter() {
+        let _env_guard = MARKETPLACE_ENV_LOCK.lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("marketplace");
+        std::fs::create_dir_all(&root).unwrap();
+        let _scoped_root = ScopedMarketplaceInstallRoot::new(&root);
+
+        // Source skill dir — must be separate from the install destination
+        let skill_src = tmp.path().join("skill-src-force");
+        std::fs::create_dir_all(&skill_src).unwrap();
+        std::fs::write(
+            skill_src.join("SKILL.md"),
+            "---\nname: test-force-skill\n---\n",
+        )
+        .unwrap();
+
+        let catalog_path = tmp.path().join("catalog-force.json");
+        let src_str = skill_src.display().to_string();
+        let catalog = json!({
+            "version": "1",
+            "entries": [{
+                "name": "test-force-skill",
+                "description": "test force",
+                "dcc": ["maya"],
+                "tags": [],
+                "install": { "type": "path", "url": src_str }
+            }]
+        });
+        std::fs::write(
+            &catalog_path,
+            serde_json::to_string_pretty(&catalog).unwrap(),
+        )
+        .unwrap();
+
+        let state = make_admin_state();
+        let router = build_admin_router(state);
+        let source_path = catalog_path.display().to_string();
+
+        // First install
+        let resp = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/marketplace/install")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&json!({
+                            "name": "test-force-skill",
+                            "dcc": "maya",
+                            "source": source_path
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Second install without force → should fail (already installed)
+        let resp = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/marketplace/install")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&json!({
+                            "name": "test-force-skill",
+                            "dcc": "maya",
+                            "source": source_path,
+                            "force": false
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let err_json: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(err_json["error"]["kind"], "already_installed");
+
+        // Third install with force → should succeed
+        let resp = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/marketplace/install")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&json!({
+                            "name": "test-force-skill",
+                            "dcc": "maya",
+                            "source": source_path,
+                            "force": true
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_marketplace_outdated_returns_empty_when_nothing_installed() {
+        let _env_guard = MARKETPLACE_ENV_LOCK.lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("marketplace");
+        std::fs::create_dir_all(&root).unwrap();
+        let _scoped_root = ScopedMarketplaceInstallRoot::new(&root);
+
+        let state = make_admin_state();
+        let router = build_admin_router(state);
+
+        let (status, json) = body_json(router, "/api/marketplace/outdated").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["count"].as_u64(), Some(0));
+    }
+
+    #[tokio::test]
+    async fn test_marketplace_error_envelope_has_kind_and_message() {
+        let _env_guard = MARKETPLACE_ENV_LOCK.lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("marketplace");
+        std::fs::create_dir_all(&root).unwrap();
+        let _scoped_root = ScopedMarketplaceInstallRoot::new(&root);
+
+        let state = make_admin_state();
+        let router = build_admin_router(state);
+
+        // Try installing a package that doesn't exist in any source
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/marketplace/install")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&json!({
+                            "name": "nonexistent-pkg",
+                            "dcc": "maya"
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let err_json: Value = serde_json::from_slice(&bytes).unwrap();
+        let error = &err_json["error"];
+        assert!(
+            error["kind"].is_string(),
+            "error should have a 'kind' string: {err_json}"
+        );
+        assert!(
+            error["message"].is_string(),
+            "error should have a 'message' string: {err_json}"
+        );
+        assert_eq!(error["kind"], "not_found");
+    }
+
+    #[tokio::test]
+    async fn test_marketplace_update_triggers_skill_paths_reload_hook() {
+        let _env_guard = MARKETPLACE_ENV_LOCK.lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let marketplace_root = tmp.path().join("marketplace");
+        std::fs::create_dir_all(&marketplace_root).unwrap();
+        let _scoped_root = ScopedMarketplaceInstallRoot::new(&marketplace_root);
+
+        // Skill source directory with SKILL.md
+        let skill_src = tmp.path().join("skill-src-update");
+        std::fs::create_dir_all(&skill_src).unwrap();
+        std::fs::write(
+            skill_src.join("SKILL.md"),
+            "---\nname: test-update-skill\n---\n",
+        )
+        .unwrap();
+
+        // Catalog with version "0.2.0"
+        let catalog_path = tmp.path().join("catalog-update.json");
+        let src_str = skill_src.display().to_string();
+        let catalog = json!({
+            "version": "1",
+            "entries": [{
+                "name": "test-update-skill",
+                "description": "test update",
+                "dcc": ["maya"],
+                "version": "0.2.0",
+                "tags": [],
+                "install": { "type": "path", "url": src_str }
+            }]
+        });
+        std::fs::write(
+            &catalog_path,
+            serde_json::to_string_pretty(&catalog).unwrap(),
+        )
+        .unwrap();
+
+        let catalog_url = format!("file://{}", catalog_path.display());
+
+        // Pre-write sources.json
+        std::fs::write(
+            marketplace_root.join("sources.json"),
+            serde_json::to_string_pretty(&json!({
+                "sources": [{
+                    "name": "test-source",
+                    "url": catalog_url,
+                    "origin": "explicit"
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        // Pre-write installed.json with older version
+        std::fs::write(
+            marketplace_root.join("installed.json"),
+            serde_json::to_string_pretty(&json!({
+                "packages": [{
+                    "name": "test-update-skill",
+                    "dcc": "maya",
+                    "version": "0.1.0",
+                    "path": marketplace_root.join("maya").join("test-update-skill")
+                        .display().to_string(),
+                    "source_name": "test-source",
+                    "source_url": catalog_url,
+                    "install_type": "path",
+                    "install_url": null,
+                    "install_ref": null,
+                    "installed_at_ms": 1
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        // Set up reload hook
+        let reload_calls = Arc::new(AtomicUsize::new(0));
+        let reload_calls_for_hook = reload_calls.clone();
+        let state = make_admin_state().with_skill_paths_reload(Some(Arc::new(move || {
+            reload_calls_for_hook.fetch_add(1, Ordering::SeqCst);
+        })));
+        let router = build_admin_router(state);
+
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/marketplace/update")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&json!({
+                            "name": "test-update-skill",
+                            "dcc": "maya"
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(reload_calls.load(Ordering::SeqCst), 1);
+    }
 }
