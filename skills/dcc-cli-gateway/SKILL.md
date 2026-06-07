@@ -1,13 +1,14 @@
 ---
 name: dcc-cli-gateway
 description: >-
-  Control live DCC hosts (Maya, Blender, Houdini, Photoshop, 3ds Max, and
-  custom studio tools) through the dcc-mcp-cli command line. For ClawHub,
-  OpenClaw, Cursor, Claude, and shell-capable agent hosts: verify gateway
-  health, inventory registered DCC instances, search tools, inspect schemas,
-  and invoke tools without speaking MCP directly. If dcc-mcp-cli is missing,
-  ask for consent, download it from GitHub Releases, and fall back to Python
-  stdlib REST only if download fails.
+  Default unified entry for agents and headless CLI hosts (OpenClaw, Hermes,
+  Codex CLI, CI bots, custom agent runtimes) to control live DCC applications
+  through dcc-mcp-cli and gateway REST — not native MCP JSON-RPC. Agents use
+  this skill plus shell; IDE users (Cursor, Claude Desktop, VS Code MCP) should
+  configure the gateway MCP URL instead. Verify gateway health, inventory DCC
+  instances, search/describe/call tools via CLI+REST. If dcc-mcp-cli is
+  missing, ask for consent, download from GitHub Releases, and fall back to
+  Python stdlib REST only if download fails.
 license: MIT-0
 compatibility: Cross-platform Windows/macOS/Linux. Prefers dcc-mcp-cli on PATH; can download release asset from GitHub; Python 3.7+ stdlib REST fallback. DCC-MCP gateway reachable at DCC_MCP_BASE_URL (default http://127.0.0.1:9765)
 allowed-tools: Bash Read
@@ -29,13 +30,50 @@ metadata:
 
 # DCC CLI Gateway — Agent Control Plane
 
-Use this skill when an agent host can run shell commands and should connect to
-DCC-MCP through **`dcc-mcp-cli`** instead of MCP JSON-RPC. The CLI wraps the
-gateway REST API and returns JSON by default. The bundled Python fallback sends
-`Accept: application/json` because the gateway REST API itself now defaults to
-compact TOON for agent-facing routes.
+> **Agents use `dcc-mcp-cli`; IDE users keep native MCP.** One skill for
+> shell-capable agent hosts — no MCP connector required.
 
-Connection order:
+Use this skill when an **agent or headless CLI host** can run shell commands and
+should control DCC-MCP through **`dcc-mcp-cli`** and gateway REST (`/v1/search`,
+`/v1/describe`, `/v1/call`) instead of speaking MCP JSON-RPC directly.
+
+The CLI wraps the gateway REST API and returns JSON by default. The bundled Python
+fallback sends `Accept: application/json` because the gateway REST API itself now
+defaults to compact TOON for agent-facing routes.
+
+---
+
+## Agent Path vs IDE Path
+
+DCC-MCP supports two integration paths. Pick the one that matches how the user
+works — do not force IDE users onto the CLI, and do not ask agents to configure
+MCP when they can run shell.
+
+| Dimension | **Agent path** (this skill) | **IDE path** (native MCP) |
+|-----------|----------------------------|---------------------------|
+| **Who** | OpenClaw, Hermes, Codex CLI, CI bots, custom agent runtimes, any host with shell | Cursor, Claude Desktop, VS Code MCP, other MCP-native clients |
+| **Transport** | `dcc-mcp-cli` → gateway REST | MCP Streamable HTTP → gateway `/mcp` |
+| **Discovery surface** | `search` → `describe` → `call` via CLI or bundled Python helper | Gateway MCP tools: `search`, `describe`, `load_skill`, `call` |
+| **Setup** | Install this skill; optional `dcc-mcp-cli` on `PATH` or `--ensure-cli` with consent | Add gateway URL to IDE MCP settings (see repo `docs/guide/*`) |
+| **When to choose** | Host has no MCP connector, runs headless, or studio wants one forkable skill | User already works inside an IDE with MCP configured |
+| **Resources / prompts** | Not covered here; use REST `/v1/context` or IDE MCP if needed | `resources/read`, `prompts/get`, SSE subscribe via MCP |
+
+**Decision rules for agents loading this skill:**
+
+1. **Use this skill (CLI path)** when the host can execute shell and the task is
+   DCC control (`search` → `describe` → `call`). This is the **default for agents**.
+2. **Do not use this skill** when the user is in Cursor / Claude Desktop / VS Code
+   with gateway MCP already configured — point them to their IDE MCP workflow instead.
+3. **Do not mix paths in one turn** — pick CLI+REST or MCP for the whole task, not both.
+4. **Zero instances or unreachable gateway** — stop, explain, ask consent before
+   bootstrap; see [`references/ZERO_INSTANCES_CLI.md`](references/ZERO_INSTANCES_CLI.md).
+
+Internal studios can fork this skill once and reuse the same CLI+REST workflow across
+agents without maintaining per-host MCP server lists.
+
+---
+
+## Connection Order
 
 1. Use `dcc-mcp-cli` when it is already on `PATH`.
 2. If missing, ask user permission, then download `dcc-mcp-cli` from GitHub Releases.
@@ -203,10 +241,12 @@ patterns and common errors.
 
 ## What This Skill Does Not Use
 
-- MCP `tools/list`, `tools/call`, or `resources/read`
+- Native MCP `tools/list`, `tools/call`, or `resources/read` on the agent host
+  (IDE users should use MCP instead of this skill)
 - Raw `curl` workflows except when debugging the gateway itself
 - Direct Maya/Blender/Houdini scripting
 
-The CLI is the preferred agent-facing control plane. The Python fallback uses
+The CLI is the **default agent-facing control plane**. The Python fallback uses
 the same gateway REST endpoints only when the CLI is unavailable after a
-download attempt fails.
+download attempt fails. The gateway still serves MCP for IDE clients in parallel;
+choosing this skill does not replace or disable the IDE MCP path.
