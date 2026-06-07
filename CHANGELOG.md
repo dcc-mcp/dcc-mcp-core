@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.9](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.8...v0.18.9) (2026-06-07)
+
+
+### Features
+
+* extract shared dcc-mcp-marketplace crate ([#1537](https://github.com/dcc-mcp/dcc-mcp-core/issues/1537)) ([b6c3560](https://github.com/dcc-mcp/dcc-mcp-core/commit/b6c3560e982b1debd7002b980a2e4087785eb4d1))
+
+
+### Bug Fixes
+
+* disable gateway election for job persistence probe server ([56a5bf2](https://github.com/dcc-mcp/dcc-mcp-core/commit/56a5bf28f4ccccfff54d9cebbb85e32a2a10c34f))
+
+
+### Documentation
+
+* **adr:** add ADR-010 MCP 2026-07-28 dual-protocol migration strategy ([c7a61c2](https://github.com/dcc-mcp/dcc-mcp-core/commit/c7a61c251fb77fcb7db25a08ceccc8822d3bc112))
+* **skills-creator:** correct tags_any/dcc_types as planned fields, not current ([966286c](https://github.com/dcc-mcp/dcc-mcp-core/commit/966286ca5c579e10a24cd56965ae5c7e07986d8b))
+
 ## [0.18.8](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.7...v0.18.8) (2026-06-07)
 
 
