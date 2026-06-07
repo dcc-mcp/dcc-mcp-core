@@ -42,6 +42,7 @@ members = [
     "crates/dcc-mcp-tunnel-protocol",
     "crates/dcc-mcp-tunnel-relay",
     "crates/dcc-mcp-tunnel-agent",
+    "crates/dcc-mcp-marketplace",
     "crates/dcc-mcp-catalog",
     "crates/dcc-mcp-db",
     "crates/dcc-mcp-semantic",
@@ -90,6 +91,7 @@ dcc-mcp-host-rpc = { path = "crates/dcc-mcp-host-rpc" }
 dcc-mcp-tunnel-protocol = { path = "crates/dcc-mcp-tunnel-protocol" }
 dcc-mcp-tunnel-relay = { path = "crates/dcc-mcp-tunnel-relay" }
 dcc-mcp-tunnel-agent = { path = "crates/dcc-mcp-tunnel-agent" }
+dcc-mcp-marketplace = { path = "crates/dcc-mcp-marketplace" }
 dcc-mcp-catalog = { path = "crates/dcc-mcp-catalog" }
 dcc-mcp-db = { path = "crates/dcc-mcp-db" }
 dcc-mcp-gateway = { path = "crates/dcc-mcp-gateway" }

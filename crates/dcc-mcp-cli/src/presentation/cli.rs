@@ -11,7 +11,7 @@ use serde_json::{Map, Value};
 
 use crate::application::client::DccMcpClient;
 use crate::application::install::InstallService;
-use crate::application::marketplace::MarketplaceService;
+use crate::application::marketplace::new_service;
 use crate::domain::install::InstallRequest;
 use crate::domain::rest::{
     CallRequest, DescribeRequest, DirectCallRequest, Endpoint, LoadSkillRequest, SearchRequest,
@@ -413,7 +413,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             })?)?
         }
         Command::Marketplace { action } => {
-            let service = MarketplaceService::new()?;
+            let service = new_service()?;
             match action {
                 MarketplaceAction::Add { source } => to_json(service.add_source(&source)?)?,
                 MarketplaceAction::List => to_json(service.list_sources()?)?,
@@ -445,11 +445,13 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                         .await?,
                 )?,
                 MarketplaceAction::Uninstall { name, dcc } => {
-                    to_json(service.uninstall(name, dcc)?)?
+                    to_json(service.uninstall(&name, &dcc)?)?
                 }
-                MarketplaceAction::ListInstalled { dcc } => to_json(service.list_installed(dcc)?)?,
+                MarketplaceAction::ListInstalled { dcc } => {
+                    to_json(service.list_installed(dcc.as_deref())?)?
+                }
                 MarketplaceAction::Outdated { dcc, names } => {
-                    to_json(service.outdated(dcc, names).await?)?
+                    to_json(service.outdated(dcc.as_deref(), names).await?)?
                 }
                 MarketplaceAction::Update { name, all, dcc } => {
                     to_json(service.update(name, all, dcc).await?)?
