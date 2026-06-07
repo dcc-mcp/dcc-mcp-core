@@ -153,11 +153,14 @@ impl MarketplaceService {
         dcc: Option<String>,
         explicit_sources: Vec<String>,
         limit: Option<usize>,
+        skip_validation: bool,
     ) -> Result<MarketplaceSearchResult, MarketplaceError> {
         let sources = self.sources_for_query(explicit_sources)?;
         let mut hits = Vec::new();
         for source in sources {
-            let entries = self.load_source_entries(&source).await?;
+            let entries = self
+                .load_source_entries_validated(&source, !skip_validation)
+                .await?;
             let matched = dcc_mcp_catalog::search(&entries, query.as_deref().unwrap_or(""));
             for entry in matched {
                 if let Some(dcc) = dcc.as_deref()
@@ -190,11 +193,14 @@ impl MarketplaceService {
         &self,
         name: String,
         explicit_sources: Vec<String>,
+        skip_validation: bool,
     ) -> Result<MarketplaceInspectResult, MarketplaceError> {
         let sources = self.sources_for_query(explicit_sources)?;
         let mut matches = Vec::new();
         for source in sources {
-            let entries = self.load_source_entries(&source).await?;
+            let entries = self
+                .load_source_entries_validated(&source, !skip_validation)
+                .await?;
             if let Some(entry) = dcc_mcp_catalog::describe(&entries, &name) {
                 matches.push(MarketplaceHit {
                     source: source.clone(),
@@ -220,9 +226,10 @@ impl MarketplaceService {
         dcc: Option<String>,
         explicit_sources: Vec<String>,
         force: bool,
+        skip_validation: bool,
     ) -> Result<MarketplaceInstallResult, MarketplaceError> {
         let hit = self
-            .resolve_install_hit(&name, dcc.as_deref(), explicit_sources)
+            .resolve_install_hit(&name, dcc.as_deref(), explicit_sources, skip_validation)
             .await?;
         let dcc = resolve_install_dcc(&hit.entry, dcc.as_deref())?;
         let install = hit
@@ -441,6 +448,7 @@ impl MarketplaceService {
                         Some(pkg.dcc.clone()),
                         vec![pkg.source_url.clone()],
                         true,
+                        false,
                     )
                     .await
                     .map(|result| MarketplaceUpdateResult {
@@ -510,15 +518,47 @@ impl MarketplaceService {
         dcc_mcp_catalog::load_from_str(&text).map_err(Into::into)
     }
 
+    /// Same as [`load_source_entries`] but validates entries against the
+    /// marketplace-v1 JSON Schema. When `validate` is true, invalid entries
+    /// cause a hard error. When false, invalid entries are silently filtered out.
+    async fn load_source_entries_validated(
+        &self,
+        source: &MarketplaceSource,
+        validate: bool,
+    ) -> Result<Vec<CatalogEntry>, MarketplaceError> {
+        let entries = self.load_source_entries(source).await?;
+        if validate {
+            dcc_mcp_catalog::validate_catalog_entries(&entries)?;
+            Ok(entries)
+        } else {
+            let mut valid = Vec::with_capacity(entries.len());
+            for entry in entries {
+                match dcc_mcp_catalog::validate_entry(&entry) {
+                    Ok(()) => valid.push(entry),
+                    Err(err) => {
+                        eprintln!(
+                            "warning: skipping invalid marketplace entry from '{}': {err}",
+                            source.name
+                        );
+                    }
+                }
+            }
+            Ok(valid)
+        }
+    }
+
     async fn resolve_install_hit(
         &self,
         name: &str,
         dcc: Option<&str>,
         explicit_sources: Vec<String>,
+        skip_validation: bool,
     ) -> Result<MarketplaceHit, MarketplaceError> {
         let sources = self.sources_for_query(explicit_sources)?;
         for source in sources {
-            let entries = self.load_source_entries(&source).await?;
+            let entries = self
+                .load_source_entries_validated(&source, !skip_validation)
+                .await?;
             if let Some(entry) = dcc_mcp_catalog::describe(&entries, name) {
                 if let Some(dcc) = dcc
                     && !entry_targets_dcc(&entry, dcc)
@@ -638,6 +678,7 @@ impl MarketplaceService {
                     Some(pkg.dcc.clone()),
                     vec![pkg.source_url.clone()],
                     true,
+                    false,
                 )
                 .await?;
             return Ok(MarketplaceUpdateResult {

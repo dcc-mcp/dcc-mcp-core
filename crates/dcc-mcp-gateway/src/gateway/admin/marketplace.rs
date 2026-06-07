@@ -320,6 +320,7 @@ pub async fn handle_marketplace_install(
             Some(body.dcc.clone()),
             sources,
             body.force,
+            false,
         )
         .await
     {

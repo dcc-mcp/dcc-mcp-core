@@ -22,6 +22,9 @@ pub enum MarketplaceError {
     #[error(transparent)]
     Catalog(#[from] dcc_mcp_catalog::CatalogError),
 
+    #[error("marketplace catalog entry validation failed: {0}")]
+    Validation(#[from] dcc_mcp_catalog::CatalogValidationError),
+
     #[error("marketplace entry '{0}' was not found")]
     NotFound(String),
 
