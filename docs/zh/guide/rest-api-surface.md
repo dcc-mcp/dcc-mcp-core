@@ -332,7 +332,15 @@ Gateway policy 会在返回最终搜索结果前过滤 capability。一个缺失
 Gateway 默认 `mode: "fuzzy"` 使用 hybrid ranker：先对 tool name、skill、
 tag、summary、作者声明的 alias 和 schema-field token 做加权 lexical 匹配，再用
 nucleo-matcher fuzzy fallback 保留 typo / partial-name 容错；`mode: "exact"`
-仍是旧 substring 表。Gateway hit 会带 `score` 和 bounded `match_reasons`
+仍是旧 substring 表。
+
+筛选语义：
+- `dcc_type`（单值）+ `dcc_types[]` — **OR**：匹配任一 DCC family。
+- `tags[]` — **AND**：结果必须同时携带所有列出的 tag。
+- `tags_any[]` — **OR**：结果携带任一列出的 tag 即通过；与 `tags` AND 组合使用。
+- `loaded_only` — `false` 时同时返回未加载 skill，方便 agent 发现 `load_skill` 候选。
+
+Gateway hit 会带 `score` 和 bounded `match_reasons`
 （例如 `tool_lexical`、`alias_lexical`、`schema_lexical`、`summary_fuzzy`、`schema_fuzzy`、
 `multi_token_lexical`），让 agent 和维护者不取完整 schema 也能理解排序原因。
 Gateway hit 还带 1-based `rank`。生成的 `next_step` 会携带

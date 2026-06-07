@@ -21,8 +21,15 @@ pub struct SearchQuery {
     /// Free-text query matched against tool name, skill, summary, and tags.
     pub query: String,
     pub dcc_type: Option<String>,
+    /// Additional DCC types matched in OR with `dcc_type`. Empty = no extra filter.
+    #[serde(default)]
+    pub dcc_types: Vec<String>,
     pub instance_id: Option<Uuid>,
     pub tags: Vec<String>,
+    /// OR-tagged rows: a row carrying any of these tags passes the tag filter.
+    /// `tags` is still AND. Empty = no extra filter.
+    #[serde(default)]
+    pub tags_any: Vec<String>,
     /// Case-insensitive exact tag match — rows carrying any of these tags are dropped.
     #[serde(default)]
     pub exclude_tags: Vec<String>,

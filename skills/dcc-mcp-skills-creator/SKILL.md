@@ -155,12 +155,15 @@ appropriate tags under `metadata.dcc-mcp.tags`:
 | `read-only` | Discovery/read operations. Also set MCP `readOnlyHint` (`annotations.read_only_hint: true` in `tools.yaml`); the tag is for search, not policy. |
 | `destructive` | Mutating or irreversible operations. Also set MCP `destructiveHint` (`annotations.destructive_hint: true` in `tools.yaml`); the tag is for search, not policy. |
 
-Current `tags` semantics are **AND**: a request containing both `pipeline` and
-`production-tracking` returns records that carry both tags. Planned search
-fields will add `tags_any` for OR-style matching and `dcc_types[]` for
-multi-host filtering; until those fields land, send separate
-`POST /v1/search` requests for alternatives and use singular `dcc_type` for one
-backend family.
+**Filter semantics:**
+- `dcc_type` (singular) + `dcc_types[]` — **OR**: a result matching any listed
+  DCC family passes. Include `dcc_type: "maya"` with `dcc_types: ["blender"]`
+  to match records from either host in one request.
+- `tags[]` — **AND**: a result must carry every listed tag. Use `pipeline` +
+  `production-tracking` to narrow to records that carry both.
+- `tags_any[]` — **OR**: a result carrying any listed tag passes. Combines with
+  the AND filter above: `tags: ["pipeline"]` + `tags_any: ["read-only", "docs"]`
+  returns pipeline records that are read-only OR documentation.
 
 **Vendor tags** can be added when they sharpen routing without replacing the
 canonical tags. For example, Autodesk Product Help should use `docs`,

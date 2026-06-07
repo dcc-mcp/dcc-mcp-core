@@ -1111,6 +1111,7 @@ mod tests {
             kind: "tool".to_string(),
             query: "cube".to_string(),
             dcc_type: Some("maya".to_string()),
+            dcc_types: vec![],
             instance_id: None,
             limit: Some(5),
             total: 1,
@@ -1128,6 +1129,7 @@ mod tests {
             trace_context: Some(trace_context()),
             session_id: Some("sess-1".to_string()),
             agent_context: None,
+            tags_any: vec![],
         });
 
         let load_args =
@@ -1186,6 +1188,7 @@ mod tests {
             kind: "tool".to_string(),
             query: "cube".to_string(),
             dcc_type: Some("maya".to_string()),
+            dcc_types: vec![],
             instance_id: None,
             limit: Some(5),
             total: 1,
@@ -1203,6 +1206,7 @@ mod tests {
             trace_context: Some(trace_context()),
             session_id: Some("sess-1".to_string()),
             agent_context: None,
+            tags_any: vec![],
         });
 
         let args = json!({

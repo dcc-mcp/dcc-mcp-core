@@ -1689,7 +1689,7 @@ fn marketplace_explicit_source_is_exclusive_regression() {
             "marketplace",
             "search",
             "--source",
-            &explicit_catalog.to_string_lossy().to_string(),
+            explicit_catalog.to_string_lossy().as_ref(),
             "--query",
             "config",
         ],

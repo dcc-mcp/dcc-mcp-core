@@ -34,10 +34,11 @@ and filter consistently across hosts:
 Current `tags` semantics are **AND**: a request containing both the `pipeline`
 and `production-tracking` tags returns records that carry both tags. Do not add
 `docs` to a production-tracking search unless the user explicitly asks for help
-or reference material. Planned search fields will add `tags_any` for OR-style
-matching and `dcc_types[]` for multi-host filtering; until those fields land,
-send separate `POST /v1/search` requests for alternatives and use singular
-`dcc_type` for one backend family.
+or reference material. Multi-filter support is available:
+- `tags` — AND (all tags must match).
+- `tags_any` — OR (a row carrying any of these tags passes).
+- `dcc_type` + `dcc_types[]` — OR match for multi-host filtering.
+- Empty arrays behave as "no filter".
 
 Vendor tags can be added when they sharpen routing without replacing the
 canonical tags. For example, Autodesk Product Help should use `docs`,
