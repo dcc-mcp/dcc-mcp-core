@@ -44,12 +44,14 @@ across hosts. The canonical tag vocabulary:
 | `read-only` | Discovery/read operations. Also set MCP `readOnlyHint` (`annotations.read_only_hint: true` in `tools.yaml`); the tag is for search, not policy. |
 | `destructive` | Mutating or irreversible operations. Also set MCP `destructiveHint` (`annotations.destructive_hint: true` in `tools.yaml`); the tag is for search, not policy. |
 
-Current `tags` semantics are **AND**: a search containing both `pipeline` and
-`production-tracking` returns records that carry both tags. Planned search
-fields will add `tags_any` for OR-style matching and `dcc_types[]` for
-multi-host filtering; until those fields land, send separate
-`POST /v1/search` requests for alternatives and use singular `dcc_type` for one
-backend family.
+**Filter semantics:**
+- `dcc_type` (singular) + `dcc_types[]` — **OR**: a result matching any listed
+  DCC family passes. Combine `dcc_type: "maya"` with `dcc_types: ["blender"]`
+  to surface records from multiple hosts in one search.
+- `tags[]` — **AND**: a result must carry every listed tag.
+- `tags_any[]` — **OR**: a result carrying any listed tag passes. Combines with
+  the AND `tags` filter above.
+- Empty arrays behave as "no filter".
 
 **Vendor tags** can be added when they sharpen routing without replacing the
 canonical tags. For example, Autodesk Product Help should use `docs`,

@@ -15,10 +15,22 @@ pub fn search<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) -> Ve
 pub fn search_page<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) -> SearchPage<R> {
     let qnorm = query.query.trim().to_ascii_lowercase();
     let dcc_filter = query.dcc_type.as_deref();
+    let dcc_types: Vec<String> = query
+        .dcc_types
+        .iter()
+        .map(|t| t.trim().to_ascii_lowercase())
+        .filter(|t| !t.is_empty())
+        .collect();
     let instance_filter = query.instance_id;
     let loaded_filter = query.loaded_only;
     let tags_filter: Vec<String> = query
         .tags
+        .iter()
+        .map(|t| t.trim().to_ascii_lowercase())
+        .filter(|t| !t.is_empty())
+        .collect();
+    let tags_any: Vec<String> = query
+        .tags_any
         .iter()
         .map(|t| t.trim().to_ascii_lowercase())
         .filter(|t| !t.is_empty())
@@ -45,13 +57,23 @@ pub fn search_page<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) 
 
     let candidates: Vec<&R> = records
         .iter()
-        .filter(|r| dcc_filter.is_none_or(|f| r.dcc_type() == f))
+        .filter(|r| {
+            dcc_filter.is_none() && dcc_types.is_empty()
+                || dcc_filter.is_some_and(|f| r.dcc_type() == f)
+                || dcc_types.iter().any(|d| r.dcc_type() == d)
+        })
         .filter(|r| instance_filter.is_none_or(|iid| r.instance_id() == iid))
         .filter(|r| loaded_filter != Some(true) || r.loaded())
         .filter(|r| {
             tags_filter
                 .iter()
                 .all(|t| r.tags().iter().any(|rt| rt.to_ascii_lowercase() == *t))
+        })
+        .filter(|r| {
+            tags_any.is_empty()
+                || tags_any
+                    .iter()
+                    .any(|t| r.tags().iter().any(|rt| rt.to_ascii_lowercase() == *t))
         })
         .filter(|r| {
             !exclude_tags
@@ -528,5 +550,182 @@ mod tests {
         let tools: Vec<&str> = hits.iter().map(|h| h.record.backend_tool()).collect();
         assert!(tools.contains(&"maya_primitives__create_sphere"));
         assert!(tools.contains(&"maya_geometry__export_fbx"));
+    }
+
+    #[test]
+    fn dcc_types_or_filter_excludes_non_matching() {
+        let mut maya1 = mk(
+            "m.1.sphere",
+            "maya_primitives__create_sphere",
+            "Create sphere.",
+            &[],
+            true,
+        );
+        maya1.dcc_type = "maya".to_string();
+        let mut blender1 = mk(
+            "b.1.cube",
+            "blender_mesh__create_cube",
+            "Create cube.",
+            &[],
+            true,
+        );
+        blender1.dcc_type = "blender".to_string();
+        let mut houdini1 = mk("h.1.grid", "houdini_sop__grid", "Create grid.", &[], true);
+        houdini1.dcc_type = "houdini".to_string();
+
+        let hits = search(
+            &[maya1, blender1, houdini1],
+            &SearchQuery {
+                query: "create".into(),
+                dcc_types: vec!["maya".into(), "blender".into()],
+                ..Default::default()
+            },
+        );
+        let tools: Vec<&str> = hits.iter().map(|h| h.record.backend_tool()).collect();
+        assert!(tools.contains(&"maya_primitives__create_sphere"));
+        assert!(tools.contains(&"blender_mesh__create_cube"));
+        assert!(!tools.contains(&"houdini_sop__grid"));
+    }
+
+    #[test]
+    fn dcc_types_combined_with_dcc_type_or() {
+        let mut maya1 = mk("m.1.sphere", "create_sphere", "Create.", &[], true);
+        maya1.dcc_type = "maya".to_string();
+        let mut blender1 = mk("b.1.cube", "create_cube", "Create.", &[], true);
+        blender1.dcc_type = "blender".to_string();
+
+        let hits = search(
+            &[maya1, blender1],
+            &SearchQuery {
+                query: "create".into(),
+                dcc_type: Some("maya".into()),
+                dcc_types: vec!["blender".into()],
+                ..Default::default()
+            },
+        );
+        assert_eq!(hits.len(), 2);
+    }
+
+    #[test]
+    fn tags_any_or_filter_matches_any_tag() {
+        let records = vec![
+            mk(
+                "m.1.sphere",
+                "create_sphere",
+                "Create.",
+                &["modeling"],
+                true,
+            ),
+            mk(
+                "m.1.fbx",
+                "export_fbx",
+                "Export to FBX.",
+                &["interchange"],
+                true,
+            ),
+            mk(
+                "m.1.anim",
+                "animate_curve",
+                "Animate curve.",
+                &["animation"],
+                true,
+            ),
+        ];
+
+        let hits = search(
+            &records,
+            &SearchQuery {
+                tags_any: vec!["modeling".into(), "interchange".into()],
+                ..Default::default()
+            },
+        );
+        let tools: Vec<&str> = hits.iter().map(|h| h.record.backend_tool()).collect();
+        assert!(tools.contains(&"create_sphere"));
+        assert!(tools.contains(&"export_fbx"));
+        assert!(!tools.contains(&"animate_curve"));
+    }
+
+    #[test]
+    fn tags_and_tags_any_combined() {
+        let records = vec![
+            mk(
+                "m.1.sphere",
+                "create_sphere",
+                "Create.",
+                &["modeling", "primitives"],
+                true,
+            ),
+            mk(
+                "m.1.fbx",
+                "export_fbx",
+                "Export.",
+                &["interchange", "primitives"],
+                true,
+            ),
+            mk(
+                "m.1.anim",
+                "animate_curve",
+                "Animate.",
+                &["modeling", "animation"],
+                true,
+            ),
+        ];
+
+        // tags AND = requires "modeling" tag → rows 1 and 3 pass
+        // tags_any OR = any of the OR tags → "primitives" or "animation"
+        // Row 1: has modelings+primitives → passes AND + OR ✓
+        // Row 2: has interchange+primitives → no "modeling", fails AND ✗
+        // Row 3: has modeling+animation → passes AND + OR ✓
+        let hits = search(
+            &records,
+            &SearchQuery {
+                query: String::new(),
+                tags: vec!["modeling".into()],
+                tags_any: vec!["primitives".into(), "animation".into()],
+                ..Default::default()
+            },
+        );
+        let tools: Vec<&str> = hits.iter().map(|h| h.record.backend_tool()).collect();
+        assert!(tools.contains(&"create_sphere"));
+        assert!(tools.contains(&"animate_curve"));
+        assert!(!tools.contains(&"export_fbx"));
+    }
+
+    #[test]
+    fn empty_dcc_types_and_tags_any_no_filter() {
+        let records = vec![
+            mk("m.1.sphere", "create_sphere", "Create.", &[], true),
+            mk("m.1.fbx", "export_fbx", "Export.", &[], true),
+        ];
+
+        let hits = search(
+            &records,
+            &SearchQuery {
+                query: "create".into(),
+                dcc_types: vec![],
+                tags_any: vec![],
+                ..Default::default()
+            },
+        );
+        assert!(!hits.is_empty());
+    }
+
+    #[test]
+    fn dcc_types_or_without_dcc_type_still_filters() {
+        let mut maya1 = mk("m.1.sphere", "create_sphere", "Create.", &[], true);
+        maya1.dcc_type = "maya".to_string();
+        let mut blender1 = mk("b.1.cube", "create_cube", "Create.", &[], true);
+        blender1.dcc_type = "blender".to_string();
+
+        let hits = search(
+            &[maya1.clone(), blender1],
+            &SearchQuery {
+                query: "create".into(),
+                dcc_types: vec!["maya".into()],
+                ..Default::default()
+            },
+        );
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].record.backend_tool(), "create_sphere");
     }
 }
