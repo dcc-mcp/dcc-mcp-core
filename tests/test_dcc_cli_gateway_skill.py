@@ -47,7 +47,7 @@ class TestDccCliGatewaySkill:
         meta = dcc_mcp_core.parse_skill_md(DCC_CLI_GATEWAY_DIR)
         assert meta is not None
         desc = (meta.description or "").lower()
-        assert "clawhub" in desc
+        assert "openclaw" in desc
         assert "dcc-mcp-cli" in desc
         assert "mcp" in desc
 
