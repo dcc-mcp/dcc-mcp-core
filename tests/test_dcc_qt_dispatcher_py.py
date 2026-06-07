@@ -1,28 +1,26 @@
 """Semantic tests for the universal Qt dispatcher Python source.
 
-The Rust :mod:`dcc_mcp_host_rpc::qtserver` module ships two embedded
-sources:
+The Rust :mod:`dcc_mcp_host_rpc::qtserver` module embeds the canonical
+dispatcher source directly via ``include_str!``:
 
 * ``python/dcc_mcp_core/qt_dispatcher.py``
-  — the public package module and actual ``QtCommandServer`` +
-    ``_DispatchRegistry`` source.
-* ``crates/dcc-mcp-host-rpc/python/dcc_qt_dispatcher.py``
-  — Cargo-package mirror embedded by Rust; pinned byte-for-byte to the public
-    source by this test module.
+  — the single canonical source of the ``QtCommandServer`` +
+    ``_DispatchRegistry`` implementation. Embedded by Rust at build time.
 * ``crates/dcc-mcp-host-rpc/python/dcc_qt_dispatcher_bootstrap.py``
-  — the installer wrapping the above into ``sys.modules``.
+  — the installer that wraps the dispatcher source into
+    ``sys.modules['_dcc_qt_dispatcher']`` at runtime.
 
 The Rust unit tests in ``qtserver.rs`` cover **wire framing** (request
 serialisation, envelope interpretation, host-died classification) and
 the **bootstrap helpers** that build the commandPort eval lines. They
-cannot verify the *Python semantics* of the embedded sources
-themselves — typos in attribute access, drift between the dispatcher
+cannot verify the *Python semantics* of the embedded source itself
+— typos in attribute access, drift between the dispatcher
 methods and what callers send over the wire, etc.
 
-This test exercises both files in a stock Python interpreter (no Qt
-required for the pure-Python parts; PySide2/PySide6 optional for the
-server smoke test) so any regression in those bodies fails the
-dcc-mcp-core CI suite.
+This test exercises the canonical dispatcher source and the bootstrap
+in a stock Python interpreter (no Qt required for the pure-Python parts;
+PySide2/PySide6 optional for the server smoke test) so any regression
+fails the dcc-mcp-core CI suite.
 """
 
 # Import future modules
@@ -40,9 +38,6 @@ from typing import Iterator
 import pytest
 
 DISPATCHER_PATH = Path(__file__).parent.parent / "python" / "dcc_mcp_core" / "qt_dispatcher.py"
-MIRROR_DISPATCHER_PATH = (
-    Path(__file__).parent.parent / "crates" / "dcc-mcp-host-rpc" / "python" / "dcc_qt_dispatcher.py"
-)
 BOOTSTRAP_PATH = (
     Path(__file__).parent.parent / "crates" / "dcc-mcp-host-rpc" / "python" / "dcc_qt_dispatcher_bootstrap.py"
 )
@@ -53,9 +48,17 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def test_host_rpc_dispatcher_mirror_matches_public_source() -> None:
-    """The crate-local package mirror must not drift from the public module."""
-    assert _read(MIRROR_DISPATCHER_PATH) == _read(DISPATCHER_PATH)
+def test_canonical_dispatcher_source_exists() -> None:
+    """The canonical dispatcher source must exist so the Rust crate's
+    ``include_str!`` resolves at build time.  Any rename or deletion of
+    ``python/dcc_mcp_core/qt_dispatcher.py`` would break the qtserver
+    wire path and must fail this test.
+    """
+    assert DISPATCHER_PATH.is_file(), (
+        f"Canonical dispatcher source missing at {DISPATCHER_PATH}. "
+        "The Rust crate `dcc-mcp-host-rpc` embeds this file via "
+        "`include_str!` in `qtserver.rs:DISPATCHER_PY`."
+    )
 
 
 @pytest.fixture
