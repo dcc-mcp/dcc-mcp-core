@@ -65,6 +65,7 @@ CLEANUP_TODO.md
 
 # AI IDE directories
 .agents/
+.agent_context/
 .claude/
 .cline/
 .codebuddy/
@@ -76,6 +77,9 @@ CLEANUP_TODO.md
 .trae/
 .windsurf/
 
+# Multica local runtime context. The daemon may write these into a bound
+# local_directory, but they must not be committed.
+.multica/
 
 # Harbor tasks (local only, not committed)
 tasks/
