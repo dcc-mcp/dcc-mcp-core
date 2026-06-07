@@ -742,3 +742,91 @@ jobs:
             failed=1
           fi
           exit "$failed"
+
+      - name: Notify Multica release-ready autopilot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MULTICA_WEBHOOK_URL: ${{ secrets.MULTICA_CORE_RELEASE_READY_WEBHOOK_URL }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${MULTICA_WEBHOOK_URL}" ]; then
+            echo "::warning::MULTICA_CORE_RELEASE_READY_WEBHOOK_URL is not configured; skipping Multica notification."
+            exit 0
+          fi
+
+          required_patterns=(
+            '^dcc_mcp_core-.*\.whl$'
+            '^dcc_mcp_core-.*\.tar\.gz$'
+            '^dcc_mcp_server-.*\.whl$'
+            '^dcc_mcp_core_semantic-.*\.whl$'
+            '^dcc-mcp-server-'
+            '^dcc-mcp-cli-'
+          )
+
+          release_json=""
+          missing=""
+          for attempt in {1..10}; do
+            release_json="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName,name,url,isPrerelease,isDraft,publishedAt,targetCommitish,assets)"
+            missing=""
+            for pattern in "${required_patterns[@]}"; do
+              if ! jq -e --arg pattern "$pattern" '.assets[].name | test($pattern)' <<<"$release_json" >/dev/null; then
+                missing="${missing}${pattern}"$'\n'
+              fi
+            done
+
+            if [ -z "$missing" ]; then
+              break
+            fi
+
+            assets_count="$(jq '.assets | length' <<<"$release_json")"
+            echo "::warning::Release assets not complete yet (attempt ${attempt}/10, assets=${assets_count}); missing patterns:"
+            printf '%s' "$missing"
+            if [ "$attempt" -lt 10 ]; then
+              sleep 30
+            fi
+          done
+
+          if [ -n "$missing" ]; then
+            echo "::error::Release assets are incomplete for ${RELEASE_TAG}; not notifying Multica."
+            exit 1
+          fi
+
+          assets_count="$(jq '.assets | length' <<<"$release_json")"
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          payload="$(jq -n \
+            --arg event "core_release_ready" \
+            --arg action "completed" \
+            --arg repo "$GITHUB_REPOSITORY" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg run_url "$run_url" \
+            --arg workflow "$GITHUB_WORKFLOW" \
+            --arg actor "$GITHUB_ACTOR" \
+            --argjson assets_count "$assets_count" \
+            --argjson release "$release_json" \
+            '{
+              event: $event,
+              action: $action,
+              repository: {full_name: $repo},
+              workflow_run: {
+                id: ($run_id | tonumber),
+                run_attempt: ($run_attempt | tonumber),
+                name: $workflow,
+                conclusion: "success",
+                html_url: $run_url,
+                actor: {login: $actor}
+              },
+              release: $release,
+              artifacts_verified: true,
+              assets_count: $assets_count
+            }')"
+          printf '%s' "$payload" | curl -fsS \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Event: core_release_ready" \
+            -H "X-GitHub-Delivery: core-release-ready-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --data-binary @- \
+            "$MULTICA_WEBHOOK_URL"
