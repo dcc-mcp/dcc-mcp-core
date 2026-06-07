@@ -24,6 +24,10 @@ export type SkillsPanelProps = {
   /// The orchestrator computes filtered counts and reports them back
   /// through the supplied callback after every recompute.
   onCountsChange?: (counts: { skills: number; paths: number }) => void;
+  /// Skill name to highlight (deep link from marketplace install).
+  highlightSkillName?: string | null;
+  /// Called after the highlight has been consumed (scrolled into view).
+  onHighlightConsumed?: () => void;
 };
 
 /// Top-level orchestrator for the `/admin#skill-paths` panel.
@@ -41,6 +45,8 @@ export function SkillsPanel({
   onUpdated,
   onError,
   onCountsChange,
+  highlightSkillName,
+  onHighlightConsumed,
   t,
 }: SkillsPanelProps) {
   const inventory = useSkillsInventory({
@@ -79,6 +85,23 @@ export function SkillsPanel({
     // call site that triggered on activePanel transition.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
+
+  /// Deep-link highlight: scroll to the skill card and flash it.
+  useEffect(() => {
+    if (!active || !highlightSkillName || inventory.skills.length === 0) return;
+    const timer = setTimeout(() => {
+      const el = document.querySelector(
+        `.skill-card[data-skill-name="${CSS.escape(highlightSkillName)}"]`,
+      );
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('skill-card-highlight');
+        setTimeout(() => el.classList.remove('skill-card-highlight'), 2000);
+      }
+      onHighlightConsumed?.();
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [active, highlightSkillName, inventory.skills.length, onHighlightConsumed]);
 
   const filteredSkills = useMemo(() => {
     const q = search.trim().toLowerCase();

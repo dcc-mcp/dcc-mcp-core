@@ -59,5 +59,10 @@
   "updated.skillInventory": "{loaded} 个已加载技能，{actions} 个动作 - {time}",
   "updated.skillDetail": "技能 {name} 详情已加载 - {time}",
   "updated.gatewayTarget": "网关目标已刷新 - {time}",
-  "updated.debugSnapshot": "调试快照 - {time}"
+  "updated.debugSnapshot": "调试快照 - {time}",
+  "action.copy": "复制",
+  "action.openFile": "打开文件",
+  "status.errorPrefix": "错误：{message}",
+  "status.waiting": "等待中...",
+  "status.noData": "暂无数据。"
 }
