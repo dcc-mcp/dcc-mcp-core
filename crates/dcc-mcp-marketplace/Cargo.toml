@@ -1,33 +1,23 @@
 [package]
-name = "dcc-mcp-cli"
+name = "dcc-mcp-marketplace"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Client-side control plane CLI for discovering, calling, and planning DCC-MCP installations"
-
-[[bin]]
-name = "dcc-mcp-cli"
-path = "src/main.rs"
+description = "Shared marketplace domain layer for catalog fetch, install/uninstall, source management, and integrity verification"
 
 [dependencies]
-anyhow.workspace = true
-clap = { version = "4", features = ["derive", "env"] }
 dcc-mcp-catalog.workspace = true
-dcc-mcp-marketplace.workspace = true
-dcc-mcp-skills.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.11"
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["fs"] }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
-axum = { version = "0.8", features = ["http1", "tokio"] }
-hex = "0.4"
 tempfile = "3"

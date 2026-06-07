@@ -21,6 +21,7 @@ dcc-mcp-telemetry = { path = "../dcc-mcp-telemetry", optional = true }
 dcc-mcp-skill-rest = { path = "../dcc-mcp-skill-rest" }
 dcc-mcp-skills = { path = "../dcc-mcp-skills", default-features = false }
 dcc-mcp-catalog = { path = "../dcc-mcp-catalog" }
+dcc-mcp-marketplace = { path = "../dcc-mcp-marketplace" }
 opentelemetry = { version = "0.32", features = ["trace"], optional = true }
 prometheus = { version = "0.14", default-features = false, optional = true }
 
