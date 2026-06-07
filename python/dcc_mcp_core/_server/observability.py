@@ -97,6 +97,7 @@ class JobPersistenceManager:
             from dcc_mcp_core import create_skill_server
 
             probe_cfg = McpHttpConfig(port=0, server_name="probe")
+            probe_cfg.gateway_port = 0
             probe_cfg.job_storage_path = db_path
             probe_srv = create_skill_server(self._dcc_name, probe_cfg)
             probe_handle = probe_srv.start()
