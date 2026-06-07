@@ -6,8 +6,12 @@ tools:
       and upserts it into the target marketplace.json. When the catalog
       source is a local git repository, optionally commits and pushes the
       change. Returns the updated CatalogEntry and the marketplace.json path.
+    source_file: scripts/publish.py
     input_schema:
       type: object
+      required:
+        - extension_dir
+        - install_url
       properties:
         extension_dir:
           type: string
@@ -16,15 +20,11 @@ tools:
             a valid SKILL.md with dcc-mcp frontmatter metadata.
         marketplace_source:
           type: string
-          description: >-
-            Marketplace catalog source. Can be:
-            - A local path to an existing marketplace.json or the directory
-              that contains it (e.g. "/path/to/repo" or "/path/to/marketplace.json");
-            - A GitHub slug like "owner/repo" (resolves to the raw
-              marketplace.json on the main branch);
-            - A full URL to a marketplace.json file.
-            Defaults to "dcc-mcp/marketplace" (the official catalog).
           default: "dcc-mcp/marketplace"
+          description: >-
+            Marketplace catalog source. Can be a local path to an existing
+            marketplace.json or the directory that contains it, a GitHub slug
+            like "owner/repo", or a full URL to a marketplace.json file.
         install_url:
           type: string
           description: >-
@@ -32,12 +32,12 @@ tools:
             Written into the CatalogEntry `install.url` field.
         install_type:
           type: string
-          description: Install source type for the CatalogEntry.
           enum:
             - git
             - path
             - zip
           default: git
+          description: Install source type for the CatalogEntry.
         install_ref:
           type: string
           description: >-
@@ -78,18 +78,30 @@ tools:
             Written into the CatalogEntry `url` field.
         commit:
           type: boolean
+          default: false
           description: >-
             When true and the marketplace_source resolves to a local git
             repository, stage the updated marketplace.json, commit it with a
-            standardised message, and push to origin. Ignored for remote/URL
-            sources.
-          default: false
-      required:
-        - extension_dir
-        - install_url
-    read_only: false
-    destructive: false
-    idempotent: true
-    source_file: scripts/publish.py
+            standardised message, and push to origin.
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    execution: sync
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: true
+      deferred_hint: false
     next-tools:
       on-failure: [dcc_diagnostics__audit_log]

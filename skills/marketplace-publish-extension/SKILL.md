@@ -8,13 +8,13 @@ description: >-
   scaffolding an extension with marketplace-create-extension. Not for
   installing or searching extensions — use marketplace-install or
   marketplace-search for that.
-license: MIT
+license: MIT-0
 compatibility: "dcc-mcp-core 0.17+, Python 3.7+"
 allowed-tools: Bash Read Write
 metadata:
   dcc-mcp:
     dcc: python
-    version: "1.0.0"
+    version: "0.18.9"  # x-release-please-version
     layer: infrastructure
     search-hint: >-
       publish extension, register extension, marketplace catalog, upsert
@@ -22,6 +22,8 @@ metadata:
       marketplace
     tags: "marketplace, publishing, catalog, infrastructure"
     tools: tools.yaml
+  openclaw:
+    homepage: https://github.com/dcc-mcp/dcc-mcp-core/blob/main/skills/marketplace-publish-extension/SKILL.md
 ---
 
 # Marketplace Publish Extension
