@@ -59,5 +59,10 @@
   "updated.skillInventory": "{loaded} 件の読み込み済みスキル、{actions} 件のアクション - {time}",
   "updated.skillDetail": "スキル {name} の詳細を読み込みました - {time}",
   "updated.gatewayTarget": "ゲートウェイターゲットを更新しました - {time}",
-  "updated.debugSnapshot": "デバッグスナップショット - {time}"
+  "updated.debugSnapshot": "デバッグスナップショット - {time}",
+  "action.copy": "コピー",
+  "action.openFile": "ファイルを開く",
+  "status.errorPrefix": "エラー: {message}",
+  "status.waiting": "待機中...",
+  "status.noData": "データなし。"
 }
