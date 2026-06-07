@@ -14,6 +14,7 @@ import {
 } from '../../hooks/queries';
 import type { MarketplaceEntry, InstalledMarketplacePackage } from '../../admin-types';
 import { MarketplaceCard } from './MarketplaceCard';
+import { MarketplaceDetailModal } from './MarketplaceDetailModal';
 
 type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 
@@ -25,6 +26,10 @@ export type MarketplacePanelProps = {
   onUpdated: (text: string) => void;
   onError: (error: unknown) => void;
   onCountsChange?: (counts: { total: number; installed: number }) => void;
+  /** Current dcc-mcp-core version (from /health) for compatibility warning. */
+  coreVersion?: string | null;
+  /** Navigate to Skills panel and highlight the given skill name. */
+  onNavigateToSkills?: (skillName: string) => void;
   t: Translator;
 };
 
@@ -36,6 +41,10 @@ type MarketplaceTab = 'browse' | 'installed';
 /// (locally installed packages with per-package uninstall). Both tabs use
 /// `name:dcc` as the canonical unique key so multi-DCC entries don't leak
 /// installed state across DCC types.
+///
+/// Browse tab now includes a DCC filter chip row derived from catalog entries.
+/// Cards are clickable and open a detail modal with full package metadata.
+/// After a successful install, an inline notice offers "View in Skills" deep link.
 export function MarketplacePanel({
   active,
   search,
@@ -44,10 +53,16 @@ export function MarketplacePanel({
   onUpdated,
   onError,
   onCountsChange,
+  coreVersion,
+  onNavigateToSkills,
   t,
 }: MarketplacePanelProps) {
   const [tab, setTab] = useState<MarketplaceTab>('browse');
   const [installingKey, setInstallingKey] = useState<string | null>(null);
+  const [detailEntry, setDetailEntry] = useState<MarketplaceEntry | null>(null);
+  const [dccFilter, setDccFilter] = useState<string | null>(null);
+  /// { name, dcc } of the most recently installed package for the inline notice.
+  const [installNotice, setInstallNotice] = useState<{ name: string; dcc: string } | null>(null);
 
   const catalogQuery = useMarketplaceCatalogQuery(active);
   const installedQuery = useInstalledMarketplaceQuery(active);
@@ -56,6 +71,22 @@ export function MarketplacePanel({
 
   const catalog = useMemo(() => catalogQuery.data ?? [], [catalogQuery.data]);
   const installed = useMemo(() => installedQuery.data ?? [], [installedQuery.data]);
+
+  /// Derive unique DCC types from the catalog for the filter chip row.
+  const dccTypes = useMemo(() => {
+    const types = new Set<string>();
+    for (const entry of catalog) {
+      for (const dcc of entry.dcc) {
+        types.add(dcc);
+      }
+    }
+    return Array.from(types).sort((a, b) => a.localeCompare(b));
+  }, [catalog]);
+
+  /// Reset DCC filter when tab, search, or catalog changes.
+  useEffect(() => {
+    setDccFilter(null);
+  }, [tab, search]);
 
   // Refresh on first show.
   useEffect(() => {
@@ -113,24 +144,30 @@ export function MarketplacePanel({
     [installedByKey],
   );
 
-  // Filter catalog by search.
+  /// Filter catalog by search AND DCC chip.
   const filteredCatalog = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return catalog;
-    return catalog.filter((entry) =>
-      matchesListFilter(
-        q,
-        haystack(
-          entry.name,
-          entry.description,
-          ...entry.dcc,
-          ...entry.tags,
-          entry.maintainer ?? '',
-          entry.version ?? '',
+    let result = catalog;
+    if (dccFilter) {
+      result = result.filter((entry) => entry.dcc.includes(dccFilter));
+    }
+    if (q) {
+      result = result.filter((entry) =>
+        matchesListFilter(
+          q,
+          haystack(
+            entry.name,
+            entry.description,
+            ...entry.dcc,
+            ...entry.tags,
+            entry.maintainer ?? '',
+            entry.version ?? '',
+          ),
         ),
-      ),
-    );
-  }, [catalog, search]);
+      );
+    }
+    return result;
+  }, [catalog, search, dccFilter]);
 
   // Filter installed packages by search.
   const filteredInstalled = useMemo(() => {
@@ -154,9 +191,11 @@ export function MarketplacePanel({
     async (entry: MarketplaceEntry, dcc: string) => {
       const key = `${entry.name}:${dcc}`;
       setInstallingKey(key);
+      setInstallNotice(null);
       try {
         await installMut.mutateAsync({ name: entry.name, dcc });
         await installedQuery.refetch();
+        setInstallNotice({ name: entry.name, dcc });
       } catch (err) {
         onError(err);
       } finally {
@@ -170,9 +209,11 @@ export function MarketplacePanel({
     async (pkg: InstalledMarketplacePackage) => {
       const key = `${pkg.name}:${pkg.dcc}`;
       setInstallingKey(key);
+      setInstallNotice(null);
       try {
         await uninstallMut.mutateAsync({ name: pkg.name, dcc: pkg.dcc });
         await installedQuery.refetch();
+        setInstallNotice({ name: pkg.name, dcc: pkg.dcc });
       } catch (err) {
         onError(err);
       } finally {
@@ -182,6 +223,20 @@ export function MarketplacePanel({
     [uninstallMut, installedQuery, onError],
   );
 
+  const handleOpenDetail = useCallback((entry: MarketplaceEntry) => {
+    setDetailEntry(entry);
+  }, []);
+
+  const handleCloseDetail = useCallback(() => {
+    setDetailEntry(null);
+  }, []);
+
+  const handleViewInSkills = useCallback(() => {
+    if (installNotice && onNavigateToSkills) {
+      onNavigateToSkills(installNotice.name);
+    }
+  }, [installNotice, onNavigateToSkills]);
+
   return (
     <section className={`panel${active ? ' active' : ''} marketplace-panel`}>
       <PanelHeader
@@ -190,6 +245,36 @@ export function MarketplacePanel({
       />
 
       <StatusLine text={updatedAt || t('marketplace.detail.packagesFound', { count: catalog.length })} error={error} />
+
+      {/* ── Install / uninstall success notice ──────────────────────────── */}
+      {installNotice ? (
+        <div className="marketplace-install-notice" role="status">
+          <span>
+            {installedByKey.has(`${installNotice.name}:${installNotice.dcc}`)
+              ? t('marketplace.install.success', { name: installNotice.name, dcc: installNotice.dcc })
+              : t('marketplace.uninstall.success', { name: installNotice.name, dcc: installNotice.dcc })}
+          </span>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            {installedByKey.has(`${installNotice.name}:${installNotice.dcc}`) && onNavigateToSkills ? (
+              <button
+                type="button"
+                className="marketplace-install-notice-link"
+                onClick={handleViewInSkills}
+              >
+                {t('marketplace.install.viewInSkills')}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="marketplace-install-notice-close"
+              aria-label={t('action.close')}
+              onClick={() => setInstallNotice(null)}
+            >
+              &times;
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="marketplace-tabs" role="tablist" aria-label={t('marketplace.title')}>
         <button
@@ -215,16 +300,40 @@ export function MarketplacePanel({
         </button>
       </div>
 
-      {/* Browse tab — catalog card grid with per-DCC install/uninstall. */}
+      {/* Browse tab — catalog card grid with DCC filter chips + per-DCC install/uninstall. */}
       {tab === 'browse' && (
         <div className="marketplace-content">
+          {/* DCC filter chip row */}
+          {dccTypes.length > 1 ? (
+            <div className="marketplace-dcc-filter" role="group" aria-label={t('marketplace.filter.dccLabel')}>
+              <span className="marketplace-dcc-filter-label">{t('marketplace.filter.dccLabel')}</span>
+              <button
+                type="button"
+                className={`marketplace-dcc-chip${dccFilter === null ? ' active' : ''}`}
+                onClick={() => setDccFilter(null)}
+              >
+                {t('marketplace.filter.dccAll')}
+              </button>
+              {dccTypes.map((dcc) => (
+                <button
+                  key={dcc}
+                  type="button"
+                  className={`marketplace-dcc-chip${dccFilter === dcc ? ' active' : ''}`}
+                  onClick={() => setDccFilter(dccFilter === dcc ? null : dcc)}
+                >
+                  {dcc}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
           {catalogQuery.isLoading ? (
-            <p className="empty">Loading…</p>
+            <p className="empty">{t('marketplace.status.loading')}</p>
           ) : catalogQuery.error ? (
-            <p className="empty">Error: {catalogQuery.error.message}</p>
+            <p className="empty">{t('marketplace.status.error')}: {catalogQuery.error.message}</p>
           ) : filteredCatalog.length === 0 ? (
             <p className="empty">
-              {search.trim() ? t('marketplace.empty.search') : t('marketplace.empty.none')}
+              {search.trim() || dccFilter ? t('marketplace.empty.search') : t('marketplace.empty.none')}
             </p>
           ) : (
             <div className="marketplace-grid">
@@ -236,6 +345,7 @@ export function MarketplacePanel({
                   installingKey={installingKey}
                   onInstall={handleInstall}
                   onUninstall={handleUninstall}
+                  onOpenDetail={handleOpenDetail}
                   t={t}
                 />
               ))}
@@ -248,9 +358,9 @@ export function MarketplacePanel({
       {tab === 'installed' && (
         <div className="marketplace-content">
           {installedQuery.isLoading ? (
-            <p className="empty">Loading…</p>
+            <p className="empty">{t('marketplace.status.loading')}</p>
           ) : installedQuery.error ? (
-            <p className="empty">Error: {installedQuery.error.message}</p>
+            <p className="empty">{t('marketplace.status.error')}: {installedQuery.error.message}</p>
           ) : filteredInstalled.length === 0 ? (
             <p className="empty">
               {search.trim() ? t('marketplace.empty.search') : t('marketplace.empty.installed')}
@@ -287,6 +397,7 @@ export function MarketplacePanel({
                     installingKey={installingKey}
                     onInstall={handleInstall}
                     onUninstall={handleUninstall}
+                    onOpenDetail={handleOpenDetail}
                     t={t}
                   />
                 );
@@ -295,6 +406,14 @@ export function MarketplacePanel({
           )}
         </div>
       )}
+
+      {/* Detail modal (portal-based overlay) */}
+      <MarketplaceDetailModal
+        entry={detailEntry}
+        coreVersion={coreVersion}
+        onClose={handleCloseDetail}
+        t={t}
+      />
     </section>
   );
 }
