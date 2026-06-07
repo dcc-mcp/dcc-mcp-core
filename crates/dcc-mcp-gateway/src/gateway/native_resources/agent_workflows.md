@@ -201,6 +201,31 @@ For Maya behind the gateway, prefer **`search(kind="skill")`** → **`load_skill
 - Format: **`<dcc_type>.<instance_prefix_or_uuid>.<backend_tool>`** — three dot-separated routing segments. Example: `maya.277685a7.maya_primitives__create_sphere`. This encodes the same tuple a path-style URL would use (`/<dcc>/<instance>/<backend_tool>`); the final `backend_tool` segment is the client-safe MCP name such as `project_save` or `maya_primitives__create_sphere`.
 - **Common agent mistake:** calling `call` with only `code` / `python` / `mel` at the **top level**. That shape belongs to **specific backend tools** inside **`arguments`**, only when their schema says so — the gateway wrapper **always** requires **`tool_slug`** plus optional **`arguments`** / **`meta`**.
 
+### Maya rendering & visualization intent routing
+
+When the user asks to produce visual output from a Maya scene, discover the
+typed rendering tools through `search(kind="tool")` or
+`search(query="render ...", dcc_type="maya")` and call them directly. Do not
+hand-roll `execute_python` or `execute_mel` for rendering — the typed tools
+carry schema validation, timeout hints, and next-tool chains.
+
+| User intent | First-choice tool | Fallback |
+|-------------|-------------------|----------|
+| Render final frame (production quality) | `maya_render__render_frame` | — |
+| Debug scene snapshot (quick viewport grab) | `maya_render__debug_scene_snapshot` | `render_frame(preview=True)` — lower quality but always available |
+| Record viewport animation as MP4 | `maya_render__playblast_to_mp4` | Chain `capture_playblast_sequence` → assemble frames with media tools |
+
+**VP2 viewport capture fallback:** When `capture_viewport` fails (e.g. VP2
+renderer unavailable, incompatible scene state, or GPU driver issues), do not
+retry the same call. Instead:
+
+1. Read diagnostics: `dcc_diagnostics__screenshot` or `resources/read` with
+   the adapter's diagnostics URI.
+2. If the scene is otherwise renderable, fall back to
+   `maya_render__render_frame(preview=True)` for a render-view still.
+3. Report the original VP2 failure to the user so they know the viewport
+   pipeline needs attention.
+
 ---
 
 ## Resources and prompts (read before guessing)
