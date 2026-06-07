@@ -8,8 +8,9 @@ requiring the dispatcher Python source to exist on disk.
 How the Rust client uses this file
 ==================================
 
-1. ``include_str!("../python/dcc_qt_dispatcher.py")`` — embed the crate-local
-   package mirror of the public ``dcc_mcp_core.qt_dispatcher`` source.
+1. ``include_str!("../../../python/dcc_mcp_core/qt_dispatcher.py")`` — embed
+   the canonical ``dcc_mcp_core.qt_dispatcher`` source directly from the
+   workspace root (the single source of truth).
 2. ``include_str!("../python/dcc_qt_dispatcher_bootstrap.py")`` —
    embed this file's source.
 3. Send **one** ``commandPort`` line that wraps both:
