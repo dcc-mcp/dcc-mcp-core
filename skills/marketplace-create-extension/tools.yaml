@@ -1,0 +1,86 @@
+tools:
+  - name: create
+    description: >-
+      Scaffold a new marketplace extension package. Generates SKILL.md
+      (with MIT-0 license frontmatter), tools.yaml skeleton, and a
+      scripts/ directory with a placeholder action script. The output
+      follows the standard dcc-mcp skill layout.
+    source_file: scripts/create_extension.py
+    input_schema:
+      type: object
+      required:
+        - name
+        - description
+      properties:
+        name:
+          type: string
+          pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          description: >-
+            Package name in kebab-case (e.g. "my-maya-tools"). Used as the
+            output directory name and the SKILL.md `name` field.
+        description:
+          type: string
+          description: >-
+            Human-readable description of what the extension does. Written
+            into the SKILL.md frontmatter and body.
+        dcc_targets:
+          type: array
+          description: >-
+            DCC applications this extension targets (e.g. ["maya", "blender"]).
+            Use ["python"] for DCC-agnostic infrastructure extensions.
+          items:
+            type: string
+          default: []
+        install_type:
+          type: string
+          enum:
+            - git
+            - path
+            - zip
+          default: git
+          description: Install source type for marketplace catalog entries.
+        author:
+          type: string
+          description: >-
+            Extension author or maintainer name. Written into the SKILL.md
+            frontmatter.
+        output_dir:
+          type: string
+          default: "."
+          description: >-
+            Parent directory where the new extension package directory will be
+            created. Defaults to the current working directory.
+        version:
+          type: string
+          default: "0.1.0"
+          description: Semantic version string for the extension.
+        action_name:
+          type: string
+          pattern: "^[a-z0-9]+(?:_[a-z0-9]+)*$"
+          default: run
+          description: >-
+            Snake_case name for the placeholder action script
+            (e.g. "run_export"). Defaults to "run".
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    execution: sync
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 30
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: true
+      deferred_hint: false
+    next-tools:
+      on-success: [dcc_mcp_skills_creator__validate_skill_dir]
+      on-failure: [dcc_diagnostics__audit_log]
