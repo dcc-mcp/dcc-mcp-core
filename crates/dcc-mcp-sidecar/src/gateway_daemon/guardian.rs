@@ -284,6 +284,10 @@ mod tests {
             registry_dir: std::env::temp_dir().join("dcc-mcp-test-registry"),
             remote_host: "0.0.0.0".to_string(),
             remote_port: 50000,
+            crate_version: Some("0.1.0-test".to_string()),
+            adapter_version: None,
+            adapter_dcc: None,
+            gateway_idle_timeout_secs: 30,
         };
 
         let settings = GatewayGuardianSettings {
@@ -345,6 +349,10 @@ mod tests {
             registry_dir: std::env::temp_dir().join("dcc-mcp-test-registry"),
             remote_host: "0.0.0.0".to_string(),
             remote_port: 50000,
+            crate_version: Some("0.1.0-test".to_string()),
+            adapter_version: None,
+            adapter_dcc: None,
+            gateway_idle_timeout_secs: 30,
         };
 
         let settings = GatewayGuardianSettings {

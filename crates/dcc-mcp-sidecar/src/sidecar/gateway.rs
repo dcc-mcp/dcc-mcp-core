@@ -23,6 +23,13 @@ pub(crate) fn build_gateway_daemon_options(
         registry_dir,
         remote_host: args.gateway_remote_host.clone(),
         remote_port: args.gateway_remote_port,
+        crate_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        adapter_version: args.adapter_version.clone(),
+        adapter_dcc: Some(args.dcc.clone()),
+        gateway_idle_timeout_secs: std::env::var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(30),
     }
 }
 

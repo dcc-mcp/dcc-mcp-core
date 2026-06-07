@@ -4,7 +4,7 @@
 /// - Leading `v` prefix stripped (`"v0.12.29"` → `(0, 12, 29)`)
 /// - Pre-release suffixes ignored (`"1.0.0-rc1"` → `(1, 0, 0)`)
 /// - Missing components default to `0` (`"1.2"` → `(1, 2, 0)`)
-pub(crate) fn parse_semver(v: &str) -> (u64, u64, u64) {
+pub fn parse_semver(v: &str) -> (u64, u64, u64) {
     let parts: Vec<u64> = v
         .trim_start_matches('v')
         .split('.')
@@ -20,7 +20,7 @@ pub(crate) fn parse_semver(v: &str) -> (u64, u64, u64) {
 /// Returns `true` when `candidate` is strictly newer than `current`.
 ///
 /// Uses numeric semver comparison, so `"0.12.29"` > `"0.12.6"`.
-pub(crate) fn is_newer_version(candidate: &str, current: &str) -> bool {
+pub fn is_newer_version(candidate: &str, current: &str) -> bool {
     parse_semver(candidate) > parse_semver(current)
 }
 
@@ -40,14 +40,14 @@ pub(crate) fn is_newer_version(candidate: &str, current: &str) -> bool {
 ///    wins.  Two real DCCs of the same crate+adapter version remain tied
 ///    so peers fall back to the existing first-wins port-bind contract.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct ElectionInfo<'a> {
-    pub(crate) crate_version: &'a str,
-    pub(crate) adapter_version: Option<&'a str>,
-    pub(crate) adapter_dcc: Option<&'a str>,
+pub struct ElectionInfo<'a> {
+    pub crate_version: &'a str,
+    pub adapter_version: Option<&'a str>,
+    pub adapter_dcc: Option<&'a str>,
 }
 
 impl<'a> ElectionInfo<'a> {
-    pub(crate) fn new(
+    pub fn new(
         crate_version: &'a str,
         adapter_version: Option<&'a str>,
         adapter_dcc: Option<&'a str>,
@@ -73,7 +73,7 @@ fn is_unknown_dcc(dcc: Option<&str>) -> bool {
 /// Three-layer election comparison (issue maya#137).
 ///
 /// Returns `true` when `candidate` should preempt `current`.
-pub(crate) fn is_newer_election(candidate: ElectionInfo<'_>, current: ElectionInfo<'_>) -> bool {
+pub fn is_newer_election(candidate: ElectionInfo<'_>, current: ElectionInfo<'_>) -> bool {
     let cand_crate = parse_semver(candidate.crate_version);
     let cur_crate = parse_semver(current.crate_version);
     if cand_crate != cur_crate {
