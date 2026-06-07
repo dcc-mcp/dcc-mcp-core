@@ -156,9 +156,11 @@ appropriate tags under `metadata.dcc-mcp.tags`:
 | `destructive` | Mutating or irreversible operations. Also set MCP `destructiveHint` (`annotations.destructive_hint: true` in `tools.yaml`); the tag is for search, not policy. |
 
 Current `tags` semantics are **AND**: a request containing both `pipeline` and
-`production-tracking` returns records that carry both tags. To match any of
-several tags, issue separate searches or omit the tag filter.
-`dcc_type` is a singular filter — pass one DCC family per request.
+`production-tracking` returns records that carry both tags. Planned search
+fields will add `tags_any` for OR-style matching and `dcc_types[]` for
+multi-host filtering; until those fields land, send separate
+`POST /v1/search` requests for alternatives and use singular `dcc_type` for one
+backend family.
 
 **Vendor tags** can be added when they sharpen routing without replacing the
 canonical tags. For example, Autodesk Product Help should use `docs`,
