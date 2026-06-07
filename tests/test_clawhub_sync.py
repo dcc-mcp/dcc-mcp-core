@@ -70,7 +70,7 @@ class TestClawhubSync:
                 cmd,
                 1,
                 stdout="- Preparing example@1.2.3\n",
-                stderr="Error: Uncaught ConvexError: Version already exists\n",
+                stderr="Error: Uncaught ConvexError: Version 1.2.3 already exists\n",
             )
 
         monkeypatch.setattr(sync, "REPO_ROOT", tmp_path)
@@ -87,7 +87,7 @@ class TestClawhubSync:
 
         captured = capsys.readouterr()
         assert rc == 0
-        assert "Version already exists" in captured.err
+        assert "Version 1.2.3 already exists" in captured.err
         assert "example@1.2.3 already exists on ClawHub; skipping." in captured.out
 
     def test_clawhub_skill_versions_follow_release_please(self) -> None:
