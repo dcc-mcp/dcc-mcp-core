@@ -13,6 +13,7 @@ export type MarketplaceCardProps = {
   installingKey: string | null;
   onInstall: (entry: MarketplaceEntry, dcc: string) => void;
   onUninstall: (pkg: InstalledMarketplacePackage) => void;
+  onOpenDetail?: (entry: MarketplaceEntry) => void;
   t: Translator;
 };
 
@@ -29,6 +30,7 @@ export function MarketplaceCard({
   installingKey,
   onInstall,
   onUninstall,
+  onOpenDetail,
   t,
 }: MarketplaceCardProps) {
   const version = entry.version ?? t('marketplace.card.noVersion');
@@ -40,6 +42,11 @@ export function MarketplaceCard({
     <article
       className="marketplace-card"
       data-name={entry.name}
+      role={onOpenDetail ? 'button' : undefined}
+      tabIndex={onOpenDetail ? 0 : undefined}
+      aria-label={onOpenDetail ? entry.name : undefined}
+      onClick={onOpenDetail ? () => onOpenDetail(entry) : undefined}
+      onKeyDown={onOpenDetail ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenDetail(entry); } } : undefined}
     >
       <div className="marketplace-card-body">
         <div className="marketplace-card-head">
@@ -90,7 +97,7 @@ export function MarketplaceCard({
                       className="marketplace-card-chip marketplace-card-chip-installed"
                       disabled={installingKey === key}
                       title={t('marketplace.card.uninstall')}
-                      onClick={() => onUninstall(pkg)}
+                      onClick={(e) => { e.stopPropagation(); onUninstall(pkg); }}
                     >
                       <span className="marketplace-card-chip-check">✓</span>
                       {dcc}
@@ -104,7 +111,7 @@ export function MarketplaceCard({
                     className="marketplace-card-chip marketplace-card-chip-action"
                     disabled={isInstalling}
                     title={t('marketplace.card.installFor', { dcc })}
-                    onClick={() => onInstall(entry, dcc)}
+                    onClick={(e) => { e.stopPropagation(); onInstall(entry, dcc); }}
                   >
                     {installingKey === key
                       ? t('marketplace.card.installing')

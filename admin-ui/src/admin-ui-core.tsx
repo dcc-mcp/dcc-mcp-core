@@ -1,311 +1,130 @@
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
-import mayaIcon from './assets/icons/autodesk.svg';
-import blenderIcon from './assets/icons/blender.svg';
-import claudeIcon from './assets/icons/claude.svg';
-import clineIcon from './assets/icons/cline.svg';
-import codebuddyIcon from './assets/icons/codebuddy.svg';
-import cursorIcon from './assets/icons/cursor.svg';
-import gimpIcon from './assets/icons/gimp.svg';
-import inkscapeIcon from './assets/icons/inkscape.svg';
-import kritaIcon from './assets/icons/krita.svg';
-import openaiIcon from './assets/icons/openai.svg';
-import unityIcon from './assets/icons/unity.svg';
-import unrealIcon from './assets/icons/unrealengine.svg';
-import substancePainterIcon from './assets/icons/photoshop.svg';
-import puzzleIcon from './assets/icons/puzzle.svg';
-import vscodeIcon from './assets/icons/vscode.svg';
 import { SkillMarkdownPreview } from './components/SkillMarkdownPreview';
 import { type MessageKey } from './i18n';
 import { formatTime, timestampTitle } from './time';
-import { CRITICAL_LATENCY_MS, recordOrNull, SLOW_LATENCY_MS, type ActivityEvent, type AdminLinks, type AgentContext, type AttributionFacet, type AttributionTrust, type CallRow, type ClientPlatform, type GatewaySentinel, type GovernanceMiddlewareControl, type HealthPayload, type IdeTarget, type InstanceRow, type LatencySeverity, type OpenApiOperationObject, type OpenApiOperationRow, type OpenApiSource, type OpenApiSpec, type Panel, type SkillDetailInstance, type SkillDetailPayload, type SkillRow, type StatsPayload, type TaskRow, type TokenAccounting, type TokenBreakdownEntry, type TokenCarrier, type ToolRow, type TopEntry, type TraceDetailPayload, type TracePayload, type TraceRow, type TraceSpan, type TrafficCaptureStatus, type TrafficFrameEnvelope, type Translator, type WorkflowAgent, type WorkflowGraphNode, type WorkflowGraphStage, type WorkflowRow, type WorkflowSearchSignal, type WorkflowStep } from './admin-types';
+import { CRITICAL_LATENCY_MS, recordOrNull, SLOW_LATENCY_MS, type ActivityEvent, type AdminLinks, type AgentContext, type AttributionFacet, type AttributionTrust, type CallRow, type ClientPlatform, type GovernanceMiddlewareControl, type HealthPayload, type IdeTarget, type InstanceRow, type LatencySeverity, type OpenApiSource, type OpenApiSpec, type Panel, type SkillDetailInstance, type SkillDetailPayload, type SkillRow, type StatsPayload, type TaskRow, type TokenAccounting, type TokenBreakdownEntry, type TokenCarrier, type ToolRow, type TopEntry, type TraceDetailPayload, type TracePayload, type TraceRow, type TraceSpan, type TrafficCaptureStatus, type TrafficFrameEnvelope, type Translator, type WorkflowAgent, type WorkflowGraphNode, type WorkflowGraphStage, type WorkflowRow, type WorkflowSearchSignal, type WorkflowStep } from './admin-types';
 
-export const DCC_ICON_MAP: Record<string, string> = {
-  maya: mayaIcon,
-  blender: blenderIcon,
-  gimp: gimpIcon,
-  inkscape: inkscapeIcon,
-  krita: kritaIcon,
-  unity: unityIcon,
-  unreal: unrealIcon,
-  substance_painter: substancePainterIcon,
+// ══ platform ──────────────────────────────────────────────────────────────
+import {
+  ADMIN_FETCH_TIMEOUT_MS,
+  API_BASE,
+  DCC_ICON_FALLBACK,
+  DCC_ICON_MAP,
+  DEFAULT_LOCAL_GATEWAY_PORT,
+  IDE_SERVER_NAME,
+  IDE_TARGETS,
+  OPENAPI_METHODS,
+  adminApiBase,
+  apiJson,
+  backendAccessUrls,
+  buildCodexConfig,
+  buildMcpServersConfig,
+  configPathFileUrl,
+  configPathForTarget,
+  configuredDevGatewayMcpUrl,
+  detectClientPlatform,
+  downloadJsonText,
+  fetchOpenApiSpecText,
+  flattenOpenApiOperations,
+  gatewayMcpUrl,
+  gatewayMcpUrlFromPage,
+  gatewaySentinelMcpUrl,
+  ideConfigText,
+  instanceOpenApiSource,
+  instanceSetupLabel,
+  isLoopbackHost,
+  issueReportFilename,
+  issueReportJsonText,
+  lanGatewayMcpUrl,
+  openApiSpecFilename,
+  resolveDccIcon,
+  tomlString,
+  urlHost,
+} from './platform';
+export {
+  ADMIN_FETCH_TIMEOUT_MS,
+  API_BASE,
+  DCC_ICON_FALLBACK,
+  DCC_ICON_MAP,
+  DEFAULT_LOCAL_GATEWAY_PORT,
+  IDE_SERVER_NAME,
+  IDE_TARGETS,
+  OPENAPI_METHODS,
+  adminApiBase,
+  apiJson,
+  backendAccessUrls,
+  buildCodexConfig,
+  buildMcpServersConfig,
+  configPathFileUrl,
+  configPathForTarget,
+  configuredDevGatewayMcpUrl,
+  detectClientPlatform,
+  downloadJsonText,
+  fetchOpenApiSpecText,
+  flattenOpenApiOperations,
+  gatewayMcpUrl,
+  gatewayMcpUrlFromPage,
+  gatewaySentinelMcpUrl,
+  ideConfigText,
+  instanceOpenApiSource,
+  instanceSetupLabel,
+  isLoopbackHost,
+  issueReportFilename,
+  issueReportJsonText,
+  lanGatewayMcpUrl,
+  openApiSpecFilename,
+  resolveDccIcon,
+  tomlString,
+  urlHost,
 };
-export const DCC_ICON_FALLBACK = puzzleIcon;
 
-/// Resolve icon URL for a dcc_type, supporting prefix matching
-/// (e.g. "autodesk_maya" → maya icon).
-export function resolveDccIcon(dccType: string): string {
-  const key = dccType.toLowerCase();
-  if (DCC_ICON_MAP[key]) return DCC_ICON_MAP[key];
-  // Prefix match: "autodesk_maya" → "maya"
-  for (const [k, url] of Object.entries(DCC_ICON_MAP)) {
-    if (key.includes(k)) return url;
-  }
-  return DCC_ICON_FALLBACK;
-}
+// ══ navigation ────────────────────────────────────────────────────────────
+import {
+  PANELS,
+  PANEL_ID_SET,
+  STATS_RANGE_IDS,
+  adminPathBases,
+  adminShellPath,
+  fullHrefForAdmin,
+  gatewayDocsHref,
+  gatewayOpenApiHref,
+  gatewayOpenApiSource,
+  hrefForAdmin,
+  isPanelId,
+  openApiInspectorHref,
+  projectDocsHref,
+  publicSafeIssuePaths,
+  publicToolFamily,
+  readOpenApiSourceFromUrl,
+  readPanelFromUrl,
+  readStatsRangeFromUrl,
+  readTraceIdFromUrl,
+  traceLinks,
+} from './navigation';
+export {
+  PANELS,
+  PANEL_ID_SET,
+  STATS_RANGE_IDS,
+  adminPathBases,
+  adminShellPath,
+  fullHrefForAdmin,
+  gatewayDocsHref,
+  gatewayOpenApiHref,
+  gatewayOpenApiSource,
+  hrefForAdmin,
+  isPanelId,
+  openApiInspectorHref,
+  projectDocsHref,
+  publicSafeIssuePaths,
+  publicToolFamily,
+  readOpenApiSourceFromUrl,
+  readPanelFromUrl,
+  readStatsRangeFromUrl,
+  readTraceIdFromUrl,
+  traceLinks,
+};
+export type { PanelDefinition } from './navigation';
 
-/// Resolve JSON API base from the current admin URL so custom `--admin-path`
-/// (e.g. `/gw-admin`) works. A fixed `/admin/api` prefix 404s on non-default mounts.
-export function adminApiBase(): string {
-  const { origin, pathname } = window.location;
-  let basePath = pathname.replace(/\/+$/, '');
-  if (basePath.endsWith('/index.html')) {
-    basePath = basePath.slice(0, -'/index.html'.length);
-  }
-  if (!basePath || basePath === '/') {
-    basePath = '/admin';
-  }
-  const prefix = basePath.endsWith('/') ? basePath : `${basePath}/`;
-  return `${origin}${prefix}api`;
-}
-
-export const API_BASE = adminApiBase();
-/** Abort hung admin fetches so the UI does not wait indefinitely on a wedged gateway. */
-export const ADMIN_FETCH_TIMEOUT_MS = 25_000;
-export const DEFAULT_LOCAL_GATEWAY_PORT = '9765';
-export const OPENAPI_METHODS = new Set(['get', 'put', 'post', 'delete', 'patch', 'options', 'head', 'trace']);
-export const IDE_SERVER_NAME = 'dcc-mcp-gateway';
-export const buildMcpServersConfig = (url: string) => JSON.stringify({
-  mcpServers: {
-    [IDE_SERVER_NAME]: { url },
-  },
-}, null, 2);
-export const tomlString = (value: string) => JSON.stringify(value);
-export const buildCodexConfig = (url: string) => [
-  `[mcp_servers.${IDE_SERVER_NAME}]`,
-  `url = ${tomlString(url)}`,
-].join('\n');
-export const IDE_TARGETS: IdeTarget[] = [
-  {
-    id: 'claude',
-    label: 'Claude Desktop',
-    configPath: {
-      windows: '%APPDATA%\\Claude\\claude_desktop_config.json',
-      macos: '~/Library/Application Support/Claude/claude_desktop_config.json',
-      linux: '~/.config/Claude/claude_desktop_config.json',
-    },
-    icon: claudeIcon,
-    build: buildMcpServersConfig,
-  },
-  {
-    id: 'cursor',
-    label: 'Cursor',
-    configPath: {
-      windows: '%USERPROFILE%\\.cursor\\mcp.json',
-      macos: '~/.cursor/mcp.json',
-      linux: '~/.cursor/mcp.json',
-    },
-    icon: cursorIcon,
-    build: buildMcpServersConfig,
-  },
-  {
-    id: 'codebuddy',
-    label: 'CodeBuddy',
-    configPath: 'App settings -> Custom MCP Servers',
-    icon: codebuddyIcon,
-    build: buildMcpServersConfig,
-  },
-  {
-    id: 'vscode',
-    label: 'VS Code',
-    configPath: {
-      windows: '%APPDATA%\\Code\\User\\mcp.json',
-      macos: '~/Library/Application Support/Code/User/mcp.json',
-      linux: '~/.config/Code/User/mcp.json',
-    },
-    icon: vscodeIcon,
-    build: buildMcpServersConfig,
-  },
-  {
-    id: 'cline',
-    label: 'Cline',
-    configPath: 'App settings panel -> MCP servers',
-    icon: clineIcon,
-    build: buildMcpServersConfig,
-  },
-  {
-    id: 'codex',
-    label: 'Codex / OpenAI',
-    configPath: {
-      windows: '%USERPROFILE%\\.codex\\config.toml',
-      macos: '~/.codex/config.toml',
-      linux: '~/.codex/config.toml',
-    },
-    icon: openaiIcon,
-    build: buildCodexConfig,
-  },
-];
-export type PanelDefinition = { id: Panel; labelKey: MessageKey; groupKey: MessageKey };
-
-export const PANELS: PanelDefinition[] = [
-  { id: 'setup', labelKey: 'navigation.panel.setup', groupKey: 'navigation.group.onboarding' },
-  { id: 'debug', labelKey: 'navigation.panel.debug', groupKey: 'navigation.group.operations' },
-  { id: 'instances', labelKey: 'navigation.panel.instances', groupKey: 'navigation.group.operations' },
-  { id: 'activity', labelKey: 'navigation.panel.activity', groupKey: 'navigation.group.operations' },
-  { id: 'health', labelKey: 'navigation.panel.health', groupKey: 'navigation.group.operations' },
-  { id: 'workflows', labelKey: 'navigation.panel.workflows', groupKey: 'navigation.group.workspace' },
-  { id: 'tasks', labelKey: 'navigation.panel.tasks', groupKey: 'navigation.group.workspace' },
-  { id: 'tools', labelKey: 'navigation.panel.tools', groupKey: 'navigation.group.workspace' },
-  { id: 'openapi', labelKey: 'navigation.panel.openapi', groupKey: 'navigation.group.contracts' },
-  { id: 'stats', labelKey: 'navigation.panel.stats', groupKey: 'navigation.group.observability' },
-  { id: 'governance', labelKey: 'navigation.panel.governance', groupKey: 'navigation.group.observability' },
-  { id: 'traffic', labelKey: 'navigation.panel.traffic', groupKey: 'navigation.group.observability' },
-  { id: 'traces', labelKey: 'navigation.panel.traces', groupKey: 'navigation.group.observability' },
-  { id: 'calls', labelKey: 'navigation.panel.calls', groupKey: 'navigation.group.observability' },
-  { id: 'logs', labelKey: 'navigation.panel.logs', groupKey: 'navigation.group.observability' },
-  { id: 'skill-paths', labelKey: 'navigation.panel.skillPaths', groupKey: 'navigation.group.configuration' },
-  { id: 'analytics', labelKey: 'navigation.panel.analytics', groupKey: 'navigation.group.insights' },
-  { id: 'marketplace', labelKey: 'navigation.panel.marketplace', groupKey: 'navigation.group.configuration' },
-  { id: 'integrations', labelKey: 'navigation.panel.integrations', groupKey: 'navigation.group.configuration' },
-];
-
-export const PANEL_ID_SET = new Set<Panel>(PANELS.map((p) => p.id));
-
-export const STATS_RANGE_IDS = new Set(['1h', '24h', '7d', 'all']);
-
-export function gatewayDocsHref(): string {
-  return `${window.location.origin}/docs`;
-}
-
-export function projectDocsHref(): string {
-  return 'https://github.com/dcc-mcp/dcc-mcp-core/tree/main/docs';
-}
-
-export function gatewayOpenApiHref(): string {
-  return `${window.location.origin}/v1/openapi.json`;
-}
-
-export function gatewayOpenApiSource(): OpenApiSource {
-  return {
-    label: 'Gateway REST API',
-    specUrl: gatewayOpenApiHref(),
-    docsUrl: gatewayDocsHref(),
-    inspectorUrl: fullHrefForAdmin('openapi'),
-    kind: 'gateway',
-  };
-}
-
-export function isPanelId(value: string | null | undefined): value is Panel {
-  return value != null && value !== '' && PANEL_ID_SET.has(value as Panel);
-}
-
-/** Admin HTML path without `/api` (honours custom `--admin-path`). */
-export function adminShellPath(): string {
-  const { pathname } = window.location;
-  let base = pathname.replace(/\/+$/, '');
-  if (base.endsWith('/index.html')) {
-    base = base.slice(0, -'/index.html'.length);
-  }
-  if (!base || base === '/') {
-    base = '/admin';
-  }
-  return base.startsWith('/') ? base : `/${base}`;
-}
-
-/** Shareable relative URL: `/admin?panel=stats&range=7d`. */
-export function hrefForAdmin(panel: Panel, extra?: Record<string, string | undefined>): string {
-  const u = new URL(`${window.location.origin}${adminShellPath()}`);
-  u.searchParams.set('panel', panel);
-  if (extra) {
-    for (const [k, v] of Object.entries(extra)) {
-      if (v != null && v !== '') {
-        u.searchParams.set(k, v);
-      }
-    }
-  }
-  return `${u.pathname}${u.search}`;
-}
-
-export function fullHrefForAdmin(panel: Panel, extra?: Record<string, string | undefined>): string {
-  return new URL(hrefForAdmin(panel, extra), window.location.origin).toString();
-}
-
-export function openApiInspectorHref(specUrl: string, docsUrl: string, label: string): string {
-  return hrefForAdmin('openapi', { spec: specUrl, docs: docsUrl, label });
-}
-
-export function readOpenApiSourceFromUrl(): OpenApiSource {
-  const u = new URL(window.location.href);
-  const spec = u.searchParams.get('spec')?.trim();
-  if (!spec) {
-    return gatewayOpenApiSource();
-  }
-  const docs = u.searchParams.get('docs')?.trim();
-  const label = u.searchParams.get('label')?.trim();
-  const specUrl = new URL(spec, window.location.origin).toString();
-  return {
-    label: label || 'Instance REST API',
-    specUrl,
-    docsUrl: docs ? new URL(docs, window.location.origin).toString() : specUrl.replace(/\/v1\/openapi\.json(?:[?#].*)?$/, '/docs'),
-    inspectorUrl: fullHrefForAdmin('openapi', { spec: specUrl, docs: docs ?? undefined, label: label ?? undefined }),
-    kind: 'instance',
-  };
-}
-
-export function traceLinks(requestId: string, provided?: AdminLinks): AdminLinks {
-  const encoded = encodeURIComponent(requestId);
-  return {
-    admin_trace_url: provided?.admin_trace_url ?? fullHrefForAdmin('traces', { trace: requestId }),
-    trace_api_url: provided?.trace_api_url ?? `${API_BASE}/traces/${encoded}`,
-    agent_trace_packet_url: provided?.agent_trace_packet_url ?? `${window.location.origin}/v1/debug/agent-traces/${encoded}`,
-    debug_bundle_url: provided?.debug_bundle_url ?? `${API_BASE}/debug-bundle/${encoded}`,
-    issue_report_url: provided?.issue_report_url ?? `${API_BASE}/issue-report/${encoded}`,
-    openapi_inspector_url: provided?.openapi_inspector_url ?? fullHrefForAdmin('openapi'),
-    openapi_spec_url: provided?.openapi_spec_url ?? gatewayOpenApiHref(),
-    openapi_docs_url: provided?.openapi_docs_url ?? gatewayDocsHref(),
-    stats_url: provided?.stats_url ?? fullHrefForAdmin('stats', { range: readStatsRangeFromUrl() }),
-    admin_traces_url: provided?.admin_traces_url ?? fullHrefForAdmin('traces'),
-  };
-}
-
-export function adminPathBases(): { adminBase: string; apiBase: string } {
-  try {
-    const apiBase = new URL(API_BASE).pathname.replace(/\/+$/, '') || '/admin/api';
-    const adminBase = apiBase.endsWith('/api') ? apiBase.slice(0, -'/api'.length) || '/admin' : '/admin';
-    return { adminBase, apiBase };
-  } catch {
-    return { adminBase: '/admin', apiBase: '/admin/api' };
-  }
-}
-
-export function publicSafeIssuePaths(requestId: string): Record<string, string> {
-  const encoded = encodeURIComponent(requestId);
-  const { adminBase, apiBase } = adminPathBases();
-  return {
-    admin_trace_path: `${adminBase}?panel=traces&trace=${encoded}`,
-    trace_api_path: `${apiBase}/traces/${encoded}`,
-    safe_issue_report_path: `${apiBase}/issue-report/${encoded}`,
-    raw_issue_report_path: `${apiBase}/issue-report/${encoded}?mode=raw`,
-    stable_safe_issue_report_path: `/v1/debug/issue-reports/${encoded}`,
-    stable_raw_issue_report_path: `/v1/debug/issue-reports/${encoded}?mode=raw`,
-    openapi_spec_path: '/v1/openapi.json',
-    docs_path: '/docs',
-  };
-}
-
-export function publicToolFamily(tool: string | null | undefined, method: string): string {
-  const raw = tool || method || 'unknown';
-  const lastSegment = raw.split('.').filter(Boolean).pop() || raw;
-  const family = lastSegment.includes('__') ? lastSegment.split('__').pop() || lastSegment : lastSegment;
-  return family.replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '') || 'unknown';
-}
-
-export function readPanelFromUrl(): Panel {
-  const u = new URL(window.location.href);
-  const raw = u.searchParams.get('panel');
-  return isPanelId(raw) ? raw : 'setup';
-}
-
-export function readStatsRangeFromUrl(): string {
-  const u = new URL(window.location.href);
-  const r = u.searchParams.get('range');
-  return r && STATS_RANGE_IDS.has(r) ? r : '24h';
-}
-
-export function readTraceIdFromUrl(): string | null {
-  const u = new URL(window.location.href);
-  const t = u.searchParams.get('trace');
-  return t != null && t.trim() !== '' ? t.trim() : null;
-}
 
 export function haystack(...parts: (string | number | null | undefined)[]): string {
   return parts
@@ -321,132 +140,6 @@ export function matchesListFilter(query: string, hay: string): boolean {
     return true;
   }
   return hay.includes(q);
-}
-
-export function isLoopbackHost(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]';
-}
-
-export function backendAccessUrls(mcpUrl: string): { origin: string; mcp: string; docs: string; openapi: string } {
-  const u = new URL(mcpUrl);
-  if (isLoopbackHost(u.hostname)) {
-    u.hostname = window.location.hostname;
-  }
-  const origin = u.origin;
-  return { origin, mcp: u.toString(), docs: `${origin}/docs`, openapi: `${origin}/v1/openapi.json` };
-}
-
-export function urlHost(host: string): string {
-  const trimmed = host.trim();
-  if (trimmed === '0.0.0.0' || trimmed === '::') {
-    return window.location.hostname;
-  }
-  if (trimmed.includes(':') && !trimmed.startsWith('[') && !trimmed.endsWith(']')) {
-    return `[${trimmed}]`;
-  }
-  return trimmed;
-}
-
-export function gatewaySentinelMcpUrl(sentinel: GatewaySentinel | null | undefined): string | null {
-  if (!sentinel || !sentinel.host || !Number.isFinite(sentinel.port) || sentinel.port <= 0) {
-    return null;
-  }
-  try {
-    return new URL('/mcp', `http://${urlHost(sentinel.host)}:${sentinel.port}`).toString();
-  } catch {
-    return null;
-  }
-}
-
-export function configuredDevGatewayMcpUrl(): string | null {
-  if (!import.meta.env.DEV || !isLoopbackHost(window.location.hostname)) {
-    return null;
-  }
-  const configured = String(import.meta.env.VITE_DCC_MCP_GATEWAY_URL ?? '').trim();
-  try {
-    if (configured) {
-      return new URL('/mcp', configured).toString();
-    }
-    return new URL('/mcp', `${window.location.protocol}//${window.location.hostname}:${DEFAULT_LOCAL_GATEWAY_PORT}`).toString();
-  } catch {
-    return null;
-  }
-}
-
-export function gatewayMcpUrl(health: HealthPayload | null): string {
-  return gatewaySentinelMcpUrl(health?.gateway?.current)
-    ?? configuredDevGatewayMcpUrl()
-    ?? new URL('/mcp', window.location.origin).toString();
-}
-
-export function gatewayMcpUrlFromPage(): string {
-  return new URL('/mcp', window.location.origin).toString();
-}
-
-export function lanGatewayMcpUrl(): string | null {
-  if (isLoopbackHost(window.location.hostname)) {
-    return null;
-  }
-  return gatewayMcpUrlFromPage();
-}
-
-export function instanceSetupLabel(instance: InstanceRow): string {
-  return `${instance.display_name || instance.dcc_type} (${instance.instance_id.slice(0, 8)})`;
-}
-
-export function detectClientPlatform(): ClientPlatform {
-  const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
-  const primaryPlatform = `${nav.userAgentData?.platform ?? navigator.platform ?? ''}`.toLowerCase();
-  if (primaryPlatform.includes('win')) {
-    return 'windows';
-  }
-  if (primaryPlatform.includes('mac')) {
-    return 'macos';
-  }
-  if (primaryPlatform.includes('linux') || primaryPlatform.includes('x11')) {
-    return 'linux';
-  }
-
-  const userAgent = `${navigator.userAgent ?? ''}`.toLowerCase();
-  if (userAgent.includes('win')) {
-    return 'windows';
-  }
-  if (userAgent.includes('mac')) {
-    return 'macos';
-  }
-  return 'linux';
-}
-
-export function configPathForTarget(target: IdeTarget, platform: ClientPlatform): string {
-  if (typeof target.configPath === 'string') {
-    return target.configPath;
-  }
-  return target.configPath[platform] ?? target.configPath.linux;
-}
-
-export function ideConfigText(target: IdeTarget, url: string): string {
-  return target.build(url);
-}
-
-export function configPathFileUrl(path: string): string | null {
-  if (path.startsWith('%') || path.startsWith('~') || path.includes('->')) {
-    return null;
-  }
-  const normalized = path.replace(/\\/g, '/');
-  return normalized.match(/^[A-Za-z]:\//) ? `file:///${normalized}` : null;
-}
-
-export function instanceOpenApiSource(instance: InstanceRow): OpenApiSource {
-  const urls = backendAccessUrls(instance.mcp_url);
-  const label = `${instance.display_name || instance.dcc_type} ${instance.instance_id.slice(0, 8)}`;
-  return {
-    label,
-    specUrl: urls.openapi,
-    docsUrl: urls.docs,
-    inspectorUrl: new URL(openApiInspectorHref(urls.openapi, urls.docs, label), window.location.origin).toString(),
-    kind: 'instance',
-  };
 }
 
 export function BackendAccessUrl({ mcpUrl }: { mcpUrl: string }) {
@@ -480,25 +173,6 @@ export function McpBackendLinks({ mcpUrl }: { mcpUrl: string }) {
   }
 }
 
-export async function apiJson<T>(path: string): Promise<T> {
-  const ctrl = new AbortController();
-  const tid = window.setTimeout(() => ctrl.abort(), ADMIN_FETCH_TIMEOUT_MS);
-  try {
-    const response = await fetch(`${API_BASE}${path}`, { signal: ctrl.signal });
-    if (!response.ok) {
-      throw new Error(`${response.status} ${response.statusText}`);
-    }
-    return (await response.json()) as T;
-  } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new Error(`Request timed out after ${ADMIN_FETCH_TIMEOUT_MS / 1000}s`);
-    }
-    throw err;
-  } finally {
-    clearTimeout(tid);
-  }
-}
-
 export function BackendOpenApiLinks({ instance }: { instance: InstanceRow }) {
   try {
     const source = instanceOpenApiSource(instance);
@@ -514,86 +188,6 @@ export function BackendOpenApiLinks({ instance }: { instance: InstanceRow }) {
   } catch {
     return <span className="mono-path">{instance.mcp_url}</span>;
   }
-}
-
-export async function issueReportJsonText(requestId: string): Promise<string> {
-  const payload = await apiJson<unknown>(`/issue-report/${encodeURIComponent(requestId)}`);
-  return JSON.stringify(payload, null, 2);
-}
-
-export function issueReportFilename(requestId: string): string {
-  const safe = requestId.replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '') || 'request';
-  return `dcc-mcp-issue-report-${safe}.json`;
-}
-
-export function openApiSpecFilename(label: string): string {
-  const safe = label.replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '') || 'gateway';
-  return `dcc-mcp-openapi-${safe}.json`;
-}
-
-export function downloadJsonText(filename: string, text: string): void {
-  const blob = new Blob([text], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
-export async function fetchOpenApiSpecText(specUrl: string): Promise<{ spec: OpenApiSpec; raw: string }> {
-  const ctrl = new AbortController();
-  const tid = window.setTimeout(() => ctrl.abort(), ADMIN_FETCH_TIMEOUT_MS);
-  try {
-    const response = await fetch(specUrl, { signal: ctrl.signal });
-    if (!response.ok) {
-      throw new Error(`${response.status} ${response.statusText}`);
-    }
-    const text = await response.text();
-    const spec = JSON.parse(text) as OpenApiSpec;
-    return { spec, raw: JSON.stringify(spec, null, 2) };
-  } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new Error(`Request timed out after ${ADMIN_FETCH_TIMEOUT_MS / 1000}s`);
-    }
-    throw err;
-  } finally {
-    clearTimeout(tid);
-  }
-}
-
-export function flattenOpenApiOperations(spec: OpenApiSpec | null): OpenApiOperationRow[] {
-  const rows: OpenApiOperationRow[] = [];
-  const paths = spec?.paths ?? {};
-  for (const [path, rawPathItem] of Object.entries(paths)) {
-    if (!rawPathItem || typeof rawPathItem !== 'object' || Array.isArray(rawPathItem)) {
-      continue;
-    }
-    for (const [method, rawOperation] of Object.entries(rawPathItem as Record<string, unknown>)) {
-      const methodKey = method.toLowerCase();
-      if (!OPENAPI_METHODS.has(methodKey) || !rawOperation || typeof rawOperation !== 'object' || Array.isArray(rawOperation)) {
-        continue;
-      }
-      const operation = rawOperation as OpenApiOperationObject;
-      const responseCodes = Object.keys(operation.responses ?? {});
-      const tags = Array.isArray(operation.tags) ? operation.tags.filter((tag): tag is string => typeof tag === 'string') : [];
-      const operationId = operation.operationId ?? `${methodKey}_${path.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '')}`;
-      rows.push({
-        key: `${methodKey.toUpperCase()} ${path}`,
-        method: methodKey.toUpperCase(),
-        path,
-        operationId,
-        summary: operation.summary ?? operation.description ?? '',
-        tags,
-        responseCodes,
-        hasRequestBody: operation.requestBody != null,
-        parameterCount: Array.isArray(operation.parameters) ? operation.parameters.length : 0,
-      });
-    }
-  }
-  return rows.sort((a, b) => a.path.localeCompare(b.path) || a.method.localeCompare(b.method));
 }
 
 export function formatUptime(value: number | null | undefined): string {
