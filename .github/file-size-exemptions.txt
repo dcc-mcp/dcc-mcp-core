@@ -14,3 +14,5 @@
 python/dcc_mcp_core/server_base.py
 # PIP-494 — trace.rs 1506L, needs LlmUsage/TokenTelemetry/TracePayload extraction
 crates/dcc-mcp-gateway/src/gateway/admin/trace.rs
+# PIP-687 — service.rs 1504L, exceeds 1500 limit
+crates/dcc-mcp-skill-rest/src/service.rs
