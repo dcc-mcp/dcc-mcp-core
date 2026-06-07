@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -16,7 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = REPO_ROOT / ".github" / "clawhub-skills.json"
 DEFAULT_CLI = os.environ.get("CLAWHUB_CLI_PACKAGE", "clawhub@0.17.0")
 CLAWHUB_LICENSE = "MIT-0"
-VERSION_EXISTS_MARKER = "Version already exists"
+VERSION_EXISTS_RE = re.compile(r"\bVersion(?:\s+\S+)?\s+already exists\b")
 
 
 def parse_args() -> argparse.Namespace:
@@ -92,7 +93,7 @@ def print_completed_process_output(proc: subprocess.CompletedProcess[str]) -> No
 def version_already_exists(proc: subprocess.CompletedProcess[str]) -> bool:
     """Return True when ClawHub reports that the immutable version exists."""
     output = "\n".join(part for part in (proc.stdout, proc.stderr) if part)
-    return VERSION_EXISTS_MARKER in output
+    return VERSION_EXISTS_RE.search(output) is not None
 
 
 def publish_one(
