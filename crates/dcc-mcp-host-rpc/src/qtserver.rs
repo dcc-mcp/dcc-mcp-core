@@ -36,7 +36,8 @@
 //! ```
 //!
 //! The DCC-side dispatcher (published as `dcc_mcp_core.qt_dispatcher` and
-//! mirrored in this crate for Cargo packaging) runs cooperatively on the host's
+//! embedded directly from the canonical source via `include_str!`) runs
+//! cooperatively on the host's
 //! Qt event loop via `QTcpServer` + a 50 ms `QTimer`. Every request is
 //! `try/except`-wrapped per handler so a Python-level failure produces
 //! a structured error envelope instead of leaking to a host modal
@@ -104,12 +105,17 @@ pub const DISPATCH_METHOD: &str = "dispatch";
 
 /// Universal in-DCC dispatcher Python source.
 ///
+/// Embedded directly from the canonical source at
+/// `python/dcc_mcp_core/qt_dispatcher.py` — the single source of truth
+/// for the Qt dispatcher. Path is relative to this source file (the
+/// workspace root is three directories up from `src/`).
+///
 /// Re-exported as a public constant so adapter plug-ins that want to
 /// install the dispatcher eagerly (no commandPort bootstrap dance)
 /// can `include_str!`-equivalent the same source the lazy bootstrap
 /// path uses. Tests use it to spin up a real `QtCommandServer` inside
 /// a synthetic Python interpreter.
-pub const DISPATCHER_PY: &str = include_str!("../python/dcc_qt_dispatcher.py");
+pub const DISPATCHER_PY: &str = include_str!("../../../python/dcc_mcp_core/qt_dispatcher.py");
 
 /// Bootstrap installer source.
 ///
