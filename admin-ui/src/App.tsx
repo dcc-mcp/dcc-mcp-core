@@ -103,11 +103,11 @@ function App() {
   const traceDetailQuery = useTraceDetailQuery(selectedTraceId);
   const traceDetail = useMemo(() => {
     if (!selectedTraceId) return 'Select a trace row for detail.';
-    if (traceDetailQuery.isLoading) return 'Loading…';
-    if (traceDetailQuery.error) return `Error: ${traceDetailQuery.error.message}`;
+    if (traceDetailQuery.isLoading) return t('common.status.loading');
+    if (traceDetailQuery.error) return t('common.status.errorPrefix', { message: traceDetailQuery.error.message });
     if (traceDetailQuery.data != null) return JSON.stringify(traceDetailQuery.data, null, 2);
-    return 'No data.';
-  }, [selectedTraceId, traceDetailQuery]);
+    return t('common.status.noData');
+  }, [selectedTraceId, traceDetailQuery, t]);
   const traceDetailPayload: TraceDetailPayload | null = useMemo(() => {
     if (!selectedTraceId || traceDetailQuery.error || traceDetailQuery.isLoading) return null;
     return traceDetailQuery.data as TraceDetailPayload | null;
@@ -117,17 +117,18 @@ function App() {
 
   type QueryMeta = { dataUpdatedAt: number; error: Error | null; isLoading: boolean };
   function queryMeta(q: QueryMeta): string {
-    if (q.error) return `Error: ${q.error.message}`;
-    if (q.isLoading) return 'Loading…';
+    if (q.error) return t('common.status.errorPrefix', { message: q.error.message });
+    if (q.isLoading) return t('common.status.loading');
     if (q.dataUpdatedAt > 0) {
       return new Date(q.dataUpdatedAt).toLocaleTimeString();
     }
-    return 'Waiting…';
+    return t('common.status.waiting');
   }
 
   // SkillsPanel manages its own data; we keep lightweight status state for it
   const [skillPathsUpdatedAt, setSkillPathsUpdatedAt] = useState('');
   const [skillPathsError, setSkillPathsError] = useState<string | undefined>();
+  const [highlightSkillName, setHighlightSkillName] = useState<string | null>(null);
   const [marketplaceCounts, setMarketplaceCounts] = useState({ total: 0, installed: 0 });
   const [marketplaceUpdatedAt, setMarketplaceUpdatedAt] = useState('');
   const [marketplaceError, setMarketplaceError] = useState<string | undefined>();
@@ -1082,7 +1083,7 @@ function App() {
       const payload = await apiJson<unknown>(`/traces/${encodeURIComponent(requestId)}`);
       setCallDetail(JSON.stringify(payload, null, 2));
     } catch (error) {
-      setCallDetail(`Error: ${error instanceof Error ? error.message : String(error)}`);
+      setCallDetail(t('common.status.errorPrefix', { message: error instanceof Error ? error.message : String(error) }));
     }
   }, []);
 
@@ -1171,6 +1172,15 @@ function App() {
       }
     },
     [pushAdminUrl, statsRange],
+  );
+
+  /// Navigate to Skills panel and highlight a freshly installed skill.
+  const handleNavigateToSkills = useCallback(
+    (skillName: string) => {
+      setHighlightSkillName(skillName);
+      goToPanel('skill-paths');
+    },
+    [goToPanel],
   );
 
   useEffect(() => {
@@ -1377,10 +1387,10 @@ function App() {
                     <pre className="ide-config-preview">{config}</pre>
                     <div className="ide-card-actions">
                       <button className="copy-btn" type="button" onClick={() => copyText(config, `${target.label} config`)}>
-                        Copy
+                        {t('common.action.copy')}
                       </button>
                       <button className="refresh-btn" type="button" onClick={() => openConfigLocation(target, configPath)}>
-                        Open file
+                        {t('common.action.openFile')}
                       </button>
                     </div>
                   </article>
@@ -2429,6 +2439,8 @@ function App() {
           onUpdated={(text) => setSkillPathsUpdatedAt(text)}
           onError={(err) => setSkillPathsError(err instanceof Error ? err.message : String(err))}
           onCountsChange={setSkillCounts}
+          highlightSkillName={highlightSkillName}
+          onHighlightConsumed={() => setHighlightSkillName(null)}
           t={t}
         />
 
@@ -2445,6 +2457,8 @@ function App() {
           onUpdated={(text) => setMarketplaceUpdatedAt(text)}
           onError={(err) => setMarketplaceError(err instanceof Error ? err.message : String(err))}
           onCountsChange={setMarketplaceCounts}
+          coreVersion={health?.version ?? null}
+          onNavigateToSkills={handleNavigateToSkills}
           t={t}
         />
 

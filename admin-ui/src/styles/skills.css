@@ -418,6 +418,28 @@
   to { transform: translateX(0); opacity: 1; }
 }
 
+/* Deep-link highlight animation — brief green flash on the target card. */
+.skill-card-highlight {
+  animation: skill-card-pulse 2s ease;
+}
+
+@keyframes skill-card-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--skill-brand) 70%, transparent);
+  }
+  15% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--skill-brand) 50%, transparent),
+      0 12px 32px -16px color-mix(in srgb, var(--skill-brand) 60%, transparent);
+    border-color: var(--skill-brand);
+  }
+  40% {
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--skill-brand) 0%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--skill-brand) 0%, transparent);
+  }
+}
+
 /* Card-grid responsive tightening on narrow viewports */
 @media (max-width: 720px) {
   .skill-card-grid {
