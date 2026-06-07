@@ -13,7 +13,7 @@ metadata:
   dcc-mcp:
     dcc: python
     layer: infrastructure
-    version: "0.18.7"  # x-release-please-version
+    version: "0.18.8"  # x-release-please-version
     search-hint: >-
       create DCC MCP adapter, Nuke MCP, DccServerBase, HostExecutionBridge,
       dispatcher, readiness, resources, gateway, Blender, 3ds Max, Unreal,

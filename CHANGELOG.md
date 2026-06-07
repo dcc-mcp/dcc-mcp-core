@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.8](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.7...v0.18.8) (2026-06-07)
+
+
+### Bug Fixes
+
+* **ci:** add npm ci retry in build-wheel action for transient network errors ([cd020e2](https://github.com/dcc-mcp/dcc-mcp-core/commit/cd020e2e9b084594a2c088793cf6647855ccbc51))
+* **gateway:** add abort_and_wait to GatewayHandle to prevent SIGABRT on shutdown ([5e152f8](https://github.com/dcc-mcp/dcc-mcp-core/commit/5e152f8a28a709a583a88c8e8cdd6ce09ff21dbb))
+* **gateway:** add abort_and_wait to GatewayHandle to prevent SIGABRT on shutdown ([99eb553](https://github.com/dcc-mcp/dcc-mcp-core/commit/99eb553cf6aae0b87062fcd27d816a45a9e678de))
+
 ## [0.18.7](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.6...v0.18.7) (2026-06-06)
 
 
