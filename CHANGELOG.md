@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.10](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.9...v0.18.10) (2026-06-07)
+
+
+### Features
+
+* **admin-ui:** add marketplace detail modal and platform module ([262bf4d](https://github.com/dcc-mcp/dcc-mcp-core/commit/262bf4de5f9d27ada5faf9f294aa9385ccf8da83))
+* **admin-ui:** add marketplace Playwright E2E test specs ([347389a](https://github.com/dcc-mcp/dcc-mcp-core/commit/347389aeb1d4a6655eb74cec6818b8c6f6498505))
+* **catalog:** add dcc-mcp-maya-mgear entry ([676b1d8](https://github.com/dcc-mcp/dcc-mcp-core/commit/676b1d8c59a42756896eac9e6df94d1d55db1620))
+* **gateway:** add dcc_types[] + tags_any OR filters to search ([b778a9e](https://github.com/dcc-mcp/dcc-mcp-core/commit/b778a9e42c199f05da2e782cc25567faa1ca6297))
+* **skills:** add marketplace-publish-extension skill package ([500a010](https://github.com/dcc-mcp/dcc-mcp-core/commit/500a010cf637ea7adbb5fdc1a2e5271553b8fdb9))
+
+
+### Bug Fixes
+
+* deduplicate Qt dispatcher Python implementation ([d203895](https://github.com/dcc-mcp/dcc-mcp-core/commit/d2038954c31d7ef47bc0ddfb8f1e7e68f0896166))
+* resolve TypeScript and markdown lint issues ([cffa316](https://github.com/dcc-mcp/dcc-mcp-core/commit/cffa316bba0c58ea22e07b2280a7cc422dcbb08e))
+* sort imports in clawhub_sync.py (ruff I001) ([5f62525](https://github.com/dcc-mcp/dcc-mcp-core/commit/5f62525c23e2db7d976152c86bb831111da39b8a))
+* tolerate versioned ClawHub duplicate error messages ([a44f7c2](https://github.com/dcc-mcp/dcc-mcp-core/commit/a44f7c2edc1018a4eb0e84697ab26687983705a6))
+* tolerate versioned ClawHub duplicate errors ([b3483ad](https://github.com/dcc-mcp/dcc-mcp-core/commit/b3483adee9394a6ab1d988a78c4917434eb23b7d))
+
 ## [0.18.9](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.8...v0.18.9) (2026-06-07)
 
 
