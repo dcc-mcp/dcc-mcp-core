@@ -412,6 +412,7 @@ pub async fn tool_search_tools(
         kind: "tool".to_string(),
         query: query.query.clone(),
         dcc_type: query.dcc_type.clone(),
+        dcc_types: query.dcc_types.clone(),
         instance_id: query.instance_id.map(|id| id.to_string()),
         limit: query.limit,
         total: annotated.len(),
@@ -423,6 +424,7 @@ pub async fn tool_search_tools(
             .map(str::to_string)
             .or_else(|| agent_context.and_then(|ctx| ctx.session_id.clone())),
         agent_context: agent_context.cloned(),
+        tags_any: query.tags_any.clone(),
     });
 
     serde_json::to_string_pretty(&json!({
@@ -975,6 +977,8 @@ fn annotate_skill_search_payload(
             .map(str::to_string)
             .or_else(|| agent_context.and_then(|ctx| ctx.session_id.clone())),
         agent_context: agent_context.cloned(),
+        dcc_types: vec![],
+        tags_any: vec![],
     });
     serde_json::to_string_pretty(&payload).unwrap_or_else(|_| text.to_string())
 }
@@ -1135,8 +1139,10 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                     "kind": {"type": "string", "enum": ["tool", "skill", "all"], "default": "tool"},
                     "query": {"type": "string"},
                     "dcc_type": {"type": "string"},
+                    "dcc_types": {"type": "array", "items": {"type": "string"}, "description": "OR-matched DCC types. Combined with singular dcc_type."},
                     "dcc": {"type": "string", "description": "Alias of dcc_type for skill search"},
                     "tags": {"type": "array", "items": {"type": "string"}},
+                    "tags_any": {"type": "array", "items": {"type": "string"}, "description": "OR tag filter — rows carrying any of these tags pass. tags remains AND."},
                     "limit": {"type": "integer", "minimum": 0},
                     "response_format": {"type": "string", "enum": ["json", "toon"], "description": "Wrapper-level output format. Prefer MCP params._meta.response_format for clients that keep tool arguments pure."},
                     "compact": {"type": "boolean", "description": "Alias for response_format=toon when true."}

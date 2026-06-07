@@ -572,6 +572,7 @@ pub async fn handle_v1_search(
         kind: "tool".to_string(),
         query: query.query.clone(),
         dcc_type: query_dcc_type.clone(),
+        dcc_types: query.dcc_types.clone(),
         instance_id: query_instance_id.clone(),
         limit: query.limit,
         total,
@@ -581,6 +582,7 @@ pub async fn handle_v1_search(
         trace_context: Some(trace_context.clone()),
         session_id: session_id.clone(),
         agent_context: agent_context.clone(),
+        tags_any: query.tags_any.clone(),
     });
     AgentWorkflowEvent::new("gateway.search", "rest")
         .with_trace_context(Some(&trace_context))

@@ -47,7 +47,13 @@ pub struct SearchRequest {
     #[serde(default)]
     pub dcc_type: Option<String>,
     #[serde(default)]
+    pub dcc_types: Vec<String>,
+    #[serde(default)]
     pub tags: Vec<String>,
+    /// OR tag filter — rows carrying any of these tags pass the tag filter.
+    /// `tags` is still AND. Empty = no extra filter.
+    #[serde(default)]
+    pub tags_any: Vec<String>,
     #[serde(default)]
     pub scope: Option<String>,
     /// Only include actions belonging to loaded skills. Defaults to
@@ -66,7 +72,9 @@ impl Default for SearchRequest {
         Self {
             query: None,
             dcc_type: None,
+            dcc_types: Vec::new(),
             tags: Vec::new(),
+            tags_any: Vec::new(),
             scope: None,
             loaded_only: true,
             limit: None,

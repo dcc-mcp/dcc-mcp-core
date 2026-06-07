@@ -508,7 +508,9 @@ Rules:
 {
   "query": "render",
   "dcc_type": "maya",
+  "dcc_types": ["blender"],
   "tags": ["batch"],
+  "tags_any": ["read-only", "docs"],
   "loaded_only": false,
   "limit": 20,
   "mode": "fuzzy",
@@ -535,7 +537,10 @@ Rules:
   skills, tags, summaries, author-declared aliases, and schema-field tokens first, then
   nucleo-matcher fuzzy fallback for typos and partial names. `mode: "exact"`
   falls back to the pre-#659 substring table.
-- `dcc_type`, `tags`, `loaded_only` — progressive filters. `loaded_only = false` surfaces unloaded skills as search hits so agents can discover `load_skill` candidates.
+	- `dcc_type` (singular), `dcc_types[]` — **OR**: match any listed DCC family. Include both `dcc_type: "maya"` and `dcc_types: ["blender", "houdini"]` to surface records from multiple hosts in one request.
+	- `tags[]` — **AND**: a result must carry every listed tag.
+	- `tags_any[]` — **OR**: a result carrying any listed tag passes. Combines with the AND `tags` filter.
+	- `loaded_only` — `loaded_only = false` surfaces unloaded skills as search hits so agents can discover `load_skill` candidates.
 - `limit` — the server enforces a ~512 B/hit token budget so search stays cheap for large catalogues.
 - Gateway policy filters run before the final hit list is returned. A missing
   hit may mean the capability is absent, unloaded, or intentionally hidden by

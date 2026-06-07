@@ -74,6 +74,8 @@ pub struct SearchTelemetryRecord {
     pub query_hash: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dcc_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dcc_types: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instance_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -85,6 +87,8 @@ pub struct SearchTelemetryRecord {
     pub hits: Vec<SearchTelemetryHit>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub followups: Vec<SearchFollowupTelemetry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags_any: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_success_ms: Option<u64>,
 }
@@ -125,6 +129,7 @@ pub struct SearchTelemetryInput {
     pub kind: String,
     pub query: String,
     pub dcc_type: Option<String>,
+    pub dcc_types: Vec<String>,
     pub instance_id: Option<String>,
     pub limit: Option<u32>,
     pub total: usize,
@@ -134,6 +139,7 @@ pub struct SearchTelemetryInput {
     pub trace_context: Option<TraceContext>,
     pub session_id: Option<String>,
     pub agent_context: Option<AgentContext>,
+    pub tags_any: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -245,6 +251,14 @@ impl SearchTelemetryStore {
             query_preview: query_preview(&input.query),
             query_hash: hash_query(&query_norm),
             dcc_type: input.dcc_type,
+            dcc_types: bounded_list(
+                input
+                    .dcc_types
+                    .iter()
+                    .map(|d| d.trim().to_ascii_lowercase())
+                    .filter(|d| !d.is_empty()),
+                10,
+            ),
             instance_id: input.instance_id,
             limit: input.limit,
             total: input.total,
@@ -252,6 +266,14 @@ impl SearchTelemetryStore {
             reformulation_of,
             hits: input.hits,
             followups: Vec::new(),
+            tags_any: bounded_list(
+                input
+                    .tags_any
+                    .iter()
+                    .map(|t| t.trim().to_ascii_lowercase())
+                    .filter(|t| !t.is_empty()),
+                20,
+            ),
             first_success_ms: None,
         };
 
@@ -633,6 +655,13 @@ fn take_chars(value: &str, max: usize) -> String {
     value.chars().take(max).collect()
 }
 
+fn bounded_list<I>(items: I, max: usize) -> Vec<String>
+where
+    I: Iterator<Item = String>,
+{
+    items.take(max).collect()
+}
+
 fn rank_bucket(rank: Option<u32>) -> &'static str {
     match rank {
         Some(1) => "top1",
@@ -689,6 +718,7 @@ mod tests {
             kind: "tool".to_string(),
             query: "create sphere".to_string(),
             dcc_type: Some("maya".to_string()),
+            dcc_types: vec![],
             instance_id: None,
             limit: Some(5),
             total: 2,
@@ -701,6 +731,7 @@ mod tests {
             trace_context: Some(trace("search-1")),
             session_id: Some("sess-1".to_string()),
             agent_context: None,
+            tags_any: vec![],
         });
         for (kind, slug, skill, success) in [
             ("describe", Some("maya.11111111.create_sphere"), None, true),
@@ -739,6 +770,7 @@ mod tests {
             kind: "tool".to_string(),
             query: "token=abc123 impossible query".to_string(),
             dcc_type: Some("maya".to_string()),
+            dcc_types: vec![],
             instance_id: None,
             limit: Some(5),
             total: 0,
@@ -748,6 +780,7 @@ mod tests {
             trace_context: Some(trace("search-a")),
             session_id: None,
             agent_context: None,
+            tags_any: vec![],
         });
         store.record_search(SearchTelemetryInput {
             search_id: "search-b".to_string(),
@@ -755,6 +788,7 @@ mod tests {
             kind: "tool".to_string(),
             query: "sphere".to_string(),
             dcc_type: Some("maya".to_string()),
+            dcc_types: vec![],
             instance_id: None,
             limit: Some(5),
             total: 1,
@@ -764,6 +798,7 @@ mod tests {
             trace_context: Some(trace("search-b")),
             session_id: None,
             agent_context: None,
+            tags_any: vec![],
         });
 
         let snapshot = store.snapshot(10);
@@ -793,6 +828,7 @@ mod tests {
             kind: "tool".to_string(),
             query: "missing sphere creator".to_string(),
             dcc_type: Some("maya".to_string()),
+            dcc_types: vec![],
             instance_id: None,
             limit: Some(5),
             total: 0,
@@ -802,6 +838,7 @@ mod tests {
             trace_context: None,
             session_id: None,
             agent_context: Some(turn_context.clone()),
+            tags_any: vec![],
         });
         store.record_search(SearchTelemetryInput {
             search_id: "search-turn-b".to_string(),
@@ -809,6 +846,7 @@ mod tests {
             kind: "tool".to_string(),
             query: "sphere".to_string(),
             dcc_type: Some("maya".to_string()),
+            dcc_types: vec![],
             instance_id: None,
             limit: Some(5),
             total: 1,
@@ -818,6 +856,7 @@ mod tests {
             trace_context: None,
             session_id: None,
             agent_context: Some(turn_context),
+            tags_any: vec![],
         });
         assert!(store.record_followup(SearchFollowupInput {
             search_id: "search-turn-b".to_string(),
