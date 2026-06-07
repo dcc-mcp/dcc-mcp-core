@@ -1,7 +1,7 @@
 name: Python Matrix (full, nightly)
 
 # Drift-detection counterpart to ci.yml's trimmed python-test matrix.
-# PRs run 7 cells (ubuntu × all pythons + windows/macos × {3.8, 3.13}).
+# PRs run 10 cells (ubuntu × all pythons + windows/macos × {3.8, 3.13, 3.14}).
 # This job runs the full 3×6 matrix weekly so middle Python versions on
 # Windows/macOS still get exercised, just not on every PR.
 
@@ -24,7 +24,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
         exclude:
           # Python 3.8 is no longer present in the windows-latest hosted-tool
           # cache; keep the oldest Windows cell on windows-2022.
