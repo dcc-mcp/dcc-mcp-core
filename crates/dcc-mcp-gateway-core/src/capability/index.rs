@@ -17,7 +17,9 @@
 //! without depending on the gateway crate's tokio / axum / parking_lot
 //! footprint.
 
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use uuid::Uuid;
@@ -36,6 +38,44 @@ use super::record::CapabilityRecord;
 /// that hash so comparisons are O(1).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct InstanceFingerprint(pub u64);
+
+/// Compute a stable content fingerprint over every identity-relevant
+/// field of `records`.
+///
+/// The union of fields hashed here is the canonical set — every field
+/// whose change should cause the refresh loop to rebuild the instance
+/// slice. The two historical private implementations in
+/// `dcc-mcp-gateway`'s `builder.rs` and `refresh.rs` hashed different
+/// subsets; this function is the single source of truth.
+///
+/// Callers that already hold a `BuildOutcome` may use its pre-computed
+/// `fingerprint` field instead of calling this again.
+#[must_use]
+pub fn compute_fingerprint(records: &[CapabilityRecord]) -> InstanceFingerprint {
+    let mut hasher = DefaultHasher::new();
+    for r in records {
+        r.tool_slug.hash(&mut hasher);
+        r.skill_name.hash(&mut hasher);
+        r.has_schema.hash(&mut hasher);
+        r.summary.hash(&mut hasher);
+        r.loaded.hash(&mut hasher);
+        r.tool_group.hash(&mut hasher);
+        r.annotations.hash(&mut hasher);
+        r.metadata.hash(&mut hasher);
+        for group in &r.available_groups {
+            group.name.hash(&mut hasher);
+            group.default_active.hash(&mut hasher);
+            group.active.hash(&mut hasher);
+        }
+        for t in &r.tags {
+            t.hash(&mut hasher);
+        }
+        for t in &r.search_tokens {
+            t.hash(&mut hasher);
+        }
+    }
+    InstanceFingerprint(hasher.finish())
+}
 
 /// Owned snapshot of the capability index returned to REST / MCP
 /// callers.
@@ -105,6 +145,68 @@ mod tests {
         // rebuilds via `==`; pin the structural-equality contract.
         assert_eq!(InstanceFingerprint(42), InstanceFingerprint(42));
         assert_ne!(InstanceFingerprint(42), InstanceFingerprint(43));
+    }
+
+    #[test]
+    fn compute_fingerprint_is_deterministic() {
+        let rec = make_record("maya.abcdef01.create_sphere");
+        let fp_a = compute_fingerprint(&[rec.clone()]);
+        let fp_b = compute_fingerprint(&[rec]);
+        assert_eq!(fp_a, fp_b);
+    }
+
+    #[test]
+    fn compute_fingerprint_changes_on_tool_slug() {
+        let a = make_record("maya.abcdef01.create_sphere");
+        let mut b = a.clone();
+        b.tool_slug = "maya.abcdef01.create_cube".into();
+        assert_ne!(compute_fingerprint(&[a]), compute_fingerprint(&[b]));
+    }
+
+    #[test]
+    fn compute_fingerprint_changes_on_loaded() {
+        let mut a = make_record("maya.abcdef01.t");
+        a.loaded = true;
+        let mut b = a.clone();
+        b.loaded = false;
+        assert_ne!(compute_fingerprint(&[a]), compute_fingerprint(&[b]));
+    }
+
+    #[test]
+    fn compute_fingerprint_changes_on_annotations() {
+        use crate::capability::record::CapabilityAnnotations;
+        let a = make_record("maya.abcdef01.t");
+        let mut b = a.clone();
+        b.annotations = Some(CapabilityAnnotations {
+            title: Some("Test".into()),
+            read_only_hint: Some(true),
+            destructive_hint: None,
+            idempotent_hint: None,
+            open_world_hint: None,
+        });
+        assert_ne!(compute_fingerprint(&[a]), compute_fingerprint(&[b]));
+    }
+
+    #[test]
+    fn compute_fingerprint_changes_on_metadata() {
+        use crate::capability::record::CapabilityMetadata;
+        let a = make_record("maya.abcdef01.t");
+        let mut b = a.clone();
+        b.metadata = Some(CapabilityMetadata {
+            affinity: None,
+            execution: None,
+            timeout_hint_secs: None,
+            enforce_thread_affinity: None,
+            risk: Some("mutation".into()),
+            tool_role: None,
+        });
+        assert_ne!(compute_fingerprint(&[a]), compute_fingerprint(&[b]));
+    }
+
+    #[test]
+    fn compute_fingerprint_empty_list_is_stable() {
+        let fp = compute_fingerprint(&[]);
+        assert_eq!(fp, compute_fingerprint(&[]));
     }
 
     #[test]

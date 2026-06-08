@@ -17,18 +17,15 @@
 //! `&[dcc_mcp_jsonrpc::McpTool]` — the type contract belongs in the
 //! crate that already depends on `dcc-mcp-jsonrpc`.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-
 use serde_json::Value;
 use uuid::Uuid;
 
+use dcc_mcp_gateway_core::capability::compute_fingerprint;
 use dcc_mcp_gateway_core::naming::{
     decode_skill_tool_name, extract_bare_tool_name, is_core_tool, is_local_tool,
 };
 use dcc_mcp_jsonrpc::McpTool;
 
-use super::index::InstanceFingerprint;
 use super::record::{
     CapabilityAnnotations, CapabilityGroupInfo, CapabilityMetadata, CapabilityRecord,
     SCHEMA_AVAILABLE, is_valid_dcc_bucket, tool_slug,
@@ -257,25 +254,6 @@ fn meta_declares_schema(meta: Option<&serde_json::Map<String, Value>>) -> bool {
         .and_then(|dcc| dcc.get("has_schema"))
         .and_then(Value::as_bool)
         .unwrap_or(false)
-}
-
-fn compute_fingerprint(records: &[CapabilityRecord]) -> InstanceFingerprint {
-    let mut hasher = DefaultHasher::new();
-    for r in records {
-        r.tool_slug.hash(&mut hasher);
-        r.skill_name.hash(&mut hasher);
-        r.has_schema.hash(&mut hasher);
-        r.summary.hash(&mut hasher);
-        r.annotations.hash(&mut hasher);
-        r.metadata.hash(&mut hasher);
-        for t in &r.tags {
-            t.hash(&mut hasher);
-        }
-        for t in &r.search_tokens {
-            t.hash(&mut hasher);
-        }
-    }
-    InstanceFingerprint(hasher.finish())
 }
 
 fn extract_search_tokens(tool: &McpTool) -> Vec<String> {
