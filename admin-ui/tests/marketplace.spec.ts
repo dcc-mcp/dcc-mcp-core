@@ -3,6 +3,8 @@ import { test, expect, type Page } from '@playwright/test';
 type MockState = {
   catalog: object[];
   installed: object[];
+  sources: object[];
+  outdated: object[];
 };
 
 async function mockMarketplaceApi(page: Page, state: MockState) {
@@ -26,8 +28,44 @@ async function mockMarketplaceApi(page: Page, state: MockState) {
       body = { entries: state.catalog };
     } else if (path === '/marketplace/installed') {
       body = { packages: state.installed };
+    } else if (path === '/marketplace/sources' && method === 'GET') {
+      body = { sources: state.sources };
+    } else if (path === '/marketplace/sources' && method === 'POST') {
+      const payload = route.request().postDataJSON() as { source?: string };
+      const entry = { name: payload.source ?? 'unknown', url: `https://github.com/${payload.source}`, origin: 'explicit' };
+      state.sources.push(entry);
+      body = { sources: state.sources };
+    } else if (path === '/marketplace/outdated') {
+      body = { dcc: null, count: state.outdated.length, packages: state.outdated };
+    } else if (path === '/marketplace/update' && method === 'POST') {
+      const payload = route.request().postDataJSON() as { name?: string; dcc?: string; all?: boolean };
+      const updatedPkg = state.outdated.find(
+        (pkg: any) => pkg.name === payload.name && pkg.dcc === payload.dcc,
+      );
+      if (updatedPkg) {
+        state.outdated = state.outdated.filter(
+          (pkg: any) => !(pkg.name === payload.name && pkg.dcc === payload.dcc),
+        );
+      }
+      body = {
+        updated: 1,
+        results: [
+          {
+            updated: true,
+            name: payload.name ?? 'unknown',
+            dcc: payload.dcc ?? 'unknown',
+            previous_version: updatedPkg ? (updatedPkg as any).installed_version : null,
+            new_version: updatedPkg ? (updatedPkg as any).latest_version : '9.9.9',
+            path: `/fake/path/${payload.name}`,
+            install_type: 'git',
+            source_name: 'builtin',
+            source_url: 'https://github.com/dcc-mcp/marketplace',
+            reload_required: true,
+          },
+        ],
+      };
     } else if (path === '/marketplace/install' && method === 'POST') {
-      const payload = route.request().postDataJSON() as { name?: string; dcc?: string };
+      const payload = route.request().postDataJSON() as { name?: string; dcc?: string; force?: boolean };
       state.installed.push({
         name: payload.name ?? 'unknown',
         dcc: payload.dcc ?? 'unknown',
@@ -35,14 +73,35 @@ async function mockMarketplaceApi(page: Page, state: MockState) {
         install_type: 'git',
         path: `/fake/path/${payload.name}`,
         source_name: 'builtin',
+        source_url: 'https://github.com/dcc-mcp/marketplace',
+        install_url: null,
+        install_ref: null,
+        installed_at_ms: Date.now(),
       });
-      body = { ok: true, name: payload.name, dcc: payload.dcc };
+      body = {
+        installed: true,
+        name: payload.name,
+        dcc: payload.dcc,
+        version: '1.0.0',
+        path: `/fake/path/${payload.name}`,
+        skill_search_path: '/fake/path',
+        install_type: 'git',
+        reload_required: true,
+      };
     } else if (path === '/marketplace/uninstall' && method === 'POST') {
       const payload = route.request().postDataJSON() as { name?: string; dcc?: string };
       state.installed = state.installed.filter(
         (pkg: any) => !(pkg.name === payload.name && pkg.dcc === payload.dcc),
       );
-      body = { ok: true, name: payload.name, dcc: payload.dcc };
+      body = {
+        uninstalled: true,
+        name: payload.name,
+        dcc: payload.dcc,
+        path: `/fake/path/${payload.name}`,
+        removed_state: true,
+        removed_files: true,
+        reload_required: true,
+      };
     } else {
       status = 404;
       body = { error: `Unhandled test route: ${method} ${path}` };
@@ -58,7 +117,7 @@ async function mockMarketplaceApi(page: Page, state: MockState) {
 
 test.describe('Marketplace Panel', () => {
   test('shows empty state when no packages are available', async ({ page }) => {
-    await mockMarketplaceApi(page, { catalog: [], installed: [] });
+    await mockMarketplaceApi(page, { catalog: [], installed: [], sources: [], outdated: [] });
     await page.goto('/admin/?panel=marketplace');
 
     await expect(page.locator('.marketplace-panel')).toBeVisible();
@@ -91,6 +150,8 @@ test.describe('Marketplace Panel', () => {
         },
       ],
       installed: [],
+      sources: [],
+      outdated: [],
     });
     await page.goto('/admin/?panel=marketplace');
 
@@ -126,6 +187,8 @@ test.describe('Marketplace Panel', () => {
         },
       ],
       installed: [],
+      sources: [],
+      outdated: [],
     });
     await page.goto('/admin/?panel=marketplace');
 
@@ -176,6 +239,8 @@ test.describe('Marketplace Panel', () => {
         },
       ],
       installed: [],
+      sources: [],
+      outdated: [],
     });
     await page.goto('/admin/?panel=marketplace');
 
@@ -222,6 +287,8 @@ test.describe('Marketplace Panel', () => {
         },
       ],
       installed: [],
+      sources: [],
+      outdated: [],
     });
     await page.goto('/admin/?panel=marketplace');
 
@@ -274,6 +341,8 @@ test.describe('Marketplace Panel', () => {
         },
       ],
       installed: [],
+      sources: [],
+      outdated: [],
     });
     // Health query is only enabled on health / debug / setup panels.
     // Visit health panel first, then navigate to marketplace via SPA link
@@ -302,5 +371,188 @@ test.describe('Marketplace Panel', () => {
     // Close via Escape key
     await page.keyboard.press('Escape');
     await expect(modal).not.toBeVisible();
+  });
+
+  // ── PIP-700 new tests ────────────────────────────────────────────────────
+
+  test('displays source management section and lists sources', async ({ page }) => {
+    await mockMarketplaceApi(page, {
+      catalog: [],
+      installed: [],
+      sources: [
+        { name: 'official', url: 'https://github.com/dcc-mcp/marketplace', origin: 'builtin' },
+        { name: 'td-core', url: 'https://github.com/td-core/skills', origin: 'config' },
+      ],
+      outdated: [],
+    });
+    await page.goto('/admin/?panel=marketplace');
+
+    // Click the Sources tab
+    await page.getByRole('tab', { name: 'Sources' }).click();
+
+    // Source rows should appear
+    await expect(page.locator('.marketplace-source-row')).toHaveCount(2);
+    await expect(page.locator('.marketplace-source-row').first()).toContainText('official');
+    await expect(page.locator('.marketplace-source-row').last()).toContainText('td-core');
+  });
+
+  test('adds a source via input and button', async ({ page }) => {
+    await mockMarketplaceApi(page, {
+      catalog: [],
+      installed: [],
+      sources: [],
+      outdated: [],
+    });
+    await page.goto('/admin/?panel=marketplace');
+
+    // Open Sources tab
+    await page.getByRole('tab', { name: 'Sources' }).click();
+
+    // Initially empty
+    await expect(page.locator('.marketplace-source-row')).toHaveCount(0);
+
+    // Fill input and submit
+    await page.locator('.marketplace-source-input').fill('dcc-mcp/skills');
+    await page.locator('.marketplace-source-btn').click();
+
+    // Should show the new source
+    await expect(page.locator('.marketplace-source-row')).toHaveCount(1);
+    await expect(page.locator('.marketplace-source-row').first()).toContainText('dcc-mcp/skills');
+  });
+
+  test('shows force reinstall checkbox', async ({ page }) => {
+    await mockMarketplaceApi(page, {
+      catalog: [],
+      installed: [],
+      sources: [],
+      outdated: [],
+    });
+    await page.goto('/admin/?panel=marketplace');
+
+    // Force reinstall checkbox should be visible
+    await expect(page.locator('.marketplace-force-install')).toBeVisible();
+    await expect(page.locator('.marketplace-force-install input[type="checkbox"]')).toBeVisible();
+  });
+
+  test('shows outdated badge on installed packages and update button', async ({ page }) => {
+    await mockMarketplaceApi(page, {
+      catalog: [
+        {
+          name: 'maya-modeling',
+          description: 'Maya tools.',
+          dcc: ['maya'],
+          tags: [],
+          version: '2.1.0',
+          maintainer: 'td-core',
+        },
+      ],
+      installed: [
+        {
+          name: 'maya-modeling',
+          dcc: 'maya',
+          version: '1.0.0',
+          install_type: 'git',
+          path: '/fake/path/maya-modeling',
+          source_name: 'builtin',
+          source_url: 'https://github.com/dcc-mcp/marketplace',
+          install_url: null,
+          install_ref: null,
+          installed_at_ms: Date.now(),
+        },
+      ],
+      sources: [],
+      outdated: [
+        {
+          name: 'maya-modeling',
+          dcc: 'maya',
+          installed_version: '1.0.0',
+          latest_version: '2.1.0',
+          source_name: 'builtin',
+          source_url: 'https://github.com/dcc-mcp/marketplace',
+          install_type: 'git',
+          install_url: null,
+          install_ref: null,
+          path: '/fake/path/maya-modeling',
+        },
+      ],
+    });
+    await page.goto('/admin/?panel=marketplace');
+
+    // Switch to Installed tab
+    await page.getByRole('tab', { name: /Installed/ }).click();
+
+    // Card should have outdated styling
+    await expect(page.locator('.marketplace-card-outdated')).toBeVisible();
+
+    // Outdated badge text
+    await expect(page.locator('.marketplace-card-outdated-badge')).toContainText('Update available');
+
+    // Update button should be visible
+    await expect(page.locator('.marketplace-card-chip-update')).toBeVisible();
+  });
+
+  test('shows reload triggered notice after install', async ({ page }) => {
+    await mockMarketplaceApi(page, {
+      catalog: [
+        {
+          name: 'maya-modeling',
+          description: 'Maya tools.',
+          dcc: ['maya'],
+          tags: [],
+          version: '2.1.0',
+        },
+      ],
+      installed: [],
+      sources: [],
+      outdated: [],
+    });
+    await page.goto('/admin/?panel=marketplace');
+
+    // Click install
+    await page.locator('.marketplace-card-chip-action').first().click();
+
+    // Notice should contain reload hint
+    const notice = page.locator('.marketplace-install-notice');
+    await expect(notice).toBeVisible();
+    await expect(notice.locator('.marketplace-reload-hint')).toContainText('Skill reload triggered');
+  });
+
+  test('shows structured install error for already_installed', async ({ page }) => {
+    // Override the default mock with an error response for install
+    await page.route('**/admin/api/**', async (route) => {
+      const url = new URL(route.request().url());
+      const path = url.pathname.replace(/^\/admin\/api/, '');
+      const method = route.request().method();
+      let body: unknown;
+      let status = 200;
+
+      if (path === '/health') {
+        body = { status: 'ok', instances_ready: 1, instances_total: 2, uptime_secs: 3723, version: '0.17.7', rss_bytes: 2097152 };
+      } else if (path === '/marketplace/catalog') {
+        body = { entries: [{ name: 'maya-modeling', description: 'Maya tools.', dcc: ['maya'], tags: [], version: '2.1.0' }] };
+      } else if (path === '/marketplace/installed') {
+        body = { packages: [] };
+      } else if (path === '/marketplace/sources') {
+        body = { sources: [] };
+      } else if (path === '/marketplace/outdated') {
+        body = { dcc: null, count: 0, packages: [] };
+      } else if (path === '/marketplace/install' && method === 'POST') {
+        status = 400;
+        body = { error: { kind: 'already_installed', message: 'Package maya-modeling is already installed for DCC maya' } };
+      } else {
+        status = 404;
+        body = { error: `Unhandled test route: ${method} ${path}` };
+      }
+
+      await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+    });
+
+    await page.goto('/admin/?panel=marketplace');
+
+    // Click install
+    await page.locator('.marketplace-card-chip-action').first().click();
+
+    // Status line should show the friendly error
+    await expect(page.locator('.marketplace-panel .status-bar')).toContainText('Already installed');
   });
 });
