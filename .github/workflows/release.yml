@@ -773,7 +773,7 @@ jobs:
             release_json="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName,name,url,isPrerelease,isDraft,publishedAt,targetCommitish,assets)"
             missing=""
             for pattern in "${required_patterns[@]}"; do
-              if ! jq -e --arg pattern "$pattern" '.assets[].name | test($pattern)' <<<"$release_json" >/dev/null; then
+              if ! jq -e --arg pattern "$pattern" 'any(.assets[].name; test($pattern))' <<<"$release_json" >/dev/null; then
                 missing="${missing}${pattern}"$'\n'
               fi
             done
