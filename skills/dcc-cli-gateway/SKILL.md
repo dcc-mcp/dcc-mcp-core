@@ -88,7 +88,7 @@ Install via OpenClaw/ClawHub, or point your agent at this `SKILL.md` after cloni
 
 | Situation | You MUST |
 |-----------|----------|
-| Starting any DCC task | Run `python scripts/dcc_gateway.py health` and `python scripts/dcc_gateway.py list` first |
+| Starting any DCC task | Run `dcc-mcp-cli health` and `dcc-mcp-cli list` first (or `python scripts/dcc_gateway.py health` / `python scripts/dcc_gateway.py list` as fallback) |
 | `dcc-mcp-cli` missing | Ask permission before `--ensure-cli`; fallback Python REST is allowed if download fails |
 | Inventory returns `total == 0` | Stop; do not run `search`, `describe`, or `call` |
 | Gateway unreachable | Stop; explain; ask user permission before troubleshooting |
@@ -161,6 +161,11 @@ powershell -c "irm https://raw.githubusercontent.com/loonghao/vx/main/install.ps
 Run this every time you begin work or after the user starts/stops a DCC host:
 
 ```bash
+# CLI (primary)
+dcc-mcp-cli health
+dcc-mcp-cli list
+
+# Python fallback (when CLI is unavailable)
 python scripts/dcc_gateway.py health
 python scripts/dcc_gateway.py list
 ```
@@ -200,6 +205,10 @@ target DCC. Continue only after explicit approval.
 Only run this when inventory shows at least one non-stale target:
 
 ```bash
+# CLI (primary)
+dcc-mcp-cli search --query sphere --dcc-type maya --limit 20
+
+# Python fallback
 python scripts/dcc_gateway.py search --query sphere --dcc-type maya --limit 20
 ```
 
@@ -216,6 +225,10 @@ Never hand-build slugs.
 ## Step 2 — Describe Schema
 
 ```bash
+# CLI (primary)
+dcc-mcp-cli describe --tool-slug maya.a1b2c3d4.maya_primitives__create_sphere
+
+# Python fallback
 python scripts/dcc_gateway.py describe maya.a1b2c3d4.maya_primitives__create_sphere
 ```
 
@@ -226,6 +239,11 @@ Read `tool.inputSchema` and safety annotations before calling.
 ## Step 3 — Call a Tool
 
 ```bash
+# CLI (primary)
+dcc-mcp-cli call --tool-slug maya.a1b2c3d4.maya_primitives__create_sphere \
+  --arguments '{"radius":2.0}'
+
+# Python fallback
 python scripts/dcc_gateway.py call maya.a1b2c3d4.maya_primitives__create_sphere \
   --json '{"radius":2.0}'
 ```

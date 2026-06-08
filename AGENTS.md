@@ -22,6 +22,24 @@
 
 **Don't** call Maya/Blender/Python scripts directly — use `search_skills()` → `load_skill()` → call the tool.
 
+## 🚀 Agent Entry Strategy: CLI+REST (default) vs IDE MCP
+
+**dcc-mcp-core offers two entry paths with a clear layered design. Choose based on your runtime:**
+
+| Scenario | Recommended Path | How it works |
+|----------|-----------------|--------------|
+| AI agent (OpenClaw, Hermes, Codex CLI, custom agent runtime) | **CLI+REST** | One `dcc-cli-gateway` skill → shell `dcc-mcp-cli` → gateway `POST /v1/{search,describe,call}` |
+| IDE user (Cursor, Claude Desktop, VS Code) | **IDE MCP** | Manual `mcp_servers.json` / `claude_desktop_config.json` → gateway MCP tools (`search`/`describe`/`call`) |
+| CI/CD / automation script | **CLI+REST** | `dcc-mcp-cli health/list/smoke/search/call/load-skill` — scriptable, auditable |
+| Troubleshooting / operations | **CLI+REST** | `dcc-mcp-cli` with structured output and exit codes |
+| Studio / team integration | **CLI+REST** | Fork `dcc-cli-gateway` skill → one skill controls all DCCs, no per-DCC MCP server config |
+| GUI artist using DCC plugin directly | **IDE MCP** | DCC's built-in MCP plugin exposes tools directly to the IDE |
+
+**Core principle:**
+- **AI agents** start with `dcc-cli-gateway` skill + `dcc-mcp-cli` CLI. The CLI handles gateway lifecycle (ensure, health, start) and exposes `search → describe → call` via shell.
+- **Human IDE users** continue using MCP configuration. The gateway serves both paths simultaneously.
+- **CLI-first does not deprecate MCP** — the gateway always exposes both MCP and REST side by side.
+
 ## Response Language
 
 - Reply to the user in **Simplified Chinese** (中文简体) by default.
@@ -100,20 +118,29 @@
 
 ### 🎯 Skills-First Workflow (MEMORIZE THIS)
 
+**The default path for AI agents is CLI+REST through the gateway.** The per-DCC MCP server path is for IDE users and legacy setups.
+
 ```
-Per-DCC MCP server:
+Gateway CLI+REST (agent default — use dcc-cli-gateway skill + dcc-mcp-cli):
+1. Discover: `dcc-mcp-cli search --query "keyword" --dcc-type maya` or `POST /v1/search` → get `tool_slug`; names/summaries are tokenized, so underscores are optional (`create_sphere` and `sphere` both work).
+2. Inspect: `dcc-mcp-cli describe --tool-slug <slug>` or `POST /v1/describe` → read schema + annotations.
+3. Execute: `dcc-mcp-cli call --tool-slug <slug> --arguments '{"radius": 2.0}'` or `POST /v1/call`.
+4. Batch execute: `dcc-mcp-cli call --batch` or `POST /v1/call_batch` for ordered batches (max 25).
+5. Package as a skill: fork or extend `dcc-cli-gateway` to reuse `dcc-mcp-cli` calls as structured MCP tools.
+6. The gateway never fans out per-tool backend tools into `tools/list`; the advertised gateway MCP surface is read-only discovery (`search`, `describe`) only.
+
+IDE MCP (for human IDE users — Cursor, Claude Desktop, VS Code):
+1. Discover: MCP `search(query="keyword", dcc_type="maya")` → get `tool_slug`.
+2. Inspect: MCP `describe(tool_slug=...)` → read schema + annotations.
+3. Execute through MCP: `call(tool_slug, arguments)` or REST `POST /v1/call` / `POST /v1/call_batch` (max 25).
+4. Hidden MCP compatibility routes still accept older `search_tools` / `describe_tool` / `call_tool` / `call_tools` names.
+
+Per-DCC MCP server (legacy / direct DCC connection):
 1. Discover: search_skills(query="keyword") → find the right skill
 2. Activate: load_skill("skill-name") → expose the tools and cascade-activate declared tool groups by default
 3. Execute: call the specific tool with validated parameters
 4. Follow up: check next-tools.on-success for suggested next steps
 5. Debug on failure: use dcc_diagnostics__screenshot or audit_log
-
-Gateway dynamic-capability / REST exposure:
-1. Discover: MCP `search(query="keyword", dcc_type="maya")` or REST `POST /v1/search` → get `tool_slug`; names/summaries are tokenized, so underscores are optional (`create_sphere` and `sphere` both work).
-2. Inspect: MCP `describe(tool_slug=...)` or REST `POST /v1/describe` → read schema + annotations.
-3. Execute through HTTP: `POST /v1/call` with `{tool_slug, arguments}` or `POST /v1/call_batch` for ordered batches (max 25).
-4. The gateway never fans out per-tool backend tools into `tools/list`; the advertised gateway MCP surface is read-only discovery (`search`, `describe`) only.
-5. Hidden MCP compatibility routes still accept older `search_tools` / `describe_tool` / `call_tool` / `call_tools` names, but new agent workflows should prefer the REST invocation plane.
 
 Gateway instance discovery:
 1. Usually skip instance discovery and go straight to `search` / `POST /v1/search` → `describe` / `POST /v1/describe` → `POST /v1/call` (or `/v1/call_batch` when invoking several slugs in order).
