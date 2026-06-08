@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.12](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.11...v0.18.12) (2026-06-08)
+
+
+### Features
+
+* **admin-ui:** add Panel type extension, URL alias infrastructure, and tab query readers ([fd18d89](https://github.com/dcc-mcp/dcc-mcp-core/commit/fd18d89ac88984d2cd8a2e71f2298b929eb77d25))
+* **catalog:** extend install schema with pip package support ([04a3f27](https://github.com/dcc-mcp/dcc-mcp-core/commit/04a3f27d4222053d7d88800de5b5215281dc44d4))
+* **cli:** add `gateway ensure|start|stop|status` lifecycle commands ([ee342bc](https://github.com/dcc-mcp/dcc-mcp-core/commit/ee342bc48085f641da7e3b095cbeb525aa2bfe12))
+* **skills:** add marketplace-publish-extension skill package ([6d9894f](https://github.com/dcc-mcp/dcc-mcp-core/commit/6d9894fff675111889965ac672d280974036451d))
+* **skills:** add marketplace-publish-extension skill package ([278918d](https://github.com/dcc-mcp/dcc-mcp-core/commit/278918da8a2d31e3ca9372df291ee1250637df75))
+* **skills:** add marketplace-publish-extension skill package ([a63b4f4](https://github.com/dcc-mcp/dcc-mcp-core/commit/a63b4f4cf4a679725014b856e9d0c013b89801c5))
+* **skills:** formalize marketplace-create-extension and marketplace-publish-extension to skills/ ([a9633d7](https://github.com/dcc-mcp/dcc-mcp-core/commit/a9633d7066c255bdbc6295894378df887ef62cb7))
+* **skills:** formalize marketplace-create-extension and marketplace-publish-extension to skills/ ([f096d21](https://github.com/dcc-mcp/dcc-mcp-core/commit/f096d210876d7812391f91369cebdcca90104047))
+* **skills:** formalize marketplace-create-extension and marketplace-publish-extension to skills/ ([cb13d83](https://github.com/dcc-mcp/dcc-mcp-core/commit/cb13d83e48f2f37453472b436878896c4d8b426f))
+
+
+### Bug Fixes
+
+* cargo fmt import ordering in capability/index.rs ([e4b3c9e](https://github.com/dcc-mcp/dcc-mcp-core/commit/e4b3c9e32c80c185bbd1022aa71d4c957893f437))
+* **ci:** remove continue-on-error from reusable workflow job in release.yml ([fd00c37](https://github.com/dcc-mcp/dcc-mcp-core/commit/fd00c37cfd7742522181a7542959362c5492cdef))
+* **test:** set is_gateway=True in crash_recovery_loop on_promote callback ([4545577](https://github.com/dcc-mcp/dcc-mcp-core/commit/4545577c3a10426dcb8933e00d3e78416e739ae2))
+
+
+### Code Refactoring
+
+* **capability:** consolidate dual compute_fingerprint into gateway-core ([467f0f7](https://github.com/dcc-mcp/dcc-mcp-core/commit/467f0f749d673b71367b91729ee1c7db300d2ca3))
+
+
+### Documentation
+
+* add Marketplace Panel and Admin Workflow sections to docs ([a165134](https://github.com/dcc-mcp/dcc-mcp-core/commit/a165134b0863559848772096e38c43b141586f93))
+* align CLI references to CLI-first narrative with Python fallback positioning ([11b3d68](https://github.com/dcc-mcp/dcc-mcp-core/commit/11b3d688ac2defcfa74300eb6f5d70c07762b35c))
+* **gateway:** add Maya rendering intent routing table to agent-workflows guide ([d41a736](https://github.com/dcc-mcp/dcc-mcp-core/commit/d41a736b4e826c3d8ad079ca3ecd0df6d35fbdc6))
+
 ## [0.18.11](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.10...v0.18.11) (2026-06-07)
 
 
