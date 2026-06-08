@@ -8,6 +8,7 @@ export type PanelDefinition = { id: Panel; labelKey: MessageKey; groupKey: Messa
 
 export const PANELS: PanelDefinition[] = [
   { id: 'setup', labelKey: 'navigation.panel.setup', groupKey: 'navigation.group.onboarding' },
+  { id: 'discover', labelKey: 'navigation.panel.discover', groupKey: 'navigation.group.discover' },
   { id: 'debug', labelKey: 'navigation.panel.debug', groupKey: 'navigation.group.operations' },
   { id: 'instances', labelKey: 'navigation.panel.instances', groupKey: 'navigation.group.operations' },
   { id: 'activity', labelKey: 'navigation.panel.activity', groupKey: 'navigation.group.operations' },
@@ -24,12 +25,31 @@ export const PANELS: PanelDefinition[] = [
   { id: 'logs', labelKey: 'navigation.panel.logs', groupKey: 'navigation.group.observability' },
   { id: 'skill-paths', labelKey: 'navigation.panel.skillPaths', groupKey: 'navigation.group.configuration' },
   { id: 'analytics', labelKey: 'navigation.panel.analytics', groupKey: 'navigation.group.insights' },
+  { id: 'overview', labelKey: 'navigation.panel.overview', groupKey: 'navigation.group.insights' },
   { id: 'marketplace', labelKey: 'navigation.panel.marketplace', groupKey: 'navigation.group.configuration' },
   { id: 'integrations', labelKey: 'navigation.panel.integrations', groupKey: 'navigation.group.configuration' },
 ];
 
 export const PANEL_ID_SET = new Set<Panel>(PANELS.map((p) => p.id));
 export const STATS_RANGE_IDS = new Set(['1h', '24h', '7d', 'all']);
+
+// ── URL alias map ─────────────────────────────────────────────────────────────
+
+/**
+ * Maps deprecated / legacy URL panel names to their current canonical Panel id.
+ *
+ * When `readPanelFromUrl()` encounters a raw panel value that is NOT a valid
+ * `Panel` but IS a key in this map, it resolves to the canonical id and
+ * replaces the browser history entry so bookmarked legacy URLs self-heal.
+ *
+ * New entries are additive — old Panel ids are never removed from the `Panel`
+ * type until a major version bump; this map exists so that users who bookmarked
+ * old names continue to land on the right panel without a 404.
+ */
+export const PANEL_ALIAS_MAP: Record<string, Panel> = {
+  // Reserved for future renames / reorganisations.  Currently empty because
+  // no panel ids have been renamed yet — we add entries when we DO rename.
+};
 
 export function isPanelId(value: string | null | undefined): value is Panel {
   return value != null && value !== '' && PANEL_ID_SET.has(value as Panel);
@@ -163,7 +183,20 @@ export function publicToolFamily(tool: string | null | undefined, method: string
 export function readPanelFromUrl(): Panel {
   const u = new URL(window.location.href);
   const raw = u.searchParams.get('panel');
-  return isPanelId(raw) ? raw : 'setup';
+
+  // Fast path: valid known panel id.
+  if (isPanelId(raw)) return raw;
+
+  // Resolve legacy / deprecated panel names via the alias map.
+  if (raw && raw in PANEL_ALIAS_MAP) {
+    const resolved = PANEL_ALIAS_MAP[raw];
+    // Self-heal the URL: redirect old name to canonical name via history replace.
+    u.searchParams.set('panel', resolved);
+    window.history.replaceState(null, '', `${u.pathname}${u.search}`);
+    return resolved;
+  }
+
+  return 'setup';
 }
 
 export function readStatsRangeFromUrl(): string {
@@ -176,4 +209,22 @@ export function readTraceIdFromUrl(): string | null {
   const u = new URL(window.location.href);
   const t = u.searchParams.get('trace');
   return t != null && t.trim() !== '' ? t.trim() : null;
+}
+
+/** Read the active sub-tab within the Discover panel from the URL. */
+export function readDiscoverTabFromUrl(): string {
+  const u = new URL(window.location.href);
+  return u.searchParams.get('discoverTab')?.trim() || '';
+}
+
+/** Read the active sub-tab within the Overview panel from the URL. */
+export function readOverviewTabFromUrl(): string {
+  const u = new URL(window.location.href);
+  return u.searchParams.get('overviewTab')?.trim() || '';
+}
+
+/** Read the active sub-tab within the Traces panel from the URL. */
+export function readTracesTabFromUrl(): string {
+  const u = new URL(window.location.href);
+  return u.searchParams.get('tracesTab')?.trim() || '';
 }

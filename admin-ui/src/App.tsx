@@ -158,6 +158,8 @@ function App() {
       analytics: '',
       marketplace: marketplaceUpdatedAt,
       integrations: integrationsUpdatedAt,
+      discover: '',
+      overview: '',
     };
   }, [healthQuery, workersQuery, activityQuery, toolsQuery, callsQuery, tracesQuery, trafficQuery, tasksQuery, workflowsQuery, statsQuery, governanceQuery, logsQuery, openApiQuery, skillPathsUpdatedAt, marketplaceUpdatedAt]);
 
@@ -1112,7 +1114,7 @@ function App() {
   }, [statsQuery, callsQuery, tracesQuery]);
 
   const pushAdminUrl = useCallback(
-    (panel: Panel, opts?: { traceId?: string | null; range?: string | null; openApiSource?: OpenApiSource | null; replace?: boolean }) => {
+    (panel: Panel, opts?: { traceId?: string | null; range?: string | null; openApiSource?: OpenApiSource | null; replace?: boolean; discoverTab?: string | null; overviewTab?: string | null; tracesTab?: string | null }) => {
       const u = new URL(window.location.href);
       u.searchParams.set('panel', panel);
       u.searchParams.delete('range');
@@ -1120,19 +1122,29 @@ function App() {
       u.searchParams.delete('spec');
       u.searchParams.delete('docs');
       u.searchParams.delete('label');
+      u.searchParams.delete('discoverTab');
+      u.searchParams.delete('overviewTab');
+      u.searchParams.delete('tracesTab');
       if (panel === 'stats') {
         const r = opts?.range;
         if (r && STATS_RANGE_IDS.has(r)) {
           u.searchParams.set('range', r);
         }
       }
-      if (panel === 'traces' && opts?.traceId) {
-        u.searchParams.set('trace', opts.traceId);
+      if (panel === 'traces') {
+        if (opts?.traceId) u.searchParams.set('trace', opts.traceId);
+        if (opts?.tracesTab) u.searchParams.set('tracesTab', opts.tracesTab);
       }
       if (panel === 'openapi' && opts?.openApiSource && opts.openApiSource.kind === 'instance') {
         u.searchParams.set('spec', opts.openApiSource.specUrl);
         u.searchParams.set('docs', opts.openApiSource.docsUrl);
         u.searchParams.set('label', opts.openApiSource.label);
+      }
+      if (panel === 'discover' && opts?.discoverTab) {
+        u.searchParams.set('discoverTab', opts.discoverTab);
+      }
+      if (panel === 'overview' && opts?.overviewTab) {
+        u.searchParams.set('overviewTab', opts.overviewTab);
       }
       const next = `${u.pathname}${u.search}`;
       const cur = `${window.location.pathname}${window.location.search}`;
@@ -1149,7 +1161,7 @@ function App() {
   );
 
   const goToPanel = useCallback(
-    (panel: Panel, opts?: { traceId?: string; range?: string; openApiSource?: OpenApiSource; replace?: boolean }) => {
+    (panel: Panel, opts?: { traceId?: string; range?: string; openApiSource?: OpenApiSource; replace?: boolean; discoverTab?: string; overviewTab?: string; tracesTab?: string }) => {
       let effectiveRange = statsRange;
       if (opts?.range && STATS_RANGE_IDS.has(opts.range)) {
         effectiveRange = opts.range;
@@ -1164,6 +1176,9 @@ function App() {
         range: panel === 'stats' ? effectiveRange : null,
         openApiSource: panel === 'openapi' ? (opts?.openApiSource ?? gatewayOpenApiSource()) : null,
         replace: opts?.replace,
+        discoverTab: opts?.discoverTab ?? null,
+        overviewTab: opts?.overviewTab ?? null,
+        tracesTab: opts?.tracesTab ?? null,
       });
       if (opts?.traceId) {
         setSelectedTraceId(opts.traceId);
