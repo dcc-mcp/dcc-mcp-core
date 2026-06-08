@@ -42,6 +42,16 @@ pub const DEFAULT_STANDALONE_REGISTRY_DCC_TYPE: &str = "python";
 /// Resolve the `dcc_type` string stored on a [`ServiceEntry`] for MCP registration.
 #[must_use]
 pub fn resolve_registry_dcc_type(embedder_dcc: Option<&str>) -> String {
+    resolve_registry_dcc_type_impl(
+        embedder_dcc,
+        std::env::var(ENV_STANDALONE_REGISTRY_DCC_TYPE).ok().as_deref(),
+    )
+}
+
+/// Core logic factored out so tests can pass the env-override value explicitly
+/// without touching process-global `std::env::set_var` / `std::env::var`, which
+/// are not thread-safe and cause flaky failures under `cargo test` parallelism.
+fn resolve_registry_dcc_type_impl(embedder_dcc: Option<&str>, env_override: Option<&str>) -> String {
     let from_embedder = embedder_dcc.and_then(|s| {
         let t = s.trim();
         if t.is_empty() {
@@ -53,8 +63,7 @@ pub fn resolve_registry_dcc_type(embedder_dcc: Option<&str>) -> String {
     if let Some(v) = from_embedder {
         return v;
     }
-    std::env::var(ENV_STANDALONE_REGISTRY_DCC_TYPE)
-        .ok()
+    env_override
         .filter(|s| !s.trim().is_empty())
         .map(|s| s.trim().to_ascii_lowercase())
         .unwrap_or_else(|| DEFAULT_STANDALONE_REGISTRY_DCC_TYPE.to_string())
@@ -283,23 +292,17 @@ mod tests {
 
     #[test]
     fn test_resolve_registry_dcc_type_env_override() {
-        unsafe {
-            std::env::set_var("DCC_MCP_STANDALONE_REGISTRY_DCC_TYPE", "blender");
-        }
-        assert_eq!(resolve_registry_dcc_type(None), "blender");
-        unsafe {
-            std::env::remove_var("DCC_MCP_STANDALONE_REGISTRY_DCC_TYPE");
-        }
+        assert_eq!(
+            resolve_registry_dcc_type_impl(None, Some("blender")),
+            "blender"
+        );
     }
 
     #[test]
     fn test_resolve_registry_dcc_type_embedder_overrides_env() {
-        unsafe {
-            std::env::set_var("DCC_MCP_STANDALONE_REGISTRY_DCC_TYPE", "blender");
-        }
-        assert_eq!(resolve_registry_dcc_type(Some("Maya")), "maya");
-        unsafe {
-            std::env::remove_var("DCC_MCP_STANDALONE_REGISTRY_DCC_TYPE");
-        }
+        assert_eq!(
+            resolve_registry_dcc_type_impl(Some("Maya"), Some("blender")),
+            "maya"
+        );
     }
 }
