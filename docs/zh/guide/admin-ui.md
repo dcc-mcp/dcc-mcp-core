@@ -125,6 +125,55 @@ vx git diff --check
 
 点击某个 skill 会打开详情面板，显示后端实例信息、注册工具、`SKILL.md` 源路径、frontmatter，以及渲染后的 Markdown 正文，方便开发者 review。
 
+## 市场面板（Marketplace）
+
+**Marketplace** 面板位于左侧导航栏，为浏览、安装和管理技能包提供图形界面。
+它与 CLI `marketplace` 子命令共享同一套后端能力，通过两个标签页展现：
+**浏览（Browse）** 和 **已安装（Installed）**。
+
+### 浏览标签页
+
+浏览标签页以可搜索的目录网格展示可用技能包。每个卡片显示：
+包名、描述、DCC 类型徽章、当前版本和安装按钮。
+
+用户可通过以下方式筛选目录：
+- **搜索查询**：按名称、描述和标签进行文本搜索。
+- **DCC 类型筛选**：标签页顶部的 Chip 按钮行，可按 DCC 类型筛选。搜索和
+  DCC 筛选可以组合使用。
+
+点击卡片会打开 **Marketplace 详情弹窗**，展示完整元数据：名称、描述、
+版本、标签、DCC 类型、维护者、项目 URL、来源、安装类型（git、zip、path）
+和 `min_core_version`。当包的 `min_core_version` 低于当前运行的核心版本时，
+会显示兼容性警告。
+
+从详情弹窗或卡片安装包会触发市场安装流程。安装成功后，页面内联显示一条
+成功通知，其中包含 **View in Skills** 深度链接，点击可跳转到 Skills 面板
+并高亮新加载的 skill。如果后端报告了 `reload_required` 标志，技能索引会
+自动刷新。
+
+### 已安装标签页
+
+已安装标签页以卡片形式列出所有已安装的市场包，显示：
+- 包名和版本
+- DCC 类型
+- 安装类型（git、zip、path）
+- 卸载按钮
+
+用户可直接从此标签页卸载包。卸载成功后，技能索引会刷新以移除已删除的包。
+
+### API 端点
+
+| 路由 | Content-Type | 说明 |
+|------|-------------|------|
+| `GET /admin/api/marketplace/catalog` | `application/json` | 列出所有已配置来源中的可用包。返回 `{ entries: MarketplaceEntry[] }`。 |
+| `GET /admin/api/marketplace/installed` | `application/json` | 列出本地已安装的包（按 DCC 分组）。返回 `{ packages: InstalledMarketplacePackage[] }`。 |
+| `POST /admin/api/marketplace/install` | `application/json` | 安装包。请求体：`{ name, dcc, source?, force? }`。返回带 `reload_required` 标志的结果。 |
+| `POST /admin/api/marketplace/uninstall` | `application/json` | 卸载包。请求体：`{ name, dcc }`。返回带 `reload_required` 标志的结果。 |
+| `GET /admin/api/marketplace/sources` | `application/json` | 列出已配置的市场来源及其来源类型（builtin、config、env）。 |
+| `POST /admin/api/marketplace/sources` | `application/json` | 添加市场来源到持久化配置。请求体：`{ source }`。重复添加是幂等的。 |
+| `GET /admin/api/marketplace/outdated` | `application/json` | 列出有更新版本的已安装包。支持 `?name=&dcc=` 筛选参数。 |
+| `POST /admin/api/marketplace/update` | `application/json` | 更新一个或全部过期包。请求体：`{ name?, dcc?, all? }`。返回每个结果的 `reload_required` 标志。 |
+
 ## 路由
 
 | 路由 | Content-Type | 说明 |
