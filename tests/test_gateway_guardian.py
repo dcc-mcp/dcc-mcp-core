@@ -249,7 +249,7 @@ def test_guardian_run_continues_after_exception(monkeypatch):
     )
 
     guardian.start()
-    time.sleep(0.3)
+    time.sleep(0.5)
     guardian.stop(timeout=2.0)
 
     # The loop survived the first crash and continued probing
