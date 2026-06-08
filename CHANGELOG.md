@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.14](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.13...v0.18.14) (2026-06-08)
+
+
+### Features
+
+* **core:** extract shared registration phase pipeline from Maya adapter ([99bb2ef](https://github.com/dcc-mcp/dcc-mcp-core/commit/99bb2ef62134ecd0246e383794853c67a80f71c5))
+
+
+### Bug Fixes
+
+* resolve ruff lint/format errors in _registration.py ([74dac34](https://github.com/dcc-mcp/dcc-mcp-core/commit/74dac3450fe3e7b9ea7c9037a7dec02d717023db))
+
 ## [0.18.13](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.12...v0.18.13) (2026-06-08)
 
 
