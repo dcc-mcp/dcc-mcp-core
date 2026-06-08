@@ -473,7 +473,7 @@ jobs:
       # every wheel/binary is produced successfully.
       test-wheel: ${{ 'false' }}
       checkout-ref: ${{ needs.release-please.outputs.tag_name }}
-      release-tag: ${{ needs.release-please.outputs.tag_name }}
+      release-tag-name: ${{ needs.release-please.outputs.tag_name }}
 
   publish-clawhub-skills:
     needs: [release-please]
@@ -696,9 +696,9 @@ jobs:
 
       # Always attempt the GitHub Release upload, even if PyPI failed; this is
       # the user-visible artefact set and must be complete per release tag.
-      # Note: build-binaries / build-semantic-wheels already upload each
-      # per-platform wheel directly to the Release. This step is the safety
-      # net for the (unlikely) case where the per-platform upload was skipped.
+      # Note: build-binaries / build-semantic-wheels / build-wheels already
+      # upload each per-platform wheel directly to the Release. This step
+      # is the safety net for the (unlikely) case where upload was skipped.
       - name: Upload wheels to GitHub Release (safety net)
         uses: softprops/action-gh-release@v3
         with:
