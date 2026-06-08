@@ -490,10 +490,10 @@ export function MarketplacePanel({
             <button
               className="marketplace-source-btn"
               type="button"
-              disabled={!sourceInput.trim() || addSourceMut.isLoading}
+              disabled={!sourceInput.trim() || addSourceMut.isPending}
               onClick={handleAddSource}
             >
-              {addSourceMut.isLoading
+              {addSourceMut.isPending
                 ? t('marketplace.source.adding')
                 : t('marketplace.source.addLabel')}
             </button>
