@@ -27,6 +27,7 @@ from dcc_mcp_core._server.config import collect_context_metadata_from_env
 from dcc_mcp_core._server.config import resolve_diagnostics_state
 from dcc_mcp_core._server.config import resolve_execution_binding
 from dcc_mcp_core._server.config import resolve_observability_flags
+from dcc_mcp_core._server.execution_bridge import ExecutionBridgeBinder
 from dcc_mcp_core._server.host_pump import HostPumpController
 from dcc_mcp_core._server.host_pump import HostPumpSnapshot
 from dcc_mcp_core._server.host_pump import HostPumpTimerAdapter
@@ -48,10 +49,12 @@ from dcc_mcp_core._server.inprocess_executor import build_inprocess_executor
 from dcc_mcp_core._server.inprocess_executor import exception_to_error_envelope
 from dcc_mcp_core._server.inprocess_executor import run_skill_script
 from dcc_mcp_core._server.lifecycle import ServerLifecycleController
+from dcc_mcp_core._server.lifecycle_controller import LifecycleController
 from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
 from dcc_mcp_core._server.observability import FileLoggingManager
 from dcc_mcp_core._server.observability import JobPersistenceManager
 from dcc_mcp_core._server.observability import TelemetryManager
+from dcc_mcp_core._server.observability_facade import ObservabilityFacade
 from dcc_mcp_core._server.options import BridgeExecution
 from dcc_mcp_core._server.options import DccServerOptions
 from dcc_mcp_core._server.options import DiagnosticsOptions
@@ -63,6 +66,7 @@ from dcc_mcp_core._server.options import InlineExecution
 from dcc_mcp_core._server.options import ObservabilityOptions
 from dcc_mcp_core._server.options import StandaloneMainThreadExecution
 from dcc_mcp_core._server.runtime import ServerRuntimeController
+from dcc_mcp_core._server.skill_discovery import SkillDiscoveryController
 from dcc_mcp_core._server.skill_query import SkillQueryClient
 from dcc_mcp_core._server.tools_list_policy import ENV_EXCLUDE_STUBS_FROM_TOOLS_LIST
 from dcc_mcp_core._server.tools_list_policy import ToolsListStubPolicy
@@ -91,6 +95,7 @@ __all__ = [
     "DispatcherExecution",
     "DrainStats",
     "ExecutionBinding",
+    "ExecutionBridgeBinder",
     "ExecutionMode",
     "ExecutionOptions",
     "FileLoggingManager",
@@ -107,8 +112,10 @@ __all__ = [
     "JobEntry",
     "JobOutcome",
     "JobPersistenceManager",
+    "LifecycleController",
     "ManualHostTimerAdapter",
     "MinimalModeConfig",
+    "ObservabilityFacade",
     "ObservabilityFlags",
     "ObservabilityOptions",
     "PendingEnvelope",
@@ -116,6 +123,7 @@ __all__ = [
     "QtHostTimerAdapter",
     "ServerLifecycleController",
     "ServerRuntimeController",
+    "SkillDiscoveryController",
     "SkillQueryClient",
     "StandaloneMainThreadExecution",
     "TelemetryManager",
