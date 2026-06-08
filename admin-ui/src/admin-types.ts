@@ -1253,6 +1253,95 @@ export type MarketplaceUninstallResult = {
   reload_required: boolean;
 };
 
+// ── Marketplace M2 (PIP-699 / PIP-700) ─────────────────────────────────────
+
+/// A single marketplace source entry (GET /sources).
+export type MarketplaceSourceEntry = {
+  name: string;
+  url: string;
+  origin: string;
+};
+
+/// Payload for GET /marketplace/sources.
+export type MarketplaceSourcesPayload = {
+  sources: MarketplaceSourceEntry[];
+};
+
+/// Request for POST /marketplace/sources.
+export type MarketplaceAddSourceRequest = {
+  source: string;
+};
+
+/// An outdated installed package entry (GET /outdated).
+export type MarketplaceOutdatedPackage = {
+  name: string;
+  dcc: string;
+  installed_version?: string | null;
+  latest_version?: string | null;
+  source_name: string;
+  source_url: string;
+  install_type: string;
+  install_url?: string | null;
+  install_ref?: string | null;
+  path: string;
+};
+
+/// Payload for GET /marketplace/outdated.
+export type MarketplaceOutdatedPayload = {
+  dcc?: string | null;
+  count: number;
+  packages: MarketplaceOutdatedPackage[];
+};
+
+/// Request for POST /marketplace/update.
+export type MarketplaceUpdateRequest = {
+  name?: string;
+  dcc?: string;
+  all?: boolean;
+};
+
+/// A single update result item (POST /update).
+export type MarketplaceUpdateResultItem = {
+  updated: boolean;
+  name: string;
+  dcc: string;
+  previous_version?: string | null;
+  new_version?: string | null;
+  path: string;
+  install_type: string;
+  source_name: string;
+  source_url: string;
+  reload_required: boolean;
+};
+
+/// Payload for POST /marketplace/update.
+export type MarketplaceUpdatePayload = {
+  updated: number;
+  results: MarketplaceUpdateResultItem[];
+};
+
+/// Structured error envelope returned by marketplace API endpoints.
+/// Backend sends `{ error: { kind, message } }` on failures.
+export type MarketplaceErrorKind =
+  | 'not_found'
+  | 'already_installed'
+  | 'dcc_mismatch'
+  | 'ambiguous_dcc'
+  | 'missing_install'
+  | 'unsupported_install_type'
+  | 'missing_skill'
+  | 'command_failed'
+  | 'hash_mismatch'
+  | 'archive_error'
+  | 'invalid_path_component'
+  | 'internal_error';
+
+/// Structured error envelope from marketplace API.
+export type MarketplaceErrorEnvelope = {
+  kind: MarketplaceErrorKind;
+  message: string;
+};
+
 /// Integration kind — the three integration types managed by the Integrations panel.
 export type IntegrationKind = 'sentry' | 'webhooks' | 'otlp';
 
