@@ -20,6 +20,7 @@ from __future__ import annotations
 from dcc_mcp_core._exports import _LAZY
 from dcc_mcp_core._exports import _OPTIONAL
 from dcc_mcp_core._exports import PUBLIC_EXPORTS as __all__
+from dcc_mcp_core._lazy import resolve_lazy_symbol
 
 
 def _metadata_value(name: str, default: str) -> str:
@@ -74,18 +75,4 @@ def __getattr__(name: str) -> object:
         globals()[name] = value
         return value
 
-    module_path = _LAZY.get(name)
-    if module_path is None:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-    import importlib
-
-    mod = importlib.import_module(module_path)
-    value = getattr(mod, name, None)
-
-    if value is None and name not in _OPTIONAL:
-        raise AttributeError(f"module {module_path!r} has no attribute {name!r}")
-
-    # Cache on the module object so subsequent accesses skip __getattr__.
-    globals()[name] = value
-    return value
+    return resolve_lazy_symbol(name, _LAZY, module_name=__name__, optional=_OPTIONAL)

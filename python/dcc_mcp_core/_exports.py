@@ -581,6 +581,9 @@ _LAZY: dict[str, str] = {
     "get_workflow_path": "dcc_mcp_core.workflow_yaml",
     "load_workflow_yaml": "dcc_mcp_core.workflow_yaml",
     "register_workflow_yaml_tools": "dcc_mcp_core.workflow_yaml",
+    # Lazy-import helpers (public API for adapter packages)
+    "resolve_lazy_symbol": "dcc_mcp_core._lazy",
+    "lazy_dir": "dcc_mcp_core._lazy",
 }
 
 # Optional symbols that may not exist in all wheel builds; return None instead of AttributeError.
