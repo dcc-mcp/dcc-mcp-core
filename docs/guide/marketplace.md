@@ -201,6 +201,58 @@ falling back to the local `dcc-mcp-catalog.yml` when offline. Set
   maintainer: "team@example.com"     # optional contact
 ```
 
+## Admin Workflow
+
+The **Marketplace** panel in the Admin Dashboard provides the same capabilities
+as the CLI `marketplace` subcommand through a graphical interface. It is
+accessible from the left navigation in the Admin Dashboard.
+
+### Accessing the Panel
+
+Navigate to the Admin Dashboard (`/admin`) and select **Marketplace** from the
+left navigation. The panel loads the catalog from all configured sources and
+displays the Browse tab by default.
+
+### Browsing and Installing
+
+1. **Browse tab**: use the search bar to find packages by name, description, or
+   tags. Use the DCC type Chip row to filter by application type. Search and
+   DCC filter can be combined.
+2. **Inspect**: click any package card to open the detail modal, which shows
+   full metadata including version, DCC type, tags, maintainer, project URL,
+   source, install type, and `min_core_version` compatibility information.
+3. **Install**: click the **Install** button on a card or in the detail modal.
+   On success, an inline notice appears with a **View in Skills** deep link
+   that jumps to the Skills panel and highlights the newly loaded skill.
+
+### Managing Installed Packages
+
+Switch to the **Installed** tab to see all currently installed packages. Each
+card shows the package name, version, DCC type, and install type. Click
+**Uninstall** to remove a package. Both install and uninstall operations
+automatically refresh the skill index when the backend reports a
+`reload_required` flag.
+
+### Adding Sources from the UI
+
+The Marketplace panel reflects the same source configuration as the CLI. Source
+management is available through the Admin API (`POST /admin/api/marketplace/sources`)
+and is also accessible from the panel's source management interface.
+
+### Relationship Between CLI and Admin UI
+
+| Aspect | CLI | Admin UI |
+|--------|-----|----------|
+| Catalog search | `marketplace search --query <q>` | Browse tab with search + DCC filter |
+| Install | `marketplace install <name> --dcc <dcc>` | Install button on card or detail modal |
+| Uninstall | `marketplace uninstall <name> --dcc <dcc>` | Uninstall button in Installed tab |
+| List installed | `marketplace list-installed --dcc <dcc>` | Installed tab |
+| Add source | `marketplace add <source>` | Source management in panel |
+| Update | `marketplace update [name] --all` | Admin API (`POST /admin/api/marketplace/update`) |
+
+Both interfaces share the same backend — operations performed in one are
+reflected in the other immediately.
+
 ## See Also
 
 - [cli-reference.md](cli-reference.md) — CLI command reference with full flag

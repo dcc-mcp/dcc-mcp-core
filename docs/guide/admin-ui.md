@@ -151,6 +151,61 @@ Clicking a skill opens its detail panel, including backend instance metadata,
 registered tools, `SKILL.md` source path, parsed frontmatter, and rendered
 Markdown body for developer review.
 
+## Marketplace Panel
+
+The **Marketplace** panel, accessible from the left navigation, provides a
+graphical interface for browsing, installing, and managing skill packages from
+the DCC-MCP marketplace catalog. It exposes the same capabilities as the CLI
+`marketplace` subcommand through two tabs: **Browse** and **Installed**.
+
+### Browse Tab
+
+The Browse tab displays available skill packages in a searchable catalog grid.
+Each card shows the package name, description, DCC type badges, current version,
+and an Install button.
+
+Users can filter the catalog by:
+- **Search query**: text search across name, description, and tags.
+- **DCC type filter**: a row of Chip buttons at the top of the tab to filter by
+  DCC type. Search and DCC filter can be combined.
+
+Clicking a card opens the **Marketplace detail modal** showing full metadata:
+name, description, version, tags, DCC type, maintainer, project URL, source,
+install type (git, zip, path), and `min_core_version`. When the package's
+`min_core_version` is lower than the currently running core version, a
+compatibility warning is displayed.
+
+Installing a package from the detail modal or card triggers the marketplace
+install flow. On success, an inline notice appears with a **View in Skills**
+deep link that navigates to the Skills panel and highlights the newly loaded
+skill. If the backend reports a `reload_required` flag, the skill index is
+refreshed automatically.
+
+### Installed Tab
+
+The Installed tab lists all currently installed marketplace packages as
+per-package cards, showing:
+- Package name and version
+- DCC type
+- Install type (git, zip, path)
+- Uninstall button
+
+Users can uninstall a package directly from this tab. On success, the skill
+index is refreshed to reflect the removed package.
+
+### API Endpoints
+
+| Route | Content-Type | Description |
+|-------|-------------|-------------|
+| `GET /admin/api/marketplace/catalog` | `application/json` | List available packages from all configured sources. Returns `{ entries: MarketplaceEntry[] }`. |
+| `GET /admin/api/marketplace/installed` | `application/json` | List locally installed packages with per-DCC grouping. Returns `{ packages: InstalledMarketplacePackage[] }`. |
+| `POST /admin/api/marketplace/install` | `application/json` | Install a package. Body: `{ name, dcc, source?, force? }`. Returns `InstallResultResponse` with `reload_required` flag. |
+| `POST /admin/api/marketplace/uninstall` | `application/json` | Uninstall a package. Body: `{ name, dcc }`. Returns `UninstallResultResponse` with `reload_required` flag. |
+| `GET /admin/api/marketplace/sources` | `application/json` | List configured marketplace sources with origin (builtin, config, env). |
+| `POST /admin/api/marketplace/sources` | `application/json` | Add a marketplace source to the persistent config. Body: `{ source }`. Duplicate additions are idempotent. |
+| `GET /admin/api/marketplace/outdated` | `application/json` | List installed packages that have newer versions available. Supports `?name=&dcc=` filters. |
+| `POST /admin/api/marketplace/update` | `application/json` | Update one or all outdated packages. Body: `{ name?, dcc?, all? }`. Returns per-result `reload_required` flags. |
+
 ## Routes
 
 | Route | Content-Type | Description |

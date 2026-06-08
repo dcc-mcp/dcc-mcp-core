@@ -190,6 +190,51 @@ result = client.resources_read("gateway://catalog/dcc-mcp-physics-sim")
   maintainer: "team@example.com"     # 可选联系方式
 ```
 
+## Admin 工作流
+
+Admin 仪表盘中的 **Marketplace** 面板通过图形界面提供与 CLI `marketplace`
+子命令相同的能力。在 Admin 仪表盘左侧导航中选择 **Marketplace** 即可访问。
+
+### 访问面板
+
+导航到 Admin 仪表盘（`/admin`），从左侧导航中选择 **Marketplace**。面板会
+从所有已配置来源加载目录，并默认显示浏览标签页。
+
+### 浏览与安装
+
+1. **浏览标签页**：使用搜索栏按名称、描述或标签搜索包。使用 DCC 类型 Chip
+   行按应用类型筛选。搜索和 DCC 筛选可以组合使用。
+2. **查看详情**：点击任意包卡片打开详情弹窗，显示完整元数据，包括版本、
+   DCC 类型、标签、维护者、项目 URL、来源、安装类型和 `min_core_version`
+   兼容性信息。
+3. **安装**：点击卡片或详情弹窗中的 **Install** 按钮。安装成功后，内联
+   通知会显示 **View in Skills** 深度链接，可跳转到 Skills 面板并高亮
+   新加载的 skill。
+
+### 管理已安装包
+
+切换到 **已安装（Installed）** 标签页查看所有已安装的包。每个卡片显示
+包名、版本、DCC 类型和安装类型。点击 **Uninstall** 可移除包。安装和卸载
+操作在后台报告 `reload_required` 标志时都会自动刷新技能索引。
+
+### 从 UI 添加来源
+
+Marketplace 面板反映与 CLI 相同的来源配置。来源管理功能通过 Admin API
+（`POST /admin/api/marketplace/sources`）提供，也可从面板的来源管理界面使用。
+
+### CLI 与 Admin UI 的关系
+
+| 方面 | CLI | Admin UI |
+|------|-----|----------|
+| 目录搜索 | `marketplace search --query <q>` | 浏览标签页，支持搜索 + DCC 筛选 |
+| 安装 | `marketplace install <name> --dcc <dcc>` | 卡片或详情弹窗上的 Install 按钮 |
+| 卸载 | `marketplace uninstall <name> --dcc <dcc>` | 已安装标签页的 Uninstall 按钮 |
+| 列出已安装 | `marketplace list-installed --dcc <dcc>` | 已安装标签页 |
+| 添加来源 | `marketplace add <source>` | 面板中的来源管理界面 |
+| 更新 | `marketplace update [name] --all` | Admin API (`POST /admin/api/marketplace/update`) |
+
+两种界面共享同一套后端——在一侧执行的操作会立即在另一侧反映。
+
 ## 参见
 
 - [cli-reference.md](cli-reference.md) — 带完整标志文档的 CLI 命令参考
