@@ -7,9 +7,11 @@ then define their own phase subclasses in a host-specific
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from dataclasses import field
 import time
-from dataclasses import dataclass, field
-from typing import Any, List, Optional, Sequence
+from typing import Any
+from typing import Sequence
 
 
 @dataclass
@@ -17,10 +19,10 @@ class RegistrationContext:
     """Input shared by every registration phase."""
 
     server: Any
-    extra_skill_paths: Optional[List[str]] = None
+    extra_skill_paths: list[str] | None = None
     include_bundled: bool = True
-    minimal: Optional[bool] = None
-    strict_scan: Optional[bool] = None
+    minimal: bool | None = None
+    strict_scan: bool | None = None
 
 
 @dataclass
@@ -30,14 +32,14 @@ class PhaseOutcome:
     name: str
     success: bool
     elapsed_secs: float
-    error: Optional[str] = None
+    error: str | None = None
 
 
 @dataclass
 class RegistrationReport:
     """Summary emitted after builtin-action registration completes."""
 
-    outcomes: List[PhaseOutcome] = field(default_factory=list)
+    outcomes: list[PhaseOutcome] = field(default_factory=list)
 
     @property
     def success(self) -> bool:
@@ -58,9 +60,7 @@ class RegistrationPhase:
         raise NotImplementedError
 
 
-def run_registration_phases(
-    phases: Sequence[RegistrationPhase], context: RegistrationContext
-) -> RegistrationReport:
+def run_registration_phases(phases: Sequence[RegistrationPhase], context: RegistrationContext) -> RegistrationReport:
     report = RegistrationReport()
     for phase in phases:
         started = time.monotonic()
@@ -76,7 +76,7 @@ def run_registration_phases(
                 )
             )
             raise
-        except Exception as exc:  # noqa: BLE001 - phase loop localizes optional integration failures
+        except Exception as exc:
             report.outcomes.append(
                 PhaseOutcome(
                     name=phase.name,
