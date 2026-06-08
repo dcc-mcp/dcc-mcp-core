@@ -363,11 +363,15 @@ def _make_runtime_controller(monkeypatch, **owner_attrs):
     from dcc_mcp_core._server.runtime import ServerRuntimeController
 
     attrs = {
-        "_config": type("Config", (), {
-            "gateway_port": 9765,
-            "registry_dir": None,
-            **(owner_attrs.pop("_config_kw", {})),
-        })(),
+        "_config": type(
+            "Config",
+            (),
+            {
+                "gateway_port": 9765,
+                "registry_dir": None,
+                **(owner_attrs.pop("_config_kw", {})),
+            },
+        )(),
         "_dcc_name": "test-dcc",
         "_gateway_runtime_mode": "daemon-backed",
         "_enable_gateway_failover": True,
