@@ -15,10 +15,10 @@ from urllib.error import HTTPError
 from urllib.error import URLError
 from urllib.request import urlopen
 
-logger = logging.getLogger(__name__)
-
 from dcc_mcp_core.daemon_launch import launch_detached
 from dcc_mcp_core.install_lifecycle import default_registry_dir
+
+logger = logging.getLogger(__name__)
 
 _LAUNCH_LOCK = "gateway-launch.lock"
 _LAUNCH_LOCK_STALE_SECS_ENV = "DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS"
@@ -396,11 +396,13 @@ class GatewayDaemonGuardian:
                     self.dcc_type,
                     self._crash_count,
                 )
-                self._publish({
-                    "ok": False,
-                    "reason": "guardian_crash",
-                    "crash_count": self._crash_count,
-                })
+                self._publish(
+                    {
+                        "ok": False,
+                        "reason": "guardian_crash",
+                        "crash_count": self._crash_count,
+                    }
+                )
 
     def _publish(self, update: dict[str, Any]) -> dict[str, Any]:
         payload = {
