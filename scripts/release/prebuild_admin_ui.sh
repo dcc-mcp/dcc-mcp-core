@@ -10,7 +10,7 @@ vx node --version
 
 max_attempts=3
 for attempt in $(seq 1 "$max_attempts"); do
-  if vx npm --prefix admin-ui ci --ignore-scripts; then
+  if vx npm --prefix admin-ui ci --ignore-scripts --include=optional; then
     break
   fi
   if [[ "$attempt" -eq "$max_attempts" ]]; then

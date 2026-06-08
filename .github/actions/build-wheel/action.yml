@@ -132,7 +132,7 @@ runs:
       run: |
         set -eux
         for attempt in 1 2 3; do
-          if vx npm --prefix admin-ui ci --ignore-scripts; then
+          if vx npm --prefix admin-ui ci --ignore-scripts --include=optional; then
             break
           fi
           if [ "$attempt" -eq 3 ]; then
