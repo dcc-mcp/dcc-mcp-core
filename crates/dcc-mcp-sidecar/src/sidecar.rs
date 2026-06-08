@@ -51,6 +51,7 @@ use std::time::Duration;
 
 use anyhow::Context as _;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
+use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::watch;
 
 pub use args::{ExitReason, SidecarArgs};
@@ -62,6 +63,15 @@ pub(crate) use gateway::{
 };
 #[cfg(feature = "gateway-daemon")]
 use lifecycle::spawn_guardian_status_publisher;
+
+/// Inner type for the shared guardian handle. With `gateway-daemon`, this is
+/// the real [`crate::gateway_daemon::GatewayGuardianHandle`]; without it, we
+/// use a plain `JoinHandle<()>` so the type resolves cleanly (the handle is
+/// always `None` in that case).
+#[cfg(feature = "gateway-daemon")]
+type GuardianHandleInner = crate::gateway_daemon::GatewayGuardianHandle;
+#[cfg(not(feature = "gateway-daemon"))]
+type GuardianHandleInner = tokio::task::JoinHandle<()>;
 use lifecycle::{
     client_connect, should_retry_host_rpc_connect, spawn_host_rpc_reconnector, spawn_ppid_watcher,
     spawn_sidecar_heartbeat,
@@ -116,20 +126,22 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
     );
 
     #[cfg(feature = "gateway-daemon")]
-    let gateway_guardian_handle = {
-        let gateway_daemon_options = if should_use_gateway_daemon(&args) {
-            Some(build_gateway_daemon_options(&args, registry_dir.clone()))
-        } else {
-            None
-        };
+    let gateway_daemon_options = if should_use_gateway_daemon(&args) {
+        Some(build_gateway_daemon_options(&args, registry_dir.clone()))
+    } else {
+        None
+    };
 
-        if let Some(opts) = gateway_daemon_options.as_ref() {
-            crate::gateway_daemon::ensure_gateway_running(opts)
-                .await
-                .with_context(|| "ensuring standalone gateway is running")?;
-        }
+    #[cfg(feature = "gateway-daemon")]
+    if let Some(opts) = gateway_daemon_options.as_ref() {
+        crate::gateway_daemon::ensure_gateway_running(opts)
+            .await
+            .with_context(|| "ensuring standalone gateway is running")?;
+    }
 
-        if should_start_gateway_daemon_guardian(&args) {
+    #[cfg(feature = "gateway-daemon")]
+    let gateway_guardian_handle: Arc<AsyncMutex<Option<GuardianHandleInner>>> = {
+        let guardian = if should_start_gateway_daemon_guardian(&args) {
             gateway_daemon_options.clone().map(|opts| {
                 crate::gateway_daemon::spawn_gateway_guardian(
                     opts,
@@ -138,19 +150,58 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
             })
         } else {
             None
-        }
+        };
+        Arc::new(AsyncMutex::new(guardian))
     };
 
     #[cfg(not(feature = "gateway-daemon"))]
-    let gateway_guardian_handle: Option<tokio::task::JoinHandle<()>> = {
+    let gateway_guardian_handle: Arc<AsyncMutex<Option<GuardianHandleInner>>> = {
         if args.gateway_port > 0 && !args.no_ensure_gateway && !args.legacy_gateway_election {
             tracing::warn!(
                 port = args.gateway_port,
                 "sidecar cannot auto-launch a gateway daemon because the binary was built without the gateway-daemon feature"
             );
         }
-        None
+        Arc::new(AsyncMutex::new(None))
     };
+
+    // Spawn a watchdog that periodically polls the guardian's liveness and
+    // restarts it automatically when it detects the guardian thread has died.
+    #[cfg(feature = "gateway-daemon")]
+    let gateway_guardian_watchdog: Option<tokio::task::JoinHandle<()>> = {
+        let watchdog_opts = gateway_daemon_options.clone();
+        let shared_handle = gateway_guardian_handle.clone();
+        if watchdog_opts.is_some() {
+            Some(tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(60));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                loop {
+                    interval.tick().await;
+                    let should_restart = {
+                        let locked = shared_handle.lock().await;
+                        match locked.as_ref() {
+                            Some(h) => !h.status().guardian_running,
+                            None => false,
+                        }
+                    };
+                    if should_restart {
+                        tracing::warn!("Guardian watchdog detected dead guardian, restarting...");
+                        if let Some(ref opts) = watchdog_opts {
+                            let new_guardian = crate::gateway_daemon::spawn_gateway_guardian(
+                                opts.clone(),
+                                crate::gateway_daemon::GatewayGuardianSettings::from_env(),
+                            );
+                            *shared_handle.lock().await = Some(new_guardian);
+                        }
+                    }
+                }
+            }))
+        } else {
+            None
+        }
+    };
+    #[cfg(not(feature = "gateway-daemon"))]
+    let gateway_guardian_watchdog: Option<tokio::task::JoinHandle<()>> = None;
 
     let entry = build_service_entry(&args);
     let key = entry.key();
@@ -167,8 +218,9 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
         spawn_sidecar_heartbeat(registry.clone(), key.clone(), SIDECAR_HEARTBEAT_INTERVAL);
 
     #[cfg(feature = "gateway-daemon")]
-    let gateway_guardian_publisher_handle: Option<tokio::task::JoinHandle<()>> =
-        gateway_guardian_handle.as_ref().map(|guardian| {
+    let gateway_guardian_publisher_handle: Option<tokio::task::JoinHandle<()>> = {
+        let locked = gateway_guardian_handle.lock().await;
+        locked.as_ref().map(|guardian| {
             // Spawn a lightweight publisher that periodically syncs the
             // guardian's live status into the sidecar's FileRegistry metadata
             // so admin UI and /v1/readyz can expose the fallback reason/state.
@@ -178,7 +230,8 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
                 key.clone(),
                 crate::gateway_daemon::GatewayGuardianSettings::from_env().interval(),
             )
-        });
+        })
+    };
     #[cfg(not(feature = "gateway-daemon"))]
     let gateway_guardian_publisher_handle: Option<tokio::task::JoinHandle<()>> = None;
 
@@ -359,7 +412,10 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
 
     tracing::info!(reason = ?reason, "sidecar shutting down");
 
-    if let Some(handle) = gateway_guardian_handle {
+    if let Some(handle) = gateway_guardian_watchdog {
+        handle.abort();
+    }
+    if let Some(handle) = gateway_guardian_handle.lock().await.take() {
         handle.abort();
     }
     if let Some(handle) = gateway_guardian_publisher_handle {
