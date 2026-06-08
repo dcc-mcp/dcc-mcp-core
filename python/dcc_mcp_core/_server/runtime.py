@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any
 
 from dcc_mcp_core._server.gateway_guardian import GatewayDaemonGuardian
@@ -15,8 +16,12 @@ logger = logging.getLogger(__name__)
 class ServerRuntimeController:
     """Owns start/stop helpers that are not part of the public interface."""
 
+    _WATCHDOG_INTERVAL_SECS: float = 60.0
+
     def __init__(self, owner: Any) -> None:
         self._owner = owner
+        self._guardian_watchdog_stop = threading.Event()
+        self._guardian_watchdog_thread: threading.Thread | None = None
 
     def ensure_gateway_daemon_if_needed(self) -> bool:
         owner = self._owner
@@ -55,8 +60,16 @@ class ServerRuntimeController:
             return
         if getattr(owner, "_gateway_runtime_mode", "") != "daemon-backed":
             return
-        if getattr(owner, "_gateway_guardian", None) is not None:
-            return
+
+        existing = getattr(owner, "_gateway_guardian", None)
+        if existing is not None:
+            if existing.status().get("guardian_running", False):
+                return  # Already healthy
+            logger.warning(
+                "[%s] Gateway guardian thread is dead, replacing...",
+                owner._dcc_name,
+            )
+            owner._gateway_guardian = None
 
         def _record_status(status: dict[str, Any]) -> None:
             owner._gateway_daemon_status = dict(status)
@@ -73,6 +86,7 @@ class ServerRuntimeController:
             owner._gateway_daemon_status = guardian.status()
             owner._publish_gateway_runtime_metadata()
             logger.info("[%s] Gateway daemon guardian enabled", owner._dcc_name)
+            self._start_guardian_watchdog()
 
     def start_gateway_election_if_needed(self) -> None:
         owner = self._owner
@@ -109,6 +123,7 @@ class ServerRuntimeController:
             owner._gateway_election = None
 
     def stop_gateway_guardian(self) -> None:
+        self._stop_guardian_watchdog()
         owner = self._owner
         guardian = getattr(owner, "_gateway_guardian", None)
         if guardian is None:
@@ -120,6 +135,41 @@ class ServerRuntimeController:
         finally:
             owner._gateway_guardian = None
             owner._publish_gateway_runtime_metadata()
+
+    def _guardian_watchdog_loop(self) -> None:
+        """Periodically check guardian liveness and restart if crashed."""
+        while not self._guardian_watchdog_stop.wait(self._WATCHDOG_INTERVAL_SECS):
+            try:
+                owner = self._owner
+                guardian = getattr(owner, "_gateway_guardian", None)
+                if guardian is None:
+                    continue
+                status = guardian.status()
+                if not status.get("guardian_running", False):
+                    logger.warning(
+                        "[%s] Guardian watchdog detected dead guardian, restarting...",
+                        owner._dcc_name,
+                    )
+                    self.start_gateway_guardian_if_needed()
+            except Exception:
+                logger.exception("[%s] Guardian watchdog check failed", owner._dcc_name)
+
+    def _start_guardian_watchdog(self) -> None:
+        if self._guardian_watchdog_thread is not None and self._guardian_watchdog_thread.is_alive():
+            return
+        self._guardian_watchdog_stop.clear()
+        self._guardian_watchdog_thread = threading.Thread(
+            target=self._guardian_watchdog_loop,
+            name=f"dcc-mcp-guardian-watchdog-{self._owner._dcc_name}",
+            daemon=True,
+        )
+        self._guardian_watchdog_thread.start()
+
+    def _stop_guardian_watchdog(self) -> None:
+        self._guardian_watchdog_stop.set()
+        if self._guardian_watchdog_thread is not None:
+            self._guardian_watchdog_thread.join(timeout=1.0)
+            self._guardian_watchdog_thread = None
 
     def shutdown_server_handle(self) -> None:
         owner = self._owner

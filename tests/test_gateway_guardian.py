@@ -197,6 +197,66 @@ def test_gateway_daemon_guardian_resets_failures_on_health(monkeypatch):
     assert second["consecutive_failures"] == 0
 
 
+def test_guardian_run_catches_crash_and_increments_crash_count(monkeypatch):
+    """P0: probe_once crash is caught by _run(), crash_count increments."""
+    call_count = 0
+
+    def _crash_after_one(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        raise RuntimeError("deliberate probe crash")
+
+    monkeypatch.setattr(gg, "_is_healthy", _crash_after_one)
+
+    guardian = gg.GatewayDaemonGuardian(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=None,
+        dcc_type="crash-test",
+        probe_interval_secs=0.05,
+        failure_threshold=5,
+    )
+
+    guardian.start()
+    time.sleep(0.2)
+    guardian.stop(timeout=2.0)
+
+    status = guardian.status()
+    assert status["crash_count"] >= 1, f"Expected crash_count >= 1, got {status['crash_count']}"
+    # Guardian must report running=False after stop.
+    assert status["guardian_running"] is False
+
+
+def test_guardian_run_continues_after_exception(monkeypatch):
+    """P0: _run() loop survives exception and keeps probing."""
+    calls = []
+
+    def _probe(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("first probe crash")
+        return False  # subsequent probes return healthy=False (no crash)
+
+    monkeypatch.setattr(gg, "_is_healthy", _probe)
+
+    guardian = gg.GatewayDaemonGuardian(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=None,
+        dcc_type="resilient-test",
+        probe_interval_secs=0.05,
+        failure_threshold=5,
+    )
+
+    guardian.start()
+    time.sleep(0.3)
+    guardian.stop(timeout=2.0)
+
+    # The loop survived the first crash and continued probing
+    assert len(calls) >= 2, f"Expected >= 2 probe calls, got {len(calls)}"
+    assert guardian.status()["crash_count"] >= 1
+
+
 def test_build_gateway_daemon_command_includes_persist_flags(monkeypatch, tmp_path):
     monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
     cmd, env = gg.build_gateway_daemon_command(
@@ -295,3 +355,78 @@ def test_launch_gateway_daemon_is_alias(monkeypatch):
     )
     assert result["ok"] is True
     assert result["reason"] == "already_healthy"
+
+
+def _make_runtime_controller(monkeypatch, **owner_attrs):
+    """Build a thin ServerRuntimeController with a mock owner."""
+    # Import here to avoid circular import issues in test collection.
+    from dcc_mcp_core._server.runtime import ServerRuntimeController
+
+    attrs = {
+        "_config": type("Config", (), {
+            "gateway_port": 9765,
+            "registry_dir": None,
+            **(owner_attrs.pop("_config_kw", {})),
+        })(),
+        "_dcc_name": "test-dcc",
+        "_gateway_runtime_mode": "daemon-backed",
+        "_enable_gateway_failover": True,
+        "_gateway_guardian": None,
+        "_gateway_daemon_status": {},
+        "_publish_gateway_runtime_metadata": staticmethod(lambda: None),
+        **owner_attrs,
+    }
+    mock_owner = type("Owner", (), attrs)()
+    return ServerRuntimeController(mock_owner), mock_owner
+
+
+def test_start_guardian_replaces_dead_guardian(monkeypatch):
+    """P1: start_gateway_guardian_if_needed replaces a dead guardian."""
+    monkeypatch.setattr(gg, "_is_healthy", lambda *a, **k: False)
+    monkeypatch.setattr(gg, "ensure_gateway_daemon", lambda **kw: {"ok": True, "reason": "spawned"})
+    monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
+
+    ctrl, owner = _make_runtime_controller(monkeypatch)
+
+    # Start the guardian normally.
+    ctrl.start_gateway_guardian_if_needed()
+    guardian = owner._gateway_guardian
+    assert guardian is not None
+    assert guardian.status()["guardian_running"] is True
+    first_id = id(guardian)
+
+    # Simulate guardian death: stop the thread so status shows not running.
+    guardian.stop(timeout=2.0)
+    assert guardian.status()["guardian_running"] is False
+
+    # Replace the dead guardian.
+    ctrl.start_gateway_guardian_if_needed()
+    new_guardian = owner._gateway_guardian
+    assert new_guardian is not None
+    assert id(new_guardian) != first_id
+    assert new_guardian.status()["guardian_running"] is True
+
+
+def test_guardian_watchdog_detects_dead_guardian(monkeypatch):
+    """P1: Watchdog loop detects dead guardian and triggers restart."""
+    monkeypatch.setattr(gg, "_is_healthy", lambda *a, **k: False)
+    monkeypatch.setattr(gg, "ensure_gateway_daemon", lambda **kw: {"ok": True, "reason": "spawned"})
+    monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
+
+    ctrl, owner = _make_runtime_controller(monkeypatch)
+
+    # Start the guardian.
+    ctrl.start_gateway_guardian_if_needed()
+    guardian = owner._gateway_guardian
+    assert guardian is not None
+
+    # Kill the guardian thread.
+    guardian.stop(timeout=2.0)
+    assert guardian.status()["guardian_running"] is False
+
+    # Calling start_gateway_guardian_if_needed again should restore the guardian.
+    ctrl.start_gateway_guardian_if_needed()
+    new_guardian = owner._gateway_guardian
+    assert new_guardian is not None
+    assert id(new_guardian) != id(guardian)
+    assert new_guardian.status()["guardian_running"] is True

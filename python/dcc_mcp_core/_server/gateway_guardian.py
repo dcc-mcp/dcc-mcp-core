@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -13,6 +14,8 @@ from typing import Callable
 from urllib.error import HTTPError
 from urllib.error import URLError
 from urllib.request import urlopen
+
+logger = logging.getLogger(__name__)
 
 from dcc_mcp_core.daemon_launch import launch_detached
 from dcc_mcp_core.install_lifecycle import default_registry_dir
@@ -312,6 +315,7 @@ class GatewayDaemonGuardian:
         self._lock = threading.Lock()
         self._consecutive_failures = 0
         self._restart_attempts = 0
+        self._crash_count = 0
         self._last_status: dict[str, Any] = {
             "ok": False,
             "reason": "not_started",
@@ -383,7 +387,20 @@ class GatewayDaemonGuardian:
 
     def _run(self) -> None:
         while not self._stop.wait(max(self.probe_interval_secs, 0.1)):
-            self.probe_once()
+            try:
+                self.probe_once()
+            except Exception:
+                self._crash_count += 1
+                logger.exception(
+                    "[gateway_guardian:%s] probe_once crashed (crash #%d)",
+                    self.dcc_type,
+                    self._crash_count,
+                )
+                self._publish({
+                    "ok": False,
+                    "reason": "guardian_crash",
+                    "crash_count": self._crash_count,
+                })
 
     def _publish(self, update: dict[str, Any]) -> dict[str, Any]:
         payload = {
@@ -392,6 +409,7 @@ class GatewayDaemonGuardian:
             "guardian_running": bool(self._thread is not None and self._thread.is_alive()),
             "consecutive_failures": self._consecutive_failures,
             "restart_attempts": self._restart_attempts,
+            "crash_count": self._crash_count,
             "timestamp_ms": int(time.time() * 1000),
             **update,
         }
