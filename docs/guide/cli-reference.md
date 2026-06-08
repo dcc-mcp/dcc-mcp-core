@@ -59,6 +59,9 @@ dcc-mcp-cli marketplace list-installed --dcc maya
 dcc-mcp-cli marketplace outdated --dcc maya
 dcc-mcp-cli marketplace update dcc-mcp-maya-skills --dcc maya
 dcc-mcp-cli marketplace update --all
+dcc-mcp-cli gateway ensure
+dcc-mcp-cli gateway status
+dcc-mcp-cli gateway stop
 dcc-mcp-cli lint path/to/skills
 ```
 
@@ -85,6 +88,10 @@ dcc-mcp-cli lint path/to/skills
 | `marketplace uninstall <name> --dcc <dcc>` | local installed-state file + filesystem | Remove an installed marketplace package. |
 | `marketplace outdated [NAME...] [--dcc <dcc>]` | marketplace catalog + local installed state | Compare installed versions against latest catalog entries and list packages with newer versions available. |
 | `marketplace update [<name>] [--all] [--dcc <dcc>]` | marketplace catalog + git/filesystem + local installed state | Upgrade installed packages to the latest catalog version. For `git` installs, fetches the new ref in place; for other types, re-installs from the catalog. Use `--all` to update every outdated package. |
+| `gateway ensure [--port <port>]` | local process | Check gateway health via `GET /health` on the configured port (default 9765). If unreachable, acquire a launch lock and spawn the gateway daemon in the background. Reports `already_running: true` or `started: true` with process PID. |
+| `gateway start [--port <port>] [--idle-timeout <secs>]` | local process | Force-start a new gateway daemon. Wraps `gateway ensure` logic and accepts additional startup options: `--name <name>`, `--remote-host <host>`, `--gateway-bin <path>`, `--wait-timeout <secs>`. |
+| `gateway stop [--port <port>]` | local process | Stop a running gateway daemon by PID file. Sends SIGTERM (Unix) or TerminateProcess (Windows), verifies the process has exited, and cleans up the PID file. |
+| `gateway status [--port <port>]` | local process | Report gateway daemon status: host, port, health check result, PID, and whether the process is alive. JSON output for agent consumption. |
 | `lint [PATH ...]` | local filesystem validator | Recursively validate SKILL.md packages two levels below each path by default. |
 
 `install` intentionally starts as a planning contract: it resolves catalog

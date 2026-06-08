@@ -95,6 +95,9 @@
 | Skill authoring | [`skills/dcc-mcp-skills-creator/SKILL.md`](skills/dcc-mcp-skills-creator/SKILL.md) + `examples/skills/` | Creating or modifying skills |
 | Adapter developer guidance | [`skills/dcc-mcp-creator/SKILL.md`](skills/dcc-mcp-creator/SKILL.md) | Before creating or changing DCC adapter server/runtime wiring, dispatcher bridges, readiness, resources, gateway behavior, or core-escalation plans |
 | Skill creator guidance | [`skills/dcc-mcp-skills-creator/SKILL.md`](skills/dcc-mcp-skills-creator/SKILL.md) | Before creating or changing adapter skill authoring, tool schemas, scripts, skill taxonomy, testing, or agent-facing workflows |
+| CLI + marketplace operations | [`skills/dcc-cli-gateway/SKILL.md`](skills/dcc-cli-gateway/SKILL.md) | Agents doing DCC control via `dcc-mcp-cli` — gateway ensure, inventory, search, describe, call, marketplace install/update |
+| Marketplace extension publishing | [`skills/marketplace-publish-extension/SKILL.md`](skills/marketplace-publish-extension/SKILL.md) | Before publishing a new skill package to the DCC-MCP marketplace |
+| Marketplace extension creation | [`skills/marketplace-create-extension/SKILL.md`](skills/marketplace-create-extension/SKILL.md) | Before creating a new marketplace extension package |
 | Gateway REST regressions (VRS) | [`tests/vrs/README.md`](tests/vrs/README.md) + `scripts/vrs_replay.py` | After gateway `/v1/*` or live-adapter bugs — add a JSONL trace per regression |
 
 ---
