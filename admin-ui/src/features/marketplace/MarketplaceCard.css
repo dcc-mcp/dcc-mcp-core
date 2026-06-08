@@ -571,3 +571,136 @@
 .marketplace-install-notice-link:hover {
   text-decoration: underline;
 }
+
+/* ── Force install checkbox ────────────────────────────────────────────────── */
+
+.marketplace-force-install label {
+  color: var(--muted-foreground);
+  user-select: none;
+}
+
+.marketplace-force-install input[type="checkbox"] {
+  accent-color: var(--primary);
+}
+
+/* ── Outdated badge ────────────────────────────────────────────────────────── */
+
+.marketplace-card-outdated {
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.marketplace-card-outdated-badge {
+  align-self: flex-start;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius);
+  color: #d97706;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+}
+
+/* ── Update button ─────────────────────────────────────────────────────────── */
+
+.marketplace-card-update-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+
+.marketplace-card-chip-update {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 999px;
+  color: #d97706;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  transition: background 0.15s ease;
+}
+
+.marketplace-card-chip-update:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.22);
+}
+
+.marketplace-card-chip-update:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* ── Sources section ───────────────────────────────────────────────────────── */
+
+.marketplace-sources-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+}
+
+.marketplace-source-row {
+  align-items: center;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.marketplace-source-name {
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 700;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marketplace-source-url {
+  color: var(--muted-foreground);
+  flex: 1;
+  font-size: 0.75rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-pill-builtin {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.25);
+  color: var(--link);
+}
+
+.source-pill-config {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.25);
+  color: #3b82f6;
+}
+
+.source-pill-env,
+.source-pill-explicit {
+  background: rgba(139, 92, 246, 0.1);
+  border-color: rgba(139, 92, 246, 0.25);
+  color: #8b5cf6;
+}
+
+/* ── Reload hint in install notice ─────────────────────────────────────────── */
+
+.marketplace-reload-hint {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+/* ── Outdated count badge on installed tab ────────────────────────────────── */
+
+.marketplace-tab-count-warn {
+  background: rgba(245, 158, 11, 0.15);
+  color: #d97706;
+}

@@ -39,8 +39,12 @@ import type {
   InstanceSummary,
   InstalledMarketplacePackage,
   MarketplaceEntry,
+  MarketplaceErrorEnvelope,
   MarketplaceInstallResult,
+  MarketplaceOutdatedPackage,
+  MarketplaceSourceEntry,
   MarketplaceUninstallResult,
+  MarketplaceUpdatePayload,
   IntegrationsPayload,
   UpdateIntegrationRequest,
   UpdateIntegrationResult,
@@ -78,6 +82,8 @@ export const adminKeys = {
   openApiSpec: (specUrl: string) => [...adminKeys.all, 'openapi-spec', specUrl] as const,
   marketplaceCatalog: () => [...adminKeys.all, 'marketplace', 'catalog'] as const,
   marketplaceInstalled: () => [...adminKeys.all, 'marketplace', 'installed'] as const,
+  marketplaceSources: () => [...adminKeys.all, 'marketplace', 'sources'] as const,
+  marketplaceOutdated: () => [...adminKeys.all, 'marketplace', 'outdated'] as const,
   integrations: () => [...adminKeys.all, 'integrations'] as const,
 };
 
@@ -317,21 +323,88 @@ export function useInstalledMarketplaceQuery(enabled: boolean) {
   });
 }
 
+export function useMarketplaceSourcesQuery(enabled: boolean) {
+  return useQuery({
+    queryKey: adminKeys.marketplaceSources(),
+    queryFn: () => apiJson<{ sources: MarketplaceSourceEntry[] }>('/marketplace/sources'),
+    select: (payload) => (Array.isArray(payload.sources) ? payload.sources : []),
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+export function useMarketplaceOutdatedQuery(enabled: boolean) {
+  return useQuery({
+    queryKey: adminKeys.marketplaceOutdated(),
+    queryFn: () =>
+      apiJson<{ dcc?: string | null; count: number; packages: MarketplaceOutdatedPackage[] }>(
+        '/marketplace/outdated',
+      ),
+    select: (payload) => ({
+      dcc: payload.dcc ?? null,
+      count: payload.count ?? 0,
+      packages: Array.isArray(payload.packages) ? payload.packages : [],
+    }),
+    enabled,
+    staleTime: 15_000,
+  });
+}
+
+// ── marketplace error helpers ───────────────────────────────────────────────
+
+/** Try to parse a fetch error response into a structured error envelope. */
+async function readMarketplaceErrorEnvelope(
+  res: Response,
+): Promise<MarketplaceErrorEnvelope | null> {
+  try {
+    const body = await res.json();
+    const err = (body as Record<string, unknown>)?.error;
+    if (err && typeof err === 'object' && (err as MarketplaceErrorEnvelope).kind) {
+      return err as MarketplaceErrorEnvelope;
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return null;
+}
+
+/** Build a structured error from a failed fetch response. */
+async function buildMarketplaceError(
+  res: Response,
+  fallback: string,
+): Promise<MarketplaceError> {
+  const envelope = await readMarketplaceErrorEnvelope(res);
+  return new MarketplaceError(
+    envelope?.kind ?? 'internal_error',
+    envelope?.message ?? `${fallback}: ${res.status}`,
+  );
+}
+
+/** Structured marketplace error carrying the backend error kind for UI mapping. */
+export class MarketplaceError extends Error {
+  kind: MarketplaceErrorEnvelope['kind'];
+  constructor(kind: MarketplaceErrorEnvelope['kind'], message: string) {
+    super(message);
+    this.name = 'MarketplaceError';
+    this.kind = kind;
+  }
+}
+
 // ── marketplace mutations ───────────────────────────────────────────────────
 
 export function useMarketplaceInstall() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: { name: string; dcc: string; source?: string }) =>
-      fetch(`${API_BASE}/marketplace/install`, {
+    mutationFn: async (body: { name: string; dcc: string; source?: string; force?: boolean }) => {
+      const res = await fetch(`${API_BASE}/marketplace/install`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(ADMIN_FETCH_TIMEOUT_MS),
-      }).then((res) => {
-        if (!res.ok) throw new Error(`Install failed: ${res.status}`);
-        return res.json() as Promise<MarketplaceInstallResult>;
-      }),
+      });
+      if (!res.ok) throw await buildMarketplaceError(res, 'Install failed');
+      return res.json() as Promise<MarketplaceInstallResult>;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: adminKeys.marketplaceInstalled() });
       queryClient.invalidateQueries({ queryKey: adminKeys.marketplaceCatalog() });
@@ -342,18 +415,59 @@ export function useMarketplaceInstall() {
 export function useMarketplaceUninstall() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: { name: string; dcc: string }) =>
-      fetch(`${API_BASE}/marketplace/uninstall`, {
+    mutationFn: async (body: { name: string; dcc: string }) => {
+      const res = await fetch(`${API_BASE}/marketplace/uninstall`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(ADMIN_FETCH_TIMEOUT_MS),
-      }).then((res) => {
-        if (!res.ok) throw new Error(`Uninstall failed: ${res.status}`);
-        return res.json() as Promise<MarketplaceUninstallResult>;
-      }),
+      });
+      if (!res.ok) throw await buildMarketplaceError(res, 'Uninstall failed');
+      return res.json() as Promise<MarketplaceUninstallResult>;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: adminKeys.marketplaceInstalled() });
+      queryClient.invalidateQueries({ queryKey: adminKeys.marketplaceCatalog() });
+    },
+  });
+}
+
+export function useAddMarketplaceSource() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (source: string) => {
+      const res = await fetch(`${API_BASE}/marketplace/sources`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source }),
+        signal: AbortSignal.timeout(ADMIN_FETCH_TIMEOUT_MS),
+      });
+      if (!res.ok) throw await buildMarketplaceError(res, 'Failed to add source');
+      return res.json() as Promise<{ sources: MarketplaceSourceEntry[] }>;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: adminKeys.marketplaceSources() });
+      queryClient.invalidateQueries({ queryKey: adminKeys.marketplaceCatalog() });
+    },
+  });
+}
+
+export function useMarketplaceUpdate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { name?: string; dcc?: string; all?: boolean }) => {
+      const res = await fetch(`${API_BASE}/marketplace/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(ADMIN_FETCH_TIMEOUT_MS),
+      });
+      if (!res.ok) throw await buildMarketplaceError(res, 'Update failed');
+      return res.json() as Promise<MarketplaceUpdatePayload>;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: adminKeys.marketplaceInstalled() });
+      queryClient.invalidateQueries({ queryKey: adminKeys.marketplaceOutdated() });
       queryClient.invalidateQueries({ queryKey: adminKeys.marketplaceCatalog() });
     },
   });
