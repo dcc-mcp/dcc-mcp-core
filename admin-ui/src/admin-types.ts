@@ -2,7 +2,7 @@ import { type InterpolationValues, type MessageKey } from './i18n';
 
 export type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 
-export type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'workflows' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'traffic' | 'stats' | 'governance' | 'logs' | 'skill-paths' | 'analytics' | 'marketplace' | 'integrations';
+export type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'workflows' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'traffic' | 'stats' | 'governance' | 'logs' | 'skill-paths' | 'analytics' | 'marketplace' | 'integrations' | 'discover' | 'overview';
 
 export type AnalyticsOverview = {
   range: string;

@@ -80,6 +80,7 @@ export {
 
 // ══ navigation ────────────────────────────────────────────────────────────
 import {
+  PANEL_ALIAS_MAP,
   PANELS,
   PANEL_ID_SET,
   STATS_RANGE_IDS,
@@ -95,13 +96,17 @@ import {
   projectDocsHref,
   publicSafeIssuePaths,
   publicToolFamily,
+  readDiscoverTabFromUrl,
   readOpenApiSourceFromUrl,
+  readOverviewTabFromUrl,
   readPanelFromUrl,
   readStatsRangeFromUrl,
   readTraceIdFromUrl,
+  readTracesTabFromUrl,
   traceLinks,
 } from './navigation';
 export {
+  PANEL_ALIAS_MAP,
   PANELS,
   PANEL_ID_SET,
   STATS_RANGE_IDS,
@@ -117,10 +122,13 @@ export {
   projectDocsHref,
   publicSafeIssuePaths,
   publicToolFamily,
+  readDiscoverTabFromUrl,
   readOpenApiSourceFromUrl,
+  readOverviewTabFromUrl,
   readPanelFromUrl,
   readStatsRangeFromUrl,
   readTraceIdFromUrl,
+  readTracesTabFromUrl,
   traceLinks,
 };
 export type { PanelDefinition } from './navigation';
@@ -355,6 +363,8 @@ export function NavIcon({ panel }: { panel: Panel }) {
     analytics: ['M3 3v18h18', 'M7 16l4-8 4 4 4-6'],
     marketplace: ['M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z', 'M3 6h18', 'M16 10a4 4 0 01-8 0'],
     integrations: ['M12 2L2 7l10 5 10-5-10-5z', 'M2 17l10 5 10-5', 'M2 12l10 5 10-5'],
+    discover: ['M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z'],
+    overview: ['M3 13h2v-2H3v2zm4 0h2v-2H7v2zm4-2v2h2v-2h-2zm4 0h2v-2h-2v2zm4 0h2v-2h-2v2z'],
   };
   return (
     <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
