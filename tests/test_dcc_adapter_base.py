@@ -430,7 +430,7 @@ class TestDccServerBase:
     def test_start_logs_server_version(self, tmp_path, caplog):
         server = self._make_server(tmp_path)
 
-        with caplog.at_level(logging.INFO, logger="dcc_mcp_core.server_base"):
+        with caplog.at_level(logging.INFO, logger="dcc_mcp_core._server.lifecycle_controller"):
             server.start()
 
         assert "[fake-dcc] MCP server v0.1.0 started at http://127.0.0.1:18765/mcp" in caplog.text
@@ -511,18 +511,19 @@ class TestDccServerBase:
         assert not server.is_running
 
     def test_start_installs_weak_atexit_hook(self, tmp_path, monkeypatch):
-        import dcc_mcp_core.server_base as server_base
-        from dcc_mcp_core.server_base import DccServerBase
+        import atexit as atexit_module
+
+        from dcc_mcp_core._server.lifecycle_controller import LifecycleController
 
         server = self._make_server(tmp_path)
         registrations = []
-        monkeypatch.setattr(server_base.atexit, "register", lambda *args: registrations.append(args))
+        monkeypatch.setattr(atexit_module, "register", lambda *args: registrations.append(args))
 
         server.start()
 
         assert len(registrations) == 1
         callback, ref = registrations[0]
-        assert callback is DccServerBase._stop_from_atexit
+        assert callback is LifecycleController._stop_from_atexit
         assert ref() is server
 
     def test_init_registers_builtin_skills(self, tmp_path, monkeypatch):
@@ -535,7 +536,7 @@ class TestDccServerBase:
         def mock_register(*args, **kwargs):
             calls.append((args, kwargs))
 
-        monkeypatch.setattr("dcc_mcp_core.server_base.register_all_builtin_skills", mock_register)
+        monkeypatch.setattr("dcc_mcp_core._server.skill_discovery.register_all_builtin_skills", mock_register)
         monkeypatch.setattr("dcc_mcp_core.server_base.create_skill_server", MagicMock())
 
         opts = DccServerOptions.from_env("maya", tmp_path, port=0, gateway_port=0)
@@ -765,10 +766,10 @@ class TestDccServerBase:
         server_base.py imports these helpers at module import time, so patch
         the symbols on ``dcc_mcp_core.server_base``.
         """
-        with patch("dcc_mcp_core.server_base.get_app_skill_paths_from_env", return_value=[]), patch(
-            "dcc_mcp_core.server_base.get_skill_paths_from_env", return_value=[]
-        ), patch("dcc_mcp_core.server_base.get_local_skills_dir", return_value=None), patch(
-            "dcc_mcp_core.server_base.get_skills_dir", return_value=None
+        with patch("dcc_mcp_core._server.skill_discovery.get_app_skill_paths_from_env", return_value=[]), patch(
+            "dcc_mcp_core._server.skill_discovery.get_skill_paths_from_env", return_value=[]
+        ), patch("dcc_mcp_core._server.skill_discovery.get_local_skills_dir", return_value=None), patch(
+            "dcc_mcp_core._server.skill_discovery.get_skills_dir", return_value=None
         ):
             yield
 
@@ -816,11 +817,11 @@ class TestDccServerBase:
 
     def test_collect_skill_search_paths_includes_local_default(self, tmp_path):
         server = self._make_server(tmp_path)
-        local_default = tmp_path / ".dcc-mcp" / "maya" / "skills"
-        with patch("dcc_mcp_core.server_base.get_app_skill_paths_from_env", return_value=[]), patch(
-            "dcc_mcp_core.server_base.get_skill_paths_from_env", return_value=[]
-        ), patch("dcc_mcp_core.server_base.get_local_skills_dir", return_value=str(local_default)), patch(
-            "dcc_mcp_core.server_base.get_skills_dir", return_value=None
+        local_default = tmp_path / ".dcc-mcp" / "fake-dcc" / "skills"
+        with patch("dcc_mcp_core._server.skill_discovery.get_app_skill_paths_from_env", return_value=[]), patch(
+            "dcc_mcp_core._server.skill_discovery.get_skill_paths_from_env", return_value=[]
+        ), patch("dcc_mcp_core._server.skill_discovery.get_local_skills_dir", return_value=str(local_default)), patch(
+            "dcc_mcp_core._server.skill_discovery.get_skills_dir", return_value=None
         ):
             paths = server.collect_skill_search_paths(include_bundled=False, filter_existing=True)
 
