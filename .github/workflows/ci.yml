@@ -157,7 +157,14 @@ jobs:
         shell: bash
         run: |
           vx node --version
-          if ! vx npm --prefix admin-ui ci --ignore-scripts --include=optional; then
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            # macOS runners hit npm bug #4828: optional dependency
+            # @rolldown/binding-darwin-arm64 is silently skipped even when
+            # npm ci itself exits 0. Skip the npm ci attempt entirely and
+            # always use the prebuilt artifact.
+            echo "::warning::Skipping npm ci on macOS; using prebuilt admin UI artifact"
+            echo "DCC_MCP_ADMIN_UI_PREBUILT=1" >> "$GITHUB_ENV"
+          elif ! vx npm --prefix admin-ui ci --ignore-scripts --include=optional; then
             echo "::warning::npm ci failed; falling back to prebuilt admin UI artifact"
             echo "DCC_MCP_ADMIN_UI_PREBUILT=1" >> "$GITHUB_ENV"
           fi
