@@ -332,6 +332,12 @@ def test_crash_recovery_loop() -> None:
     promotion_count = {"n": 0}
 
     srv = _make_server()
+
+    def _on_promote() -> bool:
+        promotion_count["n"] += 1
+        srv.is_gateway = True
+        return True
+
     election = DccGatewayElection(
         dcc_name="crash-recover",
         server=srv,
@@ -339,7 +345,7 @@ def test_crash_recovery_loop() -> None:
         probe_interval=0.05,
         probe_timeout=0.5,
         probe_failures=2,
-        on_promote=lambda: promotion_count.update(n=promotion_count["n"] + 1) or True,
+        on_promote=_on_promote,
     )
     try:
         election.start()
