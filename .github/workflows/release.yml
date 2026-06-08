@@ -477,7 +477,6 @@ jobs:
   publish-clawhub-skills:
     needs: [release-please]
     if: needs.release-please.outputs.release_created == 'true'
-    continue-on-error: true
     uses: ./.github/workflows/clawhub.yml
     with:
       checkout-ref: ${{ needs.release-please.outputs.tag_name }}
