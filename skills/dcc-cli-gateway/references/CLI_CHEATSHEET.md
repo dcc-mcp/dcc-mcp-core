@@ -30,19 +30,11 @@ curl -fsSL https://raw.githubusercontent.com/loonghao/vx/main/install.sh | bash
 powershell -c "irm https://raw.githubusercontent.com/loonghao/vx/main/install.ps1 | iex"
 ```
 
-## Gateway lifecycle
-
-| Command | Purpose |
-|---------|---------|
-| `dcc-mcp-cli gateway ensure` | Probe gateway health, auto-start if unreachable (mandatory first command) |
-| `dcc-mcp-cli gateway start` | Force-start a new gateway daemon |
-| `dcc-mcp-cli gateway stop` | Stop the gateway daemon by PID file |
-| `dcc-mcp-cli gateway status` | Report daemon health, PID, alive status |
-
 ## Discovery and health
 
 | Command | Purpose |
 |---------|---------|
+| `dcc-mcp-cli gateway ensure` | **Pre-step**: ensure gateway is running, auto-start if needed |
 | `dcc-mcp-cli health` (or `python scripts/dcc_gateway.py health`) | Check gateway liveness |
 | `dcc-mcp-cli list` (or `python scripts/dcc_gateway.py list`) | List registered DCC instances |
 | `dcc-mcp-cli list --pretty` (or `python scripts/dcc_gateway.py --pretty list`) | Human-readable JSON |
@@ -60,13 +52,12 @@ powershell -c "irm https://raw.githubusercontent.com/loonghao/vx/main/install.ps
 ```bash
 export DCC_MCP_BASE_URL="${DCC_MCP_BASE_URL:-http://127.0.0.1:9765}"
 
-# CLI (primary) — gateway ensure first
-dcc-mcp-cli gateway ensure
+# CLI (primary)
+dcc-mcp-cli gateway ensure  # pre-step: ensure gateway is running
 dcc-mcp-cli health
 dcc-mcp-cli list
 
 # Python fallback (when CLI is unavailable)
-python scripts/dcc_gateway.py gateway ensure
 python scripts/dcc_gateway.py health
 python scripts/dcc_gateway.py list
 ```
