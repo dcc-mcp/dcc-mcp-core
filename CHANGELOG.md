@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.15](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.14...v0.18.15) (2026-06-08)
+
+
+### Bug Fixes
+
+* **ci:** increase release asset verification retries to 20 and add diagnostic logging ([ed91306](https://github.com/dcc-mcp/dcc-mcp-core/commit/ed913068b0e2102afaf56faed0387407f08379c3))
+
 ## [0.18.14](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.13...v0.18.14) (2026-06-08)
 
 
