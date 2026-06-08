@@ -191,7 +191,11 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
                                 opts.clone(),
                                 crate::gateway_daemon::GatewayGuardianSettings::from_env(),
                             );
-                            *shared_handle.lock().await = Some(new_guardian);
+                            let mut locked = shared_handle.lock().await;
+                            if let Some(old) = locked.take() {
+                                old.abort();
+                            }
+                            *locked = Some(new_guardian);
                         }
                     }
                 }
