@@ -8,6 +8,11 @@ on:
         required: false
         type: string
         default: ""
+      release-tag-name:
+        description: "Release tag to upload wheels to GitHub Release (e.g. v0.18.11). Empty means skip upload."
+        required: false
+        type: string
+        default: ""
   workflow_call:
     inputs:
       test-wheel:
@@ -18,8 +23,8 @@ on:
         required: false
         type: string
         default: ""
-      release-tag:
-        description: "Release tag to upload wheels to (for direct release upload)"
+      release-tag-name:
+        description: "Release tag to upload wheels to GitHub Release (e.g. v0.18.11). Empty means skip upload."
         required: false
         type: string
         default: ""
@@ -32,7 +37,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   # ── ABI3 builds (Python 3.8+) — one wheel works for all 3.8+ ──
@@ -50,11 +55,11 @@ jobs:
           target: x86_64
           python-version: '3.11'
           artifact-name: wheels-linux-x86_64
-      - name: Upload to GitHub Release
-        if: inputs.release-tag != ''
+      - name: Upload wheel to GitHub Release
+        if: inputs.release-tag-name != ''
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ inputs.release-tag }}
+          tag_name: ${{ inputs.release-tag-name }}
           files: dist/*.whl
 
   windows:
@@ -70,11 +75,11 @@ jobs:
           target: x64
           python-version: '3.11'
           artifact-name: wheels-windows-x64
-      - name: Upload to GitHub Release
-        if: inputs.release-tag != ''
+      - name: Upload wheel to GitHub Release
+        if: inputs.release-tag-name != ''
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ inputs.release-tag }}
+          tag_name: ${{ inputs.release-tag-name }}
           files: dist/*.whl
 
   macos:
@@ -91,11 +96,11 @@ jobs:
           python-version: '3.11'
           maturin-extra-args: '--sdist --find-interpreter'
           artifact-name: wheels-macos-universal2
-      - name: Upload to GitHub Release
-        if: inputs.release-tag != ''
+      - name: Upload wheel to GitHub Release
+        if: inputs.release-tag-name != ''
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ inputs.release-tag }}
+          tag_name: ${{ inputs.release-tag-name }}
           files: dist/*.whl
 
   # ── Python 3.7 builds (non-abi3) — separate wheel for Python 3.7 only ──
@@ -121,11 +126,11 @@ jobs:
           test-wheel: ${{ inputs.test-wheel || 'true' }}
           artifact-name: wheels-linux-x86_64-py37
           use-sccache: 'false'
-      - name: Upload to GitHub Release
-        if: inputs.release-tag != ''
+      - name: Upload wheel to GitHub Release
+        if: inputs.release-tag-name != ''
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ inputs.release-tag }}
+          tag_name: ${{ inputs.release-tag-name }}
           files: dist/*.whl
 
   windows-py37:
@@ -146,11 +151,11 @@ jobs:
           test-wheel: ${{ inputs.test-wheel || 'true' }}
           artifact-name: wheels-windows-x64-py37
           use-sccache: 'false'
-      - name: Upload to GitHub Release
-        if: inputs.release-tag != ''
+      - name: Upload wheel to GitHub Release
+        if: inputs.release-tag-name != ''
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ inputs.release-tag }}
+          tag_name: ${{ inputs.release-tag-name }}
           files: dist/*.whl
 
   macos-py37:
@@ -250,9 +255,9 @@ jobs:
           path: dist/
           retention-days: 30
 
-      - name: Upload to GitHub Release
-        if: inputs.release-tag != ''
+      - name: Upload wheel to GitHub Release
+        if: inputs.release-tag-name != ''
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ inputs.release-tag }}
+          tag_name: ${{ inputs.release-tag-name }}
           files: dist/*.whl
