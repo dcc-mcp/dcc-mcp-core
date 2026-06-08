@@ -473,6 +473,7 @@ jobs:
       # every wheel/binary is produced successfully.
       test-wheel: ${{ 'false' }}
       checkout-ref: ${{ needs.release-please.outputs.tag_name }}
+      release-tag: ${{ needs.release-please.outputs.tag_name }}
 
   publish-clawhub-skills:
     needs: [release-please]

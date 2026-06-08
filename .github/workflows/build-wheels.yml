@@ -18,6 +18,11 @@ on:
         required: false
         type: string
         default: ""
+      release-tag:
+        description: "Release tag to upload wheels to (for direct release upload)"
+        required: false
+        type: string
+        default: ""
 
 concurrency:
   # Scope by the resolved checkout target so a release-driven build for tag
@@ -34,6 +39,8 @@ jobs:
 
   linux:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v6
         with:
@@ -43,9 +50,17 @@ jobs:
           target: x86_64
           python-version: '3.11'
           artifact-name: wheels-linux-x86_64
+      - name: Upload to GitHub Release
+        if: inputs.release-tag != ''
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ inputs.release-tag }}
+          files: dist/*.whl
 
   windows:
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v6
         with:
@@ -55,9 +70,17 @@ jobs:
           target: x64
           python-version: '3.11'
           artifact-name: wheels-windows-x64
+      - name: Upload to GitHub Release
+        if: inputs.release-tag != ''
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ inputs.release-tag }}
+          files: dist/*.whl
 
   macos:
     runs-on: macos-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v6
         with:
@@ -68,6 +91,12 @@ jobs:
           python-version: '3.11'
           maturin-extra-args: '--sdist --find-interpreter'
           artifact-name: wheels-macos-universal2
+      - name: Upload to GitHub Release
+        if: inputs.release-tag != ''
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ inputs.release-tag }}
+          files: dist/*.whl
 
   # ── Python 3.7 builds (non-abi3) — separate wheel for Python 3.7 only ──
   # macOS cp37 wheels are cross-compiled from ARM64 (macos-latest) to x86_64.
@@ -76,6 +105,8 @@ jobs:
 
   linux-py37:
     runs-on: ubuntu-22.04  # Python 3.7 not available on Ubuntu 24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v6
         with:
@@ -90,9 +121,17 @@ jobs:
           test-wheel: ${{ inputs.test-wheel || 'true' }}
           artifact-name: wheels-linux-x86_64-py37
           use-sccache: 'false'
+      - name: Upload to GitHub Release
+        if: inputs.release-tag != ''
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ inputs.release-tag }}
+          files: dist/*.whl
 
   windows-py37:
     runs-on: windows-2022  # Installs Python 3.7 from python.org.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v6
         with:
@@ -107,6 +146,12 @@ jobs:
           test-wheel: ${{ inputs.test-wheel || 'true' }}
           artifact-name: wheels-windows-x64-py37
           use-sccache: 'false'
+      - name: Upload to GitHub Release
+        if: inputs.release-tag != ''
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ inputs.release-tag }}
+          files: dist/*.whl
 
   macos-py37:
     # macOS ARM64 runner cross-compiling to x86_64.
@@ -204,3 +249,10 @@ jobs:
           name: wheels-macos-x86_64-py37
           path: dist/
           retention-days: 30
+
+      - name: Upload to GitHub Release
+        if: inputs.release-tag != ''
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ inputs.release-tag }}
+          files: dist/*.whl
