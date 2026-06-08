@@ -8,6 +8,8 @@
     "dev": "vite --host 127.0.0.1",
     "preview": "vite preview --host 127.0.0.1",
     "test": "playwright test",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
     "test:ui": "playwright test --ui",
     "test:report": "playwright show-report",
     "postinstall": "playwright install chromium"
@@ -36,7 +38,9 @@
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
+    "jsdom": "^29.1.1",
     "typescript": "latest",
-    "vite": ">=6.2.5"
+    "vite": ">=6.2.5",
+    "vitest": "^4.1.8"
   }
 }
