@@ -44,14 +44,19 @@ pub const DEFAULT_STANDALONE_REGISTRY_DCC_TYPE: &str = "python";
 pub fn resolve_registry_dcc_type(embedder_dcc: Option<&str>) -> String {
     resolve_registry_dcc_type_impl(
         embedder_dcc,
-        std::env::var(ENV_STANDALONE_REGISTRY_DCC_TYPE).ok().as_deref(),
+        std::env::var(ENV_STANDALONE_REGISTRY_DCC_TYPE)
+            .ok()
+            .as_deref(),
     )
 }
 
 /// Core logic factored out so tests can pass the env-override value explicitly
 /// without touching process-global `std::env::set_var` / `std::env::var`, which
 /// are not thread-safe and cause flaky failures under `cargo test` parallelism.
-fn resolve_registry_dcc_type_impl(embedder_dcc: Option<&str>, env_override: Option<&str>) -> String {
+fn resolve_registry_dcc_type_impl(
+    embedder_dcc: Option<&str>,
+    env_override: Option<&str>,
+) -> String {
     let from_embedder = embedder_dcc.and_then(|s| {
         let t = s.trim();
         if t.is_empty() {
