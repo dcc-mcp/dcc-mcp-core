@@ -193,6 +193,58 @@ per-package cards, showing:
 Users can uninstall a package directly from this tab. On success, the skill
 index is refreshed to reflect the removed package.
 
+### Source Management Tab
+
+A **Sources** management interface is accessible from the Marketplace panel,
+letting operators view, add, and remove marketplace sources without the CLI:
+
+- **Source list**: displays each configured source with its origin label
+  (`builtin`, `config`, `env`) and the raw URL.
+- **Add source**: an inline form to enter a new marketplace source URL.
+  Duplicate additions are idempotent — adding an already-registered source
+  is a no-op rather than a hard error.
+- **Remove source**: removes a user-configured source from the persistent
+  config. Built-in and environment-provided sources cannot be removed from
+  the UI.
+
+Source changes take effect immediately for subsequent catalog queries, and
+the Browse tab refreshes on the next interaction.
+
+### Update Flow
+
+When newer versions are available for installed packages, the **Installed** tab
+shows an **Update** button on each outdated card. The button triggers a
+marketplace update for that single package. A bulk **Update All** action is also
+available at the top of the Installed tab, upgrading every outdated package in
+one operation.
+
+The update flow uses the `force` install flag internally, allowing the new
+version to overwrite the existing installation. After update completes, the
+backend triggers a skill index reload if needed (`reload_required: true`).
+For `git`-type installs, the update fetches the new ref in place rather than
+re-cloning; other install types re-install from the catalog.
+
+### Force Install
+
+The **Install** button supports a force install mode that overwrites an
+existing installation without prompting. This is exposed through the
+`force: true` parameter in the install API. In the UI, force install is
+used automatically during the update flow; manual force install is
+available through the detail modal when a package appears already
+installed.
+
+### Structured Error Display
+
+Install, update, and uninstall operations return structured error responses
+displayed as inline notification banners rather than raw JSON. Each error
+includes:
+
+- **Error code**: a machine-readable identifier (e.g. `source_not_found`,
+  `install_failed`, `network_error`).
+- **Human-readable message**: a localized description of what went wrong.
+- **Recovery hint** (when available): a suggestion for how to resolve the
+  issue (e.g. "check the source URL is reachable", "verify disk space").
+
 ### API Endpoints
 
 | Route | Content-Type | Description |

@@ -2,11 +2,12 @@
 
 Use this document only when:
 
+- `dcc-mcp-cli gateway ensure` (or `python scripts/dcc_gateway.py gateway ensure`) succeeds,
 - `dcc-mcp-cli health` (or `python scripts/dcc_gateway.py health`) succeeds,
 - `dcc-mcp-cli list` (or `python scripts/dcc_gateway.py list`) returns `"total": 0`, and
 - the user has explicitly approved setup guidance.
 
-Until all three are true, do not run install commands, edit environment files,
+Until all four are true, do not run install commands, edit environment files,
 launch GUI applications, or modify MCP host configuration.
 
 ---
@@ -26,7 +27,7 @@ Before any setup step, confirm:
 
 | Check | Meaning | Next step |
 |-------|---------|-----------|
-| `dcc-mcp-cli health` fails | Gateway is not reachable | Ask user to start a gateway-capable DCC adapter or `dcc-mcp-server` |
+| `dcc-mcp-cli gateway ensure` fails | Gateway is not reachable or cannot be auto-started | Ask user to start a gateway-capable DCC adapter or `dcc-mcp-server` |
 | `dcc-mcp-cli health` succeeds and `list.total == 0` | Gateway is up, no DCC registered | Start a DCC adapter |
 
 Gateway election defaults to port `9765`. The first DCC-MCP process that binds
