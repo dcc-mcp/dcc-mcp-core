@@ -73,11 +73,72 @@ agents without maintaining per-host MCP server lists.
 
 ---
 
+## Gateway Ensure - Mandatory Precondition
+
+**Before any DCC interaction, ensure the gateway is running.** `dcc-mcp-cli gateway ensure`
+checks gateway health at `DCC_MCP_BASE_URL` (default `http://127.0.0.1:9765`) and
+auto-starts the gateway daemon in the background if needed. This is the very first
+command an agent should run - do not skip it.
+
+### What gateway ensure does
+
+1. **Probe** `GET /health` on the gateway port (default 9765).
+2. If healthy -> report `already_running: true` and continue.
+3. If unreachable -> acquire a launch lock, spawn the gateway daemon in the
+   background, poll until healthy, then release the lock.
+4. Return an `EnsureResult` with `host`, `port`, `already_running`, and `pid`.
+
+### CLI usage
+
+```bash
+# Primary - always runs first
+dcc-mcp-cli gateway ensure
+
+# With explicit host/port
+dcc-mcp-cli gateway ensure --host 127.0.0.1 --port 9765
+
+# Set longer wait timeout (default 15s)
+dcc-mcp-cli gateway ensure --wait-timeout 30
+```
+
+### Ensure result format
+
+```json
+{
+  "host": "127.0.0.1",
+  "port": 9765,
+  "already_running": true,
+  "pid": 12345
+}
+```
+
+- `already_running: true` -> gateway was already up; proceed to `health` / `list`.
+- `already_running: false` -> gateway was just started by this call (includes `pid`).
+
+### If gateway ensure fails
+
+| Symptom | Likely cause | Action |
+|---------|-------------|--------|
+| Timeout after `--wait-timeout` | Gateway binary missing or port conflict | Ask user to install dcc-mcp-core or check port availability |
+| Lock contention | Concurrent launch race | Retry after a short delay |
+| Port 0 rejected | Invalid config | Verify `DCC_MCP_GATEWAY_PORT` or `--port` is non-zero |
+
+### Python fallback note
+
+The Python fallback (`dcc_gateway.py`) does NOT include a `gateway ensure` command
+because the ensure flow spawns a subprocess daemon - a capability specific to the
+compiled CLI. When the CLI binary is unavailable, skip to `dcc_gateway.py health`
+directly. If health fails, report the gateway as unreachable and ask the user to
+start a gateway manually or install `dcc-mcp-cli`.
+
+---
+
 ## Connection Order
 
-1. Use `dcc-mcp-cli` when it is already on `PATH`.
-2. If missing, ask user permission, then download `dcc-mcp-cli` from GitHub Releases.
-3. If the download fails, use the bundled Python stdlib REST fallback.
+1. **Gateway ensure** - `dcc-mcp-cli gateway ensure` (requires CLI binary; no Python fallback).
+2. Use `dcc-mcp-cli` for all subsequent commands when it is on `PATH`.
+3. If missing, ask user permission, then download `dcc-mcp-cli` from GitHub Releases.
+4. If the download fails, use the bundled Python stdlib REST fallback.
 
 Install via OpenClaw/ClawHub, or point your agent at this `SKILL.md` after cloning
 [`dcc-mcp-core/skills/dcc-cli-gateway/`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/skills/dcc-cli-gateway).
@@ -88,13 +149,14 @@ Install via OpenClaw/ClawHub, or point your agent at this `SKILL.md` after cloni
 
 | Situation | You MUST |
 |-----------|----------|
-| Starting any DCC task | Run `dcc-mcp-cli health` and `dcc-mcp-cli list` first (or `python scripts/dcc_gateway.py health` / `python scripts/dcc_gateway.py list` as fallback) |
+| **Starting any DCC task** | Run `dcc-mcp-cli gateway ensure` first, THEN `dcc-mcp-cli health` and `dcc-mcp-cli list` (or Python fallback for health/list) |
 | `dcc-mcp-cli` missing | Ask permission before `--ensure-cli`; fallback Python REST is allowed if download fails |
+| `dcc-mcp-cli gateway ensure` fails | Stop; explain the result; do not run `health`, `list`, `search`, `describe`, or `call` |
 | Inventory returns `total == 0` | Stop; do not run `search`, `describe`, or `call` |
 | Gateway unreachable | Stop; explain; ask user permission before troubleshooting |
 | User has not agreed to setup | Do not install packages, edit env files, launch GUI apps, or write configs |
 | User approved setup | Follow [`references/ZERO_INSTANCES_CLI.md`](references/ZERO_INSTANCES_CLI.md) |
-| After DCC crash/restart | Re-run `list` and `search`; old slugs may be invalid |
+| After DCC crash/restart | Re-run `gateway ensure`, `list`, and `search`; old slugs may be invalid |
 
 ---
 
@@ -104,6 +166,7 @@ Install via OpenClaw/ClawHub, or point your agent at this `SKILL.md` after cloni
 
 ```bash
 export DCC_MCP_BASE_URL="${DCC_MCP_BASE_URL:-http://127.0.0.1:9765}"
+dcc-mcp-cli gateway ensure
 dcc-mcp-cli health
 python scripts/dcc_gateway.py health
 ```
@@ -156,7 +219,26 @@ powershell -c "irm https://raw.githubusercontent.com/loonghao/vx/main/install.ps
 
 ---
 
-## Step 0 — Mandatory Instance Inventory
+## Step 0 — Gateway Ensure
+
+Run this as the **very first step** every time you begin work or after a
+DCC adapter restarts:
+
+```bash
+# CLI only (Python fallback does not support ensure)
+dcc-mcp-cli gateway ensure
+```
+
+Interpret the result:
+
+- `already_running: true` -> gateway is up; proceed to instance inventory.
+- `already_running: false` -> gateway was just launched; wait a moment, then
+  proceed to instance inventory.
+- Error / timeout -> stop; explain the failure to the user.
+
+---
+
+## Step 1 — Mandatory Instance Inventory
 
 Run this every time you begin work or after the user starts/stops a DCC host:
 
@@ -200,7 +282,7 @@ target DCC. Continue only after explicit approval.
 
 ---
 
-## Step 1 — Search Tools
+## Step 2 — Search Tools
 
 Only run this when inventory shows at least one non-stale target:
 
@@ -222,7 +304,7 @@ Never hand-build slugs.
 
 ---
 
-## Step 2 — Describe Schema
+## Step 3 — Describe Schema
 
 ```bash
 # CLI (primary)
@@ -236,7 +318,7 @@ Read `tool.inputSchema` and safety annotations before calling.
 
 ---
 
-## Step 3 — Call a Tool
+## Step 4 — Call a Tool
 
 ```bash
 # CLI (primary)

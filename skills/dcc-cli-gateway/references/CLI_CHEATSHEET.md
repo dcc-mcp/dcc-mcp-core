@@ -34,6 +34,7 @@ powershell -c "irm https://raw.githubusercontent.com/loonghao/vx/main/install.ps
 
 | Command | Purpose |
 |---------|---------|
+| `dcc-mcp-cli gateway ensure` | **Pre-step**: ensure gateway is running, auto-start if needed |
 | `dcc-mcp-cli health` (or `python scripts/dcc_gateway.py health`) | Check gateway liveness |
 | `dcc-mcp-cli list` (or `python scripts/dcc_gateway.py list`) | List registered DCC instances |
 | `dcc-mcp-cli list --pretty` (or `python scripts/dcc_gateway.py --pretty list`) | Human-readable JSON |
@@ -52,6 +53,7 @@ powershell -c "irm https://raw.githubusercontent.com/loonghao/vx/main/install.ps
 export DCC_MCP_BASE_URL="${DCC_MCP_BASE_URL:-http://127.0.0.1:9765}"
 
 # CLI (primary)
+dcc-mcp-cli gateway ensure  # pre-step: ensure gateway is running
 dcc-mcp-cli health
 dcc-mcp-cli list
 
