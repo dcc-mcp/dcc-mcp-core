@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.13](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.12...v0.18.13) (2026-06-08)
+
+
+### Features
+
+* **admin-ui:** add marketplace source management, update flow, force install, and structured error display ([83d3b5f](https://github.com/dcc-mcp/dcc-mcp-core/commit/83d3b5f1acb8a385fa354a7dda686abdfbea90db))
+
+
+### Bug Fixes
+
+* **admin-ui:** replace isLoading with isPending for mutation result ([80ac6cf](https://github.com/dcc-mcp/dcc-mcp-core/commit/80ac6cf93dd0b769417aed9ff14f8d621229fdee))
+* **ci:** skip npm ci on macOS rust-check — use prebuilt admin UI artifact ([4670ea1](https://github.com/dcc-mcp/dcc-mcp-core/commit/4670ea10d09ad6692370dd994d158b769b6e49b1))
+* **ci:** upload build-wheels artifacts directly to GitHub Release ([ed6fe5b](https://github.com/dcc-mcp/dcc-mcp-core/commit/ed6fe5b26d69adeb8b6b022c1e7c42e8d8ba68e9))
+* **release:** upload dcc_mcp_core wheels to GitHub Release per-platform ([39e1662](https://github.com/dcc-mcp/dcc-mcp-core/commit/39e16629c380c080b9ca77906abcf0bd87db7f0b))
+
+
+### Code Refactoring
+
+* **core:** extract shared _lazy.py helper for lazy-import scaffolding ([3df68c3](https://github.com/dcc-mcp/dcc-mcp-core/commit/3df68c3e680fa8eeaa0d2a5c8a5d8a54d6fc85d6))
+* **core:** split DccServerBase into 4 seam controllers (PIP-688) ([1e470ff](https://github.com/dcc-mcp/dcc-mcp-core/commit/1e470ff1d926c949f69aa07706f911ba1b2dded9))
+
 ## [0.18.12](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.11...v0.18.12) (2026-06-08)
 
 
