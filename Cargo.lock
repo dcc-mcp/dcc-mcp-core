@@ -1135,6 +1135,7 @@ dependencies = [
  "dcc-mcp-catalog",
  "dcc-mcp-marketplace",
  "dcc-mcp-skills",
+ "dirs",
  "hex",
  "reqwest 0.13.4",
  "serde",

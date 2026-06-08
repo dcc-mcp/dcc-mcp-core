@@ -13,6 +13,8 @@ use std::time::{Duration, Instant};
 use anyhow::Context;
 use serde::Serialize;
 
+use super::gateway_discovery;
+
 /// How long to wait for a single `/health` probe before timing out.
 const HEALTH_TIMEOUT: Duration = Duration::from_millis(600);
 
@@ -76,7 +78,7 @@ pub async fn ensure_gateway_running(args: &EnsureGatewayArgs) -> anyhow::Result<
                     pid: read_pid_from_pidfile(args.pidfile.as_deref()),
                 });
             }
-            let pid = spawn_detached_gateway(args)?;
+            let pid = spawn_detached_gateway(args).await?;
 
             wait_gateway_ready(
                 &args.host,
@@ -212,14 +214,12 @@ fn launch_lock_is_stale(path: &Path, stale_after: Duration) -> std::io::Result<b
 
 // ── Spawn ────────────────────────────────────────────────────────────────
 
-fn resolve_gateway_bin(args: &EnsureGatewayArgs) -> PathBuf {
-    args.gateway_bin
-        .clone()
-        .unwrap_or_else(|| std::env::current_exe().expect("resolving current executable"))
+async fn resolve_gateway_bin(args: &EnsureGatewayArgs) -> anyhow::Result<PathBuf> {
+    gateway_discovery::resolve_gateway_bin(args.gateway_bin.as_ref()).await
 }
 
-fn spawn_detached_gateway(args: &EnsureGatewayArgs) -> anyhow::Result<u32> {
-    let exe = resolve_gateway_bin(args);
+async fn spawn_detached_gateway(args: &EnsureGatewayArgs) -> anyhow::Result<u32> {
+    let exe = resolve_gateway_bin(args).await?;
     let mut cmd = Command::new(&exe);
     cmd.args(gateway_command_args(args))
         .env("DCC_MCP_REGISTRY_DIR", &args.registry_dir)
