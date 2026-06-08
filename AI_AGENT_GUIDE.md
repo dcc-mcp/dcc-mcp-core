@@ -18,9 +18,57 @@
 | **Error Recovery** | Structured `error_result` with `prompt` suggestions | Unstructured stderr |
 | **Traceability** | Audit log + telemetry | None |
 
+## 🚀 Agent Entry Strategy: CLI+REST (default) vs IDE MCP
+
+**As an AI agent, your default path is CLI+REST through the gateway.** Human IDE users continue using MCP configuration. The gateway serves both paths simultaneously.
+
+### Decision Table — Which Path Should I Use?
+
+| If you are... | Use this path | How to start |
+|---------------|---------------|--------------|
+| An AI agent in OpenClaw, Hermes, Codex CLI, or any headless agent runtime | **CLI+REST** ← **this is you** | Load `dcc-cli-gateway` skill → call `dcc-mcp-cli search/describe/call` |
+| An AI agent in Cursor / Claude Desktop / VS Code with MCP enabled | **Either works**, prefer CLI+REST | CLI+REST via `dcc-cli-gateway` is preferred; IDE MCP is available as fallback |
+| Running a CI/CD or automation script | **CLI+REST** | `dcc-mcp-cli` with structured output and exit codes |
+| Troubleshooting DCC connectivity | **CLI+REST** | `dcc-mcp-cli health/list/smoke` |
+| A human IDE user reading this guide | **IDE MCP** | Configure `mcp_servers.json` → gateway MCP tools |
+| A GUI artist using DCC plugin directly | **IDE MCP** | DCC's built-in MCP plugin |
+
+### Core Principle
+
+> **Agent → CLI+REST → `dcc-mcp-cli` → gateway REST API → DCC control**
+> **Human IDE → MCP → gateway MCP surface → DCC control**
+
+CLI-first does **not** deprecate MCP. The gateway always exposes both MCP and REST side by side.
+
 ## 🚀 Quick Start Workflow
 
-### 1. Discover Relevant Skills
+### Default Agent Path: CLI+REST
+
+```bash
+# 1. Ensure gateway is running
+dcc-mcp-cli gateway ensure
+
+# 2. Search for tools
+dcc-mcp-cli search --query "create sphere" --dcc-type maya
+
+# 3. Inspect a tool schema
+dcc-mcp-cli describe --tool-slug maya.a1b2c3d4.create_sphere
+
+# 4. Call the tool
+dcc-mcp-cli call --tool-slug maya.a1b2c3d4.create_sphere --arguments '{"radius": 2.0}'
+
+# 5. Batch calls
+dcc-mcp-cli call --batch --steps '[
+  {"tool_slug": "maya.a1b2c3d4.create_sphere", "arguments": {"radius": 2.0}},
+  {"tool_slug": "maya.a1b2c3d4.assign_material", "arguments": {"name": "mat_blue"}}
+]'
+```
+
+Use the `dcc-cli-gateway` skill to wrap these CLI calls as structured MCP tools in your agent runtime. This is the recommended pattern for all agent integrations.
+
+### Quick Start: Skills (Python API)
+
+For embedded / in-process Python usage:
 
 ```python
 from dcc_mcp_core import SkillCatalog, ToolRegistry, scan_and_load
@@ -63,7 +111,14 @@ else:
 
 When an MCP `tools/call` response includes `CallToolResult._meta["dcc.next_tools"].on_success` or `.on_failure`, **always consider calling those tools next**. This creates a guided workflow chain; the declarations live per tool in sibling `tools.yaml`, not as top-level `SKILL.md` keys.
 
-### Direct Per-DCC MCP Discovery
+---
+
+> **Note for AI agents**: The sections below describe the IDE / MCP integration path. Your default is the **CLI+REST** path above. Use these MCP sections when:
+> - You are running inside an IDE with MCP support (Cursor, Claude Desktop)
+> - You need gateway resources/prompts not yet exposed via REST
+> - You are troubleshooting MCP-specific behavior
+
+### IDE Path: Direct Per-DCC MCP Discovery
 
 If your MCP connection is a direct Maya/Blender/Houdini/etc. server, do not
 treat the first `tools/list` page as the complete tool index. `tools/list` is
@@ -85,7 +140,7 @@ tool name. Use `get_skill_info` to inspect a selected skill's full tool schemas
 before loading it. If you intentionally call `tools/list`, follow every
 `nextCursor` until it is absent.
 
-### Gateway Dynamic-Capability / REST Surfaces
+### IDE Path: Gateway MCP Surface
 
 If your MCP connection is the multi-DCC gateway, do not expect backend actions to appear directly in `tools/list`. The gateway surface is intentionally fixed and bounded; use the dynamic-capability workflow instead:
 
@@ -259,6 +314,7 @@ MemoryRecorder(store).install(hooks)  # wires 6 lifecycle events
 
 | Task | Use this API |
 |------|---------------|
+| **Control DCC via CLI (agent default)** | Load `dcc-cli-gateway` skill → `dcc-mcp-cli search/describe/call` |
 | **Expose DCC tools over MCP** | `DccServerOptions.from_env(...)` → `DccServerBase(opts)` → `start()` |
 | **Zero-code tool registration** | agentskills.io `SKILL.md` + `metadata.dcc-mcp.tools` pointing at sibling `tools.yaml` + `scripts/` |
 | **Return structured results** | `success_result()` / `error_result()` |
@@ -332,6 +388,8 @@ tools:
 
 ## 📖 Further Reading
 
+- **Default entry skill**: [`dcc-cli-gateway`](skills/dcc-cli-gateway/SKILL.md) — load this skill for CLI+REST DCC control
+- **CLI reference**: [`docs/guide/cli-reference.md`](docs/guide/cli-reference.md) — full `dcc-mcp-cli` command reference
 - **Navigation map**: [`AGENTS.md`](AGENTS.md) — start here for detailed rules
 - **API index**: [`llms.txt`](llms.txt) — compressed API reference for AI agents
 - **Skill authoring guide**: [`docs/guide/skills.md`](docs/guide/skills.md) — current SKILL.md + sibling-file pattern
@@ -343,17 +401,18 @@ tools:
 
 ## 💡 Pro Tips for AI Agents
 
-1. **Always search before assuming** — use `search_skills()` to discover relevant tools
-2. **Read tool annotations** — respect safety hints (`read_only`, `destructive`)
-3. **Follow next-tools chains** — they guide you through complex workflows
-4. **Handle errors gracefully** — check `error_result` and follow `prompt` suggestions
-5. **Use progressive loading** — don't load all skills at once, activate groups as needed
-6. **Prefer MCP tools over raw scripting** — they provide validation, safety, and traceability
-7. **Check cancellations** — in long-running tools, periodically call `check_cancelled()`
-8. **Wire lifecycle hooks for policy control** — use `BEFORE_TOOL_CALL` + `HookDeny` to block dangerous operations without modifying tool code
-9. **Enable agent memory for smarter searches** — `MemoryRecorder` auto-injects `memory_prefer_tools`/`memory_avoid_tools` so search ranking improves over time
-10. **Use `register_all_builtin_skills` for a complete baseline** — one call registers diagnostics, introspection, feedback, recipes, UI inspector, and script materialization tools
-11. **Read `_meta` for request-level context** — tools receive `params._meta.agent_context` (caller identity), `credential_profile` (env tier), `permission_hint` (read-only/read-write), and `project_scope` (data isolation). See [agents-reference.md](docs/guide/agents-reference.md#request-level-context-passthrough-_meta----pip-520) for patterns.
+1. **CLI+REST is your default path** — load `dcc-cli-gateway` skill and use `dcc-mcp-cli search/describe/call`. Only fall back to MCP when running inside an IDE.
+2. **Always search before assuming** — use `dcc-mcp-cli search --query "..." --dcc-type ...` or `search_skills()` to discover relevant tools
+3. **Read tool annotations** — respect safety hints (`read_only`, `destructive`)
+4. **Follow next-tools chains** — they guide you through complex workflows
+5. **Handle errors gracefully** — check `error_result` and follow `prompt` suggestions
+6. **Use progressive loading** — don't load all skills at once, activate groups as needed
+7. **Prefer structured skill tools over raw scripting** — they provide validation, safety, and traceability
+8. **Check cancellations** — in long-running tools, periodically call `check_cancelled()`
+9. **Wire lifecycle hooks for policy control** — use `BEFORE_TOOL_CALL` + `HookDeny` to block dangerous operations without modifying tool code
+10. **Enable agent memory for smarter searches** — `MemoryRecorder` auto-injects `memory_prefer_tools`/`memory_avoid_tools` so search ranking improves over time
+11. **Use `register_all_builtin_skills` for a complete baseline** — one call registers diagnostics, introspection, feedback, recipes, UI inspector, and script materialization tools
+12. **Read `_meta` for request-level context** — tools receive `params._meta.agent_context` (caller identity), `credential_profile` (env tier), `permission_hint` (read-only/read-write), and `project_scope` (data isolation). See [agents-reference.md](docs/guide/agents-reference.md#request-level-context-passthrough-_meta----pip-520) for patterns.
 
 ---
 

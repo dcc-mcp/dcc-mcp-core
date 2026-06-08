@@ -2,8 +2,8 @@
 
 Use this document only when:
 
-- `python scripts/dcc_gateway.py health` succeeds,
-- `python scripts/dcc_gateway.py list` returns `"total": 0`, and
+- `dcc-mcp-cli health` (or `python scripts/dcc_gateway.py health`) succeeds,
+- `dcc-mcp-cli list` (or `python scripts/dcc_gateway.py list`) returns `"total": 0`, and
 - the user has explicitly approved setup guidance.
 
 Until all three are true, do not run install commands, edit environment files,
@@ -18,7 +18,7 @@ Before any setup step, confirm:
 1. Which DCC product the user needs.
 2. Whether they want commands suggested or executed.
 3. That they will confirm after each DCC-side step so you can re-run
-   `python scripts/dcc_gateway.py list`.
+   `dcc-mcp-cli list`.
 
 ---
 
@@ -26,8 +26,8 @@ Before any setup step, confirm:
 
 | Check | Meaning | Next step |
 |-------|---------|-----------|
-| `python scripts/dcc_gateway.py health` fails | Gateway is not reachable | Ask user to start a gateway-capable DCC adapter or `dcc-mcp-server` |
-| `python scripts/dcc_gateway.py health` succeeds and `list.total == 0` | Gateway is up, no DCC registered | Start a DCC adapter |
+| `dcc-mcp-cli health` fails | Gateway is not reachable | Ask user to start a gateway-capable DCC adapter or `dcc-mcp-server` |
+| `dcc-mcp-cli health` succeeds and `list.total == 0` | Gateway is up, no DCC registered | Start a DCC adapter |
 
 Gateway election defaults to port `9765`. The first DCC-MCP process that binds
 the gateway port becomes the gateway; other DCC adapters register with it.
@@ -36,7 +36,7 @@ the gateway port becomes the gateway; other DCC adapters register with it.
 
 ## Adapter discovery
 
-With user approval:
+With user approval, install adapter packages via the CLI:
 
 ```bash
 dcc-mcp-cli install --dcc-type maya
@@ -45,6 +45,16 @@ dcc-mcp-cli install --dcc-type blender
 
 The `install` command returns an auditable plan. Treat it as guidance unless the
 user explicitly asks you to execute installation steps.
+
+Alternatively, when the CLI binary is not yet available:
+
+```bash
+python scripts/dcc_gateway.py install --dcc-type maya
+python scripts/dcc_gateway.py install --dcc-type blender
+```
+
+The Python fallback auto-downloads the CLI if needed (with user consent, pass
+`--ensure-cli`), then delegates to `dcc-mcp-cli install`.
 
 ---
 
@@ -61,20 +71,20 @@ user explicitly asks you to execute installation steps.
    print(handle.mcp_url())
    ```
 
-3. Re-run `python scripts/dcc_gateway.py list`; expect `dcc_type: maya`.
+3. Re-run `dcc-mcp-cli list`; expect `dcc_type: maya`.
 
 ### Blender
 
 1. Install `dcc-mcp-blender` per its README.
 2. Enable the add-on in Blender Preferences.
-3. Re-run `python scripts/dcc_gateway.py list`; expect `dcc_type: blender`.
+3. Re-run `dcc-mcp-cli list`; expect `dcc_type: blender`.
 
 ### Houdini / Photoshop / 3ds Max
 
 Follow the adapter README for the target host, then re-run:
 
 ```bash
-python scripts/dcc_gateway.py list
+dcc-mcp-cli list
 ```
 
 When `total >= 1`, resume the main flow: `search -> describe -> call`.
