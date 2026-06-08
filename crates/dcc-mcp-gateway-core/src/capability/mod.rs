@@ -37,7 +37,7 @@ pub mod search_ranking;
 // facade so historical paths (`dcc_mcp_gateway_core::capability::
 // CapabilityRecord` etc.) keep working verbatim.
 pub use builder::BuildOutcome;
-pub use index::{IndexSnapshot, InstanceFingerprint};
+pub use index::{IndexSnapshot, InstanceFingerprint, compute_fingerprint};
 pub use record::{
     CapabilityAnnotations, CapabilityGroupInfo, CapabilityMetadata, CapabilityRecord,
     SCHEMA_AVAILABLE, is_valid_dcc_bucket, parse_slug, tool_slug,

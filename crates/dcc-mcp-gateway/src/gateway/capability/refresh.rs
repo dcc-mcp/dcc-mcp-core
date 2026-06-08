@@ -17,17 +17,17 @@
 //! `crate::gateway::capability::refresh::RefreshReason` path working
 //! unchanged.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::Duration;
 
 use uuid::Uuid;
 
+use dcc_mcp_gateway_core::capability::compute_fingerprint;
+
 use crate::gateway::backend_client::{UnloadedCapabilityHint, fetch_tools};
 
 use super::builder::{BuildInput, build_records_from_backend};
-use super::index::{CapabilityIndex, InstanceFingerprint};
+use super::index::CapabilityIndex;
 use super::record::{CapabilityRecord, tool_slug};
 
 pub use dcc_mcp_gateway_core::capability::refresh::RefreshReason;
@@ -129,29 +129,6 @@ fn build_unloaded_records(
         .collect()
 }
 
-fn compute_fingerprint(records: &[CapabilityRecord]) -> InstanceFingerprint {
-    let mut hasher = DefaultHasher::new();
-    for r in records {
-        r.tool_slug.hash(&mut hasher);
-        r.has_schema.hash(&mut hasher);
-        r.summary.hash(&mut hasher);
-        r.loaded.hash(&mut hasher);
-        r.tool_group.hash(&mut hasher);
-        for group in &r.available_groups {
-            group.name.hash(&mut hasher);
-            group.default_active.hash(&mut hasher);
-            group.active.hash(&mut hasher);
-        }
-        for t in &r.tags {
-            t.hash(&mut hasher);
-        }
-        for t in &r.search_tokens {
-            t.hash(&mut hasher);
-        }
-    }
-    InstanceFingerprint(hasher.finish())
-}
-
 /// Drop every record for `instance_id`. Safe to call even if the
 /// instance was never indexed.
 pub fn remove_instance(index: &Arc<CapabilityIndex>, instance_id: Uuid) -> bool {
@@ -168,6 +145,7 @@ pub fn remove_instance(index: &Arc<CapabilityIndex>, instance_id: Uuid) -> bool 
 #[cfg(test)]
 mod unit_tests {
     use super::*;
+    use dcc_mcp_gateway_core::capability::index::InstanceFingerprint;
 
     #[test]
     fn refresh_reason_label_is_stable() {
