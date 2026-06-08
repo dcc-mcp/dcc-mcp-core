@@ -9,7 +9,7 @@ import typing
 
 # ── Module metadata ──
 
-__version__: builtins.str = "0.18.14"  # x-release-please-version
+__version__: builtins.str = "0.18.15"  # x-release-please-version
 __author__: builtins.str = "Hal Long <hal.long@outlook.com>"
 
 # ── Constants (registered via m.add() in src/lib.rs::register_constants) ──
