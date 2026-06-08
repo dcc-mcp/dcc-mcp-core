@@ -41,10 +41,7 @@ pub async fn resolve_gateway_bin(gateway_bin: Option<&PathBuf>) -> anyhow::Resul
         if explicit.exists() {
             return Ok(explicit.clone());
         }
-        anyhow::bail!(
-            "explicit gateway binary not found: {}",
-            explicit.display()
-        );
+        anyhow::bail!("explicit gateway binary not found: {}", explicit.display());
     }
 
     // Layer 1: Same-directory lookup
@@ -91,11 +88,7 @@ fn find_cached_binary() -> Option<PathBuf> {
     let cache_dir = gateway_cache_dir()?;
     let version = env!("CARGO_PKG_VERSION");
     let cached = cache_dir.join(version).join(GATEWAY_BINARY_NAME_WITH_EXT);
-    if cached.is_file() {
-        Some(cached)
-    } else {
-        None
-    }
+    if cached.is_file() { Some(cached) } else { None }
 }
 
 // ── Layer 3: GitHub Releases download ───────────────────────────────────
@@ -118,8 +111,8 @@ async fn download_from_github_releases(version: &str) -> anyhow::Result<PathBuf>
         .unwrap_or_else(|| DEFAULT_GITHUB_RELEASE_BASE.to_string());
     let url = format!("{base}/v{version}/{filename}");
 
-    let cache_dir = gateway_cache_dir()
-        .context("cannot determine cache directory for gateway binary")?;
+    let cache_dir =
+        gateway_cache_dir().context("cannot determine cache directory for gateway binary")?;
     let version_dir = cache_dir.join(version);
     std::fs::create_dir_all(&version_dir)
         .with_context(|| format!("creating cache directory {}", version_dir.display()))?;
@@ -237,7 +230,10 @@ mod tests {
     fn test_build_release_target_is_non_empty() {
         let target = build_release_target();
         assert!(!target.is_empty());
-        assert!(target.contains('-'), "target should contain a dash: {target}");
+        assert!(
+            target.contains('-'),
+            "target should contain a dash: {target}"
+        );
     }
 
     #[test]
@@ -249,7 +245,9 @@ mod tests {
         // in an unusual test layout).
         if let Some(path) = &result {
             assert!(
-                path.file_name().map(|n| n.to_string_lossy().contains("dcc-mcp-server")).unwrap_or(false),
+                path.file_name()
+                    .map(|n| n.to_string_lossy().contains("dcc-mcp-server"))
+                    .unwrap_or(false),
                 "unexpected found path: {}",
                 path.display()
             );
