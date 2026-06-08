@@ -769,7 +769,7 @@ jobs:
 
           release_json=""
           missing=""
-          for attempt in {1..10}; do
+          for attempt in {1..20}; do
             release_json="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName,name,url,isPrerelease,isDraft,publishedAt,targetCommitish,assets)"
             missing=""
             for pattern in "${required_patterns[@]}"; do
@@ -783,9 +783,11 @@ jobs:
             fi
 
             assets_count="$(jq '.assets | length' <<<"$release_json")"
-            echo "::warning::Release assets not complete yet (attempt ${attempt}/10, assets=${assets_count}); missing patterns:"
+            current_assets="$(jq -r '[.assets[].name] | join(", ")' <<<"$release_json")"
+            echo "::warning::Release assets not complete yet (attempt ${attempt}/20, assets=${assets_count}); missing patterns:"
             printf '%s' "$missing"
-            if [ "$attempt" -lt 10 ]; then
+            echo "::warning::Current asset names: ${current_assets}"
+            if [ "$attempt" -lt 20 ]; then
               sleep 30
             fi
           done
