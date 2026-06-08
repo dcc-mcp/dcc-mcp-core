@@ -13,7 +13,10 @@ export type MarketplaceCardProps = {
   installingKey: string | null;
   onInstall: (entry: MarketplaceEntry, dcc: string) => void;
   onUninstall: (pkg: InstalledMarketplacePackage) => void;
+  onUpdate?: (pkgName: string, dcc: string) => void;
   onOpenDetail?: (entry: MarketplaceEntry) => void;
+  /** Whether this installed package has a newer version available. */
+  isOutdated?: boolean;
   t: Translator;
 };
 
@@ -30,7 +33,9 @@ export function MarketplaceCard({
   installingKey,
   onInstall,
   onUninstall,
+  onUpdate,
   onOpenDetail,
+  isOutdated,
   t,
 }: MarketplaceCardProps) {
   const version = entry.version ?? t('marketplace.card.noVersion');
@@ -40,7 +45,7 @@ export function MarketplaceCard({
 
   return (
     <article
-      className="marketplace-card"
+      className={`marketplace-card${isOutdated ? ' marketplace-card-outdated' : ''}`}
       data-name={entry.name}
       role={onOpenDetail ? 'button' : undefined}
       tabIndex={onOpenDetail ? 0 : undefined}
@@ -70,6 +75,12 @@ export function MarketplaceCard({
         <p className="marketplace-card-desc" title={entry.description}>
           {entry.description || t('marketplace.card.noDescription')}
         </p>
+
+        {isOutdated ? (
+          <span className="marketplace-card-outdated-badge">
+            {t('marketplace.card.outdated')}
+          </span>
+        ) : null}
 
         <div className="marketplace-card-meta">
           <span className="marketplace-card-meta-item">
@@ -120,6 +131,30 @@ export function MarketplaceCard({
                 );
               })}
             </div>
+          </div>
+        ) : null}
+
+        {/* Outdated update button — shown on installed tab for outdated packages */}
+        {isOutdated && onUpdate && entry.dcc.length > 0 ? (
+          <div className="marketplace-card-update-row">
+            {entry.dcc.map((dcc) => {
+              const pkg = installedDccs.get(dcc);
+              if (!pkg) return null;
+              const key = `${entry.name}:${dcc}`;
+              return (
+                <button
+                  key={dcc}
+                  type="button"
+                  className="marketplace-card-chip marketplace-card-chip-update"
+                  disabled={installingKey === key}
+                  onClick={(e) => { e.stopPropagation(); onUpdate(entry.name, dcc); }}
+                >
+                  {installingKey === key
+                    ? t('marketplace.card.updating')
+                    : t('marketplace.card.update')}
+                </button>
+              );
+            })}
           </div>
         ) : null}
 
