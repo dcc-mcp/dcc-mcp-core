@@ -157,7 +157,7 @@ jobs:
         shell: bash
         run: |
           vx node --version
-          if ! vx npm --prefix admin-ui ci --ignore-scripts; then
+          if ! vx npm --prefix admin-ui ci --ignore-scripts --include=optional; then
             echo "::warning::npm ci failed; falling back to prebuilt admin UI artifact"
             echo "DCC_MCP_ADMIN_UI_PREBUILT=1" >> "$GITHUB_ENV"
           fi
