@@ -17,8 +17,8 @@
 //! without depending on the gateway crate's tokio / axum / parking_lot
 //! footprint.
 
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
