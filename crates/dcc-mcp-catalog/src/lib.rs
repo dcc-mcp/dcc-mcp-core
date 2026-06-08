@@ -61,7 +61,7 @@ pub struct CatalogEntry {
 /// Installation metadata for a marketplace catalog entry.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CatalogInstall {
-    /// Install source type (`git`, `zip`, `path`, ...).
+    /// Install source type (`git`, `zip`, `path`, `pip`, ...).
     #[serde(rename = "type")]
     pub install_type: String,
     /// Source URL or local path.
@@ -73,6 +73,18 @@ pub struct CatalogInstall {
     /// Optional content hash for archive installs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,
+    /// Pip package name (required when type is `pip`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pip_package: Option<String>,
+    /// Optional pip extras (e.g. `["maya", "blender"]`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pip_extras: Option<Vec<String>>,
+    /// Maya Python interpreter path for per-DCC installation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mayapy_path: Option<String>,
+    /// Python entry point for running the adapter (e.g. `dcc_mcp_maya.cli:main`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry_point: Option<String>,
 }
 
 /// Top-level catalog document.
@@ -197,10 +209,14 @@ const MARKETPLACE_V1_SCHEMA_JSON: &str = r##"{
           "type": "object",
           "required": ["type"],
           "properties": {
-            "type":   { "type": "string", "enum": ["git", "zip", "path"] },
-            "url":    { "type": "string" },
-            "ref":    { "type": "string" },
-            "sha256": { "type": "string" }
+            "type":        { "type": "string", "enum": ["git", "zip", "path", "pip"] },
+            "url":         { "type": "string" },
+            "ref":         { "type": "string" },
+            "sha256":      { "type": "string" },
+            "pip_package": { "type": "string" },
+            "pip_extras":  { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+            "mayapy_path": { "type": "string" },
+            "entry_point": { "type": "string" }
           },
           "additionalProperties": false
         }
@@ -451,6 +467,105 @@ entries:
                 url: Some("https://example.com/skill.zip".into()),
                 ref_: Some("v0.1.0".into()),
                 sha256: Some("abc123".into()),
+                pip_package: None,
+                pip_extras: None,
+                mayapy_path: None,
+                entry_point: None,
+            }),
+            icon: None,
+        };
+        assert!(validate_entry(&entry).is_ok());
+    }
+
+    #[test]
+    fn test_validate_entry_with_pip_install_passes() {
+        let entry = CatalogEntry {
+            name: "pip-skill".into(),
+            description: "A pip-installed skill".into(),
+            dcc: vec!["maya".into()],
+            url: Some("https://pypi.org/project/dcc-mcp-maya".into()),
+            tags: vec!["pip".into(), "maya".into()],
+            version: Some("0.3.0".into()),
+            min_core_version: Some("0.18.0".into()),
+            maintainer: Some("dcc-mcp".into()),
+            install: Some(CatalogInstall {
+                install_type: "pip".into(),
+                url: None,
+                ref_: None,
+                sha256: None,
+                pip_package: Some("dcc-mcp-maya".into()),
+                pip_extras: Some(vec!["maya".into()]),
+                mayapy_path: Some("/usr/autodesk/maya2026/bin/mayapy".into()),
+                entry_point: Some("dcc_mcp_maya.cli:main".into()),
+            }),
+            icon: None,
+        };
+        assert!(validate_entry(&entry).is_ok());
+    }
+
+    #[test]
+    fn test_load_marketplace_json_with_pip_install() {
+        let json = r#"
+{
+  "version": "1",
+  "entries": [{
+    "name": "dcc-mcp-maya-pip",
+    "description": "Maya adapter installed via pip",
+    "dcc": ["maya"],
+    "tags": ["adapter", "maya", "pip"],
+    "version": "0.3.0",
+    "min_core_version": "0.18.0",
+    "maintainer": "dcc-mcp",
+    "install": {
+      "type": "pip",
+      "pip_package": "dcc-mcp-maya",
+      "pip_extras": ["maya"],
+      "mayapy_path": "/usr/autodesk/maya2026/bin/mayapy",
+      "entry_point": "dcc_mcp_maya.cli:main"
+    }
+  }]
+}
+"#;
+        let entries = load_from_str(json).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].version.as_deref(), Some("0.3.0"));
+        let install = entries[0].install.as_ref().unwrap();
+        assert_eq!(install.install_type, "pip");
+        assert_eq!(install.pip_package.as_deref(), Some("dcc-mcp-maya"));
+        assert_eq!(
+            install.pip_extras.as_deref(),
+            Some(vec!["maya".to_string()].as_slice())
+        );
+        assert_eq!(
+            install.mayapy_path.as_deref(),
+            Some("/usr/autodesk/maya2026/bin/mayapy")
+        );
+        assert_eq!(
+            install.entry_point.as_deref(),
+            Some("dcc_mcp_maya.cli:main")
+        );
+    }
+
+    #[test]
+    fn test_validate_entry_with_minimal_pip_install_passes() {
+        let entry = CatalogEntry {
+            name: "minimal-pip".into(),
+            description: "A minimal pip-installed adapter".into(),
+            dcc: vec![],
+            url: None,
+            tags: vec![],
+            version: None,
+            min_core_version: None,
+            maintainer: None,
+            install: Some(CatalogInstall {
+                install_type: "pip".into(),
+                url: None,
+                ref_: None,
+                sha256: None,
+                pip_package: Some("dcc-mcp-core".into()),
+                pip_extras: None,
+                mayapy_path: None,
+                entry_point: None,
             }),
             icon: None,
         };

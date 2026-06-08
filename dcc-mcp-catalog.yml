@@ -13,6 +13,16 @@
 #   dcc         - DCC target(s): maya, blender, houdini, photoshop, ... (list)
 #   url         - Canonical URL (GitHub repo, docs, PyPI, ...) (optional)
 #   tags        - Searchable tags (list, optional)
+#
+# Install field (optional):
+#   type          - Install source: git, zip, path, pip (required)
+#   url           - Source URL (git/zip/path) or PyPI URL (pip) (optional)
+#   ref           - Git ref, tag, branch, or revision (optional)
+#   sha256        - Content hash for archive integrity (optional)
+#   pip_package   - Pip package name (required for type=pip) (optional)
+#   pip_extras    - Pip extras list e.g. ["maya", "blender"] (optional)
+#   mayapy_path   - Maya Python interpreter path for Maya installs (optional)
+#   entry_point   - Python entry point for running the adapter (optional)
 
 version: "1"
 entries:
