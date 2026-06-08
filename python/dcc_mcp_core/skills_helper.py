@@ -13,10 +13,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-import importlib
 import json as _json
 from pathlib import Path
 from typing import Any
+
+from dcc_mcp_core._lazy import lazy_dir
+from dcc_mcp_core._lazy import resolve_lazy_symbol
 
 
 class SkillHelperError(Exception):
@@ -648,17 +650,11 @@ _LAZY_EXPORTS: dict[str, str] = {
 
 
 def __getattr__(name: str) -> Any:
-    module_path = _LAZY_EXPORTS.get(name)
-    if module_path is None:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    module = importlib.import_module(module_path)
-    value = getattr(module, name)
-    globals()[name] = value
-    return value
+    return resolve_lazy_symbol(name, _LAZY_EXPORTS, module_name=__name__)
 
 
 def __dir__() -> list[str]:
-    return sorted(__all__)
+    return sorted([*_DIRECT_EXPORTS, *lazy_dir(_LAZY_EXPORTS)])
 
 
 _DIRECT_EXPORTS = [
