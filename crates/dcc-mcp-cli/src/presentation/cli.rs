@@ -10,6 +10,8 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::application::client::DccMcpClient;
+use crate::application::gateway_ctrl;
+use crate::application::gateway_ensure;
 use crate::application::install::InstallService;
 use crate::application::marketplace::new_service;
 use crate::domain::install::InstallRequest;
@@ -142,6 +144,11 @@ enum Command {
     },
     /// Validate local SKILL.md packages before loading them at runtime.
     Lint(LintArgs),
+    /// Gateway lifecycle management.
+    Gateway {
+        #[command(subcommand)]
+        action: GatewayAction,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -238,6 +245,82 @@ struct LintArgs {
     /// Exit non-zero when warnings are present.
     #[arg(long, default_value = "false")]
     warnings_as_errors: bool,
+}
+
+#[derive(Debug, Subcommand)]
+enum GatewayAction {
+    /// Check gateway reachability; launch if it is not already running.
+    Ensure {
+        /// Gateway host.
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        /// Gateway port.
+        #[arg(long, default_value = "9765")]
+        port: u16,
+        /// Human-readable name for the gateway.
+        #[arg(long)]
+        name: Option<String>,
+        /// Shared FileRegistry directory.
+        #[arg(long)]
+        registry_dir: Option<PathBuf>,
+        /// Remote gateway listen host.
+        #[arg(long, default_value = "0.0.0.0")]
+        remote_host: String,
+        /// Remote gateway listen port.
+        #[arg(long, default_value = "59765")]
+        remote_port: u16,
+        /// Seconds before idle gateway shuts down (0 = persist).
+        #[arg(long, default_value = "30")]
+        gateway_idle_timeout_secs: u64,
+        /// Path to the dcc-mcp-core binary (defaults to this process).
+        #[arg(long)]
+        gateway_bin: Option<PathBuf>,
+        /// Seconds to wait for the new gateway to become healthy.
+        #[arg(long, default_value = "30")]
+        wait_timeout_secs: u64,
+    },
+    /// Start the gateway (alias for ensure with pidfile tracking).
+    Start {
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        #[arg(long, default_value = "9765")]
+        port: u16,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        registry_dir: Option<PathBuf>,
+        #[arg(long, default_value = "0.0.0.0")]
+        remote_host: String,
+        #[arg(long, default_value = "59765")]
+        remote_port: u16,
+        #[arg(long, default_value = "30")]
+        gateway_idle_timeout_secs: u64,
+        #[arg(long)]
+        gateway_bin: Option<PathBuf>,
+        #[arg(long, default_value = "30")]
+        wait_timeout_secs: u64,
+    },
+    /// Stop the running gateway (PID from pidfile).
+    Stop {
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        #[arg(long, default_value = "9765")]
+        port: u16,
+        #[arg(long)]
+        registry_dir: Option<PathBuf>,
+        /// Seconds to wait for the gateway to exit.
+        #[arg(long, default_value = "10")]
+        wait_timeout_secs: u64,
+    },
+    /// Query gateway health and process status.
+    Status {
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        #[arg(long, default_value = "9765")]
+        port: u16,
+        #[arg(long)]
+        registry_dir: Option<PathBuf>,
+    },
 }
 
 pub async fn run() -> anyhow::Result<()> {
@@ -463,6 +546,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             failed = result.failed;
             result.value
         }
+        Command::Gateway { action } => to_json(run_gateway_cmd(&base_url, action).await?)?,
     };
 
     print_value(&value, output)?;
@@ -578,6 +662,104 @@ fn run_lint_cmd(args: &LintArgs) -> anyhow::Result<LintCommandResult> {
     });
 
     Ok(LintCommandResult { value, failed })
+}
+
+async fn run_gateway_cmd(_base_url: &str, action: GatewayAction) -> anyhow::Result<Value> {
+    match action {
+        GatewayAction::Ensure {
+            host,
+            port,
+            name,
+            registry_dir,
+            remote_host,
+            remote_port,
+            gateway_idle_timeout_secs,
+            gateway_bin,
+            wait_timeout_secs,
+        } => {
+            let reg = registry_dir.unwrap_or_else(gateway_ensure::default_registry_dir);
+            let args = gateway_ensure::EnsureGatewayArgs {
+                host,
+                port,
+                name,
+                registry_dir: reg,
+                remote_host,
+                remote_port,
+                gateway_idle_timeout_secs,
+                gateway_bin,
+                wait_timeout_secs,
+                pidfile: None,
+            };
+            let result = gateway_ensure::ensure_gateway_running(&args).await?;
+            Ok(serde_json::to_value(result)?)
+        }
+        GatewayAction::Start {
+            host,
+            port,
+            name,
+            registry_dir,
+            remote_host,
+            remote_port,
+            gateway_idle_timeout_secs,
+            gateway_bin,
+            wait_timeout_secs,
+        } => {
+            let reg = registry_dir.unwrap_or_else(gateway_ensure::default_registry_dir);
+            let pidfile = gateway_ctrl::default_pidfile(&reg);
+            let args = gateway_ctrl::GatewayCtrlArgs {
+                host,
+                port,
+                registry_dir: reg,
+                pidfile,
+                start_opts: Some(gateway_ctrl::GatewayStartOpts {
+                    name,
+                    remote_host,
+                    remote_port,
+                    gateway_idle_timeout_secs,
+                    gateway_bin,
+                    wait_timeout_secs,
+                }),
+            };
+            let result = gateway_ctrl::gateway_start(&args).await?;
+            Ok(serde_json::to_value(result)?)
+        }
+        GatewayAction::Stop {
+            host,
+            port,
+            registry_dir,
+            wait_timeout_secs,
+        } => {
+            let reg = registry_dir.unwrap_or_else(gateway_ensure::default_registry_dir);
+            let pidfile = gateway_ctrl::default_pidfile(&reg);
+            let args = gateway_ctrl::GatewayCtrlArgs {
+                host,
+                port,
+                registry_dir: reg,
+                pidfile,
+                start_opts: None,
+            };
+            let result = gateway_ctrl::gateway_stop(&args, wait_timeout_secs).await?;
+            Ok(serde_json::to_value(result)?)
+        }
+        GatewayAction::Status {
+            host,
+            port,
+            registry_dir,
+        } => {
+            let reg = registry_dir.unwrap_or_else(gateway_ensure::default_registry_dir);
+            let pidfile = gateway_ctrl::default_pidfile(&reg);
+            let args = gateway_ctrl::GatewayCtrlArgs {
+                host,
+                port,
+                registry_dir: reg,
+                pidfile,
+                start_opts: None,
+            };
+            Ok(serde_json::to_value(
+                gateway_ctrl::gateway_status(&args).await,
+            )?)
+        }
+    }
 }
 
 fn parse_json_object(raw: &str, flag_name: &str) -> anyhow::Result<Value> {
