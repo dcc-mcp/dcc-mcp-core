@@ -183,7 +183,11 @@ impl InstallPlanner {
                 let source = install
                     .url
                     .clone()
-                    .map(|u| u.strip_prefix("file://").map(PathBuf::from).unwrap_or(PathBuf::from(&u)))
+                    .map(|u| {
+                        u.strip_prefix("file://")
+                            .map(PathBuf::from)
+                            .unwrap_or(PathBuf::from(&u))
+                    })
                     .unwrap_or_else(|| PathBuf::from("."));
                 InstallStepAction::PathCopy {
                     source,
@@ -194,7 +198,9 @@ impl InstallPlanner {
                 // Unknown install type — produce an info step instead.
                 return vec![InstallStep {
                     name: format!("install-{}", other),
-                    description: format!("Unsupported install type '{other}': manual installation required."),
+                    description: format!(
+                        "Unsupported install type '{other}': manual installation required."
+                    ),
                     action: None,
                 }];
             }
@@ -202,21 +208,14 @@ impl InstallPlanner {
 
         steps.push(InstallStep {
             name: format!("install-{}", install.install_type),
-            description: format!(
-                "Install {} adapter via {}",
-                dcc_type,
-                install.install_type
-            ),
+            description: format!("Install {} adapter via {}", dcc_type, install.install_type),
             action: Some(install_action),
         });
 
         // Register step
         steps.push(InstallStep {
             name: "register-dcc".into(),
-            description: format!(
-                "Register {} adapter with the DCC-MCP gateway",
-                dcc_type
-            ),
+            description: format!("Register {} adapter with the DCC-MCP gateway", dcc_type),
             action: Some(InstallStepAction::RegisterDcc {
                 dcc_type: dcc_type.to_string(),
                 entry_point: install.entry_point.clone(),
@@ -238,15 +237,14 @@ impl InstallPlanner {
         vec![
             InstallStep {
                 name: "resolve-adapter".into(),
-                description:
-                    "Resolve the official adapter package from the DCC-MCP catalog.".into(),
+                description: "Resolve the official adapter package from the DCC-MCP catalog."
+                    .into(),
                 action: None,
             },
             InstallStep {
                 name: "install-runtime".into(),
                 description:
-                    "Install the cross-platform dcc-mcp-cli and companion runtime binaries."
-                        .into(),
+                    "Install the cross-platform dcc-mcp-cli and companion runtime binaries.".into(),
                 action: None,
             },
             InstallStep {
