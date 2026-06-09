@@ -1,10 +1,10 @@
 # DCC-MCP Public Catalog
-# Ecosystem index for DCC adapters, skill packs, and plugins.
+# Infrastructure-only index for DCC adapter discovery.
 #
-# This catalog is consumed by `dcc-mcp-cli install --dcc-type <name>` to build
-# installation plans for DCC adapters. It is NOT a marketplace source — use the
-# `marketplace` subcommand for skill-package discovery and installation from
-# marketplace.json sources (GitHub, custom URLs, etc.).
+# This catalog contains ONLY non-marketplace entries (infrastructure, core libs,
+# remote connectors). Skill pack install metadata lives in the official
+# marketplace.json at dcc-mcp/marketplace — the `marketplace` subcommand or
+# `install --execute` fetches from there.
 #
 # Schema version: "1"
 # Fields:
@@ -13,51 +13,9 @@
 #   dcc         - DCC target(s): maya, blender, houdini, photoshop, ... (list)
 #   url         - Canonical URL (GitHub repo, docs, PyPI, ...) (optional)
 #   tags        - Searchable tags (list, optional)
-#
-# Install field (optional):
-#   type          - Install source: git, zip, path, pip (required)
-#   url           - Source URL (git/zip/path) or PyPI URL (pip) (optional)
-#   ref           - Git ref, tag, branch, or revision (optional)
-#   sha256        - Content hash for archive integrity (optional)
-#   pip_package   - Pip package name (required for type=pip) (optional)
-#   pip_extras    - Pip extras list e.g. ["maya", "blender"] (optional)
-#   mayapy_path   - Maya Python interpreter path for Maya installs (optional)
-#   entry_point   - Python entry point for running the adapter (optional)
 
 version: "1"
 entries:
-  - name: "dcc-mcp-maya-skills"
-    description: "Official Maya skill pack for DCC-MCP — scene, render, and rigging tools"
-    dcc: ["maya"]
-    url: "https://github.com/loonghao/dcc-mcp-maya-skills"
-    tags: ["skills", "maya", "official", "rigging", "render"]
-
-  - name: "dcc-mcp-maya-mgear"
-    description: "mGear Shifter rigging integration for DCC-MCP — inspect, list, create guides, build rigs, export templates"
-    dcc: ["maya"]
-    url: "https://github.com/loonghao/dcc-mcp-maya-mgear"
-    tags: ["skills", "maya", "rigging", "mgear", "shifter"]
-    version: "0.1.0"
-    min_core_version: "0.17.0"
-    maintainer: "dcc-mcp"
-    icon: "icon.png"
-    install:
-      type: git
-      url: "https://github.com/loonghao/dcc-mcp-maya-mgear"
-      ref: "main"
-
-  - name: "dcc-mcp-blender-skills"
-    description: "Official Blender skill pack for DCC-MCP — modeling, shading, and render tools"
-    dcc: ["blender"]
-    url: "https://github.com/loonghao/dcc-mcp-blender-skills"
-    tags: ["skills", "blender", "official", "modeling", "render"]
-
-  - name: "dcc-mcp-houdini-skills"
-    description: "Official Houdini skill pack for DCC-MCP — VFX, procedural, and simulation tools"
-    dcc: ["houdini"]
-    url: "https://github.com/loonghao/dcc-mcp-houdini-skills"
-    tags: ["skills", "houdini", "official", "vfx", "simulation"]
-
   - name: "dcc-mcp-photoshop-skills"
     description: "Official Photoshop skill pack for DCC-MCP — layer, adjustment, and export tools"
     dcc: ["photoshop"]
@@ -96,18 +54,3 @@ entries:
     dcc: ["autodesk-help"]
     url: "https://developer.api.autodesk.com/knowledge/public/v1/mcp"
     tags: ["docs", "autodesk", "read-only", "infrastructure"]
-
-  - name: "dcc-mcp-maya"
-    description: "Maya DCC adapter for DCC-MCP — install, register, and bootstrap Maya instances"
-    dcc: ["maya"]
-    url: "https://github.com/loonghao/dcc-mcp-maya"
-    tags: ["adapter", "maya", "official", "pip"]
-    version: "0.3.0"
-    min_core_version: "0.17.0"
-    maintainer: "dcc-mcp"
-    install:
-      type: pip
-      pip_package: "dcc-mcp-maya"
-      pip_extras: ["maya"]
-      mayapy_path: "/usr/autodesk/maya2026/bin/mayapy"
-      entry_point: "dcc_mcp_maya.cli:main"
