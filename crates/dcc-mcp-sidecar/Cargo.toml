@@ -10,6 +10,7 @@ description = "Sidecar and gateway-daemon runtime support for DCC-MCP hosts"
 
 [dependencies]
 dcc-mcp-gateway = { workspace = true, optional = true }
+dcc-mcp-gateway-ensure.workspace = true
 dcc-mcp-host-rpc.workspace = true
 dcc-mcp-transport.workspace = true
 anyhow.workspace = true
