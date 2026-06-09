@@ -339,10 +339,10 @@ jobs:
           # Windows + macOS — cover oldest + newest only. Middle versions
           # are exercised on ubuntu and rarely surface OS-specific Python
           # bugs; python-matrix-full.yml runs the full matrix weekly.
-          # Python 3.8 is not available in the windows-latest hosted-tool cache.
-          # Reuse the ABI3 Windows wheel, but run the oldest-version test on
-          # windows-2022 where actions/setup-python still provides 3.8.
-          - { os: windows-2022,   python-version: "3.8",  wheel_os: windows-latest }
+          # Python 3.8 is not available in the windows-latest or windows-2022
+          # hosted-tool cache. Reuse the ABI3 Windows wheel, but run the
+          # oldest-version test on windows-2019 which still provides 3.8.
+          - { os: windows-2019,   python-version: "3.8",  wheel_os: windows-latest }
           - { os: windows-latest, python-version: "3.13", wheel_os: windows-latest }
           - { os: macos-latest,   python-version: "3.8",  wheel_os: macos-latest }
           - { os: macos-latest,   python-version: "3.13", wheel_os: macos-latest }

@@ -26,12 +26,13 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
         exclude:
-          # Python 3.8 is no longer present in the windows-latest hosted-tool
-          # cache; keep the oldest Windows cell on windows-2022.
+          # Python 3.8 is no longer present in the windows-latest or
+          # windows-2022 hosted-tool cache; keep the oldest Windows cell
+          # on windows-2019.
           - os: windows-latest
             python-version: "3.8"
         include:
-          - os: windows-2022
+          - os: windows-2019
             python-version: "3.8"
     runs-on: ${{ matrix.os }}
     steps:
