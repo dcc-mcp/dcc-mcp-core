@@ -3,7 +3,7 @@ import { LanguageSelector } from './components/LanguageSelector';
 import { ThemeSelector } from './components/ThemeSelector';
 import { LogsPanel } from './components/LogsPanel';
 import { DiscoverPanel, type DiscoverTab } from './features/discover';
-import { OverviewPanel, type OverviewTab } from './features/overview';
+import { type OverviewTab } from './features/overview';
 import { AnalyticsPanel } from './features/analytics/AnalyticsPanel';
 import { readDiscoverTabFromUrl, readOverviewTabFromUrl, readTracesTabFromUrl } from './navigation';
 import dccMcpLogo from '../../docs/assets/brand/dcc-mcp-logo.png';
@@ -2535,21 +2535,22 @@ function App() {
           skillUpdatedAt={skillPathsUpdatedAt}
           skillError={skillPathsError}
           onSkillUpdated={setSkillPathsUpdatedAt}
-          onSkillError={setSkillPathsError}
+          onSkillError={(err: unknown) => setSkillPathsError(err instanceof Error ? err.message : String(err))}
           onSkillCountsChange={setSkillCounts}
           highlightSkillName={highlightSkillName}
           onHighlightConsumed={() => setHighlightSkillName(null)}
           marketplaceUpdatedAt={marketplaceUpdatedAt}
           marketplaceError={marketplaceError}
           onMarketplaceUpdated={setMarketplaceUpdatedAt}
-          onMarketplaceError={setMarketplaceError}
+          onMarketplaceError={(err: unknown) => setMarketplaceError(err instanceof Error ? err.message : String(err))}
           onMarketplaceCountsChange={setMarketplaceCounts}
           coreVersion={health?.version ?? null}
           integrationsUpdatedAt={integrationsUpdatedAt}
           integrationsError={integrationsError}
           onIntegrationsUpdated={setIntegrationsUpdatedAt}
-          onIntegrationsError={setIntegrationsError}
+          onIntegrationsError={(err: unknown) => setIntegrationsError(err instanceof Error ? err.message : String(err))}
           onIntegrationsCountsChange={setIntegrationsCounts}
+          onNavigateToSkills={handleNavigateToSkills}
           t={t}
         />
 
