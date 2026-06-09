@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useMemo } from 'react';
 import type { InterpolationValues, MessageKey } from '../../i18n';
 import { PanelHeader, StatusLine } from '../../admin-ui-core';
 import { SkillsPanel } from '../skills';
@@ -35,6 +35,8 @@ export type DiscoverPanelProps = {
   onIntegrationsUpdated: (text: string) => void;
   onIntegrationsError: (err: unknown) => void;
   onIntegrationsCountsChange: (counts: { total: number; active: number }) => void;
+  /// Navigate to the Skills tab and highlight a skill (marketplace install).
+  onNavigateToSkills?: (skillName: string) => void;
   // Shared
   t: Translator;
 };
@@ -68,16 +70,9 @@ export function DiscoverPanel({
   onIntegrationsUpdated,
   onIntegrationsError,
   onIntegrationsCountsChange,
+  onNavigateToSkills,
   t,
 }: DiscoverPanelProps) {
-  const handleNavigateToSkills = useCallback(
-    (_skillName: string) => {
-      // Marketplace install success — switch to skills tab.
-      // The highlight is handled by the parent via highlightSkillName.
-      onTabChange('skills');
-    },
-    [onTabChange],
-  );
 
   const updatedAt = useMemo(() => {
     switch (discoverTab) {
@@ -139,7 +134,7 @@ export function DiscoverPanel({
         onError={onMarketplaceError}
         onCountsChange={onMarketplaceCountsChange}
         coreVersion={coreVersion}
-        onNavigateToSkills={handleNavigateToSkills}
+        onNavigateToSkills={onNavigateToSkills}
         t={t}
       />
       <IntegrationsPanel
