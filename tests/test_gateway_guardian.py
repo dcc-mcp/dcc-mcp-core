@@ -767,7 +767,7 @@ def test_try_version_takeover_when_newer(tmp_path, monkeypatch):
     services = tmp_path / "registry" / "services.json"
     services.parent.mkdir(parents=True, exist_ok=True)
     import json as _json
-    with open(str(services), "w") as f:
+    with services.open("w") as f:
         _json.dump([{
             "dcc_type": "__gateway__",
             "instance_id": "fake-old-gateway",
@@ -818,7 +818,7 @@ def test_try_version_takeover_when_running_is_newer(tmp_path, monkeypatch):
     services = tmp_path / "registry" / "services.json"
     services.parent.mkdir(parents=True, exist_ok=True)
     import json as _json
-    with open(str(services), "w") as f:
+    with services.open("w") as f:
         _json.dump([{
             "dcc_type": "__gateway__",
             "instance_id": "fake-newer-gateway",
@@ -852,7 +852,7 @@ def test_try_version_takeover_stale_sentinel_is_ignored(tmp_path, monkeypatch):
     services = tmp_path / "registry" / "services.json"
     services.parent.mkdir(parents=True, exist_ok=True)
     import json as _json
-    with open(str(services), "w") as f:
+    with services.open("w") as f:
         _json.dump([{
             "dcc_type": "__gateway__",
             "instance_id": "fake-stale-gateway",
@@ -885,7 +885,7 @@ def test_try_version_takeover_old_gateway_timeout(tmp_path, monkeypatch):
     services = tmp_path / "registry" / "services.json"
     services.parent.mkdir(parents=True, exist_ok=True)
     import json as _json
-    with open(str(services), "w") as f:
+    with services.open("w") as f:
         _json.dump([{
             "dcc_type": "__gateway__",
             "instance_id": "stubborn-gateway",
@@ -966,7 +966,7 @@ def test_ensure_gateway_daemon_takeover_integration(tmp_path, monkeypatch):
     services = tmp_path / "registry" / "services.json"
     services.parent.mkdir(parents=True, exist_ok=True)
     import json as _json
-    with open(str(services), "w") as f:
+    with services.open("w") as f:
         _json.dump([{
             "dcc_type": "__gateway__",
             "instance_id": "old-integration-gw",
