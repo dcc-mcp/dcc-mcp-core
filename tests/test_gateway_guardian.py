@@ -678,11 +678,14 @@ def test_write_and_read_sentinel_entry(tmp_path):
 
 def test_read_gateway_version_missing_registry():
     """P0-3: _read_gateway_version_from_registry returns None for missing file."""
-    assert gg._read_gateway_version_from_registry(
-        "/nonexistent/path",
-        gateway_host="127.0.0.1",
-        gateway_port=9999,
-    ) is None
+    assert (
+        gg._read_gateway_version_from_registry(
+            "/nonexistent/path",
+            gateway_host="127.0.0.1",
+            gateway_port=9999,
+        )
+        is None
+    )
 
 
 def test_ensure_gateway_daemon_skips_takeover_when_gateway_newer(monkeypatch, tmp_path):
@@ -733,9 +736,7 @@ def test_ensure_gateway_daemon_handles_version_takeover_health(monkeypatch, tmp_
     """P0-3: ensure_gateway_daemon returns already_healthy when takeover not needed."""
     monkeypatch.setattr(gg, "urlopen", lambda *args, **kwargs: _Resp())
     monkeypatch.setattr(gg, "_get_core_version", lambda: "0.18.15")
-    monkeypatch.setattr(
-        gg, "_read_gateway_version_from_registry", lambda *a, **k: "1.0.0"
-    )  # gateway newer
+    monkeypatch.setattr(gg, "_read_gateway_version_from_registry", lambda *a, **k: "1.0.0")  # gateway newer
 
     result = gg.ensure_gateway_daemon(
         gateway_host="127.0.0.1",
