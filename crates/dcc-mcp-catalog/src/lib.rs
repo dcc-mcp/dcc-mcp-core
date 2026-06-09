@@ -48,7 +48,11 @@ pub struct CatalogEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_core_version: Option<String>,
     /// Installation metadata for CLI-driven marketplace installs.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ///
+    /// Also deserializes from `source` (marketplace.json format) so that
+    /// the same `CatalogEntry` struct can ingest both catalog.yml (`install`)
+    /// and marketplace.json (`source`) install metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "source")]
     pub install: Option<CatalogInstall>,
     /// Maintainer or publishing organization.
     #[serde(default, skip_serializing_if = "Option::is_none")]
