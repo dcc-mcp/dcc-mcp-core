@@ -53,6 +53,14 @@ def _resolve_registry_dir(registry_dir: str | None) -> Path:
 
 
 class _LaunchLock:
+    """Cross-process launch lock for the standalone gateway.
+
+    The ``acquire`` method consolidates stale check + delete + retry-create
+    into a single flat attempt (aligned with the Rust sidecar
+    ``acquire_launch_lock_with_stale``), minimising the TOCTOU windows that
+    exist between check-and-delete and delete-and-retry-create.
+    """
+
     def __init__(self, path: Path) -> None:
         self.path = path
         self._fd: int | None = None
@@ -60,18 +68,21 @@ class _LaunchLock:
     def acquire(self) -> bool:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         stale_after = _launch_lock_stale_secs()
-        for attempt in range(2):
+        try:
+            self._fd = os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            if not _remove_stale_launch_lock(self.path, stale_after):
+                return False
+            # Immediately retry after stale lock removal to minimise the
+            # delete-and-retry-create TOCTOU window.
             try:
                 self._fd = os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             except FileExistsError:
-                if attempt == 0 and _remove_stale_launch_lock(self.path, stale_after):
-                    continue
                 return False
-            else:
-                with contextlib.suppress(OSError):
-                    os.write(self._fd, f"pid={os.getpid()} ts={int(time.time())}\n".encode("ascii"))
-                return True
-        return False
+        # Write metadata into the lock file.
+        with contextlib.suppress(OSError):
+            os.write(self._fd, f"pid={os.getpid()} ts={int(time.time())}\n".encode("ascii"))
+        return True
 
     def release(self) -> None:
         if self._fd is not None:
