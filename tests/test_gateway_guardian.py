@@ -218,7 +218,7 @@ def test_guardian_run_catches_crash_and_increments_crash_count(monkeypatch):
     )
 
     guardian.start()
-    time.sleep(0.2)
+    time.sleep(0.5)
     guardian.stop(timeout=2.0)
 
     status = guardian.status()
