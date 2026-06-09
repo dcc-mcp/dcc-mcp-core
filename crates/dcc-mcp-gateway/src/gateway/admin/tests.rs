@@ -100,19 +100,26 @@ mod admin_tests {
 
     struct ScopedMarketplaceInstallRoot {
         previous: Option<String>,
+        previous_no_default_sources: Option<String>,
     }
 
     impl ScopedMarketplaceInstallRoot {
         fn new(root: &std::path::Path) -> Self {
             let previous = std::env::var("DCC_MCP_MARKETPLACE_INSTALL_ROOT").ok();
+            let previous_no_default_sources =
+                std::env::var("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES").ok();
             // SAFETY: tests are serialized with `MARKETPLACE_ENV_LOCK`.
             unsafe {
                 std::env::set_var(
                     "DCC_MCP_MARKETPLACE_INSTALL_ROOT",
                     root.to_string_lossy().as_ref(),
                 );
+                std::env::set_var("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1");
             }
-            Self { previous }
+            Self {
+                previous,
+                previous_no_default_sources,
+            }
         }
     }
 
@@ -123,6 +130,10 @@ mod admin_tests {
                 match &self.previous {
                     Some(v) => std::env::set_var("DCC_MCP_MARKETPLACE_INSTALL_ROOT", v),
                     None => std::env::remove_var("DCC_MCP_MARKETPLACE_INSTALL_ROOT"),
+                }
+                match &self.previous_no_default_sources {
+                    Some(v) => std::env::set_var("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", v),
+                    None => std::env::remove_var("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES"),
                 }
             }
         }
@@ -3374,6 +3385,10 @@ filters:
         let root = tmp.path().join("marketplace");
         std::fs::create_dir_all(&root).unwrap();
         let _scoped_root = ScopedMarketplaceInstallRoot::new(&root);
+        // This test specifically needs builtin sources; re-enable them.
+        unsafe {
+            std::env::remove_var("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES");
+        }
 
         let state = make_admin_state();
         let router = build_admin_router(state);
