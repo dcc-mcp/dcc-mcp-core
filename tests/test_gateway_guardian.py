@@ -614,3 +614,134 @@ def test_daemon_backed_metadata_does_not_include_daemon_error():
     assert meta["gateway_recovery_driver"] == "none"
     assert "gateway_daemon_status" not in meta
     assert "gateway_daemon_error" not in meta
+
+
+# ---------------------------------------------------------------------------
+# P0-3: semver parsing, version comparison, sentinel, and version takeover
+# ---------------------------------------------------------------------------
+
+
+def test_parse_semver_basic():
+    """P0-3: _parse_semver handles standard semver strings."""
+    assert gg._parse_semver("0.18.15") == (0, 18, 15)
+    assert gg._parse_semver("1.0.0") == (1, 0, 0)
+    assert gg._parse_semver("2.3") == (2, 3, 0)
+    assert gg._parse_semver("5") == (5, 0, 0)
+
+
+def test_parse_semver_with_v_prefix():
+    assert gg._parse_semver("v0.12.29") == (0, 12, 29)
+    assert gg._parse_semver("V1.2.3") == (1, 2, 3)
+
+
+def test_parse_semver_with_prerelease():
+    assert gg._parse_semver("1.0.0-rc1") == (1, 0, 0)
+    assert gg._parse_semver("v2.3.4-beta.2") == (2, 3, 4)
+
+
+def test_is_newer_version():
+    assert gg._is_newer_version("1.0.0", "0.9.0") is True
+    assert gg._is_newer_version("0.18.15", "0.18.6") is True
+    assert gg._is_newer_version("0.18.6", "0.18.15") is False
+    assert gg._is_newer_version("1.0.0", "1.0.0") is False
+
+
+def test_get_core_version_env_override(monkeypatch):
+    """P0-3: _get_core_version respects DCC_MCP_CORE_VERSION env var."""
+    monkeypatch.setenv("DCC_MCP_CORE_VERSION", "9.8.7")
+    assert gg._get_core_version() == "9.8.7"
+
+
+def test_write_and_read_sentinel_entry(tmp_path):
+    """P0-3: _write_sentinel_entry and _read_gateway_version_from_registry roundtrip."""
+    reg = str(tmp_path / "dcc-mcp-registry")
+    # Write a sentinel.
+    ok = gg._write_sentinel_entry(
+        reg,
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        crate_version="0.18.15",
+        adapter_version="0.3.0",
+        adapter_dcc="maya",
+    )
+    assert ok is True
+    assert (tmp_path / "dcc-mcp-registry" / "services.json").exists()
+
+    # Read it back.
+    ver = gg._read_gateway_version_from_registry(
+        reg,
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+    )
+    assert ver == "0.18.15"
+
+
+def test_read_gateway_version_missing_registry():
+    """P0-3: _read_gateway_version_from_registry returns None for missing file."""
+    assert gg._read_gateway_version_from_registry(
+        "/nonexistent/path",
+        gateway_host="127.0.0.1",
+        gateway_port=9999,
+    ) is None
+
+
+def test_ensure_gateway_daemon_skips_takeover_when_gateway_newer(monkeypatch, tmp_path):
+    """P0-3: No takeover when running gateway version is same or newer."""
+    monkeypatch.setattr(gg, "urlopen", lambda *args, **kwargs: _Resp())
+    monkeypatch.setenv("DCC_MCP_CORE_VERSION", "0.18.15")
+
+    # Pre-populate registry with a same-version sentinel.
+    gg._write_sentinel_entry(
+        str(tmp_path),
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        crate_version="0.18.15",
+    )
+
+    result = gg.ensure_gateway_daemon(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=str(tmp_path),
+        dcc_type="maya",
+    )
+    assert result["ok"] is True
+    assert result["reason"] == "already_healthy"
+
+
+def test_try_version_takeover_returns_none_when_dev_version(monkeypatch, tmp_path):
+    """P0-3: _try_version_takeover returns None when version is 0.0.0-dev."""
+    # 0.0.0-dev is the default when package metadata is unavailable.
+    # _get_core_version should return this in test environment.
+    monkeypatch.setattr(gg, "_get_core_version", lambda: "0.0.0-dev")
+    monkeypatch.setattr(gg, "_read_gateway_version_from_registry", lambda *a, **k: "0.18.0")
+    monkeypatch.setattr(gg, "_is_healthy", lambda *a, **k: True)
+
+    result = gg._try_version_takeover(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=str(tmp_path),
+        dcc_type="maya",
+        timeout_secs=15.0,
+        gateway_persist=False,
+        gateway_idle_timeout_secs=None,
+        server_bin=None,
+    )
+    assert result is None
+
+
+def test_ensure_gateway_daemon_handles_version_takeover_health(monkeypatch, tmp_path):
+    """P0-3: ensure_gateway_daemon returns already_healthy when takeover not needed."""
+    monkeypatch.setattr(gg, "urlopen", lambda *args, **kwargs: _Resp())
+    monkeypatch.setattr(gg, "_get_core_version", lambda: "0.18.15")
+    monkeypatch.setattr(
+        gg, "_read_gateway_version_from_registry", lambda *a, **k: "1.0.0"
+    )  # gateway newer
+
+    result = gg.ensure_gateway_daemon(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=str(tmp_path),
+        dcc_type="blender",
+    )
+    assert result["ok"] is True
+    assert result["reason"] == "already_healthy"

@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 _LAUNCH_LOCK = "gateway-launch.lock"
 _LAUNCH_LOCK_STALE_SECS_ENV = "DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS"
 _LAUNCH_LOCK_STALE_SECS_DEFAULT = 30.0
+_ENSURE_TIMEOUT_SECS_ENV = "DCC_MCP_GATEWAY_ENSURE_TIMEOUT_SECS"
+_ENSURE_TIMEOUT_SECS_DEFAULT = 15.0
 
 
 def _is_healthy(host: str, port: int, timeout: float) -> bool:
@@ -190,13 +192,129 @@ def build_gateway_daemon_command(
     return cmd, env
 
 
+def _ensure_timeout_secs() -> float:
+    """Return the configured gateway ensure timeout (seconds)."""
+    return _float_env(_ENSURE_TIMEOUT_SECS_ENV, _ENSURE_TIMEOUT_SECS_DEFAULT)
+
+
+def _try_version_takeover(
+    *,
+    gateway_host: str,
+    gateway_port: int,
+    registry_dir: str | None,
+    dcc_type: str,
+    timeout_secs: float,
+    gateway_persist: bool | None,
+    gateway_idle_timeout_secs: int | None,
+    server_bin: str | None,
+) -> dict[str, Any] | None:
+    """Attempt version-aware gateway takeover when a running gateway is older.
+
+    Returns a result dict if takeover was attempted (success or failure),
+    or None if the running gateway is sufficiently new.
+    """
+    our_version = _get_core_version()
+    # Skip takeover when version is a dev placeholder.
+    if not our_version or our_version == "0.0.0-dev":
+        return None
+
+    gateway_version = _read_gateway_version_from_registry(
+        registry_dir,
+        gateway_host=gateway_host,
+        gateway_port=gateway_port,
+    )
+    if gateway_version is None or not _is_newer_version(our_version, gateway_version):
+        # Running gateway is same or newer — no takeover needed.
+        return None
+
+    logger.info(
+        "version takeover: our version %s is newer than running gateway %s — triggering takeover",
+        our_version,
+        gateway_version,
+    )
+
+    # Write sentinel entry so the gateway's 15 s cleanup loop triggers a yield.
+    sentinel_ok = _write_sentinel_entry(
+        registry_dir,
+        gateway_host=gateway_host,
+        gateway_port=gateway_port,
+        crate_version=our_version,
+        adapter_dcc=dcc_type if dcc_type else None,
+    )
+    if not sentinel_ok:
+        logger.warning("version takeover: failed to write sentinel entry; skipping takeover")
+        return None
+
+    # Wait for the old gateway to yield (up to ~20 s for the 15 s cleanup interval + grace).
+    deadline = time.time() + 20.0
+    while time.time() < deadline:
+        if not _is_healthy(gateway_host, gateway_port, timeout=0.5):
+            logger.info("version takeover: old gateway yielded — spawning new version")
+            break
+        time.sleep(0.5)
+    else:
+        logger.warning("version takeover: old gateway did not yield within 20 s; continuing with existing gateway")
+        return None
+
+    # Old gateway yielded — spawn new version.
+    registry_path = _resolve_registry_dir(registry_dir)
+    launch_lock = _LaunchLock(registry_path / _LAUNCH_LOCK)
+    try:
+        acquired = launch_lock.acquire()
+    except OSError as exc:
+        return {"ok": False, "reason": "takeover_launch_lock_failed", "error": str(exc)}
+
+    if not acquired:
+        # Another process is spawning — wait for it.
+        if _wait_gateway_ready(gateway_host, gateway_port, timeout_secs=timeout_secs):
+            return {"ok": True, "reason": "takeover_spawned_by_peer"}
+        return {"ok": False, "reason": "takeover_lock_in_progress_timeout"}
+
+    try:
+        cmd, env = build_gateway_daemon_command(
+            gateway_host=gateway_host,
+            gateway_port=gateway_port,
+            registry_dir=str(registry_path),
+            dcc_type=dcc_type,
+            gateway_persist=gateway_persist,
+            gateway_idle_timeout_secs=gateway_idle_timeout_secs,
+            server_bin=server_bin,
+        )
+        try:
+            spawn = launch_detached(cmd, env=env, cwd=Path.cwd())
+            if not spawn.get("ok"):
+                return {
+                    "ok": False,
+                    "reason": "takeover_spawn_failed",
+                    "error": spawn.get("error"),
+                    "command": cmd,
+                }
+        except Exception as exc:
+            return {"ok": False, "reason": "takeover_spawn_failed", "error": str(exc), "command": cmd}
+
+        if _wait_gateway_ready(gateway_host, gateway_port, timeout_secs=timeout_secs):
+            return {
+                "ok": True,
+                "reason": "version_takeover_spawned",
+                "command": cmd,
+                "registry_dir": str(registry_path),
+                "pid": spawn.get("pid"),
+                "old_version": gateway_version,
+                "new_version": our_version,
+            }
+
+        return {"ok": False, "reason": "takeover_spawn_timeout", "command": cmd}
+    finally:
+        launch_lock.release()
+
+
 def ensure_gateway_daemon(
     *,
     gateway_host: str,
     gateway_port: int,
     registry_dir: str | None,
     dcc_type: str,
-    timeout_secs: float = 5.0,
+    timeout_secs: float | None = None,
     gateway_persist: bool | None = None,
     gateway_idle_timeout_secs: int | None = None,
     server_bin: str | None = None,
@@ -209,7 +327,21 @@ def ensure_gateway_daemon(
     """
     if gateway_port <= 0:
         return {"ok": False, "reason": "gateway_port_not_configured"}
+    if timeout_secs is None:
+        timeout_secs = _ensure_timeout_secs()
     if _is_healthy(gateway_host, gateway_port, timeout=0.5):
+        takeover_result = _try_version_takeover(
+            gateway_host=gateway_host,
+            gateway_port=gateway_port,
+            registry_dir=registry_dir,
+            dcc_type=dcc_type,
+            timeout_secs=timeout_secs,
+            gateway_persist=gateway_persist,
+            gateway_idle_timeout_secs=gateway_idle_timeout_secs,
+            server_bin=server_bin,
+        )
+        if takeover_result is not None:
+            return takeover_result
         return {"ok": True, "reason": "already_healthy"}
 
     registry_path = _resolve_registry_dir(registry_dir)
@@ -421,6 +553,157 @@ class GatewayDaemonGuardian:
             with contextlib.suppress(Exception):
                 self.status_callback(dict(payload))
         return payload
+
+
+# ── Semver helpers (aligned with Rust crates/dcc-mcp-gateway/src/gateway/version.rs) ──
+
+
+def _parse_semver(v: str) -> tuple[int, int, int]:
+    """Parse a semver string like ``"0.18.15"`` or ``"v1.2.3-rc1"`` into a triple.
+
+    Handles leading ``v`` prefixes and pre-release suffixes.
+    Missing components default to 0.
+    """
+    stripped = v.strip().lstrip("vV")
+    parts: list[int] = []
+    for segment in stripped.split("."):
+        # Strip pre-release suffix (everything after first '-')
+        numeric = segment.split("-")[0]
+        try:
+            parts.append(int(numeric))
+        except (ValueError, TypeError):
+            parts.append(0)
+    while len(parts) < 3:
+        parts.append(0)
+    return (parts[0], parts[1], parts[2])
+
+
+def _is_newer_version(candidate: str, current: str) -> bool:
+    """Return True when *candidate* is strictly newer than *current*."""
+    return _parse_semver(candidate) > _parse_semver(current)
+
+
+def _get_core_version() -> str:
+    """Return the dcc-mcp-core version string.
+
+    Checks ``DCC_MCP_CORE_VERSION`` env var first, then tries to read from the
+    installed ``dcc_mcp_core`` package metadata.
+    """
+    env_version = (os.environ.get("DCC_MCP_CORE_VERSION") or "").strip()
+    if env_version:
+        return env_version
+    try:
+        from importlib.metadata import version as _pkg_version
+
+        return _pkg_version("dcc-mcp-core")
+    except Exception:
+        return "0.0.0-dev"
+
+
+# ── Sentinel entry helper (for version-aware takeover) ──
+
+
+def _write_sentinel_entry(
+    registry_dir: str | None,
+    *,
+    gateway_host: str,
+    gateway_port: int,
+    crate_version: str,
+    adapter_version: str | None = None,
+    adapter_dcc: str | None = None,
+) -> bool:
+    """Write a sentinel entry to the file registry to trigger gateway yield.
+
+    The running gateway's 15 s cleanup loop calls ``has_newer_sentinel`` and
+    will voluntarily yield when a newer version sentinel is found.
+
+    Returns True if the sentinel was written; False on error.
+    """
+    import json as _json
+
+    try:
+        registry_path = _resolve_registry_dir(registry_dir)
+        services_file = registry_path / "services.json"
+        if services_file.exists():
+            raw = services_file.read_text(encoding="utf-8")
+            data = _json.loads(raw) if raw.strip() else []
+        else:
+            data = []
+    except Exception:
+        return False
+
+    sentinel_entry: dict[str, object] = {
+        "dcc_type": "__gateway__",
+        "host": gateway_host,
+        "port": gateway_port,
+        "version": crate_version,
+        "last_heartbeat": time.time(),
+    }
+    if adapter_version:
+        sentinel_entry["adapter_version"] = adapter_version
+    if adapter_dcc:
+        sentinel_entry["adapter_dcc"] = adapter_dcc
+
+    # FileRegistry uses a list format.  Remove existing sentinels before
+    # appending the new one.
+    if isinstance(data, list):
+        data = [e for e in data if not (isinstance(e, dict) and e.get("dcc_type") == "__gateway__")]
+        data.append(sentinel_entry)
+    elif isinstance(data, dict):
+        sentinel_key = f"__gateway__:{gateway_host}:{gateway_port}"
+        data[sentinel_key] = sentinel_entry
+    else:
+        data = [sentinel_entry]
+
+    try:
+        registry_path.mkdir(parents=True, exist_ok=True)
+        services_file.write_text(_json.dumps(data, indent=2), encoding="utf-8")
+        return True
+    except Exception:
+        return False
+
+
+def _read_gateway_version_from_registry(
+    registry_dir: str | None,
+    *,
+    gateway_host: str,
+    gateway_port: int,
+) -> str | None:
+    """Read the running gateway's version from the file registry sentinel entry.
+
+    Returns the version string if found, or None.
+    """
+    import json as _json
+
+    try:
+        registry_path = _resolve_registry_dir(registry_dir)
+        services_file = registry_path / "services.json"
+        if not services_file.exists():
+            return None
+        raw = services_file.read_text(encoding="utf-8")
+        data = _json.loads(raw) if raw.strip() else []
+    except Exception:
+        return None
+
+    # The FileRegistry stores entries in either list or dict format.
+    if isinstance(data, dict):
+        sentinel_key = f"__gateway__:{gateway_host}:{gateway_port}"
+        entry = data.get(sentinel_key)
+        if isinstance(entry, dict):
+            version = entry.get("version")
+            if isinstance(version, str):
+                return version
+        return None
+
+    if isinstance(data, list):
+        for entry in data:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("dcc_type") == "__gateway__":
+                version = entry.get("version")
+                if isinstance(version, str):
+                    return version
+    return None
 
 
 def _float_env(name: str, default: float) -> float:
