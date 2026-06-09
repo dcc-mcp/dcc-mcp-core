@@ -107,7 +107,8 @@ def test_ensure_gateway_daemon_waits_when_launch_lock_exists(tmp_path, monkeypat
 
 
 def test_ensure_gateway_daemon_lock_loser_succeeds_when_gateway_becomes_healthy(
-    tmp_path, monkeypatch,
+    tmp_path,
+    monkeypatch,
 ):
     """Lock loser waits and succeeds if the winner brings the gateway healthy."""
     (tmp_path / "gateway-launch.lock").write_text("busy", encoding="utf-8")
@@ -143,9 +144,7 @@ def test_ensure_gateway_daemon_lock_loser_succeeds_when_gateway_becomes_healthy(
 def test_ensure_gateway_daemon_respects_ensure_timeout_env_var(tmp_path, monkeypatch):
     """DCC_MCP_GATEWAY_ENSURE_TIMEOUT_SECS overrides the default timeout."""
     (tmp_path / "gateway-launch.lock").write_text("busy", encoding="utf-8")
-    monkeypatch.setattr(
-        gg, "urlopen", lambda *_a, **_k: (_ for _ in ()).throw(OSError("down"))
-    )
+    monkeypatch.setattr(gg, "urlopen", lambda *_a, **_k: (_ for _ in ()).throw(OSError("down")))
     monkeypatch.setattr(
         gg,
         "launch_detached",
