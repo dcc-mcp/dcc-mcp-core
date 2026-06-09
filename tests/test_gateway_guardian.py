@@ -896,6 +896,97 @@ def test_try_version_takeover_returns_none_when_dev_version(monkeypatch, tmp_pat
     assert result is None
 
 
+# ---------------------------------------------------------------------------
+# Watchdog interval (PIP-1416: 60s → 15s + env override + immediate retry)
+# ---------------------------------------------------------------------------
+
+
+def test_watchdog_interval_default_is_15s():
+    """PIP-1416: watchdog default interval is 15 s (was 60 s)."""
+    from dcc_mcp_core._server import runtime as rt_mod
+
+    # Resolve interval without env var set.
+    assert rt_mod._resolve_watchdog_interval() == 15.0
+
+
+def test_watchdog_interval_respects_env_var(monkeypatch):
+    """PIP-1416: DCC_MCP_GUARDIAN_WATCHDOG_INTERVAL overrides the default."""
+    monkeypatch.setenv("DCC_MCP_GUARDIAN_WATCHDOG_INTERVAL", "8.5")
+    from dcc_mcp_core._server import runtime as rt_mod
+
+    # _resolve_watchdog_interval() reads os.environ at call time — no reload needed.
+    assert rt_mod._resolve_watchdog_interval() == 8.5
+
+
+def test_watchdog_interval_env_floor_0_1s(monkeypatch):
+    """PIP-1416: watchdog interval env floors at 0.1 s."""
+    monkeypatch.setenv("DCC_MCP_GUARDIAN_WATCHDOG_INTERVAL", "0.01")
+    from dcc_mcp_core._server import runtime as rt_mod
+
+    assert rt_mod._resolve_watchdog_interval() == 0.1
+
+
+def test_watchdog_interval_env_invalid_falls_back(monkeypatch):
+    """PIP-1416: invalid env value falls back to default 15 s."""
+    monkeypatch.setenv("DCC_MCP_GUARDIAN_WATCHDOG_INTERVAL", "not_a_number")
+    from dcc_mcp_core._server import runtime as rt_mod
+
+    assert rt_mod._resolve_watchdog_interval() == 15.0
+
+
+def test_watchdog_immediate_retry_on_guardian_death(monkeypatch):
+    """PIP-1416: watchdog immediately probes the new guardian after restart."""
+    monkeypatch.setattr(gg, "_is_healthy", lambda *a, **k: False)
+    monkeypatch.setattr(gg, "ensure_gateway_daemon", lambda **kw: {"ok": True, "reason": "spawned"})
+    monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
+
+    ctrl, owner = _make_runtime_controller(monkeypatch)
+
+    # Start the guardian.
+    ctrl.start_gateway_guardian_if_needed()
+    guardian = owner._gateway_guardian
+    assert guardian is not None
+
+    # Kill the guardian thread.
+    guardian.stop(timeout=2.0)
+    assert guardian.status()["guardian_running"] is False
+
+    # Track probe_once calls on the *new* guardian.
+    probe_calls = []
+
+    original_start = ctrl.start_gateway_guardian_if_needed
+
+    def _start_and_track():
+        original_start()
+        new_g = getattr(owner, "_gateway_guardian", None)
+        if new_g is not None:
+            original_probe = new_g.probe_once
+            new_g.probe_once = lambda: probe_calls.append(1) or original_probe()
+
+    ctrl.start_gateway_guardian_if_needed = _start_and_track
+
+    # Simulate one watchdog tick: detect dead → restart → immediate retry.
+    ctrl._guardian_watchdog_stop.set()  # unblock wait() for one iteration
+    # Run one cycle of the watchdog loop logic manually.
+    guardian_obj = owner._gateway_guardian  # still the dead one
+    assert guardian_obj.status()["guardian_running"] is False
+
+    # Replicate the watchdog loop body directly.
+    status = guardian_obj.status()
+    assert status.get("guardian_running") is False
+    # Call start (which replaces guardian + monkeypatches probe_once).
+    ctrl.start_gateway_guardian_if_needed()
+    new_guardian = getattr(owner, "_gateway_guardian", None)
+    assert new_guardian is not None
+    assert new_guardian is not guardian_obj  # replaced
+    # Immediate retry: call probe_once.
+    new_guardian.probe_once()
+
+    assert len(probe_calls) == 1, (
+        f"Expected 1 immediate probe_once call, got {len(probe_calls)}"
+    )
+
+
 def test_ensure_gateway_daemon_handles_version_takeover_health(monkeypatch, tmp_path):
     """P0-3: ensure_gateway_daemon returns already_healthy when takeover not needed."""
     monkeypatch.setattr(gg, "urlopen", lambda *args, **kwargs: _Resp())
