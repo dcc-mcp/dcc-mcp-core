@@ -2,8 +2,66 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
+
+/// Custom deserializer for `SystemTime` that accepts both Unix timestamp numbers
+/// (integer or float — as written by Python bridge plugins) and the Rust std serde
+/// struct format `{"secs_since_epoch": N, "nanos_since_epoch": N}`.
+fn deserialize_system_time<'de, D>(deserializer: D) -> Result<SystemTime, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    system_time_from_json_value(&value).map_err(serde::de::Error::custom)
+}
+
+/// Custom deserializer for `Option<SystemTime>` (used by `lease_expires_at`).
+fn deserialize_optional_system_time<'de, D>(
+    deserializer: D,
+) -> Result<Option<SystemTime>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    if value.is_null() {
+        return Ok(None);
+    }
+    system_time_from_json_value(&value)
+        .map(Some)
+        .map_err(serde::de::Error::custom)
+}
+
+fn system_time_from_json_value(value: &serde_json::Value) -> Result<SystemTime, String> {
+    match value {
+        serde_json::Value::Number(n) => {
+            let secs_f64 = n.as_f64().ok_or_else(|| format!("invalid number: {n}"))?;
+            #[allow(clippy::cast_possible_truncation)]
+            #[allow(clippy::cast_sign_loss)]
+            let secs = secs_f64.trunc() as u64;
+            let nanos = ((secs_f64 - secs_f64.trunc()).abs() * 1e9) as u32;
+            UNIX_EPOCH
+                .checked_add(Duration::new(secs, nanos))
+                .ok_or_else(|| format!("timestamp out of range: {secs_f64}"))
+        }
+        serde_json::Value::Object(obj) => {
+            let secs = obj
+                .get("secs_since_epoch")
+                .and_then(|v| v.as_u64())
+                .ok_or_else(|| "missing secs_since_epoch".to_string())?;
+            let nanos = obj
+                .get("nanos_since_epoch")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32;
+            UNIX_EPOCH
+                .checked_add(Duration::new(secs, nanos))
+                .ok_or_else(|| format!("timestamp out of range: {secs}.{nanos:09}"))
+        }
+        _ => Err(format!(
+            "expected Unix timestamp number or {{secs_since_epoch, nanos_since_epoch}} object, got {value}"
+        )),
+    }
+}
 
 use crate::ipc::TransportAddress;
 
@@ -173,8 +231,10 @@ pub struct ServiceEntry {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub extras: HashMap<String, serde_json::Value>,
     /// When this service was registered.
+    #[serde(deserialize_with = "deserialize_system_time")]
     pub registered_at: SystemTime,
     /// Last heartbeat timestamp.
+    #[serde(deserialize_with = "deserialize_system_time")]
     pub last_heartbeat: SystemTime,
     /// Current status.
     #[serde(default)]
@@ -192,7 +252,11 @@ pub struct ServiceEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_job_id: Option<String>,
     /// Wall-clock expiry for the current lease.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_system_time"
+    )]
     pub lease_expires_at: Option<SystemTime>,
 }
 
@@ -751,5 +815,175 @@ mod tests {
             .unwrap()
             .as_millis() as u64;
         assert!(new_ms > old_ms);
+    }
+
+    // ── SystemTime deserializer compatibility (float timestamp fix) ────
+
+    /// Python bridge plugins write `registered_at` / `last_heartbeat` as
+    /// float Unix timestamps (e.g. `1712345678.123456`).  The custom
+    /// deserializer must accept integer, float, and the Rust std struct
+    /// format.
+    #[test]
+    fn test_system_time_deserialize_from_integer() {
+        let now = SystemTime::now();
+        let secs = now
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let json = serde_json::json!({
+            "dcc_type": "maya",
+            "instance_id": "00000000-0000-0000-0000-000000000001",
+            "host": "127.0.0.1",
+            "port": 18812,
+            "registered_at": secs,
+            "last_heartbeat": secs,
+        });
+        let entry: ServiceEntry = serde_json::from_value(json).unwrap();
+        let got_secs = entry
+            .registered_at
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        assert_eq!(got_secs, secs);
+    }
+
+    #[test]
+    fn test_system_time_deserialize_from_float() {
+        let now = SystemTime::now();
+        let secs = now
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64();
+        let json = serde_json::json!({
+            "dcc_type": "maya",
+            "instance_id": "00000000-0000-0000-0000-000000000001",
+            "host": "127.0.0.1",
+            "port": 18812,
+            "registered_at": secs,
+            "last_heartbeat": secs,
+        });
+        let entry: ServiceEntry = serde_json::from_value(json).unwrap();
+        let got_secs = entry
+            .registered_at
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        assert_eq!(got_secs, secs.trunc() as u64);
+    }
+
+    #[test]
+    fn test_system_time_deserialize_from_float_with_subsecond() {
+        let json = serde_json::json!({
+            "dcc_type": "blender",
+            "instance_id": "00000000-0000-0000-0000-000000000002",
+            "host": "127.0.0.1",
+            "port": 8080,
+            "registered_at": 1712345678.5,
+            "last_heartbeat": 1712345678.5,
+        });
+        let entry: ServiceEntry = serde_json::from_value(json).unwrap();
+        let duration = entry
+            .registered_at
+            .duration_since(UNIX_EPOCH)
+            .unwrap();
+        assert_eq!(duration.as_secs(), 1712345678);
+        assert_eq!(duration.subsec_nanos(), 500_000_000);
+    }
+
+    #[test]
+    fn test_system_time_deserialize_from_rust_std_struct_format() {
+        let now = SystemTime::now();
+        let duration = now.duration_since(UNIX_EPOCH).unwrap();
+        let json = serde_json::json!({
+            "dcc_type": "houdini",
+            "instance_id": "00000000-0000-0000-0000-000000000003",
+            "host": "127.0.0.1",
+            "port": 9090,
+            "registered_at": {
+                "secs_since_epoch": duration.as_secs(),
+                "nanos_since_epoch": duration.subsec_nanos(),
+            },
+            "last_heartbeat": {
+                "secs_since_epoch": duration.as_secs(),
+                "nanos_since_epoch": duration.subsec_nanos(),
+            },
+        });
+        let entry: ServiceEntry = serde_json::from_value(json).unwrap();
+        let got_secs = entry
+            .registered_at
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        assert_eq!(got_secs, duration.as_secs());
+    }
+
+    #[test]
+    fn test_optional_system_time_deserialize_from_null() {
+        let json = serde_json::json!({
+            "dcc_type": "maya",
+            "instance_id": "00000000-0000-0000-0000-000000000004",
+            "host": "127.0.0.1",
+            "port": 18812,
+            "registered_at": 1712345678u64,
+            "last_heartbeat": 1712345678u64,
+            "lease_expires_at": null,
+        });
+        let entry: ServiceEntry = serde_json::from_value(json).unwrap();
+        assert!(entry.lease_expires_at.is_none());
+    }
+
+    #[test]
+    fn test_optional_system_time_deserialize_from_float() {
+        let json = serde_json::json!({
+            "dcc_type": "maya",
+            "instance_id": "00000000-0000-0000-0000-000000000005",
+            "host": "127.0.0.1",
+            "port": 18812,
+            "registered_at": 1712345678u64,
+            "last_heartbeat": 1712345678u64,
+            "lease_expires_at": 1712345700.25,
+        });
+        let entry: ServiceEntry = serde_json::from_value(json).unwrap();
+        let expires = entry.lease_expires_at.unwrap();
+        let duration = expires.duration_since(UNIX_EPOCH).unwrap();
+        assert_eq!(duration.as_secs(), 1712345700);
+        assert_eq!(duration.subsec_nanos(), 250_000_000);
+    }
+
+    /// Roundtrip through the Rust std format must survive (backward compat
+    /// with existing services.json written by Rust processes).
+    #[test]
+    fn test_system_time_full_roundtrip_rust_format() {
+        let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        let json = serde_json::to_string(&entry).unwrap();
+        let parsed: ServiceEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.dcc_type, entry.dcc_type);
+        assert_eq!(parsed.instance_id, entry.instance_id);
+        assert!(parsed.registered_at <= SystemTime::now());
+        assert!(parsed.last_heartbeat <= SystemTime::now());
+    }
+
+    /// Roundtrip through a Python-style float timestamp must survive.
+    #[test]
+    fn test_system_time_roundtrip_float_format() {
+        let secs_f64 = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64();
+        let json = serde_json::json!({
+            "dcc_type": "maya",
+            "instance_id": "00000000-0000-0000-0000-000000000006",
+            "host": "127.0.0.1",
+            "port": 18812,
+            "registered_at": secs_f64,
+            "last_heartbeat": secs_f64,
+        });
+        let entry: ServiceEntry = serde_json::from_value(json).unwrap();
+        let got_secs = entry
+            .registered_at
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        assert_eq!(got_secs, secs_f64.trunc() as u64);
     }
 }

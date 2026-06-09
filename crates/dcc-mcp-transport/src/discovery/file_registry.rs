@@ -1313,9 +1313,13 @@ impl FileRegistry {
             return Ok(Vec::new());
         }
 
-        serde_json::from_str(&content).map_err(|e| {
-            TransportError::RegistryFile(format!("failed to parse {}: {}", path.display(), e))
-        })
+        match serde_json::from_str(&content) {
+            Ok(entries) => Ok(entries),
+            Err(e) => {
+                self.quarantine_corrupted_registry_file(&path, &e);
+                Ok(Vec::new())
+            }
+        }
     }
 
     fn looks_like_zero_padded_empty_registry(content: &str) -> bool {
@@ -1344,6 +1348,29 @@ impl FileRegistry {
                 bytes,
                 error = %error,
                 "FileRegistry: registry file looked like a zero-padded NTFS artefact; failed to quarantine but starting empty"
+            ),
+        }
+    }
+
+    fn quarantine_corrupted_registry_file(&self, path: &Path, error: &serde_json::Error) {
+        let ts = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .unwrap_or(0);
+        let quarantined = path.with_extension(format!("json.corrupted-{ts}"));
+        match fs::rename(path, &quarantined) {
+            Ok(()) => tracing::warn!(
+                path = %path.display(),
+                quarantined = %quarantined.display(),
+                %error,
+                "FileRegistry: failed to parse registry file; quarantined and starting empty"
+            ),
+            Err(rename_error) => tracing::warn!(
+                path = %path.display(),
+                quarantined = %quarantined.display(),
+                %error,
+                rename_error = %rename_error,
+                "FileRegistry: failed to parse registry file; failed to quarantine but starting empty"
             ),
         }
     }
