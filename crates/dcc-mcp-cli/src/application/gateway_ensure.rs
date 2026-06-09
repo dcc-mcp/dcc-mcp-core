@@ -15,6 +15,16 @@ use serde::Serialize;
 
 use super::gateway_discovery;
 
+/// Resolve the ensure timeout from the ``DCC_MCP_GATEWAY_ENSURE_TIMEOUT_SECS``
+/// environment variable, falling back to ``DEFAULT_GATEWAY_ENSURE_TIMEOUT_SECS``.
+pub fn gateway_ensure_timeout_secs() -> u64 {
+    std::env::var(ENV_GATEWAY_ENSURE_TIMEOUT_SECS)
+        .ok()
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .filter(|secs| *secs > 0)
+        .unwrap_or(DEFAULT_GATEWAY_ENSURE_TIMEOUT_SECS)
+}
+
 /// How long to wait for a single `/health` probe before timing out.
 const HEALTH_TIMEOUT: Duration = Duration::from_millis(600);
 
@@ -22,6 +32,11 @@ const HEALTH_TIMEOUT: Duration = Duration::from_millis(600);
 const DEFAULT_LOCK_STALE_SECS: u64 = 30;
 
 const ENV_GATEWAY_LAUNCH_LOCK_STALE_SECS: &str = "DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS";
+/// Controls the default wait timeout for gateway ensure operations (spawn + lock
+/// loser wait).  Mirrors the Python-side ``DCC_MCP_GATEWAY_ENSURE_TIMEOUT_SECS``.
+const ENV_GATEWAY_ENSURE_TIMEOUT_SECS: &str = "DCC_MCP_GATEWAY_ENSURE_TIMEOUT_SECS";
+/// Default seconds to wait for gateway ensure (spawn readiness + lock loser).
+const DEFAULT_GATEWAY_ENSURE_TIMEOUT_SECS: u64 = 15;
 
 /// Outcome of an `ensure_gateway_running` call.
 #[derive(Debug, Clone, Serialize)]
@@ -103,10 +118,30 @@ pub async fn ensure_gateway_running(args: &EnsureGatewayArgs) -> anyhow::Result<
             })
         }
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
-            anyhow::bail!(
-                "another process is launching the gateway (lock: {})",
-                lock_path.display()
+            tracing::info!(
+                path = %lock_path.display(),
+                "another process is launching the gateway — waiting for it to become healthy"
             );
+            wait_gateway_ready(
+                &args.host,
+                args.port,
+                Duration::from_secs(args.wait_timeout_secs),
+            )
+            .await
+            .with_context(|| {
+                format!(
+                    "another process is launching the gateway but it did not become healthy within {}s (lock: {})",
+                    args.wait_timeout_secs,
+                    lock_path.display()
+                )
+            })?;
+            // Gateway became healthy — return as already_running.
+            return Ok(EnsureResult {
+                host: args.host.clone(),
+                port: args.port,
+                already_running: true,
+                pid: read_pid_from_pidfile(args.pidfile.as_deref()),
+            });
         }
         Err(err) => {
             Err(err).with_context(|| format!("creating launch lock {}", lock_path.display()))?

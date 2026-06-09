@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 _LAUNCH_LOCK = "gateway-launch.lock"
 _LAUNCH_LOCK_STALE_SECS_ENV = "DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS"
 _LAUNCH_LOCK_STALE_SECS_DEFAULT = 30.0
+_ENSURE_TIMEOUT_SECS_ENV = "DCC_MCP_GATEWAY_ENSURE_TIMEOUT_SECS"
+_ENSURE_TIMEOUT_SECS_DEFAULT = 15.0
 
 
 def _is_healthy(host: str, port: int, timeout: float) -> bool:
@@ -190,13 +192,18 @@ def build_gateway_daemon_command(
     return cmd, env
 
 
+def _ensure_timeout_secs() -> float:
+    """Return the configured gateway ensure timeout (seconds)."""
+    return _float_env(_ENSURE_TIMEOUT_SECS_ENV, _ENSURE_TIMEOUT_SECS_DEFAULT)
+
+
 def ensure_gateway_daemon(
     *,
     gateway_host: str,
     gateway_port: int,
     registry_dir: str | None,
     dcc_type: str,
-    timeout_secs: float = 5.0,
+    timeout_secs: float | None = None,
     gateway_persist: bool | None = None,
     gateway_idle_timeout_secs: int | None = None,
     server_bin: str | None = None,
@@ -209,6 +216,8 @@ def ensure_gateway_daemon(
     """
     if gateway_port <= 0:
         return {"ok": False, "reason": "gateway_port_not_configured"}
+    if timeout_secs is None:
+        timeout_secs = _ensure_timeout_secs()
     if _is_healthy(gateway_host, gateway_port, timeout=0.5):
         return {"ok": True, "reason": "already_healthy"}
 

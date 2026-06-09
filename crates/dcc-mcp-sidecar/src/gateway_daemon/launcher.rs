@@ -12,6 +12,10 @@ use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntr
 const ENV_GATEWAY_LAUNCH_LOCK_STALE_SECS: &str = "DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS";
 const DEFAULT_GATEWAY_LAUNCH_LOCK_STALE_SECS: u64 = 30;
 const GATEWAY_SENTINEL_STALE_SECS: u64 = 30;
+/// Environment variable controlling the default gateway ensure timeout (seconds).
+/// Aligned with Python-side ``DCC_MCP_GATEWAY_ENSURE_TIMEOUT_SECS`` and the CLI.
+const ENV_GATEWAY_ENSURE_TIMEOUT_SECS: &str = "DCC_MCP_GATEWAY_ENSURE_TIMEOUT_SECS";
+const DEFAULT_GATEWAY_ENSURE_TIMEOUT_SECS: u64 = 15;
 
 /// Helpers for auto-launching the standalone gateway from inside another
 /// process (the per-DCC sidecar / embedded server).
@@ -31,6 +35,17 @@ pub struct EnsureGatewayOptions {
     pub adapter_dcc: Option<String>,
     /// Gateway idle timeout after last backend exits (0 = persist mode).
     pub gateway_idle_timeout_secs: u64,
+}
+
+/// Resolve the gateway ensure timeout from the environment, falling back to the
+/// default (15 s).  Used by `ensure_gateway_running` and `spawn_gateway_with_lock`.
+fn gateway_ensure_timeout() -> Duration {
+    let secs = std::env::var(ENV_GATEWAY_ENSURE_TIMEOUT_SECS)
+        .ok()
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .filter(|secs| *secs > 0)
+        .unwrap_or(DEFAULT_GATEWAY_ENSURE_TIMEOUT_SECS);
+    Duration::from_secs(secs)
 }
 
 /// Ensure the machine-wide gateway is reachable, launching it once if needed.
@@ -70,7 +85,7 @@ pub async fn ensure_gateway_running(opts: &EnsureGatewayOptions) -> anyhow::Resu
         Err(err) => return Err(err).with_context(|| format!("creating {}", lock_path.display())),
     }
 
-    wait_gateway_ready(&opts.host, opts.port, Duration::from_secs(10)).await
+    wait_gateway_ready(&opts.host, opts.port, gateway_ensure_timeout()).await
 }
 
 /// When the gateway port is already occupied, check whether we carry a newer
@@ -180,7 +195,7 @@ async fn spawn_gateway_with_lock(opts: &EnsureGatewayOptions) -> anyhow::Result<
         }
         Err(err) => return Err(err).with_context(|| format!("creating {}", lock_path.display())),
     }
-    wait_gateway_ready(&opts.host, opts.port, Duration::from_secs(10)).await
+    wait_gateway_ready(&opts.host, opts.port, gateway_ensure_timeout()).await
 }
 
 async fn wait_gateway_ready(host: &str, port: u16, timeout: Duration) -> anyhow::Result<()> {
