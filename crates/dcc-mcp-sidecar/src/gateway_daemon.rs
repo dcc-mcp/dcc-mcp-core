@@ -124,6 +124,182 @@ pub struct GatewayArgs {
     /// --daemon when a path is provided.
     #[arg(long, env = "DCC_MCP_PIDFILE", value_name = "PATH")]
     pub pidfile: Option<PathBuf>,
+
+    /// Restart the running gateway daemon (requires --daemon and --pidfile).
+    /// Gracefully stops the old process, then starts a new one.
+    /// Prints the new PID, crate version, and log directory on success.
+    #[arg(long, default_value = "false")]
+    pub restart: bool,
+}
+
+/// Restart the gateway daemon by gracefully stopping the old process
+/// and spawning a new one.
+///
+/// Behaviour matches `multica daemon restart`:
+/// 1. Read the PID from `--pidfile`.
+/// 2. If a live process owns that PID, send `taskkill /PID <pid> /F`
+///    (Windows) or `kill <pid>` (Unix) and wait for it to exit.
+/// 3. Spawn a detached replacement gateway (the new process daemonizes
+///    itself via `DCC_MCP__DAEMONIZED=1`).
+/// 4. Poll `/health` until the new gateway responds.
+/// 5. Print the new PID, crate version, and log directory path.
+///
+/// Returns an error if no live process is found (use `gateway --daemon`
+/// to start fresh).
+pub async fn restart_gateway(args: &GatewayArgs) -> anyhow::Result<()> {
+    let pidfile = args
+        .pidfile
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("--restart requires --pidfile <PATH>"))?;
+
+    // ── 1. Read old PID ──────────────────────────────────────────────
+    let old_pid = match dcc_mcp_gateway_ensure::read_pid_from_pidfile(Some(pidfile)) {
+        Some(pid) => pid,
+        None => {
+            return Err(anyhow::anyhow!(
+                "no live gateway found (pidfile '{}' missing or empty) — use --daemon to start a fresh gateway",
+                pidfile.display()
+            ));
+        }
+    };
+
+    // ── 2. Check liveness and stop old process ─────────────────────
+    if !dcc_mcp_gateway_ensure::is_process_alive(old_pid) {
+        // Stale pidfile — clean up and spawn fresh.
+        eprintln!(
+            "WARN: pidfile '{}' points to a dead process (PID {}); removing stale pidfile",
+            pidfile.display(),
+            old_pid
+        );
+        let _ = std::fs::remove_file(pidfile);
+        // Fall through to fresh start.
+        return restart_spawn_fresh(args).await;
+    }
+
+    eprintln!("Stopping gateway daemon (pid {old_pid})...");
+    dcc_mcp_gateway_ensure::stop_process(old_pid)
+        .map_err(|e| anyhow::anyhow!("failed to stop old gateway (pid {old_pid}): {e}"))?;
+
+    // Wait for the old process to exit (poll every 150 ms, up to 15 s).
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    while std::time::Instant::now() < deadline {
+        if !dcc_mcp_gateway_ensure::is_process_alive(old_pid) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
+    if dcc_mcp_gateway_ensure::is_process_alive(old_pid) {
+        eprintln!(
+            "WARN: old gateway (pid {old_pid}) did not exit within 15 s; proceeding anyway"
+        );
+    }
+
+    // ── 3. Spawn new detached gateway ───────────────────────────────
+    restart_spawn_new(args).await
+}
+
+/// Fallback path: pidfile is stale, so spawn a fresh gateway directly.
+async fn restart_spawn_fresh(args: &GatewayArgs) -> anyhow::Result<()> {
+    restart_spawn_new(args).await
+}
+
+/// Spawn the new detached gateway process and wait for it to become ready.
+async fn restart_spawn_new(args: &GatewayArgs) -> anyhow::Result<()> {
+    let exe = std::env::current_exe()
+        .map_err(|e| anyhow::anyhow!("cannot resolve current executable: {e}"))?;
+
+    // Build the CLI args for the child: `gateway --host ... --daemon --pidfile ...`
+    // The child will daemonize itself (DCC_MCP__DAEMONIZED=1).
+    let mut child_args: Vec<std::ffi::OsString> = Vec::new();
+    child_args.push(std::ffi::OsString::from("gateway"));
+    push_arg_if_changed(&mut child_args, "--host", &args.host);
+    push_arg_if_changed(&mut child_args, "--port", &args.port.to_string());
+    if let Some(ref name) = args.name {
+        child_args.push(std::ffi::OsString::from("--name"));
+        child_args.push(std::ffi::OsString::from(name));
+    }
+    push_arg_if_changed(&mut child_args, "--remote-host", &args.remote_host);
+    push_arg_if_changed(&mut child_args, "--remote-port", &args.remote_port.to_string());
+    if args.no_admin {
+        child_args.push(std::ffi::OsString::from("--no-admin"));
+    }
+    if args.admin_path != "/admin" {
+        child_args.push(std::ffi::OsString::from("--admin-path"));
+        child_args.push(std::ffi::OsString::from(&args.admin_path));
+    }
+    if let Some(ref dir) = args.registry_dir {
+        child_args.push(std::ffi::OsString::from("--registry-dir"));
+        child_args.push(std::ffi::OsString::from(dir.as_os_str()));
+    }
+    if args.gateway_persist {
+        child_args.push(std::ffi::OsString::from("--gateway-persist"));
+    }
+    if args.gateway_idle_timeout_secs != 30 {
+        push_arg_if_changed(
+            &mut child_args,
+            "--gateway-idle-timeout-secs",
+            &args.gateway_idle_timeout_secs.to_string(),
+        );
+    }
+    child_args.push(std::ffi::OsString::from("--daemon"));
+    if let Some(ref pidfile) = args.pidfile {
+        child_args.push(std::ffi::OsString::from("--pidfile"));
+        child_args.push(std::ffi::OsString::from(pidfile.as_os_str()));
+    }
+    #[cfg(feature = "mdns")]
+    {
+        if args.discover_mdns {
+            child_args.push(std::ffi::OsString::from("--discover-mdns"));
+        }
+    }
+    for rs in &args.relay_sources {
+        child_args.push(std::ffi::OsString::from("--relay-source"));
+        child_args.push(std::ffi::OsString::from(format!(
+            "{}={}",
+            rs.0.admin_url, rs.0.public_base_url
+        )));
+    }
+
+    // Re-read pidfile after child daemonizes (child writes its new PID).
+    let pidfile_path = args.pidfile.as_deref().unwrap(); // guaranteed Some by caller
+
+    let mut cmd = Command::new(&exe);
+    cmd.args(&child_args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    configure_detached_command(&mut cmd);
+
+    let _child = cmd
+        .spawn()
+        .map_err(|e| anyhow::anyhow!("failed to spawn gateway child: {e}"))?;
+
+    // ── 4. Wait for new gateway to become ready ────────────────────
+    let timeout = Duration::from_secs(dcc_mcp_gateway_ensure::resolve_ensure_timeout_secs(0));
+    dcc_mcp_gateway_ensure::wait_gateway_ready(&args.host, args.port, timeout)
+        .await
+        .map_err(|e| anyhow::anyhow!("gateway did not become ready: {e}"))?;
+
+    // ── 5. Read new PID and print restart summary ───────────────────
+    let new_pid = dcc_mcp_gateway_ensure::read_pid_from_pidfile(Some(pidfile_path))
+        .ok_or_else(|| anyhow::anyhow!("could not read new PID from pidfile"))?;
+
+    let version = env!("CARGO_PKG_VERSION");
+    let log_dir = args
+        .registry_dir
+        .clone()
+        .unwrap_or_else(|| std::env::temp_dir().join("dcc-mcp-core-registry"));
+
+    eprintln!("Gateway daemon started (pid {new_pid}, version {version})");
+    eprintln!("Logs: {}", log_dir.display());
+
+    Ok(())
+}
+
+/// Push a `--flag` and its value only when the value differs from the default.
+fn push_arg_if_changed(args: &mut Vec<std::ffi::OsString>, flag: &str, value: &str) {
+    args.push(std::ffi::OsString::from(flag));
+    args.push(std::ffi::OsString::from(value));
 }
 
 /// Build the [`GatewayConfig`] that the standalone daemon uses.
@@ -465,6 +641,7 @@ mod tests {
             gateway_idle_timeout_secs: 30,
             daemon: false,
             pidfile: None,
+            restart: false,
         };
 
         let cfg = build_gateway_config(&args, "relay-source-test");
@@ -519,6 +696,7 @@ mod tests {
             gateway_idle_timeout_secs: 30,
             daemon: false,
             pidfile: None,
+            restart: false,
         };
         let cfg = build_gateway_config(&args, args.name.as_deref().unwrap());
         assert_eq!(
@@ -555,5 +733,85 @@ mod tests {
             let reg = runner.registry.read().await;
             let _ = reg.deregister(&key);
         }
+    }
+
+    #[test]
+    fn gateway_args_restart_flag_defaults_to_false() {
+        let args = GatewayArgs {
+            host: "127.0.0.1".to_string(),
+            port: 9765,
+            name: None,
+            remote_host: "0.0.0.0".to_string(),
+            remote_port: 59765,
+            registry_dir: None,
+            no_admin: false,
+            admin_path: "/admin".to_string(),
+            stale_timeout_secs: 30,
+            #[cfg(feature = "mdns")]
+            discover_mdns: false,
+            relay_sources: Vec::new(),
+            gateway_persist: false,
+            gateway_idle_timeout_secs: 30,
+            daemon: false,
+            pidfile: None,
+            restart: false,
+        };
+        assert!(!args.restart, "restart flag must default to false");
+    }
+
+    #[test]
+    fn gateway_args_restart_flag_can_be_set() {
+        let mut args = GatewayArgs {
+            host: "127.0.0.1".to_string(),
+            port: 9765,
+            name: None,
+            remote_host: "0.0.0.0".to_string(),
+            remote_port: 59765,
+            registry_dir: None,
+            no_admin: false,
+            admin_path: "/admin".to_string(),
+            stale_timeout_secs: 30,
+            #[cfg(feature = "mdns")]
+            discover_mdns: false,
+            relay_sources: Vec::new(),
+            gateway_persist: false,
+            gateway_idle_timeout_secs: 30,
+            daemon: false,
+            pidfile: Some(std::path::PathBuf::from("/tmp/gw.pid")),
+            restart: false,
+        };
+        args.restart = true;
+        assert!(args.restart);
+        assert!(args.pidfile.is_some());
+    }
+
+    #[tokio::test]
+    async fn restart_gateway_fails_without_pidfile() {
+        let args = GatewayArgs {
+            host: "127.0.0.1".to_string(),
+            port: 9765,
+            name: None,
+            remote_host: "0.0.0.0".to_string(),
+            remote_port: 0,
+            registry_dir: None,
+            no_admin: true,
+            admin_path: "/admin".to_string(),
+            stale_timeout_secs: 30,
+            #[cfg(feature = "mdns")]
+            discover_mdns: false,
+            relay_sources: Vec::new(),
+            gateway_persist: false,
+            gateway_idle_timeout_secs: 30,
+            daemon: true,
+            pidfile: None,  // no pidfile → restart must fail
+            restart: true,
+        };
+        let result = restart_gateway(&args).await;
+        assert!(result.is_err(), "restart without --pidfile must fail");
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("--restart requires --pidfile"),
+            "error must mention --pidfile: {err}"
+        );
     }
 }

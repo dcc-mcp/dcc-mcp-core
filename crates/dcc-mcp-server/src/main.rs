@@ -584,7 +584,12 @@ async fn main() -> anyhow::Result<()> {
         #[cfg(feature = "gateway-auto")]
         Some(SubCmd::Sidecar(sidecar_args)) => return dcc_mcp_sidecar::run(sidecar_args).await,
         #[cfg(feature = "gateway-daemon")]
-        Some(SubCmd::Gateway(gateway_args)) => return gateway_daemon::run(gateway_args).await,
+        Some(SubCmd::Gateway(gateway_args)) => {
+            if gateway_args.restart {
+                return gateway_daemon::restart_gateway(&gateway_args).await;
+            }
+            return gateway_daemon::run(gateway_args).await;
+        }
         Some(SubCmd::Capture { action }) => return capture::run(action).await,
         None => return run_server(args.server).await,
     }
