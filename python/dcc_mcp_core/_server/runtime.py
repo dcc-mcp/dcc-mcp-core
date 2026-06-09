@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
+import time
 from typing import Any
 
 from dcc_mcp_core._server.gateway_guardian import GatewayDaemonGuardian
@@ -11,6 +13,9 @@ from dcc_mcp_core._server.gateway_guardian import ensure_gateway_daemon
 from dcc_mcp_core.gateway_election import DccGatewayElection
 
 logger = logging.getLogger(__name__)
+
+_RETRY_COUNT = 2
+_RETRY_INTERVAL_SECS = 2.0
 
 
 class ServerRuntimeController:
@@ -24,6 +29,19 @@ class ServerRuntimeController:
         self._guardian_watchdog_thread: threading.Thread | None = None
 
     def ensure_gateway_daemon_if_needed(self) -> bool:
+        """Ensure a machine-wide gateway daemon is healthy on ``gateway_port``.
+
+        Returns:
+            ``True`` if the daemon is healthy (either pre-existing or freshly
+            spawned).  ``False`` when the adapter falls back to
+            ``embedded-fallback`` mode.
+
+        Raises:
+            RuntimeError: When ``DCC_MCP_STRICT_GATEWAY=1`` (or
+                ``_strict_gateway`` is set on the owner) and every
+                ``ensure_gateway_daemon()`` attempt (initial + 2 retries) fails.
+
+        """
         owner = self._owner
         gateway_port = int(getattr(owner._config, "gateway_port", 0) or 0)
         if gateway_port <= 0:
@@ -33,21 +51,76 @@ class ServerRuntimeController:
             owner._gateway_runtime_mode = "failover_disabled_by_adapter"
             return False
 
+        dcc_name = str(getattr(owner, "_dcc_name", "dcc"))
+        registry_dir = getattr(owner._config, "registry_dir", None)
+
+        # Attempt 1: initial try
         result = ensure_gateway_daemon(
             gateway_host="127.0.0.1",
             gateway_port=gateway_port,
-            registry_dir=getattr(owner._config, "registry_dir", None),
-            dcc_type=str(getattr(owner, "_dcc_name", "dcc")),
+            registry_dir=registry_dir,
+            dcc_type=dcc_name,
         )
         owner._gateway_daemon_status = dict(result)
         if result.get("ok"):
             owner._gateway_runtime_mode = "daemon-backed"
             return True
+
+        last_result = result
+
+        # Attempts 2..(_RETRY_COUNT+1): retry with backoff
+        for attempt in range(1, _RETRY_COUNT + 1):
+            logger.warning(
+                "[%s] Gateway daemon ensure failed (%s), retry %d/%d in %ss",
+                dcc_name,
+                last_result.get("reason", "unknown"),
+                attempt,
+                _RETRY_COUNT,
+                _RETRY_INTERVAL_SECS,
+            )
+            time.sleep(_RETRY_INTERVAL_SECS)
+            retry_result = ensure_gateway_daemon(
+                gateway_host="127.0.0.1",
+                gateway_port=gateway_port,
+                registry_dir=registry_dir,
+                dcc_type=dcc_name,
+            )
+            owner._gateway_daemon_status = dict(retry_result)
+            if retry_result.get("ok"):
+                owner._gateway_runtime_mode = "daemon-backed"
+                logger.info(
+                    "[%s] Gateway daemon recovered on retry %d/%d",
+                    dcc_name,
+                    attempt,
+                    _RETRY_COUNT,
+                )
+                return True
+            last_result = retry_result
+
+        # All attempts exhausted — decide: strict vs fallback
+        strict = bool(getattr(owner, "_strict_gateway", False)) or (
+            os.environ.get("DCC_MCP_STRICT_GATEWAY", "").strip().lower() in {"1", "true", "yes", "on"}
+        )
+        if strict:
+            raise RuntimeError(
+                f"[{dcc_name}] Gateway daemon ensure failed after "
+                f"1 + {_RETRY_COUNT} attempts "
+                f"(reason: {last_result.get('reason', 'unknown')}). "
+                f"Strict gateway mode is enabled (DCC_MCP_STRICT_GATEWAY=1); "
+                f"refusing to fall back to embedded election."
+            )
+
+        # Fallback to embedded election with enriched metadata
         owner._gateway_runtime_mode = "embedded-fallback"
+        owner._gateway_daemon_status = dict(last_result)
         logger.warning(
-            "[%s] Gateway daemon ensure failed (%s), falling back to embedded election",
-            owner._dcc_name,
-            result.get("reason", "unknown"),
+            "[%s] Gateway daemon ensure failed after 1 + %d attempts "
+            "(reason: %s, error: %s). Falling back to embedded election "
+            "(gateway_runtime_mode=embedded-fallback).",
+            dcc_name,
+            _RETRY_COUNT,
+            last_result.get("reason", "unknown"),
+            last_result.get("error", "(none)"),
         )
         return False
 
