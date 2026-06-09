@@ -471,16 +471,19 @@ mod tests {
     #[test]
     fn service_uses_bundled_catalog_when_default_path_is_missing() {
         let service = InstallService::new(PathBuf::from("__missing_dcc_mcp_catalog__.yml"));
+        // Bundled catalog is infra-only (no install metadata). Use "photoshop"
+        // which is in the catalog without install metadata — skill packs with
+        // install metadata now live in marketplace.json.
         let plan = service
             .plan(InstallRequest {
-                dcc_type: "maya".into(),
-                version: Some("2026".into()),
+                dcc_type: "photoshop".into(),
+                version: None,
                 catalog_path: None,
             })
             .unwrap();
 
-        assert!(plan.adapter.dcc.iter().any(|dcc| dcc == "maya"));
-        // Maya entry in bundled catalog has no install metadata → info steps
+        assert!(plan.adapter.dcc.iter().any(|dcc| dcc == "photoshop"));
+        // Infra-only catalog entries have no install metadata → info steps
         assert!(plan.steps.iter().all(|s| s.action.is_none()));
     }
 
