@@ -70,6 +70,7 @@ class DccServerBase:
         self._builtin_skills_dir = options.builtin_skills_dir
         self._handle: Any | None = None
         self._enable_gateway_failover = options.gateway.enable_failover
+        self._strict_gateway = options.gateway.strict_gateway
 
         # Observability flags (env var can override at runtime).
         obs = resolve_observability_flags(options.observability)

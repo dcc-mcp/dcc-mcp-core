@@ -65,6 +65,7 @@ class GatewayOptions:
     dcc_version: str | None = None
     scene: str | None = None
     enable_failover: bool = True
+    strict_gateway: bool = False
 
     @classmethod
     def from_env(
@@ -75,6 +76,7 @@ class GatewayOptions:
         dcc_version: str | None = None,
         scene: str | None = None,
         enable_failover: bool = True,
+        strict_gateway: bool = False,
     ) -> GatewayOptions:
         """Resolve gateway options, reading env-vars where parameters are ``None``.
 
@@ -82,6 +84,10 @@ class GatewayOptions:
         invalid), the result keeps ``port=None`` so downstream builders can
         fall back to the Rust-side default (9765).  Pass ``port=0`` explicitly
         to disable the gateway.
+
+        ``DCC_MCP_STRICT_GATEWAY=1`` enables strict gateway mode:
+        ``ensure_gateway_daemon()`` failures raise an exception instead of
+        silently falling back to ``embedded-fallback`` mode.
         """
         resolved_port = port
         if resolved_port is None:
@@ -92,12 +98,17 @@ class GatewayOptions:
         if resolved_registry_dir is None:
             resolved_registry_dir = os.environ.get("DCC_MCP_REGISTRY_DIR", "") or None
 
+        resolved_strict = strict_gateway or (
+            os.environ.get("DCC_MCP_STRICT_GATEWAY", "").strip().lower() in {"1", "true", "yes", "on"}
+        )
+
         return cls(
             port=resolved_port,
             registry_dir=resolved_registry_dir,
             dcc_version=dcc_version,
             scene=scene,
             enable_failover=enable_failover,
+            strict_gateway=resolved_strict,
         )
 
 
@@ -262,6 +273,7 @@ class DccServerOptions:
         dcc_version: str | None = None,
         scene: str | None = None,
         enable_gateway_failover: bool = True,
+        strict_gateway: bool = False,
         # observability kwargs
         enable_file_logging: bool = True,
         enable_job_persistence: bool = True,
@@ -297,6 +309,7 @@ class DccServerOptions:
             dcc_version=dcc_version,
             scene=scene,
             enable_failover=enable_gateway_failover,
+            strict_gateway=strict_gateway,
         )
         observability = ObservabilityOptions(
             enable_file_logging=enable_file_logging,
