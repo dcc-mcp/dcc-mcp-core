@@ -79,7 +79,7 @@ pub async fn ensure_gateway_running(args: &EnsureGatewayArgs) -> anyhow::Result<
     }
 
     if gateway_health_ok(&args.host, args.port).await {
-        Ok(EnsureResult {
+        return Ok(EnsureResult {
             host: args.host.clone(),
             port: args.port,
             already_running: true,
