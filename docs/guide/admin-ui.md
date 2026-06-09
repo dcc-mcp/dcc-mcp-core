@@ -1017,7 +1017,7 @@ Set `DCC_MCP_GATEWAY_AUDIT_DIR` to enable durable JSONL persistence. The gateway
 The HTML dashboard includes:
 - **Debug Workbench**: the default first screen combines health, instances, calls, traces, stats, warning logs, and per-instance OpenAPI entry points so operators can triage gateway failures without jumping between panels.
 - **Gateway owner identity**: the Health and Debug panels show the current `__gateway__` sentinel label from `gateway_name` / `DCC_MCP_GATEWAY_NAME`, plus any challenger candidates.
-- **Left navigation**: Debug / Activity / Health / Instances / Tools / Tasks / OpenAPI Inspector / Calls / Traces / Stats / Skill paths / Integrations / Logs panels
+- **Left navigation**: Connect IDE / Discover / Debug / Instances / Activity / Health / Workflows / Tasks / Tools / OpenAPI Inspector / Traces (with Calls sub-tab) / Governance / Logs / Analytics / Overview (with Stats + Traffic sub-tabs)
 - **Auto-refresh**: Panels poll their JSON endpoints every 5 seconds
 - **DCC icons**: common hosts such as Maya/Autodesk, Blender, GIMP, Inkscape, Krita, Unity, and Unreal get recognizable icons, with a safe fallback for custom hosts.
 - **Instance cards**: Per-instance status, heartbeat, and routing metadata

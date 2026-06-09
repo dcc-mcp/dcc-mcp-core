@@ -36,14 +36,13 @@ describe('PANELS', () => {
     expect(ids).toContain('overview');
   });
 
-  it('keeps all existing panel entries', async () => {
+  it('keeps all current panel entries (Phase 1 consolidated)', async () => {
     const { PANELS } = await loadNavigation();
     const ids = new Set(PANELS.map((p) => p.id));
     for (const existing of [
-      'setup', 'debug', 'instances', 'activity', 'health',
-      'workflows', 'tasks', 'tools', 'openapi', 'stats',
-      'governance', 'traffic', 'traces', 'calls', 'logs',
-      'skill-paths', 'analytics', 'marketplace', 'integrations',
+      'setup', 'discover', 'debug', 'instances', 'activity', 'health',
+      'workflows', 'tasks', 'tools', 'openapi', 'traces',
+      'governance', 'logs', 'analytics', 'overview',
     ] as Panel[]) {
       expect(ids.has(existing)).toBe(true);
     }
