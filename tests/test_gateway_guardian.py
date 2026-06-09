@@ -204,6 +204,113 @@ def test_ensure_gateway_daemon_recovers_stale_launch_lock(tmp_path, monkeypatch)
     assert not lock_path.exists()
 
 
+# ---------------------------------------------------------------------------
+# _LaunchLock TOCTOU race tests (PIP-1417)
+# ---------------------------------------------------------------------------
+
+
+def test_launch_lock_toctou_fresh_lock_appears_during_stale_reclaim(tmp_path, monkeypatch):
+    """Double-check catches a fresh lock that appears before unlink.
+
+    Simulates: Process A sees stale lock → Process B creates fresh lock
+    between A's first and second stat → A's double-check detects the fresh
+    lock and bails out (does NOT remove it).
+    """
+    lock_path = tmp_path / "gateway-launch.lock"
+
+    # Place a stale lock.
+    lock_path.write_text("stale", encoding="utf-8")
+    stale_time = time.time() - 120
+    os.utime(lock_path, (stale_time, stale_time))
+
+    monkeypatch.setenv("DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS", "1")
+
+    # Override _remove_stale_launch_lock so that between the two stat calls
+    # a "peer" refreshes the lock.
+    original_remove = gg._remove_stale_launch_lock
+
+    call_counter = 0
+
+    def _remove_wrapper(path, stale_after):
+        nonlocal call_counter
+        call_counter += 1
+        if call_counter == 1:
+            # After the first stat (stale confirmed), simulate a peer
+            # recreating a fresh lock before our unlink.
+            path.write_text("fresh-from-peer", encoding="utf-8")
+            now = time.time()
+            os.utime(path, (now, now))
+        return original_remove(path, stale_after)
+
+    monkeypatch.setattr(gg, "_remove_stale_launch_lock", _remove_wrapper)
+
+    lock = gg._LaunchLock(lock_path)
+    acquired = lock.acquire()
+
+    # The double-check should refuse to remove the freshly recreated lock.
+    assert acquired is False
+    assert lock_path.exists()
+    # Content should be the peer's fresh lock.
+    assert lock_path.read_text() == "fresh-from-peer"
+
+
+def test_launch_lock_toctou_lock_appears_between_unlink_and_retry(tmp_path, monkeypatch):
+    """Retry-create fails gracefully when a peer creates a lock between unlink and retry.
+
+    Simulates: Process A removes stale lock → Process B creates a fresh lock
+    → A retries os.O_CREAT | os.O_EXCL → FileExistsError → acquire returns False.
+    """
+    lock_path = tmp_path / "gateway-launch.lock"
+
+    # Place a stale lock.
+    lock_path.write_text("stale", encoding="utf-8")
+    stale_time = time.time() - 120
+    os.utime(lock_path, (stale_time, stale_time))
+
+    monkeypatch.setenv("DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS", "1")
+
+    # Override _remove_stale_launch_lock to simulate TOCTOU: after unlink
+    # succeeds, a peer immediately creates a fresh lock before we retry.
+    original_remove = gg._remove_stale_launch_lock
+
+    def _remove_wrapper(path, stale_after):
+        result = original_remove(path, stale_after)
+        if result:
+            # Peer creates a fresh lock right after our unlink.
+            path.write_text("peer-won-race", encoding="utf-8")
+        return result
+
+    monkeypatch.setattr(gg, "_remove_stale_launch_lock", _remove_wrapper)
+
+    lock = gg._LaunchLock(lock_path)
+    acquired = lock.acquire()
+
+    # Our retry should hit FileExistsError and return False.
+    assert acquired is False
+    assert lock_path.exists()
+    assert lock_path.read_text() == "peer-won-race"
+
+
+def test_launch_lock_acquire_single_attempt_no_loop(tmp_path, monkeypatch):
+    """acquire() makes exactly one stale-reclaim attempt — no implicit retry loop.
+
+    Verifies the flat control-flow structure aligned with Rust's
+    ``acquire_launch_lock_with_stale``.
+    """
+    lock_path = tmp_path / "gateway-launch.lock"
+
+    # Fresh lock held by another process.
+    lock_path.write_text("busy", encoding="utf-8")
+
+    monkeypatch.setenv("DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS", "3600")
+
+    lock = gg._LaunchLock(lock_path)
+    acquired = lock.acquire()
+
+    assert acquired is False
+    assert lock_path.exists()
+
+
 def test_gateway_daemon_guardian_restarts_after_failure_threshold(monkeypatch):
     monkeypatch.setattr(gg, "_is_healthy", lambda *_a, **_k: False)
     calls = []
