@@ -189,9 +189,7 @@ pub async fn restart_gateway(args: &GatewayArgs) -> anyhow::Result<()> {
         tokio::time::sleep(Duration::from_millis(150)).await;
     }
     if dcc_mcp_gateway_ensure::is_process_alive(old_pid) {
-        eprintln!(
-            "WARN: old gateway (pid {old_pid}) did not exit within 15 s; proceeding anyway"
-        );
+        eprintln!("WARN: old gateway (pid {old_pid}) did not exit within 15 s; proceeding anyway");
     }
 
     // ── 3. Spawn new detached gateway ───────────────────────────────
@@ -219,7 +217,11 @@ async fn restart_spawn_new(args: &GatewayArgs) -> anyhow::Result<()> {
         child_args.push(std::ffi::OsString::from(name));
     }
     push_arg_if_changed(&mut child_args, "--remote-host", &args.remote_host);
-    push_arg_if_changed(&mut child_args, "--remote-port", &args.remote_port.to_string());
+    push_arg_if_changed(
+        &mut child_args,
+        "--remote-port",
+        &args.remote_port.to_string(),
+    );
     if args.no_admin {
         child_args.push(std::ffi::OsString::from("--no-admin"));
     }
@@ -803,7 +805,7 @@ mod tests {
             gateway_persist: false,
             gateway_idle_timeout_secs: 30,
             daemon: true,
-            pidfile: None,  // no pidfile → restart must fail
+            pidfile: None, // no pidfile → restart must fail
             restart: true,
         };
         let result = restart_gateway(&args).await;
