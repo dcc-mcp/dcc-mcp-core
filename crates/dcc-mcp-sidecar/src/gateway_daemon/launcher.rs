@@ -220,7 +220,12 @@ mod tests {
     #[test]
     fn auto_launch_gateway_args_do_not_include_registry_dir_flag() {
         let argv: Vec<String> = ensure::gateway_command_args(
-            "127.0.0.1", 9765, Some("gateway-for-test"), "0.0.0.0", 59765, 30,
+            "127.0.0.1",
+            9765,
+            Some("gateway-for-test"),
+            "0.0.0.0",
+            59765,
+            30,
         )
         .into_iter()
         .map(|arg| arg.to_string_lossy().to_string())
