@@ -241,11 +241,9 @@ pub fn gateway_command_args(
         OsString::from("--gateway-idle-timeout-secs"),
         OsString::from(gateway_idle_timeout_secs.to_string()),
     ];
-    if let Some(name) = name {
-        if !name.trim().is_empty() {
-            cargs.push(OsString::from("--name"));
-            cargs.push(OsString::from(name));
-        }
+    if let Some(name) = name && !name.trim().is_empty() {
+        cargs.push(OsString::from("--name"));
+        cargs.push(OsString::from(name));
     }
     cargs
 }
