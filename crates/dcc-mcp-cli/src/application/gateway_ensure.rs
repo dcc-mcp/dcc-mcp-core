@@ -106,9 +106,7 @@ pub async fn ensure_gateway_running(args: &EnsureGatewayArgs) -> anyhow::Result<
             wait_gateway_ready(
                 &args.host,
                 args.port,
-                Duration::from_secs(resolve_ensure_timeout_secs(
-                    args.wait_timeout_secs,
-                )),
+                Duration::from_secs(resolve_ensure_timeout_secs(args.wait_timeout_secs)),
             )
             .await?;
 
@@ -131,9 +129,7 @@ pub async fn ensure_gateway_running(args: &EnsureGatewayArgs) -> anyhow::Result<
             // Another process holds the launch lock — wait for its winner to
             // finish and check whether the gateway becomes healthy (mirrors
             // Python `_wait_gateway_ready` on lock-loser path).
-            let timeout = Duration::from_secs(resolve_ensure_timeout_secs(
-                args.wait_timeout_secs,
-            ));
+            let timeout = Duration::from_secs(resolve_ensure_timeout_secs(args.wait_timeout_secs));
             wait_gateway_ready(&args.host, args.port, timeout).await?;
             return Ok(EnsureResult {
                 host: args.host.clone(),
