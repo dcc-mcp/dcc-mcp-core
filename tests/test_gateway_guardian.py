@@ -614,3 +614,397 @@ def test_daemon_backed_metadata_does_not_include_daemon_error():
     assert meta["gateway_recovery_driver"] == "none"
     assert "gateway_daemon_status" not in meta
     assert "gateway_daemon_error" not in meta
+
+# ── Version-aware takeover tests ────────────────────────────────────────────
+
+
+def test_parse_semver_strips_leading_v():
+    assert gg._parse_semver("v0.12.29") == (0, 12, 29)
+    assert gg._parse_semver("V1.2.3") == (1, 2, 3)
+
+
+def test_parse_semver_ignores_prerelease():
+    assert gg._parse_semver("1.0.0-rc1") == (1, 0, 0)
+    assert gg._parse_semver("v2.1.0-alpha.3") == (2, 1, 0)
+
+
+def test_parse_semver_missing_components_default_to_zero():
+    assert gg._parse_semver("1") == (1, 0, 0)
+    assert gg._parse_semver("1.2") == (1, 2, 0)
+    assert gg._parse_semver("") == (0, 0, 0)
+
+
+def test_is_newer_version_numeric_comparison():
+    assert gg._is_newer_version("0.12.29", "0.12.6") is True
+    assert gg._is_newer_version("0.12.6", "0.12.29") is False
+    assert gg._is_newer_version("1.0.0", "1.0.0") is False
+    assert gg._is_newer_version("2.0.0", "1.99.99") is True
+    assert gg._is_newer_version("0.13.0", "0.12.29") is True
+
+
+def test_system_time_now_json_format():
+    ts = gg._system_time_now_json()
+    assert isinstance(ts, dict)
+    assert "secs_since_epoch" in ts
+    assert "nanos_since_epoch" in ts
+    assert isinstance(ts["secs_since_epoch"], int)
+    assert isinstance(ts["nanos_since_epoch"], int)
+    assert ts["secs_since_epoch"] > 0
+    assert 0 <= ts["nanos_since_epoch"] < 1_000_000_000
+
+
+def test_sentry_stale_fresh_entry():
+    now = gg._system_time_now_json()
+    entry = {
+        "dcc_type": "__gateway__",
+        "last_heartbeat": dict(now),
+    }
+    assert gg._sentry_stale(entry, 30.0) is False
+
+
+def test_sentry_stale_outdated_entry():
+    now = time.time()
+    old = {
+        "secs_since_epoch": int(now - 120),
+        "nanos_since_epoch": 0,
+    }
+    entry = {
+        "dcc_type": "__gateway__",
+        "last_heartbeat": old,
+    }
+    assert gg._sentry_stale(entry, 30.0) is True
+
+
+def test_sentry_stale_missing_heartbeat():
+    assert gg._sentry_stale({"dcc_type": "__gateway__"}, 30.0) is True
+    assert gg._sentry_stale({"dcc_type": "__gateway__", "last_heartbeat": None}, 30.0) is True
+
+
+def test_write_and_cleanup_takeover_sentinel(tmp_path):
+    reg = tmp_path / "registry"
+    host, port = "127.0.0.1", 9765
+    version = "0.18.0"
+
+    ok = gg._write_takeover_sentinel(reg, host, port, version)
+    assert ok is True
+
+    entries = gg._read_services_json(reg)
+    sentinels = [e for e in entries if e.get("dcc_type") == "__gateway__"]
+    assert len(sentinels) == 1
+    assert sentinels[0]["host"] == host
+    assert sentinels[0]["port"] == port
+    assert sentinels[0]["version"] == version
+    assert "last_heartbeat" in sentinels[0]
+    assert "registered_at" in sentinels[0]
+
+    # Writing again with a new version replaces the old sentinel.
+    ok = gg._write_takeover_sentinel(reg, host, port, "0.19.0")
+    assert ok is True
+    entries = gg._read_services_json(reg)
+    sentinels = [e for e in entries if e.get("dcc_type") == "__gateway__"]
+    assert len(sentinels) == 1
+    assert sentinels[0]["version"] == "0.19.0"
+
+    # Cleanup removes the sentinel.
+    ok = gg._cleanup_takeover_sentinel(reg, host, port)
+    assert ok is True
+    entries = gg._read_services_json(reg)
+    sentinels = [e for e in entries if e.get("dcc_type") == "__gateway__"]
+    assert len(sentinels) == 0
+
+
+def test_write_takeover_sentinel_with_adapter_info(tmp_path):
+    reg = tmp_path / "registry"
+    ok = gg._write_takeover_sentinel(
+        reg, "127.0.0.1", 9765, "0.18.0",
+        adapter_version="0.3.0",
+        adapter_dcc="maya",
+    )
+    assert ok is True
+    entries = gg._read_services_json(reg)
+    sentinel = entries[0]
+    assert sentinel["adapter_version"] == "0.3.0"
+    assert sentinel["adapter_dcc"] == "maya"
+
+
+def test_get_core_version_from_env(monkeypatch):
+    monkeypatch.setenv("DCC_MCP_CORE_VERSION", "1.2.3")
+    assert gg._get_core_version() == "1.2.3"
+
+
+def test_get_core_version_empty_env_returns_none(monkeypatch):
+    monkeypatch.setenv("DCC_MCP_CORE_VERSION", "")
+    # Without a real package install, importlib.metadata will fail.
+    # _get_core_version tries the env first; empty → tries importlib → tries dcc_mcp_core.
+    # In test env, dcc_mcp_core should be importable and have __version__.
+    v = gg._get_core_version()
+    assert v is not None and len(v) > 0
+
+
+def test_try_version_takeover_no_sentinel_returns_already_healthy(tmp_path, monkeypatch):
+    """When services.json has no sentinel, _try_version_takeover should not trigger."""
+    reg = tmp_path / "registry"
+    monkeypatch.setattr(gg, "_get_core_version", lambda: "0.18.0")
+
+    result = gg._try_version_takeover(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=str(reg),
+        dcc_type="blender",
+        timeout_secs=5.0,
+    )
+    assert result["ok"] is True
+    assert result["reason"] == "already_healthy"
+
+
+def test_try_version_takeover_when_newer(tmp_path, monkeypatch):
+    """When we're newer than the running sentinel, takeover should trigger."""
+    reg = tmp_path / "registry"
+    monkeypatch.setattr(gg, "_get_core_version", lambda: "0.19.0")
+
+    # Write an older sentinel first.
+    now = gg._system_time_now_json()
+    services = tmp_path / "registry" / "services.json"
+    services.parent.mkdir(parents=True, exist_ok=True)
+    import json as _json
+    with open(str(services), "w") as f:
+        _json.dump([{
+            "dcc_type": "__gateway__",
+            "instance_id": "fake-old-gateway",
+            "host": "127.0.0.1",
+            "port": 9765,
+            "version": "0.18.0",
+            "status": "available",
+            "last_heartbeat": dict(now),
+            "registered_at": dict(now),
+        }], f)
+
+    health = iter([True, True, False])  # healthy, still healthy, then yields
+    monkeypatch.setattr(gg, "_is_healthy", lambda *a, **k: next(health))
+
+    seen_spawn = []
+
+    def _fake_spawn(cmd, **kw):
+        seen_spawn.append(cmd)
+        return {"ok": True, "pid": 9999}
+
+    monkeypatch.setattr(gg, "launch_detached", _fake_spawn)
+    monkeypatch.setattr(gg, "_wait_gateway_ready", lambda *a, **k: True)
+
+    result = gg._try_version_takeover(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=str(reg),
+        dcc_type="blender",
+        timeout_secs=5.0,
+    )
+    assert result["ok"] is True
+    assert result["reason"] == "version_takeover_spawned"
+    assert result.get("version") == "0.19.0"
+    assert len(seen_spawn) == 1
+
+    # Sentinel should be cleaned up after successful takeover.
+    entries = gg._read_services_json(reg)
+    sentinels = [e for e in entries if e.get("dcc_type") == "__gateway__"]
+    assert len(sentinels) == 0
+
+
+def test_try_version_takeover_when_running_is_newer(tmp_path, monkeypatch):
+    """When running gateway sentinel is newer than us, no takeover."""
+    reg = tmp_path / "registry"
+    monkeypatch.setattr(gg, "_get_core_version", lambda: "0.17.0")
+
+    now = gg._system_time_now_json()
+    services = tmp_path / "registry" / "services.json"
+    services.parent.mkdir(parents=True, exist_ok=True)
+    import json as _json
+    with open(str(services), "w") as f:
+        _json.dump([{
+            "dcc_type": "__gateway__",
+            "instance_id": "fake-newer-gateway",
+            "host": "127.0.0.1",
+            "port": 9765,
+            "version": "0.18.0",
+            "status": "available",
+            "last_heartbeat": dict(now),
+            "registered_at": dict(now),
+        }], f)
+
+    # _is_healthy should NOT be called because takeover is skipped early.
+    result = gg._try_version_takeover(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=str(reg),
+        dcc_type="blender",
+        timeout_secs=5.0,
+    )
+    assert result["ok"] is True
+    assert result["reason"] == "already_healthy"
+
+
+def test_try_version_takeover_stale_sentinel_is_ignored(tmp_path, monkeypatch):
+    """A stale sentinel should not prevent takeover."""
+    reg = tmp_path / "registry"
+    monkeypatch.setattr(gg, "_get_core_version", lambda: "0.19.0")
+
+    now = time.time()
+    old = {"secs_since_epoch": int(now - 120), "nanos_since_epoch": 0}
+    services = tmp_path / "registry" / "services.json"
+    services.parent.mkdir(parents=True, exist_ok=True)
+    import json as _json
+    with open(str(services), "w") as f:
+        _json.dump([{
+            "dcc_type": "__gateway__",
+            "instance_id": "fake-stale-gateway",
+            "host": "127.0.0.1",
+            "port": 9765,
+            "version": "0.20.0",  # newer, but stale
+            "status": "available",
+            "last_heartbeat": dict(old),
+            "registered_at": dict(old),
+        }], f)
+
+    # No fresh sentinel → should_takeover stays False → already_healthy
+    result = gg._try_version_takeover(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=str(reg),
+        dcc_type="blender",
+        timeout_secs=5.0,
+    )
+    assert result["ok"] is True
+    assert result["reason"] == "already_healthy"
+
+
+def test_try_version_takeover_old_gateway_timeout(tmp_path, monkeypatch):
+    """When old gateway does not yield within timeout, return already_healthy."""
+    reg = tmp_path / "registry"
+    monkeypatch.setattr(gg, "_get_core_version", lambda: "0.19.0")
+
+    now = gg._system_time_now_json()
+    services = tmp_path / "registry" / "services.json"
+    services.parent.mkdir(parents=True, exist_ok=True)
+    import json as _json
+    with open(str(services), "w") as f:
+        _json.dump([{
+            "dcc_type": "__gateway__",
+            "instance_id": "stubborn-gateway",
+            "host": "127.0.0.1",
+            "port": 9765,
+            "version": "0.18.0",
+            "status": "available",
+            "last_heartbeat": dict(now),
+            "registered_at": dict(now),
+        }], f)
+
+    # Old gateway stays healthy (never yields).
+    monkeypatch.setattr(gg, "_is_healthy", lambda *a, **k: True)
+
+    # Override wait timeout to a short value for test speed.
+    monkeypatch.setattr(gg, "_VERSION_TAKEOVER_WAIT_SECS", 0.1)
+
+    result = gg._try_version_takeover(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=str(reg),
+        dcc_type="blender",
+        timeout_secs=5.0,
+    )
+    assert result["ok"] is True
+    assert result["reason"] == "already_healthy"
+    assert result.get("version_takeover_timeout") is True
+
+
+def test_ensure_gateway_daemon_version_takeover_disabled(monkeypatch):
+    """When enable_version_takeover=False, version check is skipped entirely."""
+    called_takeover = []
+
+    def _fake_takeover(**kw):
+        called_takeover.append(1)
+        return {"ok": True, "reason": "already_healthy"}
+
+    monkeypatch.setattr(gg, "_is_healthy", lambda *a, **k: True)
+    monkeypatch.setattr(gg, "_try_version_takeover", _fake_takeover)
+
+    result = gg.ensure_gateway_daemon(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=None,
+        dcc_type="blender",
+        enable_version_takeover=False,
+    )
+    assert result["ok"] is True
+    assert result["reason"] == "already_healthy"
+    assert len(called_takeover) == 0
+
+
+def test_ensure_gateway_daemon_version_takeover_enabled(monkeypatch):
+    """When enable_version_takeover=True (default), version check is called."""
+    monkeypatch.setattr(gg, "_is_healthy", lambda *a, **k: True)
+    monkeypatch.setattr(
+        gg,
+        "_try_version_takeover",
+        lambda **kw: {"ok": True, "reason": "already_healthy"},
+    )
+
+    result = gg.ensure_gateway_daemon(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=None,
+        dcc_type="blender",
+    )
+    assert result["ok"] is True
+    assert result["reason"] == "already_healthy"
+
+
+def test_ensure_gateway_daemon_takeover_integration(tmp_path, monkeypatch):
+    """Integration test: ensure_gateway_daemon with version takeover."""
+    reg = tmp_path / "registry"
+
+    # Simulate an older gateway running.
+    now = gg._system_time_now_json()
+    services = tmp_path / "registry" / "services.json"
+    services.parent.mkdir(parents=True, exist_ok=True)
+    import json as _json
+    with open(str(services), "w") as f:
+        _json.dump([{
+            "dcc_type": "__gateway__",
+            "instance_id": "old-integration-gw",
+            "host": "127.0.0.1",
+            "port": 9876,
+            "version": "0.17.0",
+            "status": "available",
+            "last_heartbeat": dict(now),
+            "registered_at": dict(now),
+        }], f)
+
+    # We have a newer version.
+    monkeypatch.setattr(gg, "_get_core_version", lambda: "0.18.0")
+
+    # Gateway health: first call True → second call True → third call False (yield)
+    health_checks = iter([True, True, False])
+
+    def _health(host, port, **kw):
+        val = next(health_checks)
+        return val
+
+    monkeypatch.setattr(gg, "_is_healthy", _health)
+
+    seen_spawn = []
+
+    def _fake_spawn(cmd, **kw):
+        seen_spawn.append(cmd)
+        return {"ok": True, "pid": 8888}
+
+    monkeypatch.setattr(gg, "launch_detached", _fake_spawn)
+    monkeypatch.setattr(gg, "_wait_gateway_ready", lambda *a, **k: True)
+
+    result = gg.ensure_gateway_daemon(
+        gateway_host="127.0.0.1",
+        gateway_port=9876,
+        registry_dir=str(reg),
+        dcc_type="houdini",
+    )
+    assert result["ok"] is True
+    assert result["reason"] == "version_takeover_spawned"
+    assert len(seen_spawn) == 1
