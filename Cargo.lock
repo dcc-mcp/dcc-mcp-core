@@ -1133,6 +1133,7 @@ dependencies = [
  "axum",
  "clap",
  "dcc-mcp-catalog",
+ "dcc-mcp-gateway-ensure",
  "dcc-mcp-marketplace",
  "dcc-mcp-skills",
  "dirs",
@@ -1250,6 +1251,19 @@ dependencies = [
  "serde_json",
  "tracing",
  "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "dcc-mcp-gateway-ensure"
+version = "0.18.15"
+dependencies = [
+ "anyhow",
+ "reqwest 0.13.4",
+ "serde",
+ "tempfile",
+ "tokio",
+ "tracing",
  "workspace-hack",
 ]
 
@@ -1702,6 +1716,7 @@ dependencies = [
  "axum",
  "clap",
  "dcc-mcp-gateway",
+ "dcc-mcp-gateway-ensure",
  "dcc-mcp-host-rpc",
  "dcc-mcp-transport",
  "libc",
