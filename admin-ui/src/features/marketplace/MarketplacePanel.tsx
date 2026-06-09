@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { InterpolationValues, MessageKey } from '../../i18n';
 import {
   PanelHeader,
@@ -25,6 +26,7 @@ import type {
 } from '../../admin-types';
 import { MarketplaceCard } from './MarketplaceCard';
 import { MarketplaceDetailModal } from './MarketplaceDetailModal';
+import { MarketplaceInstalledDetailPanel } from './MarketplaceInstalledDetailPanel';
 
 type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 
@@ -70,6 +72,10 @@ export function MarketplacePanel({
   const [tab, setTab] = useState<MarketplaceTab>('browse');
   const [installingKey, setInstallingKey] = useState<string | null>(null);
   const [detailEntry, setDetailEntry] = useState<MarketplaceEntry | null>(null);
+  const [installedDetail, setInstalledDetail] = useState<{
+    pkg: InstalledMarketplacePackage;
+    catalogEntry?: MarketplaceEntry | null;
+  } | null>(null);
   const [dccFilter, setDccFilter] = useState<string | null>(null);
   const [forceInstall, setForceInstall] = useState(false);
   /// { name, dcc } of the most recently installed/uninstalled package for the inline notice.
@@ -353,6 +359,17 @@ export function MarketplacePanel({
     setDetailEntry(null);
   }, []);
 
+  const handleOpenInstalledDetail = useCallback(
+    (pkg: InstalledMarketplacePackage, catalogEntry?: MarketplaceEntry | null) => {
+      setInstalledDetail({ pkg, catalogEntry });
+    },
+    [],
+  );
+
+  const handleCloseInstalledDetail = useCallback(() => {
+    setInstalledDetail(null);
+  }, []);
+
   const handleViewInSkills = useCallback(() => {
     if (installNotice && onNavigateToSkills) {
       onNavigateToSkills(installNotice.name);
@@ -624,7 +641,7 @@ export function MarketplacePanel({
                     onInstall={handleInstall}
                     onUninstall={handleUninstall}
                     onUpdate={handleUpdate}
-                    onOpenDetail={handleOpenDetail}
+                    onOpenDetail={() => handleOpenInstalledDetail(pkg, catalogEntry)}
                     isOutdated={outdatedByKey.has(pkgKey)}
                     t={t}
                   />
@@ -642,6 +659,92 @@ export function MarketplacePanel({
         onClose={handleCloseDetail}
         t={t}
       />
+
+      {/* Installed package detail (portal-based slide-out) */}
+      <MarketplaceInstalledDetailModal
+        detail={installedDetail}
+        isOutdated={installedDetail ? outdatedByKey.has(`${installedDetail.pkg.name}:${installedDetail.pkg.dcc}`) : false}
+        installingKey={installingKey}
+        onUninstall={handleUninstall}
+        onUpdate={handleUpdate}
+        onClose={handleCloseInstalledDetail}
+        t={t}
+      />
     </section>
+  );
+}
+
+/// Portal-based modal that renders the installed detail panel as a slide-in overlay.
+/// Follows the same pattern as SkillDetailModal in SkillsPanel.
+function MarketplaceInstalledDetailModal({
+  detail,
+  isOutdated,
+  installingKey,
+  onUninstall,
+  onUpdate,
+  onClose,
+  t,
+}: {
+  detail: { pkg: InstalledMarketplacePackage; catalogEntry?: MarketplaceEntry | null } | null;
+  isOutdated: boolean;
+  installingKey: string | null;
+  onUninstall: (pkg: InstalledMarketplacePackage) => void;
+  onUpdate: (pkgName: string, dcc: string) => void;
+  onClose: () => void;
+  t: Translator;
+}) {
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    },
+    [onClose],
+  );
+
+  useEffect(() => {
+    if (!detail) return;
+    document.addEventListener('keydown', handleKeyDown);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = '';
+    };
+  }, [detail, handleKeyDown]);
+
+  if (!detail) return null;
+
+  const pkgKey = `${detail.pkg.name}:${detail.pkg.dcc}`;
+  const isInstalling = installingKey === pkgKey;
+
+  return createPortal(
+    <div
+      className="marketplace-installed-detail-backdrop"
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="marketplace-installed-detail-modal">
+        <button
+          type="button"
+          className="marketplace-installed-detail-close"
+          aria-label={t('action.close')}
+          onClick={onClose}
+        >
+          &times;
+        </button>
+        <MarketplaceInstalledDetailPanel
+          pkg={detail.pkg}
+          catalogEntry={detail.catalogEntry}
+          isOutdated={isOutdated}
+          installing={isInstalling}
+          onUninstall={() => onUninstall(detail.pkg)}
+          onUpdate={onUpdate ? () => onUpdate(detail.pkg.name, detail.pkg.dcc) : undefined}
+          onClose={onClose}
+          t={t}
+        />
+      </div>
+    </div>,
+    document.body,
   );
 }
