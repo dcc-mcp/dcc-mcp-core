@@ -82,15 +82,12 @@ pub async fn ensure_gateway_running(args: &EnsureGatewayArgs) -> anyhow::Result<
                 args.remote_port,
                 args.gateway_idle_timeout_secs,
             );
-            let pid =
-                ensure::spawn_detached_gateway(&exe, &cmd_args, &args.registry_dir)?;
+            let pid = ensure::spawn_detached_gateway(&exe, &cmd_args, &args.registry_dir)?;
 
             ensure::wait_gateway_ready(
                 &args.host,
                 args.port,
-                Duration::from_secs(ensure::resolve_ensure_timeout_secs(
-                    args.wait_timeout_secs,
-                )),
+                Duration::from_secs(ensure::resolve_ensure_timeout_secs(args.wait_timeout_secs)),
             )
             .await?;
 
@@ -113,9 +110,8 @@ pub async fn ensure_gateway_running(args: &EnsureGatewayArgs) -> anyhow::Result<
             // Another process holds the launch lock — wait for its winner to
             // finish and check whether the gateway becomes healthy (mirrors
             // Python `_wait_gateway_ready` on lock-loser path).
-            let timeout = Duration::from_secs(ensure::resolve_ensure_timeout_secs(
-                args.wait_timeout_secs,
-            ));
+            let timeout =
+                Duration::from_secs(ensure::resolve_ensure_timeout_secs(args.wait_timeout_secs));
             ensure::wait_gateway_ready(&args.host, args.port, timeout).await?;
             Ok(EnsureResult {
                 host: args.host.clone(),
@@ -149,12 +145,11 @@ mod tests {
 
     #[test]
     fn test_gateway_command_args_minimal() {
-        let argv: Vec<String> = ensure::gateway_command_args(
-            "127.0.0.1", 9765, None, "0.0.0.0", 59765, 30,
-        )
-        .into_iter()
-        .map(|s| s.to_string_lossy().to_string())
-        .collect();
+        let argv: Vec<String> =
+            ensure::gateway_command_args("127.0.0.1", 9765, None, "0.0.0.0", 59765, 30)
+                .into_iter()
+                .map(|s| s.to_string_lossy().to_string())
+                .collect();
         assert!(argv[0] == "gateway");
         assert!(argv.contains(&"--port".to_string()));
         assert!(argv.contains(&"9765".to_string()));

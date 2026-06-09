@@ -470,12 +470,10 @@ mod tests {
 
     #[test]
     fn test_gateway_command_args_minimal() {
-        let argv: Vec<String> = gateway_command_args(
-            "127.0.0.1", 9765, None, "0.0.0.0", 59765, 30,
-        )
-        .into_iter()
-        .map(|s| s.to_string_lossy().to_string())
-        .collect();
+        let argv: Vec<String> = gateway_command_args("127.0.0.1", 9765, None, "0.0.0.0", 59765, 30)
+            .into_iter()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
         assert!(argv[0] == "gateway");
         assert!(argv.contains(&"--port".to_string()));
         assert!(argv.contains(&"9765".to_string()));
@@ -501,7 +499,12 @@ mod tests {
     #[test]
     fn test_gateway_command_args_does_not_include_registry_dir_flag() {
         let argv: Vec<String> = gateway_command_args(
-            "127.0.0.1", 9765, Some("gateway-for-test"), "0.0.0.0", 59765, 30,
+            "127.0.0.1",
+            9765,
+            Some("gateway-for-test"),
+            "0.0.0.0",
+            59765,
+            30,
         )
         .into_iter()
         .map(|s| s.to_string_lossy().to_string())
