@@ -292,7 +292,7 @@ jobs:
     needs: [admin-ui-bundle]
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-2022, macos-latest]
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
@@ -342,8 +342,8 @@ jobs:
           # Python 3.8 is not available in the windows-latest hosted-tool cache.
           # Reuse the ABI3 Windows wheel, but run the oldest-version test on
           # windows-2022 where actions/setup-python still provides 3.8.
-          - { os: windows-2022,   python-version: "3.8",  wheel_os: windows-latest }
-          - { os: windows-latest, python-version: "3.13", wheel_os: windows-latest }
+          - { os: windows-2022,   python-version: "3.8",  wheel_os: windows-2022 }
+          - { os: windows-2022, python-version: "3.13", wheel_os: windows-2022 }
           - { os: macos-latest,   python-version: "3.8",  wheel_os: macos-latest }
           - { os: macos-latest,   python-version: "3.13", wheel_os: macos-latest }
     runs-on: ${{ matrix.os }}
