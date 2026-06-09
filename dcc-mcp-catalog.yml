@@ -96,3 +96,18 @@ entries:
     dcc: ["autodesk-help"]
     url: "https://developer.api.autodesk.com/knowledge/public/v1/mcp"
     tags: ["docs", "autodesk", "read-only", "infrastructure"]
+
+  - name: "dcc-mcp-maya"
+    description: "Maya DCC adapter for DCC-MCP — install, register, and bootstrap Maya instances"
+    dcc: ["maya"]
+    url: "https://github.com/loonghao/dcc-mcp-maya"
+    tags: ["adapter", "maya", "official", "pip"]
+    version: "0.3.0"
+    min_core_version: "0.17.0"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-maya"
+      pip_extras: ["maya"]
+      mayapy_path: "/usr/autodesk/maya2026/bin/mayapy"
+      entry_point: "dcc_mcp_maya.cli:main"
