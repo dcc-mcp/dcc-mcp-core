@@ -17,17 +17,11 @@ export const PANELS: PanelDefinition[] = [
   { id: 'tasks', labelKey: 'navigation.panel.tasks', groupKey: 'navigation.group.workspace' },
   { id: 'tools', labelKey: 'navigation.panel.tools', groupKey: 'navigation.group.workspace' },
   { id: 'openapi', labelKey: 'navigation.panel.openapi', groupKey: 'navigation.group.contracts' },
-  { id: 'stats', labelKey: 'navigation.panel.stats', groupKey: 'navigation.group.observability' },
-  { id: 'governance', labelKey: 'navigation.panel.governance', groupKey: 'navigation.group.observability' },
-  { id: 'traffic', labelKey: 'navigation.panel.traffic', groupKey: 'navigation.group.observability' },
   { id: 'traces', labelKey: 'navigation.panel.traces', groupKey: 'navigation.group.observability' },
-  { id: 'calls', labelKey: 'navigation.panel.calls', groupKey: 'navigation.group.observability' },
+  { id: 'governance', labelKey: 'navigation.panel.governance', groupKey: 'navigation.group.observability' },
   { id: 'logs', labelKey: 'navigation.panel.logs', groupKey: 'navigation.group.observability' },
-  { id: 'skill-paths', labelKey: 'navigation.panel.skillPaths', groupKey: 'navigation.group.configuration' },
   { id: 'analytics', labelKey: 'navigation.panel.analytics', groupKey: 'navigation.group.insights' },
   { id: 'overview', labelKey: 'navigation.panel.overview', groupKey: 'navigation.group.insights' },
-  { id: 'marketplace', labelKey: 'navigation.panel.marketplace', groupKey: 'navigation.group.configuration' },
-  { id: 'integrations', labelKey: 'navigation.panel.integrations', groupKey: 'navigation.group.configuration' },
 ];
 
 export const PANEL_ID_SET = new Set<Panel>(PANELS.map((p) => p.id));
@@ -47,8 +41,14 @@ export const STATS_RANGE_IDS = new Set(['1h', '24h', '7d', 'all']);
  * old names continue to land on the right panel without a 404.
  */
 export const PANEL_ALIAS_MAP: Record<string, Panel> = {
-  // Reserved for future renames / reorganisations.  Currently empty because
-  // no panel ids have been renamed yet — we add entries when we DO rename.
+  // Phase 1 merge (PIP-1458): consolidated top-level panels into sub-tabs.
+  // Old deep links self-heal to their new parent panel.
+  'skill-paths': 'discover',
+  marketplace: 'discover',
+  integrations: 'discover',
+  stats: 'overview',
+  traffic: 'overview',
+  calls: 'traces',
 };
 
 export function isPanelId(value: string | null | undefined): value is Panel {
