@@ -34,6 +34,7 @@ repos:
         language: system
         types: [rust]
         pass_filenames: false
+        stages: [pre-commit, pre-push]
       - id: cargo-clippy
         name: cargo clippy
         entry: cargo clippy --workspace --tests -- -D warnings

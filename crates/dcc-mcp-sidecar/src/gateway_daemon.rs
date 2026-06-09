@@ -173,7 +173,7 @@ pub async fn restart_gateway(args: &GatewayArgs) -> anyhow::Result<()> {
         );
         let _ = std::fs::remove_file(pidfile);
         // Fall through to fresh start.
-        return restart_spawn_fresh(args).await;
+        return restart_spawn_new(args).await;
     }
 
     eprintln!("Stopping gateway daemon (pid {old_pid})...");
@@ -196,11 +196,6 @@ pub async fn restart_gateway(args: &GatewayArgs) -> anyhow::Result<()> {
     restart_spawn_new(args).await
 }
 
-/// Fallback path: pidfile is stale, so spawn a fresh gateway directly.
-async fn restart_spawn_fresh(args: &GatewayArgs) -> anyhow::Result<()> {
-    restart_spawn_new(args).await
-}
-
 /// Spawn the new detached gateway process and wait for it to become ready.
 async fn restart_spawn_new(args: &GatewayArgs) -> anyhow::Result<()> {
     let exe = std::env::current_exe()
@@ -210,14 +205,14 @@ async fn restart_spawn_new(args: &GatewayArgs) -> anyhow::Result<()> {
     // The child will daemonize itself (DCC_MCP__DAEMONIZED=1).
     let mut child_args: Vec<std::ffi::OsString> = Vec::new();
     child_args.push(std::ffi::OsString::from("gateway"));
-    push_arg_if_changed(&mut child_args, "--host", &args.host);
-    push_arg_if_changed(&mut child_args, "--port", &args.port.to_string());
+    push_arg(&mut child_args, "--host", &args.host);
+    push_arg(&mut child_args, "--port", &args.port.to_string());
     if let Some(ref name) = args.name {
         child_args.push(std::ffi::OsString::from("--name"));
         child_args.push(std::ffi::OsString::from(name));
     }
-    push_arg_if_changed(&mut child_args, "--remote-host", &args.remote_host);
-    push_arg_if_changed(
+    push_arg(&mut child_args, "--remote-host", &args.remote_host);
+    push_arg(
         &mut child_args,
         "--remote-port",
         &args.remote_port.to_string(),
@@ -237,7 +232,7 @@ async fn restart_spawn_new(args: &GatewayArgs) -> anyhow::Result<()> {
         child_args.push(std::ffi::OsString::from("--gateway-persist"));
     }
     if args.gateway_idle_timeout_secs != 30 {
-        push_arg_if_changed(
+        push_arg(
             &mut child_args,
             "--gateway-idle-timeout-secs",
             &args.gateway_idle_timeout_secs.to_string(),
@@ -298,8 +293,8 @@ async fn restart_spawn_new(args: &GatewayArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Push a `--flag` and its value only when the value differs from the default.
-fn push_arg_if_changed(args: &mut Vec<std::ffi::OsString>, flag: &str, value: &str) {
+/// Push a `--flag` and its value.
+fn push_arg(args: &mut Vec<std::ffi::OsString>, flag: &str, value: &str) {
     args.push(std::ffi::OsString::from(flag));
     args.push(std::ffi::OsString::from(value));
 }
