@@ -1139,3 +1139,80 @@ fn classify_lock_wait_warns_only_when_genuinely_slow() {
         LockWaitLevel::Slow
     );
 }
+
+/// Corrupted registry file is quarantined and the registry starts empty
+/// instead of returning an error that crashes the gateway at startup.
+#[test]
+fn test_corrupted_registry_file_is_quarantined_and_starts_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    let services_json = dir.path().join("services.json");
+
+    // Write garbage that is valid JSON but not a valid ServiceEntry array
+    std::fs::write(&services_json, r#"{"garbage": true}"#).unwrap();
+
+    let registry = FileRegistry::new(dir.path()).unwrap();
+    assert!(registry.is_empty(), "registry must start empty on parse failure");
+
+    // Corrupted file must be moved aside
+    let corrupt_files = corrupted_registry_files(dir.path());
+    assert_eq!(
+        corrupt_files.len(),
+        1,
+        "garbage file must be quarantined as corrupted, found: {corrupt_files:?}"
+    );
+    assert!(
+        !services_json.exists(),
+        "original corrupted file must be renamed away"
+    );
+}
+
+/// A registry file with malformed JSON (incomplete write) is quarantined
+/// and the registry starts empty.
+#[test]
+fn test_malformed_json_registry_file_is_quarantined() {
+    let dir = tempfile::tempdir().unwrap();
+    let services_json = dir.path().join("services.json");
+
+    // Write truncated JSON (simulates crash during write)
+    std::fs::write(&services_json, r#"[{"dcc_type": "maya", "inst"#).unwrap();
+
+    let registry = FileRegistry::new(dir.path()).unwrap();
+    assert!(registry.is_empty(), "registry must start empty on malformed JSON");
+
+    let corrupt_files = corrupted_registry_files(dir.path());
+    assert_eq!(corrupt_files.len(), 1);
+    assert!(!services_json.exists());
+}
+
+/// A registry file with float Unix timestamps (Python-written format)
+/// must parse successfully.
+#[test]
+fn test_float_timestamp_registry_file_parses() {
+    let dir = tempfile::tempdir().unwrap();
+    let services_json = dir.path().join("services.json");
+
+    let content = serde_json::json!([{
+        "dcc_type": "maya",
+        "instance_id": "ab7e8a1b-2c3d-4e5f-6789-abcdef012345",
+        "host": "127.0.0.1",
+        "port": 18812,
+        "registered_at": 1712345678.123456,
+        "last_heartbeat": 1712345678.654321,
+    }]);
+    std::fs::write(&services_json, serde_json::to_string(&content).unwrap()).unwrap();
+
+    let registry = FileRegistry::new(dir.path()).unwrap();
+    assert_eq!(registry.len(), 1, "registry must load float-timestamp entries");
+
+    let key = ServiceKey {
+        dcc_type: "maya".to_string(),
+        instance_id: Uuid::parse_str("ab7e8a1b-2c3d-4e5f-6789-abcdef012345").unwrap(),
+    };
+    let entry = registry.get(&key).expect("entry must be present");
+    let got_secs = entry
+        .registered_at
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    assert_eq!(got_secs, 1712345678);
+}
