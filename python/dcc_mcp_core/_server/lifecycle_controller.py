@@ -143,17 +143,11 @@ class LifecycleController:
         if runtime_mode == "embedded-fallback":
             daemon_status = getattr(owner, "_gateway_daemon_status", None)
             if daemon_status:
-                meta["gateway_daemon_status_reason"] = str(
-                    daemon_status.get("reason", "unknown")
-                )
-                meta["gateway_daemon_status_ok"] = str(
-                    bool(daemon_status.get("ok", False))
-                ).lower()
+                meta["gateway_daemon_status_reason"] = str(daemon_status.get("reason", "unknown"))
+                meta["gateway_daemon_status_ok"] = str(bool(daemon_status.get("ok", False))).lower()
                 # Include full status as JSON for debugging.
                 with contextlib.suppress(TypeError, ValueError):
-                    meta["gateway_daemon_status"] = json.dumps(
-                        daemon_status, default=str
-                    )
+                    meta["gateway_daemon_status"] = json.dumps(daemon_status, default=str)
         return meta
 
     def _stage_gateway_runtime_metadata(self) -> None:

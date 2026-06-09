@@ -35,10 +35,7 @@ class ServerRuntimeController:
             owner._gateway_runtime_mode = "failover_disabled_by_adapter"
             return False
 
-        strict_gateway = (
-            os.environ.get("DCC_MCP_STRICT_GATEWAY", "").strip().lower()
-            in {"1", "true", "yes", "on"}
-        )
+        strict_gateway = os.environ.get("DCC_MCP_STRICT_GATEWAY", "").strip().lower() in {"1", "true", "yes", "on"}
 
         dcc_type = str(getattr(owner, "_dcc_name", "dcc"))
         registry_dir = getattr(owner._config, "registry_dir", None)

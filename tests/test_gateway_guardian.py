@@ -455,6 +455,7 @@ def test_ensure_gateway_daemon_if_needed_retries_and_succeeds(monkeypatch):
     # ServerRuntimeController does `from dcc_mcp_core._server.gateway_guardian
     # import ensure_gateway_daemon` — patch the _server.runtime namespace.
     import dcc_mcp_core._server.runtime as rt
+
     monkeypatch.setattr(rt, "ensure_gateway_daemon", _mock_ensure)
 
     ctrl, owner = _make_runtime_controller(monkeypatch)
@@ -475,6 +476,7 @@ def test_ensure_gateway_daemon_if_needed_fallback_after_exhausted_retries(monkey
         return {"ok": False, "reason": "spawn_failed", "error": "test error"}
 
     import dcc_mcp_core._server.runtime as rt
+
     monkeypatch.setattr(rt, "ensure_gateway_daemon", _mock_ensure)
     monkeypatch.setattr("time.sleep", lambda _s: None)
 
@@ -490,10 +492,12 @@ def test_ensure_gateway_daemon_if_needed_fallback_after_exhausted_retries(monkey
 
 def test_ensure_gateway_daemon_if_needed_strict_gateway_raises(monkeypatch):
     """P0-1: DCC_MCP_STRICT_GATEWAY=1 raises RuntimeError on ensure failure."""
+
     def _mock_ensure(**kwargs):
         return {"ok": False, "reason": "spawn_failed", "error": "test error"}
 
     import dcc_mcp_core._server.runtime as rt
+
     monkeypatch.setattr(rt, "ensure_gateway_daemon", _mock_ensure)
     monkeypatch.setattr("time.sleep", lambda _s: None)
     monkeypatch.setenv("DCC_MCP_STRICT_GATEWAY", "1")
