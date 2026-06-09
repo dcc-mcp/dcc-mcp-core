@@ -132,12 +132,23 @@ class LifecycleController:
             gateway_recovery_driver = "daemon_guardian"
         elif runtime_mode == "embedded-fallback":
             gateway_recovery_driver = "embedded_election"
-        return {
+
+        daemon_status = dict(getattr(owner, "_gateway_daemon_status", {}) or {})
+        metadata = {
             "gateway_runtime_mode": runtime_mode,
             "gateway_guardian_enabled": str(bool(guardian_running)).lower(),
             "gateway_recovery_driver": gateway_recovery_driver,
             "registration_refresh_mode": "file_registry_heartbeat",
         }
+
+        # Surface daemon failure reason in embedded-fallback mode so the
+        # registry makes the degraded state visible to operators.
+        if runtime_mode == "embedded-fallback":
+            metadata["gateway_daemon_status"] = daemon_status.get("reason", "unknown")
+            if daemon_status.get("error"):
+                metadata["gateway_daemon_error"] = str(daemon_status["error"])
+
+        return metadata
 
     def _stage_gateway_runtime_metadata(self) -> None:
         owner = self._owner

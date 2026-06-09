@@ -434,3 +434,183 @@ def test_guardian_watchdog_detects_dead_guardian(monkeypatch):
     assert new_guardian is not None
     assert id(new_guardian) != id(guardian)
     assert new_guardian.status()["guardian_running"] is True
+
+
+# ---------------------------------------------------------------------------
+# Embedded fallback retry + strict-gateway tests (PIP-1398)
+# ---------------------------------------------------------------------------
+
+
+def test_ensure_gateway_daemon_if_needed_retries_before_fallback(monkeypatch):
+    """Ensure retries 2 times before falling back to embedded-fallback mode."""
+    from dcc_mcp_core._server import runtime as rt_mod
+
+    call_count = 0
+
+    def _ensure(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        return {"ok": False, "reason": "spawn_failed", "error": "test error"}
+
+    monkeypatch.setattr(rt_mod, "ensure_gateway_daemon", _ensure)
+    # Speed up retries in tests
+    monkeypatch.setattr(rt_mod, "_RETRY_INTERVAL_SECS", 0.01)
+
+    ctrl, owner = _make_runtime_controller(monkeypatch)
+    result = ctrl.ensure_gateway_daemon_if_needed()
+
+    # Should have attempted 1 + 2 = 3 times
+    assert call_count == 3, f"Expected 3 attempts, got {call_count}"
+    assert result is False
+    assert owner._gateway_runtime_mode == "embedded-fallback"
+    assert owner._gateway_daemon_status["reason"] == "spawn_failed"
+
+
+def test_ensure_gateway_daemon_if_needed_succeeds_on_retry(monkeypatch):
+    """First attempt fails, retry succeeds — must not fall back."""
+    from dcc_mcp_core._server import runtime as rt_mod
+
+    call_count = 0
+
+    def _ensure(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 2:
+            return {"ok": False, "reason": "spawn_failed", "error": "test error"}
+        return {"ok": True, "reason": "spawned"}
+
+    monkeypatch.setattr(rt_mod, "ensure_gateway_daemon", _ensure)
+    monkeypatch.setattr(rt_mod, "_RETRY_INTERVAL_SECS", 0.01)
+
+    ctrl, owner = _make_runtime_controller(monkeypatch)
+    result = ctrl.ensure_gateway_daemon_if_needed()
+
+    assert call_count == 3, f"Expected 3 attempts, got {call_count}"
+    assert result is True
+    assert owner._gateway_runtime_mode == "daemon-backed"
+
+
+def test_strict_gateway_raises_instead_of_fallback(monkeypatch):
+    """With DCC_MCP_STRICT_GATEWAY=1, ensure failure raises RuntimeError."""
+    from dcc_mcp_core._server import runtime as rt_mod
+
+    def _ensure(**kwargs):
+        return {"ok": False, "reason": "spawn_failed", "error": "test error"}
+
+    monkeypatch.setattr(rt_mod, "ensure_gateway_daemon", _ensure)
+    monkeypatch.setattr(rt_mod, "_RETRY_INTERVAL_SECS", 0.01)
+    monkeypatch.setenv("DCC_MCP_STRICT_GATEWAY", "1")
+
+    ctrl, owner = _make_runtime_controller(monkeypatch)
+
+    try:
+        ctrl.ensure_gateway_daemon_if_needed()
+        raise AssertionError("Expected RuntimeError was not raised")
+    except RuntimeError as exc:
+        assert "strict gateway" in str(exc).lower()
+        # Must not have fallen back
+        assert owner._gateway_runtime_mode != "embedded-fallback"
+
+
+def test_strict_gateway_via_owner_attribute(monkeypatch):
+    """Strict mode via owner._strict_gateway=True also raises RuntimeError."""
+    from dcc_mcp_core._server import runtime as rt_mod
+
+    def _ensure(**kwargs):
+        return {"ok": False, "reason": "spawn_timeout", "error": "timeout"}
+
+    monkeypatch.setattr(rt_mod, "ensure_gateway_daemon", _ensure)
+    monkeypatch.setattr(rt_mod, "_RETRY_INTERVAL_SECS", 0.01)
+
+    ctrl, owner = _make_runtime_controller(monkeypatch)
+    owner._strict_gateway = True
+
+    try:
+        ctrl.ensure_gateway_daemon_if_needed()
+        raise AssertionError("Expected RuntimeError was not raised")
+    except RuntimeError as exc:
+        assert "spawn_timeout" in str(exc)
+
+
+def test_strict_gateway_happy_path_works_normally(monkeypatch):
+    """When daemon is healthy, strict mode has no effect (no exception)."""
+    from dcc_mcp_core._server import runtime as rt_mod
+
+    def _ensure(**kwargs):
+        return {"ok": True, "reason": "already_healthy"}
+
+    monkeypatch.setattr(rt_mod, "ensure_gateway_daemon", _ensure)
+    monkeypatch.setenv("DCC_MCP_STRICT_GATEWAY", "1")
+
+    ctrl, owner = _make_runtime_controller(monkeypatch)
+    result = ctrl.ensure_gateway_daemon_if_needed()
+
+    assert result is True
+    assert owner._gateway_runtime_mode == "daemon-backed"
+
+
+def test_embedded_fallback_metadata_includes_daemon_status():
+    """_gateway_runtime_metadata surfaces daemon status for embedded-fallback."""
+    from dcc_mcp_core._server.lifecycle_controller import LifecycleController
+
+    # Build a minimal mock owner in embedded-fallback mode.
+    attrs = {
+        "_dcc_name": "meta-test",
+        "_gateway_runtime_mode": "embedded-fallback",
+        "_gateway_guardian": None,
+        "_gateway_daemon_status": {
+            "ok": False,
+            "reason": "spawn_failed",
+            "error": "connection refused",
+        },
+    }
+    mock_owner = type("Owner", (), attrs)()
+    ctrl = LifecycleController(mock_owner)
+
+    meta = ctrl._gateway_runtime_metadata()
+    assert meta["gateway_runtime_mode"] == "embedded-fallback"
+    assert meta["gateway_recovery_driver"] == "embedded_election"
+    assert meta["gateway_daemon_status"] == "spawn_failed"
+    assert meta["gateway_daemon_error"] == "connection refused"
+
+
+def test_embedded_fallback_metadata_omits_daemon_error_when_none():
+    """When daemon status has no error field, gateway_daemon_error is absent."""
+    from dcc_mcp_core._server.lifecycle_controller import LifecycleController
+
+    attrs = {
+        "_dcc_name": "meta-test2",
+        "_gateway_runtime_mode": "embedded-fallback",
+        "_gateway_guardian": None,
+        "_gateway_daemon_status": {"ok": False, "reason": "launch_in_progress_timeout"},
+    }
+    mock_owner = type("Owner", (), attrs)()
+    ctrl = LifecycleController(mock_owner)
+
+    meta = ctrl._gateway_runtime_metadata()
+    assert meta["gateway_runtime_mode"] == "embedded-fallback"
+    assert meta["gateway_daemon_status"] == "launch_in_progress_timeout"
+    assert "gateway_daemon_error" not in meta
+
+
+def test_daemon_backed_metadata_does_not_include_daemon_error():
+    """In daemon-backed mode, gateway_daemon_error is not leaked."""
+    from dcc_mcp_core._server.lifecycle_controller import LifecycleController
+
+    attrs = {
+        "_dcc_name": "meta-test3",
+        "_gateway_runtime_mode": "daemon-backed",
+        "_gateway_guardian": None,
+        "_gateway_daemon_status": {
+            "ok": True,
+            "reason": "already_healthy",
+        },
+    }
+    mock_owner = type("Owner", (), attrs)()
+    ctrl = LifecycleController(mock_owner)
+
+    meta = ctrl._gateway_runtime_metadata()
+    assert meta["gateway_runtime_mode"] == "daemon-backed"
+    assert meta["gateway_recovery_driver"] == "none"
+    assert "gateway_daemon_status" not in meta
+    assert "gateway_daemon_error" not in meta
