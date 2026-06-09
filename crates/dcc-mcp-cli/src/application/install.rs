@@ -403,10 +403,10 @@ fn ask_consent(prompt: &str) -> Result<bool, InstallError> {
 /// Roll back all completed steps in reverse order, best-effort.
 fn rollback_all(completed: &[StepResult]) {
     for result in completed.iter().rev() {
-        if let Some(rollback) = &result.rollback {
-            if let Err(e) = execute_rollback(rollback) {
-                eprintln!("  ⚠  rollback of '{}' failed: {e}", result.step_name);
-            }
+        if let Some(rollback) = &result.rollback
+            && let Err(e) = execute_rollback(rollback)
+        {
+            eprintln!("  ⚠  rollback of '{}' failed: {e}", result.step_name);
         }
     }
 }
