@@ -17,11 +17,24 @@ logger = logging.getLogger(__name__)
 _RETRY_COUNT = 2
 _RETRY_INTERVAL_SECS = 2.0
 
+_WATCHDOG_INTERVAL_ENV = "DCC_MCP_GUARDIAN_WATCHDOG_INTERVAL"
+
+
+def _resolve_watchdog_interval() -> float:
+    """Resolve watchdog interval from env var, floor 0.1 s."""
+    try:
+        raw = os.environ.get(_WATCHDOG_INTERVAL_ENV, "")
+        if raw:
+            return max(float(raw), 0.1)
+    except ValueError:
+        pass
+    return 15.0  # align with gateway sentinel cleanup interval
+
 
 class ServerRuntimeController:
     """Owns start/stop helpers that are not part of the public interface."""
 
-    _WATCHDOG_INTERVAL_SECS: float = 60.0
+    _WATCHDOG_INTERVAL_SECS: float = _resolve_watchdog_interval()
 
     def __init__(self, owner: Any) -> None:
         self._owner = owner
@@ -210,7 +223,12 @@ class ServerRuntimeController:
             owner._publish_gateway_runtime_metadata()
 
     def _guardian_watchdog_loop(self) -> None:
-        """Periodically check guardian liveness and restart if crashed."""
+        """Periodically check guardian liveness and restart if crashed.
+
+        When a dead guardian is detected the watchdog restarts it and then
+        immediately probes once more to confirm recovery instead of waiting
+        for the next full interval cycle.
+        """
         while not self._guardian_watchdog_stop.wait(self._WATCHDOG_INTERVAL_SECS):
             try:
                 owner = self._owner
@@ -224,6 +242,11 @@ class ServerRuntimeController:
                         owner._dcc_name,
                     )
                     self.start_gateway_guardian_if_needed()
+                    # Immediate retry: probe the new guardian once to confirm
+                    # it is alive instead of waiting for the next cycle.
+                    new_guardian = getattr(owner, "_gateway_guardian", None)
+                    if new_guardian is not None:
+                        new_guardian.probe_once()
             except Exception:
                 logger.exception("[%s] Guardian watchdog check failed", owner._dcc_name)
 
