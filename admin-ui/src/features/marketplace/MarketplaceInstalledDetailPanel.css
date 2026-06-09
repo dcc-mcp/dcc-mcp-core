@@ -1,0 +1,208 @@
+/* Slide-out detail panel for installed marketplace packages.
+ * Follows the same visual pattern as skill-detail-backdrop / skill-detail-modal
+ * in styles/skills.css — right-aligned slide-in with blur backdrop. */
+
+.marketplace-installed-detail-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  animation: mkp-installed-fade 180ms ease-out;
+}
+
+.marketplace-installed-detail-modal {
+  position: relative;
+  width: min(720px, 100%);
+  max-width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  background: var(--card);
+  border-left: 1px solid var(--border);
+  box-shadow: -24px 0 48px -24px rgba(0, 0, 0, 0.35);
+  padding: 22px 26px 32px;
+  animation: mkp-installed-slide-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.marketplace-installed-detail-modal .marketplace-installed-detail-panel {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+}
+
+.marketplace-installed-detail-modal .marketplace-installed-detail-heading {
+  position: sticky;
+  top: -22px;
+  margin: -22px -26px 16px;
+  padding: 18px 26px;
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+  z-index: 1;
+}
+
+.marketplace-installed-detail-close {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.marketplace-installed-detail-close:hover {
+  background: var(--muted);
+  color: var(--foreground);
+  border-color: color-mix(in srgb, var(--skill-brand) 35%, var(--border));
+}
+
+@keyframes mkp-installed-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes mkp-installed-slide-in {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* ── Panel content ───────────────────────────────────────────────────────── */
+
+.marketplace-installed-detail-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin: 0.35rem 0 1.2rem;
+  overflow: hidden;
+  padding: 1rem;
+}
+
+.marketplace-installed-detail-heading {
+  align-items: flex-start;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+}
+
+.marketplace-installed-detail-heading h3 {
+  color: var(--foreground);
+  font-size: 1rem;
+  line-height: 1.25;
+  margin: 0 0 0.35rem;
+  overflow-wrap: anywhere;
+}
+
+.marketplace-installed-detail-meta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.marketplace-installed-detail-version {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--muted-foreground);
+}
+
+.marketplace-installed-detail-desc {
+  color: var(--foreground);
+  margin: 0.65rem 0;
+  max-width: 58rem;
+  line-height: 1.55;
+}
+
+.marketplace-installed-detail-summary-grid {
+  display: grid;
+  gap: 0.45rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0.75rem 0;
+}
+
+.marketplace-installed-detail-summary-grid span {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--foreground);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 0.5rem 0.6rem;
+}
+
+.marketplace-installed-detail-summary-grid strong {
+  color: var(--muted-foreground);
+  display: block;
+  font-size: 0.68rem;
+  letter-spacing: 0;
+  margin-bottom: 0.15rem;
+  text-transform: uppercase;
+}
+
+.marketplace-installed-detail-summary-grid code,
+.marketplace-installed-detail-summary-grid a {
+  font-size: 0.82rem;
+}
+
+.marketplace-installed-detail-summary-grid a {
+  color: var(--link);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.marketplace-installed-detail-summary-grid a:hover {
+  text-decoration: underline;
+}
+
+.marketplace-installed-detail-outdated {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius);
+  color: #d97706;
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+  padding: 0.55rem 0.75rem;
+}
+
+.marketplace-installed-detail-section {
+  margin-bottom: 0.75rem;
+}
+
+.marketplace-installed-detail-section h4 {
+  color: var(--muted-foreground);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  margin: 0 0 0.35rem;
+  text-transform: uppercase;
+}
+
+.marketplace-installed-detail-chips {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+@media (max-width: 720px) {
+  .marketplace-installed-detail-modal {
+    width: 100%;
+    padding: 18px 18px 24px;
+  }
+}
