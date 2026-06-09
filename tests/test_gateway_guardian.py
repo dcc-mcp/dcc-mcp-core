@@ -982,9 +982,7 @@ def test_watchdog_immediate_retry_on_guardian_death(monkeypatch):
     # Immediate retry: call probe_once.
     new_guardian.probe_once()
 
-    assert len(probe_calls) == 1, (
-        f"Expected 1 immediate probe_once call, got {len(probe_calls)}"
-    )
+    assert len(probe_calls) == 1, f"Expected 1 immediate probe_once call, got {len(probe_calls)}"
 
 
 def test_ensure_gateway_daemon_handles_version_takeover_health(monkeypatch, tmp_path):
