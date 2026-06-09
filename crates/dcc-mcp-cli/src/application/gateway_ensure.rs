@@ -136,7 +136,7 @@ pub async fn ensure_gateway_running(args: &EnsureGatewayArgs) -> anyhow::Result<
                 port: args.port,
                 already_running: true,
                 pid: read_pid_from_pidfile(args.pidfile.as_deref()),
-            });
+            })
         }
         Err(err) => {
             Err(err).with_context(|| format!("creating launch lock {}", lock_path.display()))?
