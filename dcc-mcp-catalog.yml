@@ -76,6 +76,21 @@ entries:
     url: "https://github.com/dcc-mcp/dcc-mcp-core"
     tags: ["core", "official", "rust", "python", "library"]
 
+  - name: "dcc-mcp-maya"
+    description: "Core Maya adapter for DCC-MCP — gateway-managed instance, mayapy-based MCP server"
+    dcc: ["maya"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-maya"
+    tags: ["adapter", "maya", "official", "pip", "core"]
+    version: "0.1.0"
+    min_core_version: "0.18.0"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-maya"
+      pip_extras: ["maya"]
+      mayapy_path: "/usr/autodesk/maya2026/bin/mayapy"
+      entry_point: "dcc_mcp_maya.cli:main"
+
   - name: "autodesk-product-help"
     description: "Opt-in Autodesk Product Help remote MCP connector for read-only documentation lookup"
     dcc: ["autodesk-help"]

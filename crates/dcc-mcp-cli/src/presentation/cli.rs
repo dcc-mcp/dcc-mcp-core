@@ -136,6 +136,9 @@ enum Command {
         version: Option<String>,
         #[arg(long, env = "DCC_MCP_CATALOG_PATH")]
         catalog: Option<PathBuf>,
+        /// Execute the install plan with consent gating.
+        #[arg(long, short = 'x')]
+        execute: bool,
     },
     /// Search and manage DCC-MCP marketplace sources.
     Marketplace {
@@ -487,13 +490,19 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             dcc_type,
             version,
             catalog,
+            execute,
         } => {
             let service = InstallService::new(PathBuf::from("dcc-mcp-catalog.yml"));
-            to_json(service.plan(InstallRequest {
+            let req = InstallRequest {
                 dcc_type,
                 version,
                 catalog_path: catalog,
-            })?)?
+            };
+            if execute {
+                to_json(service.execute(req)?)?
+            } else {
+                to_json(service.plan(req)?)?
+            }
         }
         Command::Marketplace { action } => {
             let service = new_service()?;
