@@ -12,6 +12,26 @@ use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntr
 const ENV_GATEWAY_LAUNCH_LOCK_STALE_SECS: &str = "DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS";
 const DEFAULT_GATEWAY_LAUNCH_LOCK_STALE_SECS: u64 = 30;
 const GATEWAY_SENTINEL_STALE_SECS: u64 = 30;
+/// Env var that overrides the gateway-ensure wait timeout.
+const ENV_GATEWAY_ENSURE_TIMEOUT_SECS: &str = "DCC_MCP_GATEWAY_ENSURE_TIMEOUT_SECS";
+/// Default ensure-wait timeout (15 s) when the env var is not set.
+const DEFAULT_ENSURE_TIMEOUT_SECS: u64 = 15;
+
+/// Resolve the effective ensure-wait timeout: env var
+/// `DCC_MCP_GATEWAY_ENSURE_TIMEOUT_SECS` > explicit arg > crate default (15 s).
+fn resolve_ensure_timeout_secs(explicit_secs: u64) -> u64 {
+    std::env::var(ENV_GATEWAY_ENSURE_TIMEOUT_SECS)
+        .ok()
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .filter(|secs| *secs > 0)
+        .unwrap_or_else(|| {
+            if explicit_secs > 0 {
+                explicit_secs
+            } else {
+                DEFAULT_ENSURE_TIMEOUT_SECS
+            }
+        })
+}
 
 /// Helpers for auto-launching the standalone gateway from inside another
 /// process (the per-DCC sidecar / embedded server).
@@ -70,7 +90,12 @@ pub async fn ensure_gateway_running(opts: &EnsureGatewayOptions) -> anyhow::Resu
         Err(err) => return Err(err).with_context(|| format!("creating {}", lock_path.display())),
     }
 
-    wait_gateway_ready(&opts.host, opts.port, Duration::from_secs(10)).await
+    wait_gateway_ready(
+        &opts.host,
+        opts.port,
+        Duration::from_secs(resolve_ensure_timeout_secs(0)),
+    )
+    .await
 }
 
 /// When the gateway port is already occupied, check whether we carry a newer
@@ -180,7 +205,12 @@ async fn spawn_gateway_with_lock(opts: &EnsureGatewayOptions) -> anyhow::Result<
         }
         Err(err) => return Err(err).with_context(|| format!("creating {}", lock_path.display())),
     }
-    wait_gateway_ready(&opts.host, opts.port, Duration::from_secs(10)).await
+    wait_gateway_ready(
+        &opts.host,
+        opts.port,
+        Duration::from_secs(resolve_ensure_timeout_secs(0)),
+    )
+    .await
 }
 
 async fn wait_gateway_ready(host: &str, port: u16, timeout: Duration) -> anyhow::Result<()> {

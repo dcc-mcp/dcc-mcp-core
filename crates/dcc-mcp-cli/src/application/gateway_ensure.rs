@@ -22,6 +22,29 @@ const HEALTH_TIMEOUT: Duration = Duration::from_millis(600);
 const DEFAULT_LOCK_STALE_SECS: u64 = 30;
 
 const ENV_GATEWAY_LAUNCH_LOCK_STALE_SECS: &str = "DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS";
+/// Env var override for wait timeout; falls back to caller-provided
+/// `wait_timeout_secs`.
+const ENV_GATEWAY_ENSURE_TIMEOUT_SECS: &str = "DCC_MCP_GATEWAY_ENSURE_TIMEOUT_SECS";
+/// Default wait timeout (15 s) when neither the caller nor the env var
+/// provide a value.
+const DEFAULT_ENSURE_TIMEOUT_SECS: u64 = 15;
+
+/// Resolve the effective ensure timeout: env var `DCC_MCP_GATEWAY_ENSURE_TIMEOUT_SECS`
+/// takes priority, then the caller-supplied `wait_timeout_secs`, then the
+/// crate default (15 s).
+fn resolve_ensure_timeout_secs(wait_timeout_secs: u64) -> u64 {
+    std::env::var(ENV_GATEWAY_ENSURE_TIMEOUT_SECS)
+        .ok()
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .filter(|secs| *secs > 0)
+        .unwrap_or_else(|| {
+            if wait_timeout_secs > 0 {
+                wait_timeout_secs
+            } else {
+                DEFAULT_ENSURE_TIMEOUT_SECS
+            }
+        })
+}
 
 /// Outcome of an `ensure_gateway_running` call.
 #[derive(Debug, Clone, Serialize)]
@@ -83,7 +106,9 @@ pub async fn ensure_gateway_running(args: &EnsureGatewayArgs) -> anyhow::Result<
             wait_gateway_ready(
                 &args.host,
                 args.port,
-                Duration::from_secs(args.wait_timeout_secs),
+                Duration::from_secs(resolve_ensure_timeout_secs(
+                    args.wait_timeout_secs,
+                )),
             )
             .await?;
 
@@ -103,10 +128,19 @@ pub async fn ensure_gateway_running(args: &EnsureGatewayArgs) -> anyhow::Result<
             })
         }
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
-            anyhow::bail!(
-                "another process is launching the gateway (lock: {})",
-                lock_path.display()
-            );
+            // Another process holds the launch lock — wait for its winner to
+            // finish and check whether the gateway becomes healthy (mirrors
+            // Python `_wait_gateway_ready` on lock-loser path).
+            let timeout = Duration::from_secs(resolve_ensure_timeout_secs(
+                args.wait_timeout_secs,
+            ));
+            wait_gateway_ready(&args.host, args.port, timeout).await?;
+            return Ok(EnsureResult {
+                host: args.host.clone(),
+                port: args.port,
+                already_running: true,
+                pid: read_pid_from_pidfile(args.pidfile.as_deref()),
+            });
         }
         Err(err) => {
             Err(err).with_context(|| format!("creating launch lock {}", lock_path.display()))?
