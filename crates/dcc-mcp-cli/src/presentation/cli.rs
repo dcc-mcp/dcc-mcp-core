@@ -279,7 +279,11 @@ enum GatewayAction {
         #[arg(long)]
         gateway_bin: Option<PathBuf>,
         /// Seconds to wait for the new gateway to become healthy.
-        #[arg(long, default_value = "30", env = "DCC_MCP_GATEWAY_ENSURE_TIMEOUT_SECS")]
+        #[arg(
+            long,
+            default_value = "30",
+            env = "DCC_MCP_GATEWAY_ENSURE_TIMEOUT_SECS"
+        )]
         wait_timeout_secs: u64,
     },
     /// Start the gateway (alias for ensure with pidfile tracking).
@@ -300,7 +304,11 @@ enum GatewayAction {
         gateway_idle_timeout_secs: u64,
         #[arg(long)]
         gateway_bin: Option<PathBuf>,
-        #[arg(long, default_value = "30", env = "DCC_MCP_GATEWAY_ENSURE_TIMEOUT_SECS")]
+        #[arg(
+            long,
+            default_value = "30",
+            env = "DCC_MCP_GATEWAY_ENSURE_TIMEOUT_SECS"
+        )]
         wait_timeout_secs: u64,
     },
     /// Stop the running gateway (PID from pidfile).

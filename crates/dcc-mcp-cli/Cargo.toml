@@ -25,6 +25,7 @@ serde_json.workspace = true
 sha2 = "0.11"
 thiserror.workspace = true
 tokio.workspace = true
+tracing.workspace = true
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 

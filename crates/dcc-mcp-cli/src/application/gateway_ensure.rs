@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use serde::Serialize;
+use tracing;
 
 use super::gateway_discovery;
 

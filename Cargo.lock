@@ -1144,6 +1144,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "tracing",
  "workspace-hack",
  "zip",
 ]
