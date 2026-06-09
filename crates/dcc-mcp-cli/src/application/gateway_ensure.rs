@@ -549,4 +549,3 @@ mod tests {
         assert!(dir.is_absolute());
     }
 }
-
