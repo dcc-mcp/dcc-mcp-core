@@ -17,13 +17,7 @@ pub mod sidecar_mcp;
 pub use sidecar::{ExitReason, SidecarArgs, run};
 
 #[cfg(feature = "gateway-auto")]
-pub(crate) fn is_process_alive(pid: u32) -> bool {
-    use sysinfo::{Pid, ProcessesToUpdate, System};
-
-    let mut sys = System::new();
-    sys.refresh_processes(ProcessesToUpdate::Some(&[Pid::from_u32(pid)]), false);
-    sys.process(Pid::from_u32(pid)).is_some()
-}
+pub(crate) use dcc_mcp_gateway_ensure::is_process_alive;
 
 #[cfg(any(feature = "gateway-auto", feature = "gateway-daemon"))]
 pub(crate) async fn select_shutdown_signal() -> anyhow::Result<&'static str> {

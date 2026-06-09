@@ -15,6 +15,7 @@ members = [
     "crates/dcc-mcp-skill-rest",
     "crates/dcc-mcp-gateway",
     "crates/dcc-mcp-gateway-core",
+    "crates/dcc-mcp-gateway-ensure",
     "crates/dcc-mcp-gateway-search",
     "crates/dcc-mcp-logging",
     "crates/dcc-mcp-pybridge",
@@ -95,6 +96,7 @@ dcc-mcp-marketplace = { path = "crates/dcc-mcp-marketplace" }
 dcc-mcp-catalog = { path = "crates/dcc-mcp-catalog" }
 dcc-mcp-db = { path = "crates/dcc-mcp-db" }
 dcc-mcp-gateway = { path = "crates/dcc-mcp-gateway" }
+dcc-mcp-gateway-ensure = { path = "crates/dcc-mcp-gateway-ensure" }
 dcc-mcp-gateway-search = { path = "crates/dcc-mcp-gateway-search" }
 dcc-mcp-semantic = { path = "crates/dcc-mcp-semantic" }
 
