@@ -214,7 +214,7 @@ fn gateway_launch_lock_stale_after() -> Duration {
         .and_then(|raw| raw.parse::<u64>().ok())
         .filter(|secs| *secs > 0)
         .map(Duration::from_secs)
-        .unwrap_or_else(|| Duration::from_secs(DEFAULT_LOCK_STALE_SECS))
+        .unwrap_or(Duration::from_secs(DEFAULT_LOCK_STALE_SECS))
 }
 
 fn remove_stale_launch_lock(path: &Path, stale_after: Duration) -> std::io::Result<bool> {
