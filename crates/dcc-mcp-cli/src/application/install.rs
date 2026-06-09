@@ -87,11 +87,7 @@ impl InstallService {
 
     fn execute_plan(&self, plan: &InstallPlan) -> Result<InstallPlan, InstallError> {
         // Filter to executable steps
-        let executable_steps: Vec<_> = plan
-            .steps
-            .iter()
-            .filter(|s| s.action.is_some())
-            .collect();
+        let executable_steps: Vec<_> = plan.steps.iter().filter(|s| s.action.is_some()).collect();
 
         if executable_steps.is_empty() {
             eprintln!("No executable steps in the install plan.");
@@ -126,7 +122,12 @@ impl InstallService {
 
         for step in &executable_steps {
             let action = step.action.as_ref().expect("filtered to Some above");
-            eprint!("  [{}/{}] {} ... ", completed.len() + 1, executable_steps.len(), step.name);
+            eprint!(
+                "  [{}/{}] {} ... ",
+                completed.len() + 1,
+                executable_steps.len(),
+                step.name
+            );
 
             match execute_action(action) {
                 Ok(rollback) => {
@@ -165,12 +166,12 @@ fn execute_action(action: &InstallStepAction) -> Result<Option<StepRollback>, In
             extras,
             python,
         } => execute_pip_install(package, extras.as_deref(), python.as_deref()),
-        InstallStepAction::GitClone { url, ref_, dest } => execute_git_clone(url, ref_.as_deref(), dest),
-        InstallStepAction::ZipExtract {
-            url,
-            sha256,
-            dest,
-        } => execute_zip_extract(url, sha256.as_deref(), dest),
+        InstallStepAction::GitClone { url, ref_, dest } => {
+            execute_git_clone(url, ref_.as_deref(), dest)
+        }
+        InstallStepAction::ZipExtract { url, sha256, dest } => {
+            execute_zip_extract(url, sha256.as_deref(), dest)
+        }
         InstallStepAction::PathCopy { source, dest } => execute_path_copy(source, dest),
         InstallStepAction::RegisterDcc {
             dcc_type,
@@ -196,12 +197,10 @@ fn execute_pip_install(
         cmd.arg(package);
     }
 
-    let status = cmd
-        .status()
-        .map_err(|e| InstallError::StepFailed {
-            step: format!("pip-install-{package}"),
-            message: format!("failed to launch {pip_cmd}: {e}"),
-        })?;
+    let status = cmd.status().map_err(|e| InstallError::StepFailed {
+        step: format!("pip-install-{package}"),
+        message: format!("failed to launch {pip_cmd}: {e}"),
+    })?;
 
     if !status.success() {
         return Err(InstallError::StepFailed {
@@ -289,13 +288,14 @@ fn execute_zip_extract(
     if let Some(expected) = sha256 {
         use sha2::Digest;
         let actual = sha2::Sha256::digest(&bytes);
-        let actual_hex = actual.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let actual_hex = actual
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
         if !actual_hex.eq_ignore_ascii_case(expected) {
             return Err(InstallError::StepFailed {
                 step: "zip-checksum".into(),
-                message: format!(
-                    "SHA-256 mismatch: expected {expected}, got {actual_hex}"
-                ),
+                message: format!("SHA-256 mismatch: expected {expected}, got {actual_hex}"),
             });
         }
     }
@@ -312,18 +312,17 @@ fn execute_zip_extract(
         message: format!("failed to open zip archive: {e}"),
     })?;
 
-    archive.extract(dest).map_err(|e| InstallError::StepFailed {
-        step: "zip-extract".into(),
-        message: format!("failed to extract to {}: {e}", dest.display()),
-    })?;
+    archive
+        .extract(dest)
+        .map_err(|e| InstallError::StepFailed {
+            step: "zip-extract".into(),
+            message: format!("failed to extract to {}: {e}", dest.display()),
+        })?;
 
     Ok(Some(StepRollback::RemovePath(dest.to_path_buf())))
 }
 
-fn execute_path_copy(
-    source: &Path,
-    dest: &Path,
-) -> Result<Option<StepRollback>, InstallError> {
+fn execute_path_copy(source: &Path, dest: &Path) -> Result<Option<StepRollback>, InstallError> {
     if dest.exists() {
         return Err(InstallError::StepFailed {
             step: "path-copy".into(),
@@ -406,10 +405,7 @@ fn rollback_all(completed: &[StepResult]) {
     for result in completed.iter().rev() {
         if let Some(rollback) = &result.rollback {
             if let Err(e) = execute_rollback(rollback) {
-                eprintln!(
-                    "  ⚠  rollback of '{}' failed: {e}",
-                    result.step_name
-                );
+                eprintln!("  ⚠  rollback of '{}' failed: {e}", result.step_name);
             }
         }
     }
@@ -428,13 +424,12 @@ fn execute_rollback(rollback: &StepRollback) -> Result<(), InstallError> {
             Ok(())
         }
         StepRollback::Command { program, args } => {
-            let status = Command::new(program)
-                .args(args)
-                .status()
-                .map_err(|e| InstallError::RollbackFailed {
+            let status = Command::new(program).args(args).status().map_err(|e| {
+                InstallError::RollbackFailed {
                     step: program.clone(),
                     message: format!("failed to launch {program}: {e}"),
-                })?;
+                }
+            })?;
             if !status.success() {
                 return Err(InstallError::RollbackFailed {
                     step: program.clone(),
@@ -491,11 +486,8 @@ mod tests {
 
     #[test]
     fn pip_install_missing_python_reports_error() {
-        let result = execute_pip_install(
-            "nonexistent-package",
-            None,
-            Some("/__nonexistent__/python"),
-        );
+        let result =
+            execute_pip_install("nonexistent-package", None, Some("/__nonexistent__/python"));
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
@@ -507,11 +499,7 @@ mod tests {
     #[test]
     fn git_clone_nonexistent_url_fails() {
         let dest = PathBuf::from("/__nonexistent__/test-repo");
-        let result = execute_git_clone(
-            "https://__nonexistent__.invalid/repo.git",
-            None,
-            &dest,
-        );
+        let result = execute_git_clone("https://__nonexistent__.invalid/repo.git", None, &dest);
         assert!(result.is_err());
     }
 
