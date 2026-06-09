@@ -106,6 +106,64 @@ def test_ensure_gateway_daemon_waits_when_launch_lock_exists(tmp_path, monkeypat
     assert result["reason"] == "launch_in_progress_timeout"
 
 
+def test_ensure_gateway_daemon_lock_loser_succeeds_when_gateway_becomes_healthy(
+    tmp_path, monkeypatch,
+):
+    """Lock loser waits and succeeds if the winner brings the gateway healthy."""
+    (tmp_path / "gateway-launch.lock").write_text("busy", encoding="utf-8")
+
+    probe_count = {"n": 0}
+
+    def _urlopen(*_args, **_kwargs):
+        probe_count["n"] += 1
+        # First probe fails, second and later succeed (winner finishes launch)
+        if probe_count["n"] < 2:
+            raise OSError("down")
+        return _Resp()
+
+    monkeypatch.setattr(gg, "urlopen", _urlopen)
+    monkeypatch.setattr(
+        gg,
+        "launch_detached",
+        lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("must not spawn")),
+    )
+
+    result = gg.ensure_gateway_daemon(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=str(tmp_path),
+        dcc_type="maya",
+        timeout_secs=5.0,  # enough for the 100ms sleep between probes
+    )
+
+    assert result["ok"] is True
+    assert result["reason"] == "launch_in_progress"
+
+
+def test_ensure_gateway_daemon_respects_ensure_timeout_env_var(tmp_path, monkeypatch):
+    """DCC_MCP_GATEWAY_ENSURE_TIMEOUT_SECS overrides the default timeout."""
+    (tmp_path / "gateway-launch.lock").write_text("busy", encoding="utf-8")
+    monkeypatch.setattr(
+        gg, "urlopen", lambda *_a, **_k: (_ for _ in ()).throw(OSError("down"))
+    )
+    monkeypatch.setattr(
+        gg,
+        "launch_detached",
+        lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("must not spawn")),
+    )
+    monkeypatch.setenv("DCC_MCP_GATEWAY_ENSURE_TIMEOUT_SECS", "0.01")
+
+    result = gg.ensure_gateway_daemon(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=str(tmp_path),
+        dcc_type="houdini",
+    )
+
+    assert result["ok"] is False
+    assert result["reason"] == "launch_in_progress_timeout"
+
+
 def test_ensure_gateway_daemon_recovers_stale_launch_lock(tmp_path, monkeypatch):
     lock_path = tmp_path / "gateway-launch.lock"
     lock_path.write_text("stale", encoding="utf-8")

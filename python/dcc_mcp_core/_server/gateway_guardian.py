@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 _LAUNCH_LOCK = "gateway-launch.lock"
 _LAUNCH_LOCK_STALE_SECS_ENV = "DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS"
 _LAUNCH_LOCK_STALE_SECS_DEFAULT = 30.0
-_ENSURE_TIMEOUT_SECS_ENV = "DCC_MCP_GATEWAY_ENSURE_TIMEOUT_SECS"
-_ENSURE_TIMEOUT_SECS_DEFAULT = 15.0
+_ENSURE_TIMEOUT_ENV = "DCC_MCP_GATEWAY_ENSURE_TIMEOUT_SECS"
+_ENSURE_TIMEOUT_DEFAULT = 15.0
 
 
 def _is_healthy(host: str, port: int, timeout: float) -> bool:
@@ -192,11 +192,6 @@ def build_gateway_daemon_command(
     return cmd, env
 
 
-def _ensure_timeout_secs() -> float:
-    """Return the configured gateway ensure timeout (seconds)."""
-    return _float_env(_ENSURE_TIMEOUT_SECS_ENV, _ENSURE_TIMEOUT_SECS_DEFAULT)
-
-
 def _try_version_takeover(
     *,
     gateway_host: str,
@@ -308,6 +303,13 @@ def _try_version_takeover(
         launch_lock.release()
 
 
+def _resolve_ensure_timeout(timeout_secs: float | None) -> float:
+    """Resolve the ensure timeout: explicit arg > env var > default (15s)."""
+    if timeout_secs is not None:
+        return max(float(timeout_secs), 0.1)
+    return _float_env(_ENSURE_TIMEOUT_ENV, _ENSURE_TIMEOUT_DEFAULT)
+
+
 def ensure_gateway_daemon(
     *,
     gateway_host: str,
@@ -325,10 +327,9 @@ def ensure_gateway_daemon(
     ``dcc-mcp-server gateway``. Unset values fall back to
     ``DCC_MCP_GATEWAY_PERSIST`` / ``DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS``.
     """
+    timeout_secs = _resolve_ensure_timeout(timeout_secs)
     if gateway_port <= 0:
         return {"ok": False, "reason": "gateway_port_not_configured"}
-    if timeout_secs is None:
-        timeout_secs = _ensure_timeout_secs()
     if _is_healthy(gateway_host, gateway_port, timeout=0.5):
         takeover_result = _try_version_takeover(
             gateway_host=gateway_host,
@@ -435,7 +436,7 @@ class GatewayDaemonGuardian:
         )
         self.restart_timeout_secs = restart_timeout_secs or _float_env(
             "DCC_MCP_GATEWAY_GUARDIAN_RESTART_TIMEOUT",
-            5.0,
+            _float_env(_ENSURE_TIMEOUT_ENV, _ENSURE_TIMEOUT_DEFAULT),
         )
         self.failure_threshold = max(
             1,
