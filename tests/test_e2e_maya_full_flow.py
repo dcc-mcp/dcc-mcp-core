@@ -34,8 +34,8 @@ from typing import Any
 
 import pytest
 
-from conftest import McpClient
 from conftest import REPO_ROOT
+from conftest import McpClient
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import create_skill_server
 
@@ -345,7 +345,7 @@ class TestMayaGatewayCanonicalWorkflow:
     """Full gateway canonical workflow with Maya skills."""
 
     def test_search_finds_maya_skill_stub(self, maya_gateway) -> None:
-        """search for 'maya' must find maya-geometry stub before load."""
+        """Search for 'maya' must find maya-geometry stub before load."""
         url = maya_gateway["gateway_url"]
         result = _post_mcp(
             url,
@@ -364,7 +364,7 @@ class TestMayaGatewayCanonicalWorkflow:
         )
 
     def test_search_geometry_tools(self, maya_gateway) -> None:
-        """search for 'geometry' must find maya-geometry tools."""
+        """Search for 'geometry' must find maya-geometry tools."""
         url = maya_gateway["gateway_url"]
         result = _post_mcp(
             url,
@@ -399,7 +399,7 @@ class TestMayaGatewayCanonicalWorkflow:
         assert "instance_id" in payload, f"Missing instance_id in load result: {payload}"
 
     def test_describe_maya_tool(self, maya_gateway) -> None:
-        """describe a Maya tool slug returned by search."""
+        """Describe a Maya tool slug returned by search."""
         url = maya_gateway["gateway_url"]
 
         # Search for sphere tool to get a slug
@@ -444,7 +444,7 @@ class TestMayaGatewayCanonicalWorkflow:
         assert len(hits) >= 1, f"No search results for 'sphere' after load: {payload}"
 
     def test_call_maya_tool_returns_result(self, maya_gateway) -> None:
-        """call a maya-geometry tool through the gateway and inspect result."""
+        """Call a maya-geometry tool through the gateway and inspect result."""
         url = maya_gateway["gateway_url"]
 
         # Load skill (idempotent)
@@ -589,7 +589,7 @@ class TestMayaGatewayErrors:
         )
 
     def test_describe_missing_slug_returns_error(self, maya_gateway) -> None:
-        """describe with a missing tool_slug must return a structured error."""
+        """Describe with a missing tool_slug must return a structured error."""
         url = maya_gateway["gateway_url"]
         result = _post_mcp(
             url, "tools/call",
@@ -832,7 +832,7 @@ class TestMayaGatewayIdempotency:
             {"name": "search", "arguments": {"query": "sphere", "dcc_type": "maya", "limit": 5}},
         )
         search_payload = _parse_gateway_payload(search)
-        hits_before = len(search_payload.get("hits", []))
+        assert search_payload.get("hits"), f"Expected hits before reload: {search_payload}"
 
         # Load again (idempotent — must not error)
         reload_result = _post_mcp(
@@ -852,7 +852,7 @@ class TestMayaGatewayIdempotency:
         assert "error" not in resp, f"Ping after tool calls failed: {resp.get('error')}"
 
     def test_search_cleanup_after_all_loads(self, maya_gateway) -> None:
-        """search must still work after load/unload cycles."""
+        """Search must still work after load/unload cycles."""
         url = maya_gateway["gateway_url"]
 
         # Load all maya skills (best-effort, maya-pipeline may not exist)
