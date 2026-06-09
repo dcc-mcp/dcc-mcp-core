@@ -24,7 +24,7 @@ fn resolve_ensure_timeout_secs(explicit_secs: u64) -> u64 {
         .ok()
         .and_then(|raw| raw.parse::<u64>().ok())
         .filter(|secs| *secs > 0)
-        .unwrap_or_else(|| {
+        .unwrap_or({
             if explicit_secs > 0 {
                 explicit_secs
             } else {
