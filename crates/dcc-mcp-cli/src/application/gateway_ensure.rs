@@ -37,7 +37,7 @@ fn resolve_ensure_timeout_secs(wait_timeout_secs: u64) -> u64 {
         .ok()
         .and_then(|raw| raw.parse::<u64>().ok())
         .filter(|secs| *secs > 0)
-        .unwrap_or_else(|| {
+        .unwrap_or({
             if wait_timeout_secs > 0 {
                 wait_timeout_secs
             } else {
@@ -79,7 +79,7 @@ pub async fn ensure_gateway_running(args: &EnsureGatewayArgs) -> anyhow::Result<
     }
 
     if gateway_health_ok(&args.host, args.port).await {
-        return Ok(EnsureResult {
+        Ok(EnsureResult {
             host: args.host.clone(),
             port: args.port,
             already_running: true,
@@ -94,7 +94,7 @@ pub async fn ensure_gateway_running(args: &EnsureGatewayArgs) -> anyhow::Result<
         Ok(_lock) => {
             // Double-check after acquiring the lock (race protection).
             if gateway_health_ok(&args.host, args.port).await {
-                return Ok(EnsureResult {
+                Ok(EnsureResult {
                     host: args.host.clone(),
                     port: args.port,
                     already_running: true,
@@ -131,7 +131,7 @@ pub async fn ensure_gateway_running(args: &EnsureGatewayArgs) -> anyhow::Result<
             // Python `_wait_gateway_ready` on lock-loser path).
             let timeout = Duration::from_secs(resolve_ensure_timeout_secs(args.wait_timeout_secs));
             wait_gateway_ready(&args.host, args.port, timeout).await?;
-            return Ok(EnsureResult {
+            Ok(EnsureResult {
                 host: args.host.clone(),
                 port: args.port,
                 already_running: true,
