@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
+import time
 from typing import Any
 
 from dcc_mcp_core._server.gateway_guardian import GatewayDaemonGuardian
@@ -33,21 +35,64 @@ class ServerRuntimeController:
             owner._gateway_runtime_mode = "failover_disabled_by_adapter"
             return False
 
-        result = ensure_gateway_daemon(
-            gateway_host="127.0.0.1",
-            gateway_port=gateway_port,
-            registry_dir=getattr(owner._config, "registry_dir", None),
-            dcc_type=str(getattr(owner, "_dcc_name", "dcc")),
+        strict_gateway = (
+            os.environ.get("DCC_MCP_STRICT_GATEWAY", "").strip().lower()
+            in {"1", "true", "yes", "on"}
         )
-        owner._gateway_daemon_status = dict(result)
-        if result.get("ok"):
-            owner._gateway_runtime_mode = "daemon-backed"
-            return True
+
+        dcc_type = str(getattr(owner, "_dcc_name", "dcc"))
+        registry_dir = getattr(owner._config, "registry_dir", None)
+        retry_count = 2  # additional retries after first attempt
+        retry_interval_secs = 2.0
+
+        result: dict[str, Any] = {}
+        for attempt in range(1 + retry_count):
+            result = ensure_gateway_daemon(
+                gateway_host="127.0.0.1",
+                gateway_port=gateway_port,
+                registry_dir=registry_dir,
+                dcc_type=dcc_type,
+            )
+            owner._gateway_daemon_status = dict(result)
+            if result.get("ok"):
+                owner._gateway_runtime_mode = "daemon-backed"
+                if attempt > 0:
+                    logger.info(
+                        "[%s] Gateway daemon ensure succeeded on retry %d/%d",
+                        owner._dcc_name,
+                        attempt,
+                        retry_count,
+                    )
+                return True
+            if attempt < retry_count:
+                logger.warning(
+                    "[%s] Gateway daemon ensure attempt %d/%d failed (%s), retrying in %.1fs...",
+                    owner._dcc_name,
+                    attempt + 1,
+                    1 + retry_count,
+                    result.get("reason", "unknown"),
+                    retry_interval_secs,
+                )
+                time.sleep(retry_interval_secs)
+
+        # All attempts failed.
+        reason = result.get("reason", "unknown") if result else "unknown"
+        gateway_daemon_status = dict(result) if result else {}
+
+        if strict_gateway:
+            raise RuntimeError(
+                f"[{owner._dcc_name}] DCC_MCP_STRICT_GATEWAY is enabled and "
+                f"gateway daemon ensure failed after {1 + retry_count} attempts: "
+                f"{reason}. gateway_daemon_status={gateway_daemon_status!r}"
+            )
+
         owner._gateway_runtime_mode = "embedded-fallback"
+        owner._gateway_daemon_status = gateway_daemon_status
         logger.warning(
-            "[%s] Gateway daemon ensure failed (%s), falling back to embedded election",
+            "[%s] Gateway daemon ensure failed after %d attempts (%s), falling back to embedded election",
             owner._dcc_name,
-            result.get("reason", "unknown"),
+            1 + retry_count,
+            reason,
         )
         return False
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import json
 import logging
 from typing import Any
 import weakref
@@ -132,12 +133,28 @@ class LifecycleController:
             gateway_recovery_driver = "daemon_guardian"
         elif runtime_mode == "embedded-fallback":
             gateway_recovery_driver = "embedded_election"
-        return {
+        meta: dict[str, str] = {
             "gateway_runtime_mode": runtime_mode,
             "gateway_guardian_enabled": str(bool(guardian_running)).lower(),
             "gateway_recovery_driver": gateway_recovery_driver,
             "registration_refresh_mode": "file_registry_heartbeat",
         }
+        # Surface gateway_daemon_status reason for embedded-fallback visibility.
+        if runtime_mode == "embedded-fallback":
+            daemon_status = getattr(owner, "_gateway_daemon_status", None)
+            if daemon_status:
+                meta["gateway_daemon_status_reason"] = str(
+                    daemon_status.get("reason", "unknown")
+                )
+                meta["gateway_daemon_status_ok"] = str(
+                    bool(daemon_status.get("ok", False))
+                ).lower()
+                # Include full status as JSON for debugging.
+                with contextlib.suppress(TypeError, ValueError):
+                    meta["gateway_daemon_status"] = json.dumps(
+                        daemon_status, default=str
+                    )
+        return meta
 
     def _stage_gateway_runtime_metadata(self) -> None:
         owner = self._owner
