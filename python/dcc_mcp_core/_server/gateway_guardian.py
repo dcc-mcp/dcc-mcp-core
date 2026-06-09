@@ -10,12 +10,12 @@ from pathlib import Path
 import shutil
 import threading
 import time
-import uuid
 from typing import Any
 from typing import Callable
 from urllib.error import HTTPError
 from urllib.error import URLError
 from urllib.request import urlopen
+import uuid
 
 from dcc_mcp_core.daemon_launch import launch_detached
 from dcc_mcp_core.install_lifecycle import default_registry_dir
@@ -532,7 +532,7 @@ def _read_services_json(registry_dir: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     try:
-        with open(path, "r", encoding="utf-8") as fh:
+        with path.open("r", encoding="utf-8") as fh:
             data = json.load(fh)
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return []
@@ -547,9 +547,9 @@ def _write_services_json(registry_dir: Path, entries: list[dict[str, Any]]) -> b
     tmp = path.with_suffix(".tmp")
     try:
         registry_dir.mkdir(parents=True, exist_ok=True)
-        with open(tmp, "w", encoding="utf-8") as fh:
+        with tmp.open("w", encoding="utf-8") as fh:
             json.dump(entries, fh, indent=2, ensure_ascii=False)
-        os.replace(tmp, path)
+        tmp.replace(path)
         return True
     except OSError:
         return False
