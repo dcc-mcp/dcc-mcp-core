@@ -178,9 +178,7 @@ class TestMayaInstallPlan:
     def test_install_plan_has_maya_entry(self) -> None:
         """dcc-mcp-cli install --dcc-type maya must produce a valid InstallPlan."""
         result = self._run_install("--dcc-type", "maya")
-        assert result.returncode == 0, (
-            f"CLI returned {result.returncode}: {result.stderr[:500]}"
-        )
+        assert result.returncode == 0, f"CLI returned {result.returncode}: {result.stderr[:500]}"
 
         plan = json.loads(result.stdout)
         assert isinstance(plan, dict), f"Expected dict plan, got: {type(plan)}"
@@ -192,31 +190,23 @@ class TestMayaInstallPlan:
         assert len(steps) >= 1, f"Expected at least 1 step, got: {len(steps)}"
 
         step_names = [s.get("name", "") for s in steps]
-        assert "resolve-adapter" in step_names, (
-            f"Expected resolve-adapter step, got: {step_names}"
-        )
+        assert "resolve-adapter" in step_names, f"Expected resolve-adapter step, got: {step_names}"
 
     def test_install_plan_accepts_version_filter(self) -> None:
         """Install plan with --version must not error."""
         result = self._run_install("--dcc-type", "maya", "--version", "2026")
-        assert result.returncode == 0, (
-            f"CLI returned {result.returncode}: {result.stderr[:500]}"
-        )
+        assert result.returncode == 0, f"CLI returned {result.returncode}: {result.stderr[:500]}"
 
         plan = json.loads(result.stdout)
         assert isinstance(plan, dict)
         assert plan["dcc_type"] == "maya"
-        assert plan.get("version") == "2026", (
-            f"Expected version=2026, got: {plan.get('version')}"
-        )
+        assert plan.get("version") == "2026", f"Expected version=2026, got: {plan.get('version')}"
 
     def test_install_plan_unknown_dcc_reports_error(self) -> None:
         """Installing for an unknown DCC type must report the error without crashing."""
         result = self._run_install("--dcc-type", "nonexistent-dcc-xyz")
         # The CLI should exit with a non-zero code and informative message.
-        assert result.returncode != 0, (
-            f"Expected non-zero return for unknown DCC, got stdout: {result.stdout[:300]}"
-        )
+        assert result.returncode != 0, f"Expected non-zero return for unknown DCC, got stdout: {result.stdout[:300]}"
         assert result.stderr, "Expected non-empty stderr for unknown DCC"
         error_lower = result.stderr.lower()
         error_keywords = ("not found", "unrecognized", "error", "unknown", "no entry")
@@ -228,6 +218,7 @@ class TestMayaInstallPlan:
 # ═══════════════════════════════════════════════════════════════════════════
 # Phase 2: Maya Gateway Fixture
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 # Session-scoped registry isolation for all gateway tests in this module.
 @pytest.fixture(scope="module", autouse=True)
@@ -313,9 +304,9 @@ class TestMayaGatewayHealth:
         url = maya_gateway["gateway_url"]
         client = McpClient(url, auto_init=False)
         result = client.initialize(client_name="maya-e2e-test")
-        assert result.get("protocolVersion") in (
-            "2025-03-26", "2025-06-18", "2025-11-25"
-        ), f"Unexpected protocol version: {result.get('protocolVersion')}"
+        assert result.get("protocolVersion") in ("2025-03-26", "2025-06-18", "2025-11-25"), (
+            f"Unexpected protocol version: {result.get('protocolVersion')}"
+        )
         assert "serverInfo" in result, f"Missing serverInfo in initialize result: {result}"
 
     def test_gateway_ping(self, maya_gateway) -> None:
@@ -331,9 +322,7 @@ class TestMayaGatewayHealth:
         tool_names = {t["name"] for t in tools}
         expected = {"search", "describe", "load_skill", "call"}
         missing = expected - tool_names
-        assert not missing, (
-            f"Gateway canonical tools missing: {missing}. Got: {tool_names}"
-        )
+        assert not missing, f"Gateway canonical tools missing: {missing}. Got: {tool_names}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -359,9 +348,7 @@ class TestMayaGatewayCanonicalWorkflow:
         payload = _parse_gateway_payload(result)
         hits = payload.get("hits", [])
         skill_names = {h.get("skill_name", "") for h in hits}
-        assert any("maya" in n for n in skill_names), (
-            f"No maya skill stub found in search hits: {skill_names}"
-        )
+        assert any("maya" in n for n in skill_names), f"No maya skill stub found in search hits: {skill_names}"
 
     def test_search_geometry_tools(self, maya_gateway) -> None:
         """Search for 'geometry' must find maya-geometry tools."""
@@ -392,9 +379,7 @@ class TestMayaGatewayCanonicalWorkflow:
         )
         assert "error" not in result, f"load_skill error: {result.get('error')}"
         payload = _parse_gateway_payload(result)
-        assert payload.get("loaded") is True, (
-            f"load_skill did not report loaded=true: {payload}"
-        )
+        assert payload.get("loaded") is True, f"load_skill did not report loaded=true: {payload}"
         assert payload.get("skill_name") == "maya-geometry"
         assert "instance_id" in payload, f"Missing instance_id in load result: {payload}"
 
@@ -404,7 +389,8 @@ class TestMayaGatewayCanonicalWorkflow:
 
         # Search for sphere tool to get a slug
         search_result = _post_mcp(
-            url, "tools/call",
+            url,
+            "tools/call",
             {"name": "search", "arguments": {"query": "sphere", "dcc_type": "maya", "limit": 5}},
         )
         payload = _parse_gateway_payload(search_result)
@@ -414,7 +400,8 @@ class TestMayaGatewayCanonicalWorkflow:
 
         slug = hits[0]["tool_slug"]
         describe_result = _post_mcp(
-            url, "tools/call",
+            url,
+            "tools/call",
             {"name": "describe", "arguments": {"tool_slug": slug}},
         )
         assert "error" not in describe_result, f"describe error: {describe_result.get('error')}"
@@ -429,12 +416,14 @@ class TestMayaGatewayCanonicalWorkflow:
 
         # Ensure loaded (idempotent)
         _post_mcp(
-            url, "tools/call",
+            url,
+            "tools/call",
             {"name": "load_skill", "arguments": {"skill_name": "maya-geometry", "dcc_type": "maya"}},
         )
 
         result = _post_mcp(
-            url, "tools/call",
+            url,
+            "tools/call",
             {"name": "search", "arguments": {"query": "sphere", "dcc_type": "maya", "limit": 5}},
         )
         payload = _parse_gateway_payload(result)
@@ -449,13 +438,15 @@ class TestMayaGatewayCanonicalWorkflow:
 
         # Load skill (idempotent)
         _post_mcp(
-            url, "tools/call",
+            url,
+            "tools/call",
             {"name": "load_skill", "arguments": {"skill_name": "maya-geometry", "dcc_type": "maya"}},
         )
 
         # Find the sphere tool slug
         search_result = _post_mcp(
-            url, "tools/call",
+            url,
+            "tools/call",
             {"name": "search", "arguments": {"query": "sphere", "dcc_type": "maya", "limit": 5}},
         )
         payload = _parse_gateway_payload(search_result)
@@ -469,7 +460,8 @@ class TestMayaGatewayCanonicalWorkflow:
 
         slug = sphere_hit["tool_slug"]
         call_result = _post_mcp(
-            url, "tools/call",
+            url,
+            "tools/call",
             {
                 "name": "call",
                 "arguments": {
@@ -480,9 +472,7 @@ class TestMayaGatewayCanonicalWorkflow:
         )
         assert "error" not in call_result, f"call error: {call_result.get('error')}"
         call_payload = _parse_gateway_payload(call_result)
-        assert call_payload.get("success") is not False, (
-            f"Call did not succeed: {call_payload}"
-        )
+        assert call_payload.get("success") is not False, f"Call did not succeed: {call_payload}"
 
     def test_batch_single_tool_through_gateway(self, maya_gateway) -> None:
         """A single tool call through the gateway succeeds.
@@ -494,13 +484,15 @@ class TestMayaGatewayCanonicalWorkflow:
 
         # Load the skill (idempotent)
         _post_mcp(
-            url, "tools/call",
+            url,
+            "tools/call",
             {"name": "load_skill", "arguments": {"skill_name": "maya-geometry", "dcc_type": "maya"}},
         )
 
         # Find a single loaded tool slug
         search_result = _post_mcp(
-            url, "tools/call",
+            url,
+            "tools/call",
             {"name": "search", "arguments": {"query": "sphere", "dcc_type": "maya", "limit": 5}},
         )
         payload = _parse_gateway_payload(search_result)
@@ -513,7 +505,8 @@ class TestMayaGatewayCanonicalWorkflow:
             pytest.skip("No sphere tool slug found in search")
 
         call_result = _post_mcp(
-            url, "tools/call",
+            url,
+            "tools/call",
             {
                 "name": "call",
                 "arguments": {
@@ -524,9 +517,7 @@ class TestMayaGatewayCanonicalWorkflow:
         )
         assert "error" not in call_result, f"call error: {call_result.get('error')}"
         call_payload = _parse_gateway_payload(call_result)
-        assert call_payload.get("success") is not False, (
-            f"Call did not succeed: {call_payload}"
-        )
+        assert call_payload.get("success") is not False, f"Call did not succeed: {call_payload}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -541,21 +532,21 @@ class TestMayaGatewayErrors:
         """Searching for a different DCC type must return empty results."""
         url = maya_gateway["gateway_url"]
         result = _post_mcp(
-            url, "tools/call",
+            url,
+            "tools/call",
             {"name": "search", "arguments": {"query": "sphere", "dcc_type": "houdini", "limit": 5}},
         )
         assert "error" not in result, f"search error: {result.get('error')}"
         payload = _parse_gateway_payload(result)
         hits = payload.get("hits", [])
-        assert len(hits) == 0, (
-            f"Expected 0 hits for non-maya DCC type, got {len(hits)}: {hits}"
-        )
+        assert len(hits) == 0, f"Expected 0 hits for non-maya DCC type, got {len(hits)}: {hits}"
 
     def test_load_nonexistent_skill_returns_error(self, maya_gateway) -> None:
         """load_skill with an unknown skill name must return a structured error."""
         url = maya_gateway["gateway_url"]
         result = _post_mcp(
-            url, "tools/call",
+            url,
+            "tools/call",
             {"name": "load_skill", "arguments": {"skill_name": "nonexistent-skill-xyz"}},
         )
         payload_text = _parse_content_text(result)
@@ -571,7 +562,8 @@ class TestMayaGatewayErrors:
         """Calling an unknown tool slug must return a structured error."""
         url = maya_gateway["gateway_url"]
         result = _post_mcp(
-            url, "tools/call",
+            url,
+            "tools/call",
             {
                 "name": "call",
                 "arguments": {
@@ -592,7 +584,8 @@ class TestMayaGatewayErrors:
         """Describe with a missing tool_slug must return a structured error."""
         url = maya_gateway["gateway_url"]
         result = _post_mcp(
-            url, "tools/call",
+            url,
+            "tools/call",
             {"name": "describe", "arguments": {"tool_slug": ""}},
         )
         payload_text = _parse_content_text(result)
@@ -620,21 +613,15 @@ class TestMayaSkillMCPProtocol:
         tool_names = {t["name"] for t in tools}
         expected_core = {"search_skills", "list_skills", "get_skill_info", "load_skill", "unload_skill"}
         missing = expected_core - tool_names
-        assert not missing, (
-            f"Maya backend missing core tools: {missing}. Got: {tool_names}"
-        )
+        assert not missing, f"Maya backend missing core tools: {missing}. Got: {tool_names}"
 
     def test_maya_search_skills_finds_maya_skills(self, maya_gateway) -> None:
         """search_skills on Maya backend must find example Maya skills."""
         url = maya_gateway["handle"].mcp_url()
         result = _mcp_call_tool(url, "search_skills", {"query": "maya-geometry"})
-        assert result.get("result", {}).get("isError") is False, (
-            f"search_skills error: {result}"
-        )
+        assert result.get("result", {}).get("isError") is False, f"search_skills error: {result}"
         payload_text = _parse_content_text(result)
-        assert "maya-geometry" in payload_text, (
-            f"maya-geometry not found in search_skills: {payload_text[:300]}"
-        )
+        assert "maya-geometry" in payload_text, f"maya-geometry not found in search_skills: {payload_text[:300]}"
 
     def test_maya_load_skill_on_backend(self, maya_gateway) -> None:
         """Load maya-geometry skill on the backend and verify tools registered."""
@@ -648,9 +635,7 @@ class TestMayaSkillMCPProtocol:
         # Verify tools appear in tools/list
         tools = _mcp_tools_list(url)
         tool_names = {t["name"] for t in tools}
-        assert any("maya" in n.lower() for n in tool_names), (
-            f"No Maya tools found after load: {tool_names}"
-        )
+        assert any("maya" in n.lower() for n in tool_names), f"No Maya tools found after load: {tool_names}"
 
     def test_maya_unload_skill_removes_tools(self, maya_gateway) -> None:
         """Unload maya-geometry and verify tools disappear."""
@@ -680,13 +665,9 @@ class TestMayaSkillMCPProtocol:
         """get_skill_info returns metadata for a Maya skill."""
         url = maya_gateway["handle"].mcp_url()
         result = _mcp_call_tool(url, "get_skill_info", {"skill_name": "maya-geometry"})
-        assert result.get("result", {}).get("isError") is False, (
-            f"get_skill_info error: {result}"
-        )
+        assert result.get("result", {}).get("isError") is False, f"get_skill_info error: {result}"
         payload_text = _parse_content_text(result)
-        assert "maya-geometry" in payload_text, (
-            f"Skill info missing name: {payload_text[:300]}"
-        )
+        assert "maya-geometry" in payload_text, f"Skill info missing name: {payload_text[:300]}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -711,9 +692,7 @@ class TestMayaFullFlowWithInstall:
                 text=True,
                 timeout=10,
             )
-            assert result.returncode == 0, (
-                f"P1-4 tool returned {result.returncode}: {result.stderr[:200]}"
-            )
+            assert result.returncode == 0, f"P1-4 tool returned {result.returncode}: {result.stderr[:200]}"
         except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
             pytest.fail(f"P1-4 tool not available: {exc}")
 
@@ -727,9 +706,7 @@ class TestMayaFullFlowWithInstall:
                 text=True,
                 timeout=60,
             )
-            assert install_result.returncode == 0, (
-                f"Install failed: {install_result.stderr[:500]}"
-            )
+            assert install_result.returncode == 0, f"Install failed: {install_result.stderr[:500]}"
         except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
             pytest.fail(f"Install command failed: {exc}")
 
@@ -737,15 +714,14 @@ class TestMayaFullFlowWithInstall:
         """After full install, search must find Maya tools."""
         url = maya_gateway["gateway_url"]
         result = _post_mcp(
-            url, "tools/call",
+            url,
+            "tools/call",
             {"name": "search", "arguments": {"query": "mesh", "dcc_type": "maya", "limit": 10}},
         )
         assert "error" not in result, f"search error: {result.get('error')}"
         payload = _parse_gateway_payload(result)
         hits = payload.get("hits", [])
-        assert len(hits) >= 1, (
-            f"No tools found after install: {payload}"
-        )
+        assert len(hits) >= 1, f"No tools found after install: {payload}"
 
     def test_call_maya_tool_after_full_install(self, maya_gateway) -> None:
         """After full install, call a Maya tool and verify result."""
@@ -753,7 +729,8 @@ class TestMayaFullFlowWithInstall:
 
         # Search then call
         search_result = _post_mcp(
-            url, "tools/call",
+            url,
+            "tools/call",
             {"name": "search", "arguments": {"query": "sphere", "dcc_type": "maya", "limit": 5}},
         )
         payload = _parse_gateway_payload(search_result)
@@ -763,7 +740,8 @@ class TestMayaFullFlowWithInstall:
 
         slug = hits[0]["tool_slug"]
         call_result = _post_mcp(
-            url, "tools/call",
+            url,
+            "tools/call",
             {
                 "name": "call",
                 "arguments": {"tool_slug": slug, "arguments": {}},
@@ -771,9 +749,7 @@ class TestMayaFullFlowWithInstall:
         )
         assert "error" not in call_result, f"call error after install: {call_result.get('error')}"
         call_payload = _parse_gateway_payload(call_result)
-        assert call_payload.get("success") is not False, (
-            f"Call after install did not succeed: {call_payload}"
-        )
+        assert call_payload.get("success") is not False, f"Call after install did not succeed: {call_payload}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -790,7 +766,8 @@ class TestMayaGatewayIdempotency:
         results = []
         for _ in range(3):
             result = _post_mcp(
-                url, "tools/call",
+                url,
+                "tools/call",
                 {"name": "search", "arguments": {"query": "maya", "dcc_type": "maya", "limit": 5}},
             )
             assert "error" not in result, f"search error on repeat: {result.get('error')}"
@@ -799,16 +776,15 @@ class TestMayaGatewayIdempotency:
 
         # All results should be structurally similar
         hit_counts = [len(r) for r in results]
-        assert max(hit_counts) - min(hit_counts) <= 1, (
-            f"Inconsistent search result counts: {hit_counts}"
-        )
+        assert max(hit_counts) - min(hit_counts) <= 1, f"Inconsistent search result counts: {hit_counts}"
 
     def test_double_load_skill_is_idempotent(self, maya_gateway) -> None:
         """Loading the same Maya skill twice must not error or duplicate."""
         url = maya_gateway["gateway_url"]
         for _ in range(2):
             result = _post_mcp(
-                url, "tools/call",
+                url,
+                "tools/call",
                 {
                     "name": "load_skill",
                     "arguments": {"skill_name": "maya-geometry", "dcc_type": "maya"},
@@ -822,13 +798,15 @@ class TestMayaGatewayIdempotency:
 
         # Load maya-geometry
         _post_mcp(
-            url, "tools/call",
+            url,
+            "tools/call",
             {"name": "load_skill", "arguments": {"skill_name": "maya-geometry", "dcc_type": "maya"}},
         )
 
         # Verify it's loaded by calling a tool
         search = _post_mcp(
-            url, "tools/call",
+            url,
+            "tools/call",
             {"name": "search", "arguments": {"query": "sphere", "dcc_type": "maya", "limit": 5}},
         )
         search_payload = _parse_gateway_payload(search)
@@ -836,14 +814,13 @@ class TestMayaGatewayIdempotency:
 
         # Load again (idempotent — must not error)
         reload_result = _post_mcp(
-            url, "tools/call",
+            url,
+            "tools/call",
             {"name": "load_skill", "arguments": {"skill_name": "maya-geometry", "dcc_type": "maya"}},
         )
         assert "error" not in reload_result, f"reload error: {reload_result.get('error')}"
         payload = _parse_gateway_payload(reload_result)
-        assert payload.get("loaded") is True, (
-            f"Reload did not report loaded=true: {payload}"
-        )
+        assert payload.get("loaded") is True, f"Reload did not report loaded=true: {payload}"
 
     def test_gateway_responds_after_tool_calls(self, maya_gateway) -> None:
         """Ping must still work after several tool calls."""
@@ -858,15 +835,15 @@ class TestMayaGatewayIdempotency:
         # Load all maya skills (best-effort, maya-pipeline may not exist)
         for skill in MAYA_SKILLS:
             _post_mcp(
-                url, "tools/call",
+                url,
+                "tools/call",
                 {"name": "load_skill", "arguments": {"skill_name": skill, "dcc_type": "maya"}},
             )
 
         # Verify search still works
         result = _post_mcp(
-            url, "tools/call",
+            url,
+            "tools/call",
             {"name": "search", "arguments": {"query": "maya", "dcc_type": "maya", "limit": 5}},
         )
-        assert "error" not in result, (
-            f"search after cleanup failed: {result.get('error')}"
-        )
+        assert "error" not in result, f"search after cleanup failed: {result.get('error')}"
