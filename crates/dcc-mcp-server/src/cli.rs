@@ -28,6 +28,11 @@ pub(crate) enum SubCmd {
     /// Machine-wide gateway daemon. Per-DCC sidecars auto-launch this when needed.
     #[cfg(feature = "gateway-daemon")]
     Gateway(dcc_mcp_sidecar::gateway_daemon::GatewayArgs),
+    /// Check for and apply gateway-controlled binary updates.
+    Update {
+        #[command(subcommand)]
+        action: UpdateAction,
+    },
     /// Replay or diff gateway traffic capture files.
     Capture {
         #[command(subcommand)]
@@ -227,6 +232,15 @@ impl ServeArgs {
         }
         self.server
     }
+}
+
+/// Update subcommand: check for or apply gateway-controlled binary updates.
+#[derive(Debug, Subcommand)]
+pub(crate) enum UpdateAction {
+    /// Check whether a newer version is available.
+    Check,
+    /// Download the latest version and stage it for the next launch.
+    Apply,
 }
 
 /// Catalog subcommand: query the public DCC-MCP catalog.
