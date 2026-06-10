@@ -47,7 +47,7 @@ config.dcc_type = "maya"
 
 ### 支持哪些 Python 版本？
 
-Python 3.7–3.13 在 CI 中全部测试。使用 `abi3-py38` 构建 wheel 以最大化兼容性。
+Python 3.7–3.14 在 CI 中全部测试。使用 `abi3-py38` 构建 wheel 以最大化兼容性。
 
 ### 是否有 Python 运行时依赖？
 
