@@ -901,6 +901,7 @@ pub(crate) async fn start_gateway_tasks(
         search_telemetry: Arc::new(crate::gateway::search_telemetry::SearchTelemetryStore::new()),
         debug_routes_enabled: false,
         auth: Arc::new(auth),
+        update_manifest_url: std::env::var("DCC_MCP_UPDATE_MANIFEST_URL").ok(),
         gateway_persist,
         gateway_idle_timeout_secs,
     };

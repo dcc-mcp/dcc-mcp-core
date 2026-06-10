@@ -1,0 +1,21 @@
+[package]
+name = "dcc-mcp-updater"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Gateway-controlled auto-update logic for dcc-mcp binaries (CLI and server)"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+tempfile = "3"
+sha2 = "0.11"
+workspace-hack = { version = "0.1", path = "../workspace-hack" }

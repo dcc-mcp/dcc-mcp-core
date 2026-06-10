@@ -14,6 +14,7 @@ use super::handlers::{
     handle_v1_healthz, handle_v1_instances_deregister, handle_v1_instances_heartbeat,
     handle_v1_instances_register, handle_v1_list_skills, handle_v1_load_skill, handle_v1_openapi,
     handle_v1_readyz, handle_v1_search, handle_v1_skills, handle_v1_unload_skill,
+    handle_v1_update_check, handle_v1_update_download,
 };
 use super::http_limits::rate_limit_middleware;
 use super::resilience::gateway_limits;
@@ -165,5 +166,14 @@ fn build_base_router(state: GatewayState) -> Router {
         .route("/v1/call", routing::post(handle_v1_call))
         .route("/v1/call_batch", routing::post(handle_v1_call_batch))
         .route("/v1/context", routing::get(handle_v1_context))
+        // ── #1505 gateway-controlled binary updates ──────────────────────
+        .route(
+            "/v1/update/check",
+            routing::get(handle_v1_update_check),
+        )
+        .route(
+            "/v1/update/download/{binary_name}",
+            routing::get(handle_v1_update_download),
+        )
         .with_state(state)
 }

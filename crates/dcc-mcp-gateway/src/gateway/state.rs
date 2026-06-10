@@ -280,6 +280,11 @@ pub struct GatewayState {
     /// [`super::config::GatewayConfig::auth`].
     pub auth: Arc<super::security::GatewayAuth>,
 
+    /// URL to fetch the update manifest JSON from (gateway-controlled auto-update).
+    ///
+    /// `None` disables the `/v1/update/*` endpoints.
+    pub update_manifest_url: Option<String>,
+
     /// Runtime lifecycle policy advertised by diagnostics for the standalone
     /// gateway daemon. Embedded gateway paths keep the default non-persistent
     /// policy; daemon mode overrides this from CLI/env configuration.

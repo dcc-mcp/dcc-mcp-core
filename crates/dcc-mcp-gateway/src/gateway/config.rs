@@ -180,6 +180,28 @@ pub struct GatewayConfig {
     /// does not fully trust.
     pub auth: super::security::GatewayAuth,
 
+    /// URL to fetch the update manifest JSON from (gateway-controlled auto-update).
+    ///
+    /// The manifest should be a JSON object mapping binary names to their
+    /// latest version and download URL:
+    /// ```json
+    /// {
+    ///   "dcc-mcp-cli": {
+    ///     "version": "0.19.0",
+    ///     "url": "https://releases.example.com/dcc-mcp-cli-v0.19.0.zip",
+    ///     "sha256": "abc123..."
+    ///   },
+    ///   "dcc-mcp-server": {
+    ///     "version": "0.19.0",
+    ///     "url": "https://releases.example.com/dcc-mcp-server-v0.19.0.zip",
+    ///     "sha256": "def456..."
+    ///   }
+    /// }
+    /// ```
+    /// `None` (default) disables the `/v1/update/*` endpoints (returns 501).
+    /// Override with `DCC_MCP_UPDATE_MANIFEST_URL`.
+    pub update_manifest_url: Option<String>,
+
     /// Keep the standalone gateway daemon alive even when no backend
     /// instances remain. Useful for studio/headless deployments where
     /// backends start and stop independently.
@@ -229,6 +251,7 @@ impl Default for GatewayConfig {
             health_check_failures: 2,
             admin_persist: AdminPersistConfig::default(),
             auth: super::security::GatewayAuth::disabled(),
+            update_manifest_url: None,
             gateway_persist: false,
             gateway_idle_timeout_secs: 30,
         }

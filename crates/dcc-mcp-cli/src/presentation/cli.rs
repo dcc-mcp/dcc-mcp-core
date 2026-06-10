@@ -147,6 +147,11 @@ enum Command {
     },
     /// Validate local SKILL.md packages before loading them at runtime.
     Lint(LintArgs),
+    /// Check for and apply gateway-controlled binary updates.
+    Update {
+        #[command(subcommand)]
+        action: UpdateAction,
+    },
     /// Gateway lifecycle management.
     Gateway {
         #[command(subcommand)]
@@ -248,6 +253,14 @@ struct LintArgs {
     /// Exit non-zero when warnings are present.
     #[arg(long, default_value = "false")]
     warnings_as_errors: bool,
+}
+
+#[derive(Debug, Subcommand)]
+enum UpdateAction {
+    /// Check whether a newer version is available.
+    Check,
+    /// Download the latest version and stage it for the next launch.
+    Apply,
 }
 
 #[derive(Debug, Subcommand)]
@@ -554,6 +567,16 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             let result = run_lint_cmd(&lint_args)?;
             failed = result.failed;
             result.value
+        }
+        Command::Update { action } => {
+            let binary_name = env!("CARGO_PKG_NAME");
+            let current_version = env!("CARGO_PKG_VERSION");
+            let service =
+                crate::application::update::UpdateService::new(&base_url, binary_name, current_version);
+            match action {
+                UpdateAction::Check => to_json(service.check_update().await?)?,
+                UpdateAction::Apply => to_json(service.apply_update().await?)?,
+            }
         }
         Command::Gateway { action } => to_json(run_gateway_cmd(&base_url, action).await?)?,
     };
