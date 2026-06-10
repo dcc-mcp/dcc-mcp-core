@@ -342,6 +342,31 @@ def test_gateway_daemon_guardian_restarts_after_failure_threshold(monkeypatch):
     assert seen[-1]["reason"] == "spawned"
 
 
+def test_gateway_daemon_guardian_jitter_skips_when_peer_recovers(monkeypatch):
+    checks = iter([False, True])
+    monkeypatch.setattr(gg, "_is_healthy", lambda *_a, **_k: next(checks))
+    monkeypatch.setattr(gg.random, "uniform", lambda *_a, **_k: 0.0)
+
+    def _ensure(**_kwargs):
+        raise AssertionError("peer recovery after jitter should skip re-ensure")
+
+    monkeypatch.setattr(gg, "ensure_gateway_daemon", _ensure)
+    guardian = gg.GatewayDaemonGuardian(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=None,
+        dcc_type="maya",
+        failure_threshold=1,
+        reensure_jitter_max_secs=2.0,
+    )
+
+    result = guardian.probe_once(apply_reensure_jitter=True)
+
+    assert result["reason"] == "healthy_after_jitter"
+    assert result["consecutive_failures"] == 0
+    assert result["restart_attempts"] == 0
+
+
 def test_gateway_daemon_guardian_resets_failures_on_health(monkeypatch):
     checks = iter([False, True])
     monkeypatch.setattr(gg, "_is_healthy", lambda *_a, **_k: next(checks))
@@ -440,7 +465,7 @@ def test_build_gateway_daemon_command_includes_persist_flags(monkeypatch, tmp_pa
     assert env["DCC_MCP_DCC_TYPE"] == "custom-host"
 
 
-def test_build_gateway_daemon_command_omits_persist_by_default(monkeypatch, tmp_path):
+def test_build_gateway_daemon_command_uses_adapter_idle_timeout_by_default(monkeypatch, tmp_path):
     monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
     cmd, env = gg.build_gateway_daemon_command(
         gateway_host="127.0.0.1",
@@ -449,9 +474,10 @@ def test_build_gateway_daemon_command_omits_persist_by_default(monkeypatch, tmp_
         dcc_type="maya",
     )
     assert "--gateway-persist" not in cmd
-    assert "--gateway-idle-timeout-secs" not in cmd
+    assert "--gateway-idle-timeout-secs" in cmd
+    assert str(gg._AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_DEFAULT) in cmd
     assert "DCC_MCP_GATEWAY_PERSIST" not in env
-    assert "DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS" not in env
+    assert env["DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS"] == str(gg._AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_DEFAULT)
 
 
 def test_build_gateway_daemon_command_respects_custom_server_bin(monkeypatch, tmp_path):
