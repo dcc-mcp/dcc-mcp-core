@@ -545,6 +545,8 @@ fn default_gateway_name() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
+    use serde_json::json;
 
     #[test]
     fn relay_source_arg_maps_into_gateway_config() {
@@ -594,6 +596,106 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         drop(listener);
         port
+    }
+
+    async fn spawn_ready_backend() -> (u16, tokio::sync::oneshot::Sender<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let app = axum::Router::new()
+            .route(
+                "/v1/readyz",
+                axum::routing::get(|| async {
+                    axum::Json(json!({
+                        "process": true,
+                        "dispatcher": true,
+                        "dcc": true,
+                    }))
+                }),
+            )
+            .route(
+                "/health",
+                axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
+            );
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async move {
+                    let _ = rx.await;
+                })
+                .await
+                .ok();
+        });
+        (port, tx)
+    }
+
+    async fn wait_gateway_health_up(
+        client: &reqwest::Client,
+        port: u16,
+        timeout: std::time::Duration,
+    ) {
+        let started = std::time::Instant::now();
+        let url = format!("http://127.0.0.1:{port}/health");
+        loop {
+            if let Ok(response) = client.get(&url).send().await
+                && response.status().is_success()
+            {
+                return;
+            }
+            assert!(
+                started.elapsed() < timeout,
+                "gateway did not answer /health within {timeout:?}"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    }
+
+    async fn assert_gateway_health(client: &reqwest::Client, port: u16, context: &str) {
+        let health = client
+            .get(format!("http://127.0.0.1:{port}/health"))
+            .send()
+            .await
+            .unwrap_or_else(|err| panic!("gateway /health failed {context}: {err}"));
+        assert!(
+            health.status().is_success(),
+            "gateway /health expected 2xx {context}, got {}",
+            health.status()
+        );
+    }
+
+    async fn wait_gateway_health_down(
+        client: &reqwest::Client,
+        port: u16,
+        timeout: std::time::Duration,
+    ) {
+        let started = std::time::Instant::now();
+        let url = format!("http://127.0.0.1:{port}/health");
+        loop {
+            match client.get(&url).send().await {
+                Ok(response) if response.status().is_success() => {}
+                _ => return,
+            }
+            assert!(
+                started.elapsed() < timeout,
+                "gateway stayed healthy after all routable backends disappeared"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+    }
+
+    async fn cleanup_gateway_outcome(
+        runner: &GatewayRunner,
+        outcome: &mut dcc_mcp_gateway::ElectionOutcome,
+    ) {
+        if let Some(abort) = outcome.gateway_abort.take() {
+            abort.abort();
+        }
+        if let Some(supervisor) = outcome.gateway_supervisor.take() {
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(2), supervisor).await;
+        }
+        if let Some(key) = outcome.sentinel_key.take() {
+            let reg = runner.registry.read().await;
+            let _ = reg.deregister(&key);
+        }
     }
 
     /// Issue #1358 — the standalone gateway daemon must serve gateway-
@@ -658,6 +760,81 @@ mod tests {
             let reg = runner.registry.read().await;
             let _ = reg.deregister(&key);
         }
+    }
+
+    #[tokio::test]
+    async fn standalone_daemon_idle_shutdown_tracks_routable_live_instances() {
+        let dir = tempfile::tempdir().unwrap();
+        let gw_port = ephemeral_port();
+        let args = GatewayArgs {
+            host: "127.0.0.1".to_string(),
+            port: gw_port,
+            name: Some("standalone-daemon-liveness-e2e".to_string()),
+            remote_host: "127.0.0.1".to_string(),
+            remote_port: 0,
+            registry_dir: Some(dir.path().to_path_buf()),
+            no_admin: true,
+            admin_path: "/admin".to_string(),
+            stale_timeout_secs: 30,
+            #[cfg(feature = "mdns")]
+            discover_mdns: false,
+            relay_sources: Vec::new(),
+            gateway_persist: false,
+            gateway_idle_timeout_secs: 1,
+            daemon: false,
+            pidfile: None,
+            restart: false,
+        };
+        let cfg = build_gateway_config(&args, args.name.as_deref().unwrap());
+        let runner = GatewayRunner::new(cfg).expect("creating GatewayRunner");
+        let mut outcome = runner
+            .run_election()
+            .await
+            .expect("standalone daemon must win election on a free port");
+        assert!(outcome.is_gateway);
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(2))
+            .build()
+            .unwrap();
+        wait_gateway_health_up(&client, gw_port, std::time::Duration::from_secs(5)).await;
+
+        let (maya_port, maya_stop) = spawn_ready_backend().await;
+        let (photoshop_port, photoshop_stop) = spawn_ready_backend().await;
+        let maya = ServiceEntry::new("maya", "127.0.0.1", maya_port);
+        let maya_key = maya.key();
+        let photoshop = ServiceEntry::new("photoshop", "127.0.0.1", photoshop_port);
+        let photoshop_key = photoshop.key();
+        {
+            let reg = runner.registry.read().await;
+            reg.register(maya).expect("register maya backend");
+            reg.register(photoshop).expect("register photoshop backend");
+        }
+
+        tokio::time::sleep(std::time::Duration::from_secs(7)).await;
+        assert_gateway_health(
+            &client,
+            gw_port,
+            "while two routable DCC backends are registered",
+        )
+        .await;
+
+        {
+            let reg = runner.registry.read().await;
+            reg.deregister(&maya_key).expect("deregister first backend");
+        }
+        let _ = maya_stop.send(());
+        tokio::time::sleep(std::time::Duration::from_secs(7)).await;
+        assert_gateway_health(&client, gw_port, "while one routable DCC backend remains").await;
+
+        let _ = photoshop_stop.send(());
+        {
+            let reg = runner.registry.read().await;
+            reg.update_status(&photoshop_key, ServiceStatus::Unreachable)
+                .expect("mark remaining backend unreachable");
+        }
+        wait_gateway_health_down(&client, gw_port, std::time::Duration::from_secs(16)).await;
+        cleanup_gateway_outcome(&runner, &mut outcome).await;
     }
 
     #[test]
