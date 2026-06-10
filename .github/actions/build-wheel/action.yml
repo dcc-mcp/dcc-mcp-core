@@ -142,6 +142,20 @@ runs:
           echo "::warning::npm ci attempt ${attempt}/3 failed; retrying in 15s..."
           sleep 15
         done
+        # npm ci may skip transitive optional deps (npm 10.x quirk).
+        # Explicitly install the platform-specific lightningcss binary.
+        LIGHTNING_PKG=$(node -p "
+          ({
+            'linux-x64': 'lightningcss-linux-x64-gnu',
+            'darwin-arm64': 'lightningcss-darwin-arm64',
+            'darwin-x64': 'lightningcss-darwin-x64',
+            'win32-x64': 'lightningcss-win32-x64-msvc',
+            'win32-arm64': 'lightningcss-win32-arm64-msvc',
+          })[process.platform+'-'+process.arch] || ''
+        ")
+        if [ -n "$LIGHTNING_PKG" ]; then
+          vx npm --prefix admin-ui install "$LIGHTNING_PKG" --no-save --ignore-scripts
+        fi
         vx npm --prefix admin-ui run build
         test -f crates/dcc-mcp-gateway/src/gateway/admin/generated/index.html
 
