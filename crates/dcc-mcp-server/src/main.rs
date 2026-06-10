@@ -208,23 +208,29 @@ async fn run_update_cmd(gateway_port: u16, action: UpdateAction) -> anyhow::Resu
         UpdateAction::Apply => {
             let info = updater.check_update().await?;
             if !info.update_available {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                    "status": "up-to-date",
-                    "current_version": info.current_version,
-                    "latest_version": info.latest_version,
-                    "message": "Already running the latest version."
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "status": "up-to-date",
+                        "current_version": info.current_version,
+                        "latest_version": info.latest_version,
+                        "message": "Already running the latest version."
+                    }))?
+                );
                 return Ok(());
             }
             let downloaded = updater.download_update(&info).await?;
             dcc_mcp_updater::Updater::stage_update(&downloaded, updater.binary_name())?;
-            println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                "status": "staged",
-                "current_version": info.current_version,
-                "latest_version": info.latest_version,
-                "staged_at": downloaded.to_string_lossy(),
-                "message": "Update downloaded and staged. Restart the server to apply.",
-            }))?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "status": "staged",
+                    "current_version": info.current_version,
+                    "latest_version": info.latest_version,
+                    "staged_at": downloaded.to_string_lossy(),
+                    "message": "Update downloaded and staged. Restart the server to apply.",
+                }))?
+            );
         }
     }
     Ok(())
