@@ -4,6 +4,10 @@ use std::path::PathBuf;
 use super::SidecarArgs;
 
 #[cfg(feature = "gateway-daemon")]
+pub(crate) const SIDECAR_GATEWAY_IDLE_TIMEOUT_SECS: u64 =
+    crate::gateway_daemon::AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_SECS;
+
+#[cfg(feature = "gateway-daemon")]
 pub(crate) fn build_gateway_daemon_options(
     args: &SidecarArgs,
     registry_dir: PathBuf,
@@ -29,7 +33,7 @@ pub(crate) fn build_gateway_daemon_options(
         gateway_idle_timeout_secs: std::env::var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(30),
+            .unwrap_or(SIDECAR_GATEWAY_IDLE_TIMEOUT_SECS),
     }
 }
 

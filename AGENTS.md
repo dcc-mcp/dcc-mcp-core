@@ -225,7 +225,7 @@ Gateway resources/prompts:
 | Spawn the local tunnel agent | `dcc_mcp_tunnel_agent::run_once(AgentConfig::new(relay_url, jwt, dcc, local_target)).await` — registers, holds the connection open, bridges per-session bytes to the local DCC HTTP server, and may advertise `instance_id`, `capabilities_fingerprint`, `adapter_version`, and `scene` |
 | Long-lived agent with back-off | `dcc_mcp_tunnel_agent::run_with_reconnect(cfg, shutdown_rx).await` — wraps `run_once` in a reconnect loop honouring `AgentConfig::reconnect` (Constant or Exponential); fails fast on `Rejected` |
 | Mint a tunnel JWT | `dcc_mcp_tunnel_protocol::auth::issue(&TunnelClaims { sub, iat, exp, iss, allowed_dcc }, secret)` — relay uses `auth::validate` to enforce DCC scope on every registration |
-| Gateway lifecycle (idle shutdown) | `DCC_MCP_GATEWAY_PERSIST=1` keeps daemon alive with no backends; `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` (default `30`) controls grace period before shutdown |
+| Gateway lifecycle (idle shutdown) | `DCC_MCP_GATEWAY_PERSIST=1` keeps daemon alive with no backends; `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` controls grace period before shutdown (standalone `gateway` CLI default `30`, daemon auto-ensure default `300`) |
 | Gateway failover | `DccGatewayElection(dcc_name, server)` — auto-promote on gateway failure (legacy election mode) |
 | Hide unknown DCC types from gateway | `McpHttpConfig.allow_unknown_tools = false` (default) — drops tools whose `dcc_type` is not registered with the gateway (#553, #555) |
 | Auto-evict dead gateway instances | Gateway runs a TCP probe loop; deregisters after 3 consecutive failures, also runs a startup probe to evict instances whose listener died while the registry entry survived (#551, #552, #556) |

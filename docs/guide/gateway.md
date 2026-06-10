@@ -168,8 +168,10 @@ Additional environment knobs:
   remain. Default `false`; set to `1` for studio/headless deployments
   where backends start and stop independently.
 - `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` — grace period in seconds before
-  the daemon shuts down after the last backend exits. Default `30`;
-  `0` disables the timer (same as `PERSIST=1`).
+  the daemon shuts down after the last routable backend exits. The manual
+  `dcc-mcp-server gateway` CLI default is `30`; daemon auto-ensure passes
+  `300` by default to cover slow backend startup registration. `0`
+  disables the timer (same as `PERSIST=1`).
 
 ### Daemon-mode guarantees
 
@@ -210,7 +212,7 @@ standalone). At runtime it satisfies the following:
 | Layer | Component | Lifecycle |
 |-------|-----------|-----------|
 | **Runtime Supervisor** | `spawn_gateway_guardian()` in every daemon-backed backend | Probes `/health` every 5 s; re-uses single-flight lock to restart daemon after 2 consecutive misses |
-| **Central Gateway** | `dcc-mcp-server gateway` daemon process | Auto-launched by the supervisor; survives backend restarts; idle-timeout (default 30 s) after last backend exits, unless `DCC_MCP_GATEWAY_PERSIST=1` |
+| **Central Gateway** | `dcc-mcp-server gateway` daemon process | Auto-launched by the supervisor; survives backend restarts; idle-timeout after the last routable backend exits (manual CLI default 30 s; daemon auto-ensure default 300 s), unless `DCC_MCP_GATEWAY_PERSIST=1` |
 | **Per-DCC Registration** | `FileRegistry` row + 5 s heartbeat | Each backend stamps `gateway_runtime_mode`, `gateway_guardian_enabled`, `gateway_recovery_driver` into its row so admin tools can answer "which services can revive the gateway?" |
 
 ### Python daemon helpers (PIP-513)
@@ -221,7 +223,7 @@ studio pipeline service.
 
 | Mode | API | Typical use |
 |------|-----|-------------|
-| **Gateway ensure** | `ensure_gateway_daemon(gateway_persist=True, ...)` | DCC adapter startup auto-ensures a machine-wide gateway daemon; single-flight lock prevents duplicate spawns |
+| **Gateway ensure** | `ensure_gateway_daemon(gateway_persist=True, ...)` | DCC adapter startup auto-ensures a machine-wide gateway daemon with a 300 s idle grace by default; single-flight lock prevents duplicate spawns |
 | **Gateway launch** | `launch_gateway_daemon(gateway_host=..., ...)` | Alias for `ensure_gateway_daemon` with explicit daemon naming |
 | **Arbitrary command detach** | `launch_detached(["my-svc", "--flag"])` | Studio-owned pipeline adapters, sidecars, custom MCP hosts |
 
@@ -303,7 +305,7 @@ cmd, env = build_gateway_daemon_command(
 - Guardians from multiple DCC types share one `gateway-launch.lock` — at most one daemon spawn.
 - The daemon hosts the gateway plane only; DCC backends handle tool execution.
 - If the daemon crashes, any surviving guardian restarts it within ~10-15 s (two probe misses + re-ensure time).
-- When all backends exit, the daemon shuts down after `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` (default 30 s), unless `DCC_MCP_GATEWAY_PERSIST=1`.
+- When all routable backends exit, the daemon shuts down after `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` (manual CLI default 30 s; daemon auto-ensure default 300 s), unless `DCC_MCP_GATEWAY_PERSIST=1`.
 
 ## Topology recipes (issue #1366)
 
