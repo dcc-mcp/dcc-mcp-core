@@ -8,6 +8,7 @@ use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};
 
 const GATEWAY_SENTINEL_STALE_SECS: u64 = 30;
+pub const AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_SECS: u64 = 300;
 
 /// Helpers for auto-launching the standalone gateway from inside another
 /// process (the per-DCC sidecar / embedded server).

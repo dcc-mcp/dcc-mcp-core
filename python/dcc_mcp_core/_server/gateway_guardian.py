@@ -6,6 +6,7 @@ import contextlib
 import logging
 import os
 from pathlib import Path
+import random
 import shutil
 import threading
 import time
@@ -25,6 +26,9 @@ _LAUNCH_LOCK_STALE_SECS_ENV = "DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS"
 _LAUNCH_LOCK_STALE_SECS_DEFAULT = 30.0
 _ENSURE_TIMEOUT_ENV = "DCC_MCP_GATEWAY_ENSURE_TIMEOUT_SECS"
 _ENSURE_TIMEOUT_DEFAULT = 15.0
+_AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_DEFAULT = 300
+_REENSURE_JITTER_ENV = "DCC_MCP_GATEWAY_GUARDIAN_REENSURE_JITTER_MAX"
+_REENSURE_JITTER_DEFAULT = 2.0
 
 
 def _is_healthy(host: str, port: int, timeout: float) -> bool:
@@ -155,11 +159,11 @@ def _resolve_gateway_idle_timeout_secs(gateway_idle_timeout_secs: int | None) ->
         return max(int(gateway_idle_timeout_secs), 0)
     raw = (os.environ.get("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS") or "").strip()
     if not raw:
-        return None
+        return _AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_DEFAULT
     try:
         return max(int(raw), 0)
     except ValueError:
-        return None
+        return _AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_DEFAULT
 
 
 def build_gateway_daemon_command(
@@ -430,6 +434,7 @@ class GatewayDaemonGuardian:
         probe_interval_secs: float | None = None,
         probe_timeout_secs: float | None = None,
         restart_timeout_secs: float | None = None,
+        reensure_jitter_max_secs: float | None = None,
         failure_threshold: int | None = None,
         status_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
@@ -448,6 +453,12 @@ class GatewayDaemonGuardian:
         self.restart_timeout_secs = restart_timeout_secs or _float_env(
             "DCC_MCP_GATEWAY_GUARDIAN_RESTART_TIMEOUT",
             _float_env(_ENSURE_TIMEOUT_ENV, _ENSURE_TIMEOUT_DEFAULT),
+        )
+        self.reensure_jitter_max_secs = max(
+            0.0,
+            reensure_jitter_max_secs
+            if reensure_jitter_max_secs is not None
+            else _float_env(_REENSURE_JITTER_ENV, _REENSURE_JITTER_DEFAULT),
         )
         self.failure_threshold = max(
             1,
@@ -499,7 +510,7 @@ class GatewayDaemonGuardian:
         status["guardian_running"] = bool(self._thread is not None and self._thread.is_alive())
         return status
 
-    def probe_once(self) -> dict[str, Any]:
+    def probe_once(self, *, apply_reensure_jitter: bool = False) -> dict[str, Any]:
         if self.gateway_port <= 0:
             return self._publish({"ok": False, "reason": "gateway_port_not_configured"})
 
@@ -517,6 +528,20 @@ class GatewayDaemonGuardian:
                 }
             )
 
+        if apply_reensure_jitter:
+            jitter = random.uniform(0.0, self.reensure_jitter_max_secs)
+            if jitter > 0.0 and self._stop.wait(jitter):
+                return self._publish({"ok": False, "reason": "guardian_stopped"})
+            if _is_healthy(self.gateway_host, self.gateway_port, timeout=self.probe_timeout_secs):
+                self._consecutive_failures = 0
+                return self._publish(
+                    {
+                        "ok": True,
+                        "reason": "healthy_after_jitter",
+                        "consecutive_failures": 0,
+                    }
+                )
+
         self._restart_attempts += 1
         result = ensure_gateway_daemon(
             gateway_host=self.gateway_host,
@@ -532,7 +557,7 @@ class GatewayDaemonGuardian:
     def _run(self) -> None:
         while not self._stop.wait(max(self.probe_interval_secs, 0.1)):
             try:
-                self.probe_once()
+                self.probe_once(apply_reensure_jitter=True)
             except Exception:
                 self._crash_count += 1
                 logger.exception(

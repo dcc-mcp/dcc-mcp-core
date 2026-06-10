@@ -57,6 +57,53 @@ async fn wait_for_gateway_yield(mut yield_rx: watch::Receiver<bool>) {
     }
 }
 
+fn spawn_gateway_idle_shutdown_task(
+    registry: Arc<RwLock<FileRegistry>>,
+    gw_state: GatewayState,
+    yield_tx: Arc<watch::Sender<bool>>,
+    grace: Duration,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let poll = Duration::from_secs(5);
+        let mut idle_since: Option<std::time::Instant> = None;
+
+        loop {
+            tokio::time::sleep(poll).await;
+            let live_count = {
+                let reg = registry.read().await;
+                gw_state.live_instances(&reg).len()
+            };
+
+            if live_count > 0 {
+                if idle_since.take().is_some() {
+                    tracing::info!(
+                        live_backends = live_count,
+                        "gateway idle countdown cancelled — backends reconnected"
+                    );
+                }
+                continue;
+            }
+
+            let since = *idle_since.get_or_insert_with(std::time::Instant::now);
+            let elapsed = since.elapsed();
+            tracing::debug!(
+                elapsed_secs = elapsed.as_secs(),
+                grace_period_secs = grace.as_secs(),
+                "gateway idle: no live backends"
+            );
+
+            if elapsed >= grace {
+                tracing::warn!(
+                    grace_period_secs = grace.as_secs(),
+                    "gateway idle timeout reached — shutting down"
+                );
+                let _ = yield_tx.send(true);
+                return;
+            }
+        }
+    })
+}
+
 #[cfg(feature = "mdns")]
 fn spawn_mdns_discovery_task(
     mdns_registry: Arc<
@@ -906,6 +953,20 @@ pub(crate) async fn start_gateway_tasks(
         gateway_idle_timeout_secs,
     };
 
+    let idle_shutdown_handle = if matches!(gw_state.adapter_dcc.as_deref(), Some("gateway"))
+        && !gw_state.gateway_persist
+        && gw_state.gateway_idle_timeout_secs > 0
+    {
+        Some(spawn_gateway_idle_shutdown_task(
+            registry.clone(),
+            gw_state.clone(),
+            yield_tx.clone(),
+            Duration::from_secs(gw_state.gateway_idle_timeout_secs),
+        ))
+    } else {
+        None
+    };
+
     // ── Admin UI state (#772, #864) ────────────────────────────────────────
     // Wire AuditMiddleware into the default chain so /admin/api/calls is
     // populated. We prepend one AdminAuditSink-backed AuditMiddleware only
@@ -1160,6 +1221,9 @@ pub(crate) async fn start_gateway_tasks(
     }
     #[cfg(feature = "prometheus")]
     task_handles.push(metrics_handle);
+    if let Some(handle) = idle_shutdown_handle {
+        task_handles.push(handle);
+    }
 
     let combined = tokio::spawn(async move {
         let task_group = GatewayTaskGroup::new(task_handles);

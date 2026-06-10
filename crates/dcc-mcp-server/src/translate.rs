@@ -156,7 +156,7 @@ fn build_translate_gateway_daemon_options(
         gateway_idle_timeout_secs: std::env::var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(30),
+            .unwrap_or(dcc_mcp_sidecar::gateway_daemon::AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_SECS),
     }
 }
 

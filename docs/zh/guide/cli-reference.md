@@ -158,6 +158,10 @@ Admin 审计/trace 持久化只通过环境变量配置：设置 `DCC_MCP_GATEWA
 | `--gateway-persist` | `DCC_MCP_GATEWAY_PERSIST` | `false` | 即使没有已注册 backend，也保持 gateway daemon 存活。 |
 | `--gateway-idle-timeout-secs` | `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` | `30` | 最后一个 backend 消失后等待多少秒再关闭。`0` 关闭 idle shutdown。 |
 
+Daemon auto-ensure 路径默认传 `300` 秒 idle timeout，除非设置
+`DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` 覆盖。独立 `gateway` CLI 保持较短的
+`30` 秒默认值，适合显式 operator 启动。
+
 ### 文件日志旗标
 
 | 旗标 | 环境变量 | 默认值 | 说明 |
