@@ -951,7 +951,7 @@ When adding a Rust type/function that needs to be callable from Python:
 ## CI & Release
 
 - PRs must pass: `vx just preflight` + `vx just test` + `vx just lint`
-- CI matrix: Python 3.7, 3.9, 3.11, 3.13 on Linux / macOS / Windows
+- CI matrix: Python 3.7, 3.9, 3.11, 3.13, 3.14 on Linux / macOS / Windows
 - Versioning: Release Please (Conventional Commits) — never manually bump
 - PyPI: Trusted Publishing (no tokens) — **each** of `dcc-mcp-core`, `dcc-mcp-server`, and `dcc-mcp-core-semantic` needs its own PyPI Trusted Publisher; see [PyPI Trusted Publishers](https://docs.pypi.org/trusted-publishers/)
 - Docs-only changes skip Rust rebuild → CI passes quickly
