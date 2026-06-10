@@ -192,7 +192,7 @@ Full symbol listing lives in the [API reference](/api/actions).
 ## Version / language support
 
 - **Current version**: 0.18.16 <!-- x-release-please-version -->
-- **Python**: 3.7–3.13 (`abi3-py38` wheel)
+- **Python**: 3.7–3.14 (`abi3-py38` wheel)
 - **Rust**: Edition 2024; MSRV pinned in `rust-toolchain.toml` at the repo root
 - **Build**: maturin + PyO3
 

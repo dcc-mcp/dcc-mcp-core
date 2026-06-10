@@ -2,7 +2,7 @@
 name: dcc-mcp-core
 description: "Foundation library for the DCC Model Context Protocol (MCP) ecosystem. Provides Rust-powered action management, skills system, IPC transport, MCP Streamable HTTP server (2025-03-26 spec, with 2025-06-18 and 2025-11-25 awareness), sandbox security, shared memory, screen capture, USD scene support, and telemetry for AI-assisted DCC workflows. Use when working with Maya, Blender, Houdini, 3ds Max, or any DCC MCP integration."
 allowed-tools: Bash Read Write Edit
-compatibility: "Python 3.7-3.13; Rust 1.95+ required to build from source; zero runtime Python dependencies"
+compatibility: "Python 3.7-3.14; Rust 1.95+ required to build from source; zero runtime Python dependencies"
 version: "0.18.16"  # x-release-please-version
 ---
 
@@ -50,7 +50,7 @@ The foundational library enabling AI assistants to interact with Digital Content
 
 ```bash
 pip install dcc-mcp-core
-# Python 3.7-3.13, zero runtime dependencies
+# Python 3.7-3.14, zero runtime dependencies
 ```
 
 ## Local Dependency Maintenance
