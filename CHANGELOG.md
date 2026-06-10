@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.17](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.16...v0.18.17) (2026-06-10)
+
+
+### Features
+
+* **dcc-mcp-updater, gateway, cli, server:** add gateway-controlled auto-update mechanism ([4d10fd1](https://github.com/dcc-mcp/dcc-mcp-core/commit/4d10fd19273fcac1a6507eae9fccd2f3da2762e3))
+
+
+### Bug Fixes
+
+* **ci, media:** add py314 coverage and portable ffmpeg flags ([b40dfda](https://github.com/dcc-mcp/dcc-mcp-core/commit/b40dfda22c8d1cf50b359d77351f76717de83fe2))
+* **ci:** explicitly install lightningcss native module after npm ci ([a906380](https://github.com/dcc-mcp/dcc-mcp-core/commit/a906380d307e2aae792e540d70dccd86737436f2))
+* **cli, fmt, clippy:** fix lint errors and apply cargo fmt ([5609cbf](https://github.com/dcc-mcp/dcc-mcp-core/commit/5609cbf046825469549a78e8aa8d4e8592d9aef3))
+* **gateway:** align daemon keepalive liveness ([eb1f92d](https://github.com/dcc-mcp/dcc-mcp-core/commit/eb1f92d3c1c7dbd97201825cd434ae096ff30448))
+* **updater, gateway, cli:** address PR review issues ([a9b0279](https://github.com/dcc-mcp/dcc-mcp-core/commit/a9b02798bc198d31fc36a7ba065d2440952a506d))
+
 ## [0.18.16](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.15...v0.18.16) (2026-06-10)
 
 
