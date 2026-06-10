@@ -188,12 +188,12 @@ pub struct GatewayConfig {
     /// {
     ///   "dcc-mcp-cli": {
     ///     "version": "0.19.0",
-    ///     "url": "https://releases.example.com/dcc-mcp-cli-v0.19.0.zip",
+    ///     "url": "https://releases.example.com/dcc-mcp-cli-v0.19.0",
     ///     "sha256": "abc123..."
     ///   },
     ///   "dcc-mcp-server": {
     ///     "version": "0.19.0",
-    ///     "url": "https://releases.example.com/dcc-mcp-server-v0.19.0.zip",
+    ///     "url": "https://releases.example.com/dcc-mcp-server-v0.19.0",
     ///     "sha256": "def456..."
     ///   }
     /// }

@@ -176,6 +176,7 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
         ),
         debug_routes_enabled: false,
         auth: std::sync::Arc::new(crate::gateway::security::GatewayAuth::disabled()),
+        update_manifest_url: None,
         gateway_persist: false,
         gateway_idle_timeout_secs: 30,
     };
@@ -356,6 +357,7 @@ async fn make_gateway_state(
         ),
         debug_routes_enabled: false,
         auth: std::sync::Arc::new(crate::gateway::security::GatewayAuth::disabled()),
+        update_manifest_url: None,
         gateway_persist: false,
         gateway_idle_timeout_secs: 30,
     }
@@ -1375,6 +1377,7 @@ async fn gateway_state_with_instances(
         ),
         debug_routes_enabled: false,
         auth: std::sync::Arc::new(crate::gateway::security::GatewayAuth::disabled()),
+        update_manifest_url: None,
         gateway_persist: false,
         gateway_idle_timeout_secs: 30,
     };

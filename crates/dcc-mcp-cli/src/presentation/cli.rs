@@ -344,6 +344,14 @@ pub async fn run() -> anyhow::Result<()> {
 }
 
 async fn run_with_args(args: Args) -> anyhow::Result<()> {
+    // Apply any staged binary update before running commands (CLI restart
+    // is the user's next invocation after `update apply`).
+    match dcc_mcp_updater::Updater::apply_staged_update(env!("CARGO_PKG_NAME")) {
+        Ok(true) => eprintln!("info: staged binary update applied"),
+        Ok(false) => { /* no update was staged */ }
+        Err(e) => eprintln!("warning: failed to apply staged binary update: {e}"),
+    }
+
     let Args {
         base_url,
         output,
