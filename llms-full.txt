@@ -83,6 +83,7 @@ crates/
 ├── dcc-mcp-skill-rest/   # Per-DCC /v1/* REST skill API
 ├── dcc-mcp-gateway-core/ # Pure gateway domain/search/ranking types
 ├── dcc-mcp-gateway-search/ # Reusable capability search/ranking engine
+├── dcc-mcp-gateway-ensure/ # Shared gateway health check, launch lock, spawn, process utilities
 ├── dcc-mcp-gateway/      # Multi-DCC gateway app + dynamic wrappers
 ├── dcc-mcp-http-types/   # Pure HTTP wire/config/value types
 ├── dcc-mcp-http-server/  # Reusable HTTP runtime support
@@ -91,6 +92,7 @@ crates/
 ├── dcc-mcp-transport/    # DccLink IPC adapters
 ├── dcc-mcp-process/      # PyDccLauncher, monitors, crash recovery
 ├── dcc-mcp-telemetry/    # TelemetryConfig, RecordingGuard, ToolMetrics, ToolRecorder
+├── dcc-mcp-updater/      # Gateway-controlled binary update (check, download, staged apply)
 ├── dcc-mcp-sandbox/      # SandboxPolicy, SandboxContext, InputValidator, AuditLog
 ├── dcc-mcp-shm/          # Shared buffers and LZ4 compression
 ├── dcc-mcp-capture/      # Screen/window capture
