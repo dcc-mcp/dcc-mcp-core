@@ -167,10 +167,7 @@ fn build_base_router(state: GatewayState) -> Router {
         .route("/v1/call_batch", routing::post(handle_v1_call_batch))
         .route("/v1/context", routing::get(handle_v1_context))
         // ── #1505 gateway-controlled binary updates ──────────────────────
-        .route(
-            "/v1/update/check",
-            routing::get(handle_v1_update_check),
-        )
+        .route("/v1/update/check", routing::get(handle_v1_update_check))
         .route(
             "/v1/update/download/{binary_name}",
             routing::get(handle_v1_update_download),

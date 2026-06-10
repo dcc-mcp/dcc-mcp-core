@@ -299,10 +299,7 @@ fn dirs_data_dir() -> Option<PathBuf> {
         std::env::var("APPDATA").ok().map(PathBuf::from)
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-    {
-        None::<PathBuf>
-    }
-    .map(|p| p.join("dcc-mcp"))
+    { None::<PathBuf> }.map(|p| p.join("dcc-mcp"))
 }
 
 // ── hex is needed for SHA-256 display ────────────────────────────────────────
