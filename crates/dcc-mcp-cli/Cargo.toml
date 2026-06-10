@@ -17,6 +17,7 @@ anyhow.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
 dcc-mcp-catalog.workspace = true
 dcc-mcp-gateway-ensure.workspace = true
+dcc-mcp-updater.workspace = true
 dcc-mcp-marketplace.workspace = true
 dcc-mcp-skills.workspace = true
 dirs.workspace = true

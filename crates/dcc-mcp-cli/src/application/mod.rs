@@ -4,3 +4,4 @@ pub mod gateway_discovery;
 pub mod gateway_ensure;
 pub mod install;
 pub mod marketplace;
+pub mod update;

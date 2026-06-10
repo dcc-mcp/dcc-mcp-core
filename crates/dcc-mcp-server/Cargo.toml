@@ -28,6 +28,7 @@ dcc-mcp-transport.workspace = true
 dcc-mcp-telemetry = { path = "../dcc-mcp-telemetry", optional = true }
 dcc-mcp-catalog.workspace = true
 dcc-mcp-jsonrpc = { path = "../dcc-mcp-jsonrpc" }
+dcc-mcp-updater.workspace = true
 dcc-mcp-sidecar = { path = "../dcc-mcp-sidecar", default-features = false, optional = true }
 serde.workspace = true
 serde_json.workspace = true
