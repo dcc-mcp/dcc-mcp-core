@@ -563,7 +563,7 @@ The native extension bundles all Rust code — no `pip install` for PyO3, tokio,
 
 Using PyO3 with:
 - `multiple-pymethods` — Multiple `#[pymethods]` per struct
-- `abi3-py38` — Stable ABI for Python 3.8+ (CI tests 3.7–3.13)
+- `abi3-py38` — Stable ABI for Python 3.8+ (CI tests 3.7–3.14)
 - `extension-module` — Allow loading from any Python path
 
 ### 3. Rust Edition 2024, MSRV 1.95

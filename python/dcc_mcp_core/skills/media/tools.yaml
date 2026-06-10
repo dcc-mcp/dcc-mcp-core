@@ -68,7 +68,7 @@ tools:
           minimum: 0
           maximum: 51
           default: 18
-          description: "FFmpeg CRF value; lower is higher quality."
+          description: "FFmpeg quality value; libx264/libx265 use CRF, while mpeg4 maps to q:v."
         overwrite:
           type: boolean
           default: false
@@ -126,7 +126,7 @@ tools:
           minimum: 0
           maximum: 51
           default: 18
-          description: "FFmpeg CRF value when the selected codec supports it."
+          description: "FFmpeg quality value; libx264/libx265 use CRF, while mpeg4/prores map to q:v."
         overwrite:
           type: boolean
           default: false
