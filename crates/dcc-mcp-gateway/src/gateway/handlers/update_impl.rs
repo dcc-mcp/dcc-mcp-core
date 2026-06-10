@@ -15,6 +15,7 @@ pub(crate) struct ManifestEntry {
     pub(crate) version: String,
     pub(crate) url: Option<String>,
     pub(crate) sha256: Option<String>,
+    pub(crate) release_notes: Option<String>,
 }
 
 /// Top-level update manifest fetched from `update_manifest_url`.
@@ -107,6 +108,7 @@ pub(crate) async fn handle_v1_update_check(
         "latest_version": entry.version,
         "download_url": entry.url,
         "sha256": entry.sha256,
+        "release_notes": entry.release_notes,
         "current_version": current_version,
     });
 

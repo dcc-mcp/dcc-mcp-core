@@ -1307,6 +1307,7 @@ mod tests {
             ),
             debug_routes_enabled: false,
             auth: Arc::new(crate::gateway::security::GatewayAuth::disabled()),
+            update_manifest_url: None,
             gateway_persist: false,
             gateway_idle_timeout_secs: 30,
         }
