@@ -29,7 +29,7 @@ The core library works with any Python 3.7+ environment.
 
 ### What Python versions are supported?
 
-Python 3.7–3.13 are tested in CI. Wheels are built with `abi3-py38` for maximum compatibility.
+Python 3.7–3.14 are tested in CI. Wheels are built with `abi3-py38` for maximum compatibility.
 
 ### Does it have any Python runtime dependencies?
 

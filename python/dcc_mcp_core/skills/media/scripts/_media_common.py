@@ -490,6 +490,14 @@ def _format_number(number: float) -> str:
     return str(number)
 
 
+def _video_quality_args(codec: str, quality: Any, default: int = 18) -> List[str]:
+    value = int_value("quality", quality, default, minimum=0, maximum=51)
+    if codec in {"mpeg4", "prores_ks"}:
+        q_value = min(31, max(1, value or 1))
+        return ["-q:v", str(q_value)]
+    return ["-crf", str(value)]
+
+
 def build_probe_command(input_path: Any) -> List[str]:
     input_file = existing_file("input_path", input_path)
     return vx_command(
@@ -526,14 +534,14 @@ def build_sequence_to_mp4_command(
         frame_glob=frame_glob,
     )
     fps = number_value("framerate", framerate, 24, minimum=0.001, maximum=240)
-    crf = int_value("quality", quality, 18, minimum=0, maximum=51)
     selected_codec = enum_value("codec", codec, SEQUENCE_CODECS, "mpeg4")
     selected_pix_fmt = enum_value("pix_fmt", pix_fmt, SEQUENCE_PIX_FMTS, "yuv420p")
     args = ["-hide_banner", "-loglevel", "error", "-y" if overwrite_bool else "-n"]
     args += ["-framerate", _format_number(fps)]
     if is_glob:
         args += ["-pattern_type", "glob"]
-    args += ["-i", source, "-c:v", selected_codec, "-pix_fmt", selected_pix_fmt, "-crf", str(crf)]
+    args += ["-i", source, "-c:v", selected_codec, "-pix_fmt", selected_pix_fmt]
+    args += _video_quality_args(selected_codec, quality)
     args += ["-movflags", "+faststart", str(output)]
     return vx_command("ffmpeg", args), output, source
 
@@ -554,11 +562,11 @@ def build_transcode_command(
     selected_video = enum_value("video_codec", video_codec, VIDEO_CODECS, "mpeg4")
     selected_audio = enum_value("audio_codec", audio_codec, AUDIO_CODECS, "aac")
     selected_pix_fmt = enum_value("pix_fmt", pix_fmt, PIX_FMTS, "yuv420p")
-    crf = int_value("quality", quality, 18, minimum=0, maximum=51)
     args = ["-hide_banner", "-loglevel", "error", "-y" if overwrite_bool else "-n"]
     args += ["-i", str(input_file), "-c:v", selected_video]
     if selected_video != "copy":
-        args += ["-pix_fmt", selected_pix_fmt, "-crf", str(crf)]
+        args += ["-pix_fmt", selected_pix_fmt]
+        args += _video_quality_args(selected_video, quality)
     if selected_audio == "none":
         args += ["-an"]
     else:

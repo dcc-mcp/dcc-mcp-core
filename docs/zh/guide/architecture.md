@@ -413,7 +413,7 @@ python/dcc_mcp_core/
 
 使用 PyO3，特性：
 - `multiple-pymethods` — 每个 struct 多个 `#[pymethods]`
-- `abi3-py38` — Python 3.8+ 稳定 ABI（CI 测试 3.7–3.13）
+- `abi3-py38` — Python 3.8+ 稳定 ABI（CI 测试 3.7–3.14）
 - `extension-module` — 允许从任意 Python 路径加载
 
 ### 3. Rust Edition 2024, MSRV 1.95
