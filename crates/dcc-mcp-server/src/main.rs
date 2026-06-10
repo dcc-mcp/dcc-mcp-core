@@ -90,7 +90,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
-use cli::{Args, CatalogAction, ServerArgs, SubCmd};
+use cli::{Args, CatalogAction, ServerArgs, SubCmd, UpdateAction};
 use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
 #[cfg(feature = "gateway-auto")]
 use dcc_mcp_gateway::{AdminPersistConfig, GatewayConfig, GatewayRunner, SkillPathEntry};
@@ -190,6 +190,42 @@ fn run_catalog_cmd(action: &CatalogAction) -> anyhow::Result<()> {
                 std::process::exit(1);
             }
         },
+    }
+    Ok(())
+}
+
+async fn run_update_cmd(gateway_port: u16, action: UpdateAction) -> anyhow::Result<()> {
+    let gateway_url = format!("http://127.0.0.1:{gateway_port}");
+    let binary_name = env!("CARGO_PKG_NAME");
+    let current_version = env!("CARGO_PKG_VERSION");
+    let updater = dcc_mcp_updater::Updater::new(&gateway_url, binary_name, current_version);
+
+    match action {
+        UpdateAction::Check => {
+            let info = updater.check_update().await?;
+            println!("{}", serde_json::to_string_pretty(&info)?);
+        }
+        UpdateAction::Apply => {
+            let info = updater.check_update().await?;
+            if !info.update_available {
+                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                    "status": "up-to-date",
+                    "current_version": info.current_version,
+                    "latest_version": info.latest_version,
+                    "message": "Already running the latest version."
+                }))?);
+                return Ok(());
+            }
+            let downloaded = updater.download_update(&info).await?;
+            dcc_mcp_updater::Updater::stage_update(&downloaded, updater.binary_name())?;
+            println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                "status": "staged",
+                "current_version": info.current_version,
+                "latest_version": info.latest_version,
+                "staged_at": downloaded.to_string_lossy(),
+                "message": "Update downloaded and staged. Restart the server to apply.",
+            }))?);
+        }
     }
     Ok(())
 }
@@ -576,6 +612,9 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     // ── Dispatch to subcommands ───────────────────────────────────────────
+    // Extract values needed by the Update subcommand before the match
+    // to avoid a partial move conflict when borrowing `args` later.
+    let _update_gateway_port = args.server.gateway_port;
     match args.command {
         Some(SubCmd::Auto(server_args)) => return run_server(server_args).await,
         Some(SubCmd::Serve(serve_args)) => return run_server(serve_args.into_server_args()).await,
@@ -589,6 +628,9 @@ async fn main() -> anyhow::Result<()> {
                 return gateway_daemon::restart_gateway(&gateway_args).await;
             }
             return gateway_daemon::run(gateway_args).await;
+        }
+        Some(SubCmd::Update { action }) => {
+            return run_update_cmd(_update_gateway_port, action).await;
         }
         Some(SubCmd::Capture { action }) => return capture::run(action).await,
         None => return run_server(args.server).await,
@@ -617,6 +659,13 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
     if let (Some(path), Some(pid)) = (args.pid_cleanup_watch.clone(), args.watch_pid) {
         run_pid_cleanup_watcher(path, pid);
         return Ok(());
+    }
+
+    // ── Apply any staged binary update before starting ────────────────────
+    match dcc_mcp_updater::Updater::apply_staged_update(env!("CARGO_PKG_NAME")) {
+        Ok(true) => tracing::info!("staged binary update applied"),
+        Ok(false) => { /* no update was staged */ }
+        Err(e) => tracing::warn!(error = %e, "failed to apply staged binary update"),
     }
 
     // Wire up rolling-file logging by default unless --no-log-file is passed.

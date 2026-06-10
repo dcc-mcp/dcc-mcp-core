@@ -1136,6 +1136,7 @@ dependencies = [
  "dcc-mcp-gateway-ensure",
  "dcc-mcp-marketplace",
  "dcc-mcp-skills",
+ "dcc-mcp-updater",
  "dirs",
  "hex",
  "reqwest 0.13.4",
@@ -1670,6 +1671,7 @@ dependencies = [
  "dcc-mcp-skills",
  "dcc-mcp-telemetry",
  "dcc-mcp-transport",
+ "dcc-mcp-updater",
  "futures-util",
  "reqwest 0.13.4",
  "rusqlite",
@@ -1879,6 +1881,22 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "dcc-mcp-updater"
+version = "0.18.16"
+dependencies = [
+ "anyhow",
+ "reqwest 0.13.4",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
  "workspace-hack",
 ]
 

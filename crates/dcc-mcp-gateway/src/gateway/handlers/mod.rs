@@ -34,6 +34,7 @@ mod rest_impl;
 mod rest_support;
 mod rest_trace;
 mod sse_impl;
+mod update_impl;
 
 pub use lifecycle_impl::handle_v1_dcc_instance_stop;
 pub use mcp_impl::handle_gateway_mcp;
@@ -49,6 +50,7 @@ pub use rest_impl::{
     handle_v1_search, handle_v1_skills, handle_v1_unload_skill,
 };
 pub use sse_impl::handle_gateway_get;
+pub(crate) use update_impl::{handle_v1_update_check, handle_v1_update_download};
 
 pub(crate) use mcp_impl::JsonRpcRequest;
 pub(crate) use notification_impl::handle_notification;
