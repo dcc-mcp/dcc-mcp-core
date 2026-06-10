@@ -1151,7 +1151,10 @@ fn test_corrupted_registry_file_is_quarantined_and_starts_empty() {
     std::fs::write(&services_json, r#"{"garbage": true}"#).unwrap();
 
     let registry = FileRegistry::new(dir.path()).unwrap();
-    assert!(registry.is_empty(), "registry must start empty on parse failure");
+    assert!(
+        registry.is_empty(),
+        "registry must start empty on parse failure"
+    );
 
     // Corrupted file must be moved aside
     let corrupt_files = corrupted_registry_files(dir.path());
@@ -1177,7 +1180,10 @@ fn test_malformed_json_registry_file_is_quarantined() {
     std::fs::write(&services_json, r#"[{"dcc_type": "maya", "inst"#).unwrap();
 
     let registry = FileRegistry::new(dir.path()).unwrap();
-    assert!(registry.is_empty(), "registry must start empty on malformed JSON");
+    assert!(
+        registry.is_empty(),
+        "registry must start empty on malformed JSON"
+    );
 
     let corrupt_files = corrupted_registry_files(dir.path());
     assert_eq!(corrupt_files.len(), 1);
@@ -1202,7 +1208,11 @@ fn test_float_timestamp_registry_file_parses() {
     std::fs::write(&services_json, serde_json::to_string(&content).unwrap()).unwrap();
 
     let registry = FileRegistry::new(dir.path()).unwrap();
-    assert_eq!(registry.len(), 1, "registry must load float-timestamp entries");
+    assert_eq!(
+        registry.len(),
+        1,
+        "registry must load float-timestamp entries"
+    );
 
     let key = ServiceKey {
         dcc_type: "maya".to_string(),
