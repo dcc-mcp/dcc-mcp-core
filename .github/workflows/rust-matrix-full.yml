@@ -48,7 +48,22 @@ jobs:
         shell: bash
         run: |
           vx node --version
-          if ! vx npm --prefix admin-ui ci --ignore-scripts --include=optional; then
+          if vx npm --prefix admin-ui ci --ignore-scripts --include=optional; then
+            # npm ci may skip transitive optional deps (npm 10.x quirk).
+            # Explicitly install the platform-specific lightningcss binary.
+            LIGHTNING_PKG=$(node -p "
+              ({
+                'linux-x64': 'lightningcss-linux-x64-gnu',
+                'darwin-arm64': 'lightningcss-darwin-arm64',
+                'darwin-x64': 'lightningcss-darwin-x64',
+                'win32-x64': 'lightningcss-win32-x64-msvc',
+                'win32-arm64': 'lightningcss-win32-arm64-msvc',
+              })[process.platform+'-'+process.arch] || ''
+            ")
+            if [ -n "$LIGHTNING_PKG" ] && ! vx npm --prefix admin-ui install "$LIGHTNING_PKG" --no-save --ignore-scripts; then
+              echo "::warning::npm ci succeeded but failed to install lightningcss native module"
+            fi
+          else
             echo "::warning::npm ci failed; falling back to prebuilt admin UI artifact"
             echo "DCC_MCP_ADMIN_UI_PREBUILT=1" >> "$GITHUB_ENV"
           fi
