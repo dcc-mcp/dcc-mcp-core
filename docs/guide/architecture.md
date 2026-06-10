@@ -71,6 +71,7 @@ dcc-mcp-core (workspace root)
 ├── dcc-mcp-gateway-core  # Pure gateway domain/search/ranking types
 ├── dcc-mcp-gateway-search # Reusable capability search/query/ranking engine
 ├── dcc-mcp-gateway       # Multi-DCC gateway app + dynamic wrappers
+├── dcc-mcp-gateway-ensure # Shared gateway health check, launch lock, spawn, process utilities
 ├── dcc-mcp-sidecar       # Per-DCC sidecar + gateway daemon guardian runtime
 ├── dcc-mcp-http-types    # Pure HTTP wire/config/value types, McpHttpConfig
 ├── dcc-mcp-http-server   # Reusable HTTP runtime support
@@ -85,6 +86,7 @@ dcc-mcp-core (workspace root)
 ├── dcc-mcp-transport     # IPC transport, frames, channel adapters
 ├── dcc-mcp-process       # Launch, monitor, watcher, crash recovery
 ├── dcc-mcp-telemetry     # Tool metrics and recorders
+├── dcc-mcp-updater       # Gateway-controlled binary update (check, download, staged apply)
 ├── dcc-mcp-sandbox       # SandboxPolicy, validation, audit log
 ├── dcc-mcp-shm           # Shared memory buffers
 ├── dcc-mcp-capture       # Screen/window capture
