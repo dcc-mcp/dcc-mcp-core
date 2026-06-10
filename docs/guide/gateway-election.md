@@ -38,8 +38,9 @@ Crash recovery:
 
 Idle shutdown:
   All backends exit
-               → daemon polls FileRegistry every 5 s
-               → no live backends for DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS (default 30 s)
+               → daemon polls the gateway live-instance view every 5 s
+               → no routable backends for DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS
+                 (manual gateway CLI default 30 s; daemon auto-ensure default 300 s)
                → orderly shutdown
 ```
 
