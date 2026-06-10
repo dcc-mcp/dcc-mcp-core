@@ -190,8 +190,13 @@ per-package cards, showing:
 - Install type (git, zip, path)
 - Uninstall button
 
-Users can uninstall a package directly from this tab. On success, the skill
-index is refreshed to reflect the removed package.
+Clicking an installed package card opens a **right-aligned slide-out detail
+overlay** with the same portal-based animation and backdrop blur as the
+Skills detail panel. The overlay displays the install path, install type,
+source, timestamp, version, tags, and catalog metadata (when available).
+
+Users can uninstall a package directly from this tab or from the slide-out.
+On success, the skill index is refreshed to reflect the removed package.
 
 ### Source Management Tab
 
