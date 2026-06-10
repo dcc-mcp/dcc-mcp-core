@@ -5,6 +5,65 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.16](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.15...v0.18.16) (2026-06-10)
+
+
+### Features
+
+* add --restart flag to dcc-mcp-server gateway daemon ([bd94731](https://github.com/dcc-mcp/dcc-mcp-core/commit/bd947310b07089b8b4c145efe8c0950765fe50ad))
+* **admin-ui:** Phase 1 panel consolidation — Discover/Overview/Traces sub-tabs ([9ec9d75](https://github.com/dcc-mcp/dcc-mcp-core/commit/9ec9d75689306c9b30f1bface1cdf4807ff102c8))
+* **admin:** slide-out detail panel for installed marketplace packages ([bc3863f](https://github.com/dcc-mcp/dcc-mcp-core/commit/bc3863f610211227170de60c8c0a527908db765c))
+* **cli:** implement install --execute with consent gating and rollback ([c60d2f0](https://github.com/dcc-mcp/dcc-mcp-core/commit/c60d2f0d4188adcfaf260e3252299f51ea289b2f))
+* **cli:** implement install --execute with InstallStepAction, consent gating, and rollback ([e30db34](https://github.com/dcc-mcp/dcc-mcp-core/commit/e30db3484b8fbd311d175530589bf4eebfef8339))
+* **cli:** implement three-layer gateway binary discovery ([9a0e600](https://github.com/dcc-mcp/dcc-mcp-core/commit/9a0e600e0b668f034c84204f68d7b7c8b805efbf))
+* **core:** add exception protection and watchdog for gateway guardian ([134e783](https://github.com/dcc-mcp/dcc-mcp-core/commit/134e783654ce45590319b40f43c764082a192434))
+* **core:** add watchdog for Rust gateway guardian in sidecar ([6646eb8](https://github.com/dcc-mcp/dcc-mcp-core/commit/6646eb877dbf0171981d78ab814770690e43edb1))
+* extract shared gateway ensure crate ([efe247f](https://github.com/dcc-mcp/dcc-mcp-core/commit/efe247f6bcdd2d06993d99ead3e06d7e39f61c2f))
+* reduce gateway guardian watchdog interval from 60s to 15s with immediate retry ([9db3af7](https://github.com/dcc-mcp/dcc-mcp-core/commit/9db3af76d5b3ef9c6e8ed6ceaf8f977f3c6a09da))
+* **skills:** integrate gateway ensure into dcc-cli-gateway skill ([d8e0c3b](https://github.com/dcc-mcp/dcc-mcp-core/commit/d8e0c3b7ff448b13657c4f3dfbc3a0125101776b))
+
+
+### Bug Fixes
+
+* **admin-ui:** resolve TypeScript errors in panel consolidation ([1d8095d](https://github.com/dcc-mcp/dcc-mcp-core/commit/1d8095d03cc90a94949b1b006411a04b9f7cd2fd))
+* apply cargo fmt and ruff format for CI formatting checks ([706bc06](https://github.com/dcc-mcp/dcc-mcp-core/commit/706bc06780151659a1864cdf2ff61a4cc782f52a))
+* cargo fmt formatting for gateway_discovery.rs ([ad02358](https://github.com/dcc-mcp/dcc-mcp-core/commit/ad02358467ef2c7f334c26cf96f88e75d1e7ef23))
+* cargo fmt formatting for install.rs ([106a686](https://github.com/dcc-mcp/dcc-mcp-core/commit/106a6868ea2c60f447af59f74ec3badd7da38384))
+* **ci:** pin build-wheel windows runner to windows-2022 ([66bcb33](https://github.com/dcc-mcp/dcc-mcp-core/commit/66bcb33455668b260bb204b7b9a9d695dc8699dd))
+* **ci:** use any() in release asset pattern matching to fix false timeout ([bfc05d8](https://github.com/dcc-mcp/dcc-mcp-core/commit/bfc05d86e5597b1ebdc4dff9364802b37f78973f))
+* collapse nested if-let in rollback_all (clippy::collapsible_if) ([a184acc](https://github.com/dcc-mcp/dcc-mcp-core/commit/a184acc7eb2641b4a264c3d44e5836621a21fac9))
+* **gateway-ensure:** collapse nested if to fix clippy collapsible_if ([cdf8961](https://github.com/dcc-mcp/dcc-mcp-core/commit/cdf8961ef176fecdcd90b1ea159243c212296777))
+* **gateway:** restructure _LaunchLock.acquire to reduce TOCTOU windows ([45f83e4](https://github.com/dcc-mcp/dcc-mcp-core/commit/45f83e430d1e17e085d4c7090ce615d275467b82))
+* increase probe wait time in flaky test to avoid macOS CI timing ([2949828](https://github.com/dcc-mcp/dcc-mcp-core/commit/294982875760afaa486e3e1c96ad3c3d8fe37e05))
+* lint errors in Maya E2E tests (D403 docstring caps + F841 unused var) ([77bb21c](https://github.com/dcc-mcp/dcc-mcp-core/commit/77bb21c34551aceb1e04133080aecd8b8b1c7dd1))
+* **p0-3:** add Python-side version-aware gateway takeover ([37a2cf3](https://github.com/dcc-mcp/dcc-mcp-core/commit/37a2cf3cb51e6783df47d8ee0d56be404816925a))
+* **p0-3:** resolve merge conflict and ruff format ([9895e24](https://github.com/dcc-mcp/dcc-mcp-core/commit/9895e24e40cf22d53eed6768c5969417c43bf199))
+* pivot install --execute to marketplace.json data source ([16b8d69](https://github.com/dcc-mcp/dcc-mcp-core/commit/16b8d697868dddec0006af87a92bbbfe7d4bd01c))
+* prevent silent embedded-fallback after gateway daemon ensure fails ([e01d06d](https://github.com/dcc-mcp/dcc-mcp-core/commit/e01d06d33562df2e14776eac6c06e396bf74fc7f))
+* remove trailing blank line to satisfy cargo fmt ([de967d7](https://github.com/dcc-mcp/dcc-mcp-core/commit/de967d76fda7d6e15360390cbf2cff5a752a1e73))
+* remove trailing semicolon in AlreadyExists branch to return Result ([0104f35](https://github.com/dcc-mcp/dcc-mcp-core/commit/0104f35d5937c4f3e2fa167e888194f676d9a1ca))
+* replace unwrap_or_else closure with block in sidecar launcher ([2ffe396](https://github.com/dcc-mcp/dcc-mcp-core/commit/2ffe396d7941f9720671d309ad73b54124d9fc5d))
+* replace unwrap_or_else with unwrap_or in gateway_launch_lock_stale_after ([ba4024d](https://github.com/dcc-mcp/dcc-mcp-core/commit/ba4024d0e7d00d7d0e7af864ec90e744f0b7af1b))
+* resolve clippy warnings — unneeded return and unnecessary closure ([e3d367b](https://github.com/dcc-mcp/dcc-mcp-core/commit/e3d367baed2ff8e2f1afc982b82a80fae8a145a6))
+* resolve E402 lint errors by moving imports to top of file ([76ae900](https://github.com/dcc-mcp/dcc-mcp-core/commit/76ae900d38d72b4e4700bcfc9f90751b900546d8))
+* restore return keyword in lock-acquire double-check block ([dba8811](https://github.com/dcc-mcp/dcc-mcp-core/commit/dba8811ee75f763e80096821de11ca501a742611))
+* restore return keywords for early health-check returns ([04a1c0d](https://github.com/dcc-mcp/dcc-mcp-core/commit/04a1c0d6b7f8a59ed935f23fd3aea9562c9e7518))
+* restore version to 0.18.15 (x-release-please-version) ([e50eb6f](https://github.com/dcc-mcp/dcc-mcp-core/commit/e50eb6f89e86d9ca055cb87f05963c4356a5d6b7))
+* ruff format on Maya E2E tests ([6807f85](https://github.com/dcc-mcp/dcc-mcp-core/commit/6807f85e877a4696736bf6fd727a55f091ad2f8e))
+* rustfmt, rename push_arg, remove restart_spawn_fresh, add pre-push fmt ([941621d](https://github.com/dcc-mcp/dcc-mcp-core/commit/941621d21292807af74ef10bcfcc2b4a402e4bd8))
+* set DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES=1 in ScopedMarketplaceInstallRoot ([6f83f56](https://github.com/dcc-mcp/dcc-mcp-core/commit/6f83f5649aea9dfac76416d14f56affdfd0d686d))
+* **sidecar:** abort old guardian before replacing in watchdog restart ([010d198](https://github.com/dcc-mcp/dcc-mcp-core/commit/010d198362c4413753bbc49bb581aa534403cb45))
+* **skills:** eliminate env var race condition in resolve_registry_dcc_type tests ([8803a86](https://github.com/dcc-mcp/dcc-mcp-core/commit/8803a86f962df09c45b3900f4c491bf46e13174e))
+* **skills:** eliminate env var race condition in resolve_registry_dcc_type tests ([598361d](https://github.com/dcc-mcp/dcc-mcp-core/commit/598361dd188cd9f3befe75ccb160873e531c7393))
+* **transport:** add dual-format SystemTime deserializer and defensive parse fallback ([68cafc2](https://github.com/dcc-mcp/dcc-mcp-core/commit/68cafc2fb453a958e7c2ce9caedb4ad5b4753c47))
+* unify concurrent gateway ensure timeout and lock-loser wait logic ([bd7504f](https://github.com/dcc-mcp/dcc-mcp-core/commit/bd7504f0d8e032b126243cd6460ac83d498ceadc))
+* update bundled catalog test to use photoshop (infra-only, no install metadata) ([a6c5117](https://github.com/dcc-mcp/dcc-mcp-core/commit/a6c51174122540aec3f42ab3799020e52960ef79))
+
+
+### Documentation
+
+* add gateway ensure lifecycle commands, marketplace source management, and AGENTS marketplace skill references ([07de3e1](https://github.com/dcc-mcp/dcc-mcp-core/commit/07de3e1fda867df39f2900dc04ba45b655b22f95))
+
 ## [0.18.15](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.14...v0.18.15) (2026-06-08)
 
 
