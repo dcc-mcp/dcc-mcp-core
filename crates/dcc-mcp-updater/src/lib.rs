@@ -69,7 +69,10 @@ pub enum UpdateError {
 
 /// Simple three-part semver comparison. Treats "0.18.16" etc. as comparable
 /// triples. Non-numeric suffixes (pre-release tags) are ignored for comparison.
-pub fn is_newer_version(current: &str, candidate: &str) -> bool {
+///
+/// Parameter order matches the gateway's `is_newer_version(candidate, current)`
+/// convention (see `dcc_mcp_gateway::gateway::version::is_newer_version`).
+pub fn is_newer_version(candidate: &str, current: &str) -> bool {
     fn parse_segment(s: &str) -> u64 {
         s.split(|c: char| !c.is_ascii_digit())
             .next()
@@ -77,12 +80,12 @@ pub fn is_newer_version(current: &str, candidate: &str) -> bool {
             .unwrap_or(0)
     }
 
-    let cur_parts: Vec<u64> = current.split('.').map(parse_segment).collect();
     let can_parts: Vec<u64> = candidate.split('.').map(parse_segment).collect();
+    let cur_parts: Vec<u64> = current.split('.').map(parse_segment).collect();
 
     for i in 0..3 {
-        let c = cur_parts.get(i).copied().unwrap_or(0);
         let n = can_parts.get(i).copied().unwrap_or(0);
+        let c = cur_parts.get(i).copied().unwrap_or(0);
         if n > c {
             return true;
         }
@@ -161,15 +164,10 @@ impl Updater {
         let staging_dir = staging_dir(&self.binary_name)?;
         std::fs::create_dir_all(&staging_dir)?;
 
-        let ext = if download_url.ends_with(".zip") {
-            ".zip"
-        } else if download_url.ends_with(".tar.gz") || download_url.ends_with(".tgz") {
-            ".tar.gz"
-        } else {
-            ".bin"
-        };
-
-        let dest_path = staging_dir.join(format!("{}-{}", self.binary_name, ext));
+        // All downloads produce a raw binary (not an archive).
+        // The manifest URL determines what we download — clients trust
+        // the platform-appropriate URL configured in the manifest.
+        let dest_path = staging_dir.join(format!("{}.download", self.binary_name));
 
         let response = self.client.get(download_url).send().await?;
         let bytes = response.bytes().await?;
@@ -325,13 +323,13 @@ mod tests {
 
     #[test]
     fn version_comparison() {
-        assert!(is_newer_version("0.18.15", "0.18.16"));
-        assert!(is_newer_version("0.18.16", "0.19.0"));
-        assert!(!is_newer_version("0.19.0", "0.18.16"));
+        assert!(is_newer_version("0.18.16", "0.18.15"));
+        assert!(is_newer_version("0.19.0", "0.18.16"));
+        assert!(!is_newer_version("0.18.16", "0.19.0"));
         assert!(!is_newer_version("0.18.16", "0.18.16"));
         // Pre-release tags are treated as equal to the base version (ignored suffix)
-        assert!(!is_newer_version("0.18.16-alpha", "0.18.16"));
         assert!(!is_newer_version("0.18.16", "0.18.16-alpha"));
+        assert!(!is_newer_version("0.18.16-alpha", "0.18.16"));
     }
 
     #[test]

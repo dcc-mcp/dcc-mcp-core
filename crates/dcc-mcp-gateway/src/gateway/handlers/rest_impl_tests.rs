@@ -93,6 +93,7 @@ fn test_gateway_state_with_debug_routes(
         search_telemetry: Arc::new(crate::gateway::search_telemetry::SearchTelemetryStore::new()),
         debug_routes_enabled,
         auth: Arc::new(crate::gateway::security::GatewayAuth::disabled()),
+        update_manifest_url: None,
         gateway_persist: false,
         gateway_idle_timeout_secs: 30,
         #[cfg(feature = "prometheus")]
