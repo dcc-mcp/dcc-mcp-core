@@ -57,6 +57,8 @@ use tokio::sync::watch;
 pub use args::{ExitReason, SidecarArgs};
 pub use registry::{ROLE_METADATA_KEY, ROLE_PER_DCC_SIDECAR};
 
+#[cfg(all(feature = "gateway-daemon", test))]
+pub(crate) use gateway::SIDECAR_GATEWAY_IDLE_TIMEOUT_SECS;
 #[cfg(feature = "gateway-daemon")]
 pub(crate) use gateway::{
     build_gateway_daemon_options, should_start_gateway_daemon_guardian, should_use_gateway_daemon,

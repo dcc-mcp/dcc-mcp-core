@@ -214,6 +214,10 @@ Admin audit/trace persistence is configured by environment only: set `DCC_MCP_GA
 | `--gateway-persist` | `DCC_MCP_GATEWAY_PERSIST` | `false` | Keep the gateway daemon alive with no registered backends. |
 | `--gateway-idle-timeout-secs` | `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` | `30` | Seconds to wait after the last backend disappears before shutdown. `0` disables idle shutdown. |
 
+Daemon auto-ensure paths pass an idle timeout of `300` seconds by default unless
+`DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` is set. The standalone `gateway` CLI keeps
+the shorter `30` second default for explicit operator runs.
+
 ### File-logging flags
 
 | Flag | Env | Default | Meaning |

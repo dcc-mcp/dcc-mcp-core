@@ -228,6 +228,43 @@ fn gateway_daemon_options_preserve_host_name_and_registry() {
 
 #[cfg(feature = "gateway-daemon")]
 #[test]
+fn gateway_daemon_options_default_idle_timeout_covers_startup_race() {
+    let _guard = REGISTRY_ENV_LOCK.lock().expect("registry env lock");
+    let saved = std::env::var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS").ok();
+    unsafe { std::env::remove_var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS") };
+
+    let opts = build_gateway_daemon_options(&guardian_test_args(), PathBuf::from("registry"));
+
+    if let Some(prev) = saved {
+        unsafe { std::env::set_var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", prev) };
+    }
+
+    assert_eq!(
+        opts.gateway_idle_timeout_secs, SIDECAR_GATEWAY_IDLE_TIMEOUT_SECS,
+        "sidecar-launched gateways need a grace window long enough for slow DCC startup registration"
+    );
+}
+
+#[cfg(feature = "gateway-daemon")]
+#[test]
+fn gateway_daemon_options_honour_idle_timeout_env_override() {
+    let _guard = REGISTRY_ENV_LOCK.lock().expect("registry env lock");
+    let saved = std::env::var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS").ok();
+    unsafe { std::env::set_var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", "45") };
+
+    let opts = build_gateway_daemon_options(&guardian_test_args(), PathBuf::from("registry"));
+
+    if let Some(prev) = saved {
+        unsafe { std::env::set_var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", prev) };
+    } else {
+        unsafe { std::env::remove_var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS") };
+    }
+
+    assert_eq!(opts.gateway_idle_timeout_secs, 45);
+}
+
+#[cfg(feature = "gateway-daemon")]
+#[test]
 fn publish_guardian_status_writes_live_metadata() {
     use crate::gateway_daemon::GatewayGuardianStatus;
     use crate::sidecar::registry::{

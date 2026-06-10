@@ -20,7 +20,9 @@ pub use guardian::{
     GatewayGuardianHandle, GatewayGuardianSettings, GatewayGuardianStatus, spawn_gateway_guardian,
 };
 #[cfg(feature = "gateway-auto")]
-pub use launcher::{EnsureGatewayOptions, ensure_gateway_running};
+pub use launcher::{
+    AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_SECS, EnsureGatewayOptions, ensure_gateway_running,
+};
 
 /// CLI parser for one relay discovery source.
 #[derive(Debug, Clone)]
@@ -344,14 +346,6 @@ pub fn build_gateway_config(args: &GatewayArgs, gateway_name: &str) -> GatewayCo
     }
 }
 
-fn is_backend_entry(
-    entry: &dcc_mcp_transport::discovery::types::ServiceEntry,
-    stale_timeout: Duration,
-) -> bool {
-    entry.dcc_type != dcc_mcp_transport::discovery::types::GATEWAY_SENTINEL_DCC_TYPE
-        && !entry.is_stale(stale_timeout)
-}
-
 /// Run the standalone gateway until a shutdown signal arrives (or the
 /// idle-timeout fires when no backends remain).
 pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
@@ -396,78 +390,24 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
         "standalone gateway running"
     );
 
-    // ── Idle-timeout watch (PIP-487) ───────────────────────────────────────
-    //
-    // Polls the FileRegistry for live backends. When no backend remains and
-    // persistence is off, starts a countdown. Backends that reconnect during
-    // the grace period cancel the timer; expiry triggers an orderly shutdown.
-    let idle_shutdown = if !gateway_persist && gateway_idle_timeout_secs > 0 {
-        let registry = runner.registry.clone();
-        let (idle_tx, idle_rx) = tokio::sync::watch::channel(false);
-        let stale_timeout = Duration::from_secs(args.stale_timeout_secs);
-        tokio::spawn(async move {
-            let poll = Duration::from_secs(5);
-            let grace = Duration::from_secs(gateway_idle_timeout_secs);
-            let mut idle_since: Option<std::time::Instant> = None;
-
-            loop {
-                tokio::time::sleep(poll).await;
-                let live_count = {
-                    match registry.try_read() {
-                        Ok(reg) => reg
-                            .list_all()
-                            .into_iter()
-                            .filter(|e| is_backend_entry(e, stale_timeout))
-                            .count(),
-                        Err(_) => continue,
-                    }
-                };
-
-                if live_count > 0 {
-                    if idle_since.take().is_some() {
-                        tracing::info!(
-                            live_backends = live_count,
-                            "gateway idle countdown cancelled — backends reconnected"
-                        );
-                    }
-                    continue;
-                }
-
-                let since = *idle_since.get_or_insert_with(std::time::Instant::now);
-                let elapsed = since.elapsed();
-                tracing::debug!(
-                    elapsed_secs = elapsed.as_secs(),
-                    grace_period_secs = grace.as_secs(),
-                    "gateway idle: no live backends"
-                );
-
-                if elapsed >= grace {
-                    tracing::warn!(
-                        grace_period_secs = grace.as_secs(),
-                        "gateway idle timeout reached — shutting down"
-                    );
-                    let _ = idle_tx.send(true);
-                    return;
-                }
-            }
-        });
-        Some(idle_rx)
-    } else {
-        None
-    };
-
     // ── Wait for shutdown trigger ──────────────────────────────────────────
-    let shutdown_reason = if let Some(mut idle_rx) = idle_shutdown {
-        tokio::select! {
-            sig = crate::select_shutdown_signal() => {
-                sig.unwrap_or("signal")
-            }
-            _ = idle_rx.changed() => {
-                "idle_timeout"
+    let supervisor_exit = {
+        let supervisor = outcome.gateway_supervisor.take();
+        async move {
+            if let Some(supervisor) = supervisor {
+                let _ = supervisor.await;
+            } else {
+                std::future::pending::<()>().await;
             }
         }
-    } else {
-        crate::select_shutdown_signal().await?
+    };
+    let shutdown_reason = tokio::select! {
+        sig = crate::select_shutdown_signal() => {
+            sig.unwrap_or("signal")
+        }
+        _ = supervisor_exit => {
+            "gateway_supervisor_exit"
+        }
     };
     tracing::info!(shutdown_reason, "standalone gateway shutting down");
 
@@ -605,7 +545,6 @@ fn default_gateway_name() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};
 
     #[test]
     fn relay_source_arg_maps_into_gateway_config() {
@@ -655,17 +594,6 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         drop(listener);
         port
-    }
-
-    #[test]
-    fn idle_lifecycle_counts_backends_on_same_host_as_gateway() {
-        let maya = ServiceEntry::new("maya", "127.0.0.1", 18812);
-        let photoshop = ServiceEntry::new("photoshop", "127.0.0.1", 18813);
-        let gateway = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
-
-        assert!(is_backend_entry(&maya, Duration::from_secs(30)));
-        assert!(is_backend_entry(&photoshop, Duration::from_secs(30)));
-        assert!(!is_backend_entry(&gateway, Duration::from_secs(30)));
     }
 
     /// Issue #1358 — the standalone gateway daemon must serve gateway-

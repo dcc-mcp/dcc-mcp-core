@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::launcher::{
     EnsureGatewayOptions, ensure_gateway_running, gateway_health_ok_with_timeout,
@@ -9,16 +9,20 @@ use super::launcher::{
 const GATEWAY_GUARDIAN_INTERVAL: Duration = Duration::from_secs(5);
 const GATEWAY_GUARDIAN_TIMEOUT: Duration = Duration::from_millis(500);
 const GATEWAY_GUARDIAN_FAILURES: u32 = 2;
+const GATEWAY_GUARDIAN_REENSURE_JITTER_MAX: Duration = Duration::from_secs(2);
 
 const ENV_GATEWAY_GUARDIAN_INTERVAL: &str = "DCC_MCP_GATEWAY_GUARDIAN_INTERVAL";
 const ENV_GATEWAY_GUARDIAN_TIMEOUT: &str = "DCC_MCP_GATEWAY_GUARDIAN_TIMEOUT";
 const ENV_GATEWAY_GUARDIAN_FAILURES: &str = "DCC_MCP_GATEWAY_GUARDIAN_FAILURES";
+const ENV_GATEWAY_GUARDIAN_REENSURE_JITTER_MAX: &str =
+    "DCC_MCP_GATEWAY_GUARDIAN_REENSURE_JITTER_MAX";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GatewayGuardianSettings {
     interval: Duration,
     probe_timeout: Duration,
     failure_threshold: u32,
+    reensure_jitter_max: Duration,
 }
 
 impl GatewayGuardianSettings {
@@ -31,6 +35,10 @@ impl GatewayGuardianSettings {
             ),
             failure_threshold: u32_env(ENV_GATEWAY_GUARDIAN_FAILURES, GATEWAY_GUARDIAN_FAILURES)
                 .max(1),
+            reensure_jitter_max: duration_secs_env(
+                ENV_GATEWAY_GUARDIAN_REENSURE_JITTER_MAX,
+                GATEWAY_GUARDIAN_REENSURE_JITTER_MAX,
+            ),
         }
     }
 
@@ -42,6 +50,9 @@ impl GatewayGuardianSettings {
     }
     pub fn failure_threshold(&self) -> u32 {
         self.failure_threshold
+    }
+    pub fn reensure_jitter_max(&self) -> Duration {
+        self.reensure_jitter_max
     }
 }
 
@@ -115,6 +126,21 @@ pub fn spawn_gateway_guardian(
 
             let failures = guard_failures.fetch_add(1, Ordering::Relaxed) + 1;
             if failures >= settings.failure_threshold {
+                let next_attempt = guard_restarts.load(Ordering::Relaxed) + 1;
+                let jitter = reensure_jitter_duration(settings.reensure_jitter_max, next_attempt);
+                if !jitter.is_zero() {
+                    tracing::debug!(
+                        jitter_ms = jitter.as_millis(),
+                        "gateway daemon guardian delaying re-ensure after failed probes"
+                    );
+                    tokio::time::sleep(jitter).await;
+                }
+                if gateway_health_ok_with_timeout(&opts.host, opts.port, settings.probe_timeout)
+                    .await
+                {
+                    guard_failures.store(0, Ordering::Relaxed);
+                    continue;
+                }
                 tracing::warn!(
                     host = %opts.host,
                     port = opts.port,
@@ -143,6 +169,24 @@ pub fn spawn_gateway_guardian(
         restart_attempts,
         failure_threshold,
     }
+}
+
+fn reensure_jitter_duration(max: Duration, attempt: u64) -> Duration {
+    if max.is_zero() {
+        return Duration::ZERO;
+    }
+    let max_millis = max.as_millis().min(u64::MAX as u128) as u64;
+    if max_millis == 0 {
+        return Duration::ZERO;
+    }
+    let now_nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .subsec_nanos() as u64;
+    let seed = now_nanos
+        ^ ((std::process::id() as u64) << 16)
+        ^ attempt.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    Duration::from_millis(seed % max_millis.saturating_add(1))
 }
 
 /// Test-visible probe evaluation: returns the appropriate guardian action
@@ -191,6 +235,7 @@ mod tests {
             interval: Duration::from_secs(1),
             probe_timeout: Duration::from_millis(10),
             failure_threshold: 2,
+            reensure_jitter_max: Duration::ZERO,
         }
     }
 
@@ -222,6 +267,7 @@ mod tests {
             interval: Duration::from_secs(1),
             probe_timeout: Duration::from_millis(10),
             failure_threshold: 3,
+            reensure_jitter_max: Duration::ZERO,
         };
         let mut failures = 0;
 
@@ -294,6 +340,7 @@ mod tests {
             interval: Duration::from_millis(100),
             probe_timeout: Duration::from_millis(50),
             failure_threshold: 2,
+            reensure_jitter_max: Duration::ZERO,
         };
 
         let handle = spawn_gateway_guardian(opts, settings);
@@ -359,6 +406,7 @@ mod tests {
             interval: Duration::from_millis(150),
             probe_timeout: Duration::from_millis(100),
             failure_threshold: 2,
+            reensure_jitter_max: Duration::ZERO,
         };
 
         let handle = spawn_gateway_guardian(opts, settings);
@@ -396,12 +444,14 @@ mod tests {
             std::env::set_var("DCC_MCP_GATEWAY_GUARDIAN_INTERVAL", "3");
             std::env::set_var("DCC_MCP_GATEWAY_GUARDIAN_TIMEOUT", "0.8");
             std::env::set_var("DCC_MCP_GATEWAY_GUARDIAN_FAILURES", "4");
+            std::env::set_var("DCC_MCP_GATEWAY_GUARDIAN_REENSURE_JITTER_MAX", "1.5");
         }
 
         let s = GatewayGuardianSettings::from_env();
         assert_eq!(s.interval(), Duration::from_secs(3));
         assert_eq!(s.probe_timeout(), Duration::from_secs_f64(0.8));
         assert_eq!(s.failure_threshold(), 4);
+        assert_eq!(s.reensure_jitter_max(), Duration::from_secs_f64(1.5));
     }
 
     #[test]
@@ -410,5 +460,21 @@ mod tests {
         assert_eq!(s.interval(), Duration::from_secs(1));
         assert_eq!(s.probe_timeout(), Duration::from_millis(10));
         assert_eq!(s.failure_threshold(), 2);
+        assert_eq!(s.reensure_jitter_max(), Duration::ZERO);
+    }
+
+    #[test]
+    fn reensure_jitter_never_exceeds_configured_max() {
+        let max = Duration::from_millis(25);
+
+        for attempt in 0..32 {
+            let jitter = reensure_jitter_duration(max, attempt);
+            assert!(
+                jitter <= max,
+                "jitter {jitter:?} must not exceed configured max {max:?}"
+            );
+        }
+
+        assert_eq!(reensure_jitter_duration(Duration::ZERO, 1), Duration::ZERO);
     }
 }
