@@ -17,9 +17,7 @@ where
 }
 
 /// Custom deserializer for `Option<SystemTime>` (used by `lease_expires_at`).
-fn deserialize_optional_system_time<'de, D>(
-    deserializer: D,
-) -> Result<Option<SystemTime>, D::Error>
+fn deserialize_optional_system_time<'de, D>(deserializer: D) -> Result<Option<SystemTime>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -826,10 +824,7 @@ mod tests {
     #[test]
     fn test_system_time_deserialize_from_integer() {
         let now = SystemTime::now();
-        let secs = now
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let secs = now.duration_since(UNIX_EPOCH).unwrap().as_secs();
         let json = serde_json::json!({
             "dcc_type": "maya",
             "instance_id": "00000000-0000-0000-0000-000000000001",
@@ -850,10 +845,7 @@ mod tests {
     #[test]
     fn test_system_time_deserialize_from_float() {
         let now = SystemTime::now();
-        let secs = now
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs_f64();
+        let secs = now.duration_since(UNIX_EPOCH).unwrap().as_secs_f64();
         let json = serde_json::json!({
             "dcc_type": "maya",
             "instance_id": "00000000-0000-0000-0000-000000000001",
@@ -882,10 +874,7 @@ mod tests {
             "last_heartbeat": 1712345678.5,
         });
         let entry: ServiceEntry = serde_json::from_value(json).unwrap();
-        let duration = entry
-            .registered_at
-            .duration_since(UNIX_EPOCH)
-            .unwrap();
+        let duration = entry.registered_at.duration_since(UNIX_EPOCH).unwrap();
         assert_eq!(duration.as_secs(), 1712345678);
         assert_eq!(duration.subsec_nanos(), 500_000_000);
     }
