@@ -159,7 +159,11 @@ pub(crate) async fn handle_v1_update_download(
         }
     };
 
-    (StatusCode::OK, Json(json!({ "download_url": download_url }))).into_response()
+    (
+        StatusCode::OK,
+        Json(json!({ "download_url": download_url })),
+    )
+        .into_response()
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

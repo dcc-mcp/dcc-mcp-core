@@ -42,7 +42,7 @@ impl UpdateService {
         let downloaded = self.updater.download_update(&info).await?;
 
         // Stage it for replacement on next launch
-        Updater::stage_update(&downloaded, &self.updater.binary_name())?;
+        Updater::stage_update(&downloaded, self.updater.binary_name())?;
 
         Ok(serde_json::json!({
             "status": "staged",

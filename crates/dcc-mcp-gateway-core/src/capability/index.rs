@@ -150,7 +150,7 @@ mod tests {
     #[test]
     fn compute_fingerprint_is_deterministic() {
         let rec = make_record("maya.abcdef01.create_sphere");
-        let fp_a = compute_fingerprint(&[rec.clone()]);
+        let fp_a = compute_fingerprint(std::slice::from_ref(&rec));
         let fp_b = compute_fingerprint(&[rec]);
         assert_eq!(fp_a, fp_b);
     }

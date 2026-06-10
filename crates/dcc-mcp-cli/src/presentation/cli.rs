@@ -579,8 +579,11 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         Command::Update { action } => {
             let binary_name = env!("CARGO_PKG_NAME");
             let current_version = env!("CARGO_PKG_VERSION");
-            let service =
-                crate::application::update::UpdateService::new(&base_url, binary_name, current_version);
+            let service = crate::application::update::UpdateService::new(
+                &base_url,
+                binary_name,
+                current_version,
+            );
             match action {
                 UpdateAction::Check => to_json(service.check_update().await?)?,
                 UpdateAction::Apply => to_json(service.apply_update().await?)?,
