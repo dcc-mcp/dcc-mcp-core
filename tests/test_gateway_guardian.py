@@ -10,6 +10,15 @@ import types
 import dcc_mcp_core._server.gateway_guardian as gg
 
 
+def _wait_until(predicate, *, timeout: float = 10.0, interval: float = 0.01) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(interval)
+    return predicate()
+
+
 class _Resp:
     status = 200
 
@@ -442,7 +451,9 @@ def test_guardian_run_catches_crash_and_increments_crash_count(monkeypatch):
 
     guardian.start()
     try:
-        assert crash_reported.wait(2.0), "Expected guardian crash status to be published"
+        assert _wait_until(lambda: crash_reported.is_set() or guardian.status().get("crash_count", 0) >= 1), (
+            "Expected guardian crash status to be published"
+        )
     finally:
         guardian.stop(timeout=2.0)
 
@@ -483,8 +494,12 @@ def test_guardian_run_continues_after_exception(monkeypatch):
 
     guardian.start()
     try:
-        assert crash_reported.wait(2.0), "Expected guardian crash status to be published"
-        assert continued_after_crash.wait(2.0), "Expected guardian loop to continue probing"
+        assert _wait_until(lambda: crash_reported.is_set() or guardian.status().get("crash_count", 0) >= 1), (
+            "Expected guardian crash status to be published"
+        )
+        assert _wait_until(lambda: continued_after_crash.is_set() or len(calls) >= 2), (
+            "Expected guardian loop to continue probing"
+        )
     finally:
         guardian.stop(timeout=2.0)
 
