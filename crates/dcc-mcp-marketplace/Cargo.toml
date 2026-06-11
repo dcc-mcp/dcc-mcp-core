@@ -12,6 +12,7 @@ description = "Shared marketplace domain layer for catalog fetch, install/uninst
 dcc-mcp-catalog.workspace = true
 reqwest.workspace = true
 serde.workspace = true
+serde_yaml_ng.workspace = true
 serde_json.workspace = true
 sha2 = "0.11"
 thiserror.workspace = true
