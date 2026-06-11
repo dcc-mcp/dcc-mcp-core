@@ -24,7 +24,7 @@
 
 `dcc-mcp-core` 把 DCC 应用变成可发现、可路由的 MCP 端点。Agent 不再只能猜测 shell 输出，而是可以面对实时场景状态、受作用域约束的工具目录、结构化结果、视口诊断、审计日志，以及能适应真实生产约束的工作流。
 
-它结合 **MCP 2025-03-26 Streamable HTTP**、遵循 [agentskills.io 1.0](https://agentskills.io/specification) 的 **零代码 Skills 系统**，以及负责发现、路由、安装、lint 和运维的 Rust gateway。Python 包面向嵌入式 DCC 宿主保持**运行时零 Python 依赖**；独立的 `dcc-mcp-cli` 与 `dcc-mcp-server` 二进制随 GitHub Release 发布，适合像传统软件一样下载安装到工作站。支持 Python 3.7–3.14。
+它结合 **MCP 2025-03-26 Streamable HTTP**、遵循 [agentskills.io 1.0](https://agentskills.io/specification) 的 **零代码 Skills 系统**，以及负责发现、路由、安装、lint 和运维的 Rust gateway。Python 包面向嵌入式 DCC 宿主保持**零第三方 Python 库依赖**，并依赖同套发布的 `dcc-mcp-server` wheel，确保 daemon-backed gateway 启动时即使 `PATH` 为空也有可用的打包二进制。独立的 `dcc-mcp-cli` 与 `dcc-mcp-server` 二进制也会随 GitHub Release 发布，适合像传统软件一样下载安装到工作站。支持 Python 3.7–3.14。
 
 当你希望 Agent 操作真实 DCC 会话，同时避免上下文爆炸、为每个工具手写 Python 胶水、或者维护脆弱的一次性 shell 脚本时，它就是这层基础设施。你可以用两条命令从 CLI 开始，也可以把 Python core 直接嵌进 DCC adapter。
 
@@ -544,7 +544,7 @@ tools/list 响应（Maya 会话、尚未加载任何 skill）：
 ## 能力亮点
 
 - **Rust 驱动性能** —— 零拷贝序列化（`rmp-serde`）、LZ4 共享内存、无锁数据结构。
-- **运行时零 Python 依赖** —— 一切编译进原生扩展。
+- **零第三方 Python 库依赖** —— 核心逻辑编译进原生扩展；配套 `dcc-mcp-server` wheel 提供 gateway daemon 二进制。
 - **Skills-First MCP 服务器** —— `create_skill_server()` 提供开箱即用的 MCP 2025-03-26 Streamable HTTP 端点，内置渐进式发现。
 - **Workflow 原语** —— `WorkflowSpec` / `WorkflowExecutor`：声明式多步工作流，支持重试、超时、幂等键、审批闸门、foreach / parallel / branch 步骤、SQLite 恢复。
 - **调度器** —— Cron + Webhook（HMAC-SHA256）触发的工作流，通过同级 `schedules.yaml`（可选 feature）。

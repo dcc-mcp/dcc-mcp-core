@@ -118,7 +118,9 @@ jobs:
           name: wheel-dcc-integration
           path: dist/
       - name: Install wheel + pytest
-        run: pip install --no-index --find-links dist dcc-mcp-core && pip install pytest
+        run: |
+          pip install dist/*.whl
+          pip install pytest
         shell: bash
       - name: Verify Blender
         run: blender --version
@@ -159,7 +161,9 @@ jobs:
           name: wheel-dcc-integration
           path: dist/
       - name: Install wheel + pytest
-        run: pip install --no-index --find-links dist dcc-mcp-core; pip install pytest
+        run: |
+          pip install dist/*.whl
+          pip install pytest
         shell: bash
       - name: Verify OpenSCAD
         run: openscad --version
@@ -193,7 +197,9 @@ jobs:
           name: wheel-dcc-integration
           path: dist/
       - name: Install wheel + pytest
-        run: pip install --no-index --find-links dist dcc-mcp-core; pip install pytest
+        run: |
+          pip install dist/*.whl
+          pip install pytest
         shell: bash
       - name: Verify Godot
         run: godot --version
@@ -216,7 +222,9 @@ jobs:
           name: wheel-dcc-integration
           path: dist/
       - name: Install wheel + pytest
-        run: pip install --no-index --find-links dist dcc-mcp-core; pip install pytest
+        run: |
+          pip install dist/*.whl
+          pip install pytest
         shell: bash
       - name: Test
         run: pytest tests/test_integration_dcc_cross.py -v --tb=short
