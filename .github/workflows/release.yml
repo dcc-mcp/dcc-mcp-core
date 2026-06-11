@@ -144,13 +144,15 @@ jobs:
 
   # ── Build standalone binaries (raw Release assets + server PyPI wheel) ──
   #
-  # One job, one native cargo target/ (plus an isolated manylinux target/), three outputs:
+  # One job, one native cargo target/ (plus an isolated manylinux target/), four outputs:
   #   1. Raw binary `dcc-mcp-server[-linux-x86_64|-windows-x86_64.exe|-macos-universal2]`
   #      attached to the GitHub Release. Backward-compat artefact for
   #      ops / docker users who don't want to `pip install`.
   #   2. Raw binary `dcc-mcp-cli[-linux-x86_64|-windows-x86_64.exe|-macos-universal2]`
   #      attached to the same GitHub Release and consumed by scripts/install-cli.*.
-  #   3. PyPI wheel `dcc_mcp_server-<ver>-py3-none-<plat>.whl` built from
+  #   3. Deployable zip `dcc-mcp-server-<ver>-<platform>.zip` containing
+  #      unsuffixed `dcc-mcp-server` and `dcc-mcp-cli` binaries for that platform.
+  #   4. PyPI wheel `dcc_mcp_server-<ver>-py3-none-<plat>.whl` built from
   #      pkg/dcc-mcp-server-bin/ via maturin's `bindings = "bin"`. It has
   #      no Python extension ABI and declares Python 3.7+ compatibility so
   #      Maya 2022's embedded Python can install it. maturin reuses the
@@ -159,7 +161,7 @@ jobs:
   #      an isolated `target-manylinux2014/` because host-built Cargo build
   #      scripts cannot run inside the older manylinux2014 glibc environment.
   #
-  # Both artefacts ride the same release-please tag — there is exactly
+  # These artefacts ride the same release-please tag — there is exactly
   # one release lifecycle for the workspace, and `dcc-mcp-server` ships
   # at the same workspace.package.version as `dcc-mcp-core`.
   build-binaries:
@@ -170,16 +172,19 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
+            platform: linux-x86_64
             artifact_name: dcc-mcp-server-linux-x86_64
             cli_artifact_name: dcc-mcp-cli-linux-x86_64
             binary: dcc-mcp-server
             cli_binary: dcc-mcp-cli
           - os: windows-latest
+            platform: windows-x86_64
             artifact_name: dcc-mcp-server-windows-x86_64.exe
             cli_artifact_name: dcc-mcp-cli-windows-x86_64.exe
             binary: dcc-mcp-server.exe
             cli_binary: dcc-mcp-cli.exe
           - os: macos-latest
+            platform: macos-universal2
             artifact_name: dcc-mcp-server-macos-universal2
             cli_artifact_name: dcc-mcp-cli-macos-universal2
             binary: dcc-mcp-server
@@ -256,6 +261,17 @@ jobs:
           cp target/release/${{ matrix.cli_binary }} ${{ matrix.cli_artifact_name }}
         shell: bash
 
+      - name: Create deployable server bundle
+        id: server-bundle
+        shell: bash
+        run: |
+          python scripts/release/build_server_bundle.py \
+            --version "${{ needs.release-please.outputs.version }}" \
+            --platform "${{ matrix.platform }}" \
+            --server-bin "${{ matrix.artifact_name }}" \
+            --cli-bin "${{ matrix.cli_artifact_name }}" \
+            --out-dir .
+
       # ── PyPI wheel build ──────────────────────────────────────────
       # macOS / Windows reuse the same target/ directory the raw-binary
       # step just populated; maturin sees the binary as already-compiled
@@ -309,6 +325,7 @@ jobs:
           path: |
             ${{ matrix.artifact_name }}
             ${{ matrix.cli_artifact_name }}
+            ${{ steps.server-bundle.outputs.bundle_path }}
 
       - name: Upload server wheel artefact (for cross-job collection)
         uses: actions/upload-artifact@v4
@@ -323,6 +340,7 @@ jobs:
           files: |
             ${{ matrix.artifact_name }}
             ${{ matrix.cli_artifact_name }}
+            ${{ steps.server-bundle.outputs.bundle_path }}
             pkg/dcc-mcp-server-bin/wheels/*.whl
 
   # ── Build dcc-mcp-core-semantic companion wheels (issue #1395) ──
@@ -678,6 +696,13 @@ jobs:
           path: dist-server
           merge-multiple: true
 
+      - name: Download dcc-mcp-server binary artefacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: server-binary-*
+          path: dist-binaries
+          merge-multiple: true
+
       - name: Download dcc-mcp-core-semantic wheel artefacts
         uses: actions/download-artifact@v8
         with:
@@ -691,21 +716,24 @@ jobs:
           ls -la dist/
           echo "dcc-mcp-server wheels:"
           ls -la dist-server/
+          echo "dcc-mcp-server binaries and bundles:"
+          ls -la dist-binaries/
           echo "dcc-mcp-core-semantic wheels:"
           ls -la dist-semantic/
 
       # Always attempt the GitHub Release upload, even if PyPI failed; this is
       # the user-visible artefact set and must be complete per release tag.
       # Note: build-binaries / build-semantic-wheels / build-wheels already
-      # upload each per-platform wheel directly to the Release. This step
+      # upload each per-platform artefact directly to the Release. This step
       # is the safety net for the (unlikely) case where upload was skipped.
-      - name: Upload wheels to GitHub Release (safety net)
+      - name: Upload artefacts to GitHub Release (safety net)
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.release-please.outputs.tag_name }}
           files: |
             dist/*
             dist-server/*
+            dist-binaries/*
             dist-semantic/*
 
   # ── Aggregate release publication status for branch protection / humans ──
@@ -765,6 +793,7 @@ jobs:
             '^dcc_mcp_core_semantic-.*\.whl$'
             '^dcc-mcp-server-'
             '^dcc-mcp-cli-'
+            '^dcc-mcp-server-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$'
           )
 
           release_json=""
