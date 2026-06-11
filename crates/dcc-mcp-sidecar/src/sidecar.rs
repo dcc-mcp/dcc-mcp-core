@@ -127,6 +127,19 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
             .with_context(|| format!("opening FileRegistry at {}", registry_dir.display()))?,
     );
 
+    let entry = build_service_entry(&args, &registry_dir);
+    let key = entry.key();
+
+    registry
+        .register(entry)
+        .with_context(|| "registering sidecar in FileRegistry")?;
+    tracing::info!(
+        instance_id = %key.instance_id,
+        dcc = %key.dcc_type,
+        registry_dir = %registry_dir.display(),
+        "sidecar boot row registered"
+    );
+
     #[cfg(feature = "gateway-daemon")]
     let gateway_daemon_options = if should_use_gateway_daemon(&args) {
         Some(build_gateway_daemon_options(&args, registry_dir.clone()))
@@ -135,10 +148,25 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
     };
 
     #[cfg(feature = "gateway-daemon")]
-    if let Some(opts) = gateway_daemon_options.as_ref() {
-        crate::gateway_daemon::ensure_gateway_running(opts)
-            .await
-            .with_context(|| "ensuring standalone gateway is running")?;
+    if let Some(opts) = gateway_daemon_options.as_ref()
+        && let Err(err) = crate::gateway_daemon::ensure_gateway_running(opts).await
+    {
+        let reason = format!("gateway ensure failed: {err:#}");
+        if let Err(mark_err) =
+            mark_sidecar_boot_failure(&registry, &key, "gateway-ensure", reason.clone())
+        {
+            tracing::warn!(
+                error = %mark_err,
+                "FileRegistry failed to record sidecar gateway ensure failure"
+            );
+        }
+        tracing::error!(
+            error = %err,
+            instance_id = %key.instance_id,
+            dcc = %key.dcc_type,
+            "standalone gateway ensure failed; sidecar exiting after publishing diagnostic row"
+        );
+        return Err(err).with_context(|| "ensuring standalone gateway is running");
     }
 
     #[cfg(feature = "gateway-daemon")]
@@ -163,6 +191,15 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
                 port = args.gateway_port,
                 "sidecar cannot auto-launch a gateway daemon because the binary was built without the gateway-daemon feature"
             );
+            let reason = "gateway daemon feature is disabled in this binary".to_string();
+            if let Err(mark_err) =
+                mark_sidecar_boot_failure(&registry, &key, "gateway-daemon-feature", reason)
+            {
+                tracing::warn!(
+                    error = %mark_err,
+                    "FileRegistry failed to record sidecar gateway daemon feature failure"
+                );
+            }
         }
         Arc::new(AsyncMutex::new(None))
     };
@@ -209,17 +246,6 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
     #[cfg(not(feature = "gateway-daemon"))]
     let gateway_guardian_watchdog: Option<tokio::task::JoinHandle<()>> = None;
 
-    let entry = build_service_entry(&args);
-    let key = entry.key();
-
-    registry
-        .register(entry)
-        .with_context(|| "registering sidecar in FileRegistry")?;
-    tracing::info!(
-        instance_id = %key.instance_id,
-        dcc = %key.dcc_type,
-        "sidecar registered"
-    );
     let heartbeat_handle =
         spawn_sidecar_heartbeat(registry.clone(), key.clone(), SIDECAR_HEARTBEAT_INTERVAL);
 
