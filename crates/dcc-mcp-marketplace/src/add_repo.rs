@@ -11,8 +11,8 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::error::MarketplaceError;
-use crate::types::{RepoInstallResult, RepoSkillInfo, RepoSkillList};
 use crate::path_component;
+use crate::types::{RepoInstallResult, RepoSkillInfo, RepoSkillList};
 
 /// Parse a repo reference into a clone URL and optional subpath.
 ///
@@ -70,7 +70,8 @@ fn looks_like_github_slug(value: &str) -> bool {
     let Some((owner, repo)) = value.split_once('/') else {
         return false;
     };
-    !owner.is_empty() && !repo.is_empty()
+    !owner.is_empty()
+        && !repo.is_empty()
         && !value.contains("://")
         && !value.contains('\\')
         && !value.contains('@')
@@ -229,9 +230,11 @@ pub fn list_repo_skills(repo_ref: &str) -> Result<RepoSkillList, MarketplaceErro
         .collect();
     // Tag subpaths for non-root skills
     for skill in &mut skills {
-        let dir = search_root
-            .join(&skill.name);
-        if dir.is_dir() && dir.join("SKILL.md").is_file() && dir.file_name().map(|n| n != ".").unwrap_or(false) {
+        let dir = search_root.join(&skill.name);
+        if dir.is_dir()
+            && dir.join("SKILL.md").is_file()
+            && dir.file_name().map(|n| n != ".").unwrap_or(false)
+        {
             skill.subpath = dir.file_name().map(|n| n.to_string_lossy().to_string());
         }
     }
@@ -292,9 +295,7 @@ pub fn install_from_repo(
         // Single skill — use it directly
         let dir = &skill_dirs[0];
         let mut info = extract_skill_frontmatter(dir).ok_or_else(|| {
-            MarketplaceError::CommandFailed(
-                "failed to parse SKILL.md frontmatter".into(),
-            )
+            MarketplaceError::CommandFailed("failed to parse SKILL.md frontmatter".into())
         })?;
         info.subpath = if dir != &clone_dir {
             dir.file_name().map(|n| n.to_string_lossy().to_string())
@@ -311,14 +312,20 @@ pub fn install_from_repo(
 
         match dcc {
             Some(requested_dcc) => {
-                let matched = all_skills.into_iter().find(|s| {
-                    s.dcc.as_deref().map(|d| d.eq_ignore_ascii_case(requested_dcc)).unwrap_or(false)
-                }).ok_or_else(|| {
-                    MarketplaceError::CommandFailed(format!(
-                        "no skill for DCC '{requested_dcc}' found in repo; \
+                let matched = all_skills
+                    .into_iter()
+                    .find(|s| {
+                        s.dcc
+                            .as_deref()
+                            .map(|d| d.eq_ignore_ascii_case(requested_dcc))
+                            .unwrap_or(false)
+                    })
+                    .ok_or_else(|| {
+                        MarketplaceError::CommandFailed(format!(
+                            "no skill for DCC '{requested_dcc}' found in repo; \
                          use --list to see available skills"
-                    ))
-                })?;
+                        ))
+                    })?;
                 matched
             }
             None => {
@@ -326,7 +333,7 @@ pub fn install_from_repo(
                     "repo contains multiple skills; use --dcc <DCC> to select one, \
                      or --list to see available skills"
                         .into(),
-                ))
+                ));
             }
         }
     };
@@ -338,9 +345,8 @@ pub fn install_from_repo(
             Some(d) => path_component("DCC name", d)?.to_lowercase(),
             None => {
                 return Err(MarketplaceError::CommandFailed(
-                    "skill does not declare a DCC in SKILL.md; use --dcc to specify one"
-                        .into(),
-                ))
+                    "skill does not declare a DCC in SKILL.md; use --dcc to specify one".into(),
+                ));
             }
         },
     };
@@ -373,7 +379,11 @@ pub fn install_from_repo(
     } else {
         skill_dirs
             .into_iter()
-            .find(|d| extract_skill_frontmatter(d.as_path()).map(|s| s.name == target_skill.name).unwrap_or(false))
+            .find(|d| {
+                extract_skill_frontmatter(d.as_path())
+                    .map(|s| s.name == target_skill.name)
+                    .unwrap_or(false)
+            })
             .unwrap_or_else(|| clone_dir.clone())
     };
 
@@ -399,7 +409,8 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), MarketplaceError> {
     for entry in std::fs::read_dir(src)
         .map_err(|err| MarketplaceError::ConfigIo(src.display().to_string(), err))?
     {
-        let entry = entry.map_err(|err| MarketplaceError::ConfigIo(src.display().to_string(), err))?;
+        let entry =
+            entry.map_err(|err| MarketplaceError::ConfigIo(src.display().to_string(), err))?;
         let src_path = entry.path();
         let dest_path = dest.join(entry.file_name());
         let file_type = entry
@@ -452,16 +463,14 @@ mod tests {
 
     #[test]
     fn parse_full_url_without_git_suffix() {
-        let (url, subpath) =
-            parse_repo_ref("https://github.com/dcc-mcp/dcc-mcp-maya").unwrap();
+        let (url, subpath) = parse_repo_ref("https://github.com/dcc-mcp/dcc-mcp-maya").unwrap();
         assert_eq!(url, "https://github.com/dcc-mcp/dcc-mcp-maya.git");
         assert!(subpath.is_none());
     }
 
     #[test]
     fn parse_ssh_url() {
-        let (url, subpath) =
-            parse_repo_ref("git@github.com:dcc-mcp/dcc-mcp-maya.git").unwrap();
+        let (url, subpath) = parse_repo_ref("git@github.com:dcc-mcp/dcc-mcp-maya.git").unwrap();
         assert_eq!(url, "git@github.com:dcc-mcp/dcc-mcp-maya.git");
         assert!(subpath.is_none());
     }
