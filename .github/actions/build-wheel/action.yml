@@ -200,7 +200,7 @@ runs:
           source test-env/bin/activate
         fi
 
-        pip install --no-index --find-links dist dcc-mcp-core --force-reinstall --no-deps
+        pip install --force-reinstall dist/*.whl
         pip check
 
         python tests/test_imports.py

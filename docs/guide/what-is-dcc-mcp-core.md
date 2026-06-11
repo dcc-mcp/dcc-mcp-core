@@ -5,7 +5,7 @@
 - **AI assistants** → a small, static **MCP** discovery set (`search`, `describe`) via the gateway, plus REST `/v1/*` for execution.
 - **Traditional callers** (cURL, CI, any HTTP client) → a full **`/v1/*` REST API** on every per-DCC server and on the gateway facade.
 
-The core is Rust, compiled to a Python extension via [PyO3](https://pyo3.rs/) + [maturin](https://github.com/PyO3/maturin). Zero Python runtime dependencies.
+The core is Rust, compiled to a Python extension via [PyO3](https://pyo3.rs/) + [maturin](https://github.com/PyO3/maturin). It has no third-party Python library runtime dependencies; the companion `dcc-mcp-server` wheel supplies the packaged gateway daemon binary.
 
 ---
 
@@ -61,7 +61,7 @@ flowchart LR
 - **Multi-DCC gateway aggregation** — file-based service registry + TCP-probe health checks, auto-evicts instances after 3 consecutive probe failures, prunes ghost rows, arbitrates contention via a three-tier `crate_version → adapter_version → adapter_dcc` election.
 - **Tool slug contract** — `<dcc>.<id8>.<tool>` three-part slugs are the only addressable form; the gateway parses them to route REST `/v1/call` to the owning backend.
 - **Tunnels (#504)** — `dcc-mcp-tunnel-relay` + `dcc-mcp-tunnel-agent` binaries for zero-config remote access from SaaS AI clients to a workstation's DCC.
-- **PyO3 bindings** — every Rust-accelerated API transparent to Python. Zero Python runtime deps.
+- **PyO3 bindings** — every Rust-accelerated API transparent to Python. No third-party Python library runtime deps; gateway daemon startup uses the companion `dcc-mcp-server` wheel.
 
 ---
 

@@ -31,7 +31,7 @@ features:
     details: 多 DCC 实例竞争网关角色，新版本 adapter 可干净接管，已有实例仍可被发现和路由。
   - icon: 🦀
     title: Rust 驱动核心
-    details: 零运行时 Python 依赖。通过 Named Pipe 和 Unix Socket 实现零拷贝 IPC。rmp-serde 序列化。LZ4 共享内存。毫秒级工具调用。
+    details: 零第三方 Python 库依赖。通过 dcc-mcp-server 提供打包 gateway daemon 二进制。通过 Named Pipe 和 Unix Socket 实现零拷贝 IPC。rmp-serde 序列化。LZ4 共享内存。毫秒级工具调用。
   - icon: 🔒
     title: SkillPolicy 与作用域
     details: allow_implicit_invocation 控制 AI 是否可直接调用 Skill。products 按 DCC 过滤可见性。信任层级（repo < user < system < admin）。

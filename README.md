@@ -24,7 +24,7 @@
 
 `dcc-mcp-core` turns DCC applications into discoverable, routable MCP endpoints. Agents stop guessing from shell output and start working with live scene state, scoped tool catalogs, structured results, viewport diagnostics, audit logs, and workflows that can survive real production constraints.
 
-It combines **MCP 2025-03-26 Streamable HTTP**, a **zero-code Skills system** built on [agentskills.io 1.0](https://agentskills.io/specification), and a Rust gateway for discovery, routing, installation, linting, and operations. The Python package keeps **zero runtime Python dependencies** for embedded DCC hosts, while standalone `dcc-mcp-cli` and `dcc-mcp-server` binaries ship through GitHub Releases for workstation-style installs. Supports Python 3.7–3.14.
+It combines **MCP 2025-03-26 Streamable HTTP**, a **zero-code Skills system** built on [agentskills.io 1.0](https://agentskills.io/specification), and a Rust gateway for discovery, routing, installation, linting, and operations. The Python package keeps **zero third-party Python library dependencies** for embedded DCC hosts and depends on the companion `dcc-mcp-server` wheel so daemon-backed gateway startup has a packaged binary even when `PATH` is empty. Standalone `dcc-mcp-cli` and `dcc-mcp-server` binaries also ship through GitHub Releases for workstation-style installs. Supports Python 3.7–3.14.
 
 Use it when you want agents to operate production DCC sessions without flooding the context window, hand-writing Python glue for every tool, or shipping fragile one-off shell scripts. Start with the CLI in two commands, or embed the Python core directly in a DCC adapter.
 
@@ -620,7 +620,7 @@ tools/list response (Maya session, nothing loaded yet):
 ## Highlights
 
 - **Rust-powered performance** — Zero-copy serialisation (`rmp-serde`), LZ4 shared memory, lock-free data structures.
-- **Zero runtime Python deps** — Everything compiled into the native extension.
+- **Zero third-party Python library deps** — Core logic is compiled into the native extension; the companion `dcc-mcp-server` wheel supplies the gateway daemon binary.
 - **Skills-First MCP server** — `create_skill_server()` gives a ready-to-use MCP 2025-03-26 Streamable HTTP endpoint with progressive discovery.
 - **Workflow primitive** — `WorkflowSpec` / `WorkflowExecutor`: declarative multi-step workflows with retry, timeout, idempotency keys, approval gates, foreach / parallel / branch steps, SQLite-backed recovery.
 - **Scheduler** — Cron + webhook (HMAC-SHA256) triggered workflows via sibling `schedules.yaml` (opt-in feature).

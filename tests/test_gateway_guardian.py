@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+import sys
 import time
+import types
 
 import dcc_mcp_core._server.gateway_guardian as gg
 
@@ -26,6 +29,30 @@ def test_ensure_gateway_daemon_reports_existing_health(monkeypatch):
     )
     assert result["ok"] is True
     assert result["reason"] == "already_healthy"
+
+
+def test_resolve_server_bin_uses_packaged_binary_when_path_missing(monkeypatch, tmp_path):
+    binary = tmp_path / "dcc-mcp-server"
+    binary.write_text("", encoding="utf-8")
+    module = types.ModuleType("dcc_mcp_server")
+    module.binary_path = lambda: binary
+
+    monkeypatch.delenv("DCC_MCP_SERVER_BIN", raising=False)
+    monkeypatch.setattr(gg.shutil, "which", lambda _name: None)
+    monkeypatch.setitem(sys.modules, "dcc_mcp_server", module)
+
+    assert gg._resolve_server_bin() == str(binary)
+
+
+def test_resolve_server_bin_prefers_explicit_env(monkeypatch, tmp_path):
+    explicit = tmp_path / "custom-server"
+    module = types.ModuleType("dcc_mcp_server")
+    module.binary_path = lambda: Path("/unused/dcc-mcp-server")
+
+    monkeypatch.setenv("DCC_MCP_SERVER_BIN", str(explicit))
+    monkeypatch.setitem(sys.modules, "dcc_mcp_server", module)
+
+    assert gg._resolve_server_bin() == str(explicit)
 
 
 def test_ensure_gateway_daemon_spawns_and_becomes_healthy(tmp_path, monkeypatch):
