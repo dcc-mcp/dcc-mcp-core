@@ -272,6 +272,12 @@ By default, the installers download the latest GitHub Release asset:
 | Windows x86_64 | `dcc-mcp-cli-windows-x86_64.exe` |
 | macOS universal2 | `dcc-mcp-cli-macos-universal2` |
 
+For server deployments, each GitHub Release also attaches a ready-to-unpack
+bundle named `dcc-mcp-server-<version>-<platform>.zip`. The zip contains both
+`dcc-mcp-server` and `dcc-mcp-cli` at its root (`.exe` on Windows), so operators
+can place one archive on a machine and wire both the gateway daemon and control
+plane CLI into `PATH`.
+
 Pin a release or install somewhere custom:
 
 ```bash
@@ -310,7 +316,7 @@ vx just dev           # recommended — uses the project's canonical feature set
 # or: pip install -e .
 ```
 
-Every release attaches raw `dcc-mcp-cli` and `dcc-mcp-server` binaries for Linux, Windows, and macOS universal2. `dcc-mcp-server` also ships as the `dcc-mcp-server` Python wheel for hosts that prefer `pip install`.
+Every release attaches raw `dcc-mcp-cli` and `dcc-mcp-server` binaries for Linux, Windows, and macOS universal2, plus `dcc-mcp-server-<version>-<platform>.zip` bundles containing both binaries. `dcc-mcp-server` also ships as the `dcc-mcp-server` Python wheel for hosts that prefer `pip install`.
 
 ### Serve a DCC over MCP — Skills-First (recommended)
 
