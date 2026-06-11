@@ -12,6 +12,7 @@ description = "Shared gateway ensure primitives: health check, launch lock, spaw
 anyhow.workspace = true
 reqwest.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 workspace-hack = { version = "0.1", path = "../workspace-hack" }

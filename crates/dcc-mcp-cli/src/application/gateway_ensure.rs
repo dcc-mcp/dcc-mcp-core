@@ -9,7 +9,7 @@
 //! utilities) live in `dcc-mcp-gateway-ensure`.
 
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use dcc_mcp_gateway_ensure as ensure;
@@ -61,6 +61,7 @@ pub async fn ensure_gateway_running(args: &EnsureGatewayArgs) -> anyhow::Result<
     std::fs::create_dir_all(&args.registry_dir)
         .with_context(|| format!("creating registry dir {}", args.registry_dir.display()))?;
     let lock_path = args.registry_dir.join("gateway-launch.lock");
+    let started = Instant::now();
     match ensure::acquire_launch_lock(&lock_path) {
         Ok(_lock) => {
             // Double-check after acquiring the lock (race protection).
@@ -82,12 +83,33 @@ pub async fn ensure_gateway_running(args: &EnsureGatewayArgs) -> anyhow::Result<
                 args.remote_port,
                 args.gateway_idle_timeout_secs,
             );
-            let pid = ensure::spawn_detached_gateway(&exe, &cmd_args, &args.registry_dir)?;
+            let context = ensure::GatewayLaunchContext::gateway(
+                &args.host,
+                args.port,
+                &args.remote_host,
+                args.remote_port,
+                args.gateway_idle_timeout_secs,
+            );
+            let launch = ensure::spawn_detached_gateway_with_context(
+                &exe,
+                &cmd_args,
+                &args.registry_dir,
+                context,
+            )?;
 
-            ensure::wait_gateway_ready(
+            ensure::wait_gateway_ready_with_diagnostics(
                 &args.host,
                 args.port,
                 Duration::from_secs(ensure::resolve_ensure_timeout_secs(args.wait_timeout_secs)),
+                ensure::GatewayReadyDiagnostics {
+                    registry_dir: Some(&args.registry_dir),
+                    launch_lock: Some(&lock_path),
+                    launch: Some(&launch),
+                    started: Some(started),
+                    gateway_idle_timeout_secs: Some(args.gateway_idle_timeout_secs),
+                    remote_host: Some(&args.remote_host),
+                    remote_port: Some(args.remote_port),
+                },
             )
             .await?;
 
@@ -96,14 +118,14 @@ pub async fn ensure_gateway_running(args: &EnsureGatewayArgs) -> anyhow::Result<
 
             // Write PID file so stop/status commands can find the process.
             if let Some(ref pidfile) = args.pidfile {
-                ensure::write_pidfile(pidfile, pid)?;
+                ensure::write_pidfile(pidfile, launch.pid)?;
             }
 
             Ok(EnsureResult {
                 host: args.host.clone(),
                 port: args.port,
                 already_running: false,
-                pid: Some(pid),
+                pid: Some(launch.pid),
             })
         }
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -112,7 +134,21 @@ pub async fn ensure_gateway_running(args: &EnsureGatewayArgs) -> anyhow::Result<
             // Python `_wait_gateway_ready` on lock-loser path).
             let timeout =
                 Duration::from_secs(ensure::resolve_ensure_timeout_secs(args.wait_timeout_secs));
-            ensure::wait_gateway_ready(&args.host, args.port, timeout).await?;
+            ensure::wait_gateway_ready_with_diagnostics(
+                &args.host,
+                args.port,
+                timeout,
+                ensure::GatewayReadyDiagnostics {
+                    registry_dir: Some(&args.registry_dir),
+                    launch_lock: Some(&lock_path),
+                    launch: None,
+                    started: Some(started),
+                    gateway_idle_timeout_secs: Some(args.gateway_idle_timeout_secs),
+                    remote_host: Some(&args.remote_host),
+                    remote_port: Some(args.remote_port),
+                },
+            )
+            .await?;
             Ok(EnsureResult {
                 host: args.host.clone(),
                 port: args.port,

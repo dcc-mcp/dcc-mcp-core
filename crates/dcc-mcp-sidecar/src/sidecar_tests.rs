@@ -1,8 +1,12 @@
 use super::*;
 use crate::sidecar::registry::{
+    GATEWAY_AUTO_ENSURE_METADATA_KEY, GATEWAY_HEALTH_URL_METADATA_KEY, GATEWAY_HOST_METADATA_KEY,
+    GATEWAY_LAUNCH_LOCK_METADATA_KEY, GATEWAY_PORT_METADATA_KEY,
     GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN, GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION,
     GATEWAY_RECOVERY_DRIVER_METADATA_KEY, GATEWAY_RECOVERY_DRIVER_NONE,
+    GATEWAY_REMOTE_HOST_METADATA_KEY, GATEWAY_REMOTE_PORT_METADATA_KEY,
     REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT, REGISTRATION_REFRESH_MODE_METADATA_KEY,
+    REGISTRY_DIR_METADATA_KEY,
 };
 use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceKey, ServiceStatus};
 use std::path::PathBuf;
@@ -138,7 +142,15 @@ fn gateway_daemon_guardian_runs_only_in_daemon_backed_mode() {
 #[test]
 fn sidecar_service_entry_reports_gateway_guardian_metadata() {
     fn assert_mode(args: SidecarArgs, mode: &str, enabled: bool, recovery_driver: &str) {
-        let entry = build_service_entry(&args);
+        let registry_dir = PathBuf::from("/tmp/dcc-mcp-registry-test");
+        let entry = build_service_entry(&args, &registry_dir);
+        let expected_gateway_port = args.gateway_port.to_string();
+        let expected_gateway_health_url = format!("http://127.0.0.1:{}/health", args.gateway_port);
+        let expected_gateway_remote_port = args.gateway_remote_port.to_string();
+        let expected_registry_dir = registry_dir.to_string_lossy().to_string();
+        let expected_auto_ensure =
+            (args.gateway_port > 0 && !args.no_ensure_gateway && !args.legacy_gateway_election)
+                .to_string();
         assert_eq!(
             entry
                 .metadata
@@ -166,6 +178,62 @@ fn sidecar_service_entry_reports_gateway_guardian_metadata() {
                 .get(REGISTRATION_REFRESH_MODE_METADATA_KEY)
                 .map(String::as_str),
             Some(REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT)
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(GATEWAY_HOST_METADATA_KEY)
+                .map(String::as_str),
+            Some("127.0.0.1")
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(GATEWAY_PORT_METADATA_KEY)
+                .map(String::as_str),
+            Some(expected_gateway_port.as_str())
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(GATEWAY_HEALTH_URL_METADATA_KEY)
+                .map(String::as_str),
+            Some(expected_gateway_health_url.as_str())
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(GATEWAY_REMOTE_HOST_METADATA_KEY)
+                .map(String::as_str),
+            Some(args.gateway_remote_host.as_str())
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(GATEWAY_REMOTE_PORT_METADATA_KEY)
+                .map(String::as_str),
+            Some(expected_gateway_remote_port.as_str())
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(REGISTRY_DIR_METADATA_KEY)
+                .map(String::as_str),
+            Some(expected_registry_dir.as_str())
+        );
+        assert!(
+            entry
+                .metadata
+                .get(GATEWAY_LAUNCH_LOCK_METADATA_KEY)
+                .is_some_and(|path| path.contains("gateway-launch.lock")),
+            "sidecar metadata should include the shared gateway launch lock path"
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(GATEWAY_AUTO_ENSURE_METADATA_KEY)
+                .map(String::as_str),
+            Some(expected_auto_ensure.as_str())
         );
     }
 
@@ -201,6 +269,48 @@ fn sidecar_service_entry_reports_gateway_guardian_metadata() {
         "embedded-fallback",
         false,
         GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION,
+    );
+}
+
+#[cfg(feature = "gateway-daemon")]
+#[test]
+fn gateway_daemon_options_clamp_tiny_nonzero_idle_timeout() {
+    let _guard = REGISTRY_ENV_LOCK.lock().expect("registry env lock");
+    let saved = std::env::var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS").ok();
+    unsafe { std::env::set_var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", "1") };
+
+    let opts = build_gateway_daemon_options(&guardian_test_args(), PathBuf::from("registry"));
+
+    if let Some(prev) = saved {
+        unsafe { std::env::set_var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", prev) };
+    } else {
+        unsafe { std::env::remove_var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS") };
+    }
+
+    assert_eq!(
+        opts.gateway_idle_timeout_secs, 30,
+        "sidecar autolaunch must not let a tiny idle timeout race the first backend registration"
+    );
+}
+
+#[cfg(feature = "gateway-daemon")]
+#[test]
+fn gateway_daemon_options_preserve_zero_idle_timeout_as_persist() {
+    let _guard = REGISTRY_ENV_LOCK.lock().expect("registry env lock");
+    let saved = std::env::var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS").ok();
+    unsafe { std::env::set_var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", "0") };
+
+    let opts = build_gateway_daemon_options(&guardian_test_args(), PathBuf::from("registry"));
+
+    if let Some(prev) = saved {
+        unsafe { std::env::set_var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", prev) };
+    } else {
+        unsafe { std::env::remove_var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS") };
+    }
+
+    assert_eq!(
+        opts.gateway_idle_timeout_secs, 0,
+        "0 remains the explicit persist/no-idle-timeout mode"
     );
 }
 
