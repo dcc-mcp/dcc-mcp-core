@@ -813,6 +813,87 @@ mod tests {
         assert!(msg.contains("manifest="));
     }
 
+    #[test]
+    fn spawn_detached_gateway_with_context_writes_debug_artifacts() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = std::env::current_exe().unwrap();
+        let args = vec![OsString::from("--help")];
+        let mut context = GatewayLaunchContext::gateway("127.0.0.1", 19765, "0.0.0.0", 59765, 30);
+        context.adapter_dcc = Some("maya".to_string());
+        context.adapter_version = Some("0.1.0-test".to_string());
+        context.crate_version = Some("0.18.19-test".to_string());
+
+        let artifacts =
+            spawn_detached_gateway_with_context(&exe, &args, dir.path(), context).unwrap();
+
+        assert_eq!(artifacts.executable, exe);
+        assert_eq!(artifacts.args, args);
+        assert!(artifacts.pid > 0);
+        assert!(artifacts.stdout_log.exists());
+        assert!(artifacts.stderr_log.exists());
+        assert!(artifacts.manifest_path.exists());
+        assert_eq!(
+            artifacts
+                .stdout_log
+                .file_name()
+                .and_then(|name| name.to_str()),
+            Some("gateway-autolaunch-19765-stdout.log")
+        );
+        assert_eq!(
+            artifacts
+                .stderr_log
+                .file_name()
+                .and_then(|name| name.to_str()),
+            Some("gateway-autolaunch-19765-stderr.log")
+        );
+        assert_eq!(
+            artifacts
+                .manifest_path
+                .file_name()
+                .and_then(|name| name.to_str()),
+            Some("gateway-autolaunch-19765.json")
+        );
+
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&artifacts.manifest_path).unwrap()).unwrap();
+        assert_eq!(manifest["pid"].as_u64(), Some(artifacts.pid as u64));
+        assert_eq!(
+            manifest["executable"].as_str(),
+            Some(artifacts.executable.display().to_string().as_str())
+        );
+        assert_eq!(manifest["args"].as_array().map(Vec::len), Some(1));
+        assert_eq!(manifest["args"][0].as_str(), Some("--help"));
+        assert_eq!(
+            manifest["registry_dir"].as_str(),
+            Some(dir.path().display().to_string().as_str())
+        );
+        assert_eq!(
+            manifest["health_url"].as_str(),
+            Some("http://127.0.0.1:19765/health")
+        );
+        assert_eq!(manifest["host"].as_str(), Some("127.0.0.1"));
+        assert_eq!(manifest["port"].as_u64(), Some(19765));
+        assert_eq!(manifest["remote_host"].as_str(), Some("0.0.0.0"));
+        assert_eq!(manifest["remote_port"].as_u64(), Some(59765));
+        assert_eq!(manifest["gateway_idle_timeout_secs"].as_u64(), Some(30));
+        assert_eq!(manifest["adapter_dcc"].as_str(), Some("maya"));
+        assert_eq!(manifest["adapter_version"].as_str(), Some("0.1.0-test"));
+        assert_eq!(manifest["crate_version"].as_str(), Some("0.18.19-test"));
+        assert_eq!(
+            manifest["stdout_log"].as_str(),
+            Some(artifacts.stdout_log.display().to_string().as_str())
+        );
+        assert_eq!(
+            manifest["stderr_log"].as_str(),
+            Some(artifacts.stderr_log.display().to_string().as_str())
+        );
+        assert!(
+            manifest["spawned_at_unix"]
+                .as_u64()
+                .is_some_and(|value| value > 0)
+        );
+    }
+
     // ── Default registry dir tests ─────────────────────────────────────
 
     #[test]
