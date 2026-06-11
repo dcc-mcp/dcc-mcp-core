@@ -18,7 +18,8 @@ use crate::types::{
     MarketplaceInstallResult, MarketplaceInstalledList, MarketplaceInstalledState,
     MarketplaceOutdatedList, MarketplaceSearchResult, MarketplaceSource, MarketplaceSourceConfig,
     MarketplaceSourceOrigin, MarketplaceUninstallResult, MarketplaceUpdateResult,
-    OutdatedMarketplacePackage, StoredMarketplaceSource, entry_targets_dcc,
+    OutdatedMarketplacePackage, RepoInstallResult, RepoSkillList, StoredMarketplaceSource,
+    entry_targets_dcc,
 };
 
 const ENV_MARKETPLACE_SOURCES: &str = "DCC_MCP_MARKETPLACE_SOURCES";
@@ -482,6 +483,23 @@ impl MarketplaceService {
             results.push(update_result);
         }
         Ok(results)
+    }
+
+    // ── add-repo (direct GitHub install) ──────────────────────────────────────
+
+    /// List SKILL.md entries from a GitHub repo without installing.
+    pub fn list_repo_skills(&self, repo_ref: &str) -> Result<RepoSkillList, MarketplaceError> {
+        crate::add_repo::list_repo_skills(repo_ref)
+    }
+
+    /// Install a skill directly from a GitHub repo (no marketplace.json needed).
+    pub fn add_repo(
+        &self,
+        repo_ref: &str,
+        dcc: Option<&str>,
+        force: bool,
+    ) -> Result<RepoInstallResult, MarketplaceError> {
+        crate::add_repo::install_from_repo(repo_ref, dcc, force, &self.root)
     }
 
     // ── internal helpers ─────────────────────────────────────────────────────
@@ -1203,7 +1221,7 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), MarketplaceError> {
     Ok(())
 }
 
-fn remove_path(path: &Path) -> Result<(), MarketplaceError> {
+pub(crate) fn remove_path(path: &Path) -> Result<(), MarketplaceError> {
     if path.is_dir() {
         fs::remove_dir_all(path)
     } else {
