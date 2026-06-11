@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import sys
+import threading
 import time
 import types
 
@@ -416,11 +417,16 @@ def test_gateway_daemon_guardian_resets_failures_on_health(monkeypatch):
 def test_guardian_run_catches_crash_and_increments_crash_count(monkeypatch):
     """P0: probe_once crash is caught by _run(), crash_count increments."""
     call_count = 0
+    crash_reported = threading.Event()
 
     def _crash_after_one(*args, **kwargs):
         nonlocal call_count
         call_count += 1
         raise RuntimeError("deliberate probe crash")
+
+    def _status_callback(status):
+        if status.get("crash_count", 0) >= 1:
+            crash_reported.set()
 
     monkeypatch.setattr(gg, "_is_healthy", _crash_after_one)
 
@@ -431,11 +437,14 @@ def test_guardian_run_catches_crash_and_increments_crash_count(monkeypatch):
         dcc_type="crash-test",
         probe_interval_secs=0.05,
         failure_threshold=5,
+        status_callback=_status_callback,
     )
 
     guardian.start()
-    time.sleep(0.2)
-    guardian.stop(timeout=2.0)
+    try:
+        assert crash_reported.wait(2.0), "Expected guardian crash status to be published"
+    finally:
+        guardian.stop(timeout=2.0)
 
     status = guardian.status()
     assert status["crash_count"] >= 1, f"Expected crash_count >= 1, got {status['crash_count']}"
@@ -446,12 +455,19 @@ def test_guardian_run_catches_crash_and_increments_crash_count(monkeypatch):
 def test_guardian_run_continues_after_exception(monkeypatch):
     """P0: _run() loop survives exception and keeps probing."""
     calls = []
+    crash_reported = threading.Event()
+    continued_after_crash = threading.Event()
 
     def _probe(*args, **kwargs):
         calls.append(1)
         if len(calls) == 1:
             raise RuntimeError("first probe crash")
+        continued_after_crash.set()
         return False  # subsequent probes return healthy=False (no crash)
+
+    def _status_callback(status):
+        if status.get("crash_count", 0) >= 1:
+            crash_reported.set()
 
     monkeypatch.setattr(gg, "_is_healthy", _probe)
 
@@ -461,12 +477,16 @@ def test_guardian_run_continues_after_exception(monkeypatch):
         registry_dir=None,
         dcc_type="resilient-test",
         probe_interval_secs=0.05,
-        failure_threshold=5,
+        failure_threshold=100,
+        status_callback=_status_callback,
     )
 
     guardian.start()
-    time.sleep(0.5)
-    guardian.stop(timeout=2.0)
+    try:
+        assert crash_reported.wait(2.0), "Expected guardian crash status to be published"
+        assert continued_after_crash.wait(2.0), "Expected guardian loop to continue probing"
+    finally:
+        guardian.stop(timeout=2.0)
 
     # The loop survived the first crash and continued probing
     assert len(calls) >= 2, f"Expected >= 2 probe calls, got {len(calls)}"
