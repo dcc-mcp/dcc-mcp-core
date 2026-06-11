@@ -391,7 +391,7 @@ jobs:
           path: dist/
       - name: Install wheel + test deps
         run: |
-          pip install --no-index --find-links dist dcc-mcp-core
+          pip install dist/*.whl
           if [[ "${{ matrix.os }}" == "ubuntu-latest" && "${{ matrix.python-version }}" == "3.14" ]]; then
             pip install pytest pytest-cov
           else
@@ -544,7 +544,7 @@ jobs:
         run: |
           "${PY37}" -m venv test-env
           source test-env/bin/activate
-          pip install --no-index --find-links dist dcc-mcp-core --force-reinstall --no-deps
+          pip install --force-reinstall dist/*.whl
           pip check
           python tests/test_imports.py
 
@@ -655,7 +655,9 @@ jobs:
           path: dist/
 
       - name: Install wheel + test deps
-        run: pip install --no-index --find-links dist dcc-mcp-core && pip install pytest anyio
+        run: |
+          pip install dist/*.whl
+          pip install pytest anyio
         shell: bash
 
       - name: Verify mcpcall
@@ -702,7 +704,9 @@ jobs:
           name: wheel-ubuntu-latest
           path: dist/
       - name: Install wheel + pytest
-        run: pip install --no-index --find-links dist dcc-mcp-core && pip install pytest
+        run: |
+          pip install dist/*.whl
+          pip install pytest
         shell: bash
       - name: Verify Blender
         run: blender --version
@@ -728,7 +732,9 @@ jobs:
           name: wheel-ubuntu-latest
           path: dist/
       - name: Install wheel + pytest
-        run: pip install --no-index --find-links dist dcc-mcp-core && pip install pytest
+        run: |
+          pip install dist/*.whl
+          pip install pytest
         shell: bash
       - name: Verify OpenSCAD
         run: openscad --version
@@ -760,7 +766,9 @@ jobs:
           name: wheel-ubuntu-latest
           path: dist/
       - name: Install wheel + pytest
-        run: pip install --no-index --find-links dist dcc-mcp-core && pip install pytest
+        run: |
+          pip install dist/*.whl
+          pip install pytest
         shell: bash
       - name: Verify Godot
         run: godot --version
@@ -781,7 +789,9 @@ jobs:
           name: wheel-ubuntu-latest
           path: dist/
       - name: Install wheel + pytest
-        run: pip install --no-index --find-links dist dcc-mcp-core && pip install pytest
+        run: |
+          pip install dist/*.whl
+          pip install pytest
         shell: bash
       - name: Test
         run: pytest tests/test_integration_dcc_cross.py -v --tb=short

@@ -379,12 +379,12 @@ Supported types (stdlib only): `bool`, `int`, `float`, `str`, `bytes`,
 spell containers and unions with `typing.List`, `typing.Dict`,
 `typing.Tuple`, `typing.Optional`, and `typing.Union`; `Literal` and
 `TypedDict` require `typing_extensions` in the skill author's environment.
-The core package still imports with zero runtime dependencies. Unsupported
+The core package still imports without third-party Python library dependencies. Unsupported
 types raise `TypeError` with a clear escape hatch: pass an explicit
 `input_schema=...` dict or use pydantic's `MyModel.model_json_schema()`.
 
 ::: tip Why not pydantic?
-We intentionally stay zero-dependency. Adding `pydantic` for this one
+We intentionally stay free of third-party Python library dependencies. Adding `pydantic` for this one
 feature would drag in a 3MB wheel plus `pydantic-core` and is too
 heavy for authors who only want a few dataclass handlers. For callers
 who already use pydantic, the emitted shape matches pydantic's

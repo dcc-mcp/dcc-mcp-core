@@ -49,9 +49,9 @@ config.dcc_type = "maya"
 
 Python 3.7–3.14 在 CI 中全部测试。使用 `abi3-py38` 构建 wheel 以最大化兼容性。
 
-### 是否有 Python 运行时依赖？
+### 是否有 Python 库运行时依赖？
 
-**没有。** 库没有任何 Python 运行时依赖，所有内容都编译进 Rust 核心。
+**没有第三方 Python 库依赖。** 核心逻辑编译进 Rust 扩展。默认包会依赖配套的 `dcc-mcp-server` wheel，让 `DccServerBase` 可以从打包二进制启动 gateway daemon，而不依赖 `PATH`。
 
 ## 安装
 

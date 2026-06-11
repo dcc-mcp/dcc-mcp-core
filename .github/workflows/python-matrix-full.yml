@@ -48,7 +48,9 @@ jobs:
         run: vx just build
         shell: bash
       - name: Install wheel + test deps
-        run: pip install --no-index --find-links dist dcc-mcp-core && pip install pytest
+        run: |
+          pip install dist/*.whl
+          pip install pytest
         shell: bash
       - name: Test
         run: vx just test
