@@ -238,6 +238,23 @@ enum MarketplaceAction {
         #[arg(long)]
         dcc: Option<String>,
     },
+    /// Install a skill directly from a GitHub repo (no marketplace.json needed).
+    ///
+    /// Clones the repo, discovers SKILL.md files, and installs to the
+    /// marketplace root. Supports owner/repo, full URL, and @subpath syntax.
+    AddRepo {
+        /// GitHub owner/repo, full URL, or owner/repo@subpath.
+        repo_ref: String,
+        /// Override the DCC type (required when SKILL.md doesn't declare one).
+        #[arg(long)]
+        dcc: Option<String>,
+        /// List available skills in the repo without installing.
+        #[arg(long)]
+        list: bool,
+        /// Replace an existing installation.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Debug, clap::Args)]
@@ -568,6 +585,18 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 }
                 MarketplaceAction::Update { name, all, dcc } => {
                     to_json(service.update(name, all, dcc).await?)?
+                }
+                MarketplaceAction::AddRepo {
+                    repo_ref,
+                    dcc,
+                    list,
+                    force,
+                } => {
+                    if list {
+                        to_json(service.list_repo_skills(&repo_ref)?)?
+                    } else {
+                        to_json(service.add_repo(&repo_ref, dcc.as_deref(), force)?)?
+                    }
                 }
             }
         }

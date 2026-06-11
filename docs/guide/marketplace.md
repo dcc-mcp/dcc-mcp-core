@@ -79,6 +79,7 @@ Set `DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES=1` to disable the built-in source.
 | `marketplace uninstall <name> --dcc <dcc>`| Remove an installed package                    |
 | `marketplace outdated [name] --dcc <dcc>` | Check for newer versions                       |
 | `marketplace update [name] --all`         | Upgrade installed packages                     |
+| `marketplace add-repo <repo> [--dcc]`     | Install directly from a GitHub repo            |
 
 Full argument reference: [cli-reference.md](cli-reference.md#marketplace).
 
@@ -125,6 +126,73 @@ tooling.
     type: path
     url: "/share/skills/my-internal-skills"
 ```
+
+## Direct GitHub Install (`add-repo`)
+
+Inspired by `npx skills`, the `marketplace add-repo` command installs a skill
+directly from a GitHub repository without requiring a `marketplace.json` catalog
+entry. It clones the repo, discovers `SKILL.md` files, and copies the matching
+skill to the marketplace install root.
+
+### Usage
+
+```bash
+# Install from GitHub shorthand (owner/repo → https://github.com/owner/repo.git)
+dcc-mcp-cli marketplace add-repo dcc-mcp/dcc-mcp-maya --dcc maya
+
+# Install from full URL
+dcc-mcp-cli marketplace add-repo https://github.com/dcc-mcp/dcc-mcp-maya --dcc maya
+
+# List available skills in a repo without installing
+dcc-mcp-cli marketplace add-repo dcc-mcp/dcc-mcp-maya --list
+
+# Install a subpath within a repo (e.g., owner/repo@subdir)
+dcc-mcp-cli marketplace add-repo my-org/skill-repo@maya-skills --dcc maya
+
+# Force replace an existing installation
+dcc-mcp-cli marketplace add-repo dcc-mcp/dcc-mcp-maya --dcc maya --force
+```
+
+### How It Works
+
+1. **Clone**: runs `git clone --depth 1` of the target repo to a temporary
+   staging directory.
+2. **Discover**: scans the repo root and immediate subdirectories for
+   `SKILL.md` files.
+3. **Parse**: extracts `name`, `description`, and `dcc` (from
+   `metadata.dcc-mcp.dcc`) from the YAML frontmatter.
+4. **Select**: if the repo contains exactly one skill, it is installed
+   automatically. If multiple skills exist, `--dcc` is required to select one.
+5. **Install**: copies the skill directory to
+   `~/.dcc-mcp/marketplace/<dcc>/<name>/`.
+6. **Record**: the installation is persisted in `installed.json` and discoverable
+   via `list-installed`.
+
+### SKILL.md Discovery
+
+Skills are discovered by finding `SKILL.md` files — first checking the repo
+root, then one level deep. The frontmatter must contain at least a `name` field.
+The `dcc` field (under `metadata.dcc-mcp.dcc`) is optional but recommended; use
+`--dcc` when it is absent.
+
+### Repo Reference Formats
+
+| Format                        | Example                                         |
+|-------------------------------|-------------------------------------------------|
+| GitHub shorthand              | `dcc-mcp/dcc-mcp-maya`                          |
+| Full HTTPS URL                | `https://github.com/dcc-mcp/dcc-mcp-maya.git`   |
+| SSH URL                       | `git@github.com:dcc-mcp/dcc-mcp-maya.git`       |
+| With subpath                  | `dcc-mcp/dcc-mcp-maya@subdir`                   |
+
+### Comparison with Catalog Install
+
+| Aspect                  | `marketplace install`        | `marketplace add-repo`          |
+|-------------------------|------------------------------|---------------------------------|
+| Requires catalog entry  | Yes                          | No                              |
+| Source resolution       | Via sources.json / --source  | Direct GitHub clone             |
+| Version tracking        | Catalog version + git ref    | HEAD of cloned branch           |
+| Update mechanism        | Catalog-driven update check  | Re-clone (future)               |
+| SKILL.md discovery      | Via catalog entry metadata   | Filesystem scan                 |
 
 ## Directory Layout
 
@@ -239,6 +307,10 @@ The Marketplace panel reflects the same source configuration as the CLI. Source
 management is available through the Admin API (`POST /admin/api/marketplace/sources`)
 and is also accessible from the panel's source management interface.
 
+Note that `marketplace add-repo` (direct GitHub install) is a CLI-only feature
+and does not require a catalog source entry. Admin UI support is planned for a
+future phase.
+
 ### Relationship Between CLI and Admin UI
 
 | Aspect | CLI | Admin UI |
@@ -248,6 +320,7 @@ and is also accessible from the panel's source management interface.
 | Uninstall | `marketplace uninstall <name> --dcc <dcc>` | Uninstall button in Installed tab |
 | List installed | `marketplace list-installed --dcc <dcc>` | Installed tab |
 | Add source | `marketplace add <source>` | Source management in panel |
+| Direct GitHub install | `marketplace add-repo <repo> --dcc <dcc>` | Admin API (planned) |
 | Update | `marketplace update [name] --all` | Admin API (`POST /admin/api/marketplace/update`) |
 
 Both interfaces share the same backend — operations performed in one are
