@@ -113,6 +113,7 @@ class TestRunChainBasic:
         assert out["success"] is False
         assert out["context"]["aborted_at"] == 0
         assert out["context"]["completed_steps"] == 1
+        assert "No local handler registered" in out["context"]["results"][0]["message"]
 
     def test_stop_on_failure_false_continues(self):
         """stop_on_failure=False: chain continues even after a failing step."""
