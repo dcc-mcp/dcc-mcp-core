@@ -93,7 +93,7 @@ def test_ensure_gateway_daemon_spawns_and_becomes_healthy(tmp_path, monkeypatch)
     assert not (tmp_path / "gateway-launch.lock").exists()
 
 
-def test_ensure_gateway_daemon_spawn_failure_returns_embedded_fallback_reason(monkeypatch):
+def test_ensure_gateway_daemon_spawn_failure_returns_embedded_fallback_reason(monkeypatch, tmp_path):
     monkeypatch.setattr(gg, "urlopen", lambda *_a, **_k: (_ for _ in ()).throw(OSError("down")))
 
     monkeypatch.setattr(
@@ -105,7 +105,7 @@ def test_ensure_gateway_daemon_spawn_failure_returns_embedded_fallback_reason(mo
     result = gg.ensure_gateway_daemon(
         gateway_host="127.0.0.1",
         gateway_port=9765,
-        registry_dir=None,
+        registry_dir=str(tmp_path),
         dcc_type="maya",
     )
     assert result["ok"] is False
