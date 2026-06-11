@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.20](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.19...v0.18.20) (2026-06-11)
+
+
+### Features
+
+* add server release bundles ([2139b01](https://github.com/dcc-mcp/dcc-mcp-core/commit/2139b01a5fa7c920df593092b2b85d27c368c087))
+
+
+### Bug Fixes
+
+* improve gateway sidecar diagnostics ([6045d19](https://github.com/dcc-mcp/dcc-mcp-core/commit/6045d19eadc06bcb309027c2002098d6b829b996))
+
 ## [0.18.19](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.18...v0.18.19) (2026-06-11)
 
 
