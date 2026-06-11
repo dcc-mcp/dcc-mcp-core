@@ -46,6 +46,15 @@ def _resolve_server_bin() -> str:
     explicit = (os.environ.get("DCC_MCP_SERVER_BIN") or "").strip()
     if explicit:
         return explicit
+    try:
+        from dcc_mcp_server import binary_path
+    except Exception as exc:
+        logger.debug("dcc_mcp_server.binary_path unavailable: %s", exc)
+    else:
+        try:
+            return str(binary_path())
+        except Exception as exc:
+            logger.debug("dcc_mcp_server.binary_path failed: %s", exc)
     found = shutil.which("dcc-mcp-server")
     return found or "dcc-mcp-server"
 
