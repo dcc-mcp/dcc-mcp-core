@@ -438,6 +438,53 @@ async fn test_gateway_winner_stamps_human_readable_name_on_sentinel() {
         sentinel.metadata.get("gateway_role").map(String::as_str),
         Some("active")
     );
+    let expected_health_url = format!("http://127.0.0.1:{gw_port}/health");
+    let expected_mcp_url = format!("http://127.0.0.1:{gw_port}/mcp");
+    let expected_pid = std::process::id().to_string();
+    assert_eq!(
+        sentinel
+            .metadata
+            .get("gateway_health_url")
+            .map(String::as_str),
+        Some(expected_health_url.as_str())
+    );
+    assert_eq!(
+        sentinel.metadata.get("gateway_mcp_url").map(String::as_str),
+        Some(expected_mcp_url.as_str())
+    );
+    assert_eq!(
+        sentinel
+            .metadata
+            .get("gateway_process_pid")
+            .map(String::as_str),
+        Some(expected_pid.as_str())
+    );
+    assert!(
+        sentinel
+            .metadata
+            .get("gateway_process_exe")
+            .is_some_and(|value| !value.trim().is_empty()),
+        "sentinel should expose the executable that owns the gateway"
+    );
+    assert!(
+        sentinel
+            .metadata
+            .get("gateway_started_at_unix")
+            .and_then(|value| value.parse::<u64>().ok())
+            .is_some_and(|value| value > 0),
+        "sentinel should expose a machine-readable start timestamp"
+    );
+    assert_eq!(
+        sentinel.metadata.get("gateway_persist").map(String::as_str),
+        Some("false")
+    );
+    assert_eq!(
+        sentinel
+            .metadata
+            .get("gateway_idle_timeout_secs")
+            .map(String::as_str),
+        Some("30")
+    );
     drop(reg);
 
     if let Some(abort) = outcome.gateway_abort {

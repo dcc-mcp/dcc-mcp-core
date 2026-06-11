@@ -8,6 +8,9 @@ pub(crate) const SIDECAR_GATEWAY_IDLE_TIMEOUT_SECS: u64 =
     crate::gateway_daemon::AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_SECS;
 
 #[cfg(feature = "gateway-daemon")]
+const MIN_AUTOLAUNCH_GATEWAY_IDLE_TIMEOUT_SECS: u64 = 30;
+
+#[cfg(feature = "gateway-daemon")]
 pub(crate) fn build_gateway_daemon_options(
     args: &SidecarArgs,
     registry_dir: PathBuf,
@@ -30,10 +33,19 @@ pub(crate) fn build_gateway_daemon_options(
         crate_version: Some(env!("CARGO_PKG_VERSION").to_string()),
         adapter_version: args.adapter_version.clone(),
         adapter_dcc: Some(args.dcc.clone()),
-        gateway_idle_timeout_secs: std::env::var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(SIDECAR_GATEWAY_IDLE_TIMEOUT_SECS),
+        gateway_idle_timeout_secs: resolve_sidecar_gateway_idle_timeout_secs(),
+    }
+}
+
+#[cfg(feature = "gateway-daemon")]
+fn resolve_sidecar_gateway_idle_timeout_secs() -> u64 {
+    match std::env::var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        Some(0) => 0,
+        Some(secs) => secs.max(MIN_AUTOLAUNCH_GATEWAY_IDLE_TIMEOUT_SECS),
+        None => SIDECAR_GATEWAY_IDLE_TIMEOUT_SECS,
     }
 }
 

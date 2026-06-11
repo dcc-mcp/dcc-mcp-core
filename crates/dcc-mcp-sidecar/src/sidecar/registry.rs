@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -29,6 +29,14 @@ pub(crate) const DISPATCH_READY_AT_UNIX_METADATA_KEY: &str = "dispatch_ready_at_
 pub(crate) const GATEWAY_RUNTIME_MODE_METADATA_KEY: &str = "gateway_runtime_mode";
 pub(crate) const GATEWAY_GUARDIAN_ENABLED_METADATA_KEY: &str = "gateway_guardian_enabled";
 pub(crate) const GATEWAY_RECOVERY_DRIVER_METADATA_KEY: &str = "gateway_recovery_driver";
+pub(crate) const GATEWAY_AUTO_ENSURE_METADATA_KEY: &str = "gateway_auto_ensure";
+pub(crate) const GATEWAY_HOST_METADATA_KEY: &str = "gateway_host";
+pub(crate) const GATEWAY_PORT_METADATA_KEY: &str = "gateway_port";
+pub(crate) const GATEWAY_HEALTH_URL_METADATA_KEY: &str = "gateway_health_url";
+pub(crate) const GATEWAY_REMOTE_HOST_METADATA_KEY: &str = "gateway_remote_host";
+pub(crate) const GATEWAY_REMOTE_PORT_METADATA_KEY: &str = "gateway_remote_port";
+pub(crate) const GATEWAY_LAUNCH_LOCK_METADATA_KEY: &str = "gateway_launch_lock";
+pub(crate) const REGISTRY_DIR_METADATA_KEY: &str = "registry_dir";
 pub(crate) const REGISTRATION_REFRESH_MODE_METADATA_KEY: &str = "registration_refresh_mode";
 pub(crate) const GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN: &str = "daemon_guardian";
 pub(crate) const GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION: &str = "embedded_election";
@@ -201,7 +209,7 @@ pub(crate) fn mark_sidecar_dispatch_ready(
     Ok(())
 }
 
-pub(crate) fn build_service_entry(args: &SidecarArgs) -> ServiceEntry {
+pub(crate) fn build_service_entry(args: &SidecarArgs, registry_dir: &Path) -> ServiceEntry {
     // The sidecar starts as Booting with a placeholder port. Once the MCP
     // listener binds, `republish_mcp_listener` swaps in the real endpoint. If
     // the HostRpc connection fails, the row still gets a diagnostic MCP URL but
@@ -239,6 +247,12 @@ pub(crate) fn build_service_entry(args: &SidecarArgs) -> ServiceEntry {
     );
     let gateway_runtime_mode = sidecar_gateway_runtime_mode(args);
     let gateway_guardian_enabled = sidecar_gateway_guardian_enabled(args);
+    let gateway_host = args
+        .gateway_host
+        .clone()
+        .unwrap_or_else(|| args.host.clone());
+    let gateway_auto_ensure =
+        args.gateway_port > 0 && !args.no_ensure_gateway && !args.legacy_gateway_election;
     entry.metadata.insert(
         GATEWAY_RUNTIME_MODE_METADATA_KEY.to_string(),
         gateway_runtime_mode.to_string(),
@@ -250,6 +264,40 @@ pub(crate) fn build_service_entry(args: &SidecarArgs) -> ServiceEntry {
     entry.metadata.insert(
         GATEWAY_RECOVERY_DRIVER_METADATA_KEY.to_string(),
         gateway_recovery_driver(gateway_runtime_mode, gateway_guardian_enabled).to_string(),
+    );
+    entry.metadata.insert(
+        GATEWAY_AUTO_ENSURE_METADATA_KEY.to_string(),
+        gateway_auto_ensure.to_string(),
+    );
+    entry
+        .metadata
+        .insert(GATEWAY_HOST_METADATA_KEY.to_string(), gateway_host.clone());
+    entry.metadata.insert(
+        GATEWAY_PORT_METADATA_KEY.to_string(),
+        args.gateway_port.to_string(),
+    );
+    entry.metadata.insert(
+        GATEWAY_HEALTH_URL_METADATA_KEY.to_string(),
+        format!("http://{}:{}/health", gateway_host, args.gateway_port),
+    );
+    entry.metadata.insert(
+        GATEWAY_REMOTE_HOST_METADATA_KEY.to_string(),
+        args.gateway_remote_host.clone(),
+    );
+    entry.metadata.insert(
+        GATEWAY_REMOTE_PORT_METADATA_KEY.to_string(),
+        args.gateway_remote_port.to_string(),
+    );
+    entry.metadata.insert(
+        GATEWAY_LAUNCH_LOCK_METADATA_KEY.to_string(),
+        registry_dir
+            .join("gateway-launch.lock")
+            .display()
+            .to_string(),
+    );
+    entry.metadata.insert(
+        REGISTRY_DIR_METADATA_KEY.to_string(),
+        registry_dir.display().to_string(),
     );
     entry.metadata.insert(
         REGISTRATION_REFRESH_MODE_METADATA_KEY.to_string(),

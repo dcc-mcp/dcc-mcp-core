@@ -1,5 +1,5 @@
-use std::path::PathBuf;
-use std::time::Duration;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
 use dcc_mcp_gateway::{ElectionInfo, has_newer_sentinel, is_newer_election};
@@ -47,16 +47,18 @@ pub async fn ensure_gateway_running(opts: &EnsureGatewayOptions) -> anyhow::Resu
         return Ok(());
     }
 
+    let started = Instant::now();
     std::fs::create_dir_all(&opts.registry_dir)
         .with_context(|| format!("creating registry dir {}", opts.registry_dir.display()))?;
     let lock_path = opts.registry_dir.join("gateway-launch.lock");
+    let mut launch = None;
     match ensure::acquire_launch_lock(&lock_path) {
         Ok(_lock) => {
             if ensure::gateway_health_ok(&opts.host, opts.port).await {
                 try_version_takeover(opts).await?;
                 return Ok(());
             }
-            spawn_detached_gateway_now(opts)?;
+            launch = Some(spawn_detached_gateway_now(opts)?);
         }
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
             tracing::info!(
@@ -67,12 +69,7 @@ pub async fn ensure_gateway_running(opts: &EnsureGatewayOptions) -> anyhow::Resu
         Err(err) => return Err(err).with_context(|| format!("creating {}", lock_path.display())),
     }
 
-    ensure::wait_gateway_ready(
-        &opts.host,
-        opts.port,
-        Duration::from_secs(ensure::resolve_ensure_timeout_secs(0)),
-    )
-    .await
+    wait_gateway_ready(opts, &lock_path, launch.as_ref(), started).await
 }
 
 // ── Version takeover ───────────────────────────────────────────────────────
@@ -166,15 +163,17 @@ async fn try_version_takeover(opts: &EnsureGatewayOptions) -> anyhow::Result<()>
 /// Acquire the launch lock and spawn the gateway, then wait for it to be
 /// ready.  Used after a version takeover has freed the port.
 async fn spawn_gateway_with_lock(opts: &EnsureGatewayOptions) -> anyhow::Result<()> {
+    let started = Instant::now();
     std::fs::create_dir_all(&opts.registry_dir)
         .with_context(|| format!("creating registry dir {}", opts.registry_dir.display()))?;
     let lock_path = opts.registry_dir.join("gateway-launch.lock");
+    let mut launch = None;
     match ensure::acquire_launch_lock(&lock_path) {
         Ok(_lock) => {
             if ensure::gateway_health_ok(&opts.host, opts.port).await {
                 return Ok(());
             }
-            spawn_detached_gateway_now(opts)?;
+            launch = Some(spawn_detached_gateway_now(opts)?);
         }
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
             tracing::info!(
@@ -184,17 +183,37 @@ async fn spawn_gateway_with_lock(opts: &EnsureGatewayOptions) -> anyhow::Result<
         }
         Err(err) => return Err(err).with_context(|| format!("creating {}", lock_path.display())),
     }
-    ensure::wait_gateway_ready(
+    wait_gateway_ready(opts, &lock_path, launch.as_ref(), started).await
+}
+
+async fn wait_gateway_ready(
+    opts: &EnsureGatewayOptions,
+    lock_path: &Path,
+    launch: Option<&ensure::GatewayLaunchArtifacts>,
+    started: Instant,
+) -> anyhow::Result<()> {
+    ensure::wait_gateway_ready_with_diagnostics(
         &opts.host,
         opts.port,
         Duration::from_secs(ensure::resolve_ensure_timeout_secs(0)),
+        ensure::GatewayReadyDiagnostics {
+            registry_dir: Some(&opts.registry_dir),
+            launch_lock: Some(lock_path),
+            launch,
+            started: Some(started),
+            gateway_idle_timeout_secs: Some(opts.gateway_idle_timeout_secs),
+            remote_host: Some(&opts.remote_host),
+            remote_port: Some(opts.remote_port),
+        },
     )
     .await
 }
 
 // ── Spawn helper ───────────────────────────────────────────────────────────
 
-fn spawn_detached_gateway_now(opts: &EnsureGatewayOptions) -> anyhow::Result<()> {
+fn spawn_detached_gateway_now(
+    opts: &EnsureGatewayOptions,
+) -> anyhow::Result<ensure::GatewayLaunchArtifacts> {
     let exe =
         std::env::current_exe().context("resolving current executable for detached gateway")?;
     let cmd_args = ensure::gateway_command_args(
@@ -205,9 +224,28 @@ fn spawn_detached_gateway_now(opts: &EnsureGatewayOptions) -> anyhow::Result<()>
         opts.remote_port,
         opts.gateway_idle_timeout_secs,
     );
-    ensure::spawn_detached_gateway(&exe, &cmd_args, &opts.registry_dir)?;
-    tracing::info!(port = opts.port, "spawned standalone gateway process");
-    Ok(())
+    let mut context = ensure::GatewayLaunchContext::gateway(
+        &opts.host,
+        opts.port,
+        &opts.remote_host,
+        opts.remote_port,
+        opts.gateway_idle_timeout_secs,
+    );
+    context.adapter_dcc = opts.adapter_dcc.clone();
+    context.adapter_version = opts.adapter_version.clone();
+    context.crate_version = opts.crate_version.clone();
+    let artifacts =
+        ensure::spawn_detached_gateway_with_context(&exe, &cmd_args, &opts.registry_dir, context)?;
+    tracing::info!(
+        port = opts.port,
+        pid = artifacts.pid,
+        executable = %artifacts.executable.display(),
+        stdout_log = %artifacts.stdout_log.display(),
+        stderr_log = %artifacts.stderr_log.display(),
+        manifest = %artifacts.manifest_path.display(),
+        "spawned standalone gateway process"
+    );
+    Ok(artifacts)
 }
 
 // ── Re-exports ─────────────────────────────────────────────────────────────
