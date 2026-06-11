@@ -31,7 +31,9 @@ classifiers = [
     "Topic :: Multimedia :: Graphics :: 3D Modeling",
 ]
 
-dependencies = []
+dependencies = [
+    "dcc-mcp-server>=0.18.17,<1.0.0",
+]
 
 [project.optional-dependencies]
 test = [

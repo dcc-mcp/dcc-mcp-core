@@ -31,9 +31,9 @@ The core library works with any Python 3.7+ environment.
 
 Python 3.7–3.14 are tested in CI. Wheels are built with `abi3-py38` for maximum compatibility.
 
-### Does it have any Python runtime dependencies?
+### Does it have any Python library runtime dependencies?
 
-**No.** The library has zero Python runtime dependencies. Everything is compiled into the Rust core.
+**No third-party Python libraries.** Core logic is compiled into the Rust extension. The default package does depend on the companion `dcc-mcp-server` wheel so `DccServerBase` can launch the gateway daemon from a packaged binary without relying on `PATH`.
 
 ## Installation
 
