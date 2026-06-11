@@ -82,6 +82,11 @@ def _build_local_dispatcher():
     dispatcher = ToolDispatcher(registry)
 
     def dispatch(action_name: str, params: dict) -> dict:
+        if not dispatcher.has_handler(action_name):
+            return {
+                "success": False,
+                "message": f"No local handler registered for action '{action_name}'.",
+            }
         params_json = json.dumps(params)
         raw = dispatcher.dispatch(action_name, params_json)
         output = raw.get("output", "{}")
