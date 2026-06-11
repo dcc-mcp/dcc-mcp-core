@@ -1,7 +1,7 @@
 {
   "name": "dcc-mcp-core-admin-ui",
   "private": true,
-  "version": "0.18.19",
+  "version": "0.18.20",
   "type": "module",
   "scripts": {
     "build": "tsc -b && vite build",
