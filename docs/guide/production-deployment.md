@@ -45,6 +45,14 @@ cargo install cross --locked
 cross build --release --bin dcc-mcp-server --target x86_64-unknown-linux-gnu
 ```
 
+### Downloading a Release Bundle
+
+GitHub Releases attach deployable bundles named
+`dcc-mcp-server-<version>-<platform>.zip`, for example
+`dcc-mcp-server-0.18.12-linux-x86_64.zip`. Each zip contains both
+`dcc-mcp-server` and `dcc-mcp-cli` at its root (`.exe` on Windows), so a
+deployment host can unpack one archive and put both binaries on `PATH`.
+
 ### Install Location
 
 Pick **one** location consistently per machine:

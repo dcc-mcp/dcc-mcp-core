@@ -45,6 +45,14 @@ cargo install cross --locked
 cross build --release --bin dcc-mcp-server --target x86_64-unknown-linux-gnu
 ```
 
+### 下载发布包
+
+GitHub Release 会附带可直接解压部署的
+`dcc-mcp-server-<version>-<platform>.zip`，例如
+`dcc-mcp-server-0.18.12-linux-x86_64.zip`。每个 zip 根目录包含
+`dcc-mcp-server` 和 `dcc-mcp-cli` 两个二进制（Windows 上带 `.exe`），
+部署机器只需要解压一次，再把两个二进制所在目录加入 `PATH`。
+
 ### 安装路径
 
 每台机器上选定一个**唯一**位置：
