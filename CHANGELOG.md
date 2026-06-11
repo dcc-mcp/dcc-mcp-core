@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.19](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.18...v0.18.19) (2026-06-11)
+
+
+### Bug Fixes
+
+* resolve packaged gateway binary ([039c062](https://github.com/dcc-mcp/dcc-mcp-core/commit/039c062bc036543f0ac8be899ddeb5db7b84190a))
+
 ## [0.18.18](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.17...v0.18.18) (2026-06-11)
 
 
