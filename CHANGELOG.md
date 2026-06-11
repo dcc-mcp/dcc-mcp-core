@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.18](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.17...v0.18.18) (2026-06-11)
+
+
+### Features
+
+* **marketplace:** add add-repo command for direct GitHub install (PIP-1377) ([e892e48](https://github.com/dcc-mcp/dcc-mcp-core/commit/e892e480b0059a62268d6a6dac610b7a372b7c0c))
+
+
+### Bug Fixes
+
+* clippy warnings for Rust 1.96 — needless_borrows_for_generic_args and let_and_return ([30a39ad](https://github.com/dcc-mcp/dcc-mcp-core/commit/30a39ad984c451b66bbe61f0d683c7cbc5e3370f))
+
+
+### Documentation
+
+* document auto-update, --restart, install --execute, gateway-ensure crate, and marketplace slide-out ([232479c](https://github.com/dcc-mcp/dcc-mcp-core/commit/232479c28eda613ea51e13cb1e17ae8f0a11f387))
+
 ## [0.18.17](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.16...v0.18.17) (2026-06-10)
 
 
