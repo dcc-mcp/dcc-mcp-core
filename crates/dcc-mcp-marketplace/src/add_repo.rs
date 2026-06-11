@@ -108,22 +108,22 @@ pub fn extract_skill_frontmatter(skill_dir: &Path) -> Option<RepoSkillInfo> {
     let mapping = value.as_mapping()?;
 
     let name = mapping
-        .get(&serde_yaml_ng::Value::String("name".into()))
+        .get(serde_yaml_ng::Value::String("name".into()))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())?;
 
     let description = mapping
-        .get(&serde_yaml_ng::Value::String("description".into()))
+        .get(serde_yaml_ng::Value::String("description".into()))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
     // Extract dcc from metadata.dcc-mcp.dcc
     let dcc = mapping
-        .get(&serde_yaml_ng::Value::String("metadata".into()))
+        .get(serde_yaml_ng::Value::String("metadata".into()))
         .and_then(|v| v.as_mapping())
-        .and_then(|m| m.get(&serde_yaml_ng::Value::String("dcc-mcp".into())))
+        .and_then(|m| m.get(serde_yaml_ng::Value::String("dcc-mcp".into())))
         .and_then(|v| v.as_mapping())
-        .and_then(|m| m.get(&serde_yaml_ng::Value::String("dcc".into())))
+        .and_then(|m| m.get(serde_yaml_ng::Value::String("dcc".into())))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
@@ -311,23 +311,20 @@ pub fn install_from_repo(
             .collect();
 
         match dcc {
-            Some(requested_dcc) => {
-                let matched = all_skills
-                    .into_iter()
-                    .find(|s| {
-                        s.dcc
-                            .as_deref()
-                            .map(|d| d.eq_ignore_ascii_case(requested_dcc))
-                            .unwrap_or(false)
-                    })
-                    .ok_or_else(|| {
-                        MarketplaceError::CommandFailed(format!(
-                            "no skill for DCC '{requested_dcc}' found in repo; \
+            Some(requested_dcc) => all_skills
+                .into_iter()
+                .find(|s| {
+                    s.dcc
+                        .as_deref()
+                        .map(|d| d.eq_ignore_ascii_case(requested_dcc))
+                        .unwrap_or(false)
+                })
+                .ok_or_else(|| {
+                    MarketplaceError::CommandFailed(format!(
+                        "no skill for DCC '{requested_dcc}' found in repo; \
                          use --list to see available skills"
-                        ))
-                    })?;
-                matched
-            }
+                    ))
+                })?,
             None => {
                 return Err(MarketplaceError::CommandFailed(
                     "repo contains multiple skills; use --dcc <DCC> to select one, \
@@ -523,21 +520,21 @@ mod tests {
         let mapping = value.as_mapping()?;
 
         let name = mapping
-            .get(&serde_yaml_ng::Value::String("name".into()))
+            .get(serde_yaml_ng::Value::String("name".into()))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())?;
 
         let description = mapping
-            .get(&serde_yaml_ng::Value::String("description".into()))
+            .get(serde_yaml_ng::Value::String("description".into()))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
         let dcc = mapping
-            .get(&serde_yaml_ng::Value::String("metadata".into()))
+            .get(serde_yaml_ng::Value::String("metadata".into()))
             .and_then(|v| v.as_mapping())
-            .and_then(|m| m.get(&serde_yaml_ng::Value::String("dcc-mcp".into())))
+            .and_then(|m| m.get(serde_yaml_ng::Value::String("dcc-mcp".into())))
             .and_then(|v| v.as_mapping())
-            .and_then(|m| m.get(&serde_yaml_ng::Value::String("dcc".into())))
+            .and_then(|m| m.get(serde_yaml_ng::Value::String("dcc".into())))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
