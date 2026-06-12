@@ -34,9 +34,9 @@ powershell -c "irm https://raw.githubusercontent.com/loonghao/vx/main/install.ps
 
 | Command | Purpose |
 |---------|---------|
-| `dcc-mcp-cli gateway ensure` | **Pre-step**: ensure gateway is running, auto-start if needed |
-| `dcc-mcp-cli health` (or `python scripts/dcc_gateway.py health`) | Check gateway liveness |
-| `dcc-mcp-cli list` (or `python scripts/dcc_gateway.py list`) | List registered DCC instances |
+| `dcc-mcp-cli health` (or `python scripts/dcc_gateway.py health`) | Check gateway liveness; CLI auto-starts a local gateway if needed |
+| `dcc-mcp-cli list` (or `python scripts/dcc_gateway.py list`) | List registered DCC instances; CLI auto-starts a local gateway if needed |
+| `dcc-mcp-cli gateway ensure` | Optional explicit lifecycle check for troubleshooting |
 | `dcc-mcp-cli list --pretty` (or `python scripts/dcc_gateway.py --pretty list`) | Human-readable JSON |
 
 ## Capability workflow
@@ -44,8 +44,18 @@ powershell -c "irm https://raw.githubusercontent.com/loonghao/vx/main/install.ps
 | Command | Purpose |
 |---------|---------|
 | `dcc-mcp-cli search --query sphere --dcc-type maya --limit 20` | Find tools |
-| `dcc-mcp-cli describe --tool-slug <slug>` | Inspect schema |
-| `dcc-mcp-cli call --tool-slug <slug> --arguments '{"radius":2}'` | Invoke one tool |
+| `dcc-mcp-cli describe <slug>` | Inspect schema |
+| `dcc-mcp-cli call <slug> --json '{"radius":2}'` | Invoke one tool |
+
+## Install and marketplace
+
+| Command | Purpose |
+|---------|---------|
+| `dcc-mcp-cli install --dcc-type maya --version 2026` | Build an auditable adapter install plan without changing local state |
+| `dcc-mcp-cli install --dcc-type maya --version 2026 --execute` | Execute the adapter plan after consent; rolls back on failure and verifies pip/path outputs |
+| `dcc-mcp-cli marketplace search --query rigging --dcc maya --limit 20` | Find installable skill packages |
+| `dcc-mcp-cli marketplace install <package_name> --dcc maya` | Install a skill package into the local marketplace root |
+| `dcc-mcp-cli marketplace update <package_name> --dcc maya` | Update an installed skill package from the catalog |
 
 ## Example: inventory
 
@@ -53,7 +63,6 @@ powershell -c "irm https://raw.githubusercontent.com/loonghao/vx/main/install.ps
 export DCC_MCP_BASE_URL="${DCC_MCP_BASE_URL:-http://127.0.0.1:9765}"
 
 # CLI (primary)
-dcc-mcp-cli gateway ensure  # pre-step: ensure gateway is running
 dcc-mcp-cli health
 dcc-mcp-cli list
 
@@ -76,7 +85,7 @@ python scripts/dcc_gateway.py search --query sphere --dcc-type maya --limit 10
 
 ```bash
 # CLI (primary)
-dcc-mcp-cli describe --tool-slug maya.a1b2c3d4.maya_primitives__create_sphere
+dcc-mcp-cli describe maya.a1b2c3d4.maya_primitives__create_sphere
 
 # Python fallback
 python scripts/dcc_gateway.py describe maya.a1b2c3d4.maya_primitives__create_sphere
@@ -86,8 +95,8 @@ python scripts/dcc_gateway.py describe maya.a1b2c3d4.maya_primitives__create_sph
 
 ```bash
 # CLI (primary)
-dcc-mcp-cli call --tool-slug maya.a1b2c3d4.maya_primitives__create_sphere \
-  --arguments '{"radius":2.0}'
+dcc-mcp-cli call maya.a1b2c3d4.maya_primitives__create_sphere \
+  --json '{"radius":2.0}'
 
 # Python fallback
 python scripts/dcc_gateway.py call maya.a1b2c3d4.maya_primitives__create_sphere \
@@ -105,7 +114,7 @@ python scripts/dcc_gateway.py call maya.a1b2c3d4.maya_primitives__create_sphere 
 | Symptom | Action |
 |---------|--------|
 | CLI not found | Ask user permission, then run `vx python scripts/dcc_gateway.py --ensure-cli list` to download `dcc-mcp-cli`; Python fallback runs if download fails |
-| Gateway health fails | Ask before setup; do not install or launch apps silently |
+| Gateway health fails | Inspect the CLI JSON/stderr. Local REST commands auto-ensure the gateway first; failure means the gateway binary, port, or base URL is unavailable. For remote `--base-url`, auto-start is not possible. Ask before installing adapters or launching GUI DCC apps |
 | `total == 0` | Start a DCC adapter, then re-run `dcc-mcp-cli list` |
 | `unknown-slug` | Re-run `search`; the instance may have restarted |
 | `invalid-params` | Fix the JSON object per `describe` output |

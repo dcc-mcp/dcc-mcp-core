@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { normalizeSkillPathRow, type SkillPathRow } from '../../../admin-types';
-import { ADMIN_FETCH_TIMEOUT_MS, API_BASE, apiJson } from '../../../admin-ui-core';
+import { ADMIN_FETCH_TIMEOUT_MS, API_BASE, adminOkResponse, apiJson } from '../../../admin-ui-core';
 
 export type UseSkillPathsArgs = {
   onUpdated: (count: number) => void;
@@ -37,9 +37,7 @@ export function useSkillPaths({ onUpdated, onError, onMutated }: UseSkillPathsAr
     const tid = window.setTimeout(() => ctrl.abort(), ADMIN_FETCH_TIMEOUT_MS);
     try {
       const res = await fetch(`${API_BASE}${urlSuffix}`, { ...init, signal: ctrl.signal });
-      if (!res.ok) {
-        throw new Error(`${res.status} ${res.statusText}`);
-      }
+      await adminOkResponse(res, urlSuffix);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         throw new Error(`Request timed out after ${ADMIN_FETCH_TIMEOUT_MS / 1000}s`);

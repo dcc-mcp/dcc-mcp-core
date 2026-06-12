@@ -67,6 +67,138 @@ export const API_BASE = adminApiBase();
 export const ADMIN_FETCH_TIMEOUT_MS = 25_000;
 export const DEFAULT_LOCAL_GATEWAY_PORT = '9765';
 
+function responsePreview(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().slice(0, 120);
+}
+
+function looksLikeHtml(text: string, contentType: string): boolean {
+  return contentType.toLowerCase().includes('text/html')
+    || /^<!doctype\b/i.test(text.trim())
+    || /^<html\b/i.test(text.trim());
+}
+
+function recordOrNull(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' ? value as Record<string, unknown> : null;
+}
+
+function payloadErrorMessage(payload: unknown): string | null {
+  const root = recordOrNull(payload);
+  if (!root) return null;
+  if (typeof root.message === 'string' && root.message.trim()) {
+    return root.message.trim();
+  }
+  if (typeof root.error === 'string' && root.error.trim()) {
+    return root.error.trim();
+  }
+  const nested = recordOrNull(root.error);
+  if (typeof nested?.message === 'string' && nested.message.trim()) {
+    return nested.message.trim();
+  }
+  return null;
+}
+
+export class AdminApiError extends Error {
+  status: number;
+  statusText: string;
+  endpoint: string;
+  payload: unknown;
+  preview: string;
+  requestUrl: string;
+
+  constructor(
+    response: Response,
+    endpoint: string,
+    message: string,
+    payload: unknown,
+    preview: string,
+  ) {
+    super(message);
+    this.name = 'AdminApiError';
+    this.status = response.status;
+    this.statusText = response.statusText;
+    this.endpoint = endpoint;
+    this.payload = payload;
+    this.preview = preview;
+    this.requestUrl = response.url;
+  }
+}
+
+function htmlFallbackMessage(response: Response, endpoint: string): string {
+  const requested = response.url ? ` (requested ${response.url})` : '';
+  return `Admin API returned HTML for ${endpoint}${requested}; check that /admin/api is served by the gateway or dev mock.`;
+}
+
+export async function adminJsonResponse<T>(response: Response, endpoint: string): Promise<T> {
+  const contentType = response.headers.get('content-type') ?? '';
+  const text = await response.text();
+  const preview = responsePreview(text);
+
+  if (looksLikeHtml(text, contentType)) {
+    throw new AdminApiError(
+      response,
+      endpoint,
+      htmlFallbackMessage(response, endpoint),
+      undefined,
+      preview,
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!response.ok) {
+      throw new AdminApiError(
+        response,
+        endpoint,
+        `${response.status} ${response.statusText}${preview ? `: ${preview}` : ''}`,
+        undefined,
+        preview,
+      );
+    }
+    throw new Error(`Invalid JSON from Admin API ${endpoint}: ${message}${preview ? ` (${preview})` : ''}`);
+  }
+
+  if (!response.ok) {
+    const payloadMessage = payloadErrorMessage(parsed);
+    throw new AdminApiError(
+      response,
+      endpoint,
+      `${response.status} ${response.statusText}${payloadMessage ? `: ${payloadMessage}` : preview ? `: ${preview}` : ''}`,
+      parsed,
+      preview,
+    );
+  }
+
+  return parsed as T;
+}
+
+export async function adminOkResponse(response: Response, endpoint: string): Promise<void> {
+  const contentType = response.headers.get('content-type') ?? '';
+  const text = await response.text();
+  const preview = responsePreview(text);
+
+  if (!response.ok) {
+    throw new Error(`${response.status} ${response.statusText}${preview ? `: ${preview}` : ''}`);
+  }
+
+  if (looksLikeHtml(text, contentType)) {
+    throw new Error(htmlFallbackMessage(response, endpoint));
+  }
+
+  if (!text.trim()) {
+    return;
+  }
+
+  try {
+    JSON.parse(text);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Invalid JSON from Admin API ${endpoint}: ${message}${preview ? ` (${preview})` : ''}`);
+  }
+}
+
 // ── IDE targets ───────────────────────────────────────────────────────────────
 
 export const IDE_SERVER_NAME = 'dcc-mcp-gateway';
@@ -273,9 +405,10 @@ export async function apiJson<T>(path: string): Promise<T> {
   const ctrl = new AbortController();
   const tid = window.setTimeout(() => ctrl.abort(), ADMIN_FETCH_TIMEOUT_MS);
   try {
-    const response = await fetch(`${API_BASE}${path}`, { signal: ctrl.signal });
-    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-    return (await response.json()) as T;
+    return await adminJsonResponse<T>(
+      await fetch(`${API_BASE}${path}`, { signal: ctrl.signal }),
+      path,
+    );
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
       throw new Error(`Request timed out after ${ADMIN_FETCH_TIMEOUT_MS / 1000}s`);

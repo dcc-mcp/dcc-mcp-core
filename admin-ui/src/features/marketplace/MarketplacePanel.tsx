@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { InterpolationValues, MessageKey } from '../../i18n';
 import {
+  AdminApiError,
   PanelHeader,
   StatusLine,
   haystack,
@@ -27,6 +28,7 @@ import type {
 import { MarketplaceCard } from './MarketplaceCard';
 import { MarketplaceDetailModal } from './MarketplaceDetailModal';
 import { MarketplaceInstalledDetailPanel } from './MarketplaceInstalledDetailPanel';
+import { MarketplaceInstalledList } from './MarketplaceInstalledList';
 
 type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 
@@ -45,7 +47,7 @@ export type MarketplacePanelProps = {
   t: Translator;
 };
 
-type MarketplaceTab = 'browse' | 'installed';
+type MarketplaceTab = 'browse' | 'installed' | 'sources';
 
 /// Top-level orchestrator for the `/admin#marketplace` panel.
 ///
@@ -82,19 +84,55 @@ export function MarketplacePanel({
   const [installNotice, setInstallNotice] = useState<{
     name: string; dcc: string; reload_required?: boolean; action: 'install' | 'uninstall' | 'update';
   } | null>(null);
-  /// Sources section toggle.
-  const [showSources, setShowSources] = useState(false);
   /// Source add input buffer.
   const [sourceInput, setSourceInput] = useState('');
 
   const catalogQuery = useMarketplaceCatalogQuery(active);
   const installedQuery = useInstalledMarketplaceQuery(active);
-  const sourcesQuery = useMarketplaceSourcesQuery(active && showSources);
-  const outdatedQuery = useMarketplaceOutdatedQuery(active && tab === 'installed');
+  const sourcesQuery = useMarketplaceSourcesQuery(active);
+  const outdatedQuery = useMarketplaceOutdatedQuery(active);
   const installMut = useMarketplaceInstall();
   const uninstallMut = useMarketplaceUninstall();
   const addSourceMut = useAddMarketplaceSource();
   const updateMut = useMarketplaceUpdate();
+
+  // ── Error mapping utils ────────────────────────────────────────────────────
+
+  /// Map a MarketplaceError to a user-friendly message using i18n.
+  const marketplaceErrorMessage = useCallback(
+    (err: unknown): string => {
+      if (err instanceof MarketplaceError) {
+        switch (err.kind) {
+          case 'already_installed':
+            return t('marketplace.error.alreadyInstalled');
+          case 'not_found':
+            return t('marketplace.error.notFound');
+          case 'hash_mismatch':
+            return t('marketplace.error.hashMismatch');
+          case 'missing_skill':
+            return t('marketplace.error.missingSkill');
+          case 'command_failed':
+            return t('marketplace.error.commandFailed', { message: err.message });
+          case 'admin_api_html':
+            return t('marketplace.error.adminHtml');
+          default:
+            return t('marketplace.error.generic', { kind: err.kind, message: err.message });
+        }
+      }
+      if (err instanceof AdminApiError) {
+        return t('marketplace.error.adminHtml');
+      }
+      if (err instanceof Error && err.message) {
+        // Network / fetch errors
+        if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+          return t('marketplace.error.networkError');
+        }
+        return err.message;
+      }
+      return t('marketplace.error.unknown');
+    },
+    [t],
+  );
 
   const catalog = useMemo(() => catalogQuery.data ?? [], [catalogQuery.data]);
   const installed = useMemo(() => installedQuery.data ?? [], [installedQuery.data]);
@@ -123,10 +161,17 @@ export function MarketplacePanel({
     return Array.from(types).sort((a, b) => a.localeCompare(b));
   }, [catalog]);
 
-  /// Reset DCC filter when tab, search, or catalog changes.
+  /// Reset DCC filter when switching tab; preserve it while typing search text.
   useEffect(() => {
     setDccFilter(null);
-  }, [tab, search]);
+  }, [tab]);
+
+  /// If a catalog refresh removes the selected DCC, clear the stale filter.
+  useEffect(() => {
+    if (dccFilter && !dccTypes.includes(dccFilter)) {
+      setDccFilter(null);
+    }
+  }, [dccFilter, dccTypes]);
 
   // Refresh on first show.
   useEffect(() => {
@@ -134,18 +179,11 @@ export function MarketplacePanel({
     void Promise.allSettled([
       catalogQuery.refetch(),
       installedQuery.refetch(),
+      sourcesQuery.refetch(),
       outdatedQuery.refetch(),
     ]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
-
-  // Refresh outdated list when switching to installed tab.
-  useEffect(() => {
-    if (active && tab === 'installed') {
-      void outdatedQuery.refetch();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, tab]);
 
   // Status line updates.
   useEffect(() => {
@@ -165,9 +203,24 @@ export function MarketplacePanel({
   }, [active, catalog.length, installed.length, outdatedQuery.data, catalogQuery.data, onUpdated, t]);
 
   useEffect(() => {
-    if (catalogQuery.error) onError(catalogQuery.error);
-    if (installedQuery.error) onError(installedQuery.error);
-  }, [catalogQuery.error, installedQuery.error, onError]);
+    if (!active) return;
+    const queryError =
+      catalogQuery.error
+      ?? installedQuery.error
+      ?? sourcesQuery.error
+      ?? outdatedQuery.error;
+    if (queryError) {
+      onError(marketplaceErrorMessage(queryError));
+    }
+  }, [
+    active,
+    catalogQuery.error,
+    installedQuery.error,
+    sourcesQuery.error,
+    outdatedQuery.error,
+    onError,
+    marketplaceErrorMessage,
+  ]);
 
   // Report counts to parent.
   useEffect(() => {
@@ -240,39 +293,6 @@ export function MarketplacePanel({
       ),
     );
   }, [installed, search]);
-
-  // ── Error mapping utils ────────────────────────────────────────────────────
-
-  /// Map a MarketplaceError to a user-friendly message using i18n.
-  const marketplaceErrorMessage = useCallback(
-    (err: unknown): string => {
-      if (err instanceof MarketplaceError) {
-        switch (err.kind) {
-          case 'already_installed':
-            return t('marketplace.error.alreadyInstalled');
-          case 'not_found':
-            return t('marketplace.error.notFound');
-          case 'hash_mismatch':
-            return t('marketplace.error.hashMismatch');
-          case 'missing_skill':
-            return t('marketplace.error.missingSkill');
-          case 'command_failed':
-            return t('marketplace.error.commandFailed', { message: err.message });
-          default:
-            return t('marketplace.error.generic', { kind: err.kind, message: err.message });
-        }
-      }
-      if (err instanceof Error && err.message) {
-        // Network / fetch errors
-        if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-          return t('marketplace.error.networkError');
-        }
-        return err.message;
-      }
-      return t('marketplace.error.unknown');
-    },
-    [t],
-  );
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
@@ -387,20 +407,37 @@ export function MarketplacePanel({
     }
   }, [sourceInput, addSourceMut, onError, marketplaceErrorMessage]);
 
-  const handleToggleSources = useCallback(() => {
-    setShowSources((prev) => !prev);
-  }, []);
-
   // ── Render ─────────────────────────────────────────────────────────────────
 
+  if (!active) return null;
+
   return (
-    <section className={`panel${active ? ' active' : ''} marketplace-panel`}>
+    <section className="panel active marketplace-panel">
       <PanelHeader
         title={t('marketplace.title')}
         meta={t('marketplace.detail.packagesFound', { count: catalog.length })}
       />
 
       <StatusLine text={updatedAt || t('marketplace.detail.packagesFound', { count: catalog.length })} error={error} />
+
+      <div className="marketplace-summary-strip" aria-label={t('marketplace.title')}>
+        <div className="marketplace-summary-item">
+          <span>{t('marketplace.metric.available')}</span>
+          <strong>{catalog.length}</strong>
+        </div>
+        <div className="marketplace-summary-item">
+          <span>{t('marketplace.metric.installed')}</span>
+          <strong>{installed.length}</strong>
+        </div>
+        <div className="marketplace-summary-item">
+          <span>{t('marketplace.metric.sources')}</span>
+          <strong>{sources.length}</strong>
+        </div>
+        <div className={`marketplace-summary-item ${outdatedQuery.data?.count ? 'warn' : ''}`}>
+          <span>{t('marketplace.card.outdated')}</span>
+          <strong>{outdatedQuery.data?.count ?? 0}</strong>
+        </div>
+      </div>
 
       {/* ── Install / uninstall / update success notice ───────────────────── */}
       {installNotice ? (
@@ -417,7 +454,7 @@ export function MarketplacePanel({
               </span>
             ) : null}
           </span>
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <div className="marketplace-install-notice-actions">
             {installNotice.action !== 'uninstall' &&
              installedByKey.has(`${installNotice.name}:${installNotice.dcc}`) &&
              onNavigateToSkills ? (
@@ -441,60 +478,60 @@ export function MarketplacePanel({
         </div>
       ) : null}
 
-      {/* ── Force install checkbox ───────────────────────────────────────── */}
-      <div className="marketplace-force-install" style={{ marginBottom: '0.75rem' }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={forceInstall}
-            onChange={(e) => setForceInstall(e.target.checked)}
-          />
-          {t('marketplace.card.forceInstall')}
-        </label>
-      </div>
-
       <div className="marketplace-tabs" role="tablist" aria-label={t('marketplace.title')}>
         <button
           className={`marketplace-tab${tab === 'browse' ? ' active' : ''}`}
           role="tab"
           aria-selected={tab === 'browse'}
+          aria-label={t('marketplace.tab.browse')}
           type="button"
           onClick={() => setTab('browse')}
         >
-          {t('marketplace.tab.browse')}
+          <span className="marketplace-tab-label">{t('marketplace.tab.browse')}</span>
         </button>
         <button
           className={`marketplace-tab${tab === 'installed' ? ' active' : ''}`}
           role="tab"
           aria-selected={tab === 'installed'}
+          aria-label={t('marketplace.tab.installed')}
           type="button"
           onClick={() => setTab('installed')}
         >
-          {t('marketplace.tab.installed')}
-          {installed.length > 0 ? (
-            <span className="marketplace-tab-count">{installed.length}</span>
-          ) : null}
-          {outdatedQuery.data && outdatedQuery.data.count > 0 ? (
-            <span className="marketplace-tab-count marketplace-tab-count-warn">
-              {outdatedQuery.data.count}
+          <span className="marketplace-tab-label">{t('marketplace.tab.installed')}</span>
+          {installed.length > 0 || (outdatedQuery.data?.count ?? 0) > 0 ? (
+            <span className="marketplace-tab-counts" aria-hidden="true">
+              {installed.length > 0 ? (
+                <span className="marketplace-tab-count">{installed.length}</span>
+              ) : null}
+              {(outdatedQuery.data?.count ?? 0) > 0 ? (
+                <span
+                  className="marketplace-tab-count marketplace-tab-count-warn"
+                  title={t('marketplace.card.outdated')}
+                >
+                  {t('marketplace.tab.updateCount', { count: outdatedQuery.data!.count })}
+                </span>
+              ) : null}
             </span>
           ) : null}
         </button>
         <button
-          className={`marketplace-tab${showSources ? ' active' : ''}`}
-          style={{ marginLeft: 'auto' }}
+          className={`marketplace-tab marketplace-tab-sources${tab === 'sources' ? ' active' : ''}`}
           role="tab"
-          aria-selected={showSources}
+          aria-selected={tab === 'sources'}
+          aria-label={t('marketplace.source.sectionTitle')}
           type="button"
-          onClick={handleToggleSources}
+          onClick={() => setTab('sources')}
         >
-          {t('marketplace.source.sectionTitle')}
+          <span className="marketplace-tab-label">{t('marketplace.source.sectionTitle')}</span>
+          {sources.length > 0 ? (
+            <span className="marketplace-tab-count" aria-hidden="true">{sources.length}</span>
+          ) : null}
         </button>
       </div>
 
-      {/* ── Sources section ──────────────────────────────────────────────── */}
-      {showSources ? (
-        <div className="marketplace-sources-section" style={{ marginBottom: '1rem' }}>
+      {/* ── Sources tab ─────────────────────────────────────────────────── */}
+      {tab === 'sources' ? (
+        <div className="marketplace-content marketplace-sources-section">
           <div className="marketplace-source-add">
             <input
               className="marketplace-source-input"
@@ -518,6 +555,8 @@ export function MarketplacePanel({
 
           {sourcesQuery.isLoading ? (
             <p className="empty">{t('marketplace.status.loading')}</p>
+          ) : sourcesQuery.error ? (
+            <p className="empty">{t('marketplace.status.error')}: {marketplaceErrorMessage(sourcesQuery.error)}</p>
           ) : sources.length === 0 ? (
             <p className="empty">{t('marketplace.source.empty')}</p>
           ) : (
@@ -543,6 +582,17 @@ export function MarketplacePanel({
       {/* Browse tab — catalog card grid with DCC filter chips + per-DCC install/uninstall. */}
       {tab === 'browse' && (
         <div className="marketplace-content">
+          <div className="marketplace-force-install">
+            <label>
+              <input
+                type="checkbox"
+                checked={forceInstall}
+                onChange={(e) => setForceInstall(e.target.checked)}
+              />
+              {t('marketplace.card.forceInstall')}
+            </label>
+          </div>
+
           {/* DCC filter chip row */}
           {dccTypes.length > 1 ? (
             <div className="marketplace-dcc-filter" role="group" aria-label={t('marketplace.filter.dccLabel')}>
@@ -570,7 +620,7 @@ export function MarketplacePanel({
           {catalogQuery.isLoading ? (
             <p className="empty">{t('marketplace.status.loading')}</p>
           ) : catalogQuery.error ? (
-            <p className="empty">{t('marketplace.status.error')}: {catalogQuery.error.message}</p>
+            <p className="empty">{t('marketplace.status.error')}: {marketplaceErrorMessage(catalogQuery.error)}</p>
           ) : filteredCatalog.length === 0 ? (
             <p className="empty">
               {search.trim() || dccFilter ? t('marketplace.empty.search') : t('marketplace.empty.none')}
@@ -596,58 +646,28 @@ export function MarketplacePanel({
         </div>
       )}
 
-      {/* Installed tab — per-package cards with uninstall via installedDccs + outdated badge. */}
+      {/* Installed tab — dense package inventory with direct update / uninstall actions. */}
       {tab === 'installed' && (
         <div className="marketplace-content">
           {installedQuery.isLoading ? (
             <p className="empty">{t('marketplace.status.loading')}</p>
           ) : installedQuery.error ? (
-            <p className="empty">{t('marketplace.status.error')}: {installedQuery.error.message}</p>
+            <p className="empty">{t('marketplace.status.error')}: {marketplaceErrorMessage(installedQuery.error)}</p>
           ) : filteredInstalled.length === 0 ? (
             <p className="empty">
               {search.trim() ? t('marketplace.empty.search') : t('marketplace.empty.installed')}
             </p>
           ) : (
-            <div className="marketplace-grid">
-              {filteredInstalled.map((pkg) => {
-                const catalogEntry = catalog.find((e) => e.name === pkg.name);
-                const displayEntry: MarketplaceEntry = catalogEntry ?? {
-                  name: pkg.name,
-                  description: '',
-                  dcc: [pkg.dcc],
-                  tags: [],
-                  version: pkg.version ?? undefined,
-                  maintainer: null,
-                  url: null,
-                  min_core_version: null,
-                  source_name: pkg.source_name,
-                  source_url: pkg.source_url,
-                  install: {
-                    type: pkg.install_type,
-                    url: pkg.install_url ?? null,
-                    ref: pkg.install_ref ?? null,
-                  },
-                };
-                // For installed tab, the only installed DCC is `pkg.dcc`.
-                const dccMap = new Map<string, InstalledMarketplacePackage>();
-                dccMap.set(pkg.dcc, pkg);
-                const pkgKey = `${pkg.name}:${pkg.dcc}`;
-                return (
-                  <MarketplaceCard
-                    key={pkgKey}
-                    entry={displayEntry}
-                    installedDccs={dccMap}
-                    installingKey={installingKey}
-                    onInstall={handleInstall}
-                    onUninstall={handleUninstall}
-                    onUpdate={handleUpdate}
-                    onOpenDetail={() => handleOpenInstalledDetail(pkg, catalogEntry)}
-                    isOutdated={outdatedByKey.has(pkgKey)}
-                    t={t}
-                  />
-                );
-              })}
-            </div>
+            <MarketplaceInstalledList
+              packages={filteredInstalled}
+              catalog={catalog}
+              outdatedByKey={outdatedByKey}
+              installingKey={installingKey}
+              onOpenDetail={handleOpenInstalledDetail}
+              onUninstall={handleUninstall}
+              onUpdate={handleUpdate}
+              t={t}
+            />
           )}
         </div>
       )}

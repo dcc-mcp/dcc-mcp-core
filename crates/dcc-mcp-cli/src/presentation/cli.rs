@@ -28,6 +28,19 @@ const DEFAULT_BASE_URL: &str = "http://127.0.0.1:9765";
 pub struct Args {
     #[arg(long, env = "DCC_MCP_BASE_URL", default_value = DEFAULT_BASE_URL)]
     base_url: String,
+    /// Disable the default local gateway auto-start before gateway REST commands.
+    #[arg(long, env = "DCC_MCP_CLI_NO_AUTO_GATEWAY", default_value = "false")]
+    no_auto_gateway: bool,
+    /// Explicit gateway binary for auto-start. Defaults to discovery/cache/current CLI fallback.
+    #[arg(long, env = "DCC_MCP_GATEWAY_BIN")]
+    auto_gateway_bin: Option<PathBuf>,
+    /// Seconds to wait for an auto-started gateway to become healthy.
+    #[arg(
+        long,
+        env = "DCC_MCP_CLI_AUTO_GATEWAY_TIMEOUT_SECS",
+        default_value = "10"
+    )]
+    auto_gateway_timeout_secs: u64,
     #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
     output: OutputFormat,
     #[command(subcommand)]
@@ -40,6 +53,8 @@ enum OutputFormat {
     Pretty,
 }
 
+// clap keeps flattened command arguments by value; this parser enum is short-lived.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Run health + MCP + REST smoke checks against a service.
@@ -155,7 +170,9 @@ enum Command {
     /// Gateway lifecycle management.
     Gateway {
         #[command(subcommand)]
-        action: GatewayAction,
+        action: Option<GatewayAction>,
+        #[command(flatten)]
+        daemon: dcc_mcp_sidecar::gateway_daemon::GatewayArgs,
     },
 }
 
@@ -275,8 +292,15 @@ struct LintArgs {
 #[derive(Debug, Subcommand)]
 enum UpdateAction {
     /// Check whether a newer version is available.
-    Check,
-    /// Download the latest version and stage it for the next launch.
+    Check {
+        /// Binary name to check in the gateway update manifest.
+        #[arg(long)]
+        binary: Option<String>,
+        /// Current version to compare against. Defaults to this CLI version.
+        #[arg(long)]
+        current_version: Option<String>,
+    },
+    /// Download the latest CLI version and stage it for the next launch.
     Apply,
 }
 
@@ -371,9 +395,22 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
 
     let Args {
         base_url,
+        no_auto_gateway,
+        auto_gateway_bin,
+        auto_gateway_timeout_secs,
         output,
         command,
     } = args;
+
+    if !no_auto_gateway {
+        ensure_gateway_for_command(
+            &base_url,
+            &command,
+            auto_gateway_bin,
+            auto_gateway_timeout_secs,
+        )
+        .await?;
+    }
 
     let mut failed = false;
     let value = match command {
@@ -605,20 +642,46 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             failed = result.failed;
             result.value
         }
-        Command::Update { action } => {
-            let binary_name = env!("CARGO_PKG_NAME");
-            let current_version = env!("CARGO_PKG_VERSION");
-            let service = crate::application::update::UpdateService::new(
-                &base_url,
-                binary_name,
+        Command::Update { action } => match action {
+            UpdateAction::Check {
+                binary,
                 current_version,
-            );
-            match action {
-                UpdateAction::Check => to_json(service.check_update().await?)?,
-                UpdateAction::Apply => to_json(service.apply_update().await?)?,
+            } => {
+                let binary_name = binary.unwrap_or_else(|| env!("CARGO_PKG_NAME").to_string());
+                let current_version =
+                    current_version.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+                let service = crate::application::update::UpdateService::new(
+                    &base_url,
+                    &binary_name,
+                    &current_version,
+                );
+                let value = service.check_update().await?;
+                if value.get("error").is_some() {
+                    failed = true;
+                }
+                to_json(value)?
+            }
+            UpdateAction::Apply => {
+                let service = crate::application::update::UpdateService::new(
+                    &base_url,
+                    env!("CARGO_PKG_NAME"),
+                    env!("CARGO_PKG_VERSION"),
+                );
+                to_json(service.apply_update().await?)?
+            }
+        },
+        Command::Gateway { action, daemon } => {
+            if let Some(action) = action {
+                to_json(run_gateway_cmd(&base_url, action).await?)?
+            } else {
+                if daemon.restart {
+                    dcc_mcp_sidecar::gateway_daemon::restart_gateway(&daemon).await?;
+                } else {
+                    dcc_mcp_sidecar::gateway_daemon::run(daemon).await?;
+                }
+                return Ok(());
             }
         }
-        Command::Gateway { action } => to_json(run_gateway_cmd(&base_url, action).await?)?,
     };
 
     print_value(&value, output)?;
@@ -734,6 +797,101 @@ fn run_lint_cmd(args: &LintArgs) -> anyhow::Result<LintCommandResult> {
     });
 
     Ok(LintCommandResult { value, failed })
+}
+
+async fn ensure_gateway_for_command(
+    base_url: &str,
+    command: &Command,
+    gateway_bin: Option<PathBuf>,
+    wait_timeout_secs: u64,
+) -> anyhow::Result<()> {
+    let Some(endpoint) = gateway_endpoint_for_command(base_url, command) else {
+        return Ok(());
+    };
+    let Some((host, port)) = local_auto_gateway_target(&endpoint) else {
+        return Ok(());
+    };
+
+    let registry_dir = gateway_ensure::default_registry_dir();
+    let pidfile = gateway_ctrl::default_pidfile(&registry_dir);
+    let args = gateway_ensure::EnsureGatewayArgs {
+        host,
+        port,
+        name: std::env::var("DCC_MCP_GATEWAY_NAME")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| Some("dcc-mcp-cli-gateway".to_string())),
+        registry_dir,
+        remote_host: std::env::var("DCC_MCP_GATEWAY_REMOTE_HOST")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "0.0.0.0".to_string()),
+        remote_port: std::env::var("DCC_MCP_GATEWAY_REMOTE_PORT")
+            .ok()
+            .and_then(|value| value.parse::<u16>().ok())
+            .unwrap_or(59765),
+        gateway_idle_timeout_secs: std::env::var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(30),
+        gateway_bin,
+        wait_timeout_secs,
+        pidfile: Some(pidfile),
+    };
+
+    let result = gateway_ensure::ensure_gateway_running(&args).await?;
+    if !result.already_running {
+        if let Some(pid) = result.pid {
+            eprintln!(
+                "info: auto-started gateway at http://{}:{} (pid {pid})",
+                result.host, result.port
+            );
+        } else {
+            eprintln!(
+                "info: auto-started gateway at http://{}:{}",
+                result.host, result.port
+            );
+        }
+    }
+    Ok(())
+}
+
+fn gateway_endpoint_for_command(base_url: &str, command: &Command) -> Option<Endpoint> {
+    match command {
+        Command::Smoke { url: None, .. } => Some(Endpoint::new(base_url)),
+        Command::Smoke { url: Some(_), .. } => None,
+        Command::Health
+        | Command::List
+        | Command::Search { .. }
+        | Command::Describe { .. }
+        | Command::LoadSkill { .. }
+        | Command::Call { .. }
+        | Command::WaitReady { .. }
+        | Command::StopInstance { .. }
+        | Command::Update { .. } => Some(Endpoint::new(base_url)),
+        Command::Install { .. }
+        | Command::Marketplace { .. }
+        | Command::Lint(_)
+        | Command::Gateway { .. } => None,
+    }
+}
+
+fn local_auto_gateway_target(endpoint: &Endpoint) -> Option<(String, u16)> {
+    let parsed = reqwest::Url::parse(&endpoint.base_url).ok()?;
+    if parsed.scheme() != "http" {
+        return None;
+    }
+    let host = parsed.host_str()?;
+    let host = if host.eq_ignore_ascii_case("localhost") {
+        "127.0.0.1"
+    } else {
+        host
+    };
+    if !matches!(host, "127.0.0.1" | "0.0.0.0") {
+        return None;
+    }
+    let port = parsed.port_or_known_default()?;
+    Some((host.to_string(), port))
 }
 
 async fn run_gateway_cmd(_base_url: &str, action: GatewayAction) -> anyhow::Result<Value> {
@@ -1024,4 +1182,190 @@ fn gateway_summary(value: &Value, fallback_role: &str) -> String {
         .map(|v| v.to_string())
         .unwrap_or_else(|| "-".to_string());
     format!("{name} role={role} pid={pid} dcc={dcc} version={version} addr={host}:{port}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_auto_gateway_target_accepts_loopback_http() {
+        assert_eq!(
+            local_auto_gateway_target(&Endpoint::new("http://localhost:9765")),
+            Some(("127.0.0.1".to_string(), 9765))
+        );
+        assert_eq!(
+            local_auto_gateway_target(&Endpoint::new("http://127.0.0.1:19001/")),
+            Some(("127.0.0.1".to_string(), 19001))
+        );
+    }
+
+    #[test]
+    fn local_auto_gateway_target_rejects_remote_or_non_http_targets() {
+        assert_eq!(
+            local_auto_gateway_target(&Endpoint::new("https://127.0.0.1:9765")),
+            None
+        );
+        assert_eq!(
+            local_auto_gateway_target(&Endpoint::new("http://192.0.2.10:9765")),
+            None
+        );
+    }
+
+    #[test]
+    fn gateway_endpoint_for_command_only_covers_gateway_rest_commands() {
+        assert!(
+            gateway_endpoint_for_command(
+                DEFAULT_BASE_URL,
+                &Command::Smoke {
+                    url: None,
+                    query: "sphere".to_string(),
+                    limit: 5,
+                    timeout_secs: 5,
+                },
+            )
+            .is_some()
+        );
+        assert!(
+            gateway_endpoint_for_command(
+                DEFAULT_BASE_URL,
+                &Command::Smoke {
+                    url: Some("http://127.0.0.1:8765/mcp".to_string()),
+                    query: "sphere".to_string(),
+                    limit: 5,
+                    timeout_secs: 5,
+                },
+            )
+            .is_none()
+        );
+        assert!(gateway_endpoint_for_command(DEFAULT_BASE_URL, &Command::Health).is_some());
+        assert!(
+            gateway_endpoint_for_command(
+                DEFAULT_BASE_URL,
+                &Command::Search {
+                    query: Some("sphere".to_string()),
+                    dcc_type: None,
+                    instance_id: None,
+                    limit: None,
+                },
+            )
+            .is_some()
+        );
+        assert!(
+            gateway_endpoint_for_command(
+                DEFAULT_BASE_URL,
+                &Command::Describe {
+                    tool_slug: "maya.abc12345.create_sphere".to_string(),
+                },
+            )
+            .is_some()
+        );
+        assert!(
+            gateway_endpoint_for_command(
+                DEFAULT_BASE_URL,
+                &Command::LoadSkill {
+                    skill_name: Some("maya-modeling".to_string()),
+                    dcc_type: Some("maya".to_string()),
+                    dcc: None,
+                    instance_id: Some("abc12345".to_string()),
+                    activate_groups: None,
+                    request_json: None,
+                },
+            )
+            .is_some()
+        );
+        assert!(
+            gateway_endpoint_for_command(
+                DEFAULT_BASE_URL,
+                &Command::Call {
+                    tool_slug: "maya.abc12345.create_sphere".to_string(),
+                    dcc_type: None,
+                    instance_id: None,
+                    arguments_json: "{}".to_string(),
+                    meta_json: None,
+                },
+            )
+            .is_some()
+        );
+        assert!(
+            gateway_endpoint_for_command(
+                DEFAULT_BASE_URL,
+                &Command::WaitReady {
+                    dcc_type: Some("maya".to_string()),
+                    instance_id: Some("abc12345".to_string()),
+                    require: vec!["process".to_string(), "dispatcher".to_string()],
+                    timeout_secs: 30,
+                    interval_secs: 1,
+                },
+            )
+            .is_some()
+        );
+        assert!(
+            gateway_endpoint_for_command(
+                DEFAULT_BASE_URL,
+                &Command::StopInstance {
+                    dcc_type: "maya".to_string(),
+                    instance_id: "abc12345".to_string(),
+                    expected_owner: Some("release-smoke-test".to_string()),
+                    expected_session: Some("test".to_string()),
+                },
+            )
+            .is_some()
+        );
+        assert!(
+            gateway_endpoint_for_command(
+                DEFAULT_BASE_URL,
+                &Command::Update {
+                    action: UpdateAction::Check {
+                        binary: Some("dcc-mcp-server".to_string()),
+                        current_version: Some("0.0.0".to_string()),
+                    },
+                },
+            )
+            .is_some()
+        );
+        assert!(
+            gateway_endpoint_for_command(
+                DEFAULT_BASE_URL,
+                &Command::Marketplace {
+                    action: MarketplaceAction::List,
+                },
+            )
+            .is_none()
+        );
+        assert!(
+            gateway_endpoint_for_command(
+                DEFAULT_BASE_URL,
+                &Command::Gateway {
+                    action: Some(GatewayAction::Status {
+                        host: "127.0.0.1".to_string(),
+                        port: 9765,
+                        registry_dir: None,
+                    }),
+                    daemon: default_gateway_daemon_args(),
+                },
+            )
+            .is_none()
+        );
+    }
+
+    fn default_gateway_daemon_args() -> dcc_mcp_sidecar::gateway_daemon::GatewayArgs {
+        dcc_mcp_sidecar::gateway_daemon::GatewayArgs {
+            host: "127.0.0.1".to_string(),
+            port: 9765,
+            name: None,
+            remote_host: "0.0.0.0".to_string(),
+            remote_port: 59765,
+            registry_dir: None,
+            no_admin: false,
+            admin_path: "/admin".to_string(),
+            stale_timeout_secs: 30,
+            relay_sources: Vec::new(),
+            gateway_persist: false,
+            gateway_idle_timeout_secs: 30,
+            daemon: false,
+            pidfile: None,
+            restart: false,
+        }
+    }
 }

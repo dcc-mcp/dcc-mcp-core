@@ -387,13 +387,13 @@ impl PyMcpHttpConfig {
         self.inner.gateway.remote_gateway_port = v;
     }
 
-    /// Whether the elected gateway serves the read-only Admin UI.
+    /// Whether the elected gateway serves the local Admin UI.
     #[getter]
     fn admin_enabled(&self) -> bool {
         self.inner.gateway.admin_enabled
     }
 
-    /// Whether the elected gateway serves the read-only Admin UI.
+    /// Whether the elected gateway serves the local Admin UI.
     #[setter]
     fn set_admin_enabled(&mut self, v: bool) {
         self.inner.gateway.admin_enabled = v;

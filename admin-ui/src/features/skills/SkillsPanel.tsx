@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { RiRefreshLine } from '@remixicon/react';
 import { type InterpolationValues, type MessageKey } from '../../i18n';
 import { haystack, matchesListFilter, PanelHeader, StatusLine } from '../../admin-ui-core';
-import { SkillCard } from './SkillCard';
+import { Button } from '../../components/ui/button';
 import { SkillDetailPanel } from './SkillDetailPanel';
+import { SkillInventoryList } from './SkillInventoryList';
 import { SkillSearchPathsTable } from './SkillSearchPathsTable';
 import { SkillsSummaryGrid } from './SkillsSummaryGrid';
 import { useSkillDetail } from './hooks/useSkillDetail';
@@ -34,8 +36,8 @@ export type SkillsPanelProps = {
 ///
 /// Owns the three feature hooks (inventory, paths, detail), reacts to
 /// `active` to refresh on first show, and composes the marketplace
-/// card grid with the search-paths management section. All visual
-/// pieces (`SkillCard`, `SkillsSummaryGrid`, `SkillSearchPathsTable`,
+/// inventory list with the search-paths management section. All visual
+/// pieces (`SkillInventoryList`, `SkillsSummaryGrid`, `SkillSearchPathsTable`,
 /// `SkillDetailPanel`) are kept dumb — they receive plain props.
 export function SkillsPanel({
   active,
@@ -91,12 +93,12 @@ export function SkillsPanel({
     if (!active || !highlightSkillName || inventory.skills.length === 0) return;
     const timer = setTimeout(() => {
       const el = document.querySelector(
-        `.skill-card[data-skill-name="${CSS.escape(highlightSkillName)}"]`,
+        `.skill-inventory-row[data-skill-name="${CSS.escape(highlightSkillName)}"]`,
       );
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        el.classList.add('skill-card-highlight');
-        setTimeout(() => el.classList.remove('skill-card-highlight'), 2000);
+        el.classList.add('skill-inventory-highlight');
+        setTimeout(() => el.classList.remove('skill-inventory-highlight'), 2000);
       }
       onHighlightConsumed?.();
     }, 300);
@@ -153,14 +155,15 @@ export function SkillsPanel({
       <PanelHeader
         title={t('skillPaths.title')}
         action={
-          <button
-            className="refresh-btn"
+          <Button
             type="button"
+            size="sm"
             disabled={pathStore.busy}
             onClick={() => void Promise.allSettled([inventory.refresh(), pathStore.refresh()])}
           >
+            <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
             {t('action.refresh')}
-          </button>
+          </Button>
         }
       />
       <StatusLine text={updatedAt} error={error} />
@@ -173,21 +176,12 @@ export function SkillsPanel({
         ) : filteredSkills.length === 0 ? (
           <p className="empty">{t('skillPaths.empty.skillsSearch')}</p>
         ) : (
-          <div className="skill-card-grid" role="list">
-            {filteredSkills.map((skill) => (
-              <div role="listitem" key={`${skill.dcc_type}-${skill.name}-${skill.loaded ? 'on' : 'off'}`}>
-                <SkillCard
-                  skill={skill}
-                  selected={
-                    detailStore.selected?.name === skill.name
-                      && detailStore.selected?.dcc_type === skill.dcc_type
-                  }
-                  onOpen={(s) => void detailStore.open(s)}
-                  t={t}
-                />
-              </div>
-            ))}
-          </div>
+          <SkillInventoryList
+            skills={filteredSkills}
+            selected={detailStore.selected}
+            onOpen={(skill) => void detailStore.open(skill)}
+            t={t}
+          />
         )}
         <SkillDetailModal
           skill={detailStore.selected}

@@ -20,13 +20,13 @@
 
 [English](README.md) | 中文
 
-**给 Maya、Blender、Houdini、Photoshop 和自定义工作室工具一套真正的 AI 控制面。**
+**Agent-first DCC 控制面：一个 CLI、一个 gateway，连接所有在线创作宿主。**
 
-`dcc-mcp-core` 把 DCC 应用变成可发现、可路由的 MCP 端点。Agent 不再只能猜测 shell 输出，而是可以面对实时场景状态、受作用域约束的工具目录、结构化结果、视口诊断、审计日志，以及能适应真实生产约束的工作流。
+`dcc-mcp-core` 把 Maya、Blender、Houdini、Photoshop 和自定义工作室工具变成可发现、可路由的 MCP 端点。Agent 不再只能猜测 shell 输出，而是可以面对实时场景状态、受作用域约束的工具目录、结构化结果、视口诊断、审计日志，以及能适应真实生产约束的工作流。
 
-它结合 **MCP 2025-03-26 Streamable HTTP**、遵循 [agentskills.io 1.0](https://agentskills.io/specification) 的 **零代码 Skills 系统**，以及负责发现、路由、安装、lint 和运维的 Rust gateway。Python 包面向嵌入式 DCC 宿主保持**零第三方 Python 库依赖**，并依赖同套发布的 `dcc-mcp-server` wheel，确保 daemon-backed gateway 启动时即使 `PATH` 为空也有可用的打包二进制。独立的 `dcc-mcp-cli` 与 `dcc-mcp-server` 二进制也会随 GitHub Release 发布，适合像传统软件一样下载安装到工作站。支持 Python 3.7–3.14。
+默认 operator 路径是 `dcc-mcp-cli`：常规命令会在访问在线 DCC 会话之前确保本机 gateway 存在，Agent 和 CI 脚本不需要再维护脆弱的预启动步骤。同一套能力也驱动浏览器 Admin UI、marketplace skill 安装、包更新、Sentry/webhook/OTLP 集成设置，以及 traces、calls、logs、runtime health 等证据面板。
 
-当你希望 Agent 操作真实 DCC 会话，同时避免上下文爆炸、为每个工具手写 Python 胶水、或者维护脆弱的一次性 shell 脚本时，它就是这层基础设施。你可以用两条命令从 CLI 开始，也可以把 Python core 直接嵌进 DCC adapter。
+底层它结合 **MCP 2025-03-26 Streamable HTTP**、遵循 [agentskills.io 1.0](https://agentskills.io/specification) 的 **零代码 Skills 系统**，以及负责发现、路由、安装、lint、更新和运维的 Rust gateway。Python 包面向嵌入式 DCC 宿主保持**零第三方 Python 库依赖**，并依赖同套发布的 `dcc-mcp-server` wheel，确保 daemon-backed gateway 启动时即使 `PATH` 为空也有可用的打包二进制。独立的 `dcc-mcp-cli` 与 `dcc-mcp-server` 二进制也会随 GitHub Release 发布，适合像传统软件一样下载安装到工作站。支持 Python 3.7–3.14。
 
 ---
 
@@ -35,10 +35,20 @@
 | 需求 | dcc-mcp-core 提供 |
 |---|---|
 | 让 Agent 操作真实 DCC 会话 | 面向 Maya、Blender、Houdini、Photoshop 和自定义宿主的 MCP + REST 端点 |
-| 控制工具上下文大小 | Gateway 发现流程：MCP `search` -> `describe`，再用 REST `POST /v1/call` |
-| 不写框架胶水也能加工具 | `SKILL.md` + 同级 YAML / 脚本，遵循 agentskills.io |
-| 调试真实工作站状态 | Admin UI、视口诊断、审计日志、trace、metrics |
+| 控制工具上下文大小 | Gateway 发现流程：`search` -> `describe` -> `call`，不依赖巨大的第一页 `tools/list` |
+| 从 Agent shell 可靠启动 | `dcc-mcp-cli health/list/search/...` 会在使用前自动确保 gateway |
+| 不写框架胶水也能新增和更新工具 | `SKILL.md` + 同级 YAML / 脚本、marketplace 安装/更新，遵循 agentskills.io |
+| 调试真实工作站状态 | Admin UI、视口诊断、审计日志、trace、logs、metrics、Sentry/webhook 集成状态 |
 | 扛住生产约束 | 主线程调度、异步 job、sidecar/server 二进制、workflow 与 artefact 原语 |
+
+## 产品入口
+
+| 入口 | Operator 能看到什么 | 为什么重要 |
+|---|---|---|
+| `dcc-mcp-cli` | `health`、`list`、`search`、`describe`、`call`、`load-skill`、marketplace 和 update 命令 | Agent 与 CI 的默认入口；会自动检查并启动 gateway |
+| Gateway Admin UI | 实例、server 版本、一键升级操作、skill 路径、marketplace 包、集成、calls、traces、logs 和健康状态 | 一个浏览器面板覆盖在线工作站运维 |
+| Skills Marketplace | Catalog 搜索、安装、卸载、过期检查和包更新 | 团队可以分发 DCC 能力，而不必重建 adapter |
+| Integrations | Sentry DSN、webhook 配置、企微消息推送、OTLP endpoint 可见性，以及 pending-restart 状态 | 可观测性设置来自真实 gateway API，不是静态说明，并会对密钥做掩码 |
 
 ## 运行时架构
 
@@ -78,9 +88,28 @@ powershell -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/s
 ```bash
 dcc-mcp-cli health
 dcc-mcp-cli list
-dcc-mcp-cli search --query sphere --dcc-type maya
-dcc-mcp-cli lint path/to/skills
+dcc-mcp-cli search --query "create sphere" --dcc-type maya --limit 20
+dcc-mcp-cli describe <tool_slug>
+dcc-mcp-cli call <tool_slug> --json '{"radius":2.0}'
+dcc-mcp-cli marketplace search --query rigging --dcc maya --limit 20
+dcc-mcp-cli update check --binary dcc-mcp-server --current-version <server_version>
 ```
+
+默认操作流：
+
+1. 先运行 `dcc-mcp-cli health` 或 `dcc-mcp-cli list`。对于本机 loopback
+   gateway，常规 gateway-backed 命令会在 gateway 不存在时自动启动 daemon。
+2. 如果 `list` 返回在线实例，再执行 `search -> describe -> call`；把
+   `tools/list` 当作兼容性列表，不作为主要发现入口。
+3. 打开 `http://127.0.0.1:9765/admin` 处理浏览器运维：实例健康、server
+   版本检查、一键暂存 server 更新、skill 路径、marketplace 包更新、集成、
+   traces、logs 和 Token 活动。
+4. 对正在运行的 backend，使用 Instances 面板里的更新按钮暂存
+   `dcc-mcp-server` 更新。`dcc-mcp-cli update apply` 只用于更新 CLI 二进制本身。
+
+任意 gateway-backed 命令成功后，默认浏览器控制台可访问
+`http://127.0.0.1:9765/admin`。如果 gateway 在其他地址，可以使用
+`--base-url` 或 `DCC_MCP_BASE_URL` 指向它。
 
 ### 安装 Python core
 
@@ -172,13 +201,35 @@ AI 友好文档：[AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](d
 
 ### Gateway Admin UI
 
-获选的 gateway 内置一套浏览器 admin 控制台，方便运维在不离开浏览器的情况下查看实时 DCC 会话、路由健康、审计调用、traces、日志、skill 路径和延迟趋势。下面的示例使用代表性演示数据，展示繁忙多 DCC 工作站上的主要面板。
+获选的 gateway 内置一套浏览器 admin 控制台，方便运维在不离开浏览器的情况下查看实时 DCC 会话、server 版本、路由健康、审计调用、traces、日志、skill 路径、marketplace 包、一键升级操作、集成设置和 Token 活动。下面的示例使用代表性演示数据，展示繁忙多 DCC 工作站上的主要面板。
+
+Admin 重点能力：
+
+- **Command Center**：区分 Agent 提示词交接和人类 CLI recipes；Agent 看到精简的 `search -> describe -> call` 路径，operator 仍然可以复制 `dcc-mcp-cli` 命令。CLI 命令会自动确保本机 gateway，不需要额外预启动步骤。
+- **Instances**：使用列表式实例清单展示在线、过期、异常状态，同时显示 server 版本、adapter 版本、dispatch readiness、一键检查升级、直接升级按钮和暂存后的重启提示。
+- **Skills 与 Marketplace**：使用列表优先的 skill inventory 管理自定义 skill 路径、已加载 skill 详情、marketplace 浏览/已安装/源标签、强制重装、包更新，并在包接口返回 HTML 而不是 JSON 时显示真实错误。
+- **Integrations**：Sentry、webhooks、企微消息推送、OTLP 设置由 gateway API 支撑，可编辑保存到 `~/dcc-mcp/etc`，并在需要重启加载时显示 pending-restart 状态。企微消息模板可以填充 `$event`、`$dcc-type`、`$tool-slug`、`$url` 等事件字段。
+- **证据面板**：calls、traces、logs、stats、health，以及类似 contribution calendar 的 Token 活动热力图，用于定位真实 Agent 活动。
+
+浏览器 UI 使用的也是测试和自动化会调用的 Admin API：
+
+| 面板 | 背后接口 |
+|---|---|
+| 实例与升级 | `GET /admin/api/instances`、`POST /admin/api/instances/{id}/update` |
+| Skills 与 marketplace | `GET /admin/api/skill-paths`、`/admin/api/marketplace/*` |
+| 集成设置 | `GET /admin/api/integrations`、`PUT /admin/api/integrations` |
+| 分析与热力图 | `GET /admin/api/analytics/overview`、`/analytics/timeseries`、`/analytics/heatmap`、`/analytics/export` |
+| 证据面板 | `GET /admin/api/calls`、`/traces`、`/logs`、`/health` |
 
 ![Gateway admin Connect IDE panel](docs/assets/admin-ui/admin-connect-ide.png)
 
 ![Gateway admin health panel](docs/assets/admin-ui/admin-health.png)
 
 ![Gateway admin instances panel](docs/assets/admin-ui/admin-instances.png)
+
+![Gateway admin Skills paths panel](docs/assets/admin-ui/admin-skills-paths.png)
+
+![Gateway admin skill markdown detail panel](docs/assets/admin-ui/admin-skill-detail.png)
 
 ![Gateway admin stats panel](docs/assets/admin-ui/admin-stats.png)
 
@@ -227,9 +278,17 @@ irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-
 ```bash
 dcc-mcp-cli health
 dcc-mcp-cli list
-dcc-mcp-cli search --query sphere --dcc-type maya
+dcc-mcp-cli search --query "create sphere" --dcc-type maya --limit 20
+dcc-mcp-cli describe <tool_slug>
+dcc-mcp-cli call <tool_slug> --json '{"radius":2.0}'
+dcc-mcp-cli load-skill workflow --dcc-type 3dsmax --instance-id 80321760
+dcc-mcp-cli marketplace install <package_name> --dcc maya
+dcc-mcp-cli update check --binary dcc-mcp-server --current-version <server_version>
 dcc-mcp-cli lint path/to/skills
 ```
+
+默认浏览器控制台随后可访问 `http://127.0.0.1:9765/admin`。如果 gateway
+运行在其他地址，请使用 `--base-url` 或 `DCC_MCP_BASE_URL`。
 
 ### 安装 Python core
 

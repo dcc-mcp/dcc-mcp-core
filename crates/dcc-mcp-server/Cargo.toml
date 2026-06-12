@@ -66,7 +66,7 @@ sentry = { version = "0.39", default-features = false, features = [
 
 [features]
 # Default matches today's binary: per-DCC MCP server with embedded
-# first-wins gateway election, the read-only Admin UI, and Sentry
+# first-wins gateway election, the local Admin UI, and Sentry
 # error monitoring (auto-disabled when DCC_MCP_SENTRY_DSN is absent).
 default = ["server", "gateway-auto", "gateway-daemon", "admin", "sentry"]
 
@@ -95,7 +95,7 @@ gateway-daemon = [
     "dcc-mcp-sidecar/gateway-daemon",
 ]
 
-# Read-only Admin UI on the elected gateway. Forwarded to whichever of
+# Local Admin UI on the elected gateway. Forwarded to whichever of
 # `gateway-auto` / `gateway-daemon` happens to be enabled.
 admin = [
     "dcc-mcp-gateway?/admin",

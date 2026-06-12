@@ -43,7 +43,7 @@ cfg = McpHttpConfig(
 | `session_ttl_secs` | `int` | `3600` | Idle session TTL in seconds (`0` = disable eviction) |
 | `lazy_actions` | `bool` | `False` | Opt-in: surface only 3 meta-tools (`list_actions`, `describe_action`, `call_action`) instead of all tools in `tools/list` |
 | `gateway_port` | `int` | `9765` (Python) | Gateway port to compete for (`0` = disabled). See [Gateway](#gateway) |
-| `admin_enabled` | `bool` | `True` | Elected gateway serves the read-only Admin UI (`GET /admin`) |
+| `admin_enabled` | `bool` | `True` | Elected gateway serves the local Admin UI (`GET /admin`) |
 | `admin_path` | `str` | `"/admin"` | URL prefix for the Admin UI |
 | `registry_dir` | `str \| None` | `None` | Directory for the shared `FileRegistry` JSON (defaults to OS temp dir) |
 | `stale_timeout_secs` | `int` | `30` | Seconds without a heartbeat before an instance is considered stale |

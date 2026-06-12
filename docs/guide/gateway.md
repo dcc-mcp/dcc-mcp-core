@@ -20,7 +20,7 @@ manual orchestration on a single workstation:
    owns the well-known port (default `9765`). It hosts only the gateway
    plane: discovery, multi-source instance aggregation, bounded `tools/list`
    with four canonical workflow primitives, dynamic capability indexing,
-   SSE multiplexing, REST routing, and the read-only admin UI. It never
+   SSE multiplexing, REST routing, and the local admin UI. It never
    executes a tool inline — every `tools/call` is forwarded to the
    owning DCC backend.
 
@@ -107,7 +107,7 @@ or register with it.
 The `dcc-mcp-server gateway` subcommand runs the gateway **as its own
 process**, separate from any per-DCC server. It hosts only the gateway
 plane — discovery, aggregation, routing, dynamic capabilities,
-resources / prompts fan-out, the read-only admin UI, and audit — and
+resources / prompts fan-out, the local admin UI, and audit — and
 never executes a tool itself; every `tools/call` is HTTP-forwarded to
 the owning DCC backend.
 
@@ -283,7 +283,7 @@ cmd, env = build_gateway_daemon_command(
 │  ┌──────────────────────────────────────────────────────────────┐            │
 │  │  POST /mcp  (tools/list, tools/call)                         │            │
 │  │  GET  /mcp  (SSE — MCP 2025-03-26)                           │            │
-│  │  GET  /admin (read-only dashboard)                            │            │
+│  │  GET  /admin (local operator dashboard)                       │            │
 │  │  GET  /v1/readyz (readiness probe + lifecycle diagnostics)    │            │
 │  │  backend SSE sub: one per backend URL                         │            │
 │  └────────┬──────────┬──────────┬───────────────────────────────┘            │
@@ -854,9 +854,14 @@ endpoints. Each webhook specifies:
 - `delivery.attempts` — retry count (default `3`).
 - `delivery.timeout_ms` — per-attempt timeout (default `2_000` ms).
 - `backoff_ms` — per-retry delay sequence (default `[200, 1000, 5000]` ms).
+- `kind` — optional payload adapter (`generic` by default, `wecom` for an
+  Enterprise WeChat group robot markdown message).
 - `payload_template` — optional template string using double-braced
   `source.dcc_type` / `attributes.*` paths. When omitted, the raw event
   envelope is POSTed as JSON.
+- `message_template` — optional message body for `kind: wecom`; supports
+  `$event`, `$dcc-type`, `$instance-id`, `$tool-slug`, `$skill-name`, and
+  `$url`.
 
 Example `webhooks.yaml` to forward analytics events:
 
@@ -883,6 +888,10 @@ webhooks:
 The webhook runtime starts automatically when the env var points at a
 valid YAML file. Headers support `${ENV_VAR}` interpolation so tokens
 stay out of version control.
+
+Enterprise WeChat message push can also be enabled without a YAML file by
+setting `DCC_MCP_WECOM_WEBHOOK_URL`; use `DCC_MCP_WECOM_EVENTS` and
+`DCC_MCP_WECOM_TEMPLATE` to override the default failed-tool alert route.
 
 ### Sentry error monitoring (Rust backend)
 
@@ -1261,7 +1270,12 @@ endpoints. Each webhook specifies:
 - `delivery.attempts` — retry count (default `3`).
 - `delivery.timeout_ms` — per-attempt timeout (default `2_000` ms).
 - `backoff_ms` — per-retry delay sequence (default `[200, 1000, 5000]` ms).
+- `kind` — optional payload adapter (`generic` by default, `wecom` for an
+  Enterprise WeChat group robot markdown message).
 - `payload_template` — optional template string using double-braced paths.
+- `message_template` — optional message body for `kind: wecom`; supports
+  double-braced paths plus `$event`, `$dcc-type`, `$instance-id`, `$tool-slug`,
+  `$skill-name`, and `$url`.
 
 Example `webhooks.yaml`:
 
@@ -1289,6 +1303,28 @@ Headers support `${ENV_VAR}` interpolation so tokens stay out of version
 control. The webhook runtime starts automatically when the env var points at a
 valid YAML file.
 
+Enterprise WeChat can be configured either in the same YAML file or through
+dedicated env vars:
+
+```yaml
+webhooks:
+  - name: wecom-alerts
+    kind: wecom
+    url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=${WECOM_ROBOT_KEY}
+    events: ["tool.failed", "gateway.instance.*"]
+    message_template: |
+      DCC-MCP $event
+      DCC: $dcc-type
+      Tool: $tool-slug
+      URL: $url
+```
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `DCC_MCP_WECOM_WEBHOOK_URL` | (disabled) | Enterprise WeChat group robot webhook URL |
+| `DCC_MCP_WECOM_EVENTS` | `tool.failed, webhook.delivery_failed` | Comma or newline separated event patterns |
+| `DCC_MCP_WECOM_TEMPLATE` | Built-in markdown template | Message body with `$...` variables |
+
 ## Sentry error monitoring (Rust backend)
 
 Set `DCC_MCP_SENTRY_DSN` to your Sentry project DSN. The SDK initialises
@@ -1312,21 +1348,24 @@ tests.
 
 ## Admin Integrations panel
 
-The gateway admin dashboard exposes a read-only **Integrations** panel at
+The gateway admin dashboard exposes an editable **Integrations** panel at
 `GET /admin/api/integrations` (mirrored at `GET /v1/debug/integrations` for
 agent access). The panel summarises the effective configuration for Sentry,
-webhooks, and OTLP tracing:
+event webhooks, WeCom message push, and OTLP tracing:
 
 | Integration | Configuration | Panel shows |
 |-------------|---------------|-------------|
-| Sentry | `DCC_MCP_SENTRY_DSN` | DSN status (set/unset), environment, sample rate |
-| Webhooks | `DCC_MCP_WEBHOOKS_CONFIG` → YAML | Active webhook count and names |
-| OTLP tracing | `OTEL_EXPORTER_OTLP_ENDPOINT` | Endpoint URL, service name |
+| Sentry | Env vars first, then `~/dcc-mcp/etc/sentry.json` | DSN status (masked), environment, release, sample rate |
+| Webhooks | `DCC_MCP_WEBHOOKS_CONFIG` first, then `~/dcc-mcp/etc/webhooks.yaml` | Active webhook count and names |
+| WeCom message push | Env vars first, then local `webhooks.yaml` entry `wecom-message-push` | Masked robot URL, event patterns, template pending state |
+| OTLP tracing | Env vars first, then `~/dcc-mcp/etc/otlp.json` | Endpoint URL, service name, configured headers |
 
-All three integrations are configured through environment variables or
-config files set before server startup — the panel is **read-only** and
-flags `pending_restart` when a configuration change requires a gateway
-restart to take effect. Secrets are never exposed in the JSON response.
+Integrations are still applied at process startup, so edits made in the panel
+are staged as `pending_restart` config until the gateway/server process is
+restarted. Editable local config defaults to `~/dcc-mcp/etc`; set
+`DCC_MCP_ETC_DIR` to choose another writable directory. Environment variables
+continue to take precedence over local files. Secrets are masked in both the
+JSON response and the browser preview.
 See [admin-ui.md](admin-ui.md) for the full API reference.
 
 ## Non-goals

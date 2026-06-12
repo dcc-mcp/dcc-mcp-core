@@ -76,11 +76,11 @@ pub struct GatewayArgs {
     #[arg(long, env = "DCC_MCP_REGISTRY_DIR")]
     pub registry_dir: Option<PathBuf>,
 
-    /// Disable the read-only Admin UI.
+    /// Disable the Admin UI.
     #[arg(long, env = "DCC_MCP_NO_ADMIN", default_value = "false")]
     pub no_admin: bool,
 
-    /// URL prefix for the read-only Admin UI.
+    /// URL prefix for the Admin UI.
     #[arg(long, env = "DCC_MCP_ADMIN_PATH", default_value = "/admin")]
     pub admin_path: String,
 

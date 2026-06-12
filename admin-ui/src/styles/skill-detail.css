@@ -80,6 +80,10 @@
   overflow-wrap: anywhere;
 }
 
+.skill-detail-action {
+  min-width: 4.75rem;
+}
+
 .skill-detail-meta,
 .skill-detail-tools,
 .skill-detail-instances {
