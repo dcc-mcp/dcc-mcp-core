@@ -86,7 +86,13 @@ Full argument reference: [cli-reference.md](cli-reference.md#marketplace).
 ## Installation Types
 
 Three install types are supported, controlled by the catalog entry's
-`install.type` field:
+`install.type` field. Adapter entries may also set
+`install.instructions_url` to the raw adapter-maintained `install.md`; the
+`install` command exposes that URL as a `read-install-instructions` next step so
+agents follow the latest host-specific setup runbook instead of core-hardcoded
+DCC instructions. Use `install.python_path` only when the catalog intentionally
+pins a host Python interpreter; the older `mayapy_path` spelling remains a
+backward-compatible input alias and should not be used for new entries.
 
 ### Git (`install.type: git`)
 
@@ -322,9 +328,12 @@ future phase.
 | Add source | `marketplace add <source>` | Source management in panel |
 | Direct GitHub install | `marketplace add-repo <repo> --dcc <dcc>` | Admin API (planned) |
 | Update | `marketplace update [name] --all` | Admin API (`POST /admin/api/marketplace/update`) |
+| Live adapter refresh | `reload-skills --dcc-type <dcc>` after install/update/uninstall | Automatic when the backend reports `reload_required` |
 
-Both interfaces share the same backend — operations performed in one are
-reflected in the other immediately.
+Both interfaces share the same installed package state, but live adapters only
+see newly installed CLI packages after startup or an explicit
+`dcc-mcp-cli reload-skills --dcc-type <dcc>`. The Admin UI triggers that reload
+automatically when its backend reports `reload_required`.
 
 ## See Also
 

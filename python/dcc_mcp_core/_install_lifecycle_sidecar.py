@@ -6,23 +6,27 @@ imports :mod:`dcc_mcp_core._core`.
 
 from __future__ import annotations
 
+import contextlib
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Any
 from typing import Dict
 from typing import Iterable
 from typing import List
 from typing import Optional
+from typing import Tuple
 from urllib.parse import urlsplit
 
 REGISTRY_ENV = "DCC_MCP_REGISTRY_DIR"
 ROLE_PER_DCC_SIDECAR = "per-dcc-sidecar"
 SUPPORTED_DISPATCH_HOST_RPC_SCHEMES = ("commandport", "qtserver", "ws", "wss")
 TEST_ONLY_HOST_RPC_SCHEMES = ("stub",)
+SERVER_BINARY_VERSION_TIMEOUT_SECS = 1.0
 
 
 def sidecar_host_rpc_dispatch_contract(host_rpc: Any) -> Dict[str, Any]:
@@ -111,7 +115,7 @@ def build_sidecar_command(
     *,
     dcc_type: str,
     host_rpc: str,
-    watch_pid: int,
+    watch_pid: Optional[int] = None,
     registry_dir: Optional[Any] = None,
     server_bin: Optional[str] = None,
     instance_id: Optional[str] = None,
@@ -133,9 +137,12 @@ def build_sidecar_command(
 
     DCC startup hooks can call this helper before importing any native
     ``dcc_mcp_core`` module. The returned ``command`` is an argv list that can
-    be passed to ``subprocess.Popen`` without shell quoting.
+    be passed to ``subprocess.Popen`` without shell quoting. When called from an
+    in-process DCC plugin, omit ``watch_pid`` to bind the sidecar to the current
+    DCC process. CLI callers must pass ``--watch-pid`` explicitly because the
+    CLI process is not the DCC host.
     """
-    environment = dict(os.environ if env is None else env)
+    environment = _merged_env(env)
     dcc = str(dcc_type or "").strip()
     if not dcc:
         return _failed("invalid_dcc_type", "dcc_type is required.")
@@ -156,7 +163,7 @@ def build_sidecar_command(
         failed["dispatch_contract"] = dispatch_contract
         return failed
 
-    pid = _parse_int(watch_pid)
+    pid = _parse_int(os.getpid() if watch_pid is None else watch_pid)
     if pid is None:
         return _failed("invalid_watch_pid", "watch_pid must be a positive process id.")
 
@@ -177,8 +184,9 @@ def build_sidecar_command(
             )
 
     registry_path = _to_path(registry_dir) or Path(default_registry_dir()).expanduser()
+    server_binary = _server_binary_diagnostic(server_bin, environment)
     command = [
-        _resolve_server_bin(server_bin, environment),
+        server_binary["command"],
         "sidecar",
         "--dcc",
         dcc,
@@ -232,6 +240,7 @@ def build_sidecar_command(
         "registry_dir": str(registry_path),
         "gateway_port": port,
         "command": command,
+        "server_binary": server_binary,
         "environment": {"set": env_set},
         "readiness_selector": {
             "dcc_type": dcc,
@@ -262,7 +271,7 @@ def launch_sidecar(
     *,
     dcc_type: str,
     host_rpc: str,
-    watch_pid: int,
+    watch_pid: Optional[int] = None,
     registry_dir: Optional[Any] = None,
     server_bin: Optional[str] = None,
     instance_id: Optional[str] = None,
@@ -286,13 +295,22 @@ def launch_sidecar(
     probe_tool: Optional[str] = None,
     probe_arguments: Optional[Dict[str, Any]] = None,
     probe_timeout_secs: float = 3.0,
+    stdio_log_dir: Optional[Any] = None,
+    capture_stdio: bool = True,
+    liveness_check_secs: float = 0.0,
+    return_process: bool = False,
 ) -> Dict[str, Any]:
     """Start a per-DCC sidecar without importing native ``dcc_mcp_core``.
 
     By default the helper returns as soon as ``subprocess.Popen`` succeeds so
-    DCC startup hooks do not block their host UI. Pass
+    DCC startup hooks do not block their host UI, while stdout/stderr are
+    written to sidecar log files under the registry directory. Pass
     ``wait_ready_timeout_secs`` from a background startup task or installer when
-    the caller wants a bounded dispatch-readiness verdict in the same result.
+    the caller wants a bounded dispatch-readiness verdict in the same result;
+    pass ``liveness_check_secs`` when a supervisor needs immediate-exit
+    detection after spawning. Pass ``return_process=True`` only from in-process
+    supervisors that need to terminate the child later; CLI/JSON callers should
+    keep the default because ``subprocess.Popen`` is not serializable.
     """
     contract = build_sidecar_command(
         dcc_type=dcc_type,
@@ -318,13 +336,26 @@ def launch_sidecar(
     if not contract.get("success"):
         return contract
 
-    popen_env = dict(os.environ if env is None else env)
+    popen_env = _merged_env(env)
     popen_env.update(contract["environment"]["set"])
+    try:
+        stdio = _build_stdio_contract(
+            contract,
+            stdio_log_dir=stdio_log_dir,
+            capture_stdio=capture_stdio,
+        )
+    except OSError as exc:
+        failed = _failed("stdio_log_failed", str(exc))
+        failed["command"] = contract["command"]
+        failed["registry_dir"] = contract["registry_dir"]
+        failed["server_binary"] = contract.get("server_binary")
+        return failed
+
     kwargs: Dict[str, Any] = {
         "env": popen_env,
         "stdin": subprocess.DEVNULL,
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
+        "stdout": stdio["stdout_handle"],
+        "stderr": stdio["stderr_handle"],
         "close_fds": os.name != "nt",
     }
     if cwd is not None:
@@ -341,18 +372,35 @@ def launch_sidecar(
     except Exception as exc:
         failed = _failed("spawn_failed", str(exc))
         failed["command"] = contract["command"]
+        failed["registry_dir"] = contract["registry_dir"]
+        failed["server_binary"] = contract.get("server_binary")
+        failed["stdio"] = stdio["result"]
         return failed
+    finally:
+        for handle in stdio["close_after_spawn"]:
+            with contextlib.suppress(OSError):
+                handle.close()
+
+    liveness = _check_early_liveness(proc, liveness_check_secs)
 
     result = {
         **contract,
-        "success": True,
-        "status": "started",
+        "success": liveness.get("alive") is not False,
+        "status": "started" if liveness.get("alive") is not False else "exited",
         "pid": proc.pid,
         "detached": detached,
         "ready": False,
         "readiness_checked": False,
         "readiness": _unchecked_launch_readiness(contract),
+        "stdio": stdio["result"],
+        "liveness": liveness,
     }
+    if return_process:
+        result["process"] = proc
+    if liveness.get("alive") is False:
+        result["reason"] = "sidecar_exited_during_startup"
+        result["message"] = "Sidecar process exited before the startup liveness check completed."
+        return result
     if wait_ready_timeout_secs is not None:
         result["readiness"] = _check_launch_readiness(
             registry_dir=contract["registry_dir"],
@@ -384,6 +432,13 @@ def _to_path(path: Any) -> Optional[Path]:
         return Path(str(path)).expanduser().absolute()
 
 
+def _merged_env(env: Optional[Dict[str, str]]) -> Dict[str, str]:
+    environment = dict(os.environ)
+    if env:
+        environment.update(env)
+    return environment
+
+
 def _parse_int(value: Any) -> Optional[int]:
     try:
         parsed = int(value)
@@ -403,16 +458,169 @@ def _parse_port(value: Any, *, default: Optional[int]) -> Optional[int]:
 
 
 def _resolve_server_bin(server_bin: Optional[str], env: Dict[str, str]) -> str:
-    explicit = str(server_bin or env.get("DCC_MCP_SERVER_BIN") or "").strip()
-    if explicit:
-        return explicit
+    configured = _configured_server_bin(server_bin, env)
+    if configured:
+        return configured
     return shutil.which("dcc-mcp-server") or "dcc-mcp-server"
+
+
+def _server_binary_diagnostic(server_bin: Optional[str], env: Dict[str, str]) -> Dict[str, Any]:
+    explicit = str(server_bin or "").strip()
+    env_configured = str(env.get("DCC_MCP_SERVER_BIN") or "").strip()
+    configured = explicit or env_configured
+    command = _resolve_server_bin(server_bin, env)
+    resolved_path = shutil.which(command, path=env.get("PATH"))
+    if resolved_path is None and Path(command).is_file():
+        resolved_path = str(_to_path(command) or command)
+    version, version_error = _probe_server_binary_version(command, env)
+    source = "explicit" if explicit else ("env" if env_configured else "path")
+    return {
+        "command": command,
+        "source": source,
+        "configured": configured or None,
+        "path": resolved_path,
+        "version": version,
+        "version_error": version_error,
+    }
+
+
+def _configured_server_bin(server_bin: Optional[str], env: Dict[str, str]) -> str:
+    return str(server_bin or "").strip() or str(env.get("DCC_MCP_SERVER_BIN") or "").strip()
+
+
+def _probe_server_binary_version(
+    command: str,
+    env: Dict[str, str],
+) -> Tuple[Optional[str], Optional[str]]:
+    try:
+        result = subprocess.run(
+            [command, "--version"],
+            env=env,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=SERVER_BINARY_VERSION_TIMEOUT_SECS,
+        )
+    except Exception as exc:
+        return None, f"running --version failed: {exc}"
+
+    stdout = result.stdout.strip()
+    stderr = result.stderr.strip()
+    if result.returncode == 0:
+        output = stdout or stderr
+        return output or None, None if output else "--version produced no output"
+    detail = stderr or stdout or f"exit code {result.returncode}"
+    return None, detail
 
 
 def _append_flag_value(command: List[str], flag: str, value: Optional[Any]) -> None:
     if value in (None, ""):
         return
     command.extend([flag, str(value)])
+
+
+def _build_stdio_contract(
+    contract: Dict[str, Any],
+    *,
+    stdio_log_dir: Optional[Any],
+    capture_stdio: bool,
+) -> Dict[str, Any]:
+    if not capture_stdio:
+        return {
+            "stdout_handle": subprocess.DEVNULL,
+            "stderr_handle": subprocess.DEVNULL,
+            "close_after_spawn": [],
+            "result": {
+                "captured": False,
+                "stdout_path": None,
+                "stderr_path": None,
+                "message": "Sidecar stdout/stderr are discarded.",
+            },
+        }
+
+    log_dir = _to_path(stdio_log_dir) if stdio_log_dir is not None else None
+    if log_dir is None:
+        log_dir = Path(str(contract["registry_dir"])) / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    stem = _sidecar_log_stem(contract)
+    stdout_path = log_dir / f"{stem}.stdout.log"
+    stderr_path = log_dir / f"{stem}.stderr.log"
+    stdout_handle = stdout_path.open("ab")
+    try:
+        stderr_handle = stderr_path.open("ab")
+    except OSError:
+        stdout_handle.close()
+        raise
+    return {
+        "stdout_handle": stdout_handle,
+        "stderr_handle": stderr_handle,
+        "close_after_spawn": [stdout_handle, stderr_handle],
+        "result": {
+            "captured": True,
+            "log_dir": str(log_dir),
+            "stdout_path": str(stdout_path),
+            "stderr_path": str(stderr_path),
+            "message": "Sidecar stdout/stderr are written to log files.",
+        },
+    }
+
+
+def _sidecar_log_stem(contract: Dict[str, Any]) -> str:
+    selector = contract.get("readiness_selector") if isinstance(contract.get("readiness_selector"), dict) else {}
+    identity = selector.get("instance_id") or contract.get("watch_pid") or "unknown"
+    return "sidecar-{}-{}".format(_safe_log_token(contract.get("dcc_type")), _safe_log_token(identity))
+
+
+def _safe_log_token(value: Any) -> str:
+    text = str(value or "unknown").strip().lower()
+    cleaned = []
+    for char in text:
+        if char.isalnum() or char in ("-", "_", "."):
+            cleaned.append(char)
+        else:
+            cleaned.append("-")
+    token = "".join(cleaned).strip("-._")
+    return token or "unknown"
+
+
+def _check_early_liveness(proc: Any, timeout_secs: float) -> Dict[str, Any]:
+    timeout = max(0.0, float(timeout_secs or 0.0))
+    if timeout <= 0:
+        return {
+            "checked": False,
+            "alive": None,
+            "timeout_secs": timeout,
+            "exit_code": None,
+            "message": "Startup liveness check was not requested.",
+        }
+    poll = getattr(proc, "poll", None)
+    if not callable(poll):
+        return {
+            "checked": False,
+            "alive": None,
+            "timeout_secs": timeout,
+            "exit_code": None,
+            "message": "Process object does not expose poll(); liveness could not be checked.",
+        }
+    started = time.monotonic()
+    deadline = started + timeout
+    exit_code = poll()
+    while exit_code is None and time.monotonic() < deadline:
+        time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
+        exit_code = poll()
+    elapsed = round(time.monotonic() - started, 3)
+    return {
+        "checked": True,
+        "alive": exit_code is None,
+        "timeout_secs": timeout,
+        "elapsed_secs": elapsed,
+        "exit_code": exit_code,
+        "message": (
+            "Sidecar process remained alive through the startup liveness window."
+            if exit_code is None
+            else "Sidecar process exited during the startup liveness window."
+        ),
+    }
 
 
 def _uri_scheme(value: Any) -> Optional[str]:

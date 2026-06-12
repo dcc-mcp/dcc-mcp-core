@@ -51,6 +51,12 @@ pub struct WaitReadyRequest {
     pub interval: Duration,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReloadSkillsRequest {
+    pub dcc_type: Option<String>,
+    pub instance_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StopInstanceRequest {
     pub dcc_type: String,

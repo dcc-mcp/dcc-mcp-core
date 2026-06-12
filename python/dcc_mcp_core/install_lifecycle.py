@@ -51,6 +51,7 @@ _RUNTIME_VERSION_KEYS = {
     "server": ("dcc_mcp_server_version", "server_version"),
     "adapter": ("adapter_version", "dcc_mcp_adapter_version"),
 }
+DEFAULT_CLI_SIDECAR_LIVENESS_CHECK_SECS = 1.0
 
 _NATIVE_SUFFIXES = tuple(
     sorted(
@@ -682,6 +683,17 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     _add_sidecar_launch_args(launch)
     launch.add_argument("--foreground", action="store_true", help="Do not detach the sidecar on Windows.")
     launch.add_argument("--poll-interval-secs", type=float, default=0.25)
+    launch.add_argument("--stdio-log-dir", help="Directory for sidecar stdout/stderr logs.")
+    launch.add_argument("--no-stdio-log", action="store_true", help="Discard sidecar stdout/stderr.")
+    launch.add_argument(
+        "--liveness-check-secs",
+        type=float,
+        default=DEFAULT_CLI_SIDECAR_LIVENESS_CHECK_SECS,
+        help=(
+            "Wait briefly after spawn and fail if the sidecar exits immediately. "
+            "Pass 0 to preserve the raw non-blocking API behavior."
+        ),
+    )
     _add_sidecar_probe_args(launch)
     launch.add_argument(
         "--wait-ready-timeout-secs",
@@ -759,6 +771,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 probe_tool=args.probe_tool,
                 probe_arguments=probe_arguments,
                 probe_timeout_secs=args.probe_timeout_secs,
+                stdio_log_dir=args.stdio_log_dir,
+                capture_stdio=not args.no_stdio_log,
+                liveness_check_secs=args.liveness_check_secs,
             )
         )
     if args.command == "sidecar-ready":

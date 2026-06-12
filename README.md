@@ -24,7 +24,7 @@
 
 `dcc-mcp-core` turns Maya, Blender, Houdini, Photoshop, and custom studio tools into discoverable, routable MCP endpoints. Agents stop guessing from shell output and start working with live scene state, scoped tool catalogs, structured results, viewport diagnostics, audit logs, and workflows that can survive real production constraints.
 
-The default operator path is `dcc-mcp-cli`: every normal command can ensure the local gateway exists before it talks to live DCC sessions, so agents and CI scripts do not need a fragile preflight dance. The same stack powers the browser Admin UI, marketplace skill installs, package updates, Sentry/webhook/OTLP integration settings, and evidence panels for traces, calls, logs, and runtime health.
+The default operator path is `dcc-mcp-cli`: local commands discover live DCC sessions from the shared FileRegistry and talk to each instance directly, while remote profiles route through a selected gateway. Endpoint/admin/update commands can still ensure the local gateway exists, so agents and CI scripts do not need a fragile preflight dance. The same stack powers the browser Admin UI, marketplace skill installs, package updates, Sentry/webhook/OTLP integration settings, and evidence panels for traces, calls, logs, and runtime health.
 
 Under the hood it combines **MCP 2025-03-26 Streamable HTTP**, a **zero-code Skills system** built on [agentskills.io 1.0](https://agentskills.io/specification), and a Rust gateway for discovery, routing, installation, linting, updates, and operations. The Python package keeps **zero third-party Python library dependencies** for embedded DCC hosts and depends on the companion `dcc-mcp-server` wheel so daemon-backed gateway startup has a packaged binary even when `PATH` is empty. Standalone `dcc-mcp-cli` and `dcc-mcp-server` binaries also ship through GitHub Releases for workstation-style installs. Supports Python 3.7–3.14.
 
@@ -35,8 +35,8 @@ Under the hood it combines **MCP 2025-03-26 Streamable HTTP**, a **zero-code Ski
 | Need | dcc-mcp-core gives you |
 |---|---|
 | Let agents operate real DCC sessions | MCP + REST endpoints for Maya, Blender, Houdini, Photoshop, and custom hosts |
-| Keep tool context small | Gateway discovery: `search` -> `describe`, then `call`; no giant first-page `tools/list` scrape |
-| Start reliably from an agent shell | `dcc-mcp-cli health/list/search/...` auto-ensure the gateway before using it |
+| Keep tool context small | CLI discovery: `search` -> `describe`, then `call`; no giant first-page `tools/list` scrape |
+| Start reliably from an agent shell | `dcc-mcp-cli list/search/describe/call` use local registry + direct MCP by default; remote profiles use gateways |
 | Add and update tools without framework glue | `SKILL.md` + sibling YAML/scripts, marketplace install/update, aligned with agentskills.io |
 | Debug live workstation state | Admin UI, viewport diagnostics, audit logs, traces, logs, metrics, Sentry/webhook integration state |
 | Survive production constraints | Main-thread dispatch, async jobs, sidecar/server binaries, workflow and artefact primitives |
@@ -45,7 +45,7 @@ Under the hood it combines **MCP 2025-03-26 Streamable HTTP**, a **zero-code Ski
 
 | Surface | What operators see | Why it matters |
 |---|---|---|
-| `dcc-mcp-cli` | `health`, `list`, `search`, `describe`, `call`, `load-skill`, marketplace, and update commands | Agent and CI entry point; checks and starts the gateway automatically |
+| `dcc-mcp-cli` | `health`, `list`, `search`, `describe`, `call`, `load-skill`, `reload-skills`, marketplace, and update commands | Agent and CI entry point; local DCC control works from registry defaults, remote control works through gateway profiles |
 | Gateway Admin UI | Instances, server versions, one-click update actions, skill paths, marketplace packages, integrations, calls, traces, logs, and health | One browser surface for live workstation operations |
 | Skills Marketplace | Catalog search, install, uninstall, outdated checks, and package updates | Teams can distribute DCC capabilities without rebuilding adapters |
 | Integrations | Sentry DSN, webhook config, WeCom message push, and OTLP endpoint visibility with pending-restart state | Observability settings are editable, masked, and backed by real gateway APIs |
@@ -92,19 +92,20 @@ live DCC control plane built for production sessions:
 
 ## Recommended Agent Workflow
 
-1. Discover live context only when needed: gateway clients can read
-   `gateway://instances`, while direct per-DCC clients can use adapter resources
-   for scene, document, or viewport context.
-2. Search compactly: use gateway MCP `search` or REST `POST /v1/search` for
-   multi-DCC routing; use direct per-DCC `search_tools` for active tools and
-   `search_skills` for unloaded skill candidates.
-3. Inspect before loading or calling: use gateway `describe` /
-   `POST /v1/describe` for one `tool_slug`, or direct per-DCC
-   `get_skill_info(skill_name=...)` for the selected skill's schemas.
-4. Load only what the task needs with `load_skill`, then activate any collapsed
-   tool group if the chosen hit says so.
-5. Call the typed tool and inspect structured results, job updates, resources,
-   prompts, diagnostics, and follow-up hints.
+1. Start from the CLI path when the agent can run shell: use the bundled
+   `dcc-cli-gateway` skill, then run `dcc-mcp-cli list` for local inventory or
+   `dcc-mcp-cli list --gateway <profile>` for a remote workstation.
+2. Search compactly with `dcc-mcp-cli search`; local mode talks directly to the
+   registered DCC MCP endpoint, while remote profiles route through the selected
+   gateway.
+3. Inspect before loading or calling with `dcc-mcp-cli describe <tool_slug>`.
+   Load only what the task needs with `dcc-mcp-cli load-skill` when the selected
+   tool depends on an unloaded skill.
+4. Call the typed tool with `dcc-mcp-cli call`, then inspect structured results,
+   job updates, resources, prompts, diagnostics, and follow-up hints.
+5. Use marketplace commands to search, install, and update community or studio
+   skill packages; use IDE MCP only when the host already has an MCP connector
+   configured.
 
 `tools/list` is MCP-compatible and paginated. Treat it as a transport listing,
 not as a complete search index; never assume the first page contains every
@@ -127,22 +128,31 @@ powershell -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/s
 After install:
 
 ```bash
-dcc-mcp-cli health
 dcc-mcp-cli list
+dcc-mcp-cli doctor
 dcc-mcp-cli search --query "create sphere" --dcc-type maya --limit 20
 dcc-mcp-cli describe <tool_slug>
 dcc-mcp-cli call <tool_slug> --json '{"radius":2.0}'
 dcc-mcp-cli marketplace search --query rigging --dcc maya --limit 20
+dcc-mcp-cli health
 dcc-mcp-cli update check --binary dcc-mcp-server --current-version <server_version>
 ```
 
 Default operator flow:
 
-1. Run `dcc-mcp-cli health` or `dcc-mcp-cli list` first. For local loopback
-   gateways, normal gateway-backed commands auto-start the gateway daemon when
-   it is missing.
-2. If `list` returns live instances, use `search -> describe -> call`; keep
-   `tools/list` as a compatibility listing, not the primary discovery surface.
+1. Run `dcc-mcp-cli list` first for local inventory. It reads the local
+   FileRegistry and does not require a gateway. Register remote machines with
+   `dcc-mcp-cli gateway register https://host:19293 --name pcA`, then use
+   `dcc-mcp-cli gateway list`, `dcc-mcp-cli list --gateway pcA`, or
+   `dcc-mcp-cli gateway set pcA`.
+   Endpoint/admin/update commands such as `health` auto-start only loopback
+   gateway targets when needed.
+   If startup state is ambiguous, `dcc-mcp-cli doctor` reports the selected
+   profile, registry path/inventory, gateway daemon status, and server binary
+   diagnostics without starting or downloading services.
+2. If `list` returns live instances, use `search -> describe -> call`; in the
+   local profile the CLI talks to the selected instance's MCP endpoint directly.
+   Keep `tools/list` as a compatibility listing, not the primary discovery surface.
 3. Open `http://127.0.0.1:9765/admin` for browser operations: instance health,
    server-version checks, one-click server update staging, skill paths,
    marketplace package updates, integrations, traces, logs, and token activity.
@@ -268,8 +278,9 @@ Admin highlights:
 
 - **Command Center**: separates agent prompt handoff from human CLI recipes, so
   agents get a concise `search -> describe -> call` path while operators still
-  have copy-ready `dcc-mcp-cli` commands. CLI commands auto-ensure the local
-  gateway instead of asking users to run a separate preflight.
+  have copy-ready `dcc-mcp-cli` commands. Local instance-control commands use
+  the FileRegistry and direct MCP by default; gateway-backed endpoint/admin
+  commands can still auto-ensure the local gateway when needed.
 - **Instances**: row-based live/stale/unhealthy inventory with server version,
   adapter version, dispatch readiness, one-click update checks, direct update
   actions, and restart-required status after staging.
@@ -364,6 +375,7 @@ dcc-mcp-cli describe <tool_slug>
 dcc-mcp-cli call <tool_slug> --json '{"radius":2.0}'
 dcc-mcp-cli load-skill workflow --dcc-type 3dsmax --instance-id 80321760
 dcc-mcp-cli marketplace install <package_name> --dcc maya
+dcc-mcp-cli reload-skills --dcc-type maya
 dcc-mcp-cli update check --binary dcc-mcp-server --current-version <server_version>
 dcc-mcp-cli lint path/to/skills
 ```
@@ -741,7 +753,7 @@ tools/list response (Maya session, nothing loaded yet):
 | `dcc-mcp-telemetry` | Observability | `TelemetryConfig`, `ToolRecorder`, `ToolMetrics`, optional Prometheus |
 | `dcc-mcp-usd` | USD integration | `UsdStage`, `UsdPrim`, `scene_info_json_to_stage` |
 | `dcc-mcp-http` | MCP Streamable HTTP facade | `McpHttpServer`, `McpHttpConfig`, `McpServerHandle`, PyO3 bindings, compatibility re-exports |
-| `dcc-mcp-cli` | Client control-plane CLI | `dcc-mcp-cli list/search/load-skill/describe/call/wait-ready/stop-instance/install` |
+| `dcc-mcp-cli` | Client control-plane CLI | `dcc-mcp-cli list/search/load-skill/reload-skills/describe/call/wait-ready/stop-instance/install` |
 | `dcc-mcp-server` | Binary entry point | `dcc-mcp-server` CLI, gateway runner |
 | `dcc-mcp-sidecar` | Sidecar runtime | `SidecarArgs`, sidecar MCP dispatch listener, gateway daemon guardian helpers |
 | `dcc-mcp-workflow` | Workflow engine (opt-in) | `WorkflowSpec`, `WorkflowExecutor`, `WorkflowHost`, `StepPolicy`, `RetryPolicy` |

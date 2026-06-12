@@ -605,7 +605,7 @@ pub fn stop_process(pid: u32) -> anyhow::Result<()> {
 pub fn default_registry_dir() -> PathBuf {
     std::env::var("DCC_MCP_REGISTRY_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("dcc-mcp-core-registry"))
+        .unwrap_or_else(|_| std::env::temp_dir().join("dcc-mcp-registry"))
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -613,7 +613,10 @@ pub fn default_registry_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
     use tempfile::TempDir;
+
+    static REGISTRY_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     // ── PID file tests ─────────────────────────────────────────────────
 
@@ -898,10 +901,40 @@ mod tests {
     // ── Default registry dir tests ─────────────────────────────────────
 
     #[test]
-    fn test_default_registry_dir_is_not_empty() {
+    fn test_default_registry_dir_matches_gateway_runner_and_sidecar_fallback() {
+        let _guard = REGISTRY_ENV_LOCK.lock().expect("registry env lock");
+        let saved = std::env::var("DCC_MCP_REGISTRY_DIR").ok();
+        unsafe { std::env::remove_var("DCC_MCP_REGISTRY_DIR") };
+
         let dir = default_registry_dir();
-        assert!(!dir.as_os_str().is_empty());
-        assert!(dir.is_absolute());
+
+        if let Some(prev) = saved {
+            unsafe { std::env::set_var("DCC_MCP_REGISTRY_DIR", prev) };
+        }
+
+        assert_eq!(
+            dir,
+            std::env::temp_dir().join("dcc-mcp-registry"),
+            "CLI gateway ensure, sidecar startup, and GatewayRunner must share the same default FileRegistry"
+        );
+    }
+
+    #[test]
+    fn test_default_registry_dir_honours_env_var_override() {
+        let _guard = REGISTRY_ENV_LOCK.lock().expect("registry env lock");
+        let saved = std::env::var("DCC_MCP_REGISTRY_DIR").ok();
+        let custom = std::env::temp_dir().join("dcc-mcp-cli-registry-test");
+        unsafe { std::env::set_var("DCC_MCP_REGISTRY_DIR", &custom) };
+
+        let dir = default_registry_dir();
+
+        if let Some(prev) = saved {
+            unsafe { std::env::set_var("DCC_MCP_REGISTRY_DIR", prev) };
+        } else {
+            unsafe { std::env::remove_var("DCC_MCP_REGISTRY_DIR") };
+        }
+
+        assert_eq!(dir, custom);
     }
 
     // ── Stale lock reclaim integration tests ───────────────────────────
