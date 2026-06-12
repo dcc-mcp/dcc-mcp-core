@@ -481,35 +481,54 @@ fn spawn_local_mcp_fixture() -> LocalMcpFixture {
                             .cloned()
                             .unwrap_or_else(|| json!({}));
                         let payload = match name {
-                            "search_tools" => json!({
-                                "total": 2,
-                                "query": arguments.get("query").and_then(Value::as_str).unwrap_or(""),
-                                "tools": [{
-                                    "kind": "tool",
-                                    "name": "maya_scene__get_session_info",
-                                    "description": "Read scene session info",
-                                    "category": "scene",
-                                    "group": "",
-                                    "enabled": true,
-                                    "dcc": "maya",
-                                    "skill_name": "maya-scene"
-                                }],
-                                "skill_candidates": [{
-                                    "kind": "skill_candidate",
-                                    "skill_name": "workflow",
-                                    "description": "Workflow tools",
-                                    "tags": ["workflow"],
-                                    "dcc": "maya",
-                                    "scope": "repo",
-                                    "tool_count": 1,
-                                    "matching_tools": ["workflow__run"],
-                                    "requires_load_skill": true,
-                                    "load_hint": {
-                                        "tool": "load_skill",
-                                        "arguments": {"skill_name": "workflow"}
-                                    }
-                                }]
-                            }),
+                            "search_tools" => {
+                                let query = arguments
+                                    .get("query")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("");
+                                if query.is_empty() {
+                                    return (
+                                        StatusCode::OK,
+                                        Json(json!({
+                                            "jsonrpc": "2.0",
+                                            "id": body.get("id").cloned().unwrap_or(json!(null)),
+                                            "error": {
+                                                "code": -32602,
+                                                "message": "Missing required parameter: query"
+                                            }
+                                        })),
+                                    );
+                                }
+                                json!({
+                                    "total": 2,
+                                    "query": query,
+                                    "tools": [{
+                                        "kind": "tool",
+                                        "name": "maya_scene__get_session_info",
+                                        "description": "Read scene session info",
+                                        "category": "scene",
+                                        "group": "",
+                                        "enabled": true,
+                                        "dcc": "maya",
+                                        "skill_name": "maya-scene"
+                                    }],
+                                    "skill_candidates": [{
+                                        "kind": "skill_candidate",
+                                        "skill_name": "workflow",
+                                        "description": "Workflow tools",
+                                        "tags": ["workflow"],
+                                        "dcc": "maya",
+                                        "scope": "repo",
+                                        "tool_count": 1,
+                                        "matching_tools": ["workflow__run"],
+                                        "requires_load_skill": true,
+                                        "load_hint": {
+                                            "tool": "load_skill",
+                                            "arguments": {"skill_name": "workflow"}
+                                        }
+                                    }]
+                                })
+                            }
                             "load_skill" => {
                                 if arguments.get("dcc_type").is_some()
                                     || arguments.get("dcc").is_some()
@@ -1136,6 +1155,47 @@ fn local_profile_controls_registered_instance_without_gateway() {
     assert_eq!(stop["source"], "local_mcp");
     assert_eq!(stop["ok"], true);
     assert_eq!(stop["response"]["accepted"], true);
+}
+
+#[test]
+fn local_search_without_query_lists_tools_for_dcc_filter() {
+    let fixture = spawn_local_mcp_fixture();
+    let registry = TempDir::new().unwrap();
+    let file_registry = FileRegistry::new(registry.path()).unwrap();
+    let mut entry = ServiceEntry::new("maya", "127.0.0.1", 0);
+    entry
+        .metadata
+        .insert("mcp_url".to_string(), fixture.mcp_url());
+    file_registry.register(entry).unwrap();
+
+    let registry_s = registry.path().to_string_lossy().to_string();
+    let profiles = registry.path().join("gateway-profiles.json");
+    let profiles_s = profiles.to_string_lossy().to_string();
+    let envs = [
+        ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILE", "local"),
+        ("DCC_MCP_BASE_URL", ""),
+    ];
+
+    let search = run_json_with_env(&["search", "--dcc-type", "maya"], &envs);
+
+    assert_eq!(search["source"], "local_mcp");
+    assert_eq!(search["query"], Value::Null);
+    let hit_names: Vec<&str> = search["hits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|hit| hit["backend_tool"].as_str())
+        .collect();
+    assert!(
+        hit_names.contains(&"maya_scene__get_session_info"),
+        "empty-query local search should list loaded tools: {search}"
+    );
+    assert!(
+        hit_names.contains(&"workflow__run"),
+        "empty-query local search should include all loaded tools: {search}"
+    );
 }
 
 #[test]

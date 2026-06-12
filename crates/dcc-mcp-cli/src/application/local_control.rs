@@ -31,28 +31,47 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
     let gateway = HttpGateway::default();
     let mut hits = Vec::new();
     let limit = request.limit.unwrap_or(25).clamp(1, 100);
+    let query = request
+        .query
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
 
     for entry in &entries {
-        let search_result = mcp_call_tool(
-            &gateway,
-            &local_instance::mcp_url(entry),
-            "search_tools",
-            json!({
-                "query": request.query.clone().unwrap_or_default(),
-                "dcc": entry.dcc_type,
-                "limit": limit,
-            }),
-            None,
-        )
-        .await
-        .with_context(|| {
-            format!(
-                "searching local {} instance {}",
-                entry.dcc_type,
-                local_instance::instance_short(entry)
+        let payload = if let Some(query) = query.as_deref() {
+            let search_result = mcp_call_tool(
+                &gateway,
+                &local_instance::mcp_url(entry),
+                "search_tools",
+                json!({
+                    "query": query,
+                    "dcc": entry.dcc_type,
+                    "limit": limit,
+                }),
+                None,
             )
-        })?;
-        let payload = call_result_payload(&search_result).unwrap_or(search_result);
+            .await
+            .with_context(|| {
+                format!(
+                    "searching local {} instance {}",
+                    entry.dcc_type,
+                    local_instance::instance_short(entry)
+                )
+            })?;
+            call_result_payload(&search_result).unwrap_or(search_result)
+        } else {
+            let tools = list_mcp_tools(&gateway, &local_instance::mcp_url(entry))
+                .await
+                .with_context(|| {
+                    format!(
+                        "listing local {} instance {} tools",
+                        entry.dcc_type,
+                        local_instance::instance_short(entry)
+                    )
+                })?;
+            json!({ "tools": tools })
+        };
         extend_tool_hits(&mut hits, entry, &payload);
         extend_skill_hits(&mut hits, entry, &payload);
         if hits.len() >= limit {
