@@ -68,6 +68,8 @@ pub mod stats;
 pub mod trace;
 mod trace_log;
 mod traffic;
+#[cfg(feature = "admin")]
+mod update;
 pub mod workers;
 pub mod workflows;
 
