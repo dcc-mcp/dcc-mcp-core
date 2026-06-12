@@ -21,7 +21,13 @@ use crate::error::TelemetryError;
 use crate::types::{ExporterBackend, LogFormat, TelemetryConfig};
 
 #[cfg(feature = "otlp-exporter")]
-use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_otlp::{WithExportConfig, WithTonicConfig};
+
+#[cfg(feature = "otlp-exporter")]
+use opentelemetry_otlp::tonic_types::metadata::MetadataMap;
+
+#[cfg(feature = "otlp-exporter")]
+use tonic::metadata::{Ascii, MetadataKey, MetadataValue};
 
 // ── Global handle ─────────────────────────────────────────────────────────────
 
@@ -102,7 +108,7 @@ pub fn init(cfg: &TelemetryConfig) -> Result<(), TelemetryError> {
 
     // Build meter provider
     let meter_provider = if cfg.enable_metrics {
-        Some(build_meter_provider(&cfg.exporter, resource)?)
+        Some(build_meter_provider(cfg, &cfg.exporter, resource)?)
     } else {
         None
     };
@@ -234,6 +240,7 @@ fn build_tracer_provider(
                 let exporter = opentelemetry_otlp::SpanExporter::builder()
                     .with_tonic()
                     .with_endpoint(_cfg.otlp_endpoint())
+                    .with_metadata(otlp_metadata(_cfg).map_err(TelemetryError::OtlpConfig)?)
                     .with_timeout(_cfg.otlp_timeout())
                     .build()
                     .map_err(|e| TelemetryError::OtlpConfig(e.to_string()))?;
@@ -253,9 +260,12 @@ fn build_tracer_provider(
 }
 
 fn build_meter_provider(
+    cfg: &TelemetryConfig,
     backend: &ExporterBackend,
     resource: Resource,
 ) -> Result<SdkMeterProvider, TelemetryError> {
+    #[cfg(not(feature = "otlp-exporter"))]
+    let _ = cfg;
     let provider = match backend {
         ExporterBackend::Stdout => {
             let exporter = opentelemetry_stdout::MetricExporter::default();
@@ -273,6 +283,9 @@ fn build_meter_provider(
             {
                 let exporter = opentelemetry_otlp::MetricExporter::builder()
                     .with_tonic()
+                    .with_endpoint(cfg.otlp_endpoint())
+                    .with_metadata(otlp_metadata(cfg).map_err(TelemetryError::MeterProviderSetup)?)
+                    .with_timeout(cfg.otlp_timeout())
                     .build()
                     .map_err(|e| TelemetryError::MeterProviderSetup(e.to_string()))?;
                 SdkMeterProvider::builder()
@@ -288,6 +301,22 @@ fn build_meter_provider(
         }
     };
     Ok(provider)
+}
+
+#[cfg(feature = "otlp-exporter")]
+fn otlp_metadata(cfg: &TelemetryConfig) -> Result<MetadataMap, String> {
+    let headers = cfg.otlp_headers();
+    let mut metadata = MetadataMap::with_capacity(headers.len());
+    for (key, value) in headers {
+        let metadata_key: MetadataKey<Ascii> = key
+            .parse()
+            .map_err(|err| format!("invalid OTLP header key '{key}': {err}"))?;
+        let metadata_value: MetadataValue<Ascii> = value
+            .parse()
+            .map_err(|err| format!("invalid OTLP header value for '{key}': {err}"))?;
+        metadata.insert(metadata_key, metadata_value);
+    }
+    Ok(metadata)
 }
 
 fn install_subscriber(
@@ -443,8 +472,9 @@ mod tests {
 
         #[test]
         fn noop_backend_builds_successfully() {
+            let cfg = TelemetryConfig::default();
             let resource = Resource::builder_empty().build();
-            let result = build_meter_provider(&ExporterBackend::Noop, resource);
+            let result = build_meter_provider(&cfg, &ExporterBackend::Noop, resource);
             assert!(result.is_ok());
         }
     }
