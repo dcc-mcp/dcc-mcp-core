@@ -1,6 +1,74 @@
 import { test, expect, type Page } from '@playwright/test';
 
 const now = '2026-05-18T08:00:00.000Z';
+const analyticsSeriesFixture = [
+  { date: '2025-06-02', calls: 1, failures: 0, tokens_input: 120, tokens_output: 90, avg_duration_ms: '36' },
+  { date: '2025-07-08', calls: 2, failures: 0, tokens_input: 210, tokens_output: 140, avg_duration_ms: '48' },
+  { date: '2025-08-14', calls: 2, failures: 0, tokens_input: 260, tokens_output: 160, avg_duration_ms: '54' },
+  { date: '2025-09-03', calls: 1, failures: 0, tokens_input: 160, tokens_output: 110, avg_duration_ms: '42' },
+  { date: '2025-10-20', calls: 3, failures: 0, tokens_input: 410, tokens_output: 260, avg_duration_ms: '62' },
+  { date: '2025-11-18', calls: 2, failures: 0, tokens_input: 280, tokens_output: 180, avg_duration_ms: '58' },
+  { date: '2025-12-09', calls: 2, failures: 0, tokens_input: 310, tokens_output: 220, avg_duration_ms: '66' },
+  { date: '2026-01-22', calls: 3, failures: 0, tokens_input: 460, tokens_output: 330, avg_duration_ms: '72' },
+  { date: '2026-02-11', calls: 1, failures: 0, tokens_input: 180, tokens_output: 120, avg_duration_ms: '39' },
+  { date: '2026-03-04', calls: 4, failures: 0, tokens_input: 580, tokens_output: 390, avg_duration_ms: '82' },
+  { date: '2026-04-15', calls: 3, failures: 0, tokens_input: 520, tokens_output: 360, avg_duration_ms: '76' },
+  { date: '2026-05-01', calls: 3, failures: 0, tokens_input: 620, tokens_output: 430, avg_duration_ms: '88' },
+  { date: '2026-05-04', calls: 2, failures: 0, tokens_input: 420, tokens_output: 300, avg_duration_ms: '70' },
+  { date: '2026-05-06', calls: 3, failures: 1, tokens_input: 760, tokens_output: 520, avg_duration_ms: '210' },
+  { date: '2026-05-08', calls: 2, failures: 0, tokens_input: 500, tokens_output: 340, avg_duration_ms: '79' },
+  { date: '2026-05-11', calls: 3, failures: 0, tokens_input: 900, tokens_output: 680, avg_duration_ms: '94' },
+  { date: '2026-05-13', calls: 2, failures: 0, tokens_input: 620, tokens_output: 440, avg_duration_ms: '84' },
+  { date: '2026-05-15', calls: 3, failures: 0, tokens_input: 1100, tokens_output: 820, avg_duration_ms: '98' },
+  { date: '2026-05-17', calls: 2, failures: 0, tokens_input: 780, tokens_output: 560, avg_duration_ms: '92' },
+  { date: '2026-05-18', calls: 3, failures: 1, tokens_input: 1280, tokens_output: 940, avg_duration_ms: '240' },
+];
+const analyticsTotals = analyticsSeriesFixture.reduce(
+  (totals, point) => ({
+    calls: totals.calls + point.calls,
+    failures: totals.failures + point.failures,
+    tokensInput: totals.tokensInput + point.tokens_input,
+    tokensOutput: totals.tokensOutput + point.tokens_output,
+  }),
+  { calls: 0, failures: 0, tokensInput: 0, tokensOutput: 0 },
+);
+
+async function chooseSidebarSelectOption(page: Page, triggerId: string, optionName: RegExp | string) {
+  await page.locator(`#${triggerId}`).click();
+  await page.getByRole('option', { name: optionName }).click();
+}
+
+async function openIntegrationEditor(page: Page, kind: string) {
+  const card = page.locator(`.integration-card[data-kind="${kind}"]`);
+  await expect(card).toBeVisible();
+  await card.locator('button').first().click({ force: true });
+  await expect(page.locator('.integration-edit-form')).toBeVisible();
+}
+
+async function disableTestMotion(page: Page) {
+  await page.addInitScript(() => {
+    const install = () => {
+      if (document.getElementById('admin-test-disable-motion')) return;
+      const style = document.createElement('style');
+      style.id = 'admin-test-disable-motion';
+      style.textContent = `
+        *, *::before, *::after {
+          animation-delay: 0s !important;
+          animation-duration: 0s !important;
+          scroll-behavior: auto !important;
+          transition-delay: 0s !important;
+          transition-duration: 0s !important;
+        }
+      `;
+      document.head.appendChild(style);
+    };
+    if (document.head) {
+      install();
+    } else {
+      document.addEventListener('DOMContentLoaded', install, { once: true });
+    }
+  });
+}
 
 async function mockAdminApi(page: Page) {
   const state = {
@@ -137,6 +205,37 @@ async function mockAdminApi(page: Page) {
           },
         ],
       };
+    } else if (/^\/instances\/[^/]+\/update$/.test(path) && method === 'POST') {
+      const instanceId = decodeURIComponent(path.split('/')[2] ?? '');
+      if (instanceId.startsWith('blender-')) {
+        status = 404;
+        body = {
+          status: 'binary_not_found',
+          error: 'binary_not_found',
+          message: "Binary 'dcc-mcp-server' was not found in the update manifest.",
+          instance_id: instanceId,
+          instance_short: 'blender-ab',
+          binary_name: 'dcc-mcp-server',
+          current_version: null,
+          current_version_source: 'unknown',
+          update_available: false,
+          requires_restart: false,
+        };
+      } else {
+        body = {
+          status: 'staged',
+          instance_id: instanceId,
+          instance_short: 'maya-123',
+          binary_name: 'dcc-mcp-server',
+          current_version: '0.5.0',
+          current_version_source: 'adapter_version',
+          latest_version: '0.18.0',
+          update_available: true,
+          requires_restart: true,
+          staged_at: 'C:/Users/test/AppData/Roaming/dcc-mcp/update/dcc-mcp-server/dcc-mcp-server.download',
+          message: 'Update downloaded and staged. Restart the binary to apply.',
+        };
+      }
     } else if (path === '/tools') {
       body = {
         total: 2,
@@ -772,6 +871,44 @@ async function mockAdminApi(page: Page) {
           redacted_paths: ['body.data.params.arguments.api_key'],
         },
       };
+    } else if (path === '/analytics/overview') {
+      body = {
+        range: url.searchParams.get('range') ?? '30d',
+        period_start: '2026-05-01T00:00:00.000Z',
+        period_end: now,
+        kpi: {
+          calls_total: analyticsTotals.calls,
+          calls_failed: analyticsTotals.failures,
+          failure_rate_pct: ((analyticsTotals.failures / analyticsTotals.calls) * 100).toFixed(1),
+          success_rate_pct: (((analyticsTotals.calls - analyticsTotals.failures) / analyticsTotals.calls) * 100).toFixed(1),
+          tokens_input_total: analyticsTotals.tokensInput,
+          tokens_output_total: analyticsTotals.tokensOutput,
+          tokens_response_saved: 440,
+          tokens_total: analyticsTotals.tokensInput + analyticsTotals.tokensOutput,
+          llm_tokens_total: 880,
+          avg_duration_ms: '84',
+          avg_tokens_per_call: Math.round((analyticsTotals.tokensInput + analyticsTotals.tokensOutput) / analyticsTotals.calls).toString(),
+          unique_instances: 2,
+          unique_agents: 2,
+        },
+        top_tools: [
+          { name: 'maya-1234__create_sphere', calls: 21, failures: 0, success_rate_pct: 100, avg_duration_ms: 42 },
+          { name: 'houdini-5678__submit_render', calls: 6, failures: 2, success_rate_pct: 66.7, avg_duration_ms: 240 },
+        ],
+        daily_series: [],
+      };
+    } else if (path === '/analytics/timeseries') {
+      body = {
+        series: analyticsSeriesFixture,
+      };
+    } else if (path === '/analytics/heatmap') {
+      body = {
+        heatmap: [
+          { weekday: 0, hour: 9, calls: 2, failures: 0, avg_duration_ms: 40, tokens_total: 80 },
+          { weekday: 1, hour: 10, calls: 8, failures: 1, avg_duration_ms: 120, tokens_total: 240 },
+          { weekday: 2, hour: 14, calls: 4, failures: 0, avg_duration_ms: 75, tokens_total: 160 },
+        ],
+      };
     } else if (path === '/governance') {
       body = {
         schema_version: 'dcc-mcp.admin.governance.v1',
@@ -1144,10 +1281,20 @@ async function mockAdminApi(page: Page) {
       body = { ok: true, id: 7 };
     } else if (path === '/integrations') {
       const sentryConfig = {
-        dsn: 'https://examplePublicKey@o0.ingest.sentry.io/0',
+        dsn: 'https://********@o0.ingest.sentry.io/0',
         environment: 'production',
         release: '0.18.0',
         sample_rate: 1.0,
+      };
+      const wecomConfig = {
+        webhook_url: '',
+        event_types: [] as string[],
+        template: '',
+      };
+      const webhooksConfig = {
+        config_path: '~/dcc-mcp/etc/webhooks.yaml',
+        write_config_path: '~/dcc-mcp/etc/webhooks.yaml',
+        config_text: 'queue_capacity: 1024\nwebhooks:\n  - name: studio-events\n    url: http://127.0.0.1:9000/dcc-mcp-events\n    events:\n      - tool.failed\n      - gateway.instance.*\n',
       };
       if (method === 'PUT') {
         const payload = route.request().postDataJSON() as { kind?: string; config?: Record<string, unknown> };
@@ -1172,6 +1319,32 @@ async function mockAdminApi(page: Page) {
               ],
             };
           }
+        } else if (payload.kind === 'wecom') {
+          status = 200;
+          body = {
+            kind: 'wecom',
+            label: 'WeCom Message Push',
+            description: 'Push selected DCC-MCP events to an Enterprise WeChat group robot.',
+            status: 'pending_restart' as const,
+            config: { ...wecomConfig, ...payload.config },
+            env_locked_fields: [
+              { key: 'webhook_url', locked: false, env_var: 'DCC_MCP_WECOM_WEBHOOK_URL' },
+              { key: 'event_types', locked: false, env_var: 'DCC_MCP_WECOM_EVENTS' },
+              { key: 'template', locked: false, env_var: 'DCC_MCP_WECOM_TEMPLATE' },
+            ],
+          };
+        } else if (payload.kind === 'webhooks') {
+          status = 200;
+          body = {
+            kind: 'webhooks',
+            label: 'Event Webhooks',
+            description: 'Outbound delivery of EventBus events.',
+            status: 'pending_restart' as const,
+            config: { ...webhooksConfig, ...payload.config },
+            env_locked_fields: [
+              { key: 'config_path', locked: false, env_var: 'DCC_MCP_WEBHOOKS_CONFIG' },
+            ],
+          };
         } else {
           status = 400;
           body = { error: `Unknown integration kind: ${payload.kind}` };
@@ -1198,9 +1371,21 @@ async function mockAdminApi(page: Page) {
               label: 'Event Webhooks',
               description: 'Outbound delivery of EventBus events.',
               status: 'inactive',
-              config: { config_path: '' },
+              config: webhooksConfig,
               env_locked_fields: [
                 { key: 'config_path', locked: false, env_var: 'DCC_MCP_WEBHOOKS_CONFIG' },
+              ],
+            },
+            {
+              kind: 'wecom',
+              label: 'WeCom Message Push',
+              description: 'Push selected DCC-MCP events to an Enterprise WeChat group robot.',
+              status: 'inactive',
+              config: wecomConfig,
+              env_locked_fields: [
+                { key: 'webhook_url', locked: false, env_var: 'DCC_MCP_WECOM_WEBHOOK_URL' },
+                { key: 'event_types', locked: false, env_var: 'DCC_MCP_WECOM_EVENTS' },
+                { key: 'template', locked: false, env_var: 'DCC_MCP_WECOM_TEMPLATE' },
               ],
             },
             {
@@ -1230,23 +1415,139 @@ async function mockAdminApi(page: Page) {
 }
 
 test.beforeEach(async ({ page }) => {
+  await disableTestMotion(page);
   await mockAdminApi(page);
 });
 
 test.describe('Admin Page', () => {
-  test('loads the connect panel and navigation', async ({ page }) => {
+  test('loads the command center panel and navigation', async ({ page }) => {
     await page.goto('/admin/');
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
     await expect(page.locator('html')).toHaveAttribute('data-admin-locale', 'en');
     await expect(page.getByRole('img', { name: 'DCC MCP' })).toBeVisible();
+    const preferenceBox = await page.locator('.sidebar-preferences').boundingBox();
+    expect(preferenceBox?.height ?? 0).toBeLessThanOrEqual(48);
+    await expect(page.locator('.sidebar-preferences .preference-icon')).toHaveCount(2);
+    await expect(page.locator('#admin-locale-select .preference-select-visible-value')).toHaveText('EN');
+    await expect(page.locator('#admin-locale-select')).toHaveAttribute('aria-label', 'Language: English');
+    await expect(page.locator('#admin-locale-select')).toHaveText('EN');
+    await expect(page.locator('.sidebar-preferences')).not.toContainText('navigator');
+    await page.locator('#admin-locale-select').click();
+    const localeMenu = page.locator('[data-slot="select-content"]').last();
+    await expect(localeMenu).toBeVisible();
+    const localeMenuStyle = await localeMenu.evaluate((node) => {
+      const style = window.getComputedStyle(node as HTMLElement);
+      return {
+        backgroundColor: style.backgroundColor,
+        borderRadius: style.borderRadius,
+        color: style.color,
+        opacity: style.opacity,
+      };
+    });
+    expect(parseFloat(localeMenuStyle.borderRadius)).toBeLessThanOrEqual(8);
+    expect(localeMenuStyle.backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
+    expect(localeMenuStyle.color).not.toBe(localeMenuStyle.backgroundColor);
+    expect(localeMenuStyle.opacity).toBe('1');
+    const localeMenuBox = await localeMenu.boundingBox();
+    const localeTriggerBox = await page.locator('#admin-locale-select').boundingBox();
+    expect(localeMenuBox?.width ?? 0).toBeGreaterThanOrEqual(localeTriggerBox?.width ?? 0);
+    expect(localeMenuBox?.width ?? 0).toBeGreaterThanOrEqual(150);
+    const localeItemMetrics = await page.locator('[data-slot="select-item"]').evaluateAll((nodes) =>
+      nodes.map((node) => {
+        const element = node as HTMLElement;
+        const style = window.getComputedStyle(element);
+        return {
+          clientWidth: element.clientWidth,
+          scrollWidth: element.scrollWidth,
+          text: element.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+          whiteSpace: style.whiteSpace,
+        };
+      }),
+    );
+    expect(localeItemMetrics.length).toBeGreaterThanOrEqual(4);
+    for (const metric of localeItemMetrics) {
+      expect(metric.whiteSpace).toBe('nowrap');
+      expect(metric.scrollWidth).toBeLessThanOrEqual(metric.clientWidth + 1);
+    }
+    const chineseOption = page.getByRole('option', { name: '简体中文' });
+    await chineseOption.hover();
+    const chineseOptionStyle = await chineseOption.evaluate((node) => {
+      const style = window.getComputedStyle(node as HTMLElement);
+      return {
+        backgroundColor: style.backgroundColor,
+        borderRadius: style.borderRadius,
+      };
+    });
+    expect(parseFloat(chineseOptionStyle.borderRadius)).toBeLessThanOrEqual(6);
+    expect(chineseOptionStyle.backgroundColor).not.toBe('rgb(0, 120, 215)');
+    await page.keyboard.press('Escape');
+    await chooseSidebarSelectOption(page, 'admin-theme-select', 'Light');
+    await expect(page.locator('.brand-logo-image-light')).toBeVisible();
+    await expect(page.locator('.brand-logo-image-dark')).toBeHidden();
+    await chooseSidebarSelectOption(page, 'admin-theme-select', 'Dark');
+    await expect(page.locator('.brand-logo-image-light')).toBeHidden();
+    await expect(page.locator('.brand-logo-image-dark')).toBeVisible();
+    await expect(page.locator('.command-agent-prompt [data-slot="button"]').first()).toBeVisible();
     await expect(page.locator('.brand-tag')).toContainText('DCC-MCP Gateway');
     await expect(page.locator('h1')).toContainText('Admin Dashboard');
-    await expect(page.getByRole('navigation').getByRole('link', { name: 'Connect IDE' })).toHaveClass(/active/);
-    for (const label of ['Connect IDE', 'Debug', 'Activity', 'Health', 'Instances', 'Tools', 'Workflows', 'Tasks', 'Calls', 'Traces', 'Stats', 'Governance', 'Skills', 'Integrations', 'Logs', 'Docs']) {
+    await expect(page.getByRole('navigation').getByRole('link', { name: 'Command Center' })).toHaveClass(/active/);
+    for (const label of ['Command Center', 'Debug', 'Activity', 'Health', 'Instances', 'Tools', 'Workflows', 'Tasks', 'Calls', 'Traces', 'Overview', 'Analytics', 'Governance', 'OpenAPI Inspector', 'Skills', 'Marketplace', 'Integrations', 'Logs', 'Docs']) {
       await expect(page.getByRole('navigation').getByRole('link', { name: label })).toBeVisible();
     }
     await expect(page.getByRole('navigation').getByRole('link', { name: 'Docs' })).toHaveAttribute('href', 'https://github.com/dcc-mcp/dcc-mcp-core/tree/main/docs');
     await expect(page.locator('.setup-panel')).toContainText('Claude Desktop');
+    await expect(page.locator('.setup-panel')).toContainText('DCC CLI Command Center');
+    await expect(page.getByRole('tab', { name: /Agent Prompt/ })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('tab', { name: /Agent CLI/ })).toBeVisible();
+    await expect(page.getByRole('tab', { name: /Human CLI/ })).toBeVisible();
+    await expect(page.locator('.command-agent-prompt')).toContainText('Gateway target: http://127.0.0.1:9765/mcp');
+    await expect(page.locator('.command-agent-prompt')).toContainText('search for a real tool slug');
+    const promptCopy = page.locator('.command-agent-prompt [data-slot="button"]');
+    await promptCopy.click();
+    await expect(promptCopy).toContainText('Copied');
+    await expect(page.locator('.setup-panel')).toContainText('Copied Agent prompt');
+    await page.getByRole('tab', { name: /Agent CLI/ }).click();
+    await expect(page.getByRole('tab', { name: /Agent CLI/ })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('.setup-panel')).toContainText('dcc-mcp-cli list');
+    await expect(page.locator('.setup-panel')).toContainText('dcc-mcp-cli search --query "create sphere" --dcc-type <dcc_type> --limit 20');
+    await expect(page.locator('.setup-panel')).toContainText('dcc-mcp-cli describe <tool_slug>');
+    await expect(page.locator('.setup-panel')).toContainText('dcc-mcp-cli call <tool_slug> --json');
+    await expect(page.locator('.setup-panel')).toContainText('dcc-mcp-cli load-skill <skill_name>');
+    await expect(page.locator('.setup-panel')).not.toContainText('dcc-mcp-cli update apply');
+    await page.getByRole('tab', { name: /Human CLI/ }).click();
+    await expect(page.getByRole('tab', { name: /Human CLI/ })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('.setup-panel')).toContainText('dcc-mcp-cli list');
+    await expect(page.locator('.setup-panel')).not.toContainText('dcc-mcp-cli gateway ensure');
+    await expect(page.locator('.setup-panel')).not.toContainText('dcc-mcp-cli call <tool_slug> --json');
+    await expect(page.locator('.setup-panel')).toContainText('dcc-mcp-cli marketplace search --query "rigging" --dcc maya --limit 20');
+    await expect(page.locator('.setup-panel')).toContainText('dcc-mcp-cli marketplace install <package_name> --dcc maya');
+    await expect(page.locator('.setup-panel')).toContainText('dcc-mcp-cli marketplace update <package_name> --dcc maya');
+    await expect(page.locator('.setup-panel')).toContainText('dcc-mcp-cli update check --binary dcc-mcp-server --current-version <server_version>');
+    await expect(page.locator('.command-aside-action')).toHaveCount(2);
+    await expect(page.locator('.command-aside-action').first()).toContainText('Manage loaded skills');
+    await expect(page.locator('.command-aside-action').last()).toContainText('Install and update skill packages');
+    await expect(page.locator('.command-center-aside')).toContainText('Session context');
+    await expect(page.locator('.command-center-aside')).toContainText('Agent flow');
+    await expect(page.locator('.command-center-aside')).toContainText('Search');
+    await expect(page.locator('.command-center-aside')).toContainText('Describe');
+    await expect(page.locator('.command-center-aside')).toContainText('Call');
+    await expect(page.locator('.command-center-aside .command-aside-runtime-link[data-slot="button"]')).toHaveCount(1);
+    await expect(page.locator('.command-center-aside .command-aside-runtime-link')).toContainText('Instances');
+    const firstActionStyle = await page.locator('.command-aside-action').first().evaluate((button) => {
+      const styles = getComputedStyle(button);
+      return {
+        borderStyle: styles.borderStyle,
+        textDecoration: styles.textDecorationLine,
+      };
+    });
+    expect(firstActionStyle.borderStyle).toBe('solid');
+    expect(firstActionStyle.textDecoration).toBe('none');
+    const firstCommandCopy = page.locator('.cli-command-row .cli-command-action').first();
+    await expect(firstCommandCopy).toContainText('Copy');
+    await firstCommandCopy.click();
+    await expect(firstCommandCopy).toContainText('Copied');
+    await expect(firstCommandCopy).toHaveAttribute('data-copied', 'true');
+    await expect(page.locator('.setup-panel')).toContainText('Copied Auto gateway');
     await expect(page.locator('.setup-panel')).toContainText('http://127.0.0.1:9765/mcp');
     await expect(page.locator('.setup-panel')).not.toContainText('http://127.0.0.1:3721/mcp');
     await expect(page.locator('.setup-panel img.ide-icon')).toHaveCount(6);
@@ -1286,8 +1587,9 @@ test.describe('Admin Page', () => {
         .map((card) => {
           const cardRect = card.getBoundingClientRect();
           const actions = card.querySelector('.ide-card-actions')?.getBoundingClientRect();
-          const copy = card.querySelector('.copy-btn')?.getBoundingClientRect();
-          const open = card.querySelector('.refresh-btn')?.getBoundingClientRect();
+          const cardActions = Array.from(card.querySelectorAll('.ide-card-action'));
+          const copy = cardActions[0]?.getBoundingClientRect();
+          const open = cardActions[1]?.getBoundingClientRect();
           return {
             cardBottom: cardRect.bottom,
             actionsTop: actions?.top ?? 0,
@@ -1315,8 +1617,9 @@ test.describe('Admin Page', () => {
     const narrowRows = await cards.evaluateAll((elements) => elements.map((card) => {
       const cardRect = card.getBoundingClientRect();
       const actions = card.querySelector('.ide-card-actions')?.getBoundingClientRect();
-      const copy = card.querySelector('.copy-btn')?.getBoundingClientRect();
-      const open = card.querySelector('.refresh-btn')?.getBoundingClientRect();
+      const cardActions = Array.from(card.querySelectorAll('.ide-card-action'));
+      const copy = cardActions[0]?.getBoundingClientRect();
+      const open = cardActions[1]?.getBoundingClientRect();
       return {
         cardLeft: cardRect.left,
         cardRight: cardRect.right,
@@ -1344,6 +1647,54 @@ test.describe('Admin Page', () => {
     }
   });
 
+  test('keeps command center guide usable on mobile', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/admin/?panel=setup&lang=zh-CN');
+
+    await expect(page.locator('.setup-panel')).toBeVisible();
+    await expect(page.locator('.command-agent-prompt')).toContainText('Agent 交接提示词');
+    await expect(page.getByRole('tab', { name: /提示词/ })).toHaveAttribute('aria-selected', 'true');
+
+    const promptLayout = await page.locator('.command-center-layout').evaluate((layout) => {
+      const tabs = Array.from(layout.querySelectorAll('.command-guide-tab')) as HTMLElement[];
+      const aside = layout.querySelector('.command-center-aside') as HTMLElement | null;
+      const center = layout.querySelector('.command-center') as HTMLElement | null;
+      return {
+        documentWidth: document.documentElement.scrollWidth,
+        viewportWidth: window.innerWidth,
+        columns: window.getComputedStyle(layout as HTMLElement).gridTemplateColumns.split(' ').length,
+        tabsFit: tabs.every((tab) => tab.scrollWidth <= tab.clientWidth + 1),
+        asideAfterCenter: Boolean(aside && center && aside.getBoundingClientRect().top >= center.getBoundingClientRect().bottom),
+      };
+    });
+
+    expect(promptLayout.documentWidth).toBeLessThanOrEqual(promptLayout.viewportWidth + 2);
+    expect(promptLayout.columns).toBe(1);
+    expect(promptLayout.tabsFit).toBe(true);
+    expect(promptLayout.asideAfterCenter).toBe(true);
+
+    await page.getByRole('tab', { name: /Human CLI/ }).click();
+    await expect(page.getByRole('tab', { name: /Human CLI/ })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('.setup-panel')).toContainText('dcc-mcp-cli marketplace update <package_name> --dcc maya');
+
+    const cliLayout = await page.locator('.command-center-layout').evaluate((layout) => {
+      const rows = Array.from(layout.querySelectorAll('.cli-command-row')) as HTMLElement[];
+      const codes = Array.from(layout.querySelectorAll('.cli-command-copy code')) as HTMLElement[];
+      return {
+        rowCount: rows.length,
+        documentWidth: document.documentElement.scrollWidth,
+        viewportWidth: window.innerWidth,
+        rowsFit: rows.every((row) => row.getBoundingClientRect().right <= window.innerWidth + 2),
+        codesFit: codes.every((code) => code.scrollWidth <= code.clientWidth + 1),
+      };
+    });
+
+    expect(cliLayout.rowCount).toBeGreaterThanOrEqual(6);
+    expect(cliLayout.documentWidth).toBeLessThanOrEqual(cliLayout.viewportWidth + 2);
+    expect(cliLayout.rowsFit).toBe(true);
+    expect(cliLayout.codesFit).toBe(true);
+  });
+
   test('normalizes the browser locale onto the document element', async ({ browser }) => {
     const context = await browser.newContext({ locale: 'ja-JP' });
     const page = await context.newPage();
@@ -1354,7 +1705,8 @@ test.describe('Admin Page', () => {
     await expect(page.locator('html')).toHaveAttribute('lang', 'ja');
     await expect(page.locator('html')).toHaveAttribute('data-admin-locale-source', 'navigator');
     await expect(page.locator('.brand-tag')).toContainText('DCC-MCP ゲートウェイ');
-    await expect(page.getByLabel('言語')).toHaveValue('ja');
+    await expect(page.locator('#admin-locale-select .preference-select-visible-value')).toHaveText('日本語');
+    await expect(page.locator('#admin-locale-select')).toHaveAttribute('aria-label', '言語: 日本語');
 
     await context.close();
   });
@@ -1362,16 +1714,26 @@ test.describe('Admin Page', () => {
   test('switches language from the visible selector and persists the override', async ({ page }) => {
     await page.goto('/admin/');
 
-    await page.getByLabel('Language').selectOption('zh-CN');
+    await chooseSidebarSelectOption(page, 'admin-locale-select', '简体中文');
 
     await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN');
     await expect(page.locator('html')).toHaveAttribute('data-admin-locale-source', 'override');
     await expect(page.getByRole('navigation').getByRole('link', { name: '日志' })).toBeVisible();
+    await expect(page.locator('#admin-locale-select .preference-select-visible-value')).toHaveText('中文');
+    const localeTriggerMetrics = await page.locator('#admin-locale-select').evaluate((node) => {
+      const trigger = node as HTMLElement;
+      return {
+        clientWidth: trigger.clientWidth,
+        scrollWidth: trigger.scrollWidth,
+      };
+    });
+    expect(localeTriggerMetrics.scrollWidth).toBeLessThanOrEqual(localeTriggerMetrics.clientWidth + 1);
 
     await page.reload();
 
     await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN');
-    await expect(page.getByLabel('语言')).toHaveValue('zh-CN');
+    await expect(page.locator('#admin-locale-select .preference-select-visible-value')).toHaveText('中文');
+    await expect(page.locator('#admin-locale-select')).toHaveAttribute('aria-label', '语言: 简体中文');
   });
 
   test('renders an admin flow under Simplified Chinese without translating machine data', async ({ browser }) => {
@@ -1447,11 +1809,15 @@ test.describe('Admin Page', () => {
     await expect(setup).not.toContainText('http://127.0.0.1:3721/mcp');
   });
 
-  test('switches to instances, renders DCC cards, and filters rows', async ({ page }) => {
+  test('switches to instances, renders DCC rows, and filters rows', async ({ page }) => {
     await page.goto('/admin/');
     await page.getByRole('navigation').getByRole('link', { name: 'Instances' }).click();
     await expect(page.locator('.instances-panel')).toBeVisible();
     await expect(page.locator('.dcc-icon')).toHaveCount(2);
+    await expect(page.locator('.instances-list')).toHaveCount(2);
+    await expect(page.locator('.instances-list').first()).toBeVisible();
+    await expect(page.locator('.instance-row')).toHaveCount(2);
+    await expect(page.locator('.instance-card')).toHaveCount(0);
     await expect(page.locator('.instances-panel')).toContainText('app-type: maya');
     await expect(page.locator('.instances-panel')).toContainText('app-type: blender');
     await expect(page.locator('.instances-panel')).toContainText('Access URL');
@@ -1462,17 +1828,127 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.instances-panel')).toContainText('Host RPC');
     await expect(page.locator('.instances-panel')).toContainText('commandport');
     await expect(page.locator('.instances-panel')).toContainText('host-rpc connect failed');
-    const mayaCard = page.locator('.instance-card').filter({ hasText: 'Maya Layout' });
-    await expect(mayaCard.getByRole('link', { name: 'docs' }).first()).toHaveAttribute('href', 'http://127.0.0.1:8765/docs');
+    const rowLayout = await page.locator('.instance-row').first().evaluate((row) => {
+      const details = row.querySelector('.instance-row-details');
+      const links = row.querySelector('.instance-link-groups');
+      const value = row.querySelector('.instance-detail-item strong');
+      const valueStyle = value ? window.getComputedStyle(value as HTMLElement) : null;
+      return {
+        rowHeight: Math.round(row.getBoundingClientRect().height),
+        detailColumns: details ? window.getComputedStyle(details as HTMLElement).gridTemplateColumns.split(' ').length : 0,
+        linkColumns: links ? window.getComputedStyle(links as HTMLElement).gridTemplateColumns.split(' ').length : 0,
+        valueOverflow: valueStyle?.overflow ?? '',
+        valueTextOverflow: valueStyle?.textOverflow ?? '',
+        valueWhiteSpace: valueStyle?.whiteSpace ?? '',
+      };
+    });
+    expect(rowLayout.rowHeight).toBeLessThanOrEqual(260);
+    expect(rowLayout.detailColumns).toBeGreaterThanOrEqual(3);
+    expect(rowLayout.linkColumns).toBeGreaterThanOrEqual(2);
+    expect(rowLayout.valueOverflow).toBe('hidden');
+    expect(rowLayout.valueTextOverflow).toBe('ellipsis');
+    expect(rowLayout.valueWhiteSpace).toBe('nowrap');
+    const mayaRow = page.locator('.instance-row').filter({ hasText: 'Maya Layout' });
+    await expect(mayaRow).toContainText('Update');
+    await expect(mayaRow).toContainText('Current version: 0.5.0');
+    await expect(mayaRow.locator('.instance-update-button')).toHaveAttribute('data-slot', 'button');
+    await expect(mayaRow.locator('.instance-update-button')).toContainText('Check update');
+    await expect(mayaRow.locator('.instance-update-help')).toContainText('No manual CLI command is required.');
+    const updateChrome = await mayaRow.locator('.instance-update-cell').evaluate((cell) => {
+      const cellStyle = window.getComputedStyle(cell as HTMLElement);
+      const meta = cell.querySelector('.instance-update-meta') as HTMLElement | null;
+      const metaStyle = meta ? window.getComputedStyle(meta) : null;
+      const linkBlock = cell.parentElement?.querySelector('.instance-link-groups > span') as HTMLElement | null;
+      const linkBlockStyle = linkBlock ? window.getComputedStyle(linkBlock) : null;
+      return {
+        backgroundColor: cellStyle.backgroundColor,
+        borderTopWidth: cellStyle.borderTopWidth,
+        metaRadius: metaStyle?.borderRadius ?? '',
+        linkBlockBorderWidth: linkBlockStyle?.borderTopWidth ?? '',
+        linkBlockRadius: linkBlockStyle?.borderRadius ?? '',
+      };
+    });
+    expect(updateChrome.backgroundColor).toBe('rgba(0, 0, 0, 0)');
+    expect(updateChrome.borderTopWidth).toBe('0px');
+    expect(parseFloat(updateChrome.metaRadius)).toBeGreaterThanOrEqual(20);
+    expect(updateChrome.linkBlockBorderWidth).toBe('1px');
+    expect(parseFloat(updateChrome.linkBlockRadius)).toBeGreaterThanOrEqual(8);
+    await expect(mayaRow).not.toContainText('dcc-mcp-cli update check');
+    const mayaUpdateRequest = page.waitForRequest((request) =>
+      request.method() === 'POST'
+      && request.url().includes('/instances/maya-1234567890/update')
+    );
+    await mayaRow.getByRole('button', { name: 'Check and stage server update for Maya Layout' }).click();
+    await expect((await mayaUpdateRequest).postDataJSON()).toEqual({
+      apply: true,
+      binary: 'dcc-mcp-server',
+    });
+    await expect(mayaRow.locator('.instance-update-result.ok')).toContainText('Staged 0.18.0; restart to apply.');
+    await expect(mayaRow.locator('.instance-update-result.ok')).toContainText('Restart this DCC backend');
+    const blenderRow = page.locator('.instance-row').filter({ hasText: 'Blender Lookdev' });
+    await expect(blenderRow).toContainText('Current version: version unknown');
+    const blenderUpdateRequest = page.waitForRequest((request) =>
+      request.method() === 'POST'
+      && request.url().includes('/instances/blender-abcdef1234/update')
+    );
+    await blenderRow.getByRole('button', { name: 'Check and stage server update for Blender Lookdev' }).click();
+    await expect((await blenderUpdateRequest).postDataJSON()).toEqual({
+      apply: true,
+      binary: 'dcc-mcp-server',
+    });
+    await expect(blenderRow.locator('.instance-update-result.warn')).toContainText('dcc-mcp-server is not listed in the update manifest.');
+    await expect(blenderRow).not.toContainText('Update API is unavailable');
+    await expect(mayaRow.getByRole('link', { name: 'docs' }).first()).toHaveAttribute('href', 'http://127.0.0.1:8765/docs');
     await page.getByLabel('Filter current panel').fill('blender');
-    await expect(page.locator('.instance-card')).toHaveCount(1);
-    await expect(page.locator('.instance-card')).toContainText('Blender Lookdev');
+    await expect(page.locator('.instance-row')).toHaveCount(1);
+    await expect(page.locator('.instance-row')).toContainText('Blender Lookdev');
+  });
+
+  test('localizes instance field labels in Chinese', async ({ page }) => {
+    await page.goto('/?panel=instances&lang=zh-CN');
+    const panel = page.locator('.instances-panel');
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText('访问地址');
+    await expect(panel).toContainText('状态');
+    await expect(panel).toContainText('调度');
+    await expect(panel).toContainText('可调用');
+    await expect(panel).toContainText('不可调用');
+    await expect(panel).toContainText('摘要：在线 1，过期 0，异常 1');
+    await expect(panel).not.toContainText('Summary: live');
+  });
+
+  test('keeps instance rows aligned at tablet width', async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.goto('/?panel=instances', { waitUntil: 'domcontentloaded' });
+    const panel = page.locator('.instances-panel');
+    const firstRow = panel.locator('.instance-row').first();
+    await expect(firstRow).toBeVisible();
+
+    const tabletMetrics = await firstRow.evaluate((row) => {
+      const rowElement = row as HTMLElement;
+      const actions = rowElement.querySelector('.instance-row-actions') as HTMLElement | null;
+      const details = rowElement.querySelector('.instance-row-details') as HTMLElement | null;
+      const actionStyle = actions ? window.getComputedStyle(actions) : null;
+      return {
+        rowColumns: window.getComputedStyle(rowElement).gridTemplateColumns.split(' ').length,
+        rowOverflow: rowElement.scrollWidth - rowElement.clientWidth,
+        detailColumns: details ? window.getComputedStyle(details).gridTemplateColumns.split(' ').length : 0,
+        actionBorderLeft: actionStyle?.borderLeftWidth ?? '',
+        actionBorderTop: actionStyle?.borderTopWidth ?? '',
+      };
+    });
+
+    expect(tabletMetrics.rowColumns).toBe(1);
+    expect(tabletMetrics.rowOverflow).toBeLessThanOrEqual(1);
+    expect(tabletMetrics.detailColumns).toBeGreaterThanOrEqual(3);
+    expect(tabletMetrics.actionBorderLeft).toBe('0px');
+    expect(tabletMetrics.actionBorderTop).toBe('1px');
   });
 
   test('opens trace detail from the calls panel and keeps the URL shareable', async ({ page }) => {
     await page.goto('/admin/');
     await page.getByRole('navigation').getByRole('link', { name: 'Calls' }).click();
-    const callsPanel = page.locator('.calls-panel');
+    const callsPanel = page.locator('.traces-panel');
     await expect(callsPanel).toContainText('toon');
     await expect(callsPanel).toContainText('40');
     await expect(callsPanel).toContainText('60 (60.0%)');
@@ -1512,7 +1988,7 @@ test.describe('Admin Page', () => {
   test('highlights slow calls, traces, and spans independently from failures', async ({ page }) => {
     await page.goto('/admin/');
     await page.getByRole('navigation').getByRole('link', { name: 'Calls' }).click();
-    const callsPanel = page.locator('.calls-panel');
+    const callsPanel = page.locator('.traces-panel');
 
     await expect(callsPanel.locator('tr.latency-critical', { hasText: 'req-slow' })).toContainText('TAIL');
     await expect(callsPanel.locator('tr.latency-slow', { hasText: 'req-failed-s' })).toContainText('SLOW');
@@ -1537,6 +2013,26 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.trace-detail-panel')).toContainText('req-slow');
     await expect(page.locator('.trace-detail-panel')).toContainText('TAIL');
     await expect(page.locator('.span-row.latency-critical')).toContainText('upload_texture');
+  });
+
+  test('loads traces data from the root admin URL through the admin API base', async ({ page }) => {
+    const apiTracePaths: string[] = [];
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (url.pathname.includes('/api/traces')) {
+        apiTracePaths.push(url.pathname);
+      }
+    });
+
+    await page.goto('/?panel=traces&tracesTab=traces');
+    const tracesPanel = page.locator('.traces-panel');
+    await expect(tracesPanel).toBeVisible();
+    await expect(tracesPanel).toContainText('req-123');
+    await expect(tracesPanel).toContainText('p99 latency');
+    await expect(tracesPanel).not.toContainText('Admin API returned HTML');
+    await expect(tracesPanel).not.toContainText('<!doctype');
+    expect(apiTracePaths).toContain('/admin/api/traces');
+    expect(apiTracePaths.every((path) => path.startsWith('/admin/api/'))).toBe(true);
   });
 
   test('shows reconstructed tasks and links them to traces', async ({ page }) => {
@@ -1597,7 +2093,7 @@ test.describe('Admin Page', () => {
 
   test('shows traffic capture state and metadata-only frames', async ({ page }) => {
     await page.goto('/admin/?panel=traffic');
-    const panel = page.locator('.traffic-panel');
+    const panel = page.locator('.overview-panel');
     await expect(panel).toContainText('Capture state');
     await expect(panel).toContainText('Captured');
     await expect(panel).toContainText('1 captured');
@@ -1613,41 +2109,164 @@ test.describe('Admin Page', () => {
   });
 
   test('updates stats when the range selector changes', async ({ page }) => {
-    await page.goto('/admin/?panel=stats&range=1h');
-    await expect(page.locator('.stats-panel')).toBeVisible();
-    await expect(page.getByLabel('Range')).toHaveValue('1h');
-    await expect(page.locator('.stats-panel')).toContainText('Response tokens returned');
-    await expect(page.locator('.stats-panel')).toContainText('160');
-    await expect(page.locator('.stats-panel')).toContainText('Payload tokens');
-    await expect(page.locator('.stats-panel')).toContainText('250');
-    await expect(page.locator('.stats-panel')).toContainText('Input / Output tokens');
-    const hero = page.locator('.stats-hero');
+    await page.goto('/admin/?panel=overview&overviewTab=stats&range=1h');
+    const overviewPanel = page.locator('.overview-panel');
+    await expect(overviewPanel).toBeVisible();
+    await expect(page.locator('#overview-stats-range-select')).toContainText('1h');
+    await expect(overviewPanel).toContainText('Response tokens returned');
+    await expect(overviewPanel).toContainText('160');
+    await expect(overviewPanel).toContainText('Payload tokens');
+    await expect(overviewPanel).toContainText('250');
+    await expect(overviewPanel).toContainText('Input / Output tokens');
+    const hero = overviewPanel.locator('.stats-hero');
     await expect(hero).toBeVisible();
-    await expect(hero).toContainText('Total tokens');
-    await expect(hero).toContainText('Tokens saved');
-    await expect(hero).toContainText('Total calls');
+    await expect(hero.locator('.hero-label')).toContainText([
+      'Total tokens',
+      'Input tokens',
+      'Tokens saved',
+      'Total calls',
+    ]);
     await expect(hero).toContainText('success rate');
-    await expect(page.locator('.stats-panel')).toContainText('p99 latency');
-    await expect(page.locator('.stats-panel')).toContainText('Slow calls');
-    await expect(page.locator('.stats-panel')).toContainText('slowest req-slow 6.20 s; slowest upload_texture 5.40 s');
-    await expect(page.locator('.stats-panel')).toContainText('Response tokens saved');
-    await expect(page.locator('.stats-panel')).toContainText('140');
-    await expect(page.locator('.stats-panel')).toContainText('Top app types');
-    await expect(page.locator('.stats-panel')).toContainText('maya');
-    await expect(page.locator('.stats-panel')).toContainText('Top actors');
-    await expect(page.locator('.stats-panel')).toContainText('Layout Artist');
-    await expect(page.locator('.stats-panel')).toContainText('Top client platforms');
-    await expect(page.locator('.stats-panel')).toContainText('cursor');
-    await expect(page.locator('.stats-panel')).toContainText('Top source IPs');
-    await expect(page.locator('.stats-panel')).toContainText('192.0.2.44');
-    await expect(page.locator('.stats-panel')).toContainText('Token savings by transport');
-    await expect(page.locator('.stats-panel')).toContainText('rest');
-    await expect(page.locator('.stats-panel')).toContainText('json');
-    await page.getByLabel('Range').selectOption('7d');
+    await expect(overviewPanel).toContainText('p99 latency');
+    await expect(overviewPanel).toContainText('Slow calls');
+    await expect(overviewPanel).toContainText('slowest req-slow 6.20 s; slowest upload_texture 5.40 s');
+    await expect(overviewPanel).toContainText('Response tokens saved');
+    await expect(overviewPanel).toContainText('140');
+    await expect(overviewPanel).toContainText('Top app types');
+    await expect(overviewPanel).toContainText('maya');
+    await expect(overviewPanel).toContainText('Top actors');
+    await expect(overviewPanel).toContainText('Layout Artist');
+    await expect(overviewPanel).toContainText('Top client platforms');
+    await expect(overviewPanel).toContainText('cursor');
+    await expect(overviewPanel).toContainText('Top source IPs');
+    await expect(overviewPanel).toContainText('192.0.2.44');
+    await expect(overviewPanel).toContainText('Token savings by transport');
+    await expect(overviewPanel).toContainText('rest');
+    await expect(overviewPanel).toContainText('json');
+    await chooseSidebarSelectOption(page, 'overview-stats-range-select', '7d');
     await expect(page).toHaveURL(/range=7d/);
-    await expect(page.locator('.stats-panel')).toContainText('7d window');
+    await expect(overviewPanel).toContainText('7d window');
     await page.getByLabel('Filter current panel').fill('rest');
-    await expect(page.locator('.stats-panel')).toContainText('rest');
+    await expect(overviewPanel).toContainText('rest');
+  });
+
+  test('loads analytics from the root admin URL through the admin API base', async ({ page }) => {
+    const apiAnalyticsPaths: string[] = [];
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (url.pathname.includes('/api/analytics')) {
+        apiAnalyticsPaths.push(`${url.pathname}${url.search}`);
+      }
+    });
+
+    await page.goto('/?panel=analytics');
+    const panel = page.locator('.analytics-panel');
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText('Analytics');
+    await expect(panel).toContainText('Cumulative Tokens');
+    await expect(panel).toContainText('Peak Tokens');
+    await expect(panel).toContainText('Longest Task');
+    await expect(panel).toContainText(`${((analyticsTotals.tokensInput + analyticsTotals.tokensOutput) / 1000).toFixed(1)}K`);
+    await expect(panel).toContainText('maya-1234__create_sphere');
+    await expect(panel.locator('.analytics-profile')).toContainText('Agent Activity');
+    await expect(panel.locator('.analytics-profile')).toContainText('2 agents');
+    await expect(panel.locator('.analytics-profile')).toContainText('top tool maya-1234__create_sphere');
+    await expect(panel.locator('.analytics-mini-bar')).toHaveCount(analyticsSeriesFixture.length);
+    await expect(panel.locator('.analytics-mini-bar.is-failed')).toHaveCount(2);
+    await expect(panel).toContainText('Token Activity');
+    await expect(panel.locator('.analytics-token-mode')).toHaveText(['Daily', 'Weekly', 'Cumulative']);
+    await expect(panel.locator('.analytics-token-legend')).toContainText('Less');
+    await expect(panel.locator('.analytics-token-legend')).toContainText('More');
+    await expect(panel.locator('.analytics-token-legend i')).toHaveCount(6);
+    await expect(panel.locator('.analytics-token-head .analytics-token-legend')).toHaveCount(0);
+    await expect(panel.locator('.analytics-token-footer .analytics-token-legend')).toHaveCount(1);
+    await expect(panel.locator('.analytics-token-day:not([data-level="0"])')).toHaveCount(analyticsSeriesFixture.length);
+    await expect(panel.locator('.analytics-token-months')).toBeVisible();
+    await expect(panel.locator('.analytics-token-months span').first()).toHaveText('Jun');
+    await expect(panel).toContainText('Activity Insights');
+    await expect(panel).toContainText('Active days');
+    await expect(panel).toContainText('Longest streak');
+    await expect(panel.locator('.analytics-top-tool-row')).toHaveCount(2);
+    await expect(panel.locator('.analytics-top-tool-row').first()).toContainText('maya-1234__create_sphere');
+    const calendarMetrics = await panel.locator('.analytics-token-calendar-grid').evaluate((element) => {
+      const week = element.querySelector('.analytics-token-week');
+      return {
+        weeks: element.querySelectorAll('.analytics-token-week').length,
+        daysInFirstWeek: week?.querySelectorAll('.analytics-token-day').length ?? 0,
+        display: getComputedStyle(element).display,
+        columnCount: getComputedStyle(element).gridTemplateColumns.split(' ').length,
+      };
+    });
+    expect(calendarMetrics.display).toBe('grid');
+    expect(calendarMetrics.weeks).toBeGreaterThanOrEqual(52);
+    expect(calendarMetrics.columnCount).toBe(calendarMetrics.weeks);
+    expect(calendarMetrics.daysInFirstWeek).toBe(7);
+    const tokenActivityMetrics = await panel.locator('.analytics-token-activity').evaluate((element) => {
+      const activeCell = element.querySelector('.analytics-token-day[data-level="5"]') as HTMLElement | null;
+      const emptyCell = element.querySelector('.analytics-token-day[data-level="0"]') as HTMLElement | null;
+      return {
+        maxWidth: Number.parseFloat(getComputedStyle(element).maxWidth),
+        activeCellBackground: activeCell ? getComputedStyle(activeCell).backgroundColor : '',
+        emptyCellBackground: emptyCell ? getComputedStyle(emptyCell).backgroundColor : '',
+      };
+    });
+    expect(tokenActivityMetrics.maxWidth).toBeGreaterThan(900);
+    expect(tokenActivityMetrics.activeCellBackground).not.toBe(tokenActivityMetrics.emptyCellBackground);
+    await expect(panel.locator('.status-bar')).toHaveCount(0);
+    await expect(panel).not.toContainText('Admin API returned HTML');
+    await expect(panel).not.toContainText('<!doctype');
+
+    expect(apiAnalyticsPaths).toEqual(expect.arrayContaining([
+      '/admin/api/analytics/overview?range=365d',
+      '/admin/api/analytics/timeseries?range=365d&granularity=day',
+    ]));
+    expect(apiAnalyticsPaths.every((path) => path.startsWith('/admin/api/analytics/'))).toBe(true);
+    expect(apiAnalyticsPaths.some((path) => path.includes('/heatmap'))).toBe(false);
+  });
+
+  test('localizes token activity calendar month labels', async ({ page }) => {
+    await page.goto('/?panel=analytics&lang=zh-CN');
+    const panel = page.locator('.analytics-panel');
+    await expect(panel).toContainText('Token 活动');
+    await expect(panel).toContainText('累计 Token 数');
+    await expect(panel.locator('.analytics-profile')).toContainText('Agent 活动');
+    await expect(panel.locator('.analytics-profile')).toContainText('2 个 Agent');
+    await expect(panel.locator('.analytics-token-months span').first()).toHaveText('6月');
+    await expect(panel.locator('.analytics-token-mode')).toHaveText(['每日', '每周', '累计']);
+    await expect(panel.locator('.analytics-token-legend')).toContainText('低');
+    await expect(panel.locator('.analytics-token-legend')).toContainText('高');
+    await expect(panel).toContainText('活动洞察');
+    await expect(panel).toContainText('最长连续天数');
+  });
+
+  test('keeps analytics activity heatmap and insights readable on mobile', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/?panel=analytics');
+    const panel = page.locator('.analytics-panel');
+    await expect(panel.locator('.analytics-top-tool-row code').first()).toContainText('__create_sphere');
+
+    const firstToolCode = await panel.locator('.analytics-top-tool-row code').first().evaluate((element) => ({
+      textOverflow: getComputedStyle(element).textOverflow,
+      whiteSpace: getComputedStyle(element).whiteSpace,
+    }));
+    expect(firstToolCode.textOverflow).toBe('ellipsis');
+    expect(firstToolCode.whiteSpace).toBe('nowrap');
+
+    const heatmapMetrics = await panel.locator('.analytics-token-scroll').evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      overflowX: getComputedStyle(element).overflowX,
+    }));
+    expect(heatmapMetrics.overflowX).toBe('auto');
+    expect(heatmapMetrics.scrollWidth).toBeGreaterThan(heatmapMetrics.clientWidth);
+
+    const insightMetrics = await panel.locator('.analytics-insight-grid').evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      gridTemplateColumns: getComputedStyle(element).gridTemplateColumns,
+    }));
+    expect(insightMetrics.scrollWidth).toBeLessThanOrEqual(insightMetrics.clientWidth + 1);
+    expect(insightMetrics.gridTemplateColumns.split(' ')).toHaveLength(1);
   });
 
   test('shows governance controls and request decisions', async ({ page }) => {
@@ -1676,23 +2295,119 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.skill-paths-panel')).toContainText('maya-modeling');
     await expect(page.locator('.skill-paths-panel')).toContainText('create_sphere');
     await expect(page.locator('.skill-paths-panel')).toContainText('Loaded skills');
+    await expect(page.locator('.skill-inventory-list')).toBeVisible();
+    await expect(page.locator('.skill-inventory-row')).toHaveCount(2);
+    await expect(page.locator('.skill-card-grid')).toHaveCount(0);
     await expect(page.locator('.skill-paths-panel')).toContainText('Searched / used');
     await expect(page.locator('.skill-paths-panel')).toContainText('best rank 2');
     await expect(page.locator('.skill-paths-panel')).toContainText('1 calls, 0 failures');
     await expect(page.locator('.skill-paths-panel')).toContainText('low adoption');
     await expect(page.locator('.skill-paths-panel')).toContainText('admin_custom #7');
     await expect(page.locator('.skill-paths-panel')).not.toContainText('G:/custom/admin-skills');
-    await page.getByLabel('New skill path').fill('G:/new/team-skills');
-    await page.getByRole('button', { name: 'Add path' }).click();
+    await expect(page.getByRole('button', { name: 'Add path' })).toBeDisabled();
+    const newPathInput = page.getByLabel('New skill path');
+    await newPathInput.fill('G:/new/team-skills');
+    await expect(page.getByRole('button', { name: 'Add path' })).toBeEnabled();
+    await newPathInput.press('Enter');
     await expect(page.locator('.skill-paths-panel')).toContainText('admin_custom #8');
     await expect(page.locator('.skill-paths-panel')).not.toContainText('G:/new/team-skills');
     await page.getByRole('button', { name: 'Remove' }).first().click();
     await expect(page.locator('.skill-paths-panel')).not.toContainText('admin_custom #7');
   });
 
+  test('keeps the Discover search toolbar from covering skills content', async ({ page }) => {
+    await page.setViewportSize({ width: 884, height: 511 });
+    await page.goto('/admin/?panel=discover&discoverTab=skills');
+
+    const search = page.locator('.list-search-wrap[data-panel="discover"]');
+    const tabs = page.locator('.discover-tabs');
+    const header = page.locator('.skill-paths-panel .panel-header');
+    await expect(search).toBeVisible();
+    await expect(page.getByRole('search').getByLabel('Filter current panel')).toBeVisible();
+    await expect(tabs).toBeVisible();
+    await expect(header).toBeVisible();
+
+    const layout = await page.evaluate(() => {
+      const rectFor = (selector: string) => {
+        const element = document.querySelector(selector);
+        if (!element) throw new Error(`Missing ${selector}`);
+        const rect = element.getBoundingClientRect();
+        return {
+          top: rect.top,
+          bottom: rect.bottom,
+          left: rect.left,
+          right: rect.right,
+          width: rect.width,
+        };
+      };
+      const searchRect = rectFor('.list-search-wrap[data-panel="discover"]');
+      const tabsRect = rectFor('.discover-tabs');
+      const headerRect = rectFor('.skill-paths-panel .panel-header');
+      const firstRowRect = rectFor('.skill-inventory-row');
+      const firstRowHitTarget = document.elementFromPoint(
+        Math.min(firstRowRect.right - 4, firstRowRect.left + 24),
+        Math.min(firstRowRect.bottom - 4, firstRowRect.top + 24),
+      );
+      return {
+        searchBeforeTabs: searchRect.bottom <= tabsRect.top,
+        tabsBeforeHeader: tabsRect.bottom <= headerRect.top,
+        firstRowHeight: firstRowRect.bottom - firstRowRect.top,
+        firstRowCoveredBySearch: Boolean(firstRowHitTarget?.closest('.list-search-wrap')),
+        noHorizontalOverflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth + 2,
+        searchFits: searchRect.right <= document.documentElement.clientWidth + 2 && searchRect.left >= -2,
+      };
+    });
+
+    expect(layout.searchBeforeTabs).toBe(true);
+    expect(layout.tabsBeforeHeader).toBe(true);
+    expect(layout.firstRowHeight).toBeLessThanOrEqual(260);
+    expect(layout.firstRowCoveredBySearch).toBe(false);
+    expect(layout.noHorizontalOverflow).toBe(true);
+    expect(layout.searchFits).toBe(true);
+  });
+
+  test('keeps skill inventory rows compact on mobile', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/admin/?panel=discover&discoverTab=skills');
+
+    const panel = page.locator('.skill-paths-panel');
+    await expect(panel).toBeVisible();
+    await expect(panel.locator('.skill-inventory-row')).toHaveCount(2);
+    await expect(panel.locator('.skill-inventory-list-header')).toBeHidden();
+
+    const metrics = await panel.evaluate((root) => {
+      const rows = Array.from(root.querySelectorAll('.skill-inventory-row'));
+      return {
+        documentWidth: document.documentElement.scrollWidth,
+        viewportWidth: window.innerWidth,
+        rowHeights: rows.map((row) => Math.round(row.getBoundingClientRect().height)),
+        firstRowText: rows[0]?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+      };
+    });
+    expect(metrics.documentWidth).toBeLessThanOrEqual(metrics.viewportWidth + 2);
+    expect(Math.max(...metrics.rowHeights)).toBeLessThanOrEqual(250);
+    expect(metrics.firstRowText).toContain('maya-modeling');
+    expect(metrics.firstRowText).toContain('create_sphere');
+    await expect(panel.getByRole('button', { name: /Open maya-modeling detail|查看 maya-modeling 详情/ })).toBeVisible();
+  });
+
+  test('mounts only the selected Discover tab content', async ({ page }) => {
+    await page.goto('/admin/?panel=discover&discoverTab=skills');
+    await expect(page.locator('.skill-paths-panel')).toBeVisible();
+    await expect(page.locator('.marketplace-panel')).toHaveCount(0);
+    await expect(page.locator('.integrations-panel')).toHaveCount(0);
+    await expect(page.locator('.discover-panel')).not.toContainText('Sentry Error Monitoring');
+
+    await page.goto('/admin/?panel=discover&discoverTab=integrations');
+    await expect(page.locator('.integrations-panel')).toBeVisible();
+    await expect(page.locator('.skill-paths-panel')).toHaveCount(0);
+    await expect(page.locator('.marketplace-panel')).toHaveCount(0);
+    await expect(page.locator('.discover-panel')).not.toContainText('maya-modeling');
+  });
+
   test('opens rendered markdown details for a skill', async ({ page }) => {
     await page.goto('/admin/?panel=skill-paths');
-    await page.getByRole('button', { name: 'maya-modeling' }).click();
+    await page.locator('.skill-inventory-title', { hasText: 'maya-modeling' }).click();
 
     const detail = page.locator('.skill-detail-panel');
     await expect(detail.locator('.skill-detail-path')).toContainText('very-long-team-folder');
@@ -1712,7 +2427,7 @@ test.describe('Admin Page', () => {
   test('keeps skill detail content inside the viewport on narrow screens', async ({ page }) => {
     await page.setViewportSize({ width: 430, height: 900 });
     await page.goto('/admin/?panel=skill-paths');
-    await page.getByRole('button', { name: 'maya-modeling' }).click();
+    await page.locator('.skill-inventory-title', { hasText: 'maya-modeling' }).click();
 
     const noPageOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 2);
     expect(noPageOverflow).toBe(true);
@@ -1822,55 +2537,174 @@ test.describe('Admin Page', () => {
 
   test('switches color scheme and persists the choice', async ({ page }) => {
     await page.goto('/admin/');
-    const themeSelect = page.getByLabel('Theme');
+    const themeSelect = page.locator('#admin-theme-select');
     await expect(themeSelect).toBeVisible();
 
-    await themeSelect.selectOption('dark');
+    await chooseSidebarSelectOption(page, 'admin-theme-select', 'Light');
+    await expect(page.locator('html')).not.toHaveClass(/dark/);
+    await chooseSidebarSelectOption(page, 'admin-theme-select', 'Dark');
     await expect(page.locator('html')).toHaveClass(/dark/);
     await expect(page.locator('html')).toHaveAttribute('data-admin-theme', 'dark');
     expect(await page.evaluate(() => localStorage.getItem('dcc-mcp-admin-theme'))).toBe('dark');
 
-    await themeSelect.selectOption('light');
+    await chooseSidebarSelectOption(page, 'admin-theme-select', 'Light');
     await expect(page.locator('html')).not.toHaveClass(/dark/);
     await expect(page.locator('html')).toHaveAttribute('data-admin-theme', 'light');
 
     // The persisted choice survives a reload.
-    await themeSelect.selectOption('dark');
+    await chooseSidebarSelectOption(page, 'admin-theme-select', 'Dark');
     await page.reload();
     await expect(page.locator('html')).toHaveClass(/dark/);
-    await expect(page.getByLabel('Theme')).toHaveValue('dark');
+    await expect(page.locator('#admin-theme-select .preference-select-visible-value')).toHaveText('Dark');
+    await expect(page.locator('#admin-theme-select')).toHaveAttribute('aria-label', 'Theme: Dark');
   });
 
   test.describe('Integrations panel', () => {
-    test('shows three integration cards with empty state for webhooks/otlp', async ({ page }) => {
+    test('shows integration rows with empty state for webhooks/wecom/otlp', async ({ page }) => {
       await page.goto('/admin/?panel=integrations');
       await expect(page.locator('.integrations-panel')).toBeVisible();
       await expect(page.locator('.integrations-panel h2')).toContainText('Integrations');
-      // Three cards
-      await expect(page.locator('.integration-card')).toHaveCount(3);
-      // Sentry is active
+      await expect(page.locator('.integration-card')).toHaveCount(4);
+      await expect(page.locator('.integrations-list')).toHaveCount(1);
+      await expect(page.locator('.integrations-grid')).toHaveCount(0);
       await expect(page.locator('.integration-card[data-kind="sentry"]')).toContainText('Sentry Error Monitoring');
       await expect(page.locator('.integration-card[data-kind="sentry"] .badge-ok')).toContainText('Active');
-      // Webhooks is inactive (placeholder)
+      await expect(page.locator('.integration-card[data-kind="sentry"] .integration-config-value').first()).toContainText('https://********@o0.ingest.sentry.io/0');
+      await expect(page.locator('.integration-card[data-kind="sentry"]')).not.toContainText('%E2');
+      await expect(page.locator('.integration-card[data-kind="sentry"]')).not.toContainText('examplePublicKey');
       await expect(page.locator('.integration-card[data-kind="webhooks"]')).toContainText('Event Webhooks');
       await expect(page.locator('.integration-card[data-kind="webhooks"] .badge-muted')).toContainText('Inactive');
-      // OTLP is inactive (placeholder)
+      await expect(page.locator('.integration-card[data-kind="webhooks"] .integration-config-value').first()).toContainText('~/dcc-mcp/etc/webhooks.yaml');
+      await expect(page.locator('.integration-card[data-kind="wecom"]')).toContainText('WeCom Message Push');
+      await expect(page.locator('.integration-card[data-kind="wecom"] .badge-muted')).toContainText('Inactive');
+      await expect(page.locator('.integration-card[data-kind="wecom"] .integration-config-value').first()).toContainText('Not set');
       await expect(page.locator('.integration-card[data-kind="otlp"]')).toContainText('OTLP Telemetry');
       await expect(page.locator('.integration-card[data-kind="otlp"] .badge-muted')).toContainText('Inactive');
+      await expect(page.locator('.integration-card[data-kind="otlp"] .integration-config-value').first()).toContainText('Not set');
+    });
+
+    test('keeps integration rows compact and readable on mobile', async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto('/admin/?panel=integrations&lang=zh-CN');
+
+      const panel = page.locator('.integrations-panel');
+      await expect(panel).toBeVisible();
+      await expect(panel.locator('.integration-card')).toHaveCount(4);
+
+      const layout = await panel.evaluate((node) => {
+        const cards = Array.from(node.querySelectorAll('.integration-card'));
+        return {
+          bodyScrollWidth: document.body.scrollWidth,
+          viewportWidth: window.innerWidth,
+          cards: cards.map((card) => {
+            const cardRect = card.getBoundingClientRect();
+            const configRect = card.querySelector('.integration-config-preview')?.getBoundingClientRect();
+            const desc = card.querySelector('.integration-card-desc') as HTMLElement | null;
+            const descStyle = desc ? window.getComputedStyle(desc) : null;
+            return {
+              height: cardRect.height,
+              width: cardRect.width,
+              configWidth: configRect?.width ?? 0,
+              lineClamp: descStyle?.webkitLineClamp ?? '',
+              descOverflow: descStyle?.overflow ?? '',
+            };
+          }),
+        };
+      });
+
+      expect(layout.bodyScrollWidth).toBeLessThanOrEqual(layout.viewportWidth);
+      for (const card of layout.cards) {
+        expect(card.height).toBeLessThanOrEqual(245);
+        expect(card.configWidth).toBeLessThanOrEqual(card.width);
+        expect(card.lineClamp).toBe('2');
+        expect(card.descOverflow).toBe('hidden');
+      }
+    });
+
+    test('uses the local default path when an older gateway returns an empty webhook path', async ({ page }) => {
+      await page.route('**/admin/api/integrations', async (route) => {
+        if (route.request().method() !== 'GET') {
+          await route.fallback();
+          return;
+        }
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            integrations: [{
+              kind: 'webhooks',
+              label: 'Event Webhooks',
+              description: 'Outbound delivery of EventBus events.',
+              status: 'inactive',
+              config: {
+                config_path: '',
+                config_text: 'queue_capacity: 1024\nwebhooks:\n  - name: studio-events\n    url: http://127.0.0.1:9000/dcc-mcp-events\n    events:\n      - tool.failed\n',
+              },
+              env_locked_fields: [
+                { key: 'config_path', locked: false, env_var: 'DCC_MCP_WEBHOOKS_CONFIG' },
+              ],
+            }],
+          }),
+        });
+      });
+
+      await page.goto('/admin/?panel=integrations');
+      const webhooks = page.locator('.integration-card[data-kind="webhooks"]');
+      await expect(webhooks).toContainText('~/dcc-mcp/etc/webhooks.yaml');
+      await openIntegrationEditor(page, 'webhooks');
+      const form = page.locator('.integration-edit-form');
+      await expect(form.locator('.integration-config-path-note')).toContainText('~/dcc-mcp/etc/webhooks.yaml');
+      await expect(form.locator('textarea#integration-webhooks-config_text')).toBeVisible();
+    });
+
+    test('shows write_config_path as the webhook edit destination', async ({ page }) => {
+      await page.route('**/admin/api/integrations', async (route) => {
+        if (route.request().method() !== 'GET') {
+          await route.fallback();
+          return;
+        }
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            integrations: [{
+              kind: 'webhooks',
+              label: 'Event Webhooks',
+              description: 'Outbound delivery of EventBus events.',
+              status: 'active',
+              config: {
+                config_path: 'C:/runtime/webhooks.yaml',
+                write_config_path: 'C:/Users/example/dcc-mcp/etc/webhooks.yaml',
+                config_text: 'queue_capacity: 1024\nwebhooks:\n  - name: runtime\n    url: http://127.0.0.1:9000/dcc-mcp-events\n    events:\n      - tool.failed\n',
+              },
+              env_locked_fields: [
+                { key: 'config_path', locked: true, env_var: 'DCC_MCP_WEBHOOKS_CONFIG' },
+              ],
+            }],
+          }),
+        });
+      });
+
+      await page.goto('/admin/?panel=integrations');
+      const webhooks = page.locator('.integration-card[data-kind="webhooks"]');
+      await expect(webhooks).toContainText('C:/runtime/webhooks.yaml');
+      await openIntegrationEditor(page, 'webhooks');
+      const form = page.locator('.integration-edit-form');
+      await expect(form.locator('.integration-config-path-note')).toContainText('C:/Users/example/dcc-mcp/etc/webhooks.yaml');
+      await expect(form.locator('.integration-config-path-note')).not.toContainText('C:/runtime/webhooks.yaml');
     });
 
     test('shows env-locked Sentry with masked DSN', async ({ page }) => {
       await page.goto('/admin/?panel=integrations');
-      // Click edit on Sentry
-      await page.locator('.integration-card[data-kind="sentry"] button').click();
-      // Edit form visible
-      await expect(page.locator('.integration-edit-form')).toBeVisible();
-      // DSN field is env-locked
+      await openIntegrationEditor(page, 'sentry');
+      // DSN comes from env, but can still be manually overridden for restart.
       const dsnField = page.locator('.integration-edit-field.env-locked').first();
       await expect(dsnField).toBeVisible();
-      await expect(dsnField.locator('input')).toBeDisabled();
+      await expect(dsnField.locator('input')).toBeEnabled();
+      await expect(dsnField.locator('input')).toHaveValue('');
+      await expect(dsnField.locator('input')).toHaveAttribute('placeholder', /override after restart/i);
       // Shows env var hint
-      await expect(page.locator('.integration-env-hint code')).toContainText('DCC_MCP_SENTRY_DSN');
+      await expect(page.locator('.integration-env-hint')).toContainText('DCC_MCP_SENTRY_DSN');
       // Other fields are editable
       await expect(page.locator('#integration-sentry-environment')).toBeEnabled();
       await expect(page.locator('#integration-sentry-release')).toBeEnabled();
@@ -1879,18 +2713,89 @@ test.describe('Admin Page', () => {
 
     test('save shows pending_restart badge', async ({ page }) => {
       await page.goto('/admin/?panel=integrations');
-      // Click edit on Sentry
-      await page.locator('.integration-card[data-kind="sentry"] button').click();
-      await expect(page.locator('.integration-edit-form')).toBeVisible();
+      await openIntegrationEditor(page, 'sentry');
       // Change environment
       await page.locator('#integration-sentry-environment').fill('staging');
       // Save
+      const updateRequest = page.waitForRequest((request) =>
+        request.url().endsWith('/admin/api/integrations') && request.method() === 'PUT',
+      );
       await page.locator('.integration-edit-actions button[type="submit"]').click();
+      const request = await updateRequest;
+      const payload = request.postDataJSON() as { config: Record<string, unknown> };
+      expect(payload.config).not.toHaveProperty('dsn');
       // Wait for edit form to close
       await expect(page.locator('.integration-edit-form')).not.toBeVisible({ timeout: 5000 });
       // After save, the panel should re-render with pending_restart
       await expect(page.locator('.integration-card[data-kind="sentry"].pending-restart')).toBeVisible({ timeout: 5000 });
       await expect(page.locator('.integration-card[data-kind="sentry"] .integration-card-head .badge-warn')).toContainText('Pending Restart');
+    });
+
+    test('saves WeCom robot event types and template', async ({ page }) => {
+      await page.goto('/admin/?panel=integrations');
+      await openIntegrationEditor(page, 'wecom');
+      const form = page.locator('.integration-edit-form');
+      await expect(form.locator('.integration-template-token-strip')).toContainText('Template Variables');
+      await expect(form.locator('[data-template-token]')).toHaveText([
+        '$event',
+        '$event-id',
+        '$dcc-type',
+        '$instance-id',
+        '$tool-slug',
+        '$skill-name',
+        '$url',
+      ]);
+      await page.locator('#integration-wecom-webhook_url').fill('https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123');
+      await page.locator('#integration-wecom-event_types').fill('tool.failed, gateway.instance.*');
+      const template = page.locator('#integration-wecom-template');
+      await template.fill('DCC-MCP $event\nDCC: $dcc-type');
+      await form.getByRole('button', { name: '$instance-id' }).click();
+      await form.getByRole('button', { name: '$url' }).click();
+      await expect(template).toHaveValue('DCC-MCP $event\nDCC: $dcc-type $instance-id $url');
+      const updateRequest = page.waitForRequest((request) =>
+        request.url().endsWith('/admin/api/integrations') && request.method() === 'PUT',
+      );
+      await page.locator('.integration-edit-actions button[type="submit"]').click();
+      const request = await updateRequest;
+      const payload = request.postDataJSON() as { kind: string; config: Record<string, unknown> };
+      expect(payload.kind).toBe('wecom');
+      expect(payload.config.webhook_url).toBe('https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123');
+      expect(payload.config.event_types).toEqual(['tool.failed', 'gateway.instance.*']);
+      expect(payload.config.template).toBe('DCC-MCP $event\nDCC: $dcc-type $instance-id $url');
+      await expect(page.locator('.integration-card[data-kind="wecom"].pending-restart')).toBeVisible({ timeout: 5000 });
+      await expect(page.locator('.integration-card[data-kind="wecom"] .integration-config-value').first()).toContainText('key=********');
+    });
+
+    test('saves Event Webhooks by editing YAML directly', async ({ page }) => {
+      await page.goto('/admin/?panel=integrations');
+      await openIntegrationEditor(page, 'webhooks');
+      await expect(page.locator('.integration-edit-overlay')).toHaveCount(0);
+      await expect(page.locator('.integration-edit-panel')).toBeVisible();
+      const form = page.locator('.integration-edit-form');
+      await expect(form).toBeVisible();
+      await expect(form).toContainText('Webhooks YAML');
+      await expect(form).toContainText('Saved to');
+      await expect(form.locator('.integration-config-path-note')).toContainText('~/dcc-mcp/etc/webhooks.yaml');
+      await expect(form.locator('#integration-webhooks-config_path')).toHaveCount(0);
+      await expect(form.locator('.integration-edit-field.is-textarea')).toBeVisible();
+
+      const editor = form.locator('textarea#integration-webhooks-config_text');
+      await expect(editor).toBeVisible();
+      await expect(editor).toHaveValue(/queue_capacity: 1024/);
+      await editor.fill('webhooks:\n  - name: notify\n    url: http://127.0.0.1:9000/hook\n    events:\n      - tool.failed\n');
+
+      const updateRequest = page.waitForRequest((request) =>
+        request.url().endsWith('/admin/api/integrations') && request.method() === 'PUT',
+      );
+      await form.getByRole('button', { name: 'Save' }).click();
+      const request = await updateRequest;
+      const payload = request.postDataJSON() as { kind: string; config: Record<string, unknown> };
+      expect(payload.kind).toBe('webhooks');
+      expect(payload.config.config_text).toContain('name: notify');
+
+      await expect(page.locator('.integration-card[data-kind="webhooks"].pending-restart')).toBeVisible({ timeout: 5000 });
+      await expect(page.locator('.integration-card[data-kind="webhooks"] .badge-warn')).toContainText('Pending Restart');
+      await expect(page.locator('.integration-card[data-kind="webhooks"]')).toContainText('~/dcc-mcp/etc/webhooks.yaml');
     });
 
     test('shows error for invalid DSN', async ({ page }) => {
@@ -1918,9 +2823,7 @@ test.describe('Admin Page', () => {
       });
 
       await page.goto('/admin/?panel=integrations');
-      // Click edit on Sentry
-      await page.locator('.integration-card[data-kind="sentry"] button').click();
-      await expect(page.locator('.integration-edit-form')).toBeVisible();
+      await openIntegrationEditor(page, 'sentry');
       // Enter invalid DSN (doesn't start with 'http')
       await page.locator('#integration-sentry-dsn').fill('bad-dsn-string');
       // Submit

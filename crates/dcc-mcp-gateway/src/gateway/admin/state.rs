@@ -1,5 +1,6 @@
 //! Shared state for the admin UI handlers.
 
+use std::collections::HashMap;
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::BufRead;
@@ -661,6 +662,9 @@ pub struct AdminState {
     pub admin_sqlite_lane: Option<crate::gateway::admin::sqlite_lane::AdminSqliteLane>,
     /// Optional embedder hook: re-run disk skill discovery after admin SQLite path changes.
     pub skill_paths_reload: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
+    /// Process-local integration configuration that has been submitted through the admin UI
+    /// but cannot take effect until the gateway/server process restarts.
+    pub pending_integrations: Arc<Mutex<HashMap<String, Value>>>,
 }
 
 impl AdminState {
@@ -677,6 +681,7 @@ impl AdminState {
             skill_paths_snapshot: Vec::new(),
             admin_sqlite_lane: None,
             skill_paths_reload: None,
+            pending_integrations: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 

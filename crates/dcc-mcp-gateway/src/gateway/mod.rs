@@ -62,6 +62,7 @@ pub mod sse_subscriber;
 pub mod state;
 pub mod tools;
 pub mod traffic;
+pub(crate) mod update_manifest;
 
 pub use caller_attribution::ClientAttributionStore;
 pub use dcc_mcp_gateway_core::policy::{

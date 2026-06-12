@@ -10,7 +10,8 @@ use super::analytics::{
 use super::handlers::{
     handle_admin_activity, handle_admin_calls, handle_admin_debug_bundle,
     handle_admin_deregistered, handle_admin_governance, handle_admin_health,
-    handle_admin_instances, handle_admin_issue_report, handle_admin_logs,
+    handle_admin_instance_update, handle_admin_instances, handle_admin_integration_update,
+    handle_admin_integrations, handle_admin_issue_report, handle_admin_logs,
     handle_admin_search_telemetry, handle_admin_skill_detail, handle_admin_skill_path_add,
     handle_admin_skill_path_delete, handle_admin_skill_paths, handle_admin_skills,
     handle_admin_stats, handle_admin_tasks, handle_admin_tools, handle_admin_trace_detail,
@@ -53,6 +54,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
         .route("/", routing::get(handle_admin_ui))
         .route("/api/activity", routing::get(handle_admin_activity))
         .route("/api/instances", routing::get(handle_admin_instances))
+        .route(
+            "/api/instances/{instance_id}/update",
+            routing::post(handle_admin_instance_update),
+        )
         .route("/api/tools", routing::get(handle_admin_tools))
         .route("/api/skills", routing::get(handle_admin_skills))
         .route("/api/skill-detail", routing::get(handle_admin_skill_detail))
@@ -112,6 +117,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
         )
         .route("/api/workers", routing::get(handle_admin_workers))
         .route("/api/health", routing::get(handle_admin_health))
+        .route(
+            "/api/integrations",
+            routing::get(handle_admin_integrations).put(handle_admin_integration_update),
+        )
         .route(
             "/api/marketplace/catalog",
             routing::get(handle_marketplace_catalog),
@@ -210,6 +219,10 @@ pub fn build_v1_debug_router(state: AdminState) -> Router {
         .route(
             "/v1/debug/search-telemetry",
             routing::get(handle_admin_search_telemetry),
+        )
+        .route(
+            "/v1/debug/integrations",
+            routing::get(handle_admin_integrations),
         )
         .route("/v1/debug/health", routing::get(handle_admin_health))
         .with_state(state)

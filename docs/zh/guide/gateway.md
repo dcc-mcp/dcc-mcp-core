@@ -39,7 +39,7 @@ Python `DccServerBase` 适配器、`dcc-mcp-server sidecar` 以及
 
 `dcc-mcp-server gateway` 子命令把 gateway **作为独立进程**运行，与任何
 per-DCC server 解耦。它只承载 gateway 平面 —— 发现、聚合、路由、动态
-能力、resources / prompts fan-out、只读 admin UI、审计 —— 自身**永远
+能力、resources / prompts fan-out、本地 admin UI、审计 —— 自身**永远
 不执行工具**；每个 `tools/call` 都通过 HTTP 转发给真正拥有的 DCC backend。
 
 ```bash

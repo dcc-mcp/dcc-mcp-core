@@ -30,9 +30,9 @@ export type IntegrationsPanelProps = {
 
 /// Top-level orchestrator for the `/admin#integrations` panel.
 ///
-/// Displays three integration cards (Sentry, Webhooks, OTLP) in a grid.
-/// Each card can open an edit form. Sentry is the only fully editable one;
-/// Webhooks and OTLP show placeholder empty states.
+/// Displays integrations as compact rows. Each row can open an edit form.
+/// File-backed integrations are saved through the Admin API and staged for the
+/// next gateway restart.
 export function IntegrationsPanel({
   active,
   search,
@@ -122,8 +122,10 @@ export function IntegrationsPanel({
     [updateMut, onUpdated, onError, t],
   );
 
+  if (!active) return null;
+
   return (
-    <section className={`panel${active ? ' active' : ''} integrations-panel`}>
+    <section className="panel active integrations-panel">
       <PanelHeader
         title={t('integrations.title')}
         meta={t('integrations.detail.count', { count: integrations.length })}
@@ -134,16 +136,7 @@ export function IntegrationsPanel({
         error={error}
       />
 
-      {/* Edit form overlay */}
-      {editingEntry ? (
-        <IntegrationEditForm
-          entry={editingEntry}
-          saving={updateMut.isPending}
-          onSave={handleSave}
-          onCancel={handleCancel}
-          t={t}
-        />
-      ) : integrationsQuery.isLoading ? (
+      {integrationsQuery.isLoading ? (
         <p className="empty">{t('common.status.loading')}</p>
       ) : integrationsQuery.error ? (
         <p className="empty">{t('integrations.error.fetchFailed')}</p>
@@ -152,15 +145,29 @@ export function IntegrationsPanel({
           {search.trim() ? t('integrations.empty.search') : t('integrations.empty.none')}
         </p>
       ) : (
-        <div className="integrations-grid">
-          {filteredIntegrations.map((entry) => (
-            <IntegrationCard
-              key={entry.kind}
-              entry={entry}
-              onEdit={handleEdit}
-              t={t}
-            />
-          ))}
+        <div className="integrations-list">
+          {filteredIntegrations.map((entry) => {
+            const isEditing = editingKind === entry.kind;
+            return (
+              <div className="integration-list-item" key={entry.kind}>
+                <IntegrationCard
+                  entry={entry}
+                  active={isEditing}
+                  onEdit={handleEdit}
+                  t={t}
+                />
+                {isEditing && editingEntry ? (
+                  <IntegrationEditForm
+                    entry={editingEntry}
+                    saving={updateMut.isPending}
+                    onSave={handleSave}
+                    onCancel={handleCancel}
+                    t={t}
+                  />
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       )}
     </section>

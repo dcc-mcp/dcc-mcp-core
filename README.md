@@ -20,13 +20,13 @@
 
 [中文](README_zh.md) | English
 
-**Give AI agents a real control plane for Maya, Blender, Houdini, Photoshop, and custom studio tools.**
+**Agent-first DCC control plane: one CLI, one gateway, every live creative host.**
 
-`dcc-mcp-core` turns DCC applications into discoverable, routable MCP endpoints. Agents stop guessing from shell output and start working with live scene state, scoped tool catalogs, structured results, viewport diagnostics, audit logs, and workflows that can survive real production constraints.
+`dcc-mcp-core` turns Maya, Blender, Houdini, Photoshop, and custom studio tools into discoverable, routable MCP endpoints. Agents stop guessing from shell output and start working with live scene state, scoped tool catalogs, structured results, viewport diagnostics, audit logs, and workflows that can survive real production constraints.
 
-It combines **MCP 2025-03-26 Streamable HTTP**, a **zero-code Skills system** built on [agentskills.io 1.0](https://agentskills.io/specification), and a Rust gateway for discovery, routing, installation, linting, and operations. The Python package keeps **zero third-party Python library dependencies** for embedded DCC hosts and depends on the companion `dcc-mcp-server` wheel so daemon-backed gateway startup has a packaged binary even when `PATH` is empty. Standalone `dcc-mcp-cli` and `dcc-mcp-server` binaries also ship through GitHub Releases for workstation-style installs. Supports Python 3.7–3.14.
+The default operator path is `dcc-mcp-cli`: every normal command can ensure the local gateway exists before it talks to live DCC sessions, so agents and CI scripts do not need a fragile preflight dance. The same stack powers the browser Admin UI, marketplace skill installs, package updates, Sentry/webhook/OTLP integration settings, and evidence panels for traces, calls, logs, and runtime health.
 
-Use it when you want agents to operate production DCC sessions without flooding the context window, hand-writing Python glue for every tool, or shipping fragile one-off shell scripts. Start with the CLI in two commands, or embed the Python core directly in a DCC adapter.
+Under the hood it combines **MCP 2025-03-26 Streamable HTTP**, a **zero-code Skills system** built on [agentskills.io 1.0](https://agentskills.io/specification), and a Rust gateway for discovery, routing, installation, linting, updates, and operations. The Python package keeps **zero third-party Python library dependencies** for embedded DCC hosts and depends on the companion `dcc-mcp-server` wheel so daemon-backed gateway startup has a packaged binary even when `PATH` is empty. Standalone `dcc-mcp-cli` and `dcc-mcp-server` binaries also ship through GitHub Releases for workstation-style installs. Supports Python 3.7–3.14.
 
 ---
 
@@ -35,10 +35,20 @@ Use it when you want agents to operate production DCC sessions without flooding 
 | Need | dcc-mcp-core gives you |
 |---|---|
 | Let agents operate real DCC sessions | MCP + REST endpoints for Maya, Blender, Houdini, Photoshop, and custom hosts |
-| Keep tool context small | Gateway discovery: MCP `search` -> `describe`, then REST `POST /v1/call` |
-| Add tools without framework glue | `SKILL.md` + sibling YAML/scripts, aligned with agentskills.io |
-| Debug live workstation state | Admin UI, viewport diagnostics, audit logs, traces, metrics |
+| Keep tool context small | Gateway discovery: `search` -> `describe`, then `call`; no giant first-page `tools/list` scrape |
+| Start reliably from an agent shell | `dcc-mcp-cli health/list/search/...` auto-ensure the gateway before using it |
+| Add and update tools without framework glue | `SKILL.md` + sibling YAML/scripts, marketplace install/update, aligned with agentskills.io |
+| Debug live workstation state | Admin UI, viewport diagnostics, audit logs, traces, logs, metrics, Sentry/webhook integration state |
 | Survive production constraints | Main-thread dispatch, async jobs, sidecar/server binaries, workflow and artefact primitives |
+
+## Product Surfaces
+
+| Surface | What operators see | Why it matters |
+|---|---|---|
+| `dcc-mcp-cli` | `health`, `list`, `search`, `describe`, `call`, `load-skill`, marketplace, and update commands | Agent and CI entry point; checks and starts the gateway automatically |
+| Gateway Admin UI | Instances, server versions, one-click update actions, skill paths, marketplace packages, integrations, calls, traces, logs, and health | One browser surface for live workstation operations |
+| Skills Marketplace | Catalog search, install, uninstall, outdated checks, and package updates | Teams can distribute DCC capabilities without rebuilding adapters |
+| Integrations | Sentry DSN, webhook config, WeCom message push, and OTLP endpoint visibility with pending-restart state | Observability settings are editable, masked, and backed by real gateway APIs |
 
 ## Runtime Architecture
 
@@ -119,11 +129,30 @@ After install:
 ```bash
 dcc-mcp-cli health
 dcc-mcp-cli list
-dcc-mcp-cli search --query sphere --dcc-type maya --instance-id abc12345
-dcc-mcp-cli load-skill workflow --dcc-type 3dsmax --instance-id 80321760
-dcc-mcp-cli wait-ready --dcc-type maya --instance-id abc12345 --require skill_catalog,host_execution_bridge
-dcc-mcp-cli lint path/to/skills
+dcc-mcp-cli search --query "create sphere" --dcc-type maya --limit 20
+dcc-mcp-cli describe <tool_slug>
+dcc-mcp-cli call <tool_slug> --json '{"radius":2.0}'
+dcc-mcp-cli marketplace search --query rigging --dcc maya --limit 20
+dcc-mcp-cli update check --binary dcc-mcp-server --current-version <server_version>
 ```
+
+Default operator flow:
+
+1. Run `dcc-mcp-cli health` or `dcc-mcp-cli list` first. For local loopback
+   gateways, normal gateway-backed commands auto-start the gateway daemon when
+   it is missing.
+2. If `list` returns live instances, use `search -> describe -> call`; keep
+   `tools/list` as a compatibility listing, not the primary discovery surface.
+3. Open `http://127.0.0.1:9765/admin` for browser operations: instance health,
+   server-version checks, one-click server update staging, skill paths,
+   marketplace package updates, integrations, traces, logs, and token activity.
+4. Use the Instances panel update button to stage `dcc-mcp-server` updates for
+   a running backend. Use `dcc-mcp-cli update apply` only for the CLI binary
+   itself.
+
+Once any gateway-backed command succeeds, the Admin UI is available at
+`http://127.0.0.1:9765/admin` by default. The CLI can be pointed at another
+gateway with `--base-url` or `DCC_MCP_BASE_URL`.
 
 ### Install the Python core
 
@@ -229,10 +258,43 @@ AI-friendly docs: [AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](d
 ### Gateway Admin UI
 
 The elected gateway ships with a built-in admin console for operators who need
-to inspect live DCC sessions, routing health, audit calls, traces, logs, skill
-paths, and latency trends without leaving the browser. The examples below use
-representative demo data to show the range of panels available in a busy
-multi-DCC workstation.
+to inspect live DCC sessions, server versions, routing health, audit calls,
+traces, logs, skill paths, marketplace packages, one-click update actions,
+integration settings, and token activity without leaving the browser. The
+examples below use representative demo data to show the range of panels
+available in a busy multi-DCC workstation.
+
+Admin highlights:
+
+- **Command Center**: separates agent prompt handoff from human CLI recipes, so
+  agents get a concise `search -> describe -> call` path while operators still
+  have copy-ready `dcc-mcp-cli` commands. CLI commands auto-ensure the local
+  gateway instead of asking users to run a separate preflight.
+- **Instances**: row-based live/stale/unhealthy inventory with server version,
+  adapter version, dispatch readiness, one-click update checks, direct update
+  actions, and restart-required status after staging.
+- **Skills and Marketplace**: list-first skill inventory, custom skill paths,
+  loaded skill details, marketplace browse/installed/source tabs, force
+  reinstall, package updates, and API-backed error messages when a package
+  endpoint returns HTML instead of JSON.
+- **Integrations**: Sentry, webhooks, WeCom message push, and OTLP settings
+  backed by gateway APIs, with editable local config under `~/dcc-mcp/etc` and
+  clear pending-restart state when the server must reload startup integrations.
+  WeCom templates can interpolate event fields such as `$event`, `$dcc-type`,
+  `$tool-slug`, and `$url`.
+- **Evidence panels**: calls, traces, logs, stats, health views, and a
+  contribution-calendar-style token activity heatmap for debugging real agent
+  activity.
+
+The browser UI is backed by the same Admin API used by tests and automation:
+
+| Surface | Backing API |
+|---|---|
+| Instances and updates | `GET /admin/api/instances`, `POST /admin/api/instances/{id}/update` |
+| Skills and marketplace | `GET /admin/api/skill-paths`, `/admin/api/marketplace/*` |
+| Integrations | `GET /admin/api/integrations`, `PUT /admin/api/integrations` |
+| Analytics and heatmaps | `GET /admin/api/analytics/overview`, `/analytics/timeseries`, `/analytics/heatmap`, `/analytics/export` |
+| Evidence | `GET /admin/api/calls`, `/traces`, `/logs`, `/health` |
 
 ![Gateway admin Connect IDE panel](docs/assets/admin-ui/admin-connect-ide.png)
 
@@ -297,11 +359,17 @@ After install:
 ```bash
 dcc-mcp-cli health
 dcc-mcp-cli list
-dcc-mcp-cli search --query sphere --dcc-type maya --instance-id abc12345
+dcc-mcp-cli search --query "create sphere" --dcc-type maya --limit 20
+dcc-mcp-cli describe <tool_slug>
+dcc-mcp-cli call <tool_slug> --json '{"radius":2.0}'
 dcc-mcp-cli load-skill workflow --dcc-type 3dsmax --instance-id 80321760
-dcc-mcp-cli wait-ready --dcc-type maya --instance-id abc12345 --require skill_catalog,host_execution_bridge
+dcc-mcp-cli marketplace install <package_name> --dcc maya
+dcc-mcp-cli update check --binary dcc-mcp-server --current-version <server_version>
 dcc-mcp-cli lint path/to/skills
 ```
+
+The default browser control plane is then `http://127.0.0.1:9765/admin`.
+Use `--base-url` or `DCC_MCP_BASE_URL` when the gateway runs elsewhere.
 
 ### Install the Python core
 

@@ -179,10 +179,14 @@ The optional `admin_live` sink keeps a bounded in-memory ring for
 ## Event Webhooks
 
 RFC 0002 P3 adds optional webhook delivery in the standalone
-`dcc-mcp-server`. Set `DCC_MCP_WEBHOOKS_CONFIG` to a YAML file and the server
-subscribes to the shared dispatcher/catalog `EventBus` before skill discovery,
-so startup `skill.*` and runtime `tool.*` events can be forwarded without
-wrapping handlers.
+`dcc-mcp-server`. Set `DCC_MCP_WEBHOOKS_CONFIG` to a YAML file, or edit the
+Admin UI Integrations panel and let it write `~/dcc-mcp/etc/webhooks.yaml`
+(`DCC_MCP_ETC_DIR` overrides the directory). The explicit environment variable
+wins when both are present. The server subscribes to the shared
+dispatcher/catalog `EventBus` before skill discovery, so startup `skill.*` and
+runtime `tool.*` events can be forwarded without wrapping handlers.
+
+:::: v-pre
 
 ```yaml
 queue_capacity: 1024
@@ -202,6 +206,8 @@ webhooks:
       {"text":"{{source.dcc_type}} called {{attributes.tool_slug}}"}
 ```
 
+::::
+
 By default, each request body is the structured event envelope. When
 `payload_template` is present, `&#123;&#123;path.to.field&#125;&#125;` placeholders are resolved
 against the envelope and sent as the JSON request body. Filters are ORed across
@@ -209,6 +215,33 @@ rules and ANDed within a rule; string values support `*` wildcards. The
 delivery worker uses a bounded queue and drops new events when full rather than
 blocking tool execution. If all retry attempts fail, the server emits
 `webhook.delivery_failed` with the original event id/name and final error.
+
+Enterprise WeChat group robots can be configured as a webhook kind. The runtime
+wraps the rendered content in the robot markdown payload:
+
+```yaml
+webhooks:
+  - name: wecom-alerts
+    kind: wecom
+    url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=${WECOM_ROBOT_KEY}
+    events: ["tool.failed", "gateway.instance.*"]
+    message_template: |
+      DCC-MCP $event
+      DCC: $dcc-type
+      Tool: $tool-slug
+      URL: $url
+```
+
+`message_template` supports both <code v-pre>`{{source.dcc_type}}`</code> style envelope paths and
+operator-friendly dollar variables such as `$event`, `$dcc-type`,
+`$instance-id`, `$tool-slug`, `$skill-name`, and `$url`. Set
+`DCC_MCP_WECOM_WEBHOOK_URL` to enable the same integration without a YAML file;
+optionally set `DCC_MCP_WECOM_EVENTS` as a comma or newline separated list and
+`DCC_MCP_WECOM_TEMPLATE` for the message body. When configured from the Admin UI,
+WeCom is saved as a `kind: wecom` webhook named `wecom-message-push` in the same
+local `webhooks.yaml` file. Saving the WeCom shortcut preserves existing
+non-WeCom webhook entries and replaces only an existing `kind: wecom` or
+`name: wecom-message-push` entry.
 
 ## Wildcard Subscriptions
 

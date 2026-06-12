@@ -6,20 +6,7 @@
 use serde::Deserialize;
 
 use super::*;
-
-// ── Manifest types ───────────────────────────────────────────────────────────
-
-/// A single entry in the update manifest (binary_name → entry).
-#[derive(Debug, Clone, Deserialize)]
-pub(crate) struct ManifestEntry {
-    pub(crate) version: String,
-    pub(crate) url: Option<String>,
-    pub(crate) sha256: Option<String>,
-    pub(crate) release_notes: Option<String>,
-}
-
-/// Top-level update manifest fetched from `update_manifest_url`.
-type UpdateManifest = std::collections::HashMap<String, ManifestEntry>;
+use crate::gateway::update_manifest::fetch_update_manifest;
 
 // ── Error responses ──────────────────────────────────────────────────────────
 
@@ -27,8 +14,11 @@ fn not_configured() -> (StatusCode, Json<Value>) {
     (
         StatusCode::NOT_IMPLEMENTED,
         Json(json!({
-            "error": "update_manifest_url not configured",
-            "hint": "set DCC_MCP_UPDATE_MANIFEST_URL or configure update_manifest_url on the gateway"
+            "status": "not_configured",
+            "error": "update_manifest_url_not_configured",
+            "message": "Update manifest URL is not configured for this gateway.",
+            "hint": "Set DCC_MCP_UPDATE_MANIFEST_URL or configure update_manifest_url on the gateway.",
+            "update_available": false,
         })),
     )
 }
@@ -37,7 +27,11 @@ fn not_found(binary: &str) -> (StatusCode, Json<Value>) {
     (
         StatusCode::NOT_FOUND,
         Json(json!({
-            "error": format!("binary '{binary}' not found in update manifest"),
+            "status": "binary_not_found",
+            "error": "binary_not_found",
+            "message": format!("Binary '{binary}' was not found in the update manifest."),
+            "binary_name": binary,
+            "update_available": false,
         })),
     )
 }
@@ -70,7 +64,12 @@ pub(crate) async fn handle_v1_update_check(
         None => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error": "missing required query parameter: binary"})),
+                Json(json!({
+                    "status": "bad_request",
+                    "error": "missing_binary",
+                    "message": "Missing required query parameter: binary.",
+                    "update_available": false,
+                })),
             )
                 .into_response();
         }
@@ -82,14 +81,16 @@ pub(crate) async fn handle_v1_update_check(
         .unwrap_or_else(|| "0.0.0".to_string());
 
     // Fetch the manifest
-    let manifest = match fetch_manifest(&state.http_client, &manifest_url).await {
+    let manifest = match fetch_update_manifest(&state.http_client, &manifest_url).await {
         Ok(m) => m,
         Err(e) => {
             return (
                 StatusCode::BAD_GATEWAY,
                 Json(json!({
-                    "error": "failed to fetch update manifest",
-                    "detail": e.to_string(),
+                    "status": "manifest_error",
+                    "error": "failed_to_fetch_update_manifest",
+                    "message": e.to_string(),
+                    "update_available": false,
                 })),
             )
                 .into_response();
@@ -127,14 +128,16 @@ pub(crate) async fn handle_v1_update_download(
         None => return not_configured().into_response(),
     };
 
-    let manifest = match fetch_manifest(&state.http_client, &manifest_url).await {
+    let manifest = match fetch_update_manifest(&state.http_client, &manifest_url).await {
         Ok(m) => m,
         Err(e) => {
             return (
                 StatusCode::BAD_GATEWAY,
                 Json(json!({
-                    "error": "failed to fetch update manifest",
-                    "detail": e.to_string(),
+                    "status": "manifest_error",
+                    "error": "failed_to_fetch_update_manifest",
+                    "message": e.to_string(),
+                    "update_available": false,
                 })),
             )
                 .into_response();
@@ -152,7 +155,12 @@ pub(crate) async fn handle_v1_update_download(
             return (
                 StatusCode::NOT_FOUND,
                 Json(json!({
-                    "error": format!("no download URL configured for '{binary_name}'"),
+                    "status": "download_url_not_configured",
+                    "error": "download_url_not_configured",
+                    "message": format!("No download URL is configured for binary '{binary_name}'."),
+                    "binary_name": binary_name,
+                    "latest_version": entry.version,
+                    "update_available": false,
                 })),
             )
                 .into_response();
@@ -164,20 +172,4 @@ pub(crate) async fn handle_v1_update_download(
         Json(json!({ "download_url": download_url })),
     )
         .into_response()
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-/// Fetch and parse the update manifest from the configured URL.
-async fn fetch_manifest(
-    client: &reqwest::Client,
-    url: &str,
-) -> Result<UpdateManifest, reqwest::Error> {
-    client
-        .get(url)
-        .timeout(std::time::Duration::from_secs(15))
-        .send()
-        .await?
-        .json::<UpdateManifest>()
-        .await
 }

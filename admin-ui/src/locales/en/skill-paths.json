@@ -19,6 +19,7 @@
   "table.state": "State",
   "table.discovery": "Discovery",
   "table.usage": "Usage",
+  "table.tools": "Tools",
   "table.instances": "Instances",
   "table.source": "Source",
   "table.path": "Path",

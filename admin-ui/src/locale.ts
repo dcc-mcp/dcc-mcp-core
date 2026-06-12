@@ -9,6 +9,13 @@ export const LOCALE_LABELS: Record<SupportedLocale, string> = {
   ko: '한국어',
 };
 
+export const LOCALE_TRIGGER_LABELS: Record<SupportedLocale, string> = {
+  en: 'EN',
+  'zh-CN': '中文',
+  ja: '日本語',
+  ko: '한국어',
+};
+
 const SUPPORTED_LOCALE_ID_SET = new Set<string>(SUPPORTED_LOCALES);
 
 export function isSupportedLocale(value: string | null | undefined): value is SupportedLocale {

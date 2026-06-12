@@ -1,6 +1,7 @@
 //! Sentry error monitoring (Rust backend).
 //!
-//! Initialises the Sentry SDK when `DCC_MCP_SENTRY_DSN` is set at startup.
+//! Initialises the Sentry SDK when `DCC_MCP_SENTRY_DSN` or local
+//! `~/dcc-mcp/etc/sentry.json` config is set at startup.
 //! Panics are automatically captured and dispatched to the configured Sentry
 //! project. Use `sentry::capture_error` or `sentry::capture_message` for
 //! explicit instrumentation points.
@@ -13,38 +14,44 @@
 //! | `DCC_MCP_SENTRY_ENVIRONMENT` | `production` | Environment tag |
 //! | `DCC_MCP_SENTRY_RELEASE` | crate version | Release identifier |
 //! | `DCC_MCP_SENTRY_SAMPLE_RATE` | `1.0` | Error sample rate (0.0–1.0) |
+//! | `DCC_MCP_ETC_DIR` | `~/dcc-mcp/etc` | Admin UI local config directory |
+
+use std::path::PathBuf;
+
+use serde::Deserialize;
+
+const ENV_DCC_MCP_ETC_DIR: &str = "DCC_MCP_ETC_DIR";
+const DEFAULT_SENTRY_CONFIG_FILE: &str = "sentry.json";
+
+#[derive(Debug, Default, Deserialize)]
+struct LocalSentryConfig {
+    dsn: Option<String>,
+    environment: Option<String>,
+    release: Option<String>,
+    sample_rate: Option<f32>,
+}
+
+#[derive(Debug)]
+struct ResolvedSentryConfig {
+    dsn: String,
+    environment: String,
+    release: String,
+    sample_rate: f32,
+}
 
 /// Initialise the Sentry SDK if `DCC_MCP_SENTRY_DSN` is set.
 ///
 /// Returns the client guard that must be held for the process lifetime.
 /// Dropping the guard flushes pending events and shuts down the SDK.
 pub fn init_sentry() -> Option<sentry::ClientInitGuard> {
-    let dsn = std::env::var("DCC_MCP_SENTRY_DSN")
-        .ok()
-        .filter(|s| !s.trim().is_empty())?;
+    let config = resolved_sentry_config()?;
 
-    let environment = std::env::var("DCC_MCP_SENTRY_ENVIRONMENT")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| "production".into());
-
-    let release = std::env::var("DCC_MCP_SENTRY_RELEASE")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").into());
-
-    let sample_rate = std::env::var("DCC_MCP_SENTRY_SAMPLE_RATE")
-        .ok()
-        .and_then(|s| s.parse::<f32>().ok())
-        .filter(|r| r.is_finite() && *r >= 0.0 && *r <= 1.0)
-        .unwrap_or(1.0);
-
-    let parsed_dsn: sentry::types::Dsn = match dsn.parse() {
+    let parsed_dsn: sentry::types::Dsn = match config.dsn.parse() {
         Ok(dsn) => dsn,
         Err(err) => {
             tracing::warn!(
                 error = %err,
-                "DCC_MCP_SENTRY_DSN is not a valid Sentry DSN; skipping Sentry init"
+                "Sentry DSN is not valid; skipping Sentry init"
             );
             return None;
         }
@@ -52,25 +59,125 @@ pub fn init_sentry() -> Option<sentry::ClientInitGuard> {
 
     let guard = sentry::init(sentry::ClientOptions {
         dsn: Some(parsed_dsn),
-        release: Some(release.into()),
-        environment: Some(environment.into()),
-        sample_rate,
+        release: Some(config.release.clone().into()),
+        environment: Some(config.environment.clone().into()),
+        sample_rate: config.sample_rate,
         ..Default::default()
     });
 
     tracing::info!(
         sentry_enabled = true,
-        environment = %std::env::var("DCC_MCP_SENTRY_ENVIRONMENT").unwrap_or_else(|_| "production".into()),
-        sample_rate,
+        environment = %config.environment,
+        sample_rate = config.sample_rate,
         "sentry initialised",
     );
 
     Some(guard)
 }
 
+fn resolved_sentry_config() -> Option<ResolvedSentryConfig> {
+    let local = match read_local_sentry_config() {
+        Ok(config) => config,
+        Err(err) => {
+            tracing::warn!(error = %err, "local Sentry config ignored");
+            None
+        }
+    };
+
+    let dsn = env_string("DCC_MCP_SENTRY_DSN").or_else(|| {
+        local
+            .as_ref()
+            .and_then(|config| clean_string(config.dsn.as_deref()))
+    })?;
+    let environment = env_string("DCC_MCP_SENTRY_ENVIRONMENT")
+        .or_else(|| {
+            local
+                .as_ref()
+                .and_then(|config| clean_string(config.environment.as_deref()))
+        })
+        .unwrap_or_else(|| "production".into());
+    let release = env_string("DCC_MCP_SENTRY_RELEASE")
+        .or_else(|| {
+            local
+                .as_ref()
+                .and_then(|config| clean_string(config.release.as_deref()))
+        })
+        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").into());
+    let sample_rate = env_string("DCC_MCP_SENTRY_SAMPLE_RATE")
+        .and_then(|s| s.parse::<f32>().ok())
+        .or_else(|| local.as_ref().and_then(|config| config.sample_rate))
+        .filter(|r| r.is_finite() && *r >= 0.0 && *r <= 1.0)
+        .unwrap_or(1.0);
+
+    Some(ResolvedSentryConfig {
+        dsn,
+        environment,
+        release,
+        sample_rate,
+    })
+}
+
+fn read_local_sentry_config() -> anyhow::Result<Option<LocalSentryConfig>> {
+    let Some(path) = default_sentry_config_path() else {
+        return Ok(None);
+    };
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw = std::fs::read_to_string(&path)?;
+    let config = serde_json::from_str(&raw)?;
+    Ok(Some(config))
+}
+
+fn default_sentry_config_path() -> Option<PathBuf> {
+    integration_etc_dir().map(|dir| dir.join(DEFAULT_SENTRY_CONFIG_FILE))
+}
+
+fn integration_etc_dir() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os(ENV_DCC_MCP_ETC_DIR).filter(|value| !value.is_empty()) {
+        return Some(PathBuf::from(path));
+    }
+    home_dir().map(|home| home.join("dcc-mcp").join("etc"))
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("USERPROFILE")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            let drive = std::env::var_os("HOMEDRIVE")?;
+            let path = std::env::var_os("HOMEPATH")?;
+            Some(PathBuf::from(format!(
+                "{}{}",
+                drive.to_string_lossy(),
+                path.to_string_lossy()
+            )))
+        })
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+        })
+}
+
+fn env_string(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| clean_string(Some(value.as_str())))
+}
+
+fn clean_string(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
 #[cfg(all(test, feature = "sentry"))]
 mod tests {
-    use super::init_sentry;
+    use super::{
+        DEFAULT_SENTRY_CONFIG_FILE, ENV_DCC_MCP_ETC_DIR, init_sentry, resolved_sentry_config,
+    };
     use std::sync::{Mutex, MutexGuard};
     use std::time::Duration;
 
@@ -113,6 +220,48 @@ mod tests {
         }
     }
 
+    struct EnvVarsGuard {
+        previous: Vec<(&'static str, Option<String>)>,
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    impl EnvVarsGuard {
+        fn set(vars: &[(&'static str, Option<&str>)]) -> Self {
+            let lock = ENV_LOCK.lock().expect("env lock poisoned");
+            let previous = vars
+                .iter()
+                .map(|(key, _)| (*key, std::env::var(key).ok()))
+                .collect::<Vec<_>>();
+            // SAFETY: serialized by ENV_LOCK; tests restore previous values on drop.
+            unsafe {
+                for (key, value) in vars {
+                    match value {
+                        Some(v) => std::env::set_var(key, v),
+                        None => std::env::remove_var(key),
+                    }
+                }
+            }
+            Self {
+                previous,
+                _lock: lock,
+            }
+        }
+    }
+
+    impl Drop for EnvVarsGuard {
+        fn drop(&mut self) {
+            // SAFETY: serialized by ENV_LOCK held for the guard lifetime.
+            unsafe {
+                for (key, value) in &self.previous {
+                    match value {
+                        Some(v) => std::env::set_var(key, v),
+                        None => std::env::remove_var(key),
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn init_sentry_absent_dsn_returns_none() {
         let _guard = EnvVarGuard::set("DCC_MCP_SENTRY_DSN", None);
@@ -129,6 +278,36 @@ mod tests {
     fn init_sentry_invalid_dsn_returns_none() {
         let _guard = EnvVarGuard::set("DCC_MCP_SENTRY_DSN", Some("not-a-valid-dsn"));
         assert!(init_sentry().is_none());
+    }
+
+    #[test]
+    fn resolved_sentry_config_loads_default_local_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(DEFAULT_SENTRY_CONFIG_FILE),
+            r#"{
+  "dsn": "https://abc123@sentry.example/42",
+  "environment": "studio",
+  "release": "0.18.0",
+  "sample_rate": 0.25
+}"#,
+        )
+        .unwrap();
+        let etc_dir = dir.path().to_string_lossy().to_string();
+        let _guard = EnvVarsGuard::set(&[
+            ("DCC_MCP_SENTRY_DSN", None),
+            ("DCC_MCP_SENTRY_ENVIRONMENT", None),
+            ("DCC_MCP_SENTRY_RELEASE", None),
+            ("DCC_MCP_SENTRY_SAMPLE_RATE", None),
+            (ENV_DCC_MCP_ETC_DIR, Some(&etc_dir)),
+        ]);
+
+        let config = resolved_sentry_config().unwrap();
+
+        assert_eq!(config.dsn, "https://abc123@sentry.example/42");
+        assert_eq!(config.environment, "studio");
+        assert_eq!(config.release, "0.18.0");
+        assert_eq!(config.sample_rate, 0.25);
     }
 
     /// Validates that `init_sentry` with a well-formed DSN initialises the SDK

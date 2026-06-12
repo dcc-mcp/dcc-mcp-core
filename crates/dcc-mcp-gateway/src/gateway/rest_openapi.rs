@@ -23,6 +23,8 @@ pub(crate) const GATEWAY_OPENAPI_ROUTES: &[GatewayOpenApiRoute] = &[
     post("/v1/instances/deregister"),
     get("/v1/healthz"),
     get("/v1/readyz"),
+    get("/v1/update/check"),
+    get("/v1/update/download/{binary_name}"),
     get("/v1/openapi.json"),
     get("/docs"),
     get("/v1/skills"),
@@ -70,6 +72,7 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
             {"name": "instances", "description": "Live DCC instance inventory."},
             {"name": "skills", "description": "Gateway skill discovery and lifecycle operations."},
             {"name": "tools", "description": "Gateway capability describe and invocation operations."},
+            {"name": "updates", "description": "Gateway-controlled binary update manifest checks."},
             {"name": "meta", "description": "Gateway API self-description."},
             {"name": "lifecycle", "description": "Guarded test-owned instance lifecycle operations."}
         ],
@@ -139,6 +142,29 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
             "Summarize gateway readiness",
             "Aggregates live instance readiness bits; the gateway itself remains reachable even when no DCC instance is ready.",
             json_response_ref("GatewayReadyz"),
+        ),
+    );
+    paths.insert(
+        "/v1/update/check".to_string(),
+        get_operation_with_params(
+            &["updates"],
+            "Check for a binary update",
+            "Reads the configured update manifest and compares the requested binary against the supplied current version.",
+            vec![
+                query_param("binary", true, "Binary name, for example dcc-mcp-cli or dcc-mcp-server."),
+                query_param("current_version", false, "Current version string to compare against. Defaults to 0.0.0 when omitted."),
+            ],
+            json_response_ref("GatewayUpdateCheckResponse"),
+        ),
+    );
+    paths.insert(
+        "/v1/update/download/{binary_name}".to_string(),
+        get_operation_with_params(
+            &["updates"],
+            "Resolve the download URL for a binary",
+            "Returns the latest manifest download URL for the named binary, or a structured update error when no URL is configured.",
+            vec![path_param("binary_name", "Binary name, for example dcc-mcp-cli or dcc-mcp-server.")],
+            json_response_ref("GatewayUpdateDownloadResponse"),
         ),
     );
     paths.insert(
@@ -626,6 +652,43 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
                         "type": "array",
                         "items": {"$ref": "#/components/schemas/GatewayInstance"}
                     }
+                },
+                "additionalProperties": true,
+            }),
+        ),
+        (
+            "GatewayUpdateCheckResponse",
+            json!({
+                "type": "object",
+                "required": ["update_available"],
+                "properties": {
+                    "update_available": {"type": "boolean"},
+                    "current_version": {"type": "string", "description": "Present on successful checks and CLI-normalized payloads."},
+                    "binary_name": {"type": "string", "description": "Present on CLI-normalized payloads or binary-specific errors."},
+                    "latest_version": {"type": "string", "description": "Present when the binary exists in the update manifest."},
+                    "download_url": {"type": ["string", "null"], "format": "uri"},
+                    "sha256": {"type": ["string", "null"]},
+                    "release_notes": {"type": ["string", "null"]},
+                    "status": {"type": "string", "description": "Present on structured error responses."},
+                    "error": {"type": "string"},
+                    "message": {"type": "string"},
+                    "hint": {"type": "string"}
+                },
+                "additionalProperties": true,
+            }),
+        ),
+        (
+            "GatewayUpdateDownloadResponse",
+            json!({
+                "type": "object",
+                "properties": {
+                    "download_url": {"type": "string", "format": "uri"},
+                    "status": {"type": "string"},
+                    "error": {"type": "string"},
+                    "message": {"type": "string"},
+                    "binary_name": {"type": "string"},
+                    "latest_version": {"type": "string"},
+                    "update_available": {"type": "boolean"}
                 },
                 "additionalProperties": true,
             }),
