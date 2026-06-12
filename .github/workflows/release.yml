@@ -862,6 +862,8 @@ jobs:
 
           for i in $(seq 1 "$max_retries"); do
             http_code=$(printf '%s' "$payload" | curl -fsS -o /dev/null -w '%{http_code}' \
+              --connect-timeout 10 \
+              --max-time 30 \
               -X POST \
               -H "Content-Type: application/json" \
               -H "X-GitHub-Event: core_release_ready" \
