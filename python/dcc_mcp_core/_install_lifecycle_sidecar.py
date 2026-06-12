@@ -21,6 +21,7 @@ from typing import List
 from typing import Optional
 from typing import Tuple
 from urllib.parse import urlsplit
+from uuid import UUID
 
 REGISTRY_ENV = "DCC_MCP_REGISTRY_DIR"
 ROLE_PER_DCC_SIDECAR = "per-dcc-sidecar"
@@ -183,6 +184,13 @@ def build_sidecar_command(
                 "gateway_remote_port must be between 0 and 65535.",
             )
 
+    normalized_instance_id = _normalize_instance_id(instance_id)
+    if instance_id not in (None, "") and normalized_instance_id is None:
+        return _failed(
+            "invalid_instance_id",
+            "instance_id must be a UUID accepted by dcc-mcp-server sidecar.",
+        )
+
     registry_path = _to_path(registry_dir) or Path(default_registry_dir()).expanduser()
     server_binary = _server_binary_diagnostic(server_bin, environment)
     command = [
@@ -199,7 +207,7 @@ def build_sidecar_command(
         "--gateway-port",
         str(port),
     ]
-    _append_flag_value(command, "--instance-id", instance_id)
+    _append_flag_value(command, "--instance-id", normalized_instance_id)
     _append_flag_value(command, "--display-name", display_name)
     _append_flag_value(command, "--adapter-version", adapter_version)
     _append_flag_value(command, "--gateway-host", gateway_host or environment.get("DCC_MCP_GATEWAY_HOST"))
@@ -244,21 +252,21 @@ def build_sidecar_command(
         "environment": {"set": env_set},
         "readiness_selector": {
             "dcc_type": dcc,
-            "instance_id": instance_id,
+            "instance_id": normalized_instance_id,
             "host_rpc": endpoint,
         },
         "readiness_argv": _build_readiness_argv(
             dcc_type=dcc,
             host_rpc=endpoint,
             registry_path=registry_path,
-            instance_id=instance_id,
+            instance_id=normalized_instance_id,
         ),
         "readiness_command": _build_readiness_command(
             environment,
             dcc_type=dcc,
             host_rpc=endpoint,
             registry_path=registry_path,
-            instance_id=instance_id,
+            instance_id=normalized_instance_id,
         ),
         "dispatch_contract": dispatch_contract,
         "readiness_contract": _sidecar_readiness_contract(dispatch_contract),
@@ -455,6 +463,18 @@ def _parse_port(value: Any, *, default: Optional[int]) -> Optional[int]:
     except (TypeError, ValueError):
         return None
     return parsed if 0 <= parsed <= 65535 else None
+
+
+def _normalize_instance_id(value: Optional[Any]) -> Optional[str]:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return str(UUID(text))
+    except (TypeError, ValueError):
+        return None
 
 
 def _resolve_server_bin(server_bin: Optional[str], env: Dict[str, str]) -> str:
