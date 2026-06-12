@@ -732,6 +732,16 @@ fn unused_loopback_port() -> u16 {
     listener.local_addr().unwrap().port()
 }
 
+fn local_mcp_port(fixture: &LocalMcpFixture) -> u16 {
+    fixture
+        .base_url
+        .rsplit(':')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap()
+}
+
 struct AutoGatewayCleanup<'a> {
     host: &'a str,
     port: u16,
@@ -945,9 +955,11 @@ fn list_search_describe_and_call_gateway_rest_surface() {
 
 #[test]
 fn local_list_reads_file_registry_after_gateway_ensure() {
+    let fixture = spawn_local_mcp_fixture();
     let registry = TempDir::new().unwrap();
     let file_registry = FileRegistry::new(registry.path()).unwrap();
-    let mut entry = ServiceEntry::new("maya", "127.0.0.1", 18080);
+    let port = local_mcp_port(&fixture);
+    let mut entry = ServiceEntry::new("maya", "127.0.0.1", port);
     entry.display_name = Some("Maya-Rig".to_string());
     entry
         .metadata
@@ -960,6 +972,7 @@ fn local_list_reads_file_registry_after_gateway_ensure() {
     let envs = [
         ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
         ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
+        ("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", "1"),
     ];
 
     let list = run_json_with_env(&["list"], &envs);
@@ -968,19 +981,18 @@ fn local_list_reads_file_registry_after_gateway_ensure() {
     assert_eq!(list["total"], 1);
     assert_eq!(list["instances"][0]["dcc_type"], "maya");
     assert_eq!(list["instances"][0]["display_name"], "Maya-Rig");
-    assert_eq!(
-        list["instances"][0]["mcp_url"],
-        "http://127.0.0.1:18080/mcp"
-    );
+    assert_eq!(list["instances"][0]["mcp_url"], fixture.mcp_url());
     assert_eq!(list["gateway"]["current"]["role"], "local");
 }
 
 #[test]
 fn local_list_uses_core_default_registry_without_env_override() {
+    let fixture = spawn_local_mcp_fixture();
     let temp = TempDir::new().unwrap();
     let default_registry = temp.path().join("dcc-mcp-registry");
     let file_registry = FileRegistry::new(&default_registry).unwrap();
-    let mut entry = ServiceEntry::new("photoshop", "127.0.0.1", 19080);
+    let port = local_mcp_port(&fixture);
+    let mut entry = ServiceEntry::new("photoshop", "127.0.0.1", port);
     entry.display_name = Some("Photoshop-Default-Registry".to_string());
     file_registry.register(entry).unwrap();
 
@@ -993,6 +1005,7 @@ fn local_list_uses_core_default_registry_without_env_override() {
         ("TEMP", temp_s.as_str()),
         ("TMPDIR", temp_s.as_str()),
         ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
+        ("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", "1"),
     ];
 
     let list = run_json_with_env_removed(
