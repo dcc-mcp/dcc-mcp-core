@@ -1,10 +1,9 @@
 # DCC-MCP Public Catalog
-# Infrastructure-only index for DCC adapter discovery.
+# Built-in index for DCC adapter discovery and bootstrap planning.
 #
-# This catalog contains ONLY non-marketplace entries (infrastructure, core libs,
-# remote connectors). Skill pack install metadata lives in the official
-# marketplace.json at dcc-mcp/marketplace — the `marketplace` subcommand or
-# `install --execute` fetches from there.
+# This catalog contains first-party adapters, infrastructure entries, and remote
+# connectors. Skill pack install metadata lives in the official marketplace.json
+# at dcc-mcp/marketplace and is managed by the `marketplace` subcommand.
 #
 # Schema version: "1"
 # Fields:
@@ -13,6 +12,8 @@
 #   dcc         - DCC target(s): maya, blender, houdini, photoshop, ... (list)
 #   url         - Canonical URL (GitHub repo, docs, PyPI, ...) (optional)
 #   tags        - Searchable tags (list, optional)
+#   install.python_path      - Optional host Python interpreter for package install
+#   install.instructions_url - Raw adapter-maintained install.md for agent setup
 
 version: "1"
 entries:
@@ -39,15 +40,67 @@ entries:
     dcc: ["maya"]
     url: "https://github.com/dcc-mcp/dcc-mcp-maya"
     tags: ["adapter", "maya", "official", "pip", "core"]
-    version: "0.1.0"
-    min_core_version: "0.18.0"
+    version: "0.8.6"
+    min_core_version: "0.18.20"
     maintainer: "dcc-mcp"
     install:
       type: pip
       pip_package: "dcc-mcp-maya"
-      pip_extras: ["maya"]
-      mayapy_path: "/usr/autodesk/maya2026/bin/mayapy"
-      entry_point: "dcc_mcp_maya.cli:main"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/main/install.md"
+
+  - name: "dcc-mcp-blender"
+    description: "Core Blender adapter for DCC-MCP — Blender add-on with in-process MCP server"
+    dcc: ["blender"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-blender"
+    tags: ["adapter", "blender", "official", "pip", "addon", "core"]
+    version: "0.1.13"
+    min_core_version: "0.18.9"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-blender"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-blender/main/install.md"
+
+  - name: "dcc-mcp-houdini"
+    description: "Core Houdini adapter for DCC-MCP — Houdini tools exposed through MCP"
+    dcc: ["houdini"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-houdini"
+    tags: ["adapter", "houdini", "official", "pip", "core"]
+    version: "0.6.1"
+    min_core_version: "0.18.14"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-houdini"
+      entry_point: "dcc_mcp_houdini.cli:main"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-houdini/main/install.md"
+
+  - name: "dcc-mcp-3dsmax"
+    description: "Core 3ds Max adapter for DCC-MCP — 3ds Max plugin with host-side bridge and sidecar support"
+    dcc: ["3dsmax", "3ds max", "3ds-max", "max"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-3dsmax"
+    tags: ["adapter", "3dsmax", "3ds-max", "official", "pip", "core"]
+    version: "0.1.19"
+    min_core_version: "0.18.20"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-3dsmax"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-3dsmax/main/install.md"
+
+  - name: "dcc-mcp-photoshop"
+    description: "Core Photoshop adapter for DCC-MCP — Python bridge for a Photoshop UXP plugin"
+    dcc: ["photoshop"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-photoshop"
+    tags: ["adapter", "photoshop", "official", "pip", "uxp", "core"]
+    version: "0.1.15"
+    min_core_version: "0.18.14"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-photoshop"
+      entry_point: "dcc_mcp_photoshop.cli:main"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-photoshop/main/install.md"
 
   - name: "autodesk-product-help"
     description: "Opt-in Autodesk Product Help remote MCP connector for read-only documentation lookup"

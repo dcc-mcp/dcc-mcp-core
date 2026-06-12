@@ -1,7 +1,14 @@
 pub mod client;
+pub mod control_plane;
+pub mod doctor;
 pub mod gateway_ctrl;
 pub mod gateway_discovery;
 pub mod gateway_ensure;
+pub mod gateway_profile;
 pub mod install;
+pub mod instance_selection;
+pub mod local_control;
+pub mod local_instance;
+pub mod local_registry;
 pub mod marketplace;
 pub mod update;

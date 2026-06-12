@@ -1137,6 +1137,7 @@ dependencies = [
  "dcc-mcp-marketplace",
  "dcc-mcp-sidecar",
  "dcc-mcp-skills",
+ "dcc-mcp-transport",
  "dcc-mcp-updater",
  "dirs",
  "hex",

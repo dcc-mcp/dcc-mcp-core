@@ -10,14 +10,17 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::application::client::DccMcpClient;
+use crate::application::control_plane::DccControlPlane;
+use crate::application::doctor::{DoctorRequest, run_doctor};
 use crate::application::gateway_ctrl;
 use crate::application::gateway_ensure;
+use crate::application::gateway_profile::{self, GatewayTarget};
 use crate::application::install::InstallService;
 use crate::application::marketplace::new_service;
 use crate::domain::install::InstallRequest;
 use crate::domain::rest::{
-    CallRequest, DescribeRequest, DirectCallRequest, Endpoint, LoadSkillRequest, SearchRequest,
-    StopInstanceRequest, WaitReadyRequest,
+    Endpoint, LoadSkillRequest, ReloadSkillsRequest, SearchRequest, StopInstanceRequest,
+    WaitReadyRequest,
 };
 use crate::infra::http::HttpGateway;
 
@@ -26,8 +29,11 @@ const DEFAULT_BASE_URL: &str = "http://127.0.0.1:9765";
 #[derive(Debug, Parser)]
 #[command(name = "dcc-mcp-cli", about, version)]
 pub struct Args {
-    #[arg(long, env = "DCC_MCP_BASE_URL", default_value = DEFAULT_BASE_URL)]
-    base_url: String,
+    #[arg(long, global = true, env = "DCC_MCP_BASE_URL")]
+    base_url: Option<String>,
+    /// Select a gateway profile. Use `local` for the local FileRegistry path.
+    #[arg(long, global = true, env = "DCC_MCP_GATEWAY_PROFILE")]
+    gateway: Option<String>,
     /// Disable the default local gateway auto-start before gateway REST commands.
     #[arg(long, env = "DCC_MCP_CLI_NO_AUTO_GATEWAY", default_value = "false")]
     no_auto_gateway: bool,
@@ -74,9 +80,21 @@ enum Command {
     },
     /// Check the configured gateway or per-DCC REST endpoint.
     Health,
-    /// List live DCC instances from the gateway.
+    /// Report local defaults and startup diagnostics without launching services.
+    Doctor {
+        /// FileRegistry directory to inspect. Defaults to core's shared registry path.
+        #[arg(long)]
+        registry_dir: Option<PathBuf>,
+        /// Gateway host to probe without starting it.
+        #[arg(long, default_value = "127.0.0.1")]
+        gateway_host: String,
+        /// Gateway port to probe without starting it.
+        #[arg(long, default_value = "9765")]
+        gateway_port: u16,
+    },
+    /// List live DCC instances from the local registry or selected gateway profile.
     List,
-    /// Search callable tools through the REST dynamic-capability surface.
+    /// Search callable tools through local MCP or the selected gateway profile.
     Search {
         #[arg(long)]
         query: Option<String>,
@@ -90,7 +108,7 @@ enum Command {
     },
     /// Describe one tool slug.
     Describe { tool_slug: String },
-    /// Load a skill on a gateway-managed DCC instance.
+    /// Load a skill on a local or gateway-managed DCC instance.
     LoadSkill {
         #[arg(value_name = "SKILL_NAME")]
         skill_name: Option<String>,
@@ -119,7 +137,7 @@ enum Command {
         #[arg(long)]
         meta_json: Option<String>,
     },
-    /// Wait until a gateway-managed instance reports required readiness bits.
+    /// Wait until a local or gateway-managed instance reports readiness bits.
     WaitReady {
         #[arg(long)]
         dcc_type: Option<String>,
@@ -131,6 +149,14 @@ enum Command {
         timeout_secs: u64,
         #[arg(long, default_value = "1")]
         interval_secs: u64,
+    },
+    /// Ask running DCC instances to re-scan installed skill paths.
+    ReloadSkills {
+        #[arg(long)]
+        dcc_type: Option<String>,
+        /// Full instance UUID or unique >=4-character prefix.
+        #[arg(long)]
+        instance_id: Option<String>,
     },
     /// Ask a test-owned instance to stop through its advertised safe-stop hook.
     StopInstance {
@@ -151,6 +177,9 @@ enum Command {
         version: Option<String>,
         #[arg(long, env = "DCC_MCP_CATALOG_PATH")]
         catalog: Option<PathBuf>,
+        /// Python interpreter used for pip-based adapter package installs.
+        #[arg(long, env = "DCC_MCP_INSTALL_PYTHON")]
+        python: Option<String>,
         /// Execute the install plan with consent gating.
         #[arg(long, short = 'x')]
         execute: bool,
@@ -304,80 +333,100 @@ enum UpdateAction {
     Apply,
 }
 
+#[derive(Debug, Clone, clap::Args)]
+struct GatewayStartArgs {
+    #[arg(long, default_value = "127.0.0.1")]
+    host: String,
+    #[arg(long, default_value = "9765")]
+    port: u16,
+    #[arg(long)]
+    name: Option<String>,
+    #[arg(long)]
+    registry_dir: Option<PathBuf>,
+    #[arg(long, default_value = "0.0.0.0")]
+    remote_host: String,
+    #[arg(long, default_value = "59765")]
+    remote_port: u16,
+    #[arg(long, default_value = "0")]
+    gateway_idle_timeout_secs: u64,
+    #[arg(long)]
+    gateway_bin: Option<PathBuf>,
+    #[arg(long, default_value = "30")]
+    wait_timeout_secs: u64,
+}
+
+#[derive(Debug, Clone, clap::Args)]
+struct GatewayStopArgs {
+    #[arg(long, default_value = "127.0.0.1")]
+    host: String,
+    #[arg(long, default_value = "9765")]
+    port: u16,
+    #[arg(long)]
+    registry_dir: Option<PathBuf>,
+    #[arg(long, default_value = "10")]
+    wait_timeout_secs: u64,
+}
+
+#[derive(Debug, Clone, clap::Args)]
+struct GatewayStatusArgs {
+    #[arg(long, default_value = "127.0.0.1")]
+    host: String,
+    #[arg(long, default_value = "9765")]
+    port: u16,
+    #[arg(long)]
+    registry_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, clap::Args)]
+struct GatewayRestartArgs {
+    #[command(flatten)]
+    start: GatewayStartArgs,
+    #[arg(long, default_value = "10")]
+    stop_timeout_secs: u64,
+}
+
 #[derive(Debug, Subcommand)]
 enum GatewayAction {
+    /// Register a named remote gateway profile.
+    Register {
+        /// Gateway base URL, for example https://workstation.example:19293.
+        url: String,
+        /// Profile name to store.
+        #[arg(long)]
+        name: String,
+    },
+    /// List configured remote gateway profiles and the active selection.
+    List,
+    /// Select the active gateway profile (`local` switches back to local mode).
+    Set {
+        /// Profile name, or `local`.
+        name: String,
+    },
+    /// Manage the local machine-wide gateway daemon.
+    Daemon {
+        #[command(subcommand)]
+        action: GatewayDaemonAction,
+    },
     /// Check gateway reachability; launch if it is not already running.
-    Ensure {
-        /// Gateway host.
-        #[arg(long, default_value = "127.0.0.1")]
-        host: String,
-        /// Gateway port.
-        #[arg(long, default_value = "9765")]
-        port: u16,
-        /// Human-readable name for the gateway.
-        #[arg(long)]
-        name: Option<String>,
-        /// Shared FileRegistry directory.
-        #[arg(long)]
-        registry_dir: Option<PathBuf>,
-        /// Remote gateway listen host.
-        #[arg(long, default_value = "0.0.0.0")]
-        remote_host: String,
-        /// Remote gateway listen port.
-        #[arg(long, default_value = "59765")]
-        remote_port: u16,
-        /// Seconds before idle gateway shuts down (0 = persist).
-        #[arg(long, default_value = "30")]
-        gateway_idle_timeout_secs: u64,
-        /// Path to the dcc-mcp-core binary (defaults to this process).
-        #[arg(long)]
-        gateway_bin: Option<PathBuf>,
-        /// Seconds to wait for the new gateway to become healthy.
-        #[arg(long, default_value = "30")]
-        wait_timeout_secs: u64,
-    },
+    Ensure(GatewayStartArgs),
     /// Start the gateway (alias for ensure with pidfile tracking).
-    Start {
-        #[arg(long, default_value = "127.0.0.1")]
-        host: String,
-        #[arg(long, default_value = "9765")]
-        port: u16,
-        #[arg(long)]
-        name: Option<String>,
-        #[arg(long)]
-        registry_dir: Option<PathBuf>,
-        #[arg(long, default_value = "0.0.0.0")]
-        remote_host: String,
-        #[arg(long, default_value = "59765")]
-        remote_port: u16,
-        #[arg(long, default_value = "30")]
-        gateway_idle_timeout_secs: u64,
-        #[arg(long)]
-        gateway_bin: Option<PathBuf>,
-        #[arg(long, default_value = "30")]
-        wait_timeout_secs: u64,
-    },
+    Start(GatewayStartArgs),
     /// Stop the running gateway (PID from pidfile).
-    Stop {
-        #[arg(long, default_value = "127.0.0.1")]
-        host: String,
-        #[arg(long, default_value = "9765")]
-        port: u16,
-        #[arg(long)]
-        registry_dir: Option<PathBuf>,
-        /// Seconds to wait for the gateway to exit.
-        #[arg(long, default_value = "10")]
-        wait_timeout_secs: u64,
-    },
+    Stop(GatewayStopArgs),
     /// Query gateway health and process status.
-    Status {
-        #[arg(long, default_value = "127.0.0.1")]
-        host: String,
-        #[arg(long, default_value = "9765")]
-        port: u16,
-        #[arg(long)]
-        registry_dir: Option<PathBuf>,
-    },
+    Status(GatewayStatusArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum GatewayDaemonAction {
+    /// Start the gateway daemon.
+    Start(GatewayStartArgs),
+    /// Restart the gateway daemon using pidfile-based stop/start.
+    Restart(GatewayRestartArgs),
+    /// Stop the gateway daemon.
+    Stop(GatewayStopArgs),
+    /// Query gateway daemon health and PID status.
+    Status(GatewayStatusArgs),
 }
 
 pub async fn run() -> anyhow::Result<()> {
@@ -395,6 +444,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
 
     let Args {
         base_url,
+        gateway,
         no_auto_gateway,
         auto_gateway_bin,
         auto_gateway_timeout_secs,
@@ -402,11 +452,23 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         command,
     } = args;
 
+    let profile_path = gateway_profile::default_profile_path();
+    let profile_store = gateway_profile::GatewayProfileStore::load(&profile_path)?;
+    let gateway_target = profile_store.resolve(gateway.as_deref(), base_url.as_deref())?;
+    let endpoint = gateway_target.endpoint_or_default(DEFAULT_BASE_URL);
+    let base_url = endpoint.base_url.clone();
+    let control = DccControlPlane::new(
+        gateway_target.clone(),
+        endpoint.clone(),
+        gateway_ensure::default_registry_dir(),
+    );
+
     if !no_auto_gateway {
         ensure_gateway_for_command(
             &base_url,
             &command,
-            auto_gateway_bin,
+            &gateway_target,
+            auto_gateway_bin.clone(),
             auto_gateway_timeout_secs,
         )
         .await?;
@@ -423,7 +485,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             let endpoint = url
                 .as_deref()
                 .map(Endpoint::from_mcp_url)
-                .unwrap_or_else(|| Endpoint::new(base_url));
+                .unwrap_or_else(|| Endpoint::new(&base_url));
             let mcp_url = url.as_ref().map(|raw| endpoint_for_mcp(raw));
             let client = DccMcpClient::with_gateway(
                 endpoint,
@@ -434,33 +496,42 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             result
         }
         Command::Health => {
-            let client = DccMcpClient::new(Endpoint::new(base_url));
+            let client = DccMcpClient::new(endpoint.clone());
             client.health().await?
         }
-        Command::List => {
-            let client = DccMcpClient::new(Endpoint::new(base_url));
-            client.list_instances().await?
+        Command::Doctor {
+            registry_dir,
+            gateway_host,
+            gateway_port,
+        } => {
+            run_doctor(DoctorRequest {
+                profile_path: profile_path.clone(),
+                profile_store: profile_store.clone(),
+                gateway_target: gateway_target.clone(),
+                registry_dir,
+                server_bin: auto_gateway_bin.clone(),
+                auto_gateway_enabled: !no_auto_gateway,
+                gateway_host,
+                gateway_port,
+            })
+            .await?
         }
+        Command::List => control.list_instances().await?,
         Command::Search {
             query,
             dcc_type,
             instance_id,
             limit,
         } => {
-            let client = DccMcpClient::new(Endpoint::new(base_url));
-            client
-                .search(SearchRequest {
-                    query,
-                    dcc_type,
-                    instance_id,
-                    limit,
-                })
-                .await?
+            let request = SearchRequest {
+                query,
+                dcc_type,
+                instance_id,
+                limit,
+            };
+            control.search(request).await?
         }
-        Command::Describe { tool_slug } => {
-            let client = DccMcpClient::new(Endpoint::new(base_url));
-            client.describe(DescribeRequest { tool_slug }).await?
-        }
+        Command::Describe { tool_slug } => control.describe(tool_slug).await?,
         Command::LoadSkill {
             skill_name,
             dcc_type,
@@ -469,17 +540,15 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             activate_groups,
             request_json,
         } => {
-            let client = DccMcpClient::new(Endpoint::new(base_url));
-            client
-                .load_skill(build_load_skill_request(
-                    skill_name,
-                    dcc_type,
-                    dcc,
-                    instance_id,
-                    activate_groups,
-                    request_json,
-                )?)
-                .await?
+            let request = build_load_skill_request(
+                skill_name,
+                dcc_type,
+                dcc,
+                instance_id,
+                activate_groups,
+                request_json,
+            )?;
+            control.load_skill(request).await?
         }
         Command::Call {
             tool_slug,
@@ -493,34 +562,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 .as_deref()
                 .map(|raw| parse_json_object(raw, "--meta-json"))
                 .transpose()?;
-            let client = DccMcpClient::new(Endpoint::new(base_url));
-            match (dcc_type, instance_id) {
-                (Some(dcc_type), Some(instance_id)) => {
-                    client
-                        .direct_call(DirectCallRequest {
-                            dcc_type,
-                            instance_id,
-                            backend_tool: tool_slug,
-                            arguments,
-                            meta,
-                        })
-                        .await?
-                }
-                (None, None) => {
-                    client
-                        .call(CallRequest {
-                            tool_slug,
-                            arguments,
-                            meta,
-                        })
-                        .await?
-                }
-                _ => {
-                    anyhow::bail!(
-                        "call requires both --dcc-type and --instance-id for direct backend-tool calls"
-                    );
-                }
-            }
+            control
+                .call(tool_slug, dcc_type, instance_id, arguments, meta)
+                .await?
         }
         Command::WaitReady {
             dcc_type,
@@ -529,21 +573,29 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             timeout_secs,
             interval_secs,
         } => {
-            let client = DccMcpClient::new(Endpoint::new(base_url));
-            let result = client
-                .wait_ready(WaitReadyRequest {
-                    dcc_type,
-                    instance_id,
-                    required: require,
-                    timeout: Duration::from_secs(timeout_secs),
-                    interval: Duration::from_secs(interval_secs.max(1)),
-                })
-                .await?;
+            let request = WaitReadyRequest {
+                dcc_type,
+                instance_id,
+                required: require,
+                timeout: Duration::from_secs(timeout_secs),
+                interval: Duration::from_secs(interval_secs.max(1)),
+            };
+            let result = control.wait_ready(request).await?;
             failed = !result
                 .get("ready")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
             result
+        }
+        Command::ReloadSkills {
+            dcc_type,
+            instance_id,
+        } => {
+            let request = ReloadSkillsRequest {
+                dcc_type,
+                instance_id,
+            };
+            control.reload_skills(request).await?
         }
         Command::StopInstance {
             dcc_type,
@@ -551,20 +603,19 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             expected_owner,
             expected_session,
         } => {
-            let client = DccMcpClient::new(Endpoint::new(base_url));
-            client
-                .stop_instance(StopInstanceRequest {
-                    dcc_type,
-                    instance_id,
-                    expected_owner,
-                    expected_session,
-                })
-                .await?
+            let request = StopInstanceRequest {
+                dcc_type,
+                instance_id,
+                expected_owner,
+                expected_session,
+            };
+            control.stop_instance(request).await?
         }
         Command::Install {
             dcc_type,
             version,
             catalog,
+            python,
             execute,
         } => {
             let service = InstallService::new(PathBuf::from("dcc-mcp-catalog.yml"));
@@ -572,6 +623,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 dcc_type,
                 version,
                 catalog_path: catalog,
+                python,
             };
             if execute {
                 to_json(service.execute(req)?)?
@@ -672,7 +724,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         },
         Command::Gateway { action, daemon } => {
             if let Some(action) = action {
-                to_json(run_gateway_cmd(&base_url, action).await?)?
+                to_json(run_gateway_cmd(&base_url, action, &profile_path).await?)?
             } else {
                 if daemon.restart {
                     dcc_mcp_sidecar::gateway_daemon::restart_gateway(&daemon).await?;
@@ -802,44 +854,20 @@ fn run_lint_cmd(args: &LintArgs) -> anyhow::Result<LintCommandResult> {
 async fn ensure_gateway_for_command(
     base_url: &str,
     command: &Command,
+    gateway_target: &GatewayTarget,
     gateway_bin: Option<PathBuf>,
     wait_timeout_secs: u64,
 ) -> anyhow::Result<()> {
-    let Some(endpoint) = gateway_endpoint_for_command(base_url, command) else {
+    let Some(endpoint) = gateway_endpoint_for_command(base_url, command, gateway_target) else {
         return Ok(());
     };
-    let Some((host, port)) = local_auto_gateway_target(&endpoint) else {
+    let Some(result) =
+        gateway_ctrl::ensure_local_gateway_for_endpoint(&endpoint, gateway_bin, wait_timeout_secs)
+            .await?
+    else {
         return Ok(());
     };
 
-    let registry_dir = gateway_ensure::default_registry_dir();
-    let pidfile = gateway_ctrl::default_pidfile(&registry_dir);
-    let args = gateway_ensure::EnsureGatewayArgs {
-        host,
-        port,
-        name: std::env::var("DCC_MCP_GATEWAY_NAME")
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-            .or_else(|| Some("dcc-mcp-cli-gateway".to_string())),
-        registry_dir,
-        remote_host: std::env::var("DCC_MCP_GATEWAY_REMOTE_HOST")
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| "0.0.0.0".to_string()),
-        remote_port: std::env::var("DCC_MCP_GATEWAY_REMOTE_PORT")
-            .ok()
-            .and_then(|value| value.parse::<u16>().ok())
-            .unwrap_or(59765),
-        gateway_idle_timeout_secs: std::env::var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS")
-            .ok()
-            .and_then(|value| value.parse::<u64>().ok())
-            .unwrap_or(30),
-        gateway_bin,
-        wait_timeout_secs,
-        pidfile: Some(pidfile),
-    };
-
-    let result = gateway_ensure::ensure_gateway_running(&args).await?;
     if !result.already_running {
         if let Some(pid) = result.pid {
             eprintln!(
@@ -856,19 +884,36 @@ async fn ensure_gateway_for_command(
     Ok(())
 }
 
-fn gateway_endpoint_for_command(base_url: &str, command: &Command) -> Option<Endpoint> {
+fn gateway_endpoint_for_command(
+    base_url: &str,
+    command: &Command,
+    gateway_target: &GatewayTarget,
+) -> Option<Endpoint> {
     match command {
         Command::Smoke { url: None, .. } => Some(Endpoint::new(base_url)),
         Command::Smoke { url: Some(_), .. } => None,
-        Command::Health
-        | Command::List
-        | Command::Search { .. }
+        Command::Health | Command::Update { .. } => Some(Endpoint::new(base_url)),
+        Command::Doctor { .. } => None,
+        Command::Search { .. }
         | Command::Describe { .. }
         | Command::LoadSkill { .. }
         | Command::Call { .. }
         | Command::WaitReady { .. }
+        | Command::ReloadSkills { .. }
         | Command::StopInstance { .. }
-        | Command::Update { .. } => Some(Endpoint::new(base_url)),
+            if !gateway_target.is_local() =>
+        {
+            Some(Endpoint::new(base_url))
+        }
+        Command::Search { .. }
+        | Command::Describe { .. }
+        | Command::LoadSkill { .. }
+        | Command::Call { .. }
+        | Command::WaitReady { .. }
+        | Command::ReloadSkills { .. }
+        | Command::StopInstance { .. } => None,
+        Command::List if !gateway_target.is_local() => Some(Endpoint::new(base_url)),
+        Command::List => None,
         Command::Install { .. }
         | Command::Marketplace { .. }
         | Command::Lint(_)
@@ -876,118 +921,105 @@ fn gateway_endpoint_for_command(base_url: &str, command: &Command) -> Option<End
     }
 }
 
-fn local_auto_gateway_target(endpoint: &Endpoint) -> Option<(String, u16)> {
-    let parsed = reqwest::Url::parse(&endpoint.base_url).ok()?;
-    if parsed.scheme() != "http" {
-        return None;
-    }
-    let host = parsed.host_str()?;
-    let host = if host.eq_ignore_ascii_case("localhost") {
-        "127.0.0.1"
-    } else {
-        host
-    };
-    if !matches!(host, "127.0.0.1" | "0.0.0.0") {
-        return None;
-    }
-    let port = parsed.port_or_known_default()?;
-    Some((host.to_string(), port))
-}
-
-async fn run_gateway_cmd(_base_url: &str, action: GatewayAction) -> anyhow::Result<Value> {
+async fn run_gateway_cmd(
+    _base_url: &str,
+    action: GatewayAction,
+    profile_path: &std::path::Path,
+) -> anyhow::Result<Value> {
     match action {
-        GatewayAction::Ensure {
-            host,
-            port,
-            name,
-            registry_dir,
-            remote_host,
-            remote_port,
-            gateway_idle_timeout_secs,
-            gateway_bin,
-            wait_timeout_secs,
-        } => {
-            let reg = registry_dir.unwrap_or_else(gateway_ensure::default_registry_dir);
+        GatewayAction::Register { url, name } => {
+            gateway_profile::register_profile(profile_path, name, url)
+        }
+        GatewayAction::List => gateway_profile::list_profiles(profile_path),
+        GatewayAction::Set { name } => gateway_profile::set_current_profile(profile_path, name),
+        GatewayAction::Daemon { action } => {
+            gateway_ctrl::run_gateway_daemon(gateway_daemon_request(action)).await
+        }
+        GatewayAction::Ensure(args) => {
+            let request = gateway_ctrl::GatewayDaemonStartRequest::from(args);
+            let reg = request
+                .registry_dir
+                .clone()
+                .unwrap_or_else(gateway_ensure::default_registry_dir);
             let args = gateway_ensure::EnsureGatewayArgs {
-                host,
-                port,
-                name,
+                host: request.host,
+                port: request.port,
+                name: request.name,
                 registry_dir: reg,
-                remote_host,
-                remote_port,
-                gateway_idle_timeout_secs,
-                gateway_bin,
-                wait_timeout_secs,
+                remote_host: request.remote_host,
+                remote_port: request.remote_port,
+                gateway_idle_timeout_secs: request.gateway_idle_timeout_secs,
+                gateway_bin: request.gateway_bin,
+                wait_timeout_secs: request.wait_timeout_secs,
                 pidfile: None,
             };
             let result = gateway_ensure::ensure_gateway_running(&args).await?;
             Ok(serde_json::to_value(result)?)
         }
-        GatewayAction::Start {
-            host,
-            port,
-            name,
-            registry_dir,
-            remote_host,
-            remote_port,
-            gateway_idle_timeout_secs,
-            gateway_bin,
-            wait_timeout_secs,
-        } => {
-            let reg = registry_dir.unwrap_or_else(gateway_ensure::default_registry_dir);
-            let pidfile = gateway_ctrl::default_pidfile(&reg);
-            let args = gateway_ctrl::GatewayCtrlArgs {
-                host,
-                port,
-                registry_dir: reg,
-                pidfile,
-                start_opts: Some(gateway_ctrl::GatewayStartOpts {
-                    name,
-                    remote_host,
-                    remote_port,
-                    gateway_idle_timeout_secs,
-                    gateway_bin,
-                    wait_timeout_secs,
-                }),
-            };
-            let result = gateway_ctrl::gateway_start(&args).await?;
-            Ok(serde_json::to_value(result)?)
+        GatewayAction::Start(args) => {
+            gateway_ctrl::run_gateway_daemon(gateway_ctrl::GatewayDaemonRequest::Start(args.into()))
+                .await
         }
-        GatewayAction::Stop {
-            host,
-            port,
-            registry_dir,
-            wait_timeout_secs,
-        } => {
-            let reg = registry_dir.unwrap_or_else(gateway_ensure::default_registry_dir);
-            let pidfile = gateway_ctrl::default_pidfile(&reg);
-            let args = gateway_ctrl::GatewayCtrlArgs {
-                host,
-                port,
-                registry_dir: reg,
-                pidfile,
-                start_opts: None,
-            };
-            let result = gateway_ctrl::gateway_stop(&args, wait_timeout_secs).await?;
-            Ok(serde_json::to_value(result)?)
+        GatewayAction::Stop(args) => {
+            gateway_ctrl::run_gateway_daemon(gateway_ctrl::GatewayDaemonRequest::Stop(args.into()))
+                .await
         }
-        GatewayAction::Status {
-            host,
-            port,
-            registry_dir,
-        } => {
-            let reg = registry_dir.unwrap_or_else(gateway_ensure::default_registry_dir);
-            let pidfile = gateway_ctrl::default_pidfile(&reg);
-            let args = gateway_ctrl::GatewayCtrlArgs {
-                host,
-                port,
-                registry_dir: reg,
-                pidfile,
-                start_opts: None,
-            };
-            Ok(serde_json::to_value(
-                gateway_ctrl::gateway_status(&args).await,
-            )?)
+        GatewayAction::Status(args) => {
+            gateway_ctrl::run_gateway_daemon(gateway_ctrl::GatewayDaemonRequest::Status(
+                args.into(),
+            ))
+            .await
+        }
+    }
+}
+
+fn gateway_daemon_request(action: GatewayDaemonAction) -> gateway_ctrl::GatewayDaemonRequest {
+    match action {
+        GatewayDaemonAction::Start(args) => gateway_ctrl::GatewayDaemonRequest::Start(args.into()),
+        GatewayDaemonAction::Restart(args) => gateway_ctrl::GatewayDaemonRequest::Restart {
+            start: args.start.into(),
+            stop_timeout_secs: args.stop_timeout_secs,
+        },
+        GatewayDaemonAction::Stop(args) => gateway_ctrl::GatewayDaemonRequest::Stop(args.into()),
+        GatewayDaemonAction::Status(args) => {
+            gateway_ctrl::GatewayDaemonRequest::Status(args.into())
+        }
+    }
+}
+
+impl From<GatewayStartArgs> for gateway_ctrl::GatewayDaemonStartRequest {
+    fn from(args: GatewayStartArgs) -> Self {
+        Self {
+            host: args.host,
+            port: args.port,
+            name: args.name,
+            registry_dir: args.registry_dir,
+            remote_host: args.remote_host,
+            remote_port: args.remote_port,
+            gateway_idle_timeout_secs: args.gateway_idle_timeout_secs,
+            gateway_bin: args.gateway_bin,
+            wait_timeout_secs: args.wait_timeout_secs,
+        }
+    }
+}
+
+impl From<GatewayStopArgs> for gateway_ctrl::GatewayDaemonStopRequest {
+    fn from(args: GatewayStopArgs) -> Self {
+        Self {
+            host: args.host,
+            port: args.port,
+            registry_dir: args.registry_dir,
+            wait_timeout_secs: args.wait_timeout_secs,
+        }
+    }
+}
+
+impl From<GatewayStatusArgs> for gateway_ctrl::GatewayDaemonStatusRequest {
+    fn from(args: GatewayStatusArgs) -> Self {
+        Self {
+            host: args.host,
+            port: args.port,
+            registry_dir: args.registry_dir,
         }
     }
 }
@@ -1189,31 +1221,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn local_auto_gateway_target_accepts_loopback_http() {
-        assert_eq!(
-            local_auto_gateway_target(&Endpoint::new("http://localhost:9765")),
-            Some(("127.0.0.1".to_string(), 9765))
-        );
-        assert_eq!(
-            local_auto_gateway_target(&Endpoint::new("http://127.0.0.1:19001/")),
-            Some(("127.0.0.1".to_string(), 19001))
-        );
-    }
-
-    #[test]
-    fn local_auto_gateway_target_rejects_remote_or_non_http_targets() {
-        assert_eq!(
-            local_auto_gateway_target(&Endpoint::new("https://127.0.0.1:9765")),
-            None
-        );
-        assert_eq!(
-            local_auto_gateway_target(&Endpoint::new("http://192.0.2.10:9765")),
-            None
-        );
-    }
-
-    #[test]
     fn gateway_endpoint_for_command_only_covers_gateway_rest_commands() {
+        let local = GatewayTarget::Local;
+        let remote = GatewayTarget::Remote {
+            name: "pcA".to_string(),
+            endpoint: Endpoint::new(DEFAULT_BASE_URL),
+        };
         assert!(
             gateway_endpoint_for_command(
                 DEFAULT_BASE_URL,
@@ -1223,6 +1236,7 @@ mod tests {
                     limit: 5,
                     timeout_secs: 5,
                 },
+                &local,
             )
             .is_some()
         );
@@ -1235,10 +1249,13 @@ mod tests {
                     limit: 5,
                     timeout_secs: 5,
                 },
+                &local,
             )
             .is_none()
         );
-        assert!(gateway_endpoint_for_command(DEFAULT_BASE_URL, &Command::Health).is_some());
+        assert!(gateway_endpoint_for_command(DEFAULT_BASE_URL, &Command::Health, &local).is_some());
+        assert!(gateway_endpoint_for_command(DEFAULT_BASE_URL, &Command::List, &local).is_none());
+        assert!(gateway_endpoint_for_command(DEFAULT_BASE_URL, &Command::List, &remote).is_some());
         assert!(
             gateway_endpoint_for_command(
                 DEFAULT_BASE_URL,
@@ -1248,8 +1265,9 @@ mod tests {
                     instance_id: None,
                     limit: None,
                 },
+                &local,
             )
-            .is_some()
+            .is_none()
         );
         assert!(
             gateway_endpoint_for_command(
@@ -1257,8 +1275,9 @@ mod tests {
                 &Command::Describe {
                     tool_slug: "maya.abc12345.create_sphere".to_string(),
                 },
+                &local,
             )
-            .is_some()
+            .is_none()
         );
         assert!(
             gateway_endpoint_for_command(
@@ -1271,8 +1290,9 @@ mod tests {
                     activate_groups: None,
                     request_json: None,
                 },
+                &local,
             )
-            .is_some()
+            .is_none()
         );
         assert!(
             gateway_endpoint_for_command(
@@ -1284,8 +1304,9 @@ mod tests {
                     arguments_json: "{}".to_string(),
                     meta_json: None,
                 },
+                &local,
             )
-            .is_some()
+            .is_none()
         );
         assert!(
             gateway_endpoint_for_command(
@@ -1297,8 +1318,20 @@ mod tests {
                     timeout_secs: 30,
                     interval_secs: 1,
                 },
+                &local,
             )
-            .is_some()
+            .is_none()
+        );
+        assert!(
+            gateway_endpoint_for_command(
+                DEFAULT_BASE_URL,
+                &Command::ReloadSkills {
+                    dcc_type: Some("maya".to_string()),
+                    instance_id: Some("abc12345".to_string()),
+                },
+                &local,
+            )
+            .is_none()
         );
         assert!(
             gateway_endpoint_for_command(
@@ -1309,6 +1342,31 @@ mod tests {
                     expected_owner: Some("release-smoke-test".to_string()),
                     expected_session: Some("test".to_string()),
                 },
+                &local,
+            )
+            .is_none()
+        );
+        assert!(
+            gateway_endpoint_for_command(
+                DEFAULT_BASE_URL,
+                &Command::Search {
+                    query: Some("sphere".to_string()),
+                    dcc_type: None,
+                    instance_id: None,
+                    limit: None,
+                },
+                &remote,
+            )
+            .is_some()
+        );
+        assert!(
+            gateway_endpoint_for_command(
+                DEFAULT_BASE_URL,
+                &Command::ReloadSkills {
+                    dcc_type: Some("maya".to_string()),
+                    instance_id: Some("abc12345".to_string()),
+                },
+                &remote,
             )
             .is_some()
         );
@@ -1321,8 +1379,21 @@ mod tests {
                         current_version: Some("0.0.0".to_string()),
                     },
                 },
+                &local,
             )
             .is_some()
+        );
+        assert!(
+            gateway_endpoint_for_command(
+                DEFAULT_BASE_URL,
+                &Command::Doctor {
+                    registry_dir: None,
+                    gateway_host: "127.0.0.1".to_string(),
+                    gateway_port: 9765,
+                },
+                &local,
+            )
+            .is_none()
         );
         assert!(
             gateway_endpoint_for_command(
@@ -1330,6 +1401,7 @@ mod tests {
                 &Command::Marketplace {
                     action: MarketplaceAction::List,
                 },
+                &local,
             )
             .is_none()
         );
@@ -1337,16 +1409,54 @@ mod tests {
             gateway_endpoint_for_command(
                 DEFAULT_BASE_URL,
                 &Command::Gateway {
-                    action: Some(GatewayAction::Status {
+                    action: Some(GatewayAction::Status(GatewayStatusArgs {
                         host: "127.0.0.1".to_string(),
                         port: 9765,
                         registry_dir: None,
-                    }),
+                    })),
                     daemon: default_gateway_daemon_args(),
                 },
+                &local,
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn gateway_daemon_start_defaults_to_persistent_daemon() {
+        let args = Args::parse_from(["dcc-mcp-cli", "gateway", "daemon", "start"]);
+
+        let Command::Gateway {
+            action:
+                Some(GatewayAction::Daemon {
+                    action: GatewayDaemonAction::Start(start),
+                }),
+            ..
+        } = args.command
+        else {
+            panic!("expected gateway daemon start");
+        };
+
+        assert_eq!(start.gateway_idle_timeout_secs, 0);
+    }
+
+    #[test]
+    fn gateway_daemon_restart_defaults_to_persistent_daemon() {
+        let args = Args::parse_from(["dcc-mcp-cli", "gateway", "daemon", "restart"]);
+
+        let Command::Gateway {
+            action:
+                Some(GatewayAction::Daemon {
+                    action: GatewayDaemonAction::Restart(restart),
+                }),
+            ..
+        } = args.command
+        else {
+            panic!("expected gateway daemon restart");
+        };
+
+        assert_eq!(restart.start.gateway_idle_timeout_secs, 0);
+        assert_eq!(restart.stop_timeout_secs, 10);
     }
 
     fn default_gateway_daemon_args() -> dcc_mcp_sidecar::gateway_daemon::GatewayArgs {
