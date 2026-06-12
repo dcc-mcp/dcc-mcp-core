@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::Context;
+use dcc_mcp_transport::discovery::file_registry::FileRegistry;
+use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -110,31 +112,44 @@ pub async fn gateway_stop(
     args: &GatewayCtrlArgs,
     wait_timeout_secs: u64,
 ) -> anyhow::Result<GatewayStatus> {
-    let pid = gateway_ensure::read_pid_from_pidfile(Some(&args.pidfile));
-
     let status_before = gateway_status(args).await;
     if !status_before.running {
         return Ok(status_before);
     }
 
-    if let Some(pid) = pid
-        && gateway_ensure::is_process_alive(pid)
-    {
-        gateway_ensure::stop_process(pid)?;
-        // Wait for the health endpoint to go dark.
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(wait_timeout_secs);
-        loop {
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            if !gateway_ensure::gateway_health_ok(&args.host, args.port).await {
-                break;
-            }
-            if tokio::time::Instant::now() >= deadline {
-                anyhow::bail!(
-                    "gateway at {host}:{port} did not stop within {wait_timeout_secs}s",
-                    host = args.host,
-                    port = args.port
-                );
-            }
+    let Some(pid) = status_before.pid else {
+        anyhow::bail!(
+            "refusing to stop healthy gateway at {host}:{port}: pidfile {pidfile} is missing or invalid",
+            host = args.host,
+            port = args.port,
+            pidfile = args.pidfile.display()
+        );
+    };
+
+    if !gateway_ensure::is_process_alive(pid) {
+        anyhow::bail!(
+            "refusing to stop healthy gateway at {host}:{port}: pidfile {pidfile} contains stale pid {pid}",
+            host = args.host,
+            port = args.port,
+            pidfile = args.pidfile.display()
+        );
+    }
+
+    verify_gateway_pid_ownership(args, pid)?;
+    gateway_ensure::stop_process(pid)?;
+    // Wait for the health endpoint to go dark.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(wait_timeout_secs);
+    loop {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        if !gateway_ensure::gateway_health_ok(&args.host, args.port).await {
+            break;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            anyhow::bail!(
+                "gateway at {host}:{port} did not stop within {wait_timeout_secs}s",
+                host = args.host,
+                port = args.port
+            );
         }
     }
 
@@ -262,6 +277,104 @@ pub fn gateway_ctrl_args(
     }
 }
 
+fn verify_gateway_pid_ownership(args: &GatewayCtrlArgs, pid: u32) -> anyhow::Result<()> {
+    let registry = FileRegistry::new(args.registry_dir.clone()).with_context(|| {
+        format!(
+            "opening gateway FileRegistry at {}",
+            args.registry_dir.display()
+        )
+    })?;
+    let (entries, _) = registry
+        .read_alive()
+        .context("reading live gateway sentinel rows")?;
+    let sentinels: Vec<_> = entries
+        .into_iter()
+        .filter(|entry| entry.dcc_type == GATEWAY_SENTINEL_DCC_TYPE)
+        .collect();
+
+    if sentinels
+        .iter()
+        .filter(|entry| gateway_sentinel_targets(entry, &args.host, args.port))
+        .any(|entry| gateway_sentinel_pid(entry) == Some(pid))
+    {
+        return Ok(());
+    }
+
+    let observed = if sentinels.is_empty() {
+        "none".to_string()
+    } else {
+        sentinels
+            .iter()
+            .map(gateway_sentinel_summary)
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    anyhow::bail!(
+        "refusing to stop gateway at {host}:{port}: pidfile {pidfile} contains pid {pid}, but no live __gateway__ sentinel proves that PID owns this healthy endpoint. This usually means a stale pidfile or PID reuse; observed sentinels: {observed}",
+        host = args.host,
+        port = args.port,
+        pidfile = args.pidfile.display()
+    )
+}
+
+fn gateway_sentinel_targets(entry: &ServiceEntry, host: &str, port: u16) -> bool {
+    if entry.port == port && gateway_hosts_match(&entry.host, host) {
+        return true;
+    }
+    entry
+        .metadata
+        .get("gateway_health_url")
+        .is_some_and(|url| gateway_health_url_targets(url, host, port))
+}
+
+fn gateway_health_url_targets(url: &str, host: &str, port: u16) -> bool {
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    parsed.scheme() == "http"
+        && parsed.path() == "/health"
+        && parsed.port_or_known_default() == Some(port)
+        && parsed
+            .host_str()
+            .is_some_and(|actual| gateway_hosts_match(actual, host))
+}
+
+fn gateway_hosts_match(actual: &str, expected: &str) -> bool {
+    actual.eq_ignore_ascii_case(expected)
+        || (is_local_gateway_host(actual) && is_local_gateway_host(expected))
+}
+
+fn is_local_gateway_host(host: &str) -> bool {
+    matches!(
+        host.to_ascii_lowercase().as_str(),
+        "localhost" | "127.0.0.1" | "::1" | "0.0.0.0"
+    )
+}
+
+fn gateway_sentinel_pid(entry: &ServiceEntry) -> Option<u32> {
+    entry
+        .metadata
+        .get("gateway_process_pid")
+        .and_then(|value| value.parse::<u32>().ok())
+        .or(entry.pid)
+}
+
+fn gateway_sentinel_summary(entry: &ServiceEntry) -> String {
+    format!(
+        "{}:{} pid={} health_url={}",
+        entry.host,
+        entry.port,
+        gateway_sentinel_pid(entry)
+            .map(|pid| pid.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        entry
+            .metadata
+            .get("gateway_health_url")
+            .map(String::as_str)
+            .unwrap_or("unknown")
+    )
+}
+
 impl GatewayDaemonStartRequest {
     fn into_ctrl_args(self) -> GatewayCtrlArgs {
         let start_opts = GatewayStartOpts {
@@ -294,6 +407,7 @@ fn env_u64(name: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 
     #[test]
     fn local_auto_gateway_target_accepts_loopback_http() {
@@ -317,5 +431,81 @@ mod tests {
             local_auto_gateway_target(&Endpoint::new("http://192.0.2.10:9765")),
             None
         );
+    }
+
+    #[test]
+    fn gateway_pid_ownership_accepts_matching_live_sentinel() {
+        let dir = tempfile::tempdir().unwrap();
+        let args = gateway_ctrl_args(
+            "127.0.0.1".to_string(),
+            19765,
+            Some(dir.path().to_path_buf()),
+            None,
+        );
+        let pid = 42_424;
+        let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 19765);
+        sentinel.metadata.insert(
+            "gateway_health_url".to_string(),
+            "http://127.0.0.1:19765/health".to_string(),
+        );
+        sentinel
+            .metadata
+            .insert("gateway_process_pid".to_string(), pid.to_string());
+        let registry = FileRegistry::new(dir.path()).unwrap();
+        registry.register(sentinel).unwrap();
+
+        verify_gateway_pid_ownership(&args, pid).unwrap();
+    }
+
+    #[test]
+    fn gateway_pid_ownership_rejects_stale_pidfile_pid() {
+        let dir = tempfile::tempdir().unwrap();
+        let args = gateway_ctrl_args(
+            "127.0.0.1".to_string(),
+            19765,
+            Some(dir.path().to_path_buf()),
+            None,
+        );
+        let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 19765);
+        sentinel.metadata.insert(
+            "gateway_health_url".to_string(),
+            "http://127.0.0.1:19765/health".to_string(),
+        );
+        sentinel
+            .metadata
+            .insert("gateway_process_pid".to_string(), "99".to_string());
+        let registry = FileRegistry::new(dir.path()).unwrap();
+        registry.register(sentinel).unwrap();
+
+        let err = verify_gateway_pid_ownership(&args, 42).unwrap_err();
+        let message = err.to_string();
+        assert!(message.contains("refusing to stop gateway"));
+        assert!(message.contains("stale pidfile"));
+        assert!(message.contains("PID reuse"));
+    }
+
+    #[test]
+    fn gateway_pid_ownership_rejects_wrong_gateway_endpoint() {
+        let dir = tempfile::tempdir().unwrap();
+        let args = gateway_ctrl_args(
+            "127.0.0.1".to_string(),
+            19765,
+            Some(dir.path().to_path_buf()),
+            None,
+        );
+        let pid = 42;
+        let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 19766);
+        sentinel.metadata.insert(
+            "gateway_health_url".to_string(),
+            "http://127.0.0.1:19766/health".to_string(),
+        );
+        sentinel
+            .metadata
+            .insert("gateway_process_pid".to_string(), pid.to_string());
+        let registry = FileRegistry::new(dir.path()).unwrap();
+        registry.register(sentinel).unwrap();
+
+        let err = verify_gateway_pid_ownership(&args, pid).unwrap_err();
+        assert!(err.to_string().contains("no live __gateway__ sentinel"));
     }
 }
