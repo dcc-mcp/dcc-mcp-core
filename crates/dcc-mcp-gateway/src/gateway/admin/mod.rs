@@ -93,5 +93,7 @@ pub use workflows::{WorkflowDiscoverySummary, WorkflowStep, WorkflowView};
 #[cfg(feature = "admin")]
 pub use router::{build_admin_router, build_v1_debug_router};
 
+#[cfg(all(test, feature = "admin"))]
+mod marketplace_tests;
 #[cfg(test)]
 mod tests;
