@@ -1,3 +1,4 @@
+use std::fs;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -129,7 +130,12 @@ impl InstallService {
                 step.name
             );
 
-            match execute_action(action) {
+            let result = match action {
+                InstallStepAction::Verify => execute_verify(plan),
+                _ => execute_action(action),
+            };
+
+            match result {
                 Ok(rollback) => {
                     eprintln!("OK");
                     completed.push(StepResult {
@@ -177,7 +183,10 @@ fn execute_action(action: &InstallStepAction) -> Result<Option<StepRollback>, In
             dcc_type,
             entry_point,
         } => execute_register_dcc(dcc_type, entry_point.as_deref()),
-        InstallStepAction::Verify => execute_verify(),
+        InstallStepAction::Verify => Err(InstallError::StepFailed {
+            step: "verify".into(),
+            message: "verify requires the full install plan".into(),
+        }),
     }
 }
 
@@ -186,40 +195,63 @@ fn execute_pip_install(
     extras: Option<&[String]>,
     python: Option<&str>,
 ) -> Result<Option<StepRollback>, InstallError> {
-    let pip_cmd = python.unwrap_or("pip");
-    let mut cmd = Command::new(pip_cmd);
-    cmd.arg("-m").arg("pip").arg("install");
-
-    if extras.is_some_and(|e| !e.is_empty()) {
-        let pkg = format!("{}[{}]", package, extras.unwrap().join(","));
-        cmd.arg(&pkg);
-    } else {
-        cmd.arg(package);
-    }
+    let python_cmd = python.unwrap_or("python");
+    let mut cmd = Command::new(python_cmd);
+    cmd.args(pip_install_args(package, extras));
 
     let status = cmd.status().map_err(|e| InstallError::StepFailed {
         step: format!("pip-install-{package}"),
-        message: format!("failed to launch {pip_cmd}: {e}"),
+        message: format!("failed to launch {python_cmd}: {e}"),
     })?;
 
     if !status.success() {
         return Err(InstallError::StepFailed {
             step: format!("pip-install-{package}"),
-            message: format!("{pip_cmd} exited with {status}"),
+            message: format!("{python_cmd} exited with {status}"),
         });
     }
 
     // Rollback: pip uninstall
     Ok(Some(StepRollback::Command {
-        program: pip_cmd.to_string(),
-        args: vec![
-            "-m".into(),
-            "pip".into(),
-            "uninstall".into(),
-            "-y".into(),
-            package.to_string(),
-        ],
+        program: python_cmd.to_string(),
+        args: pip_uninstall_args(package),
     }))
+}
+
+fn pip_package_spec(package: &str, extras: Option<&[String]>) -> String {
+    if extras.is_some_and(|values| !values.is_empty()) {
+        format!("{}[{}]", package, extras.unwrap().join(","))
+    } else {
+        package.to_string()
+    }
+}
+
+fn pip_install_args(package: &str, extras: Option<&[String]>) -> Vec<String> {
+    vec![
+        "-m".into(),
+        "pip".into(),
+        "install".into(),
+        pip_package_spec(package, extras),
+    ]
+}
+
+fn pip_uninstall_args(package: &str) -> Vec<String> {
+    vec![
+        "-m".into(),
+        "pip".into(),
+        "uninstall".into(),
+        "-y".into(),
+        package.to_string(),
+    ]
+}
+
+fn pip_show_args(package: &str) -> Vec<String> {
+    vec![
+        "-m".into(),
+        "pip".into(),
+        "show".into(),
+        package.to_string(),
+    ]
 }
 
 fn execute_git_clone(
@@ -366,10 +398,56 @@ fn execute_register_dcc(
     Ok(None)
 }
 
-fn execute_verify() -> Result<Option<StepRollback>, InstallError> {
-    // Verification is currently a no-op placeholder.
-    // Future: call gateway health + instance discovery + smoke tests.
+fn execute_verify(plan: &InstallPlan) -> Result<Option<StepRollback>, InstallError> {
+    for step in &plan.steps {
+        let Some(action) = &step.action else {
+            continue;
+        };
+        match action {
+            InstallStepAction::GitClone { dest, .. }
+            | InstallStepAction::ZipExtract { dest, .. }
+            | InstallStepAction::PathCopy { dest, .. } => verify_installed_path(dest)?,
+            InstallStepAction::PipInstall {
+                package, python, ..
+            } => verify_pip_package(package, python.as_deref())?,
+            InstallStepAction::RegisterDcc { .. } | InstallStepAction::Verify => {}
+        }
+    }
     Ok(None)
+}
+
+fn verify_installed_path(path: &Path) -> Result<(), InstallError> {
+    if !path.exists() {
+        return Err(InstallError::StepFailed {
+            step: "verify".into(),
+            message: format!("installed path does not exist: {}", path.display()),
+        });
+    }
+    if path.is_dir() && fs::read_dir(path)?.next().is_none() {
+        return Err(InstallError::StepFailed {
+            step: "verify".into(),
+            message: format!("installed directory is empty: {}", path.display()),
+        });
+    }
+    Ok(())
+}
+
+fn verify_pip_package(package: &str, python: Option<&str>) -> Result<(), InstallError> {
+    let python_cmd = python.unwrap_or("python");
+    let status = Command::new(python_cmd)
+        .args(pip_show_args(package))
+        .status()
+        .map_err(|e| InstallError::StepFailed {
+            step: "verify".into(),
+            message: format!("failed to launch {python_cmd}: {e}"),
+        })?;
+    if !status.success() {
+        return Err(InstallError::StepFailed {
+            step: "verify".into(),
+            message: format!("{python_cmd} could not verify installed pip package '{package}'"),
+        });
+    }
+    Ok(())
 }
 
 // ── consent ──────────────────────────────────────────────────────────────────────
@@ -467,6 +545,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), InstallError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::install::InstallStep;
 
     #[test]
     fn service_uses_bundled_catalog_when_default_path_is_missing() {
@@ -529,9 +608,115 @@ mod tests {
     }
 
     #[test]
-    fn verify_is_noop() {
-        let result = execute_verify();
+    fn pip_install_uses_python_module_invocation() {
+        assert_eq!(
+            pip_install_args("dcc-mcp-maya", Some(&["maya".to_string()])),
+            vec![
+                "-m".to_string(),
+                "pip".to_string(),
+                "install".to_string(),
+                "dcc-mcp-maya[maya]".to_string(),
+            ]
+        );
+        assert_eq!(
+            pip_uninstall_args("dcc-mcp-maya"),
+            vec![
+                "-m".to_string(),
+                "pip".to_string(),
+                "uninstall".to_string(),
+                "-y".to_string(),
+                "dcc-mcp-maya".to_string(),
+            ]
+        );
+        assert_eq!(
+            pip_show_args("dcc-mcp-maya"),
+            vec![
+                "-m".to_string(),
+                "pip".to_string(),
+                "show".to_string(),
+                "dcc-mcp-maya".to_string(),
+            ]
+        );
+    }
+
+    fn verify_plan(action: InstallStepAction) -> InstallPlan {
+        InstallPlan {
+            dcc_type: "maya".into(),
+            version: None,
+            adapter: dcc_mcp_catalog::CatalogEntry {
+                name: "dcc-mcp-maya".into(),
+                description: "Maya adapter".into(),
+                dcc: vec!["maya".into()],
+                url: None,
+                tags: vec![],
+                version: None,
+                min_core_version: None,
+                install: None,
+                maintainer: None,
+                icon: None,
+            },
+            steps: vec![
+                InstallStep {
+                    name: "install".into(),
+                    description: "Install adapter".into(),
+                    action: Some(action),
+                },
+                InstallStep {
+                    name: "verify".into(),
+                    description: "Verify adapter".into(),
+                    action: Some(InstallStepAction::Verify),
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn verify_accepts_non_empty_installed_path() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let source = tmp.path().join("source");
+        let dest = tmp.path().join("dest");
+        fs::create_dir_all(&dest).unwrap();
+        fs::write(dest.join("adapter.txt"), "installed").unwrap();
+
+        let result = execute_verify(&verify_plan(InstallStepAction::PathCopy { source, dest }));
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn verify_rejects_missing_installed_path() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let source = tmp.path().join("source");
+        let dest = tmp.path().join("missing");
+
+        let err = execute_verify(&verify_plan(InstallStepAction::PathCopy {
+            source,
+            dest: dest.clone(),
+        }))
+        .unwrap_err();
+        assert!(
+            matches!(&err, InstallError::StepFailed { step, message }
+                if step == "verify" && message.contains(&dest.display().to_string())),
+            "expected verify StepFailed, got {err}"
+        );
+    }
+
+    #[test]
+    fn verify_rejects_empty_installed_directory() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let source = tmp.path().join("source");
+        let dest = tmp.path().join("empty");
+        fs::create_dir_all(&dest).unwrap();
+
+        let err = execute_verify(&verify_plan(InstallStepAction::PathCopy {
+            source,
+            dest: dest.clone(),
+        }))
+        .unwrap_err();
+        assert!(
+            matches!(&err, InstallError::StepFailed { step, message }
+                if step == "verify" && message.contains("installed directory is empty")),
+            "expected verify StepFailed, got {err}"
+        );
     }
 }

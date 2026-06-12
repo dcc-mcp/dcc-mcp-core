@@ -21,8 +21,8 @@ impl UpdateService {
 
     /// Check for available updates. Returns the result as a JSON Value.
     pub async fn check_update(&self) -> anyhow::Result<Value> {
-        let info = self.updater.check_update().await?;
-        Ok(serde_json::to_value(&info)?)
+        let payload = self.updater.check_update_json().await?;
+        Ok(payload.body)
     }
 
     /// Check for and apply an update (download + stage for next launch).

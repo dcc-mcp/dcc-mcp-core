@@ -2,220 +2,431 @@
   padding: var(--panel-padding);
 }
 
-.integrations-grid {
+.integrations-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 16px;
-  margin-top: 16px;
+  gap: 0.625rem;
+  margin-top: 1rem;
+}
+
+.integration-list-item {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
 }
 
 .integration-card {
+  --integration-accent: var(--muted-foreground);
+  background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card-bg);
-  transition: border-color 0.15s, box-shadow 0.15s;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  color: var(--card-foreground);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.integration-card[data-status="active"] {
+  --integration-accent: var(--primary);
+}
+
+.integration-card[data-status="pending_restart"] {
+  --integration-accent: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 34%, var(--border));
 }
 
 .integration-card:hover {
-  border-color: var(--primary);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  border-color: color-mix(in srgb, var(--ring) 30%, var(--border));
+  box-shadow: var(--shadow);
 }
 
-.integration-card.pending-restart {
-  border-color: var(--warn);
+.integration-card.is-editing {
+  border-color: color-mix(in srgb, var(--ring) 44%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 14%, transparent);
 }
 
 .integration-card-body {
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  align-items: center;
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: minmax(13rem, 0.62fr) minmax(15rem, 1fr) minmax(18rem, 0.9fr) auto;
+  min-width: 0;
+  padding: 0.75rem 0.85rem;
 }
 
 .integration-card-head {
-  display: flex;
   align-items: center;
-  gap: 12px;
+  display: flex;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.integration-card-icon-wrap {
+  align-items: center;
+  background: color-mix(in srgb, var(--integration-accent) 9%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--integration-accent) 26%, var(--border));
+  border-radius: var(--radius);
+  color: var(--integration-accent);
+  display: inline-flex;
+  flex-shrink: 0;
+  height: 2.25rem;
+  justify-content: center;
+  width: 2.25rem;
 }
 
 .integration-card-icon {
-  width: 32px;
-  height: 32px;
-  flex-shrink: 0;
-  fill: var(--primary);
+  height: 1.05rem;
+  width: 1.05rem;
 }
 
 .integration-card-name {
-  font-size: 16px;
-  font-weight: 600;
-  margin: 0 0 4px;
+  color: var(--card-foreground);
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 0 0 0.3rem;
 }
 
 .integration-card-desc {
-  font-size: 13px;
-  color: var(--text-muted);
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
   line-height: 1.5;
   margin: 0;
+  min-width: 0;
 }
 
 .integration-config-preview {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px;
-  background: var(--bg-muted);
-  border-radius: 6px;
-  font-size: 13px;
+  background: color-mix(in srgb, var(--muted) 74%, var(--card));
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 0.52rem 0.62rem;
 }
 
 .integration-config-field {
-  display: flex;
-  gap: 8px;
+  align-items: baseline;
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: minmax(6rem, max-content) minmax(0, 1fr);
+  min-width: 0;
 }
 
 .integration-config-field strong {
-  min-width: 80px;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-muted);
+  color: var(--muted-foreground);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0;
 }
 
-.integration-restart-badge {
-  align-self: flex-start;
+.integration-config-value {
+  background: transparent;
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.integration-placeholder-hint {
-  font-size: 13px;
-  color: var(--text-muted);
-  font-style: italic;
-  margin: 0;
+.integration-config-value.muted {
+  color: var(--muted-foreground);
+  font-family: var(--font-sans);
+  font-style: normal;
 }
 
 .integration-card-actions {
   display: flex;
-  gap: 8px;
-  margin-top: 4px;
+  justify-content: flex-end;
+  min-width: max-content;
 }
 
-.integration-edit-overlay {
-  margin-top: 16px;
-  display: flex;
-  justify-content: center;
+.integration-action-button {
+  min-width: 4.5rem;
+}
+
+.integration-edit-panel {
+  display: grid;
+  margin: 0;
+  min-width: 0;
 }
 
 .integration-edit-form {
-  width: 100%;
-  max-width: 560px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card-bg);
-  padding: 24px;
+  background: var(--card);
+  border: 1px solid color-mix(in srgb, var(--ring) 28%, var(--border));
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  color: var(--card-foreground);
+  max-width: none;
+  padding: 0.95rem;
+  width: auto;
 }
 
 .integration-edit-head {
-  display: flex;
   align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 0.75rem;
   justify-content: space-between;
-  margin-bottom: 20px;
+  margin-bottom: 1rem;
+  padding-bottom: 0.85rem;
 }
 
 .integration-edit-head h3 {
+  color: var(--card-foreground);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.25;
   margin: 0;
-  font-size: 18px;
-  font-weight: 600;
+}
+
+.integration-config-path-note {
+  align-items: baseline;
+  background: color-mix(in srgb, var(--muted) 82%, var(--card));
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--muted-foreground);
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: max-content minmax(0, 1fr);
+  margin-bottom: 1rem;
+  padding: 0.55rem 0.7rem;
+}
+
+.integration-config-path-note span {
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.integration-config-path-note code {
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .integration-edit-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  display: grid;
+  gap: 0.875rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .integration-edit-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.integration-edit-field.is-textarea {
+  grid-column: 1 / -1;
 }
 
 .integration-edit-field label {
-  font-size: 13px;
-  font-weight: 500;
-  display: flex;
   align-items: center;
-  gap: 8px;
+  color: var(--foreground);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  gap: 0.5rem;
 }
 
-.integration-edit-field input {
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: 14px;
+.integration-edit-field input,
+.integration-edit-field textarea {
+  background: var(--background);
+  border: 1px solid var(--input);
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--foreground);
   font-family: var(--font-mono);
-  background: var(--bg);
-  color: var(--text);
-  transition: border-color 0.15s;
+  font-size: 0.875rem;
+  min-height: 2.25rem;
+  padding: 0.5rem 0.7rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  width: 100%;
 }
 
-.integration-edit-field input:focus {
+.integration-edit-field textarea {
+  line-height: 1.45;
+  min-height: 8.5rem;
+  resize: vertical;
+}
+
+.integration-template-token-strip {
+  align-items: start;
+  background: color-mix(in srgb, var(--muted) 70%, var(--card));
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: max-content minmax(0, 1fr);
+  padding: 0.55rem 0.6rem;
+}
+
+.integration-template-token-strip > span {
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.65rem;
+  white-space: nowrap;
+}
+
+.integration-template-token-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.integration-template-token {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  height: 1.65rem;
+  min-width: auto;
+  padding: 0 0.45rem;
+}
+
+.integration-edit-field input:focus,
+.integration-edit-field textarea:focus {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 22%, transparent);
   outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 30%, transparent);
 }
 
-.integration-edit-field input:disabled {
-  background: var(--bg-muted);
-  color: var(--text-muted);
+.integration-edit-field input:disabled,
+.integration-edit-field textarea:disabled {
+  background: var(--muted);
+  color: var(--muted-foreground);
   cursor: not-allowed;
+  opacity: 0.8;
 }
 
-.integration-edit-field.env-locked input {
-  border-style: dashed;
+.integration-edit-field[data-invalid="true"] input,
+.integration-edit-field[data-invalid="true"] textarea {
+  border-color: var(--destructive);
+}
+
+.integration-edit-field[data-invalid="true"] input:focus,
+.integration-edit-field[data-invalid="true"] textarea:focus {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--destructive) 18%, transparent);
+}
+
+.integration-edit-field.env-locked input,
+.integration-edit-field.env-locked textarea {
+  border-color: color-mix(in srgb, var(--ring) 28%, var(--border));
+}
+
+.integration-edit-field.secret-override input::placeholder,
+.integration-edit-field.secret-override textarea::placeholder {
+  color: var(--muted-foreground);
 }
 
 .integration-edit-field.dsn-masked input {
-  font-family: var(--font-mono);
-  letter-spacing: 2px;
-}
-
-.integration-edit-field.has-error input {
-  border-color: var(--err);
+  letter-spacing: 0.08em;
 }
 
 .integration-env-lock-tag {
-  font-size: 11px;
-  background: var(--bg-muted);
+  background: var(--secondary);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 1px 6px;
-  color: var(--text-muted);
+  border-radius: calc(var(--radius) - 3px);
+  color: var(--muted-foreground);
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1;
+  padding: 0.18rem 0.38rem;
 }
 
-.integration-env-hint {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin: 2px 0 0;
+.integration-env-hint,
+.integration-field-help {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  margin: 0;
 }
 
 .integration-env-hint code {
   font-family: var(--font-mono);
-  font-size: 11px;
-}
-
-.integration-field-help {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin: 2px 0 0;
+  font-size: 0.72rem;
 }
 
 .integration-field-error {
-  font-size: 12px;
-  color: var(--err);
-  margin: 2px 0 0;
+  color: var(--destructive);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  margin: 0;
 }
 
 .integration-edit-actions {
+  align-items: center;
   display: flex;
-  gap: 8px;
-  margin-top: 20px;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-start;
+  margin-top: 1rem;
+}
+
+@media (max-width: 1120px) {
+  .integration-card-body {
+    align-items: start;
+    grid-template-columns: minmax(12rem, 0.8fr) minmax(16rem, 1fr);
+  }
+
+  .integration-card-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 720px) {
+  .integration-card-body {
+    gap: 0.65rem;
+    grid-template-columns: 1fr;
+    padding: 0.75rem;
+  }
+
+  .integration-edit-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .integration-card-desc {
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    display: -webkit-box;
+    overflow: hidden;
+  }
+
+  .integration-config-preview {
+    gap: 0.28rem;
+    padding: 0.48rem 0.55rem;
+  }
+
+  .integration-config-field {
+    gap: 0.45rem;
+    grid-template-columns: minmax(4.5rem, max-content) minmax(0, 1fr);
+  }
+
+  .integration-config-field strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .integration-config-path-note {
+    grid-template-columns: 1fr;
+  }
+
+  .integration-template-token-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .integration-template-token-strip > span {
+    line-height: 1.2;
+  }
+
+  .integration-card-actions,
+  .integration-action-button {
+    width: 100%;
+  }
 }

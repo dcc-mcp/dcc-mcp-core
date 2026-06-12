@@ -15,6 +15,7 @@ mod admin_tests {
     use tokio::sync::{RwLock, broadcast, oneshot, watch};
     use tower::ServiceExt;
 
+    use crate::gateway::admin::handlers::INTEGRATIONS_TEST_ENV_LOCK;
     use dcc_mcp_gateway_core::naming::instance_short;
 
     use crate::gateway::admin::router::{build_admin_router, build_v1_debug_router};
@@ -31,6 +32,8 @@ mod admin_tests {
 
     /// Marketplace install/uninstall tests mutate `DCC_MCP_MARKETPLACE_INSTALL_ROOT`.
     static MARKETPLACE_ENV_LOCK: Mutex<()> = Mutex::new(());
+    /// Update staging tests mutate platform data-dir env vars.
+    static UPDATE_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     struct ScopedNoDiskLogsDir {
         previous: Option<String>,
@@ -103,6 +106,15 @@ mod admin_tests {
         previous_no_default_sources: Option<String>,
     }
 
+    struct ScopedIntegrationEnv {
+        previous: Vec<(&'static str, Option<String>)>,
+    }
+
+    struct ScopedUpdateDataDir {
+        previous: Vec<(&'static str, Option<String>)>,
+        _dir: tempfile::TempDir,
+    }
+
     impl ScopedMarketplaceInstallRoot {
         fn new(root: &std::path::Path) -> Self {
             let previous = std::env::var("DCC_MCP_MARKETPLACE_INSTALL_ROOT").ok();
@@ -134,6 +146,115 @@ mod admin_tests {
                 match &self.previous_no_default_sources {
                     Some(v) => std::env::set_var("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", v),
                     None => std::env::remove_var("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES"),
+                }
+            }
+        }
+    }
+
+    impl ScopedIntegrationEnv {
+        fn new(values: &[(&'static str, Option<&str>)]) -> Self {
+            const KEYS: &[&str] = &[
+                "DCC_MCP_SENTRY_DSN",
+                "DCC_MCP_SENTRY_ENVIRONMENT",
+                "DCC_MCP_SENTRY_RELEASE",
+                "DCC_MCP_SENTRY_SAMPLE_RATE",
+                "DCC_MCP_ETC_DIR",
+                "DCC_MCP_WEBHOOKS_CONFIG",
+                "DCC_MCP_WECOM_WEBHOOK_URL",
+                "DCC_MCP_WECOM_EVENTS",
+                "DCC_MCP_WECOM_TEMPLATE",
+                "OTEL_EXPORTER_OTLP_ENDPOINT",
+                "OTEL_SERVICE_NAME",
+                "OTEL_EXPORTER_OTLP_HEADERS",
+            ];
+            let previous = KEYS
+                .iter()
+                .map(|key| (*key, std::env::var(key).ok()))
+                .collect::<Vec<_>>();
+            // SAFETY: tests using these vars are serialized by `INTEGRATIONS_TEST_ENV_LOCK`.
+            unsafe {
+                for key in KEYS {
+                    std::env::remove_var(key);
+                }
+                for (key, value) in values {
+                    match value {
+                        Some(value) => std::env::set_var(key, value),
+                        None => std::env::remove_var(key),
+                    }
+                }
+            }
+            Self { previous }
+        }
+    }
+
+    impl Drop for ScopedIntegrationEnv {
+        fn drop(&mut self) {
+            // SAFETY: same as `new` — guarded by the test mutex.
+            unsafe {
+                for (key, value) in &self.previous {
+                    match value {
+                        Some(value) => std::env::set_var(key, value),
+                        None => std::env::remove_var(key),
+                    }
+                }
+            }
+        }
+    }
+
+    impl ScopedUpdateDataDir {
+        fn new() -> Self {
+            const KEYS: &[&str] = &["APPDATA", "XDG_DATA_HOME", "HOME"];
+            let previous = KEYS
+                .iter()
+                .map(|key| (*key, std::env::var(key).ok()))
+                .collect::<Vec<_>>();
+            let dir = tempfile::tempdir().unwrap();
+            let p = dir.path().to_string_lossy().to_string();
+            // SAFETY: tests using these vars are serialized by `UPDATE_ENV_LOCK`.
+            unsafe {
+                std::env::set_var("APPDATA", &p);
+                std::env::set_var("XDG_DATA_HOME", &p);
+                std::env::set_var("HOME", &p);
+            }
+            Self {
+                previous,
+                _dir: dir,
+            }
+        }
+
+        fn root(&self) -> &std::path::Path {
+            self._dir.path()
+        }
+
+        fn pending_marker(&self, binary_name: &str) -> std::path::PathBuf {
+            #[cfg(target_os = "macos")]
+            {
+                self.root()
+                    .join("Library")
+                    .join("Application Support")
+                    .join("update")
+                    .join(binary_name)
+                    .join("pending.marker")
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                self.root()
+                    .join("update")
+                    .join(binary_name)
+                    .join("pending.marker")
+            }
+        }
+    }
+
+    impl Drop for ScopedUpdateDataDir {
+        fn drop(&mut self) {
+            // SAFETY: same as `new` — guarded by the test mutex.
+            unsafe {
+                for (key, value) in &self.previous {
+                    match value {
+                        Some(value) => std::env::set_var(key, value),
+                        None => std::env::remove_var(key),
+                    }
                 }
             }
         }
@@ -212,6 +333,42 @@ mod admin_tests {
                 Request::builder()
                     .uri(uri)
                     .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = resp.status();
+        let bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let json: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+        (status, json)
+    }
+
+    async fn put_json(router: Router, uri: &str, payload: Value) -> (StatusCode, Value) {
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(uri)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(axum::body::Body::from(payload.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = resp.status();
+        let bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let json: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+        (status, json)
+    }
+
+    async fn post_json(router: Router, uri: &str, payload: Value) -> (StatusCode, Value) {
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(uri)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(axum::body::Body::from(payload.to_string()))
                     .unwrap(),
             )
             .await
@@ -424,6 +581,103 @@ filters:
         (port, tx)
     }
 
+    async fn spawn_update_manifest(manifest: Value) -> (String, oneshot::Sender<()>) {
+        let app = Router::new().route(
+            "/manifest.json",
+            axum::routing::get(move || {
+                let manifest = manifest.clone();
+                async move { axum::Json(manifest) }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!(
+            "http://127.0.0.1:{}/manifest.json",
+            listener.local_addr().unwrap().port()
+        );
+        let (tx, rx) = oneshot::channel::<()>();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = rx.await;
+                })
+                .await;
+        });
+        (url, tx)
+    }
+
+    async fn spawn_update_manifest_with_binary(
+        version: &'static str,
+        binary_body: &'static [u8],
+    ) -> (String, oneshot::Sender<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let download_url = format!("http://127.0.0.1:{port}/dcc-mcp-server.bin");
+        let manifest = json!({
+            "dcc-mcp-server": {
+                "version": version,
+                "url": download_url,
+                "sha256": null,
+                "release_notes": "Server update"
+            }
+        });
+        let app = Router::new()
+            .route(
+                "/manifest.json",
+                axum::routing::get(move || {
+                    let manifest = manifest.clone();
+                    async move { axum::Json(manifest) }
+                }),
+            )
+            .route(
+                "/dcc-mcp-server.bin",
+                axum::routing::get(move || {
+                    let body = binary_body.to_vec();
+                    async move { ([(header::CONTENT_TYPE, "application/octet-stream")], body) }
+                }),
+            );
+        let url = format!("http://127.0.0.1:{port}/manifest.json");
+        let (tx, rx) = oneshot::channel::<()>();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = rx.await;
+                })
+                .await;
+        });
+        (url, tx)
+    }
+
+    async fn spawn_update_manifest_response(
+        status: StatusCode,
+        content_type: &'static str,
+        body: &'static str,
+    ) -> (String, oneshot::Sender<()>) {
+        let app = Router::new().route(
+            "/manifest.json",
+            axum::routing::get(move || async move {
+                axum::response::Response::builder()
+                    .status(status)
+                    .header(header::CONTENT_TYPE, content_type)
+                    .body(axum::body::Body::from(body))
+                    .unwrap()
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!(
+            "http://127.0.0.1:{}/manifest.json",
+            listener.local_addr().unwrap().port()
+        );
+        let (tx, rx) = oneshot::channel::<()>();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = rx.await;
+                })
+                .await;
+        });
+        (url, tx)
+    }
+
     async fn spawn_skill_detail_backend(hits: Value, detail: Value) -> (u16, oneshot::Sender<()>) {
         let app = Router::new()
             .route("/health", axum::routing::get(|| async { StatusCode::OK }))
@@ -512,6 +766,416 @@ filters:
         (status, ct, body)
     }
 
+    // ── Integrations API ─────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn integrations_endpoint_reports_real_env_and_config_state() {
+        let _lock = INTEGRATIONS_TEST_ENV_LOCK.lock();
+        let dir = tempfile::tempdir().unwrap();
+        let webhooks_path = dir.path().join("webhooks.yaml");
+        let etc_dir = dir.path().join("etc");
+        std::fs::write(
+            &webhooks_path,
+            r#"
+webhooks:
+  - name: audit
+    url: http://127.0.0.1:9/webhook
+    events: ["tool.*"]
+"#,
+        )
+        .unwrap();
+        let webhooks_path_s = webhooks_path.to_string_lossy().to_string();
+        let etc_dir_s = etc_dir.to_string_lossy().to_string();
+        let write_path = etc_dir.join("webhooks.yaml");
+        let write_path_s = write_path.to_string_lossy().to_string();
+        let _env = ScopedIntegrationEnv::new(&[
+            (
+                "DCC_MCP_SENTRY_DSN",
+                Some("https://abc123@sentry.example/42"),
+            ),
+            ("DCC_MCP_SENTRY_ENVIRONMENT", Some("ci")),
+            ("DCC_MCP_ETC_DIR", Some(&etc_dir_s)),
+            ("DCC_MCP_WEBHOOKS_CONFIG", Some(&webhooks_path_s)),
+            ("OTEL_EXPORTER_OTLP_ENDPOINT", Some("http://127.0.0.1:4317")),
+        ]);
+
+        let (status, json) = body_json(admin_router(), "/api/integrations").await;
+        assert_eq!(status, StatusCode::OK);
+        let integrations = json["integrations"].as_array().unwrap();
+        assert_eq!(integrations.len(), 4);
+
+        let sentry = integrations
+            .iter()
+            .find(|entry| entry["kind"] == "sentry")
+            .unwrap();
+        assert_eq!(sentry["status"], "active");
+        assert_eq!(sentry["config"]["environment"], "ci");
+        assert!(
+            sentry["config"]["dsn"]
+                .as_str()
+                .unwrap()
+                .contains("********")
+        );
+        assert!(
+            sentry["env_locked_fields"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|field| field["key"] == "dsn" && field["locked"] == true)
+        );
+
+        let webhooks = integrations
+            .iter()
+            .find(|entry| entry["kind"] == "webhooks")
+            .unwrap();
+        assert_eq!(webhooks["status"], "active");
+        assert_eq!(webhooks["config"]["config_path"], webhooks_path_s);
+        assert_eq!(webhooks["config"]["write_config_path"], write_path_s);
+        assert_eq!(webhooks["config"]["webhook_count"], 1);
+
+        let otlp = integrations
+            .iter()
+            .find(|entry| entry["kind"] == "otlp")
+            .unwrap();
+        assert_eq!(otlp["status"], "active");
+        assert_eq!(otlp["config"]["endpoint"], "http://127.0.0.1:4317");
+
+        let wecom = integrations
+            .iter()
+            .find(|entry| entry["kind"] == "wecom")
+            .unwrap();
+        assert_eq!(wecom["status"], "inactive");
+    }
+
+    #[tokio::test]
+    async fn v1_debug_integrations_mirrors_admin_integrations() {
+        let _lock = INTEGRATIONS_TEST_ENV_LOCK.lock();
+        let _env = ScopedIntegrationEnv::new(&[(
+            "DCC_MCP_WECOM_WEBHOOK_URL",
+            Some("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123"),
+        )]);
+
+        let (status, json) = body_json(
+            build_v1_debug_router(AdminState::new(make_gateway_state())),
+            "/v1/debug/integrations",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let integrations = json["integrations"].as_array().unwrap();
+        assert_eq!(integrations.len(), 4);
+        let wecom = integrations
+            .iter()
+            .find(|entry| entry["kind"] == "wecom")
+            .unwrap();
+        assert_eq!(wecom["status"], "active");
+        assert_eq!(
+            wecom["config"]["webhook_url"],
+            "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=********"
+        );
+    }
+
+    #[tokio::test]
+    async fn integrations_put_stages_pending_restart_config() {
+        let _lock = INTEGRATIONS_TEST_ENV_LOCK.lock();
+        let _env = ScopedIntegrationEnv::new(&[]);
+        let router = admin_router();
+
+        let (status, updated) = put_json(
+            router.clone(),
+            "/api/integrations",
+            json!({
+                "kind": "otlp",
+                "config": {
+                    "endpoint": "http://collector.local:4317",
+                    "service_name": "dcc-mcp-gateway"
+                }
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(updated["kind"], "otlp");
+        assert_eq!(updated["status"], "pending_restart");
+        assert_eq!(updated["config"]["endpoint"], "http://collector.local:4317");
+
+        let (status, json) = body_json(router, "/api/integrations").await;
+        assert_eq!(status, StatusCode::OK);
+        let otlp = json["integrations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["kind"] == "otlp")
+            .unwrap();
+        assert_eq!(otlp["status"], "pending_restart");
+        assert_eq!(otlp["config"]["service_name"], "dcc-mcp-gateway");
+    }
+
+    #[tokio::test]
+    async fn integrations_put_overlays_pending_config_on_env_backed_integration() {
+        let _lock = INTEGRATIONS_TEST_ENV_LOCK.lock();
+        let _env = ScopedIntegrationEnv::new(&[
+            (
+                "DCC_MCP_SENTRY_DSN",
+                Some("https://abc123@sentry.example/42"),
+            ),
+            ("DCC_MCP_SENTRY_ENVIRONMENT", Some("ci")),
+        ]);
+        let router = admin_router();
+
+        let (status, updated) = put_json(
+            router.clone(),
+            "/api/integrations",
+            json!({
+                "kind": "sentry",
+                "config": {
+                    "environment": "staging"
+                }
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(updated["kind"], "sentry");
+        assert_eq!(updated["status"], "pending_restart");
+        assert_eq!(updated["config"]["environment"], "staging");
+        assert!(
+            updated["config"]["dsn"]
+                .as_str()
+                .unwrap()
+                .contains("********")
+        );
+
+        let (status, json) = body_json(router, "/api/integrations").await;
+        assert_eq!(status, StatusCode::OK);
+        let sentry = json["integrations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["kind"] == "sentry")
+            .unwrap();
+        assert_eq!(sentry["status"], "pending_restart");
+        assert_eq!(sentry["config"]["environment"], "staging");
+        assert!(
+            sentry["env_locked_fields"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|field| field["key"] == "dsn" && field["locked"] == true)
+        );
+    }
+
+    #[tokio::test]
+    async fn integrations_put_stages_wecom_message_push_config() {
+        let _lock = INTEGRATIONS_TEST_ENV_LOCK.lock();
+        let dir = tempfile::tempdir().unwrap();
+        let etc_dir = dir.path().to_string_lossy().to_string();
+        let _env = ScopedIntegrationEnv::new(&[("DCC_MCP_ETC_DIR", Some(&etc_dir))]);
+        let router = admin_router();
+
+        let (status, updated) = put_json(
+            router.clone(),
+            "/api/integrations",
+            json!({
+                "kind": "wecom",
+                "config": {
+                    "webhook_url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123",
+                    "event_types": "tool.failed, gateway.instance.*",
+                    "template": "DCC-MCP $event\nDCC: $dcc-type\nURL: $url"
+                }
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(updated["kind"], "wecom");
+        assert_eq!(updated["status"], "pending_restart");
+        assert_eq!(
+            updated["config"]["webhook_url"],
+            "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=********"
+        );
+        assert_eq!(updated["config"]["event_types"][0], "tool.failed");
+        assert_eq!(updated["config"]["event_types"][1], "gateway.instance.*");
+        assert_eq!(
+            updated["config"]["template"],
+            "DCC-MCP $event\nDCC: $dcc-type\nURL: $url"
+        );
+        let saved = std::fs::read_to_string(dir.path().join("webhooks.yaml")).unwrap();
+        assert!(saved.contains("wecom-message-push"));
+        assert!(saved.contains("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123"));
+        assert!(saved.contains("gateway.instance.*"));
+
+        let (status, invalid) = put_json(
+            router,
+            "/api/integrations",
+            json!({
+                "kind": "wecom",
+                "config": {
+                    "webhook_url": "not-a-url"
+                }
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(invalid["error"], "invalid_integration_config");
+    }
+
+    #[tokio::test]
+    async fn integrations_put_persists_webhooks_yaml_to_local_etc() {
+        let _lock = INTEGRATIONS_TEST_ENV_LOCK.lock();
+        let dir = tempfile::tempdir().unwrap();
+        let etc_dir = dir.path().to_string_lossy().to_string();
+        let _env = ScopedIntegrationEnv::new(&[("DCC_MCP_ETC_DIR", Some(&etc_dir))]);
+        let router = admin_router();
+
+        let config_text = r#"
+webhooks:
+  - name: notify
+    url: http://127.0.0.1:9000/hook
+    events: ["tool.failed"]
+"#;
+        let (status, updated) = put_json(
+            router.clone(),
+            "/api/integrations",
+            json!({
+                "kind": "webhooks",
+                "config": {
+                    "config_text": config_text
+                }
+            }),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(updated["kind"], "webhooks");
+        assert_eq!(updated["status"], "pending_restart");
+        let saved_path = dir.path().join("webhooks.yaml");
+        assert_eq!(
+            updated["config"]["config_path"].as_str(),
+            Some(saved_path.to_string_lossy().as_ref())
+        );
+        assert_eq!(updated["config"]["webhook_count"], 1);
+        assert_eq!(
+            std::fs::read_to_string(&saved_path).unwrap(),
+            format!("{}\n", config_text.trim())
+        );
+
+        let (status, json) = body_json(router, "/api/integrations").await;
+        assert_eq!(status, StatusCode::OK);
+        let webhooks = json["integrations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["kind"] == "webhooks")
+            .unwrap();
+        assert_eq!(webhooks["status"], "pending_restart");
+        assert_eq!(webhooks["config"]["webhook_count"], 1);
+        assert!(
+            webhooks["config"]["config_text"]
+                .as_str()
+                .unwrap()
+                .contains("name: notify")
+        );
+    }
+
+    #[tokio::test]
+    async fn integrations_put_webhooks_prefers_local_etc_over_runtime_env_path() {
+        let _lock = INTEGRATIONS_TEST_ENV_LOCK.lock();
+        let dir = tempfile::tempdir().unwrap();
+        let etc_dir = dir.path().join("etc");
+        let runtime_path = dir.path().join("runtime").join("webhooks.yaml");
+        let etc_dir_s = etc_dir.to_string_lossy().to_string();
+        let runtime_path_s = runtime_path.to_string_lossy().to_string();
+        let _env = ScopedIntegrationEnv::new(&[
+            ("DCC_MCP_ETC_DIR", Some(&etc_dir_s)),
+            ("DCC_MCP_WEBHOOKS_CONFIG", Some(&runtime_path_s)),
+        ]);
+        let router = admin_router();
+
+        let config_text = r#"
+webhooks:
+  - name: local-notify
+    url: http://127.0.0.1:9000/hook
+    events: ["tool.failed"]
+"#;
+        let (status, updated) = put_json(
+            router,
+            "/api/integrations",
+            json!({
+                "kind": "webhooks",
+                "config": {
+                    "config_text": config_text
+                }
+            }),
+        )
+        .await;
+
+        let saved_path = etc_dir.join("webhooks.yaml");
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            updated["config"]["config_path"].as_str(),
+            Some(saved_path.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            updated["config"]["write_config_path"].as_str(),
+            Some(saved_path.to_string_lossy().as_ref())
+        );
+        assert!(saved_path.exists());
+        assert!(!runtime_path.exists());
+    }
+
+    #[tokio::test]
+    async fn integrations_put_persists_sentry_and_otlp_json_to_local_etc() {
+        let _lock = INTEGRATIONS_TEST_ENV_LOCK.lock();
+        let dir = tempfile::tempdir().unwrap();
+        let etc_dir = dir.path().to_string_lossy().to_string();
+        let _env = ScopedIntegrationEnv::new(&[("DCC_MCP_ETC_DIR", Some(&etc_dir))]);
+        let router = admin_router();
+
+        let (status, sentry) = put_json(
+            router.clone(),
+            "/api/integrations",
+            json!({
+                "kind": "sentry",
+                "config": {
+                    "dsn": "https://abc123@sentry.example/42",
+                    "environment": "studio",
+                    "sample_rate": 0.5
+                }
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(sentry["status"], "pending_restart");
+        assert_eq!(
+            sentry["config"]["dsn"],
+            "https://********@sentry.example/42"
+        );
+        let sentry_path = dir.path().join("sentry.json");
+        let sentry_file: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&sentry_path).unwrap()).unwrap();
+        assert_eq!(sentry_file["dsn"], "https://abc123@sentry.example/42");
+        assert_eq!(sentry_file["environment"], "studio");
+
+        let (status, otlp) = put_json(
+            router,
+            "/api/integrations",
+            json!({
+                "kind": "otlp",
+                "config": {
+                    "endpoint": "http://collector.local:4317",
+                    "service_name": "dcc-mcp-gateway",
+                    "headers": "authorization=Bearer token"
+                }
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(otlp["status"], "pending_restart");
+        assert_eq!(otlp["config"]["endpoint"], "http://collector.local:4317");
+        let otlp_path = dir.path().join("otlp.json");
+        let otlp_file: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&otlp_path).unwrap()).unwrap();
+        assert_eq!(otlp_file["service_name"], "dcc-mcp-gateway");
+        assert_eq!(otlp_file["headers"], "authorization=Bearer token");
+    }
+
     // ── HTML dashboard ────────────────────────────────────────────────────
 
     #[tokio::test]
@@ -539,7 +1203,13 @@ filters:
         assert!(doc["paths"].get("/v1/debug/instances").is_some());
         assert!(doc["paths"].get("/v1/debug/traffic").is_some());
         assert!(doc["paths"].get("/v1/debug/traffic/export").is_some());
+        assert!(doc["paths"].get("/v1/debug/workflows").is_some());
+        assert!(doc["paths"].get("/v1/debug/analytics/overview").is_some());
+        assert!(doc["paths"].get("/v1/debug/analytics/timeseries").is_some());
+        assert!(doc["paths"].get("/v1/debug/analytics/heatmap").is_some());
+        assert!(doc["paths"].get("/v1/debug/analytics/export").is_some());
         assert!(doc["paths"].get("/v1/debug/deregistered").is_some());
+        assert!(doc["paths"].get("/v1/debug/integrations").is_some());
     }
 
     #[tokio::test]
@@ -2060,6 +2730,14 @@ filters:
         assert_eq!(health_status, StatusCode::OK);
         assert_eq!(health_body["version"], "0.0.0-test");
 
+        let (integrations_status, integrations_body) =
+            body_json(v1_router.clone(), "/v1/debug/integrations").await;
+        assert_eq!(integrations_status, StatusCode::OK);
+        assert_eq!(
+            integrations_body["integrations"].as_array().unwrap().len(),
+            4
+        );
+
         let (v1_status, v1_body) =
             body_json(v1_router.clone(), "/v1/debug/bundles/trace-task").await;
         assert_eq!(v1_status, StatusCode::OK);
@@ -2507,6 +3185,147 @@ filters:
         assert_eq!(limited_status, StatusCode::OK);
         assert_eq!(limited_body["logs"].as_array().unwrap().len(), 1);
         assert_eq!(limited_body["total"], 1);
+    }
+
+    fn analytics_audit_record(
+        request_id: &str,
+        action: &str,
+        instance_id: Option<&str>,
+        agent_id: Option<&str>,
+        success: bool,
+    ) -> AdminAuditRecord {
+        AdminAuditRecord {
+            timestamp: std::time::SystemTime::now()
+                .checked_sub(Duration::from_secs(60))
+                .unwrap(),
+            request_id: request_id.to_string(),
+            trace_id: Some(format!("trace-{request_id}")),
+            span_id: None,
+            parent_span_id: None,
+            method: Some("tools/call".to_string()),
+            instance_id: instance_id.map(str::to_string),
+            session_id: None,
+            transport: Some("rest".to_string()),
+            agent_id: agent_id.map(str::to_string),
+            agent_name: agent_id.map(|id| format!("Agent {id}")),
+            agent_model: None,
+            actor_id: None,
+            actor_name: None,
+            actor_email_hash: None,
+            client_platform: None,
+            client_os: None,
+            client_host: None,
+            auth_subject: None,
+            source_ip: None,
+            attribution_trust: None,
+            parent_request_id: None,
+            action: action.to_string(),
+            dcc_type: Some("maya".to_string()),
+            success,
+            error: (!success).then(|| "boom".to_string()),
+            duration_ms: Some(42),
+            token_accounting: Some(token_telemetry("json", 100, 40)),
+            llm_usage: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_admin_analytics_overview_returns_unique_counts() {
+        let audit: AuditLog = Mutex::new(vec![
+            analytics_audit_record(
+                "analytics-1",
+                "maya.inst-a.scene__info",
+                Some("inst-a"),
+                Some("agent-a"),
+                true,
+            ),
+            analytics_audit_record(
+                "analytics-2",
+                "maya.inst-b.scene__info",
+                Some("inst-b"),
+                Some("agent-a"),
+                false,
+            ),
+            analytics_audit_record(
+                "analytics-3",
+                "maya.inst-b.scene__info",
+                Some("inst-b"),
+                None,
+                true,
+            ),
+        ]);
+        let state = AdminState::new(make_gateway_state()).with_audit_log(Arc::new(audit));
+        let router = build_admin_router(state);
+
+        let (status, body) = body_json(router, "/api/analytics/overview?range=7d").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["kpi"]["calls_total"], 3);
+        assert_eq!(body["kpi"]["calls_failed"], 1);
+        assert_eq!(body["kpi"]["unique_instances"], 2);
+        assert_eq!(body["kpi"]["unique_agents"], 1);
+        assert_eq!(body["daily_series"][0]["max_duration_ms"], 42);
+    }
+
+    #[tokio::test]
+    async fn test_admin_analytics_csv_export_escapes_cells() {
+        let audit: AuditLog = Mutex::new(vec![analytics_audit_record(
+            "analytics-csv-1",
+            "=cmd,tool\nline",
+            Some("inst-a"),
+            Some("@agent-a"),
+            true,
+        )]);
+        let state = AdminState::new(make_gateway_state()).with_audit_log(Arc::new(audit));
+        let router = build_admin_router(state);
+
+        let (status, _headers, body) = body_text_with_accept(
+            router,
+            "/api/analytics/export?range=7d&format=csv",
+            "text/csv",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.starts_with("request_id,timestamp,action,dcc_type"));
+        assert!(
+            body.contains("\"'=cmd,tool\nline\""),
+            "expected formula-prefixed and quoted action cell, got:\n{body}"
+        );
+        assert!(
+            body.contains("'@agent-a"),
+            "expected formula-prefixed agent id, got:\n{body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_v1_debug_analytics_export_mirrors_admin_export() {
+        let audit: AuditLog = Mutex::new(vec![analytics_audit_record(
+            "analytics-v1-csv-1",
+            "maya.inst.scene__info",
+            Some("inst-a"),
+            Some("agent-a"),
+            true,
+        )]);
+        let state = AdminState::new(make_gateway_state()).with_audit_log(Arc::new(audit));
+        let router = build_v1_debug_router(state);
+
+        let (status, headers, body) = body_text_with_accept(
+            router,
+            "/v1/debug/analytics/export?range=7d&format=csv",
+            "text/csv",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| value.starts_with("text/csv")),
+        );
+        assert!(body.starts_with("request_id,timestamp,action,dcc_type"));
+        assert!(body.contains("analytics-v1-csv-1"));
     }
 
     // ── unknown routes ────────────────────────────────────────────────────
@@ -3048,6 +3867,230 @@ filters:
         assert_eq!(workers[0]["dispatch_status"], "unavailable");
         assert_eq!(workers[0]["dispatch_ready"], false);
         assert_eq!(body["summary"]["unhealthy"].as_u64(), Some(1));
+    }
+
+    #[tokio::test]
+    async fn test_admin_instance_update_reports_missing_manifest_config() {
+        let gs = make_gateway_state();
+        let instance_id = {
+            let reg = gs.registry.write().await;
+            let entry = make_service_entry("maya", "127.0.0.1", 18813, Some(4242));
+            let instance_id = entry.instance_id.to_string();
+            reg.register(entry).unwrap();
+            instance_id
+        };
+
+        let state = AdminState::new(gs);
+        let router = build_admin_router(state);
+        let (status, body) = post_json(
+            router,
+            &format!("/api/instances/{instance_id}/update"),
+            json!({ "apply": true }),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+        assert_eq!(body["status"], "not_configured");
+        assert_eq!(body["binary_name"], "dcc-mcp-server");
+        assert_eq!(body["current_version"], "0.3.0");
+        assert_eq!(body["current_version_source"], "adapter_version");
+        assert_eq!(body["requires_restart"], false);
+    }
+
+    #[tokio::test]
+    async fn test_admin_instance_update_checks_manifest_without_manual_cli() {
+        let (manifest_url, shutdown) = spawn_update_manifest(json!({
+            "dcc-mcp-server": {
+                "version": "0.3.0",
+                "url": null,
+                "sha256": null,
+                "release_notes": "Already current"
+            }
+        }))
+        .await;
+
+        let mut gs = make_gateway_state();
+        gs.update_manifest_url = Some(manifest_url);
+        let instance_id = {
+            let reg = gs.registry.write().await;
+            let entry = make_service_entry("maya", "127.0.0.1", 18813, Some(4242));
+            let instance_id = entry.instance_id.to_string();
+            reg.register(entry).unwrap();
+            instance_id
+        };
+
+        let state = AdminState::new(gs);
+        let router = build_admin_router(state);
+        let (status, body) = post_json(
+            router,
+            &format!("/api/instances/{instance_id}/update"),
+            json!({ "apply": true }),
+        )
+        .await;
+        let _ = shutdown.send(());
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["status"], "up_to_date");
+        assert_eq!(body["update_available"], false);
+        assert_eq!(body["current_version"], "0.3.0");
+        assert_eq!(body["latest_version"], "0.3.0");
+        assert_eq!(body["requires_restart"], false);
+    }
+
+    #[tokio::test]
+    async fn test_admin_instance_update_reports_missing_download_url() {
+        let (manifest_url, shutdown) = spawn_update_manifest(json!({
+            "dcc-mcp-server": {
+                "version": "0.4.0",
+                "url": null,
+                "sha256": null,
+                "release_notes": "Update metadata without a downloadable binary"
+            }
+        }))
+        .await;
+
+        let mut gs = make_gateway_state();
+        gs.update_manifest_url = Some(manifest_url);
+        let instance_id = {
+            let reg = gs.registry.write().await;
+            let entry = make_service_entry("maya", "127.0.0.1", 18813, Some(4242));
+            let instance_id = entry.instance_id.to_string();
+            reg.register(entry).unwrap();
+            instance_id
+        };
+
+        let state = AdminState::new(gs);
+        let router = build_admin_router(state);
+        let (status, body) = post_json(
+            router,
+            &format!("/api/instances/{instance_id}/update"),
+            json!({ "apply": true }),
+        )
+        .await;
+        let _ = shutdown.send(());
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["status"], "download_failed");
+        assert_eq!(body["error"], "download_url_not_configured");
+        assert_eq!(body["binary_name"], "dcc-mcp-server");
+        assert_eq!(body["current_version"], "0.3.0");
+        assert_eq!(body["latest_version"], "0.4.0");
+        assert_eq!(body["update_available"], true);
+        assert_eq!(body["requires_restart"], false);
+    }
+
+    #[tokio::test]
+    async fn test_admin_instance_update_can_check_without_staging() {
+        let (manifest_url, shutdown) =
+            spawn_update_manifest_with_binary("0.4.0", b"server-binary").await;
+
+        let mut gs = make_gateway_state();
+        gs.update_manifest_url = Some(manifest_url);
+        let instance_id = {
+            let reg = gs.registry.write().await;
+            let entry = make_service_entry("maya", "127.0.0.1", 18813, Some(4242));
+            let instance_id = entry.instance_id.to_string();
+            reg.register(entry).unwrap();
+            instance_id
+        };
+
+        let state = AdminState::new(gs);
+        let router = build_admin_router(state);
+        let (status, body) = post_json(
+            router,
+            &format!("/api/instances/{instance_id}/update"),
+            json!({ "apply": false }),
+        )
+        .await;
+        let _ = shutdown.send(());
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["status"], "available");
+        assert_eq!(body["binary_name"], "dcc-mcp-server");
+        assert_eq!(body["current_version"], "0.3.0");
+        assert_eq!(body["latest_version"], "0.4.0");
+        assert_eq!(body["update_available"], true);
+        assert_eq!(body["requires_restart"], false);
+    }
+
+    #[tokio::test]
+    async fn test_admin_instance_update_stages_server_binary() {
+        let _guard = UPDATE_ENV_LOCK.lock();
+        let data_dir = ScopedUpdateDataDir::new();
+        let (manifest_url, shutdown) =
+            spawn_update_manifest_with_binary("0.4.0", b"server-binary").await;
+
+        let mut gs = make_gateway_state();
+        gs.update_manifest_url = Some(manifest_url);
+        let instance_id = {
+            let reg = gs.registry.write().await;
+            let entry = make_service_entry("maya", "127.0.0.1", 18813, Some(4242));
+            let instance_id = entry.instance_id.to_string();
+            reg.register(entry).unwrap();
+            instance_id
+        };
+
+        let state = AdminState::new(gs);
+        let router = build_admin_router(state);
+        let (status, body) = post_json(
+            router,
+            &format!("/api/instances/{instance_id}/update"),
+            json!({ "apply": true }),
+        )
+        .await;
+        let _ = shutdown.send(());
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["status"], "staged");
+        assert_eq!(body["binary_name"], "dcc-mcp-server");
+        assert_eq!(body["current_version"], "0.3.0");
+        assert_eq!(body["latest_version"], "0.4.0");
+        assert_eq!(body["update_available"], true);
+        assert_eq!(body["requires_restart"], true);
+        assert!(
+            data_dir.pending_marker("dcc-mcp-server").exists(),
+            "staging should write the pending update marker"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_admin_instance_update_reports_manifest_http_error() {
+        let (manifest_url, shutdown) = spawn_update_manifest_response(
+            StatusCode::NOT_FOUND,
+            "text/html",
+            "<!doctype html><title>missing</title>",
+        )
+        .await;
+
+        let mut gs = make_gateway_state();
+        gs.update_manifest_url = Some(manifest_url);
+        let instance_id = {
+            let reg = gs.registry.write().await;
+            let entry = make_service_entry("maya", "127.0.0.1", 18813, Some(4242));
+            let instance_id = entry.instance_id.to_string();
+            reg.register(entry).unwrap();
+            instance_id
+        };
+
+        let state = AdminState::new(gs);
+        let router = build_admin_router(state);
+        let (status, body) = post_json(
+            router,
+            &format!("/api/instances/{instance_id}/update"),
+            json!({ "apply": true }),
+        )
+        .await;
+        let _ = shutdown.send(());
+
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        assert_eq!(body["status"], "manifest_error");
+        assert_eq!(body["binary_name"], "dcc-mcp-server");
+        assert!(
+            body["message"]
+                .as_str()
+                .is_some_and(|detail| detail.contains("404"))
+        );
+        assert_eq!(body["requires_restart"], false);
     }
 
     #[tokio::test]

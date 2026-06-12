@@ -110,11 +110,82 @@ that returned normally is treated as successful.
 ### Standalone Server Webhooks
 
 `dcc-mcp-server` can forward structured EventBus envelopes to HTTP webhooks.
-Set `DCC_MCP_WEBHOOKS_CONFIG` to a YAML file containing `webhooks` entries with
-`name`, `url`, `events`, optional `headers`, optional `delivery` retry
-settings, optional dotted-path `filters`, and optional `payload_template`.
-Delivery is asynchronous and bounded; when all attempts fail the server emits
-`webhook.delivery_failed` on the same EventBus.
+Set `DCC_MCP_WEBHOOKS_CONFIG` to a YAML file, or place
+`webhooks.yaml` under `~/dcc-mcp/etc` (`DCC_MCP_ETC_DIR` overrides that
+directory). The Admin UI Integrations panel writes the local file path and marks
+the integration as `pending_restart` because webhook runtimes are loaded when
+the server starts.
+
+Each `webhooks` entry supports `name`, `url`, `events`, optional `kind`,
+optional `headers`, optional `delivery` retry settings, optional dotted-path
+`filters`, and optional `payload_template`. Delivery is asynchronous and
+bounded; when all attempts fail the server emits `webhook.delivery_failed` on
+the same EventBus.
+
+:::: v-pre
+
+```yaml
+queue_capacity: 1024
+webhooks:
+  - name: studio-events
+    url: https://ops.example.invalid/dcc-mcp-events
+    events:
+      - tool.failed
+      - gateway.instance.*
+    headers:
+      authorization: Bearer ${DCC_EVENTS_TOKEN}
+    filters:
+      - source.dcc_type: maya
+    delivery:
+      attempts: 3
+      timeout_ms: 2000
+      backoff_ms: [200, 1000, 5000]
+    payload_template: |
+      {"event":"{{name}}","tool":"{{attributes.tool_slug}}","dcc":"{{source.dcc_type}}"}
+```
+
+::::
+
+`payload_template` resolves `&#123;&#123;path.to.field&#125;&#125;` placeholders against the
+structured event envelope. Omit it to send the full envelope as JSON.
+
+### WeCom Message Push
+
+Enterprise WeChat group robots can be configured as webhook entries with
+`kind: wecom`. The runtime sends markdown payloads in the format expected by
+the robot endpoint.
+
+```yaml
+webhooks:
+  - name: wecom-message-push
+    kind: wecom
+    url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=${WECOM_ROBOT_KEY}
+    events:
+      - tool.failed
+      - webhook.delivery_failed
+    message_template: |
+      DCC-MCP $event
+      DCC: $dcc-type
+      Tool: $tool-slug
+      URL: $url
+```
+
+`message_template` supports both <code v-pre>{{source.dcc_type}}</code> envelope paths and
+dollar variables. Built-in variables include `$event`, `$event-id`,
+`$dcc-type`, `$instance-id`, `$tool-slug`, `$skill-name`, and `$url`.
+
+You can also enable the same integration without YAML:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DCC_MCP_WECOM_WEBHOOK_URL` | disabled | Enterprise WeChat group robot webhook URL |
+| `DCC_MCP_WECOM_EVENTS` | `tool.failed, webhook.delivery_failed` | Comma or newline separated event patterns |
+| `DCC_MCP_WECOM_TEMPLATE` | built-in markdown template | Message body with `$...` variables |
+
+When configured from the Admin UI, WeCom is saved as the
+`wecom-message-push` entry in the shared local `webhooks.yaml`. Saving it
+preserves unrelated webhook entries and replaces only an existing `kind: wecom`
+or `name: wecom-message-push` entry.
 
 ---
 

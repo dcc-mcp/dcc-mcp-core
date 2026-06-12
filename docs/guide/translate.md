@@ -32,7 +32,7 @@ dcc-mcp-server translate \
 | `--restart-on-exit <bool>` | `true` | Restart the stdio process if it exits; pass `false` to disable supervisor mode |
 | `--max-restarts <N>` | `10` | Max supervisor restart attempts before giving up; `0` = unlimited |
 | `--gateway-port <N>` | `9765` | Gateway port for registration competition; `0` disables gateway/admin |
-| `--no-admin` | `false` | Disable the read-only Admin UI on the elected gateway |
+| `--no-admin` | `false` | Disable the Admin UI on the elected gateway |
 | `--admin-path <path>` | `/admin` | Admin UI URL prefix |
 | `--stale-timeout-secs <N>` | `30` | Gateway election stale timeout |
 | `--registry-dir <path>` | auto | Custom registry directory |

@@ -66,6 +66,28 @@ pub(crate) fn add_gateway_debug_openapi_paths(doc: &mut Value) {
         json!({"type": "string", "enum": ["1h", "24h", "7d", "all"]}),
         "Aggregation range.",
     ));
+    let analytics_range_param = query_param(
+        "range",
+        json!({"type": "string", "enum": ["7d", "30d", "90d", "180d", "365d"]}),
+        "Analytics aggregation range. Defaults to 30d.",
+    );
+    let analytics_range_params = vec![analytics_range_param.clone()];
+    let analytics_timeseries_params = vec![
+        analytics_range_param.clone(),
+        query_param(
+            "granularity",
+            json!({"type": "string", "enum": ["day", "hour"]}),
+            "Aggregation granularity. Defaults to day.",
+        ),
+    ];
+    let analytics_export_params = vec![
+        analytics_range_param.clone(),
+        query_param(
+            "format",
+            json!({"type": "string", "enum": ["json", "csv"]}),
+            "Export format. json returns newline-delimited JSON; csv returns a CSV file.",
+        ),
+    ];
 
     for (path, summary, description, params, compact_capable) in [
         (
@@ -154,6 +176,13 @@ pub(crate) fn add_gateway_debug_openapi_paths(doc: &mut Value) {
             false,
         ),
         (
+            "/v1/debug/workflows",
+            "List agent workflows",
+            "Stable agent-facing workflow/session projection from retained search telemetry, traces, and audits.",
+            list_params.clone(),
+            false,
+        ),
+        (
             "/v1/debug/bundles/{request_id}",
             "Get a debug bundle",
             "Full-chain debug bundle by request id or trace id. Set Accept: application/toon for a compact public-safe summary with links to the full JSON bundle.",
@@ -204,6 +233,27 @@ pub(crate) fn add_gateway_debug_openapi_paths(doc: &mut Value) {
             true,
         ),
         (
+            "/v1/debug/analytics/overview",
+            "Get analytics overview",
+            "Stable analytics KPI summary for gateway dashboard and agent diagnostics.",
+            analytics_range_params.clone(),
+            false,
+        ),
+        (
+            "/v1/debug/analytics/timeseries",
+            "Get analytics time series",
+            "Stable analytics time series for calls, tokens, average duration, and maximum duration.",
+            analytics_timeseries_params,
+            false,
+        ),
+        (
+            "/v1/debug/analytics/heatmap",
+            "Get analytics heatmap",
+            "Stable analytics weekday-by-hour heatmap compatibility endpoint.",
+            analytics_range_params,
+            false,
+        ),
+        (
             "/v1/debug/governance",
             "Get traffic governance state",
             "Effective gateway policy, traffic capture, redaction, middleware controls, and recent allow/deny/throttle decisions.",
@@ -215,6 +265,13 @@ pub(crate) fn add_gateway_debug_openapi_paths(doc: &mut Value) {
             "Get search-quality telemetry",
             "Recent prompt-safe search records and aggregate search-to-describe/load/call hit-rate metrics.",
             limit_params.clone(),
+            false,
+        ),
+        (
+            "/v1/debug/integrations",
+            "Get integration configuration state",
+            "Stable agent-facing alias for the Admin integrations summary: Sentry, webhooks, WeCom message push, OTLP, and pending-restart state with secrets masked.",
+            Vec::new(),
             false,
         ),
         (
@@ -240,6 +297,21 @@ pub(crate) fn add_gateway_debug_openapi_paths(doc: &mut Value) {
             limit_params.clone(),
             "application/x-ndjson",
             json!({"type": "string", "format": "binary"}),
+        ),
+    );
+    paths.insert(
+        "/v1/debug/analytics/export".to_string(),
+        debug_get_path_with_contents(
+            "Export analytics rows",
+            "Download retained analytics audit rows as newline-delimited JSON or CSV.",
+            analytics_export_params,
+            vec![
+                (
+                    "application/x-ndjson",
+                    json!({"type": "string", "format": "binary"}),
+                ),
+                ("text/csv", json!({"type": "string", "format": "binary"})),
+            ],
         ),
     );
 
@@ -308,8 +380,25 @@ fn debug_get_path_with_content(
     content_type: &str,
     schema: Value,
 ) -> Value {
+    debug_get_path_with_contents(
+        summary,
+        description,
+        parameters,
+        vec![(content_type, schema)],
+    )
+}
+
+#[cfg(feature = "admin")]
+fn debug_get_path_with_contents(
+    summary: &str,
+    description: &str,
+    parameters: Vec<Value>,
+    contents: Vec<(&str, Value)>,
+) -> Value {
     let mut content = Map::new();
-    content.insert(content_type.to_string(), json!({ "schema": schema }));
+    for (content_type, schema) in contents {
+        content.insert(content_type.to_string(), json!({ "schema": schema }));
+    }
     json!({
         "get": {
             "tags": ["debug"],

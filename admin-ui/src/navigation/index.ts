@@ -5,6 +5,16 @@ import { API_BASE } from '../platform';
 // ── Panel definitions ────────────────────────────────────────────────────────
 
 export type PanelDefinition = { id: Panel; labelKey: MessageKey; groupKey: MessageKey };
+export type NavigationDefinition = {
+  id: string;
+  icon: Panel;
+  panel: Panel;
+  labelKey: MessageKey;
+  groupKey: MessageKey;
+  discoverTab?: 'skills' | 'marketplace' | 'integrations';
+  overviewTab?: 'stats' | 'traffic';
+  tracesTab?: 'traces' | 'calls';
+};
 
 export const PANELS: PanelDefinition[] = [
   { id: 'setup', labelKey: 'navigation.panel.setup', groupKey: 'navigation.group.onboarding' },
@@ -22,6 +32,27 @@ export const PANELS: PanelDefinition[] = [
   { id: 'logs', labelKey: 'navigation.panel.logs', groupKey: 'navigation.group.observability' },
   { id: 'analytics', labelKey: 'navigation.panel.analytics', groupKey: 'navigation.group.insights' },
   { id: 'overview', labelKey: 'navigation.panel.overview', groupKey: 'navigation.group.insights' },
+];
+
+export const NAVIGATION: NavigationDefinition[] = [
+  { id: 'setup', icon: 'setup', panel: 'setup', labelKey: 'navigation.panel.setup', groupKey: 'navigation.group.connectOperate' },
+  { id: 'instances', icon: 'instances', panel: 'instances', labelKey: 'navigation.panel.instances', groupKey: 'navigation.group.connectOperate' },
+  { id: 'health', icon: 'health', panel: 'health', labelKey: 'navigation.panel.health', groupKey: 'navigation.group.connectOperate' },
+  { id: 'debug', icon: 'debug', panel: 'debug', labelKey: 'navigation.panel.debug', groupKey: 'navigation.group.connectOperate' },
+  { id: 'skills', icon: 'skill-paths', panel: 'discover', discoverTab: 'skills', labelKey: 'navigation.panel.skills', groupKey: 'navigation.group.discoverExtend' },
+  { id: 'marketplace', icon: 'marketplace', panel: 'discover', discoverTab: 'marketplace', labelKey: 'navigation.panel.marketplace', groupKey: 'navigation.group.discoverExtend' },
+  { id: 'integrations', icon: 'integrations', panel: 'discover', discoverTab: 'integrations', labelKey: 'navigation.panel.integrations', groupKey: 'navigation.group.discoverExtend' },
+  { id: 'tools', icon: 'tools', panel: 'tools', labelKey: 'navigation.panel.tools', groupKey: 'navigation.group.discoverExtend' },
+  { id: 'workflows', icon: 'workflows', panel: 'workflows', labelKey: 'navigation.panel.workflows', groupKey: 'navigation.group.workflows' },
+  { id: 'tasks', icon: 'tasks', panel: 'tasks', labelKey: 'navigation.panel.tasks', groupKey: 'navigation.group.workflows' },
+  { id: 'activity', icon: 'activity', panel: 'activity', labelKey: 'navigation.panel.activity', groupKey: 'navigation.group.workflows' },
+  { id: 'traces', icon: 'traces', panel: 'traces', tracesTab: 'traces', labelKey: 'navigation.panel.traces', groupKey: 'navigation.group.observe' },
+  { id: 'calls', icon: 'calls', panel: 'traces', tracesTab: 'calls', labelKey: 'navigation.panel.calls', groupKey: 'navigation.group.observe' },
+  { id: 'overview', icon: 'overview', panel: 'overview', labelKey: 'navigation.panel.overview', groupKey: 'navigation.group.observe' },
+  { id: 'logs', icon: 'logs', panel: 'logs', labelKey: 'navigation.panel.logs', groupKey: 'navigation.group.observe' },
+  { id: 'analytics', icon: 'analytics', panel: 'analytics', labelKey: 'navigation.panel.analytics', groupKey: 'navigation.group.insights' },
+  { id: 'governance', icon: 'governance', panel: 'governance', labelKey: 'navigation.panel.governance', groupKey: 'navigation.group.governContracts' },
+  { id: 'openapi', icon: 'openapi', panel: 'openapi', labelKey: 'navigation.panel.openapi', groupKey: 'navigation.group.governContracts' },
 ];
 
 export const PANEL_ID_SET = new Set<Panel>(PANELS.map((p) => p.id));
@@ -49,6 +80,21 @@ export const PANEL_ALIAS_MAP: Record<string, Panel> = {
   stats: 'overview',
   traffic: 'overview',
   calls: 'traces',
+};
+
+const PANEL_ALIAS_DISCOVER_TAB: Record<string, 'skills' | 'marketplace' | 'integrations'> = {
+  'skill-paths': 'skills',
+  marketplace: 'marketplace',
+  integrations: 'integrations',
+};
+
+const PANEL_ALIAS_OVERVIEW_TAB: Record<string, 'stats' | 'traffic'> = {
+  stats: 'stats',
+  traffic: 'traffic',
+};
+
+const PANEL_ALIAS_TRACES_TAB: Record<string, 'traces' | 'calls'> = {
+  calls: 'calls',
 };
 
 export function isPanelId(value: string | null | undefined): value is Panel {
@@ -95,18 +141,44 @@ export function adminShellPath(): string {
 
 // ── URL helpers ───────────────────────────────────────────────────────────────
 
-export function hrefForAdmin(panel: Panel, extra?: Record<string, string | undefined>): string {
+export type AdminLinkExtra = Record<string, string | undefined>;
+
+export function canonicalAdminPanelTarget(panel: Panel, extra?: AdminLinkExtra): { panel: Panel; extra: AdminLinkExtra } {
+  const nextExtra: AdminLinkExtra = { ...(extra ?? {}) };
+  if (!(panel in PANEL_ALIAS_MAP)) {
+    return { panel, extra: nextExtra };
+  }
+
+  const raw = panel as string;
+  const resolved = PANEL_ALIAS_MAP[raw];
+  const discoverTab = PANEL_ALIAS_DISCOVER_TAB[raw];
+  if (discoverTab && nextExtra.discoverTab == null) {
+    nextExtra.discoverTab = discoverTab;
+  }
+  const overviewTab = PANEL_ALIAS_OVERVIEW_TAB[raw];
+  if (overviewTab && nextExtra.overviewTab == null) {
+    nextExtra.overviewTab = overviewTab;
+  }
+  const tracesTab = PANEL_ALIAS_TRACES_TAB[raw];
+  if (tracesTab && nextExtra.tracesTab == null) {
+    nextExtra.tracesTab = tracesTab;
+  }
+  return { panel: resolved, extra: nextExtra };
+}
+
+export function hrefForAdmin(panel: Panel, extra?: AdminLinkExtra): string {
+  const target = canonicalAdminPanelTarget(panel, extra);
   const u = new URL(`${window.location.origin}${adminShellPath()}`);
-  u.searchParams.set('panel', panel);
-  if (extra) {
-    for (const [k, v] of Object.entries(extra)) {
+  u.searchParams.set('panel', target.panel);
+  if (target.extra) {
+    for (const [k, v] of Object.entries(target.extra)) {
       if (v != null && v !== '') u.searchParams.set(k, v);
     }
   }
   return `${u.pathname}${u.search}`;
 }
 
-export function fullHrefForAdmin(panel: Panel, extra?: Record<string, string | undefined>): string {
+export function fullHrefForAdmin(panel: Panel, extra?: AdminLinkExtra): string {
   return new URL(hrefForAdmin(panel, extra), window.location.origin).toString();
 }
 
@@ -141,7 +213,7 @@ export function traceLinks(requestId: string, provided?: AdminLinks): AdminLinks
     openapi_inspector_url: provided?.openapi_inspector_url ?? fullHrefForAdmin('openapi'),
     openapi_spec_url: provided?.openapi_spec_url ?? gatewayOpenApiHref(),
     openapi_docs_url: provided?.openapi_docs_url ?? gatewayDocsHref(),
-    stats_url: provided?.stats_url ?? fullHrefForAdmin('stats', { range: readStatsRangeFromUrl() }),
+    stats_url: provided?.stats_url ?? fullHrefForAdmin('overview', { range: readStatsRangeFromUrl(), overviewTab: 'stats' }),
     admin_traces_url: provided?.admin_traces_url ?? fullHrefForAdmin('traces'),
   };
 }
@@ -192,6 +264,12 @@ export function readPanelFromUrl(): Panel {
     const resolved = PANEL_ALIAS_MAP[raw];
     // Self-heal the URL: redirect old name to canonical name via history replace.
     u.searchParams.set('panel', resolved);
+    const discoverTab = PANEL_ALIAS_DISCOVER_TAB[raw];
+    if (discoverTab) u.searchParams.set('discoverTab', discoverTab);
+    const overviewTab = PANEL_ALIAS_OVERVIEW_TAB[raw];
+    if (overviewTab) u.searchParams.set('overviewTab', overviewTab);
+    const tracesTab = PANEL_ALIAS_TRACES_TAB[raw];
+    if (tracesTab) u.searchParams.set('tracesTab', tracesTab);
     window.history.replaceState(null, '', `${u.pathname}${u.search}`);
     return resolved;
   }

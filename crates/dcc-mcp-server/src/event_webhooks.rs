@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -11,13 +11,19 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 const ENV_WEBHOOKS_CONFIG: &str = "DCC_MCP_WEBHOOKS_CONFIG";
+const ENV_DCC_MCP_ETC_DIR: &str = "DCC_MCP_ETC_DIR";
+const ENV_WECOM_WEBHOOK_URL: &str = "DCC_MCP_WECOM_WEBHOOK_URL";
+const ENV_WECOM_EVENTS: &str = "DCC_MCP_WECOM_EVENTS";
+const ENV_WECOM_TEMPLATE: &str = "DCC_MCP_WECOM_TEMPLATE";
 const DEFAULT_QUEUE_CAPACITY: usize = 1024;
 const DEFAULT_ATTEMPTS: usize = 3;
 const DEFAULT_TIMEOUT_MS: u64 = 2_000;
 const DEFAULT_BACKOFF_MS: &[u64] = &[200, 1_000, 5_000];
 const DELIVERY_FAILED_EVENT: &str = "webhook.delivery_failed";
+const DEFAULT_WECOM_TEMPLATE: &str = "DCC-MCP $event\nDCC: $dcc-type\nTool: $tool-slug\nURL: $url";
+const DEFAULT_WEBHOOKS_CONFIG_FILE: &str = "webhooks.yaml";
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct WebhookConfigDocument {
     #[serde(default = "default_queue_capacity")]
     queue_capacity: usize,
@@ -30,6 +36,8 @@ struct WebhookConfig {
     name: String,
     url: String,
     #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
     events: Vec<String>,
     #[serde(default)]
     headers: HashMap<String, String>,
@@ -39,6 +47,8 @@ struct WebhookConfig {
     filters: Vec<HashMap<String, Value>>,
     #[serde(default)]
     payload_template: Option<String>,
+    #[serde(default)]
+    message_template: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -72,11 +82,19 @@ struct DeliveryPolicy {
 struct EventWebhook {
     name: String,
     url: String,
+    kind: WebhookKind,
     events: Vec<String>,
     headers: Vec<(String, String)>,
     delivery: DeliveryPolicy,
     filters: Vec<FilterRule>,
     payload_template: Option<String>,
+    message_template: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WebhookKind {
+    Generic,
+    WeCom,
 }
 
 #[derive(Clone, Debug)]
@@ -98,25 +116,26 @@ pub(crate) struct EventWebhookRuntime {
 
 impl EventWebhookRuntime {
     pub(crate) fn from_env(bus: EventBus) -> Result<Option<Self>> {
-        let Some(path) = std::env::var_os(ENV_WEBHOOKS_CONFIG) else {
+        let mut document = if let Some(path) = configured_webhooks_path() {
+            Some(read_config_document(&path).with_context(|| {
+                format!(
+                    "failed to load event webhook configuration from {}",
+                    path.display()
+                )
+            })?)
+        } else {
+            None
+        };
+        if let Some(wecom) = wecom_config_from_env()? {
+            document
+                .get_or_insert_with(WebhookConfigDocument::default)
+                .webhooks
+                .push(wecom);
+        }
+        let Some(document) = document else {
             return Ok(None);
         };
-        let path = Path::new(&path);
-        let runtime = Self::from_path(bus, path).with_context(|| {
-            format!(
-                "failed to load event webhook configuration from {}",
-                path.display()
-            )
-        })?;
-        Ok(Some(runtime))
-    }
-
-    fn from_path(bus: EventBus, path: &Path) -> Result<Self> {
-        let raw = std::fs::read_to_string(path)
-            .with_context(|| format!("failed to read {}", path.display()))?;
-        let document: WebhookConfigDocument = serde_yaml_ng::from_str(&raw)
-            .with_context(|| format!("failed to parse {}", path.display()))?;
-        Self::from_document(bus, document)
+        Ok(Some(Self::from_document(bus, document)?))
     }
 
     fn from_document(bus: EventBus, document: WebhookConfigDocument) -> Result<Self> {
@@ -256,9 +275,27 @@ impl EventWebhook {
 
     fn render_payload(&self, event: &EventEnvelope) -> String {
         let event_value = event.to_value();
-        match &self.payload_template {
-            Some(template) => render_template(template, &event_value),
-            None => serde_json::to_string(&event_value).unwrap_or_else(|_| "{}".to_string()),
+        match self.kind {
+            WebhookKind::Generic => match &self.payload_template {
+                Some(template) => render_template(template, &event_value),
+                None => serde_json::to_string(&event_value).unwrap_or_else(|_| "{}".to_string()),
+            },
+            WebhookKind::WeCom => {
+                let template = self
+                    .message_template
+                    .as_deref()
+                    .or(self.payload_template.as_deref())
+                    .unwrap_or(DEFAULT_WECOM_TEMPLATE);
+                let content =
+                    render_dollar_template(&render_template(template, &event_value), &event_value);
+                serde_json::to_string(&json!({
+                    "msgtype": "markdown",
+                    "markdown": {
+                        "content": content,
+                    },
+                }))
+                .unwrap_or_else(|_| "{}".to_string())
+            }
         }
     }
 }
@@ -322,7 +359,7 @@ fn resolve_webhook(config: WebhookConfig) -> Result<EventWebhook> {
     if name.is_empty() {
         bail!("webhook.name must not be empty");
     }
-    let url = config.url.trim().to_string();
+    let url = interpolate_env(config.url.trim()).trim().to_string();
     if url.is_empty() {
         bail!("webhook '{name}' url must not be empty");
     }
@@ -356,16 +393,108 @@ fn resolve_webhook(config: WebhookConfig) -> Result<EventWebhook> {
         .into_iter()
         .map(FilterRule::from_map)
         .collect::<Result<Vec<_>>>()?;
+    let kind = match config
+        .kind
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("generic")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "generic" | "http" | "webhook" => WebhookKind::Generic,
+        "wecom" | "enterprise_wechat" | "wechat_work" => WebhookKind::WeCom,
+        other => bail!("webhook '{name}' kind {other:?} is not supported"),
+    };
 
     Ok(EventWebhook {
         name,
         url,
+        kind,
         events,
         headers,
         delivery: DeliveryPolicy::from_config(config.delivery)?,
         filters,
         payload_template: config.payload_template,
+        message_template: config.message_template,
     })
+}
+
+fn read_config_document(path: &Path) -> Result<WebhookConfigDocument> {
+    let raw = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+    serde_yaml_ng::from_str(&raw).with_context(|| format!("failed to parse {}", path.display()))
+}
+
+fn configured_webhooks_path() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os(ENV_WEBHOOKS_CONFIG).filter(|value| !value.is_empty()) {
+        return Some(PathBuf::from(path));
+    }
+    let path = default_webhooks_config_path()?;
+    path.exists().then_some(path)
+}
+
+fn default_webhooks_config_path() -> Option<PathBuf> {
+    integration_etc_dir().map(|dir| dir.join(DEFAULT_WEBHOOKS_CONFIG_FILE))
+}
+
+fn integration_etc_dir() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os(ENV_DCC_MCP_ETC_DIR).filter(|value| !value.is_empty()) {
+        return Some(PathBuf::from(path));
+    }
+    home_dir().map(|home| home.join("dcc-mcp").join("etc"))
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("USERPROFILE")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            let drive = std::env::var_os("HOMEDRIVE")?;
+            let path = std::env::var_os("HOMEPATH")?;
+            Some(PathBuf::from(format!(
+                "{}{}",
+                drive.to_string_lossy(),
+                path.to_string_lossy()
+            )))
+        })
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+        })
+}
+
+fn wecom_config_from_env() -> Result<Option<WebhookConfig>> {
+    let Some(url) = std::env::var(ENV_WECOM_WEBHOOK_URL)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+    let events = std::env::var(ENV_WECOM_EVENTS)
+        .ok()
+        .map(|raw| split_event_patterns(&raw))
+        .filter(|events| !events.is_empty())
+        .unwrap_or_else(default_wecom_events);
+    Ok(Some(WebhookConfig {
+        name: "wecom-message-push".into(),
+        url,
+        kind: Some("wecom".into()),
+        events,
+        headers: HashMap::new(),
+        delivery: DeliveryConfig::default(),
+        filters: Vec::new(),
+        payload_template: None,
+        message_template: Some(
+            std::env::var(ENV_WECOM_TEMPLATE)
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| DEFAULT_WECOM_TEMPLATE.to_string()),
+        ),
+    }))
 }
 
 fn matches_expected(actual: Option<&Value>, expected: &Value) -> bool {
@@ -410,6 +539,67 @@ fn render_template(template: &str, event: &Value) -> String {
         rest = &after_start[end + 2..];
     }
     rendered
+}
+
+fn render_dollar_template(template: &str, event: &Value) -> String {
+    let mut rendered = String::with_capacity(template.len());
+    let mut chars = template.char_indices().peekable();
+    while let Some((_, ch)) = chars.next() {
+        if ch != '$' {
+            rendered.push(ch);
+            continue;
+        }
+        if chars.peek().is_some_and(|(_, next)| *next == '$') {
+            let _ = chars.next();
+            rendered.push('$');
+            continue;
+        }
+        let mut key = String::new();
+        while let Some((_, next)) = chars.peek().copied() {
+            if next.is_ascii_alphanumeric() || matches!(next, '_' | '-' | '.') {
+                key.push(next);
+                let _ = chars.next();
+            } else {
+                break;
+            }
+        }
+        if key.is_empty() {
+            rendered.push('$');
+        } else {
+            rendered.push_str(&dollar_template_value(event, &key));
+        }
+    }
+    rendered
+}
+
+fn dollar_template_value(event: &Value, key: &str) -> String {
+    match key {
+        "event" | "event-name" | "event_name" => template_value(event, "name"),
+        "event-id" | "event_id" => template_value(event, "id"),
+        "dcc-type" | "dcc_type" => template_value(event, "source.dcc_type"),
+        "instance-id" | "instance_id" => template_value(event, "source.instance_id"),
+        "tool" | "tool-slug" | "tool_slug" => template_value(event, "attributes.tool_slug"),
+        "skill" | "skill-name" | "skill_name" => template_value(event, "attributes.skill_name"),
+        "url" => first_template_value(
+            event,
+            &[
+                "attributes.url",
+                "attributes.access_url",
+                "attributes.mcp_url",
+                "source.url",
+                "source.mcp_url",
+            ],
+        ),
+        path => template_value(event, path),
+    }
+}
+
+fn first_template_value(event: &Value, paths: &[&str]) -> String {
+    paths
+        .iter()
+        .map(|path| template_value(event, path))
+        .find(|value| !value.is_empty())
+        .unwrap_or_default()
 }
 
 fn template_value(event: &Value, path: &str) -> String {
@@ -479,6 +669,18 @@ fn interpolate_env(value: &str) -> String {
     output
 }
 
+fn split_event_patterns(raw: &str) -> Vec<String> {
+    raw.split([',', '\n'])
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn default_wecom_events() -> Vec<String> {
+    vec!["tool.failed".into(), "webhook.delivery_failed".into()]
+}
+
 fn default_queue_capacity() -> usize {
     DEFAULT_QUEUE_CAPACITY
 }
@@ -503,7 +705,65 @@ mod tests {
     use axum::http::StatusCode;
     use axum::routing::post;
     use serde_json::Map;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
     use tokio::net::TcpListener;
+
+    struct EnvGuard {
+        previous: Vec<(&'static str, Option<String>)>,
+        _guard: MutexGuard<'static, ()>,
+    }
+
+    impl EnvGuard {
+        fn new(values: &[(&'static str, Option<&str>)]) -> Self {
+            static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+            const KEYS: &[&str] = &[
+                ENV_WEBHOOKS_CONFIG,
+                ENV_DCC_MCP_ETC_DIR,
+                ENV_WECOM_WEBHOOK_URL,
+                ENV_WECOM_EVENTS,
+                ENV_WECOM_TEMPLATE,
+            ];
+            let guard = ENV_LOCK
+                .get_or_init(|| Mutex::new(()))
+                .lock()
+                .expect("event webhook env lock poisoned");
+            let previous = KEYS
+                .iter()
+                .map(|key| (*key, std::env::var(key).ok()))
+                .collect::<Vec<_>>();
+            // SAFETY: these tests set env vars before spawning runtime work and restore them
+            // before returning.
+            unsafe {
+                for key in KEYS {
+                    std::env::remove_var(key);
+                }
+                for (key, value) in values {
+                    match value {
+                        Some(value) => std::env::set_var(key, value),
+                        None => std::env::remove_var(key),
+                    }
+                }
+            }
+            Self {
+                previous,
+                _guard: guard,
+            }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            // SAFETY: restores the process environment after the serialized test body.
+            unsafe {
+                for (key, value) in &self.previous {
+                    match value {
+                        Some(value) => std::env::set_var(key, value),
+                        None => std::env::remove_var(key),
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn filter_rules_match_dotted_paths_and_wildcards() {
@@ -553,6 +813,202 @@ mod tests {
         assert_eq!(rendered, r#"{"text":"photoshop ps.layer__rename true"}"#);
     }
 
+    #[test]
+    fn webhook_url_interpolates_environment_variables() {
+        let _env = EnvGuard::new(&[(ENV_WECOM_WEBHOOK_URL, Some("abc123"))]);
+        let webhook = resolve_webhook(WebhookConfig {
+            name: "wecom-alerts".into(),
+            url:
+                "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=${DCC_MCP_WECOM_WEBHOOK_URL}"
+                    .into(),
+            kind: Some("wecom".into()),
+            events: vec!["tool.failed".into()],
+            headers: HashMap::new(),
+            delivery: DeliveryConfig::default(),
+            filters: Vec::new(),
+            payload_template: None,
+            message_template: None,
+        })
+        .expect("webhook url env interpolation should produce a valid URL");
+
+        assert_eq!(
+            webhook.url,
+            "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123"
+        );
+    }
+
+    #[test]
+    fn wecom_payload_renders_markdown_with_dollar_variables() {
+        let webhook = EventWebhook {
+            name: "wecom-alerts".into(),
+            url: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc".into(),
+            kind: WebhookKind::WeCom,
+            events: vec!["tool.*".into()],
+            headers: Vec::new(),
+            delivery: DeliveryPolicy::from_config(DeliveryConfig::default()).unwrap(),
+            filters: Vec::new(),
+            payload_template: None,
+            message_template: Some(
+                "DCC-MCP $event\nDCC: $dcc-type\nTool: $tool-slug\nURL: $url".into(),
+            ),
+        };
+        let event = EventEnvelope::new(
+            "tool.failed",
+            "ev_1",
+            json!({"dcc_type": "houdini", "instance_id": "h1"}),
+            json!({"request_id": "req-1"}),
+            json!({
+                "tool_slug": "houdini.render__start",
+                "url": "http://127.0.0.1:9765/mcp"
+            }),
+        );
+
+        let payload: Value = serde_json::from_str(&webhook.render_payload(&event)).unwrap();
+
+        assert_eq!(payload["msgtype"], "markdown");
+        assert_eq!(
+            payload["markdown"]["content"],
+            "DCC-MCP tool.failed\nDCC: houdini\nTool: houdini.render__start\nURL: http://127.0.0.1:9765/mcp"
+        );
+    }
+
+    #[tokio::test]
+    async fn runtime_loads_default_webhooks_config_from_local_etc() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        std::fs::write(
+            dir.path().join(DEFAULT_WEBHOOKS_CONFIG_FILE),
+            r#"
+webhooks:
+  - name: local-default
+    url: http://127.0.0.1:9/hook
+    events: ["tool.failed"]
+"#,
+        )?;
+        let etc_dir = dir.path().to_string_lossy().to_string();
+        let _env = EnvGuard::new(&[(ENV_DCC_MCP_ETC_DIR, Some(&etc_dir))]);
+
+        let runtime = EventWebhookRuntime::from_env(EventBus::new())?;
+
+        assert!(runtime.is_some());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn runtime_loads_admin_saved_wecom_yaml_from_local_etc() -> Result<()> {
+        let (tx, mut rx) = mpsc::channel::<Value>(1);
+        let app = Router::new()
+            .route("/wecom", post(capture_body))
+            .with_state(tx);
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
+        let server = tokio::spawn(async move {
+            if let Err(err) = axum::serve(listener, app).await {
+                tracing::error!(error = %err, "test webhook server failed");
+            }
+        });
+
+        let dir = tempfile::tempdir()?;
+        std::fs::write(
+            dir.path().join(DEFAULT_WEBHOOKS_CONFIG_FILE),
+            format!(
+                r#"
+queue_capacity: 8
+webhooks:
+  - name: wecom-message-push
+    kind: wecom
+    url: http://{addr}/wecom
+    events:
+      - tool.failed
+    message_template: |-
+      DCC-MCP $event
+      DCC: $dcc-type
+      Tool: $tool-slug
+      URL: $url
+"#
+            ),
+        )?;
+        let etc_dir = dir.path().to_string_lossy().to_string();
+        let _env = EnvGuard::new(&[(ENV_DCC_MCP_ETC_DIR, Some(&etc_dir))]);
+
+        let bus = EventBus::new();
+        let runtime = EventWebhookRuntime::from_env(bus.clone())?
+            .expect("admin-saved local WeCom webhooks.yaml should be loaded");
+        assert_eq!(runtime.subscriptions[0].0, "tool.failed");
+
+        let _ = bus.emit(
+            "tool.failed",
+            json!({"dcc_type": "houdini", "instance_id": "h1"}),
+            json!({"request_id": "req-1"}),
+            json!({
+                "tool_slug": "houdini.render__start",
+                "url": "http://127.0.0.1:9765/mcp"
+            }),
+        );
+
+        let received = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+            .await
+            .context("WeCom webhook request timed out")?
+            .context("WeCom webhook receiver closed")?;
+        assert_eq!(received["msgtype"], "markdown");
+        assert_eq!(
+            received["markdown"]["content"],
+            "DCC-MCP tool.failed\nDCC: houdini\nTool: houdini.render__start\nURL: http://127.0.0.1:9765/mcp"
+        );
+
+        drop(runtime);
+        server.abort();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn empty_explicit_webhooks_config_env_falls_back_to_local_default() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        std::fs::write(
+            dir.path().join(DEFAULT_WEBHOOKS_CONFIG_FILE),
+            r#"
+webhooks:
+  - name: local-default
+    url: http://127.0.0.1:9/hook
+    events: ["tool.failed"]
+"#,
+        )?;
+        let etc_dir = dir.path().to_string_lossy().to_string();
+        let _env = EnvGuard::new(&[
+            (ENV_DCC_MCP_ETC_DIR, Some(&etc_dir)),
+            (ENV_WEBHOOKS_CONFIG, Some("")),
+        ]);
+
+        let runtime = EventWebhookRuntime::from_env(EventBus::new())?
+            .expect("local default webhooks.yaml should be loaded");
+
+        assert_eq!(runtime.subscriptions.len(), 1);
+        assert_eq!(runtime.subscriptions[0].0, "tool.failed");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn runtime_loads_wecom_webhook_from_environment_without_yaml() -> Result<()> {
+        let _env = EnvGuard::new(&[
+            (
+                ENV_WECOM_WEBHOOK_URL,
+                Some("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123"),
+            ),
+            (ENV_WECOM_EVENTS, Some("tool.failed, gateway.instance.*")),
+            (ENV_WECOM_TEMPLATE, Some("DCC-MCP $event\nURL: $url")),
+        ]);
+
+        let runtime = EventWebhookRuntime::from_env(EventBus::new())?
+            .expect("WeCom env should create a webhook runtime");
+        let event_patterns = runtime
+            .subscriptions
+            .iter()
+            .map(|(event, _)| event.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(event_patterns, vec!["tool.failed", "gateway.instance.*"]);
+        Ok(())
+    }
+
     #[tokio::test]
     async fn runtime_delivers_matching_events_to_http_endpoint() -> Result<()> {
         let (tx, mut rx) = mpsc::channel::<Value>(1);
@@ -572,6 +1028,7 @@ mod tests {
             webhooks: vec![WebhookConfig {
                 name: "test-webhook".to_string(),
                 url: format!("http://{addr}/hook"),
+                kind: None,
                 events: vec!["tool.*".to_string()],
                 headers: HashMap::new(),
                 delivery: DeliveryConfig {
@@ -584,6 +1041,7 @@ mod tests {
                     Value::String("maya".to_string()),
                 )])],
                 payload_template: None,
+                message_template: None,
             }],
         };
 
@@ -630,6 +1088,7 @@ mod tests {
             webhooks: vec![WebhookConfig {
                 name: "failing-webhook".to_string(),
                 url: format!("http://{addr}/hook"),
+                kind: None,
                 events: vec!["tool.completed".to_string()],
                 headers: HashMap::new(),
                 delivery: DeliveryConfig {
@@ -639,6 +1098,7 @@ mod tests {
                 },
                 filters: Vec::new(),
                 payload_template: None,
+                message_template: None,
             }],
         };
 

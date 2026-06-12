@@ -40,9 +40,22 @@ per-DCC REST endpoint and how to build auditable installation plans.
 The default endpoint is `http://127.0.0.1:9765`, override it with
 `--base-url` or `DCC_MCP_BASE_URL`.
 
+Gateway-backed commands auto-ensure that the local gateway exists before they
+make REST calls. For loopback HTTP targets (`http://127.0.0.1:<port>` or
+`http://localhost:<port>`), `health`, `list`, `search`, `describe`,
+`load-skill`, `call`, `wait-ready`, `stop-instance`, `update`, and `smoke`
+without an explicit `--url` first probe `/health`; if it is unreachable, the
+CLI starts a detached `dcc-mcp-server gateway` process and waits for readiness.
+Disable this for one invocation with `--no-auto-gateway`. Commands that operate
+on local files (`install`, `marketplace`, `lint`) and explicit lifecycle
+commands (`gateway ...`) do not auto-start the gateway. `smoke --url ...` also
+does not auto-start anything because the URL is an operator-selected service to
+verify, not necessarily the default gateway.
+
 ```bash
 dcc-mcp-cli list
 dcc-mcp-cli health
+dcc-mcp-cli --no-auto-gateway health
 dcc-mcp-cli search --query sphere --dcc-type maya --instance-id abc12345
 dcc-mcp-cli describe maya.abc12345.create_sphere
 dcc-mcp-cli load-skill workflow --dcc-type 3dsmax --instance-id 80321760
@@ -51,6 +64,7 @@ dcc-mcp-cli call maya_scene__get_session_info --dcc-type maya --instance-id abc1
 dcc-mcp-cli wait-ready --dcc-type maya --instance-id abc12345 --require skill_catalog,host_execution_bridge
 dcc-mcp-cli stop-instance --dcc-type maya --instance-id abc12345 --expected-owner release-smoke-test
 dcc-mcp-cli install --dcc-type maya --version 2026
+dcc-mcp-cli install --dcc-type maya --version 2026 --execute
 dcc-mcp-cli marketplace add dcc-mcp/marketplace
 dcc-mcp-cli marketplace search --query hunyuan --dcc maya
 dcc-mcp-cli marketplace inspect dcc-asset-hunyuan-download
@@ -60,6 +74,7 @@ dcc-mcp-cli marketplace outdated --dcc maya
 dcc-mcp-cli marketplace update dcc-mcp-maya-skills --dcc maya
 dcc-mcp-cli marketplace update --all
 dcc-mcp-cli update check
+dcc-mcp-cli update check --binary dcc-mcp-server --current-version 0.18.16
 dcc-mcp-cli update apply
 dcc-mcp-cli gateway ensure
 dcc-mcp-cli gateway status
@@ -80,7 +95,7 @@ dcc-mcp-cli lint path/to/skills
 | `call <backend-tool> --dcc-type <dcc> --instance-id <id> --json <object>` | `POST /v1/dcc/{dcc}/instances/{id}/call` | Invoke a backend tool without constructing a dotted gateway slug. |
 | `wait-ready [--dcc-type <dcc>] [--instance-id <id>] [--require <bits>]` | `GET /v1/instances` + per-instance `/v1/readyz` | Wait for smoke-test readiness bits such as `skill_catalog` or `host_execution_bridge`. |
 | `stop-instance --dcc-type <dcc> --instance-id <id>` | `POST /v1/dcc/{dcc}/instances/{id}/stop` | Forward a guarded safe-stop request to instances that advertise `safe_stop_url`. |
-| `install --dcc-type <dcc> [--version <v>] [--execute]` | catalog-backed local plan | Resolve the matching adapter and emit an auditable install plan. With `--execute`, runs the install plan with consent gating (Y/n prompt) and installs the adapter dependencies. |
+| `install --dcc-type <dcc> [--version <v>] [--execute]` | catalog-backed local plan / executor | Resolve the matching adapter and emit an auditable install plan; with `--execute`, run it with consent, rollback, and post-install verification. |
 | `marketplace add <source>` | local source registry | Register a marketplace source (`dcc-mcp/marketplace`, a GitHub `owner/repo`, raw JSON URL, or local catalog file). |
 | `marketplace list` | local source registry | List the built-in, configured, and environment-provided marketplace sources. |
 | `marketplace search [--query <q>] [--dcc <dcc>] [--source <source>]` | marketplace catalog JSON/YAML | Search skill package entries across configured or explicit sources. |
@@ -90,20 +105,21 @@ dcc-mcp-cli lint path/to/skills
 | `marketplace uninstall <name> --dcc <dcc>` | local installed-state file + filesystem | Remove an installed marketplace package. |
 | `marketplace outdated [NAME...] [--dcc <dcc>]` | marketplace catalog + local installed state | Compare installed versions against latest catalog entries and list packages with newer versions available. |
 | `marketplace update [<name>] [--all] [--dcc <dcc>]` | marketplace catalog + git/filesystem + local installed state | Upgrade installed packages to the latest catalog version. For `git` installs, fetches the new ref in place; for other types, re-installs from the catalog. Use `--all` to update every outdated package. |
-| `update check` | `GET /v1/update/check?binary={name}&current_version={ver}` | Query the gateway update manifest for a newer version of the current binary. Reports the available version (if any), download URL, and SHA-256 hash from the manifest. |
-| `update apply` | local binary update | Download the newer binary version from the gateway manifest, verify SHA-256 when present, and stage it for application on next restart. The staged update is applied automatically at the next `dcc-mcp-cli` invocation. |
+| `update check [--binary <name>] [--current-version <version>]` | `GET /v1/update/check` | Check the gateway update manifest. Defaults to the CLI binary/version; pass `--binary dcc-mcp-server` plus a server version when checking an instance shown in Admin. |
+| `update apply` | `GET /v1/update/check` + download URL | Download and stage the CLI binary for the next CLI launch. It does not update running server instances; use Admin's instance update button or `dcc-mcp-server update apply` in the server environment. |
 | `gateway ensure [--port <port>]` | local process | Check gateway health via `GET /health` on the configured port (default 9765). If unreachable, acquire a launch lock and spawn the gateway daemon in the background. Reports `already_running: true` or `started: true` with process PID. |
 | `gateway start [--port <port>] [--idle-timeout <secs>]` | local process | Force-start a new gateway daemon. Wraps `gateway ensure` logic and accepts additional startup options: `--name <name>`, `--remote-host <host>`, `--gateway-bin <path>`, `--wait-timeout <secs>`. |
 | `gateway stop [--port <port>]` | local process | Stop a running gateway daemon by PID file. Sends SIGTERM (Unix) or TerminateProcess (Windows), verifies the process has exited, and cleans up the PID file. |
 | `gateway status [--port <port>]` | local process | Report gateway daemon status: host, port, health check result, PID, and whether the process is alive. JSON output for agent consumption. |
 | `lint [PATH ...]` | local filesystem validator | Recursively validate SKILL.md packages two levels below each path by default. |
 
-`install` starts as a planning contract: it resolves catalog entries and
+`install` defaults to a planning contract: it resolves catalog entries and
 spells out the runtime / adapter / verification steps without silently
-modifying DCC plugin folders. Adding `--execute` runs the stages with
-consent gating and rollback on failure. Each install step is mapped from
-the catalog's install metadata (`pip`, `git`, `zip`, `path`). DCC-specific
-installers can attach to the planning contract incrementally.
+modifying DCC plugin folders. Pass `--execute` to prompt for consent and run
+the executable steps. Execution rolls back completed steps when a later step
+fails, uses `<python-or-mayapy> -m pip` for pip installs, verifies pip installs
+with `pip show`, and verifies git/zip/path installs by checking that their
+target path exists and is not an empty directory.
 
 `marketplace` is the CLI-first discovery surface for official and private
 skill package catalogs. The built-in source is
@@ -126,6 +142,16 @@ command runs `git fetch && git checkout <ref>` in place; otherwise it
 re-clones. The local installed-state file is updated with the new version
 metadata. Installed packages with no matching catalog entry (e.g. the
 source was removed) are silently skipped.
+
+`dcc-mcp-cli update` is for binary updates exposed by the gateway update
+manifest configured with `DCC_MCP_UPDATE_MANIFEST_URL` (or
+`GatewayConfig.update_manifest_url`). `update check` is safe for both humans
+and agents because it only reads `/v1/update/check`; the CLI auto-ensures the
+local gateway before the request. `update apply` stages only the CLI binary.
+For server instances, prefer the Admin Instances panel update button, which
+calls `POST /admin/api/instances/{instance_id}/update` and stages
+`dcc-mcp-server` with restart-required status. When operating from the server
+host itself, use `dcc-mcp-server update apply` instead.
 
 `lint` reuses the production `dcc-mcp-skills` validator, so local checks and
 runtime loading fail for the same structural problems. CI runs the same command
@@ -167,8 +193,7 @@ while the backend is alive so the daemon can be re-ensured after a crash.
 | `dcc-mcp-server sidecar` | Per-DCC sidecar worker. | Ensures the standalone gateway daemon, registers a `per-dcc-sidecar` row, and dispatches through host RPC. Runtime is implemented by `dcc-mcp-sidecar`. |
 | `dcc-mcp-server translate` | External stdio MCP bridge. | Ensures the standalone gateway daemon and registers the bridge as a backend unless `--no-register` is set. |
 | `dcc-mcp-server gateway` | Machine-wide gateway daemon. | Hosts discovery, routing, resources/prompts, admin, and audit without running DCC tools inline. |
-| `dcc-mcp-server update check` | Gateway update manifest. | Check for a newer version of the server binary from the gateway update manifest. Reports available version, download URL, and SHA-256. |
-| `dcc-mcp-server update apply` | Local binary update. | Download and stage a newer server binary version. The staged update is applied automatically at the next `dcc-mcp-server` startup (before the server starts). |
+| `dcc-mcp-server update check/apply` | Server binary update helper. | Reads the gateway update manifest on `127.0.0.1:<gateway-port>` and stages `dcc-mcp-server` for the next server launch. |
 
 `auto` and `serve` share the server flags below. `gateway` has its own smaller
 flag surface and rejects server-only flags such as `--app`.
@@ -195,8 +220,8 @@ flag surface and rejects server-only flags such as `--app`.
 | `--gateway-port` | `DCC_MCP_GATEWAY_PORT` | `9765` | Well-known gateway port to ensure/register with. `0` disables gateway ensure/election for this process. |
 | `--no-ensure-gateway` | — | `false` | Do not auto-launch the standalone gateway daemon before backend registration. |
 | `--legacy-gateway-election` | `DCC_MCP_LEGACY_GATEWAY_ELECTION` | `false` | Restore the old embedded first-wins election path. |
-| `--no-admin` | `DCC_MCP_NO_ADMIN` | `false` | Disable the read-only Admin UI on the elected gateway. Admin is enabled by default when a process wins the gateway role. |
-| `--admin-path` | `DCC_MCP_ADMIN_PATH` | `/admin` | URL prefix for the read-only Admin UI and its JSON APIs. |
+| `--no-admin` | `DCC_MCP_NO_ADMIN` | `false` | Disable the Admin UI on the elected gateway. Admin is enabled by default when a process wins the gateway role. |
+| `--admin-path` | `DCC_MCP_ADMIN_PATH` | `/admin` | URL prefix for the Admin UI and its JSON APIs. |
 | `--registry-dir` | `DCC_MCP_REGISTRY_DIR` | platform temp dir | shared `FileRegistry` directory. |
 | `--stale-timeout-secs` | `DCC_MCP_STALE_TIMEOUT` | `30` | Seconds without heartbeat before an instance is considered stale. |
 | `--app-version` | `DCC_MCP_APP_VERSION` | — | App version (e.g., `"2024.2"`); recorded in the registry. |

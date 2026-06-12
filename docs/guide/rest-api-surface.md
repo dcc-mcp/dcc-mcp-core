@@ -31,6 +31,8 @@ continue to serve their own adapter OpenAPI contract from the same path.
 | `GET` | `/v1/instances` | Live DCC instance rows known to the elected gateway. |
 | `GET` | `/v1/healthz` | Gateway liveness probe. Returns `200 {"ok": true}` when the HTTP handler is up. |
 | `GET` | `/v1/readyz` | Gateway readiness summary with per-instance readiness bits; the route stays `200` even when no instance is ready. |
+| `GET` | `/v1/update/check` | Gateway update-manifest check for `dcc-mcp-cli`, `dcc-mcp-server`, or another configured binary. Query: `binary`, `current_version`. |
+| `GET` | `/v1/update/download/{binary_name}` | Resolve the latest manifest download URL for one binary; returns a structured update error when no URL is configured. |
 | `GET` | `/v1/skills` | Loaded gateway capability records projected as skill entries. |
 | `POST` | `/v1/list_skills` | Forward a skill-list request to a selected backend instance. |
 | `POST` | `/v1/search` | Fuzzy / exact search across loaded + unloaded skills. |
@@ -58,7 +60,12 @@ continue to serve their own adapter OpenAPI contract from the same path.
 | `GET` | `/v1/debug/calls` | Gateway only: recent audited calls. |
 | `GET` | `/v1/debug/logs` | Gateway only: merged gateway events, file logs, and audit summaries. |
 | `GET` | `/v1/debug/stats` | Gateway only: aggregated call statistics. |
+| `GET` | `/v1/debug/analytics/overview` | Gateway only: analytics KPI summary, token totals, and top dimensions. |
+| `GET` | `/v1/debug/analytics/timeseries` | Gateway only: daily or hourly analytics series for calls, tokens, and latency. |
+| `GET` | `/v1/debug/analytics/heatmap` | Gateway only: weekday/hour heatmap compatibility shape. |
+| `GET` | `/v1/debug/analytics/export` | Gateway only: retained analytics rows as JSONL or CSV. |
 | `GET` | `/v1/debug/governance` | Gateway only: effective policy, traffic capture, redaction, quota, and recent governance decisions. |
+| `GET` | `/v1/debug/integrations` | Gateway only: masked Sentry, webhook, WeCom, and OTLP integration configuration state. |
 | `GET` | `/v1/debug/health` | Gateway only: debug subsystem health summary. |
 | `GET` | `/v1/openapi.json` | Gateway-specific OpenAPI 3.x document for code-gen clients. |
 | `GET` | `/docs` | Scalar API reference rendered from the same gateway-specific OpenAPI document. |
@@ -130,7 +137,12 @@ so operators and agents can compare results one-to-one:
 | `/v1/debug/calls` | `/admin/api/calls` | Recent audit rows. |
 | `/v1/debug/logs` | `/admin/api/logs` | Merged gateway/file/audit logs. |
 | `/v1/debug/stats` | `/admin/api/stats` | Aggregated call stats. |
+| `/v1/debug/analytics/overview?range=30d` | `/admin/api/analytics/overview?range=30d` | Analytics KPI summary, top tools, token totals, and period bounds. |
+| `/v1/debug/analytics/timeseries?range=30d&granularity=day` | `/admin/api/analytics/timeseries?range=30d&granularity=day` | Daily or hourly call, token, average-duration, and max-duration series. |
+| `/v1/debug/analytics/heatmap?range=30d` | `/admin/api/analytics/heatmap?range=30d` | Weekday/hour heatmap compatibility endpoint. |
+| `/v1/debug/analytics/export?range=30d&format=json` | `/admin/api/analytics/export?range=30d&format=json` | Retained analytics rows as `application/x-ndjson`; use `format=csv` for `text/csv`. |
 | `/v1/debug/governance?limit=300` | `/admin/api/governance?limit=300` | Effective policy, read-only state, traffic capture/redaction controls, middleware pressure, and recent allow/deny/throttle decisions. |
+| `/v1/debug/integrations` | `/admin/api/integrations` | Masked integration state for Sentry, Event Webhooks, WeCom message push, and OTLP telemetry. |
 | `/v1/debug/health` | `/admin/api/health` | Debug provider health summary. |
 
 Compact-aware debug routes (`/v1/debug/traces`, `/v1/debug/traces/{request_id}`,

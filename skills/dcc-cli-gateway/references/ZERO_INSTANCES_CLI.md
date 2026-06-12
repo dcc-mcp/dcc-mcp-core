@@ -2,12 +2,11 @@
 
 Use this document only when:
 
-- `dcc-mcp-cli gateway ensure` (or `python scripts/dcc_gateway.py gateway ensure`) succeeds,
 - `dcc-mcp-cli health` (or `python scripts/dcc_gateway.py health`) succeeds,
 - `dcc-mcp-cli list` (or `python scripts/dcc_gateway.py list`) returns `"total": 0`, and
 - the user has explicitly approved setup guidance.
 
-Until all four are true, do not run install commands, edit environment files,
+Until all three are true, do not run install commands, edit environment files,
 launch GUI applications, or modify MCP host configuration.
 
 ---
@@ -27,11 +26,14 @@ Before any setup step, confirm:
 
 | Check | Meaning | Next step |
 |-------|---------|-----------|
-| `dcc-mcp-cli gateway ensure` fails | Gateway is not reachable or cannot be auto-started | Ask user to start a gateway-capable DCC adapter or `dcc-mcp-server` |
+| `dcc-mcp-cli health` fails | CLI auto-ensure could not start or reach the local gateway; remote `--base-url` cannot auto-start | Inspect structured CLI output and fix the binary/port/base URL before adapter setup |
 | `dcc-mcp-cli health` succeeds and `list.total == 0` | Gateway is up, no DCC registered | Start a DCC adapter |
 
-Gateway election defaults to port `9765`. The first DCC-MCP process that binds
-the gateway port becomes the gateway; other DCC adapters register with it.
+Gateway commands default to port `9765`. Local `dcc-mcp-cli health`, `list`,
+`search`, `describe`, `call`, marketplace, skill, and update commands
+auto-ensure a machine-wide gateway daemon before calling REST. Per-DCC
+adapters then register with that daemon. The legacy first-wins election is
+only for explicit `dcc-mcp-server auto --legacy-gateway-election` setups.
 
 ---
 
