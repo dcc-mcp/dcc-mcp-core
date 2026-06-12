@@ -3925,15 +3925,15 @@ webhooks:
         let (status, body) = post_json(
             router,
             &format!("/api/instances/{instance_id}/update"),
-            json!({ "apply": true }),
+            json!({ "apply": true, "current_version": "0.18.0" }),
         )
         .await;
 
         assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
         assert_eq!(body["status"], "not_configured");
         assert_eq!(body["binary_name"], "dcc-mcp-server");
-        assert_eq!(body["current_version"], env!("CARGO_PKG_VERSION"));
-        assert_eq!(body["current_version_source"], "gateway_package_version");
+        assert_eq!(body["current_version"], "0.18.0");
+        assert_eq!(body["current_version_source"], "request");
         assert_eq!(body["requires_restart"], false);
     }
 
@@ -3991,7 +3991,7 @@ webhooks:
         let (status, body) = post_json(
             router,
             &format!("/api/instances/{instance_id}/update"),
-            json!({ "apply": true }),
+            json!({ "apply": true, "current_version": env!("CARGO_PKG_VERSION") }),
         )
         .await;
         let _ = shutdown.send(());
@@ -4000,7 +4000,7 @@ webhooks:
         assert_eq!(body["status"], "up_to_date");
         assert_eq!(body["update_available"], false);
         assert_eq!(body["current_version"], env!("CARGO_PKG_VERSION"));
-        assert_eq!(body["current_version_source"], "gateway_package_version");
+        assert_eq!(body["current_version_source"], "request");
         assert_eq!(body["latest_version"], env!("CARGO_PKG_VERSION"));
         assert_eq!(body["requires_restart"], false);
     }
@@ -4032,7 +4032,7 @@ webhooks:
         let (status, body) = post_json(
             router,
             &format!("/api/instances/{instance_id}/update"),
-            json!({ "apply": true }),
+            json!({ "apply": true, "current_version": "0.18.0" }),
         )
         .await;
         let _ = shutdown.send(());
@@ -4041,8 +4041,8 @@ webhooks:
         assert_eq!(body["status"], "download_failed");
         assert_eq!(body["error"], "download_url_not_configured");
         assert_eq!(body["binary_name"], "dcc-mcp-server");
-        assert_eq!(body["current_version"], env!("CARGO_PKG_VERSION"));
-        assert_eq!(body["current_version_source"], "gateway_package_version");
+        assert_eq!(body["current_version"], "0.18.0");
+        assert_eq!(body["current_version_source"], "request");
         assert_eq!(body["latest_version"], "999.0.0");
         assert_eq!(body["update_available"], true);
         assert_eq!(body["requires_restart"], false);
@@ -4068,7 +4068,7 @@ webhooks:
         let (status, body) = post_json(
             router,
             &format!("/api/instances/{instance_id}/update"),
-            json!({ "apply": false }),
+            json!({ "apply": false, "current_version": "0.18.0" }),
         )
         .await;
         let _ = shutdown.send(());
@@ -4076,8 +4076,8 @@ webhooks:
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["status"], "available");
         assert_eq!(body["binary_name"], "dcc-mcp-server");
-        assert_eq!(body["current_version"], env!("CARGO_PKG_VERSION"));
-        assert_eq!(body["current_version_source"], "gateway_package_version");
+        assert_eq!(body["current_version"], "0.18.0");
+        assert_eq!(body["current_version_source"], "request");
         assert_eq!(body["latest_version"], "999.0.0");
         assert_eq!(body["update_available"], true);
         assert_eq!(body["requires_restart"], false);
@@ -4105,7 +4105,7 @@ webhooks:
         let (status, body) = post_json(
             router,
             &format!("/api/instances/{instance_id}/update"),
-            json!({ "apply": true }),
+            json!({ "apply": true, "current_version": "0.18.0" }),
         )
         .await;
         let _ = shutdown.send(());
@@ -4113,8 +4113,8 @@ webhooks:
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["status"], "staged");
         assert_eq!(body["binary_name"], "dcc-mcp-server");
-        assert_eq!(body["current_version"], env!("CARGO_PKG_VERSION"));
-        assert_eq!(body["current_version_source"], "gateway_package_version");
+        assert_eq!(body["current_version"], "0.18.0");
+        assert_eq!(body["current_version_source"], "request");
         assert_eq!(body["latest_version"], "999.0.0");
         assert_eq!(body["update_available"], true);
         assert_eq!(body["requires_restart"], true);
@@ -4148,7 +4148,7 @@ webhooks:
         let (status, body) = post_json(
             router,
             &format!("/api/instances/{instance_id}/update"),
-            json!({ "apply": true }),
+            json!({ "apply": true, "current_version": "0.18.0" }),
         )
         .await;
         let _ = shutdown.send(());

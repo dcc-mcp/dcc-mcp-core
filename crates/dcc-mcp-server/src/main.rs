@@ -86,7 +86,7 @@ use dcc_mcp_skills::constants::resolve_registry_dcc_type;
 #[cfg(feature = "gateway-auto")]
 use dcc_mcp_skills::constants::{ENV_SKILL_PATHS, app_skill_paths_env_key};
 #[cfg(feature = "gateway-auto")]
-use dcc_mcp_transport::discovery::types::ServiceEntry;
+use dcc_mcp_transport::discovery::types::{SERVER_BINARY_VERSION_METADATA_KEY, ServiceEntry};
 #[cfg(feature = "telemetry")]
 use serde::Deserialize;
 use sysinfo::{Pid, ProcessesToUpdate, System};
@@ -377,6 +377,10 @@ fn gateway_recovery_driver(runtime_mode: &str, guardian_enabled: bool) -> &'stat
 fn stamp_server_gateway_runtime_metadata(entry: &mut ServiceEntry, args: &ServerArgs) {
     let runtime_mode = server_gateway_runtime_mode(args);
     let guardian_enabled = server_gateway_guardian_enabled(args);
+    entry.metadata.insert(
+        SERVER_BINARY_VERSION_METADATA_KEY.to_string(),
+        env!("CARGO_PKG_VERSION").to_string(),
+    );
     entry.metadata.insert(
         GATEWAY_RUNTIME_MODE_METADATA_KEY.to_string(),
         runtime_mode.to_string(),

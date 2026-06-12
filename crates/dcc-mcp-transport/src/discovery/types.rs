@@ -81,6 +81,14 @@ fn is_default_capacity(capacity: &u32) -> bool {
 /// can special-case it without depending on `dcc-mcp-http`.
 pub const GATEWAY_SENTINEL_DCC_TYPE: &str = "__gateway__";
 
+/// Metadata key for the `dcc-mcp-server` binary version that registered a
+/// backend instance.
+///
+/// This is intentionally separate from [`ServiceEntry::version`] (the DCC
+/// application version) and [`ServiceEntry::adapter_version`] (the adapter
+/// package version).
+pub const SERVER_BINARY_VERSION_METADATA_KEY: &str = "dcc_mcp_server_version";
+
 /// Status of a discovered DCC service instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
