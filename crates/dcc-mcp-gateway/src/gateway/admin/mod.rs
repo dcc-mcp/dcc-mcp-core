@@ -75,6 +75,8 @@ pub mod workflows;
 
 #[cfg(all(test, feature = "admin"))]
 mod analytics_tests;
+#[cfg(all(test, feature = "admin"))]
+mod basic_endpoint_tests;
 #[cfg(feature = "admin")]
 mod handlers;
 #[cfg(all(test, feature = "admin"))]
