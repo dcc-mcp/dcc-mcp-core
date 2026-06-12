@@ -28,15 +28,16 @@ Before any setup step, confirm:
 | Check | Meaning | Next step |
 |-------|---------|-----------|
 | `dcc-mcp-cli doctor` reports local profile, registry path, zero local inventory, and server binary diagnostics | Confirms which local state the CLI is reading before adapter setup | Use the reported registry path when checking sidecar/server logs |
-| `dcc-mcp-cli list` returns `total == 0` in local mode | No local DCC sidecar/server registered in the FileRegistry | Start a DCC adapter |
+| `dcc-mcp-cli list` returns `total == 0` in local mode | The loopback gateway was ensured, but no local DCC sidecar/server is registered in the FileRegistry | Start a DCC adapter |
 | `dcc-mcp-cli list --gateway <name>` fails | Remote gateway profile is unreachable; remote gateways cannot be auto-started | Inspect the selected profile and remote gateway URL before adapter setup |
 | `dcc-mcp-cli health` fails | CLI auto-ensure could not start or reach the local loopback gateway | Inspect structured CLI output before endpoint/admin/update workflows |
 
-Local `dcc-mcp-cli list` reads the FileRegistry directly. In the built-in
-`local` profile, `search`, `describe`, `load-skill`, `call`, `wait-ready`, and
-guarded `stop-instance` use the registered DCC instance's own MCP/readyz/safe
-stop endpoints, not a gateway. Endpoint/admin/update workflows still
-auto-ensure a machine-wide gateway daemon only when they target loopback HTTP.
+Local `dcc-mcp-cli list` first ensures the machine-wide loopback gateway, then
+reads the FileRegistry directly. In the built-in `local` profile, `search`,
+`describe`, `load-skill`, `call`, `wait-ready`, and guarded `stop-instance` use
+the registered DCC instance's own MCP/readyz/safe-stop endpoints after the same
+gateway lifecycle check. Endpoint/admin/update workflows also auto-ensure a
+machine-wide gateway daemon when they target loopback HTTP.
 Per-DCC adapters register themselves through their own sidecar/server runtime.
 The legacy first-wins election is only for explicit
 `dcc-mcp-server auto --legacy-gateway-election` setups.

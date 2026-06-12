@@ -58,13 +58,15 @@ dcc-mcp-cli gateway set local
 and `DCC_MCP_BASE_URL` remain supported as direct endpoint overrides for legacy
 scripts and smoke checks.
 
-In the default `local` profile, `dcc-mcp-cli list` reads the FileRegistry and
-does not require or auto-start a gateway. Local `search`, `describe`,
-`load-skill`, `call`, `wait-ready`, and `stop-instance` then resolve the target
-instance from that registry and talk to its advertised `mcp_url` / `readyz` /
-`safe_stop_url` directly. When the current profile is remote, or when
-`--gateway pcA` / `--base-url ...` is supplied, the same commands use the
-gateway `/v1/*` surfaces.
+In the default `local` profile, agent-control commands first ensure the
+machine-wide loopback gateway is healthy, then local `list` reads the
+FileRegistry and local `search`, `describe`, `load-skill`, `call`,
+`wait-ready`, and `stop-instance` resolve the target instance from that
+registry and talk to its advertised `mcp_url` / `readyz` / `safe_stop_url`
+directly. The gateway daemon is still kept available for Admin, health,
+update, and cross-instance control-plane routes. When the current profile is
+remote, or when `--gateway pcA` / `--base-url ...` is supplied, the same
+commands use the gateway `/v1/*` surfaces.
 
 `list` is an inventory and diagnostics command: it keeps live `booting` rows
 and sidecar rows with `dispatch_status=unavailable` visible so operators can
@@ -84,12 +86,14 @@ stdout/stderr log paths when the DCC supervisor records them in the registry.
 `doctor` summarizes not-ready local rows under
 `local.inventory.direct_control.not_ready_instances`.
 
-Endpoint-level commands that still need a local gateway (`health`, `update`, and
-`smoke` without an explicit `--url`) auto-ensure only loopback HTTP targets
-(`http://127.0.0.1:<port>` or `http://localhost:<port>`). Disable this for one
-invocation with `--no-auto-gateway`. Commands that operate on local files
-(`install`, `marketplace`, `lint`), local instance control commands, and
-explicit lifecycle commands (`gateway ...`) do not auto-start the gateway.
+Agent-control commands (`list`, `search`, `describe`, `load-skill`, `call`,
+`wait-ready`, `reload-skills`, and `stop-instance`) and endpoint-level commands
+that need a local gateway (`health`, `update`, and `smoke` without an explicit
+`--url`) auto-ensure only loopback HTTP targets (`http://127.0.0.1:<port>` or
+`http://localhost:<port>`). Disable this for one invocation with
+`--no-auto-gateway`. Commands that operate only on local files (`install`,
+`marketplace`, `lint`), explicit lifecycle commands (`gateway ...`), and smoke
+checks against an explicit `--url` do not auto-start the gateway.
 Use `dcc-mcp-cli doctor` when startup state is ambiguous: it reports the
 current profile config, selected mode, registry directory and inventory, local
 direct-control readiness counts, gateway daemon status, and server binary
@@ -141,7 +145,7 @@ dcc-mcp-cli lint path/to/skills
 |---|---|---|
 | `health` | `GET /v1/healthz` | Check the configured endpoint. |
 | `doctor [--registry-dir <path>] [--gateway-port <port>]` | local filesystem + gateway probe | Report profile config/current selection, local registry path/inventory, direct-control readiness counts and not-ready diagnostics, gateway daemon status, and server binary diagnostics without auto-starting or downloading services. |
-| `list [--gateway <profile>]` | local FileRegistry or `GET /v1/instances` | List live DCC instances. Defaults to local FileRegistry; remote profiles use the gateway. |
+| `list [--gateway <profile>]` | local FileRegistry or `GET /v1/instances` | List live DCC instances. Defaults to local FileRegistry after ensuring the loopback gateway; remote profiles use the selected gateway. |
 | `search [--instance-id <id>]` | local MCP `search_tools` or remote `POST /v1/search` | Search callable capabilities, optionally scoped to a full UUID or unique prefix. |
 | `describe <tool-slug>` | local MCP `tools/list` or remote `POST /v1/describe` | Inspect a capability before calling it. |
 | `load-skill <skill-name> [--dcc-type <dcc>] [--instance-id <id>]` | local MCP `tools/call load_skill` or remote `POST /v1/load_skill` | Activate a progressive skill and print its registered tools. |
@@ -175,8 +179,8 @@ dcc-mcp-cli lint path/to/skills
 `gateway daemon start` and `gateway daemon restart` are the durable operator
 paths. Their default `--gateway-idle-timeout-secs 0` disables idle shutdown;
 pass a non-zero timeout only when a script intentionally wants a short-lived
-daemon. Automatic loopback gateway ensure for `health`/`smoke` remains scoped to
-those endpoint commands and does not affect local `list`/`search`/`call`.
+daemon. Automatic loopback gateway ensure applies to the agent-control path and
+endpoint commands; it can be disabled per invocation with `--no-auto-gateway`.
 
 `install` defaults to a planning contract: it resolves catalog entries and
 spells out the adapter package / host-plugin / verification steps without
