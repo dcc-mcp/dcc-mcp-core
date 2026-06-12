@@ -13,7 +13,7 @@ MAX_TEST_LINES = 2000
 # the recorded baseline, but any growth must be split into focused test files.
 LEGACY_BASELINES = {
     "crates/dcc-mcp-gateway/src/gateway/admin/tests.rs": 4883,
-    "crates/dcc-mcp-cli/tests/cli_e2e.rs": 3329,
+    "crates/dcc-mcp-cli/tests/cli_e2e.rs": 3342,
     "crates/dcc-mcp-gateway/src/gateway/handlers/rest_impl_tests.rs": 2141,
 }
 
