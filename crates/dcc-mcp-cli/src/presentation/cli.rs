@@ -34,7 +34,7 @@ pub struct Args {
     /// Select a gateway profile. Use `local` for the local FileRegistry path.
     #[arg(long, global = true, env = "DCC_MCP_GATEWAY_PROFILE")]
     gateway: Option<String>,
-    /// Disable the default local gateway auto-start before gateway REST commands.
+    /// Disable the default local gateway auto-start before agent control commands.
     #[arg(long, env = "DCC_MCP_CLI_NO_AUTO_GATEWAY", default_value = "false")]
     no_auto_gateway: bool,
     /// Explicit gateway binary for auto-start. Defaults to discovery/cache/current CLI fallback.
@@ -887,33 +887,24 @@ async fn ensure_gateway_for_command(
 fn gateway_endpoint_for_command(
     base_url: &str,
     command: &Command,
-    gateway_target: &GatewayTarget,
+    _gateway_target: &GatewayTarget,
 ) -> Option<Endpoint> {
     match command {
         Command::Smoke { url: None, .. } => Some(Endpoint::new(base_url)),
         Command::Smoke { url: Some(_), .. } => None,
         Command::Health | Command::Update { .. } => Some(Endpoint::new(base_url)),
         Command::Doctor { .. } => None,
-        Command::Search { .. }
+        Command::List
+        | Command::Search { .. }
         | Command::Describe { .. }
         | Command::LoadSkill { .. }
         | Command::Call { .. }
         | Command::WaitReady { .. }
         | Command::ReloadSkills { .. }
-        | Command::StopInstance { .. }
-            if !gateway_target.is_local() =>
-        {
-            Some(Endpoint::new(base_url))
-        }
-        Command::Search { .. }
-        | Command::Describe { .. }
-        | Command::LoadSkill { .. }
-        | Command::Call { .. }
-        | Command::WaitReady { .. }
-        | Command::ReloadSkills { .. }
-        | Command::StopInstance { .. } => None,
-        Command::List if !gateway_target.is_local() => Some(Endpoint::new(base_url)),
-        Command::List => None,
+        | Command::StopInstance { .. } => Some(Endpoint::new(base_url)),
+        // Local mode still executes these commands through FileRegistry/direct
+        // MCP where that is the richer path, but the CLI owns gateway
+        // lifecycle by default so agents can rely on the admin/control plane.
         Command::Install { .. }
         | Command::Marketplace { .. }
         | Command::Lint(_)
@@ -1221,7 +1212,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn gateway_endpoint_for_command_only_covers_gateway_rest_commands() {
+    fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
         let local = GatewayTarget::Local;
         let remote = GatewayTarget::Remote {
             name: "pcA".to_string(),
@@ -1254,7 +1245,7 @@ mod tests {
             .is_none()
         );
         assert!(gateway_endpoint_for_command(DEFAULT_BASE_URL, &Command::Health, &local).is_some());
-        assert!(gateway_endpoint_for_command(DEFAULT_BASE_URL, &Command::List, &local).is_none());
+        assert!(gateway_endpoint_for_command(DEFAULT_BASE_URL, &Command::List, &local).is_some());
         assert!(gateway_endpoint_for_command(DEFAULT_BASE_URL, &Command::List, &remote).is_some());
         assert!(
             gateway_endpoint_for_command(
@@ -1267,7 +1258,7 @@ mod tests {
                 },
                 &local,
             )
-            .is_none()
+            .is_some()
         );
         assert!(
             gateway_endpoint_for_command(
@@ -1277,7 +1268,7 @@ mod tests {
                 },
                 &local,
             )
-            .is_none()
+            .is_some()
         );
         assert!(
             gateway_endpoint_for_command(
@@ -1292,7 +1283,7 @@ mod tests {
                 },
                 &local,
             )
-            .is_none()
+            .is_some()
         );
         assert!(
             gateway_endpoint_for_command(
@@ -1306,7 +1297,7 @@ mod tests {
                 },
                 &local,
             )
-            .is_none()
+            .is_some()
         );
         assert!(
             gateway_endpoint_for_command(
@@ -1320,7 +1311,7 @@ mod tests {
                 },
                 &local,
             )
-            .is_none()
+            .is_some()
         );
         assert!(
             gateway_endpoint_for_command(
@@ -1331,7 +1322,7 @@ mod tests {
                 },
                 &local,
             )
-            .is_none()
+            .is_some()
         );
         assert!(
             gateway_endpoint_for_command(
@@ -1344,7 +1335,7 @@ mod tests {
                 },
                 &local,
             )
-            .is_none()
+            .is_some()
         );
         assert!(
             gateway_endpoint_for_command(

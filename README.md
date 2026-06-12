@@ -36,7 +36,7 @@ Under the hood it combines **MCP 2025-03-26 Streamable HTTP**, a **zero-code Ski
 |---|---|
 | Let agents operate real DCC sessions | MCP + REST endpoints for Maya, Blender, Houdini, Photoshop, and custom hosts |
 | Keep tool context small | CLI discovery: `search` -> `describe`, then `call`; no giant first-page `tools/list` scrape |
-| Start reliably from an agent shell | `dcc-mcp-cli list/search/describe/call` use local registry + direct MCP by default; remote profiles use gateways |
+| Start reliably from an agent shell | `dcc-mcp-cli list/search/describe/call` auto-ensure the local gateway, then use local registry + direct MCP or remote gateway profiles |
 | Add and update tools without framework glue | `SKILL.md` + sibling YAML/scripts, marketplace install/update, aligned with agentskills.io |
 | Debug live workstation state | Admin UI, viewport diagnostics, audit logs, traces, logs, metrics, Sentry/webhook integration state |
 | Survive production constraints | Main-thread dispatch, async jobs, sidecar/server binaries, workflow and artefact primitives |
@@ -140,13 +140,15 @@ dcc-mcp-cli update check --binary dcc-mcp-server --current-version <server_versi
 
 Default operator flow:
 
-1. Run `dcc-mcp-cli list` first for local inventory. It reads the local
-   FileRegistry and does not require a gateway. Register remote machines with
+1. Run `dcc-mcp-cli list` first for local inventory. It auto-ensures the
+   machine-wide loopback gateway, then reads the local FileRegistry. Register remote machines with
    `dcc-mcp-cli gateway register https://host:19293 --name pcA`, then use
    `dcc-mcp-cli gateway list`, `dcc-mcp-cli list --gateway pcA`, or
    `dcc-mcp-cli gateway set pcA`.
-   Endpoint/admin/update commands such as `health` auto-start only loopback
-   gateway targets when needed.
+   Agent-control commands (`list`, `search`, `describe`, `call`,
+   `load-skill`, `wait-ready`, `reload-skills`, and `stop-instance`) plus
+   endpoint/admin/update commands auto-start only loopback gateway targets when
+   needed; pass `--no-auto-gateway` for a single no-launch invocation.
    If startup state is ambiguous, `dcc-mcp-cli doctor` reports the selected
    profile, registry path/inventory, gateway daemon status, and server binary
    diagnostics without starting or downloading services.
