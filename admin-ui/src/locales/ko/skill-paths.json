@@ -19,6 +19,7 @@
   "table.state": "상태",
   "table.discovery": "발견",
   "table.usage": "사용",
+  "table.tools": "도구",
   "table.instances": "인스턴스",
   "table.source": "소스",
   "table.path": "경로",

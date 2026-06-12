@@ -34,6 +34,7 @@ export type AnalyticsTimeseriesPoint = {
   tokens_input: number;
   tokens_output: number;
   avg_duration_ms: string;
+  max_duration_ms?: number;
 };
 
 export type AnalyticsHeatmapCell = {
@@ -856,6 +857,25 @@ export type InstanceSummary = {
   unhealthy: number;
 };
 
+export type InstanceUpdatePayload = {
+  status: 'available' | 'binary_not_found' | 'download_failed' | 'manifest_error' | 'not_configured' | 'stage_failed' | 'staged' | 'up_to_date';
+  error?: string | null;
+  message?: string | null;
+  hint?: string | null;
+  instance_id?: string | null;
+  instance_short?: string | null;
+  binary_name?: string | null;
+  current_version?: string | null;
+  current_version_source?: string | null;
+  latest_version?: string | null;
+  download_url?: string | null;
+  sha256?: string | null;
+  release_notes?: string | null;
+  update_available?: boolean;
+  requires_restart?: boolean;
+  staged_at?: string | null;
+};
+
 export type SkillPathRow = {
   path: string;
   display_path?: string;
@@ -1334,6 +1354,7 @@ export type MarketplaceErrorKind =
   | 'hash_mismatch'
   | 'archive_error'
   | 'invalid_path_component'
+  | 'admin_api_html'
   | 'internal_error';
 
 /// Structured error envelope from marketplace API.
@@ -1342,8 +1363,8 @@ export type MarketplaceErrorEnvelope = {
   message: string;
 };
 
-/// Integration kind — the three integration types managed by the Integrations panel.
-export type IntegrationKind = 'sentry' | 'webhooks' | 'otlp';
+/// Integration kind — the integration types managed by the Integrations panel.
+export type IntegrationKind = 'sentry' | 'webhooks' | 'wecom' | 'otlp';
 
 /// Integration status — lifecycle state of a single integration.
 export type IntegrationStatus = 'active' | 'inactive' | 'pending_restart';

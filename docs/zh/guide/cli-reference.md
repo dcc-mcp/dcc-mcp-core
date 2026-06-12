@@ -37,16 +37,40 @@ DCC-MCP 的客户端控制面。它不托管 skills，也不替代 `dcc-mcp-serv
 默认端点是 `http://127.0.0.1:9765`，可用 `--base-url` 或
 `DCC_MCP_BASE_URL` 覆盖。
 
+面向 gateway 的 REST 命令会默认确保本机 gateway 已存在。对于 loopback HTTP
+目标（`http://127.0.0.1:<port>` 或 `http://localhost:<port>`），
+`health`、`list`、`search`、`describe`、`load-skill`、`call`、
+`wait-ready`、`stop-instance`、`update`，以及未显式传 `--url` 的 `smoke`
+会先探测 `/health`；如果不可达，CLI 会在后台启动 detached
+`dcc-mcp-server gateway` 进程并等待就绪。单次禁用可传
+`--no-auto-gateway`。只操作本地文件的命令（`install`、`marketplace`、
+`lint`）以及显式生命周期命令（`gateway ...`）不会自动启动 gateway。
+`smoke --url ...` 也不会自动启动任何进程，因为这个 URL 是运维显式指定的待检
+服务，不一定是默认 gateway。
+
 ```bash
 dcc-mcp-cli list
 dcc-mcp-cli health
+dcc-mcp-cli --no-auto-gateway health
 dcc-mcp-cli search --query sphere --dcc-type maya --instance-id abc12345
 dcc-mcp-cli describe maya.abc12345.create_sphere
+dcc-mcp-cli load-skill workflow --dcc-type 3dsmax --instance-id 80321760
 dcc-mcp-cli call maya.abc12345.create_sphere --json '{"radius":2}'
 dcc-mcp-cli call maya_scene__get_session_info --dcc-type maya --instance-id abc12345 --json '{}'
 dcc-mcp-cli wait-ready --dcc-type maya --instance-id abc12345 --require skill_catalog,host_execution_bridge
 dcc-mcp-cli stop-instance --dcc-type maya --instance-id abc12345 --expected-owner release-smoke-test
 dcc-mcp-cli install --dcc-type maya --version 2026
+dcc-mcp-cli install --dcc-type maya --version 2026 --execute
+dcc-mcp-cli marketplace add dcc-mcp/marketplace
+dcc-mcp-cli marketplace search --query hunyuan --dcc maya
+dcc-mcp-cli marketplace install dcc-asset-hunyuan-download --dcc maya
+dcc-mcp-cli marketplace update --all
+dcc-mcp-cli update check
+dcc-mcp-cli update check --binary dcc-mcp-server --current-version 0.18.16
+dcc-mcp-cli update apply
+dcc-mcp-cli gateway ensure
+dcc-mcp-cli gateway status
+dcc-mcp-cli gateway stop
 dcc-mcp-cli lint path/to/skills
 ```
 
@@ -58,16 +82,32 @@ dcc-mcp-cli lint path/to/skills
 | `list` | `GET /v1/instances` | 从 gateway 列出在线 DCC 实例。 |
 | `search [--instance-id <id>]` | `POST /v1/search` | 搜索可调用能力，可限定完整 UUID 或唯一前缀。 |
 | `describe <tool-slug>` | `POST /v1/describe` | 调用前检查能力 schema。 |
+| `load-skill <skill-name> [--dcc-type <dcc>] [--instance-id <id>]` | `POST /v1/load_skill` | 激活 progressive skill 并输出已注册工具。 |
 | `call <tool-slug> --json <object>` | `POST /v1/call` | 调用一个能力。 |
 | `call <backend-tool> --dcc-type <dcc> --instance-id <id> --json <object>` | `POST /v1/dcc/{dcc}/instances/{id}/call` | 不手工拼 dotted gateway slug，直接调用指定实例上的 backend tool。 |
 | `wait-ready [--dcc-type <dcc>] [--instance-id <id>] [--require <bits>]` | `GET /v1/instances` + per-instance `/v1/readyz` | 等待 release smoke test 所需 readiness bit，例如 `skill_catalog` 或 `host_execution_bridge`。 |
 | `stop-instance --dcc-type <dcc> --instance-id <id>` | `POST /v1/dcc/{dcc}/instances/{id}/stop` | 对声明了 `safe_stop_url` 的实例发起带保护条件的 safe-stop 请求。 |
-| `install --dcc-type <dcc> [--version <v>]` | catalog-backed local plan | 解析匹配的 adapter 并输出可审计安装计划。 |
+| `install --dcc-type <dcc> [--version <v>] [--execute]` | catalog-backed local plan / executor | 解析匹配的 adapter 并输出可审计安装计划；加 `--execute` 后会在确认后执行、失败回滚并做安装后验证。 |
+| `marketplace search/install/update/...` | marketplace catalog + local installed state | 搜索、安装、卸载和更新本地 marketplace skill 包。 |
+| `update check [--binary <name>] [--current-version <version>]` | `GET /v1/update/check` | 检查 gateway update manifest。默认检查 CLI 自身；检查 Admin 面板里的实例版本时，传 `--binary dcc-mcp-server` 和对应 server 版本。 |
+| `update apply` | `GET /v1/update/check` + download URL | 下载并暂存 CLI binary，下一次 CLI 启动时应用。它不会更新正在运行的 server 实例；server 请用 Admin 实例页升级按钮，或在 server 环境里运行 `dcc-mcp-server update apply`。 |
+| `gateway ensure/start/stop/status` | local process | 显式管理本机 gateway daemon 生命周期。 |
 | `lint [PATH ...]` | local filesystem validator | 默认递归校验每个路径下两层内的 SKILL.md 包。 |
 
-`install` 目前是规划契约：它解析 catalog entry，并列出 runtime、adapter、
-验证步骤，不会静默修改 DCC 插件目录。DCC-specific installer 后续可增量接入
-这份契约。
+`install` 默认仍是规划契约：它解析 catalog entry，并列出 runtime、adapter、
+验证步骤，不会静默修改 DCC 插件目录。传 `--execute` 后才会请求确认并执行可执行步骤。
+执行时如果后续步骤失败，会按相反顺序回滚已完成步骤；pip 安装使用
+`<python-or-mayapy> -m pip`，并用 `pip show` 验证；git/zip/path 安装会检查目标路径
+确实存在，且目标目录不是空目录。
+
+`dcc-mcp-cli update` 面向由 gateway update manifest 暴露的二进制更新；
+manifest 通过 `DCC_MCP_UPDATE_MANIFEST_URL`（或
+`GatewayConfig.update_manifest_url`）配置。`update check` 只读取
+`/v1/update/check`，适合人和 agent 使用；CLI 会在请求前默认确保本机 gateway
+存在。`update apply` 只暂存 CLI binary。对于 server 实例，优先使用 Admin
+实例页的升级按钮：它调用 `POST /admin/api/instances/{instance_id}/update`，
+并以需要重启的状态暂存 `dcc-mcp-server`。如果你就在 server 所在环境操作，
+则使用 `dcc-mcp-server update apply`。
 
 `lint` 复用生产 `dcc-mcp-skills` validator，因此本地检查与运行时加载会因同一类
 结构问题失败。CI 也通过 `just lint-skills` 显式传入仓库 skill roots，跑同一条
@@ -107,6 +147,7 @@ per-DCC server 为 backend，并在 backend 存活期间保留轻量 guardian。
 | `dcc-mcp-server auto --legacy-gateway-election` | 旧的嵌入式 gateway 模式。 | per-DCC 进程直接竞争 gateway port。 |
 | `dcc-mcp-server sidecar` | per-DCC sidecar worker。 | 确保独立 gateway daemon，注册 `per-dcc-sidecar` 行，并通过 host RPC 派发。运行时由 `dcc-mcp-sidecar` 实现。 |
 | `dcc-mcp-server gateway` | 整机 gateway daemon。 | 只托管 discovery、routing、resources/prompts、admin 与 audit，不内联执行 DCC tool。 |
+| `dcc-mcp-server update check/apply` | Server binary 更新助手。 | 读取 `127.0.0.1:<gateway-port>` 上的 gateway update manifest，并为下一次 server 启动暂存 `dcc-mcp-server`。 |
 
 `auto` 与 `serve` 共享下面的 server 旗标。`gateway` 有更小的独立旗标面，
 会拒绝 `--app` 这类 server-only 旗标。
@@ -131,7 +172,7 @@ per-DCC server 为 backend，并在 backend 存活期间保留轻量 guardian。
 | 旗标 | 环境变量 | 默认值 | 说明 |
 |---|---|---|---|
 | `--gateway-port` | `DCC_MCP_GATEWAY_PORT` | `9765` | 要争的公认端口。`0` 完全关闭网关角色，因此也关闭 admin。 |
-| `--no-admin` | `DCC_MCP_NO_ADMIN` | `false` | 关闭获选网关上的只读 Admin UI。默认获选网关会开启 admin。 |
+| `--no-admin` | `DCC_MCP_NO_ADMIN` | `false` | 关闭获选网关上的 Admin UI。默认获选网关会开启 admin。 |
 | `--admin-path` | `DCC_MCP_ADMIN_PATH` | `/admin` | Admin UI 与其 JSON API 的 URL 前缀。 |
 | `--registry-dir` | `DCC_MCP_REGISTRY_DIR` | 平台 temp | 共享 `FileRegistry` 目录。 |
 | `--stale-timeout-secs` | `DCC_MCP_STALE_TIMEOUT` | `30` | 没心跳后多少秒实例被判为过期。 |

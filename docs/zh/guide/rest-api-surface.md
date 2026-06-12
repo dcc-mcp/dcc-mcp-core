@@ -28,6 +28,8 @@ OpenAPI 契约。
 | `GET` | `/v1/instances` | elected gateway 当前知道的在线 DCC instance rows。 |
 | `GET` | `/v1/healthz` | Gateway 存活探针。HTTP handler 在线时返回 `200 {"ok": true}`。 |
 | `GET` | `/v1/readyz` | Gateway readiness 汇总，包含每个 instance 的 readiness bits；即使没有 ready instance，该路由仍返回 `200`。 |
+| `GET` | `/v1/update/check` | Gateway update manifest 检查，用于 `dcc-mcp-cli`、`dcc-mcp-server` 或其它配置过的 binary。Query: `binary`, `current_version`。 |
+| `GET` | `/v1/update/download/{binary_name}` | 解析某个 binary 的最新 manifest download URL；当未配置 URL 时返回结构化 update error。 |
 | `GET` | `/v1/skills` | 把已加载 gateway capability records 投影成 skill entries。 |
 | `POST` | `/v1/list_skills` | 把 skill-list 请求转发给选中的 backend instance。 |
 | `POST` | `/v1/search` | 模糊 / 精确搜索 loaded + unloaded skills。 |
@@ -57,6 +59,7 @@ OpenAPI 契约。
 | `GET` | `/v1/debug/logs` | 仅网关：合并 gateway events、file logs、audit summaries。 |
 | `GET` | `/v1/debug/stats` | 仅网关：聚合 call statistics。 |
 | `GET` | `/v1/debug/governance` | 仅网关：当前 policy、traffic capture、redaction、quota 和最近 governance 决策。 |
+| `GET` | `/v1/debug/integrations` | 仅网关：脱敏后的 Sentry、webhook、企微和 OTLP integration 配置状态。 |
 | `GET` | `/v1/debug/health` | 仅网关：debug subsystem health summary。 |
 | `GET` | `/v1/openapi.json` | Gateway 专属 OpenAPI 3.x 文档，可供代码生成。 |
 | `GET` | `/docs` | 用同一份 gateway 专属 OpenAPI 文档渲染的 Scalar API reference。 |
@@ -128,6 +131,7 @@ Phase-1 debug routes 会保留现有 Admin payload 字段，让 operator 和 age
 | `/v1/debug/logs` | `/admin/api/logs` | 合并 gateway/file/audit logs。 |
 | `/v1/debug/stats` | `/admin/api/stats` | 聚合 call stats。 |
 | `/v1/debug/governance?limit=300` | `/admin/api/governance?limit=300` | 当前 policy、read-only 状态、traffic capture/redaction 控制、中间件压力和最近 allow/deny/throttle 决策。 |
+| `/v1/debug/integrations` | `/admin/api/integrations` | Sentry、Event Webhooks、企微消息推送和 OTLP 遥测的脱敏 integration 状态。 |
 | `/v1/debug/health` | `/admin/api/health` | debug provider health summary。 |
 
 compact-aware debug routes（`/v1/debug/traces`、

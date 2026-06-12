@@ -6,7 +6,10 @@ and selected span breadcrumbs automatically.
 
 ## Activation
 
-Set the `DCC_MCP_SENTRY_DSN` environment variable to your Sentry project DSN.
+Set the `DCC_MCP_SENTRY_DSN` environment variable to your Sentry project DSN,
+or configure Sentry from the Admin UI Integrations panel. Admin UI edits are
+written to `~/dcc-mcp/etc/sentry.json` by default (`DCC_MCP_ETC_DIR` overrides
+the directory). Environment variables take precedence over local file values.
 The SDK initialises at server startup and captures panics automatically.
 
 ```bash
@@ -22,9 +25,10 @@ DCC_MCP_SENTRY_DSN="https://<key>@o<org>.ingest.sentry.io/<project>" \
 | `DCC_MCP_SENTRY_ENVIRONMENT`  | `production`         | Environment tag for source-map filtering   |
 | `DCC_MCP_SENTRY_RELEASE`      | crate version        | Release identifier (commit correlation)    |
 | `DCC_MCP_SENTRY_SAMPLE_RATE`  | `1.0`                | Error event sample rate (`0.0`–`1.0`)      |
+| `DCC_MCP_ETC_DIR`             | `~/dcc-mcp/etc`      | Directory for Admin UI local config files  |
 
-When `DCC_MCP_SENTRY_DSN` is absent the SDK skips initialisation entirely,
-so zero-config deployments pay no overhead.
+When both `DCC_MCP_SENTRY_DSN` and local `sentry.json` are absent the SDK skips
+initialisation entirely, so zero-config deployments pay no overhead.
 
 ## What Gets Captured
 
@@ -53,11 +57,13 @@ except Exception as exc:
 
 ## Admin UI Configuration Summary
 
-The gateway admin dashboard includes a read-only **Integrations** panel
+The gateway admin dashboard includes an editable **Integrations** panel
 (`GET /admin/api/integrations`) that shows the effective Sentry configuration
-status: whether `DCC_MCP_SENTRY_DSN` is set, the environment tag, and the
-sample rate. The full DSN is never exposed in the JSON response. See
-[admin-ui.md](admin-ui.md) for the Integrations panel reference.
+status: whether Sentry is configured, the environment tag, release, and sample
+rate. Saving from the panel writes local config and reports `pending_restart`
+until the process reloads startup integrations. The full DSN is never exposed
+in the JSON response. See [admin-ui.md](admin-ui.md) for the Integrations panel
+reference.
 
 ## Disabling Sentry
 
@@ -88,6 +94,6 @@ ingest pipeline end-to-end. They are excluded from CI unless the
 - [gateway.md](gateway.md) — gateway configuration including webhooks and
   observability
 - [observability.md](observability.md) — metrics, OTLP tracing, Prometheus
-- [admin-ui.md](admin-ui.md) — Admin UI Integrations panel for read-only
-  Sentry configuration summary
+- [admin-ui.md](admin-ui.md) — Admin UI Integrations panel for editable,
+  masked Sentry configuration
 - [production-deployment.md](production-deployment.md) — production checklist

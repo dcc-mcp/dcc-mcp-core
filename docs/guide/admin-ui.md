@@ -27,7 +27,7 @@ Equivalent env vars:
 | Env var | Default | Description |
 |---------|---------|-------------|
 | `DCC_MCP_GATEWAY_PORT` | `9765` | Gateway election port. `0` disables gateway/admin. |
-| `DCC_MCP_NO_ADMIN` | `false` | Disable the read-only Admin UI on the elected gateway. |
+| `DCC_MCP_NO_ADMIN` | `false` | Disable the Admin UI on the elected gateway. |
 | `DCC_MCP_ADMIN_PATH` | `/admin` | Admin URL prefix. |
 | `DCC_MCP_GATEWAY_AUDIT_DIR` | unset | Optional JSONL directory for durable `audit.jsonl` and `traces.jsonl`; unset keeps zero-disk in-memory behavior. |
 | `DCC_MCP_GATEWAY_AUDIT_MAX_ROWS` | `5000` | Max JSONL rows retained per durable file when persistence is enabled. |
@@ -133,11 +133,13 @@ data remains stable.
 The screenshots below use representative demo data and show the browser-first
 operator workflows exposed by the embedded dashboard.
 
-![Admin Connect IDE panel](../assets/admin-ui/admin-connect-ide.png)
+![Admin Command Center panel](../assets/admin-ui/admin-connect-ide.png)
 
-The **Connect IDE** panel provides copyable MCP configuration snippets for
-Claude Desktop, Cursor, CodeBuddy, VS Code, Cline, and Codex / OpenAI, using
-the current gateway URL and platform-aware config paths.
+The **Command Center** panel provides copyable agent prompts, human CLI
+commands, and MCP configuration snippets for Claude Desktop, Cursor, CodeBuddy,
+VS Code, Cline, and Codex / OpenAI. Commands use the current gateway URL and
+highlight that `dcc-mcp-cli` auto-ensures the local gateway before live DCC
+operations.
 
 ![Admin Skills paths panel](../assets/admin-ui/admin-skills-paths.png)
 
@@ -156,7 +158,8 @@ Markdown body for developer review.
 The **Marketplace** panel, accessible from the left navigation, provides a
 graphical interface for browsing, installing, and managing skill packages from
 the DCC-MCP marketplace catalog. It exposes the same capabilities as the CLI
-`marketplace` subcommand through two tabs: **Browse** and **Installed**.
+`marketplace` subcommand through three tabs: **Browse**, **Installed**, and
+**Sources**.
 
 ### Browse Tab
 
@@ -183,17 +186,21 @@ refreshed automatically.
 
 ### Installed Tab
 
-The Installed tab lists all currently installed marketplace packages as
-per-package cards, showing:
-- Package name and version
-- DCC type
-- Install type (git, zip, path)
-- Uninstall button
+The Installed tab is a dense operator inventory, not another card grid. It
+lists one row per installed `{package, dcc}` pair and shows:
 
-Clicking an installed package card opens a **right-aligned slide-out detail
-overlay** with the same portal-based animation and backdrop blur as the
-Skills detail panel. The overlay displays the install path, install type,
-source, timestamp, version, tags, and catalog metadata (when available).
+- Package name, DCC type, and local install path.
+- Installed version and an update-available badge when the catalog reports a
+  newer version.
+- Source name / URL and install type (`git`, `zip`, or `path`).
+- Installed timestamp when available.
+- Direct **Detail**, **Update**, and **Uninstall** actions.
+
+The **Detail** action opens a right-aligned slide-out detail panel with the
+same portal-based animation and backdrop blur as the Skills detail panel. The
+panel displays the package path, install type, source metadata, timestamp,
+version, tags, and catalog metadata when available, with the same update and
+uninstall actions as the row.
 
 Users can uninstall a package directly from this tab or from the slide-out.
 On success, the skill index is refreshed to reflect the removed package.
@@ -201,16 +208,17 @@ On success, the skill index is refreshed to reflect the removed package.
 ### Source Management Tab
 
 A **Sources** management interface is accessible from the Marketplace panel,
-letting operators view, add, and remove marketplace sources without the CLI:
+letting operators view and add marketplace sources without the CLI:
 
 - **Source list**: displays each configured source with its origin label
   (`builtin`, `config`, `env`) and the raw URL.
 - **Add source**: an inline form to enter a new marketplace source URL.
   Duplicate additions are idempotent — adding an already-registered source
   is a no-op rather than a hard error.
-- **Remove source**: removes a user-configured source from the persistent
-  config. Built-in and environment-provided sources cannot be removed from
-  the UI.
+- **Read-only origins**: built-in, environment, and existing config sources are
+  displayed as provenance evidence. The current Admin API exposes `GET` and
+  `POST` for sources; source removal is intentionally not part of this UI
+  contract yet.
 
 Source changes take effect immediately for subsequent catalog queries, and
 the Browse tab refreshes on the next interaction.
@@ -218,10 +226,11 @@ the Browse tab refreshes on the next interaction.
 ### Update Flow
 
 When newer versions are available for installed packages, the **Installed** tab
-shows an **Update** button on each outdated card. The button triggers a
-marketplace update for that single package. A bulk **Update All** action is also
-available at the top of the Installed tab, upgrading every outdated package in
-one operation.
+shows an **Update** button on each outdated row. The button triggers a
+marketplace update for that single `{package, dcc}` pair. The backend API also
+accepts `{ all: true }` for automation that wants to update every outdated
+package in one operation; the browser UI keeps this as explicit per-row
+operator action.
 
 The update flow uses the `force` install flag internally, allowing the new
 version to overwrite the existing installation. After update completes, the
@@ -231,24 +240,22 @@ re-cloning; other install types re-install from the catalog.
 
 ### Force Install
 
-The **Install** button supports a force install mode that overwrites an
-existing installation without prompting. This is exposed through the
-`force: true` parameter in the install API. In the UI, force install is
-used automatically during the update flow; manual force install is
-available through the detail modal when a package appears already
-installed.
+The Browse tab includes a **Force reinstall** checkbox. When enabled, install
+requests send `force: true`, allowing a package to overwrite an existing local
+installation. Update requests use the same overwrite semantics internally so a
+new catalog version can replace the current checkout or extracted package.
 
 ### Structured Error Display
 
-Install, update, and uninstall operations return structured error responses
-displayed as inline notification banners rather than raw JSON. Each error
-includes:
-
-- **Error code**: a machine-readable identifier (e.g. `source_not_found`,
-  `install_failed`, `network_error`).
-- **Human-readable message**: a localized description of what went wrong.
-- **Recovery hint** (when available): a suggestion for how to resolve the
-  issue (e.g. "check the source URL is reachable", "verify disk space").
+Install, update, and uninstall operations return structured error responses and
+the UI maps them to operator-readable messages instead of dumping raw JSON.
+Currently recognized marketplace error kinds include `already_installed`,
+`not_found`, `hash_mismatch`, `missing_skill`, and `command_failed`; network
+failures are reported separately. If an Admin API route accidentally returns an
+HTML shell (for example a dev server or reverse proxy routed
+`/admin/api/marketplace/install` back to the Vite page), the UI reports
+`Admin API returned HTML for ...` so operators know the gateway/admin routing is
+wrong instead of seeing `Unexpected token '<'`.
 
 ### API Endpoints
 
@@ -270,6 +277,7 @@ includes:
 | `GET /admin` | `text/html` | Embedded React/Vite dashboard served as one HTML asset |
 | `GET /admin/api/activity?limit=300` | `application/json` | Unified activity timeline built from audits, traces, and gateway events |
 | `GET /admin/api/instances` | `application/json` | Connected DCC instances |
+| `POST /admin/api/instances/{instance_id}/update` | `application/json` | Check and stage a `dcc-mcp-server` update for one instance; the instance card shows the result and any restart-required state |
 | `GET /admin/api/tools` | `application/json` | Registered MCP tools |
 | `GET /admin/api/workflows?limit=200` | `application/json` | Agent session/workflow view reconstructed from search telemetry, traces, and audits |
 | `GET /admin/api/tasks?limit=300` | `application/json` | User-level task outcomes grouped across workflows, calls, artifacts, and validation |
@@ -280,6 +288,10 @@ includes:
 | `GET /admin/api/traffic/export?limit=1000` | `application/x-ndjson` | Retained metadata-only traffic frames as JSONL for safe local inspection/diff workflows |
 | `GET /admin/api/debug-bundle/{request_id}` | `application/json` | One-stop debug bundle containing the trace, matching audit row, related activity, and hints |
 | `GET /admin/api/stats?range=1h\|24h\|7d` | `application/json` | Aggregated call counts, success rate, latency, top tools/instances/agents, and token-savings totals |
+| `GET /admin/api/analytics/overview?range=7d\|30d\|90d\|180d\|365d` | `application/json` | Analytics KPI summary, top tools, token totals, and period bounds |
+| `GET /admin/api/analytics/timeseries?range=...\&granularity=day` | `application/json` | Daily call, token, average duration, and `max_duration_ms` series used by the trend chart and Token Activity calendar |
+| `GET /admin/api/analytics/heatmap?range=...` | `application/json` | Hour/weekday heatmap compatibility endpoint for clients that still consume the older aggregate shape |
+| `GET /admin/api/analytics/export?range=...` | `text/csv` or `application/x-ndjson` | Download analytics data for local review |
 | `GET /admin/api/governance?limit=300` | `application/json` | Effective gateway policy, traffic capture, redaction, middleware controls, and recent allow/deny/throttle decisions |
 | `GET /admin/api/workers` | `application/json` | Per-instance cards from the live registry; response field names remain `workers` for compatibility |
 | `GET /admin/api/logs` | `application/json` | Merged gateway contention events, on-disk `*.log` rows, and audited call summaries |
@@ -289,7 +301,8 @@ includes:
 | `GET /admin/api/skill-paths` | `application/json` | Current skill discovery roots with safe path aliases, present/missing status, and source/id metadata for public-safe screenshots and exports |
 | `POST /admin/api/skill-paths` | `application/json` | Add a SQLite-backed custom skill discovery root, then refresh live backend skill indexes |
 | `DELETE /admin/api/skill-paths/{id}` | `application/json` | Remove a SQLite-backed custom skill discovery root, then refresh live backend skill indexes |
-| `GET /admin/api/integrations` | `application/json` | Read-only integration configuration summary: Sentry DSN status, webhook count, OTLP endpoint, and pending-restart flags |
+| `GET /admin/api/integrations` | `application/json` | Integration configuration summary: Sentry DSN status, webhook count, WeCom message push, OTLP endpoint, and pending-restart flags |
+| `PUT /admin/api/integrations` | `application/json` | Save one file-backed integration under `~/dcc-mcp/etc` or `DCC_MCP_ETC_DIR`, returning a masked pending-restart entry |
 
 Stable agent-facing mirrors are exposed under `/v1/debug/*` and are included in
 `GET /v1/openapi.json`. The Admin routes above remain the dashboard
@@ -312,8 +325,20 @@ compatibility layer; automation should prefer:
 | `GET /v1/debug/calls` | `/admin/api/calls` |
 | `GET /v1/debug/logs` | `/admin/api/logs` |
 | `GET /v1/debug/stats` | `/admin/api/stats` |
+| `GET /v1/debug/analytics/overview` | `/admin/api/analytics/overview` |
+| `GET /v1/debug/analytics/timeseries` | `/admin/api/analytics/timeseries` |
+| `GET /v1/debug/analytics/heatmap` | `/admin/api/analytics/heatmap` |
+| `GET /v1/debug/analytics/export` | `/admin/api/analytics/export` |
 | `GET /v1/debug/governance?limit=300` | `/admin/api/governance` |
+| `GET /v1/debug/integrations` | `/admin/api/integrations` |
 | `GET /v1/debug/health` | `/admin/api/health` |
+
+The Analytics panel renders the `365d` Token Activity calendar by default. It
+uses `overview.kpi.tokens_total` for cumulative tokens,
+`timeseries[*].tokens_input + tokens_output` for day intensity, and
+`timeseries[*].max_duration_ms` for the "Longest Task" KPI. The older
+weekday/hour heatmap endpoint is kept for compatibility, but the dashboard no
+longer needs it for the contribution-calendar view.
 
 Browser deep links such as `/admin?panel=traces&trace=<request_id>` are UI
 navigation only. Historical `/admin?agent=traces&trace=<id>` links should be
@@ -641,7 +666,7 @@ Admin token fields intentionally separate two accounting models:
         "openapi_inspector_url": "http://127.0.0.1:9765/admin?panel=openapi",
         "openapi_spec_url": "http://127.0.0.1:9765/v1/openapi.json",
         "openapi_docs_url": "http://127.0.0.1:9765/docs",
-        "stats_url": "http://127.0.0.1:9765/admin?panel=stats"
+        "stats_url": "http://127.0.0.1:9765/admin?panel=overview&overviewTab=stats"
       },
       "token_accounting": {
         "response_format": "toon",
@@ -690,7 +715,7 @@ Admin token fields intentionally separate two accounting models:
         "openapi_inspector_url": "http://127.0.0.1:9765/admin?panel=openapi",
         "openapi_spec_url": "http://127.0.0.1:9765/v1/openapi.json",
         "openapi_docs_url": "http://127.0.0.1:9765/docs",
-        "stats_url": "http://127.0.0.1:9765/admin?panel=stats"
+        "stats_url": "http://127.0.0.1:9765/admin?panel=overview&overviewTab=stats"
       },
       "total_ms": 48,
       "success": true,
@@ -721,7 +746,7 @@ Admin token fields intentionally separate two accounting models:
     "openapi_inspector_url": "http://127.0.0.1:9765/admin?panel=openapi",
     "openapi_spec_url": "http://127.0.0.1:9765/v1/openapi.json",
     "openapi_docs_url": "http://127.0.0.1:9765/docs",
-    "stats_url": "http://127.0.0.1:9765/admin?panel=stats"
+    "stats_url": "http://127.0.0.1:9765/admin?panel=overview&overviewTab=stats"
   },
   "total_ms": 48,
   "ok": true,
@@ -937,7 +962,7 @@ Admin token fields intentionally separate two accounting models:
   "schema_version": "dcc-mcp.admin.governance.v1",
   "mode": {
     "admin_mutations": "disabled",
-    "reason": "Admin is unauthenticated and read-only by default."
+    "reason": "Governance mutations are disabled because Admin has no authentication by default."
   },
   "policy": {
     "read_only": true,
@@ -1022,10 +1047,15 @@ Set `DCC_MCP_GATEWAY_AUDIT_DIR` to enable durable JSONL persistence. The gateway
 The HTML dashboard includes:
 - **Debug Workbench**: the default first screen combines health, instances, calls, traces, stats, warning logs, and per-instance OpenAPI entry points so operators can triage gateway failures without jumping between panels.
 - **Gateway owner identity**: the Health and Debug panels show the current `__gateway__` sentinel label from `gateway_name` / `DCC_MCP_GATEWAY_NAME`, plus any challenger candidates.
-- **Left navigation**: Connect IDE / Discover / Debug / Instances / Activity / Health / Workflows / Tasks / Tools / OpenAPI Inspector / Traces (with Calls sub-tab) / Governance / Logs / Analytics / Overview (with Stats + Traffic sub-tabs)
+- **Left navigation**: grouped operator areas for Connect & Operate (Command
+  Center, Instances, Health, Debug), Discover & Extend (Skills, Marketplace,
+  Integrations, Tools), Workflows, Observe (Traces, Calls, Overview, Logs),
+  Insights (Analytics), and Govern & Contracts (Governance, OpenAPI Inspector).
 - **Auto-refresh**: Panels poll their JSON endpoints every 5 seconds
 - **DCC icons**: common hosts such as Maya/Autodesk, Blender, GIMP, Inkscape, Krita, Unity, and Unreal get recognizable icons, with a safe fallback for custom hosts.
-- **Instance cards**: Per-instance status, heartbeat, and routing metadata
+- **Instance cards**: Per-instance status, heartbeat, routing metadata, server
+  version, and a direct update action that stages `dcc-mcp-server` updates and
+  clearly marks restart-required results.
 - **OpenAPI Inspector**: summarizes the gateway or selected instance `/v1/openapi.json` contract, filters REST operations by method/path/tag, and exposes copy/download links for the raw JSON plus the matching `/docs`.
 - **Instance OpenAPI links**: Debug Workbench and instance cards expose `Inspector`, `spec`, and `docs` links generated from each backend `mcp_url`, so an operator can jump from MCP-level telemetry to the lower OpenAPI contract for that exact backend.
 - **Calls table**: request ids, error previews, and trace-detail links; DCC is displayed from the resolved backend slug when available, otherwise from explicit call arguments such as `dcc` / `dcc_type`.
@@ -1039,72 +1069,134 @@ The HTML dashboard includes:
   and redaction paths remain visible.
 - **Governance panel**: shows read-only state, allowlists, traffic capture mode/sinks, production guardrails, redaction path summaries, middleware rate-limit controls, and recent allowed/denied/throttled/capture decisions.
 - **Logs panel**: groups normalized `contention`, `file`, and `audit` rows so operators can correlate routing events, rolling files, and tool calls in one timeline. File log reads are bounded to recent files and tail slices so the admin API does not scan unbounded historical logs.
-- **Integrations panel**: read-only summary of enabled third-party integrations — Sentry DSN status (set/unset), active webhook count and name list, OTLP endpoint, and any pending-restart flags for configuration changes that require a server restart to take effect.
+- **Integrations panel**: editable summary of third-party integrations — Sentry DSN status, active webhook count and name list, WeCom message push, OTLP endpoint, and any pending-restart flags for configuration changes that require a server restart to take effect.
 - **Durable audit option**: `DCC_MCP_GATEWAY_AUDIT_DIR` preserves the Calls and Traces panels across restarts without changing the JSON API shapes.
 - **Dark theme**: Vite/React source with embedded runtime asset and no required runtime build step
 - **Responsive**: narrow screens switch to a top navigation rail, and debug cards/charts keep a usable single-column width.
 
+## Operator Workflows
+
+Use the dashboard as an operations surface, not as a static report:
+
+1. **Start from Command Center** when onboarding an agent or a human operator.
+   The prompt tab is for agents; the human CLI tab is for copyable commands.
+   `dcc-mcp-cli` auto-ensures a local loopback gateway for normal gateway-backed
+   commands, so operators should not add a separate preflight step unless they
+   are troubleshooting lifecycle state.
+2. **Use Instances for server updates.** Each instance row shows the current
+   server/adapter version and posts to
+   `POST /admin/api/instances/{instance_id}/update` when the update button is
+   clicked. The request stages `dcc-mcp-server` updates and reports whether the
+   DCC backend must restart to apply the staged binary.
+3. **Use Skills and Marketplace for capability changes.** The Skills panel shows
+   live gateway inventory and custom path state; Marketplace installs, updates,
+   and uninstalls packages through `/admin/api/marketplace/*`. After a package
+   change, reload-required responses refresh the skill inventory and tell the
+   operator when a live adapter still needs `load-skill`.
+4. **Use Integrations for editable observability config.** Sentry, event
+   webhooks, WeCom message push, and OTLP writes go to `~/dcc-mcp/etc` or
+   `DCC_MCP_ETC_DIR` by default, with secret fields masked in all API responses.
+   Runtime environment variables still win until the gateway/server process is
+   restarted with the saved config.
+5. **Use Analytics for activity inspection.** The contribution-style token
+   activity calendar comes from the analytics APIs and is meant to show real
+   agent usage patterns, not demo-only heatmap data.
+
 ## Integrations Panel
 
-The Integrations panel (`GET /admin/api/integrations`) displays a read-only
-summary of the gateway's third-party integration configuration. The panel shows
-which integrations are active and whether a server restart is pending for
-environment-provided settings.
+The Integrations panel (`GET /admin/api/integrations`) displays the gateway's
+third-party integration configuration. Operators can stage edits with
+`PUT /admin/api/integrations`; staged values are shown as `pending_restart`
+until the gateway/server process is restarted with equivalent environment
+variables or config files.
 
 | Integration | Configuration mechanism | Admin panel shows |
 |-------------|------------------------|-------------------|
-| Sentry | `DCC_MCP_SENTRY_DSN` env var | DSN status (set/unset), environment, sample rate |
-| Webhooks | `DCC_MCP_WEBHOOKS_CONFIG` env var → YAML file | Active webhook names, event patterns, and delivery stats |
-| OTLP tracing | `OTEL_EXPORTER_OTLP_ENDPOINT` env var | Endpoint URL, service name, span sample rate |
+| Sentry | Env vars first, then `~/dcc-mcp/etc/sentry.json` | DSN status (masked), environment, release, sample rate |
+| Webhooks | `DCC_MCP_WEBHOOKS_CONFIG` first, then `~/dcc-mcp/etc/webhooks.yaml` | Active webhook names, event patterns, and delivery stats |
+| WeCom message push | Env vars first, then `~/dcc-mcp/etc/webhooks.yaml` entry `wecom-message-push` | Masked group robot URL, event patterns, message template |
+| OTLP tracing | Env vars first, then `~/dcc-mcp/etc/otlp.json` | Endpoint URL, service name, configured headers |
 
-The panel is **read-only** by design — all three integrations are configured
-through environment variables or config files applied at server startup. The
-panel flags pending-restart changes when the operator modifies an env var
-through the host deployment tooling but has not yet restarted the gateway
-process. See [gateway.md](gateway.md) for full configuration reference.
+Integrations are applied at server startup. Panel edits are a safe operator
+preview and restart prompt. By default, editable file-backed integrations are
+written under `~/dcc-mcp/etc`; set `DCC_MCP_ETC_DIR` to move that directory.
+Environment variables continue to take precedence over local files at runtime,
+so `config_path` can describe the currently loaded env-backed file while
+`write_config_path` describes where the Admin UI saves edits. The UI writes
+editable integrations to the user config directory consistently, including
+Webhooks even when `DCC_MCP_WEBHOOKS_CONFIG` is set. The WeCom shortcut writes
+into the shared `webhooks.yaml` file without removing unrelated webhook entries;
+it replaces only an existing `kind: wecom` or `name: wecom-message-push` entry. See
+[gateway.md](gateway.md) for full configuration reference.
 
 ### Backend API
 
 ```json
 // GET /admin/api/integrations
 {
-  "sentry": {
-    "configured": true,
-    "dsn_prefix": "https://***@o***.ingest.sentry.io",
-    "environment": "production",
-    "sample_rate": 1.0,
-    "pending_restart": false
-  },
-  "webhooks": {
-    "configured": true,
-    "config_path": "/etc/dcc-mcp/webhooks.yaml",
-    "active_webhooks": 2,
-    "names": ["analytics-forwarder", "error-reporter"],
-    "pending_restart": false
-  },
-  "otlp": {
-    "configured": true,
-    "endpoint": "http://localhost:4317",
-    "service_name": "dcc-mcp-gateway",
-    "pending_restart": false
+  "integrations": [
+    {
+      "kind": "sentry",
+      "label": "Sentry Error Monitoring",
+      "status": "active",
+      "config": {
+        "dsn": "https://********@o0.ingest.sentry.io/0",
+        "environment": "production",
+        "config_path": "C:/Users/example/dcc-mcp/etc/sentry.json",
+        "write_config_path": "C:/Users/example/dcc-mcp/etc/sentry.json"
+      },
+      "env_locked_fields": [
+        {"key": "dsn", "locked": true, "env_var": "DCC_MCP_SENTRY_DSN"}
+      ]
+    },
+    {
+      "kind": "wecom",
+      "label": "WeCom Message Push",
+      "status": "pending_restart",
+      "config": {
+        "webhook_url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=********",
+        "event_types": ["tool.failed", "gateway.instance.*"],
+        "template": "DCC-MCP $event\nDCC: $dcc-type\nURL: $url",
+        "config_path": "C:/Users/example/dcc-mcp/etc/webhooks.yaml",
+        "write_config_path": "C:/Users/example/dcc-mcp/etc/webhooks.yaml"
+      },
+      "env_locked_fields": [
+        {"key": "webhook_url", "locked": false, "env_var": "DCC_MCP_WECOM_WEBHOOK_URL"}
+      ]
+    }
+  ],
+  "generated_at": "2026-06-11T00:00:00Z"
+}
+```
+
+The response omits secrets: Sentry DSNs and WeCom robot keys are masked in both
+effective and pending config. Raw Sentry DSNs and WeCom robot URLs are written
+only to local config files. When an integration is unconfigured, its entry uses
+`status: "inactive"` and empty or `null` config fields.
+
+To stage an edit, send the integration kind and config fields:
+
+```json
+// PUT /admin/api/integrations
+{
+  "kind": "wecom",
+  "config": {
+    "webhook_url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...",
+    "event_types": ["tool.failed", "gateway.instance.*"],
+    "template": "DCC-MCP $event\nDCC: $dcc-type\nURL: $url"
   }
 }
 ```
 
-The response omits secrets: the DSN prefix is shown for identification but
-the full DSN (including the secret key) is never exposed. When an integration
-is unconfigured, its block contains `"configured": false` and no further
-fields.
-
-If a configuration change is detected (e.g. `DCC_MCP_SENTRY_DSN` was set or
-cleared since process start), `pending_restart` is `true` and the panel
-displays a visual indicator prompting the operator to restart the gateway.
+The response is the updated integration entry with `status:
+"pending_restart"`.
 
 ### Routes
 
 | Route | Content-Type | Description |
 |-------|-------------|-------------|
-| `GET /admin/api/integrations` | `application/json` | Read-only integration configuration summary |
+| `GET /admin/api/integrations` | `application/json` | Integration configuration summary |
+| `PUT /admin/api/integrations` | `application/json` | Stage pending-restart config for one integration |
 
 ### Stable agent-facing route
 
@@ -1114,11 +1206,21 @@ displays a visual indicator prompting the operator to restart the gateway.
 
 ## Security Note
 
-The admin UI is **read-only** and has **no authentication** by default. It binds to the same host as the elected gateway, which defaults to `127.0.0.1`. For production:
-- Keep it bound to localhost, or place behind a reverse proxy with IP allowlist/basic auth
-- Disable when not needed: `--no-admin`, `DCC_MCP_NO_ADMIN=true`, or `cfg.admin_enabled = False`
-- Treat the Governance panel as an inspection surface only; policy, capture, redaction, and quota changes must still happen through authenticated deployment configuration.
-- Never expose directly to the public internet
+The admin UI has **no authentication** by default. It binds to the same host as
+the elected gateway, which defaults to `127.0.0.1`. Several panels are
+read-only, but the dashboard also exposes local operator mutations such as
+custom skill-path changes, marketplace install/update/uninstall, integration
+config saves under `~/dcc-mcp/etc`, and per-instance update staging. For
+production:
+
+- Keep it bound to localhost, or place it behind a reverse proxy with IP
+  allowlist/basic auth.
+- Disable it when not needed: `--no-admin`, `DCC_MCP_NO_ADMIN=true`, or
+  `cfg.admin_enabled = False`.
+- Treat the Governance panel as an inspection surface only; policy, capture,
+  redaction, and quota changes must still happen through authenticated
+  deployment configuration.
+- Never expose it directly to the public internet.
 
 ## See also
 

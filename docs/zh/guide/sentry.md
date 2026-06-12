@@ -5,7 +5,9 @@ SDK 会自动捕获 Rust panics、显式错误事件以及选定的 span breadcr
 
 ## 启用
 
-设置 `DCC_MCP_SENTRY_DSN` 环境变量为你的 Sentry 项目 DSN。
+设置 `DCC_MCP_SENTRY_DSN` 环境变量为你的 Sentry 项目 DSN，或通过
+Admin UI 集成面板配置 Sentry。Admin UI 编辑默认写入
+`~/dcc-mcp/etc/sentry.json`（`DCC_MCP_ETC_DIR` 可覆盖目录）。环境变量优先于本地文件。
 SDK 在服务器启动时初始化，并自动捕获 panics。
 
 ```bash
@@ -21,9 +23,10 @@ DCC_MCP_SENTRY_DSN="https://<key>@o<org>.ingest.sentry.io/<project>" \
 | `DCC_MCP_SENTRY_ENVIRONMENT`    | `production`        | 用于 source-map 过滤的环境标签    |
 | `DCC_MCP_SENTRY_RELEASE`        | crate 版本          | 发布标识符（提交关联）            |
 | `DCC_MCP_SENTRY_SAMPLE_RATE`    | `1.0`               | 错误事件采样率（`0.0`–`1.0`）    |
+| `DCC_MCP_ETC_DIR`               | `~/dcc-mcp/etc`     | Admin UI 本地配置文件目录         |
 
-当 `DCC_MCP_SENTRY_DSN` 不存在时，SDK 完全跳过初始化，因此零配置部署
-没有任何开销。
+当 `DCC_MCP_SENTRY_DSN` 和本地 `sentry.json` 都不存在时，SDK 完全跳过初始化，
+因此零配置部署没有任何开销。
 
 ## 会捕获什么
 
@@ -52,9 +55,10 @@ except Exception as exc:
 
 ## Admin UI 配置摘要
 
-网关管理仪表盘包含一个只读的**集成面板**（`GET /admin/api/integrations`），
-显示当前 Sentry 配置状态：`DCC_MCP_SENTRY_DSN` 是否已设置、环境标签和采样率。
-完整的 DSN 不会在 JSON 响应中暴露。详见 [admin-ui.md](admin-ui.md) 的集成面板参考。
+网关管理仪表盘包含一个可编辑的**集成面板**（`GET /admin/api/integrations`），
+显示当前 Sentry 配置状态：是否已配置 Sentry、环境标签、版本和采样率。保存面板配置会写入本地文件并显示
+`pending_restart`，直到进程重启并重新加载启动集成。完整的 DSN 不会在 JSON 响应中暴露。
+详见 [admin-ui.md](admin-ui.md) 的集成面板参考。
 
 ## 禁用 Sentry
 
@@ -83,5 +87,5 @@ cargo test --features sentry_e2e --test sentry_e2e
 
 - [gateway.md](gateway.md) — 网关配置，包括 webhooks 和可观测性
 - [observability.md](observability.md) — 指标、OTLP 追踪、Prometheus
-- [admin-ui.md](admin-ui.md) — Admin UI 集成面板，用于只读查看 Sentry 配置
+- [admin-ui.md](admin-ui.md) — Admin UI 集成面板，用于查看和暂存 Sentry 配置
 - [production-deployment.md](production-deployment.md) — 生产部署检查清单

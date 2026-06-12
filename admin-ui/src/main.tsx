@@ -11,9 +11,9 @@ import { applyTheme, readThemeMode, resolveTheme } from './theme';
 // these feature files to stay under the admin-ui 3000-line CI cap.
 import './styles.css';
 import './styles/skill-detail.css';
-import './styles/responsive.css';
 import './setup.css';
 import './styles/skills.css';
+import './styles/responsive.css';
 
 // Apply the persisted color scheme before the first paint to avoid a flash.
 applyTheme(resolveTheme(readThemeMode()));

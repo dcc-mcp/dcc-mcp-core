@@ -74,6 +74,82 @@ Tool veto 会表现为 `EVENT_VETOED` dispatch error，并发布带有
 `error_kind="event_vetoed"`、`veto_code` 和 `veto_reason` 的 `tool.failed`
 事件。
 
+### Standalone Server Webhooks
+
+`dcc-mcp-server` 可以把结构化 EventBus envelope 异步转发到 HTTP webhook。
+设置 `DCC_MCP_WEBHOOKS_CONFIG` 指向 YAML 文件，或把 `webhooks.yaml` 放在
+`~/dcc-mcp/etc` 下（`DCC_MCP_ETC_DIR` 可覆盖该目录）。Admin UI 的
+Integrations 面板会写入这个本地文件，并把条目标记为 `pending_restart`，
+因为 webhook runtime 在 server 启动时加载。
+
+每个 `webhooks` 条目支持 `name`、`url`、`events`、可选 `kind`、
+可选 `headers`、可选 `delivery` 重试设置、可选 dotted-path `filters`，
+以及可选 `payload_template`。如果所有投递尝试都失败，server 会在同一个
+EventBus 上发布 `webhook.delivery_failed`。
+
+:::: v-pre
+
+```yaml
+queue_capacity: 1024
+webhooks:
+  - name: studio-events
+    url: https://ops.example.invalid/dcc-mcp-events
+    events:
+      - tool.failed
+      - gateway.instance.*
+    headers:
+      authorization: Bearer ${DCC_EVENTS_TOKEN}
+    filters:
+      - source.dcc_type: maya
+    delivery:
+      attempts: 3
+      timeout_ms: 2000
+      backoff_ms: [200, 1000, 5000]
+    payload_template: |
+      {"event":"{{name}}","tool":"{{attributes.tool_slug}}","dcc":"{{source.dcc_type}}"}
+```
+
+::::
+
+`payload_template` 会用结构化 event envelope 中的 `&#123;&#123;path.to.field&#125;&#125;`
+占位符填充。省略该字段时，runtime 会发送完整 envelope JSON。
+
+### 企微消息推送
+
+企业微信群机器人可以作为 `kind: wecom` 的 webhook 条目配置。runtime 会按
+群机器人接口需要的 markdown payload 投递消息。
+
+```yaml
+webhooks:
+  - name: wecom-message-push
+    kind: wecom
+    url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=${WECOM_ROBOT_KEY}
+    events:
+      - tool.failed
+      - webhook.delivery_failed
+    message_template: |
+      DCC-MCP $event
+      DCC: $dcc-type
+      Tool: $tool-slug
+      URL: $url
+```
+
+`message_template` 同时支持 <code v-pre>{{source.dcc_type}}</code> envelope path 和 dollar
+变量。内置变量包括 `$event`、`$event-id`、`$dcc-type`、`$instance-id`、
+`$tool-slug`、`$skill-name` 和 `$url`。
+
+也可以不写 YAML，直接用环境变量启用同一个集成：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `DCC_MCP_WECOM_WEBHOOK_URL` | 禁用 | 企业微信群机器人 webhook URL |
+| `DCC_MCP_WECOM_EVENTS` | `tool.failed, webhook.delivery_failed` | 逗号或换行分隔的事件模式 |
+| `DCC_MCP_WECOM_TEMPLATE` | 内置 markdown 模板 | 使用 `$...` 变量的消息正文 |
+
+通过 Admin UI 配置时，企微会保存为共享本地 `webhooks.yaml` 里的
+`wecom-message-push` 条目。保存时会保留其他 webhook，只替换已有
+`kind: wecom` 或 `name: wecom-message-push` 条目。
+
 ---
 
 ## ToolRecorder

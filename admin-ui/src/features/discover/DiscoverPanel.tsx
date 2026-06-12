@@ -1,6 +1,4 @@
-import { useMemo } from 'react';
 import type { InterpolationValues, MessageKey } from '../../i18n';
-import { PanelHeader, StatusLine } from '../../admin-ui-core';
 import { SkillsPanel } from '../skills';
 import { MarketplacePanel } from '../marketplace';
 import { IntegrationsPanel } from '../integrations';
@@ -74,30 +72,10 @@ export function DiscoverPanel({
   t,
 }: DiscoverPanelProps) {
 
-  const updatedAt = useMemo(() => {
-    switch (discoverTab) {
-      case 'skills': return skillUpdatedAt;
-      case 'marketplace': return marketplaceUpdatedAt;
-      case 'integrations': return integrationsUpdatedAt;
-    }
-  }, [discoverTab, skillUpdatedAt, marketplaceUpdatedAt, integrationsUpdatedAt]);
-
-  const error = useMemo(() => {
-    switch (discoverTab) {
-      case 'skills': return skillError;
-      case 'marketplace': return marketplaceError;
-      case 'integrations': return integrationsError;
-    }
-  }, [discoverTab, skillError, marketplaceError, integrationsError]);
-
   if (!active) return null;
 
   return (
     <section className="panel active discover-panel" data-panel="discover">
-      <PanelHeader
-        title={t('navigation.panel.discover')}
-        meta={t('navigation.discoverTab.meta')}
-      />
       <nav className="discover-tabs" role="tablist" aria-label={t('navigation.discoverTab.meta')}>
         {TABS.map((tab) => (
           <button
@@ -112,7 +90,6 @@ export function DiscoverPanel({
           </button>
         ))}
       </nav>
-      <StatusLine text={updatedAt} error={error} />
       <SkillsPanel
         active={active && discoverTab === 'skills'}
         search={search}

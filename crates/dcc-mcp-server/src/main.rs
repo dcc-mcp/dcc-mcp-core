@@ -79,7 +79,18 @@
 //! | `DCC_MCP_ADMIN_PATH`      | Admin URL prefix (default `/admin`)                |
 //! | `DCC_MCP_GATEWAY_ADMIN_DB` | Override path for admin SQLite (traces / skill paths) |
 //! | `DCC_MCP_GATEWAY_ADMIN_RETENTION_DAYS` | Admin SQLite retention in days (default 30, max 3650) |
+//! | `DCC_MCP_ETC_DIR` | Local integration config directory used before defaulting to `~/dcc-mcp/etc` |
 //! | `DCC_MCP_WEBHOOKS_CONFIG` | YAML event webhook config for forwarding `skill.*`, `tool.*`, and other EventBus envelopes |
+//! | `DCC_MCP_WECOM_WEBHOOK_URL` | Enterprise WeChat group robot webhook URL; adds a built-in WeCom event webhook |
+//! | `DCC_MCP_WECOM_EVENTS` | Comma/newline-separated event patterns for WeCom delivery |
+//! | `DCC_MCP_WECOM_TEMPLATE` | WeCom markdown template with `$event`, `$dcc-type`, `$tool-slug`, `$url`, and raw event paths |
+//! | `DCC_MCP_SENTRY_DSN` | Sentry project DSN; when absent, Sentry is not initialised |
+//! | `DCC_MCP_SENTRY_ENVIRONMENT` | Sentry environment tag (default `production`) |
+//! | `DCC_MCP_SENTRY_RELEASE` | Sentry release identifier (default crate version) |
+//! | `DCC_MCP_SENTRY_SAMPLE_RATE` | Sentry error-event sample rate (`0.0`-`1.0`, default `1.0`) |
+//! | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP collector endpoint; setting it enables OpenTelemetry export |
+//! | `OTEL_SERVICE_NAME` | OTLP service name override |
+//! | `OTEL_EXPORTER_OTLP_HEADERS` | OTLP auth/metadata headers for SaaS collectors |
 //! | `DCC_MCP_STANDALONE_REGISTRY_DCC_TYPE` | FileRegistry `dcc_type` when `--app` is empty (default `python`) |
 //! | `DCC_MCP_REGISTRY_DIR`    | Shared FileRegistry directory                      |
 //! | `DCC_MCP_STALE_TIMEOUT`   | Seconds without heartbeat = stale (default 30)     |
@@ -104,6 +115,8 @@ use dcc_mcp_skills::constants::resolve_registry_dcc_type;
 use dcc_mcp_skills::constants::{ENV_SKILL_PATHS, app_skill_paths_env_key};
 #[cfg(feature = "gateway-auto")]
 use dcc_mcp_transport::discovery::types::ServiceEntry;
+#[cfg(feature = "telemetry")]
+use serde::Deserialize;
 use sysinfo::{Pid, ProcessesToUpdate, System};
 mod capture;
 mod cli;
@@ -122,6 +135,27 @@ pub(crate) const GATEWAY_RECOVERY_DRIVER_METADATA_KEY: &str = "gateway_recovery_
 pub(crate) const REGISTRATION_REFRESH_MODE_METADATA_KEY: &str = "registration_refresh_mode";
 #[cfg(feature = "gateway-auto")]
 pub(crate) const GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN: &str = "daemon_guardian";
+
+#[cfg(feature = "telemetry")]
+const ENV_DCC_MCP_ETC_DIR: &str = "DCC_MCP_ETC_DIR";
+#[cfg(feature = "telemetry")]
+const DEFAULT_OTLP_CONFIG_FILE: &str = "otlp.json";
+
+#[cfg(feature = "telemetry")]
+#[derive(Debug, Default, Deserialize)]
+struct LocalOtlpConfig {
+    endpoint: Option<String>,
+    service_name: Option<String>,
+    headers: Option<String>,
+}
+
+#[cfg(feature = "telemetry")]
+#[derive(Debug)]
+struct ResolvedOtlpConfig {
+    endpoint: Option<String>,
+    service_name: String,
+    headers: Option<String>,
+}
 #[cfg(feature = "gateway-auto")]
 pub(crate) const GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION: &str = "embedded_election";
 #[cfg(feature = "gateway-auto")]
@@ -196,16 +230,26 @@ fn run_catalog_cmd(action: &CatalogAction) -> anyhow::Result<()> {
 
 async fn run_update_cmd(gateway_port: u16, action: UpdateAction) -> anyhow::Result<()> {
     let gateway_url = format!("http://127.0.0.1:{gateway_port}");
-    let binary_name = env!("CARGO_PKG_NAME");
-    let current_version = env!("CARGO_PKG_VERSION");
-    let updater = dcc_mcp_updater::Updater::new(&gateway_url, binary_name, current_version);
 
     match action {
-        UpdateAction::Check => {
+        UpdateAction::Check {
+            binary,
+            current_version,
+        } => {
+            let binary_name = binary.unwrap_or_else(|| env!("CARGO_PKG_NAME").to_string());
+            let current_version =
+                current_version.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+            let updater =
+                dcc_mcp_updater::Updater::new(&gateway_url, &binary_name, &current_version);
             let info = updater.check_update().await?;
             println!("{}", serde_json::to_string_pretty(&info)?);
         }
         UpdateAction::Apply => {
+            let updater = dcc_mcp_updater::Updater::new(
+                &gateway_url,
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+            );
             let info = updater.check_update().await?;
             if !info.update_available {
                 println!(
@@ -575,6 +619,103 @@ pub(crate) async fn select_shutdown_signal() -> anyhow::Result<&'static str> {
     }
 }
 
+#[cfg(feature = "telemetry")]
+fn resolved_otlp_config() -> ResolvedOtlpConfig {
+    let local = match read_local_otlp_config() {
+        Ok(config) => config,
+        Err(err) => {
+            tracing::warn!(error = %err, "local OTLP config ignored");
+            None
+        }
+    };
+
+    let endpoint = env_string("OTEL_EXPORTER_OTLP_ENDPOINT").or_else(|| {
+        local
+            .as_ref()
+            .and_then(|config| clean_string(config.endpoint.as_deref()))
+    });
+    let service_name = env_string("OTEL_SERVICE_NAME")
+        .or_else(|| {
+            local
+                .as_ref()
+                .and_then(|config| clean_string(config.service_name.as_deref()))
+        })
+        .unwrap_or_else(|| "dcc-mcp-server".into());
+    let headers = env_string("OTEL_EXPORTER_OTLP_HEADERS").or_else(|| {
+        local
+            .as_ref()
+            .and_then(|config| clean_string(config.headers.as_deref()))
+    });
+
+    ResolvedOtlpConfig {
+        endpoint,
+        service_name,
+        headers,
+    }
+}
+
+#[cfg(feature = "telemetry")]
+fn read_local_otlp_config() -> anyhow::Result<Option<LocalOtlpConfig>> {
+    let Some(path) = default_otlp_config_path() else {
+        return Ok(None);
+    };
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw = std::fs::read_to_string(&path)?;
+    let config = serde_json::from_str(&raw)?;
+    Ok(Some(config))
+}
+
+#[cfg(feature = "telemetry")]
+fn default_otlp_config_path() -> Option<PathBuf> {
+    integration_etc_dir().map(|dir| dir.join(DEFAULT_OTLP_CONFIG_FILE))
+}
+
+#[cfg(feature = "telemetry")]
+fn integration_etc_dir() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os(ENV_DCC_MCP_ETC_DIR).filter(|value| !value.is_empty()) {
+        return Some(PathBuf::from(path));
+    }
+    home_dir().map(|home| home.join("dcc-mcp").join("etc"))
+}
+
+#[cfg(feature = "telemetry")]
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("USERPROFILE")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            let drive = std::env::var_os("HOMEDRIVE")?;
+            let path = std::env::var_os("HOMEPATH")?;
+            Some(PathBuf::from(format!(
+                "{}{}",
+                drive.to_string_lossy(),
+                path.to_string_lossy()
+            )))
+        })
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+        })
+}
+
+#[cfg(feature = "telemetry")]
+fn env_string(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| clean_string(Some(value.as_str())))
+}
+
+#[cfg(feature = "telemetry")]
+fn clean_string(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────
 
 #[tokio::main]
@@ -588,10 +729,16 @@ async fn main() -> anyhow::Result<()> {
     // Otherwise, install a minimal no-op provider to suppress OTel warnings.
     #[cfg(feature = "telemetry")]
     {
-        let otlp_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok();
-        let telemetry_cfg = if let Some(ref endpoint) = otlp_endpoint {
+        let otlp = resolved_otlp_config();
+        if let Some(headers) = otlp.headers.as_deref() {
+            tracing::info!(
+                headers_configured = !headers.trim().is_empty(),
+                "OTLP headers loaded from configuration; exporter support remains provider-specific"
+            );
+        }
+        let telemetry_cfg = if let Some(ref endpoint) = otlp.endpoint {
             tracing::info!(endpoint, "OTLP endpoint detected — enabling OTLP telemetry");
-            dcc_mcp_telemetry::types::TelemetryConfig::builder("dcc-mcp-server")
+            dcc_mcp_telemetry::types::TelemetryConfig::builder(otlp.service_name)
                 .with_otlp_exporter(endpoint.clone())
                 .build()
         } else {
@@ -1114,6 +1261,56 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "telemetry")]
+    use std::sync::{Mutex, MutexGuard};
+
+    #[cfg(feature = "telemetry")]
+    static OTLP_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[cfg(feature = "telemetry")]
+    struct EnvVarsGuard {
+        previous: Vec<(&'static str, Option<String>)>,
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    #[cfg(feature = "telemetry")]
+    impl EnvVarsGuard {
+        fn set(vars: &[(&'static str, Option<&str>)]) -> Self {
+            let lock = OTLP_ENV_LOCK.lock().expect("env lock poisoned");
+            let previous = vars
+                .iter()
+                .map(|(key, _)| (*key, std::env::var(key).ok()))
+                .collect::<Vec<_>>();
+            // SAFETY: serialized by OTLP_ENV_LOCK; tests restore previous values on drop.
+            unsafe {
+                for (key, value) in vars {
+                    match value {
+                        Some(v) => std::env::set_var(key, v),
+                        None => std::env::remove_var(key),
+                    }
+                }
+            }
+            Self {
+                previous,
+                _lock: lock,
+            }
+        }
+    }
+
+    #[cfg(feature = "telemetry")]
+    impl Drop for EnvVarsGuard {
+        fn drop(&mut self) {
+            // SAFETY: serialized by OTLP_ENV_LOCK held for the guard lifetime.
+            unsafe {
+                for (key, value) in &self.previous {
+                    match value {
+                        Some(v) => std::env::set_var(key, v),
+                        None => std::env::remove_var(key),
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn no_log_file_disables_default_file_logging() {
@@ -1161,6 +1358,40 @@ mod tests {
         };
 
         assert!(should_enable_file_logging(&opts, true));
+    }
+
+    #[cfg(feature = "telemetry")]
+    #[test]
+    fn resolved_otlp_config_loads_default_local_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(DEFAULT_OTLP_CONFIG_FILE),
+            r#"{
+  "endpoint": "http://collector.local:4317",
+  "service_name": "dcc-mcp-gateway",
+  "headers": "authorization=Bearer token"
+}"#,
+        )
+        .unwrap();
+        let etc_dir = dir.path().to_string_lossy().to_string();
+        let _env = EnvVarsGuard::set(&[
+            ("OTEL_EXPORTER_OTLP_ENDPOINT", None),
+            ("OTEL_SERVICE_NAME", None),
+            ("OTEL_EXPORTER_OTLP_HEADERS", None),
+            (ENV_DCC_MCP_ETC_DIR, Some(&etc_dir)),
+        ]);
+
+        let config = resolved_otlp_config();
+
+        assert_eq!(
+            config.endpoint.as_deref(),
+            Some("http://collector.local:4317")
+        );
+        assert_eq!(config.service_name, "dcc-mcp-gateway");
+        assert_eq!(
+            config.headers.as_deref(),
+            Some("authorization=Bearer token")
+        );
     }
 
     #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]

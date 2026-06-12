@@ -125,24 +125,24 @@ describe('readPanelFromUrl', () => {
     expect(readPanelFromUrl()).toBe('setup');
   });
 
-  it('resolves aliased panel names and self-heals the URL', async () => {
-    // Pre-populate the alias map for this test by mocking the import.
-    // Since PANEL_ALIAS_MAP is empty in production, we test the logic
-    // by verifying the code path exists and is correct when aliases are added.
-    //
-    // The implementation checks `raw in PANEL_ALIAS_MAP` — this is tested
-    // indirectly: when a raw value is neither a Panel id nor in the alias
-    // map, we fall back to 'setup'.  The alias-resolution branch is exercised
-    // once entries are added to the map (which is the whole point of this
-    // infrastructure — it is ready-to-use but currently has zero entries).
-    //
-    // We validate correctness by checking that the alias-map lookup and
-    // history-replace path compiles and does NOT fire for unknown values.
+  it.each([
+    ['marketplace', 'discover', '/admin?panel=discover&discoverTab=marketplace'],
+    ['skill-paths', 'discover', '/admin?panel=discover&discoverTab=skills'],
+    ['stats&range=7d', 'overview', '/admin?panel=overview&range=7d&overviewTab=stats'],
+    ['calls&trace=req-123', 'traces', '/admin?panel=traces&trace=req-123&tracesTab=calls'],
+  ] as const)('resolves aliased panel "%s" and self-heals to its sub-tab', async (raw, panel, expectedUrl) => {
+    mockLocation(`?panel=${raw}`);
+    const replaceState = vi.spyOn(window.history, 'replaceState');
+    const { readPanelFromUrl } = await loadNavigation();
+    expect(readPanelFromUrl()).toBe(panel);
+    expect(replaceState).toHaveBeenCalledWith(null, '', expectedUrl);
+  });
+
+  it('does not redirect unknown aliases', async () => {
     mockLocation('?panel=old-dashboard');
     const replaceState = vi.spyOn(window.history, 'replaceState');
     const { readPanelFromUrl } = await loadNavigation();
     expect(readPanelFromUrl()).toBe('setup');
-    // No redirect because "old-dashboard" is not in PANEL_ALIAS_MAP.
     expect(replaceState).not.toHaveBeenCalled();
   });
 
@@ -228,5 +228,35 @@ describe('hrefForAdmin with tab params', () => {
     const href = hrefForAdmin('traces', { tracesTab: 'list' });
     expect(href).toContain('panel=traces');
     expect(href).toContain('tracesTab=list');
+  });
+
+  it.each([
+    ['stats', 'panel=overview', 'overviewTab=stats'],
+    ['traffic', 'panel=overview', 'overviewTab=traffic'],
+    ['calls', 'panel=traces', 'tracesTab=calls'],
+    ['marketplace', 'panel=discover', 'discoverTab=marketplace'],
+    ['integrations', 'panel=discover', 'discoverTab=integrations'],
+    ['skill-paths', 'panel=discover', 'discoverTab=skills'],
+  ] as const)('emits canonical URLs for legacy panel "%s"', async (panel, expectedPanel, expectedTab) => {
+    mockLocation('');
+    const { hrefForAdmin } = await loadNavigation();
+    const href = hrefForAdmin(panel);
+    expect(href).toContain(expectedPanel);
+    expect(href).toContain(expectedTab);
+    expect(href).not.toContain(`panel=${panel}`);
+  });
+
+  it('preserves canonical tab params while adding normal query params', async () => {
+    mockLocation('');
+    const { hrefForAdmin } = await loadNavigation();
+    const href = hrefForAdmin('stats', { range: '7d' });
+    expect(href).toBe('/admin?panel=overview&range=7d&overviewTab=stats');
+  });
+
+  it('generates canonical stats links for trace details', async () => {
+    mockLocation('?panel=traces');
+    const { traceLinks } = await loadNavigation();
+    const links = traceLinks('req-123');
+    expect(links.stats_url).toBe('http://localhost:9765/admin?panel=overview&range=24h&overviewTab=stats');
   });
 });

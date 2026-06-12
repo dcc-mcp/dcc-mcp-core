@@ -96,7 +96,7 @@ dcc-mcp-server gateway \
 ```
 
 The daemon hosts **only** the gateway plane — discovery, routing, the
-read-only admin UI, audit. It never executes a tool inline; every
+local admin UI, audit. It never executes a tool inline; every
 `tools/call` is forwarded to the DCC backend that owns the tool. See
 [`gateway.md` § Standalone gateway daemon][standalone] for the full
 behavior contract.

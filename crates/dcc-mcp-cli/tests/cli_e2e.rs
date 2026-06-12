@@ -1,7 +1,7 @@
 use std::process::Command;
 
 use axum::Router;
-use axum::extract::{Json, Path};
+use axum::extract::{Json, Path, Query};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -278,6 +278,56 @@ fn spawn_gateway_fixture() -> GatewayFixture {
                     }))
                 },
             ),
+        )
+        .route(
+            "/v1/update/check",
+            get(
+                |Query(query): Query<std::collections::HashMap<String, String>>| async move {
+                    let binary = query.get("binary").map(String::as_str).unwrap_or_default();
+                    let current = query
+                        .get("current_version")
+                        .map(String::as_str)
+                        .unwrap_or("0.0.0");
+                    if binary != "dcc-mcp-server" {
+                        return (
+                            StatusCode::NOT_FOUND,
+                            Json(json!({
+                                "error": format!("binary '{binary}' not found in update manifest")
+                            })),
+                        );
+                    }
+
+                    (
+                        StatusCode::OK,
+                        Json(json!({
+                            "update_available": current != "0.19.0",
+                            "latest_version": "0.19.0",
+                            "download_url": "https://example.invalid/dcc-mcp-server.zip",
+                            "sha256": "abc123",
+                            "release_notes": "Server update"
+                        })),
+                    )
+                },
+            ),
+        )
+        .route(
+            "/v1/update/download/{binary_name}",
+            get(|Path(binary_name): Path<String>| async move {
+                if binary_name != "dcc-mcp-server" {
+                    return (
+                        StatusCode::NOT_FOUND,
+                        Json(json!({
+                            "error": format!("binary '{binary_name}' not found in update manifest")
+                        })),
+                    );
+                }
+                (
+                    StatusCode::OK,
+                    Json(json!({
+                        "download_url": "https://example.invalid/dcc-mcp-server.zip"
+                    })),
+                )
+            }),
         );
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -357,6 +407,37 @@ fn run_text(args: &[&str]) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).unwrap()
+}
+
+fn unused_loopback_port() -> u16 {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.local_addr().unwrap().port()
+}
+
+struct AutoGatewayCleanup<'a> {
+    host: &'a str,
+    port: u16,
+    envs: &'a [(&'a str, &'a str)],
+}
+
+impl Drop for AutoGatewayCleanup<'_> {
+    fn drop(&mut self) {
+        let mut command = cli_command();
+        let port_s = self.port.to_string();
+        command.args([
+            "--no-auto-gateway",
+            "gateway",
+            "stop",
+            "--host",
+            self.host,
+            "--port",
+            port_s.as_str(),
+        ]);
+        for (key, value) in self.envs {
+            command.env(key, value);
+        }
+        let _ = command.output();
+    }
 }
 
 fn write_skill(root: &std::path::Path, relative: &str, content: &str) -> std::path::PathBuf {
@@ -540,6 +621,252 @@ fn list_search_describe_and_call_gateway_rest_surface() {
     assert_eq!(stop["ok"], true);
     assert_eq!(stop["stopping"], true);
     assert_eq!(stop["expected_owner"], "release-smoke-test");
+}
+
+#[test]
+fn gateway_rest_commands_auto_start_builtin_local_gateway() {
+    let port = unused_loopback_port();
+    let port_s = port.to_string();
+    let base_url = format!("http://127.0.0.1:{port}");
+    let registry = TempDir::new().unwrap();
+    let registry_s = registry.path().to_string_lossy().to_string();
+    let cli_bin = env!("CARGO_BIN_EXE_dcc-mcp-cli");
+    let envs = [
+        ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
+        ("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", "1"),
+    ];
+    let _cleanup = AutoGatewayCleanup {
+        host: "127.0.0.1",
+        port,
+        envs: &envs,
+    };
+
+    let list = run_json_with_env(
+        &[
+            "--base-url",
+            &base_url,
+            "--auto-gateway-bin",
+            cli_bin,
+            "--auto-gateway-timeout-secs",
+            "15",
+            "list",
+        ],
+        &envs,
+    );
+
+    assert_eq!(list["total"], 0);
+    assert!(list["instances"].as_array().is_some());
+    assert_eq!(list["gateway"]["current"]["role"], "active");
+
+    let stop = run_json_with_env(
+        &[
+            "--base-url",
+            &base_url,
+            "--no-auto-gateway",
+            "gateway",
+            "stop",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            &port_s,
+        ],
+        &envs,
+    );
+    assert_eq!(stop["running"], false);
+}
+
+#[test]
+fn update_check_auto_starts_builtin_local_gateway() {
+    let port = unused_loopback_port();
+    let base_url = format!("http://127.0.0.1:{port}");
+    let registry = TempDir::new().unwrap();
+    let registry_s = registry.path().to_string_lossy().to_string();
+    let cli_bin = env!("CARGO_BIN_EXE_dcc-mcp-cli");
+    let envs = [
+        ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
+        ("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", "1"),
+    ];
+    let _cleanup = AutoGatewayCleanup {
+        host: "127.0.0.1",
+        port,
+        envs: &envs,
+    };
+
+    let output = {
+        let mut command = cli_command();
+        command.args([
+            "--base-url",
+            &base_url,
+            "--auto-gateway-bin",
+            cli_bin,
+            "--auto-gateway-timeout-secs",
+            "15",
+            "update",
+            "check",
+            "--binary",
+            "dcc-mcp-server",
+            "--current-version",
+            "0.0.0",
+        ]);
+        for (key, value) in &envs {
+            command.env(key, value);
+        }
+        command.output().unwrap()
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "manifest-free gateway should return a structured update error"
+    );
+    assert!(
+        stderr.contains("auto-started gateway"),
+        "update check should auto-start the local gateway before querying updates: {stderr}"
+    );
+    let update: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(update["status"], "not_configured");
+    assert_eq!(update["error"], "update_manifest_url_not_configured");
+    assert_eq!(update["binary_name"], "dcc-mcp-server");
+    assert_eq!(update["current_version"], "0.0.0");
+}
+
+#[test]
+fn smoke_with_explicit_url_does_not_auto_start_gateway() {
+    let port = unused_loopback_port();
+    let port_s = port.to_string();
+    let base_url = format!("http://127.0.0.1:{port}");
+    let registry = TempDir::new().unwrap();
+    let registry_s = registry.path().to_string_lossy().to_string();
+    let cli_bin = env!("CARGO_BIN_EXE_dcc-mcp-cli");
+    let envs = [
+        ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
+        ("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", "1"),
+    ];
+    let _cleanup = AutoGatewayCleanup {
+        host: "127.0.0.1",
+        port,
+        envs: &envs,
+    };
+
+    let mcp_url = format!("{base_url}/mcp");
+    let output = {
+        let mut command = cli_command();
+        command.args([
+            "--base-url",
+            &base_url,
+            "--auto-gateway-bin",
+            cli_bin,
+            "--auto-gateway-timeout-secs",
+            "2",
+            "smoke",
+            "--url",
+            &mcp_url,
+            "--timeout-secs",
+            "1",
+        ]);
+        for (key, value) in &envs {
+            command.env(key, value);
+        }
+        command.output().unwrap()
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    assert!(
+        !output.status.success(),
+        "stdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(
+        !stderr.contains("auto-started gateway"),
+        "explicit smoke URL should not trigger auto-start: {stderr}"
+    );
+    let value: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["base_url"], base_url);
+    assert_eq!(value["mcp_url"], mcp_url);
+    let checks = value["checks"].as_array().unwrap();
+    assert!(
+        checks
+            .iter()
+            .any(|check| check["name"] == "health" && check["ok"] == false),
+        "expected failed health check without auto-start: {checks:#?}"
+    );
+
+    let status = run_json_with_env(
+        &[
+            "--no-auto-gateway",
+            "gateway",
+            "status",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            &port_s,
+        ],
+        &envs,
+    );
+    assert_eq!(status["healthy"], false);
+}
+
+#[test]
+fn update_check_supports_server_binary_versions() {
+    let fixture = spawn_gateway_fixture();
+
+    let update = run_json(&[
+        "--base-url",
+        &fixture.base_url,
+        "update",
+        "check",
+        "--binary",
+        "dcc-mcp-server",
+        "--current-version",
+        "0.18.16",
+    ]);
+
+    assert_eq!(update["update_available"], true);
+    assert_eq!(update["current_version"], "0.18.16");
+    assert_eq!(update["latest_version"], "0.19.0");
+    assert_eq!(
+        update["download_url"],
+        "https://example.invalid/dcc-mcp-server.zip"
+    );
+    assert_eq!(update["sha256"], "abc123");
+    assert_eq!(update["release_notes"], "Server update");
+}
+
+#[test]
+fn update_check_preserves_gateway_error_payload() {
+    let fixture = spawn_gateway_fixture();
+
+    let output = cli_command()
+        .args([
+            "--base-url",
+            &fixture.base_url,
+            "update",
+            "check",
+            "--binary",
+            "dcc-mcp-cli",
+            "--current-version",
+            "0.18.16",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "update check should fail when the gateway reports an update error"
+    );
+    let update: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        update["error"],
+        "binary 'dcc-mcp-cli' not found in update manifest"
+    );
+    assert_eq!(update["binary_name"], "dcc-mcp-cli");
+    assert_eq!(update["current_version"], "0.18.16");
+    assert!(
+        !String::from_utf8_lossy(&output.stderr).contains("missing field"),
+        "stderr should not expose serde decode failures"
+    );
 }
 
 #[test]

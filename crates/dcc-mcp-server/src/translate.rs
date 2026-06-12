@@ -217,11 +217,11 @@ pub struct TranslateArgs {
     #[arg(long, env = "DCC_MCP_GATEWAY_REMOTE_PORT", default_value = "59765")]
     pub gateway_remote_port: u16,
 
-    /// Disable the read-only Admin UI on the elected gateway.
+    /// Disable the Admin UI on the elected gateway.
     #[arg(long, env = "DCC_MCP_NO_ADMIN", default_value = "false")]
     pub no_admin: bool,
 
-    /// URL prefix for the read-only Admin UI.
+    /// URL prefix for the Admin UI.
     #[arg(long, env = "DCC_MCP_ADMIN_PATH", default_value = "/admin")]
     pub admin_path: String,
 

@@ -1,5 +1,11 @@
+import {
+  RiCloseLine,
+  RiDeleteBinLine,
+  RiRefreshLine,
+} from '@remixicon/react';
 import { type InterpolationValues, type MessageKey } from '../../i18n';
 import type { InstalledMarketplacePackage, MarketplaceEntry } from '../../admin-types';
+import { Button } from '../../components/ui/button';
 import './MarketplaceInstalledDetailPanel.css';
 
 type Translator = (key: MessageKey, values?: InterpolationValues) => string;
@@ -57,27 +63,38 @@ export function MarketplaceInstalledDetailPanel({
         </div>
         <div className="table-actions">
           {isOutdated && onUpdate ? (
-            <button
-              className="refresh-btn"
+            <Button
+              className="marketplace-installed-detail-action"
               type="button"
+              size="sm"
               disabled={installing}
               onClick={onUpdate}
             >
+              <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
               {installing ? t('marketplace.card.updating') : t('marketplace.card.update')}
-            </button>
+            </Button>
           ) : null}
-          <button
-            className="refresh-btn"
+          <Button
+            className="marketplace-installed-detail-action"
             type="button"
+            variant="destructive"
+            size="sm"
             disabled={installing}
             onClick={onUninstall}
-            style={{ color: 'var(--err)' }}
           >
+            <RiDeleteBinLine data-icon="inline-start" aria-hidden="true" />
             {installing ? t('marketplace.card.installing') : t('marketplace.card.uninstall')}
-          </button>
-          <button className="linkish" type="button" onClick={onClose}>
+          </Button>
+          <Button
+            className="marketplace-installed-detail-action"
+            variant="ghost"
+            size="sm"
+            type="button"
+            onClick={onClose}
+          >
+            <RiCloseLine data-icon="inline-start" aria-hidden="true" />
             {t('action.close')}
-          </button>
+          </Button>
         </div>
       </div>
 

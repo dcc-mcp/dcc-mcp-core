@@ -18,6 +18,17 @@
   .main-stage {
     padding: 1.5rem clamp(0.85rem, 2.5vw, 1.75rem);
   }
+
+  .instance-row {
+    grid-template-columns: 1fr;
+  }
+
+  .instance-row-actions {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    padding-left: 0;
+    padding-top: 0.75rem;
+  }
 }
 
 /* Mobile — stack the rail above the stage as a scrollable nav strip. */
@@ -49,12 +60,24 @@
     padding-bottom: 0.6rem;
   }
 
-  .language-selector,
-  .theme-selector {
-    display: inline-grid;
-    margin: 0 0.5rem 0.5rem 1rem;
-    padding-bottom: 0;
+  .sidebar-preferences {
     border-bottom: 0;
+    display: inline-grid;
+    margin: 0 1rem 0.5rem;
+    max-width: none;
+    padding-bottom: 0;
+    width: calc(100% - 2rem);
+  }
+
+  .sidebar-preferences .language-selector > span,
+  .sidebar-preferences .theme-selector > span {
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    height: 1px;
+    overflow: hidden;
+    position: absolute;
+    white-space: nowrap;
+    width: 1px;
   }
 
   .nav-links {
@@ -87,10 +110,53 @@
     padding: 1.25rem 1rem 2rem;
   }
 
+  .list-search-wrap {
+    align-items: stretch;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .list-search-input {
+    min-width: 0;
+  }
+
+  .filter-chip,
+  .list-search-meta {
+    grid-column: 1;
+    justify-self: start;
+  }
+
+  .list-search-meta {
+    white-space: normal;
+  }
+
   .panel-header {
     flex-direction: column;
     gap: 0.6rem;
   }
+
+  .command-center-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .command-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .command-agent-prompt-head {
+    align-items: stretch;
+    display: grid;
+  }
+
+  .cli-command-row {
+    align-items: stretch;
+    grid-template-columns: 2rem minmax(0, 1fr);
+  }
+
+  .cli-command-row .cli-command-action {
+    grid-column: 2;
+    justify-self: start;
+  }
+
 }
 
 /* Very small / phone — drop to single-column metric and detail grids. */
@@ -108,5 +174,35 @@
 
   .hero-metric {
     padding: 0.9rem 1rem;
+  }
+
+  .command-center-head {
+    display: grid;
+  }
+
+  .command-guide-tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .command-state {
+    justify-self: start;
+  }
+
+  .cli-command-copy code {
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  .instance-row-details {
+    grid-template-columns: 1fr;
+  }
+
+  .instance-link-groups {
+    grid-template-columns: 1fr;
+  }
+
+  .instance-state-strip > span,
+  .instance-update-cell {
+    width: 100%;
   }
 }
