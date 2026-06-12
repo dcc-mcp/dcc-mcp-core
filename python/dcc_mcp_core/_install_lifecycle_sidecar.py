@@ -557,6 +557,8 @@ def _build_stdio_contract(
                 "captured": False,
                 "stdout_path": None,
                 "stderr_path": None,
+                "stdout_start_offset": None,
+                "stderr_start_offset": None,
                 "message": "Sidecar stdout/stderr are discarded.",
             },
         }
@@ -568,6 +570,8 @@ def _build_stdio_contract(
     stem = _sidecar_log_stem(contract)
     stdout_path = log_dir / f"{stem}.stdout.log"
     stderr_path = log_dir / f"{stem}.stderr.log"
+    stdout_start_offset = _file_size(stdout_path)
+    stderr_start_offset = _file_size(stderr_path)
     stdout_handle = stdout_path.open("ab")
     try:
         stderr_handle = stderr_path.open("ab")
@@ -583,9 +587,18 @@ def _build_stdio_contract(
             "log_dir": str(log_dir),
             "stdout_path": str(stdout_path),
             "stderr_path": str(stderr_path),
+            "stdout_start_offset": stdout_start_offset,
+            "stderr_start_offset": stderr_start_offset,
             "message": "Sidecar stdout/stderr are written to log files.",
         },
     }
+
+
+def _file_size(path: Path) -> int:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
 
 
 def _sidecar_log_stem(contract: Dict[str, Any]) -> str:
@@ -644,8 +657,10 @@ def _argv_metadata(command: Any) -> Dict[str, Any]:
 def _stdio_tail_diagnostics(stdio: Dict[str, Any]) -> Dict[str, Any]:
     stdout_path = stdio.get("stdout_path")
     stderr_path = stdio.get("stderr_path")
-    stdout_tail, stdout_error = _read_text_tail(stdout_path)
-    stderr_tail, stderr_error = _read_text_tail(stderr_path)
+    stdout_start_offset = stdio.get("stdout_start_offset")
+    stderr_start_offset = stdio.get("stderr_start_offset")
+    stdout_tail, stdout_error = _read_text_tail(stdout_path, stdout_start_offset)
+    stderr_tail, stderr_error = _read_text_tail(stderr_path, stderr_start_offset)
     errors = {}
     if stdout_error:
         errors["stdout"] = stdout_error
@@ -655,6 +670,8 @@ def _stdio_tail_diagnostics(stdio: Dict[str, Any]) -> Dict[str, Any]:
         "stdio_captured": bool(stdio.get("captured")),
         "stdout_path": stdout_path,
         "stderr_path": stderr_path,
+        "stdout_start_offset": stdout_start_offset,
+        "stderr_start_offset": stderr_start_offset,
         "stdout_tail": stdout_tail,
         "stderr_tail": stderr_tail,
         "tail_bytes": STDIO_TAIL_BYTES,
@@ -662,19 +679,33 @@ def _stdio_tail_diagnostics(stdio: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _read_text_tail(path: Any) -> Tuple[Optional[str], Optional[str]]:
+def _read_text_tail(path: Any, start_offset: Any = 0) -> Tuple[Optional[str], Optional[str]]:
     if not path:
         return None, None
+    offset = _parse_non_negative_int(start_offset)
+    if offset is None:
+        offset = 0
     try:
         with Path(str(path)).open("rb") as handle:
             handle.seek(0, os.SEEK_END)
             size = handle.tell()
-            handle.seek(max(0, size - STDIO_TAIL_BYTES))
-            data = handle.read(STDIO_TAIL_BYTES)
+            if offset >= size:
+                return None, None
+            start = max(offset, size - STDIO_TAIL_BYTES)
+            handle.seek(start)
+            data = handle.read(min(STDIO_TAIL_BYTES, size - start))
     except OSError as exc:
         return None, str(exc)
     text = data.decode("utf-8", errors="replace").strip()
     return (text or None), None
+
+
+def _parse_non_negative_int(value: Any) -> Optional[int]:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
 
 
 def _check_early_liveness(proc: Any, timeout_secs: float) -> Dict[str, Any]:

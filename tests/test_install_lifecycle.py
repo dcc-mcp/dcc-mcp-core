@@ -1452,6 +1452,50 @@ def test_launch_sidecar_reports_early_process_exit(
     assert result["readiness_checked"] is False
 
 
+def test_launch_sidecar_early_exit_tail_ignores_previous_log_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log_dir = tmp_path / "registry" / "logs"
+    log_dir.mkdir(parents=True)
+    stale_stderr = log_dir / "sidecar-maya-2468.stderr.log"
+    stale_stderr.write_text(
+        "error: invalid value 'unknown' for '--instance-id <UUID>'\n",
+        encoding="utf-8",
+    )
+
+    class FakePopen:
+        pid = 4646
+
+        def __init__(self, command, **kwargs):
+            self.command = command
+            self.kwargs = kwargs
+            kwargs["stdout"].write(b"new launch reached argv parsing\n")
+            kwargs["stdout"].flush()
+
+        def poll(self):
+            return 2
+
+    monkeypatch.setattr(sidecar_lifecycle.subprocess, "Popen", FakePopen)
+
+    result = lifecycle.launch_sidecar(
+        dcc_type="maya",
+        host_rpc="commandport://127.0.0.1:6000",
+        watch_pid=2468,
+        registry_dir=tmp_path / "registry",
+        server_bin="dcc-mcp-server-test",
+        liveness_check_secs=0.1,
+        env={"PATH": ""},
+    )
+
+    assert result["success"] is False
+    assert result["reason"] == "sidecar_exited_during_startup"
+    assert result["message"] == "Sidecar process exited before the startup liveness check completed."
+    assert result["early_exit"]["stdout_tail"] == "new launch reached argv parsing"
+    assert result["early_exit"]["stderr_tail"] is None
+    assert result["early_exit"]["stderr_start_offset"] == stale_stderr.stat().st_size
+
+
 def test_module_cli_sidecar_command_returns_json_without_loading_core(tmp_path: Path) -> None:
     script = """
 import json
