@@ -83,12 +83,19 @@ pub struct CatalogInstall {
     /// Optional pip extras (e.g. `["maya", "blender"]`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pip_extras: Option<Vec<String>>,
-    /// Maya Python interpreter path for per-DCC installation.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mayapy_path: Option<String>,
+    /// Python interpreter path for per-DCC installation (e.g. mayapy, hython, blender python).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "mayapy_path"
+    )]
+    pub python_path: Option<String>,
     /// Python entry point for running the adapter (e.g. `dcc_mcp_maya.cli:main`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entry_point: Option<String>,
+    /// Agent-facing installation runbook, usually the adapter repo's raw install.md.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions_url: Option<String>,
 }
 
 /// Top-level catalog document.
@@ -163,6 +170,10 @@ pub fn search(entries: &[CatalogEntry], query: &str) -> Vec<CatalogEntry> {
                     .as_ref()
                     .and_then(|install| install.url.as_deref())
                     .is_some_and(|url| url.to_lowercase().contains(&q))
+                || e.install
+                    .as_ref()
+                    .and_then(|install| install.instructions_url.as_deref())
+                    .is_some_and(|url| url.to_lowercase().contains(&q))
         })
         .cloned()
         .collect()
@@ -219,8 +230,9 @@ const MARKETPLACE_V1_SCHEMA_JSON: &str = r##"{
             "sha256":      { "type": "string" },
             "pip_package": { "type": "string" },
             "pip_extras":  { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
-            "mayapy_path": { "type": "string" },
-            "entry_point": { "type": "string" }
+            "python_path": { "type": "string" },
+            "entry_point": { "type": "string" },
+            "instructions_url": { "type": "string" }
           },
           "additionalProperties": false
         }
@@ -473,8 +485,9 @@ entries:
                 sha256: Some("abc123".into()),
                 pip_package: None,
                 pip_extras: None,
-                mayapy_path: None,
+                python_path: None,
                 entry_point: None,
+                instructions_url: Some("https://example.com/install.md".into()),
             }),
             icon: None,
         };
@@ -499,8 +512,9 @@ entries:
                 sha256: None,
                 pip_package: Some("dcc-mcp-maya".into()),
                 pip_extras: Some(vec!["maya".into()]),
-                mayapy_path: Some("/usr/autodesk/maya2026/bin/mayapy".into()),
+                python_path: Some("/usr/autodesk/maya2026/bin/mayapy".into()),
                 entry_point: Some("dcc_mcp_maya.cli:main".into()),
+                instructions_url: None,
             }),
             icon: None,
         };
@@ -525,7 +539,8 @@ entries:
       "pip_package": "dcc-mcp-maya",
       "pip_extras": ["maya"],
       "mayapy_path": "/usr/autodesk/maya2026/bin/mayapy",
-      "entry_point": "dcc_mcp_maya.cli:main"
+      "entry_point": "dcc_mcp_maya.cli:main",
+      "instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/main/install.md"
     }
   }]
 }
@@ -541,12 +556,16 @@ entries:
             Some(vec!["maya".to_string()].as_slice())
         );
         assert_eq!(
-            install.mayapy_path.as_deref(),
+            install.python_path.as_deref(),
             Some("/usr/autodesk/maya2026/bin/mayapy")
         );
         assert_eq!(
             install.entry_point.as_deref(),
             Some("dcc_mcp_maya.cli:main")
+        );
+        assert_eq!(
+            install.instructions_url.as_deref(),
+            Some("https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/main/install.md")
         );
     }
 
@@ -568,8 +587,9 @@ entries:
                 sha256: None,
                 pip_package: Some("dcc-mcp-core".into()),
                 pip_extras: None,
-                mayapy_path: None,
+                python_path: None,
                 entry_point: None,
+                instructions_url: None,
             }),
             icon: None,
         };
@@ -616,6 +636,62 @@ entries:
                 assert_eq!(failures.len(), 2);
             }
             other => panic!("expected MultipleFailures, got {other}"),
+        }
+    }
+
+    #[test]
+    fn bundled_adapter_catalog_matches_compatibility_matrix() {
+        let entries = load_from_str(include_str!("../../../dcc-mcp-catalog.yml")).unwrap();
+        let matrix = include_str!("../../../docs/guide/adapter-compatibility-matrix.md");
+
+        let adapters: Vec<&CatalogEntry> = entries
+            .iter()
+            .filter(|entry| {
+                entry.install.is_some()
+                    && entry
+                        .tags
+                        .iter()
+                        .any(|tag| tag.eq_ignore_ascii_case("adapter"))
+            })
+            .collect();
+        assert!(
+            !adapters.is_empty(),
+            "bundled catalog should contain first-party adapter entries"
+        );
+
+        for entry in adapters {
+            let url = entry
+                .url
+                .as_deref()
+                .unwrap_or_else(|| panic!("adapter {} is missing url", entry.name));
+            let version = entry
+                .version
+                .as_deref()
+                .unwrap_or_else(|| panic!("adapter {} is missing version", entry.name));
+            let min_core = entry
+                .min_core_version
+                .as_deref()
+                .unwrap_or_else(|| panic!("adapter {} is missing min_core_version", entry.name));
+            let row = matrix
+                .lines()
+                .find(|line| line.contains(&format!("[{}]({url})", entry.name)))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "compatibility matrix is missing adapter row for {}",
+                        entry.name
+                    )
+                });
+
+            assert!(
+                row.contains(&format!("| {version} |")),
+                "compatibility matrix row for {} has stale version: {row}",
+                entry.name
+            );
+            assert!(
+                row.contains(&format!("| >={min_core},<1.0.0 |")),
+                "compatibility matrix row for {} has stale core pin: {row}",
+                entry.name
+            );
         }
     }
 }

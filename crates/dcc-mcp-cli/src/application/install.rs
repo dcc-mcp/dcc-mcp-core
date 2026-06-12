@@ -6,10 +6,13 @@ use std::process::Command;
 use thiserror::Error;
 
 use crate::domain::install::{
-    InstallPlan, InstallPlanError, InstallPlanner, InstallRequest, InstallStepAction,
+    InstallPlan, InstallPlanError, InstallPlanner, InstallPolicy, InstallRequest, InstallStepAction,
 };
 
 const BUNDLED_CATALOG: &str = include_str!("../../../../dcc-mcp-catalog.yml");
+const INSTALL_DISABLED_ENV: &str = "DCC_MCP_INSTALL_DISABLED";
+const INSTALL_DISABLED_PROMPT_ENV: &str = "DCC_MCP_INSTALL_DISABLED_PROMPT";
+const DEFAULT_INSTALL_DISABLED_PROMPT: &str = "Automatic DCC adapter installation is disabled in this environment. Ask your Pipeline TD or studio deployment owner to deploy {adapter} for {dcc_type}, then start the DCC plugin and rerun `dcc-mcp-cli list`.";
 
 #[derive(Debug, Error)]
 pub enum InstallError {
@@ -45,6 +48,7 @@ enum StepRollback {
 
 pub struct InstallService {
     default_catalog_path: PathBuf,
+    auto_install_policy: AutoInstallPolicy,
 }
 
 impl InstallService {
@@ -52,13 +56,26 @@ impl InstallService {
     pub fn new(default_catalog_path: PathBuf) -> Self {
         Self {
             default_catalog_path,
+            auto_install_policy: AutoInstallPolicy::from_env(),
+        }
+    }
+
+    #[cfg(test)]
+    fn with_auto_install_policy(
+        default_catalog_path: PathBuf,
+        auto_install_policy: AutoInstallPolicy,
+    ) -> Self {
+        Self {
+            default_catalog_path,
+            auto_install_policy,
         }
     }
 
     /// Generate an install plan (display-only, no execution).
     pub fn plan(&self, request: InstallRequest) -> Result<InstallPlan, InstallError> {
         let entries = self.load_entries(request.catalog_path.as_deref())?;
-        InstallPlanner::plan(&entries, request).map_err(Into::into)
+        let plan = InstallPlanner::plan(&entries, request)?;
+        Ok(self.apply_auto_install_policy(plan))
     }
 
     /// Generate and execute an install plan with user consent.
@@ -86,7 +103,25 @@ impl InstallService {
         Ok(entries)
     }
 
+    fn apply_auto_install_policy(&self, mut plan: InstallPlan) -> InstallPlan {
+        if self.auto_install_policy.enabled {
+            plan.install_policy = InstallPolicy::enabled();
+            return plan;
+        }
+
+        let prompt = render_install_policy_prompt(&self.auto_install_policy.prompt_template, &plan);
+        plan.install_policy = InstallPolicy::disabled(prompt);
+        plan
+    }
+
     fn execute_plan(&self, plan: &InstallPlan) -> Result<InstallPlan, InstallError> {
+        if !plan.install_policy.auto_install_enabled {
+            if let Some(prompt) = &plan.install_policy.prompt {
+                eprintln!("{prompt}");
+            }
+            return Ok(plan.clone());
+        }
+
         // Filter to executable steps
         let executable_steps: Vec<_> = plan.steps.iter().filter(|s| s.action.is_some()).collect();
 
@@ -160,6 +195,50 @@ impl InstallService {
         eprintln!("Installation complete for {}.", plan.adapter.name);
         Ok(plan.clone())
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AutoInstallPolicy {
+    enabled: bool,
+    prompt_template: String,
+}
+
+impl AutoInstallPolicy {
+    fn from_env() -> Self {
+        let disabled = std::env::var(INSTALL_DISABLED_ENV)
+            .ok()
+            .is_some_and(|value| env_flag_enabled(&value));
+        let prompt_template = std::env::var(INSTALL_DISABLED_PROMPT_ENV)
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| DEFAULT_INSTALL_DISABLED_PROMPT.to_string());
+        Self {
+            enabled: !disabled,
+            prompt_template,
+        }
+    }
+
+    #[cfg(test)]
+    fn disabled(prompt_template: impl Into<String>) -> Self {
+        Self {
+            enabled: false,
+            prompt_template: prompt_template.into(),
+        }
+    }
+}
+
+fn env_flag_enabled(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on" | "disabled" | "disable"
+    )
+}
+
+fn render_install_policy_prompt(template: &str, plan: &InstallPlan) -> String {
+    template
+        .replace("{adapter}", &plan.adapter.name)
+        .replace("{dcc_type}", &plan.dcc_type)
+        .replace("{version}", plan.version.as_deref().unwrap_or(""))
 }
 
 // ── step executors ───────────────────────────────────────────────────────────────
@@ -387,14 +466,12 @@ fn execute_register_dcc(
     _dcc_type: &str,
     _entry_point: Option<&str>,
 ) -> Result<Option<StepRollback>, InstallError> {
-    // Registration is handled externally (e.g., via `dcc-mcp-cli gateway ensure`
-    // or the gateway's instance discovery).  This step is a placeholder for
-    // future gateway registration logic and smoke-check wiring.
-    //
-    // For now, we emit a note and succeed so the pipeline continues to verify.
+    // Registration is owned by the DCC plugin's sidecar. The CLI can install
+    // packages, but it must not pretend a host process is registered until the
+    // plugin starts, stays alive, and advertises itself in the registry.
     eprintln!();
-    eprint!("    └─ note: DCC registration for '{_dcc_type}' is automatic ");
-    eprintln!("on next gateway ensure / instance discovery.");
+    eprint!("    └─ note: start or enable the '{_dcc_type}' plugin, ");
+    eprintln!("then re-run `dcc-mcp-cli list` to confirm self-registration.");
     Ok(None)
 }
 
@@ -550,20 +627,82 @@ mod tests {
     #[test]
     fn service_uses_bundled_catalog_when_default_path_is_missing() {
         let service = InstallService::new(PathBuf::from("__missing_dcc_mcp_catalog__.yml"));
-        // Bundled catalog is infra-only (no install metadata). Use "photoshop"
-        // which is in the catalog without install metadata — skill packs with
-        // install metadata now live in marketplace.json.
         let plan = service
             .plan(InstallRequest {
-                dcc_type: "photoshop".into(),
+                dcc_type: "maya".into(),
                 version: None,
                 catalog_path: None,
+                python: None,
             })
             .unwrap();
 
-        assert!(plan.adapter.dcc.iter().any(|dcc| dcc == "photoshop"));
-        // Infra-only catalog entries have no install metadata → info steps
+        assert_eq!(plan.adapter.name, "dcc-mcp-maya");
+        assert!(matches!(
+            plan.steps[0].action,
+            Some(InstallStepAction::PipInstall { .. })
+        ));
+    }
+
+    #[test]
+    fn bundled_catalog_keeps_skill_packs_guidance_only() {
+        let service = InstallService::new(PathBuf::from("__missing_dcc_mcp_catalog__.yml"));
+        let plan = service
+            .plan(InstallRequest {
+                dcc_type: "unreal".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+            })
+            .unwrap();
+
+        assert_eq!(plan.adapter.name, "dcc-mcp-unreal-skills");
         assert!(plan.steps.iter().all(|s| s.action.is_none()));
+    }
+
+    #[test]
+    fn install_plan_reports_disabled_auto_install_policy_with_custom_prompt() {
+        let service = InstallService::with_auto_install_policy(
+            PathBuf::from("__missing_dcc_mcp_catalog__.yml"),
+            AutoInstallPolicy::disabled(
+                "Auto install unavailable; contact PipelineTD to deploy {adapter} for {dcc_type}.",
+            ),
+        );
+        let plan = service
+            .plan(InstallRequest {
+                dcc_type: "maya".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+            })
+            .unwrap();
+
+        assert!(!plan.install_policy.auto_install_enabled);
+        assert_eq!(
+            plan.install_policy.prompt.as_deref(),
+            Some("Auto install unavailable; contact PipelineTD to deploy dcc-mcp-maya for maya.")
+        );
+    }
+
+    #[test]
+    fn execute_returns_plan_without_running_steps_when_auto_install_is_disabled() {
+        let service = InstallService::with_auto_install_policy(
+            PathBuf::from("__missing_dcc_mcp_catalog__.yml"),
+            AutoInstallPolicy::disabled(
+                "Automatic install disabled; ask PipelineTD for {adapter}.",
+            ),
+        );
+
+        let plan = service
+            .execute(InstallRequest {
+                dcc_type: "maya".into(),
+                version: None,
+                catalog_path: None,
+                python: Some("/__nonexistent__/python".into()),
+            })
+            .unwrap();
+
+        assert!(!plan.install_policy.auto_install_enabled);
+        assert_eq!(plan.steps[0].name, "install-pip");
     }
 
     #[test]
@@ -667,6 +806,8 @@ mod tests {
                     action: Some(InstallStepAction::Verify),
                 },
             ],
+            next_steps: vec![],
+            install_policy: InstallPolicy::enabled(),
         }
     }
 
