@@ -20,6 +20,7 @@ use super::links::AdminLinkBuilder;
 use super::skill_reload::reload_skill_paths_and_refresh_backends;
 use super::state::{AdminAuditRecord, AdminState};
 use super::trace::{AgentContext, DispatchTrace};
+use super::update::{AdminInstanceUpdateVersion, admin_instance_update_version};
 use crate::gateway::capability::RefreshReason;
 use crate::gateway::capability_service::refresh_all_live_backends;
 use crate::gateway::resilience::{self as gw_resilience, gateway_limits};
@@ -65,8 +66,8 @@ pub struct AdminInstanceUpdateRequest {
     apply: Option<bool>,
     /// Defaults to the server binary because instance cards represent backends.
     binary: Option<String>,
-    /// Current version of the requested binary. Optional for dcc-mcp-server,
-    /// where the gateway package version is the matching server binary version.
+    /// Current version of the requested binary. Optional when the target
+    /// instance reports its server binary version in registry metadata.
     current_version: Option<String>,
 }
 
@@ -188,7 +189,8 @@ pub async fn handle_admin_instance_update(
     let instance_id = instance.instance_id.to_string();
     let instance_short_id = instance_short(&instance.instance_id);
     let (current_version, displayed_current_version, current_version_source) =
-        match admin_instance_update_version(&binary_name, req.current_version.as_deref()) {
+        match admin_instance_update_version(&instance, &binary_name, req.current_version.as_deref())
+        {
             AdminInstanceUpdateVersion::Known {
                 current,
                 display,
@@ -452,40 +454,6 @@ async fn admin_find_instance_entry(
         )
             .into_response()),
     }
-}
-
-enum AdminInstanceUpdateVersion {
-    Known {
-        current: String,
-        display: Option<String>,
-        source: &'static str,
-    },
-    MissingCurrentVersion,
-}
-
-fn admin_instance_update_version(
-    binary_name: &str,
-    requested_current_version: Option<&str>,
-) -> AdminInstanceUpdateVersion {
-    if let Some(version) = requested_current_version
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        return AdminInstanceUpdateVersion::Known {
-            current: version.to_string(),
-            display: Some(version.to_string()),
-            source: "request",
-        };
-    }
-    if binary_name == "dcc-mcp-server" {
-        let version = env!("CARGO_PKG_VERSION").to_string();
-        return AdminInstanceUpdateVersion::Known {
-            current: version.clone(),
-            display: Some(version),
-            source: "gateway_package_version",
-        };
-    }
-    AdminInstanceUpdateVersion::MissingCurrentVersion
 }
 
 #[derive(Debug, Default, Deserialize)]

@@ -285,6 +285,13 @@ fn server_registration_metadata_reports_gateway_guardian_mode() {
             .map(String::as_str),
         Some(REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT)
     );
+    assert_eq!(
+        entry
+            .metadata
+            .get(SERVER_BINARY_VERSION_METADATA_KEY)
+            .map(String::as_str),
+        Some(env!("CARGO_PKG_VERSION"))
+    );
 
     let args = Args::try_parse_from(["dcc-mcp-server", "--app", "maya", "--gateway-port", "0"])
         .expect("valid CLI args");
