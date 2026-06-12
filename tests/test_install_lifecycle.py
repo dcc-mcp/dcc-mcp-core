@@ -1042,6 +1042,21 @@ def test_build_sidecar_command_accepts_valid_instance_id(tmp_path: Path) -> None
     )
 
 
+def test_build_sidecar_command_omits_missing_instance_id(tmp_path: Path) -> None:
+    result = lifecycle.build_sidecar_command(
+        dcc_type="maya",
+        host_rpc="qtserver://127.0.0.1:7001",
+        watch_pid=12345,
+        registry_dir=tmp_path / "registry",
+        server_bin="dcc-mcp-server-test",
+    )
+
+    assert result["success"] is True
+    assert result["readiness_selector"]["instance_id"] is None
+    assert "--instance-id" not in result["command"]
+    assert "--instance-id" not in result["readiness_argv"]
+
+
 def test_build_sidecar_command_rejects_invalid_instance_id(tmp_path: Path) -> None:
     result = lifecycle.build_sidecar_command(
         dcc_type="maya",
@@ -1393,6 +1408,10 @@ def test_launch_sidecar_reports_early_process_exit(
         def __init__(self, command, **kwargs):
             self.command = command
             self.kwargs = kwargs
+            kwargs["stdout"].write(b"sidecar boot started\n")
+            kwargs["stdout"].flush()
+            kwargs["stderr"].write(b"error: invalid value 'unknown' for '--instance-id <UUID>'\n")
+            kwargs["stderr"].flush()
 
         def poll(self):
             return 9
@@ -1418,6 +1437,18 @@ def test_launch_sidecar_reports_early_process_exit(
     assert result["stdio"]["captured"] is True
     assert result["stdio"]["stdout_path"].endswith("sidecar-maya-2468.stdout.log")
     assert result["stdio"]["stderr_path"].endswith("sidecar-maya-2468.stderr.log")
+    assert result["message"] == (
+        "Sidecar process exited before the startup liveness check completed; "
+        "stderr tail: error: invalid value 'unknown' for '--instance-id <UUID>'"
+    )
+    assert result["early_exit"]["exit_code"] == 9
+    assert result["early_exit"]["stdout_tail"] == "sidecar boot started"
+    assert result["early_exit"]["stderr_tail"] == "error: invalid value 'unknown' for '--instance-id <UUID>'"
+    assert result["early_exit"]["stdout_path"] == result["stdio"]["stdout_path"]
+    assert result["early_exit"]["stderr_path"] == result["stdio"]["stderr_path"]
+    assert result["early_exit"]["argv_metadata"]["program"] == "dcc-mcp-server-test"
+    assert result["early_exit"]["argv_metadata"]["subcommand"] == "sidecar"
+    assert "--host-rpc" in result["early_exit"]["argv_metadata"]["flags"]
     assert result["readiness_checked"] is False
 
 
