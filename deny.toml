@@ -25,7 +25,12 @@ exclude-dev = true
 version = 2
 yanked = "warn"
 unmaintained = "workspace"
-ignore = []
+ignore = [
+    # PyO3 0.29 resolves these advisories but drops CPython 3.7 support.
+    # Keep the 0.28 line until the py3.7 wheel lane is retired.
+    "RUSTSEC-2026-0176",
+    "RUSTSEC-2026-0177",
+]
 
 [licenses]
 version = 2

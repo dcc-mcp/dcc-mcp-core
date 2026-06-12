@@ -15,7 +15,7 @@ mod admin_tests {
     use tokio::sync::{RwLock, broadcast, oneshot, watch};
     use tower::ServiceExt;
 
-    use crate::gateway::admin::handlers::INTEGRATIONS_TEST_ENV_LOCK;
+    use crate::gateway::admin::integrations::INTEGRATIONS_TEST_ENV_LOCK;
     use dcc_mcp_gateway_core::naming::instance_short;
 
     use crate::gateway::admin::router::{build_admin_router, build_v1_debug_router};
@@ -779,7 +779,8 @@ filters:
             r#"
 webhooks:
   - name: audit
-    url: http://127.0.0.1:9/webhook
+    url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123
+    authorization: Bearer webhook-token
     events: ["tool.*"]
 "#,
         )
@@ -797,6 +798,10 @@ webhooks:
             ("DCC_MCP_ETC_DIR", Some(&etc_dir_s)),
             ("DCC_MCP_WEBHOOKS_CONFIG", Some(&webhooks_path_s)),
             ("OTEL_EXPORTER_OTLP_ENDPOINT", Some("http://127.0.0.1:4317")),
+            (
+                "OTEL_EXPORTER_OTLP_HEADERS",
+                Some("authorization=Bearer otlp-token,x-api-key=collector-key"),
+            ),
         ]);
 
         let (status, json) = body_json(admin_router(), "/api/integrations").await;
@@ -832,6 +837,17 @@ webhooks:
         assert_eq!(webhooks["config"]["config_path"], webhooks_path_s);
         assert_eq!(webhooks["config"]["write_config_path"], write_path_s);
         assert_eq!(webhooks["config"]["webhook_count"], 1);
+        let response_text = serde_json::to_string(&json).unwrap();
+        assert!(!response_text.contains("abc123"));
+        assert!(!response_text.contains("webhook-token"));
+        assert!(!response_text.contains("otlp-token"));
+        assert!(!response_text.contains("collector-key"));
+        assert!(
+            webhooks["config"]["config_text"]
+                .as_str()
+                .unwrap()
+                .contains("key=********")
+        );
 
         let otlp = integrations
             .iter()
@@ -839,6 +855,10 @@ webhooks:
             .unwrap();
         assert_eq!(otlp["status"], "active");
         assert_eq!(otlp["config"]["endpoint"], "http://127.0.0.1:4317");
+        assert_eq!(
+            otlp["config"]["headers"],
+            "authorization=********,x-api-key=********"
+        );
 
         let wecom = integrations
             .iter()
@@ -850,10 +870,16 @@ webhooks:
     #[tokio::test]
     async fn v1_debug_integrations_mirrors_admin_integrations() {
         let _lock = INTEGRATIONS_TEST_ENV_LOCK.lock();
-        let _env = ScopedIntegrationEnv::new(&[(
-            "DCC_MCP_WECOM_WEBHOOK_URL",
-            Some("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123"),
-        )]);
+        let _env = ScopedIntegrationEnv::new(&[
+            (
+                "DCC_MCP_WECOM_WEBHOOK_URL",
+                Some("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123"),
+            ),
+            (
+                "OTEL_EXPORTER_OTLP_HEADERS",
+                Some("authorization=Bearer debug-token"),
+            ),
+        ]);
 
         let (status, json) = body_json(
             build_v1_debug_router(AdminState::new(make_gateway_state())),
@@ -872,6 +898,9 @@ webhooks:
             wecom["config"]["webhook_url"],
             "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=********"
         );
+        let response_text = serde_json::to_string(&json).unwrap();
+        assert!(!response_text.contains("abc123"));
+        assert!(!response_text.contains("debug-token"));
     }
 
     #[tokio::test]
@@ -1027,7 +1056,8 @@ webhooks:
         let config_text = r#"
 webhooks:
   - name: notify
-    url: http://127.0.0.1:9000/hook
+    url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=notify-secret
+    authorization: Bearer saved-token
     events: ["tool.failed"]
 "#;
         let (status, updated) = put_json(
@@ -1071,6 +1101,15 @@ webhooks:
                 .as_str()
                 .unwrap()
                 .contains("name: notify")
+        );
+        let response_text = serde_json::to_string(&json).unwrap();
+        assert!(!response_text.contains("notify-secret"));
+        assert!(!response_text.contains("saved-token"));
+        assert!(
+            webhooks["config"]["config_text"]
+                .as_str()
+                .unwrap()
+                .contains("key=********")
         );
     }
 
@@ -1169,6 +1208,7 @@ webhooks:
         assert_eq!(status, StatusCode::OK);
         assert_eq!(otlp["status"], "pending_restart");
         assert_eq!(otlp["config"]["endpoint"], "http://collector.local:4317");
+        assert_eq!(otlp["config"]["headers"], "authorization=********");
         let otlp_path = dir.path().join("otlp.json");
         let otlp_file: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&otlp_path).unwrap()).unwrap();
@@ -3892,16 +3932,43 @@ webhooks:
         assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
         assert_eq!(body["status"], "not_configured");
         assert_eq!(body["binary_name"], "dcc-mcp-server");
-        assert_eq!(body["current_version"], "0.3.0");
-        assert_eq!(body["current_version_source"], "adapter_version");
+        assert_eq!(body["current_version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(body["current_version_source"], "gateway_package_version");
         assert_eq!(body["requires_restart"], false);
+    }
+
+    #[tokio::test]
+    async fn test_admin_instance_update_requires_binary_version_for_non_server_binary() {
+        let gs = make_gateway_state();
+        let instance_id = {
+            let reg = gs.registry.write().await;
+            let entry = make_service_entry("maya", "127.0.0.1", 18813, Some(4242));
+            let instance_id = entry.instance_id.to_string();
+            reg.register(entry).unwrap();
+            instance_id
+        };
+
+        let state = AdminState::new(gs);
+        let router = build_admin_router(state);
+        let (status, body) = post_json(
+            router,
+            &format!("/api/instances/{instance_id}/update"),
+            json!({ "binary": "dcc-mcp-cli", "apply": false }),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["status"], "version_required");
+        assert_eq!(body["error"], "current_version_required");
+        assert_eq!(body["binary_name"], "dcc-mcp-cli");
+        assert_eq!(body["update_available"], false);
     }
 
     #[tokio::test]
     async fn test_admin_instance_update_checks_manifest_without_manual_cli() {
         let (manifest_url, shutdown) = spawn_update_manifest(json!({
             "dcc-mcp-server": {
-                "version": "0.3.0",
+                "version": env!("CARGO_PKG_VERSION"),
                 "url": null,
                 "sha256": null,
                 "release_notes": "Already current"
@@ -3932,8 +3999,9 @@ webhooks:
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["status"], "up_to_date");
         assert_eq!(body["update_available"], false);
-        assert_eq!(body["current_version"], "0.3.0");
-        assert_eq!(body["latest_version"], "0.3.0");
+        assert_eq!(body["current_version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(body["current_version_source"], "gateway_package_version");
+        assert_eq!(body["latest_version"], env!("CARGO_PKG_VERSION"));
         assert_eq!(body["requires_restart"], false);
     }
 
@@ -3941,7 +4009,7 @@ webhooks:
     async fn test_admin_instance_update_reports_missing_download_url() {
         let (manifest_url, shutdown) = spawn_update_manifest(json!({
             "dcc-mcp-server": {
-                "version": "0.4.0",
+                "version": "999.0.0",
                 "url": null,
                 "sha256": null,
                 "release_notes": "Update metadata without a downloadable binary"
@@ -3973,8 +4041,9 @@ webhooks:
         assert_eq!(body["status"], "download_failed");
         assert_eq!(body["error"], "download_url_not_configured");
         assert_eq!(body["binary_name"], "dcc-mcp-server");
-        assert_eq!(body["current_version"], "0.3.0");
-        assert_eq!(body["latest_version"], "0.4.0");
+        assert_eq!(body["current_version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(body["current_version_source"], "gateway_package_version");
+        assert_eq!(body["latest_version"], "999.0.0");
         assert_eq!(body["update_available"], true);
         assert_eq!(body["requires_restart"], false);
     }
@@ -3982,7 +4051,7 @@ webhooks:
     #[tokio::test]
     async fn test_admin_instance_update_can_check_without_staging() {
         let (manifest_url, shutdown) =
-            spawn_update_manifest_with_binary("0.4.0", b"server-binary").await;
+            spawn_update_manifest_with_binary("999.0.0", b"server-binary").await;
 
         let mut gs = make_gateway_state();
         gs.update_manifest_url = Some(manifest_url);
@@ -4007,8 +4076,9 @@ webhooks:
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["status"], "available");
         assert_eq!(body["binary_name"], "dcc-mcp-server");
-        assert_eq!(body["current_version"], "0.3.0");
-        assert_eq!(body["latest_version"], "0.4.0");
+        assert_eq!(body["current_version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(body["current_version_source"], "gateway_package_version");
+        assert_eq!(body["latest_version"], "999.0.0");
         assert_eq!(body["update_available"], true);
         assert_eq!(body["requires_restart"], false);
     }
@@ -4018,7 +4088,7 @@ webhooks:
         let _guard = UPDATE_ENV_LOCK.lock();
         let data_dir = ScopedUpdateDataDir::new();
         let (manifest_url, shutdown) =
-            spawn_update_manifest_with_binary("0.4.0", b"server-binary").await;
+            spawn_update_manifest_with_binary("999.0.0", b"server-binary").await;
 
         let mut gs = make_gateway_state();
         gs.update_manifest_url = Some(manifest_url);
@@ -4043,8 +4113,9 @@ webhooks:
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["status"], "staged");
         assert_eq!(body["binary_name"], "dcc-mcp-server");
-        assert_eq!(body["current_version"], "0.3.0");
-        assert_eq!(body["latest_version"], "0.4.0");
+        assert_eq!(body["current_version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(body["current_version_source"], "gateway_package_version");
+        assert_eq!(body["latest_version"], "999.0.0");
         assert_eq!(body["update_available"], true);
         assert_eq!(body["requires_restart"], true);
         assert!(
