@@ -7,21 +7,26 @@ use super::analytics::{
     handle_admin_analytics_export, handle_admin_analytics_heatmap, handle_admin_analytics_overview,
     handle_admin_analytics_timeseries,
 };
-use super::handlers::{
-    handle_admin_activity, handle_admin_calls, handle_admin_debug_bundle,
-    handle_admin_deregistered, handle_admin_governance, handle_admin_health,
-    handle_admin_instance_update, handle_admin_instances, handle_admin_integration_update,
-    handle_admin_integrations, handle_admin_issue_report, handle_admin_logs,
-    handle_admin_search_telemetry, handle_admin_skill_detail, handle_admin_skill_path_add,
-    handle_admin_skill_path_delete, handle_admin_skill_paths, handle_admin_skills,
-    handle_admin_stats, handle_admin_tasks, handle_admin_tools, handle_admin_trace_detail,
-    handle_admin_traces, handle_admin_traffic, handle_admin_traffic_export, handle_admin_ui,
-    handle_admin_workers, handle_admin_workflows, handle_v1_debug_trace_lookup,
+use super::general::{
+    handle_admin_activity, handle_admin_governance, handle_admin_traffic,
+    handle_admin_traffic_export, handle_admin_ui,
 };
+use super::handlers::{
+    handle_admin_calls, handle_admin_debug_bundle, handle_admin_deregistered, handle_admin_health,
+    handle_admin_instance_update, handle_admin_instances, handle_admin_issue_report,
+    handle_admin_logs, handle_admin_search_telemetry, handle_admin_skill_detail,
+    handle_admin_skills, handle_admin_stats, handle_admin_tasks, handle_admin_tools,
+    handle_admin_trace_detail, handle_admin_traces, handle_admin_workers, handle_admin_workflows,
+    handle_v1_debug_trace_lookup,
+};
+use super::integrations::{handle_admin_integration_update, handle_admin_integrations};
 use super::marketplace::{
     handle_marketplace_add_source, handle_marketplace_catalog, handle_marketplace_install,
     handle_marketplace_installed, handle_marketplace_outdated, handle_marketplace_sources,
     handle_marketplace_uninstall, handle_marketplace_update,
+};
+use super::skill_paths::{
+    handle_admin_skill_path_add, handle_admin_skill_path_delete, handle_admin_skill_paths,
 };
 use super::state::AdminState;
 

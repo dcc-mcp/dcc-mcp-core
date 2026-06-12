@@ -222,6 +222,7 @@ impl Updater {
         let dest_path = staging_dir.join(format!("{}.download", self.binary_name));
 
         let response = self.client.get(download_url).send().await?;
+        let response = response.error_for_status()?;
         let bytes = response.bytes().await?;
 
         // Verify SHA-256 if provided
@@ -387,6 +388,8 @@ mod hex {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
 
     #[test]
     fn version_comparison() {
@@ -404,5 +407,50 @@ mod tests {
         let dir = staging_dir("dcc-mcp-cli").unwrap();
         assert!(dir.to_string_lossy().contains("dcc-mcp"));
         assert!(dir.to_string_lossy().contains("update"));
+    }
+
+    #[tokio::test]
+    async fn download_update_rejects_http_error_status() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = [0_u8; 1024];
+            let _ = stream.read(&mut buf).await.unwrap();
+            stream
+                .write_all(
+                    b"HTTP/1.1 404 Not Found\r\ncontent-type: text/html\r\ncontent-length: 15\r\n\r\n<html>no</html>",
+                )
+                .await
+                .unwrap();
+        });
+
+        let binary_name = format!(
+            "dcc-mcp-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let updater = Updater::new("http://127.0.0.1", &binary_name, "0.1.0");
+        let info = UpdateInfo {
+            update_available: true,
+            current_version: "0.1.0".into(),
+            latest_version: "0.2.0".into(),
+            download_url: Some(format!("http://{addr}/missing")),
+            sha256: None,
+            release_notes: None,
+        };
+
+        let err = updater.download_update(&info).await.unwrap_err();
+        assert!(matches!(err, UpdateError::Http(_)));
+        assert!(
+            !staging_dir(&binary_name)
+                .unwrap()
+                .join(format!("{binary_name}.download"))
+                .exists()
+        );
+        server.await.unwrap();
     }
 }

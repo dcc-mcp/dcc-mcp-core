@@ -54,6 +54,9 @@ pub struct TelemetryConfig {
     /// Example: `"http://localhost:4317"`.
     pub otlp_endpoint: Option<String>,
 
+    /// OTLP metadata headers applied to gRPC exporters.
+    pub otlp_headers: HashMap<String, String>,
+
     /// Log format.
     pub log_format: LogFormat,
 
@@ -81,6 +84,7 @@ impl Default for TelemetryConfig {
             service_version: env!("CARGO_PKG_VERSION").to_string(),
             exporter: ExporterBackend::default(),
             otlp_endpoint: None,
+            otlp_headers: HashMap::new(),
             log_format: LogFormat::default(),
             max_queue_size: 512,
             batch_timeout: Duration::from_secs(5),
@@ -133,6 +137,18 @@ impl TelemetryConfigBuilder {
     pub fn with_otlp_exporter(mut self, endpoint: impl Into<String>) -> Self {
         self.inner.exporter = ExporterBackend::Otlp;
         self.inner.otlp_endpoint = Some(endpoint.into());
+        self
+    }
+
+    /// Add one OTLP metadata header for authenticated collectors.
+    pub fn with_otlp_header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.inner.otlp_headers.insert(key.into(), value.into());
+        self
+    }
+
+    /// Add OTLP metadata headers for authenticated collectors.
+    pub fn with_otlp_headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.inner.otlp_headers.extend(headers);
         self
     }
 
@@ -196,10 +212,32 @@ impl TelemetryConfig {
             .unwrap_or_else(|| "http://localhost:4317".to_string())
     }
 
+    /// Returns OTLP metadata headers, honoring `OTEL_EXPORTER_OTLP_HEADERS` first.
+    pub fn otlp_headers(&self) -> HashMap<String, String> {
+        std::env::var("OTEL_EXPORTER_OTLP_HEADERS")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .map(|raw| parse_otlp_headers(&raw))
+            .unwrap_or_else(|| self.otlp_headers.clone())
+    }
+
     /// Returns the OTLP export timeout (defaults to `batch_timeout`).
     pub fn otlp_timeout(&self) -> Duration {
         self.batch_timeout
     }
+}
+
+fn parse_otlp_headers(raw: &str) -> HashMap<String, String> {
+    raw.split(',')
+        .filter_map(|pair| {
+            let (key, value) = pair.split_once('=')?;
+            let key = key.trim();
+            if key.is_empty() {
+                return None;
+            }
+            Some((key.to_string(), value.trim().to_string()))
+        })
+        .collect()
 }
 
 /// Well-known span attribute keys used across the DCC-MCP ecosystem.
@@ -333,9 +371,14 @@ mod tests {
         fn builder_with_otlp() {
             let cfg = TelemetryConfig::builder("svc")
                 .with_otlp_exporter("http://localhost:4317")
+                .with_otlp_header("authorization", "Bearer token")
                 .build();
             assert_eq!(cfg.exporter, ExporterBackend::Otlp);
             assert_eq!(cfg.otlp_endpoint.as_deref(), Some("http://localhost:4317"));
+            assert_eq!(
+                cfg.otlp_headers.get("authorization").map(String::as_str),
+                Some("Bearer token")
+            );
         }
 
         #[test]
