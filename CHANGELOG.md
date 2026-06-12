@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.21](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.20...v0.18.21) (2026-06-12)
+
+
+### Features
+
+* **cli:** add local-first gateway control ([0ef32f9](https://github.com/dcc-mcp/dcc-mcp-core/commit/0ef32f906a128b30f51b9ca4d3ca2f4b98a87baf))
+* improve admin control plane ([dc45ce1](https://github.com/dcc-mcp/dcc-mcp-core/commit/dc45ce1be775c9b2bc31d69d6a32eda31f2d6a13))
+
+
+### Bug Fixes
+
+* harden cli gateway stop and local search ([2517ebd](https://github.com/dcc-mcp/dcc-mcp-core/commit/2517ebdc267934efd92f06be15f8d0f447dbfeaa))
+* isolate sidecar early-exit log tails ([12007f8](https://github.com/dcc-mcp/dcc-mcp-core/commit/12007f89cad40c836ed129ca46e1d4a604ea6820))
+* resolve admin ci failures ([e15362b](https://github.com/dcc-mcp/dcc-mcp-core/commit/e15362b3159147f2a60cb89b038e8b72d362c810))
+* surface sidecar early-exit diagnostics ([0d5c01d](https://github.com/dcc-mcp/dcc-mcp-core/commit/0d5c01d756058f5caf80983d166921d7a111f425))
+* validate sidecar instance ids ([51ce6eb](https://github.com/dcc-mcp/dcc-mcp-core/commit/51ce6ebe8f9eb2c1fdfbeb0cc007918cfe41790a))
+
 ## [0.18.20](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.19...v0.18.20) (2026-06-11)
 
 
