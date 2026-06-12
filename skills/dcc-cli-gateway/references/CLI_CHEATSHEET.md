@@ -35,11 +35,11 @@ powershell -c "irm https://raw.githubusercontent.com/loonghao/vx/main/install.ps
 
 | Command | Purpose |
 |---------|---------|
-| `dcc-mcp-cli list` | List local DCC instances from the FileRegistry; no gateway required |
+| `dcc-mcp-cli list` | Ensure the local loopback gateway, then list local DCC instances from the FileRegistry |
 | `dcc-mcp-cli doctor` | Report profile, registry, local inventory, direct-control readiness counts, gateway daemon status, and server binary diagnostics without launching services |
 | `dcc-mcp-cli search --query sphere --dcc-type maya --limit 20` | Search local instances directly through MCP in the `local` profile |
 | `dcc-mcp-cli list --gateway pcA` | List DCC instances through a named remote gateway profile |
-| `dcc-mcp-cli health` (or `python scripts/dcc_gateway.py health`) | Check gateway liveness; CLI auto-starts only loopback gateway targets |
+| `dcc-mcp-cli health` (or `python scripts/dcc_gateway.py health`) | Check gateway liveness; CLI auto-starts loopback gateway targets |
 | `dcc-mcp-cli gateway register https://host:19293 --name pcA` | Persist a named remote gateway profile |
 | `dcc-mcp-cli gateway list` | Inspect configured remote profiles and the active selection |
 | `dcc-mcp-cli gateway set pcA` / `dcc-mcp-cli gateway set local` | Switch active gateway profile |
@@ -141,7 +141,7 @@ python scripts/dcc_gateway.py call maya.a1b2c3d4.maya_primitives__create_sphere 
 | Symptom | Action |
 |---------|--------|
 | CLI not found | Ask user permission, then run `vx python scripts/dcc_gateway.py --ensure-cli list` to download `dcc-mcp-cli`; Python fallback runs if download fails |
-| Gateway health fails | Run `dcc-mcp-cli doctor` and inspect the CLI JSON/stderr. Local instance control does not require gateway; endpoint/admin/update commands auto-ensure only loopback gateway targets. For remote profiles or `--base-url`, auto-start is not possible. Ask before installing adapters or launching GUI DCC apps |
+| Gateway health fails | Run `dcc-mcp-cli doctor` and inspect the CLI JSON/stderr. Agent-control and endpoint/admin/update commands auto-ensure only loopback gateway targets. For remote profiles or `--base-url`, auto-start is not possible. Ask before installing adapters or launching GUI DCC apps |
 | `total == 0` | Start a DCC adapter, then re-run `dcc-mcp-cli list` |
 | Listed row is booting or `dispatch_status=unavailable` | Read `direct_control.recommended_next_action` and `direct_control.diagnostics`, then run `dcc-mcp-cli wait-ready --dcc-type <dcc> --instance-id <id>` or `dcc-mcp-cli doctor`; do not call tools until `direct_control.ready=true` |
 | `unknown-slug` | Re-run `search`; the instance may have restarted |

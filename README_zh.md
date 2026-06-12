@@ -36,7 +36,7 @@
 |---|---|
 | 让 Agent 操作真实 DCC 会话 | 面向 Maya、Blender、Houdini、Photoshop 和自定义宿主的 MCP + REST 端点 |
 | 控制工具上下文大小 | CLI 发现流程：`search` -> `describe` -> `call`，不依赖巨大的第一页 `tools/list` |
-| 从 Agent shell 可靠启动 | `dcc-mcp-cli list/search/describe/call` 默认使用本机 registry + direct MCP；远程 profile 使用 gateway |
+| 从 Agent shell 可靠启动 | `dcc-mcp-cli list/search/describe/call` 默认先确保本机 gateway，再使用本机 registry + direct MCP 或远程 gateway profile |
 | 不写框架胶水也能新增和更新工具 | `SKILL.md` + 同级 YAML / 脚本、marketplace 安装/更新，遵循 agentskills.io |
 | 调试真实工作站状态 | Admin UI、视口诊断、审计日志、trace、logs、metrics、Sentry/webhook 集成状态 |
 | 扛住生产约束 | 主线程调度、异步 job、sidecar/server 二进制、workflow 与 artefact 原语 |
@@ -115,12 +115,14 @@ dcc-mcp-cli update check --binary dcc-mcp-server --current-version <server_versi
 
 默认操作流：
 
-1. 先运行 `dcc-mcp-cli list` 做本机 inventory。它直接读取本机
-   FileRegistry，不要求 gateway。远程机器先用
+1. 先运行 `dcc-mcp-cli list` 做本机 inventory。它会先确保 machine-wide
+   loopback gateway 存在，然后读取本机 FileRegistry。远程机器先用
    `dcc-mcp-cli gateway register https://host:19293 --name pcA` 注册，再用
    `dcc-mcp-cli gateway list`、`dcc-mcp-cli list --gateway pcA` 或
-   `dcc-mcp-cli gateway set pcA`。`health`
-   等 endpoint/admin/update 命令只会对 loopback gateway 做 auto-start。
+   `dcc-mcp-cli gateway set pcA`。Agent 控制命令（`list`、`search`、
+   `describe`、`call`、`load-skill`、`wait-ready`、`reload-skills`、
+   `stop-instance`）以及 `health` 等 endpoint/admin/update 命令只会对
+   loopback gateway 做 auto-start；单次不想启动可传 `--no-auto-gateway`。
    启动状态不清楚时，`dcc-mcp-cli doctor` 会输出当前 profile、registry
    path/inventory、gateway daemon 状态和 server binary 诊断，而且不会启动或下载服务。
 2. 如果 `list` 返回在线实例，再执行 `search -> describe -> call`；在
