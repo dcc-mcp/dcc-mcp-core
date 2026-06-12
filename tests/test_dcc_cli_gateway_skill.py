@@ -51,10 +51,11 @@ class TestDccCliGatewaySkill:
         assert "dcc-mcp-cli" in desc
         assert "mcp" in desc
 
-    def test_openclaw_metadata_uses_base_url_env(self) -> None:
+    def test_openclaw_metadata_does_not_require_gateway_env(self) -> None:
         meta = dcc_mcp_core.parse_skill_md(DCC_CLI_GATEWAY_DIR)
         assert meta is not None
-        assert meta.primary_env() == "DCC_MCP_BASE_URL"
+        assert meta.primary_env() is None
+        assert "DCC_MCP_BASE_URL" not in meta.required_env_vars()
 
     def test_reference_docs_present(self) -> None:
         root = Path(DCC_CLI_GATEWAY_DIR)
@@ -63,7 +64,8 @@ class TestDccCliGatewaySkill:
 
     def test_probe_cli_missing(self) -> None:
         with patch.object(check_cli_mod.shutil, "which", return_value=None):
-            payload = check_cli_mod.probe(cli="missing-dcc-mcp-cli", base_url="http://127.0.0.1:9765")
+            with patch.object(check_cli_mod.dcc_gateway, "python_fallback", return_value={}):
+                payload = check_cli_mod.probe(cli="missing-dcc-mcp-cli", base_url="http://127.0.0.1:9765")
         assert payload["cli_ok"] is False
         assert payload["gateway_ok"] is False
         assert payload["total"] == 0

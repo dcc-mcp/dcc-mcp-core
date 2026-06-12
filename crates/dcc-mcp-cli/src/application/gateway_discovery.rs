@@ -9,6 +9,7 @@
 use std::path::PathBuf;
 
 use anyhow::Context;
+use serde::Serialize;
 
 /// Gateway binary filename, platform-aware.
 const GATEWAY_BINARY_NAME: &str = "dcc-mcp-server";
@@ -64,6 +65,119 @@ pub async fn resolve_gateway_bin(gateway_bin: Option<&PathBuf>) -> anyhow::Resul
     let current =
         std::env::current_exe().context("resolving current executable for sub-command fallback")?;
     Ok(current)
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GatewayBinaryDiagnostic {
+    pub status: &'static str,
+    pub source: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub configured_path: Option<PathBuf>,
+    pub would_download_if_started: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Diagnose the gateway/server binary path without downloading or launching it.
+pub fn diagnose_gateway_bin(gateway_bin: Option<&PathBuf>) -> GatewayBinaryDiagnostic {
+    if let Some(explicit) = gateway_bin {
+        if explicit.exists() {
+            return binary_diagnostic(
+                "ok",
+                "explicit",
+                Some(explicit.clone()),
+                Some(explicit.clone()),
+                false,
+            );
+        }
+        return GatewayBinaryDiagnostic {
+            status: "missing",
+            source: "explicit",
+            path: None,
+            configured_path: Some(explicit.clone()),
+            would_download_if_started: false,
+            version: None,
+            error: Some(format!(
+                "explicit gateway binary not found: {}",
+                explicit.display()
+            )),
+        };
+    }
+
+    if let Some(found) = find_in_same_dir() {
+        return binary_diagnostic("ok", "same_dir", Some(found), None, false);
+    }
+
+    if let Some(cached) = find_cached_binary() {
+        return binary_diagnostic("ok", "cache", Some(cached), None, false);
+    }
+
+    GatewayBinaryDiagnostic {
+        status: "missing",
+        source: "download_on_start",
+        path: None,
+        configured_path: None,
+        would_download_if_started: true,
+        version: None,
+        error: Some(format!(
+            "{GATEWAY_BINARY_NAME_WITH_EXT} was not found beside the CLI or in the gateway cache"
+        )),
+    }
+}
+
+fn binary_diagnostic(
+    status: &'static str,
+    source: &'static str,
+    path: Option<PathBuf>,
+    configured_path: Option<PathBuf>,
+    would_download_if_started: bool,
+) -> GatewayBinaryDiagnostic {
+    let (version, error) = match path.as_ref() {
+        Some(path) => probe_binary_version(path),
+        None => (None, None),
+    };
+    GatewayBinaryDiagnostic {
+        status,
+        source,
+        path,
+        configured_path,
+        would_download_if_started,
+        version,
+        error,
+    }
+}
+
+fn probe_binary_version(path: &std::path::Path) -> (Option<String>, Option<String>) {
+    match std::process::Command::new(path).arg("--version").output() {
+        Ok(output) if output.status.success() => {
+            let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !text.is_empty() {
+                return (Some(text), None);
+            }
+            let text = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            if !text.is_empty() {
+                return (Some(text), None);
+            }
+            (
+                None,
+                Some("--version succeeded but produced no output".to_string()),
+            )
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let message = if stderr.is_empty() {
+                format!("--version exited with status {}", output.status)
+            } else {
+                stderr
+            };
+            (None, Some(message))
+        }
+        Err(err) => (None, Some(format!("running --version failed: {err}"))),
+    }
 }
 
 // ── Layer 1: Same-directory lookup ──────────────────────────────────────
