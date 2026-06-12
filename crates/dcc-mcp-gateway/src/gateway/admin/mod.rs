@@ -93,3 +93,5 @@ pub use router::{build_admin_router, build_v1_debug_router};
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod update_tests;

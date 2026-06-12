@@ -454,7 +454,7 @@ async fn admin_find_instance_entry(
     }
 }
 
-enum AdminInstanceUpdateVersion {
+pub(super) enum AdminInstanceUpdateVersion {
     Known {
         current: String,
         display: Option<String>,
@@ -463,7 +463,7 @@ enum AdminInstanceUpdateVersion {
     MissingCurrentVersion,
 }
 
-fn admin_instance_update_version(
+pub(super) fn admin_instance_update_version(
     binary_name: &str,
     requested_current_version: Option<&str>,
 ) -> AdminInstanceUpdateVersion {
