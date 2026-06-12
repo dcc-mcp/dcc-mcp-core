@@ -855,10 +855,38 @@ jobs:
               artifacts_verified: true,
               assets_count: $assets_count
             }')"
-          printf '%s' "$payload" | curl -fsS \
-            -X POST \
-            -H "Content-Type: application/json" \
-            -H "X-GitHub-Event: core_release_ready" \
-            -H "X-GitHub-Delivery: core-release-ready-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
-            --data-binary @- \
-            "$MULTICA_WEBHOOK_URL"
+          # Retry with exponential backoff for transient errors (HTTP 429 rate-limit, 5xx).
+          # A single 429 from Multica is not fatal — all build/publish jobs succeeded.
+          max_retries=5
+          delay=5
+
+          for i in $(seq 1 "$max_retries"); do
+            http_code=$(printf '%s' "$payload" | curl -fsS -o /dev/null -w '%{http_code}' \
+              -X POST \
+              -H "Content-Type: application/json" \
+              -H "X-GitHub-Event: core_release_ready" \
+              -H "X-GitHub-Delivery: core-release-ready-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+              --data-binary @- \
+              "$MULTICA_WEBHOOK_URL")
+            curl_exit=$?
+
+            if [ "$curl_exit" -eq 0 ] && [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+              echo "Multica notified successfully (HTTP ${http_code})"
+              exit 0
+            fi
+
+            if [ "$http_code" = "429" ] || [ "$http_code" -ge 500 ]; then
+              if [ "$i" -lt "$max_retries" ]; then
+                echo "::warning::Multica returned HTTP ${http_code}, attempt ${i}/${max_retries}, retrying in ${delay}s..."
+                sleep "$delay"
+                delay=$((delay * 2))
+                continue
+              fi
+            else
+              echo "::error::Multica notification failed with HTTP ${http_code} (non-retryable)"
+              exit 1
+            fi
+          done
+
+          echo "::error::Multica notification failed after ${max_retries} attempts"
+          exit 1
