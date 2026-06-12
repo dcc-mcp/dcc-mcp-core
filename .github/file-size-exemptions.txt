@@ -7,7 +7,7 @@
 # Format: one file path per line (relative to repo root), comments with #
 #
 # Limits enforced by .github/workflows/check-file-size.yml:
-#   Rust  : 1500 lines (test files excluded)
+#   Rust  : 1500 lines (test files use a separate 2000-line gate)
 #   Python: 1000 lines (test files excluded)
 
 # issue #849 — server_base.py is a 1162-line god module; tracked for split
