@@ -6,7 +6,7 @@ name: Check File Size
 # New files must stay within the limits.
 #
 # Limits (issue #842):
-#   - .rs files: 1500 lines (test files excluded)
+#   - .rs files: 1500 lines (test files use a separate 2000-line gate)
 #   - .py files: 1000 lines (test files excluded)
 #   - admin-ui source/test files: 3000 lines
 #
@@ -73,6 +73,9 @@ jobs:
             exit 1
           fi
           echo "✅ All Rust files are within the ${MAX_RS}-line limit."
+
+      - name: Check Rust test file sizes
+        run: python scripts/ci/check_rust_test_file_lines.py
 
       - name: Check Python file sizes
         run: |
