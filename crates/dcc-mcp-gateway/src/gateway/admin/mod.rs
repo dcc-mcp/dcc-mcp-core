@@ -73,6 +73,8 @@ pub mod workflows;
 
 #[cfg(feature = "admin")]
 mod handlers;
+#[cfg(all(test, feature = "admin"))]
+mod logs_tests;
 #[cfg(feature = "admin")]
 mod router;
 
