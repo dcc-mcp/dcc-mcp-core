@@ -1024,6 +1024,40 @@ def test_build_sidecar_command_uses_sidecar_cli_contract(tmp_path: Path) -> None
     }
 
 
+def test_build_sidecar_command_accepts_valid_instance_id(tmp_path: Path) -> None:
+    result = lifecycle.build_sidecar_command(
+        dcc_type="maya",
+        host_rpc="qtserver://127.0.0.1:7001",
+        watch_pid=12345,
+        registry_dir=tmp_path / "registry",
+        server_bin="dcc-mcp-server-test",
+        instance_id="AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE",
+    )
+
+    assert result["success"] is True
+    assert result["readiness_selector"]["instance_id"] == "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+    assert result["command"][result["command"].index("--instance-id") + 1] == ("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
+    assert result["readiness_argv"][result["readiness_argv"].index("--instance-id") + 1] == (
+        "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+    )
+
+
+def test_build_sidecar_command_rejects_invalid_instance_id(tmp_path: Path) -> None:
+    result = lifecycle.build_sidecar_command(
+        dcc_type="maya",
+        host_rpc="qtserver://127.0.0.1:7001",
+        watch_pid=12345,
+        registry_dir=tmp_path / "registry",
+        server_bin="dcc-mcp-server-test",
+        instance_id="unknown",
+    )
+
+    assert result["success"] is False
+    assert result["reason"] == "invalid_instance_id"
+    assert result["message"] == "instance_id must be a UUID accepted by dcc-mcp-server sidecar."
+    assert "command" not in result
+
+
 def test_build_sidecar_command_defaults_watch_pid_to_current_process(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
