@@ -28,6 +28,7 @@ ROLE_PER_DCC_SIDECAR = "per-dcc-sidecar"
 SUPPORTED_DISPATCH_HOST_RPC_SCHEMES = ("commandport", "qtserver", "ws", "wss")
 TEST_ONLY_HOST_RPC_SCHEMES = ("stub",)
 SERVER_BINARY_VERSION_TIMEOUT_SECS = 1.0
+STDIO_TAIL_BYTES = 4096
 
 
 def sidecar_host_rpc_dispatch_contract(host_rpc: Any) -> Dict[str, Any]:
@@ -406,8 +407,10 @@ def launch_sidecar(
     if return_process:
         result["process"] = proc
     if liveness.get("alive") is False:
+        early_exit = _sidecar_early_exit_diagnostics(contract, stdio["result"], liveness)
         result["reason"] = "sidecar_exited_during_startup"
-        result["message"] = "Sidecar process exited before the startup liveness check completed."
+        result["message"] = _sidecar_early_exit_message(early_exit)
+        result["early_exit"] = early_exit
         return result
     if wait_ready_timeout_secs is not None:
         result["readiness"] = _check_launch_readiness(
@@ -601,6 +604,77 @@ def _safe_log_token(value: Any) -> str:
             cleaned.append("-")
     token = "".join(cleaned).strip("-._")
     return token or "unknown"
+
+
+def _sidecar_early_exit_diagnostics(
+    contract: Dict[str, Any],
+    stdio: Dict[str, Any],
+    liveness: Dict[str, Any],
+) -> Dict[str, Any]:
+    tail = _stdio_tail_diagnostics(stdio)
+    return {
+        "reason": "sidecar_exited_during_startup",
+        "exit_code": liveness.get("exit_code"),
+        "argv_metadata": _argv_metadata(contract.get("command")),
+        **tail,
+    }
+
+
+def _sidecar_early_exit_message(early_exit: Dict[str, Any]) -> str:
+    stderr_tail = str(early_exit.get("stderr_tail") or "").strip()
+    if stderr_tail:
+        summary = " ".join(stderr_tail.split())
+        if len(summary) > 240:
+            summary = summary[:237].rstrip() + "..."
+        return f"Sidecar process exited before the startup liveness check completed; stderr tail: {summary}"
+    return "Sidecar process exited before the startup liveness check completed."
+
+
+def _argv_metadata(command: Any) -> Dict[str, Any]:
+    if not isinstance(command, list) or not command:
+        return {"program": None, "subcommand": None, "flags": []}
+    argv = [str(part) for part in command]
+    return {
+        "program": Path(argv[0]).name or argv[0],
+        "subcommand": argv[1] if len(argv) > 1 else None,
+        "flags": [part for part in argv[2:] if part.startswith("--")],
+    }
+
+
+def _stdio_tail_diagnostics(stdio: Dict[str, Any]) -> Dict[str, Any]:
+    stdout_path = stdio.get("stdout_path")
+    stderr_path = stdio.get("stderr_path")
+    stdout_tail, stdout_error = _read_text_tail(stdout_path)
+    stderr_tail, stderr_error = _read_text_tail(stderr_path)
+    errors = {}
+    if stdout_error:
+        errors["stdout"] = stdout_error
+    if stderr_error:
+        errors["stderr"] = stderr_error
+    return {
+        "stdio_captured": bool(stdio.get("captured")),
+        "stdout_path": stdout_path,
+        "stderr_path": stderr_path,
+        "stdout_tail": stdout_tail,
+        "stderr_tail": stderr_tail,
+        "tail_bytes": STDIO_TAIL_BYTES,
+        "tail_errors": errors,
+    }
+
+
+def _read_text_tail(path: Any) -> Tuple[Optional[str], Optional[str]]:
+    if not path:
+        return None, None
+    try:
+        with Path(str(path)).open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - STDIO_TAIL_BYTES))
+            data = handle.read(STDIO_TAIL_BYTES)
+    except OSError as exc:
+        return None, str(exc)
+    text = data.decode("utf-8", errors="replace").strip()
+    return (text or None), None
 
 
 def _check_early_liveness(proc: Any, timeout_secs: float) -> Dict[str, Any]:
