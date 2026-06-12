@@ -5,9 +5,13 @@ use axum::extract::{Json, Path, Query};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use dcc_mcp_skills::parse_skill_md;
 use serde_json::{Value, json};
 use tempfile::{NamedTempFile, TempDir};
 use tokio::sync::oneshot;
+
+use dcc_mcp_transport::discovery::file_registry::FileRegistry;
+use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
 
 struct GatewayFixture {
     base_url: String,
@@ -16,6 +20,33 @@ struct GatewayFixture {
 }
 
 impl Drop for GatewayFixture {
+    fn drop(&mut self) {
+        if let Some(shutdown) = self.shutdown.take() {
+            let _ = shutdown.send(());
+        }
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+struct LocalMcpFixture {
+    base_url: String,
+    shutdown: Option<oneshot::Sender<()>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl LocalMcpFixture {
+    fn mcp_url(&self) -> String {
+        format!("{}/mcp", self.base_url)
+    }
+
+    fn safe_stop_url(&self) -> String {
+        format!("{}/safe-stop", self.base_url)
+    }
+}
+
+impl Drop for LocalMcpFixture {
     fn drop(&mut self) {
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
@@ -119,6 +150,40 @@ fn spawn_gateway_fixture() -> GatewayFixture {
             }),
         )
         .route("/v1/healthz", get(|| async { Json(json!({"ok": true})) }))
+        .route(
+            "/v1/readyz",
+            get(|| async {
+                Json(json!({
+                    "ok": true,
+                    "live_instance_count": 1,
+                    "ready_instance_count": 1,
+                    "instances": [{
+                        "instance_id": "abc12345-0000-0000-0000-000000000000",
+                        "instance_short": "abc12345",
+                        "dcc_type": "maya",
+                        "mcp_url": "http://127.0.0.1:9/mcp",
+                        "readiness": {
+                            "process": true,
+                            "dcc": true,
+                            "skill_catalog": true,
+                            "dispatcher": true,
+                            "host_execution_bridge": true,
+                            "main_thread_executor": true
+                        },
+                        "dispatch": {
+                            "reported": true,
+                            "ready": true
+                        },
+                        "gateway": {
+                            "recovery_driver": "daemon_guardian"
+                        },
+                        "lifecycle": {
+                            "supports_safe_stop": true
+                        }
+                    }]
+                }))
+            }),
+        )
         .route(
             "/admin/api/health",
             get(|| async {
@@ -355,6 +420,233 @@ fn spawn_gateway_fixture() -> GatewayFixture {
     }
 }
 
+fn spawn_local_mcp_fixture() -> LocalMcpFixture {
+    let app = Router::new()
+        .route(
+            "/mcp",
+            post(|headers: HeaderMap, Json(body): Json<Value>| async move {
+                let accept = headers
+                    .get(header::ACCEPT)
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or_default();
+                if !(accept.contains("application/json") && accept.contains("text/event-stream"))
+                {
+                    return (
+                        StatusCode::NOT_ACCEPTABLE,
+                        Json(json!({
+                            "error": "not_acceptable",
+                            "message": "Client must accept both application/json and text/event-stream"
+                        })),
+                    );
+                }
+
+                let method = body.get("method").and_then(Value::as_str).unwrap_or("");
+                match method {
+                    "tools/list" => (
+                        StatusCode::OK,
+                        Json(json!({
+                            "jsonrpc": "2.0",
+                            "id": body.get("id").cloned().unwrap_or(json!(null)),
+                            "result": {
+                                "tools": [
+                                    {
+                                        "name": "search_tools",
+                                        "description": "Search local tools",
+                                        "inputSchema": {"type": "object"}
+                                    },
+                                    {
+                                        "name": "load_skill",
+                                        "description": "Load local skill",
+                                        "inputSchema": {"type": "object"}
+                                    },
+                                    {
+                                        "name": "maya_scene__get_session_info",
+                                        "description": "Read scene session info",
+                                        "inputSchema": {"type": "object", "properties": {}}
+                                    },
+                                    {
+                                        "name": "workflow__run",
+                                        "description": "Run workflow",
+                                        "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}}}
+                                    }
+                                ]
+                            }
+                        })),
+                    ),
+                    "tools/call" => {
+                        let params = body.get("params").cloned().unwrap_or_else(|| json!({}));
+                        let name = params.get("name").and_then(Value::as_str).unwrap_or("");
+                        let arguments = params
+                            .get("arguments")
+                            .cloned()
+                            .unwrap_or_else(|| json!({}));
+                        let payload = match name {
+                            "search_tools" => json!({
+                                "total": 2,
+                                "query": arguments.get("query").and_then(Value::as_str).unwrap_or(""),
+                                "tools": [{
+                                    "kind": "tool",
+                                    "name": "maya_scene__get_session_info",
+                                    "description": "Read scene session info",
+                                    "category": "scene",
+                                    "group": "",
+                                    "enabled": true,
+                                    "dcc": "maya",
+                                    "skill_name": "maya-scene"
+                                }],
+                                "skill_candidates": [{
+                                    "kind": "skill_candidate",
+                                    "skill_name": "workflow",
+                                    "description": "Workflow tools",
+                                    "tags": ["workflow"],
+                                    "dcc": "maya",
+                                    "scope": "repo",
+                                    "tool_count": 1,
+                                    "matching_tools": ["workflow__run"],
+                                    "requires_load_skill": true,
+                                    "load_hint": {
+                                        "tool": "load_skill",
+                                        "arguments": {"skill_name": "workflow"}
+                                    }
+                                }]
+                            }),
+                            "load_skill" => {
+                                if arguments.get("dcc_type").is_some()
+                                    || arguments.get("dcc").is_some()
+                                    || arguments.get("instance_id").is_some()
+                                {
+                                    return (
+                                        StatusCode::OK,
+                                        Json(json!({
+                                            "jsonrpc": "2.0",
+                                            "id": body.get("id").cloned().unwrap_or(json!(null)),
+                                            "error": {
+                                                "code": -32602,
+                                                "message": "load_skill received local routing fields"
+                                            }
+                                        })),
+                                    );
+                                }
+                                json!({
+                                    "loaded": true,
+                                    "skill_name": arguments.get("skill_name").cloned().unwrap_or(Value::Null),
+                                    "registered_tools": ["workflow__run"],
+                                    "tool_count": 1,
+                                    "tools": [{
+                                        "name": "workflow__run",
+                                        "inputSchema": {"type": "object"}
+                                    }]
+                                })
+                            }
+                            "dcc_admin__reload_skills" => json!({
+                                "reloaded": true,
+                                "count": 1,
+                                "skipped": []
+                            }),
+                            "maya_scene__get_session_info" => json!({
+                                "success": true,
+                                "scene": "fixture.ma",
+                                "arguments": arguments
+                            }),
+                            "workflow__run" => json!({
+                                "success": true,
+                                "workflow": arguments.get("name").cloned().unwrap_or(Value::Null)
+                            }),
+                            _ => {
+                                return (
+                                    StatusCode::OK,
+                                    Json(json!({
+                                        "jsonrpc": "2.0",
+                                        "id": body.get("id").cloned().unwrap_or(json!(null)),
+                                        "result": {
+                                            "isError": true,
+                                            "content": [{"type": "text", "text": format!("unknown tool {name}")}]
+                                        }
+                                    })),
+                                );
+                            }
+                        };
+
+                        (
+                            StatusCode::OK,
+                            Json(json!({
+                                "jsonrpc": "2.0",
+                                "id": body.get("id").cloned().unwrap_or(json!(null)),
+                                "result": {
+                                    "isError": false,
+                                    "content": [{"type": "text", "text": payload.to_string()}]
+                                }
+                            })),
+                        )
+                    }
+                    _ => (
+                        StatusCode::OK,
+                        Json(json!({
+                            "jsonrpc": "2.0",
+                            "id": body.get("id").cloned().unwrap_or(json!(null)),
+                            "error": {
+                                "code": -32601,
+                                "message": "method not found"
+                            }
+                        })),
+                    ),
+                }
+            }),
+        )
+        .route(
+            "/v1/readyz",
+            get(|| async {
+                Json(json!({
+                    "ready": true,
+                    "readiness": {
+                        "process": true,
+                        "dcc": true,
+                        "skill_catalog": true,
+                        "dispatcher": true,
+                        "host_execution_bridge": true,
+                        "main_thread_executor": true
+                    }
+                }))
+            }),
+        )
+        .route(
+            "/safe-stop",
+            post(|Json(body): Json<Value>| async move {
+                Json(json!({
+                    "accepted": true,
+                    "instance_id": body.get("instance_id").cloned().unwrap_or(Value::Null),
+                    "dcc_type": body.get("dcc_type").cloned().unwrap_or(Value::Null),
+                    "owner": body.get("owner").cloned().unwrap_or(Value::Null),
+                    "session": body.get("session").cloned().unwrap_or(Value::Null)
+                }))
+            }),
+        );
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+
+    let thread = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async move {
+            let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+                .unwrap();
+        });
+    });
+
+    LocalMcpFixture {
+        base_url: format!("http://{addr}"),
+        shutdown: Some(shutdown_tx),
+        thread: Some(thread),
+    }
+}
+
 fn cli_command() -> Command {
     Command::new(env!("CARGO_BIN_EXE_dcc-mcp-cli"))
 }
@@ -370,10 +662,17 @@ fn run_json(args: &[&str]) -> Value {
 }
 
 fn run_json_with_env(args: &[&str], envs: &[(&str, &str)]) -> Value {
+    run_json_with_env_removed(args, envs, &[])
+}
+
+fn run_json_with_env_removed(args: &[&str], envs: &[(&str, &str)], removed_envs: &[&str]) -> Value {
     let mut command = cli_command();
     command.args(args);
     for (key, value) in envs {
         command.env(key, value);
+    }
+    for key in removed_envs {
+        command.env_remove(key);
     }
     let output = command.output().unwrap();
     assert!(
@@ -603,6 +902,8 @@ fn list_search_describe_and_call_gateway_rest_surface() {
         "1",
     ]);
     assert_eq!(ready["ready"], true);
+    assert_eq!(ready["readiness_source"], "gateway_readyz");
+    assert_eq!(ready["gateway_readyz_error"], Value::Null);
     assert_eq!(ready["missing"].as_array().unwrap().len(), 0);
 
     let stop = run_json(&[
@@ -624,55 +925,777 @@ fn list_search_describe_and_call_gateway_rest_surface() {
 }
 
 #[test]
-fn gateway_rest_commands_auto_start_builtin_local_gateway() {
-    let port = unused_loopback_port();
-    let port_s = port.to_string();
-    let base_url = format!("http://127.0.0.1:{port}");
+fn local_list_reads_file_registry_without_gateway() {
     let registry = TempDir::new().unwrap();
+    let file_registry = FileRegistry::new(registry.path()).unwrap();
+    let mut entry = ServiceEntry::new("maya", "127.0.0.1", 18080);
+    entry.display_name = Some("Maya-Rig".to_string());
+    entry
+        .metadata
+        .insert("owner".to_string(), "release-smoke-test".to_string());
+    file_registry.register(entry).unwrap();
+
     let registry_s = registry.path().to_string_lossy().to_string();
-    let cli_bin = env!("CARGO_BIN_EXE_dcc-mcp-cli");
+    let profiles = registry.path().join("gateway-profiles.json");
+    let profiles_s = profiles.to_string_lossy().to_string();
     let envs = [
         ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
-        ("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", "1"),
+        ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
     ];
-    let _cleanup = AutoGatewayCleanup {
-        host: "127.0.0.1",
-        port,
-        envs: &envs,
-    };
 
-    let list = run_json_with_env(
+    let list = run_json_with_env(&["list"], &envs);
+
+    assert_eq!(list["source"], "local_registry");
+    assert_eq!(list["total"], 1);
+    assert_eq!(list["instances"][0]["dcc_type"], "maya");
+    assert_eq!(list["instances"][0]["display_name"], "Maya-Rig");
+    assert_eq!(
+        list["instances"][0]["mcp_url"],
+        "http://127.0.0.1:18080/mcp"
+    );
+    assert_eq!(list["gateway"]["current"]["role"], "local");
+}
+
+#[test]
+fn local_list_uses_core_default_registry_without_env_override() {
+    let temp = TempDir::new().unwrap();
+    let default_registry = temp.path().join("dcc-mcp-registry");
+    let file_registry = FileRegistry::new(&default_registry).unwrap();
+    let mut entry = ServiceEntry::new("photoshop", "127.0.0.1", 19080);
+    entry.display_name = Some("Photoshop-Default-Registry".to_string());
+    file_registry.register(entry).unwrap();
+
+    let temp_s = temp.path().to_string_lossy().to_string();
+    let default_registry_s = default_registry.to_string_lossy().to_string();
+    let profiles = temp.path().join("gateway-profiles.json");
+    let profiles_s = profiles.to_string_lossy().to_string();
+    let envs = [
+        ("TMP", temp_s.as_str()),
+        ("TEMP", temp_s.as_str()),
+        ("TMPDIR", temp_s.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
+    ];
+
+    let list = run_json_with_env_removed(
+        &["list"],
+        &envs,
         &[
-            "--base-url",
-            &base_url,
-            "--auto-gateway-bin",
-            cli_bin,
-            "--auto-gateway-timeout-secs",
-            "15",
-            "list",
+            "DCC_MCP_REGISTRY_DIR",
+            "DCC_MCP_GATEWAY_PROFILE",
+            "DCC_MCP_BASE_URL",
+        ],
+    );
+
+    assert_eq!(list["source"], "local_registry");
+    assert_eq!(list["registry_dir"], default_registry_s);
+    assert_eq!(list["total"], 1);
+    assert_eq!(list["instances"][0]["dcc_type"], "photoshop");
+    assert_eq!(
+        list["instances"][0]["display_name"],
+        "Photoshop-Default-Registry"
+    );
+}
+
+#[test]
+fn local_profile_controls_registered_instance_without_gateway() {
+    let fixture = spawn_local_mcp_fixture();
+    let registry = TempDir::new().unwrap();
+    let file_registry = FileRegistry::new(registry.path()).unwrap();
+    let mut entry = ServiceEntry::new("maya", "127.0.0.1", 0);
+    entry.display_name = Some("Maya-Local".to_string());
+    entry
+        .metadata
+        .insert("mcp_url".to_string(), fixture.mcp_url());
+    entry
+        .metadata
+        .insert("owner".to_string(), "release-smoke-test".to_string());
+    entry
+        .metadata
+        .insert("session".to_string(), "test".to_string());
+    entry
+        .metadata
+        .insert("safe_stop_url".to_string(), fixture.safe_stop_url());
+    let instance_id = entry.instance_id.to_string();
+    let instance_short = entry.instance_id.simple().to_string()[..8].to_string();
+    file_registry.register(entry).unwrap();
+
+    let registry_s = registry.path().to_string_lossy().to_string();
+    let profiles = registry.path().join("gateway-profiles.json");
+    let profiles_s = profiles.to_string_lossy().to_string();
+    let envs = [
+        ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILE", "local"),
+        ("DCC_MCP_BASE_URL", ""),
+    ];
+
+    let search = run_json_with_env(&["search", "--query", "scene", "--dcc-type", "maya"], &envs);
+    assert_eq!(search["source"], "local_mcp");
+    assert_eq!(search["total"], 2);
+    assert_eq!(
+        search["hits"][0]["backend_tool"],
+        "maya_scene__get_session_info"
+    );
+    assert_eq!(search["hits"][0]["instance_id"], instance_id);
+    let slug = search["hits"][0]["slug"].as_str().unwrap();
+    assert!(slug.starts_with(&format!("maya.{instance_short}.")));
+
+    let describe = run_json_with_env(&["describe", slug], &envs);
+    assert_eq!(describe["source"], "local_mcp");
+    assert_eq!(describe["record"]["tool_slug"], slug);
+    assert_eq!(describe["tool"]["name"], "maya_scene__get_session_info");
+
+    let loaded = run_json_with_env(
+        &[
+            "load-skill",
+            "workflow",
+            "--dcc-type",
+            "maya",
+            "--instance-id",
+            &instance_short,
         ],
         &envs,
     );
+    assert_eq!(loaded["source"], "local_mcp");
+    assert_eq!(loaded["loaded"], true);
+    assert_eq!(loaded["registered_tools"][0], "workflow__run");
 
-    assert_eq!(list["total"], 0);
-    assert!(list["instances"].as_array().is_some());
-    assert_eq!(list["gateway"]["current"]["role"], "active");
+    let call = run_json_with_env(&["call", slug, "--json", r#"{"detail":true}"#], &envs);
+    assert_eq!(call["source"], "local_mcp");
+    assert_eq!(call["success"], true);
+    assert_eq!(call["tool_slug"], slug);
+    assert_eq!(call["result"]["isError"], false);
+
+    let direct_call = run_json_with_env(
+        &[
+            "call",
+            "workflow__run",
+            "--dcc-type",
+            "maya",
+            "--instance-id",
+            &instance_short,
+            "--json",
+            r#"{"name":"demo"}"#,
+        ],
+        &envs,
+    );
+    assert_eq!(direct_call["success"], true);
+    assert_eq!(direct_call["backend_tool"], "workflow__run");
+
+    let reload = run_json_with_env(
+        &[
+            "reload-skills",
+            "--dcc-type",
+            "maya",
+            "--instance-id",
+            &instance_short,
+        ],
+        &envs,
+    );
+    assert_eq!(reload["source"], "local_mcp");
+    assert_eq!(reload["reloaded"], true);
+    assert_eq!(reload["count"], 1);
+    assert_eq!(
+        reload["results"][0]["backend_tool"],
+        "dcc_admin__reload_skills"
+    );
+    assert_eq!(reload["results"][0]["reloaded"], true);
+
+    let ready = run_json_with_env(
+        &[
+            "wait-ready",
+            "--dcc-type",
+            "maya",
+            "--instance-id",
+            &instance_short,
+            "--require",
+            "dispatcher,host_execution_bridge",
+            "--timeout-secs",
+            "1",
+        ],
+        &envs,
+    );
+    assert_eq!(ready["source"], "local_mcp");
+    assert_eq!(ready["ready"], true);
+    assert_eq!(ready["missing"].as_array().unwrap().len(), 0);
 
     let stop = run_json_with_env(
         &[
-            "--base-url",
-            &base_url,
-            "--no-auto-gateway",
-            "gateway",
-            "stop",
-            "--host",
-            "127.0.0.1",
-            "--port",
+            "stop-instance",
+            "--dcc-type",
+            "maya",
+            "--instance-id",
+            &instance_short,
+            "--expected-owner",
+            "release-smoke-test",
+            "--expected-session",
+            "test",
+        ],
+        &envs,
+    );
+    assert_eq!(stop["source"], "local_mcp");
+    assert_eq!(stop["ok"], true);
+    assert_eq!(stop["response"]["accepted"], true);
+}
+
+#[test]
+fn local_search_routes_ready_sidecar_and_skips_unavailable_rows() {
+    let fixture = spawn_local_mcp_fixture();
+    let registry = TempDir::new().unwrap();
+    let file_registry = FileRegistry::new(registry.path()).unwrap();
+
+    let mut diagnostic = ServiceEntry::new("maya", "127.0.0.1", 9);
+    diagnostic.display_name = Some("Maya-Diagnostic".to_string());
+    diagnostic.status = ServiceStatus::Booting;
+    diagnostic
+        .metadata
+        .insert("dispatch_status".to_string(), "unavailable".to_string());
+    diagnostic
+        .metadata
+        .insert("failure_stage".to_string(), "gateway-health".to_string());
+    diagnostic.metadata.insert(
+        "failure_reason".to_string(),
+        "gateway health OK before sidecar dispatch".to_string(),
+    );
+    diagnostic
+        .metadata
+        .insert("mcp_url".to_string(), "http://127.0.0.1:9/mcp".to_string());
+    file_registry.register(diagnostic).unwrap();
+
+    let mut unavailable_sidecar = ServiceEntry::new("maya", "127.0.0.1", 9);
+    unavailable_sidecar.display_name = Some("Maya-Sidecar-Unavailable".to_string());
+    unavailable_sidecar.status = ServiceStatus::Available;
+    unavailable_sidecar
+        .metadata
+        .insert("dispatch_status".to_string(), "unavailable".to_string());
+    unavailable_sidecar
+        .metadata
+        .insert("dcc_mcp_role".to_string(), "per-dcc-sidecar".to_string());
+    unavailable_sidecar
+        .metadata
+        .insert("failure_stage".to_string(), "host-rpc-connect".to_string());
+    unavailable_sidecar.metadata.insert(
+        "failure_reason".to_string(),
+        "connection refused".to_string(),
+    );
+    unavailable_sidecar.metadata.insert(
+        "host_rpc_uri".to_string(),
+        "commandport://127.0.0.1:6000".to_string(),
+    );
+    unavailable_sidecar
+        .metadata
+        .insert("host_rpc_scheme".to_string(), "commandport".to_string());
+    unavailable_sidecar
+        .metadata
+        .insert("sidecar_pid".to_string(), "4242".to_string());
+    unavailable_sidecar.metadata.insert(
+        "stdio_log_dir".to_string(),
+        "C:/tmp/dcc-sidecar-logs".to_string(),
+    );
+    unavailable_sidecar.metadata.insert(
+        "stdio_stdout_path".to_string(),
+        "C:/tmp/dcc-sidecar-logs/sidecar-maya-4242.stdout.log".to_string(),
+    );
+    unavailable_sidecar.metadata.insert(
+        "stdio_stderr_path".to_string(),
+        "C:/tmp/dcc-sidecar-logs/sidecar-maya-4242.stderr.log".to_string(),
+    );
+    unavailable_sidecar
+        .metadata
+        .insert("mcp_url".to_string(), "http://127.0.0.1:9/mcp".to_string());
+    file_registry.register(unavailable_sidecar).unwrap();
+
+    let mut ready_sidecar = ServiceEntry::new("maya", "127.0.0.1", 0);
+    ready_sidecar.display_name = Some("Maya-Sidecar-Ready".to_string());
+    ready_sidecar
+        .metadata
+        .insert("dispatch_status".to_string(), "ready".to_string());
+    ready_sidecar
+        .metadata
+        .insert("dcc_mcp_role".to_string(), "per-dcc-sidecar".to_string());
+    ready_sidecar
+        .metadata
+        .insert("mcp_url".to_string(), fixture.mcp_url());
+    let ready_id = ready_sidecar.instance_id.to_string();
+    file_registry.register(ready_sidecar).unwrap();
+
+    let registry_s = registry.path().to_string_lossy().to_string();
+    let profiles = registry.path().join("gateway-profiles.json");
+    let profiles_s = profiles.to_string_lossy().to_string();
+    let envs = [
+        ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILE", "local"),
+    ];
+
+    let list = run_json_with_env(&["list"], &envs);
+    assert_eq!(list["source"], "local_registry");
+    assert_eq!(list["total"], 3);
+    let instances = list["instances"].as_array().unwrap();
+    assert!(
+        instances
+            .iter()
+            .any(|instance| instance["display_name"] == "Maya-Diagnostic"),
+        "local list should keep diagnostic rows visible"
+    );
+    assert!(
+        instances
+            .iter()
+            .any(|instance| instance["display_name"] == "Maya-Sidecar-Unavailable"),
+        "local list should keep unavailable sidecar rows visible"
+    );
+    let diagnostic_row = instances
+        .iter()
+        .find(|instance| instance["display_name"] == "Maya-Diagnostic")
+        .unwrap();
+    assert_eq!(diagnostic_row["direct_control"]["ready"], false);
+    assert_eq!(diagnostic_row["direct_control"]["reason"], "service_status");
+    assert!(
+        diagnostic_row["direct_control"]["recommended_next_action"]
+            .as_str()
+            .unwrap()
+            .contains("wait-ready")
+    );
+    let sidecar_row = instances
+        .iter()
+        .find(|instance| instance["display_name"] == "Maya-Sidecar-Unavailable")
+        .unwrap();
+    assert_eq!(sidecar_row["direct_control"]["ready"], false);
+    assert_eq!(sidecar_row["direct_control"]["reason"], "dispatch_status");
+    assert_eq!(
+        sidecar_row["direct_control"]["diagnostics"]["failure_stage"],
+        "host-rpc-connect"
+    );
+    assert_eq!(
+        sidecar_row["direct_control"]["diagnostics"]["failure_reason"],
+        "connection refused"
+    );
+    assert_eq!(
+        sidecar_row["direct_control"]["diagnostics"]["host_rpc_uri"],
+        "commandport://127.0.0.1:6000"
+    );
+    assert_eq!(
+        sidecar_row["direct_control"]["diagnostics"]["logs"]["stderr_path"],
+        "C:/tmp/dcc-sidecar-logs/sidecar-maya-4242.stderr.log"
+    );
+    assert!(
+        sidecar_row["direct_control"]["recommended_next_action"]
+            .as_str()
+            .unwrap()
+            .contains("dispatch_status=ready")
+    );
+    let ready_row = instances
+        .iter()
+        .find(|instance| instance["display_name"] == "Maya-Sidecar-Ready")
+        .unwrap();
+    assert_eq!(ready_row["direct_control"]["ready"], true);
+    assert_eq!(ready_row["direct_control"]["route"], "local_mcp");
+    assert_eq!(
+        ready_row["direct_control"]["recommended_next_action"],
+        "Use this instance through the local MCP route."
+    );
+
+    let search = run_json_with_env(&["search", "--query", "scene", "--dcc-type", "maya"], &envs);
+    assert_eq!(search["source"], "local_mcp");
+    assert_eq!(search["total"], 2);
+    assert!(
+        search["hits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|hit| hit["instance_id"] == ready_id),
+        "local search should only route to direct dispatch-ready instances: {search}"
+    );
+}
+
+#[test]
+fn gateway_profiles_select_remote_gateway_for_list() {
+    let fixture = spawn_gateway_fixture();
+    let config = TempDir::new().unwrap();
+    let profiles = config.path().join("gateway-profiles.json");
+    let profiles_s = profiles.to_string_lossy().to_string();
+    let envs = [("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str())];
+
+    let registered = run_json_with_env(
+        &["gateway", "register", &fixture.base_url, "--name", "pcA"],
+        &envs,
+    );
+    assert_eq!(registered["registered"], true);
+    assert_eq!(registered["name"], "pcA");
+    assert_eq!(registered["base_url"], fixture.base_url);
+
+    let selected = run_json_with_env(&["gateway", "set", "pcA"], &envs);
+    assert_eq!(selected["current"], "pcA");
+    assert_eq!(selected["mode"], "remote");
+
+    let profiles = run_json_with_env(&["gateway", "list"], &envs);
+    assert_eq!(profiles["current"], "pcA");
+    assert_eq!(profiles["selected"]["mode"], "remote");
+    assert_eq!(profiles["selected"]["base_url"], fixture.base_url);
+    assert_eq!(profiles["profiles"][0]["name"], "pcA");
+    assert_eq!(profiles["profiles"][0]["base_url"], fixture.base_url);
+
+    let list = run_json_with_env(&["list"], &envs);
+    assert_eq!(list["total"], 1);
+    assert_eq!(list["instances"][0]["dcc_type"], "maya");
+    assert_eq!(list["gateway"]["current"]["name"], "Maya-main-15084");
+
+    let local = run_json_with_env(&["gateway", "set", "local"], &envs);
+    assert_eq!(local["current"], "local");
+    assert_eq!(local["mode"], "local");
+
+    let env_selected = run_json_with_env_removed(
+        &["list"],
+        &[
+            ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
+            ("DCC_MCP_GATEWAY_PROFILE", "pcA"),
+        ],
+        &["DCC_MCP_BASE_URL"],
+    );
+    assert_eq!(env_selected["total"], 1);
+    assert_eq!(
+        env_selected["gateway"]["current"]["name"],
+        "Maya-main-15084"
+    );
+
+    let overridden = run_json_with_env(&["list", "--gateway", "pcA"], &envs);
+    assert_eq!(overridden["total"], 1);
+    assert_eq!(overridden["gateway"]["current"]["name"], "Maya-main-15084");
+}
+
+#[test]
+fn gateway_profiles_route_all_dcc_control_commands_to_remote_gateway() {
+    let fixture = spawn_gateway_fixture();
+    let config = TempDir::new().unwrap();
+    let profiles = config.path().join("gateway-profiles.json");
+    let profiles_s = profiles.to_string_lossy().to_string();
+    let envs = [("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str())];
+
+    let registered = run_json_with_env(
+        &["gateway", "register", &fixture.base_url, "--name", "pcA"],
+        &envs,
+    );
+    assert_eq!(registered["registered"], true);
+    let selected = run_json_with_env(&["gateway", "set", "pcA"], &envs);
+    assert_eq!(selected["mode"], "remote");
+
+    let search = run_json_with_env(
+        &[
+            "search",
+            "--query",
+            "sphere",
+            "--dcc-type",
+            "maya",
+            "--instance-id",
+            "abc12345",
+        ],
+        &envs,
+    );
+    assert_eq!(search["hits"][0]["scope"], "gateway");
+    assert_eq!(search["hits"][0]["instance_id"], "abc12345");
+
+    let describe = run_json_with_env(&["describe", "maya.abc12345.create_sphere"], &envs);
+    assert_eq!(
+        describe["record"]["tool_slug"],
+        "maya.abc12345.create_sphere"
+    );
+
+    let loaded = run_json_with_env(
+        &[
+            "load-skill",
+            "workflow",
+            "--dcc-type",
+            "maya",
+            "--instance-id",
+            "abc12345",
+        ],
+        &envs,
+    );
+    assert_eq!(loaded["loaded"], true);
+    assert_eq!(loaded["skill_name"], "workflow");
+    assert_eq!(loaded["dcc_type"], "maya");
+    assert_eq!(loaded["instance_id"], "abc12345");
+
+    let call = run_json_with_env(
+        &[
+            "call",
+            "maya.abc12345.create_sphere",
+            "--json",
+            r#"{"radius":2}"#,
+        ],
+        &envs,
+    );
+    assert_eq!(call["success"], true);
+    assert_eq!(call["tool_slug"], "maya.abc12345.create_sphere");
+    assert_eq!(call["arguments"]["radius"], 2);
+
+    let direct_call = run_json_with_env(
+        &[
+            "call",
+            "maya_scene__get_session_info",
+            "--dcc-type",
+            "maya",
+            "--instance-id",
+            "abc12345",
+            "--json",
+            r#"{}"#,
+        ],
+        &envs,
+    );
+    assert_eq!(direct_call["success"], true);
+    assert_eq!(direct_call["backend_tool"], "maya_scene__get_session_info");
+
+    let reload = run_json_with_env(
+        &[
+            "reload-skills",
+            "--dcc-type",
+            "maya",
+            "--instance-id",
+            "abc12345",
+        ],
+        &envs,
+    );
+    assert_eq!(reload["source"], "gateway");
+    assert_eq!(reload["count"], 1);
+    assert_eq!(
+        reload["results"][0]["backend_tool"],
+        "dcc_admin__reload_skills"
+    );
+    assert_eq!(
+        reload["results"][0]["result"]["backend_tool"],
+        "dcc_admin__reload_skills"
+    );
+    assert_eq!(
+        reload["results"][0]["result"]["instance_id"],
+        "abc12345-0000-0000-0000-000000000000"
+    );
+
+    let ready = run_json_with_env(
+        &[
+            "wait-ready",
+            "--dcc-type",
+            "maya",
+            "--instance-id",
+            "abc12345",
+            "--require",
+            "skill_catalog,host_execution_bridge",
+            "--timeout-secs",
+            "1",
+        ],
+        &envs,
+    );
+    assert_eq!(ready["ready"], true);
+    assert_eq!(ready["readiness_source"], "gateway_readyz");
+    assert_eq!(ready["gateway_readyz_error"], Value::Null);
+    assert_eq!(ready["missing"].as_array().unwrap().len(), 0);
+
+    let stop = run_json_with_env(
+        &[
+            "stop-instance",
+            "--dcc-type",
+            "maya",
+            "--instance-id",
+            "abc12345",
+            "--expected-owner",
+            "release-smoke-test",
+            "--expected-session",
+            "test",
+        ],
+        &envs,
+    );
+    assert_eq!(stop["ok"], true);
+    assert_eq!(stop["stopping"], true);
+    assert_eq!(stop["expected_owner"], "release-smoke-test");
+}
+
+#[test]
+fn gateway_daemon_status_uses_formal_subcommand() {
+    let port = unused_loopback_port();
+    let port_s = port.to_string();
+    let registry = TempDir::new().unwrap();
+    let registry_s = registry.path().to_string_lossy().to_string();
+
+    let status = run_json(&[
+        "gateway",
+        "daemon",
+        "status",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        &port_s,
+        "--registry-dir",
+        &registry_s,
+    ]);
+
+    assert_eq!(status["healthy"], false);
+    assert_eq!(status["running"], false);
+    assert_eq!(status["pid"], Value::Null);
+    assert_eq!(status["registry_dir"], registry_s);
+    assert_eq!(
+        status["pidfile"],
+        registry
+            .path()
+            .join("gateway.pid")
+            .to_string_lossy()
+            .to_string()
+    );
+    assert_eq!(
+        status["health_url"],
+        format!("http://127.0.0.1:{port}/health")
+    );
+    assert!(status["cli_version"].as_str().unwrap().starts_with("0."));
+}
+
+#[test]
+fn doctor_reports_local_defaults_without_starting_gateway() {
+    let port = unused_loopback_port();
+    let port_s = port.to_string();
+    let registry = TempDir::new().unwrap();
+    let registry_s = registry.path().to_string_lossy().to_string();
+    let profiles = NamedTempFile::new().unwrap();
+    let profiles_s = profiles.path().to_string_lossy().to_string();
+    let cli_bin = env!("CARGO_BIN_EXE_dcc-mcp-cli");
+    let envs = [
+        ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
+    ];
+
+    let doctor = run_json_with_env(
+        &[
+            "--auto-gateway-bin",
+            cli_bin,
+            "doctor",
+            "--gateway-port",
             &port_s,
         ],
         &envs,
     );
-    assert_eq!(stop["running"], false);
+
+    assert_eq!(doctor["status"], "ok");
+    assert_eq!(doctor["cli"]["name"], "dcc-mcp-cli");
+    assert!(doctor["cli"]["version"].as_str().unwrap().starts_with("0."));
+    assert_eq!(doctor["profile"]["stored_current"], "local");
+    assert_eq!(doctor["profile"]["selected"]["name"], "local");
+    assert_eq!(doctor["profile"]["selected"]["mode"], "local");
+    assert_eq!(doctor["local"]["registry_dir"], registry_s);
+    assert_eq!(doctor["local"]["inventory"]["ok"], true);
+    assert_eq!(doctor["local"]["inventory"]["total"], 0);
+    assert_eq!(doctor["local"]["inventory"]["direct_control"]["ready"], 0);
+    assert_eq!(
+        doctor["local"]["inventory"]["direct_control"]["not_ready"],
+        0
+    );
+    assert_eq!(doctor["gateway"]["auto_start_enabled"], true);
+    assert_eq!(
+        doctor["gateway"]["default_base_url"],
+        format!("http://127.0.0.1:{port}")
+    );
+    assert_eq!(doctor["gateway"]["status"]["healthy"], false);
+    assert_eq!(doctor["server_binary"]["status"], "ok");
+    assert_eq!(doctor["server_binary"]["source"], "explicit");
+    assert_eq!(doctor["server_binary"]["path"], cli_bin);
+    assert_eq!(doctor["server_binary"]["would_download_if_started"], false);
+    assert!(
+        doctor["server_binary"]["version"]
+            .as_str()
+            .unwrap()
+            .contains("dcc-mcp-cli")
+    );
+}
+
+#[test]
+fn doctor_summarizes_local_direct_control_readiness() {
+    let port = unused_loopback_port();
+    let port_s = port.to_string();
+    let registry = TempDir::new().unwrap();
+    let registry_s = registry.path().to_string_lossy().to_string();
+    let profiles = NamedTempFile::new().unwrap();
+    let profiles_s = profiles.path().to_string_lossy().to_string();
+    let cli_bin = env!("CARGO_BIN_EXE_dcc-mcp-cli");
+    let file_registry = FileRegistry::new(registry.path()).unwrap();
+
+    let mut booting = ServiceEntry::new("maya", "127.0.0.1", 18080);
+    booting.status = ServiceStatus::Booting;
+    booting
+        .metadata
+        .insert("dispatch_status".to_string(), "unavailable".to_string());
+    booting
+        .metadata
+        .insert("failure_stage".to_string(), "host-rpc-connect".to_string());
+    booting.metadata.insert(
+        "failure_reason".to_string(),
+        "connection refused".to_string(),
+    );
+    booting.metadata.insert(
+        "host_rpc_uri".to_string(),
+        "commandport://127.0.0.1:6000".to_string(),
+    );
+    file_registry.register(booting).unwrap();
+
+    let mut sidecar = ServiceEntry::new("maya", "127.0.0.1", 18081);
+    sidecar
+        .metadata
+        .insert("dispatch_status".to_string(), "ready".to_string());
+    sidecar
+        .metadata
+        .insert("dcc_mcp_role".to_string(), "per-dcc-sidecar".to_string());
+    file_registry.register(sidecar).unwrap();
+
+    let mut direct = ServiceEntry::new("maya", "127.0.0.1", 18082);
+    direct
+        .metadata
+        .insert("dispatch_status".to_string(), "ready".to_string());
+    file_registry.register(direct).unwrap();
+
+    let envs = [
+        ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
+    ];
+
+    let doctor = run_json_with_env(
+        &[
+            "--auto-gateway-bin",
+            cli_bin,
+            "doctor",
+            "--gateway-port",
+            &port_s,
+        ],
+        &envs,
+    );
+
+    assert_eq!(doctor["local"]["inventory"]["ok"], true);
+    assert_eq!(doctor["local"]["inventory"]["total"], 3);
+    assert_eq!(doctor["local"]["inventory"]["direct_control"]["ready"], 2);
+    assert_eq!(
+        doctor["local"]["inventory"]["direct_control"]["not_ready"],
+        1
+    );
+    assert_eq!(
+        doctor["local"]["inventory"]["direct_control"]["reasons"]["service_status"],
+        1
+    );
+    let not_ready = doctor["local"]["inventory"]["direct_control"]["not_ready_instances"]
+        .as_array()
+        .unwrap();
+    assert_eq!(not_ready.len(), 1);
+    assert_eq!(not_ready[0]["reason"], "service_status");
+    assert_eq!(
+        not_ready[0]["diagnostics"]["failure_stage"],
+        "host-rpc-connect"
+    );
+    assert_eq!(
+        not_ready[0]["diagnostics"]["failure_reason"],
+        "connection refused"
+    );
+    assert_eq!(
+        not_ready[0]["diagnostics"]["host_rpc_uri"],
+        "commandport://127.0.0.1:6000"
+    );
+    assert!(
+        doctor["local"]["inventory"]["direct_control"]["reasons"]
+            .get("per_dcc_sidecar")
+            .is_none()
+    );
 }
 
 #[test]
@@ -973,6 +1996,162 @@ entries:
     assert_eq!(plan["version"], "2026");
     assert_eq!(plan["adapter"]["name"], "dcc-mcp-maya");
     assert_eq!(plan["steps"].as_array().unwrap().len(), 4);
+    assert_eq!(plan["next_steps"][0]["name"], "start-dcc-plugin");
+    assert!(plan["next_steps"][0]["command"].is_null());
+    assert_eq!(
+        plan["next_steps"][1]["command"],
+        json!(["dcc-mcp-cli", "doctor"])
+    );
+    assert_eq!(
+        plan["next_steps"][3]["command"],
+        json!(["dcc-mcp-cli", "wait-ready", "--dcc-type", "maya"])
+    );
+    assert_eq!(plan["next_steps"][3]["requires_live_instance"], true);
+}
+
+#[test]
+fn install_uses_bundled_adapter_metadata_and_python_override() {
+    let plan = run_json_with_env_removed(
+        &[
+            "install",
+            "--dcc-type",
+            "maya",
+            "--python",
+            "C:/Autodesk/Maya2026/bin/mayapy.exe",
+        ],
+        &[],
+        &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
+    );
+
+    assert_eq!(plan["dcc_type"], "maya");
+    assert_eq!(plan["adapter"]["name"], "dcc-mcp-maya");
+    assert_eq!(plan["adapter"]["min_core_version"], "0.18.20");
+    assert_eq!(plan["steps"][0]["name"], "install-pip");
+    assert_eq!(plan["steps"][0]["action"]["type"], "PipInstall");
+    assert_eq!(plan["steps"][0]["action"]["package"], "dcc-mcp-maya");
+    assert_eq!(
+        plan["steps"][0]["action"]["python"],
+        "C:/Autodesk/Maya2026/bin/mayapy.exe"
+    );
+    assert_eq!(plan["steps"][1]["action"]["type"], "RegisterDcc");
+    assert_eq!(plan["next_steps"][0]["name"], "read-install-instructions");
+    assert_eq!(
+        plan["next_steps"][0]["url"],
+        "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/main/install.md"
+    );
+    assert!(plan["next_steps"][0]["command"].is_null());
+    assert_eq!(
+        plan["next_steps"][5]["command"],
+        json!([
+            "dcc-mcp-cli",
+            "search",
+            "--dcc-type",
+            "maya",
+            "--query",
+            "diagnostics"
+        ])
+    );
+    assert_eq!(
+        plan["next_steps"][7]["command"],
+        json!(["dcc-mcp-cli", "marketplace", "inspect", "<package-name>"])
+    );
+    assert_eq!(
+        plan["next_steps"][8]["command"],
+        json!([
+            "dcc-mcp-cli",
+            "marketplace",
+            "install",
+            "<package-name>",
+            "--dcc",
+            "maya"
+        ])
+    );
+    assert_eq!(
+        plan["next_steps"][9]["command"],
+        json!(["dcc-mcp-cli", "reload-skills", "--dcc-type", "maya"])
+    );
+}
+
+#[test]
+fn install_policy_env_disables_execute_and_returns_custom_prompt() {
+    let plan = run_json_with_env_removed(
+        &[
+            "install",
+            "--dcc-type",
+            "maya",
+            "--python",
+            "/__nonexistent__/python",
+            "--execute",
+        ],
+        &[
+            ("DCC_MCP_INSTALL_DISABLED", "1"),
+            (
+                "DCC_MCP_INSTALL_DISABLED_PROMPT",
+                "Auto install unavailable; contact PipelineTD to deploy {adapter} for {dcc_type}.",
+            ),
+        ],
+        &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
+    );
+
+    assert_eq!(plan["dcc_type"], "maya");
+    assert_eq!(plan["adapter"]["name"], "dcc-mcp-maya");
+    assert_eq!(plan["steps"][0]["action"]["type"], "PipInstall");
+    assert_eq!(
+        plan["steps"][0]["action"]["python"],
+        "/__nonexistent__/python"
+    );
+    assert_eq!(plan["install_policy"]["auto_install_enabled"], false);
+    assert_eq!(
+        plan["install_policy"]["prompt"],
+        "Auto install unavailable; contact PipelineTD to deploy dcc-mcp-maya for maya."
+    );
+}
+
+#[test]
+fn install_bundled_catalog_covers_non_maya_first_party_adapters() {
+    let plan = run_json_with_env_removed(
+        &["install", "--dcc-type", "blender"],
+        &[],
+        &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
+    );
+
+    assert_eq!(plan["dcc_type"], "blender");
+    assert_eq!(plan["adapter"]["name"], "dcc-mcp-blender");
+    assert_eq!(plan["steps"][0]["action"]["type"], "PipInstall");
+    assert_eq!(plan["steps"][0]["action"]["package"], "dcc-mcp-blender");
+    assert_eq!(plan["next_steps"][0]["name"], "read-install-instructions");
+    assert_eq!(
+        plan["next_steps"][0]["url"],
+        "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-blender/main/install.md"
+    );
+}
+
+#[test]
+fn install_prefers_adapter_over_same_dcc_skill_pack() {
+    let plan = run_json_with_env_removed(
+        &["install", "--dcc-type", "photoshop"],
+        &[],
+        &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
+    );
+
+    assert_eq!(plan["dcc_type"], "photoshop");
+    assert_eq!(plan["adapter"]["name"], "dcc-mcp-photoshop");
+    assert_eq!(plan["steps"][0]["action"]["type"], "PipInstall");
+    assert_eq!(plan["steps"][0]["action"]["package"], "dcc-mcp-photoshop");
+}
+
+#[test]
+fn install_accepts_human_dcc_name_aliases() {
+    let plan = run_json_with_env_removed(
+        &["install", "--dcc-type", "3ds Max"],
+        &[],
+        &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
+    );
+
+    assert_eq!(plan["dcc_type"], "3ds Max");
+    assert_eq!(plan["adapter"]["name"], "dcc-mcp-3dsmax");
+    assert_eq!(plan["steps"][0]["action"]["type"], "PipInstall");
+    assert_eq!(plan["steps"][0]["action"]["package"], "dcc-mcp-3dsmax");
 }
 
 #[test]
@@ -1712,6 +2891,23 @@ fn lint_bundled_skills_are_present_and_clean() {
     );
     assert_eq!(value["errors"], 0);
     assert_eq!(value["warnings"], 0);
+}
+
+#[test]
+fn dcc_cli_gateway_skill_is_local_first_without_required_gateway_env() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = manifest_dir
+        .parent()
+        .and_then(std::path::Path::parent)
+        .unwrap();
+    let skill_dir = workspace_root.join("skills/dcc-cli-gateway");
+
+    let meta = parse_skill_md(&skill_dir).expect("dcc-cli-gateway SKILL.md parses");
+
+    assert_eq!(meta.name, "dcc-cli-gateway");
+    assert!(meta.description.contains("dcc-mcp-cli local registry"));
+    assert!(meta.required_env_vars().is_empty());
+    assert_eq!(meta.primary_env(), None);
 }
 
 #[test]

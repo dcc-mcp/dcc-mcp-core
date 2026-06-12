@@ -46,19 +46,31 @@ from dcc_mcp_core.install_lifecycle import launch_sidecar
 result = launch_sidecar(
     dcc_type="maya",
     host_rpc="commandport://127.0.0.1:6000",
-    watch_pid=current_dcc_pid,
     display_name="Maya-Anim",
     adapter_version="1.2.3",
 )
 ```
 
-`launch_sidecar()` 默认使用 `subprocess.Popen` 并分离
-stdin/stdout/stderr。子进程运行 `dcc-mcp-server sidecar`，在共享
-`FileRegistry` 写入 `per-dcc-sidecar` 行，除非传入
-`no_ensure_gateway=True`，否则会确保机器级 gateway daemon 已启动；
-当 `watch_pid` 对应的 DCC 进程退出时，sidecar 也会退出。若适配器
-希望把 argv 交给工作室自己的进程 supervisor，使用
-`build_sidecar_command()`。两个 helper 都会返回 `readiness_selector`、
+对于 DCC 插件内的启动钩子，可以省略 `watch_pid`；helper 会把 sidecar
+绑定到当前进程 id。只有外部 supervisor 代替 DCC host 启动 sidecar 时，
+才需要显式传 `watch_pid`。module CLI 的 `sidecar-command` 与
+`launch-sidecar` 仍要求显式 `--watch-pid`，因为 CLI 进程本身不是 DCC host。
+
+`launch_sidecar()` 默认使用 `subprocess.Popen`，分离 stdin，并把
+stdout/stderr 写入 `<registry_dir>/logs` 下的日志文件。返回值里的
+`stdio` 对象包含 `stdout_path` 与 `stderr_path`；如果 supervisor
+需要接管日志目录，传 `stdio_log_dir=...`，只有在另一个进程管理器已经
+接管这些流时才使用 `capture_stdio=False` 或 CLI `--no-stdio-log`。
+需要后续终止子进程的 adapter supervisor 可以传 `return_process=True`，
+让返回 dict 带上 `subprocess.Popen` handle；CLI/JSON 调用方必须保持默认值，
+因为这个 handle 不能序列化。返回值里的 `server_binary` 对象会记录 sidecar
+二进制命令、配置来源、可解析路径，以及有界 `--version` 输出或探测错误，
+因此启动日志能直接说明本次使用了哪个 `dcc-mcp-server`。
+子进程运行 `dcc-mcp-server sidecar`，在共享 `FileRegistry` 写入
+`per-dcc-sidecar` 行，除非传入 `no_ensure_gateway=True`，否则会确保
+机器级 gateway daemon 已启动；当绑定的 `watch_pid` 对应的 DCC 进程退出时，
+sidecar 也会退出。若适配器希望把 argv 交给工作室自己的进程 supervisor，
+使用 `build_sidecar_command()`。两个 helper 都会返回 `readiness_selector`、
 `readiness_argv` 和 `readiness_command`，安装器无需重新推导 registry
 路径或 host RPC 筛选条件，就能运行对应的轻量 readiness 检查。
 `readiness_command` 会优先使用 `DCC_MCP_PYTHON_EXECUTABLE`；如果当前
@@ -103,7 +115,6 @@ from dcc_mcp_core.install_lifecycle import build_sidecar_command
 contract = build_sidecar_command(
     dcc_type="houdini",
     host_rpc="qtserver://127.0.0.1:7001",
-    watch_pid=current_dcc_pid,
     registry_dir=r"C:\dcc-mcp\registry",
     require_dispatch_capable=True,
 )
@@ -118,16 +129,26 @@ env_updates = contract["environment"]["set"]
 result = launch_sidecar(
     dcc_type="maya",
     host_rpc="commandport://127.0.0.1:6000",
-    watch_pid=current_dcc_pid,
+    liveness_check_secs=1.0,
     wait_ready_timeout_secs=5,
     probe_tool="maya_diagnostics__ping",
 )
 ready = result.get("readiness", {})
 ```
 
-不传 `wait_ready_timeout_secs` 时仍保持非阻塞启动语义。只有在 helper
-尚未建模某个 sidecar flag 时才使用 `extra_args=[...]`；CLI 中如果
-raw 参数本身以 `--` 开头，请写成 `--extra-sidecar-arg=--flag-name`。
+不传 `wait_ready_timeout_secs` 时仍保持非阻塞启动语义。
+不运行在 DCC 进程内部的外部 supervisor 必须显式传
+`watch_pid=current_dcc_pid`；DCC 插件内的启动钩子应保留默认值。
+Python API 为 DCC UI 启动钩子保留 `liveness_check_secs=0.0` 默认值；但
+module CLI 的 `launch-sidecar` 默认做 1 秒进程早退检查，因为它通常由
+installer 或 supervisor 调用。只有当其他 supervisor 已经负责该检查时，
+才传 `--liveness-check-secs 0` 关闭。若 sidecar 在这个窗口内退出，helper
+会返回 `success=false`、`status="exited"`、
+`reason="sidecar_exited_during_startup"`、退出码以及 stdio 日志路径。
+这样 “gateway health OK，但 sidecar 随后立刻退出” 会被提升为明确启动失败。
+只有在 helper 尚未建模某个 sidecar flag 时才使用
+`extra_args=[...]`；CLI 中如果 raw 参数本身以 `--` 开头，请写成
+`--extra-sidecar-arg=--flag-name`。
 
 ## 导入轻量级预检
 

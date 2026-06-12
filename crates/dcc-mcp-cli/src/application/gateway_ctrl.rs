@@ -7,8 +7,10 @@ use std::time::Duration;
 
 use anyhow::Context;
 use serde::Serialize;
+use serde_json::Value;
 
 use crate::application::gateway_ensure;
+use crate::domain::rest::Endpoint;
 
 /// Parameters shared across `start`, `stop`, and `status`.
 #[derive(Debug, Clone)]
@@ -35,10 +37,53 @@ pub struct GatewayStartOpts {
 pub struct GatewayStatus {
     pub host: String,
     pub port: u16,
+    pub health_url: String,
     pub healthy: bool,
     pub pid: Option<u32>,
     pub alive: bool,
     pub running: bool,
+    pub registry_dir: PathBuf,
+    pub pidfile: PathBuf,
+    pub cli_version: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct GatewayDaemonStartRequest {
+    pub host: String,
+    pub port: u16,
+    pub name: Option<String>,
+    pub registry_dir: Option<PathBuf>,
+    pub remote_host: String,
+    pub remote_port: u16,
+    pub gateway_idle_timeout_secs: u64,
+    pub gateway_bin: Option<PathBuf>,
+    pub wait_timeout_secs: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct GatewayDaemonStopRequest {
+    pub host: String,
+    pub port: u16,
+    pub registry_dir: Option<PathBuf>,
+    pub wait_timeout_secs: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct GatewayDaemonStatusRequest {
+    pub host: String,
+    pub port: u16,
+    pub registry_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+pub enum GatewayDaemonRequest {
+    Start(GatewayDaemonStartRequest),
+    Restart {
+        start: GatewayDaemonStartRequest,
+        stop_timeout_secs: u64,
+    },
+    Stop(GatewayDaemonStopRequest),
+    Status(GatewayDaemonStatusRequest),
 }
 
 /// Start the gateway (ensure it's running; alias for `ensure`).
@@ -105,14 +150,172 @@ pub async fn gateway_status(args: &GatewayCtrlArgs) -> GatewayStatus {
     GatewayStatus {
         host: args.host.clone(),
         port: args.port,
+        health_url: format!("http://{}:{}/health", args.host, args.port),
         healthy,
         pid,
         alive,
         running: healthy,
+        registry_dir: args.registry_dir.clone(),
+        pidfile: args.pidfile.clone(),
+        cli_version: env!("CARGO_PKG_VERSION").to_string(),
     }
+}
+
+pub async fn run_gateway_daemon(request: GatewayDaemonRequest) -> anyhow::Result<Value> {
+    match request {
+        GatewayDaemonRequest::Start(start) => {
+            let args = start.into_ctrl_args();
+            Ok(serde_json::to_value(gateway_start(&args).await?)?)
+        }
+        GatewayDaemonRequest::Restart {
+            start,
+            stop_timeout_secs,
+        } => {
+            let args = start.into_ctrl_args();
+            let stopped = gateway_stop(&args, stop_timeout_secs).await?;
+            let started = gateway_start(&args).await?;
+            Ok(serde_json::json!({
+                "restarted": true,
+                "stopped": stopped,
+                "started": started,
+            }))
+        }
+        GatewayDaemonRequest::Stop(stop) => {
+            let args = gateway_ctrl_args(stop.host, stop.port, stop.registry_dir, None);
+            Ok(serde_json::to_value(
+                gateway_stop(&args, stop.wait_timeout_secs).await?,
+            )?)
+        }
+        GatewayDaemonRequest::Status(status) => {
+            let args = gateway_ctrl_args(status.host, status.port, status.registry_dir, None);
+            Ok(serde_json::to_value(gateway_status(&args).await)?)
+        }
+    }
+}
+
+pub async fn ensure_local_gateway_for_endpoint(
+    endpoint: &Endpoint,
+    gateway_bin: Option<PathBuf>,
+    wait_timeout_secs: u64,
+) -> anyhow::Result<Option<gateway_ensure::EnsureResult>> {
+    let Some((host, port)) = local_auto_gateway_target(endpoint) else {
+        return Ok(None);
+    };
+
+    let registry_dir = gateway_ensure::default_registry_dir();
+    let pidfile = default_pidfile(&registry_dir);
+    let args = gateway_ensure::EnsureGatewayArgs {
+        host,
+        port,
+        name: env_string("DCC_MCP_GATEWAY_NAME")
+            .or_else(|| Some("dcc-mcp-cli-gateway".to_string())),
+        registry_dir,
+        remote_host: env_string("DCC_MCP_GATEWAY_REMOTE_HOST")
+            .unwrap_or_else(|| "0.0.0.0".to_string()),
+        remote_port: env_u16("DCC_MCP_GATEWAY_REMOTE_PORT").unwrap_or(59765),
+        gateway_idle_timeout_secs: env_u64("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS").unwrap_or(30),
+        gateway_bin,
+        wait_timeout_secs,
+        pidfile: Some(pidfile),
+    };
+
+    Ok(Some(gateway_ensure::ensure_gateway_running(&args).await?))
+}
+
+pub fn local_auto_gateway_target(endpoint: &Endpoint) -> Option<(String, u16)> {
+    let parsed = reqwest::Url::parse(&endpoint.base_url).ok()?;
+    if parsed.scheme() != "http" {
+        return None;
+    }
+    let host = parsed.host_str()?;
+    let host = if host.eq_ignore_ascii_case("localhost") {
+        "127.0.0.1"
+    } else {
+        host
+    };
+    if !matches!(host, "127.0.0.1" | "0.0.0.0") {
+        return None;
+    }
+    let port = parsed.port_or_known_default()?;
+    Some((host.to_string(), port))
 }
 
 /// Build the default PID file path under the registry directory.
 pub fn default_pidfile(registry_dir: &std::path::Path) -> PathBuf {
     registry_dir.join("gateway.pid")
+}
+
+pub fn gateway_ctrl_args(
+    host: String,
+    port: u16,
+    registry_dir: Option<PathBuf>,
+    start_opts: Option<GatewayStartOpts>,
+) -> GatewayCtrlArgs {
+    let registry_dir = registry_dir.unwrap_or_else(gateway_ensure::default_registry_dir);
+    let pidfile = default_pidfile(&registry_dir);
+    GatewayCtrlArgs {
+        host,
+        port,
+        registry_dir,
+        pidfile,
+        start_opts,
+    }
+}
+
+impl GatewayDaemonStartRequest {
+    fn into_ctrl_args(self) -> GatewayCtrlArgs {
+        let start_opts = GatewayStartOpts {
+            name: self.name,
+            remote_host: self.remote_host,
+            remote_port: self.remote_port,
+            gateway_idle_timeout_secs: self.gateway_idle_timeout_secs,
+            gateway_bin: self.gateway_bin,
+            wait_timeout_secs: self.wait_timeout_secs,
+        };
+        gateway_ctrl_args(self.host, self.port, self.registry_dir, Some(start_opts))
+    }
+}
+
+fn env_string(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn env_u16(name: &str) -> Option<u16> {
+    env_string(name).and_then(|value| value.parse::<u16>().ok())
+}
+
+fn env_u64(name: &str) -> Option<u64> {
+    env_string(name).and_then(|value| value.parse::<u64>().ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_auto_gateway_target_accepts_loopback_http() {
+        assert_eq!(
+            local_auto_gateway_target(&Endpoint::new("http://localhost:9765")),
+            Some(("127.0.0.1".to_string(), 9765))
+        );
+        assert_eq!(
+            local_auto_gateway_target(&Endpoint::new("http://127.0.0.1:19001/")),
+            Some(("127.0.0.1".to_string(), 19001))
+        );
+    }
+
+    #[test]
+    fn local_auto_gateway_target_rejects_remote_or_non_http_targets() {
+        assert_eq!(
+            local_auto_gateway_target(&Endpoint::new("https://127.0.0.1:9765")),
+            None
+        );
+        assert_eq!(
+            local_auto_gateway_target(&Endpoint::new("http://192.0.2.10:9765")),
+            None
+        );
+    }
 }

@@ -85,19 +85,35 @@ from dcc_mcp_core.install_lifecycle import launch_sidecar
 result = launch_sidecar(
     dcc_type="maya",
     host_rpc="commandport://127.0.0.1:6000",
-    watch_pid=current_dcc_pid,
     display_name="Maya-Anim",
     adapter_version="1.2.3",
 )
 ```
 
-`launch_sidecar()` uses `subprocess.Popen` with stdin/stdout/stderr detached by
-default. The child runs `dcc-mcp-server sidecar`, registers a
+For in-process DCC plugins, omit `watch_pid`; the helper binds the sidecar to
+the current process id. Pass `watch_pid` only when an external supervisor is
+launching the sidecar on behalf of the DCC host. The module CLI commands
+`sidecar-command` and `launch-sidecar` still require explicit `--watch-pid`
+because their own process id is not the DCC host.
+
+`launch_sidecar()` uses `subprocess.Popen` with stdin detached and captures
+stdout/stderr into log files under `<registry_dir>/logs` by default. The
+returned `stdio` object includes `stdout_path` and `stderr_path`; pass
+`stdio_log_dir=...` to choose a supervisor-owned directory, or
+`capture_stdio=False` / CLI `--no-stdio-log` only when another process manager
+already owns those streams. Adapter supervisors that must terminate the child
+later may pass `return_process=True` to include the `subprocess.Popen` handle in
+the returned dict; CLI/JSON callers must keep the default because that handle is
+not serializable. The returned `server_binary` object records the sidecar binary
+command, configuration source, resolved path when available, and bounded
+`--version` output or probe error so startup logs can show which
+`dcc-mcp-server` was used.
+The child runs `dcc-mcp-server sidecar`, registers a
 `per-dcc-sidecar` row in the shared `FileRegistry`, ensures the machine-wide
 gateway daemon and keeps a lightweight guardian unless `no_ensure_gateway=True`
-or `legacy_gateway_election=True`, and exits when `watch_pid` dies. Use
-`build_sidecar_command()` instead when the adapter wants to hand the argv list
-to a studio process supervisor. Both helpers include `readiness_selector`,
+or `legacy_gateway_election=True`, and exits when the bound `watch_pid` dies.
+Use `build_sidecar_command()` instead when the adapter wants to hand the argv
+list to a studio process supervisor. Both helpers include `readiness_selector`,
 `readiness_argv`, and `readiness_command` so installers can run the matching
 import-light readiness check without re-deriving registry paths or host RPC
 filters. `readiness_command` uses `DCC_MCP_PYTHON_EXECUTABLE` when it is set;
@@ -152,7 +168,6 @@ from dcc_mcp_core.install_lifecycle import wait_for_sidecar_ready
 contract = build_sidecar_command(
     dcc_type="houdini",
     host_rpc="qtserver://127.0.0.1:7001",
-    watch_pid=current_dcc_pid,
     instance_id=current_instance_id,
     registry_dir=r"C:\dcc-mcp\registry",
     require_dispatch_capable=True,
@@ -178,7 +193,7 @@ one call:
 result = launch_sidecar(
     dcc_type="maya",
     host_rpc="commandport://127.0.0.1:6000",
-    watch_pid=current_dcc_pid,
+    liveness_check_secs=1.0,
     wait_ready_timeout_secs=5,
     probe_tool="maya_diagnostics__ping",
 )
@@ -186,9 +201,19 @@ ready = result.get("readiness", {})
 ```
 
 Leaving `wait_ready_timeout_secs` unset preserves the non-blocking startup
-contract. Pass `extra_args=[...]` only for deliberate sidecar flags not yet
-modeled by the helper; for CLI values that start with `--`, use
-`--extra-sidecar-arg=--flag-name`.
+contract. External supervisors that are not running inside the DCC process must
+pass `watch_pid=current_dcc_pid`; in-process hooks should keep the default.
+The Python API keeps `liveness_check_secs=0.0` by default for DCC UI startup
+hooks, but the module CLI defaults `launch-sidecar` to a 1-second process check
+because it is normally used from installers and supervisors.
+Pass `--liveness-check-secs 0` only when another supervisor already performs
+that check. If the sidecar exits during the liveness window, the helper returns
+`success=false`, `status="exited"`, `reason="sidecar_exited_during_startup"`,
+the exit code, and the stdio log paths.
+This turns "gateway health was OK, but the sidecar died immediately after"
+into a first-class startup failure. Pass `extra_args=[...]` only for deliberate
+sidecar flags not yet modeled by the helper; for CLI values that start with
+`--`, use `--extra-sidecar-arg=--flag-name`.
 
 Use `sidecar_readiness_status()` for a one-shot verdict (`ready`, `missing`,
 `booting`, `unavailable`, `ambiguous`, or `dead`) and

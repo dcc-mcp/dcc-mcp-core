@@ -77,7 +77,12 @@ Marketplace **源**是指向目录文件的命名引用。源持久化存储在 
 
 ## 安装类型
 
-支持三种安装类型，由目录条目的 `install.type` 字段控制：
+支持三种安装类型，由目录条目的 `install.type` 字段控制。Adapter 条目还可以设置
+`install.instructions_url` 指向 adapter 仓库维护的 raw `install.md`；`install`
+命令会把它作为 `read-install-instructions` next step 输出，让 agent 跟随最新的
+host-specific setup runbook，而不是依赖 core 里硬编码的 DCC 安装说明。只有在
+catalog 明确需要固定宿主 Python 解释器时才使用 `install.python_path`；旧的
+`mayapy_path` 拼写仍作为兼容输入保留，但新条目不应再使用。
 
 ### Git（`install.type: git`）
 
@@ -232,8 +237,11 @@ Marketplace 面板反映与 CLI 相同的来源配置。来源管理功能通过
 | 列出已安装 | `marketplace list-installed --dcc <dcc>` | 已安装标签页 |
 | 添加来源 | `marketplace add <source>` | 面板中的来源管理界面 |
 | 更新 | `marketplace update [name] --all` | Admin API (`POST /admin/api/marketplace/update`) |
+| 刷新运行中的 adapter | 安装/更新/卸载后运行 `reload-skills --dcc-type <dcc>` | 后端报告 `reload_required` 时自动刷新 |
 
-两种界面共享同一套后端——在一侧执行的操作会立即在另一侧反映。
+两种界面共享同一套已安装包状态，但运行中的 adapter 只有在启动时，或显式运行
+`dcc-mcp-cli reload-skills --dcc-type <dcc>` 后，才会看到 CLI 新安装的包。
+Admin UI 在后端报告 `reload_required` 时会自动触发该刷新。
 
 ## 参见
 
