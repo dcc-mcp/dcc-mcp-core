@@ -17,6 +17,7 @@ publish = false
 [dependencies]
 aho-corasick = { version = "1.1.4" }
 axum = { version = "0.8.9", features = ["ws"] }
+axum-core = { version = "0.5.6", default-features = false, features = ["tracing"] }
 bit-set = { version = "0.8.0" }
 bit-vec = { version = "0.8.0" }
 chrono = { version = "0.4.45", features = ["serde"] }
@@ -41,7 +42,7 @@ half = { version = "2.7.1" }
 hashbrown = { version = "0.16.1", features = ["serde"] }
 httparse = { version = "1.10.1" }
 hyper = { version = "1.10.1", features = ["client", "http1", "http2", "server"] }
-hyper-util = { version = "0.1.20", features = ["client-legacy", "http1", "server", "service"] }
+hyper-util = { version = "0.1.20", features = ["client-legacy", "server-auto", "service"] }
 idna = { version = "1.1.0" }
 image = { version = "0.25.10" }
 indexmap = { version = "2.14.0", features = ["serde"] }
@@ -81,7 +82,7 @@ subtle = { version = "2.6.1" }
 sync_wrapper = { version = "1.0.2", default-features = false, features = ["futures"] }
 time = { version = "0.3.47", features = ["formatting", "local-offset", "macros", "parsing"] }
 tokio = { version = "1.52.3", features = ["full", "test-util"] }
-tokio-stream = { version = "0.1.18", features = ["sync"] }
+tokio-stream = { version = "0.1.18", features = ["net", "sync"] }
 tokio-util = { version = "0.7.18", features = ["codec", "io", "rt"] }
 toml_datetime = { version = "1.1.1", features = ["serde"] }
 toml_parser = { version = "1.1.2" }
@@ -99,6 +100,7 @@ zeroize = { version = "1.8.2", features = ["derive"] }
 [build-dependencies]
 aho-corasick = { version = "1.1.4" }
 axum = { version = "0.8.9", features = ["ws"] }
+axum-core = { version = "0.5.6", default-features = false, features = ["tracing"] }
 bit-set = { version = "0.8.0" }
 bit-vec = { version = "0.8.0" }
 chrono = { version = "0.4.45", features = ["serde"] }
@@ -123,7 +125,7 @@ half = { version = "2.7.1" }
 hashbrown = { version = "0.16.1", features = ["serde"] }
 httparse = { version = "1.10.1" }
 hyper = { version = "1.10.1", features = ["client", "http1", "http2", "server"] }
-hyper-util = { version = "0.1.20", features = ["client-legacy", "http1", "server", "service"] }
+hyper-util = { version = "0.1.20", features = ["client-legacy", "server-auto", "service"] }
 idna = { version = "1.1.0" }
 image = { version = "0.25.10" }
 indexmap = { version = "2.14.0", features = ["serde"] }
@@ -166,7 +168,7 @@ syn = { version = "2.0.117", features = ["extra-traits", "fold", "full", "visit"
 sync_wrapper = { version = "1.0.2", default-features = false, features = ["futures"] }
 time = { version = "0.3.47", features = ["formatting", "local-offset", "macros", "parsing"] }
 tokio = { version = "1.52.3", features = ["full", "test-util"] }
-tokio-stream = { version = "0.1.18", features = ["sync"] }
+tokio-stream = { version = "0.1.18", features = ["net", "sync"] }
 tokio-util = { version = "0.7.18", features = ["codec", "io", "rt"] }
 toml_datetime = { version = "1.1.1", features = ["serde"] }
 toml_parser = { version = "1.1.2" }

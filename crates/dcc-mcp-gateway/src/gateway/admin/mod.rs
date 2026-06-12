@@ -49,13 +49,18 @@ mod agent_trace;
 pub mod analytics;
 mod compact;
 mod debug_response;
+mod events;
+mod general;
 pub mod governance;
 mod html;
+#[cfg(feature = "admin")]
+pub(crate) mod integrations;
 #[cfg(feature = "admin")]
 mod issue_report;
 mod links;
 pub mod marketplace;
 mod skill_health;
+mod skill_paths;
 mod skill_reload;
 pub mod sqlite_lane;
 pub mod state;

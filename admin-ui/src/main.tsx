@@ -10,6 +10,7 @@ import { applyTheme, readThemeMode, resolveTheme } from './theme';
 // they win over every base feature stylesheet). styles.css was split into
 // these feature files to stay under the admin-ui 3000-line CI cap.
 import './styles.css';
+import './styles/stats.css';
 import './styles/skill-detail.css';
 import './setup.css';
 import './styles/skills.css';
