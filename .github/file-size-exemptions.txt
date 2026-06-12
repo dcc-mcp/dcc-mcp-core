@@ -21,3 +21,5 @@ crates/dcc-mcp-skill-rest/src/service.rs
 crates/dcc-mcp-cli/tests/cli_e2e.rs
 # PIP-689 — admin/tests.rs 4564L, split admin API fixtures and panel-specific suites
 crates/dcc-mcp-gateway/src/gateway/admin/tests.rs
+# PIP-690 — rest_impl_tests.rs 2141L, split REST fixture helpers and handler suites
+crates/dcc-mcp-gateway/src/gateway/handlers/rest_impl_tests.rs
