@@ -72,12 +72,12 @@ agents without maintaining per-host MCP server lists.
 
 ## Gateway Profiles And Local-First Inventory
 
-`dcc-mcp-cli` has a built-in `local` profile. In local mode, `list` reads the
-core default FileRegistry directly, and `search`, `describe`, `load-skill`,
-`call`, `wait-ready`, and guarded `stop-instance` talk to the selected local
-DCC instance's advertised MCP/readyz/safe-stop endpoints. Local control does
-not require or auto-start a gateway. Remote machines are selected through named
-gateway profiles:
+`dcc-mcp-cli` has a built-in `local` profile. In local mode, agent-control
+commands first ensure the machine-wide loopback gateway is healthy, then
+`list` reads the core default FileRegistry directly, and `search`, `describe`,
+`load-skill`, `call`, `wait-ready`, and guarded `stop-instance` talk to the
+selected local DCC instance's advertised MCP/readyz/safe-stop endpoints. Remote
+machines are selected through named gateway profiles:
 
 Treat `list` as inventory plus diagnostics, not proof that a row is callable.
 It intentionally keeps live `booting` / `dispatch_status=unavailable` sidecar
@@ -99,10 +99,11 @@ Use `--gateway <name>` to override the current profile for one command.
 `--base-url` / `DCC_MCP_BASE_URL` remain direct endpoint overrides for legacy
 scripts and smoke checks.
 
-Endpoint-level commands such as `health`, `update`, and `smoke` without an
-explicit `--url` still auto-ensure loopback HTTP gateway targets. Local
-instance control commands, file-only commands, and explicit lifecycle commands
-do not auto-start the gateway.
+Agent-control commands (`list`, `search`, `describe`, `load-skill`, `call`,
+`wait-ready`, `reload-skills`, and `stop-instance`) and endpoint-level commands
+such as `health`, `update`, and `smoke` without an explicit `--url` auto-ensure
+loopback HTTP gateway targets. File-only commands and explicit lifecycle
+commands do not auto-start the gateway.
 When startup state is unclear, run `dcc-mcp-cli doctor` before troubleshooting
 adapters. It reports profile config/current selection, the registry directory
 and local inventory, direct-control readiness counts, gateway daemon status, and
@@ -120,12 +121,13 @@ not-ready rows under `local.inventory.direct_control.not_ready_instances`.
 2. If healthy -> continue.
 3. If unreachable -> acquire a launch lock, spawn the gateway daemon in the
    background, poll until healthy, then release the lock.
-4. Run the original endpoint-level command.
+4. Run the original command; local control commands still use FileRegistry and
+   direct per-DCC MCP after the gateway lifecycle check succeeds.
 
 ### CLI usage
 
 ```bash
-# Local inventory - no gateway required
+# Local inventory - auto-ensures the loopback gateway first
 dcc-mcp-cli list
 
 # Startup diagnostics - no service launch or download
@@ -135,7 +137,7 @@ dcc-mcp-cli doctor
 dcc-mcp-cli health
 
 # Disable auto-start for one command
-dcc-mcp-cli --no-auto-gateway health
+dcc-mcp-cli --no-auto-gateway list
 
 # Explicit daemon lifecycle
 dcc-mcp-cli gateway daemon start
@@ -200,11 +202,11 @@ Install via OpenClaw/ClawHub, or point your agent at this `SKILL.md` after cloni
 
 | Situation | You MUST |
 |-----------|----------|
-| **Starting any local DCC task** | Run `dcc-mcp-cli list`; it reads the local FileRegistry without requiring a gateway |
+| **Starting any local DCC task** | Run `dcc-mcp-cli list`; it ensures the local gateway, then reads the local FileRegistry |
 | **Startup state is ambiguous** | Run `dcc-mcp-cli doctor`; inspect selected profile, registry dir, local inventory, direct-control readiness counts, daemon status, and server binary diagnostics |
 | **Starting any remote DCC task** | Select or override a profile with `dcc-mcp-cli gateway set <name>` or `dcc-mcp-cli list --gateway <name>` |
 | `dcc-mcp-cli` missing | Ask permission before `--ensure-cli`; fallback Python REST is allowed if download fails |
-| CLI auto-ensure fails | Stop; explain the result; do not run gateway endpoint commands such as `health`, `update`, or `smoke` |
+| CLI auto-ensure fails | Stop; explain the result; do not run agent-control or gateway endpoint commands until the gateway is reachable |
 | Inventory returns `total == 0` | Stop; do not run `search`, `describe`, or `call` |
 | Remote gateway unreachable | Stop; explain; ask user permission before troubleshooting |
 | User has not agreed to setup | Do not install packages, edit env files, launch GUI apps, or write configs |

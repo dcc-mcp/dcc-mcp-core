@@ -53,11 +53,13 @@ dcc-mcp-cli gateway set local
 `--gateway <name>` 可为单次命令覆盖当前 profile。`--base-url` 与
 `DCC_MCP_BASE_URL` 继续作为旧脚本和 smoke check 的直接 endpoint override。
 
-默认 `local` profile 下，`dcc-mcp-cli list` 读取 FileRegistry，不要求也不会
-自动启动 gateway。本地 `search`、`describe`、`load-skill`、`call`、
-`wait-ready` 和 `stop-instance` 会从 registry 解析目标实例，并直连该实例
-声明的 `mcp_url` / `readyz` / `safe_stop_url`。当前 profile 是远程，或传了
-`--gateway pcA` / `--base-url ...` 时，同一组命令才走 gateway `/v1/*`。
+默认 `local` profile 下，agent-control 命令会先确保 machine-wide loopback
+gateway 健康，然后本地 `list` 读取 FileRegistry；本地 `search`、
+`describe`、`load-skill`、`call`、`wait-ready` 和 `stop-instance` 会从
+registry 解析目标实例，并直连该实例声明的 `mcp_url` / `readyz` /
+`safe_stop_url`。gateway daemon 仍会保持可用，用于 Admin、health、update
+和跨实例控制面路由。当前 profile 是远程，或传了 `--gateway pcA` /
+`--base-url ...` 时，同一组命令走 gateway `/v1/*`。
 
 `list` 是 inventory 和诊断命令：它会保留仍然 live 的 `booting` 行，以及
 `dispatch_status=unavailable` 的 sidecar 行，方便看到启动失败原因。本地
@@ -74,12 +76,14 @@ dcc-mcp-cli gateway set local
 supervisor 写入 registry 的 stdout/stderr 日志路径。`doctor` 会把不可直控的本地行
 汇总到 `local.inventory.direct_control.not_ready_instances`。
 
-仍需要本机 gateway 的 endpoint 级命令（`health`、`update`，以及未显式
-传 `--url` 的 `smoke`）只会对 loopback HTTP 目标
-（`http://127.0.0.1:<port>` 或 `http://localhost:<port>`）执行 auto-ensure。
-单次禁用可传 `--no-auto-gateway`。只操作本地文件的命令（`install`、
-`marketplace`、`lint`）、本地实例控制命令、以及显式生命周期命令
-（`gateway ...`）不会自动启动 gateway。
+Agent 控制命令（`list`、`search`、`describe`、`load-skill`、`call`、
+`wait-ready`、`reload-skills`、`stop-instance`）以及仍需要本机 gateway 的
+endpoint 级命令（`health`、`update`，以及未显式传 `--url` 的 `smoke`）只会
+对 loopback HTTP 目标（`http://127.0.0.1:<port>` 或
+`http://localhost:<port>`）执行 auto-ensure。单次禁用可传
+`--no-auto-gateway`。只操作本地文件的命令（`install`、`marketplace`、
+`lint`）、显式生命周期命令（`gateway ...`），以及带显式 `--url` 的 smoke
+check 不会自动启动 gateway。
 启动状态不清楚时，先运行 `dcc-mcp-cli doctor`。它会输出当前 profile
 配置、选中的模式、registry 目录和 inventory、direct-control readiness 汇总、
 本机 gateway daemon 状态、以及 server binary 的路径/来源/版本，而且不会启动
@@ -131,7 +135,7 @@ dcc-mcp-cli lint path/to/skills
 |---|---|---|
 | `health` | `GET /v1/healthz` | 检查配置的端点。 |
 | `doctor [--registry-dir <path>] [--gateway-port <port>]` | local filesystem + gateway probe | 不启动或下载服务，输出 profile 配置/当前选择、本地 registry path/inventory、direct-control readiness 汇总和 not-ready 诊断、gateway daemon 状态和 server binary 诊断。 |
-| `list [--gateway <profile>]` | local FileRegistry 或 `GET /v1/instances` | 列出在线 DCC 实例。默认读取本机 FileRegistry；远程 profile 走 gateway。 |
+| `list [--gateway <profile>]` | local FileRegistry 或 `GET /v1/instances` | 列出在线 DCC 实例。默认先确保 loopback gateway，再读取本机 FileRegistry；远程 profile 走选中的 gateway。 |
 | `search [--instance-id <id>]` | 本地 MCP `search_tools` 或远程 `POST /v1/search` | 搜索可调用能力，可限定完整 UUID 或唯一前缀。 |
 | `describe <tool-slug>` | 本地 MCP `tools/list` 或远程 `POST /v1/describe` | 调用前检查能力 schema。 |
 | `load-skill <skill-name> [--dcc-type <dcc>] [--instance-id <id>]` | 本地 MCP `tools/call load_skill` 或远程 `POST /v1/load_skill` | 激活 progressive skill 并输出已注册工具。 |
@@ -153,9 +157,8 @@ dcc-mcp-cli lint path/to/skills
 
 `gateway daemon start` 和 `gateway daemon restart` 是持久 operator 路径。默认
 `--gateway-idle-timeout-secs 0` 会关闭 idle shutdown；只有脚本明确想要短生命周期
-daemon 时才传非零 timeout。`health` / `smoke` 这类 endpoint 命令的本机 loopback
-auto-ensure 仍然只服务于该次 endpoint 请求，不会影响本地 `list` / `search` /
-`call`。
+daemon 时才传非零 timeout。本机 loopback auto-ensure 覆盖 agent-control path
+和 endpoint 命令；单次不想启动可传 `--no-auto-gateway`。
 
 `install` 默认仍是规划契约：它解析 catalog entry，并列出 adapter package、
 host plugin 和验证步骤，不会静默修改 DCC 插件目录。JSON plan 还会包含
