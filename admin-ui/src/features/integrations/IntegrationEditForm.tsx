@@ -1,18 +1,31 @@
 import {
   RiCloseLine,
   RiSaveLine,
+  RiSendPlaneLine,
 } from '@remixicon/react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { InterpolationValues, MessageKey } from '../../i18n';
 import type { IntegrationEntry, IntegrationKind, EnvLockedField } from '../../admin-types';
+import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from '../../components/ui/field';
+import { Input } from '../../components/ui/input';
+import { Textarea } from '../../components/ui/textarea';
 
 type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 
 export type IntegrationEditFormProps = {
   entry: IntegrationEntry;
   saving: boolean;
+  testing?: boolean;
   onSave: (kind: IntegrationKind, config: Record<string, unknown>) => Promise<void>;
+  onTest?: (kind: IntegrationKind, config: Record<string, unknown>) => Promise<void>;
   onCancel: () => void;
   t: Translator;
 };
@@ -86,7 +99,7 @@ const WECOM_FIELDS: FieldDef[] = [
     secret: true,
     validate: (value) => {
       if (!value) return null;
-      if (!value.startsWith('http')) {
+      if (!isWeComWebhookUrl(value)) {
         return 'integrations.error.invalidWebhookUrl';
       }
       return null;
@@ -149,6 +162,9 @@ const OTLP_FIELDS: FieldDef[] = [
   },
 ];
 
+const WECOM_WEBHOOK_HOST = 'qyapi.weixin.qq.com';
+const WECOM_WEBHOOK_PATH = '/cgi-bin/webhook/send';
+
 const KIND_FIELDS: Record<IntegrationKind, FieldDef[]> = {
   sentry: SENTRY_FIELDS,
   webhooks: WEBHOOKS_FIELDS,
@@ -163,7 +179,9 @@ const KIND_FIELDS: Record<IntegrationKind, FieldDef[]> = {
 export function IntegrationEditForm({
   entry,
   saving,
+  testing = false,
   onSave,
+  onTest,
   onCancel,
   t,
 }: IntegrationEditFormProps) {
@@ -234,32 +252,43 @@ export function IntegrationEditForm({
     });
   }, []);
 
+  const buildConfig = useCallback((): Record<string, unknown> => {
+    const config: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(formValues)) {
+      const field = fields.find((f) => f.key === key);
+      const envLock = envLockedByKey.get(key);
+      const hasMaskedCurrent = field?.secret && String(entry.config[key] ?? '').includes('********');
+      if (field?.secret && (envLock?.locked || hasMaskedCurrent) && !value.trim()) {
+        continue;
+      }
+      if (field?.type === 'number') {
+        const num = parseFloat(value);
+        config[key] = Number.isFinite(num) ? num : null;
+      } else if (field?.type === 'list') {
+        const values = splitListValue(value);
+        config[key] = values.length > 0 ? values : null;
+      } else {
+        config[key] = value || null;
+      }
+    }
+    return config;
+  }, [entry.config, envLockedByKey, fields, formValues]);
+
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
       if (!validate()) return;
-
-      const config: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(formValues)) {
-        const field = fields.find((f) => f.key === key);
-        const envLock = envLockedByKey.get(key);
-        const hasMaskedCurrent = field?.secret && String(entry.config[key] ?? '').includes('********');
-        if (field?.secret && (envLock?.locked || hasMaskedCurrent) && !value.trim()) {
-          continue;
-        }
-        if (field?.type === 'number') {
-          const num = parseFloat(value);
-          config[key] = Number.isFinite(num) ? num : null;
-        } else if (field?.type === 'list') {
-          const values = splitListValue(value);
-          config[key] = values.length > 0 ? values : null;
-        } else {
-          config[key] = value || null;
-        }
-      }
-      await onSave(entry.kind, config);
+      await onSave(entry.kind, buildConfig());
     },
-    [formValues, fields, envLockedByKey, entry.kind, validate, onSave],
+    [buildConfig, entry.kind, validate, onSave],
+  );
+
+  const handleTest = useCallback(
+    async () => {
+      if (!onTest || !validate()) return;
+      await onTest(entry.kind, buildConfig());
+    },
+    [buildConfig, entry.kind, onTest, validate],
   );
 
   const nameKey = `integrations.card.${entry.kind}Name` as MessageKey;
@@ -272,9 +301,12 @@ export function IntegrationEditForm({
       <form className="integration-edit-form" onSubmit={handleSubmit}>
         <div className="integration-edit-head">
           <h3>{t(nameKey)}</h3>
-          <span className={`badge ${entry.status === 'active' ? 'badge-ok' : entry.status === 'pending_restart' ? 'badge-warn' : 'badge-muted'}`}>
+          <Badge
+            variant={entry.status === 'active' ? 'default' : entry.status === 'pending_restart' ? 'secondary' : 'outline'}
+            className={`badge ${entry.status === 'active' ? 'badge-ok' : entry.status === 'pending_restart' ? 'badge-warn' : 'badge-muted'}`}
+          >
             {t(statusLocaleKey(entry.status))}
-          </span>
+          </Badge>
         </div>
 
         {configDestination ? (
@@ -284,7 +316,7 @@ export function IntegrationEditForm({
           </div>
         ) : null}
 
-        <div className="integration-edit-fields">
+        <FieldGroup className="integration-edit-fields">
           {fields.map((field) => {
             const envLock = envLockedByKey.get(field.key);
             const locked = envLock?.locked ?? false;
@@ -294,27 +326,31 @@ export function IntegrationEditForm({
             const secretOverride = field.secret && (locked || maskedSecret);
 
             return (
-              <div
+              <Field
                 key={field.key}
                 className={`integration-edit-field${field.type === 'textarea' ? ' is-textarea' : ''}${locked ? ' env-locked' : ''}${error ? ' has-error' : ''}${secretOverride ? ' secret-override' : ''}`}
-                data-disabled={saving ? true : undefined}
+                data-disabled={saving || testing ? true : undefined}
                 data-invalid={error ? true : undefined}
               >
-                <label htmlFor={`integration-${entry.kind}-${field.key}`}>
+                <FieldLabel htmlFor={`integration-${entry.kind}-${field.key}`}>
                   {t(field.labelKey)}
                   {locked && (
-                    <span className="integration-env-lock-tag" title={`${t('integrations.label.envVar')}: ${envLock!.env_var}`}>
+                    <Badge
+                      variant="outline"
+                      className="integration-env-lock-tag"
+                      title={`${t('integrations.label.envVar')}: ${envLock!.env_var}`}
+                    >
                       {t('integrations.label.envLocked')}
-                    </span>
+                    </Badge>
                   )}
-                </label>
+                </FieldLabel>
                 {field.type === 'textarea' ? (
                   <>
-                    <textarea
+                    <Textarea
                       id={`integration-${entry.kind}-${field.key}`}
                       value={value}
                       placeholder={t(field.placeholderKey)}
-                      disabled={saving}
+                      disabled={saving || testing}
                       aria-invalid={error ? true : undefined}
                       onChange={(e) => handleChange(field.key, e.target.value)}
                       rows={5}
@@ -334,7 +370,7 @@ export function IntegrationEditForm({
                               type="button"
                               variant="outline"
                               size="sm"
-                              disabled={saving}
+                              disabled={saving || testing}
                               onClick={() => insertTemplateVariable(token)}
                             >
                               {token}
@@ -345,48 +381,60 @@ export function IntegrationEditForm({
                     ) : null}
                   </>
                 ) : (
-                  <input
+                  <Input
                     id={`integration-${entry.kind}-${field.key}`}
                     type={field.type === 'password' ? 'password' : field.type === 'number' ? 'number' : 'text'}
                     value={value}
                     placeholder={secretOverride ? t('integrations.placeholder.secretOverride') : t(field.placeholderKey)}
-                    disabled={saving}
+                    disabled={saving || testing}
                     aria-invalid={error ? true : undefined}
                     onChange={(e) => handleChange(field.key, e.target.value)}
                     autoComplete="off"
                   />
                 )}
                 {locked && envLock && (
-                  <p className="integration-env-hint">
+                  <FieldDescription className="integration-env-hint">
                     {t('integrations.help.envOverride', { envVar: envLock.env_var })}
-                  </p>
+                  </FieldDescription>
                 )}
                 {field.helpKey && (
-                  <p className="integration-field-help">{t(field.helpKey)}</p>
+                  <FieldDescription className="integration-field-help">{t(field.helpKey)}</FieldDescription>
                 )}
                 {error && (
-                  <p className="integration-field-error">{t(error as MessageKey)}</p>
+                  <FieldError className="integration-field-error">{t(error as MessageKey)}</FieldError>
                 )}
-              </div>
+              </Field>
             );
           })}
-        </div>
+        </FieldGroup>
 
         <div className="integration-edit-actions">
           <Button
             type="submit"
             size="sm"
-            disabled={saving}
+            disabled={saving || testing}
           >
             <RiSaveLine data-icon="inline-start" aria-hidden="true" />
             {saving ? t('integrations.action.saving') : t('integrations.action.save')}
           </Button>
+          {onTest ? (
+            <Button
+              variant="outline"
+              size="sm"
+              type="button"
+              onClick={handleTest}
+              disabled={saving || testing}
+            >
+              <RiSendPlaneLine data-icon="inline-start" aria-hidden="true" />
+              {testing ? t('integrations.action.testing') : t('integrations.action.test')}
+            </Button>
+          ) : null}
           <Button
             variant="ghost"
             size="sm"
             type="button"
             onClick={onCancel}
-            disabled={saving}
+            disabled={saving || testing}
           >
             <RiCloseLine data-icon="inline-start" aria-hidden="true" />
             {t('integrations.action.cancel')}
@@ -423,4 +471,21 @@ function splitListValue(value: string): string[] {
     .split(/[,\n]/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function isWeComWebhookUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:'
+      && url.hostname.toLowerCase() === WECOM_WEBHOOK_HOST
+      && (url.port === '' || url.port === '443')
+      && url.pathname === WECOM_WEBHOOK_PATH
+      && !url.username
+      && !url.password
+      && !url.hash
+      && Boolean(url.searchParams.get('key')?.trim())
+      && url.searchParams.get('key') !== '********';
+  } catch {
+    return false;
+  }
 }
