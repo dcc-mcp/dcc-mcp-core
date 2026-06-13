@@ -1073,7 +1073,7 @@ Full guide: `docs/guide/remote-server.md`. Per-module API: `docs/api/{auth,batch
 | Search DCC-MCP adapter catalog | MCP `resources/read uri=gateway://catalog?query=...` (or `gateway://catalog/{name}` for a single entry); CLI: `dcc-mcp-server catalog search` |
 | Mount OpenAPI REST API as MCP tools | `GatewayBuilder::mount_openapi(OpenApiMount::from_url(...).auth(...))` |
 | Add audit/quota/redact to gateway calls | `GatewayConfig::middleware_chain` with built-in middleware |
-| Gateway admin dashboard | Default ON for the elected gateway: `GET /admin`; disable with `--no-admin`, `DCC_MCP_NO_ADMIN=true`, or `cfg.admin_enabled = False` |
+| Gateway admin dashboard | Default ON for the elected gateway: `GET /admin`; disable with `--no-admin`, `DCC_MCP_NO_ADMIN=true`, or `cfg.admin_enabled = False`; agent panel map: `docs/guide/admin-ui.md#agent-facing-panel-map` |
 | Enforce payload size + SSE chunking | `McpHttpConfig.queue.max_request_body_bytes` (default 4 MiB) |
 | Wire OTLP distributed tracing | Set `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317` at startup |
 | Watch gateway contention events | MCP resource `resources://gateway/events` (JSONL ring buffer) |

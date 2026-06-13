@@ -19,7 +19,9 @@ use super::handlers::{
     handle_admin_trace_detail, handle_admin_traces, handle_admin_workers, handle_admin_workflows,
     handle_v1_debug_trace_lookup,
 };
-use super::integrations::{handle_admin_integration_update, handle_admin_integrations};
+use super::integrations::{
+    handle_admin_integration_test, handle_admin_integration_update, handle_admin_integrations,
+};
 use super::marketplace::{
     handle_marketplace_add_source, handle_marketplace_catalog, handle_marketplace_install,
     handle_marketplace_installed, handle_marketplace_outdated, handle_marketplace_sources,
@@ -125,6 +127,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
         .route(
             "/api/integrations",
             routing::get(handle_admin_integrations).put(handle_admin_integration_update),
+        )
+        .route(
+            "/api/integrations/test",
+            routing::post(handle_admin_integration_test),
         )
         .route(
             "/api/marketplace/catalog",
