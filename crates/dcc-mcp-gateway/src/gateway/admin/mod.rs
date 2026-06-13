@@ -75,6 +75,8 @@ pub mod workflows;
 mod handlers;
 #[cfg(feature = "admin")]
 mod router;
+#[cfg(all(test, feature = "admin"))]
+mod stats_traces_tests;
 
 pub use activity::{ActivityCorrelation, ActivityEvent, TaskSnapshot};
 pub use dcc_mcp_db::{
