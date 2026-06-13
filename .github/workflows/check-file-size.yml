@@ -6,7 +6,8 @@ name: Check File Size
 # New files must stay within the limits.
 #
 # Limits (issue #842):
-#   - .rs files: 1500 lines (test files use a separate 2000-line gate)
+#   - .rs files: 1500 lines
+#   - Rust test files: 2000 lines
 #   - .py files: 1000 lines (test files excluded)
 #   - admin-ui source/test files: 3000 lines
 #
@@ -42,24 +43,27 @@ jobs:
         run: |
           set -euo pipefail
           MAX_RS=1500
+          MAX_RS_TEST=2000
           EXEMPTIONS=".github/file-size-exemptions.txt"
           FAIL=0
 
           while IFS= read -r -d '' file; do
             lines=$(wc -l < "$file")
-            # Skip pure test files
             base=$(basename "$file")
             dir=$(dirname "$file")
+            max="$MAX_RS"
+            label="Rust"
             if [[ "$dir" == */tests* ]] || [[ "$base" == *_tests.rs ]] || [[ "$base" == tests.rs ]]; then
-              continue
+              max="$MAX_RS_TEST"
+              label="Rust test"
             fi
 
-            if [ "$lines" -gt "$MAX_RS" ]; then
+            if [ "$lines" -gt "$max" ]; then
               # Check if this file is in the exemptions list
               if [ -f "$EXEMPTIONS" ] && grep -qF "$file" "$EXEMPTIONS"; then
-                echo "⚠️  EXEMPT  $file ($lines lines)"
+                echo "⚠️  EXEMPT  $file ($lines lines, max $max)"
               else
-                echo "❌ FAIL    $file ($lines lines, max $MAX_RS)"
+                echo "❌ FAIL    $file ($lines lines, max $max, $label)"
                 FAIL=1
               fi
             fi
@@ -67,12 +71,13 @@ jobs:
 
           if [ "$FAIL" -eq 1 ]; then
             echo ""
-            echo "One or more Rust files exceed ${MAX_RS} lines."
+            echo "One or more Rust files exceed their line limit."
+            echo "Limits: production Rust ${MAX_RS} lines; Rust test files ${MAX_RS_TEST} lines."
             echo "Split the file following Clean Architecture (see AGENTS.md § File Size Policy)"
             echo "or add it to .github/file-size-exemptions.txt with a tracking issue link."
             exit 1
           fi
-          echo "✅ All Rust files are within the ${MAX_RS}-line limit."
+          echo "✅ All Rust files are within their line limits."
 
       - name: Check Rust test file sizes
         run: python scripts/ci/check_rust_test_file_lines.py
