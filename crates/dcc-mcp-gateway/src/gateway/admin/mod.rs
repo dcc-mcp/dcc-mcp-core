@@ -73,6 +73,8 @@ mod traffic;
 #[cfg(feature = "admin")]
 mod update;
 #[cfg(feature = "admin")]
+mod wecom_response;
+#[cfg(feature = "admin")]
 mod wecom_url;
 pub mod workers;
 pub mod workflows;
