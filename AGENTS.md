@@ -461,7 +461,7 @@ CI enforces hard line-count limits (`.github/workflows/check-file-size.yml`):
 
 | Language | Limit | Test files |
 |----------|-------|------------|
-| Rust (`.rs`) | **1 500 lines** | excluded |
+| Rust (`.rs`) | **1 500 lines** | **2 000 lines** |
 | Python (`.py`) | **1 000 lines** | excluded |
 | Admin UI source/test (`.ts`, `.tsx`, `.css`, `.json`) | **3 000 lines** | included |
 
@@ -493,6 +493,8 @@ Rules:
 - `domain/` must not import from `infra/` or `application/`.
 - `application/` orchestrates `domain/` + `infra/`; no business rules.
 - Keep `impl` blocks with their type — do not scatter impls across files.
+- Keep Rust test files below 2 000 lines. Extract shared fixtures into focused
+  helper modules and split broad integration suites by user-facing workflow.
 - Remove code smells during the split: eliminate `unwrap`/`expect` outside
   tests, replace god-structs with focused structs, break cyclic deps.
 
