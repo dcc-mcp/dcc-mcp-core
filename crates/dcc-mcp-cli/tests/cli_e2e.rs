@@ -973,8 +973,8 @@ fn local_list_reads_file_registry_after_gateway_ensure() {
         ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
         ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
         ("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", "1"),
+        ("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true"),
     ];
-
     let list = run_json_with_env(&["list"], &envs);
 
     assert_eq!(list["source"], "local_registry");
@@ -1006,8 +1006,8 @@ fn local_list_uses_core_default_registry_without_env_override() {
         ("TMPDIR", temp_s.as_str()),
         ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
         ("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", "1"),
+        ("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true"),
     ];
-
     let list = run_json_with_env_removed(
         &["list"],
         &envs,
@@ -1059,8 +1059,8 @@ fn local_profile_controls_registered_instance_through_direct_mcp() {
         ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
         ("DCC_MCP_GATEWAY_PROFILE", "local"),
         ("DCC_MCP_BASE_URL", ""),
+        ("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true"),
     ];
-
     let search = run_json_with_env(&["search", "--query", "scene", "--dcc-type", "maya"], &envs);
     assert_eq!(search["source"], "local_mcp");
     assert_eq!(search["total"], 2);
@@ -1189,10 +1189,9 @@ fn local_search_without_query_lists_tools_for_dcc_filter() {
         ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
         ("DCC_MCP_GATEWAY_PROFILE", "local"),
         ("DCC_MCP_BASE_URL", ""),
+        ("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true"),
     ];
-
     let search = run_json_with_env(&["search", "--dcc-type", "maya"], &envs);
-
     assert_eq!(search["source"], "local_mcp");
     assert_eq!(search["query"], Value::Null);
     let hit_names: Vec<&str> = search["hits"]
@@ -1299,8 +1298,8 @@ fn local_search_routes_ready_sidecar_and_skips_unavailable_rows() {
         ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
         ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
         ("DCC_MCP_GATEWAY_PROFILE", "local"),
+        ("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true"),
     ];
-
     let list = run_json_with_env(&["list"], &envs);
     assert_eq!(list["source"], "local_registry");
     assert_eq!(list["total"], 3);
