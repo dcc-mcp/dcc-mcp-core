@@ -1401,5 +1401,21 @@ export type UpdateIntegrationRequest = {
 /// Response from PUT /admin/api/integrations.
 export type UpdateIntegrationResult = IntegrationEntry;
 
+/// Request body for POST /admin/api/integrations/test.
+export type TestIntegrationRequest = {
+  kind: IntegrationKind;
+  config: Record<string, unknown>;
+};
+
+/// Response from POST /admin/api/integrations/test.
+export type TestIntegrationResult = {
+  kind: IntegrationKind;
+  status: 'sent';
+  message: string;
+  sent_at_ms?: number;
+  webhook_url?: string;
+  wecom?: Record<string, unknown>;
+};
+
 /// DCC-type → icon URL (local SVGs, bundled by Vite + vite-plugin-singlefile).
 /// Unknown/missing types fall back to a generic puzzle-piece icon.

@@ -1279,6 +1279,22 @@ async function mockAdminApi(page: Page) {
     } else if (path === '/skill-paths/7' && method === 'DELETE') {
       state.skillPaths = state.skillPaths.filter((row) => row.id !== 7);
       body = { ok: true, id: 7 };
+    } else if (path === '/integrations/test' && method === 'POST') {
+      const payload = route.request().postDataJSON() as { kind?: string; config?: Record<string, unknown> };
+      if (payload.kind === 'wecom') {
+        status = 200;
+        body = {
+          kind: 'wecom',
+          status: 'sent',
+          message: 'ok',
+          sent_at_ms: Date.now(),
+          webhook_url: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=********',
+          wecom: { errcode: 0, errmsg: 'ok' },
+        };
+      } else {
+        status = 400;
+        body = { error: `Unsupported integration test: ${payload.kind}` };
+      }
     } else if (path === '/integrations') {
       const sentryConfig = {
         dsn: 'https://********@o0.ingest.sentry.io/0',
@@ -2764,6 +2780,28 @@ test.describe('Admin Page', () => {
       expect(payload.config.template).toBe('DCC-MCP $event\nDCC: $dcc-type $instance-id $url');
       await expect(page.locator('.integration-card[data-kind="wecom"].pending-restart')).toBeVisible({ timeout: 5000 });
       await expect(page.locator('.integration-card[data-kind="wecom"] .integration-config-value').first()).toContainText('key=********');
+    });
+
+    test('tests WeCom robot push from the current edit form config', async ({ page }) => {
+      await page.goto('/admin/?panel=integrations');
+      await openIntegrationEditor(page, 'wecom');
+      const form = page.locator('.integration-edit-form');
+      await page.locator('#integration-wecom-webhook_url').fill('https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123');
+      await page.locator('#integration-wecom-event_types').fill('tool.failed, gateway.instance.*');
+      await page.locator('#integration-wecom-template').fill('DCC-MCP $event\nDCC: $dcc-type');
+
+      const testRequest = page.waitForRequest((request) =>
+        request.url().endsWith('/admin/api/integrations/test') && request.method() === 'POST',
+      );
+      await form.getByRole('button', { name: 'Test Send' }).click();
+      const request = await testRequest;
+      const payload = request.postDataJSON() as { kind: string; config: Record<string, unknown> };
+      expect(payload.kind).toBe('wecom');
+      expect(payload.config.webhook_url).toBe('https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123');
+      expect(payload.config.event_types).toEqual(['tool.failed', 'gateway.instance.*']);
+      expect(payload.config.template).toBe('DCC-MCP $event\nDCC: $dcc-type');
+      await expect(page.locator('.status-bar')).toContainText('wecom test message sent');
+      await expect(page.locator('.integration-edit-form')).toBeVisible();
     });
 
     test('saves Event Webhooks by editing YAML directly', async ({ page }) => {

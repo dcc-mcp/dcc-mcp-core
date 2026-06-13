@@ -9,7 +9,7 @@ use axum::Router;
 use axum::body::to_bytes;
 use axum::http::{Request, StatusCode, header};
 use serde_json::{Value, json};
-use tokio::sync::{RwLock, broadcast, watch};
+use tokio::sync::{RwLock, broadcast, oneshot, watch};
 use tower::ServiceExt;
 
 use crate::gateway::admin::integrations::INTEGRATIONS_TEST_ENV_LOCK;
@@ -169,6 +169,61 @@ async fn put_json(router: Router, uri: &str, payload: Value) -> (StatusCode, Val
     let bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
     (status, json)
+}
+
+async fn post_json(router: Router, uri: &str, payload: Value) -> (StatusCode, Value) {
+    let resp = router
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(uri)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(axum::body::Body::from(payload.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = resp.status();
+    let bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    (status, json)
+}
+
+async fn spawn_wecom_robot(
+    reply: Value,
+) -> (
+    String,
+    Arc<parking_lot::Mutex<Option<Value>>>,
+    oneshot::Sender<()>,
+) {
+    let received = Arc::new(parking_lot::Mutex::new(None));
+    let received_for_route = Arc::clone(&received);
+    let app = Router::new().route(
+        "/cgi-bin/webhook/send",
+        axum::routing::post(move |axum::Json(payload): axum::Json<Value>| {
+            let received = Arc::clone(&received_for_route);
+            let reply = reply.clone();
+            async move {
+                *received.lock() = Some(payload);
+                axum::Json(reply)
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (tx, rx) = oneshot::channel::<()>();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app)
+            .with_graceful_shutdown(async {
+                let _ = rx.await;
+            })
+            .await;
+    });
+    (
+        format!("http://127.0.0.1:{port}/cgi-bin/webhook/send?key=abc123"),
+        received,
+        tx,
+    )
 }
 
 // ── Integrations API ─────────────────────────────────────────────────
@@ -448,6 +503,135 @@ async fn integrations_put_stages_wecom_message_push_config() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(invalid["error"], "invalid_integration_config");
+}
+
+#[tokio::test]
+async fn integrations_test_sends_wecom_message_and_masks_secret() {
+    let _lock = INTEGRATIONS_TEST_ENV_LOCK.lock();
+    let _env = ScopedIntegrationEnv::new(&[]);
+    let (webhook_url, received, shutdown) = spawn_wecom_robot(json!({
+        "errcode": 0,
+        "errmsg": "ok"
+    }))
+    .await;
+    let router = admin_router();
+
+    let (status, result) = post_json(
+        router,
+        "/api/integrations/test",
+        json!({
+            "kind": "wecom",
+            "config": {
+                "webhook_url": webhook_url,
+                "event_types": ["tool.failed"],
+                "template": "DCC-MCP $event"
+            }
+        }),
+    )
+    .await;
+
+    let _ = shutdown.send(());
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(result["kind"], "wecom");
+    assert_eq!(result["status"], "sent");
+    assert_eq!(result["message"], "ok");
+    assert_eq!(result["wecom"]["errcode"], 0);
+    assert!(
+        result["webhook_url"]
+            .as_str()
+            .unwrap()
+            .contains("key=********")
+    );
+    assert!(!serde_json::to_string(&result).unwrap().contains("abc123"));
+
+    let sent = received
+        .lock()
+        .clone()
+        .expect("WeCom robot received payload");
+    assert_eq!(sent["msgtype"], "text");
+    let content = sent["text"]["content"].as_str().unwrap();
+    assert!(content.contains("DCC-MCP Admin WeCom test"));
+    assert!(content.contains("Gateway: test-gateway"));
+}
+
+#[tokio::test]
+async fn integrations_test_rejects_missing_wecom_url() {
+    let _lock = INTEGRATIONS_TEST_ENV_LOCK.lock();
+    let _env = ScopedIntegrationEnv::new(&[]);
+    let (status, result) = post_json(
+        admin_router(),
+        "/api/integrations/test",
+        json!({
+            "kind": "wecom",
+            "config": {}
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(result["error"], "invalid_integration_test_config");
+    assert_eq!(
+        result["message"],
+        "wecom webhook_url is required before sending a test message"
+    );
+}
+
+#[tokio::test]
+async fn integrations_test_rejects_non_wecom_webhook_url() {
+    let _lock = INTEGRATIONS_TEST_ENV_LOCK.lock();
+    let _env = ScopedIntegrationEnv::new(&[]);
+    let (status, result) = post_json(
+        admin_router(),
+        "/api/integrations/test",
+        json!({
+            "kind": "wecom",
+            "config": {
+                "webhook_url": "https://example.com/cgi-bin/webhook/send?key=abc123"
+            }
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(result["error"], "invalid_integration_test_config");
+    assert!(
+        result["message"]
+            .as_str()
+            .unwrap()
+            .contains("valid WeCom robot webhook URL")
+    );
+}
+
+#[tokio::test]
+async fn integrations_test_reports_wecom_rejection_without_extra_response_fields() {
+    let _lock = INTEGRATIONS_TEST_ENV_LOCK.lock();
+    let _env = ScopedIntegrationEnv::new(&[]);
+    let (webhook_url, _received, shutdown) = spawn_wecom_robot(json!({
+        "errcode": 93000,
+        "errmsg": "invalid webhook",
+        "secret_echo": "should-not-return"
+    }))
+    .await;
+
+    let (status, result) = post_json(
+        admin_router(),
+        "/api/integrations/test",
+        json!({
+            "kind": "wecom",
+            "config": {
+                "webhook_url": webhook_url
+            }
+        }),
+    )
+    .await;
+
+    let _ = shutdown.send(());
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert_eq!(result["error"], "wecom_test_failed");
+    assert_eq!(result["wecom"]["errcode"], 93000);
+    assert_eq!(result["wecom"]["errmsg"], "invalid webhook");
+    assert!(result["wecom"].get("secret_echo").is_none());
+    assert!(!serde_json::to_string(&result).unwrap().contains("abc123"));
 }
 
 #[tokio::test]

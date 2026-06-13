@@ -50,6 +50,8 @@ import type {
   MarketplaceUninstallResult,
   MarketplaceUpdatePayload,
   IntegrationsPayload,
+  TestIntegrationRequest,
+  TestIntegrationResult,
   UpdateIntegrationRequest,
   UpdateIntegrationResult,
   StatsPayload,
@@ -579,5 +581,17 @@ export function useUpdateIntegration() {
         },
       );
     },
+  });
+}
+
+export function useTestIntegration() {
+  return useMutation({
+    mutationFn: (body: TestIntegrationRequest) =>
+      fetch(`${API_BASE}/integrations/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(ADMIN_FETCH_TIMEOUT_MS),
+      }).then((res) => adminJsonResponse<TestIntegrationResult>(res, '/integrations/test')),
   });
 }
