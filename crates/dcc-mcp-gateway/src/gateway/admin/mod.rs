@@ -80,6 +80,8 @@ mod handlers;
 #[cfg(feature = "admin")]
 mod router;
 #[cfg(all(test, feature = "admin"))]
+mod skill_paths_tests;
+#[cfg(all(test, feature = "admin"))]
 mod stats_traces_tests;
 #[cfg(all(test, feature = "admin"))]
 #[allow(clippy::await_holding_lock)]
