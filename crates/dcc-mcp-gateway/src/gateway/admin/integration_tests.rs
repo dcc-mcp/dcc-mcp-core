@@ -506,6 +506,93 @@ async fn integrations_put_stages_wecom_message_push_config() {
 }
 
 #[tokio::test]
+async fn integrations_put_wecom_preserves_env_url_for_partial_update() {
+    let _lock = INTEGRATIONS_TEST_ENV_LOCK.lock();
+    let dir = tempfile::tempdir().unwrap();
+    let etc_dir = dir.path().to_string_lossy().to_string();
+    let env_url = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=env123";
+    let _env = ScopedIntegrationEnv::new(&[
+        ("DCC_MCP_ETC_DIR", Some(&etc_dir)),
+        ("DCC_MCP_WECOM_WEBHOOK_URL", Some(env_url)),
+    ]);
+    let router = admin_router();
+
+    let (status, updated) = put_json(
+        router,
+        "/api/integrations",
+        json!({
+            "kind": "wecom",
+            "config": {
+                "template": "Env template $event"
+            }
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(updated["kind"], "wecom");
+    assert_eq!(updated["status"], "pending_restart");
+    assert_eq!(
+        updated["config"]["webhook_url"],
+        "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=********"
+    );
+    assert_eq!(updated["config"]["template"], "Env template $event");
+    let saved = std::fs::read_to_string(dir.path().join("webhooks.yaml")).unwrap();
+    assert!(saved.contains(env_url));
+    assert!(saved.contains("Env template $event"));
+}
+
+#[tokio::test]
+async fn integrations_put_wecom_preserves_saved_url_for_masked_partial_update() {
+    let _lock = INTEGRATIONS_TEST_ENV_LOCK.lock();
+    let dir = tempfile::tempdir().unwrap();
+    let etc_dir = dir.path();
+    std::fs::create_dir_all(etc_dir).unwrap();
+    std::fs::write(
+        etc_dir.join("webhooks.yaml"),
+        r#"
+queue_capacity: 64
+webhooks:
+  - name: wecom-message-push
+    kind: wecom
+    url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=saved123
+    events:
+      - old.event
+    message_template: Old template
+"#,
+    )
+    .unwrap();
+    let etc_dir = etc_dir.to_string_lossy().to_string();
+    let _env = ScopedIntegrationEnv::new(&[("DCC_MCP_ETC_DIR", Some(&etc_dir))]);
+    let router = admin_router();
+
+    let (status, updated) = put_json(
+        router,
+        "/api/integrations",
+        json!({
+            "kind": "wecom",
+            "config": {
+                "webhook_url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=********",
+                "event_types": "tool.completed",
+                "template": "Saved template $event"
+            }
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(updated["kind"], "wecom");
+    assert_eq!(updated["status"], "pending_restart");
+    assert_eq!(updated["config"]["event_types"][0], "tool.completed");
+    assert_eq!(updated["config"]["template"], "Saved template $event");
+    let saved = std::fs::read_to_string(dir.path().join("webhooks.yaml")).unwrap();
+    assert!(saved.contains("key=saved123"));
+    assert!(!saved.contains("key=********"));
+    assert!(saved.contains("tool.completed"));
+    assert!(saved.contains("Saved template $event"));
+}
+
+#[tokio::test]
 async fn integrations_test_sends_wecom_message_and_masks_secret() {
     let _lock = INTEGRATIONS_TEST_ENV_LOCK.lock();
     let _env = ScopedIntegrationEnv::new(&[]);
