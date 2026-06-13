@@ -523,6 +523,78 @@ fn mcp_call_text_json(response: &Value) -> Value {
 }
 
 #[tokio::test]
+async fn load_skill_backend_payload_failure_is_not_decorated_as_loaded() {
+    let app = axum::Router::new()
+        .route(
+            "/health",
+            axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
+        )
+        .route(
+            "/mcp",
+            axum::routing::post(|axum::Json(body): axum::Json<Value>| async move {
+                let id = body.get("id").cloned().unwrap_or(Value::Null);
+                axum::Json(json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "content": [{
+                            "type": "text",
+                            "text": serde_json::to_string(&json!({
+                                "success": false,
+                                "message": "Unknown sidecar action: load_skill",
+                                "error": "unknown-action"
+                            })).unwrap()
+                        }],
+                        "isError": false
+                    }
+                }))
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .ok();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+        dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
+    ));
+    {
+        let r = registry.read().await;
+        let entry =
+            dcc_mcp_transport::discovery::types::ServiceEntry::new("maya", "127.0.0.1", port);
+        r.register(entry).unwrap();
+    }
+    let gs = make_gateway_state(registry).await;
+
+    let (text, is_error) = skill_mgmt_dispatch(
+        &gs,
+        "load_skill",
+        &json!({"skill_name": "maya-mgear", "dcc_type": "maya"}),
+    )
+    .await;
+
+    assert!(is_error, "backend success=false payload must fail: {text}");
+    let payload: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(payload["success"], false);
+    assert_eq!(payload["error"], "unknown-action");
+    assert!(
+        payload.get("loaded").is_none(),
+        "gateway must not decorate a failed backend load as loaded=true: {payload}"
+    );
+
+    let _ = shutdown_tx.send(());
+}
+
+#[tokio::test]
 async fn aggregate_prompts_list_zero_backends_returns_empty_array() {
     // Acceptance criterion: a gateway with no live backends must return
     // `{"prompts": []}` — never `Method not found`.
