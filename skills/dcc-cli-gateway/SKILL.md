@@ -16,7 +16,7 @@ metadata:
   dcc-mcp:
     dcc: python
     layer: infrastructure
-    version: "0.18.22"  # x-release-please-version
+    version: "0.18.23"  # x-release-please-version
     search-hint: "cli gateway dcc-mcp-cli connect dcc instances search describe call clawhub"
     tags: "cli, gateway, infrastructure, clawhub, openclaw, instances"
   openclaw:

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.23](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.22...v0.18.23) (2026-06-13)
+
+
+### Bug Fixes
+
+* harden admin integrations ([f319719](https://github.com/dcc-mcp/dcc-mcp-core/commit/f3197195eb84511a791b03b33b783934cf3a0110))
+* preserve wecom webhook on partial save ([8441f9f](https://github.com/dcc-mcp/dcc-mcp-core/commit/8441f9ffeadabd506178f0b9fe240d4fd3391cb5))
+* resolve ruff lint violations in _registration.py ([9de2827](https://github.com/dcc-mcp/dcc-mcp-core/commit/9de2827d6e0847088389637bbe27d1fb9b87ab00))
+* split admin integration module ([8830544](https://github.com/dcc-mcp/dcc-mcp-core/commit/8830544cf588208ecaf30cc0273ca47dc77b6805))
+* surface gateway load skill backend failures ([0df8e56](https://github.com/dcc-mcp/dcc-mcp-core/commit/0df8e56dfa9cf11c1c6cf1ee6b5495baffd9d1bc))
+
 ## [0.18.22](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.21...v0.18.22) (2026-06-13)
 
 
