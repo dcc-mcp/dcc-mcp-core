@@ -71,6 +71,8 @@ mod traffic;
 pub mod workers;
 pub mod workflows;
 
+#[cfg(all(test, feature = "admin"))]
+mod analytics_tests;
 #[cfg(feature = "admin")]
 mod handlers;
 #[cfg(feature = "admin")]
