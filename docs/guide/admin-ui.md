@@ -1074,6 +1074,50 @@ The HTML dashboard includes:
 - **Dark theme**: Vite/React source with embedded runtime asset and no required runtime build step
 - **Responsive**: narrow screens switch to a top navigation rail, and debug cards/charts keep a usable single-column width.
 
+## Agent-Facing Panel Map
+
+Agents should treat the Admin UI as a structured operations console. Each panel
+has a stable query entry (`/admin?panel=...`) and a matching JSON API under
+`/admin/api/*`. Prefer the JSON API for automation, and use the rendered panel
+when a human needs to inspect the state visually.
+
+| Panel / tab | URL entry | Primary API | What it is for | Typical agent use |
+|-------------|-----------|-------------|----------------|-------------------|
+| Command Center | `/admin?panel=setup` | `GET /admin/api/health`, `GET /admin/api/instances` | Onboard agents and humans to the current gateway. Shows copyable agent prompts, CLI commands, and MCP client configuration snippets derived from the live gateway URL. | Start here when a user asks how to connect Codex, Claude Desktop, Cursor, CodeBuddy, VS Code, Cline, or a shell workflow to the gateway. Copy the generated command/config instead of inventing one. |
+| Debug Workbench | `/admin?panel=debug` | `GET /admin/api/health`, `GET /admin/api/instances`, `GET /admin/api/calls`, `GET /admin/api/traces`, `GET /admin/api/logs` | First triage screen for gateway health, recent calls, traces, warning logs, and backend links. | Use when the user reports "gateway not working", stale instances, missing tools, or unexplained call failures. |
+| Instances | `/admin?panel=instances` | `GET /admin/api/instances`, `POST /admin/api/instances/{instance_id}/update` | Live backend inventory with readiness, DCC type, route/source metadata, versions, and staged server update actions. | Verify which DCC sessions are registered and whether a backend needs restart after an update. |
+| Health | `/admin?panel=health` | `GET /admin/api/health` | Gateway readiness, owner identity, version, audit/log status, and high-level counters. | Check whether the elected gateway is up before deeper debugging. |
+| Tools | `/admin?panel=tools` | `GET /admin/api/tools` | Aggregated tool inventory exposed through gateway discovery. | Confirm whether a tool slug exists and which DCC/backend owns it before using REST/CLI calls. |
+| Discover / Skills | `/admin?panel=discover&discoverTab=skills` | `GET /admin/api/skills`, `GET/POST/DELETE /admin/api/skill-paths`, `GET /admin/api/skill-detail?name=...&dcc_type=...` | Skill inventory, load state, adoption metadata, custom skill search paths, and skill detail modal. Opening the skill paths view triggers live backend reload. | Use for "why is this skill missing", "which skills are loaded", custom path setup, and skill package inspection. |
+| Discover / Marketplace | `/admin?panel=discover&discoverTab=marketplace` | `GET/POST /admin/api/marketplace/*` | Browse, install, uninstall, update, and manage sources for skill packages from configured marketplace catalogs. | Use when an operator wants to install or update capabilities without CLI commands. After install/update/uninstall, refresh Skills and check `reload_required`. |
+| Discover / Integrations | `/admin?panel=discover&discoverTab=integrations` | `GET /admin/api/integrations`, `PUT /admin/api/integrations`, `POST /admin/api/integrations/test` | View and stage Sentry, Event Webhooks, WeCom message push, and OTLP config. Secret fields are masked and file-backed edits are `pending_restart`. | Use for observability setup. Test Send is currently supported for WeCom only and accepts only `https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...` robot URLs. |
+| Workflows | `/admin?panel=workflows` | `GET /admin/api/workflows` | Workflow runs, discovery quality, status, step counts, and failure previews. | Debug multi-step gateway workflows and zero-result discovery loops. |
+| Tasks | `/admin?panel=tasks` | `GET /admin/api/tasks` | Background task state and recent task durations/outcomes. | Check whether update, install, reload, or long-running operations are still active or failed. |
+| Traces / Traces tab | `/admin?panel=traces&tracesTab=traces` | `GET /admin/api/traces`, `GET /admin/api/traces/{request_id}` | Dispatch waterfall with bounded/redacted input/output payload previews. | Start here for one failed or slow request id. Open the detail endpoint for span-level causality. |
+| Traces / Calls tab | `/admin?panel=traces&tracesTab=calls` | `GET /admin/api/calls` | Recent call table with request ids, tool slugs, outcomes, latency, and error previews. | Search recent activity by request id/tool/backend before drilling into traces. |
+| Overview / Stats tab | `/admin?panel=overview&overviewTab=stats` | `GET /admin/api/stats` | Aggregate gateway counters, latency, token usage, top DCC/app/tool dimensions, and response format adoption. | Use for quick operational summary or to explain high-level usage. |
+| Overview / Traffic tab | `/admin?panel=overview&overviewTab=traffic` | `GET /admin/api/traffic`, `GET /admin/api/traffic/export` | Metadata-only traffic capture ring and export. Body bytes are omitted by default; redaction paths and skip reasons remain visible. | Use only for transport/route debugging, not for reading raw user payloads. |
+| Logs | `/admin?panel=logs` | `GET /admin/api/logs` | Unified contention, file-log, and audit-call timeline. | Correlate gateway election, probe, file log, and audit events around an incident. |
+| Analytics | `/admin?panel=analytics` | `GET /admin/api/analytics/overview`, `/timeseries`, `/heatmap`, `/export` | Activity analytics, token activity calendar, top tool ranking, and CSV/JSONL export. | Answer usage-pattern questions, inspect token trends, or export retained analytics rows. |
+| Governance | `/admin?panel=governance` | `GET /admin/api/governance` | Read-only policy state, allowlists, middleware limits, traffic capture mode, redaction paths, and recent decisions. | Use when calls are denied, throttled, or skipped by policy/capture rules. |
+| OpenAPI Inspector | `/admin?panel=openapi` | `GET /v1/openapi.json`, selected backend OpenAPI URLs | Gateway or backend REST contract browser with filters and download links. | Use before scripting against REST endpoints or verifying route availability. |
+
+Safety rules for agents:
+
+- Treat `GET` endpoints as read-only observation. `POST`, `PUT`, and `DELETE`
+  endpoints can change local files, package installs, custom skill paths, or
+  staged updates.
+- Do not copy masked secrets back into config. A value containing `********`
+  means "keep the existing secret" or "secret is hidden", not a valid new
+  credential.
+- Integration edits are staged for restart unless the panel explicitly says the
+  operation hot-reloaded live backends. Environment variables continue to win
+  over file-backed Admin edits until restart.
+- Marketplace and skill-path mutations should be followed by Skills inventory
+  refresh and, when needed, `dcc-mcp-cli reload-skills`.
+- Use `/v1/debug/*` aliases for stable agent-facing reads when available; they
+  mirror the Admin JSON shape without depending on the visual route.
+
 ## Operator Workflows
 
 Use the dashboard as an operations surface, not as a static report:
@@ -1191,12 +1235,20 @@ To stage an edit, send the integration kind and config fields:
 The response is the updated integration entry with `status:
 "pending_restart"`.
 
+To send a live WeCom robot test message, call
+`POST /admin/api/integrations/test` with `{"kind":"wecom","config":{...}}`.
+The test endpoint accepts only WeCom group robot URLs shaped like
+`https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...`, masks the key in
+all responses, and returns only the WeCom `errcode` / `errmsg` summary instead
+of echoing arbitrary upstream response fields.
+
 ### Routes
 
 | Route | Content-Type | Description |
 |-------|-------------|-------------|
 | `GET /admin/api/integrations` | `application/json` | Integration configuration summary |
 | `PUT /admin/api/integrations` | `application/json` | Stage pending-restart config for one integration |
+| `POST /admin/api/integrations/test` | `application/json` | Send a supported live integration test; currently WeCom only |
 
 ### Stable agent-facing route
 

@@ -182,4 +182,51 @@ describe('admin API dev mock middleware', () => {
       expect(text.trim().length, path).toBeGreaterThan(0);
     }
   });
+
+  it('rejects non-WeCom webhook URLs before test-send network calls', async () => {
+    const originalFetch = globalThis.fetch;
+    let fetchCalls = 0;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      fetchCalls += 1;
+      return originalFetch(input, init);
+    }) as typeof fetch;
+    try {
+      const response = await fetch(`${baseUrl}/admin/api/integrations/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'wecom',
+          config: {
+            webhook_url: 'https://example.com/cgi-bin/webhook/send?key=demo',
+          },
+        }),
+      });
+
+      const payload = await response.json() as Record<string, unknown>;
+      expect(response.status).toBe(400);
+      expect(payload.error).toBe('invalid_integration_test_config');
+      expect(String(payload.message)).toContain('valid WeCom robot webhook URL');
+      expect(fetchCalls).toBe(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('rejects non-WeCom webhook URLs when saving the dev mock integration', async () => {
+    const response = await fetch(`${baseUrl}/admin/api/integrations`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'wecom',
+        config: {
+          webhook_url: 'https://example.com/cgi-bin/webhook/send?key=demo',
+        },
+      }),
+    });
+
+    const payload = await response.json() as Record<string, unknown>;
+    expect(response.status).toBe(400);
+    expect(payload.error).toBe('invalid_integration_config');
+    expect(String(payload.message)).toContain('valid WeCom robot webhook URL');
+  });
 });
