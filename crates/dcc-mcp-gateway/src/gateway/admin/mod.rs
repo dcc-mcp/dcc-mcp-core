@@ -58,6 +58,8 @@ pub(crate) mod integrations;
 #[cfg(feature = "admin")]
 mod issue_report;
 mod links;
+#[cfg(all(test, feature = "admin"))]
+mod logs_tests;
 pub mod marketplace;
 mod skill_health;
 mod skill_paths;
