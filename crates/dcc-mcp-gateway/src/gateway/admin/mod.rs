@@ -81,6 +81,10 @@ mod handlers;
 mod router;
 #[cfg(all(test, feature = "admin"))]
 mod stats_traces_tests;
+#[cfg(all(test, feature = "admin"))]
+#[allow(clippy::await_holding_lock)]
+// Intentional: parking_lot Mutex for env-var test serialization
+mod workflows_tests;
 
 pub use activity::{ActivityCorrelation, ActivityEvent, TaskSnapshot};
 pub use dcc_mcp_db::{
