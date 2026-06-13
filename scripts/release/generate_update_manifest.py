@@ -53,8 +53,8 @@ def generate_manifest(
         out_dir: Output directory for the manifest.
 
     Returns:
-
         Path to the generated manifest file.
+
     """
     manifest: dict[str, dict] = {}
 
