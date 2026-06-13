@@ -8,6 +8,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use super::state::AdminState;
+use super::wecom_response::summarize as summarize_wecom_response;
 use super::wecom_url::{WECOM_WEBHOOK_URL_HINT, looks_valid as wecom_webhook_url_looks_valid};
 
 const ENV_SENTRY_DSN: &str = "DCC_MCP_SENTRY_DSN";
@@ -74,7 +75,7 @@ pub async fn handle_admin_integration_update(
                 .into_response();
         }
     };
-    let pending_config = match persist_integration_config(&kind, &sanitized) {
+    let pending_config = match persist_integration_config(&s, &kind, &sanitized) {
         Ok(config) => config,
         Err((status, message)) => {
             return (
@@ -606,6 +607,29 @@ fn resolve_wecom_test_webhook_url(
     s: &AdminState,
     config: &Map<String, Value>,
 ) -> Result<String, (StatusCode, String)> {
+    resolve_wecom_webhook_url(
+        s,
+        config,
+        "wecom webhook_url is required before sending a test message",
+    )
+}
+
+fn resolve_wecom_save_webhook_url(
+    s: &AdminState,
+    config: &Map<String, Value>,
+) -> Result<String, (StatusCode, String)> {
+    resolve_wecom_webhook_url(
+        s,
+        config,
+        "wecom webhook_url is required before saving this integration",
+    )
+}
+
+fn resolve_wecom_webhook_url(
+    s: &AdminState,
+    config: &Map<String, Value>,
+    missing_message: &str,
+) -> Result<String, (StatusCode, String)> {
     if let Some(url) = concrete_wecom_webhook_url_from_config(config)? {
         return Ok(url);
     }
@@ -635,10 +659,7 @@ fn resolve_wecom_test_webhook_url(
             Err(message) => return Err((StatusCode::BAD_REQUEST, message)),
         }
     }
-    Err((
-        StatusCode::BAD_REQUEST,
-        "wecom webhook_url is required before sending a test message".into(),
-    ))
+    Err((StatusCode::BAD_REQUEST, missing_message.into()))
 }
 
 fn concrete_wecom_webhook_url_from_config(
@@ -705,7 +726,9 @@ fn sanitize_wecom_config(
 ) -> Result<Map<String, Value>, (StatusCode, String)> {
     let mut out = Map::new();
     let webhook_url = optional_string_field(&config, "webhook_url")?;
-    if let Some(url) = webhook_url {
+    if let Some(url) = webhook_url
+        && !url.contains("********")
+    {
         if !wecom_webhook_url_looks_valid(&url) {
             return Err((
                 StatusCode::BAD_REQUEST,
@@ -740,13 +763,14 @@ fn sanitize_wecom_config(
 }
 
 fn persist_integration_config(
+    s: &AdminState,
     kind: &str,
     config: &Map<String, Value>,
 ) -> Result<Map<String, Value>, (StatusCode, String)> {
     match kind {
         "sentry" => persist_sentry_config(config),
         "webhooks" => persist_webhooks_config(config),
-        "wecom" => persist_wecom_config(config),
+        "wecom" => persist_wecom_config_for_update(s, config),
         "otlp" => persist_json_config(DEFAULT_OTLP_CONFIG_FILE, config),
         _ => Ok(config.clone()),
     }
@@ -814,12 +838,28 @@ fn persist_webhooks_config(
     Ok(out)
 }
 
+#[cfg(test)]
 fn persist_wecom_config(
     config: &Map<String, Value>,
 ) -> Result<Map<String, Value>, (StatusCode, String)> {
-    let Some(webhook_url) = config.get("webhook_url").and_then(Value::as_str) else {
+    let Some(webhook_url) = concrete_wecom_webhook_url_from_config(config)? else {
         return Ok(Map::new());
     };
+    persist_wecom_config_with_url(config, &webhook_url)
+}
+
+fn persist_wecom_config_for_update(
+    s: &AdminState,
+    config: &Map<String, Value>,
+) -> Result<Map<String, Value>, (StatusCode, String)> {
+    let webhook_url = resolve_wecom_save_webhook_url(s, config)?;
+    persist_wecom_config_with_url(config, &webhook_url)
+}
+
+fn persist_wecom_config_with_url(
+    config: &Map<String, Value>,
+    webhook_url: &str,
+) -> Result<Map<String, Value>, (StatusCode, String)> {
     let events = config
         .get("event_types")
         .and_then(Value::as_array)
@@ -845,7 +885,7 @@ fn persist_wecom_config(
         .map_err(|message| (StatusCode::INTERNAL_SERVER_ERROR, message))?;
 
     let mut out = Map::new();
-    out.insert("webhook_url".into(), Value::String(webhook_url.to_string()));
+    out.insert("webhook_url".into(), Value::String(webhook_url.to_owned()));
     out.insert(
         "event_types".into(),
         Value::Array(events.into_iter().map(Value::String).collect()),
@@ -1068,34 +1108,6 @@ fn split_event_patterns(raw: &str) -> Vec<String> {
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .collect()
-}
-
-fn summarize_wecom_response(
-    response_text: &str,
-    http_status: StatusCode,
-) -> (Option<i64>, String, Value) {
-    let parsed = serde_json::from_str::<Value>(response_text).ok();
-    let errcode = parsed
-        .as_ref()
-        .and_then(|value| value.get("errcode"))
-        .and_then(Value::as_i64);
-    let errmsg = parsed
-        .as_ref()
-        .and_then(|value| value.get("errmsg"))
-        .and_then(Value::as_str)
-        .unwrap_or(if http_status.is_success() {
-            "ok"
-        } else {
-            "failed"
-        })
-        .to_string();
-
-    let mut summary = Map::new();
-    if let Some(code) = errcode {
-        summary.insert("errcode".into(), Value::from(code));
-    }
-    summary.insert("errmsg".into(), Value::String(errmsg.clone()));
-    (errcode, errmsg, Value::Object(summary))
 }
 
 fn sentry_dsn_looks_valid(value: &str) -> bool {
