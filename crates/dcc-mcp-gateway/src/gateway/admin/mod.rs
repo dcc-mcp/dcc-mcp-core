@@ -77,6 +77,8 @@ pub mod workflows;
 mod analytics_tests;
 #[cfg(feature = "admin")]
 mod handlers;
+#[cfg(all(test, feature = "admin"))]
+mod instance_update_tests;
 #[cfg(feature = "admin")]
 mod router;
 #[cfg(all(test, feature = "admin"))]
