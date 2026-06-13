@@ -93,6 +93,9 @@ pub(crate) async fn skill_mgmt_dispatch(
                                 .unwrap_or_else(|| {
                                     serde_json::to_string_pretty(&result).unwrap_or_default()
                                 });
+                            let payload_failed =
+                                tool == "load_skill" && load_skill_payload_reports_failure(&text);
+                            let is_error = is_error || payload_failed;
                             if !is_error {
                                 crate::gateway::capability_service::refresh_all_live_backends(
                                     gs,
@@ -350,6 +353,19 @@ fn call_tool_text(value: &Value) -> Option<&str> {
         .and_then(|arr| arr.first())
         .and_then(|content| content.get("text"))
         .and_then(Value::as_str)
+}
+
+fn load_skill_payload_reports_failure(text: &str) -> bool {
+    let Ok(payload) = serde_json::from_str::<Value>(text) else {
+        return false;
+    };
+    let Some(obj) = payload.as_object() else {
+        return false;
+    };
+
+    obj.get("success").and_then(Value::as_bool) == Some(false)
+        || (obj.get("loaded").and_then(Value::as_bool) == Some(false)
+            && (obj.contains_key("error") || obj.contains_key("message")))
 }
 
 /// JSON-Schema definitions for legacy skill-management tools still routed
