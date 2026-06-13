@@ -9,6 +9,10 @@ import type { Plugin } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 const NOW = new Date().toISOString();
+const DEV_WECOM_TEST_TIMEOUT_MS = 10_000;
+const WECOM_WEBHOOK_HOST = 'qyapi.weixin.qq.com';
+const WECOM_WEBHOOK_PATH = '/cgi-bin/webhook/send';
+const WECOM_WEBHOOK_URL_HINT = 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...';
 
 const HEALTH = {
   status: 'ok',
@@ -258,6 +262,8 @@ const INTEGRATIONS_PAYLOAD = {
     },
   ],
 };
+
+let devWecomWebhookUrl: string | null = null;
 
 const GOVERNANCE_PAYLOAD = {
   schema_version: 'dcc-mcp.admin.governance.v1',
@@ -878,6 +884,126 @@ async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknow
   }
 }
 
+function stringRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function concreteWebhookUrlFromConfig(config: Record<string, unknown>): string | null {
+  const raw = typeof config.webhook_url === 'string' ? config.webhook_url.trim() : '';
+  if (!raw || raw.includes('********')) return null;
+  return wecomWebhookUrlLooksValid(raw) ? raw : null;
+}
+
+function configuredWebhookUrl(config: Record<string, unknown>): string | null {
+  const raw = typeof config.webhook_url === 'string' ? config.webhook_url.trim() : '';
+  if (!raw || raw.includes('********')) return null;
+  return raw;
+}
+
+function wecomWebhookUrlLooksValid(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:'
+      && url.hostname.toLowerCase() === WECOM_WEBHOOK_HOST
+      && (url.port === '' || url.port === '443')
+      && url.pathname === WECOM_WEBHOOK_PATH
+      && !url.username
+      && !url.password
+      && !url.hash
+      && Boolean(url.searchParams.get('key')?.trim())
+      && url.searchParams.get('key') !== '********';
+  } catch {
+    return false;
+  }
+}
+
+function maskWebhookUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    if (url.username) url.username = '********';
+    if (url.password) url.password = '********';
+    for (const key of Array.from(url.searchParams.keys())) {
+      if (['key', 'token', 'secret', 'access_token'].includes(key.toLowerCase())) {
+        url.searchParams.set(key, '********');
+      }
+    }
+    return url.toString();
+  } catch {
+    return value.length <= 12 ? '********' : `${value.slice(0, 4)}********${value.slice(-4)}`;
+  }
+}
+
+function summarizeWecomResponse(text: string, response: Response): Record<string, unknown> {
+  let parsed: Record<string, unknown> = {};
+  try {
+    parsed = stringRecord(JSON.parse(text));
+  } catch {
+    parsed = {};
+  }
+  const summary: Record<string, unknown> = {
+    errmsg: typeof parsed.errmsg === 'string'
+      ? parsed.errmsg
+      : response.ok ? 'ok' : response.statusText || 'failed',
+  };
+  if (typeof parsed.errcode === 'number') {
+    summary.errcode = parsed.errcode;
+  }
+  return summary;
+}
+
+class WecomTestTimeoutError extends Error {
+  constructor() {
+    super(`WeCom test request timed out after ${DEV_WECOM_TEST_TIMEOUT_MS}ms`);
+    this.name = 'WecomTestTimeoutError';
+  }
+}
+
+async function sendWecomTestMessage(webhookUrl: string) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DEV_WECOM_TEST_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        msgtype: 'text',
+        text: {
+          content: `DCC-MCP Admin WeCom test\nGateway: dev-mock\nSent at: ${Date.now()}`,
+        },
+      }),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new WecomTestTimeoutError();
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+  const text = await response.text();
+  const body = summarizeWecomResponse(text, response);
+  const errcode = typeof body.errcode === 'number' ? body.errcode : null;
+  const errmsg = typeof body.errmsg === 'string' ? body.errmsg : response.statusText || 'ok';
+  if (!response.ok || (errcode !== null && errcode !== 0)) {
+    return {
+      ok: false,
+      status: response.status,
+      body,
+      message: errmsg,
+    };
+  }
+  return {
+    ok: true,
+    status: response.status,
+    body,
+    message: errmsg,
+  };
+}
+
 function marketplacePackage(name: string, dcc: string) {
   const catalogEntry = MARKETPLACE_CATALOG.find((entry) => entry.name === name);
   return {
@@ -1108,6 +1234,61 @@ export function adminApiMockPlugin(): Plugin {
           if (req.method === 'POST' || req.method === 'DELETE') return send(res, 200, { ok: true });
           return send(res, 200, SKILL_PATHS_PAYLOAD);
         }
+        if (url.startsWith('/integrations/test') && req.method === 'POST') {
+          const payload = await readJsonBody(req);
+          const kind = String(payload.kind ?? '').trim().toLowerCase();
+          const config = stringRecord(payload.config);
+          if (kind !== 'wecom') {
+            return send(res, 400, {
+              error: 'unsupported_integration_test',
+              message: `test send is not supported for integration kind '${kind}'`,
+            });
+          }
+          const configuredUrl = configuredWebhookUrl(config);
+          if (configuredUrl && !wecomWebhookUrlLooksValid(configuredUrl)) {
+            return send(res, 400, {
+              error: 'invalid_integration_test_config',
+              message: `webhook_url must be a valid WeCom robot webhook URL like ${WECOM_WEBHOOK_URL_HINT}`,
+            });
+          }
+          const webhookUrl = concreteWebhookUrlFromConfig(config) ?? devWecomWebhookUrl;
+          if (!webhookUrl) {
+            return send(res, 400, {
+              error: 'invalid_integration_test_config',
+              message: 'wecom webhook_url is required before sending a test message',
+            });
+          }
+          try {
+            const result = await sendWecomTestMessage(webhookUrl);
+            if (!result.ok) {
+              return send(res, 502, {
+                error: 'wecom_test_failed',
+                message: `WeCom test message was rejected: ${result.message}`,
+                kind: 'wecom',
+                http_status: result.status,
+                wecom: result.body,
+                webhook_url: maskWebhookUrl(webhookUrl),
+              });
+            }
+            return send(res, 200, {
+              kind: 'wecom',
+              status: 'sent',
+              message: result.message,
+              sent_at_ms: Date.now(),
+              webhook_url: maskWebhookUrl(webhookUrl),
+              wecom: result.body,
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            const timedOut = error instanceof WecomTestTimeoutError;
+            return send(res, timedOut ? 504 : 502, {
+              error: 'wecom_test_failed',
+              message: `failed to send WeCom test message: ${message}`,
+              kind: 'wecom',
+              webhook_url: maskWebhookUrl(webhookUrl),
+            });
+          }
+        }
         if (url.startsWith('/integrations')) {
           if (req.method === 'PUT') {
             const payload = await readJsonBody(req);
@@ -1117,13 +1298,27 @@ export function adminApiMockPlugin(): Plugin {
               : {};
             const current = INTEGRATIONS_PAYLOAD.integrations.find((entry) => entry.kind === kind)
               ?? INTEGRATIONS_PAYLOAD.integrations[0];
+            if (kind === 'wecom') {
+              const configuredUrl = configuredWebhookUrl(config);
+              if (configuredUrl && !wecomWebhookUrlLooksValid(configuredUrl)) {
+                return send(res, 400, {
+                  error: 'invalid_integration_config',
+                  message: `webhook_url must be a valid WeCom robot webhook URL like ${WECOM_WEBHOOK_URL_HINT}`,
+                });
+              }
+              devWecomWebhookUrl = concreteWebhookUrlFromConfig(config) ?? devWecomWebhookUrl;
+            }
+            const responseConfig = {
+              ...current.config,
+              ...config,
+            };
+            if (kind === 'wecom' && devWecomWebhookUrl) {
+              responseConfig.webhook_url = maskWebhookUrl(devWecomWebhookUrl);
+            }
             return send(res, 200, {
               ...current,
               status: 'pending_restart',
-              config: {
-                ...current.config,
-                ...config,
-              },
+              config: responseConfig,
             });
           }
           return send(res, 200, INTEGRATIONS_PAYLOAD);

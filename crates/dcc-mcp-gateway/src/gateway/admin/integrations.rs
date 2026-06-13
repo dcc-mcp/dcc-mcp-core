@@ -21,6 +21,9 @@ const ENV_WECOM_TEMPLATE: &str = "DCC_MCP_WECOM_TEMPLATE";
 const ENV_OTLP_ENDPOINT: &str = "OTEL_EXPORTER_OTLP_ENDPOINT";
 const ENV_OTLP_SERVICE_NAME: &str = "OTEL_SERVICE_NAME";
 const ENV_OTLP_HEADERS: &str = "OTEL_EXPORTER_OTLP_HEADERS";
+const WECOM_WEBHOOK_HOST: &str = "qyapi.weixin.qq.com";
+const WECOM_WEBHOOK_PATH: &str = "/cgi-bin/webhook/send";
+const WECOM_WEBHOOK_URL_HINT: &str = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...";
 const DEFAULT_WECOM_TEMPLATE: &str = "DCC-MCP $event\nDCC: $dcc-type\nTool: $tool-slug\nURL: $url";
 const DEFAULT_SENTRY_CONFIG_FILE: &str = "sentry.json";
 const DEFAULT_WEBHOOKS_CONFIG_FILE: &str = "webhooks.yaml";
@@ -31,6 +34,13 @@ pub(crate) static INTEGRATIONS_TEST_ENV_LOCK: parking_lot::Mutex<()> = parking_l
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateIntegrationRequest {
+    kind: String,
+    #[serde(default)]
+    config: Map<String, Value>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TestIntegrationRequest {
     kind: String,
     #[serde(default)]
     config: Map<String, Value>,
@@ -100,6 +110,106 @@ pub async fn handle_admin_integration_update(
         )
             .into_response(),
     }
+}
+
+/// `POST /admin/api/integrations/test` — send a real test event for supported integrations.
+pub async fn handle_admin_integration_test(
+    State(s): State<AdminState>,
+    Json(req): Json<TestIntegrationRequest>,
+) -> Response {
+    let kind = req.kind.trim().to_ascii_lowercase();
+    match kind.as_str() {
+        "wecom" => send_wecom_test_message(&s, req.config).await,
+        _ => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "unsupported_integration_test",
+                "message": format!("test send is not supported for integration kind '{kind}'"),
+            })),
+        )
+            .into_response(),
+    }
+}
+
+async fn send_wecom_test_message(s: &AdminState, config: Map<String, Value>) -> Response {
+    let webhook_url = match resolve_wecom_test_webhook_url(s, &config) {
+        Ok(url) => url,
+        Err((status, message)) => {
+            return (
+                status,
+                Json(json!({
+                    "error": "invalid_integration_test_config",
+                    "message": message,
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    let sent_at_ms = unix_epoch_millis();
+    let payload = json!({
+        "msgtype": "text",
+        "text": {
+            "content": format!(
+                "DCC-MCP Admin WeCom test\nGateway: {}\nVersion: {}\nSent at: {}",
+                s.gateway.server_name,
+                s.gateway.server_version,
+                sent_at_ms,
+            ),
+        },
+    });
+
+    let response = match s
+        .gateway
+        .http_client
+        .post(&webhook_url)
+        .json(&payload)
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(err) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({
+                    "error": "wecom_test_failed",
+                    "message": format!("failed to send WeCom test message: {err}"),
+                    "kind": "wecom",
+                    "webhook_url": mask_webhook_url(&webhook_url),
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    let http_status = response.status();
+    let response_text = response.text().await.unwrap_or_default();
+    let (errcode, errmsg, wecom_response) = summarize_wecom_response(&response_text, http_status);
+
+    if !http_status.is_success() || errcode.is_some_and(|code| code != 0) {
+        return (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({
+                "error": "wecom_test_failed",
+                "message": format!("WeCom test message was rejected: {errmsg}"),
+                "kind": "wecom",
+                "http_status": http_status.as_u16(),
+                "wecom": wecom_response,
+                "webhook_url": mask_webhook_url(&webhook_url),
+            })),
+        )
+            .into_response();
+    }
+
+    Json(json!({
+        "kind": "wecom",
+        "status": "sent",
+        "message": errmsg,
+        "sent_at_ms": sent_at_ms,
+        "webhook_url": mask_webhook_url(&webhook_url),
+        "wecom": wecom_response,
+    }))
+    .into_response()
 }
 
 fn build_integration_entries(s: &AdminState) -> Vec<Value> {
@@ -281,7 +391,7 @@ fn wecom_integration_entry(s: &AdminState) -> Value {
     let mut config = Map::new();
     let mut error = None;
     let active = match webhook_url.as_deref() {
-        Some(value) if http_url_looks_valid(value) => {
+        Some(value) if wecom_webhook_url_looks_valid(value) => {
             config.insert("webhook_url".into(), Value::String(mask_webhook_url(value)));
             config.insert(
                 "event_types".into(),
@@ -303,7 +413,7 @@ fn wecom_integration_entry(s: &AdminState) -> Value {
         }
         Some(_) => {
             error = Some(format!(
-                "{ENV_WECOM_WEBHOOK_URL} is set but is not a valid HTTP(S) webhook URL"
+                "{ENV_WECOM_WEBHOOK_URL} is set but is not a valid WeCom robot webhook URL; expected {WECOM_WEBHOOK_URL_HINT}"
             ));
             config.insert("webhook_url".into(), Value::String("********".into()));
             false
@@ -494,6 +604,72 @@ fn pending_integration_config(s: &AdminState, kind: &str) -> Option<Map<String, 
         .filter(|config| !config.is_empty())
 }
 
+fn resolve_wecom_test_webhook_url(
+    s: &AdminState,
+    config: &Map<String, Value>,
+) -> Result<String, (StatusCode, String)> {
+    if let Some(url) = concrete_wecom_webhook_url_from_config(config)? {
+        return Ok(url);
+    }
+    if let Some(url) = env_string(ENV_WECOM_WEBHOOK_URL) {
+        if !wecom_webhook_url_looks_valid(&url) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "{ENV_WECOM_WEBHOOK_URL} is set but is not a valid WeCom robot webhook URL; expected {WECOM_WEBHOOK_URL_HINT}"
+                ),
+            ));
+        }
+        return Ok(url);
+    }
+    if let Some(pending) = pending_integration_config(s, "wecom")
+        && let Some(url) = concrete_wecom_webhook_url_from_config(&pending)?
+    {
+        return Ok(url);
+    }
+    if let Some(saved) = saved_wecom_config_from_default_webhooks() {
+        match saved {
+            Ok(saved) => {
+                if let Some(url) = concrete_wecom_webhook_url_from_config(&saved)? {
+                    return Ok(url);
+                }
+            }
+            Err(message) => return Err((StatusCode::BAD_REQUEST, message)),
+        }
+    }
+    Err((
+        StatusCode::BAD_REQUEST,
+        "wecom webhook_url is required before sending a test message".into(),
+    ))
+}
+
+fn concrete_wecom_webhook_url_from_config(
+    config: &Map<String, Value>,
+) -> Result<Option<String>, (StatusCode, String)> {
+    let Some(url) = optional_string_field(config, "webhook_url")? else {
+        return Ok(None);
+    };
+    if url.contains("********") {
+        return Ok(None);
+    }
+    if !wecom_webhook_url_looks_valid(&url) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!(
+                "webhook_url must be a valid WeCom robot webhook URL like {WECOM_WEBHOOK_URL_HINT}"
+            ),
+        ));
+    }
+    Ok(Some(url))
+}
+
+fn unix_epoch_millis() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default()
+}
+
 fn sanitize_integration_config(
     kind: &str,
     config: Map<String, Value>,
@@ -532,10 +708,12 @@ fn sanitize_wecom_config(
     let mut out = Map::new();
     let webhook_url = optional_string_field(&config, "webhook_url")?;
     if let Some(url) = webhook_url {
-        if !http_url_looks_valid(&url) {
+        if !wecom_webhook_url_looks_valid(&url) {
             return Err((
                 StatusCode::BAD_REQUEST,
-                "webhook_url must be a valid HTTP(S) URL".into(),
+                format!(
+                    "webhook_url must be a valid WeCom robot webhook URL like {WECOM_WEBHOOK_URL_HINT}"
+                ),
             ));
         }
         out.insert("webhook_url".into(), Value::String(url));
@@ -669,10 +847,7 @@ fn persist_wecom_config(
         .map_err(|message| (StatusCode::INTERNAL_SERVER_ERROR, message))?;
 
     let mut out = Map::new();
-    out.insert(
-        "webhook_url".into(),
-        Value::String(mask_webhook_url(webhook_url)),
-    );
+    out.insert("webhook_url".into(), Value::String(webhook_url.to_string()));
     out.insert(
         "event_types".into(),
         Value::Array(events.into_iter().map(Value::String).collect()),
@@ -897,6 +1072,34 @@ fn split_event_patterns(raw: &str) -> Vec<String> {
         .collect()
 }
 
+fn summarize_wecom_response(
+    response_text: &str,
+    http_status: StatusCode,
+) -> (Option<i64>, String, Value) {
+    let parsed = serde_json::from_str::<Value>(response_text).ok();
+    let errcode = parsed
+        .as_ref()
+        .and_then(|value| value.get("errcode"))
+        .and_then(Value::as_i64);
+    let errmsg = parsed
+        .as_ref()
+        .and_then(|value| value.get("errmsg"))
+        .and_then(Value::as_str)
+        .unwrap_or(if http_status.is_success() {
+            "ok"
+        } else {
+            "failed"
+        })
+        .to_string();
+
+    let mut summary = Map::new();
+    if let Some(code) = errcode {
+        summary.insert("errcode".into(), Value::from(code));
+    }
+    summary.insert("errmsg".into(), Value::String(errmsg.clone()));
+    (errcode, errmsg, Value::Object(summary))
+}
+
 fn sentry_dsn_looks_valid(value: &str) -> bool {
     reqwest::Url::parse(value).is_ok_and(|url| {
         url_is_http_or_https(&url)
@@ -906,9 +1109,53 @@ fn sentry_dsn_looks_valid(value: &str) -> bool {
     })
 }
 
-fn http_url_looks_valid(value: &str) -> bool {
-    reqwest::Url::parse(value)
-        .is_ok_and(|url| url_is_http_or_https(&url) && url.host_str().is_some())
+fn wecom_webhook_url_looks_valid(value: &str) -> bool {
+    strict_wecom_webhook_url_looks_valid(value) || {
+        #[cfg(test)]
+        {
+            test_wecom_webhook_url_looks_valid(value)
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
+    }
+}
+
+fn strict_wecom_webhook_url_looks_valid(value: &str) -> bool {
+    reqwest::Url::parse(value).is_ok_and(|url| {
+        url.scheme() == "https"
+            && url
+                .host_str()
+                .is_some_and(|host| host.eq_ignore_ascii_case(WECOM_WEBHOOK_HOST))
+            && matches!(url.port(), None | Some(443))
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.fragment().is_none()
+            && wecom_webhook_url_has_robot_shape(&url)
+    })
+}
+
+#[cfg(test)]
+fn test_wecom_webhook_url_looks_valid(value: &str) -> bool {
+    reqwest::Url::parse(value).is_ok_and(|url| {
+        url.scheme() == "http"
+            && url.host_str().is_some_and(|host| {
+                host.eq_ignore_ascii_case("localhost") || {
+                    host.parse::<std::net::IpAddr>()
+                        .is_ok_and(|addr| addr.is_loopback())
+                }
+            })
+            && url.fragment().is_none()
+            && wecom_webhook_url_has_robot_shape(&url)
+    })
+}
+
+fn wecom_webhook_url_has_robot_shape(url: &reqwest::Url) -> bool {
+    url.path() == WECOM_WEBHOOK_PATH
+        && url.query_pairs().any(|(key, value)| {
+            key == "key" && !value.trim().is_empty() && value.as_ref() != "********"
+        })
 }
 
 fn url_is_http_or_https(url: &reqwest::Url) -> bool {
@@ -1209,14 +1456,14 @@ fn read_wecom_config_from_webhooks_file(path: &FsPath) -> Result<Map<String, Val
             continue;
         }
         let url = yaml_string(item.get("url")).unwrap_or_default();
-        if !http_url_looks_valid(&url) {
+        if !wecom_webhook_url_looks_valid(&url) {
             return Err(format!(
-                "WeCom webhook url in {} is invalid",
-                path.display()
+                "WeCom webhook url in {} must be a valid WeCom robot webhook URL like {WECOM_WEBHOOK_URL_HINT}",
+                path.display(),
             ));
         }
         let mut config = Map::new();
-        config.insert("webhook_url".into(), Value::String(mask_webhook_url(&url)));
+        config.insert("webhook_url".into(), Value::String(url));
         config.insert(
             "event_types".into(),
             Value::Array(
@@ -1316,6 +1563,41 @@ mod integration_config_tests {
         format!(
             "queue_capacity: 16\nwebhooks:\n  - name: {name}\n    url: http://127.0.0.1:9000/hook\n    events:\n      - tool.failed\n"
         )
+    }
+
+    #[test]
+    fn wecom_webhook_url_validation_requires_robot_endpoint() {
+        assert!(strict_wecom_webhook_url_looks_valid(
+            "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123"
+        ));
+        assert!(strict_wecom_webhook_url_looks_valid(
+            "https://qyapi.weixin.qq.com:443/cgi-bin/webhook/send?key=abc123"
+        ));
+        assert!(!strict_wecom_webhook_url_looks_valid(
+            "http://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123"
+        ));
+        assert!(!strict_wecom_webhook_url_looks_valid(
+            "https://example.com/cgi-bin/webhook/send?key=abc123"
+        ));
+        assert!(!strict_wecom_webhook_url_looks_valid(
+            "https://qyapi.weixin.qq.com/cgi-bin/webhook/send"
+        ));
+        assert!(!strict_wecom_webhook_url_looks_valid(
+            "https://qyapi.weixin.qq.com/other?key=abc123"
+        ));
+    }
+
+    #[test]
+    fn wecom_response_summary_does_not_echo_extra_fields() {
+        let (_errcode, errmsg, summary) = summarize_wecom_response(
+            r#"{"errcode":93000,"errmsg":"invalid webhook","secret_echo":"leak"}"#,
+            StatusCode::OK,
+        );
+
+        assert_eq!(errmsg, "invalid webhook");
+        assert_eq!(summary["errcode"], 93000);
+        assert_eq!(summary["errmsg"], "invalid webhook");
+        assert!(summary.get("secret_echo").is_none());
     }
 
     #[test]

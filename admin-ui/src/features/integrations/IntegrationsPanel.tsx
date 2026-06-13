@@ -8,6 +8,7 @@ import {
 } from '../../admin-ui-core';
 import {
   useIntegrationsQuery,
+  useTestIntegration,
   useUpdateIntegration,
 } from '../../hooks/queries';
 import type { IntegrationKind } from '../../admin-types';
@@ -47,6 +48,7 @@ export function IntegrationsPanel({
 
   const integrationsQuery = useIntegrationsQuery(active);
   const updateMut = useUpdateIntegration();
+  const testMut = useTestIntegration();
 
   const integrations = useMemo(() => integrationsQuery.data ?? [], [integrationsQuery.data]);
 
@@ -122,6 +124,23 @@ export function IntegrationsPanel({
     [updateMut, onUpdated, onError, t],
   );
 
+  const handleTest = useCallback(
+    async (kind: IntegrationKind, config: Record<string, unknown>) => {
+      try {
+        const result = await testMut.mutateAsync({ kind, config });
+        onUpdated(
+          t('integrations.toast.testSent', { kind }) +
+            ` · ${result.message || 'ok'} · ${new Date().toLocaleTimeString()}`,
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        onError(message);
+        throw err;
+      }
+    },
+    [testMut, onUpdated, onError, t],
+  );
+
   if (!active) return null;
 
   return (
@@ -160,7 +179,9 @@ export function IntegrationsPanel({
                   <IntegrationEditForm
                     entry={editingEntry}
                     saving={updateMut.isPending}
+                    testing={testMut.isPending}
                     onSave={handleSave}
+                    onTest={editingEntry.kind === 'wecom' ? handleTest : undefined}
                     onCancel={handleCancel}
                     t={t}
                   />
