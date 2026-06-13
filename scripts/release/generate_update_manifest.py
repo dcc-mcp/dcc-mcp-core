@@ -53,6 +53,7 @@ def generate_manifest(
         out_dir: Output directory for the manifest.
 
     Returns:
+
         Path to the generated manifest file.
     """
     manifest: dict[str, dict] = {}
@@ -83,6 +84,7 @@ def generate_manifest(
 
 
 def main() -> int:
+    """Run the update manifest generator."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--version", required=True)
     parser.add_argument("--platform", required=True)
