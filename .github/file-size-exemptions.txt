@@ -7,7 +7,8 @@
 # Format: one file path per line (relative to repo root), comments with #
 #
 # Limits enforced by .github/workflows/check-file-size.yml:
-#   Rust  : 1500 lines (test files use a separate 2000-line gate)
+#   Rust  : 1500 lines
+#   Rust tests: 2000 lines
 #   Python: 1000 lines (test files excluded)
 
 # issue #849 — server_base.py is a 1162-line god module; tracked for split
@@ -16,3 +17,9 @@ python/dcc_mcp_core/server_base.py
 crates/dcc-mcp-gateway/src/gateway/admin/trace.rs
 # PIP-687 — service.rs 1504L, exceeds 1500 limit
 crates/dcc-mcp-skill-rest/src/service.rs
+# PIP-688 — cli_e2e.rs 3113L, split gateway fixtures/marketplace/update suites
+crates/dcc-mcp-cli/tests/cli_e2e.rs
+# PIP-689 — admin/tests.rs 4564L, split admin API fixtures and panel-specific suites
+crates/dcc-mcp-gateway/src/gateway/admin/tests.rs
+# PIP-690 — rest_impl_tests.rs 2141L, split REST fixture helpers and handler suites
+crates/dcc-mcp-gateway/src/gateway/handlers/rest_impl_tests.rs

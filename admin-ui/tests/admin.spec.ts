@@ -1705,7 +1705,7 @@ test.describe('Admin Page', () => {
     await expect(page.locator('html')).toHaveAttribute('lang', 'ja');
     await expect(page.locator('html')).toHaveAttribute('data-admin-locale-source', 'navigator');
     await expect(page.locator('.brand-tag')).toContainText('DCC-MCP ゲートウェイ');
-    await expect(page.locator('#admin-locale-select .preference-select-visible-value')).toHaveText('日本語');
+    await expect(page.locator('#admin-locale-select .preference-select-visible-value')).toHaveText('JA');
     await expect(page.locator('#admin-locale-select')).toHaveAttribute('aria-label', '言語: 日本語');
 
     await context.close();
@@ -1719,7 +1719,7 @@ test.describe('Admin Page', () => {
     await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN');
     await expect(page.locator('html')).toHaveAttribute('data-admin-locale-source', 'override');
     await expect(page.getByRole('navigation').getByRole('link', { name: '日志' })).toBeVisible();
-    await expect(page.locator('#admin-locale-select .preference-select-visible-value')).toHaveText('中文');
+    await expect(page.locator('#admin-locale-select .preference-select-visible-value')).toHaveText('ZH');
     const localeTriggerMetrics = await page.locator('#admin-locale-select').evaluate((node) => {
       const trigger = node as HTMLElement;
       return {
@@ -1732,7 +1732,7 @@ test.describe('Admin Page', () => {
     await page.reload();
 
     await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN');
-    await expect(page.locator('#admin-locale-select .preference-select-visible-value')).toHaveText('中文');
+    await expect(page.locator('#admin-locale-select .preference-select-visible-value')).toHaveText('ZH');
     await expect(page.locator('#admin-locale-select')).toHaveAttribute('aria-label', '语言: 简体中文');
   });
 
