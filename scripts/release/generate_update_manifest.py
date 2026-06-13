@@ -64,9 +64,7 @@ def generate_manifest(
             continue
 
         asset_filename = asset_path.name
-        download_url = (
-            f"https://github.com/{repo}/releases/download/{release_tag}/{asset_filename}"
-        )
+        download_url = f"https://github.com/{repo}/releases/download/{release_tag}/{asset_filename}"
         sha256_digest = _sha256(asset_path)
 
         manifest[binary_name] = {
