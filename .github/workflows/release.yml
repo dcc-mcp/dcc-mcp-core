@@ -272,6 +272,29 @@ jobs:
             --cli-bin "${{ matrix.cli_artifact_name }}" \
             --out-dir .
 
+      - name: Create standalone CLI zip
+        id: cli-bundle
+        shell: bash
+        run: |
+          python scripts/release/build_cli_bundle.py \
+            --version "${{ needs.release-please.outputs.version }}" \
+            --platform "${{ matrix.platform }}" \
+            --cli-bin "${{ matrix.cli_artifact_name }}" \
+            --out-dir .
+
+      - name: Generate update manifest
+        id: update-manifest
+        shell: bash
+        run: |
+          python scripts/release/generate_update_manifest.py \
+            --version "${{ needs.release-please.outputs.version }}" \
+            --platform "${{ matrix.platform }}" \
+            --release-tag "${{ needs.release-please.outputs.tag_name }}" \
+            --repo "${{ github.repository }}" \
+            --server-bin "${{ matrix.artifact_name }}" \
+            --cli-bin "${{ matrix.cli_artifact_name }}" \
+            --out-dir .
+
       # ── PyPI wheel build ──────────────────────────────────────────
       # macOS / Windows reuse the same target/ directory the raw-binary
       # step just populated; maturin sees the binary as already-compiled
@@ -326,6 +349,8 @@ jobs:
             ${{ matrix.artifact_name }}
             ${{ matrix.cli_artifact_name }}
             ${{ steps.server-bundle.outputs.bundle_path }}
+            ${{ steps.cli-bundle.outputs.cli_bundle_path }}
+            ${{ steps.update-manifest.outputs.manifest_path }}
 
       - name: Upload server wheel artefact (for cross-job collection)
         uses: actions/upload-artifact@v4
@@ -341,6 +366,8 @@ jobs:
             ${{ matrix.artifact_name }}
             ${{ matrix.cli_artifact_name }}
             ${{ steps.server-bundle.outputs.bundle_path }}
+            ${{ steps.cli-bundle.outputs.cli_bundle_path }}
+            ${{ steps.update-manifest.outputs.manifest_path }}
             pkg/dcc-mcp-server-bin/wheels/*.whl
 
   # ── Build dcc-mcp-core-semantic companion wheels (issue #1395) ──
@@ -794,6 +821,8 @@ jobs:
             '^dcc-mcp-server-'
             '^dcc-mcp-cli-'
             '^dcc-mcp-server-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$'
+            '^dcc-mcp-cli-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$'
+            '^dcc-mcp-update-manifest-(linux-x86_64|windows-x86_64|macos-universal2)\.json$'
           )
 
           release_json=""
