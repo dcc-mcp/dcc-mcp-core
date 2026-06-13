@@ -11,9 +11,9 @@ export const LOCALE_LABELS: Record<SupportedLocale, string> = {
 
 export const LOCALE_TRIGGER_LABELS: Record<SupportedLocale, string> = {
   en: 'EN',
-  'zh-CN': '中文',
-  ja: '日本語',
-  ko: '한국어',
+  'zh-CN': 'ZH',
+  ja: 'JA',
+  ko: 'KO',
 };
 
 const SUPPORTED_LOCALE_ID_SET = new Set<string>(SUPPORTED_LOCALES);
