@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.22](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.21...v0.18.22) (2026-06-13)
+
+
+### Features
+
+* add CLI standalone ZIP bundle and update manifest to release pipeline ([92fbd5a](https://github.com/dcc-mcp/dcc-mcp-core/commit/92fbd5a6f8a95250a4ac54037f06b5df7d1b260d))
+
+
+### Bug Fixes
+
+* apply ruff format to generate_update_manifest.py ([1447f03](https://github.com/dcc-mcp/dcc-mcp-core/commit/1447f03aff3d74b3efa13dfd759fad6344b82994))
+* auto-ensure gateway for cli control ([d67af5a](https://github.com/dcc-mcp/dcc-mcp-core/commit/d67af5af6e4aa592346d8e468ebb5dfcdf7ea398))
+* **ci:** add retry with exponential backoff for Multica 429 in publish workflow ([7e6f52f](https://github.com/dcc-mcp/dcc-mcp-core/commit/7e6f52f28f2b677ac1d826993b9a40fd92416c68))
+* ensure gateway before local cli list ([80e8699](https://github.com/dcc-mcp/dcc-mcp-core/commit/80e8699bab3e967f7af1663cd04cdc89afd8333b))
+* polish admin select controls ([1935f58](https://github.com/dcc-mcp/dcc-mcp-core/commit/1935f5833ce512660dd8fb0221b2c0f7fac77075))
+* resolve ruff lint issues in update manifest generator ([c018300](https://github.com/dcc-mcp/dcc-mcp-core/commit/c018300fa28f4c7f89285e6f5c708167d13420a7))
+* ruff D413 - blank line after Returns section content ([eebff1d](https://github.com/dcc-mcp/dcc-mcp-core/commit/eebff1d599d0d537c8012982398592224120698e))
+* stabilize cli registry e2e ([540fd3d](https://github.com/dcc-mcp/dcc-mcp-core/commit/540fd3d392bbf30d5a297d2fb8af9492e4f2bccc))
+* use instance server version for updates ([009ee8a](https://github.com/dcc-mcp/dcc-mcp-core/commit/009ee8aa8d3bbbca1d421df44167ed4867739870))
+
 ## [0.18.21](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.20...v0.18.21) (2026-06-12)
 
 
