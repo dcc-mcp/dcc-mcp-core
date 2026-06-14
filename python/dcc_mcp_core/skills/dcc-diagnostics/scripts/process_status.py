@@ -65,7 +65,7 @@ def main(**kwargs) -> None:
                         "the last actions before the crash."
                     ),
                     "context": {
-                        "pid": args.pid,
+                        "pid": pid,
                         "alive": alive,
                         "monitor_running": is_running,
                         "tracked_pids": tracked_count,
