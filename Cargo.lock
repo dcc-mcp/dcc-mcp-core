@@ -7976,6 +7976,7 @@ dependencies = [
  "bit-set",
  "bit-vec",
  "bitflags",
+ "bytemuck",
  "cc",
  "chrono",
  "clap",

@@ -20,6 +20,7 @@ axum = { version = "0.8.9", features = ["ws"] }
 axum-core = { version = "0.5.6", default-features = false, features = ["tracing"] }
 bit-set = { version = "0.8.0" }
 bit-vec = { version = "0.8.0" }
+bytemuck = { version = "1.25.0", default-features = false, features = ["derive", "extern_crate_alloc", "min_const_generics"] }
 chrono = { version = "0.4.45", features = ["serde"] }
 clap = { version = "4.6.1", features = ["derive", "env"] }
 clap_builder = { version = "4.6.0", default-features = false, features = ["color", "env", "help", "std", "suggestions", "usage"] }
@@ -103,6 +104,7 @@ axum = { version = "0.8.9", features = ["ws"] }
 axum-core = { version = "0.5.6", default-features = false, features = ["tracing"] }
 bit-set = { version = "0.8.0" }
 bit-vec = { version = "0.8.0" }
+bytemuck = { version = "1.25.0", default-features = false, features = ["derive", "extern_crate_alloc", "min_const_generics"] }
 chrono = { version = "0.4.45", features = ["serde"] }
 clap = { version = "4.6.1", features = ["derive", "env"] }
 clap_builder = { version = "4.6.0", default-features = false, features = ["color", "env", "help", "std", "suggestions", "usage"] }
