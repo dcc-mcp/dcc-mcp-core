@@ -58,7 +58,8 @@ pub async fn refresh_instance(
     reason: RefreshReason,
     diag_store: Option<&InstanceDiagnosticsStore>,
 ) -> bool {
-    let (tools, unloaded_hints) = match try_fetch_tools(http_client, mcp_url, backend_timeout).await {
+    let (tools, unloaded_hints) = match try_fetch_tools(http_client, mcp_url, backend_timeout).await
+    {
         Ok(result) => result,
         Err(e) => {
             tracing::warn!(
