@@ -14,6 +14,10 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc
 This installs the standalone `dcc-mcp-cli` control-plane binary from the
 latest GitHub Release. Pin a release with `DCC_MCP_VERSION=v0.17.17`.
 
+The CLI is also available as a standalone ZIP archive
+(`dcc-mcp-cli-<version>-<platform>.zip`) from each
+[GitHub Release](https://github.com/dcc-mcp/dcc-mcp-core/releases).
+
 ### From PyPI
 
 ```bash
