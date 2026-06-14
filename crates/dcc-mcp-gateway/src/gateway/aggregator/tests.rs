@@ -1700,9 +1700,7 @@ async fn load_skill_preserves_existing_index_when_v1_search_fails() {
         "project_save must survive after /v1/search 404 during load_skill"
     );
     assert!(
-        snap.records
-            .iter()
-            .any(|r| r.backend_tool == "scene_open"),
+        snap.records.iter().any(|r| r.backend_tool == "scene_open"),
         "scene_open must survive after /v1/search 404"
     );
 
@@ -1732,15 +1730,15 @@ async fn load_skill_preserves_existing_index_when_v1_search_fails() {
     // ASSERTION 4: new_tool_slugs in the response payload.
     let slugs = payload["new_tool_slugs"].as_array().unwrap();
     assert!(
-        slugs
-            .iter()
-            .any(|s| s.as_str().map_or(false, |s| s.contains("maya_mgear__inspect"))),
+        slugs.iter().any(|s| s
+            .as_str()
+            .map_or(false, |s| s.contains("maya_mgear__inspect"))),
         "new_tool_slugs must include maya_mgear__inspect: {slugs:?}"
     );
     assert!(
-        slugs
-            .iter()
-            .any(|s| s.as_str().map_or(false, |s| s.contains("maya_mgear__list_joints"))),
+        slugs.iter().any(|s| s
+            .as_str()
+            .map_or(false, |s| s.contains("maya_mgear__list_joints"))),
         "new_tool_slugs must include maya_mgear__list_joints: {slugs:?}"
     );
 
