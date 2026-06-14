@@ -119,10 +119,8 @@ pub(crate) async fn skill_mgmt_dispatch(
                                         if !slugs.is_empty() {
                                             break;
                                         }
-                                        tokio::time::sleep(
-                                            std::time::Duration::from_millis(200),
-                                        )
-                                        .await;
+                                        tokio::time::sleep(std::time::Duration::from_millis(200))
+                                            .await;
                                         crate::gateway::capability::refresh_instance(
                                             &gs.capability_index,
                                             &gs.http_client,
@@ -595,8 +593,8 @@ fn inject_load_skill_tools_into_index(
                 tool_name.clone(),
                 tool_name,
                 skill_name,
-                "",          // summary — unknown without /v1/describe
-                Vec::new(),     // tags — unknown without /v1/describe
+                "",         // summary — unknown without /v1/describe
+                Vec::new(), // tags — unknown without /v1/describe
                 entry.dcc_type.clone(),
                 entry.instance_id,
                 false, // has_schema — unknown without /v1/describe
@@ -609,14 +607,14 @@ fn inject_load_skill_tools_into_index(
     // Merge with existing records for this instance, deduplicating by
     // callable_id so we don't double-count tools that the refresh path
     // already picked up.
-    let mut merged: Vec<CapabilityRecord> =
-        gs.capability_index
-            .snapshot()
-            .records
-            .iter()
-            .filter(|r| r.instance_id == entry.instance_id)
-            .cloned()
-            .collect();
+    let mut merged: Vec<CapabilityRecord> = gs
+        .capability_index
+        .snapshot()
+        .records
+        .iter()
+        .filter(|r| r.instance_id == entry.instance_id)
+        .cloned()
+        .collect();
 
     for rec in new_records {
         if !merged.iter().any(|r| r.callable_id == rec.callable_id) {
