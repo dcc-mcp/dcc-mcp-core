@@ -1,54 +1,7 @@
 use super::*;
-#[cfg(feature = "telemetry")]
-use std::sync::{Mutex, MutexGuard};
 
 #[cfg(feature = "telemetry")]
-static OTLP_ENV_LOCK: Mutex<()> = Mutex::new(());
-
-#[cfg(feature = "telemetry")]
-struct EnvVarsGuard {
-    previous: Vec<(&'static str, Option<String>)>,
-    _lock: MutexGuard<'static, ()>,
-}
-
-#[cfg(feature = "telemetry")]
-impl EnvVarsGuard {
-    fn set(vars: &[(&'static str, Option<&str>)]) -> Self {
-        let lock = OTLP_ENV_LOCK.lock().expect("env lock poisoned");
-        let previous = vars
-            .iter()
-            .map(|(key, _)| (*key, std::env::var(key).ok()))
-            .collect::<Vec<_>>();
-        // SAFETY: serialized by OTLP_ENV_LOCK; tests restore previous values on drop.
-        unsafe {
-            for (key, value) in vars {
-                match value {
-                    Some(v) => std::env::set_var(key, v),
-                    None => std::env::remove_var(key),
-                }
-            }
-        }
-        Self {
-            previous,
-            _lock: lock,
-        }
-    }
-}
-
-#[cfg(feature = "telemetry")]
-impl Drop for EnvVarsGuard {
-    fn drop(&mut self) {
-        // SAFETY: serialized by OTLP_ENV_LOCK held for the guard lifetime.
-        unsafe {
-            for (key, value) in &self.previous {
-                match value {
-                    Some(v) => std::env::set_var(key, v),
-                    None => std::env::remove_var(key),
-                }
-            }
-        }
-    }
-}
+use dcc_mcp_test_utils::EnvVarsGuard;
 
 #[test]
 fn no_log_file_disables_default_file_logging() {

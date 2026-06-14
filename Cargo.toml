@@ -48,6 +48,7 @@ members = [
     "crates/dcc-mcp-db",
     "crates/dcc-mcp-semantic",
     "crates/dcc-mcp-updater",
+    "crates/dcc-mcp-test-utils",
     "crates/workspace-hack",
 ]
 resolver = "2"
@@ -137,6 +138,9 @@ base64 = "0.22"
 # only when the `job-persist-sqlite` feature is enabled on `dcc-mcp-http`;
 # otherwise zero SQLite code compiles into the wheel.
 rusqlite = { version = "0.39", features = ["bundled"] }
+
+# Safe zero-copy (de)serialisation for shared-memory headers.
+bytemuck = { version = "1.22", features = ["derive", "extern_crate_alloc", "min_const_generics"] }
 
 # JWT bearer auth for the tunnel relay (issue #504). HS256 today; RS256/EdDSA
 # can be added in a later PR without touching the protocol crate's public API.

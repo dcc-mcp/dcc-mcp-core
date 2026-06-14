@@ -396,28 +396,15 @@ mod tests {
         let photoshop_skill = write_skill_dir(tmp.path(), "photoshop-retouch");
         let krita_skill = write_skill_dir(tmp.path(), "krita-paintover");
 
-        let saved_photoshop = std::env::var("DCC_MCP_PHOTOSHOP_SKILL_PATHS").ok();
-        let saved_krita = std::env::var("DCC_MCP_KRITA_SKILL_PATHS").ok();
-        unsafe {
-            std::env::set_var("DCC_MCP_PHOTOSHOP_SKILL_PATHS", &photoshop_skill);
-            std::env::set_var("DCC_MCP_KRITA_SKILL_PATHS", &krita_skill);
-        }
+        let _guard = dcc_mcp_test_utils::EnvVarsGuard::set(&[
+            ("DCC_MCP_PHOTOSHOP_SKILL_PATHS", Some(&photoshop_skill)),
+            ("DCC_MCP_KRITA_SKILL_PATHS", Some(&krita_skill)),
+        ]);
 
         let mut scanner = SkillScanner::new();
         let photoshop = scanner.scan_for_dcc(None, Some(&DccName::Photoshop), true);
         scanner.clear_cache();
         let custom = scanner.scan_for_dcc(None, Some(&DccName::Other("krita".into())), true);
-
-        unsafe {
-            match saved_photoshop {
-                Some(value) => std::env::set_var("DCC_MCP_PHOTOSHOP_SKILL_PATHS", value),
-                None => std::env::remove_var("DCC_MCP_PHOTOSHOP_SKILL_PATHS"),
-            }
-            match saved_krita {
-                Some(value) => std::env::set_var("DCC_MCP_KRITA_SKILL_PATHS", value),
-                None => std::env::remove_var("DCC_MCP_KRITA_SKILL_PATHS"),
-            }
-        }
 
         assert!(
             photoshop.contains(&photoshop_skill),
@@ -477,20 +464,12 @@ mod tests {
         fs::create_dir_all(&shared).unwrap();
         let shared_str = path_to_string(&shared);
 
-        let saved = std::env::var("DCC_MCP_MAYA_SKILL_PATHS").ok();
-        unsafe {
-            std::env::set_var("DCC_MCP_MAYA_SKILL_PATHS", &shared_str);
-        }
+        let _guard =
+            dcc_mcp_test_utils::EnvVarGuard::set("DCC_MCP_MAYA_SKILL_PATHS", Some(&shared_str));
         let collected = SkillScanner::collect_search_paths_with_sources(
             Some(std::slice::from_ref(&shared_str)),
             Some("maya"),
         );
-        unsafe {
-            match saved {
-                Some(v) => std::env::set_var("DCC_MCP_MAYA_SKILL_PATHS", v),
-                None => std::env::remove_var("DCC_MCP_MAYA_SKILL_PATHS"),
-            }
-        }
 
         let shared_entries: Vec<_> = collected
             .iter()

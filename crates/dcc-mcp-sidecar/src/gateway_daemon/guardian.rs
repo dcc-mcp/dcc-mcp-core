@@ -440,12 +440,12 @@ mod tests {
 
     #[test]
     fn settings_from_env_parses_positive_values() {
-        unsafe {
-            std::env::set_var("DCC_MCP_GATEWAY_GUARDIAN_INTERVAL", "3");
-            std::env::set_var("DCC_MCP_GATEWAY_GUARDIAN_TIMEOUT", "0.8");
-            std::env::set_var("DCC_MCP_GATEWAY_GUARDIAN_FAILURES", "4");
-            std::env::set_var("DCC_MCP_GATEWAY_GUARDIAN_REENSURE_JITTER_MAX", "1.5");
-        }
+        let _g = dcc_mcp_test_utils::EnvVarsGuard::set(&[
+            ("DCC_MCP_GATEWAY_GUARDIAN_INTERVAL", Some("3")),
+            ("DCC_MCP_GATEWAY_GUARDIAN_TIMEOUT", Some("0.8")),
+            ("DCC_MCP_GATEWAY_GUARDIAN_FAILURES", Some("4")),
+            ("DCC_MCP_GATEWAY_GUARDIAN_REENSURE_JITTER_MAX", Some("1.5")),
+        ]);
 
         let s = GatewayGuardianSettings::from_env();
         assert_eq!(s.interval(), Duration::from_secs(3));

@@ -1,0 +1,12 @@
+[package]
+name = "dcc-mcp-test-utils"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shared test utilities for dcc-mcp-core workspace crates"
+
+[dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }

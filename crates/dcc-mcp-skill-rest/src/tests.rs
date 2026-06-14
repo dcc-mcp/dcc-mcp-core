@@ -366,22 +366,16 @@ async fn docs_ui_served_and_can_be_disabled() {
     let (svc, _, _) = fixture_loaded_spheres();
     let (server, _) = build_server(svc);
 
-    unsafe {
-        std::env::remove_var("DCC_MCP_DOCS_UI");
-    }
+    let _g = dcc_mcp_test_utils::EnvVarGuard::set("DCC_MCP_DOCS_UI", None);
     let resp = server.get("/docs").await;
     resp.assert_status_ok();
     let html = resp.text();
     assert!(html.contains("scalar") || html.contains("Scalar"));
+    drop(_g);
 
-    unsafe {
-        std::env::set_var("DCC_MCP_DOCS_UI", "0");
-    }
+    let _g = dcc_mcp_test_utils::EnvVarGuard::set("DCC_MCP_DOCS_UI", Some("0"));
     let disabled = server.get("/docs").await;
     disabled.assert_status_not_found();
-    unsafe {
-        std::env::remove_var("DCC_MCP_DOCS_UI");
-    }
 }
 
 /// Context endpoint reports loaded skills and action count.

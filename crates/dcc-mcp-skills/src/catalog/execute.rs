@@ -135,7 +135,7 @@ getattr(_mod, "__mcp_result__", {"success": True, "message": ""})
     .ok_or_else(|| {
         // Distinguish between "Python not initialized at all" and
         // "initialized but GIL not held / wrong thread".
-        let initialized = unsafe { pyo3::ffi::Py_IsInitialized() } != 0;
+        let initialized = pyo3::Python::is_initialized();
         if initialized {
             format!(
                 "Python interpreter is initialized but the GIL is not held; \
