@@ -133,3 +133,4 @@ sentry = ["dep:sentry"]
 [dev-dependencies]
 tempfile = "3"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+dcc-mcp-test-utils = { path = "../dcc-mcp-test-utils" }

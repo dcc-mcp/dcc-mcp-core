@@ -613,10 +613,8 @@ pub fn default_registry_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
+    use dcc_mcp_test_utils::EnvVarGuard;
     use tempfile::TempDir;
-
-    static REGISTRY_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     // ── PID file tests ─────────────────────────────────────────────────
 
@@ -902,15 +900,9 @@ mod tests {
 
     #[test]
     fn test_default_registry_dir_matches_gateway_runner_and_sidecar_fallback() {
-        let _guard = REGISTRY_ENV_LOCK.lock().expect("registry env lock");
-        let saved = std::env::var("DCC_MCP_REGISTRY_DIR").ok();
-        unsafe { std::env::remove_var("DCC_MCP_REGISTRY_DIR") };
+        let _guard = EnvVarGuard::set("DCC_MCP_REGISTRY_DIR", None);
 
         let dir = default_registry_dir();
-
-        if let Some(prev) = saved {
-            unsafe { std::env::set_var("DCC_MCP_REGISTRY_DIR", prev) };
-        }
 
         assert_eq!(
             dir,
@@ -921,18 +913,10 @@ mod tests {
 
     #[test]
     fn test_default_registry_dir_honours_env_var_override() {
-        let _guard = REGISTRY_ENV_LOCK.lock().expect("registry env lock");
-        let saved = std::env::var("DCC_MCP_REGISTRY_DIR").ok();
         let custom = std::env::temp_dir().join("dcc-mcp-cli-registry-test");
-        unsafe { std::env::set_var("DCC_MCP_REGISTRY_DIR", &custom) };
+        let _guard = EnvVarGuard::set("DCC_MCP_REGISTRY_DIR", custom.to_str());
 
         let dir = default_registry_dir();
-
-        if let Some(prev) = saved {
-            unsafe { std::env::set_var("DCC_MCP_REGISTRY_DIR", prev) };
-        } else {
-            unsafe { std::env::remove_var("DCC_MCP_REGISTRY_DIR") };
-        }
 
         assert_eq!(dir, custom);
     }

@@ -32,6 +32,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use bytemuck::{bytes_of, pod_read_unaligned, AnyBitPattern, NoUninit};
 use ipckit::SharedMemory;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -45,7 +46,7 @@ use crate::error::{ShmError, ShmResult};
 ///
 /// Total size: 48 bytes.
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, AnyBitPattern, NoUninit)]
 pub(crate) struct RegionHeader {
     /// Magic marker to detect corruption (0xDCC0_0000_5348_4D01).
     pub magic: u64,
@@ -184,9 +185,7 @@ impl SharedBuffer {
             compressed: 0,
             _pad: [0u8; 7],
         };
-        let header_bytes = unsafe {
-            std::slice::from_raw_parts(&header as *const RegionHeader as *const u8, HEADER_SIZE)
-        };
+        let header_bytes = bytes_of(&header);
         shm.write(0, header_bytes)
             .map_err(|e| ShmError::Internal(format!("header write failed: {e}")))?;
 
@@ -227,8 +226,7 @@ impl SharedBuffer {
         let header_bytes = shm
             .read(0, HEADER_SIZE)
             .map_err(|e| ShmError::Internal(format!("header read failed: {e}")))?;
-        let header: RegionHeader =
-            unsafe { std::ptr::read_unaligned(header_bytes.as_ptr() as *const RegionHeader) };
+        let header: RegionHeader = pod_read_unaligned(&header_bytes);
         if header.magic != HEADER_MAGIC {
             return Err(ShmError::Internal("invalid magic bytes in header".into()));
         }
@@ -288,9 +286,7 @@ impl SharedBuffer {
             compressed: 0,
             _pad: [0u8; 7],
         };
-        let header_bytes = unsafe {
-            std::slice::from_raw_parts(&header as *const RegionHeader as *const u8, HEADER_SIZE)
-        };
+        let header_bytes = bytes_of(&header);
         shm.write(0, header_bytes)
             .map_err(|e| ShmError::Internal(format!("header write failed: {e}")))?;
 
@@ -343,9 +339,7 @@ impl SharedBuffer {
             compressed: 0,
             _pad: [0u8; 7],
         };
-        let header_bytes = unsafe {
-            std::slice::from_raw_parts(&header as *const RegionHeader as *const u8, HEADER_SIZE)
-        };
+        let header_bytes = bytes_of(&header);
         shm.write(0, header_bytes)
             .map_err(|e| ShmError::Internal(format!("clear header write failed: {e}")))?;
         Ok(())
@@ -369,8 +363,7 @@ impl SharedBuffer {
             .read(0, HEADER_SIZE)
             .map_err(|e| ShmError::Internal(format!("header read failed: {e}")))?;
         // SAFETY: the region has been sized to hold the header at construction.
-        let header: RegionHeader =
-            unsafe { std::ptr::read_unaligned(bytes.as_ptr() as *const RegionHeader) };
+        let header: RegionHeader = pod_read_unaligned(&bytes);
         if header.magic != HEADER_MAGIC {
             return Err(ShmError::Internal("invalid magic bytes in header".into()));
         }
@@ -462,8 +455,7 @@ fn gc_orphans_scan(shm_dir: &str, max_age: Duration) -> usize {
             Ok(b) => b,
             Err(_) => continue,
         };
-        let header: RegionHeader =
-            unsafe { std::ptr::read_unaligned(bytes.as_ptr() as *const RegionHeader) };
+        let header: RegionHeader = pod_read_unaligned(&bytes);
         if header.magic != HEADER_MAGIC {
             continue;
         }

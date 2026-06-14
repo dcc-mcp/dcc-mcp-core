@@ -481,6 +481,20 @@ name = "bytemuck"
 version = "1.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8efb64bd706a16a1bdde310ae86b351e4d21550d98d056f22f8a7f7a2183fec"
+dependencies = [
+ "bytemuck_derive",
+]
+
+[[package]]
+name = "bytemuck_derive"
+version = "1.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9abbd1bc6865053c427f7198e6af43bfdedc55ab791faed4fbd361d789575ff"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "byteorder"
@@ -1216,6 +1230,7 @@ dependencies = [
  "dcc-mcp-skill-rest",
  "dcc-mcp-skills",
  "dcc-mcp-telemetry",
+ "dcc-mcp-test-utils",
  "dcc-mcp-transport",
  "dcc-mcp-updater",
  "futures",
@@ -1263,6 +1278,7 @@ name = "dcc-mcp-gateway-ensure"
 version = "0.18.23"
 dependencies = [
  "anyhow",
+ "dcc-mcp-test-utils",
  "reqwest 0.13.4",
  "serde",
  "serde_json",
@@ -1487,6 +1503,7 @@ name = "dcc-mcp-marketplace"
 version = "0.18.23"
 dependencies = [
  "dcc-mcp-catalog",
+ "dcc-mcp-test-utils",
  "reqwest 0.13.4",
  "serde",
  "serde_json",
@@ -1675,6 +1692,7 @@ dependencies = [
  "dcc-mcp-sidecar",
  "dcc-mcp-skills",
  "dcc-mcp-telemetry",
+ "dcc-mcp-test-utils",
  "dcc-mcp-transport",
  "dcc-mcp-updater",
  "futures-util",
@@ -1700,6 +1718,7 @@ dependencies = [
 name = "dcc-mcp-shm"
 version = "0.18.23"
 dependencies = [
+ "bytemuck",
  "ipckit",
  "libc",
  "lz4_flex",
@@ -1725,6 +1744,7 @@ dependencies = [
  "dcc-mcp-gateway",
  "dcc-mcp-gateway-ensure",
  "dcc-mcp-host-rpc",
+ "dcc-mcp-test-utils",
  "dcc-mcp-transport",
  "libc",
  "reqwest 0.13.4",
@@ -1747,6 +1767,7 @@ dependencies = [
  "dcc-mcp-actions",
  "dcc-mcp-models",
  "dcc-mcp-skills",
+ "dcc-mcp-test-utils",
  "futures",
  "parking_lot",
  "serde",
@@ -1770,6 +1791,7 @@ dependencies = [
  "dcc-mcp-naming",
  "dcc-mcp-paths",
  "dcc-mcp-pybridge",
+ "dcc-mcp-test-utils",
  "dirs",
  "notify",
  "parking_lot",
@@ -1807,6 +1829,13 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
+ "workspace-hack",
+]
+
+[[package]]
+name = "dcc-mcp-test-utils"
+version = "0.18.23"
+dependencies = [
  "workspace-hack",
 ]
 
