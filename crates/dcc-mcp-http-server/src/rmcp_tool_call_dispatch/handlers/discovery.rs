@@ -251,7 +251,11 @@ mod tests {
     fn matches_phrase_multiword_underscore_tool_name() {
         let words: Vec<&str> = vec!["create", "sphere"];
         // "create sphere" should match a tool whose name is "create_sphere"
-        assert!(matches_phrase("create_sphere create a sphere", "create sphere", &words));
+        assert!(matches_phrase(
+            "create_sphere create a sphere",
+            "create sphere",
+            &words
+        ));
     }
 
     #[test]
@@ -267,14 +271,22 @@ mod tests {
     #[test]
     fn matches_phrase_multiword_no_match() {
         let words: Vec<&str> = vec!["create", "sphere"];
-        assert!(!matches_phrase("export_fbx export to fbx", "create sphere", &words));
+        assert!(!matches_phrase(
+            "export_fbx export to fbx",
+            "create sphere",
+            &words
+        ));
     }
 
     #[test]
     fn matches_phrase_multiword_partial_match_is_not_enough() {
         let words: Vec<&str> = vec!["create", "cube"];
         // "create" matches but "cube" does not
-        assert!(!matches_phrase("create_sphere create a sphere", "create cube", &words));
+        assert!(!matches_phrase(
+            "create_sphere create a sphere",
+            "create cube",
+            &words
+        ));
     }
 
     #[test]
