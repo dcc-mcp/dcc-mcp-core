@@ -54,6 +54,7 @@ pub use dcc_mcp_gateway_core::capability::refresh::RefreshReason;
 /// instance UUID in both `instance_id` and `tool_slug`, so same-DCC
 /// multi-instance gateways do not collapse every hint into one global
 /// `dcc.00000000.*` row.
+#[allow(clippy::too_many_arguments)]
 pub async fn refresh_instance(
     index: &CapabilityIndex,
     http_client: &reqwest::Client,
