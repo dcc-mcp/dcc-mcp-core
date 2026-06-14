@@ -178,89 +178,8 @@ mod tests {
     use super::{
         DEFAULT_SENTRY_CONFIG_FILE, ENV_DCC_MCP_ETC_DIR, init_sentry, resolved_sentry_config,
     };
-    use std::sync::{Mutex, MutexGuard};
+    use dcc_mcp_test_utils::{EnvVarGuard, EnvVarsGuard};
     use std::time::Duration;
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-    struct EnvVarGuard {
-        key: &'static str,
-        previous: Option<String>,
-        _lock: MutexGuard<'static, ()>,
-    }
-
-    impl EnvVarGuard {
-        fn set(key: &'static str, value: Option<&str>) -> Self {
-            let lock = ENV_LOCK.lock().expect("env lock poisoned");
-            let previous = std::env::var(key).ok();
-            // SAFETY: serialized by ENV_LOCK; tests restore previous values on drop.
-            unsafe {
-                match value {
-                    Some(v) => std::env::set_var(key, v),
-                    None => std::env::remove_var(key),
-                }
-            }
-            Self {
-                key,
-                previous,
-                _lock: lock,
-            }
-        }
-    }
-
-    impl Drop for EnvVarGuard {
-        fn drop(&mut self) {
-            // SAFETY: serialized by ENV_LOCK held for the guard lifetime.
-            unsafe {
-                match &self.previous {
-                    Some(v) => std::env::set_var(self.key, v),
-                    None => std::env::remove_var(self.key),
-                }
-            }
-        }
-    }
-
-    struct EnvVarsGuard {
-        previous: Vec<(&'static str, Option<String>)>,
-        _lock: MutexGuard<'static, ()>,
-    }
-
-    impl EnvVarsGuard {
-        fn set(vars: &[(&'static str, Option<&str>)]) -> Self {
-            let lock = ENV_LOCK.lock().expect("env lock poisoned");
-            let previous = vars
-                .iter()
-                .map(|(key, _)| (*key, std::env::var(key).ok()))
-                .collect::<Vec<_>>();
-            // SAFETY: serialized by ENV_LOCK; tests restore previous values on drop.
-            unsafe {
-                for (key, value) in vars {
-                    match value {
-                        Some(v) => std::env::set_var(key, v),
-                        None => std::env::remove_var(key),
-                    }
-                }
-            }
-            Self {
-                previous,
-                _lock: lock,
-            }
-        }
-    }
-
-    impl Drop for EnvVarsGuard {
-        fn drop(&mut self) {
-            // SAFETY: serialized by ENV_LOCK held for the guard lifetime.
-            unsafe {
-                for (key, value) in &self.previous {
-                    match value {
-                        Some(v) => std::env::set_var(key, v),
-                        None => std::env::remove_var(key),
-                    }
-                }
-            }
-        }
-    }
 
     #[test]
     fn init_sentry_absent_dsn_returns_none() {
@@ -351,13 +270,11 @@ mod tests {
             }
         };
 
-        let _lock = ENV_LOCK.lock().expect("env lock poisoned");
-        // SAFETY: serialized by ENV_LOCK; e2e probe restores env when the lock drops.
-        unsafe {
-            std::env::set_var("DCC_MCP_SENTRY_DSN", &dsn);
-            std::env::set_var("DCC_MCP_SENTRY_ENVIRONMENT", "ci-e2e");
-            std::env::set_var("DCC_MCP_SENTRY_SAMPLE_RATE", "1.0");
-        }
+        let _g = EnvVarsGuard::set(&[
+            ("DCC_MCP_SENTRY_DSN", Some(&dsn)),
+            ("DCC_MCP_SENTRY_ENVIRONMENT", Some("ci-e2e")),
+            ("DCC_MCP_SENTRY_SAMPLE_RATE", Some("1.0")),
+        ]);
 
         let guard = init_sentry().expect("valid DCC_MCP_SENTRY_DSN should initialise Sentry");
         let probe = format!("dcc-mcp-core sentry e2e probe {}", uuid::Uuid::new_v4());

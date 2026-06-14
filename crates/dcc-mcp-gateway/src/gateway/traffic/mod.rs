@@ -561,12 +561,10 @@ fn truthy_env(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dcc_mcp_test_utils::{EnvVarGuard, EnvVarsGuard};
     use serde_json::Value;
     use std::io::Write;
     use std::path::PathBuf;
-    use std::sync::Mutex;
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn sample_frame(method: &str, url: &str) -> TrafficFrame {
         TrafficFrame::json(
@@ -789,26 +787,16 @@ redact:
 
     #[test]
     fn production_profile_blocks_env_capture_without_force() {
-        let _guard = ENV_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let capture_path = dir.path().join("capture.jsonl");
-        // SAFETY: serialized by ENV_LOCK for this test module.
-        unsafe {
-            std::env::set_var(ENV_PROD_PROFILE, "1");
-            std::env::remove_var(ENV_FORCE_CAPTURE);
-            std::env::set_var(ENV_CAPTURE, format!("jsonl:{}", capture_path.display()));
-            std::env::remove_var(ENV_CONFIG);
-        }
+        let _guard = EnvVarsGuard::set(&[
+            (ENV_PROD_PROFILE, Some("1")),
+            (ENV_FORCE_CAPTURE, None),
+            (ENV_CAPTURE, Some(capture_path.to_str().unwrap_or(""))),
+            (ENV_CONFIG, None),
+        ]);
 
         let err = TrafficCapture::from_env().unwrap_err();
         assert!(matches!(err, TrafficCaptureError::ProdProfileBlocked));
-
-        // SAFETY: serialized by ENV_LOCK for this test module.
-        unsafe {
-            std::env::remove_var(ENV_PROD_PROFILE);
-            std::env::remove_var(ENV_FORCE_CAPTURE);
-            std::env::remove_var(ENV_CAPTURE);
-            std::env::remove_var(ENV_CONFIG);
-        }
     }
 }

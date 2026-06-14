@@ -22,3 +22,4 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tempfile = "3"
+dcc-mcp-test-utils = { path = "../dcc-mcp-test-utils" }
