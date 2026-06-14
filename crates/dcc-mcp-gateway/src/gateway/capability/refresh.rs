@@ -24,7 +24,8 @@ use uuid::Uuid;
 
 use dcc_mcp_gateway_core::capability::compute_fingerprint;
 
-use crate::gateway::backend_client::{UnloadedCapabilityHint, fetch_tools};
+use crate::gateway::backend_client::{UnloadedCapabilityHint, try_fetch_tools};
+use crate::gateway::instance_diagnostics::InstanceDiagnosticsStore;
 
 use super::builder::{BuildInput, build_records_from_backend};
 use super::index::CapabilityIndex;
@@ -55,8 +56,24 @@ pub async fn refresh_instance(
     dcc_type: &str,
     backend_timeout: Duration,
     reason: RefreshReason,
+    diag_store: Option<&InstanceDiagnosticsStore>,
 ) -> bool {
-    let (tools, unloaded_hints) = fetch_tools(http_client, mcp_url, backend_timeout).await;
+    let (tools, unloaded_hints) = match try_fetch_tools(http_client, mcp_url, backend_timeout).await {
+        Ok(result) => result,
+        Err(e) => {
+            tracing::warn!(
+                instance = %instance_id,
+                dcc = dcc_type,
+                error = %e,
+                "fetch_tools failed during refresh_instance; layer-3 diag recorded"
+            );
+            crate::gateway::metrics::record_gateway_backend_error_kind("fetch_tools");
+            if let Some(store) = diag_store {
+                store.record_call_error(instance_id, "fetch_tools", &e);
+            }
+            (Vec::new(), Vec::new())
+        }
+    };
     let outcome = build_records_from_backend(BuildInput {
         instance_id,
         dcc_type,
