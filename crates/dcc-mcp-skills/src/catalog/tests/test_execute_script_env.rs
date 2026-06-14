@@ -139,7 +139,10 @@ fn test_execute_script_rejects_gui_executable_case_insensitive() {
         ("DCC_MCP_PYTHON_EXECUTABLE", None),
         ("DCC_MCP_PYTHON_INIT_SNIPPET", None),
         ("DCC_MCP_ALLOW_AMBIENT_PYTHON", None),
-        ("DCC_MCP_PYTHON_EXECUTABLE", Some("/usr/autodesk/maya2024/bin/Maya")),
+        (
+            "DCC_MCP_PYTHON_EXECUTABLE",
+            Some("/usr/autodesk/maya2024/bin/Maya"),
+        ),
     ]);
 
     let err = execute_script("any_skill.py", serde_json::json!({}), None)
