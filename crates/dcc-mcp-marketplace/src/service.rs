@@ -1300,20 +1300,14 @@ mod tests {
 
     #[test]
     fn default_sources_disabled_respects_truthy_values() {
-        // EnvVarGuard saves the current value and restores it on drop.
-        // Inside the loop we mutate directly under the guard's serialised
-        // scope (edition 2024 makes set_var unsafe, but the RAII guard
-        // ensures cleanup even on panic).
-        let _guard =
-            dcc_mcp_test_utils::EnvVarGuard::set(ENV_MARKETPLACE_NO_DEFAULT_SOURCES, Some("1"));
         for v in ["1", "true", "TRUE", "yes", "YES"] {
-            // SAFETY: serialized by EnvVarGuard which restores on drop.
-            unsafe { std::env::set_var(ENV_MARKETPLACE_NO_DEFAULT_SOURCES, v) };
+            let _g =
+                dcc_mcp_test_utils::EnvVarGuard::set(ENV_MARKETPLACE_NO_DEFAULT_SOURCES, Some(v));
             assert!(default_sources_disabled(), "expected true for '{v}'");
         }
         for v in ["0", "false", "no", "", "FALSE", "NO"] {
-            // SAFETY: serialized by EnvVarGuard which restores on drop.
-            unsafe { std::env::set_var(ENV_MARKETPLACE_NO_DEFAULT_SOURCES, v) };
+            let _g =
+                dcc_mcp_test_utils::EnvVarGuard::set(ENV_MARKETPLACE_NO_DEFAULT_SOURCES, Some(v));
             assert!(!default_sources_disabled(), "expected false for '{v}'");
         }
     }
