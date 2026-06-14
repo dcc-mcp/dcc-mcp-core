@@ -800,6 +800,7 @@ jobs:
           exit "$failed"
 
       - name: Notify Multica release-ready autopilot
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           MULTICA_WEBHOOK_URL: ${{ secrets.MULTICA_CORE_RELEASE_READY_WEBHOOK_URL }}
@@ -851,8 +852,8 @@ jobs:
           done
 
           if [ -n "$missing" ]; then
-            echo "::error::Release assets are incomplete for ${RELEASE_TAG}; not notifying Multica."
-            exit 1
+            echo "::warning::Release assets are incomplete for ${RELEASE_TAG}; skipping best-effort Multica notification."
+            exit 0
           fi
 
           assets_count="$(jq '.assets | length' <<<"$release_json")"
@@ -890,6 +891,7 @@ jobs:
           delay=5
 
           for i in $(seq 1 "$max_retries"); do
+            set +e
             http_code=$(printf '%s' "$payload" | curl -fsS -o /dev/null -w '%{http_code}' \
               --connect-timeout 10 \
               --max-time 30 \
@@ -900,13 +902,14 @@ jobs:
               --data-binary @- \
               "$MULTICA_WEBHOOK_URL")
             curl_exit=$?
+            set -e
 
             if [ "$curl_exit" -eq 0 ] && [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
               echo "Multica notified successfully (HTTP ${http_code})"
               exit 0
             fi
 
-            if [ "$http_code" = "429" ] || [ "$http_code" -ge 500 ]; then
+            if [ "$http_code" = "429" ] || { [[ "$http_code" =~ ^[0-9]+$ ]] && [ "$http_code" -ge 500 ]; }; then
               if [ "$i" -lt "$max_retries" ]; then
                 echo "::warning::Multica returned HTTP ${http_code}, attempt ${i}/${max_retries}, retrying in ${delay}s..."
                 sleep "$delay"
@@ -914,10 +917,10 @@ jobs:
                 continue
               fi
             else
-              echo "::error::Multica notification failed with HTTP ${http_code} (non-retryable)"
-              exit 1
+              echo "::warning::Multica notification failed with HTTP ${http_code} (non-retryable); release publication is already complete."
+              exit 0
             fi
           done
 
-          echo "::error::Multica notification failed after ${max_retries} attempts"
-          exit 1
+          echo "::warning::Multica notification failed after ${max_retries} attempts; release publication is already complete."
+          exit 0
