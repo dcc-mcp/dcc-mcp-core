@@ -704,66 +704,9 @@ mod tests {
     use axum::extract::State;
     use axum::http::StatusCode;
     use axum::routing::post;
+    use dcc_mcp_test_utils::EnvVarsGuard;
     use serde_json::Map;
-    use std::sync::{Mutex, MutexGuard, OnceLock};
     use tokio::net::TcpListener;
-
-    struct EnvGuard {
-        previous: Vec<(&'static str, Option<String>)>,
-        _guard: MutexGuard<'static, ()>,
-    }
-
-    impl EnvGuard {
-        fn new(values: &[(&'static str, Option<&str>)]) -> Self {
-            static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-            const KEYS: &[&str] = &[
-                ENV_WEBHOOKS_CONFIG,
-                ENV_DCC_MCP_ETC_DIR,
-                ENV_WECOM_WEBHOOK_URL,
-                ENV_WECOM_EVENTS,
-                ENV_WECOM_TEMPLATE,
-            ];
-            let guard = ENV_LOCK
-                .get_or_init(|| Mutex::new(()))
-                .lock()
-                .expect("event webhook env lock poisoned");
-            let previous = KEYS
-                .iter()
-                .map(|key| (*key, std::env::var(key).ok()))
-                .collect::<Vec<_>>();
-            // SAFETY: these tests set env vars before spawning runtime work and restore them
-            // before returning.
-            unsafe {
-                for key in KEYS {
-                    std::env::remove_var(key);
-                }
-                for (key, value) in values {
-                    match value {
-                        Some(value) => std::env::set_var(key, value),
-                        None => std::env::remove_var(key),
-                    }
-                }
-            }
-            Self {
-                previous,
-                _guard: guard,
-            }
-        }
-    }
-
-    impl Drop for EnvGuard {
-        fn drop(&mut self) {
-            // SAFETY: restores the process environment after the serialized test body.
-            unsafe {
-                for (key, value) in &self.previous {
-                    match value {
-                        Some(value) => std::env::set_var(key, value),
-                        None => std::env::remove_var(key),
-                    }
-                }
-            }
-        }
-    }
 
     #[test]
     fn filter_rules_match_dotted_paths_and_wildcards() {
@@ -815,7 +758,13 @@ mod tests {
 
     #[test]
     fn webhook_url_interpolates_environment_variables() {
-        let _env = EnvGuard::new(&[(ENV_WECOM_WEBHOOK_URL, Some("abc123"))]);
+        let _env = EnvVarsGuard::set(&[
+            (ENV_WEBHOOKS_CONFIG, None),
+            (ENV_DCC_MCP_ETC_DIR, None),
+            (ENV_WECOM_WEBHOOK_URL, Some("abc123")),
+            (ENV_WECOM_EVENTS, None),
+            (ENV_WECOM_TEMPLATE, None),
+        ]);
         let webhook = resolve_webhook(WebhookConfig {
             name: "wecom-alerts".into(),
             url:
@@ -885,7 +834,13 @@ webhooks:
 "#,
         )?;
         let etc_dir = dir.path().to_string_lossy().to_string();
-        let _env = EnvGuard::new(&[(ENV_DCC_MCP_ETC_DIR, Some(&etc_dir))]);
+        let _env = EnvVarsGuard::set(&[
+            (ENV_WEBHOOKS_CONFIG, None),
+            (ENV_DCC_MCP_ETC_DIR, Some(&etc_dir)),
+            (ENV_WECOM_WEBHOOK_URL, None),
+            (ENV_WECOM_EVENTS, None),
+            (ENV_WECOM_TEMPLATE, None),
+        ]);
 
         let runtime = EventWebhookRuntime::from_env(EventBus::new())?;
 
@@ -928,7 +883,13 @@ webhooks:
             ),
         )?;
         let etc_dir = dir.path().to_string_lossy().to_string();
-        let _env = EnvGuard::new(&[(ENV_DCC_MCP_ETC_DIR, Some(&etc_dir))]);
+        let _env = EnvVarsGuard::set(&[
+            (ENV_WEBHOOKS_CONFIG, None),
+            (ENV_DCC_MCP_ETC_DIR, Some(&etc_dir)),
+            (ENV_WECOM_WEBHOOK_URL, None),
+            (ENV_WECOM_EVENTS, None),
+            (ENV_WECOM_TEMPLATE, None),
+        ]);
 
         let bus = EventBus::new();
         let runtime = EventWebhookRuntime::from_env(bus.clone())?
@@ -973,9 +934,12 @@ webhooks:
 "#,
         )?;
         let etc_dir = dir.path().to_string_lossy().to_string();
-        let _env = EnvGuard::new(&[
-            (ENV_DCC_MCP_ETC_DIR, Some(&etc_dir)),
+        let _env = EnvVarsGuard::set(&[
             (ENV_WEBHOOKS_CONFIG, Some("")),
+            (ENV_DCC_MCP_ETC_DIR, Some(&etc_dir)),
+            (ENV_WECOM_WEBHOOK_URL, None),
+            (ENV_WECOM_EVENTS, None),
+            (ENV_WECOM_TEMPLATE, None),
         ]);
 
         let runtime = EventWebhookRuntime::from_env(EventBus::new())?
@@ -988,7 +952,9 @@ webhooks:
 
     #[tokio::test]
     async fn runtime_loads_wecom_webhook_from_environment_without_yaml() -> Result<()> {
-        let _env = EnvGuard::new(&[
+        let _env = EnvVarsGuard::set(&[
+            (ENV_WEBHOOKS_CONFIG, None),
+            (ENV_DCC_MCP_ETC_DIR, None),
             (
                 ENV_WECOM_WEBHOOK_URL,
                 Some("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123"),

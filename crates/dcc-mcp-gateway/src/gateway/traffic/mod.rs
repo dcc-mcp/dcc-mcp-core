@@ -561,7 +561,7 @@ fn truthy_env(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dcc_mcp_test_utils::{EnvVarGuard, EnvVarsGuard};
+    use dcc_mcp_test_utils::EnvVarsGuard;
     use serde_json::Value;
     use std::io::Write;
     use std::path::PathBuf;
