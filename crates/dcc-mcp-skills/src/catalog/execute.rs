@@ -133,25 +133,13 @@ getattr(_mod, "__mcp_result__", {"success": True, "message": ""})
         py_any_to_json_value(&result_obj).map_err(|e| format!("result → JSON: {e}"))
     })
     .ok_or_else(|| {
-        // Distinguish between "Python not initialized at all" and
-        // "initialized but GIL not held / wrong thread".
-        let initialized = pyo3::Python::is_initialized();
-        if initialized {
-            format!(
-                "Python interpreter is initialized but the GIL is not held; \
-                 cannot execute '{script_path}' in-process. \
-                 Hint: ensure you are calling this from the main Python thread \
-                 or that the in-process executor is registered via \
-                 SkillCatalog::with_in_process_executor."
-            )
-        } else {
-            format!(
-                "Python interpreter is not initialized in this process; \
-                 cannot execute '{script_path}' in-process. \
-                 Hint: when running inside a DCC, register an in-process executor \
-                 via SkillCatalog::with_in_process_executor."
-            )
-        }
+        format!(
+            "Python interpreter is not initialized or the GIL is not held; \
+             cannot execute '{script_path}' in-process. \
+             Hint: ensure Python is initialized and you are calling this \
+             from the main Python thread, or register an in-process executor \
+             via SkillCatalog::with_in_process_executor."
+        )
     })
     .and_then(|r| r)
 }
