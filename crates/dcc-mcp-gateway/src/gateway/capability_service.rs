@@ -638,6 +638,7 @@ pub async fn refresh_all_live_backends(gs: &GatewayState, reason: RefreshReason)
                 &entry.dcc_type,
                 gs.backend_timeout,
                 reason,
+                Some(&gs.instance_diagnostics),
             )
             .await
         }
