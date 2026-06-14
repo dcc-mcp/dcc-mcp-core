@@ -503,6 +503,7 @@ pub async fn fetch_tools(
         Ok(pair) => pair,
         Err(e) => {
             tracing::warn!(mcp_url = %mcp_url, error = %e, "Backend GET /v1/search failed");
+            record_gateway_backend_error_kind("fetch_tools");
             (Vec::new(), Vec::new())
         }
     }
