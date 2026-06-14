@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.25](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.24...v0.18.25) (2026-06-14)
+
+
+### Bug Fixes
+
+* index loaded skill tools after gateway load ([706eb20](https://github.com/dcc-mcp/dcc-mcp-core/commit/706eb203f131e1a52983e8aab366d8834ee1e4bc))
+
 ## [0.18.24](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.23...v0.18.24) (2026-06-14)
 
 
