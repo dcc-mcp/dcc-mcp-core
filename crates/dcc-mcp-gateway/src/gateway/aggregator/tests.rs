@@ -1610,6 +1610,16 @@ async fn load_skill_preserves_existing_index_when_v1_search_fails() {
                     }
                 }))
             }),
+        )
+        .route(
+            "/v1/call",
+            axum::routing::post(|axum::Json(body): axum::Json<Value>| async move {
+                axum::Json(json!({
+                    "success": true,
+                    "called": body.get("tool_slug").cloned().unwrap_or(Value::Null),
+                    "arguments": body.get("arguments").cloned().unwrap_or_else(|| json!({})),
+                }))
+            }),
         );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -1727,18 +1737,44 @@ async fn load_skill_preserves_existing_index_when_v1_search_fails() {
         snap.records.len()
     );
 
+    let query = crate::gateway::capability_service::parse_search_payload(&json!({
+        "query": "mgear",
+        "dcc_type": "maya",
+        "instance_id": iid.to_string(),
+        "loaded_only": true,
+    }));
+    let hits = crate::gateway::capability_service::search_service(&gs.capability_index, &query);
+    let injected_slug = hits
+        .iter()
+        .find(|hit| hit.record.backend_tool == "maya_mgear__inspect")
+        .map(|hit| hit.record.tool_slug.clone())
+        .expect("gateway search must find the injected mGear tool");
+
+    let call_result = crate::gateway::capability_service::call_service(
+        &gs,
+        &injected_slug,
+        json!({"detail": true}),
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect("gateway call must route the injected slug");
+    assert_eq!(call_result["success"], true);
+    assert_eq!(call_result["called"], "maya_mgear__inspect");
+
     // ASSERTION 4: new_tool_slugs in the response payload.
     let slugs = payload["new_tool_slugs"].as_array().unwrap();
     assert!(
         slugs.iter().any(|s| s
             .as_str()
-            .map_or(false, |s| s.contains("maya_mgear__inspect"))),
+            .is_some_and(|s| s.contains("maya_mgear__inspect"))),
         "new_tool_slugs must include maya_mgear__inspect: {slugs:?}"
     );
     assert!(
         slugs.iter().any(|s| s
             .as_str()
-            .map_or(false, |s| s.contains("maya_mgear__list_joints"))),
+            .is_some_and(|s| s.contains("maya_mgear__list_joints"))),
         "new_tool_slugs must include maya_mgear__list_joints: {slugs:?}"
     );
 
