@@ -53,6 +53,9 @@ GitHub Releases attach deployable bundles named
 `dcc-mcp-server` and `dcc-mcp-cli` at its root (`.exe` on Windows), so a
 deployment host can unpack one archive and put both binaries on `PATH`.
 
+A CLI-only ZIP (`dcc-mcp-cli-<version>-<platform>.zip`) is published
+alongside the server bundle for environments that only need the CLI binary.
+
 ### Install Location
 
 Pick **one** location consistently per machine:
