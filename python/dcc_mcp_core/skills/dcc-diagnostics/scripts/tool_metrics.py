@@ -120,7 +120,7 @@ def main(**kwargs) -> None:
     # Sort
     sort_fn = _SORT_KEYS.get(sort_by, _SORT_KEYS["invocations"])
     metrics.sort(key=sort_fn)
-    metrics = metrics[: limit]
+    metrics = metrics[:limit]
 
     empty_note = ""
     if total == 0 and source == "local":
@@ -144,7 +144,7 @@ def main(**kwargs) -> None:
                 ),
                 "context": {
                     "total_tracked": total,
-                    "sort_by": args.sort_by,
+                    "sort_by": sort_by,
                     "source": source,
                     "ipc_address": ipc_address,
                     "metrics": metrics,
