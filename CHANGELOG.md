@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.24](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.23...v0.18.24) (2026-06-14)
+
+
+### Bug Fixes
+
+* cargo fmt formatting in skill_mgmt.rs and refresh.rs ([56e86cc](https://github.com/dcc-mcp/dcc-mcp-core/commit/56e86cc92a4f5ef4a847be4cbee2cd6b484b293c))
+* cargo fmt import ordering in buffer.rs ([346fad7](https://github.com/dcc-mcp/dcc-mcp-core/commit/346fad7d10fcd0d1180a3b5134e1a6dca1987f3c))
+* cargo fmt in tests.rs from regresion test commit ([1b2925e](https://github.com/dcc-mcp/dcc-mcp-core/commit/1b2925e1f53418808705562c2255a480c4616bc2))
+* gate admin-only gateway code ([a20e27e](https://github.com/dcc-mcp/dcc-mcp-core/commit/a20e27e427bb2c4e3160babdafef16bcb2c093dc))
+* **gateway:** inject load_skill tools directly into capability index ([#1659](https://github.com/dcc-mcp/dcc-mcp-core/issues/1659)) ([fa309ef](https://github.com/dcc-mcp/dcc-mcp-core/commit/fa309ef63efed7c74aa362cc75b3d1ebf1986021))
+* make release webhook notification optional ([62482f1](https://github.com/dcc-mcp/dcc-mcp-core/commit/62482f18cf270d428938e0ed77e01e04d2a174cc))
+* preserve index on refresh_instance error, add regression test ([ae648e2](https://github.com/dcc-mcp/dcc-mcp-core/commit/ae648e2b2501f7342f4cc5e648e828d10e64f9e5)), closes [#1659](https://github.com/dcc-mcp/dcc-mcp-core/issues/1659)
+* regenerate workspace-hack after bytemuck dependency introduction ([14229ea](https://github.com/dcc-mcp/dcc-mcp-core/commit/14229ea26f16fa2137c6c7ff22517d702bd4a019))
+* remove deprecated Python::is_initialized() for pyo3 0.28 compat ([8c477c6](https://github.com/dcc-mcp/dcc-mcp-core/commit/8c477c64bb605650d37bf7383d5d2a92dee5263e))
+* suppress clippy too_many_arguments on refresh_instance (8 params) ([1b8b69c](https://github.com/dcc-mcp/dcc-mcp-core/commit/1b8b69c905e5d5a08ef33d3b1b7e5050e4983f6c))
+
+
+### Code Refactoring
+
+* Phase 1 unsafe cleanup — shared test-utils crate, bytemuck shm, safe pyo3 API ([8090d55](https://github.com/dcc-mcp/dcc-mcp-core/commit/8090d559eedd5923c0af40d5f6f2d504880acac5))
+* Phase 2 unsafe cleanup — Send/Sync derive, EnvVarsGuard shared ([#1660](https://github.com/dcc-mcp/dcc-mcp-core/issues/1660)) ([d1a5a95](https://github.com/dcc-mcp/dcc-mcp-core/commit/d1a5a9554e390d46fbfe37079134155cbb583b9b))
+
 ## [0.18.23](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.22...v0.18.23) (2026-06-13)
 
 
