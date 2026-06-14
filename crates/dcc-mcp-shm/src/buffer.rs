@@ -32,7 +32,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use bytemuck::{bytes_of, pod_read_unaligned, AnyBitPattern, NoUninit};
+use bytemuck::{AnyBitPattern, NoUninit, bytes_of, pod_read_unaligned};
 use ipckit::SharedMemory;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
