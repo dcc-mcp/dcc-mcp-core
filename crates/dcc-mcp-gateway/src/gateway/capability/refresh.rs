@@ -38,8 +38,14 @@ pub use dcc_mcp_gateway_core::capability::refresh::RefreshReason;
 ///
 /// Returns `true` when the index was actually updated (new, removed,
 /// or changed fingerprint), `false` when the fingerprint matched and
-/// the write was short-circuited. The bool is surfaced so diagnostics
-/// can count "no-op refreshes" without sampling tracing spans.
+/// the write was short-circuited — OR when the backend was unreachable
+/// (error path preserves the existing index to avoid losing previously
+/// discovered tools for this instance).
+///
+/// **Error safety**: when `try_fetch_tools` fails (network error, HTTP
+/// error, etc.) the function returns `false` without touching the index
+/// at all. This prevents a transient backend failure from wiping the
+/// instance's tool records (issue #1659).
 ///
 /// **Unloaded skills**: the backend's `POST /v1/search?loaded_only=false`
 /// response carries two groups of hits — tools from *loaded* skills and
@@ -66,13 +72,16 @@ pub async fn refresh_instance(
                 instance = %instance_id,
                 dcc = dcc_type,
                 error = %e,
-                "fetch_tools failed during refresh_instance; layer-3 diag recorded"
+                "fetch_tools failed during refresh_instance; preserving existing index"
             );
             crate::gateway::metrics::record_gateway_backend_error_kind("fetch_tools");
             if let Some(store) = diag_store {
                 store.record_call_error(instance_id, "fetch_tools", &e);
             }
-            (Vec::new(), Vec::new())
+            // Return early — do NOT upsert empty records. An empty upsert
+            // would delete this instance's entire slice from the index,
+            // losing all previously discovered tools (issue #1659).
+            return false;
         }
     };
     let outcome = build_records_from_backend(BuildInput {
