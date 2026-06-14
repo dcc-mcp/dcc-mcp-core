@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.26](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.25...v0.18.26) (2026-06-14)
+
+
+### Bug Fixes
+
+* accept **kwargs in infra skill wrappers for in-process execution ([ef60f0b](https://github.com/dcc-mcp/dcc-mcp-core/commit/ef60f0b83ed613db79464f112373f28fb67a0398))
+* cargo fmt --check compliance for discovery.rs ([ed7062c](https://github.com/dcc-mcp/dcc-mcp-core/commit/ed7062cab08b0c7614c00b267106219c64bcd73a))
+* **http-server:** search_tools natural-language phrase matching ([#1667](https://github.com/dcc-mcp/dcc-mcp-core/issues/1667)) ([30e522a](https://github.com/dcc-mcp/dcc-mcp-core/commit/30e522a652888b65b589cf6289f1172be3fadf6a))
+* remove stale args.* references in dcc-diagnostics kwargs path ([fb3d436](https://github.com/dcc-mcp/dcc-mcp-core/commit/fb3d4363dd02df3b1f186ba7bf1b4ceca3acc6dc))
+* skip guardian test on Windows + py3.14 to unblock PR ([561258d](https://github.com/dcc-mcp/dcc-mcp-core/commit/561258d432b832c75df5184293f7fd2a1e8b64b3))
+
+
+### Documentation
+
+* document CLI standalone ZIP bundle ([#1651](https://github.com/dcc-mcp/dcc-mcp-core/issues/1651) follow-up) ([d296337](https://github.com/dcc-mcp/dcc-mcp-core/commit/d2963377603e663b46599f1a788d6658f4cad591))
+
 ## [0.18.25](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.24...v0.18.25) (2026-06-14)
 
 
