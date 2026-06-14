@@ -99,6 +99,21 @@ pub(crate) async fn skill_mgmt_dispatch(
                                 tool == "load_skill" && load_skill_payload_reports_failure(&text);
                             let is_error = is_error || payload_failed;
                             if !is_error {
+                                if tool == "load_skill" {
+                                    let tool_names = serde_json::from_str::<Value>(&text)
+                                        .ok()
+                                        .and_then(|payload| {
+                                            extract_tool_names_from_skill_payload(&payload)
+                                        });
+                                    let requested_skill = requested_skill_name(&forward_args);
+                                    inject_load_skill_tools_into_index(
+                                        gs,
+                                        &entry,
+                                        tool_names,
+                                        requested_skill.as_deref(),
+                                    );
+                                }
+
                                 crate::gateway::capability_service::refresh_all_live_backends(
                                     gs,
                                     crate::gateway::capability::RefreshReason::ToolsListChanged,
@@ -362,6 +377,18 @@ fn requested_skill_names(args: &Value) -> Vec<String> {
         names.extend(items.iter().filter_map(Value::as_str).map(str::to_string));
     }
     names
+}
+
+fn requested_skill_name(args: &Value) -> Option<String> {
+    args.get("skill_name")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| {
+            args.get("skill_names")
+                .and_then(Value::as_array)
+                .and_then(|items| items.iter().find_map(Value::as_str))
+                .map(str::to_string)
+        })
 }
 
 fn skill_allowed_by_policy(policy: &crate::gateway::GatewayPolicy, skill: &Value) -> bool {
@@ -658,22 +685,11 @@ async fn decorate_load_skill_success(
         return text.to_string();
     };
 
-    let requested_skill = forwarded_args
-        .get("skill_name")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .or_else(|| {
-            forwarded_args
-                .get("skill_names")
-                .and_then(Value::as_array)
-                .and_then(|items| items.iter().find_map(Value::as_str))
-                .map(str::to_string)
-        })
-        .or_else(|| {
-            obj.get("skill_name")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        });
+    let requested_skill = requested_skill_name(forwarded_args).or_else(|| {
+        obj.get("skill_name")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    });
 
     obj.entry("loaded".to_string()).or_insert(Value::Bool(true));
     if let Some(skill_name) = &requested_skill {
