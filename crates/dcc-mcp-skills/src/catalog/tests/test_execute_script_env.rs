@@ -8,8 +8,9 @@ use super::*;
 use dcc_mcp_test_utils::EnvVarsGuard;
 
 /// Clear the three Python-execution env vars and return a guard that restores
-/// them on drop. Individual tests may then `unsafe { set_var }` one of them
-/// under the guard's serialised scope.
+/// them on drop. Tests that need a specific value should create their own
+/// `EnvVarsGuard::set(&[...])` that includes these three clears followed by
+/// the desired override.
 fn clear_exec_env() -> EnvVarsGuard {
     EnvVarsGuard::set(&[
         ("DCC_MCP_PYTHON_EXECUTABLE", None),
@@ -50,8 +51,12 @@ fn test_execute_script_rejects_ambient_python_case_insensitive() {
 
 #[test]
 fn test_execute_script_allows_opt_out_via_env_var() {
-    let _g = clear_exec_env();
-    unsafe { std::env::set_var("DCC_MCP_ALLOW_AMBIENT_PYTHON", "1") };
+    let _g = EnvVarsGuard::set(&[
+        ("DCC_MCP_PYTHON_EXECUTABLE", None),
+        ("DCC_MCP_PYTHON_INIT_SNIPPET", None),
+        ("DCC_MCP_ALLOW_AMBIENT_PYTHON", None),
+        ("DCC_MCP_ALLOW_AMBIENT_PYTHON", Some("1")),
+    ]);
 
     let result = execute_script("/does/not/exist.py", serde_json::json!({}), Some("maya"));
     if let Err(err) = result {
@@ -64,8 +69,12 @@ fn test_execute_script_allows_opt_out_via_env_var() {
 
 #[test]
 fn test_execute_script_skips_check_when_executable_set() {
-    let _g = clear_exec_env();
-    unsafe { std::env::set_var("DCC_MCP_PYTHON_EXECUTABLE", "python") };
+    let _g = EnvVarsGuard::set(&[
+        ("DCC_MCP_PYTHON_EXECUTABLE", None),
+        ("DCC_MCP_PYTHON_INIT_SNIPPET", None),
+        ("DCC_MCP_ALLOW_AMBIENT_PYTHON", None),
+        ("DCC_MCP_PYTHON_EXECUTABLE", Some("python")),
+    ]);
 
     let result = execute_script("/does/not/exist.py", serde_json::json!({}), Some("maya"));
     if let Err(err) = result {
@@ -104,8 +113,12 @@ fn test_execute_script_no_dcc_hint_does_not_trigger_check() {
 
 #[test]
 fn test_execute_script_rejects_gui_executable_maya_exe() {
-    let _g = clear_exec_env();
-    unsafe { std::env::set_var("DCC_MCP_PYTHON_EXECUTABLE", "maya.exe") };
+    let _g = EnvVarsGuard::set(&[
+        ("DCC_MCP_PYTHON_EXECUTABLE", None),
+        ("DCC_MCP_PYTHON_INIT_SNIPPET", None),
+        ("DCC_MCP_ALLOW_AMBIENT_PYTHON", None),
+        ("DCC_MCP_PYTHON_EXECUTABLE", Some("maya.exe")),
+    ]);
 
     let result = execute_script("any_skill.py", serde_json::json!({}), None);
     let err =
@@ -122,13 +135,15 @@ fn test_execute_script_rejects_gui_executable_maya_exe() {
 
 #[test]
 fn test_execute_script_rejects_gui_executable_case_insensitive() {
-    let _g = clear_exec_env();
-    unsafe {
-        std::env::set_var(
+    let _g = EnvVarsGuard::set(&[
+        ("DCC_MCP_PYTHON_EXECUTABLE", None),
+        ("DCC_MCP_PYTHON_INIT_SNIPPET", None),
+        ("DCC_MCP_ALLOW_AMBIENT_PYTHON", None),
+        (
             "DCC_MCP_PYTHON_EXECUTABLE",
-            "/usr/autodesk/maya2024/bin/Maya",
-        )
-    };
+            Some("/usr/autodesk/maya2024/bin/Maya"),
+        ),
+    ]);
 
     let err = execute_script("any_skill.py", serde_json::json!({}), None)
         .expect_err("must fail for GUI executable regardless of case");
@@ -140,8 +155,12 @@ fn test_execute_script_rejects_gui_executable_case_insensitive() {
 
 #[test]
 fn test_execute_script_rejects_gui_executable_blender() {
-    let _g = clear_exec_env();
-    unsafe { std::env::set_var("DCC_MCP_PYTHON_EXECUTABLE", "blender") };
+    let _g = EnvVarsGuard::set(&[
+        ("DCC_MCP_PYTHON_EXECUTABLE", None),
+        ("DCC_MCP_PYTHON_INIT_SNIPPET", None),
+        ("DCC_MCP_ALLOW_AMBIENT_PYTHON", None),
+        ("DCC_MCP_PYTHON_EXECUTABLE", Some("blender")),
+    ]);
 
     let err = execute_script("any_skill.py", serde_json::json!({}), None)
         .expect_err("must fail for blender GUI executable");
@@ -153,9 +172,12 @@ fn test_execute_script_rejects_gui_executable_blender() {
 
 #[test]
 fn test_execute_script_allows_headless_interpreter() {
-    let _g = clear_exec_env();
-    // mayapy is the headless Maya interpreter — must NOT trigger the GUI guard
-    unsafe { std::env::set_var("DCC_MCP_PYTHON_EXECUTABLE", "mayapy") };
+    let _g = EnvVarsGuard::set(&[
+        ("DCC_MCP_PYTHON_EXECUTABLE", None),
+        ("DCC_MCP_PYTHON_INIT_SNIPPET", None),
+        ("DCC_MCP_ALLOW_AMBIENT_PYTHON", None),
+        ("DCC_MCP_PYTHON_EXECUTABLE", Some("mayapy")),
+    ]);
 
     let result = execute_script("/does/not/exist.py", serde_json::json!({}), None);
     if let Err(err) = result {
@@ -168,9 +190,12 @@ fn test_execute_script_allows_headless_interpreter() {
 
 #[test]
 fn test_execute_script_allows_hython() {
-    let _g = clear_exec_env();
-    // hython is Houdini's headless interpreter
-    unsafe { std::env::set_var("DCC_MCP_PYTHON_EXECUTABLE", "hython") };
+    let _g = EnvVarsGuard::set(&[
+        ("DCC_MCP_PYTHON_EXECUTABLE", None),
+        ("DCC_MCP_PYTHON_INIT_SNIPPET", None),
+        ("DCC_MCP_ALLOW_AMBIENT_PYTHON", None),
+        ("DCC_MCP_PYTHON_EXECUTABLE", Some("hython")),
+    ]);
 
     let result = execute_script("/does/not/exist.py", serde_json::json!({}), None);
     if let Err(err) = result {

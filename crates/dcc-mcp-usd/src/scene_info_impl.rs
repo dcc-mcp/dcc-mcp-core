@@ -58,10 +58,8 @@ impl DccSceneInfo for UsdSceneInfoAdapter {
     }
 }
 
-// Safety: UsdStage is Send + Sync by default (all fields are Send + Sync).
-unsafe impl Send for UsdSceneInfoAdapter {}
-unsafe impl Sync for UsdSceneInfoAdapter {}
-
+// UsdSceneInfoAdapter is Send + Sync by the compiler: its only field (UsdStage)
+// is already Send + Sync.
 /// Convert a `DccResult<T>` into a `crate::UsdResult<T>`.
 fn _dcc_to_usd<T>(r: DccResult<T>) -> crate::UsdResult<T> {
     r.map_err(|e| crate::UsdError::ConversionError(e.message))
