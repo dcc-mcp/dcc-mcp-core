@@ -19,6 +19,9 @@ powershell -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/s
 Pin a release by setting `DCC_MCP_VERSION=v0.17.17` or passing
 `--version v0.17.17` to the install script.
 
+A standalone CLI-only ZIP (`dcc-mcp-cli-<version>-<platform>.zip`) is
+also published as a GitHub Release asset alongside the server bundle.
+
 | Binary | Role | Source |
 |---|---|---|
 | [`dcc-mcp-cli`](#dcc-mcp-cli) | User/CI control plane for local or remote DCC-MCP REST endpoints. | `crates/dcc-mcp-cli/` |
