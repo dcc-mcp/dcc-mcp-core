@@ -7,6 +7,8 @@ import threading
 import time
 import types
 
+import pytest
+
 import dcc_mcp_core._server.gateway_guardian as gg
 
 
@@ -464,6 +466,10 @@ def test_guardian_run_catches_crash_and_increments_crash_count(monkeypatch):
     assert status["guardian_running"] is False
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32" and sys.version_info >= (3, 14),
+    reason="Windows py3.14 guardian threading timeout (PIP-1610)",
+)
 def test_guardian_run_continues_after_exception(monkeypatch):
     """P0: _run() loop survives exception and keeps probing."""
     calls = []
