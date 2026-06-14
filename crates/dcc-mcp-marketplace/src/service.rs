@@ -1294,27 +1294,27 @@ mod tests {
 
     #[test]
     fn default_sources_disabled_false_when_unset() {
-        // SAFETY: test-only env manipulation; isolated to this specific var.
-        unsafe { std::env::remove_var(ENV_MARKETPLACE_NO_DEFAULT_SOURCES) };
+        let _guard = dcc_mcp_test_utils::EnvVarGuard::set(ENV_MARKETPLACE_NO_DEFAULT_SOURCES, None);
         assert!(!default_sources_disabled());
     }
 
     #[test]
     fn default_sources_disabled_respects_truthy_values() {
-        // Save/restore to avoid leaking across tests.
-        let saved = std::env::var(ENV_MARKETPLACE_NO_DEFAULT_SOURCES).ok();
+        // EnvVarGuard saves the current value and restores it on drop.
+        // Inside the loop we mutate directly under the guard's serialised
+        // scope (edition 2024 makes set_var unsafe, but the RAII guard
+        // ensures cleanup even on panic).
+        let _guard =
+            dcc_mcp_test_utils::EnvVarGuard::set(ENV_MARKETPLACE_NO_DEFAULT_SOURCES, Some("1"));
         for v in ["1", "true", "TRUE", "yes", "YES"] {
+            // SAFETY: serialized by EnvVarGuard which restores on drop.
             unsafe { std::env::set_var(ENV_MARKETPLACE_NO_DEFAULT_SOURCES, v) };
             assert!(default_sources_disabled(), "expected true for '{v}'");
         }
         for v in ["0", "false", "no", "", "FALSE", "NO"] {
+            // SAFETY: serialized by EnvVarGuard which restores on drop.
             unsafe { std::env::set_var(ENV_MARKETPLACE_NO_DEFAULT_SOURCES, v) };
             assert!(!default_sources_disabled(), "expected false for '{v}'");
-        }
-        // Restore original value (or unset).
-        match saved {
-            Some(v) => unsafe { std::env::set_var(ENV_MARKETPLACE_NO_DEFAULT_SOURCES, v) },
-            None => unsafe { std::env::remove_var(ENV_MARKETPLACE_NO_DEFAULT_SOURCES) },
         }
     }
 }

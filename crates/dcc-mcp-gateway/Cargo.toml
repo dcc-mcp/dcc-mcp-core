@@ -71,6 +71,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"
 criterion = { version = "0.8", features = ["html_reports"] }
 tower = { version = "0.5", features = ["util"] }
 proptest = "1.5"
+dcc-mcp-test-utils = { path = "../dcc-mcp-test-utils" }
 
 [[bench]]
 name = "search_bench"
