@@ -18,6 +18,20 @@ pub(in crate::rmcp_tool_call_dispatch) fn schema_property_names(schema: &Value) 
         .unwrap_or_default()
 }
 
+/// Check whether `haystack` matches a natural-language `query`.
+///
+/// For single-word queries this is a simple substring check (preserving
+/// the pre-1667 behaviour).  For multi-word phrases each word (≥2 chars)
+/// must appear as a substring somewhere in the haystack, so "create sphere"
+/// matches a tool whose name is "create_sphere".
+fn matches_phrase(haystack: &str, query: &str, query_words: &[&str]) -> bool {
+    if query_words.len() >= 2 {
+        query_words.iter().all(|w| haystack.contains(w))
+    } else {
+        haystack.contains(query)
+    }
+}
+
 pub(in crate::rmcp_tool_call_dispatch) fn handle_search_tools(
     state: &ServerState,
     arguments: &Value,
@@ -51,6 +65,12 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_tools(
         .map(|n| n.clamp(1, 100) as usize)
         .unwrap_or(25);
 
+    let query_words: Vec<&str> = if query.contains(' ') {
+        query.split_whitespace().filter(|w| w.len() >= 2).collect()
+    } else {
+        Vec::new()
+    };
+
     let mut tool_hits: Vec<Value> = Vec::new();
     for meta in state.registry.list_actions(dcc) {
         if !include_disabled && !meta.enabled {
@@ -69,7 +89,7 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_tools(
             schema_props.join(" ")
         )
         .to_lowercase();
-        if !haystack.contains(&query) {
+        if !matches_phrase(&haystack, &query, &query_words) {
             continue;
         }
         let mut hit = json!({
@@ -106,7 +126,7 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_tools(
                 summary.tool_names.join(" ")
             )
             .to_lowercase();
-            if !haystack.contains(&query) {
+            if !matches_phrase(&haystack, &query, &query_words) {
                 continue;
             }
             tool_hits.push(json!({
@@ -138,7 +158,7 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_tools(
                     continue;
                 }
                 let haystack = format!("__group__{} {} {}", group, group, skill).to_lowercase();
-                if !haystack.contains(&query) {
+                if !matches_phrase(&haystack, &query, &query_words) {
                     continue;
                 }
                 tool_hits.push(json!({
@@ -177,8 +197,12 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_tools(
                     d.tools
                         .iter()
                         .filter(|t| {
-                            t.name.to_lowercase().contains(&query)
-                                || t.description.to_lowercase().contains(&query)
+                            let tool_haystack = format!(
+                                "{} {}",
+                                t.name.to_lowercase(),
+                                t.description.to_lowercase()
+                            );
+                            matches_phrase(&tool_haystack, &query, &query_words)
                         })
                         .map(|t| t.name.clone())
                         .collect::<Vec<_>>()
@@ -210,4 +234,72 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_tools(
         "skill_candidates": skill_candidates,
     });
     CallToolResult::text(serde_json::to_string(&result).unwrap_or_default())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn matches_phrase_single_word_substring() {
+        assert!(matches_phrase("create_sphere", "sphere", &[]));
+        assert!(matches_phrase("create_sphere", "create", &[]));
+        assert!(!matches_phrase("create_sphere", "cube", &[]));
+    }
+
+    #[test]
+    fn matches_phrase_multiword_underscore_tool_name() {
+        let words: Vec<&str> = vec!["create", "sphere"];
+        // "create sphere" should match a tool whose name is "create_sphere"
+        assert!(matches_phrase("create_sphere create a sphere", "create sphere", &words));
+    }
+
+    #[test]
+    fn matches_phrase_multiword_rig_framework() {
+        let words: Vec<&str> = vec!["rig", "framework"];
+        assert!(matches_phrase(
+            "detect_rig_frameworks detect rig frameworks",
+            "rig framework",
+            &words,
+        ));
+    }
+
+    #[test]
+    fn matches_phrase_multiword_no_match() {
+        let words: Vec<&str> = vec!["create", "sphere"];
+        assert!(!matches_phrase("export_fbx export to fbx", "create sphere", &words));
+    }
+
+    #[test]
+    fn matches_phrase_multiword_partial_match_is_not_enough() {
+        let words: Vec<&str> = vec!["create", "cube"];
+        // "create" matches but "cube" does not
+        assert!(!matches_phrase("create_sphere create a sphere", "create cube", &words));
+    }
+
+    #[test]
+    fn matches_phrase_query_words_empty_falls_back_to_full_phrase() {
+        // When query_words is empty (single-word query or no multi-word
+        // processing), the function falls back to full-phrase substring match.
+        assert!(matches_phrase("create_sphere sphere", "sphere", &[]));
+        assert!(!matches_phrase("create_sphere", "xylophone", &[]));
+    }
+
+    #[test]
+    fn matches_phrase_short_words_filtered_falls_back_to_full() {
+        // When only one word passes the length filter, query_words has
+        // fewer than 2 entries so matches_phrase falls back to full-phrase
+        // substring. "a sphere" is not a substring of "create_sphere".
+        let words: Vec<&str> = vec!["sphere"]; // "a" filtered out
+        assert!(!matches_phrase("create_sphere", "a sphere", &words));
+    }
+
+    #[test]
+    fn matches_phrase_two_short_words_falls_back_to_full() {
+        // Both words are < 2 chars → query_words is empty → full-phrase
+        // substring check.
+        let words: Vec<&str> = Vec::new();
+        assert!(matches_phrase("at on", "at on", &words));
+        assert!(!matches_phrase("create_sphere", "at on", &words));
+    }
 }
