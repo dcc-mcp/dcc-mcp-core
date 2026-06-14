@@ -28,11 +28,15 @@ def _pid_alive(pid: int) -> bool:
         return False
 
 
-def main() -> None:
+def main(**kwargs) -> None:
     """Check DCC process health and print JSON result to stdout."""
-    parser = argparse.ArgumentParser(description="Check DCC process health.")
-    parser.add_argument("--pid", type=int, default=None, help="Check a specific PID.")
-    args = parser.parse_args()
+    if kwargs:
+        pid = kwargs.get("pid")
+    else:
+        parser = argparse.ArgumentParser(description="Check DCC process health.")
+        parser.add_argument("--pid", type=int, default=None, help="Check a specific PID.")
+        args = parser.parse_args()
+        pid = args.pid
 
     try:
         from dcc_mcp_core import PyProcessMonitor
@@ -48,13 +52,13 @@ def main() -> None:
         print(json.dumps({"success": False, "message": f"Failed to initialise process monitor: {exc}"}))
         sys.exit(1)
 
-    if args.pid is not None:
-        alive = _pid_alive(args.pid)
+    if pid is not None:
+        alive = _pid_alive(pid)
         print(
             json.dumps(
                 {
                     "success": True,
-                    "message": f"PID {args.pid} is {'alive' if alive else 'not running'}.",
+                    "message": f"PID {pid} is {'alive' if alive else 'not running'}.",
                     "prompt": (
                         "If the process is not running but should be, use your DCC launcher "
                         "to restart it. You can also call dcc_diagnostics__audit_log to see "

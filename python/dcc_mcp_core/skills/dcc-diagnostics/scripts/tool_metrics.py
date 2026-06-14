@@ -86,20 +86,28 @@ def _metric_to_dict(metric) -> dict:
     }
 
 
-def main() -> None:
+def main(**kwargs) -> None:
     """Show action performance metrics and print JSON result to stdout."""
-    parser = argparse.ArgumentParser(description="Show action performance metrics.")
-    parser.add_argument("--action-name", default=None, dest="action_name")
-    parser.add_argument("--sort-by", default="invocations", choices=list(_SORT_KEYS), dest="sort_by")
-    parser.add_argument("--limit", type=int, default=20)
-    args = parser.parse_args()
+    if kwargs:
+        action_name = kwargs.get("action_name")
+        sort_by = kwargs.get("sort_by", "invocations")
+        limit = kwargs.get("limit", 20)
+    else:
+        parser = argparse.ArgumentParser(description="Show action performance metrics.")
+        parser.add_argument("--action-name", default=None, dest="action_name")
+        parser.add_argument("--sort-by", default="invocations", choices=list(_SORT_KEYS), dest="sort_by")
+        parser.add_argument("--limit", type=int, default=20)
+        args = parser.parse_args()
+        action_name = args.action_name
+        sort_by = args.sort_by
+        limit = args.limit
 
     ipc_address = os.environ.get("DCC_MCP_IPC_ADDRESS")
 
-    data = _fetch_via_ipc(ipc_address, args.action_name) if ipc_address else None
+    data = _fetch_via_ipc(ipc_address, action_name) if ipc_address else None
 
     if data is None:
-        data = _fetch_local(args.action_name)
+        data = _fetch_local(action_name)
 
     if not data.get("success", True):
         print(json.dumps({"success": False, "message": data.get("message", "Unknown error")}))
@@ -110,9 +118,9 @@ def main() -> None:
     total = len(metrics)
 
     # Sort
-    sort_fn = _SORT_KEYS.get(args.sort_by, _SORT_KEYS["invocations"])
+    sort_fn = _SORT_KEYS.get(sort_by, _SORT_KEYS["invocations"])
     metrics.sort(key=sort_fn)
-    metrics = metrics[: args.limit]
+    metrics = metrics[: limit]
 
     empty_note = ""
     if total == 0 and source == "local":
@@ -128,7 +136,7 @@ def main() -> None:
         json.dumps(
             {
                 "success": True,
-                "message": summary + (f", showing top {args.limit}" if total > args.limit else ""),
+                "message": summary + (f", showing top {limit}" if total > limit else ""),
                 "prompt": (
                     "Metrics retrieved. High failure_rate or p95_ms values indicate problematic tools. "
                     "Use dcc_diagnostics__audit_log to see recent invocations, or "

@@ -102,20 +102,28 @@ def _fetch_local(filter_: str, action_name: str | None, limit: int) -> dict:
     }
 
 
-def main() -> None:
+def main(**kwargs) -> None:
     """Query the sandbox audit log and print JSON result to stdout."""
-    parser = argparse.ArgumentParser(description="Query the sandbox audit log.")
-    parser.add_argument("--filter", default="all", choices=["all", "success", "denied", "error"])
-    parser.add_argument("--action-name", default=None, dest="action_name")
-    parser.add_argument("--limit", type=int, default=50)
-    args = parser.parse_args()
+    if kwargs:
+        filter_ = kwargs.get("filter", "all")
+        action_name = kwargs.get("action_name")
+        limit = kwargs.get("limit", 50)
+    else:
+        parser = argparse.ArgumentParser(description="Query the sandbox audit log.")
+        parser.add_argument("--filter", default="all", choices=["all", "success", "denied", "error"])
+        parser.add_argument("--action-name", default=None, dest="action_name")
+        parser.add_argument("--limit", type=int, default=50)
+        args = parser.parse_args()
+        filter_ = args.filter
+        action_name = args.action_name
+        limit = args.limit
 
     ipc_address = os.environ.get("DCC_MCP_IPC_ADDRESS")
 
-    data = _fetch_via_ipc(ipc_address, args.filter, args.action_name, args.limit) if ipc_address else None
+    data = _fetch_via_ipc(ipc_address, filter_, action_name, limit) if ipc_address else None
 
     if data is None:
-        data = _fetch_local(args.filter, args.action_name, args.limit)
+        data = _fetch_local(filter_, action_name, limit)
 
     if not data.get("success", True) and "message" in data:
         # Hard error
@@ -125,7 +133,7 @@ def main() -> None:
     total = data.get("total_entries", 0)
     entries = data.get("entries", [])
     source = data.get("source", "ipc" if ipc_address else "local")
-    filter_desc = f"action={args.action_name!r}" if args.action_name else f"filter={args.filter}"
+    filter_desc = f"action={action_name!r}" if action_name else f"filter={filter_}"
 
     empty_note = ""
     if total == 0 and source == "local":
@@ -140,7 +148,7 @@ def main() -> None:
                 "success": True,
                 "message": (
                     f"Found {total} audit entries ({filter_desc}, source={source})"
-                    + (f", showing first {args.limit}" if total > args.limit else "")
+                    + (f", showing first {limit}" if total > limit else "")
                     + empty_note
                 ),
                 "prompt": (
@@ -150,8 +158,8 @@ def main() -> None:
                 ),
                 "context": {
                     "total_entries": total,
-                    "filter": args.filter,
-                    "action_name_filter": args.action_name,
+                    "filter": filter_,
+                    "action_name_filter": action_name,
                     "source": source,
                     "ipc_address": ipc_address,
                     "entries": entries,
