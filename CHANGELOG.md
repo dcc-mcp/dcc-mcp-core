@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.27](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.26...v0.18.27) (2026-06-15)
+
+
+### Bug Fixes
+
+* preserve sidecar discovery endpoint ([513c5bb](https://github.com/dcc-mcp/dcc-mcp-core/commit/513c5bbe3005495641f07983449d86deb5ab45ee))
+
 ## [0.18.26](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.25...v0.18.26) (2026-06-14)
 
 
