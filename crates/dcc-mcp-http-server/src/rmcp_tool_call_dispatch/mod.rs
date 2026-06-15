@@ -256,7 +256,8 @@ mod tests {
     use dcc_mcp_actions::ToolDispatcher;
     use dcc_mcp_actions::registry::{ToolMeta, ToolRegistry};
     use dcc_mcp_job::job::JobStatus;
-    use dcc_mcp_models::{ExecutionMode, ThreadAffinity};
+    use dcc_mcp_jsonrpc::ToolContent;
+    use dcc_mcp_models::{ExecutionMode, SkillScope, ThreadAffinity};
     use dcc_mcp_skill_rest::StaticReadiness;
     use dcc_mcp_skills::SkillCatalog;
     use serde_json::json;
@@ -282,6 +283,199 @@ mod tests {
             readiness: Arc::new(StaticReadiness::fully_ready()),
             on_skill_catalog_mutated: Arc::new(|| {}),
         }
+    }
+
+    fn result_text_json(result: &dcc_mcp_jsonrpc::CallToolResult) -> Value {
+        serde_json::from_str(result_text(result)).expect("handler text should be JSON")
+    }
+
+    fn result_text(result: &dcc_mcp_jsonrpc::CallToolResult) -> &str {
+        let Some(ToolContent::Text { text }) = result.content.first() else {
+            panic!("expected text content, got {result:?}");
+        };
+        text
+    }
+
+    #[tokio::test]
+    async fn skipped_skill_diagnostics_are_visible_through_mcp_discovery() {
+        let temp = tempfile::tempdir().unwrap();
+        let skill_dir = temp.path().join("maya-mgear");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join(dcc_mcp_skills::constants::SKILL_METADATA_FILE),
+            "---\nname: maya-mgear\ndescription: mGear integration\nversion: \"1.0.0\"\n---\n# body\n",
+        )
+        .unwrap();
+
+        let registry = Arc::new(ToolRegistry::new());
+        let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
+        let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+            Arc::clone(&registry),
+            Arc::clone(&dispatcher),
+        ));
+        let roots = vec![temp.path().to_string_lossy().to_string()];
+        catalog.discover(Some(&roots), Some("maya"));
+        let state = ServerState::builder(registry, dispatcher, catalog).build();
+
+        let search = dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            "search_skills",
+            Some(json!({"query": "mgear"})),
+            None,
+        )
+        .await
+        .expect("search_skills dispatch should succeed");
+        assert!(!search.is_error);
+        let search_payload = result_text_json(&search);
+        assert_eq!(search_payload["skipped_count"], 1);
+        assert_eq!(search_payload["skipped"][0]["skill_name"], "maya-mgear");
+        assert!(
+            search_payload["skipped"][0]["suggested_fix"]
+                .as_str()
+                .unwrap()
+                .contains("metadata.dcc-mcp.version")
+        );
+
+        let listed = dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            "list_skills",
+            Some(json!({"status": "skipped"})),
+            None,
+        )
+        .await
+        .expect("list_skills dispatch should succeed");
+        let list_payload = result_text_json(&listed);
+        assert_eq!(list_payload["skipped_count"], 1);
+        assert_eq!(
+            list_payload["skipped"][0]["reason_code"],
+            "non_spec_top_level_keys"
+        );
+
+        let info = dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            "get_skill_info",
+            Some(json!({"skill_name": "maya-mgear"})),
+            None,
+        )
+        .await
+        .expect("get_skill_info dispatch should succeed");
+        assert!(info.is_error);
+        let info_payload = result_text_json(&info);
+        assert_eq!(info_payload["error"], "skill_skipped");
+        assert!(
+            !info_payload
+                .to_string()
+                .contains(temp.path().to_string_lossy().as_ref())
+        );
+    }
+
+    #[tokio::test]
+    async fn skipped_skill_diagnostics_obey_search_filters_and_pagination() {
+        let temp = tempfile::tempdir().unwrap();
+        let maya_dir = temp.path().join("maya-broken");
+        let blender_dir = temp.path().join("blender-broken");
+        std::fs::create_dir_all(&maya_dir).unwrap();
+        std::fs::create_dir_all(&blender_dir).unwrap();
+        std::fs::write(
+            maya_dir.join(dcc_mcp_skills::constants::SKILL_METADATA_FILE),
+            "---\nname: maya-broken\ndescription: Broken Maya skill\nversion: \"1.0.0\"\nmetadata:\n  dcc-mcp:\n    dcc: maya\n    tags: [rigging]\n---\n# body\n",
+        )
+        .unwrap();
+        std::fs::write(
+            blender_dir.join(dcc_mcp_skills::constants::SKILL_METADATA_FILE),
+            "---\nname: blender-broken\ndescription: Broken Blender skill\nversion: \"1.0.0\"\nmetadata:\n  dcc-mcp:\n    dcc: blender\n    tags: [modeling]\n---\n# body\n",
+        )
+        .unwrap();
+
+        let registry = Arc::new(ToolRegistry::new());
+        let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
+        let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+            Arc::clone(&registry),
+            Arc::clone(&dispatcher),
+        ));
+        let roots = vec![temp.path().to_string_lossy().to_string()];
+        catalog.discover_scoped(&[(SkillScope::System, roots)], None);
+        let state = ServerState::builder(registry, dispatcher, catalog).build();
+
+        let filtered = dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            "search_skills",
+            Some(json!({
+                "query": "broken",
+                "dcc": "blender",
+                "scope": "system",
+                "limit": 1
+            })),
+            None,
+        )
+        .await
+        .expect("search_skills dispatch should succeed");
+        let filtered_payload = result_text_json(&filtered);
+        assert_eq!(filtered_payload["total"], 1);
+        assert_eq!(filtered_payload["skill_total"], 0);
+        assert_eq!(filtered_payload["skipped_count"], 1);
+        assert_eq!(
+            filtered_payload["skipped"][0]["skill_name"],
+            "blender-broken"
+        );
+        assert_eq!(filtered_payload["skipped"][0]["dcc"], "blender");
+        assert_eq!(filtered_payload["skipped"][0]["scope"], "system");
+
+        let tag_filtered = dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            "search_skills",
+            Some(json!({"query": "broken", "tags": ["rigging"], "limit": 20})),
+            None,
+        )
+        .await
+        .expect("search_skills dispatch should succeed");
+        let tag_payload = result_text_json(&tag_filtered);
+        assert_eq!(tag_payload["skipped_count"], 1);
+        assert_eq!(tag_payload["skipped"][0]["skill_name"], "maya-broken");
+
+        let wrong_scope = dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            "search_skills",
+            Some(json!({"query": "broken", "scope": "repo"})),
+            None,
+        )
+        .await
+        .expect("search_skills dispatch should succeed");
+        assert_eq!(
+            result_text(&wrong_scope),
+            "No skills found matching 'broken'."
+        );
+
+        let listed = dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            "list_skills",
+            Some(json!({"status": "skipped", "limit": 1, "offset": 1})),
+            None,
+        )
+        .await
+        .expect("list_skills dispatch should succeed");
+        let list_payload = result_text_json(&listed);
+        assert_eq!(list_payload["total"], 2);
+        assert_eq!(list_payload["skipped_count"], 2);
+        assert_eq!(list_payload["limit"], 1);
+        assert_eq!(list_payload["offset"], 1);
+        assert_eq!(list_payload["truncated"], false);
+        assert_eq!(list_payload["skipped"].as_array().unwrap().len(), 1);
+        assert_eq!(list_payload["skills"].as_array().unwrap().len(), 0);
     }
 
     #[tokio::test]
