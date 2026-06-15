@@ -1,12 +1,12 @@
 use super::*;
 use crate::sidecar::registry::{
-    GATEWAY_AUTO_ENSURE_METADATA_KEY, GATEWAY_HEALTH_URL_METADATA_KEY, GATEWAY_HOST_METADATA_KEY,
-    GATEWAY_LAUNCH_LOCK_METADATA_KEY, GATEWAY_PORT_METADATA_KEY,
-    GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN, GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION,
-    GATEWAY_RECOVERY_DRIVER_METADATA_KEY, GATEWAY_RECOVERY_DRIVER_NONE,
-    GATEWAY_REMOTE_HOST_METADATA_KEY, GATEWAY_REMOTE_PORT_METADATA_KEY,
-    REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT, REGISTRATION_REFRESH_MODE_METADATA_KEY,
-    REGISTRY_DIR_METADATA_KEY,
+    DISCOVERY_MCP_URL_METADATA_KEY, GATEWAY_AUTO_ENSURE_METADATA_KEY,
+    GATEWAY_HEALTH_URL_METADATA_KEY, GATEWAY_HOST_METADATA_KEY, GATEWAY_LAUNCH_LOCK_METADATA_KEY,
+    GATEWAY_PORT_METADATA_KEY, GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN,
+    GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION, GATEWAY_RECOVERY_DRIVER_METADATA_KEY,
+    GATEWAY_RECOVERY_DRIVER_NONE, GATEWAY_REMOTE_HOST_METADATA_KEY,
+    GATEWAY_REMOTE_PORT_METADATA_KEY, REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT,
+    REGISTRATION_REFRESH_MODE_METADATA_KEY, REGISTRY_DIR_METADATA_KEY,
 };
 use dcc_mcp_test_utils::EnvVarGuard;
 use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceKey, ServiceStatus};
@@ -26,6 +26,7 @@ fn guardian_test_args() -> SidecarArgs {
         instance_id: Some(Uuid::nil()),
         display_name: Some("Maya-Test".to_string()),
         adapter_version: Some("0.0.0-test".to_string()),
+        discovery_mcp_url: None,
         connect_timeout_secs: 2,
         allow_stub_dispatch_ready: false,
         ppid_poll_ms: Some(50),
@@ -65,6 +66,42 @@ fn default_registry_dir_honours_env_var_override() {
     assert_eq!(
         got, custom,
         "DCC_MCP_REGISTRY_DIR must win over the fallback path"
+    );
+}
+
+#[test]
+fn sidecar_service_entry_preserves_discovery_endpoint_metadata() {
+    let registry_dir = PathBuf::from("/tmp/dcc-mcp-registry-test");
+    let args = SidecarArgs {
+        dcc: "maya".to_string(),
+        host_rpc: "qtserver://127.0.0.1:18765".to_string(),
+        watch_pid: std::process::id(),
+        registry_dir: None,
+        instance_id: Some(Uuid::nil()),
+        display_name: Some("Maya-Test".to_string()),
+        adapter_version: Some("0.0.0-test".to_string()),
+        discovery_mcp_url: Some("http://127.0.0.1:8765/mcp".to_string()),
+        connect_timeout_secs: 2,
+        allow_stub_dispatch_ready: false,
+        ppid_poll_ms: Some(50),
+        gateway_port: 9765,
+        no_ensure_gateway: false,
+        legacy_gateway_election: false,
+        host: "127.0.0.1".to_string(),
+        gateway_host: None,
+        gateway_name: None,
+        gateway_remote_host: "0.0.0.0".to_string(),
+        gateway_remote_port: 59765,
+    };
+
+    let entry = build_service_entry(&args, &registry_dir);
+
+    assert_eq!(
+        entry
+            .metadata
+            .get(DISCOVERY_MCP_URL_METADATA_KEY)
+            .map(String::as_str),
+        Some("http://127.0.0.1:8765/mcp")
     );
 }
 
@@ -439,6 +476,7 @@ async fn ppid_watch_exits_on_parent_death() {
         instance_id: Some(Uuid::new_v4()),
         display_name: Some("test-sidecar".to_string()),
         adapter_version: Some("0.0.0-test".to_string()),
+        discovery_mcp_url: None,
         connect_timeout_secs: 2,
         allow_stub_dispatch_ready: false,
         ppid_poll_ms: Some(50),
@@ -523,6 +561,7 @@ async fn stub_host_rpc_is_unavailable_without_test_opt_in() {
         instance_id: Some(pinned_uuid),
         display_name: Some("stub-sidecar".to_string()),
         adapter_version: Some("0.0.0-test".to_string()),
+        discovery_mcp_url: None,
         connect_timeout_secs: 1,
         allow_stub_dispatch_ready: false,
         ppid_poll_ms: Some(50),
@@ -692,6 +731,7 @@ async fn commandport_connects_to_fake_server() {
         instance_id: Some(pinned_uuid),
         display_name: Some("test-maya".to_string()),
         adapter_version: Some("0.0.0-test".to_string()),
+        discovery_mcp_url: None,
         connect_timeout_secs: 2,
         allow_stub_dispatch_ready: false,
         ppid_poll_ms: Some(50),
@@ -828,6 +868,7 @@ async fn commandport_sidecar_dispatches_tools_call_to_fake_server() {
         instance_id: Some(pinned_uuid),
         display_name: Some("dispatch-maya".to_string()),
         adapter_version: Some("0.0.0-test".to_string()),
+        discovery_mcp_url: None,
         connect_timeout_secs: 2,
         allow_stub_dispatch_ready: false,
         ppid_poll_ms: Some(50),
@@ -947,6 +988,7 @@ async fn sidecar_survives_failed_initial_connect() {
         instance_id: Some(pinned_uuid),
         display_name: None,
         adapter_version: None,
+        discovery_mcp_url: None,
         // 300ms is plenty for ECONNREFUSED on Windows; bumps any
         // slow CI well above the noise floor while keeping the
         // test snappy in the common case.
@@ -1091,6 +1133,7 @@ async fn sidecar_reconnects_when_host_rpc_appears_after_startup() {
         instance_id: Some(pinned_uuid),
         display_name: Some("delayed-maya".to_string()),
         adapter_version: Some("0.0.0-test".to_string()),
+        discovery_mcp_url: None,
         connect_timeout_secs: 1,
         allow_stub_dispatch_ready: false,
         ppid_poll_ms: Some(50),

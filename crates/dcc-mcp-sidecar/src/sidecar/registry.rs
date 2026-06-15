@@ -24,6 +24,7 @@ pub(crate) const FAILURE_STAGE_METADATA_KEY: &str = "failure_stage";
 pub(crate) const FAILURE_AT_UNIX_METADATA_KEY: &str = "failure_at_unix";
 pub(crate) const HOST_RPC_URI_METADATA_KEY: &str = "host_rpc_uri";
 pub(crate) const HOST_RPC_SCHEME_METADATA_KEY: &str = "host_rpc_scheme";
+pub(crate) const DISCOVERY_MCP_URL_METADATA_KEY: &str = "discovery_mcp_url";
 pub(crate) const DISPATCH_STATUS_METADATA_KEY: &str = "dispatch_status";
 pub(crate) const DISPATCH_READY_AT_UNIX_METADATA_KEY: &str = "dispatch_ready_at_unix";
 pub(crate) const GATEWAY_RUNTIME_MODE_METADATA_KEY: &str = "gateway_runtime_mode";
@@ -240,6 +241,16 @@ pub(crate) fn build_service_entry(args: &SidecarArgs, registry_dir: &Path) -> Se
         entry
             .metadata
             .insert(HOST_RPC_SCHEME_METADATA_KEY.to_string(), scheme);
+    }
+    if let Some(url) = args
+        .discovery_mcp_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+    {
+        entry
+            .metadata
+            .insert(DISCOVERY_MCP_URL_METADATA_KEY.to_string(), url.to_string());
     }
     entry.metadata.insert(
         DISPATCH_STATUS_METADATA_KEY.to_string(),
