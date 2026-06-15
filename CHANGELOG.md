@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.28](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.27...v0.18.28) (2026-06-15)
+
+
+### Bug Fixes
+
+* align skill version diagnostics ([06a156c](https://github.com/dcc-mcp/dcc-mcp-core/commit/06a156cb2829395971dfb23fb6f1836ecf468a91))
+
 ## [0.18.27](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.26...v0.18.27) (2026-06-15)
 
 
