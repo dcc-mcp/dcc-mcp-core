@@ -190,8 +190,7 @@ def facade_cluster(tmp_path_factory):
             break
         if time.monotonic() > deadline:
             raise RuntimeError(
-                f"Gateway instance watcher did not discover both backends "
-                f"within timeout. Visible: {visible}"
+                f"Gateway instance watcher did not discover both backends within timeout. Visible: {visible}"
             )
         time.sleep(0.5)
 
