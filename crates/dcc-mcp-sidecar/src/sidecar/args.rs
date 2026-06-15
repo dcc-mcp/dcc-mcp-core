@@ -60,6 +60,16 @@ pub struct SidecarArgs {
     #[arg(long, value_name = "SEMVER")]
     pub adapter_version: Option<String>,
 
+    /// Read-only MCP/REST endpoint used by the gateway for discovery.
+    ///
+    /// Per-DCC sidecars may expose only dispatch calls. When the original
+    /// in-process adapter server remains available for `tools/list` and
+    /// `/v1/describe`, launchers can publish it here so gateway search and
+    /// admin skill inventory stay populated while calls still route through
+    /// the sidecar.
+    #[arg(long, value_name = "URL")]
+    pub discovery_mcp_url: Option<String>,
+
     /// Seconds to wait for the initial ``HostRpcClient::connect`` to the
     /// DCC. Failure to connect within this budget is logged but does
     /// **not** abort the sidecar - the process keeps running so its

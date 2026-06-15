@@ -109,7 +109,6 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
             .unwrap();
     });
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
     let dir = tempfile::tempdir().unwrap();
     let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
         dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
@@ -592,6 +591,222 @@ async fn load_skill_backend_payload_failure_is_not_decorated_as_loaded() {
     );
 
     let _ = shutdown_tx.send(());
+}
+
+#[tokio::test]
+async fn load_skill_for_sidecar_row_uses_discovery_endpoint() {
+    let loaded = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let discovery_load_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let loaded_for_search = loaded.clone();
+    let loaded_for_call = loaded.clone();
+    let discovery_calls_for_route = discovery_load_calls.clone();
+    let discovery_app = axum::Router::new()
+        .route(
+            "/health",
+            axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
+        )
+        .route(
+            "/v1/search",
+            axum::routing::post(move || {
+                let loaded = loaded_for_search.load(std::sync::atomic::Ordering::SeqCst);
+                async move {
+                    axum::Json(json!({
+                        "total": 1,
+                        "hits": [{
+                            "skill": "maya-primitives",
+                            "action": "maya_primitives__create_sphere",
+                            "summary": "Create a sphere",
+                            "loaded": loaded,
+                            "has_schema": true
+                        }]
+                    }))
+                }
+            }),
+        )
+        .route(
+            "/mcp",
+            axum::routing::post(move |axum::Json(body): axum::Json<Value>| {
+                let loaded = loaded_for_call.clone();
+                let calls = discovery_calls_for_route.clone();
+                async move {
+                    let id = body.get("id").cloned().unwrap_or(Value::Null);
+                    let name = body
+                        .pointer("/params/name")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    if name == "load_skill" {
+                        calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        loaded.store(true, std::sync::atomic::Ordering::SeqCst);
+                        axum::Json(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "content": [{
+                                    "type": "text",
+                                    "text": serde_json::to_string(&json!({
+                                        "loaded": true,
+                                        "skill_name": "maya-primitives",
+                                        "dcc_type": "maya",
+                                        "registered_tools": ["maya_primitives__create_sphere"]
+                                    })).unwrap()
+                                }],
+                                "isError": false
+                            }
+                        }))
+                    } else {
+                        axum::Json(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "content": [{"type": "text", "text": format!("unexpected discovery tool: {name}")}],
+                                "isError": true
+                            }
+                        }))
+                    }
+                }
+            }),
+        );
+    let discovery_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let discovery_port = discovery_listener.local_addr().unwrap().port();
+    let (stop_discovery_tx, stop_discovery_rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        axum::serve(discovery_listener, discovery_app)
+            .with_graceful_shutdown(async {
+                let _ = stop_discovery_rx.await;
+            })
+            .await
+            .ok();
+    });
+    let sidecar_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let sidecar_calls_for_route = sidecar_calls.clone();
+    let sidecar_app = axum::Router::new()
+        .route(
+            "/health",
+            axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
+        )
+        .route(
+            "/mcp",
+            axum::routing::post(move |axum::Json(body): axum::Json<Value>| {
+                let calls = sidecar_calls_for_route.clone();
+                async move {
+                    calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let id = body.get("id").cloned().unwrap_or(Value::Null);
+                    let name = body
+                        .pointer("/params/name")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    axum::Json(json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "content": [{
+                                "type": "text",
+                                "text": serde_json::to_string(&json!({
+                                    "success": false,
+                                    "message": format!("Unknown sidecar action: {name}"),
+                                    "error": "unknown-action"
+                                })).unwrap()
+                            }],
+                            "isError": false
+                        }
+                    }))
+                }
+            }),
+        );
+    let sidecar_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let sidecar_port = sidecar_listener.local_addr().unwrap().port();
+    let (stop_sidecar_tx, stop_sidecar_rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        axum::serve(sidecar_listener, sidecar_app)
+            .with_graceful_shutdown(async {
+                let _ = stop_sidecar_rx.await;
+            })
+            .await
+            .ok();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+        dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
+    ));
+    let instance_id = {
+        let r = registry.read().await;
+        let mut entry = dcc_mcp_transport::discovery::types::ServiceEntry::new(
+            "maya",
+            "127.0.0.1",
+            sidecar_port,
+        );
+        entry.metadata.insert(
+            crate::gateway::http_registration::MCP_URL_METADATA_KEY.to_string(),
+            format!("http://127.0.0.1:{sidecar_port}/mcp"),
+        );
+        entry.metadata.insert(
+            crate::gateway::http_registration::DISCOVERY_MCP_URL_METADATA_KEY.to_string(),
+            format!("http://127.0.0.1:{discovery_port}/mcp"),
+        );
+        entry.metadata.insert(
+            crate::gateway::http_registration::ROLE_METADATA_KEY.to_string(),
+            crate::gateway::http_registration::ROLE_PER_DCC_SIDECAR.to_string(),
+        );
+        let id = entry.instance_id;
+        r.register(entry).unwrap();
+        id
+    };
+    let gs = make_gateway_state(registry).await;
+    crate::gateway::capability_service::refresh_all_live_backends(
+        &gs,
+        crate::gateway::capability::RefreshReason::Periodic,
+    )
+    .await;
+    let unloaded_query = crate::gateway::capability_service::parse_search_payload(&json!({
+        "query": "sphere",
+        "dcc_type": "maya",
+        "instance_id": instance_id.to_string(),
+    }));
+    let unloaded_hits =
+        crate::gateway::capability_service::search_service(&gs.capability_index, &unloaded_query);
+    assert_eq!(unloaded_hits.len(), 1);
+    assert!(
+        !unloaded_hits[0].record.loaded,
+        "pre-load search must surface the unloaded skill hint"
+    );
+    let (text, is_error) = skill_mgmt_dispatch(
+        &gs,
+        "load_skill",
+        &json!({
+            "skill_name": "maya-primitives",
+            "dcc_type": "maya",
+            "instance_id": instance_id.to_string(),
+        }),
+    )
+    .await;
+    assert!(!is_error, "load_skill must use discovery endpoint: {text}");
+    assert_eq!(
+        discovery_load_calls.load(std::sync::atomic::Ordering::SeqCst),
+        1
+    );
+    assert_eq!(
+        sidecar_calls.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "skill lifecycle calls must not hit the sidecar dispatch endpoint"
+    );
+    let loaded_query = crate::gateway::capability_service::parse_search_payload(&json!({
+        "query": "sphere",
+        "dcc_type": "maya",
+        "instance_id": instance_id.to_string(),
+        "loaded_only": true,
+    }));
+    let loaded_hits =
+        crate::gateway::capability_service::search_service(&gs.capability_index, &loaded_query);
+    assert!(
+        loaded_hits.iter().any(|hit| {
+            hit.record.loaded && hit.record.backend_tool == "maya_primitives__create_sphere"
+        }),
+        "post-load refresh must surface the callable skill tool"
+    );
+    let _ = stop_discovery_tx.send(());
+    let _ = stop_sidecar_tx.send(());
 }
 
 #[tokio::test]

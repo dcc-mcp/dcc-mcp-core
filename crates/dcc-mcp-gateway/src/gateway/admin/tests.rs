@@ -288,6 +288,46 @@ filters:
         (port, tx)
     }
 
+    async fn spawn_sidecar_dispatch_backend() -> (u16, oneshot::Sender<()>, Arc<Mutex<Vec<Value>>>)
+    {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let calls_for_route = calls.clone();
+        let app = Router::new()
+            .route("/health", axum::routing::get(|| async { StatusCode::OK }))
+            .route(
+                "/mcp",
+                axum::routing::post(move |axum::Json(req): axum::Json<Value>| {
+                    let calls = calls_for_route.clone();
+                    async move {
+                        calls.lock().push(req.clone());
+                        let id = req.get("id").cloned().unwrap_or(json!("test"));
+                        axum::Json(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "content": [{
+                                    "type": "text",
+                                    "text": "{\"success\":true,\"created\":\"random_sphere_1\"}"
+                                }],
+                                "isError": false
+                            }
+                        }))
+                    }
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (tx, rx) = oneshot::channel::<()>();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = rx.await;
+                })
+                .await;
+        });
+        (port, tx, calls)
+    }
+
     async fn spawn_skill_detail_backend(hits: Value, detail: Value) -> (u16, oneshot::Sender<()>) {
         let app = Router::new()
             .route("/health", axum::routing::get(|| async { StatusCode::OK }))
@@ -434,6 +474,114 @@ filters:
         assert_eq!(
             body["skills"][0]["instances"][0],
             instance_short(&instance_id)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_admin_skills_refreshes_via_discovery_endpoint_metadata() {
+        let gs = make_gateway_state();
+        let (discovery_port, stop) = spawn_search_backend(json!([
+            {
+                "skill": "maya-modeling",
+                "action": "maya-modeling__create_sphere",
+                "summary": "Create a sphere",
+                "loaded": true,
+                "has_schema": false
+            }
+        ]))
+        .await;
+        let mut entry = make_service_entry("maya", "127.0.0.1", 9, None);
+        entry.metadata.insert(
+            crate::gateway::http_registration::MCP_URL_METADATA_KEY.to_string(),
+            "http://127.0.0.1:9/mcp".to_string(),
+        );
+        entry.metadata.insert(
+            crate::gateway::http_registration::DISCOVERY_MCP_URL_METADATA_KEY.to_string(),
+            format!("http://127.0.0.1:{discovery_port}/mcp"),
+        );
+        {
+            let registry = gs.registry.write().await;
+            registry.register(entry).unwrap();
+        }
+        let router = build_admin_router(AdminState::new(gs));
+
+        let (status, body) = body_json(router, "/api/skills").await;
+        let _ = stop.send(());
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["total"], 1);
+        assert_eq!(body["action_count"], 1);
+        assert_eq!(body["skills"][0]["name"], "maya-modeling");
+    }
+
+    #[tokio::test]
+    async fn test_gateway_call_routes_sidecar_entries_over_mcp_dispatch() {
+        let gs = make_gateway_state();
+        let (discovery_port, stop_discovery) = spawn_search_backend(json!([
+            {
+                "skill": "maya-primitives",
+                "action": "maya_primitives__create_sphere",
+                "summary": "Create a sphere",
+                "loaded": true,
+                "has_schema": true
+            }
+        ]))
+        .await;
+        let (sidecar_port, stop_sidecar, sidecar_calls) = spawn_sidecar_dispatch_backend().await;
+        let mut entry = make_service_entry("maya", "127.0.0.1", sidecar_port, None);
+        entry.metadata.insert(
+            crate::gateway::http_registration::MCP_URL_METADATA_KEY.to_string(),
+            format!("http://127.0.0.1:{sidecar_port}/mcp"),
+        );
+        entry.metadata.insert(
+            crate::gateway::http_registration::DISCOVERY_MCP_URL_METADATA_KEY.to_string(),
+            format!("http://127.0.0.1:{discovery_port}/mcp"),
+        );
+        entry.metadata.insert(
+            crate::gateway::http_registration::ROLE_METADATA_KEY.to_string(),
+            crate::gateway::http_registration::ROLE_PER_DCC_SIDECAR.to_string(),
+        );
+        let instance_id = entry.instance_id;
+        {
+            let registry = gs.registry.write().await;
+            registry.register(entry).unwrap();
+        }
+
+        crate::gateway::capability_service::refresh_all_live_backends(
+            &gs,
+            crate::gateway::capability::RefreshReason::Periodic,
+        )
+        .await;
+        let slug = crate::gateway::capability::tool_slug(
+            "maya",
+            &instance_id,
+            "maya_primitives__create_sphere",
+        );
+
+        let result = crate::gateway::capability_service::call_service(
+            &gs,
+            &slug,
+            json!({"radius": 0.8, "name": "random_sphere_1"}),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("gateway /v1/call should route sidecar entries via /mcp tools/call");
+        let _ = stop_discovery.send(());
+        let _ = stop_sidecar.send(());
+
+        assert_eq!(result["isError"], false);
+        let calls = sidecar_calls.lock();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["method"], "tools/call");
+        assert_eq!(
+            calls[0].pointer("/params/name"),
+            Some(&json!("maya_primitives__create_sphere"))
+        );
+        assert_eq!(
+            calls[0].pointer("/params/arguments/name"),
+            Some(&json!("random_sphere_1"))
         );
     }
 
