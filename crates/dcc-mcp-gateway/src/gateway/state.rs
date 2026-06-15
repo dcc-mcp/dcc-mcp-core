@@ -53,7 +53,9 @@ use dcc_mcp_gateway_core::naming::instance_short;
 use dcc_mcp_gateway_core::policy::GatewayPolicy;
 
 use super::event_log::EventLog;
-use super::http_registration::{HttpInstanceRegistry, entry_mcp_url, entry_registry_source};
+use super::http_registration::{
+    HttpInstanceRegistry, entry_discovery_mcp_url, entry_mcp_url, entry_registry_source,
+};
 use super::instance_diagnostics::{InstanceDiagnostics, InstanceDiagnosticsStore};
 use super::mdns_registration::MdnsInstanceRegistry;
 use super::relay_registration::RelayInstanceRegistry;
@@ -764,6 +766,7 @@ pub fn entry_to_json(
         "host":            e.host,
         "port":            e.port,
         "mcp_url":         entry_mcp_url(e),
+        "discovery_mcp_url": entry_discovery_mcp_url(e),
         "source":          entry_registry_source(e),
         "source_meta":     source_meta,
         "status":          status,

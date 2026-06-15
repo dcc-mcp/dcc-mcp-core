@@ -838,6 +838,7 @@ def _add_sidecar_launch_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--instance-id")
     parser.add_argument("--display-name")
     parser.add_argument("--adapter-version")
+    parser.add_argument("--discovery-mcp-url")
     parser.add_argument("--gateway-port", type=int)
     parser.add_argument("--gateway-host")
     parser.add_argument("--gateway-name")
@@ -886,6 +887,7 @@ def _sidecar_launch_kwargs(args: argparse.Namespace) -> Dict[str, Any]:
         "instance_id": args.instance_id,
         "display_name": args.display_name,
         "adapter_version": args.adapter_version,
+        "discovery_mcp_url": args.discovery_mcp_url,
         "gateway_port": args.gateway_port,
         "gateway_host": args.gateway_host,
         "gateway_name": args.gateway_name,

@@ -944,6 +944,7 @@ def test_build_sidecar_command_uses_sidecar_cli_contract(tmp_path: Path) -> None
         registry_dir=registry,
         display_name="Maya-Anim",
         adapter_version="1.2.3",
+        discovery_mcp_url="http://127.0.0.1:8765/mcp",
         gateway_port=19765,
         gateway_host="127.0.0.1",
         server_bin="dcc-mcp-server-test",
@@ -952,6 +953,7 @@ def test_build_sidecar_command_uses_sidecar_cli_contract(tmp_path: Path) -> None
     assert result["success"] is True
     assert result["role"] == "per-dcc-sidecar"
     assert result["registry_dir"] == str(registry.resolve())
+    assert result["discovery_mcp_url"] == "http://127.0.0.1:8765/mcp"
     assert result["environment"]["set"] == {
         "DCC_MCP_REGISTRY_DIR": str(registry.resolve()),
         "DCC_MCP_GATEWAY_PORT": "19765",
@@ -974,6 +976,8 @@ def test_build_sidecar_command_uses_sidecar_cli_contract(tmp_path: Path) -> None
         "Maya-Anim",
         "--adapter-version",
         "1.2.3",
+        "--discovery-mcp-url",
+        "http://127.0.0.1:8765/mcp",
         "--gateway-host",
         "127.0.0.1",
     ]
@@ -1729,6 +1733,32 @@ def test_cli_sidecar_command_can_require_dispatch_capable(capsys: pytest.Capture
     payload = json.loads(capsys.readouterr().out)
     assert payload["reason"] == "dispatch_not_capable"
     assert payload["dispatch_contract"]["status"] == "unsupported"
+
+
+def test_cli_sidecar_command_forwards_discovery_mcp_url(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    code = lifecycle.main(
+        [
+            "sidecar-command",
+            "--dcc",
+            "maya",
+            "--host-rpc",
+            "qtserver://127.0.0.1:18765",
+            "--watch-pid",
+            "2468",
+            "--server-bin",
+            "dcc-mcp-server-test",
+            "--discovery-mcp-url",
+            "http://127.0.0.1:8765/mcp",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["discovery_mcp_url"] == "http://127.0.0.1:8765/mcp"
+    assert "--discovery-mcp-url" in payload["command"]
+    assert "http://127.0.0.1:8765/mcp" in payload["command"]
 
 
 def test_cli_sidecar_ready_passes_probe_arguments(

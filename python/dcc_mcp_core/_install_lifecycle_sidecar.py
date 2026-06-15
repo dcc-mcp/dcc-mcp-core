@@ -123,6 +123,7 @@ def build_sidecar_command(
     instance_id: Optional[str] = None,
     display_name: Optional[str] = None,
     adapter_version: Optional[str] = None,
+    discovery_mcp_url: Optional[str] = None,
     gateway_port: Optional[int] = None,
     gateway_host: Optional[str] = None,
     gateway_name: Optional[str] = None,
@@ -211,6 +212,7 @@ def build_sidecar_command(
     _append_flag_value(command, "--instance-id", normalized_instance_id)
     _append_flag_value(command, "--display-name", display_name)
     _append_flag_value(command, "--adapter-version", adapter_version)
+    _append_flag_value(command, "--discovery-mcp-url", discovery_mcp_url)
     _append_flag_value(command, "--gateway-host", gateway_host or environment.get("DCC_MCP_GATEWAY_HOST"))
     _append_flag_value(command, "--gateway-name", gateway_name or environment.get("DCC_MCP_GATEWAY_NAME"))
     _append_flag_value(command, "--gateway-remote-host", gateway_remote_host)
@@ -245,6 +247,7 @@ def build_sidecar_command(
         "role": ROLE_PER_DCC_SIDECAR,
         "dcc_type": dcc,
         "host_rpc": endpoint,
+        "discovery_mcp_url": str(discovery_mcp_url).strip() if discovery_mcp_url else None,
         "watch_pid": pid,
         "registry_dir": str(registry_path),
         "gateway_port": port,
@@ -286,6 +289,7 @@ def launch_sidecar(
     instance_id: Optional[str] = None,
     display_name: Optional[str] = None,
     adapter_version: Optional[str] = None,
+    discovery_mcp_url: Optional[str] = None,
     gateway_port: Optional[int] = None,
     gateway_host: Optional[str] = None,
     gateway_name: Optional[str] = None,
@@ -330,6 +334,7 @@ def launch_sidecar(
         instance_id=instance_id,
         display_name=display_name,
         adapter_version=adapter_version,
+        discovery_mcp_url=discovery_mcp_url,
         gateway_port=gateway_port,
         gateway_host=gateway_host,
         gateway_name=gateway_name,
