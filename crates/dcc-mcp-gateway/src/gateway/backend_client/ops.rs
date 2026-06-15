@@ -14,8 +14,8 @@ use crate::gateway::resilience::{
 
 use super::error::{BackendCallError, rest_error_prometheus_kind};
 use super::http::{
-    percent_encode_uri, post_jsonrpc, rest_get, rest_post, rest_post_with_trace_context,
-    uuid_like_id,
+    percent_encode_uri, post_jsonrpc, post_jsonrpc_with_trace_context, rest_get, rest_post,
+    rest_post_with_trace_context, uuid_like_id,
 };
 use super::probe::{ProbeOutcome, probe_mcp_readiness};
 use super::urls::rest_base_from_mcp_url;
@@ -162,6 +162,101 @@ pub async fn call_backend(
     post_jsonrpc(client, mcp_url, req_body, None, timeout)
         .await
         .map_err(|e| e.to_string())
+}
+
+pub struct BackendJsonRpcCallRequest<'a> {
+    pub method: &'a str,
+    pub params: Option<Value>,
+    pub request_id: Option<String>,
+    pub trace_context: Option<&'a TraceContext>,
+    pub traffic_capture: Option<&'a crate::gateway::traffic::TrafficCapture>,
+    pub timeout: Duration,
+}
+
+/// Call a JSON-RPC method on a backend `/mcp` endpoint with the same
+/// trace propagation and traffic evidence used by REST tool forwarding.
+pub async fn call_backend_with_observability(
+    client: &reqwest::Client,
+    mcp_url: &str,
+    request: BackendJsonRpcCallRequest<'_>,
+) -> Result<Value, String> {
+    match probe_mcp_readiness(client, mcp_url, request.timeout).await {
+        ProbeOutcome::Ready => {}
+        ProbeOutcome::Booting => {
+            return Err(BackendCallError::Booting {
+                mcp_url: mcp_url.to_string(),
+            }
+            .to_string());
+        }
+        ProbeOutcome::Unreachable => {
+            return Err(BackendCallError::Unreachable {
+                mcp_url: mcp_url.to_string(),
+            }
+            .to_string());
+        }
+    }
+
+    let id = request.request_id.unwrap_or_else(uuid_like_id);
+    let mut req_body = json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": request.method,
+    });
+    if let Some(params) = request.params {
+        req_body["params"] = params;
+    }
+
+    if let Some(capture) = request.traffic_capture {
+        emit_backend_traffic_frame(
+            capture,
+            request.trace_context,
+            mcp_url,
+            "request",
+            "gateway_to_adapter",
+            None,
+            req_body.clone(),
+        );
+    }
+
+    match post_jsonrpc_with_trace_context(
+        client,
+        mcp_url,
+        req_body,
+        None,
+        request.timeout,
+        request.trace_context,
+    )
+    .await
+    {
+        Ok(result) => {
+            if let Some(capture) = request.traffic_capture {
+                emit_backend_traffic_frame(
+                    capture,
+                    request.trace_context,
+                    mcp_url,
+                    "response",
+                    "adapter_to_gateway",
+                    Some(200),
+                    result.clone(),
+                );
+            }
+            Ok(result)
+        }
+        Err(err) => {
+            if let Some(capture) = request.traffic_capture {
+                emit_backend_traffic_frame(
+                    capture,
+                    request.trace_context,
+                    mcp_url,
+                    "response",
+                    "adapter_to_gateway",
+                    None,
+                    json!({"success": false, "error": err.to_string()}),
+                );
+            }
+            Err(err.to_string())
+        }
+    }
 }
 
 /// Fetch tool list from a backend via `POST /v1/search` with `loaded_only=false`.
