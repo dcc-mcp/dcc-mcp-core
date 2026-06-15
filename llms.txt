@@ -26,7 +26,7 @@
 3. ACTIVATE: load_skill("skill-name") → expose the tools and cascade-activate declared tool groups by default
 4. EXECUTE: Call the specific tool with validated parameters
 
-`search_tools` tokenizes backend tool names and summaries; literal underscores are honored but not required (`create_sphere` and `sphere` both match).
+`search_tools` tokenizes backend tool names and summaries; literal underscores are honored but not required (`create_sphere` and `sphere` both match). Multi-word natural-language phrases ("create sphere", "rig framework") match word-split tokens across both names and descriptions.
 5. FOLLOW UP: Check next-tools.on-success for suggested next steps
 6. DEBUG: On failure, use dcc_diagnostics__screenshot or audit_log
 ```
