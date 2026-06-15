@@ -183,6 +183,16 @@ pub fn project_list_skills_payload(mut payload: Value, args: &Value) -> Value {
             .as_object_mut()
             .map(|obj| obj.insert("instances".into(), instances.clone()));
     }
+    if let Some(skipped_count) = payload.get("skipped_count") {
+        projected
+            .as_object_mut()
+            .map(|obj| obj.insert("skipped_count".into(), skipped_count.clone()));
+    }
+    if let Some(skipped) = payload.get("skipped") {
+        projected
+            .as_object_mut()
+            .map(|obj| obj.insert("skipped".into(), skipped.clone()));
+    }
     projected
 }
 

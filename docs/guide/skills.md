@@ -63,6 +63,12 @@ tools:
     source_file: scripts/export_fbx.bat
 ```
 
+`metadata.dcc-mcp.version` is the canonical skill package version field and
+is projected into `SkillMetadata.version`. Do not put `version` at the
+frontmatter root: top-level `version` is outside the agentskills.io 1.0 key
+set and the strict loader rejects it with a diagnostic that points to
+`metadata.dcc-mcp.version: "1.0.0"`.
+
 The `metadata.dcc-mcp.search-hint` field provides comma-separated keywords for efficient skill discovery via `search_skills` without loading full tool schemas. Use bounded `metadata.dcc-mcp.search-aliases` and per-tool `search_aliases` in `tools.yaml` for domain synonyms, localized terms, or common user phrases that should improve gateway/per-DCC search recall without changing tool names, summaries, tags, or dispatch inputs.
 
 Optional adapter runtimes can be declared without turning skill discovery into
@@ -1620,7 +1626,7 @@ The `tags` and `dcc` filter arguments are applied *before* scoring.
 
 ## Migrating pre-0.15 SKILL.md
 
-Starting with dcc-mcp-core 0.15 (issue [#356](https://github.com/dcc-mcp/dcc-mcp-core/issues/356)), dcc-mcp-core-specific extension keys (`dcc`, `version`, `tags`, `tools`, …) MUST live under the agentskills.io-compliant nested `metadata.dcc-mcp` namespace rather than at the top level of SKILL.md frontmatter. The strict v0.15+ loader also no longer promotes the pre-0.15 flat dotted form (`metadata: { "dcc-mcp.dcc": ... }`) into typed fields. A SKILL.md with legacy top-level keys fails to load and emits a `tracing::error!`.
+Starting with dcc-mcp-core 0.15 (issue [#356](https://github.com/dcc-mcp/dcc-mcp-core/issues/356)), dcc-mcp-core-specific extension keys (`dcc`, `version`, `tags`, `tools`, ...) MUST live under the agentskills.io-compliant nested `metadata.dcc-mcp` namespace rather than at the top level of SKILL.md frontmatter. The strict v0.15+ loader also no longer promotes the pre-0.15 flat dotted form (`metadata: { "dcc-mcp.dcc": ... }`) into typed fields. A SKILL.md with legacy top-level keys fails to load and emits a `tracing::error!`; MCP `list_skills(status="skipped")`, `search_skills`, and `load_skill` now surface the skipped reason and suggested replacement so operators do not need startup logs to diagnose a missing skill.
 
 ### Before (pre-0.15 legacy form — no longer accepted)
 

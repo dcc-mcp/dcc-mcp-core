@@ -97,7 +97,7 @@ Lightweight summary returned by `SkillCatalog.search_skills()` and `list_skills(
 | `search_hint` | `str` | Keyword hint for search (from `search-hint:` in SKILL.md; falls back to `description`) |
 | `tags` | `List[str]` | Skill tags |
 | `dcc` | `str` | Target DCC (e.g. `"maya"`) |
-| `version` | `str` | Skill version |
+| `version` | `str` | Skill package version projected from `metadata.dcc-mcp.version`; top-level `version` in SKILL.md is rejected |
 | `tool_count` | `int` | Number of declared tools |
 | `tool_names` | `List[str]` | Names of declared tools |
 | `loaded` | `bool` | Whether the skill is currently loaded |

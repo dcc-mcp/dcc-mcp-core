@@ -54,10 +54,10 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
         },
         McpTool {
             name: "list_skills".to_string(),
-            description: "Lists every discovered skill on this server with its current load status (loaded, unloaded, or error).\n\n\
-                          When to use: Use to browse what is available or to audit which skills are currently active. For keyword lookup, call search_skills instead — list_skills is a flat dump with no ranking.\n\n\
+            description: "Lists discovered skills with load status (loaded, unloaded, error, skipped).\n\n\
+                          When to use: Browse availability or audit active skills. For ranked lookup, call search_skills instead.\n\n\
                           How to use:\n\
-                          - Pass status='loaded' to inspect the active tool surface, 'unloaded' to find candidates to load.\n\
+                          - Pass status='loaded' for active skills, 'unloaded' for load candidates, or 'skipped' for rejected package diagnostics.\n\
                           - Follow up with get_skill_info(skill_name=...) or load_skill(skill_name=...)."
                 .to_string(),
             input_schema: json!({
@@ -65,9 +65,14 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
                 "properties": {
                     "status": {
                         "type": "string",
-                        "enum": ["all", "loaded", "unloaded", "error"],
+                        "enum": ["all", "loaded", "unloaded", "error", "skipped"],
                         "default": "all",
-                        "description": "Load-status filter; 'all' returns every discovered skill."
+                        "description": "Load-status filter; 'all' returns skills, 'skipped' returns rejected package diagnostics."
+                    },
+                    "include_skipped": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Include skipped skill diagnostics with stable reason codes and suggested fixes."
                     },
                     "limit": {
                         "type": "integer",
@@ -198,7 +203,7 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
         },
         McpTool {
             name: "search_skills".to_string(),
-            description: "Unified skill discovery. Ranks skills against query across name, description, search-hint, tags, and tool names; filters by tags/dcc/scope.\n\n\
+            description: "Unified skill discovery. Ranks skills against query across name, description, search-hint, tags, and tool names; filters by tags/dcc/scope. Matching skipped skill directories are returned in `skipped` with diagnostics.\n\n\
                           When to use: Start here when you need a capability but don't know the skill name. Call with no args to browse by trust scope (Admin>System>User>Repo).\n\n\
                           How to use:\n\
                           - Keep query short (2-4 keywords); combine with tags/dcc/scope.\n\

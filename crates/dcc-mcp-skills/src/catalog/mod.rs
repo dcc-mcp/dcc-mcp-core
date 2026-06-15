@@ -63,6 +63,7 @@ use parking_lot::RwLock;
 use std::sync::Arc;
 
 use crate::loader;
+use crate::loader::SkippedSkillDiagnostic;
 
 #[allow(clippy::module_inception)]
 mod catalog;
@@ -113,6 +114,9 @@ pub type AfterGroupChangeFn = dyn Fn(&str, bool) -> Result<(), String> + Send + 
 pub struct SkillCatalog {
     /// All discovered skill entries, keyed by skill name.
     pub(super) entries: DashMap<String, SkillEntry>,
+    /// Skill directories that were scanned but rejected by the loader, keyed
+    /// by best-effort skill name. Values are safe to surface through MCP.
+    pub(super) skipped: DashMap<String, SkippedSkillDiagnostic>,
     /// Set of skill names currently loaded.
     pub(super) loaded: DashSet<String>,
     /// Reference to ToolRegistry for registering/unregistering tools.
@@ -154,6 +158,7 @@ impl std::fmt::Debug for SkillCatalog {
             .field("discovered", &discovered)
             .field("loaded", &loaded)
             .field("total", &self.entries.len())
+            .field("skipped", &self.skipped.len())
             .finish()
     }
 }
@@ -184,7 +189,9 @@ pub(crate) fn group_default_active(groups: &[SkillGroup], group_name: &str) -> b
 /// dedicated methods (`add_skill`, `load_skill`, `remove_skill`, …) instead.
 impl Registry<SkillEntry> for SkillCatalog {
     fn register(&self, entry: SkillEntry) {
-        self.entries.insert(entry.key(), entry);
+        let key = entry.key();
+        self.skipped.remove(&key);
+        self.entries.insert(key, entry);
         self.refresh_dependency_states();
     }
 
@@ -197,6 +204,7 @@ impl Registry<SkillEntry> for SkillCatalog {
     }
 
     fn remove(&self, key: &str) -> bool {
+        self.skipped.remove(key);
         let removed = self.entries.remove(key).is_some();
         if removed {
             self.refresh_dependency_states();
