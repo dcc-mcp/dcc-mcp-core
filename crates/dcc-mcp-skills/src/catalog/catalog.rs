@@ -140,6 +140,44 @@ impl SkillCatalog {
             .collect()
     }
 
+    /// Return safe diagnostics for skill directories that were scanned but
+    /// rejected by the loader.
+    pub fn skipped_skill_diagnostics(
+        &self,
+        query: Option<&str>,
+        limit: Option<usize>,
+    ) -> Vec<SkippedSkillDiagnostic> {
+        let mut diagnostics: Vec<SkippedSkillDiagnostic> = self
+            .skipped
+            .iter()
+            .filter(|entry| entry.value().matches_query(query))
+            .map(|entry| entry.value().clone())
+            .collect();
+        diagnostics.sort_by(|a, b| a.skill_name.cmp(&b.skill_name));
+        if let Some(limit) = limit {
+            diagnostics.truncate(limit);
+        }
+        diagnostics
+    }
+
+    /// Return a skipped diagnostic for an exact skill name or directory name.
+    pub fn skipped_skill_diagnostic(&self, skill_name: &str) -> Option<SkippedSkillDiagnostic> {
+        if let Some(entry) = self.skipped.get(skill_name) {
+            return Some(entry.value().clone());
+        }
+        let wanted = skill_name.trim();
+        self.skipped
+            .iter()
+            .find(|entry| entry.directory_name.eq_ignore_ascii_case(wanted))
+            .map(|entry| entry.value().clone())
+    }
+
+    /// Number of skipped skill diagnostics currently retained by the catalog.
+    #[must_use]
+    pub fn skipped_count(&self) -> usize {
+        self.skipped.len()
+    }
+
     /// Get detailed information about a specific skill.
     pub fn get_skill_info(&self, skill_name: &str) -> Option<SkillDetail> {
         self.entries.get(skill_name).map(|entry| {

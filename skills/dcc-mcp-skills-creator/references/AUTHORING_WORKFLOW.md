@@ -27,6 +27,14 @@ DCC-MCP extension pointers such as `tools`, `prompts`, `recipes`, `workflows`,
 and `depends` under `metadata.dcc-mcp.*`. Use `references/` for long-form docs,
 recipes, examples, and notes that agents should load only when needed.
 
+Skill package version metadata is also a DCC-MCP extension: declare it as
+`metadata.dcc-mcp.version: "1.0.0"`. Do not put `version` at the top level of
+`SKILL.md`; the strict loader rejects that agentskills.io-incompatible shape.
+When modernizing a skill, migrate top-level `dcc`, `version`, `tags`, `tools`,
+`groups`, `depends`, `search-hint`, `runtimes`, `prompts`, and `resources`
+under `metadata.dcc-mcp.*`, then run creator validation against the actual
+installable skill directory.
+
 ### Gateway-Facing Tags (`metadata.dcc-mcp.tags`)
 
 Gateway search treats `tags` as a narrowing filter. Declare `tags` under

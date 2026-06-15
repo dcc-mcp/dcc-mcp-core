@@ -1,4 +1,5 @@
 use super::*;
+use std::path::Path;
 
 fn dependency_state_for(
     metadata: &SkillMetadata,
@@ -40,6 +41,7 @@ impl SkillCatalog {
     pub fn new(registry: Arc<ToolRegistry>) -> Self {
         Self {
             entries: DashMap::new(),
+            skipped: DashMap::new(),
             loaded: DashSet::new(),
             registry,
             dispatcher: None,
@@ -61,6 +63,7 @@ impl SkillCatalog {
         let event_bus = dispatcher.event_bus();
         Self {
             entries: DashMap::new(),
+            skipped: DashMap::new(),
             loaded: DashSet::new(),
             registry,
             dispatcher: Some(dispatcher),
@@ -226,6 +229,7 @@ impl SkillCatalog {
         let mut new_count = 0;
         for (skill, path_source) in result.skills {
             let name = skill.name.clone();
+            self.skipped.remove(&name);
             if !self.entries.contains_key(&name) {
                 self.entries.insert(
                     name,
@@ -243,6 +247,7 @@ impl SkillCatalog {
         self.refresh_dependency_states();
 
         if !result.skipped.is_empty() {
+            self.record_skipped_diagnostics(&result.skipped, SkillScope::Repo);
             tracing::warn!(
                 count = result.skipped.len(),
                 skipped = ?result.skipped,
@@ -273,10 +278,12 @@ impl SkillCatalog {
         };
 
         let mut seen = std::collections::HashSet::new();
+        self.skipped.clear();
         let mut added = 0usize;
 
         for (skill, path_source) in result.skills {
             let name = skill.name.clone();
+            self.skipped.remove(&name);
             seen.insert(name.clone());
             if let Some(mut entry) = self.entries.get_mut(&name) {
                 entry.metadata = skill;
@@ -313,6 +320,7 @@ impl SkillCatalog {
         self.refresh_dependency_states();
 
         if !result.skipped.is_empty() {
+            self.record_skipped_diagnostics(&result.skipped, SkillScope::Repo);
             tracing::warn!(
                 count = result.skipped.len(),
                 skipped = ?result.skipped,
@@ -332,6 +340,7 @@ impl SkillCatalog {
     /// Add a single skill to the catalog (e.g. from SkillWatcher).
     pub fn add_skill(&self, metadata: SkillMetadata) {
         let name = metadata.name.clone();
+        self.skipped.remove(&name);
         if let Some(mut entry) = self.entries.get_mut(&name) {
             if entry.state != SkillState::Loaded {
                 entry.metadata = metadata;
@@ -372,6 +381,7 @@ impl SkillCatalog {
                 };
 
             if !result.skipped.is_empty() {
+                self.record_skipped_diagnostics(&result.skipped, *scope);
                 tracing::warn!(
                     scope = %scope,
                     count = result.skipped.len(),
@@ -382,6 +392,7 @@ impl SkillCatalog {
 
             for skill in result.skills {
                 let name = skill.name.clone();
+                self.skipped.remove(&name);
                 if !self.entries.contains_key(&name) {
                     self.entries.insert(
                         name,
@@ -404,6 +415,22 @@ impl SkillCatalog {
             scoped_paths.len()
         );
         total_new
+    }
+
+    fn record_skipped_diagnostics(&self, skipped_dirs: &[String], scope: SkillScope) {
+        for dir in skipped_dirs {
+            let diagnostic =
+                loader::diagnose_skipped_skill_dir(Path::new(dir)).with_scope(scope.label());
+            tracing::warn!(
+                skill_name = %diagnostic.skill_name,
+                reason_code = %diagnostic.reason_code,
+                suggested_fix = %diagnostic.suggested_fix,
+                "SkillCatalog: skipped skill diagnostic: {}",
+                diagnostic.message,
+            );
+            self.skipped
+                .insert(diagnostic.skill_name.clone(), diagnostic);
+        }
     }
 
     /// Discover user-level and team-level accumulated skills from environment variables.
