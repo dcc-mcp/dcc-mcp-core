@@ -160,6 +160,27 @@ fn test_non_spec_top_level_keys_error() {
 }
 
 #[test]
+fn test_top_level_version_error_includes_actionable_replacement() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = make_skill_dir(
+        &tmp,
+        "maya-mgear",
+        "---\nname: maya-mgear\ndescription: test\nversion: \"1.0.0\"\n---\n",
+    );
+    let report = validate_skill_dir(&dir);
+
+    let message = report
+        .issues
+        .iter()
+        .find(|issue| issue.severity == IssueSeverity::Error && issue.message.contains("version"))
+        .map(|issue| issue.message.as_str())
+        .expect("top-level version must be reported as an error");
+
+    assert!(message.contains("metadata.dcc-mcp.version"));
+    assert!(message.contains("metadata.dcc-mcp.version: \"1.0.0\""));
+}
+
+#[test]
 fn test_duplicate_tool_names() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = make_skill_dir(
