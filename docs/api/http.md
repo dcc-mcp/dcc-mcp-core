@@ -202,7 +202,7 @@ Every `McpHttpServer` emits a fixed set of built-in tools in `tools/list` in add
 | `unload_skill` | Unloads a skill; emits `tools/list_changed`. Idempotent. | `load_skill(...)` again if needed |
 | `activate_tool_group` | Expands a `__group__<name>` stub into its member tools. | Re-call `tools/list`, then the tool |
 | `deactivate_tool_group` | Collapses a tool group back to a stub to shrink the token footprint. | `activate_tool_group(...)` |
-| `search_tools` | Full-text search over active tools plus unloaded skill candidates, returned without full schemas. | `get_skill_info(...)`, `load_skill(...)`, or call the matched active tool |
+| `search_tools` | Full-text search over active tools plus unloaded skill candidates, supports multi-word natural-language phrases. Returned without full schemas. | `get_skill_info(...)`, `load_skill(...)`, or call the matched active tool |
 | `list_roots` | Returns the filesystem roots the client advertised via `roots/list`. Rarely needed. | — |
 
 ### Lazy-actions fast-path (opt-in)
@@ -645,6 +645,12 @@ candidates. Use `get_skill_info(skill_name=...)` to inspect the selected
 skill's full declared tool schemas before `load_skill`, then call the concrete
 tool by name. `tools/list` remains MCP-compatible and paginated, but production
 agents should not treat its first page as a complete discovery index.
+
+`search_tools` supports natural-language multi-word phrase matching: each word
+(≥2 chars) in a phrase like "create sphere" or "rig framework" must appear as a
+substring in the tool name or description, so underscore-separated names like
+`create_sphere` are found without requiring the user to guess the underscore
+convention.
 
 The gateway advertises the canonical MCP workflow `search` → `describe` →
 `load_skill` (when needed) → `call`. REST `/v1/search`, `/v1/describe`,
