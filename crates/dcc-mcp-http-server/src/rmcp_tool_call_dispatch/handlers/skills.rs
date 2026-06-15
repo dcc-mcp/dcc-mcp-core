@@ -29,11 +29,74 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_list_skills(
     arguments: &Value,
 ) -> CallToolResult {
     let status = arguments.get("status").and_then(Value::as_str);
+    let include_skipped = arguments
+        .get("include_skipped")
+        .or_else(|| arguments.get("include_skipped_diagnostics"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || status == Some("skipped");
+    if status == Some("skipped") {
+        let skipped = state.catalog.skipped_skill_diagnostics(None, None);
+        let payload = build_list_skipped_skills_response(skipped, arguments);
+        let text = serde_json::to_string_pretty(&payload).unwrap_or_default();
+        return CallToolResult::text(text);
+    }
+
     let results = state.catalog.list_skills(status);
-    let payload =
+    let mut payload =
         dcc_mcp_skills::catalog::list_projection::build_list_skills_response(results, arguments);
+    let skipped_count = state.catalog.skipped_count();
+    if let Some(obj) = payload.as_object_mut() {
+        obj.insert("skipped_count".to_string(), json!(skipped_count));
+        if include_skipped {
+            let skipped = state.catalog.skipped_skill_diagnostics(None, None);
+            obj.insert("skipped".to_string(), json!(skipped));
+        }
+    }
     let text = serde_json::to_string_pretty(&payload).unwrap_or_default();
     CallToolResult::text(text)
+}
+
+fn parse_list_offset(arguments: &Value) -> usize {
+    arguments.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize
+}
+
+fn parse_list_limit(arguments: &Value) -> Option<usize> {
+    arguments.get("limit").and_then(Value::as_u64).map(|n| {
+        let n = n as usize;
+        if n == 0 {
+            0
+        } else {
+            n.min(dcc_mcp_skills::catalog::list_projection::MAX_LIST_SKILLS_LIMIT)
+        }
+    })
+}
+
+fn build_list_skipped_skills_response(
+    mut skipped: Vec<dcc_mcp_skills::SkippedSkillDiagnostic>,
+    arguments: &Value,
+) -> Value {
+    skipped.sort_by(|a, b| a.skill_name.cmp(&b.skill_name));
+    let total = skipped.len();
+    let offset = parse_list_offset(arguments).min(total);
+    let limit = parse_list_limit(arguments);
+    let end = match limit {
+        Some(limit) => (offset + limit).min(total),
+        None => total,
+    };
+    let page = skipped[offset..end].to_vec();
+    let truncated = limit.is_some() && end < total;
+    let response_limit = limit.unwrap_or(page.len());
+
+    json!({
+        "skills": [],
+        "total": total,
+        "limit": response_limit,
+        "offset": offset,
+        "truncated": truncated,
+        "skipped_count": total,
+        "skipped": page,
+    })
 }
 
 pub(in crate::rmcp_tool_call_dispatch) fn handle_get_skill_info(
@@ -52,7 +115,22 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_get_skill_info(
             let text = serde_json::to_string_pretty(&info).unwrap_or_default();
             CallToolResult::text(text)
         }
-        None => CallToolResult::error(format!("Skill '{skill_name}' not found")),
+        None => {
+            if let Some(diagnostic) = state.catalog.skipped_skill_diagnostic(skill_name) {
+                let payload = json!({
+                    "error": "skill_skipped",
+                    "message": format!(
+                        "Skill '{skill_name}' was skipped during discovery: {}",
+                        diagnostic.message
+                    ),
+                    "skipped": diagnostic,
+                });
+                return CallToolResult::error(
+                    serde_json::to_string_pretty(&payload).unwrap_or_default(),
+                );
+            }
+            CallToolResult::error(format!("Skill '{skill_name}' not found"))
+        }
     }
 }
 
@@ -301,12 +379,23 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_skills(
         .clamp(1, MAX_LIMIT);
 
     let query_opt = if query.is_empty() { None } else { Some(query) };
+    let scope_label = scope_filter.map(|scope| scope.label());
     let matches =
         state
             .catalog
             .search_skills(query_opt, &tags, dcc_filter, scope_filter, Some(limit));
+    let remaining = limit.saturating_sub(matches.len());
+    let skipped_matches: Vec<_> = state
+        .catalog
+        .skipped_skill_diagnostics(query_opt, None)
+        .into_iter()
+        .filter(|diagnostic| {
+            skipped_diagnostic_matches_filters(diagnostic, &tags, dcc_filter, scope_label)
+        })
+        .take(remaining)
+        .collect();
 
-    if matches.is_empty() {
+    if matches.is_empty() && skipped_matches.is_empty() {
         let text = if query.is_empty()
             && tags.is_empty()
             && dcc_filter.is_none()
@@ -345,12 +434,54 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_skills(
         .collect();
 
     let result = json!({
-        "total": matches.len(),
+        "total": matches.len() + skipped_matches.len(),
+        "skill_total": matches.len(),
+        "skipped_count": skipped_matches.len(),
         "query": query,
-        "skills": compact_skills
+        "skills": compact_skills,
+        "skipped": skipped_matches
     });
 
     CallToolResult::text(serde_json::to_string(&result).unwrap_or_default())
+}
+
+fn skipped_diagnostic_matches_filters(
+    diagnostic: &dcc_mcp_skills::SkippedSkillDiagnostic,
+    tags: &[&str],
+    dcc_filter: Option<&str>,
+    scope_label: Option<&str>,
+) -> bool {
+    if let Some(dcc) = dcc_filter
+        && !dcc.is_empty()
+        && !diagnostic
+            .dcc
+            .as_deref()
+            .is_some_and(|value| value.eq_ignore_ascii_case(dcc))
+    {
+        return false;
+    }
+
+    if !tags.is_empty()
+        && !tags.iter().all(|tag| {
+            diagnostic
+                .tags
+                .iter()
+                .any(|value| value.eq_ignore_ascii_case(tag))
+        })
+    {
+        return false;
+    }
+
+    if let Some(scope) = scope_label
+        && !diagnostic
+            .scope
+            .as_deref()
+            .is_some_and(|value| value.eq_ignore_ascii_case(scope))
+    {
+        return false;
+    }
+
+    true
 }
 
 pub(in crate::rmcp_tool_call_dispatch) fn handle_activate_tool_group(

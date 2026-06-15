@@ -7,7 +7,7 @@ use crate::catalog::scoring::SkillPathSource;
 use crate::resolver::{self, ResolveError};
 use crate::scanner::SkillScanner;
 
-use super::parse_skill_md;
+use super::parse_skill_md_with_diagnostic;
 
 /// Result of a full scan-and-load pipeline.
 #[derive(Debug, Clone)]
@@ -218,14 +218,16 @@ pub(crate) fn load_all_skills(dirs: &[String]) -> (Vec<SkillMetadata>, Vec<Strin
 
     for dir_str in dirs {
         let dir = Path::new(dir_str);
-        match parse_skill_md(dir) {
-            Some(meta) => skills.push(meta),
-            None => {
+        match parse_skill_md_with_diagnostic(dir) {
+            Ok(meta) => skills.push(meta),
+            Err(diagnostic) => {
                 tracing::warn!(
                     directory = %dir_str,
-                    "Skipping skill directory: SKILL.md missing or failed validation \
-                     (see preceding parse warnings for the specific cause). \
-                     Use scan_and_load_strict() to fail-fast on such directories."
+                    reason_code = %diagnostic.reason_code,
+                    skill_name = %diagnostic.skill_name,
+                    suggested_fix = %diagnostic.suggested_fix,
+                    "Skipping skill directory: {}. Use scan_and_load_strict() to fail-fast on such directories.",
+                    diagnostic.message
                 );
                 skipped.push(dir_str.clone());
             }
