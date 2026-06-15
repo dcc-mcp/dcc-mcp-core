@@ -831,6 +831,114 @@ async fn forward_tools_call_propagates_trace_context_headers() {
 }
 
 #[tokio::test]
+async fn call_backend_with_observability_propagates_trace_and_captures_traffic() {
+    let seen = std::sync::Arc::new(parking_lot::Mutex::new(Vec::<(
+        String,
+        String,
+        String,
+        String,
+    )>::new()));
+    let seen_clone = seen.clone();
+    let app = axum::Router::new()
+        .route(
+            "/health",
+            axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
+        )
+        .route(
+            "/mcp",
+            axum::routing::post(move |headers: axum::http::HeaderMap, body: axum::Json<Value>| {
+                let seen = seen_clone.clone();
+                async move {
+                    let header = |name| {
+                        headers
+                            .get(name)
+                            .and_then(|v| v.to_str().ok())
+                            .unwrap_or("")
+                            .to_string()
+                    };
+                    seen.lock().push((
+                        header("x-request-id"),
+                        header("x-dcc-mcp-parent-request-id"),
+                        header("traceparent"),
+                        header("tracestate"),
+                    ));
+                    let id = body.get("id").cloned().unwrap_or(Value::Null);
+                    axum::Json(json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {"content": [{"type": "text", "text": "ok"}], "isError": false}
+                    }))
+                }
+            }),
+        );
+    let (mcp_url, stop) = spawn_fake_backend(app).await;
+    let trace_context = crate::gateway::admin::trace::TraceContext {
+        trace_id: "4bf92f3577b34da6a3ce929d0e0e4736".into(),
+        request_id: "req-jsonrpc".into(),
+        span_id: Some("00f067aa0ba902b7".into()),
+        parent_span_id: None,
+        parent_request_id: Some("req-parent".into()),
+        trace_flags: Some("01".into()),
+        trace_state: Some("vendor=value".into()),
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let capture =
+        crate::gateway::traffic::TrafficCapture::with_jsonl_sink(dir.path().join("traffic.jsonl"))
+            .unwrap();
+
+    call_backend_with_observability(
+        &reqwest::Client::new(),
+        &mcp_url,
+        BackendJsonRpcCallRequest {
+            method: "tools/call",
+            params: Some(json!({"name": "maya_primitives__create_sphere", "arguments": {}})),
+            request_id: None,
+            trace_context: Some(&trace_context),
+            traffic_capture: Some(&capture),
+            timeout: Duration::from_secs(2),
+        },
+    )
+    .await
+    .expect("JSON-RPC backend call should succeed");
+
+    let seen = seen.lock();
+    assert_eq!(seen[0].0, "req-jsonrpc");
+    assert_eq!(seen[0].1, "req-parent");
+    assert_eq!(
+        seen[0].2,
+        "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+    );
+    assert_eq!(seen[0].3, "vendor=value");
+
+    let snapshot = capture.governance_snapshot();
+    let captured: Vec<_> = snapshot
+        .recent_decisions
+        .iter()
+        .filter(|decision| decision.outcome == "captured")
+        .collect();
+    assert_eq!(
+        captured.len(),
+        2,
+        "request and response frames are captured"
+    );
+    assert!(
+        captured
+            .iter()
+            .any(|decision| decision.leg == "gateway_to_adapter"
+                && decision.mcp_method.as_deref() == Some("tools/call")
+                && decision.request_id.as_deref() == Some("req-jsonrpc"))
+    );
+    assert!(
+        captured
+            .iter()
+            .any(|decision| decision.leg == "adapter_to_gateway"
+                && decision.mcp_method.as_deref() == Some("tools/call")
+                && decision.trace_id.as_deref() == Some("4bf92f3577b34da6a3ce929d0e0e4736"))
+    );
+    let _ = stop.send(());
+}
+
+#[tokio::test]
 async fn subscribe_resource_forwards_subscribe_and_unsubscribe_methods() {
     let hits = Arc::new(parking_lot::Mutex::new(
         Vec::<(String, Option<String>)>::new(),

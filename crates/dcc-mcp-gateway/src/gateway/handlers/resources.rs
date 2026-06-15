@@ -1,7 +1,7 @@
 use dcc_mcp_gateway_core::resource_uri::decode_resource_uri;
 
 use super::*;
-use crate::gateway::http_registration::entry_mcp_url;
+use crate::gateway::http_registration::entry_discovery_mcp_url;
 
 /// URI for the gateway's own contention event log (issue #766).
 pub(crate) const GATEWAY_EVENTS_URI: &str = "resources://gateway/events";
@@ -66,7 +66,7 @@ pub(super) async fn handle_resources_read(
         let owning = aggregator::find_instance_by_prefix(gs, &id8).await;
         return match owning {
             Some(entry) => {
-                let url = entry_mcp_url(&entry);
+                let url = entry_discovery_mcp_url(&entry);
                 match crate::gateway::backend_client::read_resource(
                     &gs.http_client,
                     &url,
@@ -168,7 +168,7 @@ pub(super) async fn handle_resource_subscription(
         let owning = aggregator::find_instance_by_prefix(gs, &id8).await;
         return match owning {
             Some(entry) => {
-                let backend_url = entry_mcp_url(&entry);
+                let backend_url = entry_discovery_mcp_url(&entry);
                 if subscribe {
                     gs.subscriber.bind_resource_subscription(
                         &backend_url,
