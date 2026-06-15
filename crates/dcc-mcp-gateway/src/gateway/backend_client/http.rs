@@ -120,6 +120,17 @@ pub(super) async fn post_jsonrpc(
     session_id: Option<&str>,
     timeout: Duration,
 ) -> Result<Value, BackendCallError> {
+    post_jsonrpc_with_trace_context(client, mcp_url, req_body, session_id, timeout, None).await
+}
+
+pub(super) async fn post_jsonrpc_with_trace_context(
+    client: &reqwest::Client,
+    mcp_url: &str,
+    req_body: Value,
+    session_id: Option<&str>,
+    timeout: Duration,
+    trace_context: Option<&TraceContext>,
+) -> Result<Value, BackendCallError> {
     let circuit_key = rest_base_from_mcp_url(mcp_url);
     if let Err(reason) = circuits().check_open(&circuit_key) {
         let err = BackendCallError::Transport {
@@ -138,6 +149,18 @@ pub(super) async fn post_jsonrpc(
         .body(req_body.to_string());
     if let Some(session_id) = session_id {
         request = request.header("Mcp-Session-Id", session_id);
+    }
+    if let Some(ctx) = trace_context {
+        request = request.header("x-request-id", ctx.request_id.as_str());
+        if let Some(parent_request_id) = ctx.parent_request_id.as_deref() {
+            request = request.header("x-dcc-mcp-parent-request-id", parent_request_id);
+        }
+        if let Some(traceparent) = ctx.traceparent() {
+            request = request.header("traceparent", traceparent);
+        }
+        if let Some(tracestate) = ctx.trace_state.as_deref() {
+            request = request.header("tracestate", tracestate);
+        }
     }
 
     let resp = match request.send().await {
