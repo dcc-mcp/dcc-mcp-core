@@ -6,8 +6,40 @@
 //! docstring parameter descriptions.
 
 use serde_json::Value as JsonValue;
+use std::io::Write;
 use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
+
+/// Embedded copy of the schema generation helper script.
+///
+/// This is included at compile time so that `find_helper_script()` can fall
+/// back to writing a temp file when the on-disk script is not found (e.g. in
+/// production deployments where only the binary is shipped).
+const EMBEDDED_HELPER_SCRIPT: &str = include_str!("../../scripts/generate_input_schema.py");
+
+/// Create a temporary file containing the embedded helper script content.
+///
+/// Returns the path to the temp file, or `None` if writing fails.
+fn write_embedded_helper_script() -> Option<PathBuf> {
+    let dir = std::env::temp_dir().join("dcc-mcp-skills");
+    std::fs::create_dir_all(&dir).ok()?;
+
+    let path = dir.join("generate_input_schema.py");
+
+    // Only write if the file doesn't already exist or is stale
+    match std::fs::read_to_string(&path) {
+        Ok(existing) if existing == EMBEDDED_HELPER_SCRIPT => {
+            // Already up-to-date, reuse
+            return Some(path);
+        }
+        _ => {}
+    }
+
+    let mut file = std::fs::File::create(&path).ok()?;
+    file.write_all(EMBEDDED_HELPER_SCRIPT.as_bytes()).ok()?;
+    Some(path)
+}
 
 /// Generate input schema from a Python script by calling the helper script.
 ///
@@ -124,23 +156,33 @@ fn find_python_interpreter() -> Option<String> {
 }
 
 /// Try to find the helper script in common locations.
-fn find_helper_script() -> Option<std::path::PathBuf> {
+///
+/// Search order:
+/// 1. Relative to CARGO_MANIFEST_DIR (for tests/builds)
+/// 2. Relative to current executable
+/// 3. Relative to workspace root (development)
+/// 4. Fallback: write embedded copy to a temp file
+fn find_helper_script() -> Option<PathBuf> {
     // Try relative to CARGO_MANIFEST_DIR (for tests/builds)
     if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-        let mut helper = std::path::PathBuf::from(manifest_dir);
-        helper.push("scripts");
-        helper.push("generate_input_schema.py");
+        let helper: PathBuf = [&manifest_dir, "scripts", "generate_input_schema.py"]
+            .iter()
+            .collect();
         if helper.exists() {
             return Some(helper);
         }
     }
 
     // Try relative to current executable
-    if let Ok(exe_path) = std::env::current_exe() {
-        let mut helper = exe_path;
-        helper.pop(); // Remove executable name
-        helper.push("scripts");
-        helper.push("generate_input_schema.py");
+    if let Ok(exe_path) = std::env::current_exe()
+        && let Some(parent) = exe_path.parent()
+    {
+        let helper: PathBuf = [
+            parent,
+            std::path::Path::new("scripts/generate_input_schema.py"),
+        ]
+        .iter()
+        .collect();
         if helper.exists() {
             return Some(helper);
         }
@@ -151,24 +193,26 @@ fn find_helper_script() -> Option<std::path::PathBuf> {
         // Check current directory and parent directories
         let mut dir = current_dir.as_path();
         for _ in 0..5 {
-            let mut candidate = dir.to_path_buf();
-            candidate.push("crates");
-            candidate.push("dcc-mcp-skills");
-            candidate.push("scripts");
-            candidate.push("generate_input_schema.py");
+            let candidate: PathBuf = [
+                dir,
+                std::path::Path::new("crates/dcc-mcp-skills/scripts/generate_input_schema.py"),
+            ]
+            .iter()
+            .collect();
             if candidate.exists() {
                 return Some(candidate);
             }
 
             // Also check for workspace root marker
-            let mut workspace_marker = dir.to_path_buf();
-            workspace_marker.push("Cargo.toml");
+            let workspace_marker: PathBuf =
+                [dir, std::path::Path::new("Cargo.toml")].iter().collect();
             if workspace_marker.exists() {
-                let mut candidate = dir.to_path_buf();
-                candidate.push("crates");
-                candidate.push("dcc-mcp-skills");
-                candidate.push("scripts");
-                candidate.push("generate_input_schema.py");
+                let candidate: PathBuf = [
+                    dir,
+                    std::path::Path::new("crates/dcc-mcp-skills/scripts/generate_input_schema.py"),
+                ]
+                .iter()
+                .collect();
                 if candidate.exists() {
                     return Some(candidate);
                 }
@@ -179,6 +223,14 @@ fn find_helper_script() -> Option<std::path::PathBuf> {
                 None => break,
             }
         }
+    }
+
+    // Fallback: write the embedded helper script to a temp file.
+    // This covers production deployments where the binary is shipped
+    // without the scripts/ directory.
+    if let Some(temp_path) = write_embedded_helper_script() {
+        tracing::info!("Using embedded helper script at {}", temp_path.display());
+        return Some(temp_path);
     }
 
     None
@@ -399,6 +451,76 @@ def main(file_path: str, namespace: Optional[str] = None, merge_namespaces: bool
         let schema = generate_input_schema(script.path(), None)
             .expect("auto-discovery should return the fallback object schema");
         assert_eq!(schema["type"], "object");
+    }
+
+    /// Verify that the embedded helper script fallback works when no on-disk
+    /// copy of generate_input_schema.py is reachable via the standard search
+    /// paths. We unset CARGO_MANIFEST_DIR and run from a temp directory to
+    /// defeat the workspace-relative search, forcing the fallback to write
+    /// the embedded script to a temp file.
+    #[test]
+    fn test_embedded_helper_fallback_writes_temp_file() {
+        // Remove the manifest dir shortcut so the lookup falls through
+        unsafe {
+            env::remove_var("CARGO_MANIFEST_DIR");
+        }
+
+        if Command::new("python").arg("--version").output().is_err() {
+            eprintln!("Skipping test: Python interpreter not found in PATH");
+            return;
+        }
+
+        // Run from a temp directory so the workspace-relative search also fails
+        let temp_dir = std::env::temp_dir().join("dcc-mcp-skills-test");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let original_dir = env::current_dir().unwrap();
+        assert!(env::set_current_dir(&temp_dir).is_ok());
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let script = create_test_script(
+                r#"
+from typing import Optional
+
+
+def main(path: str, flag: Optional[bool] = False):
+    """Process a path.
+
+    Args:
+        path: The file path to process.
+        flag: Whether to enable special processing.
+    """
+    pass
+"#,
+            );
+
+            let schema = generate_input_schema(script.path(), Some("main"));
+            assert!(
+                schema.is_some(),
+                "generate_input_schema should succeed via embedded helper fallback"
+            );
+            let schema = schema.unwrap();
+            assert_eq!(schema["type"], "object");
+
+            // The embedded helper was used; verify the temp file exists
+            let helper_temp_dir = std::env::temp_dir().join("dcc-mcp-skills");
+            let temp_script = helper_temp_dir.join("generate_input_schema.py");
+            assert!(
+                temp_script.exists(),
+                "Embedded helper should be written to {}",
+                temp_script.display()
+            );
+        }));
+
+        // Restore state regardless of test outcome
+        let _ = env::set_current_dir(&original_dir);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+
+        // Restore manifest dir for subsequent tests
+        set_manifest_dir();
+
+        if let Err(e) = result {
+            std::panic::resume_unwind(e);
+        }
     }
 
     #[test]
