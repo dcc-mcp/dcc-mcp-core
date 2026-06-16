@@ -317,8 +317,8 @@ print(f'Loaded: {[s.name for s in skills]}')
 └──────────────────────┬──────────────────────────────┘
                        │ PyO3 bindings
 ┌──────────────────────▼──────────────────────────────┐
-│        Rust Workspace (35 members total)             │
-│        34 functional crates + workspace-hack         │
+│        Rust Workspace (47 members total)             │
+│        46 functional crates + workspace-hack         │
 │  naming → models → actions → skills → protocols     │
 │  gateway/http-types/http-server/http-py/http         │
 │  host → transport → process → sandbox → telemetry   │
