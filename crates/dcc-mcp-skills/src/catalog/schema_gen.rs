@@ -174,17 +174,17 @@ fn find_helper_script() -> Option<PathBuf> {
     }
 
     // Try relative to current executable
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(parent) = exe_path.parent() {
-            let helper: PathBuf = [
-                parent,
-                std::path::Path::new("scripts/generate_input_schema.py"),
-            ]
-            .iter()
-            .collect();
-            if helper.exists() {
-                return Some(helper);
-            }
+    if let Ok(exe_path) = std::env::current_exe()
+        && let Some(parent) = exe_path.parent()
+    {
+        let helper: PathBuf = [
+            parent,
+            std::path::Path::new("scripts/generate_input_schema.py"),
+        ]
+        .iter()
+        .collect();
+        if helper.exists() {
+            return Some(helper);
         }
     }
 
