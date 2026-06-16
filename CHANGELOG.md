@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.31](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.30...v0.18.31) (2026-06-16)
+
+
+### Bug Fixes
+
+* **skills:** embed generate_input_schema.py into binary to fix schema gen in production ([#1687](https://github.com/dcc-mcp/dcc-mcp-core/issues/1687)) ([30249bb](https://github.com/dcc-mcp/dcc-mcp-core/commit/30249bb49ea9ded8463d39f245f17d4c219f597f))
+
+
+### Documentation
+
+* **catalog:** update photoshop adapter entry with setup tag and installer docs URL ([076145b](https://github.com/dcc-mcp/dcc-mcp-core/commit/076145bd2cccc4c935eb7950d02f2f76c12ec5e4))
+
 ## [0.18.30](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.29...v0.18.30) (2026-06-16)
 
 
