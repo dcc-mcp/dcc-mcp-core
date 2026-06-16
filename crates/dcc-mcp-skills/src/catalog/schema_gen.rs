@@ -22,14 +22,8 @@ const EMBEDDED_HELPER_SCRIPT: &str = include_str!("../../scripts/generate_input_
 ///
 /// Returns the path to the temp file, or `None` if writing fails.
 fn write_embedded_helper_script() -> Option<PathBuf> {
-    let dir = match std::env::temp_dir().join("dcc-mcp-skills").exists() {
-        true => std::env::temp_dir().join("dcc-mcp-skills"),
-        false => {
-            let d = std::env::temp_dir().join("dcc-mcp-skills");
-            std::fs::create_dir_all(&d).ok()?;
-            d
-        }
-    };
+    let dir = std::env::temp_dir().join("dcc-mcp-skills");
+    std::fs::create_dir_all(&dir).ok()?;
 
     let path = dir.join("generate_input_schema.py");
 
@@ -182,9 +176,12 @@ fn find_helper_script() -> Option<PathBuf> {
     // Try relative to current executable
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(parent) = exe_path.parent() {
-            let helper: PathBuf = [parent, std::path::Path::new("scripts/generate_input_schema.py")]
-                .iter()
-                .collect();
+            let helper: PathBuf = [
+                parent,
+                std::path::Path::new("scripts/generate_input_schema.py"),
+            ]
+            .iter()
+            .collect();
             if helper.exists() {
                 return Some(helper);
             }
@@ -207,15 +204,12 @@ fn find_helper_script() -> Option<PathBuf> {
             }
 
             // Also check for workspace root marker
-            let workspace_marker: PathBuf = [dir, std::path::Path::new("Cargo.toml")]
-                .iter()
-                .collect();
+            let workspace_marker: PathBuf =
+                [dir, std::path::Path::new("Cargo.toml")].iter().collect();
             if workspace_marker.exists() {
                 let candidate: PathBuf = [
                     dir,
-                    std::path::Path::new(
-                        "crates/dcc-mcp-skills/scripts/generate_input_schema.py",
-                    ),
+                    std::path::Path::new("crates/dcc-mcp-skills/scripts/generate_input_schema.py"),
                 ]
                 .iter()
                 .collect();
@@ -235,10 +229,7 @@ fn find_helper_script() -> Option<PathBuf> {
     // This covers production deployments where the binary is shipped
     // without the scripts/ directory.
     if let Some(temp_path) = write_embedded_helper_script() {
-        tracing::info!(
-            "Using embedded helper script at {}",
-            temp_path.display()
-        );
+        tracing::info!("Using embedded helper script at {}", temp_path.display());
         return Some(temp_path);
     }
 
