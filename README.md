@@ -394,8 +394,7 @@ pip install dcc-mcp-core
 # Or from source (requires Rust 1.95+)
 git clone https://github.com/dcc-mcp/dcc-mcp-core.git
 cd dcc-mcp-core
-vx just dev           # recommended — uses the project's canonical feature set
-# or: pip install -e .
+vx just dev           # recommended — runs `maturin develop` with canonical features
 ```
 
 Every release attaches raw `dcc-mcp-cli` and `dcc-mcp-server` binaries for Linux, Windows, and macOS universal2, plus `dcc-mcp-server-<version>-<platform>.zip` bundles containing both binaries. `dcc-mcp-server` also ships as the `dcc-mcp-server` Python wheel for hosts that prefer `pip install`.
