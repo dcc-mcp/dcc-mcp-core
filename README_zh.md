@@ -289,13 +289,13 @@ powershell -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/s
 也可以固定版本或自定义安装目录：
 
 ```bash
-export DCC_MCP_VERSION=v0.17.44
+export DCC_MCP_VERSION=v0.x.y
 export DCC_MCP_INSTALL_DIR="$HOME/bin"
 curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | bash
 ```
 
 ```powershell
-$env:DCC_MCP_VERSION = "v0.17.44"
+$env:DCC_MCP_VERSION = "v0.x.y"
 $env:DCC_MCP_INSTALL_DIR = "$env:USERPROFILE\bin"
 irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex
 ```
@@ -650,9 +650,9 @@ tools/list 响应（Maya 会话、尚未加载任何 skill）：
 
 ---
 
-## 架构总览 —— 41 个 Workspace 包
+## 架构总览 —— 47 个 Workspace 包
 
-`dcc-mcp-core` 组织为 **41 个包的 Rust workspace**（40 个功能包 + `workspace-hack`）。大多数库 crate 通过 PyO3 / maturin 编译进原生 Python 扩展（`_core`），`dcc-mcp-cli`、`dcc-mcp-server` 与 tunnel 二进制也会作为面向用户的 release assets 发布。根 `Cargo.toml` 是 workspace 成员列表的唯一来源。精选 crate：
+`dcc-mcp-core` 组织为 **47 个包的 Rust workspace**（46 个功能包 + `workspace-hack`）。大多数库 crate 通过 PyO3 / maturin 编译进原生 Python 扩展（`_core`），`dcc-mcp-cli`、`dcc-mcp-server` 与 tunnel 二进制也会作为面向用户的 release assets 发布。根 `Cargo.toml` 是 workspace 成员列表的唯一来源。精选 crate：
 
 | Crate | 职责 | 关键类型 |
 |---|---|---|
