@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.29](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.28...v0.18.29) (2026-06-15)
+
+
+### Documentation
+
+* document search_tools multi-word phrase matching ([fbbf8e4](https://github.com/dcc-mcp/dcc-mcp-core/commit/fbbf8e45b9545c4a3af38f5752c8cf84a13412e8))
+
 ## [0.18.28](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.27...v0.18.28) (2026-06-15)
 
 
