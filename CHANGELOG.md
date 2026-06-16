@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.30](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.29...v0.18.30) (2026-06-16)
+
+
+### Bug Fixes
+
+* **release:** isolate release workflow concurrency from other CI ([e3ea411](https://github.com/dcc-mcp/dcc-mcp-core/commit/e3ea4115dcbb43793d825fe304583fc1e945cf02))
+* run ruff format on test_gateway_facade_aggregation.py ([8a62e08](https://github.com/dcc-mcp/dcc-mcp-core/commit/8a62e085934f4a73e105819e65f8543066614ff6))
+* **test:** replace fixed sleep with polling in facade_cluster fixture ([9e22fa2](https://github.com/dcc-mcp/dcc-mcp-core/commit/9e22fa25f79851c5a24caf685d5847d8f13ceb40))
+
 ## [0.18.29](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.28...v0.18.29) (2026-06-15)
 
 
