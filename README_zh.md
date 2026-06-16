@@ -327,8 +327,7 @@ pip install dcc-mcp-core
 # 从源码构建（需要 Rust 1.95+）
 git clone https://github.com/dcc-mcp/dcc-mcp-core.git
 cd dcc-mcp-core
-vx just dev           # 推荐 —— 使用项目标准 feature 集合
-# 或：pip install -e .
+vx just dev           # 推荐 —— 使用项目标准 feature 集合 (内部调用 maturin develop)
 ```
 
 每个 Release 都会附带 Linux、Windows、macOS universal2 的原生 `dcc-mcp-cli` 与 `dcc-mcp-server` 二进制。`dcc-mcp-server` 还会发布 `dcc-mcp-server` Python wheel，方便偏好 `pip install` 的宿主环境。
@@ -578,11 +577,13 @@ handle = server.start()
 
 ### 内置 Skills —— 零配置开箱即用
 
-`dcc-mcp-core` wheel 内置 **两个核心 skills**，`pip install dcc-mcp-core` 后立即可用，无需克隆仓库或配置 `DCC_MCP_SKILL_PATHS`。
+`dcc-mcp-core` wheel 内置 **四个核心 skills**，`pip install dcc-mcp-core` 后立即可用，无需克隆仓库或配置 `DCC_MCP_SKILL_PATHS`。
 
 | Skill | 工具 | 用途 |
 |---|---|---|
+| `app-ui` | `snapshot`、`find`、`act`、`wait_for` | 限定作用域的 DCC UI 观测/操作模拟后端 |
 | `dcc-diagnostics` | `screenshot`、`audit_log`、`tool_metrics`、`process_status` | 任意 DCC 的可观测性与调试 |
+| `media` | `probe`、`sequence_to_mp4`、`transcode`、`extract_frames`、`thumbnail` | vx 管理的 FFmpeg 媒体处理，用于渲染/playblast 产物 |
 | `workflow` | `run_chain` | 多步 action 串联，上下文透传 |
 
 ```python
@@ -596,6 +597,7 @@ paths = get_bundled_skill_paths(include_bundled=False)  # 显式关闭
 ```
 
 DCC 适配器（如 `dcc-mcp-maya`）默认包含内置 skills。关闭：`start_server(include_bundled=False)`。
+`media` skill 内部使用 `vx ffmpeg` / `vx ffprobe`，新机器无需手动安装 FFmpeg。如果 `vx` 缺失，非只读 media 工具会自动用官方安装脚本引导 `vx` 后重试；只读 `probe` 工具则返回 `vx_not_found` 而不安装任何内容。
 
 ---
 
