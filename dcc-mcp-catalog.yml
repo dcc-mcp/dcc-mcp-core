@@ -89,10 +89,10 @@ entries:
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-3dsmax/main/install.md"
 
   - name: "dcc-mcp-photoshop"
-    description: "Core Photoshop adapter for DCC-MCP — Python bridge for a Photoshop UXP plugin"
+    description: "Core Photoshop adapter for DCC-MCP — Python bridge for a Photoshop UXP plugin with one-click installer"
     dcc: ["photoshop"]
     url: "https://github.com/dcc-mcp/dcc-mcp-photoshop"
-    tags: ["adapter", "photoshop", "official", "pip", "uxp", "core"]
+    tags: ["adapter", "photoshop", "official", "pip", "uxp", "core", "setup"]
     version: "0.1.15"
     min_core_version: "0.18.14"
     maintainer: "dcc-mcp"
@@ -100,7 +100,7 @@ entries:
       type: pip
       pip_package: "dcc-mcp-photoshop"
       entry_point: "dcc_mcp_photoshop.cli:main"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-photoshop/main/install.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-photoshop/main/docs/distribution.md"
 
   - name: "autodesk-product-help"
     description: "Opt-in Autodesk Product Help remote MCP connector for read-only documentation lookup"
