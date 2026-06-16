@@ -356,13 +356,13 @@ plane CLI into `PATH`.
 Pin a release or install somewhere custom:
 
 ```bash
-export DCC_MCP_VERSION=v0.17.44
+export DCC_MCP_VERSION=v0.x.y
 export DCC_MCP_INSTALL_DIR="$HOME/bin"
 curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | bash
 ```
 
 ```powershell
-$env:DCC_MCP_VERSION = "v0.17.44"
+$env:DCC_MCP_VERSION = "v0.x.y"
 $env:DCC_MCP_INSTALL_DIR = "$env:USERPROFILE\bin"
 irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex
 ```
@@ -727,9 +727,9 @@ tools/list response (Maya session, nothing loaded yet):
 
 ---
 
-## Architecture Overview — 43 Workspace Packages
+## Architecture Overview — 47 Workspace Packages
 
-`dcc-mcp-core` is organised as a **Rust workspace of 43 packages** (42 functional packages + `workspace-hack`). Most library crates compile into the native Python extension (`_core`) via PyO3 / maturin, while operator-facing crates such as `dcc-mcp-cli`, `dcc-mcp-server`, and tunnel binaries also ship as release assets. The root `Cargo.toml` is the source of truth for membership. Selected crates:
+`dcc-mcp-core` is organised as a **Rust workspace of 47 packages** (46 functional packages + `workspace-hack`). Most library crates compile into the native Python extension (`_core`) via PyO3 / maturin, while operator-facing crates such as `dcc-mcp-cli`, `dcc-mcp-server`, and tunnel binaries also ship as release assets. The root `Cargo.toml` is the source of truth for membership. Selected crates:
 
 | Crate | Responsibility | Key Types |
 |---|---|---|
