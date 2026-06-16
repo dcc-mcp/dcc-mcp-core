@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.32](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.31...v0.18.32) (2026-06-16)
+
+
+### Documentation
+
+* fix stale package counts, Python version range, and version examples ([#1688](https://github.com/dcc-mcp/dcc-mcp-core/issues/1688)) ([0d4aa69](https://github.com/dcc-mcp/dcc-mcp-core/commit/0d4aa690070c06cd310468ac2d2896a5fcbd2546))
+* sync README_zh bundled skills table and remove stale pip install -e . hints ([#1690](https://github.com/dcc-mcp/dcc-mcp-core/issues/1690)) ([01f9b03](https://github.com/dcc-mcp/dcc-mcp-core/commit/01f9b03617d3c25ece73efce9e76c0a7f78155dc))
+
 ## [0.18.31](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.30...v0.18.31) (2026-06-16)
 
 
