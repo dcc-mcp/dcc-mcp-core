@@ -516,10 +516,7 @@ def main(path: str, flag: Optional[bool] = False):
         );
 
         let schema = generate_input_schema(script.path(), Some("main"));
-        assert!(
-            schema.is_some(),
-            "generate_input_schema should succeed"
-        );
+        assert!(schema.is_some(), "generate_input_schema should succeed");
         let schema = schema.unwrap();
         assert_eq!(schema["type"], "object");
 
