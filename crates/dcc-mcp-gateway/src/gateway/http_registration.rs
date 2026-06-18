@@ -520,7 +520,13 @@ pub(crate) fn entry_discovery_mcp_url(entry: &ServiceEntry) -> String {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
-        .unwrap_or_else(|| entry_mcp_url(entry))
+        .unwrap_or_else(|| {
+            if entry_uses_sidecar_dispatch(entry) {
+                String::new()
+            } else {
+                entry_mcp_url(entry)
+            }
+        })
 }
 
 pub(crate) fn entry_uses_sidecar_dispatch(entry: &ServiceEntry) -> bool {
