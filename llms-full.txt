@@ -68,7 +68,7 @@ sub-crates; the root crate re-exports everything into a single `dcc_mcp_core._co
 extension module. The Python package `dcc_mcp_core` re-exports the supported public APIs from `_core`
 and pure-Python helpers.
 
-**41 workspace packages** (40 functional packages + `workspace-hack`; root `Cargo.toml` is source of truth) — **Zero runtime Python dependencies** — install with just `pip install dcc-mcp-core`.
+**47 workspace packages** (46 functional packages + `workspace-hack`; root `Cargo.toml` is source of truth) — **Zero runtime Python dependencies** — install with just `pip install dcc-mcp-core`.
 
 ```
 crates/
