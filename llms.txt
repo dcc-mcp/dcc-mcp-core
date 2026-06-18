@@ -213,7 +213,7 @@ meta = dcc_mcp_core.parse_skill_md(dirs[0])  # -> SkillMetadata or None
 
 ## Architecture
 
-Rust workspace (43 packages: 42 functional packages + `workspace-hack`; root `Cargo.toml` is source of truth) with PyO3 bindings. All logic lives in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports 380+ public symbols from `_core` plus pure-Python helpers (DccServerBase, DccServerOptions, DccGatewayElection, DccSkillHotReloader, factory, skill helpers, ToolResult dataclass, constants).
+Rust workspace (47 packages: 46 functional packages + `workspace-hack`; root `Cargo.toml` is source of truth) with PyO3 bindings. All logic lives in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports 380+ public symbols from `_core` plus pure-Python helpers (DccServerBase, DccServerOptions, DccGatewayElection, DccSkillHotReloader, factory, skill helpers, ToolResult dataclass, constants).
 
 ### dcc-mcp-http SOLID extraction (PR #667)
 
