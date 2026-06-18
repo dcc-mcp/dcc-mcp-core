@@ -78,6 +78,7 @@ impl SkillMetadata {
             runtimes,
             groups: Vec::new(),
             prompts_file: None,
+            resources_file: None,
             layer: None,
             stage: None,
             // Recall metadata extensions (#1335) and capability-graph fields

@@ -530,6 +530,16 @@ fn apply_dcc_mcp_metadata_overrides(
                     meta.prompts_file = Some(s.to_string());
                 }
             }
+            "resources" => {
+                // Sibling-file reference for the MCP resources primitive.
+                // Parsing is deferred; the HTTP/MCP resource registry loads
+                // sidecar YAML files lazily when resources are synchronized.
+                if let Some(s) = value.as_str()
+                    && !s.is_empty()
+                {
+                    meta.resources_file = Some(s.to_string());
+                }
+            }
             "layer" => {
                 // Architectural layer for skill routing and search partitioning.
                 // Valid values: "infrastructure", "domain", "example".
