@@ -21,21 +21,19 @@ import pytest
 
 # Import local modules
 import dcc_mcp_core
-from dcc_mcp_core.asset_import import (
-    AssetAttribution,
-    AssetDescriptor,
-    AssetFileVariant,
-    AssetFormat,
-    AssetImportValidationError,
-    AxisHint,
-    ImportToSceneRequest,
-    ImportToSceneResult,
-    ImportWarning,
-    ImportWarningCode,
-    MaterialMode,
-    PlacementHint,
-    UnitHint,
-)
+from dcc_mcp_core.asset_import import AssetAttribution
+from dcc_mcp_core.asset_import import AssetDescriptor
+from dcc_mcp_core.asset_import import AssetFileVariant
+from dcc_mcp_core.asset_import import AssetFormat
+from dcc_mcp_core.asset_import import AssetImportValidationError
+from dcc_mcp_core.asset_import import AxisHint
+from dcc_mcp_core.asset_import import ImportToSceneRequest
+from dcc_mcp_core.asset_import import ImportToSceneResult
+from dcc_mcp_core.asset_import import ImportWarning
+from dcc_mcp_core.asset_import import ImportWarningCode
+from dcc_mcp_core.asset_import import MaterialMode
+from dcc_mcp_core.asset_import import PlacementHint
+from dcc_mcp_core.asset_import import UnitHint
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -47,7 +45,7 @@ FIXTURE_DIR = pathlib.Path(__file__).parent / "fixtures" / "asset_import"
 def _load_fixture(name: str) -> dict:
     """Load a JSON fixture from tests/fixtures/asset_import/."""
     path = FIXTURE_DIR / name
-    with open(path, encoding="utf-8") as fh:
+    with path.open(encoding="utf-8") as fh:
         return json.load(fh)
 
 
