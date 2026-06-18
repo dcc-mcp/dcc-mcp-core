@@ -83,6 +83,7 @@ CLEANUP_TODO.md
 
 # Harbor tasks (local only, not committed)
 tasks/
+plans/
 
 # Local test output files
 test_output.txt
