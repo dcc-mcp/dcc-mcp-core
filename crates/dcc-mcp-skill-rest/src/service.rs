@@ -14,6 +14,7 @@
 //! - [`ContextProvider`] — exposes DCC scene/document state. Defaults
 //!   to [`crate::server::LiveMeta`]-style snapshots.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
@@ -537,11 +538,18 @@ impl PromptProvider for EmptyPromptProvider {
 #[derive(Clone)]
 pub struct CatalogSource {
     catalog: Arc<SkillCatalog>,
+    /// Per-process set of `(skill, tool)` pairs for which
+    /// `generate_input_schema` already emitted a fallback warning.
+    /// Prevents the same warning from repeating on every request.
+    schema_warned: Arc<parking_lot::Mutex<HashSet<(String, String)>>>,
 }
 
 impl CatalogSource {
     pub fn new(catalog: Arc<SkillCatalog>) -> Self {
-        Self { catalog }
+        Self {
+            catalog,
+            schema_warned: Arc::new(parking_lot::Mutex::new(HashSet::new())),
+        }
     }
 }
 
@@ -690,7 +698,22 @@ impl SkillCatalogSource for CatalogSource {
                     );
                     if let Some(ref sp) = script_path {
                         dcc_mcp_skills::catalog::schema_gen::generate_input_schema(sp, None)
-                            .unwrap_or_else(|| serde_json::json!({"type": "object"}))
+                            .unwrap_or_else(|| {
+                                // Only warn once per (skill, tool) pair per
+                                // process lifetime — `list_actions` is called
+                                // on every read request and repeated warnings
+                                // flood the Admin logs panel.
+                                let key = (detail.name.clone(), tool_decl.name.clone());
+                                let mut warned = self.schema_warned.lock();
+                                if warned.insert(key) {
+                                    tracing::warn!(
+                                        "Schema generation failed for '{}.{}', using fallback",
+                                        detail.name,
+                                        tool_decl.name
+                                    );
+                                }
+                                serde_json::json!({"type": "object"})
+                            })
                     } else {
                         serde_json::json!({"type": "object"})
                     }
