@@ -462,6 +462,16 @@ pub async fn describe_tool_full(
         .with_instance_provenance("deregistered", Some(record.instance_id)));
     };
     let url = entry_discovery_mcp_url(entry);
+    if url.is_empty() {
+        return Err(ServiceError::new(
+            "no-discovery-endpoint",
+            format!(
+                "instance {} ({}) does not expose a discovery endpoint",
+                record.instance_id, record.dcc_type,
+            ),
+        )
+        .with_instance_provenance("no-discovery", Some(record.instance_id)));
+    }
     drop(reg);
 
     // Use /v1/describe to get the full input_schema (issue #992).
@@ -658,6 +668,9 @@ pub async fn refresh_all_live_backends(gs: &GatewayState, reason: RefreshReason)
     let refreshes = instances.iter().map(|entry| {
         let url = entry_discovery_mcp_url(entry);
         async move {
+            if url.is_empty() {
+                return;
+            }
             refresh_instance(
                 &gs.capability_index,
                 &gs.http_client,
@@ -668,7 +681,7 @@ pub async fn refresh_all_live_backends(gs: &GatewayState, reason: RefreshReason)
                 reason,
                 Some(&gs.instance_diagnostics),
             )
-            .await
+            .await;
         }
     });
     futures::future::join_all(refreshes).await;
