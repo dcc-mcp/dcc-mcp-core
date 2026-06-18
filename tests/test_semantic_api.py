@@ -1,5 +1,6 @@
 import pytest
 
+
 def test_semantic_public_api():
     """Ensure the expected public API is available for dcc_mcp_core_semantic."""
     try:
