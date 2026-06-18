@@ -1,0 +1,22 @@
+{
+  "asset_id": "props/table-round",
+  "variants": [
+    {
+      "local_path": "/data/assets/props/table_round.obj",
+      "format": "obj",
+      "preferred": true,
+      "mime": "model/obj"
+    }
+  ],
+  "attribution": {
+    "source_url": "https://example.com/assets/table-round",
+    "license_spdx": "CC-BY-4.0",
+    "author": "Example Studio",
+    "title": "Round Table"
+  },
+  "unit_hint": "centimeter",
+  "meters_per_unit": 0.01,
+  "up_axis": "y",
+  "tags": ["furniture", "indoor"],
+  "extra": {}
+}

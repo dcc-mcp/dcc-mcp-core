@@ -1,0 +1,28 @@
+{
+  "asset_id": "arch/city-bank/desk",
+  "variants": [
+    {
+      "local_path": "/data/assets/arch/desk.fbx",
+      "format": "fbx",
+      "preferred": true,
+      "mime": "model/fbx"
+    }
+  ],
+  "attribution": {
+    "source_url": "https://example.com/assets/city-bank-desk",
+    "license_spdx": "MIT",
+    "license_text": "MIT License\n\nCopyright (c) 2024 Example\n\nPermission is hereby granted...",
+    "author": "City Bank Project",
+    "title": "Bank Teller Desk"
+  },
+  "unit_hint": "centimeter",
+  "meters_per_unit": 0.01,
+  "up_axis": "y",
+  "scale_hint": 1.0,
+  "source_bbox": {
+    "min": [-60.0, 0.0, -40.0],
+    "max": [60.0, 110.0, 40.0]
+  },
+  "tags": ["architecture", "furniture", "bank"],
+  "extra": {}
+}
