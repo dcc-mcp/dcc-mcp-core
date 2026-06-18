@@ -106,6 +106,7 @@ use serde_impl::{
         runtimes: Vec<crate::skill_metadata::SkillRuntimeDescriptor> => [get(clone), set],
         layer: Option<String> => [get(clone), set],
         stage: Option<String> => [get(clone), set],
+        resources_file: Option<String> => [get(clone), set],
         branding: Option<crate::skill_metadata::SkillBranding> => [get(clone), set],
         links: Option<crate::skill_metadata::SkillLinks> => [get(clone), set],
         example_prompts: Vec<String> => [get(clone), set],
@@ -288,6 +289,15 @@ pub struct SkillMetadata {
     /// scan / load time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompts_file: Option<String>,
+
+    /// Sibling-file reference for the MCP resources primitive.
+    ///
+    /// Set from `metadata.dcc-mcp.resources` in SKILL.md frontmatter. The value
+    /// is a path relative to the skill root — either a single YAML file, a
+    /// directory containing `*.resource.yaml` entries, or a glob-like reference
+    /// whose non-glob parent directory is scanned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resources_file: Option<String>,
 
     /// Architectural layer for skill routing and search partitioning.
     ///
