@@ -11,7 +11,7 @@ allowed-tools: Bash Read Write Edit
 metadata:
   dcc-mcp:
     dcc: python
-    version: "0.18.34"  # x-release-please-version
+    version: "0.18.35"  # x-release-please-version
     layer: infrastructure
     search-hint: "create dcc mcp skill, validate skill, scaffold skill, SKILL.md, tools.yaml, scripts, groups, prompts, skill taxonomy"
     tools: tools.yaml
