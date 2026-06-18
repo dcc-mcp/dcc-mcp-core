@@ -134,9 +134,22 @@ where
 }
 
 fn resources_reference(md: &dcc_mcp_models::SkillMetadata) -> Option<&str> {
+    if let Some(reference) = md
+        .resources_file
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        return Some(reference);
+    }
+
     md.metadata
         .pointer("/dcc-mcp/resources")
         .and_then(|value| value.as_str())
+        .or_else(|| {
+            md.metadata
+                .get("dcc-mcp.resources")
+                .and_then(|value| value.as_str())
+        })
         .filter(|value| !value.is_empty())
 }
 
