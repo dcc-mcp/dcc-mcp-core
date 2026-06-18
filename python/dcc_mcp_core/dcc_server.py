@@ -772,6 +772,7 @@ def register_diagnostic_mcp_tools(
                 dcc=dcc_name,
                 category=CATEGORY_DIAGNOSTICS,
                 version="1.0.0",
+                source_file="",  # inline handler, no external script — GH-1696
             )
         except Exception as exc:
             logger.warning("register_diagnostic_mcp_tools: register(%s) failed: %s", name, exc)

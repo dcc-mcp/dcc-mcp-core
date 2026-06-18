@@ -483,6 +483,20 @@ impl SkillCatalog {
                 ),
             };
 
+            // Guard: if a tool with the same name is already registered (e.g.
+            // a builtin inline handler from register_diagnostic_mcp_tools),
+            // skip the YAML-skill overwrite so the original entry — and its
+            // handler binding — is preserved.  GH-1696
+            if self.registry.get_action(&action_name, None).is_some() {
+                tracing::debug!(
+                    tool = %action_name,
+                    skill = %skill_name,
+                    "Skipping YAML-skill tool registration — already registered (likely builtin inline handler)"
+                );
+                registered.push(action_name);
+                continue;
+            }
+
             self.registry.register_action(meta);
 
             if let (Some(dispatcher), Some(script_path)) = (&self.dispatcher, script_path) {
