@@ -1995,3 +1995,146 @@ async fn load_skill_preserves_existing_index_when_v1_search_fails() {
 
     let _ = shutdown_tx.send(());
 }
+
+/// Regression test for issue #1664:
+/// A dispatch-only sidecar registered with `role = "per-dcc-sidecar"` and
+/// **no** `discovery_mcp_url` must still accept `load_skill` calls through
+/// its `/mcp` endpoint.  Prior to the fix, the gateway used
+/// `entry_discovery_mcp_url` unconditionally which returned `""` for such
+/// entries and failed with "Instance does not expose a discovery endpoint".
+#[tokio::test]
+async fn load_skill_for_dispatch_only_sidecar_without_discovery_url() {
+    // Build a sidecar-style app that serves /health and /mcp (dispatch-only).
+    // No /v1/search — the sidecar does not expose discovery routes.
+    let load_skill_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let calls = load_skill_calls.clone();
+    let app = axum::Router::new()
+        .route(
+            "/health",
+            axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
+        )
+        .route(
+            "/mcp",
+            axum::routing::post(move |axum::Json(body): axum::Json<Value>| {
+                let calls = calls.clone();
+                async move {
+                    let id = body.get("id").cloned().unwrap_or(Value::Null);
+                    let name = body
+                        .pointer("/params/name")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    if name == "load_skill" {
+                        calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    axum::Json(json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "content": [{
+                                "type": "text",
+                                "text": serde_json::to_string(&json!({
+                                    "loaded": true,
+                                    "skill_name": "maya-mgear",
+                                    "dcc_type": "maya",
+                                    "registered_tools": [
+                                        "maya_mgear__inspect",
+                                        "maya_mgear__list_joints",
+                                    ],
+                                })).unwrap()
+                            }],
+                            "isError": false
+                        }
+                    }))
+                }
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .ok();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // Register the entry as a sidecar WITHOUT discovery_mcp_url.
+    let dir = tempfile::tempdir().unwrap();
+    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+        dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
+    ));
+    let instance_id = {
+        let r = registry.read().await;
+        let mut entry = dcc_mcp_transport::discovery::types::ServiceEntry::new(
+            "maya",
+            "127.0.0.1",
+            port,
+        );
+        entry.metadata.insert(
+            crate::gateway::http_registration::MCP_URL_METADATA_KEY.to_string(),
+            format!("http://127.0.0.1:{port}/mcp"),
+        );
+        // IMPORTANT: No DISCOVERY_MCP_URL_METADATA_KEY — this is a
+        // dispatch-only sidecar without a separate discovery endpoint.
+        entry.metadata.insert(
+            crate::gateway::http_registration::ROLE_METADATA_KEY.to_string(),
+            crate::gateway::http_registration::ROLE_PER_DCC_SIDECAR.to_string(),
+        );
+        let id = entry.instance_id;
+        r.register(entry).unwrap();
+        id
+    };
+    let gs = make_gateway_state(registry).await;
+
+    // Execute load_skill — must succeed by routing to entry_mcp_url.
+    let (text, is_error) = skill_mgmt_dispatch(
+        &gs,
+        "load_skill",
+        &json!({
+            "skill_name": "maya-mgear",
+            "dcc_type": "maya",
+            "instance_id": instance_id.to_string(),
+        }),
+    )
+    .await;
+
+    assert!(
+        !is_error,
+        "load_skill must succeed for dispatch-only sidecar without discovery_mcp_url: {text}"
+    );
+    assert_eq!(
+        load_skill_calls.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "load_skill must be routed to the sidecar's /mcp endpoint"
+    );
+
+    // Verify the loaded tools are in the capability index (Layer 1 injection).
+    let snap = gs.capability_index.snapshot();
+    assert!(
+        snap.records
+            .iter()
+            .any(|r| r.backend_tool == "maya_mgear__inspect"),
+        "maya_mgear__inspect must be indexed after load_skill"
+    );
+    assert!(
+        snap.records
+            .iter()
+            .any(|r| r.backend_tool == "maya_mgear__list_joints"),
+        "maya_mgear__list_joints must be indexed after load_skill"
+    );
+
+    // Verify new_tool_slugs in the response payload.
+    let payload: Value = serde_json::from_str(&text).unwrap();
+    let slugs = payload["new_tool_slugs"].as_array().unwrap();
+    assert!(
+        slugs.iter().any(|s| s
+            .as_str()
+            .is_some_and(|s| s.contains("maya_mgear__inspect"))),
+        "new_tool_slugs must include maya_mgear__inspect: {slugs:?}"
+    );
+
+    let _ = shutdown_tx.send(());
+}
