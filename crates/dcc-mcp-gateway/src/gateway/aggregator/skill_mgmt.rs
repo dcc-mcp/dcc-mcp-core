@@ -66,7 +66,10 @@ pub(crate) async fn skill_mgmt_dispatch(
                     let url = entry_discovery_mcp_url(&entry);
                     if url.is_empty() {
                         return (
-                            format!("Instance {} does not expose a discovery endpoint", entry.instance_id),
+                            format!(
+                                "Instance {} does not expose a discovery endpoint",
+                                entry.instance_id
+                            ),
                             true,
                         );
                     }
@@ -142,8 +145,10 @@ pub(crate) async fn skill_mgmt_dispatch(
                                             if !slugs.is_empty() {
                                                 break;
                                             }
-                                            tokio::time::sleep(std::time::Duration::from_millis(200))
-                                                .await;
+                                            tokio::time::sleep(std::time::Duration::from_millis(
+                                                200,
+                                            ))
+                                            .await;
                                             crate::gateway::capability::refresh_instance(
                                                 &gs.capability_index,
                                                 &gs.http_client,
