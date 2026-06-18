@@ -690,14 +690,7 @@ impl SkillCatalogSource for CatalogSource {
                     );
                     if let Some(ref sp) = script_path {
                         dcc_mcp_skills::catalog::schema_gen::generate_input_schema(sp, None)
-                            .unwrap_or_else(|| {
-                                tracing::warn!(
-                                    "Schema generation failed for '{}.{}', using fallback",
-                                    detail.name,
-                                    tool_decl.name
-                                );
-                                serde_json::json!({"type": "object"})
-                            })
+                            .unwrap_or_else(|| serde_json::json!({"type": "object"}))
                     } else {
                         serde_json::json!({"type": "object"})
                     }

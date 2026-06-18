@@ -15,6 +15,7 @@
 //! 4. **Enterprise controls** (#660): auth gate, audit sink,
 //!    readiness — each behaves as specified.
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::Router;
@@ -97,6 +98,33 @@ fn build_server(service: SkillRestService) -> (TestServer, Arc<VecAuditSink>) {
     (server, sink)
 }
 
+struct TempSkillDir {
+    root: PathBuf,
+}
+
+impl TempSkillDir {
+    fn new() -> Self {
+        let root =
+            std::env::temp_dir().join(format!("dcc-mcp-rest-schema-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("scripts")).unwrap();
+        Self { root }
+    }
+
+    fn path_string(&self) -> String {
+        self.root.to_string_lossy().into_owned()
+    }
+}
+
+impl Drop for TempSkillDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+fn write(path: &Path, body: &str) {
+    std::fs::write(path, body).unwrap();
+}
+
 // ── High-value scenarios ─────────────────────────────────────────────
 
 /// Goal #1 — agent flow: search then describe then call, with a real
@@ -142,6 +170,110 @@ async fn search_describe_call_round_trip() {
     assert_eq!(out["slug"], slug);
     assert_eq!(out["output"]["name"], "pSphere1");
     assert_eq!(out["output"]["radius"], 2.5);
+}
+
+#[tokio::test]
+async fn repeated_search_does_not_regenerate_missing_tool_schema() {
+    let skill_dir = TempSkillDir::new();
+    let counter = skill_dir.root.join("counter.txt");
+    write(&counter, "0");
+    write(
+        &skill_dir.root.join("SKILL.md"),
+        r#"---
+name: auto-schema-skill
+description: Generates schema from a Python signature.
+allowed-tools: python
+metadata:
+  dcc-mcp:
+    dcc: maya
+    version: "1.0.0"
+    tools: tools.yaml
+---
+
+# Auto Schema Skill
+"#,
+    );
+    write(
+        &skill_dir.root.join("tools.yaml"),
+        r#"tools:
+  - name: set_timeline
+    description: Set the playback timeline range.
+    source_file: scripts/set_timeline.py
+"#,
+    );
+    write(
+        &skill_dir.root.join("scripts").join("set_timeline.py"),
+        r#"
+import os
+from pathlib import Path
+
+counter = Path(os.environ["DCC_MCP_E2E_SCHEMA_COUNTER"])
+counter.write_text(str(int(counter.read_text() or "0") + 1))
+
+
+def main(start_frame: int, end_frame: int, playback: bool = False):
+    """Set the playback timeline range."""
+    pass
+"#,
+    );
+
+    let _counter_env =
+        dcc_mcp_test_utils::EnvVarGuard::set("DCC_MCP_E2E_SCHEMA_COUNTER", counter.to_str());
+
+    let registry = Arc::new(ToolRegistry::new());
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
+    let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+        registry,
+        dispatcher.clone(),
+    ));
+    assert!(catalog.discover(Some(&[skill_dir.path_string()]), Some("maya")) > 0);
+    assert!(catalog.get_skill_info("auto-schema-skill").is_some());
+    let service = SkillRestService::from_catalog_and_dispatcher(catalog, dispatcher);
+    let (server, _) = build_server(service);
+
+    let mut slug = String::new();
+    for _ in 0..2 {
+        let resp = server
+            .post("/v1/search")
+            .json(&json!({
+                "query": "set_timeline",
+                "dcc_type": "maya",
+                "loaded_only": false,
+                "limit": 5
+            }))
+            .await;
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        let hit = body["hits"]
+            .as_array()
+            .and_then(|hits| {
+                hits.iter()
+                    .find(|hit| hit["action"] == "auto_schema_skill__set_timeline")
+            })
+            .unwrap_or_else(|| panic!("expected auto schema hit, got {body}"));
+        assert_eq!(hit["has_schema"], true);
+        assert!(hit.get("input_schema").is_none());
+        slug = hit["slug"].as_str().expect("slug").to_string();
+    }
+
+    let resp = server
+        .post("/v1/describe")
+        .json(&json!({"tool_slug": slug}))
+        .await;
+    resp.assert_status_ok();
+    let body: Value = resp.json();
+    assert!(
+        body["input_schema"]["properties"]["start_frame"].is_object(),
+        "describe must expose generated schema properties: {body}"
+    );
+    assert!(
+        body["input_schema"]["required"]
+            .as_array()
+            .is_some_and(|required| required.contains(&json!("start_frame"))
+                && required.contains(&json!("end_frame"))),
+        "describe must expose generated required params: {body}"
+    );
+    assert_eq!(std::fs::read_to_string(counter).unwrap(), "1");
 }
 
 /// Goal #2 — MCP and REST must yield identical envelopes for the same
