@@ -22,6 +22,10 @@ Re-exports:
 from __future__ import annotations
 
 from dcc_mcp_core_semantic import _native as native
+from dcc_mcp_core_semantic._native import NativeEmbedder
 
-__all__ = ["native"]
+# Compatibility alias for earlier versions that exposed the Python wrapper here
+OnnxEmbedder = NativeEmbedder
+
+__all__ = ["NativeEmbedder", "OnnxEmbedder", "native"]
 __version__ = native.__version__
