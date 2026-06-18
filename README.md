@@ -655,6 +655,7 @@ See [`examples/skills/`](examples/skills/) for complete reference packages.
 | `app-ui` | `snapshot`, `find`, `act`, `wait_for` | Scoped application UI observation/action mock backend |
 | `dcc-diagnostics` | `screenshot`, `audit_log`, `tool_metrics`, `process_status` | Observability & debugging for any DCC |
 | `media` | `probe`, `sequence_to_mp4`, `transcode`, `extract_frames`, `thumbnail` | vx-managed FFmpeg media processing for render/playblast artifacts |
+| `qt-ui-inspector` | `inspect_widget_tree`, `get_widget_properties`, `set_widget_property`, `invoke_widget_method` | DCC-agnostic Qt widget introspection and manipulation |
 | `workflow` | `run_chain` | Multi-step action chaining with context propagation |
 
 ```python
