@@ -26,7 +26,7 @@ adapters convert host-native → cm.
 Paths-first: ``local_path`` required, ``file_ref`` optional; no artefact URI
 infrastructure in v1.
 
-Example
+Example:
 -------
 ::
 
@@ -55,7 +55,6 @@ from typing import Dict
 from typing import List
 from typing import Mapping
 from typing import Optional
-
 
 __all__ = [
     "AssetAttribution",
@@ -184,15 +183,16 @@ class ImportWarning:
         Human-readable description of the warning.
     detail:
         Optional machine-readable detail (e.g. a list of missing texture paths).
+
     """
 
     code: str
     message: str
     detail: Optional[str] = None
 
-    def to_dict(self) -> Dict[str, Any]:  # noqa: UP006
+    def to_dict(self) -> Dict[str, Any]:
         """Serialize this warning to a plain dict."""
-        result: Dict[str, Any] = {  # noqa: UP006
+        result: Dict[str, Any] = {
             "code": self.code,
             "message": self.message,
         }
@@ -230,6 +230,7 @@ class AssetAttribution:
         Human-readable title of the asset.
     attribution_text:
         Pre-formatted attribution string for display.
+
     """
 
     source_url: str
@@ -239,9 +240,9 @@ class AssetAttribution:
     title: Optional[str] = None
     attribution_text: Optional[str] = None
 
-    def to_dict(self) -> Dict[str, Any]:  # noqa: UP006
+    def to_dict(self) -> Dict[str, Any]:
         """Serialize this attribution to a plain dict."""
-        result: Dict[str, Any] = {"source_url": self.source_url}  # noqa: UP006
+        result: Dict[str, Any] = {"source_url": self.source_url}
         if self.license_spdx is not None:
             result["license_spdx"] = self.license_spdx
         if self.license_text is not None:
@@ -284,17 +285,18 @@ class AssetFileVariant:
     file_ref:
         Optional structured file reference (URI-based, from ``_core.FileRef``).
         Not required in v1; ``local_path`` is the primary identifier.
+
     """
 
     local_path: str
     format: str = AssetFormat.UNKNOWN
     preferred: bool = False
     mime: Optional[str] = None
-    file_ref: Optional[Dict[str, Any]] = None  # noqa: UP006
+    file_ref: Optional[Dict[str, Any]] = None
 
-    def to_dict(self) -> Dict[str, Any]:  # noqa: UP006
+    def to_dict(self) -> Dict[str, Any]:
         """Serialize this variant to a plain dict."""
-        result: Dict[str, Any] = {  # noqa: UP006
+        result: Dict[str, Any] = {
             "local_path": self.local_path,
             "format": self.format,
         }
@@ -335,6 +337,7 @@ class PlacementHint:
         Scale factors [sx, sy, sz].
     parent_name:
         Name of the parent object to attach to in the host scene.
+
     """
 
     translate: Optional[List[float]] = None
@@ -342,9 +345,9 @@ class PlacementHint:
     scale: Optional[List[float]] = None
     parent_name: Optional[str] = None
 
-    def to_dict(self) -> Dict[str, Any]:  # noqa: UP006
+    def to_dict(self) -> Dict[str, Any]:
         """Serialize this placement hint to a plain dict."""
-        result: Dict[str, Any] = {}  # noqa: UP006
+        result: Dict[str, Any] = {}
         if self.translate is not None:
             result["translate"] = list(self.translate)
         if self.rotate is not None:
@@ -404,6 +407,7 @@ class AssetDescriptor:
         Free-form tags for categorisation / search.
     extra:
         Free-form mapping for DCC-specific enrichments.
+
     """
 
     asset_id: str
@@ -414,9 +418,9 @@ class AssetDescriptor:
     meters_per_unit: float = 1.0
     up_axis: str = AxisHint.Y
     scale_hint: Optional[float] = None
-    source_bbox: Optional[Dict[str, Any]] = None  # noqa: UP006
+    source_bbox: Optional[Dict[str, Any]] = None
     tags: List[str] = field(default_factory=list)
-    extra: Dict[str, Any] = field(default_factory=dict)  # noqa: UP006
+    extra: Dict[str, Any] = field(default_factory=dict)
 
     def validate(self) -> None:
         """Validate this descriptor against the contract invariants.
@@ -432,6 +436,7 @@ class AssetDescriptor:
           variants in v1).
         - If ``attribution`` is set, ``source_url`` must be non-empty and at least
           one of ``license_spdx`` / ``license_text`` must be non-empty.
+
         """
         if not self.variants:
             raise AssetImportValidationError("AssetDescriptor.variants must not be empty")
@@ -454,9 +459,9 @@ class AssetDescriptor:
                     "license_spdx or license_text"
                 )
 
-    def to_dict(self) -> Dict[str, Any]:  # noqa: UP006
+    def to_dict(self) -> Dict[str, Any]:
         """Serialize this descriptor to a plain dict."""
-        result: Dict[str, Any] = {  # noqa: UP006
+        result: Dict[str, Any] = {
             "asset_id": self.asset_id,
             "variants": [v.to_dict() for v in self.variants],
             "unit_hint": self.unit_hint,
@@ -483,6 +488,7 @@ class AssetDescriptor:
         ------
         KeyError
             If ``asset_id`` is missing.
+
         """
         variants_raw = data.get("variants", [])
         variants = [AssetFileVariant.from_dict(v) for v in variants_raw]
@@ -530,6 +536,7 @@ class ImportToSceneRequest:
         the scene. Defaults to False.
     extra:
         Free-form mapping for adapter-specific options.
+
     """
 
     descriptor: AssetDescriptor
@@ -537,11 +544,11 @@ class ImportToSceneRequest:
     placement: Optional[PlacementHint] = None
     target_collection: Optional[str] = None
     skip_existing: bool = False
-    extra: Dict[str, Any] = field(default_factory=dict)  # noqa: UP006
+    extra: Dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:  # noqa: UP006
+    def to_dict(self) -> Dict[str, Any]:
         """Serialize this request to a plain dict."""
-        result: Dict[str, Any] = {  # noqa: UP006
+        result: Dict[str, Any] = {
             "descriptor": self.descriptor.to_dict(),
             "material_mode": self.material_mode,
             "skip_existing": self.skip_existing,
@@ -591,17 +598,18 @@ class ImportToSceneResult:
         Error description if ``success`` is False.
     extra:
         Free-form mapping for DCC-specific enrichments.
+
     """
 
     success: bool
     imported_nodes: List[str] = field(default_factory=list)
     warnings: List[ImportWarning] = field(default_factory=list)
     error_message: Optional[str] = None
-    extra: Dict[str, Any] = field(default_factory=dict)  # noqa: UP006
+    extra: Dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:  # noqa: UP006
+    def to_dict(self) -> Dict[str, Any]:
         """Serialize this result to a plain dict."""
-        result: Dict[str, Any] = {  # noqa: UP006
+        result: Dict[str, Any] = {
             "success": self.success,
             "imported_nodes": list(self.imported_nodes),
             "warnings": [w.to_dict() for w in self.warnings],
