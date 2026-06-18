@@ -63,16 +63,18 @@ pub(crate) async fn skill_mgmt_dispatch(
                             obj.insert("group".to_string(), group_name);
                         }
                     }
-                    let url = entry_discovery_mcp_url(&entry);
-                    if url.is_empty() {
-                        return (
-                            format!(
-                                "Instance {} does not expose a discovery endpoint",
-                                entry.instance_id
-                            ),
-                            true,
-                        );
-                    }
+                    // Prefer discovery_mcp_url for tool dispatch when available
+                    // (provides full MCP surface for setups with both endpoints).
+                    // Fall back to entry_mcp_url for dispatch-only sidecars that
+                    // lack a discovery endpoint (issue #1664).
+                    let url = {
+                        let discovery = entry_discovery_mcp_url(&entry);
+                        if discovery.is_empty() {
+                            entry_mcp_url(&entry)
+                        } else {
+                            discovery
+                        }
+                    };
                     let params = json!({"name": tool, "arguments": forward_args});
                     match call_backend(
                         &gs.http_client,
