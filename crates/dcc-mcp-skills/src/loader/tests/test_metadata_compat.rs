@@ -185,6 +185,23 @@ metadata:
 }
 
 #[test]
+fn nested_form_resources_file_reference_resolves() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("resources-sidecar");
+    let body = r#"---
+name: resources-sidecar
+metadata:
+  dcc-mcp:
+    resources: resources/
+---
+# body
+"#;
+    write_skill(&dir, body);
+    let meta = parse_skill_md(&dir).expect("parsed");
+    assert_eq!(meta.resources_file.as_deref(), Some("resources/"));
+}
+
+#[test]
 fn nested_form_parses_optional_runtime_descriptors() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("runtime");
