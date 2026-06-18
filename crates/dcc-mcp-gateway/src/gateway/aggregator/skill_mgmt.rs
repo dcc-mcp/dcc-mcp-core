@@ -3,7 +3,7 @@ use dcc_mcp_gateway_core::capability::compute_fingerprint;
 use dcc_mcp_gateway_core::policy::GatewayPolicyOperation;
 
 use super::super::capability::{CapabilityRecord, tool_slug};
-use super::super::http_registration::entry_discovery_mcp_url;
+use super::super::http_registration::{entry_discovery_mcp_url, entry_mcp_url};
 
 /// Dispatch a skill-management tool across backends.
 ///
@@ -64,6 +64,12 @@ pub(crate) async fn skill_mgmt_dispatch(
                         }
                     }
                     let url = entry_discovery_mcp_url(&entry);
+                    if url.is_empty() {
+                        return (
+                            format!("Instance {} does not expose a discovery endpoint", entry.instance_id),
+                            true,
+                        );
+                    }
                     let params = json!({"name": tool, "arguments": forward_args});
                     match call_backend(
                         &gs.http_client,
@@ -125,35 +131,37 @@ pub(crate) async fn skill_mgmt_dispatch(
                                 // refresh (timing resilience, issue #1659).
                                 if !skill_names.is_empty() {
                                     let discovery_url = entry_discovery_mcp_url(&entry);
-                                    let max_retries = 2;
-                                    for attempt in 0..max_retries {
-                                        let slugs = new_tool_slugs_for_skill(
-                                            gs,
-                                            entry.instance_id,
-                                            Some(&skill_names[0]),
-                                        );
-                                        if !slugs.is_empty() {
-                                            break;
-                                        }
-                                        tokio::time::sleep(std::time::Duration::from_millis(200))
+                                    if !discovery_url.is_empty() {
+                                        let max_retries = 2;
+                                        for attempt in 0..max_retries {
+                                            let slugs = new_tool_slugs_for_skill(
+                                                gs,
+                                                entry.instance_id,
+                                                Some(&skill_names[0]),
+                                            );
+                                            if !slugs.is_empty() {
+                                                break;
+                                            }
+                                            tokio::time::sleep(std::time::Duration::from_millis(200))
+                                                .await;
+                                            crate::gateway::capability::refresh_instance(
+                                                &gs.capability_index,
+                                                &gs.http_client,
+                                                &discovery_url,
+                                                entry.instance_id,
+                                                &entry.dcc_type,
+                                                gs.backend_timeout,
+                                                crate::gateway::capability::RefreshReason::ToolsListChanged,
+                                                Some(&gs.instance_diagnostics),
+                                            )
                                             .await;
-                                        crate::gateway::capability::refresh_instance(
-                                            &gs.capability_index,
-                                            &gs.http_client,
-                                            &discovery_url,
-                                            entry.instance_id,
-                                            &entry.dcc_type,
-                                            gs.backend_timeout,
-                                            crate::gateway::capability::RefreshReason::ToolsListChanged,
-                                            Some(&gs.instance_diagnostics),
-                                        )
-                                        .await;
-                                        tracing::info!(
-                                            instance = %entry.instance_id,
-                                            skill = %skill_names[0],
-                                            retry = attempt + 1,
-                                            "load_skill: retried refresh after backoff",
-                                        );
+                                            tracing::info!(
+                                                instance = %entry.instance_id,
+                                                skill = %skill_names[0],
+                                                retry = attempt + 1,
+                                                "load_skill: retried refresh after backoff",
+                                            );
+                                        }
                                     }
                                 }
 
@@ -227,7 +235,7 @@ Standalone `dcc-mcp-server` without `--app` registers as `dcc_type` from DCC_MCP
             let backend_timeout = gs.backend_timeout;
             let params = json!({"name": tool, "arguments": args});
             let futs = targets.iter().map(|entry| {
-                let url = entry_discovery_mcp_url(entry);
+                let url = entry_mcp_url(entry);
                 let params = params.clone();
                 async move {
                     let res = call_backend(
