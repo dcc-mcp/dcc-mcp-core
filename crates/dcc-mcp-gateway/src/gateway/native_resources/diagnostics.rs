@@ -16,9 +16,11 @@ pub const PROCESS_URI: &str = "gateway://diagnostics/process";
 pub const AUDIT_URI: &str = "gateway://diagnostics/audit";
 /// URI for the gateway-native tool metrics summary.
 pub const METRICS_URI: &str = "gateway://diagnostics/metrics";
+/// URI for the gateway-native search and capability index diagnostics.
+pub const SEARCH_URI: &str = "gateway://diagnostics/search";
 
 /// Resource pointers emitted in `resources/list`.
-pub fn pointers() -> [Value; 3] {
+pub fn pointers() -> [Value; 4] {
     [
         json!({
             "uri":         PROCESS_URI,
@@ -38,6 +40,12 @@ pub fn pointers() -> [Value; 3] {
             "description": "Local gateway tool count, live backend count, and dispatch timeouts.",
             "mimeType":    "application/json"
         }),
+        json!({
+            "uri":         SEARCH_URI,
+            "name":        "Gateway search & capability diagnostics",
+            "description": "Capability index health and semantic ranking provider status.",
+            "mimeType":    "application/json"
+        }),
     ]
 }
 
@@ -50,6 +58,8 @@ pub enum Query {
     Audit,
     /// Tool metrics summary (no parameters).
     Metrics,
+    /// Search and semantic ranking status.
+    Search,
 }
 
 /// Recognise a `gateway://diagnostics/*` URI. Returns `None` when the URI
@@ -65,6 +75,7 @@ pub fn parse(uri: &str) -> Option<Query> {
         }
         AUDIT_URI => Some(Query::Audit),
         METRICS_URI => Some(Query::Metrics),
+        SEARCH_URI => Some(Query::Search),
         _ => None,
     }
 }
@@ -155,6 +166,24 @@ pub async fn build_payload(
                 }
             }))
         }
+        Query::Search => {
+            let total_records = gs.capability_index.total_records();
+            let unloaded = gs.capability_index.unloaded_count();
+            Ok(json!({
+                "success": true,
+                "message": "Gateway search and capability diagnostics",
+                "semantic_provider": {
+                    "active": false,
+                    "backend": "dcc-mcp-gateway-search (lexical only)",
+                    "note": "Semantic ranking is not yet supported in the Rust gateway daemon.",
+                },
+                "capability_index": {
+                    "total_records": total_records,
+                    "unloaded_records": unloaded,
+                    "empty": total_records == 0 && unloaded == 0,
+                }
+            }))
+        }
     }
 }
 
@@ -191,6 +220,11 @@ mod tests {
     }
 
     #[test]
+    fn parse_search() {
+        assert_eq!(parse("gateway://diagnostics/search"), Some(Query::Search));
+    }
+
+    #[test]
     fn parse_returns_none_for_unrelated_uris() {
         assert_eq!(parse("gateway://instances"), None);
         assert_eq!(parse("gateway://diagnostics"), None);
@@ -199,11 +233,12 @@ mod tests {
     }
 
     #[test]
-    fn pointers_cover_all_three_uris() {
+    fn pointers_cover_all_four_uris() {
         let ps = pointers();
         let uris: Vec<&str> = ps.iter().filter_map(|p| p["uri"].as_str()).collect();
         assert!(uris.contains(&PROCESS_URI));
         assert!(uris.contains(&AUDIT_URI));
         assert!(uris.contains(&METRICS_URI));
+        assert!(uris.contains(&SEARCH_URI));
     }
 }

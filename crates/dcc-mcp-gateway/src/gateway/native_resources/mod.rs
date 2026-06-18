@@ -52,7 +52,7 @@ use super::state::GatewayState;
 ///
 /// Order is stable: instances first, then diagnostics, then catalog, then docs.
 pub fn pointers_for_list() -> Vec<Value> {
-    let mut out = Vec::with_capacity(6);
+    let mut out = Vec::with_capacity(7);
     out.push(instances::pointer());
     out.extend(diagnostics::pointers());
     out.push(catalog::pointer());
@@ -134,6 +134,7 @@ mod tests {
             "gateway://diagnostics/process",
             "gateway://diagnostics/audit",
             "gateway://diagnostics/metrics",
+            "gateway://diagnostics/search",
         ] {
             assert!(
                 matches!(Request::parse(uri), Some(Request::Diagnostics(_))),
@@ -169,9 +170,10 @@ mod tests {
         assert!(uris.contains(&diagnostics::PROCESS_URI));
         assert!(uris.contains(&diagnostics::AUDIT_URI));
         assert!(uris.contains(&diagnostics::METRICS_URI));
+        assert!(uris.contains(&diagnostics::SEARCH_URI));
         assert!(uris.contains(&catalog::ROOT_URI));
         assert!(uris.contains(&agent_workflows::ROOT_URI));
-        assert_eq!(ps.len(), 6);
+        assert_eq!(ps.len(), 7);
     }
 
     #[test]
