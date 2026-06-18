@@ -133,7 +133,13 @@ fn generate_input_schema_uncached(
     }
 }
 
+/// Cached result of `find_python_interpreter()`, computed once per process.
+static PYTHON_INTERPRETER_CACHE: OnceLock<Option<String>> = OnceLock::new();
+
 /// Find available Python interpreter.
+///
+/// The result is cached in a `OnceLock` — the shell-out to `python
+/// --version` only happens once per process lifetime.
 fn find_python_interpreter() -> Option<String> {
     static PYTHON_CMD: OnceLock<Option<String>> = OnceLock::new();
     PYTHON_CMD
@@ -156,6 +162,104 @@ fn find_python_interpreter_uncached() -> Option<String> {
     }
 
     tracing::warn!("Python interpreter not found (tried 'python', 'python3', 'py')");
+    None
+}
+
+/// Cached result of `find_helper_script()`, computed once per process.
+static HELPER_SCRIPT_CACHE: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+/// Try to find the helper script in common locations.
+///
+/// The result is cached in a `OnceLock` so the file-system search and
+/// temp-file write happen at most once per process lifetime.  Repeated
+/// calls after the first return the same `Option<PathBuf>` without
+/// touching the disk again, which prevents log flooding from the
+/// `tracing::warn!` inside `find_helper_script_inner`.
+///
+/// Search order:
+/// 1. Relative to CARGO_MANIFEST_DIR (for tests/builds)
+/// 2. Relative to current executable
+/// 3. Relative to workspace root (development)
+/// 4. Fallback: write embedded copy to a temp file
+fn find_helper_script() -> Option<PathBuf> {
+    HELPER_SCRIPT_CACHE
+        .get_or_init(find_helper_script_inner)
+        .clone()
+}
+
+/// Internal implementation that actually searches the file system.
+/// Callers should use the caching wrapper [`find_helper_script`] instead.
+fn find_helper_script_inner() -> Option<PathBuf> {
+    // Try relative to CARGO_MANIFEST_DIR (for tests/builds)
+    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+        let helper: PathBuf = [&manifest_dir, "scripts", "generate_input_schema.py"]
+            .iter()
+            .collect();
+        if helper.exists() {
+            return Some(helper);
+        }
+    }
+
+    // Try relative to current executable
+    if let Ok(exe_path) = std::env::current_exe()
+        && let Some(parent) = exe_path.parent()
+    {
+        let helper: PathBuf = [
+            parent,
+            std::path::Path::new("scripts/generate_input_schema.py"),
+        ]
+        .iter()
+        .collect();
+        if helper.exists() {
+            return Some(helper);
+        }
+    }
+
+    // Try relative to workspace root (development)
+    if let Ok(current_dir) = std::env::current_dir() {
+        // Check current directory and parent directories
+        let mut dir = current_dir.as_path();
+        for _ in 0..5 {
+            let candidate: PathBuf = [
+                dir,
+                std::path::Path::new("crates/dcc-mcp-skills/scripts/generate_input_schema.py"),
+            ]
+            .iter()
+            .collect();
+            if candidate.exists() {
+                return Some(candidate);
+            }
+
+            // Also check for workspace root marker
+            let workspace_marker: PathBuf =
+                [dir, std::path::Path::new("Cargo.toml")].iter().collect();
+            if workspace_marker.exists() {
+                let candidate: PathBuf = [
+                    dir,
+                    std::path::Path::new("crates/dcc-mcp-skills/scripts/generate_input_schema.py"),
+                ]
+                .iter()
+                .collect();
+                if candidate.exists() {
+                    return Some(candidate);
+                }
+            }
+
+            match dir.parent() {
+                Some(parent) => dir = parent,
+                None => break,
+            }
+        }
+    }
+
+    // Fallback: write the embedded helper script to a temp file.
+    // This covers production deployments where the binary is shipped
+    // without the scripts/ directory.
+    if let Some(temp_path) = write_embedded_helper_script() {
+        tracing::info!("Using embedded helper script at {}", temp_path.display());
+        return Some(temp_path);
+    }
+
     None
 }
 
