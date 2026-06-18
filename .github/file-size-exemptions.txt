@@ -23,3 +23,5 @@ crates/dcc-mcp-cli/tests/cli_e2e.rs
 crates/dcc-mcp-gateway/src/gateway/admin/tests.rs
 # PIP-690 — rest_impl_tests.rs 2141L, split REST fixture helpers and handler suites
 crates/dcc-mcp-gateway/src/gateway/handlers/rest_impl_tests.rs
+# PIP-1799 — capability_service.rs 1507L, exceeds 1500 limit by 7 lines
+crates/dcc-mcp-gateway/src/gateway/capability_service.rs
