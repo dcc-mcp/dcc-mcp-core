@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.35](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.34...v0.18.35) (2026-06-18)
+
+
+### Bug Fixes
+
+* cache generated skill schemas ([0646863](https://github.com/dcc-mcp/dcc-mcp-core/commit/0646863836476d248549a12a9f887a2f358c539a))
+* **core:** prevent YAML skill overwrite of builtin diagnostic tools ([#1703](https://github.com/dcc-mcp/dcc-mcp-core/issues/1703)) ([22cebef](https://github.com/dcc-mcp/dcc-mcp-core/commit/22cebef2c38c7a5ca6169d00605beb2afa749fc4)), closes [#1696](https://github.com/dcc-mcp/dcc-mcp-core/issues/1696)
+* deduplicate schema-generation warnings to prevent log flooding ([#1700](https://github.com/dcc-mcp/dcc-mcp-core/issues/1700)) ([30992b2](https://github.com/dcc-mcp/dcc-mcp-core/commit/30992b264f7a7d8bfa92c50a3534b9c9f3c98e3e)), closes [#1695](https://github.com/dcc-mcp/dcc-mcp-core/issues/1695)
+* **skills:** remove unused find_helper_script that caused compilation error ([96e98bd](https://github.com/dcc-mcp/dcc-mcp-core/commit/96e98bd08b9f7ccffa830302b28dd399c9023e68))
+
 ## [0.18.34](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.33...v0.18.34) (2026-06-18)
 
 
