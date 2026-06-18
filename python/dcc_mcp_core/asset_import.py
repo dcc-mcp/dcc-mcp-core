@@ -450,13 +450,10 @@ class AssetDescriptor:
 
         if self.attribution is not None:
             if not self.attribution.source_url:
-                raise AssetImportValidationError(
-                    "AssetDescriptor.attribution.source_url must not be empty"
-                )
+                raise AssetImportValidationError("AssetDescriptor.attribution.source_url must not be empty")
             if not self.attribution.license_spdx and not self.attribution.license_text:
                 raise AssetImportValidationError(
-                    "AssetDescriptor.attribution must have at least one of "
-                    "license_spdx or license_text"
+                    "AssetDescriptor.attribution must have at least one of license_spdx or license_text"
                 )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -498,9 +495,7 @@ class AssetDescriptor:
 
         extra_value = data.get("extra", {})
         if not isinstance(extra_value, Mapping):
-            raise TypeError(
-                f"AssetDescriptor.extra must be a mapping, got {type(extra_value).__name__}"
-            )
+            raise TypeError(f"AssetDescriptor.extra must be a mapping, got {type(extra_value).__name__}")
 
         return cls(
             asset_id=str(data["asset_id"]),
@@ -568,9 +563,7 @@ class ImportToSceneRequest:
 
         extra_value = data.get("extra", {})
         if not isinstance(extra_value, Mapping):
-            raise TypeError(
-                f"ImportToSceneRequest.extra must be a mapping, got {type(extra_value).__name__}"
-            )
+            raise TypeError(f"ImportToSceneRequest.extra must be a mapping, got {type(extra_value).__name__}")
 
         return cls(
             descriptor=AssetDescriptor.from_dict(data["descriptor"]),
@@ -627,9 +620,7 @@ class ImportToSceneResult:
 
         extra_value = data.get("extra", {})
         if not isinstance(extra_value, Mapping):
-            raise TypeError(
-                f"ImportToSceneResult.extra must be a mapping, got {type(extra_value).__name__}"
-            )
+            raise TypeError(f"ImportToSceneResult.extra must be a mapping, got {type(extra_value).__name__}")
 
         return cls(
             success=bool(data["success"]),
