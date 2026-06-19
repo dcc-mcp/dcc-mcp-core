@@ -528,6 +528,7 @@ def _probe_server_binary_version(
             capture_output=True,
             text=True,
             timeout=SERVER_BINARY_VERSION_TIMEOUT_SECS,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
         )
     except Exception as exc:
         return None, f"running --version failed: {exc}"

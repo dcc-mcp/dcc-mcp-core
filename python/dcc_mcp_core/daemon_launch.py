@@ -229,6 +229,7 @@ class Daemon:
         flags = 0
         flags |= getattr(subprocess, "DETACHED_PROCESS", 0x0000_0008)
         flags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x0000_0200)
+        flags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
         child = subprocess.Popen(
             args,
