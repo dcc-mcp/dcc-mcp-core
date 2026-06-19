@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.36](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.35...v0.18.36) (2026-06-19)
+
+
+### Features
+
+* add asset-source skill and demo docs for cross-DCC asset import (PIP-1833) ([44495be](https://github.com/dcc-mcp/dcc-mcp-core/commit/44495bed99653ad9065cb7ab86f3a585d6f67bb4))
+* implement asset_import contract module (GH-1698) ([13a004b](https://github.com/dcc-mcp/dcc-mcp-core/commit/13a004be2d104bf79f11f6c79d905c76e596a268))
+
+
+### Bug Fixes
+
+* add CREATE_NO_WINDOW to subprocess calls that spawn console-subsystem binaries ([3cab75a](https://github.com/dcc-mcp/dcc-mcp-core/commit/3cab75a139a600b0c938c68af67b124eb2bb9947))
+* **gateway:** route skill lifecycle dispatch through MCP URL when discovery URL is missing ([#1701](https://github.com/dcc-mcp/dcc-mcp-core/issues/1701)) ([195e734](https://github.com/dcc-mcp/dcc-mcp-core/commit/195e73417b67522794201798b1740f8aa0669baf))
+* increase timing tolerance in test_guardian_run_continues_after_exception for slow macOS ARM runners ([0c5e2dd](https://github.com/dcc-mcp/dcc-mcp-core/commit/0c5e2dd5803f3a0d84447286152643e03345f4de))
+* replace _wait_until busy-polling with Event.wait() in guardian test ([1f1f621](https://github.com/dcc-mcp/dcc-mcp-core/commit/1f1f6218665f4dbac3cef484a8b0c7c2d02cd115))
+* resolve ruff lint issues in asset_import.py ([a604299](https://github.com/dcc-mcp/dcc-mcp-core/commit/a60429904b68e28115ad648222714cb3547af04f))
+* resolve ruff lint issues in test_asset_import_contract.py ([d5cc2d9](https://github.com/dcc-mcp/dcc-mcp-core/commit/d5cc2d9208a1b2f5959f070a5ce365b7261c269d))
+* ruff format asset_import.py ([9891e23](https://github.com/dcc-mcp/dcc-mcp-core/commit/9891e237ce75b8b4c5e8e05ad4948a91f429abdd))
+
+
+### Code Refactoring
+
+* split oversized cleanup targets ([b43114a](https://github.com/dcc-mcp/dcc-mcp-core/commit/b43114a50eb2321be12867ce32aef786c7b4230e))
+
 ## [0.18.35](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.34...v0.18.35) (2026-06-18)
 
 
