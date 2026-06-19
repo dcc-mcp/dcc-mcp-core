@@ -511,9 +511,7 @@ def test_guardian_run_continues_after_exception(monkeypatch):
             lambda: continued_after_crash.is_set() or len(calls) >= 2,
             timeout=60.0,
             interval=0.05,
-        ), (
-            "Expected guardian loop to continue probing"
-        )
+        ), "Expected guardian loop to continue probing"
     finally:
         guardian.stop(timeout=2.0)
 
