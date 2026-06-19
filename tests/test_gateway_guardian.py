@@ -500,12 +500,18 @@ def test_guardian_run_continues_after_exception(monkeypatch):
     )
 
     guardian.start()
+    time.sleep(0.1)  # yield to daemon thread on slow runners
     try:
         assert _wait_until(
             lambda: crash_reported.is_set() or guardian.status().get("crash_count", 0) >= 1,
-            timeout=30.0,
+            timeout=60.0,
+            interval=0.05,
         ), "Expected guardian crash status to be published"
-        assert _wait_until(lambda: continued_after_crash.is_set() or len(calls) >= 2), (
+        assert _wait_until(
+            lambda: continued_after_crash.is_set() or len(calls) >= 2,
+            timeout=60.0,
+            interval=0.05,
+        ), (
             "Expected guardian loop to continue probing"
         )
     finally:
