@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  RiArrowRightLine,
-  RiCheckboxCircleLine,
   RiDownloadCloudLine,
-  RiErrorWarningLine,
   RiFileCopyLine,
   RiFolderOpenLine,
   RiRefreshLine,
@@ -26,13 +23,17 @@ import { DiscoverPanel, type DiscoverTab } from './features/discover';
 import { type OverviewTab } from './features/overview';
 import { CommandCenterPanel } from './features/setup';
 import { AnalyticsPanel } from './features/analytics/AnalyticsPanel';
+import { DebugPanel } from './features/debug';
+import { GovernancePanel } from './features/governance';
+import { InstancesPanel, type InstanceUpdateNotice } from './features/instances';
+import { OpenApiPanel } from './features/openapi';
 import { canonicalAdminPanelTarget, readDiscoverTabFromUrl, readOverviewTabFromUrl, readTracesTabFromUrl } from './navigation';
 import { createTranslator, detectBrowserLocale, type SupportedLocale } from './i18n';
 import { readLocaleOverride, storeLocaleOverride } from './locale';
 import { applyTheme, readThemeMode, resolveTheme, storeThemeMode, type ThemeMode } from './theme';
-import { filterLogs, isProblemLog, normalizeLogRow, summarizeLogSeverity, type LogRow, type LogSeverityFilter } from './logs';
+import { filterLogs, isProblemLog, normalizeLogRow, summarizeLogSeverity, type LogSeverityFilter } from './logs';
 import { CRITICAL_LATENCY_MS, SLOW_LATENCY_MS, type ClientPlatform, type DebugSignal, type FailureSignal, type IdeTarget, type InstanceRow, type InstanceSummary, type InstanceUpdatePayload, type OpenApiSource, type Panel, type SetupUrlMode, type TokenBreakdownEntry, type TraceDetailPayload, type TraceRow } from './admin-types';
-import { actorLabel, agentLabel, apiJson, API_BASE, AttributionFacetList, BackendAccessUrl, backendAccessUrls, BackendOpenApiLinks, callGroupLabel, compactId, compactInstanceId, compactList, configPathFileUrl, configPathForTarget, detectClientPlatform, DocsIcon, downloadJsonText, EmptyRow, errorRateTone, firstTrust, flattenOpenApiOperations, formatBytes, formatDurationMs, formatSavingsPct, formatTokenCount, formatTraceDate, formatUptime, gatewayLabel, gatewayMcpUrl, gatewayOpenApiSource, GovernanceControlCard, groupRows, haystack, HealthCard, HeroMetric, HourlyChart, hrefForAdmin, IDE_TARGETS, ideConfigText, IdeIcon, instanceGroupLabel, instanceSetupLabel, isErrStatus, isOkStatus, isProblemActivity, isSlowLatency, issueReportFilename, issueReportJsonText, isWarnStatus, lanGatewayMcpUrl, latencyClass, latencyTone, LatencyValue, matchesListFilter, McpBackendLinks, MetricTile, MiniSparkline, NavIcon, NAVIGATION, OpenApiInspectorPanel, openApiSpecFilename, PanelHeader, platformLabel, projectDocsHref, readOpenApiSourceFromUrl, readPanelFromUrl, readStatsRangeFromUrl, readTraceIdFromUrl, resolveDccIcon, responseFormatLabel, returnedTokensLabel, savedTokensLabel, sourceIpLabel, StatBarList, STATS_RANGE_IDS, StatusBadge, statusClass, StatusLine, taskActorLabel, taskOutcomeText, taskPrimaryRequestId, taskRequestCount, taskWorkflowLabel, TimeValue, TokenBreakdownList, toolGroupLabel, toolInstanceLabel, totalTraceTokens, TraceDetailPanel, traceGroupLabel, traceLatency, traceLinks, trafficBodyBytes, trafficEmptyKey, trafficFrameDetail, trafficMethod, trafficRedactedPaths, trafficRequestId, trafficSessionId, trafficStatusDetailKey, trafficStatusLabelKey, trafficStatusTone, trafficTimestamp, trustChip, trustFor, WorkflowCard, WorkflowGraphDetail } from './admin-ui-core';
+import { actorLabel, agentLabel, apiJson, API_BASE, AttributionFacetList, backendAccessUrls, callGroupLabel, compactId, compactInstanceId, compactList, configPathFileUrl, configPathForTarget, detectClientPlatform, DocsIcon, downloadJsonText, errorRateTone, firstTrust, flattenOpenApiOperations, formatBytes, formatDurationMs, formatSavingsPct, formatTokenCount, formatUptime, gatewayLabel, gatewayMcpUrl, gatewayOpenApiSource, groupRows, haystack, HealthCard, HeroMetric, HourlyChart, hrefForAdmin, IDE_TARGETS, ideConfigText, IdeIcon, instanceSetupLabel, isErrStatus, isOkStatus, isProblemActivity, isSlowLatency, issueReportFilename, issueReportJsonText, isWarnStatus, lanGatewayMcpUrl, latencyClass, latencyTone, LatencyValue, matchesListFilter, MetricTile, NavIcon, NAVIGATION, openApiSpecFilename, PanelHeader, platformLabel, projectDocsHref, readOpenApiSourceFromUrl, readPanelFromUrl, readStatsRangeFromUrl, readTraceIdFromUrl, responseFormatLabel, returnedTokensLabel, savedTokensLabel, sourceIpLabel, StatBarList, STATS_RANGE_IDS, StatusBadge, statusClass, StatusLine, taskActorLabel, taskOutcomeText, taskPrimaryRequestId, taskRequestCount, taskWorkflowLabel, TimeValue, TokenBreakdownList, toolGroupLabel, toolInstanceLabel, totalTraceTokens, TraceDetailPanel, traceGroupLabel, traceLatency, traceLinks, trafficBodyBytes, trafficEmptyKey, trafficFrameDetail, trafficMethod, trafficRedactedPaths, trafficRequestId, trafficSessionId, trafficStatusDetailKey, trafficStatusLabelKey, trafficStatusTone, trafficTimestamp, trustChip, trustFor, WorkflowCard, WorkflowGraphDetail } from './admin-ui-core';
 import {
   useActivityQuery,
   useCallsQuery,
@@ -50,16 +51,6 @@ import {
   useWorkersQuery,
   useWorkflowsQuery,
 } from './hooks/queries';
-
-type InstanceUpdateNotice = {
-  tone: 'ok' | 'warn' | 'err' | 'muted';
-  message: string;
-  requiresRestart?: boolean;
-};
-
-function instanceUpdateVersion(instance: InstanceRow): string | null {
-  return instance.adapter_version ?? instance.version ?? null;
-}
 
 function instanceUpdateTone(payload: InstanceUpdatePayload): InstanceUpdateNotice['tone'] {
   if (payload.status === 'staged' || payload.status === 'up_to_date') return 'ok';
@@ -1642,211 +1633,27 @@ function App() {
           </section>
         )}
         {activePanel === 'debug' && (
-          <section className="panel active debug-panel">
-            <div className="debug-hero">
-              <div>
-                <h2>{t('debug.title.workbench')}</h2>
-                <StatusLine text={updatedAt.debug} error={errors.debug} />
-              </div>
-              <div className="debug-pulse">
-                <span className={debugIssues > 0 ? 'pulse-dot warn' : 'pulse-dot ok'} />
-                {debugIssues > 0 ? t('debug.status.attention', { count: debugIssues }) : t('debug.status.clean')}
-              </div>
-            </div>
-            <div className="debug-grid">
-              <HealthCard tone={health?.status === 'ok' ? 'ok' : 'warn'} label={t('debug.metric.gateway')} value={gatewayLabel(health)} />
-              <HealthCard tone={unhealthyInstanceRows.length ? 'warn' : 'ok'} label={t('debug.metric.instances')} value={t('debug.detail.liveFlagged', { live: instanceSummary.live, flagged: unhealthyInstanceRows.length })} />
-              <HealthCard tone={errorRateTone(stats)} label={t('debug.metric.success')} value={stats ? `${stats.success_rate.toFixed(1)}%` : '?'} />
-              <HealthCard tone={latencyTone(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} label={t('debug.metric.latency')} value={stats?.latency_ms?.p95_ms ?? stats?.p95_ms ?? '-'} />
-              <HealthCard label={t('debug.metric.tokensPerCall')} value={formatTokenCount(tokenPressure.avg)} />
-            </div>
-            <div className="debug-map">
-                <div className="debug-card debug-wide">
-                  <div className="debug-card-head">
-                    <h3>{t('debug.section.agentTriage')}</h3>
-                  <Button variant="ghost" size="xs" type="button" onClick={() => goToPanel('traces')}>
-                    {t('debug.action.openEvidence')}
-                    <RiArrowRightLine data-icon="inline-end" aria-hidden="true" />
-                  </Button>
-                  </div>
-                <div className="debug-signal-list">
-                  {debugSignals.map((signal) => (
-                    <button
-                      key={signal.key}
-                      className={`debug-signal ${signal.tone}`}
-                      type="button"
-                      onClick={() => goToPanel(signal.panel, signal.traceId ? { traceId: signal.traceId } : undefined)}
-                    >
-                      <span>{signal.label}</span>
-                      <strong>{signal.value}</strong>
-                      <em>{signal.detail}</em>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="debug-card debug-wide">
-                <div className="debug-card-head">
-                  <h3>{t('debug.section.trafficShape')}</h3>
-                  <Button variant="ghost" size="xs" type="button" onClick={() => goToPanel('overview', { overviewTab: 'stats' })}>
-                    {t('debug.action.openStats')}
-                    <RiArrowRightLine data-icon="inline-end" aria-hidden="true" />
-                  </Button>
-                </div>
-                <MiniSparkline buckets={stats?.hourly_distribution ?? []} t={t} />
-                <div className="debug-metrics">
-                  <span>{stats?.total_calls ?? 0} calls</span>
-                  <span>{formatDurationMs(stats?.latency_ms?.p50_ms ?? stats?.p50_ms)} p50</span>
-                  <span>{formatDurationMs(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} p95</span>
-                  <span>{formatDurationMs(stats?.latency_ms?.p99_ms)} p99</span>
-                  <span>{slowLatencyDetail}</span>
-                  <span>{formatTokenCount(tokenPressure.total)} payload tokens</span>
-                </div>
-              </div>
-
-              <div className="debug-card">
-                <div className="debug-card-head">
-                  <h3>{t('debug.section.tokenPressure')}</h3>
-                  <Button variant="ghost" size="xs" type="button" onClick={() => goToPanel('overview', { overviewTab: 'stats' })}>
-                    {t('debug.action.openStats')}
-                    <RiArrowRightLine data-icon="inline-end" aria-hidden="true" />
-                  </Button>
-                </div>
-                <div className="debug-metrics">
-                  <span>{formatTokenCount(tokenPressure.total)} total</span>
-                  <span>{formatTokenCount(tokenPressure.input)} in</span>
-                  <span>{formatTokenCount(tokenPressure.output)} out</span>
-                  <span>{t('debug.detail.saved', { value: formatTokenCount(tokenPressure.saved) })}</span>
-                  <span>{tokenPressure.estimator}</span>
-                </div>
-                {tokenHeavyTraces.length === 0 ? <p className="empty">{t('debug.empty.tokenPressure')}</p> : tokenHeavyTraces.map((trace) => (
-                  <button key={trace.request_id} className="debug-row" type="button" onClick={() => goToPanel('traces', { traceId: trace.request_id })}>
-                    <span>{formatTokenCount(totalTraceTokens(trace))} tok</span>
-                    <span>{compactId(trace.request_id)}</span>
-                    <span title={trace.tool}>{trace.tool}</span>
-                  </button>
-                ))}
-              </div>
-
-              <div className="debug-card">
-                <div className="debug-card-head">
-                  <h3>{t('debug.section.failures')}</h3>
-                  <Button variant="ghost" size="xs" type="button" onClick={() => goToPanel('traces', { tracesTab: 'calls' })}>
-                    {t('debug.action.openCalls')}
-                    <RiArrowRightLine data-icon="inline-end" aria-hidden="true" />
-                  </Button>
-                </div>
-                {failureSignals.length === 0 ? <p className="empty">{t('debug.empty.failures')}</p> : failureSignals.map((failure) => (
-                  <button key={failure.request_id} className="debug-row" type="button" onClick={() => goToPanel('traces', { traceId: failure.request_id })}>
-                    <span><StatusBadge value={failure.status} /></span>
-                    <span>{compactId(failure.request_id)}</span>
-                    <span title={`${failure.tool} · ${failure.detail}`}>{failure.detail}</span>
-                  </button>
-                ))}
-              </div>
-
-              <div className="debug-card">
-                <div className="debug-card-head">
-                  <h3>{t('debug.section.slowestTraces')}</h3>
-                  <Button variant="ghost" size="xs" type="button" onClick={() => goToPanel('traces')}>
-                    {t('debug.action.openTraces')}
-                    <RiArrowRightLine data-icon="inline-end" aria-hidden="true" />
-                  </Button>
-                </div>
-                {slowTraces.length === 0 ? <p className="empty">{t('debug.empty.latency')}</p> : slowTraces.map((trace) => (
-                  <button key={trace.request_id} className={`debug-row ${latencyClass(trace.total_ms)}`} type="button" onClick={() => goToPanel('traces', { traceId: trace.request_id })}>
-                    <LatencyValue value={trace.total_ms} t={t} />
-                    <span>{compactId(trace.request_id)}</span>
-                    <span title={trace.tool}>
-                      {trace.tool}
-                      {trace.slowest_span_name ? ` - ${t('traces.detail.slowestSpan', { name: trace.slowest_span_name, duration: formatDurationMs(trace.slowest_span_ms) })}` : ''}
-                    </span>
-                  </button>
-                ))}
-              </div>
-
-              <div className="debug-card">
-                <div className="debug-card-head">
-                  <h3>{t('debug.section.instanceSignals')}</h3>
-                  <Button variant="ghost" size="xs" type="button" onClick={() => goToPanel('instances')}>
-                    {t('debug.action.openInstances')}
-                    <RiArrowRightLine data-icon="inline-end" aria-hidden="true" />
-                  </Button>
-                </div>
-                {unhealthyInstanceRows.length === 0 ? <p className="empty">{t('debug.empty.instances')}</p> : unhealthyInstanceRows.slice(0, 8).map((instance) => (
-                  <div key={instance.instance_id} className="debug-row static">
-                    <span><StatusBadge value={instance.stale ? 'stale' : instance.status} /></span>
-                    <span>{instance.dcc_type}</span>
-                    <span title={instance.failure_reason ?? instance.failure_stage ?? instance.instance_id}>
-                      {instance.display_name} · {instance.failure_reason ?? instance.failure_stage ?? compactId(instance.instance_id)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="debug-card debug-wide">
-                <div className="debug-card-head">
-                  <h3>{t('debug.section.openapiEntryPoints')}</h3>
-                  <Button variant="ghost" size="xs" type="button" onClick={() => goToPanel('openapi')}>
-                    {t('debug.action.gatewaySpec')}
-                    <RiArrowRightLine data-icon="inline-end" aria-hidden="true" />
-                  </Button>
-                </div>
-                {instanceRows.length === 0 ? <p className="empty">{t('debug.empty.openapi')}</p> : (
-                  Array.from(groupRows(instanceRows.slice(0, 8), instanceGroupLabel).entries())
-                    .sort(([a], [b]) => a.localeCompare(b))
-                    .map(([group, groupInstances]) => (
-                      <div key={group} className="contract-group">
-                        <h4>{group}</h4>
-                        {groupInstances.map((instance) => (
-                          <div key={instance.instance_id} className="contract-row">
-                            <span>
-                              <strong>{instance.display_name}</strong>
-                              <em>{instance.dcc_type} · {compactInstanceId(instance.instance_id)}</em>
-                            </span>
-                            <BackendOpenApiLinks instance={instance} />
-                          </div>
-                        ))}
-                      </div>
-                    ))
-                )}
-              </div>
-
-              <div className="debug-card">
-                <div className="debug-card-head">
-                  <h3>{t('debug.section.eventWarnings')}</h3>
-                  <Button variant="ghost" size="xs" type="button" onClick={() => goToPanel('logs')}>
-                    {t('debug.action.openLogs')}
-                    <RiArrowRightLine data-icon="inline-end" aria-hidden="true" />
-                  </Button>
-                </div>
-                {[...problemLogs, ...problemActivity.map((event) => ({
-                  timestamp: event.timestamp,
-                  level: event.severity,
-                  message: event.message,
-                  source: event.kind,
-                  request_id: event.correlation?.request_id,
-                  dcc_type: event.correlation?.dcc_type,
-                } as LogRow))].slice(0, 10).map((row, index) => (
-                  <button
-                    key={`${row.timestamp}-${row.message}-${index}`}
-                    className="debug-row"
-                    type="button"
-                    onClick={() => row.request_id ? goToPanel('traces', { traceId: row.request_id }) : goToPanel('logs')}
-                  >
-                    <TimeValue value={row.timestamp} />
-                    <span>{row.source ?? row.level}</span>
-                    <span title={row.message}>{row.message}</span>
-                  </button>
-                ))}
-                {problemLogs.length === 0 && problemActivity.length === 0 ? <p className="empty">{t('debug.empty.events')}</p> : null}
-              </div>
-            </div>
-            <Button type="button" size="sm" onClick={refreshDebug}>
-              <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
-              {t('debug.action.refreshSnapshot')}
-            </Button>
-          </section>
+          <DebugPanel
+            updatedAt={updatedAt.debug}
+            error={errors.debug}
+            debugIssues={debugIssues}
+            health={health}
+            unhealthyInstanceRows={unhealthyInstanceRows}
+            instanceSummary={instanceSummary}
+            stats={stats}
+            tokenPressure={tokenPressure}
+            slowLatencyDetail={slowLatencyDetail}
+            debugSignals={debugSignals}
+            tokenHeavyTraces={tokenHeavyTraces}
+            failureSignals={failureSignals}
+            slowTraces={slowTraces}
+            instanceRows={instanceRows}
+            problemLogs={problemLogs}
+            problemActivity={problemActivity}
+            onGoToPanel={goToPanel}
+            onRefresh={refreshDebug}
+            t={t}
+          />
         )}
         {activePanel === 'activity' && (
           <section className="panel active activity-panel">
@@ -1934,184 +1741,19 @@ function App() {
         )}
 
         {activePanel === 'instances' && (
-          <section className="panel active instances-panel">
-            <h2>{t('instances.title')}</h2>
-            <p className="empty log-hint">
-              {t('instances.description')}
-            </p>
-            <StatusLine text={updatedAt.instances} error={errors.instances} />
-            {instanceRows.length === 0 ? (
-              <p className="empty">{t('instances.empty.none')}</p>
-            ) : filteredInstanceRows.length === 0 ? (
-              <p className="empty">{t('instances.empty.search')}</p>
-            ) : (
-              <div className="instance-groups">
-                {Array.from(groupRows(filteredInstanceRows, instanceGroupLabel).entries())
-                  .sort(([a], [b]) => a.localeCompare(b))
-                  .map(([group, groupInstances]) => {
-                    const flagged = groupInstances.filter((instance) => instance.stale || !statusClass(instance.status).includes('ok')).length;
-                    return (
-                      <div key={group} className="instance-group">
-                        <div className="instance-group-head">
-                          <h3>{group}</h3>
-                          <span>{t('instances.group.meta', { count: groupInstances.length, flagged })}</span>
-                        </div>
-                        <div className="instances-list" role="list">
-                          {groupInstances.map((instance) => {
-                            const updateVersion = instanceUpdateVersion(instance);
-                            const updateNotice = instanceUpdateNotices[instance.instance_id];
-                            const isUpdating = pendingInstanceUpdateId === instance.instance_id;
-                            const updateLabel = isUpdating ? t('instances.update.checking') : t('instances.update.action');
-                            const stateTone = instance.stale ? 'stale' : statusClass(instance.status).replace('badge badge-', '');
-                            return (
-                            <article
-                              key={instance.instance_id}
-                              className={`instance-row ${stateTone}`}
-                              data-instance-id={instance.instance_id}
-                              role="listitem"
-                            >
-                              <div className="instance-row-main">
-                                <div className="instance-identity">
-                                  <img src={resolveDccIcon(instance.dcc_type)} alt="" className="dcc-icon" aria-hidden />
-                                  <div className="instance-identity-copy">
-                                    <div className="instance-title">
-                                      {instance.display_name ?? compactInstanceId(instance.instance_id)}
-                                      <span>{compactInstanceId(instance.instance_id)}</span>
-                                    </div>
-                                    <div className="instance-subline">
-                                      <span>{t('instances.field.appType')} {instance.dcc_type}</span>
-                                      <span>PID {instance.pid ?? '-'}</span>
-                                      <span>{formatUptime(instance.uptime_secs)}</span>
-                                    </div>
-                                  </div>
-                                </div>
-                                <div className="instance-state-strip" aria-label={t('instances.state.aria')}>
-                                  <span>
-                                    <small>{t('instances.field.status')}</small>
-                                    <StatusBadge value={instance.status} />
-                                  </span>
-                                  {instance.dispatch_status ? (
-                                    <span>
-                                      <small>{t('instances.field.dispatch')}</small>
-                                      <span><StatusBadge value={instance.dispatch_status} /> {instance.dispatch_ready ? t('instances.dispatch.callable') : t('instances.dispatch.notCallable')}</span>
-                                    </span>
-                                  ) : null}
-                                  {instance.failure_reason ? (
-                                    <span className="instance-state-failure">
-                                      <small>{t('instances.field.failure')}</small>
-                                      <span>{instance.failure_reason}</span>
-                                    </span>
-                                  ) : null}
-                                </div>
-                              </div>
-
-                              <div className="instance-row-details">
-                                <span className="instance-detail-item">
-                                  <small>{t('instances.field.version')}</small>
-                                  <strong>{instance.version ?? '-'}</strong>
-                                </span>
-                                <span className="instance-detail-item">
-                                  <small>{t('instances.field.adapter')}</small>
-                                  <strong>{instance.adapter_version ?? '-'}</strong>
-                                </span>
-                                <span className="instance-detail-item">
-                                  <small>{t('instances.field.scene')}</small>
-                                  <strong>{instance.scene ?? '-'}</strong>
-                                </span>
-                                <span className="instance-detail-item">
-                                  <small>{t('instances.field.cpu')}</small>
-                                  <strong>{instance.cpu_percent == null ? '-' : instance.cpu_percent.toFixed(1)}</strong>
-                                </span>
-                                <span className="instance-detail-item">
-                                  <small>{t('instances.field.memory')}</small>
-                                  <strong>{formatBytes(instance.memory_bytes)}</strong>
-                                </span>
-                                {instance.host_rpc_uri || instance.host_rpc_scheme ? (
-                                  <span className="instance-detail-item wide">
-                                    <small>{t('instances.field.hostRpc')}</small>
-                                    <strong title={instance.host_rpc_uri ?? undefined}>{instance.host_rpc_scheme ?? instance.host_rpc_uri}</strong>
-                                  </span>
-                                ) : null}
-                                <span className="instance-detail-item wide">
-                                  <small>{t('instances.field.accessUrl')}</small>
-                                  <strong><BackendAccessUrl mcpUrl={instance.mcp_url} /></strong>
-                                </span>
-                              </div>
-
-                              <div className="instance-row-actions">
-                                <div className="instance-update-cell">
-                                  <div className="instance-update-head">
-                                    <span className="instance-update-heading">{t('instances.update.label')}</span>
-                                    <Button
-                                      aria-label={t('instances.update.aria', { name: instance.display_name ?? compactInstanceId(instance.instance_id) })}
-                                      className="instance-update-button"
-                                      disabled={isUpdating}
-                                      size="sm"
-                                      type="button"
-                                      variant="outline"
-                                      onClick={() => void updateInstanceServer(instance)}
-                                    >
-                                      {isUpdating ? (
-                                        <RiRefreshLine className="is-spinning" data-icon="inline-start" aria-hidden="true" />
-                                      ) : (
-                                        <RiDownloadCloudLine data-icon="inline-start" aria-hidden="true" />
-                                      )}
-                                      <span>{updateLabel}</span>
-                                    </Button>
-                                  </div>
-                                  <span className="instance-update-meta">
-                                    {t('instances.update.current', {
-                                      version: updateVersion ?? t('instances.update.unknownCurrent'),
-                                    })}
-                                  </span>
-                                  {updateNotice ? (
-                                    <div className={`instance-update-result ${updateNotice.tone}`} role="status">
-                                      {updateNotice.tone === 'ok' ? (
-                                        <RiCheckboxCircleLine aria-hidden="true" />
-                                      ) : updateNotice.tone === 'warn' || updateNotice.tone === 'err' ? (
-                                        <RiErrorWarningLine aria-hidden="true" />
-                                      ) : (
-                                        <RiRefreshLine aria-hidden="true" />
-                                      )}
-                                      <span>
-                                        <strong>{updateNotice.message}</strong>
-                                        {updateNotice.requiresRestart ? (
-                                          <small>{t('instances.update.restartRequired')}</small>
-                                        ) : null}
-                                      </span>
-                                    </div>
-                                  ) : (
-                                    <p className="instance-update-help">{t('instances.update.help')}</p>
-                                  )}
-                                </div>
-                                <div className="instance-link-groups">
-                                  <span>
-                                    <small>{t('instances.field.endpoints')}</small>
-                                    <McpBackendLinks mcpUrl={instance.mcp_url} />
-                                  </span>
-                                  <span>
-                                    <small>{t('instances.field.openapi')}</small>
-                                    <BackendOpenApiLinks instance={instance} />
-                                  </span>
-                                </div>
-                              </div>
-                            </article>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-            )}
-            <div className="status-bar">{t('instances.summary', { live: instanceSummary.live, stale: instanceSummary.stale, unhealthy: instanceSummary.unhealthy })}</div>
-            <Button type="button" size="sm" onClick={() => workersQuery.refetch()}>
-              <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
-              {t('action.refresh')}
-            </Button>
-          </section>
+          <InstancesPanel
+            updatedAt={updatedAt.instances}
+            error={errors.instances}
+            instanceRows={instanceRows}
+            filteredInstanceRows={filteredInstanceRows}
+            instanceSummary={instanceSummary}
+            instanceUpdateNotices={instanceUpdateNotices}
+            pendingInstanceUpdateId={pendingInstanceUpdateId}
+            onUpdateInstance={(instance) => void updateInstanceServer(instance)}
+            onRefresh={() => workersQuery.refetch()}
+            t={t}
+          />
         )}
-
         {activePanel === 'tools' && (
           <section className="panel active tools-panel">
             <h2>{t('tools.title')}</h2>
@@ -2148,77 +1790,25 @@ function App() {
         )}
 
         {activePanel === 'openapi' && (
-          <section className="panel active openapi-panel" data-panel="openapi">
-            <PanelHeader
-              title={t('openapi.title')}
-              meta={t('openapi.meta')}
-              action={(
-                <>
-                  <Button asChild variant="outline" size="sm">
-                    <a href={openApiSource.docsUrl} target="_blank" rel="noopener noreferrer">
-                      <RiFolderOpenLine data-icon="inline-start" aria-hidden="true" />
-                      {t('openapi.action.openReference')}
-                    </a>
-                  </Button>
-                  <Button asChild variant="outline" size="sm">
-                    <a href={openApiSource.specUrl} target="_blank" rel="noopener noreferrer">
-                      <RiFolderOpenLine data-icon="inline-start" aria-hidden="true" />
-                      {t('openapi.action.specJson')}
-                    </a>
-                  </Button>
-                  <Button variant="outline" size="sm" type="button" disabled={!openApiRaw} onClick={() => void copyText(openApiRaw, 'OpenAPI spec JSON')}>
-                    <RiFileCopyLine data-icon="inline-start" aria-hidden="true" />
-                    {t('openapi.action.copyJson')}
-                  </Button>
-                  <Button variant="outline" size="sm" type="button" disabled={!openApiRaw} onClick={() => {
-                    downloadJsonText(openApiSpecFilename(openApiSource.label), openApiRaw);
-                    setCopiedNotice(t('openapi.notice.downloadedSpec'));
-                    window.setTimeout(() => setCopiedNotice(''), 1800);
-                  }}>
-                    <RiDownloadCloudLine data-icon="inline-start" aria-hidden="true" />
-                    {t('openapi.action.downloadJson')}
-                  </Button>
-                  {openApiSource.kind === 'instance' ? (
-                    <Button variant="secondary" size="sm" type="button" onClick={() => goToPanel('openapi', { replace: true })}>
-                      <RiFolderOpenLine data-icon="inline-start" aria-hidden="true" />
-                      {t('openapi.action.gatewaySpec')}
-                    </Button>
-                  ) : null}
-                  <Button type="button" size="sm" onClick={() => openApiQuery.refetch()}>
-                    <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
-                    {t('action.refresh')}
-                  </Button>
-                </>
-              )}
-            />
-            <StatusLine text={copiedNotice || updatedAt.openapi} error={errors.openapi} />
-            <OpenApiInspectorPanel
-              spec={openApiSpec}
-              raw={openApiRaw}
-              operations={filteredOpenApiOperations}
-              source={openApiSource}
-              labels={{
-                emptyDocument: t('openapi.empty.document'),
-                openapi: t('openapi.metric.openapi'),
-                version: t('openapi.metric.version'),
-                paths: t('openapi.metric.paths'),
-                operations: t('openapi.metric.operations'),
-                schemas: t('openapi.metric.schemas'),
-                tags: t('openapi.metric.tags'),
-                operationsSection: t('openapi.section.operations'),
-                emptyOperations: t('openapi.empty.operations'),
-                linksSection: t('openapi.section.links'),
-                body: t('openapi.label.body'),
-                noBody: t('openapi.label.noBody'),
-                params: (count) => t('openapi.label.params', { count }),
-                responses: (codes) => t('openapi.label.responses', { codes }),
-                noResponses: t('openapi.label.noResponses'),
-              }}
-              t={t}
-            />
-          </section>
+          <OpenApiPanel
+            source={openApiSource}
+            spec={openApiSpec}
+            raw={openApiRaw}
+            operations={filteredOpenApiOperations}
+            notice={copiedNotice}
+            updatedAt={updatedAt.openapi}
+            error={errors.openapi}
+            onCopy={(text, label) => void copyText(text, label)}
+            onDownload={() => {
+              downloadJsonText(openApiSpecFilename(openApiSource.label), openApiRaw);
+              setCopiedNotice(t('openapi.notice.downloadedSpec'));
+              window.setTimeout(() => setCopiedNotice(''), 1800);
+            }}
+            onShowGatewaySpec={() => goToPanel('openapi', { replace: true })}
+            onRefresh={() => openApiQuery.refetch()}
+            t={t}
+          />
         )}
-
         {activePanel === 'workflows' && (
           <section className="panel active workflows-panel">
             <PanelHeader
@@ -2819,124 +2409,16 @@ function App() {
         )}
 
         {activePanel === 'governance' && (
-          <section className="panel active governance-panel" data-panel="governance">
-            <PanelHeader
-              title={t('governance.title')}
-              meta={governance?.mode?.reason ?? t('governance.meta')}
-              action={(
-                <Button type="button" size="sm" onClick={() => governanceQuery.refetch()}>
-                  <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
-                  {t('action.refresh')}
-                </Button>
-              )}
-            />
-            <StatusLine text={updatedAt.governance} error={errors.governance} />
-            <div className="metric-grid">
-              <MetricTile
-                tone={governanceSummary.captureEnabled ? 'warn' : 'ok'}
-                label={t('governance.metric.capture')}
-                value={governanceSummary.captureEnabled ? t('common.status.on') : t('common.status.off')}
-                detail={governance?.traffic_capture?.mode ?? t('governance.detail.safeAggregateOnly')}
-              />
-              <MetricTile
-                tone={governanceSummary.readOnly ? 'warn' : undefined}
-                label={t('governance.metric.readOnly')}
-                value={governanceSummary.readOnly ? t('common.status.on') : t('common.status.off')}
-                detail={t('governance.detail.activeAllowlists', { count: governanceSummary.allowlists })}
-              />
-              <MetricTile label={t('governance.metric.denied')} value={governanceSummary.denied} detail={t('governance.detail.recentPolicyDecisions')} />
-              <MetricTile tone={governanceSummary.throttled ? 'warn' : undefined} label={t('governance.metric.throttled')} value={governanceSummary.throttled} detail={t('governance.detail.recentPressureDecisions')} />
-            </div>
-            <div className="governance-layout">
-              <section className="governance-section">
-                <h3 className="section-kicker">{t('governance.section.effectivePolicy')}</h3>
-                <div className="governance-card">
-                  <div className="governance-kv">
-                    <span><strong>DCC</strong>{compactList(governance?.policy?.allowed_dcc_types)}</span>
-                    <span><strong>{t('governance.label.skills')}</strong>{compactList([...(governance?.policy?.allowed_skill_names ?? []), ...(governance?.policy?.allowed_skill_families ?? [])])}</span>
-                    <span><strong>{t('governance.label.tools')}</strong>{compactList([...(governance?.policy?.allowed_tool_slugs ?? []), ...(governance?.policy?.allowed_tool_slug_prefixes ?? [])])}</span>
-                    <span><strong>{t('governance.label.mode')}</strong>{governance?.policy?.unrestricted ? t('governance.state.unrestricted') : t('governance.state.constrained')}</span>
-                  </div>
-                </div>
-              </section>
-              <section className="governance-section">
-                <h3 className="section-kicker">{t('governance.section.trafficCapture')}</h3>
-                <div className="governance-card">
-                  <div className="governance-kv">
-                    <span><strong>{t('governance.label.sinks')}</strong>{governance?.traffic_capture?.sink_count ?? 0}</span>
-                    <span><strong>{t('governance.label.guardrail')}</strong>{governance?.traffic_capture?.production_guardrail ?? t('governance.state.inactive')}</span>
-                    <span><strong>{t('governance.label.captured')}</strong>{governanceSummary.captured}</span>
-                    <span><strong>{t('governance.label.skipped')}</strong>{governanceSummary.skipped}</span>
-                  </div>
-                  <p className="mono-path">{compactList(governance?.traffic_capture?.redaction?.paths, t('governance.empty.captureRedactionRules'))}</p>
-                </div>
-              </section>
-              <section className="governance-section wide">
-                <h3 className="section-kicker">{t('governance.section.middlewareControls')}</h3>
-                <div className="governance-card-grid">
-                  {(governance?.middleware?.controls ?? []).length === 0 ? (
-                    <p className="empty">{t('governance.empty.controls')}</p>
-                  ) : (
-                    (governance?.middleware?.controls ?? []).map((control, index) => (
-                      <GovernanceControlCard key={`${control.kind}-${control.mode}-${index}`} control={control} t={t} />
-                    ))
-                  )}
-                </div>
-              </section>
-              <section className="governance-section wide">
-                <h3 className="section-kicker">{t('governance.section.recentRequestDecisions')}</h3>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>{t('common.table.request')}</th>
-                      <th>{t('governance.table.outcome')}</th>
-                      <th>{t('governance.table.agentSession')}</th>
-                      <th>{t('common.table.tool')}</th>
-                      <th>{t('governance.table.capture')}</th>
-                      <th>{t('governance.table.redaction')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(governance?.recent_decisions ?? []).length === 0 ? (
-                      <EmptyRow columns={6}>{t('governance.empty.decisions')}</EmptyRow>
-                    ) : filteredGovernanceDecisions.length === 0 ? (
-                      <EmptyRow columns={6}>{t('governance.empty.decisionsSearch')}</EmptyRow>
-                    ) : (
-                      filteredGovernanceDecisions.map((row, index) => (
-                        <tr key={`${row.request_id ?? row.trace_id ?? 'decision'}-${index}`}>
-                          <td>
-                            <span className="mono-path">{compactId(row.request_id)}</span>
-                            <div className="muted">{formatTraceDate(row.timestamp)}</div>
-                          </td>
-                          <td>
-                            <span className={`badge ${row.outcome === 'allowed' ? 'badge-ok' : row.outcome === 'throttled' || row.outcome === 'denied' ? 'badge-err' : 'badge-muted'}`}>
-                              {row.outcome ?? 'unknown'}
-                            </span>
-                            {row.reason ? <div className="muted">{row.policy?.reason ?? row.reason}</div> : null}
-                          </td>
-                          <td>
-                            {agentLabel(row)}
-                            <div className="muted">{compactId(row.session_id)}</div>
-                          </td>
-                          <td>
-                            <span className="mono-path">{row.tool ?? '-'}</span>
-                            <div className="muted">{row.dcc_type ?? '-'}</div>
-                          </td>
-                          <td>
-                            {(row.traffic_capture?.captured ?? 0) > 0 ? t('governance.capture.captured') : t('governance.capture.skipped')}
-                            <div className="muted">{compactList(row.traffic_capture?.reasons, t('governance.capture.noReason'))}</div>
-                          </td>
-                          <td className="mono-path">{compactList(row.privacy?.redacted_paths, t('governance.privacy.none'))}</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </section>
-            </div>
-          </section>
+          <GovernancePanel
+            governance={governance}
+            governanceSummary={governanceSummary}
+            filteredGovernanceDecisions={filteredGovernanceDecisions}
+            updatedAt={updatedAt.governance}
+            error={errors.governance}
+            onRefresh={() => governanceQuery.refetch()}
+            t={t}
+          />
         )}
-
         <AnalyticsPanel
           active={activePanel === 'analytics'}
           locale={localeDetection.locale}
