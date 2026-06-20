@@ -1157,6 +1157,43 @@ async function mockAdminApi(page: Page) {
           },
         ],
       };
+    } else if (path === '/memory') {
+      body = {
+        enabled: true,
+        summary: {
+          total: 2,
+          by_dcc: { maya: 2 },
+          positive: 1,
+          negative: 1,
+          ok_count: 3,
+          fail_count: 1,
+          hit_rate_pct: 75,
+        },
+        memory: [
+          {
+            id: 1,
+            layer: 'longterm',
+            key: 'pattern:tool_call:create_cube:ok',
+            session_id: 'longterm',
+            dcc_name: 'maya',
+            score: 3,
+            created_unix_secs: 1780367000,
+            payload: { tool_name: 'create_cube', ok_count: 3, fail_count: 0 },
+          },
+          {
+            id: 2,
+            layer: 'longterm',
+            key: 'pattern:tool_call:maya_python__execute:fail',
+            session_id: 'longterm',
+            dcc_name: 'maya',
+            score: -1,
+            created_unix_secs: 1780366900,
+            payload: { tool_name: 'maya_python__execute', ok_count: 0, fail_count: 1 },
+          },
+        ],
+      };
+    } else if (path === '/memory/forget' && method === 'POST') {
+      body = { ok: true };
     } else if (path === '/skills') {
       body = {
         total: 2,
@@ -1507,7 +1544,7 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.brand-tag')).toContainText('DCC-MCP Gateway');
     await expect(page.locator('h1')).toContainText('Admin Dashboard');
     await expect(page.getByRole('navigation').getByRole('link', { name: 'Command Center' })).toHaveClass(/active/);
-    for (const label of ['Command Center', 'Debug', 'Activity', 'Health', 'Instances', 'Tools', 'Workflows', 'Tasks', 'Calls', 'Traces', 'Overview', 'Analytics', 'Governance', 'OpenAPI Inspector', 'Skills', 'Marketplace', 'Integrations', 'Logs', 'Docs']) {
+    for (const label of ['Command Center', 'Debug', 'Activity', 'Health', 'Instances', 'Tools', 'Workflows', 'Tasks', 'Calls', 'Traces', 'Overview', 'Analytics', 'Memory', 'Governance', 'OpenAPI Inspector', 'Skills', 'Marketplace', 'Integrations', 'Logs', 'Docs']) {
       await expect(page.getByRole('navigation').getByRole('link', { name: label })).toBeVisible();
     }
     await expect(page.getByRole('navigation').getByRole('link', { name: 'Docs' })).toHaveAttribute('href', 'https://github.com/dcc-mcp/dcc-mcp-core/tree/main/docs');
@@ -2253,6 +2290,28 @@ test.describe('Admin Page', () => {
     await expect(panel.locator('.analytics-token-legend')).toContainText('高');
     await expect(panel).toContainText('活动洞察');
     await expect(panel).toContainText('最长连续天数');
+  });
+
+  test('shows memory records and allows forgetting a row', async ({ page }) => {
+    const forgetRequests: string[] = [];
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (url.pathname === '/admin/api/memory/forget') {
+        forgetRequests.push(request.postData() ?? '');
+      }
+    });
+
+    await page.goto('/?panel=memory');
+    const panel = page.locator('.memory-panel');
+    await expect(panel).toContainText('Memory');
+    await expect(panel).toContainText('75.0%');
+    await expect(panel).toContainText('pattern:tool_call:create_cube:ok');
+    await expect(panel).toContainText('create_cube');
+    await expect(panel.getByRole('button', { name: 'Forget matches' })).toBeDisabled();
+
+    await panel.getByRole('button', { name: /^Forget$/ }).first().click();
+    await expect.poll(() => forgetRequests.length).toBeGreaterThan(0);
+    expect(forgetRequests[0]).toContain('"id":1');
   });
 
   test('keeps analytics activity heatmap and insights readable on mobile', async ({ page }) => {

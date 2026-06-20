@@ -2,7 +2,7 @@ import { type InterpolationValues, type MessageKey } from './i18n';
 
 export type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 
-export type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'workflows' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'traffic' | 'stats' | 'governance' | 'logs' | 'skill-paths' | 'analytics' | 'marketplace' | 'integrations' | 'discover' | 'overview';
+export type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'workflows' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'traffic' | 'stats' | 'governance' | 'logs' | 'skill-paths' | 'analytics' | 'memory' | 'marketplace' | 'integrations' | 'discover' | 'overview';
 
 export type AnalyticsOverview = {
   range: string;
@@ -44,6 +44,41 @@ export type AnalyticsHeatmapCell = {
   failures: number;
   avg_duration_ms: number;
   tokens_total: number;
+};
+
+export type MemoryRow = {
+  id: number;
+  layer: string;
+  key: string;
+  session_id: string;
+  dcc_name: string;
+  score: number;
+  created_unix_secs: number;
+  payload: Record<string, unknown>;
+};
+
+export type MemorySummary = {
+  total: number;
+  by_dcc: Record<string, number>;
+  positive: number;
+  negative: number;
+  ok_count: number;
+  fail_count: number;
+  hit_rate_pct: number | null;
+};
+
+export type MemoryPayload = {
+  enabled: boolean;
+  memory: MemoryRow[];
+  summary: MemorySummary;
+  error?: string;
+};
+
+export type MemoryFilters = {
+  layer?: string;
+  dccName?: string;
+  keyPrefix?: string;
+  limit?: number;
 };
 
 export type SignalTone = 'ok' | 'warn' | 'err';
