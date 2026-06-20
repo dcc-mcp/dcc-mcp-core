@@ -201,6 +201,97 @@ fn marketplace_install_list_and_uninstall_path_package() {
 }
 
 #[test]
+fn marketplace_install_git_package_promotes_single_nested_skill_dir() {
+    let tmp = TempDir::new().unwrap();
+    let repo = tmp.path().join("nested-git-skill-repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    run_git(&repo, &["init"]);
+    run_git(&repo, &["config", "user.name", "dcc-mcp-test"]);
+    run_git(&repo, &["config", "user.email", "dcc-mcp-test@example.com"]);
+    let skill_dir = write_skill(
+        &repo,
+        "skill/nested-skill",
+        "---\nname: nested-skill\ndescription: Nested git skill\nmetadata:\n  dcc-mcp:\n    dcc: python\n---\n",
+    );
+    std::fs::write(skill_dir.join("marker.txt"), "nested").unwrap();
+    run_git(&repo, &["add", "."]);
+    run_git(&repo, &["commit", "-m", "nested skill"]);
+
+    let catalog_path = tmp.path().join("marketplace.json");
+    let source = catalog_path.to_string_lossy().to_string();
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let install_root = tmp
+        .path()
+        .join("marketplace-root")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+        ("DCC_MCP_MARKETPLACE_INSTALL_ROOT", install_root.as_str()),
+    ];
+    let catalog = json!({
+        "version": "1",
+        "entries": [{
+            "name": "nested-git-package",
+            "description": "Nested git package",
+            "dcc": ["maya"],
+            "tags": ["test"],
+            "version": "0.1.0",
+            "install": {
+                "type": "git",
+                "url": repo.to_string_lossy()
+            }
+        }]
+    });
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&catalog).unwrap(),
+    )
+    .unwrap();
+
+    let installed = run_json_with_env(
+        &[
+            "marketplace",
+            "install",
+            "nested-git-package",
+            "--dcc",
+            "maya",
+            "--source",
+            &source,
+        ],
+        &envs,
+    );
+    let installed_path = std::path::PathBuf::from(installed["path"].as_str().unwrap());
+    assert!(installed_path.join("SKILL.md").is_file());
+    assert_eq!(
+        std::fs::read_to_string(installed_path.join("marker.txt")).unwrap(),
+        "nested"
+    );
+
+    let listed = run_json_with_env(&["marketplace", "list-installed", "--dcc", "maya"], &envs);
+    assert_eq!(listed["count"], 1);
+    assert_eq!(listed["packages"][0]["name"], "nested-git-package");
+
+    let uninstalled = run_json_with_env(
+        &[
+            "marketplace",
+            "uninstall",
+            "nested-git-package",
+            "--dcc",
+            "maya",
+        ],
+        &envs,
+    );
+    assert_eq!(uninstalled["uninstalled"], true);
+    assert!(!installed_path.exists());
+}
+
+#[test]
 fn marketplace_install_zip_package_verifies_sha256_and_flattens_archive_root() {
     let tmp = TempDir::new().unwrap();
     let zip_path = tmp.path().join("zip-skill.zip");
