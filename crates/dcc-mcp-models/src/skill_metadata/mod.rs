@@ -394,18 +394,6 @@ pub struct SkillMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recipes_file: Option<String>,
 
-    /// Sibling-file reference for skill introspection metadata (issue #466).
-    ///
-    /// Set from `metadata.dcc-mcp.introspection` in SKILL.md frontmatter.
-    /// The value is a path relative to the skill root pointing to a YAML file
-    /// that describes capability probes, version checks, or runtime-discovery
-    /// hooks used by agents to verify skill compatibility before invocation.
-    ///
-    /// Parsing is deferred; the path is stored here so callers can load it
-    /// lazily on demand.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub introspection_file: Option<String>,
-
     /// Marketplace-card branding authored in `metadata.dcc-mcp.branding`.
     ///
     /// Optional — when absent the Admin UI falls back to a hash-derived
