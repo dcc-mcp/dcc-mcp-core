@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.38](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.37...v0.18.38) (2026-06-20)
+
+
+### Bug Fixes
+
+* support nested marketplace skills ([6d0a682](https://github.com/dcc-mcp/dcc-mcp-core/commit/6d0a6822db33fca18d12affb3be8bb3f14b7b2e4))
+
+
+### Documentation
+
+* guide skill dependency authoring ([cc48bef](https://github.com/dcc-mcp/dcc-mcp-core/commit/cc48bef7f67b6cebde6dc652372122e93d2e75e0))
+
 ## [0.18.37](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.36...v0.18.37) (2026-06-20)
 
 
