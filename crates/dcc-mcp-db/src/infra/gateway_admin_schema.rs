@@ -46,9 +46,23 @@ CREATE TABLE IF NOT EXISTS skill_active_groups (
   activated_at_ms INTEGER NOT NULL,
   PRIMARY KEY (dcc_type, group_name)
 );
+CREATE TABLE IF NOT EXISTS agent_memory (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  layer TEXT NOT NULL,
+  key TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  dcc_name TEXT NOT NULL,
+  score REAL NOT NULL,
+  created_unix_secs REAL NOT NULL,
+  payload_json TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_traces_started ON traces(started_ms);
 CREATE INDEX IF NOT EXISTS idx_audits_ts ON audits(ts_ms);
 CREATE INDEX IF NOT EXISTS idx_deregistered_instances_ts ON deregistered_instances(ts_ms);
 CREATE INDEX IF NOT EXISTS idx_skill_loaded_state_dcc ON skill_loaded_state(dcc_type);
 CREATE INDEX IF NOT EXISTS idx_skill_active_groups_dcc ON skill_active_groups(dcc_type);
+CREATE INDEX IF NOT EXISTS idx_agent_memory_layer_created ON agent_memory(layer, created_unix_secs);
+CREATE INDEX IF NOT EXISTS idx_agent_memory_dcc_created ON agent_memory(dcc_name, created_unix_secs);
+CREATE INDEX IF NOT EXISTS idx_agent_memory_session_layer ON agent_memory(session_id, layer);
+CREATE INDEX IF NOT EXISTS idx_agent_memory_key ON agent_memory(key);
 "#;

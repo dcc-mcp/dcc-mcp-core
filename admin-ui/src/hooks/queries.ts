@@ -49,6 +49,8 @@ import type {
   MarketplaceSourceEntry,
   MarketplaceUninstallResult,
   MarketplaceUpdatePayload,
+  MemoryFilters,
+  MemoryPayload,
   IntegrationsPayload,
   TestIntegrationRequest,
   TestIntegrationResult,
@@ -91,6 +93,7 @@ export const adminKeys = {
   marketplaceSources: () => [...adminKeys.all, 'marketplace', 'sources'] as const,
   marketplaceOutdated: () => [...adminKeys.all, 'marketplace', 'outdated'] as const,
   integrations: () => [...adminKeys.all, 'integrations'] as const,
+  memory: (filters: MemoryFilters) => [...adminKeys.all, 'memory', filters] as const,
 };
 
 // ── polling config ─────────────────────────────────────────────────────────
@@ -262,6 +265,21 @@ export function useLogsQuery(enabled: boolean) {
   });
 }
 
+export function useMemoryQuery(enabled: boolean, filters: MemoryFilters = {}) {
+  const params = new URLSearchParams();
+  params.set('limit', String(filters.limit ?? 200));
+  if (filters.layer && filters.layer !== 'all') params.set('layer', filters.layer);
+  if (filters.dccName) params.set('dcc_name', filters.dccName);
+  if (filters.keyPrefix) params.set('key_prefix', filters.keyPrefix);
+  const query = params.toString();
+  return useQuery({
+    queryKey: adminKeys.memory(filters),
+    queryFn: () => apiJson<MemoryPayload>(`/memory${query ? `?${query}` : ''}`),
+    enabled,
+    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+  });
+}
+
 /** On-demand: fetch a single trace waterfall. No polling. */
 export function useTraceDetailQuery(requestId: string | null) {
   return useQuery({
@@ -353,6 +371,24 @@ export function useInstanceServerUpdate() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: adminKeys.workers() });
       queryClient.invalidateQueries({ queryKey: adminKeys.health() });
+    },
+  });
+}
+
+export function useForgetMemory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { id?: number; layer?: string; dcc_name?: string; session_id?: string; key_prefix?: string }) => {
+      const res = await fetch(`${API_BASE}/memory/forget`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(ADMIN_FETCH_TIMEOUT_MS),
+      });
+      await adminOkResponse(res, '/memory/forget');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [...adminKeys.all, 'memory'] });
     },
   });
 }

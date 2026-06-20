@@ -1,4 +1,3 @@
-use crate::gateway::aggregator::*;
 use serde_json::{Value, json};
 
 /// Spawn a tiny axum server that answers both `tools/list` (empty) and

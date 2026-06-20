@@ -337,6 +337,7 @@ _LAZY: dict[str, str] = {
     "MemoryLayer": "dcc_mcp_core.agent_memory",
     "MemoryQuery": "dcc_mcp_core.agent_memory",
     "MemoryRecorder": "dcc_mcp_core.agent_memory",
+    "SqliteMemoryStore": "dcc_mcp_core.agent_memory",
     # Semantic skill index (issue #1333)
     "LexicalSkillIndex": "dcc_mcp_core.semantic_skill_index",
     "RrfFusionIndex": "dcc_mcp_core.semantic_skill_index",

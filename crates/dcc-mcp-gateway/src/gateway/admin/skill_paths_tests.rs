@@ -231,6 +231,112 @@ async fn test_admin_skill_path_crud_via_api() {
     );
 }
 
+#[cfg(feature = "admin-persist-sqlite")]
+#[tokio::test]
+async fn test_admin_memory_lists_stats_and_forgets_rows() {
+    use crate::gateway::admin::sqlite_lane::AdminSqliteLane;
+    use dcc_mcp_db::GATEWAY_ADMIN_SQLITE_DDL;
+    use rusqlite::{Connection, params};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("test_memory.sqlite");
+    let lane = AdminSqliteLane::spawn(db_path.clone(), 30).expect("spawn lane");
+    drop(lane);
+
+    let conn = Connection::open(&db_path).unwrap();
+    conn.execute_batch(GATEWAY_ADMIN_SQLITE_DDL).unwrap();
+    conn.execute(
+        "INSERT INTO agent_memory \
+         (layer, key, session_id, dcc_name, score, created_unix_secs, payload_json) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            "longterm",
+            "pattern:tool_call:create_cube:ok",
+            "longterm",
+            "maya",
+            3.0f64,
+            10.0f64,
+            r#"{"tool_name":"create_cube","ok_count":3,"fail_count":0}"#,
+        ],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO agent_memory \
+         (layer, key, session_id, dcc_name, score, created_unix_secs, payload_json) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            "longterm",
+            "pattern:tool_call:maya_python__execute:fail",
+            "longterm",
+            "maya",
+            -1.0f64,
+            9.0f64,
+            r#"{"tool_name":"maya_python__execute","ok_count":0,"fail_count":1}"#,
+        ],
+    )
+    .unwrap();
+    drop(conn);
+
+    let lane = AdminSqliteLane::spawn(db_path, 30).expect("spawn lane");
+    let state = make_admin_state().with_admin_sqlite_lane(Some(lane));
+    let router = build_admin_router(state);
+
+    let (status, body) = body_json(router.clone(), "/api/memory?layer=longterm&dcc=maya").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["enabled"], true);
+    assert_eq!(body["summary"]["total"], 2);
+    assert_eq!(body["summary"]["ok_count"], 3);
+    assert_eq!(body["summary"]["fail_count"], 1);
+    assert_eq!(body["summary"]["hit_rate_pct"].as_f64().unwrap(), 75.0);
+
+    let id = body["memory"][0]["id"].as_i64().unwrap();
+    let resp = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/memory/forget")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(axum::body::Body::from(
+                    serde_json::json!({ "id": id }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let (status, body) = body_json(router, "/api/memory?layer=longterm&dcc=maya").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["summary"]["total"], 1);
+}
+
+#[cfg(feature = "admin-persist-sqlite")]
+#[tokio::test]
+async fn test_admin_memory_forget_without_selector_returns_400() {
+    use crate::gateway::admin::sqlite_lane::AdminSqliteLane;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let lane = AdminSqliteLane::spawn(tmp.path().join("test_memory_empty.sqlite"), 30)
+        .expect("spawn lane");
+    let router = build_admin_router(make_admin_state().with_admin_sqlite_lane(Some(lane)));
+    for body in ["{}", r#"{"layer":"longterm"}"#] {
+        let resp = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/memory/forget")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+}
+
 #[tokio::test]
 async fn test_admin_skill_path_post_empty_returns_400() {
     let status = post_skill_path(admin_router(), serde_json::json!({"path": ""})).await;
