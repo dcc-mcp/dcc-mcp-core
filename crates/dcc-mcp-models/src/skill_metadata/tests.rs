@@ -433,7 +433,6 @@ fn test_skill_metadata_serde_round_trip() {
         layer: Some("domain".to_string()),
         stage: Some("authoring".to_string()),
         recipes_file: None,
-        introspection_file: None,
         intent: None,
         recall_context: None,
         preconditions: Vec::new(),
