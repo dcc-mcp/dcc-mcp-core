@@ -145,30 +145,46 @@ fn extract_frontmatter(content: &str) -> Option<&str> {
     Some(after_first[..end].trim())
 }
 
-/// Collect all SKILL.md files under a root directory (shallow — one level).
-fn collect_skill_dirs(root: &Path) -> Vec<PathBuf> {
+/// Collect SKILL.md directories under a root directory.
+pub(crate) fn collect_skill_dirs(root: &Path) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
+    collect_skill_dirs_inner(root, 0, &mut dirs);
+    dirs
+}
 
-    // Check root
+fn collect_skill_dirs_inner(root: &Path, depth: usize, dirs: &mut Vec<PathBuf>) {
     if root.join("SKILL.md").is_file() {
         dirs.push(root.to_path_buf());
-        return dirs;
+        return;
     }
 
-    // Check immediate subdirectories
+    if depth >= 4 {
+        return;
+    }
+
     let entries = match std::fs::read_dir(root) {
         Ok(e) => e,
-        Err(_) => return dirs,
+        Err(_) => return,
     };
 
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_dir() && path.join("SKILL.md").is_file() {
-            dirs.push(path);
+        if !path.is_dir() {
+            continue;
         }
+        if path.file_name().and_then(|name| name.to_str()) == Some(".git") {
+            continue;
+        }
+        collect_skill_dirs_inner(&path, depth + 1, dirs);
     }
+}
 
-    dirs
+fn relative_skill_subpath(root: &Path, dir: &Path) -> Option<String> {
+    let rel = dir.strip_prefix(root).ok()?;
+    if rel.as_os_str().is_empty() {
+        return None;
+    }
+    Some(rel.to_string_lossy().replace('\\', "/"))
 }
 
 /// A simple temp directory that auto-cleans up on drop.
@@ -223,19 +239,11 @@ pub fn list_repo_skills(repo_ref: &str) -> Result<RepoSkillList, MarketplaceErro
         )));
     }
 
-    let skill_dirs = collect_skill_dirs(&search_root);
-    let mut skills: Vec<RepoSkillInfo> = skill_dirs
-        .iter()
-        .filter_map(|dir| extract_skill_frontmatter(dir.as_path()))
-        .collect();
-    // Tag subpaths for non-root skills
-    for skill in &mut skills {
-        let dir = search_root.join(&skill.name);
-        if dir.is_dir()
-            && dir.join("SKILL.md").is_file()
-            && dir.file_name().map(|n| n != ".").unwrap_or(false)
-        {
-            skill.subpath = dir.file_name().map(|n| n.to_string_lossy().to_string());
+    let mut skills = Vec::new();
+    for dir in collect_skill_dirs(&search_root) {
+        if let Some(mut skill) = extract_skill_frontmatter(&dir) {
+            skill.subpath = relative_skill_subpath(&search_root, &dir);
+            skills.push(skill);
         }
     }
     skills.sort_by(|a, b| a.name.cmp(&b.name));
@@ -297,17 +305,17 @@ pub fn install_from_repo(
         let mut info = extract_skill_frontmatter(dir).ok_or_else(|| {
             MarketplaceError::CommandFailed("failed to parse SKILL.md frontmatter".into())
         })?;
-        info.subpath = if dir != &clone_dir {
-            dir.file_name().map(|n| n.to_string_lossy().to_string())
-        } else {
-            None
-        };
+        info.subpath = relative_skill_subpath(&search_root, dir);
         info
     } else {
         // Multiple skills — try to resolve by --dcc or fail
         let all_skills: Vec<RepoSkillInfo> = skill_dirs
             .iter()
-            .filter_map(|dir| extract_skill_frontmatter(dir.as_path()))
+            .filter_map(|dir| {
+                let mut skill = extract_skill_frontmatter(dir.as_path())?;
+                skill.subpath = relative_skill_subpath(&search_root, dir);
+                Some(skill)
+            })
             .collect();
 
         match dcc {
@@ -562,5 +570,21 @@ mod tests {
         assert_eq!(info.name, "my-skill");
         assert_eq!(info.description.as_deref(), Some("My cool skill"));
         assert_eq!(info.dcc.as_deref(), Some("blender"));
+    }
+
+    #[test]
+    fn collect_skill_dirs_recurses_nested_skill_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let skill_dir = tmp.path().join("skill").join("nested-skill");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: nested-skill\ndescription: Nested skill\n---\n",
+        )
+        .unwrap();
+
+        let dirs = collect_skill_dirs(tmp.path());
+
+        assert_eq!(dirs, vec![skill_dir]);
     }
 }
