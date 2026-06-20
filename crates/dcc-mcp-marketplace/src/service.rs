@@ -11,6 +11,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use dcc_mcp_catalog::{self, CatalogEntry, CatalogInstall};
 use sha2::{Digest, Sha256};
 
+use crate::add_repo::collect_skill_dirs;
 use crate::error::MarketplaceError;
 use crate::source::{builtin_source, dedupe_sources, normalise_source};
 use crate::types::{
@@ -264,6 +265,11 @@ impl MarketplaceService {
             other => return Err(MarketplaceError::UnsupportedInstallType(other.into())),
         };
         if let Err(err) = install_result {
+            let _ = remove_path(&staging);
+            return Err(err);
+        }
+
+        if let Err(err) = promote_single_nested_skill_directory(&staging) {
             let _ = remove_path(&staging);
             return Err(err);
         }
@@ -1189,6 +1195,34 @@ fn flatten_single_skill_directory(dest: &Path) -> Result<(), MarketplaceError> {
     }
 
     let _ = remove_path(&flatten_root);
+    Ok(())
+}
+
+fn promote_single_nested_skill_directory(dest: &Path) -> Result<(), MarketplaceError> {
+    if dest.join("SKILL.md").is_file() {
+        return Ok(());
+    }
+
+    let skill_dirs = collect_skill_dirs(dest);
+    let [skill_dir] = skill_dirs.as_slice() else {
+        return Ok(());
+    };
+    if skill_dir == dest {
+        return Ok(());
+    }
+
+    let parent = dest.parent().unwrap_or_else(|| Path::new("."));
+    let promoted = parent.join(format!(".promoting-{}", now_ms()));
+    if promoted.exists() {
+        remove_path(&promoted)?;
+    }
+    if let Err(err) = copy_dir_recursive(skill_dir, &promoted) {
+        let _ = remove_path(&promoted);
+        return Err(err);
+    }
+    remove_path(dest)?;
+    fs::rename(&promoted, dest)
+        .map_err(|err| MarketplaceError::ConfigIo(dest.display().to_string(), err))?;
     Ok(())
 }
 
