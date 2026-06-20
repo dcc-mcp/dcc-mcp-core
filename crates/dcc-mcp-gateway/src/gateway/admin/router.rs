@@ -22,6 +22,10 @@ use super::marketplace::{
     handle_marketplace_installed, handle_marketplace_outdated, handle_marketplace_sources,
     handle_marketplace_uninstall, handle_marketplace_update,
 };
+use super::memory::{handle_admin_memory, handle_admin_memory_forget};
+use super::skill_paths::{
+    handle_admin_skill_path_add, handle_admin_skill_path_delete, handle_admin_skill_paths,
+};
 use super::state::AdminState;
 
 /// Build the admin sub-router.
@@ -87,6 +91,11 @@ pub fn build_admin_router(state: AdminState) -> Router {
             routing::delete(handle_admin_skill_path_delete),
         )
         .route("/api/logs", routing::get(handle_admin_logs))
+        .route("/api/memory", routing::get(handle_admin_memory))
+        .route(
+            "/api/memory/forget",
+            routing::post(handle_admin_memory_forget),
+        )
         .route("/api/deregistered", routing::get(handle_admin_deregistered))
         .route("/api/stats", routing::get(handle_admin_stats))
         .route(

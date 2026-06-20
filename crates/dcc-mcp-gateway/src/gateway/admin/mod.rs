@@ -55,6 +55,8 @@ mod html;
 mod issue_report;
 mod links;
 pub mod marketplace;
+#[cfg(feature = "admin")]
+mod memory;
 mod skill_health;
 mod skill_reload;
 pub mod sqlite_lane;

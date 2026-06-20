@@ -7,6 +7,11 @@ import { type OverviewTab } from './features/overview';
 import { AnalyticsPanel } from './features/analytics/AnalyticsPanel';
 import { readDiscoverTabFromUrl, readOverviewTabFromUrl, readTracesTabFromUrl } from './navigation';
 import dccMcpLogo from '../../docs/assets/brand/dcc-mcp-logo.png';
+import { DebugPanel } from './features/debug';
+import { GovernancePanel } from './features/governance';
+import { InstancesPanel, type InstanceUpdateNotice } from './features/instances';
+import { MemoryPanel } from './features/agent-memory/MemoryPanel';
+import { OpenApiPanel } from './features/openapi';
 import { createTranslator, detectBrowserLocale, type SupportedLocale } from './i18n';
 import { readLocaleOverride, storeLocaleOverride } from './locale';
 import { applyTheme, readThemeMode, resolveTheme, storeThemeMode, type ThemeMode } from './theme';
@@ -2524,6 +2529,11 @@ function App() {
 
         <AnalyticsPanel
           active={activePanel === 'analytics'}
+          t={t}
+        />
+
+        <MemoryPanel
+          active={activePanel === 'memory'}
           t={t}
         />
 

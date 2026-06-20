@@ -42,7 +42,7 @@ describe('PANELS', () => {
     for (const existing of [
       'setup', 'discover', 'debug', 'instances', 'activity', 'health',
       'workflows', 'tasks', 'tools', 'openapi', 'traces',
-      'governance', 'logs', 'analytics', 'overview',
+      'governance', 'logs', 'analytics', 'memory', 'overview',
     ] as Panel[]) {
       expect(ids.has(existing)).toBe(true);
     }
@@ -83,6 +83,7 @@ describe('isPanelId', () => {
     expect(isPanelId('setup')).toBe(true);
     expect(isPanelId('traces')).toBe(true);
     expect(isPanelId('discover')).toBe(true);
+    expect(isPanelId('memory')).toBe(true);
     expect(isPanelId('overview')).toBe(true);
   });
 

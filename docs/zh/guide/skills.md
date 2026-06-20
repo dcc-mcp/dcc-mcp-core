@@ -539,7 +539,7 @@ recorder = MemoryRecorder(store).install(hooks)
 server.register_lifecycle_hooks(hooks)
 ```
 
-`MemoryRecorder.install(hooks)` 为 `SESSION_START`、`BEFORE_SEARCH`、`AFTER_SKILL_LOAD`、`BEFORE_TOOL_CALL`、`AFTER_TOOL_CALL` 和 `SESSION_END` 注册处理器。记忆摘要自动注入到 `HookContext.payload` 中，包含 `memory_summary`、`memory_prefer_tools` 和 `memory_avoid_tools`。
+`MemoryRecorder.install(hooks)` 为 `SESSION_START`、`BEFORE_SEARCH`、`AFTER_SKILL_LOAD`、`BEFORE_TOOL_CALL`、`AFTER_TOOL_CALL` 和 `SESSION_END` 注册处理器。注入策略默认保守：搜索 payload 只收到紧凑排名提示（`memory_summary`、`memory_prefer_tools`、`memory_avoid_tools`、`memory_skip_reasons`），工具调用只有在匹配当前 `tool_name` 时才收到记忆，`SESSION_START` 注入需显式设置 `inject_on_session_start=True`。
 
 ### 会话压缩
 
