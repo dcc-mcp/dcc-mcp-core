@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 
 import pytest
@@ -14,6 +15,7 @@ from dcc_mcp_core import MemoryEntry
 from dcc_mcp_core import MemoryLayer
 from dcc_mcp_core import MemoryQuery
 from dcc_mcp_core import MemoryRecorder
+from dcc_mcp_core import SqliteMemoryStore
 
 
 def _entry(
@@ -132,6 +134,66 @@ class TestForget:
         assert s.query(MemoryQuery(layer=MemoryLayer.LONGTERM)) == ()
 
 
+class TestSqliteMemoryStore:
+    def test_persists_longterm_only_by_default(self, tmp_path) -> None:
+        db = tmp_path / "memory.sqlite"
+        store = SqliteMemoryStore(db)
+        store.put(
+            MemoryEntry(
+                layer=MemoryLayer.WORKING,
+                key="tool_call:create_cube:ok",
+                session_id="s1",
+                dcc_name="maya",
+                payload={"tool_name": "create_cube", "ok": True},
+            )
+        )
+        store.put(
+            MemoryEntry(
+                layer=MemoryLayer.LONGTERM,
+                key="pattern:tool_call:create_cube:ok",
+                session_id="longterm",
+                dcc_name="maya",
+                payload={"tool_name": "create_cube", "ok_count": 2, "api_token": "secret"},
+                score=2.0,
+            )
+        )
+
+        reopened = SqliteMemoryStore(db)
+
+        assert reopened.query(MemoryQuery(layer=MemoryLayer.WORKING)) == ()
+        rows = reopened.query(MemoryQuery(layer=MemoryLayer.LONGTERM, dcc_name="maya"))
+        assert len(rows) == 1
+        assert rows[0].key == "pattern:tool_call:create_cube:ok"
+        assert rows[0].payload == {"ok_count": 2, "tool_name": "create_cube"}
+
+    def test_forget_removes_persisted_longterm_rows(self, tmp_path) -> None:
+        store = SqliteMemoryStore(tmp_path / "memory.sqlite")
+        store.put(_entry(MemoryLayer.LONGTERM, "pattern:a", sid="longterm"))
+        store.put(_entry(MemoryLayer.LONGTERM, "pattern:b", sid="longterm", dcc="blender"))
+
+        assert store.forget(layer=MemoryLayer.LONGTERM) == 2
+        assert store.query(MemoryQuery(layer=MemoryLayer.LONGTERM)) == ()
+
+    def test_key_prefix_treats_like_wildcards_literally(self, tmp_path) -> None:
+        store = SqliteMemoryStore(tmp_path / "memory.sqlite")
+        for key in (
+            "pattern:tool_call:maya_python__execute:fail",
+            "pattern:tool_call:mayaXpython__execute:fail",
+            "pattern:tool_call:maya%python__execute:ok",
+            "pattern:tool_call:mayaZpython__execute:ok",
+        ):
+            store.put(_entry(MemoryLayer.LONGTERM, key, sid="longterm"))
+
+        rows = store.query(
+            MemoryQuery(layer=MemoryLayer.LONGTERM, key_prefix="pattern:tool_call:maya_python", limit=10)
+        )
+        assert [row.key for row in rows] == ["pattern:tool_call:maya_python__execute:fail"]
+        rows = store.query(
+            MemoryQuery(layer=MemoryLayer.LONGTERM, key_prefix="pattern:tool_call:maya%python", limit=10)
+        )
+        assert [row.key for row in rows] == ["pattern:tool_call:maya%python__execute:ok"]
+
+
 class TestMemoryRecorder:
     def test_after_skill_load_records_ephemeral_entry(self) -> None:
         store = InMemoryMemoryStore()
@@ -233,11 +295,36 @@ class TestMemoryRecorder:
         assert payload["memory_prefer_tools"] == ["create_cube"]
         assert payload["memory_avoid_tools"] == ["maya_python__execute"]
         assert payload["memory_summary"]["skip_reasons"] == ["typed skill already covers this"]
-        failure_payload = payload["memory_summary"]["recent_failures"][0]["payload"]
-        assert "raw_prompt" not in failure_payload
-        assert failure_payload["tool_role"] == "escape_hatch"
+        assert payload["memory_skip_reasons"] == ["typed skill already covers this"]
+        assert "recent_failures" not in payload["memory_summary"]
 
-    def test_session_start_injects_longterm_memory_summary(self) -> None:
+    def test_summary_stats_track_hit_rate_and_injections(self) -> None:
+        store = InMemoryMemoryStore()
+        hooks = LifecycleHooks()
+        recorder = MemoryRecorder(store).install(hooks)
+
+        assert recorder.summarize(session_id="s1", dcc_name="maya") == {}
+        store.put(
+            MemoryEntry(
+                layer=MemoryLayer.LONGTERM,
+                key="pattern:tool_call:create_cube:ok",
+                session_id="longterm",
+                dcc_name="maya",
+                payload={"tool_name": "create_cube", "ok": True},
+            )
+        )
+        payload: dict[str, object] = {}
+        hooks.dispatch(HookContext(event=HookEvent.BEFORE_SEARCH, dcc_name="maya", session_id="s1", payload=payload))
+
+        stats = recorder.stats()
+        assert stats["summary_queries"] == 2
+        assert stats["summary_hits"] == 1
+        assert stats["summary_hit_rate"] == pytest.approx(0.5)
+        assert stats["search_injections"] == 1
+        assert stats["summary_bytes_injected"] > 0
+        assert payload["memory_prefer_tools"] == ["create_cube"]
+
+    def test_session_start_injection_is_opt_in(self) -> None:
         store = InMemoryMemoryStore()
         store.put(
             MemoryEntry(
@@ -261,12 +348,108 @@ class TestMemoryRecorder:
             )
         )
 
+        assert "memory_summary" not in payload
+
+        hooks = LifecycleHooks()
+        MemoryRecorder(store, inject_on_session_start=True).install(hooks)
+        payload = {}
+        hooks.dispatch(
+            HookContext(
+                event=HookEvent.SESSION_START,
+                dcc_name="houdini",
+                session_id="fresh-session",
+                payload=payload,
+            )
+        )
+
         assert payload["memory_summary"]["prefer_tools"] == ["houdini_create_node"]
+
+    def test_before_tool_call_injects_only_matching_memory(self) -> None:
+        store = InMemoryMemoryStore()
+        store.put(
+            MemoryEntry(
+                layer=MemoryLayer.WORKING,
+                key="tool_call:maya_python__execute:fail",
+                session_id="s1",
+                dcc_name="maya",
+                payload={
+                    "tool_name": "maya_python__execute",
+                    "ok": False,
+                    "tool_role": "escape_hatch",
+                    "raw_prompt": "delete everything",
+                },
+            )
+        )
+        hooks = LifecycleHooks()
+        recorder = MemoryRecorder(store).install(hooks)
+
+        unrelated = {"tool_name": "create_cube"}
+        hooks.dispatch(
+            HookContext(
+                event=HookEvent.BEFORE_TOOL_CALL,
+                dcc_name="maya",
+                session_id="s1",
+                payload=unrelated,
+            )
+        )
+        assert "memory_summary" not in unrelated
+
+        matching = {"tool_name": "maya_python__execute"}
+        hooks.dispatch(
+            HookContext(
+                event=HookEvent.BEFORE_TOOL_CALL,
+                dcc_name="maya",
+                session_id="s1",
+                payload=matching,
+            )
+        )
+
+        assert matching["memory_summary"]["avoid_tools"] == ["maya_python__execute"]
+        failure_payload = matching["memory_summary"]["recent_failures"][0]["payload"]
+        assert "raw_prompt" not in failure_payload
+        assert failure_payload["tool_role"] == "escape_hatch"
+        stats = recorder.stats()
+        assert stats["summary_suppressed_no_match"] == 1
+        assert stats["tool_call_injections"] == 1
+
+    def test_before_tool_call_respects_summary_budget(self) -> None:
+        store = InMemoryMemoryStore()
+        store.put(
+            MemoryEntry(
+                layer=MemoryLayer.LONGTERM,
+                key="pattern:tool_call:maya_python__execute:fail",
+                session_id="longterm",
+                dcc_name="maya",
+                payload={
+                    "tool_name": "maya_python__execute",
+                    "ok": False,
+                    "tool_role": "escape_hatch",
+                    "skip_reason": "x" * 500,
+                },
+            )
+        )
+        hooks = LifecycleHooks()
+        recorder = MemoryRecorder(store, max_summary_chars=96).install(hooks)
+        payload = {"tool_name": "maya_python__execute"}
+
+        hooks.dispatch(
+            HookContext(
+                event=HookEvent.BEFORE_TOOL_CALL,
+                dcc_name="maya",
+                session_id="s1",
+                payload=payload,
+            )
+        )
+
+        encoded = json.dumps(payload["memory_summary"], sort_keys=True, separators=(",", ":"))
+        assert len(encoded) <= 96
+        assert payload["memory_summary"] == {"avoid_tools": ["maya_python__execute"]}
+        assert recorder.stats()["summary_suppressed_by_budget"] == 1
 
     def test_session_end_compacts_working_entries_into_longterm(self) -> None:
         store = InMemoryMemoryStore()
         hooks = LifecycleHooks()
-        MemoryRecorder(store).install(hooks)
+        recorder = MemoryRecorder(store).install(hooks)
         store.put(
             MemoryEntry(
                 layer=MemoryLayer.WORKING,
@@ -297,6 +480,7 @@ class TestMemoryRecorder:
             "tool_role": "escape_hatch",
         }
         assert rows[0].score == -1.0
+        assert recorder.stats()["promotions"] == 1
 
     def test_recorder_can_be_disabled(self) -> None:
         store = InMemoryMemoryStore()

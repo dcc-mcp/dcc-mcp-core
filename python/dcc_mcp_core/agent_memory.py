@@ -27,6 +27,9 @@ from collections import deque
 from dataclasses import dataclass
 from dataclasses import field
 from enum import Enum
+import json
+from pathlib import Path
+import sqlite3
 import sys
 from threading import RLock
 import time
@@ -50,6 +53,7 @@ __all__ = [
     "MemoryQuery",
     "MemoryRecorder",
     "MemoryStore",
+    "SqliteMemoryStore",
 ]
 
 _SENSITIVE_KEY_PARTS = (
@@ -98,17 +102,6 @@ class MemoryEntry:
     payload: Mapping[str, Any] = field(default_factory=dict)
     created_unix_secs: float = field(default_factory=time.time)
     score: float = 1.0
-
-    def with_score(self, score: float) -> MemoryEntry:
-        return MemoryEntry(
-            layer=self.layer,
-            key=self.key,
-            session_id=self.session_id,
-            dcc_name=self.dcc_name,
-            payload=self.payload,
-            created_unix_secs=self.created_unix_secs,
-            score=score,
-        )
 
 
 @dataclass(frozen=True)
@@ -228,6 +221,181 @@ class InMemoryMemoryStore:
             return sum(len(b) for b in self._by_session.values()) + len(self._longterm)
 
 
+_SQLITE_MEMORY_DDL = """
+CREATE TABLE IF NOT EXISTS agent_memory (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  layer TEXT NOT NULL,
+  key TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  dcc_name TEXT NOT NULL,
+  score REAL NOT NULL,
+  created_unix_secs REAL NOT NULL,
+  payload_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_memory_layer_created
+  ON agent_memory(layer, created_unix_secs);
+CREATE INDEX IF NOT EXISTS idx_agent_memory_dcc_created
+  ON agent_memory(dcc_name, created_unix_secs);
+CREATE INDEX IF NOT EXISTS idx_agent_memory_session_layer
+  ON agent_memory(session_id, layer);
+CREATE INDEX IF NOT EXISTS idx_agent_memory_key
+  ON agent_memory(key);
+"""
+
+
+class SqliteMemoryStore:
+    """SQLite-backed memory store for durable longterm patterns.
+
+    Ephemeral and working entries stay in an in-memory store by default. Only
+    layers listed in ``persist_layers`` are written to SQLite; the default is
+    ``(MemoryLayer.LONGTERM,)`` so short-lived context is not accidentally made
+    durable.
+    """
+
+    def __init__(
+        self,
+        db_path: str | Path | None = None,
+        *,
+        registry_dir: str | Path | None = None,
+        persist_layers: Iterable[MemoryLayer | str] = (MemoryLayer.LONGTERM,),
+        volatile_store: InMemoryMemoryStore | None = None,
+    ) -> None:
+        if db_path is None:
+            from dcc_mcp_core.admin_sqlite_lane import resolve_admin_db_path
+
+            self._path = resolve_admin_db_path(registry_dir=registry_dir)
+        else:
+            self._path = Path(db_path)
+        self._persist_layers = frozenset(MemoryLayer.parse(layer) for layer in persist_layers)
+        self._volatile = volatile_store or InMemoryMemoryStore()
+        self._lock = RLock()
+        self._ensure_schema()
+
+    @property
+    def db_path(self) -> Path:
+        return self._path
+
+    def _connect(self) -> sqlite3.Connection:
+        return sqlite3.connect(str(self._path), timeout=0.5)
+
+    def _ensure_schema(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        with self._connect() as conn:
+            conn.executescript(_SQLITE_MEMORY_DDL)
+
+    def put(self, entry: MemoryEntry) -> None:
+        if entry.layer not in self._persist_layers:
+            self._volatile.put(entry)
+            return
+        safe = _safe_payload(entry.payload)
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                "INSERT INTO agent_memory "
+                "(layer, key, session_id, dcc_name, score, created_unix_secs, payload_json) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    entry.layer.value,
+                    entry.key,
+                    entry.session_id,
+                    entry.dcc_name,
+                    float(entry.score),
+                    float(entry.created_unix_secs),
+                    json.dumps(safe, sort_keys=True, separators=(",", ":")),
+                ),
+            )
+
+    def query(self, q: MemoryQuery) -> tuple[MemoryEntry, ...]:
+        rows: list[MemoryEntry] = []
+        if q.layer is None:
+            rows.extend(self._query_sqlite(q))
+            rows.extend(self._volatile.query(q))
+        elif q.layer in self._persist_layers:
+            rows.extend(self._query_sqlite(q))
+        else:
+            rows.extend(self._volatile.query(q))
+        rows.sort(key=lambda e: (e.created_unix_secs, e.score), reverse=True)
+        return tuple(rows[: max(0, q.limit)])
+
+    def _query_sqlite(self, q: MemoryQuery) -> list[MemoryEntry]:
+        clauses = []
+        params: list[Any] = []
+        if q.layer is not None:
+            clauses.append("layer = ?")
+            params.append(q.layer.value)
+        else:
+            clauses.append(f"layer IN ({','.join('?' for _ in self._persist_layers)})")
+            params.extend(layer.value for layer in self._persist_layers)
+        if q.session_id is not None:
+            clauses.append("session_id = ?")
+            params.append(q.session_id)
+        if q.dcc_name is not None:
+            clauses.append("dcc_name = ?")
+            params.append(q.dcc_name)
+        if q.key_prefix is not None:
+            clauses.append("key LIKE ? ESCAPE '\\'")
+            params.append(_sqlite_like_prefix(q.key_prefix))
+        limit = max(0, q.limit)
+        params.append(limit)
+        sql = (
+            "SELECT layer, key, session_id, dcc_name, score, created_unix_secs, payload_json "
+            "FROM agent_memory "
+            f"WHERE {' AND '.join(clauses)} "
+            "ORDER BY created_unix_secs DESC, score DESC, id DESC LIMIT ?"
+        )
+        try:
+            with self._lock, self._connect() as conn:
+                cur = conn.execute(sql, params)
+                out: list[MemoryEntry] = []
+                for layer, key, session_id, dcc_name, score, created, payload_json in cur.fetchall():
+                    try:
+                        payload = json.loads(payload_json)
+                    except (TypeError, json.JSONDecodeError):
+                        payload = {}
+                    out.append(
+                        MemoryEntry(
+                            layer=MemoryLayer.parse(layer),
+                            key=str(key),
+                            session_id=str(session_id),
+                            dcc_name=str(dcc_name),
+                            payload=payload if isinstance(payload, Mapping) else {},
+                            created_unix_secs=float(created),
+                            score=float(score),
+                        )
+                    )
+                return out
+        except sqlite3.Error:
+            return []
+
+    def forget(
+        self,
+        *,
+        session_id: str | None = None,
+        layer: MemoryLayer | None = None,
+    ) -> int:
+        removed = self._volatile.forget(session_id=session_id, layer=layer)
+        if layer is not None and layer not in self._persist_layers:
+            return removed
+        clauses = []
+        params: list[Any] = []
+        if layer is None:
+            clauses.append(f"layer IN ({','.join('?' for _ in self._persist_layers)})")
+            params.extend(persisted.value for persisted in self._persist_layers)
+        else:
+            clauses.append("layer = ?")
+            params.append(layer.value)
+        if session_id is not None:
+            clauses.append("session_id = ?")
+            params.append(session_id)
+        sql = f"DELETE FROM agent_memory WHERE {' AND '.join(clauses)}"
+        try:
+            with self._lock, self._connect() as conn:
+                cur = conn.execute(sql, params)
+                removed += cur.rowcount if cur.rowcount > 0 else 0
+        except sqlite3.Error:
+            return removed
+        return removed
+
+
 # ── LifecycleHooks recorder ────────────────────────────────────────────
 
 
@@ -248,13 +416,29 @@ class MemoryRecorder:
         clock: Callable[[], float] = time.time,
         enabled: bool = True,
         summary_limit: int = 8,
+        max_summary_chars: int = 1200,
+        inject_on_session_start: bool = False,
         promote_on_session_end: bool = True,
     ) -> None:
         self._store = store
         self._clock = clock
         self._enabled = bool(enabled)
         self._summary_limit = max(1, summary_limit)
+        self._max_summary_chars = max(64, int(max_summary_chars))
+        self._inject_on_session_start = bool(inject_on_session_start)
         self._promote_on_session_end = bool(promote_on_session_end)
+        self._stats_lock = RLock()
+        self._stats: dict[str, int] = {
+            "entries_written": 0,
+            "promotions": 0,
+            "search_injections": 0,
+            "summary_bytes_injected": 0,
+            "summary_hits": 0,
+            "summary_queries": 0,
+            "summary_suppressed_by_budget": 0,
+            "summary_suppressed_no_match": 0,
+            "tool_call_injections": 0,
+        }
 
     @property
     def enabled(self) -> bool:
@@ -264,6 +448,15 @@ class MemoryRecorder:
     def set_enabled(self, enabled: bool) -> None:
         """Enable or disable memory capture/injection without unregistering hooks."""
         self._enabled = bool(enabled)
+
+    def stats(self) -> dict[str, Any]:
+        """Return low-cardinality observability counters for memory behavior."""
+        with self._stats_lock:
+            snapshot: dict[str, Any] = dict(self._stats)
+        queries = int(snapshot.get("summary_queries", 0))
+        hits = int(snapshot.get("summary_hits", 0))
+        snapshot["summary_hit_rate"] = (hits / queries) if queries else 0.0
+        return snapshot
 
     def install(self, hooks: Any) -> MemoryRecorder:
         from dcc_mcp_core.lifecycle_hooks import HookEvent
@@ -291,9 +484,11 @@ class MemoryRecorder:
         if not self._enabled:
             return {}
         effective_limit = max(1, limit or self._summary_limit)
+        self._inc("summary_queries")
         entries = self._store.query(MemoryQuery(session_id=session_id, dcc_name=dcc_name, limit=effective_limit * 4))
         if not entries:
             return {}
+        self._inc("summary_hits")
 
         recent_successes: list[dict[str, Any]] = []
         recent_failures: list[dict[str, Any]] = []
@@ -350,24 +545,91 @@ class MemoryRecorder:
             score=score,
         )
 
+    def _inc(self, key: str, amount: int = 1) -> None:
+        with self._stats_lock:
+            self._stats[key] = self._stats.get(key, 0) + amount
+
+    def _put_entry(self, entry: MemoryEntry) -> None:
+        self._store.put(entry)
+        self._inc("entries_written")
+
+    def _search_summary(self, summary: Mapping[str, Any]) -> dict[str, Any]:
+        compact = {
+            key: list(value)
+            for key, value in summary.items()
+            if key in ("prefer_tools", "avoid_tools", "skip_reasons") and isinstance(value, list)
+        }
+        return self._bounded_summary(compact)
+
+    def _tool_summary(self, summary: Mapping[str, Any], tool_name: str) -> dict[str, Any]:
+        compact: dict[str, Any] = {}
+        for key in ("prefer_tools", "avoid_tools"):
+            value = summary.get(key)
+            if isinstance(value, list) and tool_name in value:
+                compact[key] = [tool_name]
+        for key in ("recent_successes", "recent_failures", "escape_hatches", "missing_capabilities"):
+            value = summary.get(key)
+            if not isinstance(value, list):
+                continue
+            matches = [item for item in value if isinstance(item, Mapping) and _item_tool_name(item) == tool_name]
+            if matches:
+                compact[key] = matches
+        return self._bounded_summary(compact)
+
+    def _bounded_summary(self, summary: Mapping[str, Any]) -> dict[str, Any]:
+        compact = {str(key): list(value) for key, value in summary.items() if isinstance(value, list) and value}
+        trimmed = False
+        drop_order = (
+            "recent_successes",
+            "recent_failures",
+            "escape_hatches",
+            "missing_capabilities",
+            "skip_reasons",
+            "prefer_tools",
+            "avoid_tools",
+        )
+        while compact and _summary_chars(compact) > self._max_summary_chars:
+            for key in drop_order:
+                value = compact.get(key)
+                if not value:
+                    continue
+                value.pop()
+                if not value:
+                    compact.pop(key, None)
+                break
+            else:
+                compact.clear()
+            trimmed = True
+        if trimmed:
+            self._inc("summary_suppressed_by_budget")
+        return compact
+
+    def _record_summary_injection(self, summary: Mapping[str, Any]) -> None:
+        self._inc("summary_bytes_injected", _summary_chars(summary))
+
     def _on_session_start(self, ctx: Any) -> None:
-        if not self._enabled or ctx.payload is None:
+        if not self._enabled or not self._inject_on_session_start or ctx.payload is None:
             return
-        summary = self.summarize(session_id=ctx.session_id, dcc_name=ctx.dcc_name)
+        summary = self._search_summary(self.summarize(session_id=ctx.session_id, dcc_name=ctx.dcc_name))
         if summary:
             ctx.payload.setdefault("memory_summary", summary)
+            self._record_summary_injection(summary)
 
     def _on_before_search(self, ctx: Any) -> None:
         if not self._enabled or ctx.payload is None:
             return
-        summary = self.summarize(session_id=ctx.session_id, dcc_name=ctx.dcc_name)
+        summary = self._search_summary(self.summarize(session_id=ctx.session_id, dcc_name=ctx.dcc_name))
         if not summary:
             return
+        self._inc("search_injections")
         ctx.payload.setdefault("memory_summary", summary)
+        self._record_summary_injection(summary)
         if "prefer_tools" in summary:
             ctx.payload.setdefault("memory_prefer_tools", summary["prefer_tools"])
         if "avoid_tools" in summary:
             ctx.payload.setdefault("memory_avoid_tools", summary["avoid_tools"])
+        if "skip_reasons" in summary:
+            ctx.payload.setdefault("memory_skip_reasons", summary["skip_reasons"])
 
     def _on_after_skill_load(self, ctx: Any) -> None:
         if not self._enabled:
@@ -375,14 +637,21 @@ class MemoryRecorder:
         skill_name = ctx.payload.get("skill_name") if ctx.payload else None
         if not skill_name:
             return
-        self._store.put(self._make_entry(ctx, MemoryLayer.EPHEMERAL, f"skill_loaded:{skill_name}", ctx.payload or {}))
+        self._put_entry(self._make_entry(ctx, MemoryLayer.EPHEMERAL, f"skill_loaded:{skill_name}", ctx.payload or {}))
 
     def _on_before_tool_call(self, ctx: Any) -> None:
         if not self._enabled or ctx.payload is None:
             return
-        summary = self.summarize(session_id=ctx.session_id, dcc_name=ctx.dcc_name)
+        tool_name = ctx.payload.get("tool_name")
+        if not isinstance(tool_name, str) or not tool_name:
+            return
+        summary = self._tool_summary(self.summarize(session_id=ctx.session_id, dcc_name=ctx.dcc_name), tool_name)
         if summary:
+            self._inc("tool_call_injections")
             ctx.payload.setdefault("memory_summary", summary)
+            self._record_summary_injection(summary)
+            return
+        self._inc("summary_suppressed_no_match")
 
     def _on_after_tool_call(self, ctx: Any) -> None:
         if not self._enabled:
@@ -391,7 +660,7 @@ class MemoryRecorder:
         if not tool:
             return
         ok = bool(ctx.payload.get("ok", True))
-        self._store.put(
+        self._put_entry(
             self._make_entry(
                 ctx,
                 MemoryLayer.WORKING,
@@ -437,7 +706,7 @@ class MemoryRecorder:
                 "missing_capability": sample.payload.get("missing_capability"),
                 "skip_reason": sample.payload.get("skip_reason"),
             }
-            self._store.put(
+            self._put_entry(
                 MemoryEntry(
                     layer=MemoryLayer.LONGTERM,
                     key=f"pattern:{key}",
@@ -448,6 +717,7 @@ class MemoryRecorder:
                     score=float(ok_count - fail_count),
                 )
             )
+            self._inc("promotions")
 
     def _summary_item(self, entry: MemoryEntry) -> dict[str, Any]:
         return {
@@ -471,6 +741,10 @@ def _safe_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _sqlite_like_prefix(value: str) -> str:
+    return "".join(f"\\{ch}" if ch in ("\\", "%", "_") else ch for ch in value) + "%"
+
+
 def _safe_value(value: Any) -> Any | None:
     if value is None or isinstance(value, (bool, int, float)):
         return value
@@ -488,6 +762,18 @@ def _safe_value(value: Any) -> Any | None:
                 out.append(safe_item)
         return out
     return str(value)[:_MAX_SAFE_STRING_CHARS]
+
+
+def _summary_chars(summary: Mapping[str, Any]) -> int:
+    return len(json.dumps(summary, sort_keys=True, separators=(",", ":")))
+
+
+def _item_tool_name(item: Mapping[str, Any]) -> str | None:
+    payload = item.get("payload")
+    if not isinstance(payload, Mapping):
+        return None
+    tool_name = payload.get("tool_name")
+    return tool_name if isinstance(tool_name, str) else None
 
 
 def _unique_tool_names(items: Iterable[Mapping[str, Any]]) -> list[str]:
