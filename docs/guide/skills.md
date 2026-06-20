@@ -1265,9 +1265,25 @@ server.register_lifecycle_hooks(hooks)
 
 `MemoryRecorder.install(hooks)` registers handlers for `SESSION_START`,
 `BEFORE_SEARCH`, `AFTER_SKILL_LOAD`, `BEFORE_TOOL_CALL`, `AFTER_TOOL_CALL`,
-and `SESSION_END`. The memory summary is automatically injected into
-`HookContext.payload` as `memory_summary`, `memory_prefer_tools`, and
-`memory_avoid_tools`.
+and `SESSION_END`. Injection is conservative: search payloads receive compact
+ranking hints (`memory_summary`, `memory_prefer_tools`, `memory_avoid_tools`,
+`memory_skip_reasons`), tool-call payloads receive memory only when it matches
+the current `tool_name`, and `SESSION_START` injection is opt-in via
+`inject_on_session_start=True`.
+
+Use `SqliteMemoryStore()` when operators need durable, Admin-visible
+longterm patterns:
+
+```python
+from dcc_mcp_core.agent_memory import SqliteMemoryStore, MemoryRecorder
+
+store = SqliteMemoryStore()  # resolves the gateway admin SQLite path
+recorder = MemoryRecorder(store).install(hooks)
+```
+
+By default this persists only `LONGTERM` entries. `EPHEMERAL` and `WORKING`
+entries remain process-local so short-lived scene/task context is not made
+durable by accident.
 
 ### Session compaction
 
@@ -1280,6 +1296,12 @@ memory footprint bounded while preserving learned patterns across sessions.
 ```python
 recorder.set_enabled(False)  # disables capture/injection without unregistering hooks
 ```
+
+`recorder.stats()` returns low-cardinality observability counters such as
+`summary_queries`, `summary_hits`, `summary_hit_rate`, `search_injections`,
+`tool_call_injections`, and `promotions`. The Admin Memory tab reads the same
+SQLite table for durable records and computes aggregate hit-rate from
+`ok_count` / `fail_count` payload fields.
 
 ### Querying memory
 

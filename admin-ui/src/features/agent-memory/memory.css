@@ -1,0 +1,79 @@
+.memory-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.memory-filter-bar {
+  align-items: center;
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: 11rem minmax(8rem, 12rem) minmax(10rem, 18rem) minmax(14rem, 1fr);
+  margin: 1rem 0;
+}
+
+.memory-filter-input,
+.memory-filter-search {
+  min-height: 2rem;
+}
+
+.memory-metrics {
+  margin-bottom: 1rem;
+}
+
+.memory-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.memory-table th,
+.memory-table td {
+  vertical-align: top;
+}
+
+.memory-table code {
+  display: inline-block;
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memory-payload {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  margin: 0;
+  max-height: 7rem;
+  max-width: 28rem;
+  min-width: 16rem;
+  overflow: auto;
+  padding: 0.5rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.memory-score-ok {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.memory-score-err {
+  color: var(--destructive);
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .memory-filter-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .memory-actions {
+    justify-content: flex-start;
+  }
+}

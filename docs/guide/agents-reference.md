@@ -530,6 +530,9 @@ store = InMemoryMemoryStore()
 recorder = MemoryRecorder(store)
 recorder.install(hooks)  # registers SESSION_START/END, BEFORE/AFTER handlers
 # Forgetting to call install() means no memory is recorded.
+# Injection is conservative: search gets compact ranking hints, tool calls get
+# memory only when it matches the current tool_name, and SESSION_START injection
+# is opt-in via inject_on_session_start=True.
 ```
 
 **Agent memory — raw prompts are NEVER stored:**
@@ -551,6 +554,22 @@ entry = MemoryEntry(
 # Results: most-recent-first, then highest-score-first within same timestamp.
 results = store.query(MemoryQuery(layer=MemoryLayer.WORKING, limit=8))
 # Order: (newest, score 1.0), (newest, score -1.0), ..., (oldest, score 1.0)
+```
+
+**Agent memory — persist only durable patterns unless explicitly configured:**
+```python
+from dcc_mcp_core import MemoryRecorder, SqliteMemoryStore
+
+store = SqliteMemoryStore()  # defaults to LONGTERM persistence only
+MemoryRecorder(store).install(hooks)
+# EPHEMERAL and WORKING remain process-local by default.
+```
+
+**Agent memory — observability is explicit and low-cardinality:**
+```python
+stats = recorder.stats()
+assert 0.0 <= stats["summary_hit_rate"] <= 1.0
+# Admin Memory reads durable rows from the gateway admin SQLite DB.
 ```
 
 ---
@@ -585,6 +604,7 @@ results = store.query(MemoryQuery(layer=MemoryLayer.WORKING, limit=8))
 - Use `LifecycleHooks` for adapter policy and observation — typed events with fail-safe dispatch (#1337)
 - Raise `HookDeny(reason, hint=...)` from `BEFORE_*` handlers to veto — only works for policy events (#1337)
 - Use `MemoryRecorder(store).install(hooks)` for zero-code skill/tool memory — wires 6 lifecycle events automatically (#1334)
+- Use `SqliteMemoryStore()` only when longterm memory should be durable and visible in the Admin Memory tab (#1334)
 - Pass structured, JSON-safe payloads to `MemoryEntry` — never raw prompts or sensitive keys (#1334)
 - Use `register_all_builtin_skills(server, dcc_name=..., skills=...)` — one call registers all standard MCP tools (#1332)
 
@@ -1177,7 +1197,11 @@ and injects safe memory summaries into search/tool-call context.
    `LifecycleHooks` instance; it registers handlers for `SESSION_START`,
    `BEFORE_SEARCH`, `AFTER_SKILL_LOAD`, `BEFORE_TOOL_CALL`, `AFTER_TOOL_CALL`,
    and `SESSION_END`.
-5. **Summarization is bounded.** `MemoryRecorder.summarize()` queries with
+5. **Injection is conservative and budgeted.** `BEFORE_SEARCH` injects compact
+   ranking hints, `BEFORE_TOOL_CALL` injects only memory matching the current
+   `tool_name`, and `SESSION_START` injection is opt-in. `max_summary_chars`
+   caps each injected summary.
+6. **Summarization is bounded.** `MemoryRecorder.summarize()` queries with
    `limit * 4`, classifies into success/failure/escape-hatch/missing buckets,
    and returns at most `summary_limit` items per bucket.
 

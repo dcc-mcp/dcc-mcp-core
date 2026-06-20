@@ -9,8 +9,9 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, ToSql, params, params_from_iter};
 use serde::Deserialize;
+use serde_json::json;
 
 use crate::domain::gateway_admin_audit::GatewayAdminAuditPersistedJson;
 use crate::domain::gateway_admin_deregistered::GatewayDeregisteredInstanceJson;
@@ -160,6 +161,62 @@ impl GatewayAdminSqliteReader {
         };
         rows.filter_map(|r| r.ok()).collect()
     }
+
+    pub fn list_agent_memory_json(
+        &self,
+        layer: Option<&str>,
+        dcc_name: Option<&str>,
+        key_prefix: Option<&str>,
+        limit: usize,
+    ) -> Vec<String> {
+        let Some(conn) = self.open_ro() else {
+            return Vec::new();
+        };
+        let mut sql = String::from(
+            "SELECT id, layer, key, session_id, dcc_name, score, created_unix_secs, payload_json \
+             FROM agent_memory WHERE 1 = 1",
+        );
+        let mut values: Vec<Box<dyn ToSql>> = Vec::new();
+        if let Some(value) = non_empty(layer) {
+            sql.push_str(" AND layer = ?");
+            values.push(Box::new(value.to_owned()));
+        }
+        if let Some(value) = non_empty(dcc_name) {
+            sql.push_str(" AND dcc_name = ?");
+            values.push(Box::new(value.to_owned()));
+        }
+        if let Some(value) = non_empty(key_prefix) {
+            sql.push_str(r" AND key LIKE ? ESCAPE '\'");
+            values.push(Box::new(sqlite_like_prefix(value)));
+        }
+        sql.push_str(" ORDER BY created_unix_secs DESC, score DESC, id DESC LIMIT ?");
+        values.push(Box::new(limit.clamp(1, 1_000) as i64));
+        let refs: Vec<&dyn ToSql> = values.iter().map(|value| value.as_ref()).collect();
+        let mut stmt = match conn.prepare_cached(&sql) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let rows = stmt.query_map(params_from_iter(refs), |row| {
+            let payload_json: String = row.get(7)?;
+            let payload =
+                serde_json::from_str::<serde_json::Value>(&payload_json).unwrap_or_default();
+            Ok(json!({
+                "id": row.get::<_, i64>(0)?,
+                "layer": row.get::<_, String>(1)?,
+                "key": row.get::<_, String>(2)?,
+                "session_id": row.get::<_, String>(3)?,
+                "dcc_name": row.get::<_, String>(4)?,
+                "score": row.get::<_, f64>(5)?,
+                "created_unix_secs": row.get::<_, f64>(6)?,
+                "payload": payload,
+            })
+            .to_string())
+        });
+        let Ok(rows) = rows else {
+            return Vec::new();
+        };
+        rows.filter_map(|row| row.ok()).collect()
+    }
 }
 
 enum PersistMsg {
@@ -168,6 +225,13 @@ enum PersistMsg {
     DeregisteredInstanceJson(String),
     AddSkillPath(String),
     DeleteSkillPath(i64),
+    DeleteAgentMemory {
+        id: Option<i64>,
+        layer: Option<String>,
+        dcc_name: Option<String>,
+        session_id: Option<String>,
+        key_prefix: Option<String>,
+    },
 }
 
 struct LaneShared {
@@ -272,6 +336,33 @@ impl GatewayAdminSqliteLane {
             })
             .unwrap_or(false)
     }
+
+    pub fn try_delete_agent_memory(
+        &self,
+        id: Option<i64>,
+        layer: Option<String>,
+        dcc_name: Option<String>,
+        session_id: Option<String>,
+        key_prefix: Option<String>,
+    ) -> bool {
+        self.inner
+            .tx
+            .lock()
+            .ok()
+            .and_then(|g| {
+                g.as_ref().map(|tx| {
+                    tx.try_send(PersistMsg::DeleteAgentMemory {
+                        id,
+                        layer,
+                        dcc_name,
+                        session_id,
+                        key_prefix,
+                    })
+                    .is_ok()
+                })
+            })
+            .unwrap_or(false)
+    }
 }
 
 fn writer_main(path: PathBuf, retention_days: u32, rx: Receiver<PersistMsg>) {
@@ -339,6 +430,19 @@ fn writer_main(path: PathBuf, retention_days: u32, rx: Receiver<PersistMsg>) {
                     tracing::debug!(error = %e, id = id, "admin sqlite: skill path delete failed");
                 }
             }
+            PersistMsg::DeleteAgentMemory {
+                id,
+                layer,
+                dcc_name,
+                session_id,
+                key_prefix,
+            } => {
+                if let Err(e) =
+                    delete_agent_memory_rows(&mut conn, id, layer, dcc_name, session_id, key_prefix)
+                {
+                    tracing::debug!(error = %e, "admin sqlite: agent memory delete failed");
+                }
+            }
         }
         n += 1;
         if n.is_multiple_of(128) {
@@ -389,6 +493,55 @@ pub fn read_custom_skill_paths_for_startup(db_path: &Path) -> Vec<PathBuf> {
         return Vec::new();
     };
     rows.filter_map(|r| r.ok()).collect()
+}
+
+fn delete_agent_memory_rows(
+    conn: &mut Connection,
+    id: Option<i64>,
+    layer: Option<String>,
+    dcc_name: Option<String>,
+    session_id: Option<String>,
+    key_prefix: Option<String>,
+) -> rusqlite::Result<usize> {
+    if let Some(id) = id {
+        return conn.execute("DELETE FROM agent_memory WHERE id = ?1", params![id]);
+    }
+    let mut sql = String::from("DELETE FROM agent_memory WHERE 1 = 1");
+    let mut values: Vec<Box<dyn ToSql>> = Vec::new();
+    if let Some(value) = non_empty(layer.as_deref()) {
+        sql.push_str(" AND layer = ?");
+        values.push(Box::new(value.to_owned()));
+    }
+    if let Some(value) = non_empty(dcc_name.as_deref()) {
+        sql.push_str(" AND dcc_name = ?");
+        values.push(Box::new(value.to_owned()));
+    }
+    if let Some(value) = non_empty(session_id.as_deref()) {
+        sql.push_str(" AND session_id = ?");
+        values.push(Box::new(value.to_owned()));
+    }
+    if let Some(value) = non_empty(key_prefix.as_deref()) {
+        sql.push_str(r" AND key LIKE ? ESCAPE '\'");
+        values.push(Box::new(sqlite_like_prefix(value)));
+    }
+    let refs: Vec<&dyn ToSql> = values.iter().map(|value| value.as_ref()).collect();
+    conn.execute(&sql, params_from_iter(refs))
+}
+
+fn non_empty(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+fn sqlite_like_prefix(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() + 1);
+    for ch in value.chars() {
+        if matches!(ch, '\\' | '%' | '_') {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out.push('%');
+    out
 }
 
 #[cfg(all(test, feature = "gateway-admin-sqlite"))]
@@ -521,6 +674,99 @@ mod tests {
         assert_eq!(rows.len(), 100);
         assert!(rows[0].contains("instance-104"));
         assert!(!rows.iter().any(|row| row.contains("instance-000")));
+    }
+
+    #[test]
+    fn list_and_delete_agent_memory_rows() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("memory.sqlite");
+        let lane = GatewayAdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
+        drop(lane);
+
+        let conn = Connection::open(&db).unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        let insert_memory = |key: &str, score: f64, payload: &str| {
+            conn.execute(
+                "INSERT INTO agent_memory \
+                 (layer, key, session_id, dcc_name, score, created_unix_secs, payload_json) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params!["longterm", key, "longterm", "maya", score, 10.0f64, payload],
+            )
+            .unwrap();
+        };
+        insert_memory(
+            "pattern:tool_call:create_cube:ok",
+            2.0,
+            r#"{"tool_name":"create_cube","ok_count":2,"fail_count":0}"#,
+        );
+        insert_memory(
+            "pattern:tool_call:maya_python__execute:fail",
+            -1.0,
+            r#"{"tool_name":"maya_python__execute","ok_count":0,"fail_count":1}"#,
+        );
+        insert_memory(
+            "pattern:tool_call:mayaXpython__execute:fail",
+            -1.0,
+            r#"{"tool_name":"mayaXpython__execute","ok_count":0,"fail_count":1}"#,
+        );
+        insert_memory(
+            "pattern:tool_call:maya%python__execute:ok",
+            1.0,
+            r#"{"tool_name":"maya%python__execute","ok_count":1,"fail_count":0}"#,
+        );
+        insert_memory(
+            "pattern:tool_call:mayaZpython__execute:ok",
+            1.0,
+            r#"{"tool_name":"mayaZpython__execute","ok_count":1,"fail_count":0}"#,
+        );
+        drop(conn);
+
+        let reader = GatewayAdminSqliteReader::new(db.clone());
+        let rows =
+            reader.list_agent_memory_json(Some("longterm"), Some("maya"), Some("pattern:"), 10);
+        assert_eq!(rows.len(), 5);
+        assert!(rows[0].contains("create_cube"));
+        let rows = reader.list_agent_memory_json(
+            Some("longterm"),
+            Some("maya"),
+            Some("pattern:tool_call:maya_python"),
+            10,
+        );
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].contains("maya_python__execute"));
+        let rows = reader.list_agent_memory_json(
+            Some("longterm"),
+            Some("maya"),
+            Some("pattern:tool_call:maya%python"),
+            10,
+        );
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].contains("maya%python__execute"));
+
+        let lane = GatewayAdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
+        assert!(lane.try_delete_agent_memory(
+            None,
+            Some("longterm".into()),
+            Some("maya".into()),
+            None,
+            Some("pattern:tool_call:maya_python".into()),
+        ));
+        assert!(lane.try_delete_agent_memory(
+            None,
+            Some("longterm".into()),
+            Some("maya".into()),
+            None,
+            Some("pattern:tool_call:maya%python".into()),
+        ));
+        drop(lane);
+
+        let rows = GatewayAdminSqliteReader::new(db).list_agent_memory_json(None, None, None, 10);
+        assert_eq!(rows.len(), 3);
+        assert!(rows.iter().any(|row| row.contains("create_cube")));
+        assert!(rows.iter().any(|row| row.contains("mayaXpython__execute")));
+        assert!(rows.iter().any(|row| row.contains("mayaZpython__execute")));
+        assert!(!rows.iter().any(|row| row.contains("maya_python__execute")));
+        assert!(!rows.iter().any(|row| row.contains("maya%python__execute")));
     }
 
     #[test]

@@ -104,6 +104,10 @@ import analyticsEn from './locales/en/analytics.json' with { type: 'json' };
 import analyticsZhCN from './locales/zh-CN/analytics.json' with { type: 'json' };
 import analyticsJa from './locales/ja/analytics.json' with { type: 'json' };
 import analyticsKo from './locales/ko/analytics.json' with { type: 'json' };
+import memoryEn from './locales/en/memory.json' with { type: 'json' };
+import memoryZhCN from './locales/zh-CN/memory.json' with { type: 'json' };
+import memoryJa from './locales/ja/memory.json' with { type: 'json' };
+import memoryKo from './locales/ko/memory.json' with { type: 'json' };
 import marketplaceEn from './locales/en/marketplace.json' with { type: 'json' };
 import marketplaceZhCN from './locales/zh-CN/marketplace.json' with { type: 'json' };
 import marketplaceJa from './locales/ja/marketplace.json' with { type: 'json' };
@@ -245,6 +249,12 @@ export const I18N_MESSAGES = {
     'zh-CN': analyticsZhCN,
     ja: analyticsJa,
     ko: analyticsKo,
+  },
+  memory: {
+    en: memoryEn,
+    'zh-CN': memoryZhCN,
+    ja: memoryJa,
+    ko: memoryKo,
   },
   marketplace: {
     en: marketplaceEn,
