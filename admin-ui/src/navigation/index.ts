@@ -31,6 +31,7 @@ export const PANELS: PanelDefinition[] = [
   { id: 'governance', labelKey: 'navigation.panel.governance', groupKey: 'navigation.group.observability' },
   { id: 'logs', labelKey: 'navigation.panel.logs', groupKey: 'navigation.group.observability' },
   { id: 'analytics', labelKey: 'navigation.panel.analytics', groupKey: 'navigation.group.insights' },
+  { id: 'memory', labelKey: 'navigation.panel.memory', groupKey: 'navigation.group.insights' },
   { id: 'overview', labelKey: 'navigation.panel.overview', groupKey: 'navigation.group.insights' },
 ];
 
@@ -51,6 +52,7 @@ export const NAVIGATION: NavigationDefinition[] = [
   { id: 'overview', icon: 'overview', panel: 'overview', labelKey: 'navigation.panel.overview', groupKey: 'navigation.group.observe' },
   { id: 'logs', icon: 'logs', panel: 'logs', labelKey: 'navigation.panel.logs', groupKey: 'navigation.group.observe' },
   { id: 'analytics', icon: 'analytics', panel: 'analytics', labelKey: 'navigation.panel.analytics', groupKey: 'navigation.group.insights' },
+  { id: 'memory', icon: 'memory', panel: 'memory', labelKey: 'navigation.panel.memory', groupKey: 'navigation.group.insights' },
   { id: 'governance', icon: 'governance', panel: 'governance', labelKey: 'navigation.panel.governance', groupKey: 'navigation.group.governContracts' },
   { id: 'openapi', icon: 'openapi', panel: 'openapi', labelKey: 'navigation.panel.openapi', groupKey: 'navigation.group.governContracts' },
 ];
