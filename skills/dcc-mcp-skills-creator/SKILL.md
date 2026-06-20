@@ -113,6 +113,9 @@ Generated `tools.yaml` entries follow the modern contract:
 - Loaded tools are published as `<skill-name>__<tool_name>` when namespacing is needed.
 - Skill package version metadata lives at `metadata.dcc-mcp.version` in
   `SKILL.md`; a top-level `version` key is rejected by the strict loader.
+- Inter-skill dependencies live at `metadata.dcc-mcp.depends` as skill names,
+  not repo names or prose-only instructions. Use it when one skill must be
+  discovered or loaded before another, for example `depends: ["qt-ui-inspector"]`.
 - `input_schema` and `output_schema` are declared explicitly.
 - Keep MCP-facing `input_schema` shapes simple: prefer a top-level object with
   `properties`, `required`, primitive `type`, bounds, and descriptions. Put
@@ -131,7 +134,7 @@ Generated `tools.yaml` entries follow the modern contract:
 2. Give the skill a kebab-case name and each local tool a snake_case name.
 3. Keep host API calls inside scripts, with lazy imports so discovery works without the host running.
 4. Import dependency-light runtime helpers from `dcc_mcp_core.skills_helper` first: JSON/YAML codecs, bounded HTTP helpers, safe file/path helpers, validation, cancellation checks, and result helpers.
-5. Declare `execution`, `affinity`, `timeout_hint_secs`, schemas, annotations, and failure recovery chains in `tools.yaml`. For high-frequency tools, add `call_examples` so agents can copy argument payloads without trial-and-error.
+5. Declare `metadata.dcc-mcp.depends` for prerequisite skills, then declare `execution`, `affinity`, `timeout_hint_secs`, schemas, annotations, and failure recovery chains in `tools.yaml`. For high-frequency tools, add `call_examples` so agents can copy argument payloads without trial-and-error.
 6. Put long examples, recipes, and host-specific notes under `references/`.
 7. Validate with `validate_skill_dir` or `dcc_mcp_core.validate_skill()` before loading it in an adapter.
 8. If the desired behavior requires parsing core internals or adapter-private YAML at runtime, stop and request a core API instead.

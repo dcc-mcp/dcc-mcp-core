@@ -40,6 +40,16 @@ def _stage_line(stage: str) -> str:
     return f"    stage: {stage}\n" if stage else ""
 
 
+def _depends_line(depends) -> str:
+    deps = [dep.strip() for dep in (depends or []) if dep and dep.strip()]
+    for dep in deps:
+        _validate_skill_name(dep)
+    if not deps:
+        return ""
+    quoted = ", ".join(f'"{dep}"' for dep in deps)
+    return f"    depends: [{quoted}]\n"
+
+
 def create_skill(
     name: str,
     parent_dir: str,
@@ -48,6 +58,7 @@ def create_skill(
     tool_name: str = "example_tool",
     layer: str = "thin-harness",
     stage: str = "",
+    depends=None,
     affinity: str = "any",
     execution: str = "sync",
 ) -> str:
@@ -60,6 +71,7 @@ def create_skill(
         tool_name: First generated tool name. Must be snake_case, never dotted.
         layer: Skill taxonomy layer, usually thin-harness, infrastructure, domain, or example.
         stage: Optional progressive-loading stage such as scene, authoring, or pipeline.
+        depends: Optional iterable of prerequisite DCC-MCP skill names.
         affinity: Tool thread affinity. Use "main" for host API / scene work.
         execution: "sync" or "async".
 
@@ -73,6 +85,7 @@ def create_skill(
     stage = stage.strip()
     affinity = affinity.strip().lower() or "any"
     execution = execution.strip().lower() or "sync"
+    depends_line = _depends_line(depends)
 
     _validate_skill_name(name)
     _validate_dcc_name(dcc)
@@ -106,7 +119,7 @@ metadata:
     dcc: {dcc}
     version: "0.1.0"
     layer: {layer}
-{_stage_line(stage)}    tags: ["generated", "{dcc}"]
+{_stage_line(stage)}{depends_line}    tags: ["generated", "{dcc}"]
     search-hint: "TODO: add search keywords for this skill"
     tools: tools.yaml
 ---
@@ -114,7 +127,8 @@ metadata:
 # {title}
 
 Keep instructions focused on when an agent should use this skill, what each
-tool returns, and what to inspect after success or failure.
+tool returns, prerequisite skills to load first, and what to inspect after
+success or failure.
 
 Tool names must stay client-safe (`^[A-Za-z0-9_-]{{1,64}}$`). Use local
 snake_case tool names in `tools.yaml`; dcc-mcp-core publishes them as
