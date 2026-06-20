@@ -26,6 +26,7 @@ import { AnalyticsPanel } from './features/analytics/AnalyticsPanel';
 import { DebugPanel } from './features/debug';
 import { GovernancePanel } from './features/governance';
 import { InstancesPanel, type InstanceUpdateNotice } from './features/instances';
+import { MemoryPanel } from './features/agent-memory/MemoryPanel';
 import { OpenApiPanel } from './features/openapi';
 import { canonicalAdminPanelTarget, readDiscoverTabFromUrl, readOverviewTabFromUrl, readTracesTabFromUrl } from './navigation';
 import { createTranslator, detectBrowserLocale, type SupportedLocale } from './i18n';
@@ -2422,6 +2423,11 @@ function App() {
         <AnalyticsPanel
           active={activePanel === 'analytics'}
           locale={localeDetection.locale}
+          t={t}
+        />
+
+        <MemoryPanel
+          active={activePanel === 'memory'}
           t={t}
         />
 
