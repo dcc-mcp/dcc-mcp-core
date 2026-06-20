@@ -27,7 +27,7 @@ def test_resolve_per_dcc_env_wins_over_global(monkeypatch):
     assert policy.exclude_group_stubs is True
 
 
-def test_resolve_legacy_maya_env(monkeypatch):
+def test_resolve_maya_per_dcc_env(monkeypatch):
     monkeypatch.delenv("DCC_MCP_MAYA_EXCLUDE_STUBS_FROM_TOOLS_LIST", raising=False)
     monkeypatch.delenv("DCC_MCP_EXCLUDE_STUBS_FROM_TOOLS_LIST", raising=False)
     monkeypatch.setenv("DCC_MCP_MAYA_EXCLUDE_STUBS_FROM_TOOLS_LIST", "yes")

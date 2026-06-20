@@ -537,7 +537,6 @@ fn non_spec_top_level_migration_hint(keys: &[String]) -> String {
             "external-deps" | "external_deps" => "metadata.dcc-mcp.external-deps",
             "runtimes" | "runtime-deps" | "optional-runtimes" => "metadata.dcc-mcp.runtimes",
             "recipes" => "metadata.dcc-mcp.recipes",
-            "introspection" => "metadata.dcc-mcp.introspection",
             "branding" => "metadata.dcc-mcp.branding",
             "links" => "metadata.dcc-mcp.links",
             "example-prompts" | "example_prompts" => "metadata.dcc-mcp.example-prompts",

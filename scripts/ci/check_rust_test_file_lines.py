@@ -9,10 +9,6 @@ import sys
 
 MAX_TEST_LINES = 2000
 
-# Existing oversized Rust test modules. These are allowed to stay at or below
-# the recorded baseline, but any growth must be split into focused test files.
-LEGACY_BASELINES = {}
-
 
 def is_rust_test_file(path: Path) -> bool:
     """Return whether a Rust source path is a test module or integration test."""
@@ -48,17 +44,6 @@ def main() -> int:
 
         rel = rel_posix(path, root)
         lines = line_count(path)
-        baseline = LEGACY_BASELINES.get(rel)
-        if baseline is not None:
-            if lines > baseline:
-                failures.append(
-                    f"{rel} has {lines} lines; legacy baseline is {baseline}. "
-                    "Move new tests into focused files before growing this module."
-                )
-            elif lines > args.max_lines:
-                print(f"WARN legacy oversized Rust test file: {rel} ({lines}/{baseline} lines)")
-            continue
-
         if lines > args.max_lines:
             failures.append(f"{rel} has {lines} lines; max is {args.max_lines}.")
 
@@ -68,7 +53,7 @@ def main() -> int:
             print(f"  - {failure}", file=sys.stderr)
         return 1
 
-    print(f"All Rust test files are within {args.max_lines} lines or legacy baselines.")
+    print(f"All Rust test files are within {args.max_lines} lines.")
     return 0
 
 

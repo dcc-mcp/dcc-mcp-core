@@ -29,11 +29,11 @@ fn test_catalog_new_is_empty() {
 #[test]
 fn test_discovery_surfaces_skipped_skill_diagnostics() {
     let tmp = tempfile::tempdir().unwrap();
-    let skill_dir = tmp.path().join("maya-mgear");
+    let skill_dir = tmp.path().join("maya-skipped-diagnostic");
     std::fs::create_dir_all(&skill_dir).unwrap();
     std::fs::write(
         skill_dir.join(crate::constants::SKILL_METADATA_FILE),
-        "---\nname: maya-mgear\ndescription: mGear integration\nversion: \"1.0.0\"\n---\n# body\n",
+        "---\nname: maya-skipped-diagnostic\ndescription: skipped diagnostic fixture\nversion: \"1.0.0\"\n---\n# body\n",
     )
     .unwrap();
 
@@ -43,9 +43,9 @@ fn test_discovery_surfaces_skipped_skill_diagnostics() {
     catalog.discover(Some(&roots), Some("maya"));
     assert_eq!(catalog.skipped_count(), 1);
 
-    let diagnostics = catalog.skipped_skill_diagnostics(Some("mgear"), None);
+    let diagnostics = catalog.skipped_skill_diagnostics(Some("skipped"), None);
     assert_eq!(diagnostics.len(), 1);
-    assert_eq!(diagnostics[0].skill_name, "maya-mgear");
+    assert_eq!(diagnostics[0].skill_name, "maya-skipped-diagnostic");
     assert_eq!(diagnostics[0].reason_code, "non_spec_top_level_keys");
     assert!(
         diagnostics[0]
@@ -58,8 +58,11 @@ fn test_discovery_surfaces_skipped_skill_diagnostics() {
             .contains(tmp.path().to_string_lossy().as_ref())
     );
 
-    let err = catalog.load_skill("maya-mgear").unwrap_err();
-    assert!(err.contains("matching skill directory was skipped"));
+    let err = catalog.load_skill("maya-skipped-diagnostic").unwrap_err();
+    assert!(
+        err.contains("matching skill directory was skipped"),
+        "unexpected error: {err}"
+    );
     assert!(err.contains("metadata.dcc-mcp.version"));
     assert!(!err.contains(tmp.path().to_string_lossy().as_ref()));
 }

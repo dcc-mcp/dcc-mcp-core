@@ -5,10 +5,6 @@ filename. Skills declare explicit globs under
 ``metadata.dcc-mcp.skill-reference-docs``; otherwise we fall back to
 scanning ``references/`` for common text types.
 
-The legacy ``metadata.dcc-mcp.introspection`` single-file key is still
-surfaced for backwards-compatibility with skills authored before #616,
-with a ``DeprecationWarning`` to nudge authors onto the new key.
-
 Public entry point: :func:`register_skill_reference_docs_tools`.
 """
 
@@ -17,7 +13,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import Any
-import warnings
 
 from dcc_mcp_core import json_loads
 from dcc_mcp_core._tool_registration import ToolSpec
@@ -96,24 +91,6 @@ def _skill_reference_doc_globs(metadata: Any) -> list[str]:
         globs = [str(x).strip().replace("\\", "/") for x in raw if str(x).strip()]
     elif isinstance(raw, str) and raw.strip():
         globs = [raw.strip().replace("\\", "/")]
-
-    legacy = getattr(metadata, "introspection_file", None)
-    if isinstance(legacy, str) and legacy.strip():
-        # Pre-#616 skills used ``metadata.dcc-mcp.introspection: <path>``;
-        # surface that path through ``skill_refs__*`` one more release so
-        # existing studio skills keep working, but flag the rename so
-        # authors migrate to ``skill-reference-docs: [<path>]``.
-        skill_name = getattr(metadata, "name", None) or getattr(metadata, "skill_path", "<unknown>")
-        warnings.warn(
-            (
-                f"Skill {skill_name!r} declares deprecated 'metadata.dcc-mcp.introspection'; "
-                "rename it to 'metadata.dcc-mcp.skill-reference-docs: [<path>]'. "
-                "The legacy key will stop being honoured in a future minor release."
-            ),
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        globs.append(legacy.strip().replace("\\", "/"))
 
     if globs:
         return _dedupe_preserve_order(globs)
