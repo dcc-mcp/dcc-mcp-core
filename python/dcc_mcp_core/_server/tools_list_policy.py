@@ -31,9 +31,6 @@ __all__ = [
 #: Global env var — applies to every DCC unless overridden per-DCC.
 ENV_EXCLUDE_STUBS_FROM_TOOLS_LIST = "DCC_MCP_EXCLUDE_STUBS_FROM_TOOLS_LIST"
 
-# Legacy Maya-only name (issue #174); still honoured when ``dcc_name`` is ``maya``.
-_LEGACY_MAYA_ENV = "DCC_MCP_MAYA_EXCLUDE_STUBS_FROM_TOOLS_LIST"
-
 
 def env_truthy(name: str) -> bool:
     """Return True when *name* is set to a conventional truthy token."""
@@ -85,19 +82,15 @@ def resolve_tools_list_stub_policy(
 
     1. *explicit* argument when provided
     2. Per-DCC env ``DCC_MCP_<DCC>_EXCLUDE_STUBS_FROM_TOOLS_LIST``
-    3. Legacy ``DCC_MCP_MAYA_EXCLUDE_STUBS_FROM_TOOLS_LIST`` when ``dcc_name`` is ``maya``
-    4. Global ``DCC_MCP_EXCLUDE_STUBS_FROM_TOOLS_LIST``
-    5. Values already set on *config* (if any stub flag is True)
-    6. Default — include all stubs
+    3. Global ``DCC_MCP_EXCLUDE_STUBS_FROM_TOOLS_LIST``
+    4. Values already set on *config* (if any stub flag is True)
+    5. Default — include all stubs
     """
     if explicit is not None:
         return explicit
 
     dcc_env = dcc_exclude_stubs_env_name(dcc_name)
     if env_truthy(dcc_env):
-        return ToolsListStubPolicy.exclude_all_progressive_stubs()
-
-    if dcc_name.strip().lower() == "maya" and env_truthy(_LEGACY_MAYA_ENV):
         return ToolsListStubPolicy.exclude_all_progressive_stubs()
 
     if env_truthy(ENV_EXCLUDE_STUBS_FROM_TOOLS_LIST):
