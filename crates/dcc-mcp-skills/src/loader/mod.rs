@@ -414,7 +414,6 @@ fn non_spec_top_level_suggestion(offending: &[String]) -> String {
             "external-deps" | "external_deps" => "metadata.dcc-mcp.external-deps",
             "runtimes" | "runtime-deps" | "optional-runtimes" => "metadata.dcc-mcp.runtimes",
             "recipes" => "metadata.dcc-mcp.recipes",
-            "introspection" => "metadata.dcc-mcp.introspection",
             "branding" => "metadata.dcc-mcp.branding",
             "links" => "metadata.dcc-mcp.links",
             "example-prompts" | "example_prompts" => "metadata.dcc-mcp.example-prompts",
@@ -569,15 +568,6 @@ fn apply_dcc_mcp_metadata_overrides(
                     && !s.is_empty()
                 {
                     meta.recipes_file = Some(s.to_string());
-                }
-            }
-            "introspection" => {
-                // Sibling-file reference for capability-probe / version-check
-                // metadata (issue #466). Parsing is deferred; store for lazy loading.
-                if let Some(s) = value.as_str()
-                    && !s.is_empty()
-                {
-                    meta.introspection_file = Some(s.to_string());
                 }
             }
             "branding" => {

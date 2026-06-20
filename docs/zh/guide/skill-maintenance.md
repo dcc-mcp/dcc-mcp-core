@@ -23,7 +23,7 @@
 - 可选但推荐用于长篇注释：
   - `recipes:` — 基于锚点的代码片段（当宿主注册 `recipes__*` 工具时）。
   - `skill-reference-docs:` — 相对于技能根目录的 **glob 列表**，以便 `skill_refs__list` / `skill_refs__read` 可以在 `references/`（或其他目录）下提供任意 Markdown/文本，而无需硬编码一个文件名。
-- 旧版 `introspection:` 单路径仍被 `skill-reference-docs` 解析支持；对于新包，请优先使用 `skill-reference-docs`。
+- 使用 `skill-reference-docs`；旧版 `introspection:` 单路径不再支持。
 
 ## tools.yaml
 

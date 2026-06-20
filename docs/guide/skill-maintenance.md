@@ -35,9 +35,8 @@ Before adding or changing bundled adapter skills, read [`docs/POLICY_SKILL_OWNER
   - `skill-reference-docs:` — **glob list** relative to the skill root so
     `skill_refs__list` / `skill_refs__read` can serve arbitrary Markdown/text
     under `references/` (or other dirs) without hard-coding one filename.
-- Legacy `introspection:` single path is still honoured by
-  `skill-reference-docs` resolution; prefer `skill-reference-docs` for new
-  packages.
+- Use `skill-reference-docs`; the legacy `introspection:` single path is no
+  longer supported.
 
 ## tools.yaml
 
