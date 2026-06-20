@@ -177,7 +177,7 @@ dcc-mcp-cli marketplace add-repo dcc-mcp/dcc-mcp-maya --dcc maya --force
 ### SKILL.md Discovery
 
 Skills are discovered by finding `SKILL.md` files — first checking the repo
-root, then one level deep. The frontmatter must contain at least a `name` field.
+root, then nested skill directories. The frontmatter must contain at least a `name` field.
 The `dcc` field (under `metadata.dcc-mcp.dcc`) is optional but recommended; use
 `--dcc` when it is absent.
 

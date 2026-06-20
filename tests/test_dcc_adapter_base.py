@@ -828,6 +828,16 @@ class TestDccServerBase:
         assert str(local_default) in paths
         assert local_default.is_dir()
 
+    def test_collect_skill_search_paths_includes_marketplace_root(self, tmp_path, monkeypatch):
+        server = self._make_server(tmp_path)
+        marketplace_dcc_dir = tmp_path / "marketplace" / "fake-dcc"
+        marketplace_dcc_dir.mkdir(parents=True)
+        monkeypatch.setenv("DCC_MCP_MARKETPLACE_INSTALL_ROOT", str(tmp_path / "marketplace"))
+
+        paths = server.collect_skill_search_paths(include_bundled=False, filter_existing=True)
+
+        assert str(marketplace_dcc_dir) in paths
+
     def test_enable_hot_reload_creates_reloader(self, tmp_path):
         server = self._make_server(tmp_path)
         with patch("dcc_mcp_core.hotreload.DccSkillHotReloader.enable", return_value=True):
