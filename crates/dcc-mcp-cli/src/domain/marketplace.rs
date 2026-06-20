@@ -1,7 +1,4 @@
-//! Marketplace domain types — re-exported from the shared `dcc-mcp-marketplace` crate.
-//!
-//! This module is kept for backward compatibility with existing internal imports.
-//! New code should prefer `dcc_mcp_marketplace` directly.
+//! Marketplace domain types re-exported from the shared `dcc-mcp-marketplace` crate.
 
 pub use dcc_mcp_marketplace::{
     InstalledMarketplacePackage, MarketplaceHit, MarketplaceInspectResult,
