@@ -270,6 +270,7 @@ def gateway_endpoint(tmp_path_factory):
     """
     import socket
     import time
+
     from dcc_mcp_core import McpHttpConfig
     from dcc_mcp_core import McpHttpServer
     from dcc_mcp_core import ToolRegistry
@@ -307,16 +308,18 @@ def gateway_endpoint(tmp_path_factory):
         try:
             req = urllib.request.Request(
                 endpoint,
-                data=json.dumps({
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "initialize",
-                    "params": {
-                        "protocolVersion": "2025-06-18",
-                        "capabilities": {},
-                        "clientInfo": {"name": "pytest", "version": "1.0"},
-                    },
-                }).encode("utf-8"),
+                data=json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2025-06-18",
+                            "capabilities": {},
+                            "clientInfo": {"name": "pytest", "version": "1.0"},
+                        },
+                    }
+                ).encode("utf-8"),
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
