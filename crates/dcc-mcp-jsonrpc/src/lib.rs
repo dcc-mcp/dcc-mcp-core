@@ -71,8 +71,7 @@ pub const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
 pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26"];
 
 #[cfg(feature = "mcp-2026-07-28")]
-pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] =
-    &["2026-07-28", "2025-06-18", "2025-03-26"];
+pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2026-07-28", "2025-06-18", "2025-03-26"];
 
 /// Negotiate the protocol version to use for a session.
 ///

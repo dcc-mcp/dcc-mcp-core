@@ -11,6 +11,7 @@ import urllib.request
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
+
 def _mcp_request(endpoint, body, headers=None):
     """Send a POST request to the gateway /mcp endpoint."""
     if headers is None:
@@ -46,6 +47,7 @@ def _initialize_body(client_name="test-client", protocol_version="2025-06-18"):
 
 # ── Test: stateless routing ─────────────────────────────────────────────────
 
+
 def test_stateless_returns_501(gateway_endpoint):
     """A stateless request (MCP-Protocol-Version: 2026-07-28) should return
     a 501 Not Implemented error in Phase 1a.
@@ -61,6 +63,7 @@ def test_stateless_returns_501(gateway_endpoint):
 
 
 # ── Test: session compatibility ─────────────────────────────────────────────
+
 
 def test_session_client_unaffected(gateway_endpoint):
     """Existing session clients (no MCP-Protocol-Version header) should work
