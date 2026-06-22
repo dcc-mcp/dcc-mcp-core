@@ -1,4 +1,4 @@
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use super::admin::trace::AgentContext;
 
@@ -44,7 +44,7 @@ pub(crate) fn meta_with_agent_context(
             }
             Some(filtered)
         }
-        None => Some(json!({ "agent_context": agent_context_value })),
+        None => None,
     }
 }
 
@@ -118,9 +118,7 @@ mod tests {
             actor_id: Some("a1".to_string()),
             ..AgentContext::default()
         };
-        let merged = meta_with_agent_context(None, Some(&agent_ctx)).expect("merged");
-        assert_eq!(merged["agent_context"]["actor_id"], "a1");
-        assert!(merged.get("credential_profile").is_none());
+        assert!(meta_with_agent_context(None, Some(&agent_ctx)).is_none());
     }
 
     #[test]
