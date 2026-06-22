@@ -21,7 +21,9 @@
 //! | `prompts.rs`              | `McpPrompt` / `McpPromptArgument` / `ListPromptsResult` / `GetPrompt*` / `McpPromptMessage` / `McpPromptContent` |
 //! | `sse.rs`                  | `format_sse_event` + `encode_cursor` / `decode_cursor` pagination helpers |
 //! | `notification_builder.rs` | `NotificationBuilder` / `JsonRpcRequestBuilder` — fluent envelope construction (#484) |
+//! | `discover.rs`             | `DiscoverParams` / `DiscoverResult` — server/discover for stateless clients (ADR-010) |
 
+mod discover;
 mod jsonrpc;
 mod lifecycle;
 mod notification_builder;
@@ -30,6 +32,7 @@ mod resources;
 mod sse;
 mod tools;
 
+pub use discover::{DISCOVER_METHOD, DiscoverParams, DiscoverResult};
 pub use jsonrpc::{
     JsonRpcBatch, JsonRpcError, JsonRpcMessage, JsonRpcNotification, JsonRpcRequest,
     JsonRpcResponse, error_codes,
@@ -61,7 +64,15 @@ pub use tools::{
 pub const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
 
 /// All protocol versions this server can speak, newest first.
+///
+/// When the `mcp-2026-07-28` feature is enabled, `"2026-07-28"` is included
+/// as the latest version for stateless clients (ADR-010 Phase 1).
+#[cfg(not(feature = "mcp-2026-07-28"))]
 pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26"];
+
+#[cfg(feature = "mcp-2026-07-28")]
+pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] =
+    &["2026-07-28", "2025-06-18", "2025-03-26"];
 
 /// Negotiate the protocol version to use for a session.
 ///
@@ -81,6 +92,35 @@ pub fn negotiate_protocol_version(client_requested: Option<&str>) -> &'static st
 
 /// The `Mcp-Session-Id` HTTP header name.
 pub const MCP_SESSION_HEADER: &str = "Mcp-Session-Id";
+
+/// The `MCP-Protocol-Version` HTTP header name (ADR-010).
+pub const MCP_PROTOCOL_HEADER: &str = "MCP-Protocol-Version";
+
+/// Protocol mode selected by header-based routing (ADR-010).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProtocolMode {
+    /// Traditional session-based MCP (2025-06-18 / 2025-03-26).
+    Session,
+    /// Stateless MCP (2026-07-28) — no sticky session, no session lifecycle.
+    Stateless,
+}
+
+/// Select protocol mode from request headers (ADR-010 Phase 1).
+///
+/// Returns `Stateless` when the client sends `MCP-Protocol-Version: 2026-07-28`;
+/// otherwise defaults to `Session` for backward compatibility.
+///
+/// All existing clients (Codex, Claude, CodeBuddy, etc.) that do not send
+/// `MCP-Protocol-Version` will continue to use `Session` mode unchanged.
+pub fn select_protocol_mode(
+    mcp_protocol_version: Option<&str>,
+    _mcp_session_id: Option<&str>,
+) -> ProtocolMode {
+    match mcp_protocol_version {
+        Some("2026-07-28") => ProtocolMode::Stateless,
+        _ => ProtocolMode::Session,
+    }
+}
 
 /// Vendored capability key for delta tools notifications.
 pub const DELTA_TOOLS_UPDATE_CAP: &str = "dcc_mcp_core/deltaToolsUpdate";

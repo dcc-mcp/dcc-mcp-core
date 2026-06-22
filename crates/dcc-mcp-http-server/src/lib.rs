@@ -25,6 +25,7 @@ pub mod inflight;
 pub mod notifications;
 pub mod server_state;
 pub mod session;
+pub mod stateless;
 pub mod workspace;
 
 pub mod mcp_tool_catalog;
