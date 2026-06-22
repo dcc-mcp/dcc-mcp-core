@@ -821,12 +821,16 @@ fn suggested_post_load_next_step(
         if compact_schema.is_some() {
             let mut arguments = json!({ "tool_slug": tool_slug, "arguments": {} });
             attach_search_meta(&mut arguments, search_id, index_generation);
+            let mut mcp_arguments = arguments.clone();
+            if let Some(obj) = mcp_arguments.as_object_mut() {
+                obj.remove("meta");
+            }
             return json!({
                 "action": "call",
                 "arguments": arguments.clone(),
                 "mcp": {
                     "tool": "call",
-                    "arguments": arguments.clone(),
+                    "arguments": mcp_arguments,
                     "_meta": arguments.get("meta").cloned().unwrap_or(Value::Null),
                 },
                 "rest": {
@@ -844,12 +848,16 @@ fn suggested_post_load_next_step(
         {
             let mut arguments = json!({ "tool_slug": tool_slug, "arguments": {} });
             attach_search_meta(&mut arguments, search_id, index_generation);
+            let mut mcp_arguments = arguments.clone();
+            if let Some(obj) = mcp_arguments.as_object_mut() {
+                obj.remove("meta");
+            }
             return json!({
                 "action": "call",
                 "arguments": arguments.clone(),
                 "mcp": {
                     "tool": "call",
-                    "arguments": arguments.clone(),
+                    "arguments": mcp_arguments,
                     "_meta": arguments.get("meta").cloned().unwrap_or(Value::Null),
                 },
                 "rest": {
@@ -862,12 +870,16 @@ fn suggested_post_load_next_step(
 
         let mut arguments = json!({ "tool_slug": tool_slug });
         attach_search_meta(&mut arguments, search_id, index_generation);
+        let mut mcp_arguments = arguments.clone();
+        if let Some(obj) = mcp_arguments.as_object_mut() {
+            obj.remove("meta");
+        }
         return json!({
             "action": "describe",
             "arguments": arguments.clone(),
             "mcp": {
                 "tool": "describe",
-                "arguments": arguments.clone(),
+                "arguments": mcp_arguments,
                 "_meta": arguments.get("meta").cloned().unwrap_or(Value::Null),
             },
             "rest": {
@@ -886,12 +898,16 @@ fn suggested_post_load_next_step(
         "loaded_only": true,
     });
     attach_search_meta(&mut arguments, search_id, index_generation);
+    let mut mcp_arguments = arguments.clone();
+    if let Some(obj) = mcp_arguments.as_object_mut() {
+        obj.remove("meta");
+    }
     json!({
         "action": "search",
         "arguments": arguments.clone(),
         "mcp": {
             "tool": "search",
-            "arguments": arguments.clone(),
+            "arguments": mcp_arguments,
             "_meta": arguments.get("meta").cloned().unwrap_or(Value::Null),
         },
         "rest": {
