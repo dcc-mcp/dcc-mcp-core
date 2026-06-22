@@ -6,9 +6,8 @@ clients.
 """
 
 import json
-import urllib.request
 import urllib.error
-
+import urllib.request
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -49,7 +48,8 @@ def _initialize_body(client_name="test-client", protocol_version="2025-06-18"):
 
 def test_stateless_returns_501(gateway_endpoint):
     """A stateless request (MCP-Protocol-Version: 2026-07-28) should return
-    a 501 Not Implemented error in Phase 1a."""
+    a 501 Not Implemented error in Phase 1a.
+    """
     status, payload = _mcp_request(
         gateway_endpoint,
         {"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}},
@@ -64,7 +64,8 @@ def test_stateless_returns_501(gateway_endpoint):
 
 def test_session_client_unaffected(gateway_endpoint):
     """Existing session clients (no MCP-Protocol-Version header) should work
-    exactly as before — initialize, get session id, tools/call."""
+    exactly as before — initialize, get session id, tools/call.
+    """
     # Step 1: initialize (creates session)
     status, init_resp = _mcp_request(
         gateway_endpoint,
@@ -81,7 +82,8 @@ def test_session_client_unaffected(gateway_endpoint):
 
 def test_no_header_defaults_to_session(gateway_endpoint):
     """Requests without MCP-Protocol-Version header should default to
-    session mode — even if they use newer method names."""
+    session mode — even if they use newer method names.
+    """
     status, payload = _mcp_request(
         gateway_endpoint,
         _initialize_body("claude-code"),
