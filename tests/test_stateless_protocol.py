@@ -17,6 +17,7 @@ def _mcp_request(endpoint, body, headers=None):
     if headers is None:
         headers = {}
     headers.setdefault("Content-Type", "application/json")
+    headers.setdefault("Accept", "application/json, text/event-stream")
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(endpoint, data=data, headers=headers, method="POST")
     try:
