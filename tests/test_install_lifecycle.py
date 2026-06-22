@@ -1316,6 +1316,13 @@ def test_launch_sidecar_uses_detached_popen_contract(
     assert Path(captured["kwargs"]["stderr"].name) == Path(result["stdio"]["stderr_path"])
     assert captured["kwargs"]["env"]["DCC_MCP_REGISTRY_DIR"] == str((tmp_path / "registry").resolve())
     assert captured["kwargs"]["env"]["DCC_MCP_GATEWAY_PORT"] == "9765"
+    if os.name == "nt":
+        flags = captured["kwargs"]["creationflags"]
+        assert flags & sidecar_lifecycle.subprocess.CREATE_NO_WINDOW
+        assert flags & sidecar_lifecycle.subprocess.DETACHED_PROCESS
+        startupinfo = captured["kwargs"]["startupinfo"]
+        assert startupinfo.dwFlags & sidecar_lifecycle.subprocess.STARTF_USESHOWWINDOW
+        assert startupinfo.wShowWindow == sidecar_lifecycle.subprocess.SW_HIDE
 
 
 def test_launch_sidecar_can_return_process_for_supervisors(
