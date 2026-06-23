@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 # Import built-in modules
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -250,3 +251,89 @@ class McpClient:
                 return resp.status, json.loads(resp.read()), resp_headers
         except urllib.error.HTTPError as e:
             return e.code, {}, None
+
+
+# ── Gateway endpoint fixture ────────────────────────────────────────────
+
+
+@pytest.fixture(scope="module")
+def gateway_endpoint(tmp_path_factory):
+    """Start a standalone gateway server and return its ``/mcp`` URL.
+
+    This fixture launches a single ``McpHttpServer`` with ``gateway_port`` set
+    so that it wins the election and serves the aggregating-facade ``/mcp``
+    endpoint via axum native handlers (NOT ``rmcp::StreamableHttpService``).
+
+    The returned URL is used by ``test_stateless_protocol.py`` to validate
+    ADR-010 Phase 1a header-based routing (``MCP-Protocol-Version:
+    2026-07-28`` → 501 Not Implemented).
+    """
+    import socket
+    import time
+
+    from dcc_mcp_core import McpHttpConfig
+    from dcc_mcp_core import McpHttpServer
+    from dcc_mcp_core import ToolRegistry
+
+    registry_dir = tmp_path_factory.mktemp("gw-stateless-registry")
+
+    # Pick a free port for the gateway
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        gw_port = s.getsockname()[1]
+
+    reg = ToolRegistry()
+    reg.register(
+        name="ping",
+        description="Health-check tool for gateway fixture",
+        dcc="gateway",
+        version="1.0.0",
+    )
+
+    cfg = McpHttpConfig(port=0, server_name="gw-stateless-test")
+    cfg.gateway_port = gw_port
+    cfg.registry_dir = str(registry_dir)
+    cfg.dcc_type = "gateway"
+    cfg.heartbeat_secs = 1
+    cfg.stale_timeout_secs = 10
+
+    server = McpHttpServer(reg, cfg)
+    handle = server.start()
+
+    endpoint = f"http://127.0.0.1:{gw_port}/mcp"
+
+    # Wait for gateway to be ready
+    deadline = time.monotonic() + 10
+    while True:
+        try:
+            req = urllib.request.Request(
+                endpoint,
+                data=json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2025-06-18",
+                            "capabilities": {},
+                            "clientInfo": {"name": "pytest", "version": "1.0"},
+                        },
+                    }
+                ).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                if resp.status == 200:
+                    break
+        except Exception:
+            pass
+        if time.monotonic() > deadline:
+            handle.shutdown()
+            raise RuntimeError("Gateway did not become ready within 10 seconds")
+        time.sleep(0.5)
+
+    yield endpoint
+
+    with contextlib.suppress(Exception):
+        handle.shutdown()

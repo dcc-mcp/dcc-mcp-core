@@ -40,6 +40,18 @@ pub async fn handle_gateway_mcp(
     body: axum::body::Bytes,
 ) -> Response {
     let dispatch_started = Instant::now();
+
+    // ── ADR-010 Phase 1: header-based protocol routing ──
+    // Route stateless requests (MCP-Protocol-Version: 2026-07-28) to the
+    // stateless path before any session or JSON parsing overhead.
+    let mcp_protocol_version = headers
+        .get(dcc_mcp_jsonrpc::MCP_PROTOCOL_HEADER)
+        .and_then(|v| v.to_str().ok());
+    let protocol_mode = dcc_mcp_jsonrpc::select_protocol_mode(mcp_protocol_version, None);
+    if protocol_mode == dcc_mcp_jsonrpc::ProtocolMode::Stateless {
+        return handle_stateless_mcp(State(gs), headers, body).await;
+    }
+
     let client_session_id = headers
         .get("Mcp-Session-Id")
         .and_then(|v| v.to_str().ok())
@@ -1286,4 +1298,31 @@ mod tests {
         assert!(response.get("result").is_none());
         assert!(response["error"].get("_meta").is_none());
     }
+}
+
+// ── ADR-010 Phase 1a: stateless MCP placeholder ──
+
+/// Handle stateless MCP requests (ADR-010 Phase 1a placeholder).
+///
+/// Returns a `-32601` Method Not Found error. Phase 1b will implement
+/// the full stateless dispatch logic (no session creation, direct routing
+/// to `ServerState`).
+async fn handle_stateless_mcp(
+    State(_gs): State<GatewayState>,
+    _headers: HeaderMap,
+    _body: axum::body::Bytes,
+) -> Response {
+    let error = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": null,
+        "error": {
+            "code": dcc_mcp_jsonrpc::error_codes::METHOD_NOT_FOUND,
+            "message": "Stateless MCP not yet implemented (Phase 1b pending)",
+            "data": {
+                "protocol_version": "2026-07-28",
+                "status": "phase_1a"
+            }
+        }
+    });
+    (StatusCode::NOT_IMPLEMENTED, Json(error)).into_response()
 }
