@@ -14,3 +14,10 @@ dcc-mcp-protocols = { path = "../dcc-mcp-protocols" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[features]
+default = []
+## Enable MCP 2026-07-28 stateless protocol support (ADR-010 Phase 1).
+## When enabled, `2026-07-28` is added to `SUPPORTED_PROTOCOL_VERSIONS`.
+## Off by default; will become default at Phase 2 (0.21.0).
+mcp-2026-07-28 = []
