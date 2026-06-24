@@ -46,10 +46,10 @@ pub use jsonrpc::{
     JsonRpcResponse, error_codes,
 };
 pub use lifecycle::{
-    ClientCapabilities, ClientInfo, ClientRoot, ElicitationCapability, ElicitationCreateParams,
-    ElicitationCreateResult, InitializeParams, InitializeResult, LoggingCapability,
-    LoggingSetLevelParams, PromptsCapability, ResourcesCapability, RootsListResult,
-    ServerCapabilities, ServerInfo, ToolsCapability,
+    ClientCapabilities, ClientInfo, ClientRoot, DiscoverResult, ElicitationCapability,
+    ElicitationCreateParams, ElicitationCreateResult, InitializeParams, InitializeResult,
+    LoggingCapability, LoggingSetLevelParams, PromptsCapability, ResourcesCapability,
+    RootsListResult, ServerCapabilities, ServerInfo, StatelessServerCapabilities, ToolsCapability,
 };
 pub use notification_builder::{JsonRpcRequestBuilder, NotificationBuilder};
 pub use prompts::{
@@ -76,6 +76,9 @@ pub const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
 
 /// The MCP 2026-07-28 protocol version string.
 pub const MCP_PROTOCOL_VERSION_2026: &str = "2026-07-28";
+
+/// Alias for [`MCP_PROTOCOL_VERSION_2026`] — explicit date-qualified name.
+pub const MCP_PROTOCOL_VERSION_2026_07_28: &str = MCP_PROTOCOL_VERSION_2026;
 
 /// All protocol versions this server can speak, newest first.
 ///
