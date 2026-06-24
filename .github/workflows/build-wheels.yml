@@ -244,6 +244,7 @@ jobs:
         run: |
           "${PY37}" -m venv test-env
           source test-env/bin/activate
+          python -m pip install --upgrade "pip>=24.0"
           pip install --force-reinstall dist/*.whl
           pip check
           python tests/test_imports.py

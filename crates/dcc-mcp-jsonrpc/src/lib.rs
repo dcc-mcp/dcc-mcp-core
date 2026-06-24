@@ -73,8 +73,7 @@ pub const MCP_PROTOCOL_VERSION_2026_07_28: &str = "2026-07-28";
 /// (ADR-010 Phase 1).  At Phase 2 it will become the default; at Phase 3
 /// only `2026-07-28` will remain.
 #[cfg(feature = "mcp-2026-07-28")]
-pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] =
-    &["2026-07-28", "2025-06-18", "2025-03-26"];
+pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2026-07-28", "2025-06-18", "2025-03-26"];
 
 /// All protocol versions this server can speak (feature flag disabled).
 #[cfg(not(feature = "mcp-2026-07-28"))]
