@@ -35,10 +35,11 @@ pub use jsonrpc::{
     JsonRpcResponse, error_codes,
 };
 pub use lifecycle::{
-    ClientCapabilities, ClientInfo, ClientRoot, ElicitationCapability, ElicitationCreateParams,
-    ElicitationCreateResult, InitializeParams, InitializeResult, LoggingCapability,
-    LoggingSetLevelParams, PromptsCapability, ResourcesCapability, RootsListResult,
-    ServerCapabilities, ServerInfo, ToolsCapability,
+    ClientCapabilities, ClientInfo, ClientRoot, DiscoverResult, ElicitationCapability,
+    ElicitationCreateParams, ElicitationCreateResult, InitializeParams, InitializeResult,
+    LoggingCapability, LoggingSetLevelParams, PromptsCapability, ResourcesCapability,
+    RootsListResult, ServerCapabilities, ServerInfo, StatelessServerCapabilities, TasksCapability,
+    ToolsCapability,
 };
 pub use notification_builder::{JsonRpcRequestBuilder, NotificationBuilder};
 pub use prompts::{
@@ -60,7 +61,23 @@ pub use tools::{
 /// MCP protocol version this server implements (default / latest).
 pub const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
 
+/// MCP 2026-07-28 protocol version constant (ADR-010 Phase 1, SEP-2575).
+///
+/// This version introduces stateless sessions: no `initialize` handshake,
+/// no `Mcp-Session-Id`, every request self-contained via `_meta`.
+pub const MCP_PROTOCOL_VERSION_2026_07_28: &str = "2026-07-28";
+
 /// All protocol versions this server can speak, newest first.
+///
+/// `2026-07-28` is listed when the `mcp-2026-07-28` feature flag is enabled
+/// (ADR-010 Phase 1).  At Phase 2 it will become the default; at Phase 3
+/// only `2026-07-28` will remain.
+#[cfg(feature = "mcp-2026-07-28")]
+pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] =
+    &["2026-07-28", "2025-06-18", "2025-03-26"];
+
+/// All protocol versions this server can speak (feature flag disabled).
+#[cfg(not(feature = "mcp-2026-07-28"))]
 pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26"];
 
 /// Negotiate the protocol version to use for a session.
