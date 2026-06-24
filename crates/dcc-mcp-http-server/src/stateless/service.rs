@@ -57,11 +57,7 @@ impl StatelessMcpService {
     /// and not forwarded here; they return `null`.
     pub async fn handle_request(&self, req: &JsonRpcRequest) -> Option<Value> {
         let id = req.id.clone()?;
-        let meta = req
-            .params
-            .as_ref()
-            .and_then(|p| p.get("_meta"))
-            .cloned();
+        let meta = req.params.as_ref().and_then(|p| p.get("_meta")).cloned();
         let _request_meta = RequestMeta::from_value(meta.as_ref());
 
         let response = match req.method.as_str() {
@@ -344,11 +340,7 @@ mod tests {
     #[tokio::test]
     async fn tools_call_missing_name_returns_invalid_params() {
         let svc = make_service();
-        let req = make_request(
-            "tools/call",
-            json!(5),
-            Some(json!({"arguments": {}})),
-        );
+        let req = make_request("tools/call", json!(5), Some(json!({"arguments": {}})));
         let resp = svc.handle_request(&req).await.expect("has id");
         assert_eq!(resp["error"]["code"], error_codes::INVALID_PARAMS);
     }
