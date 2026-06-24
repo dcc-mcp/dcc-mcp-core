@@ -211,18 +211,12 @@ mod tests {
 
     #[test]
     fn negotiate_returns_2025_06_18_when_client_requests_it() {
-        assert_eq!(
-            negotiate_protocol_version(Some("2025-06-18")),
-            "2025-06-18"
-        );
+        assert_eq!(negotiate_protocol_version(Some("2025-06-18")), "2025-06-18");
     }
 
     #[test]
     fn negotiate_returns_2025_03_26_when_client_requests_it() {
-        assert_eq!(
-            negotiate_protocol_version(Some("2025-03-26")),
-            "2025-03-26"
-        );
+        assert_eq!(negotiate_protocol_version(Some("2025-03-26")), "2025-03-26");
     }
 
     #[test]
@@ -262,19 +256,13 @@ mod tests {
 
     #[test]
     fn select_protocol_mode_returns_session_when_session_id_present_and_no_header() {
-        assert_eq!(
-            select_protocol_mode(None, true),
-            ProtocolMode::Session
-        );
+        assert_eq!(select_protocol_mode(None, true), ProtocolMode::Session);
     }
 
     #[test]
     fn select_protocol_mode_returns_default_when_no_hints() {
         // Phase 1 default is Session.
-        assert_eq!(
-            select_protocol_mode(None, false),
-            ProtocolMode::default()
-        );
+        assert_eq!(select_protocol_mode(None, false), ProtocolMode::default());
         assert_eq!(ProtocolMode::default(), ProtocolMode::Session);
     }
 

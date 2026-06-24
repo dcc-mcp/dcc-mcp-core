@@ -257,7 +257,10 @@ mod tests {
             recovered.client_info.as_ref().map(|i| i.name.as_str()),
             Some("test-client")
         );
-        assert_eq!(recovered.traceparent.as_deref(), Some("00-trace-id-span-00"));
+        assert_eq!(
+            recovered.traceparent.as_deref(),
+            Some("00-trace-id-span-00")
+        );
     }
 
     #[test]
