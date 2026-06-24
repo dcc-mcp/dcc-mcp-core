@@ -46,10 +46,10 @@ pub use jsonrpc::{
     JsonRpcResponse, error_codes,
 };
 pub use lifecycle::{
-    ClientCapabilities, ClientInfo, ClientRoot, DiscoverResult, ElicitationCapability,
+    ClientCapabilities, ClientInfo, ClientRoot, ElicitationCapability,
     ElicitationCreateParams, ElicitationCreateResult, InitializeParams, InitializeResult,
     LoggingCapability, LoggingSetLevelParams, PromptsCapability, ResourcesCapability,
-    RootsListResult, ServerCapabilities, ServerInfo, StatelessServerCapabilities, ToolsCapability,
+    RootsListResult, ServerCapabilities, ServerInfo, ToolsCapability,
 };
 pub use notification_builder::{JsonRpcRequestBuilder, NotificationBuilder};
 pub use prompts::{

@@ -45,11 +45,11 @@ impl RequestMeta {
     ///
     /// Returns a zeroed struct if `meta` is `None` or cannot be decoded —
     /// stateless requests are valid even without a populated `_meta`.
-    pub fn from_value(meta: Option<&Value>) -> Self {
+    pub fn from_value(meta: Option<Value>) -> Self {
         let Some(meta) = meta else {
             return Self::default();
         };
-        let Ok(raw) = serde_json::from_value::<RawMeta>(meta.clone()) else {
+        let Ok(raw) = serde_json::from_value::<RawMeta>(meta) else {
             return Self::default();
         };
         Self {
@@ -73,7 +73,7 @@ mod tests {
             "clientInfo": {"name": "TestClient", "version": "1.2.3"},
             "progressToken": "tok-1"
         });
-        let m = RequestMeta::from_value(Some(&meta));
+        let m = RequestMeta::from_value(Some(meta));
         assert_eq!(m.protocol_version.as_deref(), Some("2026-07-28"));
         assert_eq!(m.client_name.as_deref(), Some("TestClient"));
         assert_eq!(m.client_version.as_deref(), Some("1.2.3"));
@@ -90,7 +90,7 @@ mod tests {
     #[test]
     fn handles_partial_meta() {
         let meta = json!({"protocolVersion": "2026-07-28"});
-        let m = RequestMeta::from_value(Some(&meta));
+        let m = RequestMeta::from_value(Some(meta));
         assert_eq!(m.protocol_version.as_deref(), Some("2026-07-28"));
         assert!(m.client_name.is_none());
     }

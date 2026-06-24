@@ -20,9 +20,9 @@ use serde_json::{Value, json};
 use tracing::debug;
 
 use dcc_mcp_jsonrpc::{
-    DiscoverResult, JsonRpcRequest, JsonRpcResponse, MCP_PROTOCOL_VERSION_2026_07_28,
-    PromptsCapability, ResourcesCapability, ServerInfo, StatelessServerCapabilities,
-    TasksCapability, ToolsCapability, error_codes,
+    Discover2026PromptsCapability, Discover2026ResourcesCapability, Discover2026ToolsCapability,
+    DiscoverCapabilities, DiscoverServerInfo, JsonRpcRequest, JsonRpcResponse,
+    MCP_PROTOCOL_VERSION_2026_07_28, ServerDiscoverResult, TasksCapability, error_codes,
 };
 
 use crate::mcp_tool_list_builder::{assemble_full_tool_list, slice_tools_page};
@@ -58,10 +58,10 @@ impl StatelessMcpService {
     pub async fn handle_request(&self, req: &JsonRpcRequest) -> Option<Value> {
         let id = req.id.clone()?;
         let meta = req.params.as_ref().and_then(|p| p.get("_meta")).cloned();
-        let _request_meta = RequestMeta::from_value(meta.as_ref());
+        let _request_meta = RequestMeta::from_value(meta);
 
         let response = match req.method.as_str() {
-            "server/discover" => self.handle_discover(id),
+            dcc_mcp_jsonrpc::SERVER_DISCOVER_METHOD => self.handle_discover(id),
             "ping" => json!({"jsonrpc": "2.0", "id": id, "result": {}}),
             "tools/list" => self.handle_tools_list(id, req).await,
             "tools/call" => self.handle_tools_call(id, req).await,
@@ -81,9 +81,9 @@ impl StatelessMcpService {
     /// Equivalent to `initialize` in the 2026-07-28 stateless model (SEP-2575).
     fn handle_discover(&self, id: Value) -> Value {
         let caps = self.build_stateless_capabilities();
-        let result = DiscoverResult {
+        let result = ServerDiscoverResult {
             protocol_version: MCP_PROTOCOL_VERSION_2026_07_28.to_string(),
-            server_info: ServerInfo {
+            server_info: DiscoverServerInfo {
                 name: self.state.server_name.clone(),
                 version: self.state.server_version.clone(),
             },
@@ -99,11 +99,11 @@ impl StatelessMcpService {
         json!({"jsonrpc": "2.0", "id": id, "result": result_value})
     }
 
-    fn build_stateless_capabilities(&self) -> StatelessServerCapabilities {
-        StatelessServerCapabilities {
-            tools: Some(ToolsCapability { list_changed: true }),
+    fn build_stateless_capabilities(&self) -> DiscoverCapabilities {
+        DiscoverCapabilities {
+            tools: Some(Discover2026ToolsCapability { list_changed: true }),
             resources: if self.state.enable_resources {
-                Some(ResourcesCapability {
+                Some(Discover2026ResourcesCapability {
                     subscribe: true,
                     list_changed: true,
                 })
@@ -111,7 +111,7 @@ impl StatelessMcpService {
                 None
             },
             prompts: if self.state.enable_prompts {
-                Some(PromptsCapability { list_changed: true })
+                Some(Discover2026PromptsCapability { list_changed: true })
             } else {
                 None
             },
@@ -216,12 +216,16 @@ impl StatelessMcpService {
         json!({"jsonrpc": "2.0", "id": id, "result": {"resources": []}})
     }
 
-    /// `prompts/list` — returns an empty list when prompts are disabled.
+    /// `prompts/list` — returns `METHOD_NOT_FOUND` when prompts are disabled
+    /// (matching `resources/list` behaviour).
     async fn handle_prompts_list(&self, id: Value) -> Value {
         if !self.state.enable_prompts {
             return json!({
                 "jsonrpc": "2.0", "id": id,
-                "result": {"prompts": []}
+                "error": {
+                    "code": error_codes::METHOD_NOT_FOUND,
+                    "message": "Prompts not enabled"
+                }
             });
         }
         json!({"jsonrpc": "2.0", "id": id, "result": {"prompts": []}})
