@@ -85,6 +85,33 @@ pub mod error_codes {
     /// deadline (typically because the embedded runtime is starved by a busy DCC
     /// host). Clients should back off and retry with fewer concurrent sessions.
     pub const GATEWAY_BUSY: i64 = -32003;
+
+    // ── MCP 2026-07-28 specific error codes ────────────────────────────────
+
+    /// MCP 2026-07-28 — the client sent an `MCP-Protocol-Version` header
+    /// whose value is not in the server's supported versions list.
+    ///
+    /// The `data` payload MUST include a `supported_versions` array so the
+    /// client can retry with the correct version (ADR-010 §版本降级流程):
+    ///
+    /// ```json
+    /// {
+    ///   "code": -32004,
+    ///   "message": "Unsupported protocol version",
+    ///   "data": {
+    ///     "requested": "2026-07-28",
+    ///     "supported_versions": ["2026-07-28", "2025-06-18", "2025-03-26"]
+    ///   }
+    /// }
+    /// ```
+    pub const UNSUPPORTED_PROTOCOL_VERSION: i64 = -32004;
+
+    /// MCP 2026-07-28 — the server received a stateless request that omitted
+    /// a required `_meta` field (e.g. `protocolVersion`).
+    ///
+    /// Only emitted on the `2026-07-28` code path; legacy session requests
+    /// use `INVALID_PARAMS` instead.
+    pub const VERSION_REQUIRED: i64 = -32005;
 }
 
 impl JsonRpcResponse {
@@ -142,5 +169,26 @@ impl JsonRpcResponse {
 
     pub fn internal_error(id: Option<Value>, msg: impl Into<String>) -> Self {
         Self::error(id, error_codes::INTERNAL_ERROR, msg)
+    }
+
+    /// MCP 2026-07-28 — respond with `UNSUPPORTED_PROTOCOL_VERSION` (-32004).
+    ///
+    /// `requested` is the version the client asked for; `supported` is the
+    /// slice of versions the server accepts (passed through as `data`).
+    pub fn unsupported_protocol_version(
+        id: Option<Value>,
+        requested: &str,
+        supported: &[&str],
+    ) -> Self {
+        use serde_json::json;
+        Self::error_with_data(
+            id,
+            error_codes::UNSUPPORTED_PROTOCOL_VERSION,
+            "Unsupported protocol version",
+            Some(json!({
+                "requested": requested,
+                "supported_versions": supported,
+            })),
+        )
     }
 }
