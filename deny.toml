@@ -25,7 +25,15 @@ exclude-dev = true
 version = 2
 yanked = "warn"
 unmaintained = "workspace"
-ignore = []
+ignore = [
+    # RUSTSEC-2026-0176: PyO3 0.24.0 Iterator::nth/nth_back integer overflow.
+    # Fixed in pyo3 >= 0.29.0. Upgrade tracked in PIP-2153 (separate from
+    # the current feature PR to avoid coupling a security upgrade with new code).
+    "RUSTSEC-2026-0176",
+    # RUSTSEC-2026-0177: PyO3 PyCFunction::new_closure missing Sync bound.
+    # Fixed in pyo3 >= 0.29.0. Upgrade tracked in PIP-2153.
+    "RUSTSEC-2026-0177",
+]
 
 [licenses]
 version = 2
