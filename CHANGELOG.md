@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.17](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.16...v0.18.17) (2026-06-25)
+
+
+### Features
+
+* ADR-010 Phase 1 — jsonrpc wire types + stateless MCP service ([#1735](https://github.com/dcc-mcp/dcc-mcp-core/issues/1735)) ([a5ac3f2](https://github.com/dcc-mcp/dcc-mcp-core/commit/a5ac3f299039588e2c5b1ce81de52933fd4946c4))
+* **dcc-mcp-updater, gateway, cli, server:** add gateway-controlled auto-update mechanism ([de524a9](https://github.com/dcc-mcp/dcc-mcp-core/commit/de524a97999591506ceb80139669d48314bfe8c4))
+
+
+### Bug Fixes
+
+* **ci:** explicitly install lightningcss native module after npm ci ([37d5c26](https://github.com/dcc-mcp/dcc-mcp-core/commit/37d5c260696323abe4ea90173951e54475ed6efd))
+* **cli, fmt, clippy:** fix lint errors and apply cargo fmt ([2c60e98](https://github.com/dcc-mcp/dcc-mcp-core/commit/2c60e981bc7263d6fb5e04b81f73c6abc1ddff1c))
+* **updater, gateway, cli:** address PR review issues ([4278c43](https://github.com/dcc-mcp/dcc-mcp-core/commit/4278c435c59ede103532f180e664cdec8c5bb5a8))
+
 ## [0.18.16](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.15...v0.18.16) (2026-06-10)
 
 
