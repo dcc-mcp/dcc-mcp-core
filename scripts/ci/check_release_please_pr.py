@@ -48,6 +48,62 @@ def remote_tag_exists(repo: str, tag_name: str) -> bool:
     fail(f"could not check remote tag {tag_name}: {result.stdout.strip()}")
 
 
+def check_ci(repo: str, branch: str) -> None:
+    """Fail if the latest CI workflow run for this branch completed with failure.
+
+    Pending / in-progress runs are not blocked — only a definitive failure
+    blocks the merge.
+    """
+    if os.environ.get("DCC_RELEASE_GUARD_SKIP_CI") == "1":
+        return
+
+    if not repo:
+        print("::warning::GITHUB_REPOSITORY not set; skipping CI status check.", file=sys.stderr)
+        return
+
+    result = subprocess.run(
+        [
+            "gh", "run", "list",
+            "--repo", repo,
+            "--branch", branch,
+            "--workflow", "ci.yml",
+            "--limit", "1",
+            "--json", "status,conclusion",
+        ],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"::warning::gh run list failed: {result.stderr.strip()}", file=sys.stderr)
+        return
+
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        print("::warning::Could not parse CI run list JSON.", file=sys.stderr)
+        return
+
+    if not data:
+        print("CI workflow has not started yet; not blocking.")
+        return
+
+    latest = data[0]
+    status = latest.get("status")
+    conclusion = latest.get("conclusion")
+
+    if status == "completed":
+        if conclusion == "failure":
+            fail(
+                "CI workflow (ci.yml) failed on this branch. "
+                "Fix the CI failure before merging this release PR."
+            )
+        print(f"CI workflow completed: {conclusion}")
+    else:
+        print(f"CI workflow status: {status} (not blocking)")
+
+
 def main() -> None:
     """Validate the current checkout against pull request metadata."""
     head_ref = os.environ.get("PR_HEAD_REF", "")
@@ -81,8 +137,9 @@ def main() -> None:
             f"CHANGELOG top release/version drift: CHANGELOG has {changelog_version}, manifest has {manifest_version}."
         )
 
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+
     if os.environ.get("DCC_RELEASE_GUARD_SKIP_REMOTE") != "1":
-        repo = os.environ.get("GITHUB_REPOSITORY", "")
         if not repo:
             fail("GITHUB_REPOSITORY is required for remote tag validation")
         tag_name = f"v{manifest_version}"
@@ -91,6 +148,8 @@ def main() -> None:
                 f"remote tag {tag_name} already exists while this release PR is still open. "
                 "This PR is stale; close it and let release-please regenerate from main."
             )
+
+    check_ci(repo, head_ref)
 
     print(f"Release PR metadata is consistent for {manifest_version}.")
 
