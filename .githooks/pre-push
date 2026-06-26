@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# pre-push hook: block pushes that contain unformatted Rust code.
+# Run `just githooks-install` once to activate.
+
+set -euo pipefail
+
+echo "==> Running cargo fmt --check before push..."
+
+# Prefer `just fmt-check` when just is available, fall back to cargo directly.
+if command -v just &>/dev/null; then
+  just fmt-check
+elif command -v cargo &>/dev/null; then
+  cargo fmt --all -- --check
+else
+  echo "ERROR: neither 'just' nor 'cargo' found on PATH" >&2
+  exit 1
+fi
+
+echo "==> Rust formatting OK"
