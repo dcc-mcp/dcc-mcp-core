@@ -49,13 +49,9 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 rmcp = { workspace = true }
 
 [dev-dependencies]
+tempfile = "3"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
 
 [features]
 default = []
 prometheus = ["dep:dcc-mcp-telemetry", "dcc-mcp-telemetry/prometheus"]
-## Enable MCP 2026-07-28 stateless protocol support (ADR-010 Phase 1).
-## Adds `stateless::StatelessMcpService` and propagates the flag to
-## `dcc-mcp-jsonrpc` so `2026-07-28` appears in `SUPPORTED_PROTOCOL_VERSIONS`.
-## Off by default; will become default at Phase 2 (0.21.0).
-mcp-2026-07-28 = ["dcc-mcp-jsonrpc/mcp-2026-07-28"]

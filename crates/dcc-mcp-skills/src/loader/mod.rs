@@ -27,6 +27,108 @@ const AGENTSKILLS_SPEC_KEYS: &[&str] = &[
     "allowed_tools",
 ];
 
+/// Diagnostic captured when a skill directory is scanned but cannot be loaded.
+///
+/// The payload intentionally carries only a directory basename, not the
+/// absolute path. Full paths remain available in local logs and in the legacy
+/// `LoadResult.skipped` vector for callers that already opted into local
+/// filesystem details.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SkippedSkillDiagnostic {
+    /// Best-effort skill name, read from frontmatter when possible and falling
+    /// back to the directory name otherwise.
+    pub skill_name: String,
+    /// Directory basename, safe to surface through MCP discovery.
+    pub directory_name: String,
+    /// Stable machine-readable reason code.
+    pub reason_code: String,
+    /// Human-readable reason with no absolute path.
+    pub message: String,
+    /// Actionable migration or repair hint.
+    pub suggested_fix: String,
+    /// Best-effort DCC filter metadata from frontmatter when it can be
+    /// parsed safely.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dcc: Option<String>,
+    /// Best-effort tag filter metadata from frontmatter when it can be
+    /// parsed safely.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    /// Catalog scope that found the skipped directory, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+    /// Non-spec frontmatter keys that caused rejection, when applicable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub offending_keys: Vec<String>,
+}
+
+impl SkippedSkillDiagnostic {
+    fn new(
+        skill_dir: &Path,
+        skill_name: Option<String>,
+        reason_code: impl Into<String>,
+        message: impl Into<String>,
+        suggested_fix: impl Into<String>,
+    ) -> Self {
+        let directory_name = skill_dir
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let skill_name = skill_name
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| directory_name.clone());
+        Self {
+            skill_name,
+            directory_name,
+            reason_code: reason_code.into(),
+            message: message.into(),
+            suggested_fix: suggested_fix.into(),
+            dcc: None,
+            tags: Vec::new(),
+            scope: None,
+            offending_keys: Vec::new(),
+        }
+    }
+
+    pub fn with_scope(mut self, scope: impl Into<String>) -> Self {
+        self.scope = Some(scope.into());
+        self
+    }
+
+    fn with_filter_metadata(mut self, dcc: Option<String>, tags: Vec<String>) -> Self {
+        self.dcc = dcc.filter(|value| !value.trim().is_empty());
+        self.tags = tags;
+        self
+    }
+
+    fn with_offending_keys(mut self, offending_keys: Vec<String>) -> Self {
+        self.offending_keys = offending_keys;
+        self
+    }
+
+    /// Return true when this diagnostic should be surfaced for a discovery
+    /// query. Matching is deliberately simple and local: agents need "why did
+    /// maya-mgear disappear?", not a second BM25 index.
+    pub fn matches_query(&self, query: Option<&str>) -> bool {
+        let q = query.map(str::trim).unwrap_or_default();
+        if q.is_empty() {
+            return true;
+        }
+        let q = q.to_ascii_lowercase();
+        let haystack = format!(
+            "{} {} {} {} {} {}",
+            self.skill_name,
+            self.directory_name,
+            self.reason_code,
+            self.message,
+            self.suggested_fix,
+            self.offending_keys.join(" ")
+        )
+        .to_ascii_lowercase();
+        haystack.contains(&q)
+    }
+}
+
 mod files;
 mod scan;
 
@@ -44,22 +146,50 @@ pub use scan::{
 /// Parse a SKILL.md file from a skill directory.
 #[must_use]
 pub fn parse_skill_md(skill_dir: &Path) -> Option<SkillMetadata> {
+    parse_skill_md_with_diagnostic(skill_dir).ok()
+}
+
+/// Parse a SKILL.md file from a skill directory, returning a structured
+/// skipped diagnostic when the loader rejects it.
+pub fn parse_skill_md_with_diagnostic(
+    skill_dir: &Path,
+) -> Result<SkillMetadata, Box<SkippedSkillDiagnostic>> {
     let skill_md_path = skill_dir.join(SKILL_METADATA_FILE);
     if !skill_md_path.is_file() {
         tracing::warn!("SKILL.md not found at: {}", skill_md_path.display());
-        return None;
+        return Err(Box::new(SkippedSkillDiagnostic::new(
+            skill_dir,
+            None,
+            "missing_skill_md",
+            "SKILL.md not found",
+            "Create a SKILL.md file with agentskills.io frontmatter.",
+        )));
     }
 
     let content = match std::fs::read_to_string(&skill_md_path) {
         Ok(c) => c,
         Err(e) => {
             tracing::warn!("Error reading {}: {}", skill_md_path.display(), e);
-            return None;
+            return Err(Box::new(SkippedSkillDiagnostic::new(
+                skill_dir,
+                None,
+                "read_error",
+                format!("Cannot read SKILL.md: {e}"),
+                "Fix file permissions or encoding, then rescan the skill directory.",
+            )));
         }
     };
 
     // Extract YAML frontmatter between --- delimiters
-    let frontmatter = extract_frontmatter(&content)?;
+    let frontmatter = extract_frontmatter(&content).ok_or_else(|| {
+        Box::new(SkippedSkillDiagnostic::new(
+            skill_dir,
+            None,
+            "missing_frontmatter",
+            "SKILL.md missing YAML frontmatter",
+            "Start SKILL.md with a YAML frontmatter block delimited by ---.",
+        ))
+    })?;
 
     // Parse once into a raw YAML value so we can validate top-level keys
     // before handing off to serde. All dcc-mcp-core extensions must live
@@ -73,7 +203,13 @@ pub fn parse_skill_md(skill_dir: &Path) -> Option<SkillMetadata> {
                 skill_md_path.display(),
                 e
             );
-            return None;
+            return Err(Box::new(SkippedSkillDiagnostic::new(
+                skill_dir,
+                None,
+                "invalid_frontmatter_yaml",
+                format!("Invalid YAML frontmatter: {e}"),
+                "Fix the YAML frontmatter syntax, then rescan the skill directory.",
+            )));
         }
     };
 
@@ -81,21 +217,36 @@ pub fn parse_skill_md(skill_dir: &Path) -> Option<SkillMetadata> {
     // 1.0 spec. This replaces the pre-0.15 dual-read path that silently
     // accepted legacy top-level extension keys.
     if let Some(map) = raw_value.as_mapping() {
-        let mut offending: Vec<&str> = map
+        let mut offending: Vec<String> = map
             .iter()
             .filter_map(|(k, _)| k.as_str())
             .filter(|k| !AGENTSKILLS_SPEC_KEYS.contains(k))
+            .map(str::to_string)
             .collect();
         if !offending.is_empty() {
             offending.sort_unstable();
             offending.dedup();
+            let suggested_fix = non_spec_top_level_suggestion(&offending);
             tracing::error!(
                 "skill at {}: non-spec top-level key(s) {:?}; move them under metadata.dcc-mcp.* \
                  (see docs/guide/skills.md#migrating-pre-015-skillmd)",
                 skill_md_path.display(),
                 offending,
             );
-            return None;
+            return Err(Box::new(
+                SkippedSkillDiagnostic::new(
+                    skill_dir,
+                    raw_skill_name(&raw_value, skill_dir),
+                    "non_spec_top_level_keys",
+                    format!(
+                        "SKILL.md uses non-spec top-level key(s) {:?}; dcc-mcp-core extensions must live under metadata.dcc-mcp.*.",
+                        offending
+                    ),
+                    suggested_fix,
+                )
+                .with_frontmatter_filter_metadata(&raw_value)
+                .with_offending_keys(offending),
+            ));
         }
     }
 
@@ -107,7 +258,14 @@ pub fn parse_skill_md(skill_dir: &Path) -> Option<SkillMetadata> {
                 skill_md_path.display(),
                 e
             );
-            return None;
+            return Err(Box::new(SkippedSkillDiagnostic::new(
+                skill_dir,
+                raw_skill_name(&raw_value, skill_dir),
+                "invalid_frontmatter_shape",
+                format!("Cannot deserialize frontmatter into SkillMetadata: {e}"),
+                "Keep top-level fields to name, description, license, compatibility, metadata, and allowed-tools.",
+            )
+            .with_frontmatter_filter_metadata(&raw_value)));
         }
     };
 
@@ -159,7 +317,119 @@ pub fn parse_skill_md(skill_dir: &Path) -> Option<SkillMetadata> {
     // Merge depends from metadata/depends.md if present
     merge_depends_from_metadata(skill_dir, &mut meta);
 
-    Some(meta)
+    Ok(meta)
+}
+
+/// Re-run the loader in diagnostic mode for a directory that was skipped by a
+/// scan. If the directory now parses successfully, return a generic stale
+/// diagnostic so callers can refresh their catalog state.
+#[must_use]
+pub fn diagnose_skipped_skill_dir(skill_dir: &Path) -> SkippedSkillDiagnostic {
+    match parse_skill_md_with_diagnostic(skill_dir) {
+        Ok(meta) => SkippedSkillDiagnostic::new(
+            skill_dir,
+            Some(meta.name.clone()),
+            "stale_skip_record",
+            "Skill now parses successfully but the catalog still has a skipped record.",
+            "Rediscover skills to refresh the catalog state.",
+        )
+        .with_filter_metadata((!meta.dcc.is_empty()).then_some(meta.dcc), meta.tags),
+        Err(diagnostic) => *diagnostic,
+    }
+}
+
+impl SkippedSkillDiagnostic {
+    fn with_frontmatter_filter_metadata(self, raw: &serde_yaml_ng::Value) -> Self {
+        let (dcc, tags) = frontmatter_filter_metadata(raw);
+        self.with_filter_metadata(dcc, tags)
+    }
+}
+
+fn raw_skill_name(raw: &serde_yaml_ng::Value, skill_dir: &Path) -> Option<String> {
+    raw.as_mapping()
+        .and_then(|map| map.get(serde_yaml_ng::Value::String("name".to_string())))
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+        .or_else(|| {
+            skill_dir
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+}
+
+fn frontmatter_filter_metadata(raw: &serde_yaml_ng::Value) -> (Option<String>, Vec<String>) {
+    let mut dcc = None;
+    let mut tags = Vec::new();
+
+    for (key, value) in collect_dcc_mcp_overrides(raw) {
+        match key.as_str() {
+            "dcc" if dcc.is_none() => {
+                dcc = value.as_str().map(str::to_string);
+            }
+            "tags" if tags.is_empty() => {
+                tags = parse_csv_or_list(&value);
+            }
+            _ => {}
+        }
+    }
+
+    let Some(map) = raw.as_mapping() else {
+        return (dcc, tags);
+    };
+    if dcc.is_none() {
+        dcc = map
+            .get(serde_yaml_ng::Value::String("dcc".to_string()))
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
+    }
+    if tags.is_empty()
+        && let Some(value) = map.get(serde_yaml_ng::Value::String("tags".to_string()))
+    {
+        tags = parse_csv_or_list(value);
+    }
+
+    (dcc, tags)
+}
+
+fn non_spec_top_level_suggestion(offending: &[String]) -> String {
+    let mut replacements = Vec::new();
+    for key in offending {
+        let replacement = match key.as_str() {
+            "dcc" => "metadata.dcc-mcp.dcc",
+            "version" => "metadata.dcc-mcp.version",
+            "tags" => "metadata.dcc-mcp.tags",
+            "tools" => "metadata.dcc-mcp.tools: tools.yaml",
+            "groups" => "metadata.dcc-mcp.groups",
+            "prompts" => "metadata.dcc-mcp.prompts",
+            "resources" => "metadata.dcc-mcp.resources",
+            "depends" => "metadata.dcc-mcp.depends",
+            "layer" => "metadata.dcc-mcp.layer",
+            "stage" => "metadata.dcc-mcp.stage",
+            "search-hint" | "search_hint" => "metadata.dcc-mcp.search-hint",
+            "search-aliases" | "search_aliases" | "aliases" => "metadata.dcc-mcp.search-aliases",
+            "products" => "metadata.dcc-mcp.products",
+            "allow-implicit-invocation" | "allow_implicit_invocation" => {
+                "metadata.dcc-mcp.allow-implicit-invocation"
+            }
+            "external-deps" | "external_deps" => "metadata.dcc-mcp.external-deps",
+            "runtimes" | "runtime-deps" | "optional-runtimes" => "metadata.dcc-mcp.runtimes",
+            "recipes" => "metadata.dcc-mcp.recipes",
+            "branding" => "metadata.dcc-mcp.branding",
+            "links" => "metadata.dcc-mcp.links",
+            "example-prompts" | "example_prompts" => "metadata.dcc-mcp.example-prompts",
+            _ => "metadata.dcc-mcp.<key>",
+        };
+        replacements.push(format!("{key} -> {replacement}"));
+    }
+
+    if replacements.is_empty() {
+        "Move dcc-mcp-core extensions under metadata.dcc-mcp.*.".to_string()
+    } else {
+        format!(
+            "Move unsupported top-level key(s): {}. For version metadata, use metadata.dcc-mcp.version: \"1.0.0\".",
+            replacements.join(", ")
+        )
+    }
 }
 
 // ── Issue #356: agentskills.io-compliant metadata.dcc-mcp.* support ──
@@ -259,6 +529,16 @@ fn apply_dcc_mcp_metadata_overrides(
                     meta.prompts_file = Some(s.to_string());
                 }
             }
+            "resources" => {
+                // Sibling-file reference for the MCP resources primitive.
+                // Parsing is deferred; the HTTP/MCP resource registry loads
+                // sidecar YAML files lazily when resources are synchronized.
+                if let Some(s) = value.as_str()
+                    && !s.is_empty()
+                {
+                    meta.resources_file = Some(s.to_string());
+                }
+            }
             "layer" => {
                 // Architectural layer for skill routing and search partitioning.
                 // Valid values: "infrastructure", "domain", "example".
@@ -288,15 +568,6 @@ fn apply_dcc_mcp_metadata_overrides(
                     && !s.is_empty()
                 {
                     meta.recipes_file = Some(s.to_string());
-                }
-            }
-            "introspection" => {
-                // Sibling-file reference for capability-probe / version-check
-                // metadata (issue #466). Parsing is deferred; store for lazy loading.
-                if let Some(s) = value.as_str()
-                    && !s.is_empty()
-                {
-                    meta.introspection_file = Some(s.to_string());
                 }
             }
             "branding" => {

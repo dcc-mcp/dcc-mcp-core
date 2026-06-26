@@ -18,9 +18,10 @@ use std::ffi::OsString;
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
+use serde::Serialize;
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -39,6 +40,76 @@ pub const ENV_GATEWAY_ENSURE_TIMEOUT_SECS: &str = "DCC_MCP_GATEWAY_ENSURE_TIMEOU
 /// Default ensure-wait timeout (15 s) when neither the caller nor the env var
 /// provide a value.
 pub const DEFAULT_ENSURE_TIMEOUT_SECS: u64 = 15;
+
+/// Context recorded in gateway autolaunch manifests and wait-timeout errors.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct GatewayLaunchContext {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_host: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gateway_idle_timeout_secs: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapter_dcc: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapter_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crate_version: Option<String>,
+}
+
+impl GatewayLaunchContext {
+    pub fn gateway(
+        host: &str,
+        port: u16,
+        remote_host: &str,
+        remote_port: u16,
+        gateway_idle_timeout_secs: u64,
+    ) -> Self {
+        Self {
+            host: Some(host.to_string()),
+            port: Some(port),
+            remote_host: Some(remote_host.to_string()),
+            remote_port: Some(remote_port),
+            gateway_idle_timeout_secs: Some(gateway_idle_timeout_secs),
+            ..Self::default()
+        }
+    }
+
+    pub fn health_url(&self) -> Option<String> {
+        match (self.host.as_deref(), self.port) {
+            (Some(host), Some(port)) => Some(gateway_health_url(host, port)),
+            _ => None,
+        }
+    }
+}
+
+/// Files and process details produced by a detached gateway launch.
+#[derive(Debug, Clone)]
+pub struct GatewayLaunchArtifacts {
+    pub pid: u32,
+    pub executable: PathBuf,
+    pub args: Vec<OsString>,
+    pub stdout_log: PathBuf,
+    pub stderr_log: PathBuf,
+    pub manifest_path: PathBuf,
+}
+
+/// Extra context for a gateway-ready wait failure.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct GatewayReadyDiagnostics<'a> {
+    pub registry_dir: Option<&'a Path>,
+    pub launch_lock: Option<&'a Path>,
+    pub launch: Option<&'a GatewayLaunchArtifacts>,
+    pub started: Option<Instant>,
+    pub gateway_idle_timeout_secs: Option<u64>,
+    pub remote_host: Option<&'a str>,
+    pub remote_port: Option<u16>,
+}
 
 // ── Health check ───────────────────────────────────────────────────────────
 
@@ -60,6 +131,11 @@ pub async fn gateway_health_ok_with_timeout(host: &str, port: u16, timeout: Dura
         .send()
         .await
         .is_ok_and(|resp| resp.status().is_success())
+}
+
+/// Build the gateway `/health` URL used by diagnostics and probes.
+pub fn gateway_health_url(host: &str, port: u16) -> String {
+    format!("http://{host}:{port}/health")
 }
 
 // ── Launch lock ────────────────────────────────────────────────────────────
@@ -175,6 +251,17 @@ pub fn resolve_ensure_timeout_secs(explicit_secs: u64) -> u64 {
 /// Poll the gateway `/health` endpoint until it responds successfully or the
 /// `timeout` expires.
 pub async fn wait_gateway_ready(host: &str, port: u16, timeout: Duration) -> anyhow::Result<()> {
+    wait_gateway_ready_with_diagnostics(host, port, timeout, GatewayReadyDiagnostics::default())
+        .await
+}
+
+/// Poll the gateway `/health` endpoint with extra failure diagnostics.
+pub async fn wait_gateway_ready_with_diagnostics(
+    host: &str,
+    port: u16,
+    timeout: Duration,
+    diagnostics: GatewayReadyDiagnostics<'_>,
+) -> anyhow::Result<()> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
         if gateway_health_ok(host, port).await {
@@ -183,8 +270,67 @@ pub async fn wait_gateway_ready(host: &str, port: u16, timeout: Duration) -> any
         tokio::time::sleep(Duration::from_millis(150)).await;
     }
     anyhow::bail!(
-        "gateway did not become healthy at http://{host}:{port}/health within {timeout:?}"
+        "{}",
+        gateway_ready_timeout_message(host, port, timeout, diagnostics)
     )
+}
+
+/// Build the detailed timeout message used by wait helpers.
+pub fn gateway_ready_timeout_message(
+    host: &str,
+    port: u16,
+    timeout: Duration,
+    diagnostics: GatewayReadyDiagnostics<'_>,
+) -> String {
+    let mut parts = vec![format!(
+        "gateway did not become healthy at {} within {:?}",
+        gateway_health_url(host, port),
+        timeout
+    )];
+    if let Some(started) = diagnostics.started {
+        parts.push(format!("elapsed_ms={}", started.elapsed().as_millis()));
+    }
+    if let Some(registry_dir) = diagnostics.registry_dir {
+        parts.push(format!("registry_dir={}", registry_dir.display()));
+    }
+    if let Some(lock_path) = diagnostics.launch_lock {
+        parts.push(format!("launch_lock={}", lock_path.display()));
+        parts.push(format!("launch_lock_exists={}", lock_path.exists()));
+    }
+    if let Some(idle_timeout) = diagnostics.gateway_idle_timeout_secs {
+        parts.push(format!("gateway_idle_timeout_secs={idle_timeout}"));
+    }
+    match (diagnostics.remote_host, diagnostics.remote_port) {
+        (Some(remote_host), Some(remote_port)) => {
+            parts.push(format!("remote={remote_host}:{remote_port}"));
+        }
+        (Some(remote_host), None) => {
+            parts.push(format!("remote_host={remote_host}"));
+        }
+        (None, Some(remote_port)) => {
+            parts.push(format!("remote_port={remote_port}"));
+        }
+        (None, None) => {}
+    }
+    if let Some(launch) = diagnostics.launch {
+        let args = launch
+            .args
+            .iter()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+        parts.extend([
+            format!("spawned_pid={}", launch.pid),
+            format!("executable={}", launch.executable.display()),
+            format!("args={args}"),
+            format!("stdout_log={}", launch.stdout_log.display()),
+            format!("stderr_log={}", launch.stderr_log.display()),
+            format!("manifest={}", launch.manifest_path.display()),
+        ]);
+    } else {
+        parts.push("spawned_pid=<none>".to_string());
+    }
+    parts.join("; ")
 }
 
 // ── Spawn ──────────────────────────────────────────────────────────────────
@@ -198,25 +344,56 @@ pub fn spawn_detached_gateway(
     args: &[OsString],
     registry_dir: &Path,
 ) -> anyhow::Result<u32> {
+    let artifacts = spawn_detached_gateway_with_context(
+        exe,
+        args,
+        registry_dir,
+        GatewayLaunchContext::default(),
+    )?;
+    Ok(artifacts.pid)
+}
+
+/// Spawn a detached gateway and keep stdout/stderr plus a JSON manifest in
+/// the registry directory for post-failure debugging.
+pub fn spawn_detached_gateway_with_context(
+    exe: &Path,
+    args: &[OsString],
+    registry_dir: &Path,
+    context: GatewayLaunchContext,
+) -> anyhow::Result<GatewayLaunchArtifacts> {
+    let prefix = gateway_autolaunch_prefix(&context);
+    let stdout_log = registry_dir.join(format!("{prefix}-stdout.log"));
+    let stderr_log = registry_dir.join(format!("{prefix}-stderr.log"));
+    let manifest_path = registry_dir.join(format!("{prefix}.json"));
     let mut cmd = Command::new(exe);
     cmd.args(args)
         .env("DCC_MCP_REGISTRY_DIR", registry_dir)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stdout(log_stdio_or_null(&stdout_log, "stdout"))
+        .stderr(log_stdio_or_null(&stderr_log, "stderr"));
 
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         const DETACHED_PROCESS: u32 = 0x0000_0008;
-        cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
     }
 
     let child = cmd
         .spawn()
         .with_context(|| format!("spawning gateway from {}", exe.display()))?;
-    Ok(child.id())
+    let artifacts = GatewayLaunchArtifacts {
+        pid: child.id(),
+        executable: exe.to_path_buf(),
+        args: args.to_vec(),
+        stdout_log,
+        stderr_log,
+        manifest_path,
+    };
+    write_launch_manifest(registry_dir, &context, &artifacts);
+    Ok(artifacts)
 }
 
 /// Build the command-line arguments for a standalone gateway process.
@@ -248,6 +425,80 @@ pub fn gateway_command_args(
         cargs.push(OsString::from(name));
     }
     cargs
+}
+
+fn gateway_autolaunch_prefix(context: &GatewayLaunchContext) -> String {
+    context
+        .port
+        .map(|port| format!("gateway-autolaunch-{port}"))
+        .unwrap_or_else(|| "gateway-autolaunch".to_string())
+}
+
+fn log_stdio_or_null(path: &Path, stream_name: &str) -> Stdio {
+    match OpenOptions::new().create(true).append(true).open(path) {
+        Ok(file) => Stdio::from(file),
+        Err(err) => {
+            tracing::warn!(
+                path = %path.display(),
+                stream = stream_name,
+                error = %err,
+                "gateway autolaunch stdio log could not be opened; discarding stream"
+            );
+            Stdio::null()
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct GatewayLaunchManifest {
+    pid: u32,
+    spawned_at_unix: u64,
+    executable: String,
+    args: Vec<String>,
+    registry_dir: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    health_url: Option<String>,
+    #[serde(flatten)]
+    context: GatewayLaunchContext,
+    stdout_log: String,
+    stderr_log: String,
+}
+
+fn write_launch_manifest(
+    registry_dir: &Path,
+    context: &GatewayLaunchContext,
+    artifacts: &GatewayLaunchArtifacts,
+) {
+    let args = artifacts
+        .args
+        .iter()
+        .map(|arg| arg.to_string_lossy().to_string())
+        .collect();
+    let manifest = GatewayLaunchManifest {
+        pid: artifacts.pid,
+        spawned_at_unix: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+        executable: artifacts.executable.display().to_string(),
+        args,
+        registry_dir: registry_dir.display().to_string(),
+        health_url: context.health_url(),
+        context: context.clone(),
+        stdout_log: artifacts.stdout_log.display().to_string(),
+        stderr_log: artifacts.stderr_log.display().to_string(),
+    };
+    match serde_json::to_vec_pretty(&manifest)
+        .map_err(std::io::Error::other)
+        .and_then(|bytes| std::fs::write(&artifacts.manifest_path, bytes))
+    {
+        Ok(()) => {}
+        Err(err) => tracing::warn!(
+            path = %artifacts.manifest_path.display(),
+            error = %err,
+            "gateway autolaunch manifest could not be written"
+        ),
+    }
 }
 
 // ── PID file ───────────────────────────────────────────────────────────────
@@ -286,19 +537,15 @@ pub fn is_process_alive(pid: u32) -> bool {
         // `tasklist /FI "PID eq <pid>" /NH` returns output containing the
         // PID if the process exists, or "INFO: No tasks..." on stderr if not.
         // Exit code is always 0, so we check stdout for the PID string.
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-        let mut cmd = Command::new("tasklist");
-        cmd.args([
-            "/FI",
-            &format!("PID eq {pid}"),
-            "/NH", // No headers
-        ])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        let output = cmd.output();
+        let output = Command::new("tasklist")
+            .args([
+                "/FI",
+                &format!("PID eq {pid}"),
+                "/NH", // No headers
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output();
         match output {
             Ok(out) => {
                 let stdout = String::from_utf8_lossy(&out.stdout);
@@ -324,15 +571,10 @@ pub fn is_process_alive(pid: u32) -> bool {
 pub fn stop_process(pid: u32) -> anyhow::Result<()> {
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-        let mut cmd = Command::new("taskkill");
-        cmd.args(["/PID", &pid.to_string(), "/F"])
+        let status = Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
             .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        let status = cmd
+            .stderr(Stdio::null())
             .status()
             .with_context(|| format!("taskkill /PID {pid}"))?;
         if !status.success() {
@@ -363,7 +605,7 @@ pub fn stop_process(pid: u32) -> anyhow::Result<()> {
 pub fn default_registry_dir() -> PathBuf {
     std::env::var("DCC_MCP_REGISTRY_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("dcc-mcp-core-registry"))
+        .unwrap_or_else(|_| std::env::temp_dir().join("dcc-mcp-registry"))
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -371,6 +613,7 @@ pub fn default_registry_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dcc_mcp_test_utils::EnvVarGuard;
     use tempfile::TempDir;
 
     // ── PID file tests ─────────────────────────────────────────────────
@@ -524,13 +767,158 @@ mod tests {
         );
     }
 
+    #[test]
+    fn gateway_ready_timeout_message_includes_debug_artifacts() {
+        let dir = tempfile::tempdir().unwrap();
+        let lock_path = dir.path().join("gateway-launch.lock");
+        std::fs::write(&lock_path, "busy").unwrap();
+        let launch = GatewayLaunchArtifacts {
+            pid: 4242,
+            executable: PathBuf::from("dcc-mcp-server"),
+            args: gateway_command_args(
+                "127.0.0.1",
+                9765,
+                Some("gateway-for-test"),
+                "0.0.0.0",
+                59765,
+                30,
+            ),
+            stdout_log: dir.path().join("gateway-autolaunch-9765-stdout.log"),
+            stderr_log: dir.path().join("gateway-autolaunch-9765-stderr.log"),
+            manifest_path: dir.path().join("gateway-autolaunch-9765.json"),
+        };
+
+        let msg = gateway_ready_timeout_message(
+            "127.0.0.1",
+            9765,
+            Duration::from_secs(15),
+            GatewayReadyDiagnostics {
+                registry_dir: Some(dir.path()),
+                launch_lock: Some(&lock_path),
+                launch: Some(&launch),
+                started: Some(Instant::now()),
+                gateway_idle_timeout_secs: Some(30),
+                remote_host: Some("0.0.0.0"),
+                remote_port: Some(59765),
+            },
+        );
+
+        assert!(msg.contains("http://127.0.0.1:9765/health"));
+        assert!(msg.contains("registry_dir="));
+        assert!(msg.contains("launch_lock="));
+        assert!(msg.contains("launch_lock_exists=true"));
+        assert!(msg.contains("gateway_idle_timeout_secs=30"));
+        assert!(msg.contains("remote=0.0.0.0:59765"));
+        assert!(msg.contains("spawned_pid=4242"));
+        assert!(msg.contains("stdout_log="));
+        assert!(msg.contains("stderr_log="));
+        assert!(msg.contains("manifest="));
+    }
+
+    #[test]
+    fn spawn_detached_gateway_with_context_writes_debug_artifacts() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = std::env::current_exe().unwrap();
+        let args = vec![OsString::from("--help")];
+        let mut context = GatewayLaunchContext::gateway("127.0.0.1", 19765, "0.0.0.0", 59765, 30);
+        context.adapter_dcc = Some("maya".to_string());
+        context.adapter_version = Some("0.1.0-test".to_string());
+        context.crate_version = Some("0.18.19-test".to_string());
+
+        let artifacts =
+            spawn_detached_gateway_with_context(&exe, &args, dir.path(), context).unwrap();
+
+        assert_eq!(artifacts.executable, exe);
+        assert_eq!(artifacts.args, args);
+        assert!(artifacts.pid > 0);
+        assert!(artifacts.stdout_log.exists());
+        assert!(artifacts.stderr_log.exists());
+        assert!(artifacts.manifest_path.exists());
+        assert_eq!(
+            artifacts
+                .stdout_log
+                .file_name()
+                .and_then(|name| name.to_str()),
+            Some("gateway-autolaunch-19765-stdout.log")
+        );
+        assert_eq!(
+            artifacts
+                .stderr_log
+                .file_name()
+                .and_then(|name| name.to_str()),
+            Some("gateway-autolaunch-19765-stderr.log")
+        );
+        assert_eq!(
+            artifacts
+                .manifest_path
+                .file_name()
+                .and_then(|name| name.to_str()),
+            Some("gateway-autolaunch-19765.json")
+        );
+
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&artifacts.manifest_path).unwrap()).unwrap();
+        assert_eq!(manifest["pid"].as_u64(), Some(artifacts.pid as u64));
+        assert_eq!(
+            manifest["executable"].as_str(),
+            Some(artifacts.executable.display().to_string().as_str())
+        );
+        assert_eq!(manifest["args"].as_array().map(Vec::len), Some(1));
+        assert_eq!(manifest["args"][0].as_str(), Some("--help"));
+        assert_eq!(
+            manifest["registry_dir"].as_str(),
+            Some(dir.path().display().to_string().as_str())
+        );
+        assert_eq!(
+            manifest["health_url"].as_str(),
+            Some("http://127.0.0.1:19765/health")
+        );
+        assert_eq!(manifest["host"].as_str(), Some("127.0.0.1"));
+        assert_eq!(manifest["port"].as_u64(), Some(19765));
+        assert_eq!(manifest["remote_host"].as_str(), Some("0.0.0.0"));
+        assert_eq!(manifest["remote_port"].as_u64(), Some(59765));
+        assert_eq!(manifest["gateway_idle_timeout_secs"].as_u64(), Some(30));
+        assert_eq!(manifest["adapter_dcc"].as_str(), Some("maya"));
+        assert_eq!(manifest["adapter_version"].as_str(), Some("0.1.0-test"));
+        assert_eq!(manifest["crate_version"].as_str(), Some("0.18.19-test"));
+        assert_eq!(
+            manifest["stdout_log"].as_str(),
+            Some(artifacts.stdout_log.display().to_string().as_str())
+        );
+        assert_eq!(
+            manifest["stderr_log"].as_str(),
+            Some(artifacts.stderr_log.display().to_string().as_str())
+        );
+        assert!(
+            manifest["spawned_at_unix"]
+                .as_u64()
+                .is_some_and(|value| value > 0)
+        );
+    }
+
     // ── Default registry dir tests ─────────────────────────────────────
 
     #[test]
-    fn test_default_registry_dir_is_not_empty() {
+    fn test_default_registry_dir_matches_gateway_runner_and_sidecar_fallback() {
+        let _guard = EnvVarGuard::set("DCC_MCP_REGISTRY_DIR", None);
+
         let dir = default_registry_dir();
-        assert!(!dir.as_os_str().is_empty());
-        assert!(dir.is_absolute());
+
+        assert_eq!(
+            dir,
+            std::env::temp_dir().join("dcc-mcp-registry"),
+            "CLI gateway ensure, sidecar startup, and GatewayRunner must share the same default FileRegistry"
+        );
+    }
+
+    #[test]
+    fn test_default_registry_dir_honours_env_var_override() {
+        let custom = std::env::temp_dir().join("dcc-mcp-cli-registry-test");
+        let _guard = EnvVarGuard::set("DCC_MCP_REGISTRY_DIR", custom.to_str());
+
+        let dir = default_registry_dir();
+
+        assert_eq!(dir, custom);
     }
 
     // ── Stale lock reclaim integration tests ───────────────────────────

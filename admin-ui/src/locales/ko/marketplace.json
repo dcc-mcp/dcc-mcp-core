@@ -3,6 +3,7 @@
   "description": "DCC-MCP 마켓플레이스에서 스킬 패키지를 찾아보고 설치합니다. 설치된 패키지는 자동으로 스킬 검색 경로에 추가됩니다.",
   "tab.browse": "찾아보기",
   "tab.installed": "설치됨",
+  "tab.updateCount": "업데이트 {count}",
   "metric.available": "사용 가능한 패키지",
   "metric.installed": "설치됨",
   "metric.sources": "소스",
@@ -10,6 +11,12 @@
   "detail.installedCount": "{count}개 설치됨",
   "section.catalog": "카탈로그",
   "section.installed": "설치된 패키지",
+  "installed.package": "패키지",
+  "installed.version": "버전",
+  "installed.source": "소스",
+  "installed.installedAt": "설치 시간",
+  "installed.actions": "작업",
+  "installed.updateAvailable": "업데이트 가능",
   "card.detail": "상세",
   "card.install": "설치",
   "card.installed": "설치됨",
@@ -82,6 +89,7 @@
   "error.missingSkill": "이 패키지에 SKILL.md 파일이 없습니다.",
   "error.commandFailed": "명령 실행 실패: {message}",
   "error.networkError": "네트워크 요청에 실패했습니다. 연결을 확인하세요.",
+  "error.adminHtml": "Marketplace API가 JSON 대신 HTML 페이지를 반환했습니다. 게이트웨이가 /admin/api를 제공하는지 확인한 뒤 패널을 새로 고치세요.",
   "error.generic": "{kind}: {message}",
   "error.unknown": "알 수 없는 오류가 발생했습니다."
 }

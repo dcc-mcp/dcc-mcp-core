@@ -32,7 +32,7 @@ dcc-mcp-server translate \
 | `--restart-on-exit <bool>` | `true` | stdio 进程退出后自动重启；传 `false` 关闭 supervisor 模式 |
 | `--max-restarts <N>` | `10` | supervisor 最大重启次数；`0` 表示无限 |
 | `--gateway-port <N>` | `9765` | 网关注册竞争端口；`0` 禁用 gateway/admin |
-| `--no-admin` | `false` | 禁用获选网关上的只读 Admin UI |
+| `--no-admin` | `false` | 禁用获选网关上的 Admin UI |
 | `--admin-path <path>` | `/admin` | Admin UI URL 前缀 |
 | `--stale-timeout-secs <N>` | `30` | 网关选举的过期超时 |
 | `--registry-dir <path>` | 自动 | 自定义注册表目录 |

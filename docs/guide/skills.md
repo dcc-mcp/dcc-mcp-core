@@ -63,6 +63,12 @@ tools:
     source_file: scripts/export_fbx.bat
 ```
 
+`metadata.dcc-mcp.version` is the canonical skill package version field and
+is projected into `SkillMetadata.version`. Do not put `version` at the
+frontmatter root: top-level `version` is outside the agentskills.io 1.0 key
+set and the strict loader rejects it with a diagnostic that points to
+`metadata.dcc-mcp.version: "1.0.0"`.
+
 The `metadata.dcc-mcp.search-hint` field provides comma-separated keywords for efficient skill discovery via `search_skills` without loading full tool schemas. Use bounded `metadata.dcc-mcp.search-aliases` and per-tool `search_aliases` in `tools.yaml` for domain synonyms, localized terms, or common user phrases that should improve gateway/per-DCC search recall without changing tool names, summaries, tags, or dispatch inputs.
 
 Optional adapter runtimes can be declared without turning skill discovery into
@@ -379,12 +385,12 @@ Supported types (stdlib only): `bool`, `int`, `float`, `str`, `bytes`,
 spell containers and unions with `typing.List`, `typing.Dict`,
 `typing.Tuple`, `typing.Optional`, and `typing.Union`; `Literal` and
 `TypedDict` require `typing_extensions` in the skill author's environment.
-The core package still imports with zero runtime dependencies. Unsupported
+The core package still imports without third-party Python library dependencies. Unsupported
 types raise `TypeError` with a clear escape hatch: pass an explicit
 `input_schema=...` dict or use pydantic's `MyModel.model_json_schema()`.
 
 ::: tip Why not pydantic?
-We intentionally stay zero-dependency. Adding `pydantic` for this one
+We intentionally stay free of third-party Python library dependencies. Adding `pydantic` for this one
 feature would drag in a 3MB wheel plus `pydantic-core` and is too
 heavy for authors who only want a few dataclass handlers. For callers
 who already use pydantic, the emitted shape matches pydantic's
@@ -1259,9 +1265,25 @@ server.register_lifecycle_hooks(hooks)
 
 `MemoryRecorder.install(hooks)` registers handlers for `SESSION_START`,
 `BEFORE_SEARCH`, `AFTER_SKILL_LOAD`, `BEFORE_TOOL_CALL`, `AFTER_TOOL_CALL`,
-and `SESSION_END`. The memory summary is automatically injected into
-`HookContext.payload` as `memory_summary`, `memory_prefer_tools`, and
-`memory_avoid_tools`.
+and `SESSION_END`. Injection is conservative: search payloads receive compact
+ranking hints (`memory_summary`, `memory_prefer_tools`, `memory_avoid_tools`,
+`memory_skip_reasons`), tool-call payloads receive memory only when it matches
+the current `tool_name`, and `SESSION_START` injection is opt-in via
+`inject_on_session_start=True`.
+
+Use `SqliteMemoryStore()` when operators need durable, Admin-visible
+longterm patterns:
+
+```python
+from dcc_mcp_core.agent_memory import SqliteMemoryStore, MemoryRecorder
+
+store = SqliteMemoryStore()  # resolves the gateway admin SQLite path
+recorder = MemoryRecorder(store).install(hooks)
+```
+
+By default this persists only `LONGTERM` entries. `EPHEMERAL` and `WORKING`
+entries remain process-local so short-lived scene/task context is not made
+durable by accident.
 
 ### Session compaction
 
@@ -1274,6 +1296,12 @@ memory footprint bounded while preserving learned patterns across sessions.
 ```python
 recorder.set_enabled(False)  # disables capture/injection without unregistering hooks
 ```
+
+`recorder.stats()` returns low-cardinality observability counters such as
+`summary_queries`, `summary_hits`, `summary_hit_rate`, `search_injections`,
+`tool_call_injections`, and `promotions`. The Admin Memory tab reads the same
+SQLite table for durable records and computes aggregate hit-rate from
+`ok_count` / `fail_count` payload fields.
 
 ### Querying memory
 
@@ -1620,7 +1648,7 @@ The `tags` and `dcc` filter arguments are applied *before* scoring.
 
 ## Migrating pre-0.15 SKILL.md
 
-Starting with dcc-mcp-core 0.15 (issue [#356](https://github.com/dcc-mcp/dcc-mcp-core/issues/356)), dcc-mcp-core-specific extension keys (`dcc`, `version`, `tags`, `tools`, …) MUST live under the agentskills.io-compliant nested `metadata.dcc-mcp` namespace rather than at the top level of SKILL.md frontmatter. The strict v0.15+ loader also no longer promotes the pre-0.15 flat dotted form (`metadata: { "dcc-mcp.dcc": ... }`) into typed fields. A SKILL.md with legacy top-level keys fails to load and emits a `tracing::error!`.
+Starting with dcc-mcp-core 0.15 (issue [#356](https://github.com/dcc-mcp/dcc-mcp-core/issues/356)), dcc-mcp-core-specific extension keys (`dcc`, `version`, `tags`, `tools`, ...) MUST live under the agentskills.io-compliant nested `metadata.dcc-mcp` namespace rather than at the top level of SKILL.md frontmatter. The strict v0.15+ loader also no longer promotes the pre-0.15 flat dotted form (`metadata: { "dcc-mcp.dcc": ... }`) into typed fields. A SKILL.md with legacy top-level keys fails to load and emits a `tracing::error!`; MCP `list_skills(status="skipped")`, `search_skills`, and `load_skill` now surface the skipped reason and suggested replacement so operators do not need startup logs to diagnose a missing skill.
 
 ### Before (pre-0.15 legacy form — no longer accepted)
 

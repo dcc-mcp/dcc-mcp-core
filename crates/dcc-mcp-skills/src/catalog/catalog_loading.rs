@@ -264,7 +264,14 @@ impl SkillCatalog {
         let metadata = match self.entries.get(skill_name) {
             Some(entry) => entry.metadata.clone(),
             None => {
-                let err = format!("Skill '{skill_name}' not found in catalog");
+                let err = if let Some(diagnostic) = self.skipped_skill_diagnostic(skill_name) {
+                    format!(
+                        "Skill '{skill_name}' not found in catalog, but a matching skill directory was skipped because {} Suggested fix: {}",
+                        diagnostic.message, diagnostic.suggested_fix
+                    )
+                } else {
+                    format!("Skill '{skill_name}' not found in catalog")
+                };
                 self.emit_skill_event(
                     "skill.validation_failed",
                     skill_name,
@@ -476,6 +483,20 @@ impl SkillCatalog {
                 ),
             };
 
+            // Guard: if a tool with the same name is already registered (e.g.
+            // a builtin inline handler from register_diagnostic_mcp_tools),
+            // skip the YAML-skill overwrite so the original entry — and its
+            // handler binding — is preserved.  GH-1696
+            if self.registry.get_action(&action_name, None).is_some() {
+                tracing::debug!(
+                    tool = %action_name,
+                    skill = %skill_name,
+                    "Skipping YAML-skill tool registration — already registered (likely builtin inline handler)"
+                );
+                registered.push(action_name);
+                continue;
+            }
+
             self.registry.register_action(meta);
 
             if let (Some(dispatcher), Some(script_path)) = (&self.dispatcher, script_path) {
@@ -670,6 +691,7 @@ impl SkillCatalog {
         if self.loaded.contains(skill_name) {
             let _ = self.unload_skill(skill_name);
         }
+        self.skipped.remove(skill_name);
         let removed = self.entries.remove(skill_name).is_some();
         if removed {
             self.refresh_dependency_states();
@@ -688,6 +710,7 @@ impl SkillCatalog {
             let _ = self.unload_skill(&name);
         }
         self.entries.clear();
+        self.skipped.clear();
     }
 
     /// Replay a persisted set of loaded skills + active groups (#1405).

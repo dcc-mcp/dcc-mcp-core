@@ -43,7 +43,7 @@ cfg = McpHttpConfig(
 | `session_ttl_secs` | `int` | `3600` | Idle session TTL in seconds (`0` = disable eviction) |
 | `lazy_actions` | `bool` | `False` | Opt-in: surface only 3 meta-tools (`list_actions`, `describe_action`, `call_action`) instead of all tools in `tools/list` |
 | `gateway_port` | `int` | `9765` (Python) | Gateway port to compete for (`0` = disabled). See [Gateway](#gateway) |
-| `admin_enabled` | `bool` | `True` | Elected gateway serves the read-only Admin UI (`GET /admin`) |
+| `admin_enabled` | `bool` | `True` | Elected gateway serves the local Admin UI (`GET /admin`) |
 | `admin_path` | `str` | `"/admin"` | URL prefix for the Admin UI |
 | `registry_dir` | `str \| None` | `None` | Directory for the shared `FileRegistry` JSON (defaults to OS temp dir) |
 | `stale_timeout_secs` | `int` | `30` | Seconds without a heartbeat before an instance is considered stale |
@@ -202,7 +202,7 @@ Every `McpHttpServer` emits a fixed set of built-in tools in `tools/list` in add
 | `unload_skill` | Unloads a skill; emits `tools/list_changed`. Idempotent. | `load_skill(...)` again if needed |
 | `activate_tool_group` | Expands a `__group__<name>` stub into its member tools. | Re-call `tools/list`, then the tool |
 | `deactivate_tool_group` | Collapses a tool group back to a stub to shrink the token footprint. | `activate_tool_group(...)` |
-| `search_tools` | Full-text search over active tools plus unloaded skill candidates, returned without full schemas. | `get_skill_info(...)`, `load_skill(...)`, or call the matched active tool |
+| `search_tools` | Full-text search over active tools plus unloaded skill candidates, supports multi-word natural-language phrases. Returned without full schemas. | `get_skill_info(...)`, `load_skill(...)`, or call the matched active tool |
 | `list_roots` | Returns the filesystem roots the client advertised via `roots/list`. Rarely needed. | — |
 
 ### Lazy-actions fast-path (opt-in)
@@ -645,6 +645,12 @@ candidates. Use `get_skill_info(skill_name=...)` to inspect the selected
 skill's full declared tool schemas before `load_skill`, then call the concrete
 tool by name. `tools/list` remains MCP-compatible and paginated, but production
 agents should not treat its first page as a complete discovery index.
+
+`search_tools` supports natural-language multi-word phrase matching: each word
+(≥2 chars) in a phrase like "create sphere" or "rig framework" must appear as a
+substring in the tool name or description, so underscore-separated names like
+`create_sphere` are found without requiring the user to guess the underscore
+convention.
 
 The gateway advertises the canonical MCP workflow `search` → `describe` →
 `load_skill` (when needed) → `call`. REST `/v1/search`, `/v1/describe`,

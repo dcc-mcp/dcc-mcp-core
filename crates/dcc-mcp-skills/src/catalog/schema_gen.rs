@@ -5,9 +5,48 @@
 //! script to extract function signatures, type annotations, defaults, and
 //! docstring parameter descriptions.
 
+use parking_lot::Mutex;
 use serde_json::Value as JsonValue;
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
+use std::time::UNIX_EPOCH;
+
+const HELPER_SOURCE: &str = include_str!("../../scripts/generate_input_schema.py");
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct SchemaCacheKey {
+    script_path: PathBuf,
+    function_name: Option<String>,
+    file_stamp: Option<(u64, u128)>,
+}
+
+impl SchemaCacheKey {
+    fn new(script_path: &Path, function_name: Option<&str>) -> Self {
+        let script_path =
+            std::fs::canonicalize(script_path).unwrap_or_else(|_| script_path.to_path_buf());
+        let file_stamp = std::fs::metadata(&script_path).ok().map(|meta| {
+            let modified = meta
+                .modified()
+                .ok()
+                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                .map(|duration| duration.as_nanos())
+                .unwrap_or_default();
+            (meta.len(), modified)
+        });
+        Self {
+            script_path,
+            function_name: function_name.map(str::to_string),
+            file_stamp,
+        }
+    }
+}
+
+fn schema_cache() -> &'static Mutex<HashMap<SchemaCacheKey, Option<JsonValue>>> {
+    static CACHE: OnceLock<Mutex<HashMap<SchemaCacheKey, Option<JsonValue>>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 /// Generate input schema from a Python script by calling the helper script.
 ///
@@ -24,28 +63,27 @@ pub fn generate_input_schema<P: AsRef<Path>>(
     function_name: Option<&str>,
 ) -> Option<JsonValue> {
     let script_path = script_path.as_ref();
+    let cache_key = SchemaCacheKey::new(script_path, function_name);
+    if let Some(cached) = schema_cache().lock().get(&cache_key).cloned() {
+        return cached;
+    }
 
-    // Find the helper script
-    let helper_script = match find_helper_script() {
-        Some(path) => path,
-        None => {
-            tracing::warn!("Helper script not found for schema generation");
-            return None;
-        }
-    };
+    let schema = generate_input_schema_uncached(script_path, function_name);
+    schema_cache().lock().insert(cache_key, schema.clone());
+    schema
+}
 
+fn generate_input_schema_uncached(
+    script_path: &Path,
+    function_name: Option<&str>,
+) -> Option<JsonValue> {
     // Try to find Python interpreter (try python first, then python3)
-    let python_cmd = match find_python_interpreter() {
-        Some(cmd) => cmd,
-        None => {
-            tracing::warn!("Python interpreter not found for schema generation");
-            return None;
-        }
-    };
+    let python_cmd = find_python_interpreter()?;
 
-    // Build command: python generate_input_schema.py <script_path> [function_name]
+    // Build command: python -c <embedded helper> <script_path> [function_name]
     let mut cmd = Command::new(python_cmd);
-    cmd.arg(&helper_script);
+    cmd.arg("-c");
+    cmd.arg(HELPER_SOURCE);
     cmd.arg(script_path);
 
     if let Some(func_name) = function_name {
@@ -96,91 +134,31 @@ pub fn generate_input_schema<P: AsRef<Path>>(
 }
 
 /// Find available Python interpreter.
+///
+/// The result is cached in a `OnceLock` — the shell-out to `python
+/// --version` only happens once per process lifetime.
 fn find_python_interpreter() -> Option<String> {
+    static PYTHON_CMD: OnceLock<Option<String>> = OnceLock::new();
+    PYTHON_CMD
+        .get_or_init(find_python_interpreter_uncached)
+        .clone()
+}
+
+fn find_python_interpreter_uncached() -> Option<String> {
     // List of possible Python commands to try (in order of preference)
     let candidates = ["python", "python3", "py"];
 
     for &cmd in &candidates {
-        eprintln!("[find_python_interpreter] Trying: {}", cmd);
-        match Command::new(cmd).arg("--version").output() {
-            Ok(output) => {
-                if output.status.success() {
-                    eprintln!("[find_python_interpreter] Found: {}", cmd);
-                    return Some(cmd.to_string());
-                }
-                eprintln!(
-                    "[find_python_interpreter] {} failed with status: {}",
-                    cmd, output.status
-                );
-            }
-            Err(e) => {
-                eprintln!("[find_python_interpreter] {} not found: {}", cmd, e);
-            }
+        if Command::new(cmd)
+            .arg("--version")
+            .output()
+            .is_ok_and(|output| output.status.success())
+        {
+            return Some(cmd.to_string());
         }
     }
 
     tracing::warn!("Python interpreter not found (tried 'python', 'python3', 'py')");
-    None
-}
-
-/// Try to find the helper script in common locations.
-fn find_helper_script() -> Option<std::path::PathBuf> {
-    // Try relative to CARGO_MANIFEST_DIR (for tests/builds)
-    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-        let mut helper = std::path::PathBuf::from(manifest_dir);
-        helper.push("scripts");
-        helper.push("generate_input_schema.py");
-        if helper.exists() {
-            return Some(helper);
-        }
-    }
-
-    // Try relative to current executable
-    if let Ok(exe_path) = std::env::current_exe() {
-        let mut helper = exe_path;
-        helper.pop(); // Remove executable name
-        helper.push("scripts");
-        helper.push("generate_input_schema.py");
-        if helper.exists() {
-            return Some(helper);
-        }
-    }
-
-    // Try relative to workspace root (development)
-    if let Ok(current_dir) = std::env::current_dir() {
-        // Check current directory and parent directories
-        let mut dir = current_dir.as_path();
-        for _ in 0..5 {
-            let mut candidate = dir.to_path_buf();
-            candidate.push("crates");
-            candidate.push("dcc-mcp-skills");
-            candidate.push("scripts");
-            candidate.push("generate_input_schema.py");
-            if candidate.exists() {
-                return Some(candidate);
-            }
-
-            // Also check for workspace root marker
-            let mut workspace_marker = dir.to_path_buf();
-            workspace_marker.push("Cargo.toml");
-            if workspace_marker.exists() {
-                let mut candidate = dir.to_path_buf();
-                candidate.push("crates");
-                candidate.push("dcc-mcp-skills");
-                candidate.push("scripts");
-                candidate.push("generate_input_schema.py");
-                if candidate.exists() {
-                    return Some(candidate);
-                }
-            }
-
-            match dir.parent() {
-                Some(parent) => dir = parent,
-                None => break,
-            }
-        }
-    }
-
     None
 }
 
@@ -266,16 +244,14 @@ mod tests {
     use tempfile::NamedTempFile;
 
     fn create_test_script(content: &str) -> NamedTempFile {
-        let mut file = NamedTempFile::new().unwrap();
+        let mut file = tempfile::Builder::new().suffix(".py").tempfile().unwrap();
         writeln!(file, "{}", content).unwrap();
         file.flush().unwrap();
         file
     }
 
     fn set_manifest_dir() {
-        // Set CARGO_MANIFEST_DIR to the crate root so find_helper_script() can find the helper
-        // env!("CARGO_MANIFEST_DIR") returns the crate root (e.g., /path/to/dcc-mcp-skills)
-        // The helper script is at: <crate_root>/scripts/generate_input_schema.py
+        // Some scripts under test resolve project-local imports relative to the crate root.
         // SAFETY: In single-threaded test code, setting an env var is safe.
         unsafe {
             env::set_var("CARGO_MANIFEST_DIR", env!("CARGO_MANIFEST_DIR"));
@@ -419,5 +395,50 @@ def main(file_path: str, namespace: Optional[str] = None, merge_namespaces: bool
                 "var-keyword parameters must not surface as schema properties"
             );
         }
+    }
+
+    #[test]
+    fn test_generate_schema_caches_script_results() {
+        if Command::new("python").arg("--version").output().is_err() {
+            eprintln!("Skipping test: Python interpreter not found in PATH");
+            return;
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let counter = dir.path().join("counter.txt");
+        std::fs::write(&counter, "0").unwrap();
+        let script = create_test_script(
+            r#"
+import os
+from pathlib import Path
+
+counter = Path(os.environ["DCC_MCP_SCHEMA_COUNTER"])
+counter.write_text(str(int(counter.read_text() or "0") + 1))
+
+
+def main(value: int):
+    pass
+"#,
+        );
+
+        let old_counter = env::var_os("DCC_MCP_SCHEMA_COUNTER");
+        unsafe {
+            env::set_var("DCC_MCP_SCHEMA_COUNTER", &counter);
+        }
+        let first = generate_input_schema(script.path(), Some("main"));
+        let second = generate_input_schema(script.path(), Some("main"));
+        if let Some(value) = old_counter {
+            unsafe {
+                env::set_var("DCC_MCP_SCHEMA_COUNTER", value);
+            }
+        } else {
+            unsafe {
+                env::remove_var("DCC_MCP_SCHEMA_COUNTER");
+            }
+        }
+
+        assert!(first.is_some());
+        assert_eq!(first, second);
+        assert_eq!(std::fs::read_to_string(counter).unwrap(), "1");
     }
 }

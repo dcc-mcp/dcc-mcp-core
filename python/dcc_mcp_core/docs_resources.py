@@ -383,7 +383,7 @@ metadata:
     layer: thin-harness
     tools: tools.yaml
     recipes: references/RECIPES.md
-    introspection: references/INTROSPECTION.md
+    skill-reference-docs: [references/INTROSPECTION.md]
 ```
 
 ## Template

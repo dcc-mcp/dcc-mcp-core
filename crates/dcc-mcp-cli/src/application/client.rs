@@ -2,6 +2,7 @@ use serde_json::{Value, json};
 use thiserror::Error;
 use tokio::time::{Instant, sleep};
 
+use crate::application::instance_selection::select_one_instance;
 use crate::domain::rest::{
     CallRequest, DescribeRequest, DirectCallRequest, Endpoint, LoadSkillRequest, SearchRequest,
     StopInstanceRequest, WaitReadyRequest,
@@ -169,19 +170,14 @@ impl DccMcpClient {
 
         loop {
             attempts += 1;
-            let payload = self
-                .gateway
-                .get_json(&self.endpoint.path("/v1/instances"))
-                .await
-                .map_err(ClientError::from)?;
-            match select_instance(
-                &payload,
+            let payload = self.gateway_readyz_or_inventory().await?;
+            match readiness_candidate(
+                &payload.body,
                 request.dcc_type.as_deref(),
                 request.instance_id.as_deref(),
             ) {
-                Ok(Some(instance)) => {
-                    let (readiness, source, direct_error) =
-                        self.best_readiness_report(&instance).await;
+                ReadinessCandidate::Instance(instance) => {
+                    let readiness = readiness_from_instance(&instance);
                     let missing = missing_required_fields(readiness.as_ref(), &required);
                     let ready = missing.is_empty();
                     last = json!({
@@ -191,15 +187,35 @@ impl DccMcpClient {
                         "elapsed_ms": started.elapsed().as_millis() as u64,
                         "instance": instance,
                         "readiness": readiness.unwrap_or(Value::Null),
-                        "readiness_source": source,
-                        "direct_readyz_error": direct_error,
+                        "readiness_source": payload.source,
+                        "gateway_readyz_error": payload.readyz_error,
+                        "direct_readyz_error": Value::Null,
                         "missing": missing,
                     });
                     if ready {
                         return Ok(last);
                     }
                 }
-                Ok(None) => {
+                ReadinessCandidate::Endpoint(readiness) => {
+                    let missing = missing_required_fields(Some(&readiness), &required);
+                    let ready = missing.is_empty();
+                    last = json!({
+                        "ready": ready,
+                        "required": required.clone(),
+                        "attempts": attempts,
+                        "elapsed_ms": started.elapsed().as_millis() as u64,
+                        "instance": null,
+                        "readiness": readiness,
+                        "readiness_source": payload.source,
+                        "gateway_readyz_error": payload.readyz_error,
+                        "direct_readyz_error": Value::Null,
+                        "missing": missing,
+                    });
+                    if ready {
+                        return Ok(last);
+                    }
+                }
+                ReadinessCandidate::None => {
                     last = json!({
                         "ready": false,
                         "required": required.clone(),
@@ -207,6 +223,9 @@ impl DccMcpClient {
                         "elapsed_ms": started.elapsed().as_millis() as u64,
                         "instance": null,
                         "readiness": null,
+                        "readiness_source": payload.source,
+                        "gateway_readyz_error": payload.readyz_error,
+                        "direct_readyz_error": Value::Null,
                         "missing": required.clone(),
                         "error": {
                             "kind": "instance-not-found-yet",
@@ -215,7 +234,7 @@ impl DccMcpClient {
                         }
                     });
                 }
-                Err(error) => {
+                ReadinessCandidate::Error(error) => {
                     return Ok(json!({
                         "ready": false,
                         "required": required.clone(),
@@ -233,32 +252,31 @@ impl DccMcpClient {
         }
     }
 
-    async fn best_readiness_report(&self, instance: &Value) -> (Option<Value>, Value, Value) {
-        let cached = readiness_from_instance(instance);
-        if let Some(mcp_url) = instance.get("mcp_url").and_then(Value::as_str) {
-            let readyz_url = Endpoint::from_mcp_url(mcp_url).path("/v1/readyz");
-            match self.gateway.get_json(&readyz_url).await {
-                Ok(value) => {
-                    if let Some(report) = normalize_readiness_report(&value) {
-                        return (Some(report), json!("direct"), Value::Null);
-                    }
-                    return (
-                        cached,
-                        json!("cached"),
-                        json!(format!(
-                            "direct readyz response did not contain readiness: {readyz_url}"
-                        )),
-                    );
-                }
-                Err(err) => {
-                    if cached.is_some() {
-                        return (cached, json!("cached"), json!(err.to_string()));
-                    }
-                    return (None, Value::Null, json!(err.to_string()));
-                }
+    async fn gateway_readyz_or_inventory(&self) -> Result<ReadinessPayload, ClientError> {
+        match self
+            .gateway
+            .get_json(&self.endpoint.path("/v1/readyz"))
+            .await
+        {
+            Ok(body) => Ok(ReadinessPayload {
+                body,
+                source: json!("gateway_readyz"),
+                readyz_error: Value::Null,
+            }),
+            Err(err) => {
+                let readyz_error = json!(err.to_string());
+                let body = self
+                    .gateway
+                    .get_json(&self.endpoint.path("/v1/instances"))
+                    .await
+                    .map_err(ClientError::from)?;
+                Ok(ReadinessPayload {
+                    body,
+                    source: json!("gateway_inventory"),
+                    readyz_error,
+                })
             }
         }
-        (cached, json!("cached"), Value::Null)
     }
 
     pub async fn smoke(&self, mcp_url: Option<String>, query: String, limit: usize) -> Value {
@@ -350,6 +368,19 @@ const READINESS_FIELDS: &[&str] = &[
 const DEFAULT_REQUIRED_READINESS_FIELDS: &[&str] =
     &["process", "dcc", "skill_catalog", "dispatcher"];
 
+struct ReadinessPayload {
+    body: Value,
+    source: Value,
+    readyz_error: Value,
+}
+
+enum ReadinessCandidate {
+    Instance(Value),
+    Endpoint(Value),
+    None,
+    Error(Value),
+}
+
 fn normalize_required_fields(fields: Vec<String>) -> Vec<String> {
     let mut normalized: Vec<String> = fields
         .into_iter()
@@ -371,77 +402,27 @@ fn is_readiness_field(field: &str) -> bool {
     READINESS_FIELDS.contains(&field)
 }
 
-fn select_instance(
+fn readiness_candidate(
     payload: &Value,
     dcc_type: Option<&str>,
     instance_hint: Option<&str>,
-) -> Result<Option<Value>, Value> {
-    let hint = instance_hint
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_ascii_lowercase);
-    if let Some(hint) = hint.as_deref()
-        && hint.len() < 4
+) -> ReadinessCandidate {
+    if payload.get("instances").and_then(Value::as_array).is_some() {
+        return match select_one_instance(payload, dcc_type, instance_hint) {
+            Ok(Some(instance)) => ReadinessCandidate::Instance(instance),
+            Ok(None) => ReadinessCandidate::None,
+            Err(error) => ReadinessCandidate::Error(error.to_json()),
+        };
+    }
+
+    if dcc_type.is_none()
+        && instance_hint.is_none()
+        && let Some(readiness) = normalize_readiness_report(payload)
     {
-        return Err(json!({
-            "kind": "instance-id-prefix-too-short",
-            "instance_id": hint,
-            "min_len": 4,
-        }));
+        return ReadinessCandidate::Endpoint(readiness);
     }
 
-    let matches: Vec<Value> = payload
-        .get("instances")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter(|instance| {
-            dcc_type.is_none_or(|expected| {
-                instance
-                    .get("dcc_type")
-                    .and_then(Value::as_str)
-                    .is_some_and(|actual| actual.eq_ignore_ascii_case(expected))
-            })
-        })
-        .filter(|instance| {
-            hint.as_deref().is_none_or(|expected| {
-                instance
-                    .get("instance_short")
-                    .and_then(Value::as_str)
-                    .is_some_and(|actual| actual.eq_ignore_ascii_case(expected))
-                    || instance
-                        .get("instance_id")
-                        .and_then(Value::as_str)
-                        .is_some_and(|actual| instance_id_matches(actual, expected))
-            })
-        })
-        .cloned()
-        .collect();
-
-    match matches.as_slice() {
-        [] => Ok(None),
-        [instance] => Ok(Some(instance.clone())),
-        _ => Err(json!({
-            "kind": "ambiguous-instance",
-            "candidates": matches.iter().map(instance_summary).collect::<Vec<_>>(),
-        })),
-    }
-}
-
-fn instance_id_matches(actual: &str, expected: &str) -> bool {
-    let actual = actual.to_ascii_lowercase();
-    let actual_simple = actual.replace('-', "");
-    actual == expected || actual_simple.starts_with(expected)
-}
-
-fn instance_summary(instance: &Value) -> Value {
-    json!({
-        "dcc_type": instance.get("dcc_type").cloned().unwrap_or(Value::Null),
-        "instance_id": instance.get("instance_id").cloned().unwrap_or(Value::Null),
-        "instance_short": instance.get("instance_short").cloned().unwrap_or(Value::Null),
-        "status": instance.get("status").cloned().unwrap_or(Value::Null),
-        "mcp_url": instance.get("mcp_url").cloned().unwrap_or(Value::Null),
-    })
+    ReadinessCandidate::None
 }
 
 fn readiness_from_instance(instance: &Value) -> Option<Value> {

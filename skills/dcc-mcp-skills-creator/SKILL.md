@@ -11,7 +11,7 @@ allowed-tools: Bash Read Write Edit
 metadata:
   dcc-mcp:
     dcc: python
-    version: "0.18.17"  # x-release-please-version
+    version: "0.18.39"  # x-release-please-version
     layer: infrastructure
     search-hint: "create dcc mcp skill, validate skill, scaffold skill, SKILL.md, tools.yaml, scripts, groups, prompts, skill taxonomy"
     tools: tools.yaml
@@ -111,6 +111,11 @@ Generated `tools.yaml` entries follow the modern contract:
 
 - Local tool names are snake_case and client-safe. Do not use dotted names.
 - Loaded tools are published as `<skill-name>__<tool_name>` when namespacing is needed.
+- Skill package version metadata lives at `metadata.dcc-mcp.version` in
+  `SKILL.md`; a top-level `version` key is rejected by the strict loader.
+- Inter-skill dependencies live at `metadata.dcc-mcp.depends` as skill names,
+  not repo names or prose-only instructions. Use it when one skill must be
+  discovered or loaded before another, for example `depends: ["qt-ui-inspector"]`.
 - `input_schema` and `output_schema` are declared explicitly.
 - Keep MCP-facing `input_schema` shapes simple: prefer a top-level object with
   `properties`, `required`, primitive `type`, bounds, and descriptions. Put
@@ -129,10 +134,18 @@ Generated `tools.yaml` entries follow the modern contract:
 2. Give the skill a kebab-case name and each local tool a snake_case name.
 3. Keep host API calls inside scripts, with lazy imports so discovery works without the host running.
 4. Import dependency-light runtime helpers from `dcc_mcp_core.skills_helper` first: JSON/YAML codecs, bounded HTTP helpers, safe file/path helpers, validation, cancellation checks, and result helpers.
-5. Declare `execution`, `affinity`, `timeout_hint_secs`, schemas, annotations, and failure recovery chains in `tools.yaml`. For high-frequency tools, add `call_examples` so agents can copy argument payloads without trial-and-error.
+5. Declare `metadata.dcc-mcp.depends` for prerequisite skills, then declare `execution`, `affinity`, `timeout_hint_secs`, schemas, annotations, and failure recovery chains in `tools.yaml`. For high-frequency tools, add `call_examples` so agents can copy argument payloads without trial-and-error.
 6. Put long examples, recipes, and host-specific notes under `references/`.
 7. Validate with `validate_skill_dir` or `dcc_mcp_core.validate_skill()` before loading it in an adapter.
 8. If the desired behavior requires parsing core internals or adapter-private YAML at runtime, stop and request a core API instead.
+
+When reviewing existing skills, reject top-level DCC-MCP extension keys such
+as `dcc`, `version`, `tags`, `tools`, `groups`, `depends`, `search-hint`,
+`runtimes`, `prompts`, and `resources`. Move them under
+`metadata.dcc-mcp.*`; for version metadata, use
+`metadata.dcc-mcp.version: "1.0.0"`. Validate the installable skill directory
+that contains the `SKILL.md` loaded by adapters, not only mirrored repository
+docs or marketplace metadata.
 
 Read [AUTHORING_WORKFLOW.md](references/AUTHORING_WORKFLOW.md) and
 [DCC_TOOL_CONTRACTS.md](references/DCC_TOOL_CONTRACTS.md) before changing a
@@ -211,4 +224,7 @@ The validator checks:
 - **Sidecar files**: `metadata.dcc-mcp.tools/groups/prompts` references exist
 - **Dependencies**: `metadata.dcc-mcp.depends` consistency
 - **Spec compliance**: non-standard top-level keys are frontmatter errors; dcc-mcp-core extensions must live under `metadata.dcc-mcp.*` and point to sibling files
+- **Version metadata**: `metadata.dcc-mcp.version` is accepted and projected
+  to `SkillMetadata.version`; top-level `version` fails with an actionable
+  migration hint
 - **Skill helper adoption**: `validate_skill_dir` emits `skill-helper-adoption` warnings when scripts import avoidable dependencies covered by `dcc_mcp_core.skills_helper`, such as `requests`, `httpx`, PyYAML, or local JSON/HTTP/file/path helper modules

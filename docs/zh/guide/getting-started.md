@@ -14,6 +14,9 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc
 这会从最新 GitHub Release 安装独立的 `dcc-mcp-cli` 控制面二进制。
 需要固定版本时设置 `DCC_MCP_VERSION=v0.17.17`。
 
+CLI 也提供了独立 ZIP 包（`dcc-mcp-cli-<version>-<platform>.zip`），
+可从每个 [GitHub Release](https://github.com/dcc-mcp/dcc-mcp-core/releases) 下载。
+
 ### 从 PyPI 安装
 
 ```bash
@@ -35,7 +38,7 @@ pip install -e .
 
 ## 环境要求
 
-- **Python**: >= 3.7（CI 测试 3.7、3.8、3.9、3.10、3.11、3.12、3.13）
+- **Python**: >= 3.7（CI 测试 3.7、3.8、3.9、3.10、3.11、3.12、3.13、3.14）
 - **Rust**: >= 1.95（从源代码构建时需要）
 - **许可证**: MIT
 - **Python 依赖**: 零 — 所有功能都在编译的 Rust 扩展中

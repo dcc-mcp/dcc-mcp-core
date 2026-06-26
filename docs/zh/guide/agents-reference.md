@@ -493,7 +493,7 @@ issue #341 中采用的三层行为结构：一句现在时"是什么"摘要、
 ## CI 与发布
 
 - PR 必须通过：`vx just preflight` + `vx just test` + `vx just lint`
-- CI 矩阵：Python 3.7、3.9、3.11、3.13 on Linux / macOS / Windows
+- CI 矩阵：Python 3.7、3.9、3.11、3.13、3.14 on Linux / macOS / Windows
 - 版本管理：Release Please（Conventional Commits）— 绝不手动更新
 - PyPI：Trusted Publishing（无需令牌）
 - 仅文档变更跳过 Rust 重建 → CI 快速通过

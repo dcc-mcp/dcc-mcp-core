@@ -37,7 +37,7 @@ impl crate::gateway::middleware::BeforeCallMiddleware for ReplaceArgs {
     }
 }
 
-fn test_gateway_state(server_version: &str) -> GatewayState {
+pub(super) fn test_gateway_state(server_version: &str) -> GatewayState {
     test_gateway_state_with_debug_routes(server_version, false)
 }
 
@@ -168,6 +168,61 @@ fn trace_headers() -> HeaderMap {
             .unwrap(),
     );
     headers
+}
+
+async fn spawn_update_manifest(manifest: Value) -> (String, tokio::sync::oneshot::Sender<()>) {
+    let app = axum::Router::new().route(
+        "/manifest.json",
+        axum::routing::get(move || {
+            let manifest = manifest.clone();
+            async move { Json(manifest) }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!(
+        "http://127.0.0.1:{}/manifest.json",
+        listener.local_addr().unwrap().port()
+    );
+    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app)
+            .with_graceful_shutdown(async {
+                let _ = rx.await;
+            })
+            .await;
+    });
+    (url, tx)
+}
+
+async fn spawn_update_manifest_response(
+    status: StatusCode,
+    content_type: &'static str,
+    body: &'static str,
+) -> (String, tokio::sync::oneshot::Sender<()>) {
+    let app = axum::Router::new().route(
+        "/manifest.json",
+        axum::routing::get(move || async move {
+            axum::response::Response::builder()
+                .status(status)
+                .header(axum::http::header::CONTENT_TYPE, content_type)
+                .body(Body::from(body))
+                .unwrap()
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!(
+        "http://127.0.0.1:{}/manifest.json",
+        listener.local_addr().unwrap().port()
+    );
+    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app)
+            .with_graceful_shutdown(async {
+                let _ = rx.await;
+            })
+            .await;
+    });
+    (url, tx)
 }
 
 fn attributed_trace_headers() -> HeaderMap {
@@ -592,11 +647,207 @@ async fn gateway_openapi_canonical_routes_are_mounted_by_router() {
     }
 }
 
+#[tokio::test]
+async fn gateway_update_check_requires_manifest_configuration() {
+    let app = crate::gateway::router::build_gateway_router(test_gateway_state("1.2.3"));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/update/check?binary=dcc-mcp-server&current_version=0.18.0")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = response_json(response).await;
+
+    assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+    assert_eq!(body["status"], "not_configured");
+    assert_eq!(body["error"], "update_manifest_url_not_configured");
+    assert_eq!(body["update_available"], false);
+    assert!(
+        body["hint"]
+            .as_str()
+            .is_some_and(|hint| hint.contains("DCC_MCP_UPDATE_MANIFEST_URL"))
+    );
+}
+
+#[tokio::test]
+async fn gateway_update_check_and_download_use_configured_manifest() {
+    let (manifest_url, shutdown) = spawn_update_manifest(json!({
+        "dcc-mcp-server": {
+            "version": "0.19.0",
+            "url": "https://example.invalid/dcc-mcp-server.zip",
+            "sha256": "abc123",
+            "release_notes": "Server update"
+        }
+    }))
+    .await;
+    let mut state = test_gateway_state("1.2.3");
+    state.update_manifest_url = Some(manifest_url);
+    let app = crate::gateway::router::build_gateway_router(state);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/update/check?binary=dcc-mcp-server&current_version=0.18.0")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = response_json(response).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["update_available"], true);
+    assert_eq!(body["current_version"], "0.18.0");
+    assert_eq!(body["latest_version"], "0.19.0");
+    assert_eq!(
+        body["download_url"],
+        "https://example.invalid/dcc-mcp-server.zip"
+    );
+    assert_eq!(body["sha256"], "abc123");
+    assert_eq!(body["release_notes"], "Server update");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/update/download/dcc-mcp-server")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = response_json(response).await;
+    let _ = shutdown.send(());
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body["download_url"],
+        "https://example.invalid/dcc-mcp-server.zip"
+    );
+}
+
+#[tokio::test]
+async fn gateway_update_download_reports_missing_url_as_structured_payload() {
+    let (manifest_url, shutdown) = spawn_update_manifest(json!({
+        "dcc-mcp-server": {
+            "version": "0.19.0",
+            "url": null,
+            "sha256": null,
+            "release_notes": "Server update without binary asset"
+        }
+    }))
+    .await;
+    let mut state = test_gateway_state("1.2.3");
+    state.update_manifest_url = Some(manifest_url);
+    let app = crate::gateway::router::build_gateway_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/update/download/dcc-mcp-server")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = response_json(response).await;
+    let _ = shutdown.send(());
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["status"], "download_url_not_configured");
+    assert_eq!(body["error"], "download_url_not_configured");
+    assert_eq!(body["binary_name"], "dcc-mcp-server");
+    assert_eq!(body["latest_version"], "0.19.0");
+    assert_eq!(body["update_available"], false);
+}
+
+#[tokio::test]
+async fn gateway_update_check_reports_missing_binary_as_structured_payload() {
+    let (manifest_url, shutdown) = spawn_update_manifest(json!({
+        "dcc-mcp-cli": {
+            "version": "0.19.0",
+            "url": "https://example.invalid/dcc-mcp-cli.zip",
+            "sha256": "def456",
+            "release_notes": "CLI update"
+        }
+    }))
+    .await;
+    let mut state = test_gateway_state("1.2.3");
+    state.update_manifest_url = Some(manifest_url);
+    let app = crate::gateway::router::build_gateway_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/update/check?binary=dcc-mcp-server&current_version=0.18.0")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = response_json(response).await;
+    let _ = shutdown.send(());
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["status"], "binary_not_found");
+    assert_eq!(body["error"], "binary_not_found");
+    assert_eq!(body["binary_name"], "dcc-mcp-server");
+    assert_eq!(body["update_available"], false);
+}
+
+#[tokio::test]
+async fn gateway_update_check_reports_manifest_http_errors() {
+    let (manifest_url, shutdown) = spawn_update_manifest_response(
+        StatusCode::NOT_FOUND,
+        "text/html",
+        "<!doctype html><title>missing</title>",
+    )
+    .await;
+    let mut state = test_gateway_state("1.2.3");
+    state.update_manifest_url = Some(manifest_url);
+    let app = crate::gateway::router::build_gateway_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/update/check?binary=dcc-mcp-server&current_version=0.18.0")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = response_json(response).await;
+    let _ = shutdown.send(());
+
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert_eq!(body["status"], "manifest_error");
+    assert_eq!(body["error"], "failed_to_fetch_update_manifest");
+    assert_eq!(body["update_available"], false);
+    assert!(
+        body["message"]
+            .as_str()
+            .is_some_and(|detail| detail.contains("404"))
+    );
+}
+
 fn materialized_gateway_route(path: &str) -> String {
     let mut materialized = path
         .replace("{slug}", "maya.abcdef01.example_tool")
         .replace("{dcc_type}", "maya")
-        .replace("{instance_id}", "abcdef01");
+        .replace("{instance_id}", "abcdef01")
+        .replace("{binary_name}", "dcc-mcp-server");
+    if path == "/v1/update/check" {
+        materialized.push_str("?binary=dcc-mcp-server&current_version=0.18.0");
+    }
     if path == "/v1/dcc/{dcc_type}/instances/{instance_id}/describe" {
         materialized.push_str("?backend_tool=example_tool");
     }
@@ -648,12 +899,18 @@ async fn gateway_openapi_lists_stable_debug_routes() {
         "/v1/debug/trace-context/{lookup_id}",
         "/v1/debug/agent-traces/{lookup_id}",
         "/v1/debug/tasks",
+        "/v1/debug/workflows",
         "/v1/debug/bundles/{request_id}",
         "/v1/debug/issue-reports/{request_id}",
         "/v1/debug/logs",
         "/v1/debug/deregistered",
         "/v1/debug/stats",
+        "/v1/debug/analytics/overview",
+        "/v1/debug/analytics/timeseries",
+        "/v1/debug/analytics/heatmap",
+        "/v1/debug/analytics/export",
         "/v1/debug/search-telemetry",
+        "/v1/debug/integrations",
         "/v1/debug/health",
     ] {
         assert!(
@@ -674,6 +931,11 @@ async fn gateway_openapi_lists_stable_debug_routes() {
     assert!(
         doc["paths"]["/v1/debug/bundles/{request_id}"]["get"]["responses"]["200"]["content"]
             .get(crate::gateway::response_codec::TOON_MIME)
+            .is_some()
+    );
+    assert!(
+        doc["paths"]["/v1/debug/analytics/export"]["get"]["responses"]["200"]["content"]
+            .get("text/csv")
             .is_some()
     );
     assert!(
@@ -1703,177 +1965,4 @@ async fn gateway_rest_v1_call_single_tool_slug_still_works() {
         body.get("success").is_none(),
         "single-call error should NOT have batch 'success' field"
     );
-}
-
-/// Spawn a fake backend that responds to /v1/describe and /v1/call.
-async fn spawn_echo_backend() -> (u16, tokio::sync::oneshot::Sender<()>) {
-    let app = axum::Router::new()
-        .route(
-            "/health",
-            axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
-        )
-        .route(
-            "/v1/describe",
-            axum::routing::post(move |axum::Json(body): axum::Json<Value>| async move {
-                let slug = body.get("tool_slug").and_then(Value::as_str).unwrap_or("");
-                axum::Json(json!({
-                    "entry": {
-                        "slug": slug,
-                        "skill": "test-skill",
-                        "action": "echo",
-                        "dcc": "maya",
-                        "loaded": true
-                    },
-                    "description": "Echo test tool",
-                    "input_schema": {"type": "object", "properties": {}},
-                    "annotations": {
-                        "readOnlyHint": false,
-                        "destructiveHint": false,
-                        "openWorldHint": true
-                    }
-                }))
-            }),
-        )
-        .route(
-            "/v1/call",
-            axum::routing::post(move |axum::Json(body): axum::Json<Value>| async move {
-                let slug = body.get("tool_slug").and_then(Value::as_str).unwrap_or("");
-                axum::Json(json!({
-                    "content": [{
-                        "type": "text",
-                        "text": format!("called {slug} successfully")
-                    }],
-                    "isError": false
-                }))
-            }),
-        );
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = listener.local_addr().unwrap().port();
-    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
-    tokio::spawn(async move {
-        axum::serve(listener, app)
-            .with_graceful_shutdown(async {
-                let _ = rx.await;
-            })
-            .await
-            .ok();
-    });
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    (port, tx)
-}
-
-#[tokio::test]
-async fn gateway_rest_v1_call_batch_mixed_success_failure_continues_on_error() {
-    let (backend_port, _stop_backend) = spawn_echo_backend().await;
-
-    let dir = tempfile::tempdir().unwrap();
-    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
-        dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
-    ));
-    let instance_id = uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
-    {
-        let r = registry.read().await;
-        let mut entry = dcc_mcp_transport::discovery::types::ServiceEntry::new(
-            "maya",
-            "127.0.0.1",
-            backend_port,
-        );
-        entry.instance_id = instance_id;
-        r.register(entry).unwrap();
-    }
-
-    let mut gs = test_gateway_state("1.2.3");
-    // Replace the registry with one that points to our fake backend.
-    gs.registry = registry;
-    // Insert a loaded capability record so describe + call can route.
-    let good_slug = format!("maya.{instance_id}.echo");
-    let good_record = crate::gateway::capability::CapabilityRecord::new(
-        good_slug.clone(),
-        "echo".to_string(),
-        "echo".to_string(),
-        Some("test-skill".to_string()),
-        "Echo test tool",
-        vec![],
-        "maya".to_string(),
-        instance_id,
-        true, // has_schema
-        true, // loaded
-        None,
-    );
-    gs.capability_index.upsert_instance(
-        instance_id,
-        vec![good_record],
-        crate::gateway::capability::InstanceFingerprint(1),
-    );
-
-    let app = crate::gateway::router::build_gateway_router(gs);
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let gateway_port = listener.local_addr().unwrap().port();
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-    let server = tokio::spawn(async move {
-        axum::serve(listener, app)
-            .with_graceful_shutdown(async {
-                let _ = shutdown_rx.await;
-            })
-            .await
-            .unwrap();
-    });
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-    let client = reqwest::Client::new();
-    let url = format!("http://127.0.0.1:{gateway_port}/v1/call");
-    // Non-routable slug: no backend for "blender" DCC type → instance-offline error.
-    let bad_slug = "blender.00000000-0000-0000-0000-000000000002.nonexistent";
-
-    let resp = client
-        .post(&url)
-        .header("Accept", "application/json")
-        .json(&json!({
-            "calls": [
-                {"id": "good-one", "tool_slug": good_slug, "arguments": {}},
-                {"id": "bad-one", "tool_slug": bad_slug, "arguments": {}},
-                {"id": "good-two", "tool_slug": good_slug, "arguments": {}}
-            ],
-            "stop_on_error": false
-        }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 200);
-    let body: Value = resp.json().await.unwrap();
-
-    // Batch envelope
-    assert_eq!(
-        body["success"], false,
-        "overall success false because one item failed"
-    );
-    assert_eq!(body["stop_on_error"], false);
-    let results = body["results"].as_array().unwrap();
-    assert_eq!(
-        results.len(),
-        3,
-        "all 3 items should be present (stop_on_error=false)"
-    );
-
-    // Item 0: success (routed to fake backend)
-    assert_eq!(results[0]["index"], 0);
-    assert_eq!(results[0]["id"], "good-one");
-    assert_eq!(results[0]["ok"], true);
-    assert!(results[0].get("result").is_some());
-
-    // Item 1: failure (no backend for blender DCC type)
-    assert_eq!(results[1]["index"], 1);
-    assert_eq!(results[1]["id"], "bad-one");
-    assert_eq!(results[1]["ok"], false);
-    assert!(results[1].get("error").is_some());
-
-    // Item 2: success (continued after item 1 failure — stop_on_error=false)
-    assert_eq!(results[2]["index"], 2);
-    assert_eq!(results[2]["id"], "good-two");
-    assert_eq!(results[2]["ok"], true);
-    assert!(results[2].get("result").is_some());
-
-    // Cleanup
-    let _ = shutdown_tx.send(());
-    let _ = server.await;
 }

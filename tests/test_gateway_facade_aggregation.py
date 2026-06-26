@@ -176,10 +176,23 @@ def facade_cluster(tmp_path_factory):
 
     _server_b, handle_b = _make_backend("blender", ["create_cube", "add_material"], registry_dir, gw_port)
 
-    # Let the gateway's 2-second instance watcher see both registrations.
-    time.sleep(2.2)
-
     gateway_url = f"http://127.0.0.1:{gw_port}/mcp"
+
+    # Poll until the gateway's instance watcher sees both registrations.
+    # Fixed sleeps are fragile on slower CI runners (e.g. macOS arm64).
+    deadline = time.monotonic() + 10  # generous 10-second timeout
+    while True:
+        resp = _post_mcp(gateway_url, "resources/read", {"uri": "gateway://instances"})
+        text = resp["result"]["contents"][0]["text"]
+        data = json.loads(text)
+        visible = {e["dcc_type"] for e in data.get("instances", [])}
+        if "maya" in visible and "blender" in visible:
+            break
+        if time.monotonic() > deadline:
+            raise RuntimeError(
+                f"Gateway instance watcher did not discover both backends within timeout. Visible: {visible}"
+            )
+        time.sleep(0.5)
 
     try:
         yield {

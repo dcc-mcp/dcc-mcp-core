@@ -77,6 +77,7 @@ pub fn validate_skill_dir(skill_dir: &Path) -> SkillValidationReport {
 
     let non_spec = detect_non_spec_top_level_fields(&raw_value);
     if !non_spec.is_empty() {
+        let migration_hint = non_spec_top_level_migration_hint(&non_spec);
         report.issues.push(SkillValidationIssue::error(
             IssueCategory::Frontmatter,
             format!(
@@ -84,8 +85,8 @@ pub fn validate_skill_dir(skill_dir: &Path) -> SkillValidationReport {
                  The loader rejects any key outside the agentskills.io 1.0 \
                  spec (name, description, license, compatibility, metadata, \
                  allowed-tools). Move dcc-mcp-core extensions under \
-                 metadata.dcc-mcp.*.",
-                non_spec
+                 metadata.dcc-mcp.*. {migration_hint}",
+                non_spec,
             ),
         ));
     }
@@ -511,6 +512,46 @@ fn detect_non_spec_top_level_fields(root: &serde_yaml_ng::Value) -> Vec<String> 
         }
     }
     out
+}
+
+fn non_spec_top_level_migration_hint(keys: &[String]) -> String {
+    let mut replacements = Vec::new();
+    for key in keys {
+        let replacement = match key.as_str() {
+            "dcc" => "metadata.dcc-mcp.dcc",
+            "version" => "metadata.dcc-mcp.version",
+            "tags" => "metadata.dcc-mcp.tags",
+            "tools" => "metadata.dcc-mcp.tools: tools.yaml",
+            "groups" => "metadata.dcc-mcp.groups",
+            "prompts" => "metadata.dcc-mcp.prompts",
+            "resources" => "metadata.dcc-mcp.resources",
+            "depends" => "metadata.dcc-mcp.depends",
+            "layer" => "metadata.dcc-mcp.layer",
+            "stage" => "metadata.dcc-mcp.stage",
+            "search-hint" | "search_hint" => "metadata.dcc-mcp.search-hint",
+            "search-aliases" | "search_aliases" | "aliases" => "metadata.dcc-mcp.search-aliases",
+            "products" => "metadata.dcc-mcp.products",
+            "allow-implicit-invocation" | "allow_implicit_invocation" => {
+                "metadata.dcc-mcp.allow-implicit-invocation"
+            }
+            "external-deps" | "external_deps" => "metadata.dcc-mcp.external-deps",
+            "runtimes" | "runtime-deps" | "optional-runtimes" => "metadata.dcc-mcp.runtimes",
+            "recipes" => "metadata.dcc-mcp.recipes",
+            "branding" => "metadata.dcc-mcp.branding",
+            "links" => "metadata.dcc-mcp.links",
+            "example-prompts" | "example_prompts" => "metadata.dcc-mcp.example-prompts",
+            _ => "metadata.dcc-mcp.<key>",
+        };
+        replacements.push(format!("{key} -> {replacement}"));
+    }
+    if replacements.is_empty() {
+        "Use metadata.dcc-mcp.<key> for dcc-mcp-core extensions.".to_string()
+    } else {
+        format!(
+            "Accepted replacement shape(s): {}. Example: metadata.dcc-mcp.version: \"1.0.0\".",
+            replacements.join(", ")
+        )
+    }
 }
 
 fn is_valid_version(version: &str) -> bool {

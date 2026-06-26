@@ -23,6 +23,34 @@ fn legacy_top_level_keys_are_rejected() {
 }
 
 #[test]
+fn top_level_version_rejection_reports_nested_replacement() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("maya-mgear");
+    write_skill(
+        &dir,
+        "---\nname: maya-mgear\ndescription: mGear tools\nversion: \"1.0.0\"\n---\n# body\n",
+    );
+
+    let diagnostic = parse_skill_md_with_diagnostic(&dir).unwrap_err();
+
+    assert_eq!(diagnostic.skill_name, "maya-mgear");
+    assert_eq!(diagnostic.directory_name, "maya-mgear");
+    assert_eq!(diagnostic.reason_code, "non_spec_top_level_keys");
+    assert_eq!(diagnostic.offending_keys, vec!["version".to_string()]);
+    assert!(diagnostic.message.contains("non-spec top-level key"));
+    assert!(
+        diagnostic
+            .suggested_fix
+            .contains("metadata.dcc-mcp.version")
+    );
+    assert!(
+        !diagnostic
+            .message
+            .contains(tmp.path().to_string_lossy().as_ref())
+    );
+}
+
+#[test]
 fn legacy_flat_form_does_not_populate_typed_fields() {
     // The pre-0.15 flat shorthand is no longer parsed into
     // `SkillMetadata` typed fields; the skill parses (the YAML itself
@@ -154,6 +182,23 @@ metadata:
     assert_eq!(meta.groups.len(), 1);
     assert_eq!(meta.groups[0].name, "advanced");
     assert!(!meta.groups[0].default_active);
+}
+
+#[test]
+fn nested_form_resources_file_reference_resolves() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("resources-sidecar");
+    let body = r#"---
+name: resources-sidecar
+metadata:
+  dcc-mcp:
+    resources: resources/
+---
+# body
+"#;
+    write_skill(&dir, body);
+    let meta = parse_skill_md(&dir).expect("parsed");
+    assert_eq!(meta.resources_file.as_deref(), Some("resources/"));
 }
 
 #[test]

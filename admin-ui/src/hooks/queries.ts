@@ -21,6 +21,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ADMIN_FETCH_TIMEOUT_MS,
   API_BASE,
+  AdminApiError,
+  adminJsonResponse,
+  adminOkResponse,
   apiJson,
   downloadJsonText,
   fetchOpenApiSpecText,
@@ -37,6 +40,7 @@ import type {
   HealthPayload,
   InstanceRow,
   InstanceSummary,
+  InstanceUpdatePayload,
   InstalledMarketplacePackage,
   MarketplaceEntry,
   MarketplaceErrorEnvelope,
@@ -45,7 +49,11 @@ import type {
   MarketplaceSourceEntry,
   MarketplaceUninstallResult,
   MarketplaceUpdatePayload,
+  MemoryFilters,
+  MemoryPayload,
   IntegrationsPayload,
+  TestIntegrationRequest,
+  TestIntegrationResult,
   UpdateIntegrationRequest,
   UpdateIntegrationResult,
   StatsPayload,
@@ -85,12 +93,31 @@ export const adminKeys = {
   marketplaceSources: () => [...adminKeys.all, 'marketplace', 'sources'] as const,
   marketplaceOutdated: () => [...adminKeys.all, 'marketplace', 'outdated'] as const,
   integrations: () => [...adminKeys.all, 'integrations'] as const,
+  memory: (filters: MemoryFilters) => [...adminKeys.all, 'memory', filters] as const,
 };
 
 // ── polling config ─────────────────────────────────────────────────────────
 
 /** Interval for active-panel polling (matches the old 5s setInterval). */
 const POLL_INTERVAL_MS = 5_000;
+
+function isInstanceUpdatePayload(value: unknown): value is InstanceUpdatePayload {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const status = (value as { status?: unknown }).status;
+  return typeof status === 'string'
+    && [
+      'available',
+      'binary_not_found',
+      'download_failed',
+      'manifest_error',
+      'not_configured',
+      'stage_failed',
+      'staged',
+      'up_to_date',
+    ].includes(status);
+}
 
 // ── query hooks ────────────────────────────────────────────────────────────
 
@@ -238,6 +265,21 @@ export function useLogsQuery(enabled: boolean) {
   });
 }
 
+export function useMemoryQuery(enabled: boolean, filters: MemoryFilters = {}) {
+  const params = new URLSearchParams();
+  params.set('limit', String(filters.limit ?? 200));
+  if (filters.layer && filters.layer !== 'all') params.set('layer', filters.layer);
+  if (filters.dccName) params.set('dcc_name', filters.dccName);
+  if (filters.keyPrefix) params.set('key_prefix', filters.keyPrefix);
+  const query = params.toString();
+  return useQuery({
+    queryKey: adminKeys.memory(filters),
+    queryFn: () => apiJson<MemoryPayload>(`/memory${query ? `?${query}` : ''}`),
+    enabled,
+    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+  });
+}
+
 /** On-demand: fetch a single trace waterfall. No polling. */
 export function useTraceDetailQuery(requestId: string | null) {
   return useQuery({
@@ -272,13 +314,15 @@ export function useDownloadIssueReport() {
 export function useAddSkillPath() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (path: string) =>
-      fetch(`${API_BASE}/skill-paths`, {
+    mutationFn: async (path: string) => {
+      const res = await fetch(`${API_BASE}/skill-paths`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path }),
         signal: AbortSignal.timeout(ADMIN_FETCH_TIMEOUT_MS),
-      }),
+      });
+      await adminOkResponse(res, '/skill-paths');
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: adminKeys.skillPaths() });
       queryClient.invalidateQueries({ queryKey: adminKeys.skills() });
@@ -289,14 +333,62 @@ export function useAddSkillPath() {
 export function useDeleteSkillPath() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) =>
-      fetch(`${API_BASE}/skill-paths/${id}`, {
+    mutationFn: async (id: number) => {
+      const endpoint = `/skill-paths/${encodeURIComponent(String(id))}`;
+      const res = await fetch(`${API_BASE}${endpoint}`, {
         method: 'DELETE',
         signal: AbortSignal.timeout(ADMIN_FETCH_TIMEOUT_MS),
-      }),
+      });
+      await adminOkResponse(res, endpoint);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: adminKeys.skillPaths() });
       queryClient.invalidateQueries({ queryKey: adminKeys.skills() });
+    },
+  });
+}
+
+export function useInstanceServerUpdate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { instanceId: string; apply?: boolean }) => {
+      const endpoint = `/instances/${encodeURIComponent(body.instanceId)}/update`;
+      const res = await fetch(`${API_BASE}/instances/${encodeURIComponent(body.instanceId)}/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apply: body.apply ?? true, binary: 'dcc-mcp-server' }),
+        signal: AbortSignal.timeout(ADMIN_FETCH_TIMEOUT_MS),
+      });
+      try {
+        return await adminJsonResponse<InstanceUpdatePayload>(res, endpoint);
+      } catch (err) {
+        if (err instanceof AdminApiError && isInstanceUpdatePayload(err.payload)) {
+          return err.payload;
+        }
+        throw err;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: adminKeys.workers() });
+      queryClient.invalidateQueries({ queryKey: adminKeys.health() });
+    },
+  });
+}
+
+export function useForgetMemory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { id?: number; layer?: string; dcc_name?: string; session_id?: string; key_prefix?: string }) => {
+      const res = await fetch(`${API_BASE}/memory/forget`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(ADMIN_FETCH_TIMEOUT_MS),
+      });
+      await adminOkResponse(res, '/memory/forget');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [...adminKeys.all, 'memory'] });
     },
   });
 }
@@ -352,18 +444,18 @@ export function useMarketplaceOutdatedQuery(enabled: boolean) {
 
 // ── marketplace error helpers ───────────────────────────────────────────────
 
-/** Try to parse a fetch error response into a structured error envelope. */
-async function readMarketplaceErrorEnvelope(
-  res: Response,
-): Promise<MarketplaceErrorEnvelope | null> {
-  try {
-    const body = await res.json();
-    const err = (body as Record<string, unknown>)?.error;
-    if (err && typeof err === 'object' && (err as MarketplaceErrorEnvelope).kind) {
-      return err as MarketplaceErrorEnvelope;
-    }
-  } catch {
-    // ignore parse errors
+function readMarketplaceErrorEnvelope(payload: unknown): MarketplaceErrorEnvelope | null {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+  const err = (payload as Record<string, unknown>).error;
+  if (!err || typeof err !== 'object') {
+    return null;
+  }
+  const kind = (err as Record<string, unknown>).kind;
+  const message = (err as Record<string, unknown>).message;
+  if (typeof kind === 'string' && typeof message === 'string' && message.trim()) {
+    return { kind: kind as MarketplaceErrorEnvelope['kind'], message: message.trim() };
   }
   return null;
 }
@@ -372,11 +464,28 @@ async function readMarketplaceErrorEnvelope(
 async function buildMarketplaceError(
   res: Response,
   fallback: string,
+  endpoint: string,
 ): Promise<MarketplaceError> {
-  const envelope = await readMarketplaceErrorEnvelope(res);
+  try {
+    await adminJsonResponse<unknown>(res, endpoint);
+  } catch (err) {
+    if (err instanceof AdminApiError) {
+      const envelope = readMarketplaceErrorEnvelope(err.payload);
+      if (!envelope && err.message.includes('Admin API returned HTML')) {
+        return new MarketplaceError('admin_api_html', err.message);
+      }
+      return new MarketplaceError(
+        envelope?.kind ?? 'internal_error',
+        envelope?.message ?? `${fallback}: ${err.message}`,
+      );
+    }
+    if (err instanceof Error && err.message) {
+      return new MarketplaceError('internal_error', `${fallback}: ${err.message}`);
+    }
+  }
   return new MarketplaceError(
-    envelope?.kind ?? 'internal_error',
-    envelope?.message ?? `${fallback}: ${res.status}`,
+    'internal_error',
+    `${fallback}: ${res.status}`,
   );
 }
 
@@ -402,8 +511,8 @@ export function useMarketplaceInstall() {
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(ADMIN_FETCH_TIMEOUT_MS),
       });
-      if (!res.ok) throw await buildMarketplaceError(res, 'Install failed');
-      return res.json() as Promise<MarketplaceInstallResult>;
+      if (!res.ok) throw await buildMarketplaceError(res, 'Install failed', '/marketplace/install');
+      return adminJsonResponse<MarketplaceInstallResult>(res, '/marketplace/install');
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: adminKeys.marketplaceInstalled() });
@@ -422,8 +531,8 @@ export function useMarketplaceUninstall() {
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(ADMIN_FETCH_TIMEOUT_MS),
       });
-      if (!res.ok) throw await buildMarketplaceError(res, 'Uninstall failed');
-      return res.json() as Promise<MarketplaceUninstallResult>;
+      if (!res.ok) throw await buildMarketplaceError(res, 'Uninstall failed', '/marketplace/uninstall');
+      return adminJsonResponse<MarketplaceUninstallResult>(res, '/marketplace/uninstall');
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: adminKeys.marketplaceInstalled() });
@@ -442,8 +551,8 @@ export function useAddMarketplaceSource() {
         body: JSON.stringify({ source }),
         signal: AbortSignal.timeout(ADMIN_FETCH_TIMEOUT_MS),
       });
-      if (!res.ok) throw await buildMarketplaceError(res, 'Failed to add source');
-      return res.json() as Promise<{ sources: MarketplaceSourceEntry[] }>;
+      if (!res.ok) throw await buildMarketplaceError(res, 'Failed to add source', '/marketplace/sources');
+      return adminJsonResponse<{ sources: MarketplaceSourceEntry[] }>(res, '/marketplace/sources');
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: adminKeys.marketplaceSources() });
@@ -462,8 +571,8 @@ export function useMarketplaceUpdate() {
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(ADMIN_FETCH_TIMEOUT_MS),
       });
-      if (!res.ok) throw await buildMarketplaceError(res, 'Update failed');
-      return res.json() as Promise<MarketplaceUpdatePayload>;
+      if (!res.ok) throw await buildMarketplaceError(res, 'Update failed', '/marketplace/update');
+      return adminJsonResponse<MarketplaceUpdatePayload>(res, '/marketplace/update');
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: adminKeys.marketplaceInstalled() });
@@ -494,13 +603,7 @@ export function useUpdateIntegration() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(ADMIN_FETCH_TIMEOUT_MS),
-      }).then(async (res) => {
-        if (!res.ok) {
-          const text = await res.text().catch(() => '');
-          throw new Error(text || `Update failed: ${res.status}`);
-        }
-        return res.json() as Promise<UpdateIntegrationResult>;
-      }),
+      }).then((res) => adminJsonResponse<UpdateIntegrationResult>(res, '/integrations')),
     onSuccess: (data) => {
       queryClient.setQueryData<IntegrationsPayload>(
         adminKeys.integrations(),
@@ -514,5 +617,17 @@ export function useUpdateIntegration() {
         },
       );
     },
+  });
+}
+
+export function useTestIntegration() {
+  return useMutation({
+    mutationFn: (body: TestIntegrationRequest) =>
+      fetch(`${API_BASE}/integrations/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(ADMIN_FETCH_TIMEOUT_MS),
+      }).then((res) => adminJsonResponse<TestIntegrationResult>(res, '/integrations/test')),
   });
 }

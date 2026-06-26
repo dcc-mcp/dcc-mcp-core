@@ -240,7 +240,7 @@ register_tools(server, [spec], dcc_name="maya")
 
 若有返回类型标注，会作为 `outputSchema`，MCP 2025-06-18 的客户端即可用它校验 `structuredContent`。未类型化的 handler 抛 `TypeError`，不会静默回退成宽松的 `{"type": "object"}`（修掉 #588 同代的陷阱）。
 
-支持的类型（全标准库）：`bool`、`int`、`float`、`str`、`bytes`、`None`、`list[X]`、`tuple[X, ...]`、定长 `tuple[A, B, ...]`、`dict[str, V]`、`Optional[X]` / `X | None`、`Union[A, B]`、`Literal[...]`、`Enum`、`datetime.datetime`、`datetime.date`、`pathlib.Path`、`uuid.UUID`、`@dataclass`、`TypedDict`。Python 3.7 中请用 `typing.List`、`typing.Dict`、`typing.Tuple`、`typing.Optional`、`typing.Union` 来书写容器与联合类型；`Literal` 与 `TypedDict` 需要由 skill 作者环境提供 `typing_extensions`。核心包自身仍保持零运行时依赖。不支持的类型会抛 `TypeError` 并附一条明确的"逃生通道"：显式传 `input_schema=...` dict 或用 pydantic 的 `MyModel.model_json_schema()`。
+支持的类型（全标准库）：`bool`、`int`、`float`、`str`、`bytes`、`None`、`list[X]`、`tuple[X, ...]`、定长 `tuple[A, B, ...]`、`dict[str, V]`、`Optional[X]` / `X | None`、`Union[A, B]`、`Literal[...]`、`Enum`、`datetime.datetime`、`datetime.date`、`pathlib.Path`、`uuid.UUID`、`@dataclass`、`TypedDict`。Python 3.7 中请用 `typing.List`、`typing.Dict`、`typing.Tuple`、`typing.Optional`、`typing.Union` 来书写容器与联合类型；`Literal` 与 `TypedDict` 需要由 skill 作者环境提供 `typing_extensions`。核心包自身仍不依赖第三方 Python 库。不支持的类型会抛 `TypeError` 并附一条明确的"逃生通道"：显式传 `input_schema=...` dict 或用 pydantic 的 `MyModel.model_json_schema()`。
 
 ::: tip 为什么不用 pydantic？
 我们刻意保持 0 依赖。仅为此特性引入 `pydantic` 会拉进 3MB wheel 再加 `pydantic-core`，对只想写几个 dataclass handler 的作者成本过高。对于已经在用 pydantic 的调用方，派生出的 shape 与 pydantic 的约定一致（`title`、`$defs`、`$ref`、`anyOf`、`required`），因此换成 `MyModel.model_json_schema()` 是即插即用的。
@@ -539,7 +539,7 @@ recorder = MemoryRecorder(store).install(hooks)
 server.register_lifecycle_hooks(hooks)
 ```
 
-`MemoryRecorder.install(hooks)` 为 `SESSION_START`、`BEFORE_SEARCH`、`AFTER_SKILL_LOAD`、`BEFORE_TOOL_CALL`、`AFTER_TOOL_CALL` 和 `SESSION_END` 注册处理器。记忆摘要自动注入到 `HookContext.payload` 中，包含 `memory_summary`、`memory_prefer_tools` 和 `memory_avoid_tools`。
+`MemoryRecorder.install(hooks)` 为 `SESSION_START`、`BEFORE_SEARCH`、`AFTER_SKILL_LOAD`、`BEFORE_TOOL_CALL`、`AFTER_TOOL_CALL` 和 `SESSION_END` 注册处理器。注入策略默认保守：搜索 payload 只收到紧凑排名提示（`memory_summary`、`memory_prefer_tools`、`memory_avoid_tools`、`memory_skip_reasons`），工具调用只有在匹配当前 `tool_name` 时才收到记忆，`SESSION_START` 注入需显式设置 `inject_on_session_start=True`。
 
 ### 会话压缩
 

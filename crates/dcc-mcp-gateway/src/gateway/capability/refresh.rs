@@ -24,7 +24,8 @@ use uuid::Uuid;
 
 use dcc_mcp_gateway_core::capability::compute_fingerprint;
 
-use crate::gateway::backend_client::{UnloadedCapabilityHint, fetch_tools};
+use crate::gateway::backend_client::{UnloadedCapabilityHint, try_fetch_tools};
+use crate::gateway::instance_diagnostics::InstanceDiagnosticsStore;
 
 use super::builder::{BuildInput, build_records_from_backend};
 use super::index::CapabilityIndex;
@@ -37,8 +38,14 @@ pub use dcc_mcp_gateway_core::capability::refresh::RefreshReason;
 ///
 /// Returns `true` when the index was actually updated (new, removed,
 /// or changed fingerprint), `false` when the fingerprint matched and
-/// the write was short-circuited. The bool is surfaced so diagnostics
-/// can count "no-op refreshes" without sampling tracing spans.
+/// the write was short-circuited — OR when the backend was unreachable
+/// (error path preserves the existing index to avoid losing previously
+/// discovered tools for this instance).
+///
+/// **Error safety**: when `try_fetch_tools` fails (network error, HTTP
+/// error, etc.) the function returns `false` without touching the index
+/// at all. This prevents a transient backend failure from wiping the
+/// instance's tool records (issue #1659).
 ///
 /// **Unloaded skills**: the backend's `POST /v1/search?loaded_only=false`
 /// response carries two groups of hits — tools from *loaded* skills and
@@ -47,6 +54,7 @@ pub use dcc_mcp_gateway_core::capability::refresh::RefreshReason;
 /// instance UUID in both `instance_id` and `tool_slug`, so same-DCC
 /// multi-instance gateways do not collapse every hint into one global
 /// `dcc.00000000.*` row.
+#[allow(clippy::too_many_arguments)]
 pub async fn refresh_instance(
     index: &CapabilityIndex,
     http_client: &reqwest::Client,
@@ -55,8 +63,28 @@ pub async fn refresh_instance(
     dcc_type: &str,
     backend_timeout: Duration,
     reason: RefreshReason,
+    diag_store: Option<&InstanceDiagnosticsStore>,
 ) -> bool {
-    let (tools, unloaded_hints) = fetch_tools(http_client, mcp_url, backend_timeout).await;
+    let (tools, unloaded_hints) = match try_fetch_tools(http_client, mcp_url, backend_timeout).await
+    {
+        Ok(result) => result,
+        Err(e) => {
+            tracing::warn!(
+                instance = %instance_id,
+                dcc = dcc_type,
+                error = %e,
+                "fetch_tools failed during refresh_instance; preserving existing index"
+            );
+            crate::gateway::metrics::record_gateway_backend_error_kind("fetch_tools");
+            if let Some(store) = diag_store {
+                store.record_call_error(instance_id, "fetch_tools", &e);
+            }
+            // Return early — do NOT upsert empty records. An empty upsert
+            // would delete this instance's entire slice from the index,
+            // losing all previously discovered tools (issue #1659).
+            return false;
+        }
+    };
     let outcome = build_records_from_backend(BuildInput {
         instance_id,
         dcc_type,

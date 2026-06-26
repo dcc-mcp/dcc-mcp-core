@@ -31,7 +31,7 @@ features:
     details: Multiple DCC instances compete for the gateway role. Newer adapters can take over cleanly while existing instances stay discoverable.
   - icon: 🦀
     title: Rust-Powered Core
-    details: Zero runtime Python dependencies. Zero-copy IPC via Named Pipes and Unix Sockets. rmp-serde serialization. LZ4 shared memory. Sub-millisecond tool calls.
+    details: Zero third-party Python library dependencies. Packaged gateway daemon binary via dcc-mcp-server. Zero-copy IPC via Named Pipes and Unix Sockets. rmp-serde serialization. LZ4 shared memory. Sub-millisecond tool calls.
   - icon: 🔒
     title: SkillPolicy & Scope
     details: allow_implicit_invocation controls whether AI can call a skill without explicit load_skill. products filter visibility by DCC. Trust levels (repo < user < system < admin).

@@ -134,11 +134,11 @@ pub(crate) struct ServerArgs {
     #[arg(long, env = "DCC_MCP_GATEWAY_REMOTE_PORT", default_value = "59765")]
     pub(crate) gateway_remote_port: u16,
 
-    /// Disable the read-only Admin UI on the elected gateway.
+    /// Disable the Admin UI on the elected gateway.
     #[arg(long, env = "DCC_MCP_NO_ADMIN", default_value = "false")]
     pub(crate) no_admin: bool,
 
-    /// URL prefix for the read-only Admin UI.
+    /// URL prefix for the Admin UI.
     #[arg(long, env = "DCC_MCP_ADMIN_PATH", default_value = "/admin")]
     pub(crate) admin_path: String,
 
@@ -238,8 +238,15 @@ impl ServeArgs {
 #[derive(Debug, Subcommand)]
 pub(crate) enum UpdateAction {
     /// Check whether a newer version is available.
-    Check,
-    /// Download the latest version and stage it for the next launch.
+    Check {
+        /// Binary name to check in the gateway update manifest.
+        #[arg(long)]
+        binary: Option<String>,
+        /// Current version to compare against. Defaults to this server version.
+        #[arg(long)]
+        current_version: Option<String>,
+    },
+    /// Download the latest server version and stage it for the next launch.
     Apply,
 }
 
@@ -264,7 +271,7 @@ pub(crate) enum CatalogAction {
 mod tests {
     use clap::{Parser as _, error::ErrorKind};
 
-    use super::{Args, SubCmd};
+    use super::{Args, SubCmd, UpdateAction};
 
     #[test]
     fn no_subcommand_keeps_backwards_compatible_server_flags() {
@@ -351,6 +358,41 @@ mod tests {
         };
         let server = serve.into_server_args();
         assert_eq!(server.gateway_port, 0);
+    }
+
+    #[test]
+    fn update_subcommand_accepts_check_and_apply() {
+        let parsed = Args::try_parse_from([
+            "dcc-mcp-server",
+            "update",
+            "check",
+            "--binary",
+            "dcc-mcp-server",
+            "--current-version",
+            "0.18.16",
+        ])
+        .unwrap();
+
+        let Some(SubCmd::Update { action }) = parsed.command else {
+            panic!("expected update subcommand");
+        };
+        let UpdateAction::Check {
+            binary,
+            current_version,
+        } = action
+        else {
+            panic!("expected update check action");
+        };
+        assert_eq!(binary.as_deref(), Some("dcc-mcp-server"));
+        assert_eq!(current_version.as_deref(), Some("0.18.16"));
+
+        let parsed = Args::try_parse_from(["dcc-mcp-server", "update", "apply"]).unwrap();
+        let Some(SubCmd::Update {
+            action: UpdateAction::Apply,
+        }) = parsed.command
+        else {
+            panic!("expected update apply action");
+        };
     }
 
     #[test]

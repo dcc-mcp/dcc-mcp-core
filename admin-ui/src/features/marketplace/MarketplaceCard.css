@@ -9,14 +9,17 @@
 }
 
 .marketplace-tab {
+  align-items: center;
   background: transparent;
   border: 0;
   border-bottom: 2px solid transparent;
   color: var(--muted-foreground);
   cursor: pointer;
+  display: inline-flex;
   font-family: var(--font-sans);
   font-size: 0.875rem;
   font-weight: 700;
+  gap: 0.45rem;
   margin-bottom: -1px;
   min-height: 2.75rem;
   padding: 0.55rem 1rem;
@@ -32,6 +35,12 @@
   color: var(--foreground);
 }
 
+.marketplace-tab-counts {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.25rem;
+}
+
 .marketplace-tab-count {
   background: var(--brand-100);
   border-radius: 999px;
@@ -39,12 +48,53 @@
   font-family: var(--font-mono);
   font-size: 0.6875rem;
   font-weight: 800;
-  margin-left: 0.4rem;
   padding: 0.1rem 0.45rem;
+}
+
+.marketplace-tab-count-warn {
+  background: var(--warn-soft);
+  color: var(--warn);
 }
 
 .marketplace-content {
   min-height: 8rem;
+}
+
+.marketplace-summary-strip {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  margin: 0 0 1rem;
+}
+
+.marketplace-summary-item {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 0.15rem;
+  min-height: 4.25rem;
+  min-width: 0;
+  padding: 0.7rem 0.8rem;
+}
+
+.marketplace-summary-item.warn {
+  border-color: rgba(245, 158, 11, 0.38);
+}
+
+.marketplace-summary-item span {
+  color: var(--muted-foreground);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.marketplace-summary-item strong {
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 1.18rem;
+  font-weight: 800;
 }
 
 .marketplace-grid {
@@ -284,6 +334,13 @@
 
 .marketplace-source-btn:hover:not(:disabled) {
   background: color-mix(in oklab, var(--primary) 88%, var(--background));
+}
+
+.marketplace-sources-section {
+  background: color-mix(in srgb, var(--card) 74%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1rem;
 }
 
 /* ── Marketplace detail modal ─────────────────────────────────────────────── */
@@ -572,10 +629,25 @@
   text-decoration: underline;
 }
 
+.marketplace-install-notice-actions {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+}
+
 /* ── Force install checkbox ────────────────────────────────────────────────── */
 
+.marketplace-force-install {
+  margin-bottom: 0.75rem;
+}
+
 .marketplace-force-install label {
+  align-items: center;
   color: var(--muted-foreground);
+  cursor: pointer;
+  display: flex;
+  font-size: 0.8rem;
+  gap: 0.4rem;
   user-select: none;
 }
 
@@ -669,6 +741,15 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.source-pill {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 0.12rem 0.45rem;
 }
 
 .source-pill-builtin {

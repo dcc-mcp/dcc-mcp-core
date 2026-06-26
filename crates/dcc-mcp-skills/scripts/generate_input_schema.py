@@ -190,6 +190,22 @@ def generate_schema_from_function(func) -> Dict[str, Any]:
     return schema
 
 
+def generate_schema_from_core(func) -> Optional[Dict[str, Any]]:
+    """Use dcc_mcp_core.schema when the installed Python package is available."""
+    try:
+        from dcc_mcp_core.schema import tool_spec_from_callable
+    except Exception:
+        return None
+
+    try:
+        schema = tool_spec_from_callable(func).input_schema
+    except Exception:
+        return None
+    if isinstance(schema, dict) and schema.get("type"):
+        return schema
+    return None
+
+
 def find_entry_function(script_path: str) -> Optional[str]:
     """Find the entry function in a Python script without executing it.
 
@@ -267,6 +283,10 @@ def generate_schema(script_path: str, function_name: Optional[str] = None) -> Di
     func = getattr(module, function_name)
     if not callable(func):
         return {"type": "object"}
+
+    core_schema = generate_schema_from_core(func)
+    if core_schema:
+        return core_schema
 
     return generate_schema_from_function(func)
 

@@ -283,6 +283,15 @@ class SidecarActionDispatcher:
 
         resolved = self._resolved_from_raw(raw)
         if resolved is None:
+            # Fallback: builtin inline-handler tools (e.g. dcc_diagnostics__*)
+            # have no source_file but are callable through the server's
+            # registered handlers.  GH-1696
+            if hasattr(server, "call_tool"):
+                return _ResolvedSource(
+                    script_path="",
+                    source_file="",
+                    skill_name="builtin",
+                )
             return self._error(
                 ERROR_NO_SOURCE_FILE,
                 f"Sidecar action has no source file: {payload.action}",
@@ -353,6 +362,11 @@ class SidecarActionDispatcher:
         return source_file
 
     def _execute(self, request: SidecarDispatchRequest) -> Any:
+        # Builtin inline-handler tools have no source_file; delegate to the
+        # server's registered handler.  GH-1696
+        if not request.source_file and hasattr(request.server, "call_tool"):
+            return request.server.call_tool(request.action, request.args)
+
         if self.executor is not None:
             return self.executor(request)
 

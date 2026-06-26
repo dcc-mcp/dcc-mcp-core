@@ -225,7 +225,7 @@ Gateway resources/prompts:
 | Spawn the local tunnel agent | `dcc_mcp_tunnel_agent::run_once(AgentConfig::new(relay_url, jwt, dcc, local_target)).await` — registers, holds the connection open, bridges per-session bytes to the local DCC HTTP server, and may advertise `instance_id`, `capabilities_fingerprint`, `adapter_version`, and `scene` |
 | Long-lived agent with back-off | `dcc_mcp_tunnel_agent::run_with_reconnect(cfg, shutdown_rx).await` — wraps `run_once` in a reconnect loop honouring `AgentConfig::reconnect` (Constant or Exponential); fails fast on `Rejected` |
 | Mint a tunnel JWT | `dcc_mcp_tunnel_protocol::auth::issue(&TunnelClaims { sub, iat, exp, iss, allowed_dcc }, secret)` — relay uses `auth::validate` to enforce DCC scope on every registration |
-| Gateway lifecycle (idle shutdown) | `DCC_MCP_GATEWAY_PERSIST=1` keeps daemon alive with no backends; `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` (default `30`) controls grace period before shutdown |
+| Gateway lifecycle (idle shutdown) | `DCC_MCP_GATEWAY_PERSIST=1` keeps daemon alive with no backends; `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` controls grace period before shutdown (standalone `gateway` CLI default `30`, daemon auto-ensure default `300`) |
 | Gateway failover | `DccGatewayElection(dcc_name, server)` — auto-promote on gateway failure (legacy election mode) |
 | Hide unknown DCC types from gateway | `McpHttpConfig.allow_unknown_tools = false` (default) — drops tools whose `dcc_type` is not registered with the gateway (#553, #555) |
 | Auto-evict dead gateway instances | Gateway runs a TCP probe loop; deregisters after 3 consecutive failures, also runs a startup probe to evict instances whose listener died while the registry entry survived (#551, #552, #556) |
@@ -461,7 +461,7 @@ CI enforces hard line-count limits (`.github/workflows/check-file-size.yml`):
 
 | Language | Limit | Test files |
 |----------|-------|------------|
-| Rust (`.rs`) | **1 500 lines** | excluded |
+| Rust (`.rs`) | **1 500 lines** | **2 000 lines** |
 | Python (`.py`) | **1 000 lines** | excluded |
 | Admin UI source/test (`.ts`, `.tsx`, `.css`, `.json`) | **3 000 lines** | included |
 
@@ -493,6 +493,8 @@ Rules:
 - `domain/` must not import from `infra/` or `application/`.
 - `application/` orchestrates `domain/` + `infra/`; no business rules.
 - Keep `impl` blocks with their type — do not scatter impls across files.
+- Keep Rust test files below 2 000 lines. Extract shared fixtures into focused
+  helper modules and split broad integration suites by user-facing workflow.
 - Remove code smells during the split: eliminate `unwrap`/`expect` outside
   tests, replace god-structs with focused structs, break cyclic deps.
 
@@ -543,7 +545,7 @@ If a split is genuinely out-of-scope for the current PR:
 ## Repo Layout (What Lives Where)
 
 ```
-crates/          # Rust workspace — 43 packages (42 functional packages + workspace-hack); `Cargo.toml` is source of truth
+crates/          # Rust workspace — 47 packages (46 functional packages + workspace-hack); `Cargo.toml` is source of truth
 python/dcc_mcp_core/__init__.py  # ← top-level Python public re-exports
 python/dcc_mcp_core/result_envelope.py  # ← typed ToolResult dataclass (#487)
 python/dcc_mcp_core/constants.py        # ← metadata key / layer / category constants (#487)

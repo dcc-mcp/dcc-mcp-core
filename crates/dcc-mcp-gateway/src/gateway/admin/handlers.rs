@@ -7,21 +7,22 @@ use std::time::UNIX_EPOCH;
 use axum::Json;
 use axum::extract::{OriginalUri, Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
 use dcc_mcp_gateway_core::naming::instance_short;
+use dcc_mcp_updater::{UpdateInfo, Updater};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::debug_response::{DebugListQuery, debug_response};
-use super::html::ADMIN_HTML;
+use super::events::contend_event_to_admin_row;
 use super::issue_report::{IssueReportMode, issue_report_filename, issue_report_json};
 use super::links::AdminLinkBuilder;
 use super::skill_reload::reload_skill_paths_and_refresh_backends;
 use super::state::{AdminAuditRecord, AdminState};
 use super::trace::{AgentContext, DispatchTrace};
+use super::update::{AdminInstanceUpdateVersion, admin_instance_update_version};
 use crate::gateway::capability::RefreshReason;
 use crate::gateway::capability_service::refresh_all_live_backends;
-use crate::gateway::event_log::{ContendEvent, EventKind};
 use crate::gateway::resilience::{self as gw_resilience, gateway_limits};
 use crate::gateway::response_codec::{
     JSON_MIME, TOKEN_ESTIMATOR, TOON_MIME, default_rest_response_format,
@@ -31,84 +32,6 @@ use dcc_mcp_db::read_gateway_log_dir_rows_recent;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};
 
 const ADMIN_FILE_LOG_READ_TIMEOUT: Duration = Duration::from_millis(750);
-
-fn traffic_export_filename() -> &'static str {
-    "dcc-mcp-traffic-capture.jsonl"
-}
-
-/// `GET /admin` — serve the inline HTML dashboard.
-pub async fn handle_admin_ui() -> impl IntoResponse {
-    let mut resp = axum::response::Html(ADMIN_HTML).into_response();
-    resp.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("no-cache, no-store"),
-    );
-    resp
-}
-
-/// `GET /admin/api/activity` — unified operator / agent activity timeline.
-pub async fn handle_admin_activity(
-    State(s): State<AdminState>,
-    axum::extract::Query(params): axum::extract::Query<DebugListQuery>,
-) -> impl IntoResponse {
-    let limit = params.limit(200, 1_000);
-    Json(crate::gateway::admin::activity::build_activity_payload(&s, limit).await)
-}
-
-/// `GET /admin/api/governance` — effective traffic governance policy and decisions.
-pub async fn handle_admin_governance(
-    State(s): State<AdminState>,
-    axum::extract::Query(params): axum::extract::Query<DebugListQuery>,
-) -> impl IntoResponse {
-    let limit = params.limit(200, 1_000);
-    Json(crate::gateway::admin::governance::build_governance_payload(&s, limit).await)
-}
-
-/// `GET /admin/api/traffic?limit=200` — retained live traffic frames.
-pub async fn handle_admin_traffic(
-    State(s): State<AdminState>,
-    headers: HeaderMap,
-    OriginalUri(uri): OriginalUri,
-    Query(params): Query<DebugListQuery>,
-) -> impl IntoResponse {
-    let links = AdminLinkBuilder::from_request(&headers, &uri);
-    let limit = params.limit(200, 1_000);
-    Json(crate::gateway::admin::traffic::build_traffic_payload(
-        &s.gateway.traffic_capture,
-        limit,
-        json!({
-            "admin_traffic_url": links.panel_url("traffic"),
-            "traffic_api_url": links.api_url("/traffic"),
-            "traffic_export_jsonl_url": links.api_url("/traffic/export"),
-        }),
-    ))
-}
-
-/// `GET /admin/api/traffic/export?limit=1000` — retained live frames as JSONL.
-pub async fn handle_admin_traffic_export(
-    State(s): State<AdminState>,
-    Query(params): Query<DebugListQuery>,
-) -> impl IntoResponse {
-    let limit = params.limit(1_000, 10_000);
-    let body = crate::gateway::admin::traffic::build_traffic_export_body(
-        &s.gateway.traffic_capture,
-        limit,
-    );
-    let mut response = (StatusCode::OK, body).into_response();
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("application/x-ndjson; charset=utf-8"),
-    );
-    response.headers_mut().insert(
-        header::CONTENT_DISPOSITION,
-        HeaderValue::from_str(&format!(
-            "attachment; filename=\"{}\"",
-            traffic_export_filename()
-        ))
-        .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
-    );
-    response
-}
 
 #[derive(Debug, Default, Deserialize)]
 pub struct AdminInstancesQuery {
@@ -135,6 +58,17 @@ pub struct IssueReportQuery {
     mode: Option<String>,
     /// Compatibility flag for explicit raw export requests.
     include_raw: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct AdminInstanceUpdateRequest {
+    /// Defaults to true: check, then stage the update when one is available.
+    apply: Option<bool>,
+    /// Defaults to the server binary because instance cards represent backends.
+    binary: Option<String>,
+    /// Current version of the requested binary. Optional when the target
+    /// instance reports its server binary version in registry metadata.
+    current_version: Option<String>,
 }
 
 impl IssueReportQuery {
@@ -231,6 +165,295 @@ pub async fn handle_admin_instances(
         "instances": instances,
     }))
     .into_response()
+}
+
+/// `POST /admin/api/instances/{instance_id}/update` — check and optionally stage a server update.
+pub async fn handle_admin_instance_update(
+    State(s): State<AdminState>,
+    Path(instance_filter): Path<String>,
+    Json(req): Json<AdminInstanceUpdateRequest>,
+) -> Response {
+    let binary_name = req
+        .binary
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("dcc-mcp-server")
+        .to_string();
+    let apply = req.apply.unwrap_or(true);
+
+    let instance = match admin_find_instance_entry(&s, &instance_filter).await {
+        Ok(entry) => entry,
+        Err(response) => return response,
+    };
+    let instance_id = instance.instance_id.to_string();
+    let instance_short_id = instance_short(&instance.instance_id);
+    let (current_version, displayed_current_version, current_version_source) =
+        match admin_instance_update_version(&instance, &binary_name, req.current_version.as_deref())
+        {
+            AdminInstanceUpdateVersion::Known {
+                current,
+                display,
+                source,
+            } => (current, display, source),
+            AdminInstanceUpdateVersion::MissingCurrentVersion => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "status": "version_required",
+                        "error": "current_version_required",
+                        "message": format!(
+                            "current_version is required when checking updates for binary '{binary_name}'."
+                        ),
+                        "binary_name": binary_name,
+                        "update_available": false,
+                        "requires_restart": false,
+                    })),
+                )
+                    .into_response();
+            }
+        };
+
+    let manifest_url = match &s.gateway.update_manifest_url {
+        Some(url) => url.clone(),
+        None => {
+            return (
+                StatusCode::NOT_IMPLEMENTED,
+                Json(json!({
+                    "status": "not_configured",
+                    "error": "update_manifest_url_not_configured",
+                    "message": "Update manifest URL is not configured for this gateway.",
+                    "hint": "Set DCC_MCP_UPDATE_MANIFEST_URL or configure update_manifest_url on the gateway.",
+                    "instance_id": instance_id,
+                    "instance_short": instance_short_id,
+                    "binary_name": binary_name,
+                    "current_version": displayed_current_version,
+                    "current_version_source": current_version_source,
+                    "update_available": false,
+                    "requires_restart": false,
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    let manifest = match crate::gateway::update_manifest::fetch_update_manifest(
+        &s.gateway.http_client,
+        &manifest_url,
+    )
+    .await
+    {
+        Ok(manifest) => manifest,
+        Err(err) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({
+                    "status": "manifest_error",
+                    "error": "failed_to_fetch_update_manifest",
+                    "message": err.to_string(),
+                    "instance_id": instance_id,
+                    "instance_short": instance_short_id,
+                    "binary_name": binary_name,
+                    "current_version": displayed_current_version,
+                    "current_version_source": current_version_source,
+                    "update_available": false,
+                    "requires_restart": false,
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    let Some(manifest_entry) = manifest.get(&binary_name) else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "status": "binary_not_found",
+                "error": "binary_not_found",
+                "message": format!("Binary '{binary_name}' was not found in the update manifest."),
+                "instance_id": instance_id,
+                "instance_short": instance_short_id,
+                "binary_name": binary_name,
+                "current_version": displayed_current_version,
+                "current_version_source": current_version_source,
+                "update_available": false,
+                "requires_restart": false,
+            })),
+        )
+            .into_response();
+    };
+
+    let update_available =
+        crate::gateway::is_newer_version(&manifest_entry.version, &current_version);
+    if !update_available || !apply {
+        return Json(json!({
+            "status": if update_available { "available" } else { "up_to_date" },
+            "instance_id": instance_id,
+            "instance_short": instance_short_id,
+            "binary_name": binary_name,
+            "current_version": displayed_current_version,
+            "current_version_source": current_version_source,
+            "latest_version": manifest_entry.version,
+            "download_url": manifest_entry.url,
+            "sha256": manifest_entry.sha256,
+            "release_notes": manifest_entry.release_notes,
+            "update_available": update_available,
+            "requires_restart": false,
+            "message": if update_available {
+                "An update is available."
+            } else {
+                "Already running the latest available version."
+            },
+        }))
+        .into_response();
+    }
+
+    if manifest_entry.url.is_none() {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "status": "download_failed",
+                "error": "download_url_not_configured",
+                "message": format!("No download URL is configured for binary '{binary_name}'."),
+                "instance_id": instance_id,
+                "instance_short": instance_short_id,
+                "binary_name": binary_name,
+                "current_version": displayed_current_version,
+                "current_version_source": current_version_source,
+                "latest_version": manifest_entry.version,
+                "update_available": true,
+                "requires_restart": false,
+            })),
+        )
+            .into_response();
+    }
+
+    let info = UpdateInfo {
+        update_available,
+        current_version: current_version.clone(),
+        latest_version: manifest_entry.version.clone(),
+        download_url: manifest_entry.url.clone(),
+        sha256: manifest_entry.sha256.clone(),
+        release_notes: manifest_entry.release_notes.clone(),
+    };
+    let updater = Updater::new("http://127.0.0.1", &binary_name, &current_version);
+    let downloaded = match updater.download_update(&info).await {
+        Ok(path) => path,
+        Err(err) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({
+                    "status": "download_failed",
+                    "error": "update_download_failed",
+                    "message": err.to_string(),
+                    "instance_id": instance_id,
+                    "instance_short": instance_short_id,
+                    "binary_name": binary_name,
+                    "current_version": displayed_current_version,
+                    "current_version_source": current_version_source,
+                    "latest_version": manifest_entry.version,
+                    "update_available": true,
+                    "requires_restart": false,
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    if let Err(err) = Updater::stage_update(&downloaded, &binary_name) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({
+                "status": "stage_failed",
+                "error": "update_stage_failed",
+                "message": err.to_string(),
+                "instance_id": instance_id,
+                "instance_short": instance_short_id,
+                "binary_name": binary_name,
+                "current_version": displayed_current_version,
+                "current_version_source": current_version_source,
+                "latest_version": manifest_entry.version,
+                "update_available": true,
+                "requires_restart": false,
+            })),
+        )
+            .into_response();
+    }
+
+    Json(json!({
+        "status": "staged",
+        "instance_id": instance_id,
+        "instance_short": instance_short_id,
+        "binary_name": binary_name,
+        "current_version": displayed_current_version,
+        "current_version_source": current_version_source,
+        "latest_version": manifest_entry.version,
+        "download_url": manifest_entry.url,
+        "sha256": manifest_entry.sha256,
+        "release_notes": manifest_entry.release_notes,
+        "staged_at": downloaded.to_string_lossy(),
+        "update_available": true,
+        "requires_restart": true,
+        "message": "Update downloaded and staged. Restart the binary to apply.",
+    }))
+    .into_response()
+}
+
+async fn admin_find_instance_entry(
+    s: &AdminState,
+    instance_filter: &str,
+) -> Result<ServiceEntry, Response> {
+    let filter = instance_filter.trim();
+    if filter.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "missing_instance_id",
+                "message": "Instance id is required.",
+            })),
+        )
+            .into_response());
+    }
+
+    let registry = s.gateway.registry.read().await;
+    let entries = match s.gateway.read_alive_instances(&registry) {
+        Ok((entries, _)) => entries,
+        Err(_) => s.gateway.all_instances(&registry),
+    };
+    let filter_lower = filter.to_ascii_lowercase();
+    let mut matches = entries
+        .into_iter()
+        .filter(|entry| {
+            let id = entry.instance_id.to_string();
+            id.eq_ignore_ascii_case(filter)
+                || instance_short(&entry.instance_id).eq_ignore_ascii_case(filter)
+                || id.to_ascii_lowercase().starts_with(&filter_lower)
+        })
+        .collect::<Vec<_>>();
+
+    match matches.len() {
+        1 => Ok(matches.remove(0)),
+        0 => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "error": "instance_not_found",
+                "message": format!("No live instance matches '{filter}'."),
+            })),
+        )
+            .into_response()),
+        _ => Err((
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": "ambiguous_instance_id",
+                "message": format!("Instance id prefix '{filter}' matches multiple live instances."),
+                "matches": matches
+                    .iter()
+                    .map(|entry| entry.instance_id.to_string())
+                    .collect::<Vec<_>>(),
+            })),
+        )
+            .into_response()),
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -1082,130 +1305,6 @@ pub async fn handle_admin_search_telemetry(
     )
 }
 
-#[derive(Debug, Deserialize)]
-pub struct SkillPathAddBody {
-    pub path: String,
-}
-
-async fn wait_for_custom_skill_path_visible(
-    lane: &crate::gateway::admin::sqlite_lane::AdminSqliteLane,
-    needle: &str,
-) {
-    for _ in 0..80 {
-        if lane
-            .reader()
-            .list_custom_skill_paths()
-            .iter()
-            .any(|(_, p)| p == needle)
-        {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-    tracing::warn!(path = %needle, "skill path not visible after 2 s poll — writer may be lagging");
-}
-
-async fn wait_until_custom_skill_path_id_removed(
-    lane: &crate::gateway::admin::sqlite_lane::AdminSqliteLane,
-    id: i64,
-) {
-    for _ in 0..80 {
-        if !lane
-            .reader()
-            .list_custom_skill_paths()
-            .iter()
-            .any(|(i, _)| *i == id)
-        {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-    tracing::warn!(
-        skill_path_id = id,
-        "skill path id not removed after 2 s poll — writer may be lagging"
-    );
-}
-
-fn push_admin_operator_note(state: &AdminState, msg: String) {
-    state.gateway.event_log.push(ContendEvent::new(
-        EventKind::OperatorNote,
-        "admin",
-        "gateway",
-        Some(msg),
-    ));
-}
-
-/// `GET /admin/api/skill-paths` — skill search paths (snapshot + SQLite custom).
-pub async fn handle_admin_skill_paths(State(s): State<AdminState>) -> impl IntoResponse {
-    Json(crate::gateway::admin::skill_health::build_skill_paths_payload(&s))
-}
-
-/// `POST /admin/api/skill-paths` — enqueue a custom path; embedder hook may reload disk catalog.
-pub async fn handle_admin_skill_path_add(
-    State(s): State<AdminState>,
-    Json(body): Json<SkillPathAddBody>,
-) -> impl IntoResponse {
-    let path = body.path.trim().to_string();
-    if path.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "path is empty" })),
-        )
-            .into_response();
-    }
-    let Some(ref lane) = s.admin_sqlite_lane else {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "admin sqlite lane disabled" })),
-        )
-            .into_response();
-    };
-    if lane.try_add_skill_path(path.clone()) {
-        wait_for_custom_skill_path_visible(lane, &path).await;
-        reload_skill_paths_and_refresh_backends(&s, RefreshReason::ToolsListChanged).await;
-        push_admin_operator_note(
-            &s,
-            format!("Custom skill path persisted; catalog reload hook ran: {path}"),
-        );
-        (StatusCode::OK, Json(json!({ "ok": true, "path": path }))).into_response()
-    } else {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "persist queue full or sqlite disabled" })),
-        )
-            .into_response()
-    }
-}
-
-/// `DELETE /admin/api/skill-paths/{id}` — remove a custom path row.
-pub async fn handle_admin_skill_path_delete(
-    State(s): State<AdminState>,
-    axum::extract::Path(id): axum::extract::Path<i64>,
-) -> impl IntoResponse {
-    let Some(ref lane) = s.admin_sqlite_lane else {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "admin sqlite lane disabled" })),
-        )
-            .into_response();
-    };
-    if lane.try_delete_skill_path(id) {
-        wait_until_custom_skill_path_id_removed(lane, id).await;
-        reload_skill_paths_and_refresh_backends(&s, RefreshReason::ToolsListChanged).await;
-        push_admin_operator_note(
-            &s,
-            format!("Custom skill path removed (id={id}); catalog reload hook ran."),
-        );
-        (StatusCode::OK, Json(json!({ "ok": true, "id": id }))).into_response()
-    } else {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "persist queue full or sqlite disabled" })),
-        )
-            .into_response()
-    }
-}
-
 /// `GET /admin/api/workers` — per-instance worker cards (Phase 4).
 ///
 /// Returns the live registry view of each known instance plus best-effort
@@ -1351,39 +1450,4 @@ fn dispatch_trace_to_admin_row(t: &DispatchTrace, links: Option<AdminLinkBuilder
         row["links"] = links.request_links(&t.request_id);
     }
     row
-}
-
-fn contend_event_to_admin_row(e: ContendEvent) -> Value {
-    if matches!(e.event, EventKind::OperatorNote) {
-        let message = e
-            .reason
-            .clone()
-            .unwrap_or_else(|| "operator note".to_string());
-        return json!({
-            "timestamp": e.timestamp,
-            "level": "info",
-            "message": message,
-            "source": "admin",
-            "event": e.event,
-            "dcc_type": e.dcc_type,
-            "instance_id": e.instance_id,
-            "reason": e.reason,
-        });
-    }
-    let label = e.event.as_label();
-    let mut message = format!("{label} dcc_type={} instance={}", e.dcc_type, e.instance_id);
-    if let Some(r) = &e.reason {
-        message.push_str(" — ");
-        message.push_str(r);
-    }
-    json!({
-        "timestamp": e.timestamp,
-        "level": "info",
-        "message": message,
-        "source": "contention",
-        "event": e.event,
-        "dcc_type": e.dcc_type,
-        "instance_id": e.instance_id,
-        "reason": e.reason,
-    })
 }

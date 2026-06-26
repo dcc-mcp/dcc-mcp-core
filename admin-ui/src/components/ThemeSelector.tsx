@@ -1,5 +1,13 @@
+import { RiContrast2Line } from '@remixicon/react';
 import { type InterpolationValues, type MessageKey } from '../i18n';
 import { THEMES, type ThemeMode } from '../theme';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+} from './ui/select';
 
 type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 
@@ -15,22 +23,45 @@ const THEME_LABEL_KEY: Record<ThemeMode, MessageKey> = {
   system: 'common.theme.system',
 };
 
+const THEME_TRIGGER_LABEL_KEY: Record<ThemeMode, MessageKey> = {
+  light: 'common.theme.triggerLight',
+  dark: 'common.theme.triggerDark',
+  system: 'common.theme.triggerSystem',
+};
+
 export function ThemeSelector({ mode, onChange, t }: ThemeSelectorProps) {
   return (
-    <label className="theme-selector" htmlFor="admin-theme-select">
-      <span>{t('common.theme.label')}</span>
-      <select
-        id="admin-theme-select"
+    <div className="theme-selector" title={t('common.theme.label')}>
+      <RiContrast2Line className="preference-icon" aria-hidden="true" />
+      <span id="admin-theme-select-label" className="preference-label">{t('common.theme.label')}</span>
+      <Select
         value={mode}
-        aria-label={t('common.theme.label')}
-        onChange={(event) => onChange(event.target.value as ThemeMode)}
+        onValueChange={(value) => onChange(value as ThemeMode)}
       >
-        {THEMES.map((option) => (
-          <option key={option} value={option}>
-            {t(THEME_LABEL_KEY[option])}
-          </option>
-        ))}
-      </select>
-    </label>
+        <SelectTrigger
+          id="admin-theme-select"
+          className="admin-select-trigger preference-select-trigger"
+          size="sm"
+          aria-label={`${t('common.theme.label')}: ${t(THEME_LABEL_KEY[mode])}`}
+        >
+          <span className="preference-select-visible-value" aria-hidden="true">
+            {t(THEME_TRIGGER_LABEL_KEY[mode])}
+          </span>
+        </SelectTrigger>
+        <SelectContent
+          className="admin-select-content preference-select-content"
+          position="popper"
+          align="start"
+        >
+          <SelectGroup>
+            {THEMES.map((option) => (
+              <SelectItem key={option} value={option}>
+                {t(THEME_LABEL_KEY[option])}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    </div>
   );
 }

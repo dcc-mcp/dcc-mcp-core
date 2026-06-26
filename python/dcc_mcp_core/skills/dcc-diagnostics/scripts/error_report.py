@@ -193,28 +193,38 @@ def _dcc_name_from_env() -> str | None:
 # ── main ──────────────────────────────────────────────────────────────────────
 
 
-def main() -> None:
+def main(**kwargs) -> None:
     """Generate a structured error report and print JSON to stdout."""
-    parser = argparse.ArgumentParser(description="Generate a DCC error report.")
-    parser.add_argument("--dcc-name", default=None, dest="dcc_name")
-    parser.add_argument("--log-dir", default=None, dest="log_dir")
-    parser.add_argument("--db-path", default=None, dest="db_path")
-    parser.add_argument("--tail", type=int, default=200, dest="tail_lines")
-    parser.add_argument("--job-limit", type=int, default=20, dest="job_limit")
-    args = parser.parse_args()
+    if kwargs:
+        dcc_name = kwargs.get("dcc_name") or _dcc_name_from_env()
+        log_dir = kwargs.get("log_dir") or os.environ.get("DCC_MCP_LOG_DIR") or ""
+        db_path = kwargs.get("db_path") or ""
+        tail_lines = kwargs.get("tail", 200)
+        job_limit = kwargs.get("job_limit", 20)
+    else:
+        parser = argparse.ArgumentParser(description="Generate a DCC error report.")
+        parser.add_argument("--dcc-name", default=None, dest="dcc_name")
+        parser.add_argument("--log-dir", default=None, dest="log_dir")
+        parser.add_argument("--db-path", default=None, dest="db_path")
+        parser.add_argument("--tail", type=int, default=200, dest="tail_lines")
+        parser.add_argument("--job-limit", type=int, default=20, dest="job_limit")
+        args = parser.parse_args()
 
-    dcc_name = args.dcc_name or _dcc_name_from_env()
+        dcc_name = args.dcc_name or _dcc_name_from_env()
 
-    log_dir = args.log_dir or os.environ.get("DCC_MCP_LOG_DIR") or ""
-    if not log_dir:
-        try:
-            from dcc_mcp_core import get_log_dir
+        log_dir = args.log_dir or os.environ.get("DCC_MCP_LOG_DIR") or ""
+        if not log_dir:
+            try:
+                from dcc_mcp_core import get_log_dir
 
-            log_dir = get_log_dir()
-        except Exception:
-            pass
+                log_dir = get_log_dir()
+            except Exception:
+                pass
 
-    db_path = args.db_path or ""
+        db_path = args.db_path or ""
+        tail_lines = args.tail_lines
+        job_limit = args.job_limit
+
     if not db_path and log_dir and dcc_name:
         db_path = str(Path(log_dir) / f"dcc-mcp-{dcc_name}-jobs.db")
     elif not db_path and log_dir:
@@ -226,8 +236,8 @@ def main() -> None:
         if candidates:
             db_path = str(candidates[0])
 
-    log_section = _collect_log_section(log_dir, dcc_name, args.tail_lines)
-    job_section = _collect_job_section(db_path, args.job_limit)
+    log_section = _collect_log_section(log_dir, dcc_name, tail_lines)
+    job_section = _collect_job_section(db_path, job_limit)
     process_section = _collect_process_section()
 
     hints: list[str] = []

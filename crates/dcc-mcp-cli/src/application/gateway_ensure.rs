@@ -9,7 +9,7 @@
 //! utilities) live in `dcc-mcp-gateway-ensure`.
 
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use dcc_mcp_gateway_ensure as ensure;
@@ -25,6 +25,12 @@ pub struct EnsureResult {
     pub already_running: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pid: Option<u32>,
+    pub registry_dir: PathBuf,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pidfile: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub launch_binary: Option<PathBuf>,
+    pub cli_version: String,
 }
 
 /// Parameters for `ensure_gateway_running`.
@@ -50,27 +56,28 @@ pub async fn ensure_gateway_running(args: &EnsureGatewayArgs) -> anyhow::Result<
     }
 
     if ensure::gateway_health_ok(&args.host, args.port).await {
-        return Ok(EnsureResult {
-            host: args.host.clone(),
-            port: args.port,
-            already_running: true,
-            pid: ensure::read_pid_from_pidfile(args.pidfile.as_deref()),
-        });
+        return Ok(ensure_result(
+            args,
+            true,
+            ensure::read_pid_from_pidfile(args.pidfile.as_deref()),
+            args.gateway_bin.clone(),
+        ));
     }
 
     std::fs::create_dir_all(&args.registry_dir)
         .with_context(|| format!("creating registry dir {}", args.registry_dir.display()))?;
     let lock_path = args.registry_dir.join("gateway-launch.lock");
+    let started = Instant::now();
     match ensure::acquire_launch_lock(&lock_path) {
         Ok(_lock) => {
             // Double-check after acquiring the lock (race protection).
             if ensure::gateway_health_ok(&args.host, args.port).await {
-                return Ok(EnsureResult {
-                    host: args.host.clone(),
-                    port: args.port,
-                    already_running: true,
-                    pid: ensure::read_pid_from_pidfile(args.pidfile.as_deref()),
-                });
+                return Ok(ensure_result(
+                    args,
+                    true,
+                    ensure::read_pid_from_pidfile(args.pidfile.as_deref()),
+                    args.gateway_bin.clone(),
+                ));
             }
 
             let exe = resolve_gateway_bin(args).await?;
@@ -82,12 +89,33 @@ pub async fn ensure_gateway_running(args: &EnsureGatewayArgs) -> anyhow::Result<
                 args.remote_port,
                 args.gateway_idle_timeout_secs,
             );
-            let pid = ensure::spawn_detached_gateway(&exe, &cmd_args, &args.registry_dir)?;
+            let context = ensure::GatewayLaunchContext::gateway(
+                &args.host,
+                args.port,
+                &args.remote_host,
+                args.remote_port,
+                args.gateway_idle_timeout_secs,
+            );
+            let launch = ensure::spawn_detached_gateway_with_context(
+                &exe,
+                &cmd_args,
+                &args.registry_dir,
+                context,
+            )?;
 
-            ensure::wait_gateway_ready(
+            ensure::wait_gateway_ready_with_diagnostics(
                 &args.host,
                 args.port,
                 Duration::from_secs(ensure::resolve_ensure_timeout_secs(args.wait_timeout_secs)),
+                ensure::GatewayReadyDiagnostics {
+                    registry_dir: Some(&args.registry_dir),
+                    launch_lock: Some(&lock_path),
+                    launch: Some(&launch),
+                    started: Some(started),
+                    gateway_idle_timeout_secs: Some(args.gateway_idle_timeout_secs),
+                    remote_host: Some(&args.remote_host),
+                    remote_port: Some(args.remote_port),
+                },
             )
             .await?;
 
@@ -96,15 +124,10 @@ pub async fn ensure_gateway_running(args: &EnsureGatewayArgs) -> anyhow::Result<
 
             // Write PID file so stop/status commands can find the process.
             if let Some(ref pidfile) = args.pidfile {
-                ensure::write_pidfile(pidfile, pid)?;
+                ensure::write_pidfile(pidfile, launch.pid)?;
             }
 
-            Ok(EnsureResult {
-                host: args.host.clone(),
-                port: args.port,
-                already_running: false,
-                pid: Some(pid),
-            })
+            Ok(ensure_result(args, false, Some(launch.pid), Some(exe)))
         }
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
             // Another process holds the launch lock — wait for its winner to
@@ -112,17 +135,49 @@ pub async fn ensure_gateway_running(args: &EnsureGatewayArgs) -> anyhow::Result<
             // Python `_wait_gateway_ready` on lock-loser path).
             let timeout =
                 Duration::from_secs(ensure::resolve_ensure_timeout_secs(args.wait_timeout_secs));
-            ensure::wait_gateway_ready(&args.host, args.port, timeout).await?;
-            Ok(EnsureResult {
-                host: args.host.clone(),
-                port: args.port,
-                already_running: true,
-                pid: ensure::read_pid_from_pidfile(args.pidfile.as_deref()),
-            })
+            ensure::wait_gateway_ready_with_diagnostics(
+                &args.host,
+                args.port,
+                timeout,
+                ensure::GatewayReadyDiagnostics {
+                    registry_dir: Some(&args.registry_dir),
+                    launch_lock: Some(&lock_path),
+                    launch: None,
+                    started: Some(started),
+                    gateway_idle_timeout_secs: Some(args.gateway_idle_timeout_secs),
+                    remote_host: Some(&args.remote_host),
+                    remote_port: Some(args.remote_port),
+                },
+            )
+            .await?;
+            Ok(ensure_result(
+                args,
+                true,
+                ensure::read_pid_from_pidfile(args.pidfile.as_deref()),
+                args.gateway_bin.clone(),
+            ))
         }
         Err(err) => {
             Err(err).with_context(|| format!("creating launch lock {}", lock_path.display()))?
         }
+    }
+}
+
+fn ensure_result(
+    args: &EnsureGatewayArgs,
+    already_running: bool,
+    pid: Option<u32>,
+    launch_binary: Option<PathBuf>,
+) -> EnsureResult {
+    EnsureResult {
+        host: args.host.clone(),
+        port: args.port,
+        already_running,
+        pid,
+        registry_dir: args.registry_dir.clone(),
+        pidfile: args.pidfile.clone(),
+        launch_binary,
+        cli_version: env!("CARGO_PKG_VERSION").to_string(),
     }
 }
 

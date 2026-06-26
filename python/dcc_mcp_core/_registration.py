@@ -76,7 +76,7 @@ def run_registration_phases(phases: Sequence[RegistrationPhase], context: Regist
                 )
             )
             raise
-        except Exception as exc:
+        except Exception as exc:  # phase loop localizes optional integration failures
             report.outcomes.append(
                 PhaseOutcome(
                     name=phase.name,

@@ -221,6 +221,7 @@ pub(crate) fn negotiated_response(
     }
 }
 
+#[cfg(feature = "admin")]
 pub(crate) fn negotiated_response_with_default(
     headers: &HeaderMap,
     body: &Value,

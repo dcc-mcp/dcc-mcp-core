@@ -1,20 +1,20 @@
 use super::*;
 use crate::sidecar::registry::{
-    GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN, GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION,
-    GATEWAY_RECOVERY_DRIVER_METADATA_KEY, GATEWAY_RECOVERY_DRIVER_NONE,
-    REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT, REGISTRATION_REFRESH_MODE_METADATA_KEY,
+    DISCOVERY_MCP_URL_METADATA_KEY, GATEWAY_AUTO_ENSURE_METADATA_KEY,
+    GATEWAY_HEALTH_URL_METADATA_KEY, GATEWAY_HOST_METADATA_KEY, GATEWAY_LAUNCH_LOCK_METADATA_KEY,
+    GATEWAY_PORT_METADATA_KEY, GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN,
+    GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION, GATEWAY_RECOVERY_DRIVER_METADATA_KEY,
+    GATEWAY_RECOVERY_DRIVER_NONE, GATEWAY_REMOTE_HOST_METADATA_KEY,
+    GATEWAY_REMOTE_PORT_METADATA_KEY, REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT,
+    REGISTRATION_REFRESH_MODE_METADATA_KEY, REGISTRY_DIR_METADATA_KEY,
 };
+use dcc_mcp_test_utils::EnvVarGuard;
 use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceKey, ServiceStatus};
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::Mutex;
 use std::time::Instant;
 use tempfile::TempDir;
 use uuid::Uuid;
-
-// ── Regression: ``default_registry_dir`` must match GatewayRunner's ──
-
-static REGISTRY_ENV_LOCK: Mutex<()> = Mutex::new(());
 
 #[cfg(feature = "gateway-daemon")]
 fn guardian_test_args() -> SidecarArgs {
@@ -26,6 +26,7 @@ fn guardian_test_args() -> SidecarArgs {
         instance_id: Some(Uuid::nil()),
         display_name: Some("Maya-Test".to_string()),
         adapter_version: Some("0.0.0-test".to_string()),
+        discovery_mcp_url: None,
         connect_timeout_secs: 2,
         allow_stub_dispatch_ready: false,
         ppid_poll_ms: Some(50),
@@ -42,30 +43,10 @@ fn guardian_test_args() -> SidecarArgs {
 
 #[test]
 fn default_registry_dir_matches_gateway_runner_fallback() {
-    let _guard = REGISTRY_ENV_LOCK.lock().expect("registry env lock");
-    // ``GatewayRunner::new`` (crates/dcc-mcp-gateway/src/gateway/
-    // runner.rs) falls back to ``std::env::temp_dir().join("dcc-mcp-
-    // registry")``. The sidecar binary MUST agree, otherwise an
-    // adapter that spawns a sidecar without forwarding
-    // ``--registry-dir`` will split-brain the registry.
-    //
-    // Wipe ``DCC_MCP_REGISTRY_DIR`` for this assertion so we hit the
-    // fallback path (the env-var path is tested separately below).
-    // Other parallel tests may also touch the env, but the value is
-    // restored at the end so the suite stays clean.
-    let saved = std::env::var("DCC_MCP_REGISTRY_DIR").ok();
-    // SAFETY: single-threaded mutation guarded by ``saved``/restore
-    // immediately after the call. Other tests in this file that
-    // touch ``DCC_MCP_REGISTRY_DIR`` would have set their own values
-    // and we don't disturb those.
-    unsafe { std::env::remove_var("DCC_MCP_REGISTRY_DIR") };
+    let _guard = EnvVarGuard::set("DCC_MCP_REGISTRY_DIR", None);
 
     let got = default_registry_dir();
     let expected = std::env::temp_dir().join("dcc-mcp-registry");
-
-    if let Some(prev) = saved {
-        unsafe { std::env::set_var("DCC_MCP_REGISTRY_DIR", prev) };
-    }
 
     assert_eq!(
         got, expected,
@@ -77,22 +58,50 @@ fn default_registry_dir_matches_gateway_runner_fallback() {
 
 #[test]
 fn default_registry_dir_honours_env_var_override() {
-    let _guard = REGISTRY_ENV_LOCK.lock().expect("registry env lock");
-    let saved = std::env::var("DCC_MCP_REGISTRY_DIR").ok();
     let custom = std::env::temp_dir().join("dcc-mcp-custom-registry-test");
-    unsafe { std::env::set_var("DCC_MCP_REGISTRY_DIR", &custom) };
+    let _guard = EnvVarGuard::set("DCC_MCP_REGISTRY_DIR", Some(custom.to_str().unwrap_or("")));
 
     let got = default_registry_dir();
-
-    if let Some(prev) = saved {
-        unsafe { std::env::set_var("DCC_MCP_REGISTRY_DIR", prev) };
-    } else {
-        unsafe { std::env::remove_var("DCC_MCP_REGISTRY_DIR") };
-    }
 
     assert_eq!(
         got, custom,
         "DCC_MCP_REGISTRY_DIR must win over the fallback path"
+    );
+}
+
+#[test]
+fn sidecar_service_entry_preserves_discovery_endpoint_metadata() {
+    let registry_dir = PathBuf::from("/tmp/dcc-mcp-registry-test");
+    let args = SidecarArgs {
+        dcc: "maya".to_string(),
+        host_rpc: "qtserver://127.0.0.1:18765".to_string(),
+        watch_pid: std::process::id(),
+        registry_dir: None,
+        instance_id: Some(Uuid::nil()),
+        display_name: Some("Maya-Test".to_string()),
+        adapter_version: Some("0.0.0-test".to_string()),
+        discovery_mcp_url: Some("http://127.0.0.1:8765/mcp".to_string()),
+        connect_timeout_secs: 2,
+        allow_stub_dispatch_ready: false,
+        ppid_poll_ms: Some(50),
+        gateway_port: 9765,
+        no_ensure_gateway: false,
+        legacy_gateway_election: false,
+        host: "127.0.0.1".to_string(),
+        gateway_host: None,
+        gateway_name: None,
+        gateway_remote_host: "0.0.0.0".to_string(),
+        gateway_remote_port: 59765,
+    };
+
+    let entry = build_service_entry(&args, &registry_dir);
+
+    assert_eq!(
+        entry
+            .metadata
+            .get(DISCOVERY_MCP_URL_METADATA_KEY)
+            .map(String::as_str),
+        Some("http://127.0.0.1:8765/mcp")
     );
 }
 
@@ -138,7 +147,15 @@ fn gateway_daemon_guardian_runs_only_in_daemon_backed_mode() {
 #[test]
 fn sidecar_service_entry_reports_gateway_guardian_metadata() {
     fn assert_mode(args: SidecarArgs, mode: &str, enabled: bool, recovery_driver: &str) {
-        let entry = build_service_entry(&args);
+        let registry_dir = PathBuf::from("/tmp/dcc-mcp-registry-test");
+        let entry = build_service_entry(&args, &registry_dir);
+        let expected_gateway_port = args.gateway_port.to_string();
+        let expected_gateway_health_url = format!("http://127.0.0.1:{}/health", args.gateway_port);
+        let expected_gateway_remote_port = args.gateway_remote_port.to_string();
+        let expected_registry_dir = registry_dir.to_string_lossy().to_string();
+        let expected_auto_ensure =
+            (args.gateway_port > 0 && !args.no_ensure_gateway && !args.legacy_gateway_election)
+                .to_string();
         assert_eq!(
             entry
                 .metadata
@@ -166,6 +183,62 @@ fn sidecar_service_entry_reports_gateway_guardian_metadata() {
                 .get(REGISTRATION_REFRESH_MODE_METADATA_KEY)
                 .map(String::as_str),
             Some(REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT)
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(GATEWAY_HOST_METADATA_KEY)
+                .map(String::as_str),
+            Some("127.0.0.1")
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(GATEWAY_PORT_METADATA_KEY)
+                .map(String::as_str),
+            Some(expected_gateway_port.as_str())
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(GATEWAY_HEALTH_URL_METADATA_KEY)
+                .map(String::as_str),
+            Some(expected_gateway_health_url.as_str())
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(GATEWAY_REMOTE_HOST_METADATA_KEY)
+                .map(String::as_str),
+            Some(args.gateway_remote_host.as_str())
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(GATEWAY_REMOTE_PORT_METADATA_KEY)
+                .map(String::as_str),
+            Some(expected_gateway_remote_port.as_str())
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(REGISTRY_DIR_METADATA_KEY)
+                .map(String::as_str),
+            Some(expected_registry_dir.as_str())
+        );
+        assert!(
+            entry
+                .metadata
+                .get(GATEWAY_LAUNCH_LOCK_METADATA_KEY)
+                .is_some_and(|path| path.contains("gateway-launch.lock")),
+            "sidecar metadata should include the shared gateway launch lock path"
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(GATEWAY_AUTO_ENSURE_METADATA_KEY)
+                .map(String::as_str),
+            Some(expected_auto_ensure.as_str())
         );
     }
 
@@ -206,6 +279,32 @@ fn sidecar_service_entry_reports_gateway_guardian_metadata() {
 
 #[cfg(feature = "gateway-daemon")]
 #[test]
+fn gateway_daemon_options_clamp_tiny_nonzero_idle_timeout() {
+    let _guard = EnvVarGuard::set("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", Some("1"));
+
+    let opts = build_gateway_daemon_options(&guardian_test_args(), PathBuf::from("registry"));
+
+    assert_eq!(
+        opts.gateway_idle_timeout_secs, 30,
+        "sidecar autolaunch must not let a tiny idle timeout race the first backend registration"
+    );
+}
+
+#[cfg(feature = "gateway-daemon")]
+#[test]
+fn gateway_daemon_options_preserve_zero_idle_timeout_as_persist() {
+    let _guard = EnvVarGuard::set("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", Some("0"));
+
+    let opts = build_gateway_daemon_options(&guardian_test_args(), PathBuf::from("registry"));
+
+    assert_eq!(
+        opts.gateway_idle_timeout_secs, 0,
+        "0 remains the explicit persist/no-idle-timeout mode"
+    );
+}
+
+#[cfg(feature = "gateway-daemon")]
+#[test]
 fn gateway_daemon_options_preserve_host_name_and_registry() {
     let mut args = guardian_test_args();
     args.gateway_host = Some("0.0.0.0".to_string());
@@ -224,6 +323,29 @@ fn gateway_daemon_options_preserve_host_name_and_registry() {
     let opts = build_gateway_daemon_options(&display_name_args, PathBuf::from("registry"));
     assert_eq!(opts.host, "127.0.0.1");
     assert_eq!(opts.name.as_deref(), Some("gateway-for-Blender-Lookdev"));
+}
+
+#[cfg(feature = "gateway-daemon")]
+#[test]
+fn gateway_daemon_options_default_idle_timeout_covers_startup_race() {
+    let _guard = EnvVarGuard::set("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", None);
+
+    let opts = build_gateway_daemon_options(&guardian_test_args(), PathBuf::from("registry"));
+
+    assert_eq!(
+        opts.gateway_idle_timeout_secs, SIDECAR_GATEWAY_IDLE_TIMEOUT_SECS,
+        "sidecar-launched gateways need a grace window long enough for slow DCC startup registration"
+    );
+}
+
+#[cfg(feature = "gateway-daemon")]
+#[test]
+fn gateway_daemon_options_honour_idle_timeout_env_override() {
+    let _guard = EnvVarGuard::set("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", Some("45"));
+
+    let opts = build_gateway_daemon_options(&guardian_test_args(), PathBuf::from("registry"));
+
+    assert_eq!(opts.gateway_idle_timeout_secs, 45);
 }
 
 #[cfg(feature = "gateway-daemon")]
@@ -354,6 +476,7 @@ async fn ppid_watch_exits_on_parent_death() {
         instance_id: Some(Uuid::new_v4()),
         display_name: Some("test-sidecar".to_string()),
         adapter_version: Some("0.0.0-test".to_string()),
+        discovery_mcp_url: None,
         connect_timeout_secs: 2,
         allow_stub_dispatch_ready: false,
         ppid_poll_ms: Some(50),
@@ -438,6 +561,7 @@ async fn stub_host_rpc_is_unavailable_without_test_opt_in() {
         instance_id: Some(pinned_uuid),
         display_name: Some("stub-sidecar".to_string()),
         adapter_version: Some("0.0.0-test".to_string()),
+        discovery_mcp_url: None,
         connect_timeout_secs: 1,
         allow_stub_dispatch_ready: false,
         ppid_poll_ms: Some(50),
@@ -607,6 +731,7 @@ async fn commandport_connects_to_fake_server() {
         instance_id: Some(pinned_uuid),
         display_name: Some("test-maya".to_string()),
         adapter_version: Some("0.0.0-test".to_string()),
+        discovery_mcp_url: None,
         connect_timeout_secs: 2,
         allow_stub_dispatch_ready: false,
         ppid_poll_ms: Some(50),
@@ -743,6 +868,7 @@ async fn commandport_sidecar_dispatches_tools_call_to_fake_server() {
         instance_id: Some(pinned_uuid),
         display_name: Some("dispatch-maya".to_string()),
         adapter_version: Some("0.0.0-test".to_string()),
+        discovery_mcp_url: None,
         connect_timeout_secs: 2,
         allow_stub_dispatch_ready: false,
         ppid_poll_ms: Some(50),
@@ -862,6 +988,7 @@ async fn sidecar_survives_failed_initial_connect() {
         instance_id: Some(pinned_uuid),
         display_name: None,
         adapter_version: None,
+        discovery_mcp_url: None,
         // 300ms is plenty for ECONNREFUSED on Windows; bumps any
         // slow CI well above the noise floor while keeping the
         // test snappy in the common case.
@@ -1006,6 +1133,7 @@ async fn sidecar_reconnects_when_host_rpc_appears_after_startup() {
         instance_id: Some(pinned_uuid),
         display_name: Some("delayed-maya".to_string()),
         adapter_version: Some("0.0.0-test".to_string()),
+        discovery_mcp_url: None,
         connect_timeout_secs: 1,
         allow_stub_dispatch_ready: false,
         ppid_poll_ms: Some(50),

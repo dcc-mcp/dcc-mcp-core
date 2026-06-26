@@ -14,6 +14,10 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc
 This installs the standalone `dcc-mcp-cli` control-plane binary from the
 latest GitHub Release. Pin a release with `DCC_MCP_VERSION=v0.17.17`.
 
+The CLI is also available as a standalone ZIP archive
+(`dcc-mcp-cli-<version>-<platform>.zip`) from each
+[GitHub Release](https://github.com/dcc-mcp/dcc-mcp-core/releases).
+
 ### From PyPI
 
 ```bash
@@ -35,7 +39,7 @@ The build is handled by [maturin](https://www.maturin.rs/) which compiles the Ru
 
 ## Requirements
 
-- **Python**: >= 3.7 (CI tests 3.7, 3.8, 3.9, 3.10, 3.11, 3.12, 3.13)
+- **Python**: >= 3.7 (CI tests 3.7, 3.8, 3.9, 3.10, 3.11, 3.12, 3.13, 3.14)
 - **Rust**: >= 1.95 (for building from source)
 - **License**: MIT
 - **Python Dependencies**: Zero — everything is in the compiled Rust extension

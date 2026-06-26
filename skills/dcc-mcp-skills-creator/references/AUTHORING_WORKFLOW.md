@@ -27,6 +27,45 @@ DCC-MCP extension pointers such as `tools`, `prompts`, `recipes`, `workflows`,
 and `depends` under `metadata.dcc-mcp.*`. Use `references/` for long-form docs,
 recipes, examples, and notes that agents should load only when needed.
 
+Skill package version metadata is also a DCC-MCP extension: declare it as
+`metadata.dcc-mcp.version: "1.0.0"`. Do not put `version` at the top level of
+`SKILL.md`; the strict loader rejects that agentskills.io-incompatible shape.
+When modernizing a skill, migrate top-level `dcc`, `version`, `tags`, `tools`,
+`groups`, `depends`, `search-hint`, `runtimes`, `prompts`, and `resources`
+under `metadata.dcc-mcp.*`, then run creator validation against the actual
+installable skill directory.
+
+### Dependency-Aware Skills
+
+Use machine-readable dependencies whenever one skill must run after another.
+Do not rely on prose such as "use after qt-ui-inspector" as the only signal:
+
+```yaml
+metadata:
+  dcc-mcp:
+    dcc: python
+    layer: infrastructure
+    depends: ["qt-ui-inspector"]
+    search-hint: "qt ui actions after qt-ui-inspector, click widget, trigger QAction"
+    tools: tools.yaml
+```
+
+Rules:
+- `depends` values are `SKILL.md` `name` values, not repository names,
+  marketplace package names, tool slugs, or Python packages.
+- Keep dependency chains small and acyclic. Split only when the prerequisite
+  has reusable value on its own, such as read-only UI inspection before mutating
+  UI actions.
+- Put runtime library requirements under `metadata.dcc-mcp.runtimes`, not
+  `depends`; `depends` is for other DCC-MCP skills.
+- Mention the prerequisite in `search-hint` and in the first paragraph of the
+  body, but treat that as human guidance. `metadata.dcc-mcp.depends` is the
+  agent-readable contract.
+- Validate the installable skill directory, then test the load path: search the
+  dependent skill, call `load_skill`, and confirm `new_tool_slugs` or a follow-up
+  search shows the expected callable tools. If loading reports pending
+  dependencies, install or discover the missing skill and retry.
+
 ### Gateway-Facing Tags (`metadata.dcc-mcp.tags`)
 
 Gateway search treats `tags` as a narrowing filter. Declare `tags` under

@@ -26,7 +26,7 @@
 3. ACTIVATE: load_skill("skill-name") → expose the tools and cascade-activate declared tool groups by default
 4. EXECUTE: Call the specific tool with validated parameters
 
-`search_tools` tokenizes backend tool names and summaries; literal underscores are honored but not required (`create_sphere` and `sphere` both match).
+`search_tools` tokenizes backend tool names and summaries; literal underscores are honored but not required (`create_sphere` and `sphere` both match). Multi-word natural-language phrases ("create sphere", "rig framework") match word-split tokens across both names and descriptions.
 5. FOLLOW UP: Check next-tools.on-success for suggested next steps
 6. DEBUG: On failure, use dcc_diagnostics__screenshot or audit_log
 ```
@@ -208,12 +208,12 @@ meta = dcc_mcp_core.parse_skill_md(dirs[0])  # -> SkillMetadata or None
 - Build from source: `maturin develop --features python-bindings,ext-module`
 - Python: >=3.7 (CI tests 3.7–3.13; abi3-py38 wheel for 3.8+)
 - Build: maturin (Rust 1.95+ + PyO3 0.28+)
-- Version: 0.18.17 <!-- x-release-please-version -->
+- Version: 0.18.39 <!-- x-release-please-version -->
 - License: MIT
 
 ## Architecture
 
-Rust workspace (43 packages: 42 functional packages + `workspace-hack`; root `Cargo.toml` is source of truth) with PyO3 bindings. All logic lives in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports 380+ public symbols from `_core` plus pure-Python helpers (DccServerBase, DccServerOptions, DccGatewayElection, DccSkillHotReloader, factory, skill helpers, ToolResult dataclass, constants).
+Rust workspace (47 packages: 46 functional packages + `workspace-hack`; root `Cargo.toml` is source of truth) with PyO3 bindings. All logic lives in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports 380+ public symbols from `_core` plus pure-Python helpers (DccServerBase, DccServerOptions, DccGatewayElection, DccSkillHotReloader, factory, skill helpers, ToolResult dataclass, constants).
 
 ### dcc-mcp-http SOLID extraction (PR #667)
 
@@ -245,6 +245,7 @@ crates/
 ├── dcc-mcp-gateway-core/   # Pure gateway domain/search/ranking types
 ├── dcc-mcp-gateway-search/ # Reusable capability search/ranking engine
 ├── dcc-mcp-gateway/        # Multi-DCC gateway app + dynamic wrappers
+├── dcc-mcp-gateway-ensure/ # Shared gateway health check, launch lock, spawn, process utilities
 ├── dcc-mcp-http-types/     # Pure HTTP wire/config/value types, McpHttpConfig
 ├── dcc-mcp-http-server/    # Reusable HTTP runtime support
 ├── dcc-mcp-http-py/        # PyO3 binding boundary for HTTP APIs
@@ -257,6 +258,7 @@ crates/
 ├── dcc-mcp-transport/      # IPC transport, frames, channel adapters, FileRegistry
 ├── dcc-mcp-process/        # Launch, monitor, watcher, crash recovery
 ├── dcc-mcp-telemetry/      # Metrics, recorders, optional Prometheus exporter
+├── dcc-mcp-updater/        # Gateway-controlled binary update (check, download, staged apply)
 ├── dcc-mcp-sandbox/        # SandboxPolicy, validation, audit log
 ├── dcc-mcp-shm/            # Shared-memory buffers
 ├── dcc-mcp-capture/        # Screen/window capture
@@ -1071,7 +1073,7 @@ Full guide: `docs/guide/remote-server.md`. Per-module API: `docs/api/{auth,batch
 | Search DCC-MCP adapter catalog | MCP `resources/read uri=gateway://catalog?query=...` (or `gateway://catalog/{name}` for a single entry); CLI: `dcc-mcp-server catalog search` |
 | Mount OpenAPI REST API as MCP tools | `GatewayBuilder::mount_openapi(OpenApiMount::from_url(...).auth(...))` |
 | Add audit/quota/redact to gateway calls | `GatewayConfig::middleware_chain` with built-in middleware |
-| Gateway admin dashboard | Default ON for the elected gateway: `GET /admin`; disable with `--no-admin`, `DCC_MCP_NO_ADMIN=true`, or `cfg.admin_enabled = False` |
+| Gateway admin dashboard | Default ON for the elected gateway: `GET /admin`; disable with `--no-admin`, `DCC_MCP_NO_ADMIN=true`, or `cfg.admin_enabled = False`; agent panel map: `docs/guide/admin-ui.md#agent-facing-panel-map` |
 | Enforce payload size + SSE chunking | `McpHttpConfig.queue.max_request_body_bytes` (default 4 MiB) |
 | Wire OTLP distributed tracing | Set `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317` at startup |
 | Watch gateway contention events | MCP resource `resources://gateway/events` (JSONL ring buffer) |

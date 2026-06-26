@@ -22,6 +22,7 @@ dcc-mcp-skill-rest = { path = "../dcc-mcp-skill-rest" }
 dcc-mcp-skills = { path = "../dcc-mcp-skills", default-features = false }
 dcc-mcp-catalog = { path = "../dcc-mcp-catalog" }
 dcc-mcp-marketplace = { path = "../dcc-mcp-marketplace" }
+dcc-mcp-updater = { path = "../dcc-mcp-updater" }
 opentelemetry = { version = "0.32", features = ["trace"], optional = true }
 prometheus = { version = "0.14", default-features = false, optional = true }
 
@@ -70,6 +71,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"
 criterion = { version = "0.8", features = ["html_reports"] }
 tower = { version = "0.5", features = ["util"] }
 proptest = "1.5"
+dcc-mcp-test-utils = { path = "../dcc-mcp-test-utils" }
 
 [[bench]]
 name = "search_bench"

@@ -71,6 +71,7 @@ dcc-mcp-core (workspace root)
 ├── dcc-mcp-gateway-core  # Pure gateway domain/search/ranking types
 ├── dcc-mcp-gateway-search # Reusable capability search/query/ranking engine
 ├── dcc-mcp-gateway       # Multi-DCC gateway app + dynamic wrappers
+├── dcc-mcp-gateway-ensure # Shared gateway health check, launch lock, spawn, process utilities
 ├── dcc-mcp-sidecar       # Per-DCC sidecar + gateway daemon guardian runtime
 ├── dcc-mcp-http-types    # Pure HTTP wire/config/value types, McpHttpConfig
 ├── dcc-mcp-http-server   # Reusable HTTP runtime support
@@ -85,6 +86,7 @@ dcc-mcp-core (workspace root)
 ├── dcc-mcp-transport     # IPC transport, frames, channel adapters
 ├── dcc-mcp-process       # Launch, monitor, watcher, crash recovery
 ├── dcc-mcp-telemetry     # Tool metrics and recorders
+├── dcc-mcp-updater       # Gateway-controlled binary update (check, download, staged apply)
 ├── dcc-mcp-sandbox       # SandboxPolicy, validation, audit log
 ├── dcc-mcp-shm           # Shared memory buffers
 ├── dcc-mcp-capture       # Screen/window capture
@@ -535,7 +537,9 @@ The workspace builds a single PyO3 native extension (`dcc_mcp_core._core`) via `
 # pyproject.toml
 [project]
 requires-python = ">=3.7"
-dependencies = []  # Zero runtime dependencies
+dependencies = [
+    "dcc-mcp-server>=0.18.17,<1.0.0",
+]  # Companion binary wheel for daemon-backed gateway startup
 ```
 
 ### Python Package Structure
@@ -563,7 +567,7 @@ The native extension bundles all Rust code — no `pip install` for PyO3, tokio,
 
 Using PyO3 with:
 - `multiple-pymethods` — Multiple `#[pymethods]` per struct
-- `abi3-py38` — Stable ABI for Python 3.8+ (CI tests 3.7–3.13)
+- `abi3-py38` — Stable ABI for Python 3.8+ (CI tests 3.7–3.14)
 - `extension-module` — Allow loading from any Python path
 
 ### 3. Rust Edition 2024, MSRV 1.95

@@ -23,6 +23,48 @@ fn test_catalog_new_is_empty() {
     assert!(catalog.is_empty());
     assert_eq!(catalog.len(), 0);
     assert_eq!(catalog.loaded_count(), 0);
+    assert_eq!(catalog.skipped_count(), 0);
+}
+
+#[test]
+fn test_discovery_surfaces_skipped_skill_diagnostics() {
+    let tmp = tempfile::tempdir().unwrap();
+    let skill_dir = tmp.path().join("maya-skipped-diagnostic");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(
+        skill_dir.join(crate::constants::SKILL_METADATA_FILE),
+        "---\nname: maya-skipped-diagnostic\ndescription: skipped diagnostic fixture\nversion: \"1.0.0\"\n---\n# body\n",
+    )
+    .unwrap();
+
+    let catalog = make_test_catalog();
+    let roots = vec![tmp.path().to_string_lossy().to_string()];
+
+    catalog.discover(Some(&roots), Some("maya"));
+    assert_eq!(catalog.skipped_count(), 1);
+
+    let diagnostics = catalog.skipped_skill_diagnostics(Some("skipped"), None);
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].skill_name, "maya-skipped-diagnostic");
+    assert_eq!(diagnostics[0].reason_code, "non_spec_top_level_keys");
+    assert!(
+        diagnostics[0]
+            .suggested_fix
+            .contains("metadata.dcc-mcp.version")
+    );
+    assert!(
+        !diagnostics[0]
+            .message
+            .contains(tmp.path().to_string_lossy().as_ref())
+    );
+
+    let err = catalog.load_skill("maya-skipped-diagnostic").unwrap_err();
+    assert!(
+        err.contains("matching skill directory was skipped"),
+        "unexpected error: {err}"
+    );
+    assert!(err.contains("metadata.dcc-mcp.version"));
+    assert!(!err.contains(tmp.path().to_string_lossy().as_ref()));
 }
 
 #[test]
@@ -115,7 +157,10 @@ fn test_rediscover_removes_missing_skill_and_registered_tools() {
     let paths = vec![tmp.path().to_string_lossy().to_string()];
     let changed = catalog.rediscover(Some(&paths), Some("maya"));
 
-    assert_eq!(changed, 2, "expected one add and one remove");
+    assert!(
+        changed >= 2,
+        "expected at least one add and one remove; local installed skills may also be discovered"
+    );
     assert!(catalog.get_skill_info("fresh-skill").is_some());
     assert!(catalog.get_skill_info("stale-skill").is_none());
     assert!(!catalog.is_loaded("stale-skill"));
@@ -658,7 +703,7 @@ fn test_get_skill_info_includes_skill_markdown() {
 
     let catalog = make_test_catalog();
     let paths = vec![tmp.path().to_string_lossy().to_string()];
-    assert_eq!(catalog.rediscover(Some(&paths), Some("maya")), 1);
+    assert!(catalog.rediscover(Some(&paths), Some("maya")) >= 1);
 
     let info = catalog.get_skill_info("review-skill").unwrap();
     assert!(

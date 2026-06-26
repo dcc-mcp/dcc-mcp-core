@@ -299,10 +299,9 @@ mod tests {
 
     // ── build_payload end-to-end (YAML → JSON) ───────────────────────────
 
+    use dcc_mcp_test_utils::EnvVarsGuard;
     use std::io::Write;
     use tempfile::NamedTempFile;
-
-    static CATALOG_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     fn write_catalog_yaml(content: &str) -> NamedTempFile {
         let mut f = NamedTempFile::new().unwrap();
@@ -337,14 +336,12 @@ entries:
 
     #[tokio::test]
     async fn build_payload_list_empty_query_returns_all() {
-        let _env_guard = CATALOG_ENV_LOCK.lock().await;
         LOADER.clear_cache().await;
         let f = write_catalog_yaml(TWO_ENTRY_YAML);
-        // SAFETY: process-wide env mutation is serialized by CATALOG_ENV_LOCK.
-        unsafe {
-            std::env::set_var("DCC_MCP_MARKETPLACE_OFFLINE", "1");
-            std::env::set_var("DCC_MCP_CATALOG_PATH", f.path());
-        }
+        let _g = EnvVarsGuard::set(&[
+            ("DCC_MCP_MARKETPLACE_OFFLINE", Some("1")),
+            ("DCC_MCP_CATALOG_PATH", f.path().to_str()),
+        ]);
 
         let v = build_payload(&Query::List {
             query: String::new(),
@@ -353,23 +350,16 @@ entries:
         .expect("build_payload should succeed");
 
         assert_eq!(v["total"], 2);
-        // SAFETY: cleanup symmetrical to set_var above.
-        unsafe {
-            std::env::remove_var("DCC_MCP_MARKETPLACE_OFFLINE");
-            std::env::remove_var("DCC_MCP_CATALOG_PATH");
-        }
     }
 
     #[tokio::test]
     async fn build_payload_list_keyword_filters_results() {
-        let _env_guard = CATALOG_ENV_LOCK.lock().await;
         LOADER.clear_cache().await;
         let f = write_catalog_yaml(TWO_ENTRY_YAML);
-        // SAFETY: process-wide env mutation is serialized by CATALOG_ENV_LOCK.
-        unsafe {
-            std::env::set_var("DCC_MCP_MARKETPLACE_OFFLINE", "1");
-            std::env::set_var("DCC_MCP_CATALOG_PATH", f.path());
-        }
+        let _g = EnvVarsGuard::set(&[
+            ("DCC_MCP_MARKETPLACE_OFFLINE", Some("1")),
+            ("DCC_MCP_CATALOG_PATH", f.path().to_str()),
+        ]);
 
         let v = build_payload(&Query::List {
             query: "maya".to_string(),
@@ -379,23 +369,16 @@ entries:
 
         assert_eq!(v["total"], 1);
         assert_eq!(v["entries"][0]["name"], "maya-skills");
-        // SAFETY: see above.
-        unsafe {
-            std::env::remove_var("DCC_MCP_MARKETPLACE_OFFLINE");
-            std::env::remove_var("DCC_MCP_CATALOG_PATH");
-        }
     }
 
     #[tokio::test]
     async fn build_payload_single_existing_entry_returns_data() {
-        let _env_guard = CATALOG_ENV_LOCK.lock().await;
         LOADER.clear_cache().await;
         let f = write_catalog_yaml(ONE_ENTRY_YAML);
-        // SAFETY: process-wide env mutation is serialized by CATALOG_ENV_LOCK.
-        unsafe {
-            std::env::set_var("DCC_MCP_MARKETPLACE_OFFLINE", "1");
-            std::env::set_var("DCC_MCP_CATALOG_PATH", f.path());
-        }
+        let _g = EnvVarsGuard::set(&[
+            ("DCC_MCP_MARKETPLACE_OFFLINE", Some("1")),
+            ("DCC_MCP_CATALOG_PATH", f.path().to_str()),
+        ]);
 
         let v = build_payload(&Query::Single {
             name: "maya-skills".to_string(),
@@ -405,23 +388,16 @@ entries:
 
         assert_eq!(v["name"], "maya-skills");
         assert_eq!(v["dcc"][0], "maya");
-        // SAFETY: see above.
-        unsafe {
-            std::env::remove_var("DCC_MCP_MARKETPLACE_OFFLINE");
-            std::env::remove_var("DCC_MCP_CATALOG_PATH");
-        }
     }
 
     #[tokio::test]
     async fn build_payload_single_missing_entry_errors() {
-        let _env_guard = CATALOG_ENV_LOCK.lock().await;
         LOADER.clear_cache().await;
         let f = write_catalog_yaml(ONE_ENTRY_YAML);
-        // SAFETY: process-wide env mutation is serialized by CATALOG_ENV_LOCK.
-        unsafe {
-            std::env::set_var("DCC_MCP_MARKETPLACE_OFFLINE", "1");
-            std::env::set_var("DCC_MCP_CATALOG_PATH", f.path());
-        }
+        let _g = EnvVarsGuard::set(&[
+            ("DCC_MCP_MARKETPLACE_OFFLINE", Some("1")),
+            ("DCC_MCP_CATALOG_PATH", f.path().to_str()),
+        ]);
 
         let err = build_payload(&Query::Single {
             name: "does-not-exist".to_string(),
@@ -430,10 +406,5 @@ entries:
         .expect_err("missing entry should return Err");
 
         assert!(err.contains("not found"));
-        // SAFETY: see above.
-        unsafe {
-            std::env::remove_var("DCC_MCP_MARKETPLACE_OFFLINE");
-            std::env::remove_var("DCC_MCP_CATALOG_PATH");
-        }
     }
 }

@@ -1,3 +1,5 @@
+import { RiRefreshLine } from '@remixicon/react';
+import { Button } from './ui/button';
 import { type InterpolationValues, type MessageKey } from '../i18n';
 import {
   buildRequestLogGroups,
@@ -93,7 +95,10 @@ export function LogsPanel({
           <h2>{t('logs.title')}</h2>
           <p className="empty log-hint">{t('logs.description')}</p>
         </div>
-        <button className="refresh-btn" type="button" onClick={onRefresh}>{t('action.refresh')}</button>
+        <Button type="button" size="sm" onClick={onRefresh}>
+          <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
+          {t('action.refresh')}
+        </Button>
       </div>
       <StatusLine text={updatedAt} error={error} />
       <div className="log-severity-grid" aria-label={t('logs.filter.ariaLabel')}>
