@@ -277,6 +277,15 @@ jobs:
   # openssl-sys regressions (the v0.17.45/0.17.46 manylinux2014 OpenSSL 1.0.2
   # break), unmaintained / yanked deps, and license drift. Configuration
   # lives in `deny.toml` at the repo root.
+  #
+  # Advisory check is non-blocking (continue-on-error) to prevent the
+  # recurring pattern where every new RUSTSEC publication immediately
+  # fails all PRs requiring manual ignore-list entries.
+  # Advisories are still visible in CI output so the team can assess
+  # and act, but they don't gate merges.
+  # Bans, licenses, and sources checks remain blocking — these catch
+  # real regressions (native-tls/openssl-sys reintroduction, license
+  # drift, unknown registries).
   cargo-deny:
     name: cargo-deny
     runs-on: ubuntu-latest
@@ -286,8 +295,11 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-deny
-      - name: cargo deny check
-        run: cargo deny --all-features check
+      - name: cargo deny check advisories
+        continue-on-error: true
+        run: cargo deny --all-features check advisories
+      - name: cargo deny check (bans licenses sources)
+        run: cargo deny --all-features check bans licenses sources
 
   server-binary-dependency-policy:
     name: Server binary dependency policy
