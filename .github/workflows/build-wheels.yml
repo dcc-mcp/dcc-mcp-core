@@ -244,6 +244,7 @@ jobs:
         run: |
           "${PY37}" -m venv test-env
           source test-env/bin/activate
+          pip install --upgrade "pip>=20.3"
           pip install --no-index --find-links dist dcc-mcp-core --force-reinstall --no-deps
           pip check
           python tests/test_imports.py
