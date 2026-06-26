@@ -291,12 +291,12 @@ pub fn is_process_alive(pid: u32) -> bool {
 
         let mut cmd = Command::new("tasklist");
         cmd.args([
-                "/FI",
-                &format!("PID eq {pid}"),
-                "/NH", // No headers
-            ])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
+            "/FI",
+            &format!("PID eq {pid}"),
+            "/NH", // No headers
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
         cmd.creation_flags(CREATE_NO_WINDOW);
         let output = cmd.output();
         match output {
@@ -332,7 +332,8 @@ pub fn stop_process(pid: u32) -> anyhow::Result<()> {
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         cmd.creation_flags(CREATE_NO_WINDOW);
-        let status = cmd.status()
+        let status = cmd
+            .status()
             .with_context(|| format!("taskkill /PID {pid}"))?;
         if !status.success() {
             // Exit code 128 means the process was not found — that's OK.
